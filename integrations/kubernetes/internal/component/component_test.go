@@ -214,47 +214,6 @@ func TestPrune_DeleteNotFoundTolerated(t *testing.T) {
 	}
 }
 
-// --- EnsureNamespace ---
-
-func TestEnsureNamespace_Creates(t *testing.T) {
-	s := newScheme(t)
-	c := fake.NewClientBuilder().WithScheme(s).Build()
-
-	if err := EnsureNamespace(context.Background(), c, "ns", owned()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	ns := &corev1.Namespace{}
-	if err := c.Get(context.Background(), client.ObjectKey{Name: "ns"}, ns); err != nil {
-		t.Fatalf("expected the namespace created: %v", err)
-	}
-	if ns.Labels["app.kubernetes.io/managed-by"] != "pacto-operator" {
-		t.Errorf("expected the caller's labels, got %v", ns.Labels)
-	}
-}
-
-func TestEnsureNamespace_AlreadyExists(t *testing.T) {
-	s := newScheme(t)
-	c := fake.NewClientBuilder().WithScheme(s).
-		WithObjects(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns"}}).Build()
-
-	if err := EnsureNamespace(context.Background(), c, "ns", owned()); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestEnsureNamespace_GetErrorFails(t *testing.T) {
-	s := newScheme(t)
-	c := fake.NewClientBuilder().WithScheme(s).WithInterceptorFuncs(interceptor.Funcs{
-		Get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
-			return errors.New("api down")
-		},
-	}).Build()
-
-	if err := EnsureNamespace(context.Background(), c, "ns", owned()); err == nil {
-		t.Fatal("expected the get failure to surface")
-	}
-}
-
 func TestHasLatestTag(t *testing.T) {
 	for image, want := range map[string]bool{
 		"ghcr.io/trianalab/pacto/dashboard:0.24.2": false,

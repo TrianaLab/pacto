@@ -8,11 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
+	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
 )
 
 // trustConfigAPIVersion is the only trust-config schema this build understands.

@@ -14,13 +14,14 @@ import (
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-// spinnerInterval is a var (not const) so tests can shrink it for deterministic ticks.
-var spinnerInterval = 100 * time.Millisecond
+const spinnerInterval = 100 * time.Millisecond
 
-// isTerminal reports whether w is a terminal. Overridable in tests.
-var isTerminal = defaultIsTerminal
-
-func defaultIsTerminal(w io.Writer) bool {
+// isTerminal reports whether w is a terminal: a writer that knows (a wrapper, a test's buffer) says so with
+// an IsTerminal method, a file asks the kernel.
+func isTerminal(w io.Writer) bool {
+	if t, ok := w.(interface{ IsTerminal() bool }); ok {
+		return t.IsTerminal()
+	}
 	f, ok := w.(interface{ Fd() uintptr })
 	return ok && term.IsTerminal(int(f.Fd()))
 }

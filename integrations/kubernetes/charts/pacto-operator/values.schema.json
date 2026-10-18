@@ -233,9 +233,6 @@
         "enabled": {
           "type": "boolean"
         },
-        "ociSecret": {
-          "type": "string"
-        },
         "ociSecrets": {
           "type": "array",
           "items": {
@@ -575,10 +572,16 @@
     "nodeAgent": {
       "type": "object",
       "additionalProperties": false,
-      "description": "The eBPF node agent DaemonSet (runs `pacto agent` from the pacto runtime image). Needs a namespace that admits privileged pods.",
+      "description": "The eBPF node agent DaemonSet (runs `pacto agent` from the pacto runtime image) in its own namespace, which the chart creates privileged for Pod Security.",
       "properties": {
         "enabled": {
           "type": "boolean"
+        },
+        "namespace": {
+          "type": "string",
+          "description": "Dedicated agent namespace (a DNS-1123 label); not the release namespace",
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+          "maxLength": 63
         },
         "publishInterval": {
           "type": "string",

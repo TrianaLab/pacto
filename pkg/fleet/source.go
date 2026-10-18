@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/lock"
-	"github.com/trianalab/pacto/v3/pkg/readiness"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/lock"
+	"github.com/trianalab/pacto/v4/pkg/readiness"
 )
 
 // Source is a fleet-owned ingestion seam. A source produces raw revision and
@@ -18,8 +18,7 @@ import (
 // layer defines the contract; adapters (including the dashboard) depend inward
 // on it.
 // SourceKindKubernetes is the Kind of a source reading the Pacto CRDs of a
-// cluster. The dashboard's legacy /api/sources pills name it "k8s" instead; that
-// is a separate, older wire vocabulary and both stay as they are.
+// cluster. The dashboard's /api/sources pills use the same name.
 const SourceKindKubernetes = "kubernetes"
 
 type Source interface {
@@ -131,16 +130,6 @@ func NewMemorySource(id, kind string, col *Collection) *MemorySource {
 // cluster) for testing partial-fleet semantics.
 func NewFailingSource(id, kind string, err error) *MemorySource {
 	return &MemorySource{id: id, kind: kind, err: err}
-}
-
-// WithCollectFunc overrides Collect with a custom function (e.g. to honor
-// context cancellation in tests). The function receives the request context.
-//
-// Deprecated: no production code in Pacto uses this method; it exists only for
-// same-package tests. Removed at v4.
-func (s *MemorySource) WithCollectFunc(fn func(ctx context.Context) (*Collection, error)) *MemorySource {
-	s.collect = fn
-	return s
 }
 
 // ID implements [Source].

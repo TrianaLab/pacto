@@ -1,6 +1,6 @@
 package dashboard
 
-import "github.com/trianalab/pacto/v3/pkg/fleet"
+import "github.com/trianalab/pacto/v4/pkg/fleet"
 
 // This file is the dashboard product-transport boundary (ADR-2). pkg/fleet returns
 // route-neutral facts; this layer wraps each fleet product answer in a transport

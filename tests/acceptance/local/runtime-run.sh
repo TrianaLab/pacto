@@ -69,6 +69,8 @@ cleanup() {
   docker rmi "$IMG" "$RUNTIME_IMG" >/dev/null 2>&1 || true
   rm -rf "$WORK"
   [ $rc -eq 0 ] && [ ${#FAILED[@]} -gt 0 ] && rc=1
+  # bash 3.2 reports 0 in this trap after a set -u abort: a run that never reached the end failed.
+  [ $rc -eq 0 ] && [ -z "${DONE:-}" ] && rc=1
   exit $rc
 }
 trap cleanup EXIT
@@ -199,3 +201,4 @@ pacto_run unprivileged --contract /fixtures/client --dep backend=127.0.0.1:8081 
 exits 0
 holds -mode unprivileged -status Compliant -covered
 CURRENT=""
+DONE=1

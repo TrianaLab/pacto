@@ -7,7 +7,7 @@ import (
 	"charm.land/bubbles/v2/table"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // attentionScreen lists what the fleet says needs looking at, filtered by

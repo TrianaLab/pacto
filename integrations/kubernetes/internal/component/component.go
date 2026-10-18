@@ -6,14 +6,15 @@ See LICENSE file in the project root for full license text.
 */
 
 // Package component holds the lifecycle shared by the operator's optional
-// sub-components (the dashboard and the Evidence Server).
+// sub-components (the dashboard, the Evidence Server and the node agent).
 //
 // Each is registered with mgr.Add as a plain manager.Runnable, not as a
 // controller: nothing ever calls them through reconcile.Reconciler and nothing
 // reads a ctrl.Result back, so a sync either succeeds or returns an error the
-// loop below logs. Both had written that loop, the ownership-checked delete and
-// the namespace ensure for themselves, in copies already drifted in their log
-// lines.
+// loop below logs. Each had written that loop and the ownership-checked delete
+// for itself, in copies already drifted in their log lines. None creates a
+// namespace: the dashboard and the Evidence Server run in the operator's own,
+// and the chart creates the node agent's.
 package component
 
 import (
@@ -21,7 +22,6 @@ import (
 	"fmt"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -109,16 +109,4 @@ func ownedBy(labels, owned map[string]string) bool {
 		}
 	}
 	return true
-}
-
-// EnsureNamespace creates the namespace when it is absent.
-func EnsureNamespace(ctx context.Context, c client.Client, name string, labels map[string]string) error {
-	err := c.Get(ctx, client.ObjectKey{Name: name}, &corev1.Namespace{})
-	if err == nil {
-		return nil
-	}
-	if !apierrors.IsNotFound(err) {
-		return err
-	}
-	return c.Create(ctx, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}})
 }

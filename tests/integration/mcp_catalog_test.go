@@ -15,7 +15,7 @@ import (
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/trianalab/pacto/v3/pkg/catalog"
+	"github.com/trianalab/pacto/v4/pkg/catalog"
 )
 
 // The catalog discovery E2E drives the shipped binary over stdio, exactly as an

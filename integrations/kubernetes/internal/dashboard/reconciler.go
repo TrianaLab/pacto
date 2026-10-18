@@ -20,8 +20,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/component"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/credentials"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
 )
 
 // Reconciler manages the lifecycle of dashboard Kubernetes resources.
@@ -51,11 +51,11 @@ type Reconciler struct {
 	tickInterval time.Duration
 }
 
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;create
-// +kubebuilder:rbac:groups="",resources=serviceaccounts,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups="",resources=services,verbs=create;update;patch;delete
-// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=create;update;patch;delete
+// Everything but the ClusterRole and its binding lives in the operator namespace
+// ("system" is kustomize's placeholder for it), so those verbs are a namespaced
+// Role there; the Evidence Server's Deployment and Service ride on the same rules.
+// +kubebuilder:rbac:groups="",resources=serviceaccounts;secrets;services,verbs=get;create;update;patch;delete,namespace=system
+// +kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;create;update;patch;delete,namespace=system
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles;clusterrolebindings,verbs=get;list;watch;create;update;patch;delete
 
 // Sync ensures dashboard resources match the desired state.
@@ -71,9 +71,6 @@ func (r *Reconciler) Sync(ctx context.Context) error {
 
 	log.Info("Reconciling dashboard resources", "image", r.Config.Image, "namespace", r.Config.Namespace)
 
-	if err := component.EnsureNamespace(ctx, r.Client, r.Config.Namespace, Labels()); err != nil {
-		return fmt.Errorf("namespace: %w", err)
-	}
 	if err := r.reconcileServiceAccount(ctx); err != nil {
 		return fmt.Errorf("service account: %w", err)
 	}
@@ -126,7 +123,7 @@ func (r *Reconciler) reconcileClusterRoleBinding(ctx context.Context) error {
 // cluster-wide INV-5 violation.
 func (r *Reconciler) reconcileOCICredentials(ctx context.Context) error {
 	log := logf.FromContext(ctx).WithName("dashboard")
-	secretNames := r.Config.EffectiveOCISecrets()
+	secretNames := r.Config.OCISecrets
 
 	if len(secretNames) == 0 {
 		// Clean up managed secret if it exists

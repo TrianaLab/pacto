@@ -80,7 +80,9 @@ plus write access to its own cgroup, on Linux with BTF and cgroup v2), the
 command starts in its own cgroup `pacto-run-<pid>` and an eBPF program sees
 every listener and every connection attempt of the command and its children,
 failures included. Findings cite the collector `pacto-run+ebpf`. In a container
-this needs `--privileged` and its own cgroup namespace.
+this needs `--privileged` and its own cgroup namespace. If the program loads but
+the kernel will not start the command in that cgroup, Pacto says so and falls
+back to the mode below.
 
 **Without privileges**, Pacto falls back to reading the command's sockets from
 `/proc` once a second and says so:
@@ -114,8 +116,12 @@ to get real results.
 | `1` | the command exited 0, but the final verdict met `--fail-on` |
 | `1` | Pacto could not start: a bad flag, a contract that does not load or a binding the contract does not declare |
 
-`SIGINT` and `SIGTERM` are passed on to the command; Pacto waits for it and
-then prints the final round.
+The command runs in a process group of its own, so a Ctrl-C reaches it once.
+When Pacto owns the terminal, it hands the terminal to the command: the command
+reads it and gets Ctrl-C and Ctrl-Z straight from it, and Pacto takes it back
+once the command exits. Otherwise `SIGINT` and `SIGTERM` sent to Pacto are
+passed on to the command's whole group. Either way Pacto waits for the command
+and then prints the final round.
 
 ## Keep the rounds: `--report`
 

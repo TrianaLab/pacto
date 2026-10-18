@@ -15,9 +15,9 @@ import (
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/trianalab/pacto/v3/pkg/catalog"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/catalog"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // ── local bundle fixtures ─────────────────────────────────────────────────────
@@ -282,11 +282,9 @@ func TestCatalogResolverFailsClosedWhenTheBundleCannotBeHashed(t *testing.T) {
 }
 
 func TestCatalogResolverFailsClosedWhenARootPathCannotBeMadeAbsolute(t *testing.T) {
-	orig := absPathFn
-	absPathFn = func(string) (string, error) { return "", errors.New("no working directory") }
-	t.Cleanup(func() { absPathFn = orig })
+	svc := &Service{sys: sysDeps{absPath: func(string) (string, error) { return "", errors.New("no working directory") }}}
 
-	_, err := catResolve(t, (&Service{}).CatalogResolver(), "./svc", "", "")
+	_, err := catResolve(t, svc.CatalogResolver(), "./svc", "", "")
 	if got := catCode(t, err); got != catalog.ReasonInvalidReference {
 		t.Errorf("code = %s, want %s", got, catalog.ReasonInvalidReference)
 	}

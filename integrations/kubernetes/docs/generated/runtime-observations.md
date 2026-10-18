@@ -1,6 +1,6 @@
 <!--
   GENERATED FILE -- DO NOT EDIT.
-  Produced by release/scripts/gen_integration_docs.py from internal/observer/runtime.go + kernel.go, pkg/evidence, pkg/finding, api/v1alpha1.
+  Produced by release/scripts/gen_integration_docs.py from internal/observer/runtime.go, pkg/evidence, pkg/finding, pkg/runtimefacts, api/v1alpha1.
   Regenerate with `make docs-generate`; drift is a CI failure (`make docs-check`).
 -->
 
@@ -22,7 +22,7 @@ A dimension is one thing the operator checks, such as interfaces or dependencies
 | Workload | 7.1 + AR7 | always on | - |
 | Persistence | 7.2 / B3 | always on | - |
 
-The kernel source also reports one thing no dimension asks for: a successful connection to another Pacto-managed Service that no declared dependency resolves to, which the engine reports as `DEPENDENCY_UNDECLARED`.
+The kernel source also reports one thing no dimension asks for: a successful connection to another Pacto-managed Service that no declared dependency resolves to, which the engine reports as `DEPENDENCY_UNDECLARED`. It reports none while a declared dependency resolves to no Pacto target by ref or name (a local or other non-OCI ref, or an OCI ref no Pacto carries), because that dependency could be the peer the pod reached.
 
 ## Collectors
 
@@ -161,5 +161,4 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `EVIDENCE_INSUFFICIENT` | `Inconclusive` |
 | `EVIDENCE_MISSING` | `Inconclusive` |
 | `EVIDENCE_STALE` | `Inconclusive` |
-| `EXTENSION_EVALUATOR_UNAVAILABLE` | `Inconclusive` |
 | `OBSERVATION_UNSUPPORTED` | `Inconclusive` |

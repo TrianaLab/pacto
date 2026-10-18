@@ -22,6 +22,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	appsv1 "k8s.io/api/apps/v1"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -35,14 +36,14 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/component"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/controller"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/dashboard"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/evidence"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/nodeagent"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/observer"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/controller"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/dashboard"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/evidence"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -74,7 +75,6 @@ func init() {
 type options struct {
 	metricsAddr                                      string
 	metricsCertPath, metricsCertName, metricsCertKey string
-	webhookCertPath, webhookCertName, webhookCertKey string
 	enableLeaderElection                             bool
 	probeAddr                                        string
 	secureMetrics                                    bool
@@ -83,7 +83,6 @@ type options struct {
 	watchNamespace                                   string
 
 	enableDashboard      bool
-	dashboardOCISecret   string
 	dashboardOCISecrets  string
 	dashboardResources   component.Resources
 	dashboardObservation []dashboard.ObservationSource
@@ -103,6 +102,7 @@ type options struct {
 	kernelEvidenceStaleness           time.Duration
 
 	enableNodeAgent          bool
+	nodeAgentNamespace       string
 	nodeAgentImage           string
 	nodeAgentPullSecrets     []string
 	nodeAgentPublishInterval time.Duration
@@ -110,10 +110,6 @@ type options struct {
 
 	zap zap.Options
 }
-
-// webhookDeprecated prefixes the help of the webhook certificate flags.
-const webhookDeprecated = "Deprecated: ignored, the operator registers no webhook and runs no webhook server; " +
-	"removed at v6. "
 
 // bindFlags registers every operator flag on fs.
 func bindFlags(fs *flag.FlagSet, o *options) {
@@ -125,11 +121,6 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			"Enabling this will ensure there is only one active controller manager.")
 	fs.BoolVar(&o.secureMetrics, "metrics-secure", false,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=true to enable HTTPS.")
-	fs.StringVar(&o.webhookCertPath, "webhook-cert-path", "",
-		webhookDeprecated+"The directory that contains the webhook certificate.")
-	fs.StringVar(&o.webhookCertName, "webhook-cert-name", "tls.crt",
-		webhookDeprecated+"The name of the webhook certificate file.")
-	fs.StringVar(&o.webhookCertKey, "webhook-cert-key", "tls.key", webhookDeprecated+"The name of the webhook key file.")
 	fs.StringVar(&o.metricsCertPath, "metrics-cert-path", "",
 		"The directory that contains the metrics server certificate.")
 	fs.StringVar(&o.metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
@@ -141,13 +132,10 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.StringVar(&o.watchNamespace, "watch-namespace", "",
 		"Restrict the controller to watch a single namespace. Empty (default) means cluster-wide. "+
 			"The dashboard inherits this scope automatically.")
-	fs.StringVar(&o.dashboardOCISecret, "dashboard-oci-secret", "",
-		"Optional: name of a Secret in the operator namespace containing OCI registry credentials. "+
-			"Supports Opaque (registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson secrets. "+
-			"Ignored when --dashboard-oci-secrets is set.")
 	fs.StringVar(&o.dashboardOCISecrets, "dashboard-oci-secrets", "",
 		"Optional: comma-separated list of Secret names in the operator namespace for OCI registry credentials. "+
-			"Takes precedence over --dashboard-oci-secret.")
+			"Supports Opaque (registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson "+
+			"secrets; later Secrets override earlier ones for the same registry.")
 	bindResourceFlags(fs, &o.dashboardResources, "dashboard", "dashboard", "50m", "200m", "128Mi", "512Mi")
 	fs.Func("dashboard-trace-source",
 		"Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as "+
@@ -194,14 +182,17 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"Merge the node agent's kernel observations (NodeRuntimeObservation objects) into interface and "+
 			"dependency evidence. Off by default; when off, evidence comes from the Kubernetes API only.")
 	fs.StringVar(&o.kernelEvidenceNamespace, "kernel-evidence-namespace", "",
-		"Namespace the node agent publishes NodeRuntimeObservation objects to. Empty uses the operator namespace.")
+		"Namespace the node agent publishes NodeRuntimeObservation objects and heartbeat Leases to. "+
+			"Empty uses --node-agent-namespace.")
 	fs.DurationVar(&o.kernelEvidenceStaleness, "kernel-evidence-staleness", 0,
-		"How old a node's kernel observation heartbeat may be before its evidence reads stale. "+
-			"0 uses three times the publish interval the node agent reports.")
+		"How old a node's heartbeat (its Lease renewal, or the observation's lastPublished without a Lease) may be "+
+			"before its evidence reads stale. 0 uses three times the publish interval the node agent reports.")
 	fs.BoolVar(&o.enableNodeAgent, "enable-node-agent", false,
 		"Enable the managed node agent DaemonSet, which observes TCP socket state with eBPF on every node and "+
-			"publishes it as NodeRuntimeObservation objects. Needs a namespace that admits privileged pods. "+
-			"Disabled by default.")
+			"publishes it as NodeRuntimeObservation objects. Disabled by default.")
+	fs.StringVar(&o.nodeAgentNamespace, "node-agent-namespace", nodeagent.DefaultNamespace,
+		"Dedicated namespace the node agent runs and publishes in. The operator labels it privileged for Pod "+
+			"Security, so it must not be the operator namespace.")
 	fs.StringVar(&o.nodeAgentImage, "node-agent-image", "",
 		"Image the node agent runs pacto agent from. Empty uses the dashboard image this binary was built "+
 			"with, the runtime image the Evidence Server runs too.")
@@ -260,14 +251,15 @@ func main() {
 		"dashboard-image", dashboardImage,
 	)
 
-	// Dashboard, Evidence Server and node agent are always deployed to the operator's own namespace.
+	// The dashboard and the Evidence Server are always deployed to the operator's own namespace; the node
+	// agent to its own (--node-agent-namespace).
 	operatorNamespace := os.Getenv("POD_NAMESPACE")
 	if operatorNamespace == "" {
 		setupLog.Error(nil, "POD_NAMESPACE environment variable must be set (use the downward API)")
 		os.Exit(1)
 	}
-	// The kernel evidence namespace defaults to the operator's, where the managed node agent publishes.
-	o.kernelEvidenceNamespace = cmp.Or(o.kernelEvidenceNamespace, operatorNamespace)
+	// The kernel evidence namespace defaults to the managed node agent's.
+	o.kernelEvidenceNamespace = cmp.Or(o.kernelEvidenceNamespace, o.nodeAgentNamespace)
 
 	mgr, err := newManager(&o)
 	if err != nil {
@@ -341,9 +333,6 @@ func newManager(o *options) (ctrl.Manager, error) {
 			c.NextProtos = []string{"http/1.1"}
 		})
 	}
-	if o.webhookCertPath != "" {
-		setupLog.Info("Ignoring deprecated --webhook-cert-path: the operator runs no webhook server")
-	}
 
 	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
 	// More info:
@@ -396,26 +385,32 @@ func newManager(o *options) (ctrl.Manager, error) {
 		// LeaderElectionReleaseOnCancel: true,
 	}
 
-	// Pods are cached only for the kernel merge, which reads a handful of their fields: the transform drops
-	// the rest (managedFields included) before they reach the cache.
-	mgrOpts.Cache = cache.Options{
-		ByObject: map[client.Object]cache.ByObject{
-			&corev1.Pod{}: {Transform: observer.TrimPod},
-		},
-	}
-	// Restrict the cache to a single namespace when --watch-namespace is set. The node agent publishes its
-	// observations in its own namespace, so kernel evidence widens the cache for that one kind only.
+	mgrOpts.Cache = cacheOptions(o)
 	if o.watchNamespace != "" {
-		mgrOpts.Cache.DefaultNamespaces = map[string]cache.Config{o.watchNamespace: {}}
-		if o.enableKernelEvidence && o.kernelEvidenceNamespace != o.watchNamespace {
-			mgrOpts.Cache.ByObject[&pactov1alpha1.NodeRuntimeObservation{}] = cache.ByObject{
-				Namespaces: map[string]cache.Config{o.kernelEvidenceNamespace: {}},
-			}
-		}
 		setupLog.Info("Watching single namespace", "namespace", o.watchNamespace)
 	}
 
 	return ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOpts)
+}
+
+// cacheOptions scopes the manager's cache. Pods are cached only for the kernel merge, which reads a handful
+// of their fields: the transform drops the rest (managedFields included) before they reach the cache. The
+// node agent's observations and heartbeat Leases are read in the kernel evidence namespace only, whatever
+// --watch-namespace says: a cluster-wide Lease informer would cache every controller's leader election.
+// --watch-namespace restricts everything else to that one namespace.
+func cacheOptions(o *options) cache.Options {
+	kernel := cache.ByObject{Namespaces: map[string]cache.Config{o.kernelEvidenceNamespace: {}}}
+	opts := cache.Options{
+		ByObject: map[client.Object]cache.ByObject{
+			&corev1.Pod{}:                           {Transform: observer.TrimPod},
+			&pactov1alpha1.NodeRuntimeObservation{}: kernel,
+			&coordinationv1.Lease{}:                 kernel,
+		},
+	}
+	if o.watchNamespace != "" {
+		opts.DefaultNamespaces = map[string]cache.Config{o.watchNamespace: {}}
+	}
+	return opts
 }
 
 // addComponents validates the dashboard, Evidence Server and node agent configurations and registers each
@@ -453,7 +448,6 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		Image:              dashboardImage,
 		Namespace:          namespace,
 		WatchNamespace:     o.watchNamespace,
-		OCISecret:          o.dashboardOCISecret,
 		OCISecrets:         parsedOCISecrets,
 		OwnerRef:           ownerRef,
 		EvidenceSourceURL:  evidenceSourceURL,
@@ -500,26 +494,26 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 	}
 
 	nodeAgentCfg := nodeagent.Config{
-		Enabled:          o.enableNodeAgent,
-		Image:            cmp.Or(o.nodeAgentImage, dashboardImage), // the runtime image runs `pacto agent`
-		Namespace:        namespace,
-		PublishInterval:  o.nodeAgentPublishInterval,
-		Resources:        o.nodeAgentResources,
-		ImagePullSecrets: o.nodeAgentPullSecrets,
-		OwnerRef:         ownerRef,
+		Enabled:           o.enableNodeAgent,
+		Image:             cmp.Or(o.nodeAgentImage, dashboardImage), // the runtime image runs `pacto agent`
+		Namespace:         o.nodeAgentNamespace,
+		OperatorNamespace: namespace,
+		PublishInterval:   o.nodeAgentPublishInterval,
+		Resources:         o.nodeAgentResources,
+		ImagePullSecrets:  o.nodeAgentPullSecrets,
 	}
 	if err := nodeAgentCfg.Validate(); err != nil {
 		return fmt.Errorf("invalid node agent configuration: %w", err)
 	}
-	// The agents publish into the operator namespace; observations nobody merges,
-	// or merges from elsewhere, are a silent misconfiguration worth a loud line.
+	// Observations nobody merges, or merges from elsewhere, are a silent
+	// misconfiguration worth a loud line.
 	if o.enableNodeAgent && !o.enableKernelEvidence {
 		setupLog.Info("Node agent enabled without --enable-kernel-evidence: its observations are published " +
 			"but never merged into compliance evidence")
 	}
-	if o.enableNodeAgent && o.kernelEvidenceNamespace != namespace {
+	if o.enableNodeAgent && o.kernelEvidenceNamespace != o.nodeAgentNamespace {
 		setupLog.Info("Kernel evidence is read from a namespace the managed node agent does not publish to",
-			"kernelEvidenceNamespace", o.kernelEvidenceNamespace, "nodeAgentNamespace", namespace)
+			"kernelEvidenceNamespace", o.kernelEvidenceNamespace, "nodeAgentNamespace", o.nodeAgentNamespace)
 	}
 	if err := mgr.Add(&nodeagent.Reconciler{
 		Client:    mgr.GetClient(),

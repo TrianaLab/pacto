@@ -5,11 +5,11 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/contractview"
-	"github.com/trianalab/pacto/v3/pkg/graph"
-	"github.com/trianalab/pacto/v3/pkg/sbom"
-	"github.com/trianalab/pacto/v3/pkg/schemax"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contractview"
+	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/sbom"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
 
 // ── header / overview / runtime ────────────────────────────────
@@ -88,7 +88,6 @@ func TestGenerate_DepsReadinessSbomLockDocs(t *testing.T) {
 // ── Comprehensive snapshot (no graph) ──────────────────────────────────
 
 func fullSnapshot() *contractview.ServiceDetails {
-	score := 90
 	return &contractview.ServiceDetails{
 		Service: contractview.Service{
 			Name:           "payments-api",
@@ -96,7 +95,7 @@ func fullSnapshot() *contractview.ServiceDetails {
 			Owner:          contract.Owner{Team: "team/payments"},
 			ContractStatus: contractview.StatusCompliant,
 		},
-		Compliance: &contractview.ComplianceInfo{Status: contractview.ComplianceOK, Score: &score},
+		Compliance: &contractview.ComplianceInfo{Status: contractview.ComplianceOK},
 		Workload:   "service",
 		State: &contractview.StateInfo{
 			Type:                  "stateful",

@@ -20,7 +20,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 )
 
 // httpRouteGVK is read unstructured so the operator carries no Gateway API dependency.

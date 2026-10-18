@@ -54,11 +54,18 @@ func TestMemorySourceCollect_ContextCancelled(t *testing.T) {
 
 func TestMemorySourceCollect_WithCollectFunc(t *testing.T) {
 	want := &Collection{Targets: []RawTarget{{Name: "x"}}}
-	s := NewMemorySource("m", "mem", nil).WithCollectFunc(
+	s := withCollect(NewMemorySource("m", "mem", nil),
 		func(ctx context.Context) (*Collection, error) { return want, nil },
 	)
 	got, err := s.Collect(context.Background())
 	if err != nil || got != want {
 		t.Fatalf("Collect = %v, %v", got, err)
 	}
+}
+
+// withCollect overrides Collect with a custom function, e.g. to honor context
+// cancellation in tests.
+func withCollect(s *MemorySource, fn func(ctx context.Context) (*Collection, error)) *MemorySource {
+	s.collect = fn
+	return s
 }

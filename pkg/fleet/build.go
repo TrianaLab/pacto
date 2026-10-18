@@ -16,14 +16,14 @@ import (
 	"github.com/opencontainers/go-digest"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/trianalab/pacto/v3/pkg/capability"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/lock"
-	"github.com/trianalab/pacto/v3/pkg/readiness"
-	"github.com/trianalab/pacto/v3/pkg/sbom"
-	"github.com/trianalab/pacto/v3/pkg/skills"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/capability"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/lock"
+	"github.com/trianalab/pacto/v4/pkg/readiness"
+	"github.com/trianalab/pacto/v4/pkg/sbom"
+	"github.com/trianalab/pacto/v4/pkg/skills"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // Bounds keep the projected snapshot from growing unboundedly on pathological
@@ -43,12 +43,6 @@ type BuildOptions struct {
 	// FreshnessWindow marks a target's evidence stale when it is older than this.
 	// Zero disables target-evidence staleness classification.
 	FreshnessWindow time.Duration
-	// AllowPartial is ignored: Build always returns a partial snapshot with
-	// explicit limitations when a source fails, unless DisallowPartial is set.
-	//
-	// Deprecated: never read; use DisallowPartial to require a complete
-	// snapshot. Removed at v4.
-	AllowPartial bool
 	// DisallowPartial forces fail-closed behavior: a single source failure is
 	// fatal. The zero value fails open with explicit limitations rather than
 	// losing every other source's records.

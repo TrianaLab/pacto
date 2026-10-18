@@ -8,10 +8,10 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/cli"
-	"github.com/trianalab/pacto/v3/pkg/oci"
-	"github.com/trianalab/pacto/v3/pkg/plugin"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/cli"
+	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/plugin"
 )
 
 // Build-time variables set via ldflags.

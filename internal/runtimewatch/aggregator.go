@@ -14,7 +14,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 // Bounds caps what the aggregator keeps, so a busy host costs bounded memory and

@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/internal/runtimewatch"
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 // cgroupRoot is where the test reads its own cgroup: in a container with a

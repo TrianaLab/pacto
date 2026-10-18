@@ -1,5 +1,5 @@
 ---
-"@pacto/core": minor
+"@pacto/core": major
 ---
 
 Judge more of the contract at runtime, without turning an inability to observe
@@ -59,7 +59,13 @@ compliance each round; `evidence` signs each workload's evidence and sends it
 to an Evidence Server, which needs contracts pinned by digest. Exposure,
 provider version and persistence scope have no source off Kubernetes and stay
 unverified; a declared `workload`, persistent durability or required
-configuration reads `EVIDENCE_MISSING`.
+configuration reads `EVIDENCE_MISSING`. A workload that reaches another
+checked workload its contract does not declare reports `DEPENDENCY_UNDECLARED`
+named by that workload's contract service, with the operator's suppression
+rule. A bindings-file workload starts with its oldest process, so earlier
+connections are ignored. An agent off the host's network reports probes of
+loopback-bound workloads unsupported, with a note, instead of probing its own
+loopback.
 
 New `pacto run --contract <dir|oci ref> [--bind iface=port] [--dep name=host:port]
 -- command`: runs one command and checks its process tree against the contract
@@ -69,7 +75,11 @@ noncompliant|unknown` turns a bad final verdict into exit 1). With the
 privileges for it on Linux the command starts in its own cgroup and is observed
 with eBPF (collector `pacto-run+ebpf`); otherwise it falls back to polling
 `/proc`, says so, and never reports a dependency unreachable because it cannot
-see a failed connection (collector `pacto-run`). Elsewhere the command runs
+see a failed connection (collector `pacto-run`); it falls back the same way
+when the program attached but the command cannot start in the cgroup. The
+command runs in a process group of its own: on a terminal pacto run owns, the
+group takes the terminal over, otherwise SIGINT and SIGTERM are passed on to the
+whole group, so a Ctrl-C reaches it once. Elsewhere the command runs
 unobserved and every runtime assertion is unsupported. The command's stdin,
 stdout and stderr stay its own: rounds go to stderr, or with `--report <file>`
 to a file, one whole round per write. `--evidence-*` signs and sends every

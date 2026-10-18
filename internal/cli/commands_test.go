@@ -10,12 +10,12 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/cli"
-	"github.com/trianalab/pacto/v3/internal/testutil"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/oci"
-	"github.com/trianalab/pacto/v3/pkg/plugin"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/cli"
+	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/plugin"
 )
 
 func TestPackCommand(t *testing.T) {
@@ -61,7 +61,7 @@ func TestPackCommand_JSON(t *testing.T) {
 		t.Fatalf("pack json failed: %v", err)
 	}
 
-	if !strings.Contains(out.String(), `"Name"`) {
+	if !strings.Contains(out.String(), `"name"`) {
 		t.Errorf("expected JSON output, got %q", out.String())
 	}
 }
@@ -503,7 +503,7 @@ func TestInitCommand_JSON(t *testing.T) {
 		t.Fatalf("init json failed: %v", err)
 	}
 
-	if !strings.Contains(out.String(), `"Dir"`) {
+	if !strings.Contains(out.String(), `"dir"`) {
 		t.Errorf("expected JSON output, got %q", out.String())
 	}
 }

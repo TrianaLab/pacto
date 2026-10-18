@@ -7,7 +7,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/trianalab/pacto/v3/pkg/catalog"
+	"github.com/trianalab/pacto/v4/pkg/catalog"
 )
 
 // Resource URIs for the catalog discovery surface. They are fixed, so a client

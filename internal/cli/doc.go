@@ -9,15 +9,13 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/pkg/doc"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/doc"
 )
 
-// buildStaticExport is a package-level indirection so tests can exercise the
-// otherwise-unreachable export-failure branch (the real embedded UI never fails).
-var buildStaticExport = doc.BuildStaticExport
-
-func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
+// newDocCommand builds `pacto doc`. d.buildStaticExport is injected so tests reach the export-failure
+// branch the real embedded UI never takes.
+func newDocCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doc [dir | oci://ref]",
 		Short: "Generate Markdown documentation from a contract",
@@ -81,7 +79,7 @@ func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				return serveUI(cmd, result, ui, iface, port, targets)
 			}
 			if serve {
-				files, err := buildStaticExport(result.Details, result.Graph)
+				files, err := d.buildStaticExport(result.Details, result.Graph)
 				if err != nil {
 					return err
 				}
@@ -91,7 +89,7 @@ func newDocCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 				return doc.ServeStatic(ctx, files, port)
 			}
 			if htmlOut {
-				files, err := buildStaticExport(result.Details, result.Graph)
+				files, err := d.buildStaticExport(result.Details, result.Graph)
 				if err != nil {
 					return err
 				}

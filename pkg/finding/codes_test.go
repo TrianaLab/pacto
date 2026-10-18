@@ -39,12 +39,11 @@ func TestCategoryOf(t *testing.T) {
 		CodeDependencyVersionMismatch:   CategoryRuntimeDrift,
 		CodeDependencyUndeclared:        CategoryRuntimeDrift,
 		// Family 2 — uncertainty (Inconclusive).
-		CodeEvidenceMissing:               CategoryInconclusive,
-		CodeObservationUnsupported:        CategoryInconclusive,
-		CodeCollectionFailed:              CategoryInconclusive,
-		CodeEvidenceStale:                 CategoryInconclusive,
-		CodeEvidenceInsufficient:          CategoryInconclusive,
-		CodeExtensionEvaluatorUnavailable: CategoryInconclusive,
+		CodeEvidenceMissing:        CategoryInconclusive,
+		CodeObservationUnsupported: CategoryInconclusive,
+		CodeCollectionFailed:       CategoryInconclusive,
+		CodeEvidenceStale:          CategoryInconclusive,
+		CodeEvidenceInsufficient:   CategoryInconclusive,
 		// Structural crossfield — capability binding.
 		CodeCapabilityInterfaceUnknown: CategoryInvalidCapability,
 		CodeCapabilityPathInvalid:      CategoryInvalidCapability,
@@ -65,12 +64,11 @@ func expectedSeverities() map[Code]Severity {
 		CodePolicyRefNotEnforced: SeverityWarning,
 		CodeDependencyUndeclared: SeverityWarning,
 		// Family 2 — uncertainty -> Unknown.
-		CodeEvidenceMissing:               SeverityUnknown,
-		CodeObservationUnsupported:        SeverityUnknown,
-		CodeCollectionFailed:              SeverityUnknown,
-		CodeEvidenceStale:                 SeverityUnknown,
-		CodeEvidenceInsufficient:          SeverityUnknown,
-		CodeExtensionEvaluatorUnavailable: SeverityUnknown,
+		CodeEvidenceMissing:        SeverityUnknown,
+		CodeObservationUnsupported: SeverityUnknown,
+		CodeCollectionFailed:       SeverityUnknown,
+		CodeEvidenceStale:          SeverityUnknown,
+		CodeEvidenceInsufficient:   SeverityUnknown,
 	}
 	return m
 }
@@ -95,7 +93,7 @@ func TestSeverityFor_ByFamily(t *testing.T) {
 	// Family 2 -> Unknown.
 	for _, code := range []Code{
 		CodeEvidenceMissing, CodeObservationUnsupported, CodeCollectionFailed,
-		CodeEvidenceStale, CodeEvidenceInsufficient, CodeExtensionEvaluatorUnavailable,
+		CodeEvidenceStale, CodeEvidenceInsufficient,
 	} {
 		if got := SeverityFor(code, true); got != SeverityUnknown {
 			t.Errorf("SeverityFor(%q, true) = %q, want unknown (family-2)", code, got)
@@ -181,55 +179,20 @@ func TestUnknownCodeCategory(t *testing.T) {
 // enforces that), so a row that deliberately differs is the only way to observe
 // which row CategoryFor read.
 func TestCategoryFor_ReadsTheRequiredNessRow(t *testing.T) {
-	orig := optionalSeverity
-	t.Cleanup(func() { optionalSeverity = orig })
-	optionalSeverity = map[Code]codeMeta{
+	optional := map[Code]codeMeta{
 		CodeConfigurationAbsent: {CategoryInconclusive, SeverityWarning},
 	}
+	categoryIn := func(c Code, required bool) Category { m, _ := metaIn(optional, c, required); return m.category }
 
-	if got := CategoryFor(CodeConfigurationAbsent, false); got != CategoryInconclusive {
+	if got := categoryIn(CodeConfigurationAbsent, false); got != CategoryInconclusive {
 		t.Errorf("CategoryFor(optional) = %q, want the optional row's %q", got, CategoryInconclusive)
 	}
-	if got := CategoryFor(CodeConfigurationAbsent, true); got != CategoryRuntimeDrift {
+	if got := categoryIn(CodeConfigurationAbsent, true); got != CategoryRuntimeDrift {
 		t.Errorf("CategoryFor(required) = %q, want the registry row's %q", got, CategoryRuntimeDrift)
 	}
 	// No optional row: the base row answers whatever required says.
-	if got := CategoryFor(CodeWorkloadMismatch, false); got != CategoryRuntimeDrift {
+	if got := categoryIn(CodeWorkloadMismatch, false); got != CategoryRuntimeDrift {
 		t.Errorf("CategoryFor(WORKLOAD_MISMATCH, optional) = %q, want RuntimeDrift", got)
-	}
-}
-
-// Deprecated shims kept for the released v3 major. DefaultSeverity must answer
-// exactly what it answered in v3.2.9 — SeverityFor with required=true — and the
-// retired codes must keep their published strings.
-func TestDeprecatedShims(t *testing.T) {
-	for code := range registry {
-		if got, want := DefaultSeverity(code), SeverityFor(code, true); got != want {
-			t.Errorf("DefaultSeverity(%q) = %q, want SeverityFor(%q, true) = %q", code, got, code, want)
-		}
-	}
-	if got := DefaultSeverity("NOT_A_REAL_CODE"); got != SeverityError {
-		t.Errorf("DefaultSeverity(unregistered) = %q, want error", got)
-	}
-	// Retired codes: strings frozen, and deliberately unregistered so the generated
-	// operator reference stops listing codes nothing can emit.
-	retired := map[Code]string{
-		CodeInvalidInterfaceType:    "INVALID_INTERFACE_TYPE",
-		CodeInterfaceRefRequired:    "INTERFACE_REF_REQUIRED",
-		CodeInvalidCapabilityType:   "INVALID_CAPABILITY_TYPE",
-		CodeCapabilityRefRequired:   "CAPABILITY_REF_REQUIRED",
-		CodeUnsupportedPolicyTarget: "UNSUPPORTED_POLICY_TARGET",
-	}
-	for code, want := range retired {
-		if string(code) != want {
-			t.Errorf("retired code = %q, want the published %q", code, want)
-		}
-		if _, ok := registry[code]; ok {
-			t.Errorf("retired code %q must stay out of the registry", code)
-		}
-		if got := DefaultSeverity(code); got != SeverityError {
-			t.Errorf("DefaultSeverity(%q) = %q, want error (v3.2.9 behaviour)", code, got)
-		}
 	}
 }
 

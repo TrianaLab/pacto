@@ -1,0 +1,88 @@
+# The operator's lifecycle permissions in its own namespace, where the dashboard
+# and the Evidence Server run. Namespaced on purpose: the operator can create a
+# Deployment, Service, ServiceAccount or Secret here and nowhere else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pacto-operator.fullname" . }}-manager
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pacto-operator.labels" . | nindent 4 }}
+rules:
+  # Teardown -- ALWAYS granted, even with every component disabled, so an
+  # operator upgraded from enabled -> disabled can still remove what it created.
+  # get + delete by the fixed names only, read through the uncached API reader:
+  # no list/watch, so no informer can start and fail to sync. The node agent
+  # names are what releases before the dedicated agent namespace ran here; the
+  # operator removes them on every sync.
+  - apiGroups: [""]
+    resources: [serviceaccounts, services]
+    verbs: [get, delete]
+    resourceNames: [pacto-dashboard]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, delete]
+    resourceNames: [pacto-dashboard-oci-creds]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, delete]
+    resourceNames: [pacto-dashboard]
+  # The Evidence Server's whole footprint is its Deployment and Service: the
+  # accepted evidence is in the registry and is not touched by removing it.
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [get, delete]
+    resourceNames: [pacto-evidence]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, delete]
+    resourceNames: [pacto-evidence]
+  - apiGroups: [apps]
+    resources: [daemonsets]
+    verbs: [get, delete]
+    resourceNames: [pacto-node-agent]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [get, delete]
+    resourceNames: [pacto-node-agent]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    verbs: [get, delete]
+    resourceNames: [pacto-node-agent]
+  {{- if .Values.dashboard.enabled }}
+  # Dashboard lifecycle: its ServiceAccount, Service, merged OCI credentials
+  # Secret and Deployment.
+  - apiGroups: [""]
+    resources: [secrets, serviceaccounts, services]
+    verbs: [create, delete, get, patch, update]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [create, delete, get, patch, update]
+  {{- end }}
+  {{- if .Values.evidence.enabled }}
+  # Evidence Server lifecycle. No storage permission of any kind: the server is
+  # stateless and accepted evidence lives in the contract registry, so the
+  # operator has nothing durable to create in the cluster.
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [create, delete, get, patch, update]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [create, delete, get, patch, update]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "pacto-operator.fullname" . }}-manager
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pacto-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "pacto-operator.fullname" . }}-manager
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pacto-operator.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

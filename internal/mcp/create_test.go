@@ -13,9 +13,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/testutil"
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 func TestCreate_Minimal(t *testing.T) {
@@ -244,11 +244,9 @@ func TestInferFromDescription(t *testing.T) {
 		{"REST API service", func(h descriptionHints) bool { return h.hasHTTP }, "hasHTTP"},
 		{"gRPC microservice", func(h descriptionHints) bool { return h.hasGRPC }, "hasGRPC"},
 		{"Kafka event consumer", func(h descriptionHints) bool { return h.hasEvents }, "hasEvents"},
-		{"stores data in postgres", func(h descriptionHints) bool { return h.storesData && h.dataDurable }, "storesData+durable"},
-		{"uses redis cache", func(h descriptionHints) bool { return h.storesData }, "storesData via redis"},
 		{"background worker process", func(h descriptionHints) bool { return h.isWorker }, "isWorker"},
 		{"scheduled cron job", func(h descriptionHints) bool { return h.isScheduled }, "isScheduled"},
-		{"nothing special", func(h descriptionHints) bool { return !h.hasHTTP && !h.storesData }, "no hints"},
+		{"nothing special", func(h descriptionHints) bool { return !h.hasHTTP && !h.isWorker }, "no hints"},
 	}
 
 	for _, tt := range tests {
@@ -270,9 +268,9 @@ func TestCreate_DescriptionInference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Should infer HTTP interface and stateful runtime
-	if result.Summary.StateType != "stateful" {
-		t.Errorf("expected stateful from postgres mention, got %q", result.Summary.StateType)
+	// Infers the HTTP interface, but a storage keyword never asserts state.
+	if result.Summary.StateType != "stateless" {
+		t.Errorf("expected stateless despite the postgres mention, got %q", result.Summary.StateType)
 	}
 	if len(result.Summary.Interfaces) == 0 {
 		t.Error("expected at least one interface from REST mention")
@@ -706,7 +704,7 @@ func TestMarshalContract_KeyOrder(t *testing.T) {
 		},
 	}
 
-	data, err := marshalContract(m)
+	data, err := osFileOps().marshalContract(m)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -804,7 +802,7 @@ func TestScaffoldInterfaceStub(t *testing.T) {
 func TestAtomicWriteFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.txt")
-	if err := atomicWriteFile(path, []byte("hello"), 0644); err != nil {
+	if err := osFileOps().atomicWriteFile(path, []byte("hello"), 0644); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	data, err := os.ReadFile(path)
@@ -877,7 +875,7 @@ func TestCollectDerived(t *testing.T) {
 	t.Run("with inference", func(t *testing.T) {
 		d := collectDerived(
 			CreateInput{Description: "API"},
-			descriptionHints{hasHTTP: true, storesData: true},
+			descriptionHints{hasHTTP: true, isWorker: true},
 		)
 		if len(d) < 2 {
 			t.Errorf("expected at least 2 derived entries, got %d", len(d))
@@ -1008,12 +1006,12 @@ func TestEnsureConfigSection(t *testing.T) {
 }
 
 func TestValueToNode(t *testing.T) {
-	_, err := valueToNode("hello")
+	_, err := osFileOps().valueToNode("hello")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	_, err = valueToNode(map[string]any{"key": "value"})
+	_, err = osFileOps().valueToNode(map[string]any{"key": "value"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1035,7 +1033,7 @@ func TestScaffoldNewInterfaceFiles(t *testing.T) {
 	dir := t.TempDir()
 	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
 
-	if err := scaffoldNewInterfaceFiles(dir, []InterfaceInput{
+	if err := osFileOps().scaffoldNewInterfaceFiles(dir, []InterfaceInput{
 		{Name: "grpc-api", Type: "grpc"},
 		{Name: "events", Type: "asyncapi"},
 	}); err != nil {
@@ -1057,7 +1055,7 @@ func TestScaffoldNewInterfaceFiles_ExistingFile(t *testing.T) {
 	_ = os.MkdirAll(ifaceDir, 0755)
 	_ = os.WriteFile(filepath.Join(ifaceDir, "api.yaml"), []byte("existing"), 0644)
 
-	if err := scaffoldNewInterfaceFiles(dir, []InterfaceInput{
+	if err := osFileOps().scaffoldNewInterfaceFiles(dir, []InterfaceInput{
 		{Name: "api", Type: "openapi"},
 	}); err != nil {
 		t.Fatal(err)
@@ -1093,24 +1091,22 @@ func TestDependencyName(t *testing.T) {
 }
 
 func TestScaffoldNewInterfaceFiles_MkdirError(t *testing.T) {
-	oldMkdir := osMkdirAll
-	t.Cleanup(func() { osMkdirAll = oldMkdir })
-	osMkdirAll = func(string, os.FileMode) error { return fmt.Errorf("mkdir denied") }
+	o := osFileOps()
+	o.mkdirAll = func(string, os.FileMode) error { return fmt.Errorf("mkdir denied") }
 
-	err := scaffoldNewInterfaceFiles(t.TempDir(), []InterfaceInput{{Name: "api", Type: "openapi"}})
+	err := o.scaffoldNewInterfaceFiles(t.TempDir(), []InterfaceInput{{Name: "api", Type: "openapi"}})
 	if err == nil || !strings.Contains(err.Error(), "failed to create") {
 		t.Fatalf("expected mkdir error, got %v", err)
 	}
 }
 
 func TestScaffoldNewInterfaceFiles_WriteError(t *testing.T) {
-	oldWrite := osWriteFile
-	t.Cleanup(func() { osWriteFile = oldWrite })
-	osWriteFile = func(string, []byte, os.FileMode) error { return fmt.Errorf("disk full") }
+	o := osFileOps()
+	o.writeFile = func(string, []byte, os.FileMode) error { return fmt.Errorf("disk full") }
 
 	dir := t.TempDir()
 	_ = os.MkdirAll(filepath.Join(dir, "interfaces"), 0755)
-	err := scaffoldNewInterfaceFiles(dir, []InterfaceInput{{Name: "api", Type: "openapi"}})
+	err := o.scaffoldNewInterfaceFiles(dir, []InterfaceInput{{Name: "api", Type: "openapi"}})
 	if err == nil || !strings.Contains(err.Error(), "failed to write") {
 		t.Fatalf("expected write error, got %v", err)
 	}
@@ -1219,14 +1215,13 @@ runtime:
 // --- Create error paths ---
 
 func TestCreate_WriteBundleError(t *testing.T) {
+	o := osFileOps()
 	// Try to create in a path that will fail
-	oldMkdir := osMkdirAll
-	t.Cleanup(func() { osMkdirAll = oldMkdir })
-	osMkdirAll = func(_ string, _ os.FileMode) error {
+	o.mkdirAll = func(_ string, _ os.FileMode) error {
 		return fmt.Errorf("mkdir failed")
 	}
 
-	_, err := Create(CreateInput{
+	_, err := o.create(CreateInput{
 		Name: "fail-svc",
 		Path: "/tmp/fail-test-svc",
 	})
@@ -1263,27 +1258,25 @@ func TestCreate_WithGRPCInterface(t *testing.T) {
 // --- atomicWriteFile error paths ---
 
 func TestAtomicWriteFile_WriteError(t *testing.T) {
-	oldWrite := osWriteFile
-	t.Cleanup(func() { osWriteFile = oldWrite })
-	osWriteFile = func(_ string, _ []byte, _ os.FileMode) error {
+	o := osFileOps()
+	o.writeFile = func(_ string, _ []byte, _ os.FileMode) error {
 		return fmt.Errorf("write failed")
 	}
 
-	err := atomicWriteFile("/tmp/test", []byte("data"), 0644)
+	err := o.atomicWriteFile("/tmp/test", []byte("data"), 0644)
 	if err == nil {
 		t.Error("expected error")
 	}
 }
 
 func TestAtomicWriteFile_RenameError(t *testing.T) {
-	oldRename := osRename
-	t.Cleanup(func() { osRename = oldRename })
-	osRename = func(_, _ string) error {
+	o := osFileOps()
+	o.rename = func(_, _ string) error {
 		return fmt.Errorf("rename failed")
 	}
 
 	dir := t.TempDir()
-	err := atomicWriteFile(filepath.Join(dir, "test"), []byte("data"), 0644)
+	err := o.atomicWriteFile(filepath.Join(dir, "test"), []byte("data"), 0644)
 	if err == nil {
 		t.Error("expected error")
 	}
@@ -1305,7 +1298,7 @@ func TestMarshalContract_Valid(t *testing.T) {
 		"pactoVersion": "1.0",
 		"service":      map[string]any{"name": "test", "version": "1.0.0"},
 	}
-	data, err := marshalContract(m)
+	data, err := osFileOps().marshalContract(m)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1781,7 +1774,7 @@ func TestCollectDerived_AllInferences(t *testing.T) {
 		CreateInput{Description: "test"},
 		descriptionHints{
 			hasHTTP: true, hasGRPC: true, hasEvents: true,
-			storesData: true, isWorker: true, isScheduled: true,
+			isWorker: true, isScheduled: true,
 		},
 	)
 	if len(d) < 5 {
@@ -1856,18 +1849,18 @@ func TestCreate_EventInterface(t *testing.T) {
 }
 
 func TestWriteBundle_InterfaceErrors(t *testing.T) {
-	oldMkdir := osMkdirAll
+	o := osFileOps()
+	oldMkdir := o.mkdirAll
 	callCount := 0
-	osMkdirAll = func(path string, perm os.FileMode) error {
+	o.mkdirAll = func(path string, perm os.FileMode) error {
 		callCount++
 		if callCount == 2 {
 			return fmt.Errorf("interfaces mkdir failed")
 		}
 		return oldMkdir(path, perm)
 	}
-	t.Cleanup(func() { osMkdirAll = oldMkdir })
 
-	_, err := writeBundle(t.TempDir(), []byte("test"), CreateInput{
+	_, err := o.writeBundle(t.TempDir(), []byte("test"), CreateInput{
 		Name: "test",
 		Interfaces: []InterfaceInput{
 			{Name: "api", Type: "openapi"},
@@ -1879,18 +1872,18 @@ func TestWriteBundle_InterfaceErrors(t *testing.T) {
 }
 
 func TestWriteBundle_ConfigError(t *testing.T) {
-	oldMkdir := osMkdirAll
+	o := osFileOps()
+	oldMkdir := o.mkdirAll
 	callCount := 0
-	osMkdirAll = func(path string, perm os.FileMode) error {
+	o.mkdirAll = func(path string, perm os.FileMode) error {
 		callCount++
 		if callCount == 3 {
 			return fmt.Errorf("config mkdir failed")
 		}
 		return oldMkdir(path, perm)
 	}
-	t.Cleanup(func() { osMkdirAll = oldMkdir })
 
-	_, err := writeBundle(t.TempDir(), []byte("test"), CreateInput{
+	_, err := o.writeBundle(t.TempDir(), []byte("test"), CreateInput{
 		Name: "test",
 		Interfaces: []InterfaceInput{
 			{Name: "api", Type: "openapi"},
@@ -1912,14 +1905,13 @@ func TestEdit_ParseYAMLError(t *testing.T) {
 }
 
 func TestEdit_WriteError(t *testing.T) {
+	o := osFileOps()
 	dir := testutil.WriteTestBundle(t)
-	oldWrite := osWriteFile
-	osWriteFile = func(_ string, _ []byte, _ os.FileMode) error {
+	o.writeFile = func(_ string, _ []byte, _ os.FileMode) error {
 		return fmt.Errorf("write failed")
 	}
-	t.Cleanup(func() { osWriteFile = oldWrite })
 
-	_, err := Edit(EditInput{
+	_, err := o.edit(EditInput{
 		Path:    dir,
 		Version: strPtr("2.0.0"),
 	})
@@ -1949,16 +1941,16 @@ runtime:
 }
 
 func TestWriteBundle_InterfaceWriteError(t *testing.T) {
-	oldWrite := osWriteFile
-	osWriteFile = func(path string, data []byte, perm os.FileMode) error {
+	o := osFileOps()
+	oldWrite := o.writeFile
+	o.writeFile = func(path string, data []byte, perm os.FileMode) error {
 		if strings.Contains(path, "interfaces") {
 			return fmt.Errorf("interface write failed")
 		}
 		return oldWrite(path, data, perm)
 	}
-	t.Cleanup(func() { osWriteFile = oldWrite })
 
-	_, err := writeBundle(t.TempDir(), []byte("test"), CreateInput{
+	_, err := o.writeBundle(t.TempDir(), []byte("test"), CreateInput{
 		Name: "test",
 		Interfaces: []InterfaceInput{
 			{Name: "api", Type: "openapi"},
@@ -1970,16 +1962,16 @@ func TestWriteBundle_InterfaceWriteError(t *testing.T) {
 }
 
 func TestWriteBundle_ConfigWriteError(t *testing.T) {
-	oldWrite := osWriteFile
-	osWriteFile = func(path string, data []byte, perm os.FileMode) error {
+	o := osFileOps()
+	oldWrite := o.writeFile
+	o.writeFile = func(path string, data []byte, perm os.FileMode) error {
 		if strings.Contains(path, "configuration") {
 			return fmt.Errorf("config write failed")
 		}
 		return oldWrite(path, data, perm)
 	}
-	t.Cleanup(func() { osWriteFile = oldWrite })
 
-	_, err := writeBundle(t.TempDir(), []byte("test"), CreateInput{
+	_, err := o.writeBundle(t.TempDir(), []byte("test"), CreateInput{
 		Name: "test",
 		Interfaces: []InterfaceInput{
 			{Name: "api", Type: "openapi"},
@@ -2071,13 +2063,12 @@ dependencies:
 }
 
 func TestWriteBundle_PactoWriteError(t *testing.T) {
-	oldWrite := osWriteFile
-	osWriteFile = func(_ string, _ []byte, _ os.FileMode) error {
+	o := osFileOps()
+	o.writeFile = func(_ string, _ []byte, _ os.FileMode) error {
 		return fmt.Errorf("pacto write failed")
 	}
-	t.Cleanup(func() { osWriteFile = oldWrite })
 
-	_, err := writeBundle(t.TempDir(), []byte("test"), CreateInput{Name: "test"})
+	_, err := o.writeBundle(t.TempDir(), []byte("test"), CreateInput{Name: "test"})
 	if err == nil {
 		t.Error("expected error")
 	}
@@ -2103,7 +2094,7 @@ func TestBuildBundleFSForValidation_WalkDirErrorsSkipped(t *testing.T) {
 		Interfaces:     []contract.Interface{{Name: "new-api", Type: "openapi", Ref: "interfaces/new-api.yaml"}},
 		Configurations: []contract.Configuration{{Name: "default", Schema: "configuration/schema.json"}},
 	}
-	mapFS := buildBundleFSForValidation(dir, []byte("test"), c)
+	mapFS := osFileOps().buildBundleFSForValidation(dir, []byte("test"), c)
 	// Should have stub for new interface and config
 	if _, ok := mapFS["interfaces/new-api.yaml"]; !ok {
 		t.Error("expected stub for new interface")
@@ -2172,68 +2163,63 @@ func TestCreateHandler_AllPaths(t *testing.T) {
 // --- yaml function variable error paths ---
 
 func TestValueToNode_MarshalError(t *testing.T) {
-	orig := yamlMarshalFn
-	t.Cleanup(func() { yamlMarshalFn = orig })
-	yamlMarshalFn = func(v any) ([]byte, error) {
+	o := osFileOps()
+	o.marshal = func(v any) ([]byte, error) {
 		return nil, fmt.Errorf("marshal boom")
 	}
-	_, err := valueToNode("hello")
+	_, err := o.valueToNode("hello")
 	if err == nil || !strings.Contains(err.Error(), "marshal boom") {
 		t.Errorf("expected marshal error, got: %v", err)
 	}
 }
 
 func TestValueToNode_UnmarshalError(t *testing.T) {
-	orig := yamlUnmarshalFn
-	t.Cleanup(func() { yamlUnmarshalFn = orig })
-	yamlUnmarshalFn = func(data []byte, v any) error {
+	o := osFileOps()
+	o.unmarshal = func(data []byte, v any) error {
 		return fmt.Errorf("unmarshal boom")
 	}
-	_, err := valueToNode("hello")
+	_, err := o.valueToNode("hello")
 	if err == nil || !strings.Contains(err.Error(), "unmarshal boom") {
 		t.Errorf("expected unmarshal error, got: %v", err)
 	}
 }
 
 func TestValueToNode_EmptyContent(t *testing.T) {
-	orig := yamlUnmarshalFn
-	t.Cleanup(func() { yamlUnmarshalFn = orig })
+	o := osFileOps()
 	// Simulate empty/whitespace input yielding a document with no content.
-	yamlUnmarshalFn = func(data []byte, v any) error { return nil }
-	_, err := valueToNode("hello")
+	o.unmarshal = func(data []byte, v any) error { return nil }
+	_, err := o.valueToNode("hello")
 	if err == nil || !strings.Contains(err.Error(), "no content") {
 		t.Errorf("expected 'no content' error (not a panic), got: %v", err)
 	}
 }
 
 func TestMarshalContract_ValueToNodeError(t *testing.T) {
-	orig := yamlMarshalFn
-	t.Cleanup(func() { yamlMarshalFn = orig })
-	yamlMarshalFn = func(v any) ([]byte, error) {
+	o := osFileOps()
+	o.marshal = func(v any) ([]byte, error) {
 		return nil, fmt.Errorf("node error")
 	}
 	m := map[string]any{
 		"pactoVersion": "v1",
 	}
-	_, err := marshalContract(m)
+	_, err := o.marshalContract(m)
 	if err == nil || !strings.Contains(err.Error(), "node error") {
 		t.Errorf("expected valueToNode error, got: %v", err)
 	}
 }
 
 func TestBuildBundleFSForValidation_WalkError(t *testing.T) {
+	o := osFileOps()
 	// Use a broken FS to trigger the walkErr path
-	origDirFS := osDirFS
-	t.Cleanup(func() { osDirFS = origDirFS })
 
-	osDirFS = func(dir string) fs.FS {
+	o.dirFS = func(dir string) fs.FS {
 		return &brokenFS{}
 	}
 
 	c := &contract.Contract{
 		Service: contract.Service{Name: "test"},
 	}
-	result := buildBundleFSForValidation("/nonexistent", []byte("test"), c)
+	result := o.buildBundleFSForValidation("/nonexistent", []byte("test"), c)
 	if result == nil {
 		t.Error("expected non-nil result even with broken FS")
 	}
@@ -2253,7 +2239,7 @@ func TestBuildBundleFSForValidation_ReadFileError(t *testing.T) {
 	c := &contract.Contract{
 		Service: contract.Service{Name: "test"},
 	}
-	result := buildBundleFSForValidation(dir, []byte("test"), c)
+	result := osFileOps().buildBundleFSForValidation(dir, []byte("test"), c)
 	// The unreadable file should be skipped gracefully
 	_ = result
 }
@@ -2284,25 +2270,23 @@ runtime:
 }
 
 func TestCreate_YAMLMarshalError(t *testing.T) {
-	orig := yamlMarshalFn
-	t.Cleanup(func() { yamlMarshalFn = orig })
-	yamlMarshalFn = func(v any) ([]byte, error) {
+	o := osFileOps()
+	o.marshal = func(v any) ([]byte, error) {
 		return nil, fmt.Errorf("create marshal fail")
 	}
-	_, err := Create(CreateInput{Name: "test"})
+	_, err := o.create(CreateInput{Name: "test"})
 	if err == nil || !strings.Contains(err.Error(), "failed to marshal") {
 		t.Errorf("expected marshal error, got: %v", err)
 	}
 }
 
 func TestEdit_YAMLMarshalError(t *testing.T) {
+	o := osFileOps()
 	dir := testutil.WriteTestBundle(t)
-	orig := yamlMarshalFn
-	t.Cleanup(func() { yamlMarshalFn = orig })
-	yamlMarshalFn = func(v any) ([]byte, error) {
+	o.marshal = func(v any) ([]byte, error) {
 		return nil, fmt.Errorf("edit marshal fail")
 	}
-	_, err := Edit(EditInput{Path: dir, Version: strPtr("2.0.0")})
+	_, err := o.edit(EditInput{Path: dir, Version: strPtr("2.0.0")})
 	if err == nil || !strings.Contains(err.Error(), "failed to marshal") {
 		t.Errorf("expected marshal error, got: %v", err)
 	}
@@ -2364,7 +2348,7 @@ func TestMarshalContract_EncodeErrorDefensive(t *testing.T) {
 		},
 	}
 	// Call marshalContract - it will succeed, demonstrating the happy path
-	_, err := marshalContract(m)
+	_, err := osFileOps().marshalContract(m)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2418,16 +2402,16 @@ dependencies:
 }
 
 func TestEdit_ScaffoldNewInterfaceError(t *testing.T) {
+	o := osFileOps()
 	dir := testutil.WriteTestBundle(t)
-	oldMkdir := osMkdirAll
-	t.Cleanup(func() { osMkdirAll = oldMkdir })
-	osMkdirAll = func(path string, perm os.FileMode) error {
+	oldMkdir := o.mkdirAll
+	o.mkdirAll = func(path string, perm os.FileMode) error {
 		if strings.Contains(path, "interfaces") {
 			return fmt.Errorf("mkdir denied")
 		}
 		return oldMkdir(path, perm)
 	}
-	_, err := Edit(EditInput{
+	_, err := o.edit(EditInput{
 		Path: dir,
 		AddInterfaces: []InterfaceInput{
 			{Name: "new-api", Type: "openapi"},
@@ -2438,13 +2422,13 @@ func TestEdit_ScaffoldNewInterfaceError(t *testing.T) {
 	}
 }
 
-// TestCreateTool_ExplicitFalseSurvivesInference pins the pointer distinction all
-// the way through the wire. "postgres" in the description infers stores_data,
-// data_survives_restart and data_shared_across_instances all true; each of the
-// three sent as an explicit false must win, because a plain bool made "the
-// caller said false" indistinguishable from "the caller said nothing".
-func TestCreateTool_ExplicitFalseSurvivesInference(t *testing.T) {
-	const desc = "REST API backed by postgres"
+// TestCreateTool_StateOnlyWhenStated pins that state comes from the caller
+// alone, all the way through the wire. Storage keywords in the description
+// ("postgres", "db", "stateful") used to infer stores_data,
+// data_survives_restart and data_shared_across_instances, asserting a state
+// model nobody declared that runtime evidence then contradicted.
+func TestCreateTool_StateOnlyWhenStated(t *testing.T) {
+	const desc = "stateful persistent REST API backed by a postgres db and a redis cache"
 
 	tests := []struct {
 		name        string
@@ -2470,8 +2454,16 @@ func TestCreateTool_ExplicitFalseSurvivesInference(t *testing.T) {
 			wantType: "stateful", wantScope: "local", wantDurable: "ephemeral",
 		},
 		{
-			name:     "unsaid still infers",
+			name:     "unsaid never infers",
 			args:     map[string]any{},
+			wantType: "stateless", wantScope: "local", wantDurable: "ephemeral",
+		},
+		{
+			name: "explicitly stated",
+			args: map[string]any{
+				"stores_data": true, "data_survives_restart": true,
+				"data_shared_across_instances": true,
+			},
 			wantType: "stateful", wantScope: "shared", wantDurable: "persistent",
 		},
 	}
@@ -2618,21 +2610,19 @@ func TestEdit_AddConfigProperties_DryRunWritesNothing(t *testing.T) {
 }
 
 func TestEdit_AddConfigProperties_SchemaWriteFailuresLeavePactoYAML(t *testing.T) {
-	for name, fail := range map[string]func(*testing.T){
-		"mkdir": func(t *testing.T) {
-			old := osMkdirAll
-			t.Cleanup(func() { osMkdirAll = old })
-			osMkdirAll = func(p string, m os.FileMode) error {
+	for name, fail := range map[string]func(*fileOps){
+		"mkdir": func(o *fileOps) {
+			old := o.mkdirAll
+			o.mkdirAll = func(p string, m os.FileMode) error {
 				if strings.Contains(p, "configuration") {
 					return fmt.Errorf("mkdir denied")
 				}
 				return old(p, m)
 			}
 		},
-		"write": func(t *testing.T) {
-			old := osWriteFile
-			t.Cleanup(func() { osWriteFile = old })
-			osWriteFile = func(p string, d []byte, m os.FileMode) error {
+		"write": func(o *fileOps) {
+			old := o.writeFile
+			o.writeFile = func(p string, d []byte, m os.FileMode) error {
 				if strings.Contains(p, "schema.json") {
 					return fmt.Errorf("disk full")
 				}
@@ -2643,8 +2633,9 @@ func TestEdit_AddConfigProperties_SchemaWriteFailuresLeavePactoYAML(t *testing.T
 		t.Run(name, func(t *testing.T) {
 			dir := testutil.WriteTestBundle(t)
 			before, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
-			fail(t)
-			if _, err := Edit(EditInput{Path: dir, AddConfigProperties: []ConfigProperty{{Name: "PORT"}}}); err == nil {
+			o := osFileOps()
+			fail(&o)
+			if _, err := o.edit(EditInput{Path: dir, AddConfigProperties: []ConfigProperty{{Name: "PORT"}}}); err == nil {
 				t.Fatal("expected an error")
 			}
 			after, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
@@ -2721,8 +2712,9 @@ func TestMergeConfigSchema_ExistingSchemas(t *testing.T) {
 }
 
 func TestAtomicWriteFile_UniqueTempPreservesModeAndCleansUp(t *testing.T) {
+	o := osFileOps()
 	dir := t.TempDir()
-	if err := atomicWriteFile(filepath.Join(dir, "missing", "f"), []byte("x"), 0o644); err == nil {
+	if err := o.atomicWriteFile(filepath.Join(dir, "missing", "f"), []byte("x"), 0o644); err == nil {
 		t.Error("expected CreateTemp to fail in a missing directory")
 	}
 
@@ -2730,24 +2722,22 @@ func TestAtomicWriteFile_UniqueTempPreservesModeAndCleansUp(t *testing.T) {
 	if err := os.WriteFile(target, []byte("old"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := atomicWriteFile(target, []byte("new"), 0o644); err != nil {
+	if err := o.atomicWriteFile(target, []byte("new"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if fi, _ := os.Stat(target); fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode = %v, want the existing 0600 kept", fi.Mode().Perm())
 	}
 	fresh := filepath.Join(dir, "g")
-	if err := atomicWriteFile(fresh, []byte("new"), 0o644); err != nil {
+	if err := o.atomicWriteFile(fresh, []byte("new"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if fi, _ := os.Stat(fresh); fi.Mode().Perm() != 0o644 {
 		t.Errorf("mode = %v, want 0644 for a new file", fi.Mode().Perm())
 	}
 
-	old := osRename
-	t.Cleanup(func() { osRename = old })
-	osRename = func(string, string) error { return fmt.Errorf("rename failed") }
-	if err := atomicWriteFile(target, []byte("x"), 0o644); err == nil {
+	o.rename = func(string, string) error { return fmt.Errorf("rename failed") }
+	if err := o.atomicWriteFile(target, []byte("x"), 0o644); err == nil {
 		t.Fatal("expected the rename error")
 	}
 	entries, _ := os.ReadDir(dir)

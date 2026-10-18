@@ -3,14 +3,13 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/trianalab/pacto/v3/internal/testutil"
+	"github.com/trianalab/pacto/v4/internal/testutil"
 )
 
 // callTool calls the named authoring tool with no policy resolver wired.
@@ -212,14 +211,14 @@ func TestCreateToolErrors(t *testing.T) {
 	})
 
 	t.Run("create internal error", func(t *testing.T) {
-		orig := yamlMarshalFn
-		t.Cleanup(func() { yamlMarshalFn = orig })
-		yamlMarshalFn = func(v any) ([]byte, error) {
-			return nil, fmt.Errorf("injected marshal error")
+		// A path under a regular file cannot be created.
+		file := filepath.Join(t.TempDir(), "file")
+		if err := os.WriteFile(file, nil, 0o644); err != nil {
+			t.Fatal(err)
 		}
 		result := callTool(t, "pacto_create", map[string]any{
-			"name":    "test",
-			"dry_run": true,
+			"name": "test",
+			"path": filepath.Join(file, "svc"),
 		})
 		if !result.IsError {
 			t.Error("expected IsError for create internal error")

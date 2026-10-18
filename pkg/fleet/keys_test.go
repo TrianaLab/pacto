@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -107,7 +108,7 @@ func TestNewTargetKey(t *testing.T) {
 	}
 }
 
-// TestTargetKeyRoundTrip asserts NewTargetKey and ParseTargetKey are inverse for
+// TestTargetKeyRoundTrip asserts NewTargetKey and parseTargetKey are inverse for
 // components carrying the characters ("/", "%") that could otherwise forge or
 // blur a component boundary.
 func TestTargetKeyRoundTrip(t *testing.T) {
@@ -120,9 +121,9 @@ func TestTargetKeyRoundTrip(t *testing.T) {
 	}
 	for _, tr := range triples {
 		key := NewTargetKey(tr[0], tr[1], tr[2])
-		scope, kind, name, ok := ParseTargetKey(key)
+		scope, kind, name, ok := parseTargetKey(key)
 		if !ok {
-			t.Fatalf("ParseTargetKey(%q) not ok", key)
+			t.Fatalf("parseTargetKey(%q) not ok", key)
 		}
 		if scope != tr[0] || kind != tr[1] || name != tr[2] {
 			t.Errorf("round-trip %q → (%q,%q,%q), want (%q,%q,%q)", key, scope, kind, name, tr[0], tr[1], tr[2])
@@ -134,7 +135,7 @@ func TestTargetKeyRoundTrip(t *testing.T) {
 	}
 }
 
-func TestParseTargetKey_Malformed(t *testing.T) {
+func TestTargetKey_NonCanonicalDoesNotParse(t *testing.T) {
 	bad := []TargetKey{
 		"", "one", "one/two", "a/b/c/d",
 		// Non-canonical / invalid percent encodings must NOT decode ok.
@@ -144,13 +145,13 @@ func TestParseTargetKey_Malformed(t *testing.T) {
 		"a%/b/c",   // bare percent in a component
 	}
 	for _, k := range bad {
-		if _, _, _, ok := ParseTargetKey(k); ok {
-			t.Errorf("ParseTargetKey(%q) = ok, want not ok", k)
+		if _, _, _, ok := parseTargetKey(k); ok {
+			t.Errorf("parseTargetKey(%q) = ok, want not ok", k)
 		}
 	}
 	// A canonically-encoded key round-trips.
 	k := NewTargetKey("prod/x", "k8s", "a%b/c")
-	scope, kind, name, ok := ParseTargetKey(k)
+	scope, kind, name, ok := parseTargetKey(k)
 	if !ok || scope != "prod/x" || kind != "k8s" || name != "a%b/c" {
 		t.Errorf("canonical key must decode: %q -> %q/%q/%q ok=%v", k, scope, kind, name, ok)
 	}
@@ -217,4 +218,20 @@ func TestCloneHelpers_NilSafe(t *testing.T) {
 	if copyTime(nil) != nil {
 		t.Error("copyTime(nil) must be nil")
 	}
+}
+
+// parseTargetKey decodes a target key back into its components, refusing a key
+// that is not canonically encoded, so the tests can prove NewTargetKey's
+// encoding is injective and round-trips.
+func parseTargetKey(k TargetKey) (scope, kind, name string, ok bool) {
+	parts := strings.Split(string(k), "/")
+	if len(parts) != 3 {
+		return "", "", "", false
+	}
+	for _, p := range parts {
+		if escapeKeyPart(unescapeKeyPart(p)) != p {
+			return "", "", "", false
+		}
+	}
+	return unescapeKeyPart(parts[0]), unescapeKeyPart(parts[1]), unescapeKeyPart(parts[2]), true
 }

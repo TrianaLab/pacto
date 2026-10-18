@@ -40,33 +40,6 @@ func TestLatest(t *testing.T) {
 	}
 }
 
-func TestLessDesc(t *testing.T) {
-	// both valid: higher sorts first
-	if !LessDesc("2.0.0", "1.0.0") {
-		t.Error("2.0.0 should sort before 1.0.0")
-	}
-	if LessDesc("1.0.0", "2.0.0") {
-		t.Error("1.0.0 should not sort before 2.0.0")
-	}
-	if LessDesc("1.0.0", "1.0.0") {
-		t.Error("equal versions: a not before b")
-	}
-	// valid before invalid
-	if !LessDesc("1.0.0", "main") {
-		t.Error("valid semver should sort before invalid")
-	}
-	if LessDesc("main", "1.0.0") {
-		t.Error("invalid should not sort before valid")
-	}
-	// both invalid: reverse-lexicographic
-	if !LessDesc("zeta", "alpha") {
-		t.Error("both invalid: reverse-lex, zeta before alpha")
-	}
-	if LessDesc("alpha", "zeta") {
-		t.Error("both invalid: alpha not before zeta")
-	}
-}
-
 func TestCompare(t *testing.T) {
 	tests := []struct {
 		name string

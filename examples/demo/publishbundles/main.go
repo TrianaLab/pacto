@@ -32,9 +32,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/ignore"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/ignore"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 func main() {

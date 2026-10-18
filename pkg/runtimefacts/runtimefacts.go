@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 )
 
 const (
@@ -24,6 +24,17 @@ const (
 	defaultPublishInterval = 30 * time.Second
 	// stalenessIntervals is how many publish intervals a snapshot stays fresh by default.
 	stalenessIntervals = 3
+)
+
+// Collector names the Kubernetes operator stamps into observation provenance, and so into every finding's
+// evidenceRefs[].collector. They live here so the operator and the generated reference read one source.
+const (
+	// CollectorKubernetes produced an observation from the Kubernetes API alone.
+	CollectorKubernetes = "k8s-observer"
+	// CollectorKubernetesKernel produced a Kubernetes API result that node agent evidence changed or qualified.
+	CollectorKubernetesKernel = CollectorKubernetes + "+ebpf"
+	// CollectorKernel produced an observation only the node agent could make (an undeclared peer).
+	CollectorKernel = "ebpf"
 )
 
 // CollectorState is the collector's ability to observe the kernel.

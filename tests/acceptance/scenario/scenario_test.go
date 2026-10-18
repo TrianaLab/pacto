@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 const domain = "pacto-registry.pacto-system.svc.cluster.local:5000/demo"

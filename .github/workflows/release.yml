@@ -139,7 +139,7 @@ jobs:
           echo "recovery bound to source commit $head"
 
   # pacto-publishes: core
-  # The core Go module TAG (github.com/trianalab/pacto/v3 -> vX.Y.Z). Created FIRST
+  # The core Go module TAG (github.com/trianalab/pacto/v4 -> vX.Y.Z). Created FIRST
   # so the k8s module's require resolves. The GitHub Release + binaries are
   # finalized LAST by the `release` job. Fail-closed: an existing tag pointing at a
   # different commit is an immutable-version violation.

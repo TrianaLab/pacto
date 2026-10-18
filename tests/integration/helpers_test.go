@@ -15,12 +15,11 @@ import (
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/cli"
-	"github.com/trianalab/pacto/v3/pkg/oci"
-	"github.com/trianalab/pacto/v3/pkg/plugin"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/cli"
+	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/plugin"
 )
 
 // chdirMu serialises tests that need to change the working directory so they
@@ -66,7 +65,6 @@ func newTestRegistry(t *testing.T) *testRegistry {
 
 	client := oci.NewClient(
 		authn.NewMultiKeychain(authn.DefaultKeychain),
-		oci.WithNameOptions(name.Insecure),
 	)
 
 	return &testRegistry{

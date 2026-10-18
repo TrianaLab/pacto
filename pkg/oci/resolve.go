@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 
 	msemver "github.com/Masterminds/semver/v3"
-	"github.com/trianalab/pacto/v3/pkg/logging"
-	"github.com/trianalab/pacto/v3/pkg/semver"
+	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/semver"
 )
 
 // TagLister can list available tags for an OCI repository.

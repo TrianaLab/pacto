@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // FuzzValidCapabilityPath proves INV-6 path normalization is total and SSRF-safe.

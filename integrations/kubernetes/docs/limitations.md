@@ -144,8 +144,32 @@ turn what they cannot see into a violation. These things stay out of reach:
   [`pacto agent`](../../runtime-agent.md) yourself; the cluster-only checks
   then stay unverified ([what stays unverified off Kubernetes](../../runtime-conformance.md#what-stays-unverified-off-kubernetes)).
 - **Private registries.** The agent's ServiceAccount carries the chart's
-  `imagePullSecrets`, which must exist in the operator namespace. An operator
-  installed without the chart passes `--node-agent-image-pull-secret` itself.
+  `imagePullSecrets`, which must also exist in the agent namespace
+  (`nodeAgent.namespace`): a pull secret is read from the pod's own namespace.
+  An operator installed without the chart passes
+  `--node-agent-image-pull-secret` itself.
+
+## Node agent heartbeat and identity
+
+- **Heartbeat.** Every publish interval the agent renews a
+  `coordination.k8s.io` Lease named after its node, held by the node and valid
+  for three intervals. It rewrites its `NodeRuntimeObservation` only when the
+  view changed (`lastPublished` aside) or every tenth interval, and renews the
+  Lease only after the view is written, so a fresh Lease never vouches for a
+  stale view. The operator takes the heartbeat from the Lease `renewTime`, or
+  from `lastPublished` when there is no Lease. An observation deleted by hand
+  on a quiet node comes back within ten intervals; until then the node reads
+  stale.
+- **One node, one writer.** RBAC cannot say which node's objects an agent may
+  write. Where the API serves `ValidatingAdmissionPolicy`, the chart adds one
+  that lets the agent's ServiceAccount create or update a
+  `NodeRuntimeObservation` or Lease only under the node name its token carries
+  (`authentication.kubernetes.io/node-name`). A token without that name is
+  refused, never trusted: the node then reads stale, not compliant.
+- **Kubernetes 1.30 or later.** Tokens carry the node name from 1.30, the
+  release `ValidatingAdmissionPolicy` became generally available. On an older
+  cluster the policy is not rendered and RBAC alone lets any agent write any
+  node's object in the agent namespace.
 
 ## `NotEvaluated` is reserved
 

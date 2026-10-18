@@ -14,24 +14,13 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/k8sclient"
-	"github.com/trianalab/pacto/v3/internal/runtimewatch"
-	"github.com/trianalab/pacto/v3/internal/runtimewatch/ebpf"
-	"github.com/trianalab/pacto/v3/internal/runtimewatch/evalsink"
-	"github.com/trianalab/pacto/v3/internal/runtimewatch/kubesink"
-	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
-	"github.com/trianalab/pacto/v3/pkg/probe"
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
-)
-
-// Seams for tests: the collector touches the kernel, the Kubernetes client a
-// cluster and Run blocks until the context ends.
-var (
-	newCollector = ebpf.New
-	newDynamic   = k8sclient.NewDynamic
-	runAgent     = runtimewatch.Run
-	newDocker    = evalsink.NewDocker
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch/evalsink"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch/kubesink"
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/pkg/probe"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 var sinkKinds = []string{"kubernetes", "stdout", "local", "evidence"}
@@ -47,7 +36,7 @@ const (
 
 // newAgentCommand builds `pacto agent`: the host daemon that observes TCP
 // socket state with eBPF and publishes per-workload runtime facts to a sink.
-func newAgentCommand(svc *app.Service, v *viper.Viper, version string) *cobra.Command {
+func newAgentCommand(svc *app.Service, v *viper.Viper, version string, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "agent",
 		Short: "Observe workloads' TCP sockets on this host with eBPF",
@@ -106,7 +95,7 @@ func newAgentCommand(svc *app.Service, v *viper.Viper, version string) *cobra.Co
 				if nodeName == "" || namespace == "" {
 					return fmt.Errorf("--sink kubernetes needs --node-name and --namespace (or NODE_NAME and POD_NAMESPACE)")
 				}
-				dyn, err := newDynamic()
+				dyn, err := d.newDynamic()
 				if err != nil {
 					return fmt.Errorf("kubernetes sink: %w", err)
 				}
@@ -116,14 +105,14 @@ func newAgentCommand(svc *app.Service, v *viper.Viper, version string) *cobra.Co
 				cfg.Sink = runtimewatch.JSONSink{W: cmd.OutOrStdout()}
 			case "local", "evidence":
 				var err error
-				if eval, err = newEvalSink(cmd, svc, v, version, cfg.Proc); err != nil {
+				if eval, err = newEvalSink(cmd, svc, v, version, cfg.Proc, d); err != nil {
 					return err
 				}
 				cfg.Sink = eval
 			default:
 				return fmt.Errorf("--sink must be one of %v, got %q", sinkKinds, sink)
 			}
-			col, err := newCollector(ringbuf)
+			col, err := d.newCollector(ringbuf)
 			if err != nil {
 				return err
 			}
@@ -133,7 +122,7 @@ func newAgentCommand(svc *app.Service, v *viper.Viper, version string) *cobra.Co
 			if eval != nil {
 				go eval.Run(ctx)
 			}
-			runAgent(ctx, cfg)
+			d.runAgent(ctx, cfg)
 			return nil
 		},
 	}
@@ -161,7 +150,7 @@ func newAgentCommand(svc *app.Service, v *viper.Viper, version string) *cobra.Co
 }
 
 // newEvalSink builds the local or evidence sink from the flags.
-func newEvalSink(cmd *cobra.Command, svc *app.Service, v *viper.Viper, version string, proc runtimewatch.ProcFS) (*evalsink.Sink, error) {
+func newEvalSink(cmd *cobra.Command, svc *app.Service, v *viper.Viper, version string, proc runtimewatch.ProcFS, d deps) (*evalsink.Sink, error) {
 	f := cmd.Flags()
 	sink, _ := f.GetString("sink")
 	bindings, _ := f.GetString("bindings")
@@ -176,7 +165,12 @@ func newEvalSink(cmd *cobra.Command, svc *app.Service, v *viper.Viper, version s
 		return nil, err
 	}
 	s := &evalsink.Sink{Load: svc.ResolveBundle, Proc: proc, Prober: probe.New(probeTimeout), Window: window,
-		Protocol: protocol, Now: time.Now}
+		Protocol: protocol, Now: time.Now, ForeignNetns: runtimewatch.ForeignNetns(proc, d.selfProc)}
+	if s.ForeignNetns {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "pacto agent: this process is not on the host's network, so workloads "+
+			"probed on a loopback address (host-network containers, bindings without a host) cannot be probed: "+
+			"their capabilities and interface protocols are unsupported (run the agent with --network=host)")
+	}
 	var fileTargets []evalsink.Target
 	if bindings != "" {
 		var err error
@@ -186,9 +180,9 @@ func newEvalSink(cmd *cobra.Command, svc *app.Service, v *viper.Viper, version s
 		s.Sources = append(s.Sources, func(context.Context) ([]evalsink.Target, error) { return fileTargets, nil })
 	}
 	if docker {
-		d := newDocker(dockerSocket)
-		d.Labels = labels
-		s.Sources = append(s.Sources, d.Targets)
+		engine := d.newDocker(dockerSocket)
+		engine.Labels = labels
+		s.Sources = append(s.Sources, engine.Targets)
 	}
 	if sink == "local" {
 		format := v.GetString(outputFormatKey)
@@ -335,6 +329,9 @@ func printRound(w io.Writer, format string, round agentRound) error {
 				collector = " (" + f.EvidenceRefs[0].Collector + ")"
 			}
 			_, _ = fmt.Fprintf(w, "  - [%s] %s %s/%s: %s%s\n", f.Severity, f.Code, f.Subject.Kind, f.Subject.Name, f.Message, collector)
+		}
+		for _, n := range r.Notes {
+			_, _ = fmt.Fprintf(w, "  - note: %s\n", n)
 		}
 	}
 	_, err := fmt.Fprintln(w)

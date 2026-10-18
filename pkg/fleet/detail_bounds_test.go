@@ -8,9 +8,9 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/readiness"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/readiness"
 )
 
 // This file holds the adversarial bounds tests for the nested product-detail
@@ -322,7 +322,7 @@ func TestProductFindingEvidenceRefsBounded(t *testing.T) {
 	got := pf
 	got.EvidenceRefs = ProductEvidenceRefsPreview{}
 	want := ProductFinding{
-		Code: "DRIFT", Severity: ProductSeverityUnknown, Category: "Inconclusive",
+		Code: "DRIFT", Severity: ProductSeverity(finding.SeverityUnknown), Category: "Inconclusive",
 		Subject:      ProductSubjectRef{Kind: "interface", Name: "http"},
 		ContractPath: "interfaces/http", Message: "unevaluable",
 	}

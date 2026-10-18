@@ -5,11 +5,11 @@ import (
 	"errors"
 	"path/filepath"
 
-	"github.com/trianalab/pacto/v3/pkg/catalog"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/graph"
-	"github.com/trianalab/pacto/v3/pkg/lock"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/catalog"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/lock"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // catalogOCIBase is the declaring context recorded for a revision that came out
@@ -74,15 +74,15 @@ func (r catalogResolver) resolve(ctx context.Context, req catalog.ResolveRequest
 	if parsed.IsOCI() {
 		return r.remote(ctx, parsed.Location, req.Constraint)
 	}
-	return catalogLocal(parsed.Location, req.Base)
+	return catalogLocal(r.svc.env().absPath, parsed.Location, req.Base)
 }
 
 // catalogLocal reads a contract bundle from disk. The content identity is a
 // hash over the bundle's whole file set, not its path or its declared version:
 // two directories claiming the same service and version but holding different
 // bytes are two revisions, and only a content hash says so.
-func catalogLocal(path, base string) (catalog.Resolution, *contract.Bundle, error) {
-	dir, err := catalogLocalDir(path, base)
+func catalogLocal(absPath func(string) (string, error), path, base string) (catalog.Resolution, *contract.Bundle, error) {
+	dir, err := catalogLocalDir(absPath, path, base)
 	if err != nil {
 		return catalog.Resolution{}, nil, err
 	}
@@ -111,7 +111,7 @@ func catalogLocal(path, base string) (catalog.Resolution, *contract.Bundle, erro
 // catalogLocalDir decides which directory a local reference means. A reference
 // declared by a registry bundle means none: honouring it would let a remote
 // contract choose which local files the catalog reads.
-func catalogLocalDir(path, base string) (string, error) {
+func catalogLocalDir(absPath func(string) (string, error), path, base string) (string, error) {
 	if base == catalogOCIBase {
 		return "", catalogErr(catalog.ReasonInvalidReference, "a local reference declared inside a registry bundle cannot be resolved")
 	}
@@ -121,7 +121,7 @@ func catalogLocalDir(path, base string) (string, error) {
 	if base == "" {
 		// Only a root arrives without a declaring base, and a root's relative path
 		// is relative to wherever the caller invoked Pacto.
-		abs, err := absPathFn(path)
+		abs, err := absPath(path)
 		if err != nil {
 			return "", catalogErr(catalog.ReasonInvalidReference, "the reference could not be resolved to an absolute path")
 		}

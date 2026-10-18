@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/logging"
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 // Config is one agent: where it reads the host, what it keeps and where it

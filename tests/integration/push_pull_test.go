@@ -52,8 +52,8 @@ func testPushJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		t.Fatalf("expected valid JSON output, got: %s", output)
 	}
-	if result["Name"] != "redis-pacto" {
-		t.Errorf("expected Name=redis-pacto, got %v", result["Name"])
+	if result["name"] != "redis-pacto" {
+		t.Errorf("expected name=redis-pacto, got %v", result["name"])
 	}
 }
 
@@ -230,8 +230,8 @@ func testPullJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		t.Fatalf("expected valid JSON output, got: %s", output)
 	}
-	if result["Name"] != "redis-pacto" {
-		t.Errorf("expected Name=redis-pacto, got %v", result["Name"])
+	if result["name"] != "redis-pacto" {
+		t.Errorf("expected name=redis-pacto, got %v", result["name"])
 	}
 }
 

@@ -39,16 +39,16 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"gopkg.in/yaml.v3"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/credentials"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/metrics"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/observer"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/oci"
-	"github.com/trianalab/pacto/v3/pkg/schemax"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/metrics"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // ContractLoader abstracts contract loading and tag listing.

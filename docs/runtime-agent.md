@@ -47,7 +47,7 @@ Why each flag is there:
 | `--privileged`, `--user 0` | loading the eBPF program needs root or the `BPF`, `PERFMON` and `SYS_PTRACE` capabilities |
 | `--pid=host` | the agent reads every process's sockets and cgroup from the host's `/proc` |
 | `--cgroupns=host` and the `/sys/fs/cgroup` mount | the agent names each socket's workload from the host's cgroup tree |
-| `--network host` | health and metrics probes reach host-network services at `127.0.0.1` |
+| `--network host` | health and metrics probes reach host-network services at `127.0.0.1`; without it those probes are reported unsupported, with a note saying why |
 | the Docker socket | the agent reads container labels; it only ever sends `GET` requests |
 
 On macOS and Windows, run the same command against Docker Desktop: the agent
@@ -101,7 +101,19 @@ For workloads that are not containers, such as systemd services, processes or
 | `dependencies` | contract dependency name to `host:port`; host names are resolved at every round |
 
 Unknown fields are errors, so a typo fails at startup. `--bindings` and
-`--docker` can be used together.
+`--docker` can be used together. A bindings-file workload counts as started
+when its oldest running process started, so a connection from before that is
+ignored.
+
+## Undeclared dependencies
+
+When a workload connects to another checked workload (a labelled container's
+address on a bound port, or a bindings entry's `host` and port) that its
+contract does not declare, the agent reports `DEPENDENCY_UNDECLARED`, named by
+the other workload's contract service. A declared dependency is matched to a
+checked workload by service name, contract reference or bound address. If one
+matches none, it might be the very workload reached under another name, so the
+agent reports no undeclared dependency for that workload at all.
 
 ## Where results go
 

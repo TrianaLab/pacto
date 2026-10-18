@@ -31,16 +31,15 @@ import (
 	"net/http"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/evidence"
-	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/logging"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // ErrReplay is returned when an envelope was already accepted (by id) or is out
@@ -293,155 +292,9 @@ func TargetKey(rec Record) string {
 	return string(fleet.NewTargetKey(env.Producer.ID, "external", env.EvidenceSet.Subject.Name))
 }
 
-// MemoryStore is an in-memory [Store]: it enforces replay protection (duplicate
-// id and per-producer non-increasing sequence) atomically inside Commit, then
-// keeps the latest record per target key. It is the substrate for tests and any
-// caller that does not need durability across restarts. It configures no
-// subjects, so it authorizes every policy-valid contract reference; narrowing to
-// an operator-configured subject set is the durable store's job.
-type MemoryStore struct {
-	mu      sync.Mutex
-	seenID  map[string]bool
-	maxSeq  map[string]uint64
-	haveSeq map[string]bool
-	recs    map[string]Record
-}
-
-// NewMemoryStore returns an empty in-memory store.
-//
-// Deprecated: no production code in Pacto uses this constructor; it exists only
-// for same-package tests. Removed at v4.
-func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{seenID: map[string]bool{}, maxSeq: map[string]uint64{}, haveSeq: map[string]bool{}, recs: map[string]Record{}}
-}
-
-// AuthorizeSubject implements [Store]. An in-memory store configures no subject
-// set, so the contract-ref policy [Acceptor.Accept] already enforced is the only
-// gate.
-func (m *MemoryStore) AuthorizeSubject(string) error { return nil }
-
-// Commit implements [Store]: a repeated id, or a producer sequence not strictly
-// greater than its last committed one, is rejected with [ErrReplay]; otherwise
-// the record becomes the latest for its target.
-func (m *MemoryStore) Commit(_ context.Context, rec Record) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	env := rec.Envelope
-	if m.seenID[env.ID] {
-		return ErrReplay
-	}
-	if m.haveSeq[env.Producer.ID] && env.Sequence <= m.maxSeq[env.Producer.ID] {
-		return ErrReplay
-	}
-	m.seenID[env.ID] = true
-	m.maxSeq[env.Producer.ID] = env.Sequence
-	m.haveSeq[env.Producer.ID] = true
-	m.recs[TargetKey(rec)] = rec
-	return nil
-}
-
-// List implements [Store] in deterministic target-key order. Memory cannot be
-// half-read, so the health is always ready.
-func (m *MemoryStore) List(_ context.Context) ListResult {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	keys := make([]string, 0, len(m.recs))
-	for k := range m.recs {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	out := make([]Record, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, m.recs[k])
-	}
-	return ListResult{Records: out, Health: SourceHealth{Status: HealthReady}}
-}
-
-// Source exposes accepted evidence as fleet targets.
-//
-// Deprecated: nothing in Pacto builds a fleet from an ingestion store directly.
-// The platform reads the same records over the HTTP projection at [TargetsPath],
-// which is the boundary the store is actually deployed behind. Removed at v4.
-type Source struct {
-	id    string
-	store Store
-}
-
-// NewSource returns a fleet source over an accepted-evidence store.
-//
-// Deprecated: see [Source]. Removed at v4.
-func NewSource(id string, store Store) *Source {
-	if id == "" {
-		id = "evidence-ingest"
-	}
-	return &Source{id: id, store: store}
-}
-
-// ID implements [fleet.Source].
-//
-// Deprecated: see [Source]. Removed at v4.
-func (s *Source) ID() string { return s.id }
-
-// Kind implements [fleet.Source].
-//
-// Deprecated: see [Source]. Removed at v4.
-func (s *Source) Kind() string { return "evidence-ingest" }
-
-// Collect implements [fleet.Source], projecting each stored record into a target.
-// A store nobody could read is an error, so the source is recorded as
-// unavailable; a store read only in part keeps the records it did read and says
-// so. Neither ever becomes an authoritative empty environment.
-//
-// Deprecated: see [Source]. Removed at v4.
-func (s *Source) Collect(ctx context.Context) (*fleet.Collection, error) {
-	res := s.store.List(ctx)
-	if res.Health.Status == HealthUnavailable {
-		return nil, fmt.Errorf("%w: %s", ErrRegistryUnavailable, res.Health.Reason())
-	}
-	col := &fleet.Collection{}
-	if res.Health.Status == HealthPartial {
-		col.Limitations = append(col.Limitations, fleet.Limitation{
-			Code: fleet.LimitationSourcePartial, Source: s.id, Message: res.Health.Reason(),
-		})
-	}
-	for _, rec := range res.Records {
-		env := rec.Envelope
-		if !fleet.ValidStatus(rec.Compliance) {
-			// Same rule the live source applies: a status this consumer cannot
-			// interpret is kept out of the graph but surfaced, so a bad record is
-			// never confused with none. Without it this deprecated source and its
-			// replacement disagree about the same record.
-			col.Limitations = append(col.Limitations, fleet.Limitation{
-				Code: fleet.LimitationSourceRecordInvalid, Source: s.id,
-				Message: fmt.Sprintf("evidence target %q reported unknown compliance status", env.EvidenceSet.Subject.Name),
-			})
-			continue
-		}
-		at := env.EvidenceSet.ObservedAt
-		col.Targets = append(col.Targets, fleet.RawTarget{
-			Scope: env.Producer.ID,
-			Kind:  "external",
-			// Name is the operational target (the envelope Subject); Service/Domain/
-			// Digest are the RESOLVED logical identity, so the target links to the
-			// correct domain-qualified service and revision.
-			Name:         env.EvidenceSet.Subject.Name,
-			Service:      rec.Service,
-			Domain:       rec.Domain,
-			Digest:       rec.Digest,
-			ResolvedRef:  env.EvidenceSet.ContractRef,
-			Compliance:   rec.Compliance,
-			Findings:     rec.Findings,
-			Coverage:     &fleet.Coverage{Evaluated: rec.Coverage.Evaluated, Required: rec.Coverage.Required},
-			EvidenceAt:   &at,
-			ReconciledAt: &rec.AcceptedAt,
-		})
-	}
-	return col, nil
-}
-
 // maxSourceTargets bounds the number of targets GET /targets returns so a large
-// store cannot produce an unbounded response. It is a var so tests can lower it.
-var maxSourceTargets = 1000
+// store cannot produce an unbounded response.
+const maxSourceTargets = 1000
 
 // Handler mounts the ingestion HTTP API on a mux: POST accepts an envelope, and
 // GET endpoints report health, readiness, the trusted producer ids and the
@@ -450,11 +303,13 @@ var maxSourceTargets = 1000
 type Handler struct {
 	acceptor  *Acceptor
 	producers []string
-	onAccept  func()
 	// ready reports whether the backing store can be reached, within the deadline
 	// of the context it is given. When nil the host is treated as always ready
 	// (e.g. an in-memory store).
 	ready func(context.Context) bool
+	// maxTargets and maxFindings bound GET /targets; NewHandler sets
+	// maxSourceTargets and maxFindingsPerTarget.
+	maxTargets, maxFindings int
 }
 
 // NewHandler returns an HTTP handler for the accept pipeline. producers is the
@@ -463,20 +318,11 @@ type Handler struct {
 // store dies with the request that asked for it. Store health is not a separate
 // hook: it comes back from the same read that produced the targets, so the DTO
 // can never describe a read it did not perform.
-//
-// onAccept is deprecated: pass nil. A host that needs to observe accepts should
-// wrap [Store.Commit], which fires on the durable write rather than on the HTTP
-// response and so cannot report an accept the store did not keep. Nothing in
-// Pacto passes one -- the operational graph reads the store rather than being
-// pushed at. The parameter is removed at v4.
-//
-// The deprecation is stated here rather than as a doc `Deprecated:` marker
-// because Go deprecates identifiers, not parameters: marking the constructor
-// would flag every correct call, including the ones already passing nil.
-func NewHandler(acceptor *Acceptor, producers []string, onAccept func(), ready func(context.Context) bool) *Handler {
+func NewHandler(acceptor *Acceptor, producers []string, ready func(context.Context) bool) *Handler {
 	sorted := append([]string(nil), producers...)
 	sort.Strings(sorted)
-	return &Handler{acceptor: acceptor, producers: sorted, onAccept: onAccept, ready: ready}
+	return &Handler{acceptor: acceptor, producers: sorted, ready: ready, maxTargets: maxSourceTargets,
+		maxFindings: maxFindingsPerTarget}
 }
 
 // EnvelopesPath is the ingestion endpoint a producer POSTs a signed envelope to.
@@ -518,9 +364,6 @@ func (h *Handler) handleEnvelope(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, status, code, msg)
 		return
 	}
-	if h.onAccept != nil {
-		h.onAccept()
-	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"id": rec.Envelope.ID, "compliance": rec.Compliance,
 		"findings": len(rec.Findings), "acceptedAt": rec.AcceptedAt,
@@ -558,7 +401,7 @@ const TargetsSchemaVersion = "pacto.dev/evidence-source/v2"
 
 // maxFindingsPerTarget bounds the findings projected per target so one pathological
 // target cannot blow the response body even under the target-count bound.
-var maxFindingsPerTarget = 500
+const maxFindingsPerTarget = 500
 
 // Health states of a durable-store read, in increasing order of doubt.
 const (
@@ -647,15 +490,15 @@ func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
 	}
 	recs := res.Records
 	truncated := false
-	if len(recs) > maxSourceTargets {
-		recs, truncated = recs[:maxSourceTargets], true
+	if len(recs) > h.maxTargets {
+		recs, truncated = recs[:h.maxTargets], true
 	}
 	out := make([]TargetDTO, 0, len(recs))
 	for _, rec := range recs {
 		es := rec.Envelope.EvidenceSet
 		findings := rec.Findings
-		if len(findings) > maxFindingsPerTarget {
-			findings, truncated = findings[:maxFindingsPerTarget], true
+		if len(findings) > h.maxFindings {
+			findings, truncated = findings[:h.maxFindings], true
 		}
 		out = append(out, TargetDTO{
 			Subject:       es.Subject.Name,

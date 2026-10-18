@@ -21,7 +21,7 @@ import (
 	"testing/fstest"
 	"testing/iotest"
 
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 // mapProc is an in-memory /proc: files and directories from a MapFS, symlinks
@@ -358,5 +358,22 @@ func TestScanProc_HostNetworkAttribution(t *testing.T) {
 	// Pods only: nothing to attribute, no table read.
 	if scan, _ = ScanProc(mapProc{files: files, links: links}, onlyPods); len(scan.Attributed) != 0 {
 		t.Fatalf("pods only: %+v", scan.Attributed)
+	}
+}
+
+func TestForeignNetns(t *testing.T) {
+	host := mapProc{links: map[string]string{"1/ns/net": "net:[1]"}}
+	for name, tc := range map[string]struct {
+		host, self mapProc
+		want       bool
+	}{
+		"same":            {host, mapProc{links: map[string]string{"self/ns/net": "net:[1]"}}, false},
+		"other":           {host, mapProc{links: map[string]string{"self/ns/net": "net:[2]"}}, true},
+		"self unreadable": {host, mapProc{}, false},
+		"host unreadable": {mapProc{}, mapProc{links: map[string]string{"self/ns/net": "net:[2]"}}, false},
+	} {
+		if got := ForeignNetns(tc.host, tc.self); got != tc.want {
+			t.Errorf("%s: ForeignNetns = %v", name, got)
+		}
 	}
 }

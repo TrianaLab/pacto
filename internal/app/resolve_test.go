@@ -9,8 +9,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/override"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/override"
 )
 
 func TestLoadLocalBundleAppliesPactoignore(t *testing.T) {
@@ -322,7 +322,7 @@ func TestExtractBundleFS_WithDirectory(t *testing.T) {
 
 func TestPrepareBundleDir_LocalPath(t *testing.T) {
 	dir := writeTestBundle(t)
-	bundleDir, cleanup, err := prepareBundleDir(dir, nil)
+	bundleDir, cleanup, err := (&Service{}).prepareBundleDir(dir, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -338,7 +338,7 @@ func TestPrepareBundleDir_OCI(t *testing.T) {
 	fsys := fstest.MapFS{
 		"pacto.yaml": &fstest.MapFile{Data: []byte("test")},
 	}
-	dir, cleanup, err := prepareBundleDir("oci://ghcr.io/acme/svc:1.0.0", fsys)
+	dir, cleanup, err := (&Service{}).prepareBundleDir("oci://ghcr.io/acme/svc:1.0.0", fsys)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -383,7 +383,7 @@ func TestExtractBundleFS_WalkError(t *testing.T) {
 }
 
 func TestPrepareBundleDir_OCIExtractError(t *testing.T) {
-	_, _, err := prepareBundleDir("oci://ghcr.io/acme/svc:1.0.0", &errFS{})
+	_, _, err := (&Service{}).prepareBundleDir("oci://ghcr.io/acme/svc:1.0.0", &errFS{})
 	if err == nil {
 		t.Error("expected error when extracting bundle FS fails")
 	}

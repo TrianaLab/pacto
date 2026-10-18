@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/opencontainers/go-digest"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // Case 13 -- the caller owns what it passed in and what it got back, and

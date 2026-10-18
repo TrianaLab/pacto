@@ -6,7 +6,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // This file is the projection counterexample suite. It proves the knowledge-view

@@ -51,7 +51,7 @@ func TestValidateCommand(t *testing.T) {
 				}
 				return nil, []string{"--output-format", "json", "validate", filepath.Join(dir, "json-validate")}
 			},
-			wantOut: `"Valid": true`,
+			wantOut: `"valid": true`,
 		},
 		{
 			name: "markdown output",

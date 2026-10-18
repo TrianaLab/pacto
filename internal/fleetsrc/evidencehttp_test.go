@@ -7,8 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // targetsJSON is a full v2 DTO: identity, contract linkage, full findings,

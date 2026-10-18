@@ -4,9 +4,9 @@ import (
 	"context"
 	"sync"
 
-	"github.com/trianalab/pacto/v3/pkg/catalog"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/catalog"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // bundleRecorder keeps the bundles a catalog walk resolved, keyed by the content

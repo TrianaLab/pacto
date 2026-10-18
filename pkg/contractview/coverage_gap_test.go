@@ -4,7 +4,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 func TestGenerateInsights_NoopWhenPresent(t *testing.T) {
@@ -70,37 +70,6 @@ func TestGenerateInsights_ValidationEmptyMessage(t *testing.T) {
 	}
 }
 
-func TestGenerateInsights_Resources(t *testing.T) {
-	d := &ServiceDetails{Resources: &ResourcesInfo{ServiceExists: boolPtr(false), WorkloadExists: boolPtr(false)}}
-	d.GenerateInsights()
-	if len(d.Insights) != 2 {
-		t.Fatalf("expected 2 resource insights, got %d", len(d.Insights))
-	}
-
-	d2 := &ServiceDetails{Resources: &ResourcesInfo{ServiceExists: boolPtr(true), WorkloadExists: boolPtr(true)}}
-	d2.GenerateInsights()
-	if len(d2.Insights) != 0 {
-		t.Errorf("expected no insights for existing resources, got %v", d2.Insights)
-	}
-}
-
-func TestGenerateInsights_Ports(t *testing.T) {
-	d := &ServiceDetails{Ports: &PortsInfo{Missing: []int{8080, 9090}, Unexpected: []int{3000}}}
-	d.GenerateInsights()
-	if len(d.Insights) != 2 {
-		t.Fatalf("expected 2 port insights, got %d", len(d.Insights))
-	}
-	if d.Insights[0].Title != "Missing ports: 8080, 9090" {
-		t.Errorf("unexpected missing ports title: %s", d.Insights[0].Title)
-	}
-	if d.Insights[1].Title != "Unexpected ports: 3000" {
-		t.Errorf("unexpected ports title: %s", d.Insights[1].Title)
-	}
-}
-
-// boolPtr is a pointer helper for the optional booleans in ResourcesInfo.
-func boolPtr(b bool) *bool { return &b }
-
 func TestPlural(t *testing.T) {
 	if plural(1) != "" {
 		t.Error("expected empty for 1")
@@ -110,15 +79,6 @@ func TestPlural(t *testing.T) {
 	}
 	if plural(0) != "s" {
 		t.Error("expected 's' for 0")
-	}
-}
-
-func TestJoinInts(t *testing.T) {
-	if got := joinInts([]int{1, 2, 3}); got != "1, 2, 3" {
-		t.Errorf("expected '1, 2, 3', got %q", got)
-	}
-	if got := joinInts([]int{42}); got != "42" {
-		t.Errorf("expected '42', got %q", got)
 	}
 }
 

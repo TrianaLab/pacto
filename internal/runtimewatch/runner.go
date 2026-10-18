@@ -13,8 +13,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/logging"
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 // Sink receives every published snapshot: the Kubernetes sink writes it as the

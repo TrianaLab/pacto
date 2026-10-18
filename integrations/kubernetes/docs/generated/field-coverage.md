@@ -556,7 +556,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Evidence | none: the field has no runtime counterpart |
 | Rule | schema: array |
 | Outcomes | PARSE_ERROR when not a list |
-| Limitations | the list is not claimed to be exhaustive; undeclared peers are drift warnings |
+| Limitations | the list is not claimed to be exhaustive; undeclared peers are drift warnings, not reported while any entry resolves to no Pacto target by ref or name (a local or non-OCI ref, or an unresolved OCI ref) |
 | Tests | unit: `pkg/validation/evaluate_test.go:TestEvaluate_UndeclaredDependency`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies/invalid`; e2e: `tests/acceptance/kind/runtime-conformance.sh:dependency-undeclared` |
 
 ### `dependencies[]`
@@ -574,7 +574,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Platform | Evidence | Why | Tests |
 | --- | --- | --- | --- |
 | Kubernetes (the operator with its node agent) | `verified` | provider endpoints and, with the node agent, the latest connection success and failure | the e2e scenarios above |
-| `pacto agent` (a Docker host or a server) | `verified` | the kernel's latest connection success and failure to the bound host:port | `tests/acceptance/local/runtime-docker.sh:docker-dependency-reachable`, `tests/acceptance/local/runtime-docker.sh:docker-dependency-refused` |
+| `pacto agent` (a Docker host or a server) | `verified` | the kernel's latest connection success and failure to the bound host:port, ignoring timestamps from before the workload started; a reachable checked workload no entry names is DEPENDENCY_UNDECLARED, by the same suppression rule | `internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_UndeclaredPeers`, `internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_BindingStart`, `tests/acceptance/local/runtime-docker.sh:docker-dependency-reachable`, `tests/acceptance/local/runtime-docker.sh:docker-dependency-refused`, `tests/acceptance/local/runtime-docker.sh:docker-dependency-undeclared` |
 | `pacto run` (one wrapped command) | `partial` | eBPF mode sees successes and failures; unprivileged mode never sees a failure, so it never confirms unreachable | `tests/acceptance/local/runtime-run.sh:run-ebpf-dependency-reachable`, `tests/acceptance/local/runtime-run.sh:run-ebpf-dependency-refused`, `tests/acceptance/local/runtime-run.sh:run-unprivileged-dependency-reachable`, `tests/acceptance/local/runtime-run.sh:run-unprivileged-dependency-refused` |
 
 ### `dependencies[].name`

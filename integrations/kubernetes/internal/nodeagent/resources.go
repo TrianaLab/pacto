@@ -10,18 +10,26 @@ See LICENSE file in the project root for full license text.
 // controller configuration and reconciles a DaemonSet that runs `pacto agent
 // --sink kubernetes` from the pacto runtime image (the dashboard image the
 // operator was built with) on every node, plus the ServiceAccount, Role and
-// RoleBinding that let each agent write exactly one kind of object — its node's
-// NodeRuntimeObservation in the operator namespace. The agent observes TCP
-// socket state with eBPF; it is not a trace pipeline and opens no port.
+// RoleBinding that let each agent write exactly two kinds of object — its
+// node's NodeRuntimeObservation and heartbeat Lease. Everything lives in the
+// agent's own namespace (DefaultNamespace unless configured), the only one
+// labelled privileged for Pod Security, so the operator namespace keeps the
+// level its owner chose. The agent observes TCP socket state with eBPF; it is
+// not a trace pipeline and opens no port.
 package nodeagent
 
 const (
 	// Name is the resource name for every managed node agent resource.
 	Name = "pacto-node-agent"
 
-	// The labels are the agent's own: the NodeRuntimeObservation objects it
-	// publishes carry the same set (the core module's kubesink writes them), so
-	// disabling the component prunes them with the workload that wrote them.
+	// DefaultNamespace is the agent namespace when none is configured. The
+	// RBAC markers name it, and the chart renders its Roles there by default.
+	DefaultNamespace = "pacto-node-agent"
+
+	// The labels are the agent's own: the NodeRuntimeObservation objects and
+	// Leases it publishes carry the same set (the core module's kubesink writes
+	// them), so disabling the component prunes them with the workload that wrote
+	// them.
 	LabelManagedBy = "app.kubernetes.io/managed-by"
 	LabelComponent = "app.kubernetes.io/component"
 	LabelName      = "app.kubernetes.io/name"
@@ -44,6 +52,7 @@ const (
 	// PodSecurityEnforceLabel is the namespace label Pod Security Admission
 	// enforces. The agent pod is privileged in PSS terms (hostPID, root, added
 	// capabilities, a hostPath), so only an unset or `privileged` level admits it.
+	// The operator sets it (with audit and warn) on the agent namespace.
 	PodSecurityEnforceLabel = "pod-security.kubernetes.io/enforce"
 )
 

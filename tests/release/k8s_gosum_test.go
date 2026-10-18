@@ -2,6 +2,7 @@ package release
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -63,6 +64,27 @@ func TestOperatorGoSumCoversThePinnedCoreVersion(t *testing.T) {
 		t.Fatal("integrations/kubernetes/go.mod no longer requires github.com/trianalab/pacto/vN — this gate has nothing to check, and is vacuous")
 	}
 	module, version := m[1], m[2]
+
+	// Between a module-path rename and the major changeset that follows it the pin is
+	// v<pathMajor>.0.0 while the core unit still reads the previous major: nothing at the
+	// pin is released from this tree, so no checksum for it can be right yet, and
+	// apply-release-plan.mjs (section 8) deliberately stages none. A staged one would be
+	// frozen, since a present entry is never recomputed, and the Version PR would ship
+	// it with CHANGELOGs and unit versions that change the hash. So in that window
+	// the rule inverts: go.work's versioned replace must resolve the pin, and go.sum must
+	// NOT carry it.
+	if pathMajor, unitMajor := pathMajorOf(module), coreUnitMajor(t, root); unitMajor < pathMajor {
+		if want := fmt.Sprintf("v%d.0.0", pathMajor); version != want {
+			t.Fatalf("integrations/kubernetes/go.mod pins %s %s, but with the core unit at major %d the pending rename pins %s", module, version, unitMajor, want)
+		}
+		if goWork := readFile(t, root, "go.work"); !strings.Contains(goWork, fmt.Sprintf("replace %s %s => .", module, version)) {
+			t.Errorf("go.work does not resolve the unpublished %s %s through `replace %s %s => .`: nothing can build the operator", module, version, module, version)
+		}
+		if strings.Contains(goSum, fmt.Sprintf("%s %s ", module, version)) || strings.Contains(goSum, fmt.Sprintf("%s %s/go.mod ", module, version)) {
+			t.Errorf("integrations/kubernetes/go.sum carries a checksum for %s %s, which is not released from this tree; delete it and let the Version PR stage it", module, version)
+		}
+		return
+	}
 
 	// Both lines matter. `<mod> <ver> h1:` is the module zip; `<mod> <ver>/go.mod h1:`
 	// is its go.mod, which go verifies during graph loading before it ever unpacks
@@ -171,4 +193,28 @@ func TestOperatorGoSumMatchesThePublishedCoreModule(t *testing.T) {
 			"Then find out why apply-release-plan.mjs staged a tree that was not the released one; see its section 8.",
 			module, version, committed[1], want[1])
 	}
+}
+
+// pathMajorOf is the major a module path carries: N for a /vN suffix, 1 for none.
+func pathMajorOf(module string) int {
+	if m := regexp.MustCompile(`/v(\d+)$`).FindStringSubmatch(module); m != nil {
+		var n int
+		_, _ = fmt.Sscanf(m[1], "%d", &n)
+		return n
+	}
+	return 1
+}
+
+// coreUnitMajor is the major of the core release unit's version.
+func coreUnitMajor(t *testing.T, root string) int {
+	t.Helper()
+	var pj struct{ Version string }
+	if err := json.Unmarshal([]byte(readFile(t, root, "release", "units", "pacto-core", "package.json")), &pj); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if _, err := fmt.Sscanf(pj.Version, "%d.", &n); err != nil {
+		t.Fatalf("release/units/pacto-core/package.json version %q: %v", pj.Version, err)
+	}
+	return n
 }

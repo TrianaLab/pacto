@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/v3/internal/update"
+	"github.com/trianalab/pacto/v4/internal/update"
 )
 
 func newUpdateCommand(version string, updater *update.Updater) *cobra.Command {

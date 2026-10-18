@@ -29,16 +29,11 @@ func init() {
 }
 
 func mustCompileSchema(data []byte) *jsonschema.Schema {
-	s, err := compileSchema(data)
+	s, err := compileSchema(data, schemaResourceURL)
 	if err != nil {
 		panic(err)
 	}
 	return s
-}
-
-// Function variable for testing.
-var addResourceFn = func(c *jsonschema.Compiler, url string, doc any) error {
-	return c.AddResource(url, doc)
 }
 
 // schemaResourceURL is the internal resource key used when compiling a schema.
@@ -46,7 +41,8 @@ var addResourceFn = func(c *jsonschema.Compiler, url string, doc any) error {
 // AddResource and Compile for a single compilation.
 const schemaResourceURL = "pacto.schema.json"
 
-func compileSchema(data []byte) (*jsonschema.Schema, error) {
+// compileSchema compiles data registered under the resource key url.
+func compileSchema(data []byte, url string) (*jsonschema.Schema, error) {
 	c := jsonschema.NewCompiler()
 
 	var schemaDoc any
@@ -54,21 +50,16 @@ func compileSchema(data []byte) (*jsonschema.Schema, error) {
 		return nil, fmt.Errorf("failed to unmarshal schema: %w", err)
 	}
 
-	if err := addResourceFn(c, schemaResourceURL, schemaDoc); err != nil {
+	if err := c.AddResource(url, schemaDoc); err != nil {
 		return nil, fmt.Errorf("failed to add schema resource: %w", err)
 	}
 
-	schema, err := c.Compile(schemaResourceURL)
+	schema, err := c.Compile(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile schema: %w", err)
 	}
 
 	return schema, nil
-}
-
-// Function variable for testing.
-var schemaValidateFn = func(schema *jsonschema.Schema, data any) error {
-	return schema.Validate(data)
 }
 
 // pactoVersionOf extracts the declared pactoVersion from a generic contract doc.
@@ -101,19 +92,23 @@ func ValidateStructural(data any) ValidationResult {
 		return result
 	}
 
-	err := schemaValidateFn(schema, data)
-	if err == nil {
-		return result
-	}
+	addSchemaError(&result, schema.Validate(data))
+	return result
+}
 
+// addSchemaError records a schema validation outcome: nothing for nil, every
+// violation of a *jsonschema.ValidationError, and a SCHEMA_ERROR for anything
+// else, so an unexpected failure never passes as valid.
+func addSchemaError(result *ValidationResult, err error) {
+	if err == nil {
+		return
+	}
 	validationErr, ok := err.(*jsonschema.ValidationError)
 	if !ok {
 		result.AddError("", "SCHEMA_ERROR", fmt.Sprintf("schema validation failed: %v", err))
-		return result
+		return
 	}
-
-	collectErrors(&result, validationErr)
-	return result
+	collectErrors(result, validationErr)
 }
 
 func collectErrors(result *ValidationResult, ve *jsonschema.ValidationError) {

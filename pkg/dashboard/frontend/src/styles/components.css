@@ -325,7 +325,7 @@ select {
 }
 .source-dot + .source-dot { margin-left: 4px; }
 .source-dot:hover { transform: scale(1.2); }
-.source-dot-k8s { background: #3b82f6; }
+.source-dot-kubernetes { background: #3b82f6; }
 .source-dot-oci { background: #8b5cf6; }
 .source-dot-local { background: #f59e0b; }
 .source-dot-cache { background: #64748b; }

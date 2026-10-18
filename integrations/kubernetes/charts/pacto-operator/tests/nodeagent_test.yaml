@@ -1,6 +1,8 @@
 suite: node agent tests
 tests:
   # --- operator args wiring ---
+  # The namespace is passed even when disabled: the operator prunes a disabled
+  # agent from it, and kernel evidence defaults to it.
   - it: does not pass node agent flags when the node agent is disabled (default)
     template: templates/deployment.yaml
     asserts:
@@ -12,7 +14,10 @@ tests:
           content: --enable-kernel-evidence
       - notMatchRegex:
           path: spec.template.spec.containers[0].args[*]
-          pattern: ^--node-agent-
+          pattern: ^--node-agent-(publish|image|cpu|memory)
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --node-agent-namespace=pacto-node-agent
 
   - it: hands the controller's imagePullSecrets to the node agent
     template: templates/deployment.yaml
@@ -125,9 +130,84 @@ tests:
     asserts:
       - failedTemplate: {}
 
+  - it: passes a custom agent namespace
+    template: templates/deployment.yaml
+    set:
+      nodeAgent.enabled: true
+      nodeAgent.namespace: ebpf-agents
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --node-agent-namespace=ebpf-agents
+
+  # The agent namespace is labelled privileged, so it can never be the release
+  # namespace: that would hand every workload there the agent's privileges.
+  - it: refuses the release namespace as the agent namespace
+    template: templates/nodeagent-namespace.yaml
+    release:
+      namespace: pacto-system
+    set:
+      nodeAgent.enabled: true
+      nodeAgent.namespace: pacto-system
+    asserts:
+      - failedTemplate:
+          errorPattern: "nodeAgent.namespace must not be the release namespace"
+
+  - it: rejects an agent namespace that is not a DNS label
+    template: templates/deployment.yaml
+    set:
+      nodeAgent.namespace: Not_A_Namespace
+    asserts:
+      - failedTemplate: {}
+
+  # --- dedicated namespace ---
+  - it: renders no agent namespace or Role when disabled
+    template: templates/nodeagent-namespace.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: creates the agent namespace privileged for Pod Security
+    template: templates/nodeagent-namespace.yaml
+    documentIndex: 0
+    set:
+      nodeAgent.enabled: true
+    asserts:
+      - isKind:
+          of: Namespace
+      - equal:
+          path: metadata.name
+          value: pacto-node-agent
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/enforce"]
+          value: privileged
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/audit"]
+          value: privileged
+      - equal:
+          path: metadata.labels["pod-security.kubernetes.io/warn"]
+          value: privileged
+      - equal:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: node-agent
+
+  - it: leaves the release namespace's Pod Security level alone
+    templates:
+      - templates/nodeagent-namespace.yaml
+    release:
+      namespace: pacto-system
+    set:
+      nodeAgent.enabled: true
+    asserts:
+      - notEqual:
+          path: metadata.name
+          value: pacto-system
+        documentIndex: 0
+
   # --- RBAC ---
-  - it: always grants node agent teardown RBAC
-    template: templates/clusterrole.yaml
+  - it: always grants the legacy node agent teardown in the release namespace
+    template: templates/role.yaml
+    documentIndex: 0
     asserts:
       - contains:
           path: rules
@@ -150,32 +230,98 @@ tests:
             resources: [serviceaccounts]
             verbs: [get, delete]
             resourceNames: [pacto-node-agent]
+
+  - it: always lets the operator read and prune observations
+    template: templates/clusterrole.yaml
+    asserts:
       - contains:
           path: rules
           content:
             apiGroups: [pacto.trianalab.io]
             resources: [noderuntimeobservations]
-            verbs: [delete, list]
+            verbs: [delete, get, list, watch]
 
-  # Teardown never needs watch: a cached informer without the matching RBAC
-  # would fail to sync and crashloop a disabled operator.
-  - it: grants no node agent lifecycle RBAC when disabled
-    template: templates/clusterrole.yaml
-    asserts:
-      - notExists:
-          path: $.rules[?(@.resources[0]=="daemonsets" && @.verbs[0]=="create")]
-      - notExists:
-          path: $.rules[?(@.resources[0]=="roles" && @.verbs[0]=="create")]
-      - notExists:
-          path: $.rules[?(@.resources[0]=="noderuntimeobservations/status")]
-      - notExists:
-          path: $.rules[?(@.resources[1]=="nodes")]
-
-  - it: grants node agent lifecycle RBAC when enabled
+  # No lifecycle verb on the agent's objects is cluster-wide: they live in the
+  # agent namespace's Role.
+  - it: grants no cluster-wide node agent lifecycle RBAC
     template: templates/clusterrole.yaml
     set:
       nodeAgent.enabled: true
     asserts:
+      - notExists:
+          path: $.rules[?(@.resources[0]=="daemonsets")]
+      - notExists:
+          path: $.rules[?(@.resources[0]=="roles")]
+      - notExists:
+          path: $.rules[?(@.resources[0]=="serviceaccounts")]
+      - notExists:
+          path: $.rules[?(@.resources[0]=="noderuntimeobservations/status")]
+      - notExists:
+          path: $.rules[?(@.resources[0]=="leases" && @.verbs[0]=="create")]
+
+  - it: grants no node agent cluster reads when nothing needs them
+    template: templates/clusterrole.yaml
+    asserts:
+      - notExists:
+          path: $.rules[?(@.resources[0]=="nodes")]
+      - notExists:
+          path: $.rules[?(@.resources[0]=="namespaces")]
+      - notExists:
+          path: $.rules[?(@.resources[0]=="leases")]
+
+  - it: reads Leases for kernel evidence without the managed agent
+    template: templates/clusterrole.yaml
+    set:
+      controller.kernelEvidence.enabled: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [coordination.k8s.io]
+            resources: [leases]
+            verbs: [get, list, watch]
+
+  # The chart creates the namespace, so the operator never needs namespace
+  # create; it reads and relabels exactly one namespace, by name.
+  - it: grants the cluster-scoped node agent RBAC when enabled
+    template: templates/clusterrole.yaml
+    set:
+      nodeAgent.enabled: true
+      nodeAgent.namespace: ebpf-agents
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [nodes]
+            verbs: [get]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces]
+            verbs: [get, patch]
+            resourceNames: [ebpf-agents]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [coordination.k8s.io]
+            resources: [leases]
+            verbs: [get, list, watch]
+      - notExists:
+          path: $.rules[?(@.resources[0]=="namespaces" && @.verbs[0]=="create")]
+
+  - it: grants the node agent lifecycle in the agent namespace when enabled
+    template: templates/nodeagent-namespace.yaml
+    documentIndex: 1
+    set:
+      nodeAgent.enabled: true
+    asserts:
+      - isKind:
+          of: Role
+      - equal:
+          path: metadata.namespace
+          value: pacto-node-agent
       - contains:
           path: rules
           content:
@@ -199,20 +345,110 @@ tests:
           content:
             apiGroups: [pacto.trianalab.io]
             resources: [noderuntimeobservations]
-            verbs: [create, delete, get, list, patch, watch]
-      # The agents' Role is get, create and patch (server-side apply); the
-      # operator holds exactly that on the status subresource.
+            verbs: [create, delete, get, patch]
+      # The agents' Role is get, create and patch (server-side apply) on their
+      # observations and get, create, patch and update on their Leases; the
+      # operator holds exactly that, plus delete for the prunes.
       - contains:
           path: rules
           content:
             apiGroups: [pacto.trianalab.io]
             resources: [noderuntimeobservations/status]
             verbs: [create, get, patch]
-      # Read, never write: the operator does not relabel the namespace, and
-      # reads a node only to prune the observation of a removed one.
       - contains:
           path: rules
           content:
-            apiGroups: [""]
-            resources: [namespaces, nodes]
-            verbs: [get]
+            apiGroups: [coordination.k8s.io]
+            resources: [leases]
+            verbs: [create, delete, get, patch, update]
+
+  - it: binds the agent namespace Role to the operator's ServiceAccount
+    template: templates/nodeagent-namespace.yaml
+    documentIndex: 2
+    release:
+      namespace: pacto-system
+    set:
+      nodeAgent.enabled: true
+    asserts:
+      - isKind:
+          of: RoleBinding
+      - equal:
+          path: metadata.namespace
+          value: pacto-node-agent
+      - equal:
+          path: subjects[0].namespace
+          value: pacto-system
+
+  # --- admission: each agent writes only its own node's objects ---
+  - it: renders no admission policy where the API does not serve it
+    template: templates/nodeagent-admission.yaml
+    set:
+      nodeAgent.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders no admission policy when the agent is disabled
+    template: templates/nodeagent-admission.yaml
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: binds every agent write to the node name in its token
+    template: templates/nodeagent-admission.yaml
+    documentIndex: 0
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      nodeAgent.enabled: true
+    asserts:
+      - isKind:
+          of: ValidatingAdmissionPolicy
+      - equal:
+          path: spec.failurePolicy
+          value: Fail
+      - equal:
+          path: spec.matchConstraints.namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: pacto-node-agent
+      - equal:
+          path: spec.matchConditions[0].expression
+          value: request.userInfo.username == "system:serviceaccount:pacto-node-agent:pacto-node-agent"
+      - contains:
+          path: spec.matchConstraints.resourceRules
+          content:
+            apiGroups: [coordination.k8s.io]
+            apiVersions: ["*"]
+            operations: [CREATE, UPDATE]
+            resources: [leases]
+      - contains:
+          path: spec.matchConstraints.resourceRules
+          content:
+            apiGroups: [pacto.trianalab.io]
+            apiVersions: ["*"]
+            operations: [CREATE, UPDATE]
+            resources: [noderuntimeobservations, noderuntimeobservations/status]
+      - matchRegex:
+          path: spec.validations[0].expression
+          pattern: "request.userInfo.extra\\['authentication.kubernetes.io/node-name'\\]\\[0\\] == object.metadata.name"
+
+  - it: denies through its binding
+    template: templates/nodeagent-admission.yaml
+    documentIndex: 1
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      nodeAgent.enabled: true
+    asserts:
+      - isKind:
+          of: ValidatingAdmissionPolicyBinding
+      - equal:
+          path: spec.validationActions
+          value: [Deny]
+      - equal:
+          path: spec.policyName
+          value: RELEASE-NAME-pacto-operator-node-agent-identity

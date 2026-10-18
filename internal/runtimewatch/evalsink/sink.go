@@ -20,19 +20,20 @@ import (
 	"cmp"
 	"context"
 	"net"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/trianalab/pacto/v3/internal/runtimewatch"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/evidence"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/logging"
-	"github.com/trianalab/pacto/v3/pkg/probe"
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/probe"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // Provenance collectors of this path: an observation the kernel's facts decided carries CollectorKernel,
@@ -56,6 +57,8 @@ type Result struct {
 	Findings []finding.Finding   `json:"findings,omitempty"`
 	// Error is set when the target could not be evaluated (its contract did not load).
 	Error string `json:"error,omitempty"`
+	// Notes say why some assertion could not be observed on this host.
+	Notes []string `json:"notes,omitempty"`
 	// Evidence is the set the result was evaluated from.
 	Evidence evidence.EvidenceSet `json:"-"`
 }
@@ -85,6 +88,11 @@ type Sink struct {
 	Name string
 	// Kernel is the collector of observations the snapshot's facts decided; empty is CollectorKernel.
 	Kernel string
+	// ForeignNetns is set when this process runs in a network namespace other than the host's (an agent
+	// container without --network=host). A target probed on a loopback address (a host-network container,
+	// a bindings file entry) is then out of reach: its probes are Unsupported instead of dialling this
+	// process's own loopback.
+	ForeignNetns bool
 
 	queue     chan runtimefacts.Snapshot
 	queueOnce sync.Once
@@ -138,14 +146,18 @@ func (s *Sink) Evaluate(ctx context.Context, snap *runtimefacts.Snapshot) {
 		targets = append(targets, ts...)
 	}
 	next := map[string]time.Time{}
-	results := make([]Result, 0, len(targets))
-	for _, t := range targets {
+	results := make([]Result, len(targets))
+	var loaded []bound
+	for i, t := range targets {
 		c, err := s.contract(ctx, t.Contract)
 		if err != nil {
-			results = append(results, Result{Target: t.Name, Contract: t.Contract, Error: err.Error()})
+			results[i] = Result{Target: t.Name, Contract: t.Contract, Error: err.Error()}
 			continue
 		}
-		results = append(results, s.evaluate(ctx, t, c, snap, now, next))
+		loaded = append(loaded, bound{t: t, c: c, i: i, addrs: s.addresses(ctx, t)})
+	}
+	for _, b := range loaded {
+		results[b.i] = s.evaluate(ctx, b, loaded, snap, now, next)
 	}
 	// Assertions not seen this time (a target gone, a negative turned positive) close their window.
 	s.windows = next
@@ -172,20 +184,33 @@ func (s *Sink) contract(ctx context.Context, ref string) (*contract.Contract, er
 	return b.Contract, nil
 }
 
+// bound is a target whose contract loaded, at index i of the round's targets, with the addresses it
+// serves its bound interfaces on.
+type bound struct {
+	t     Target
+	c     *contract.Contract
+	i     int
+	addrs []runtimefacts.Address
+}
+
 // round is the state one target's evaluation shares.
 type round struct {
 	*Sink
-	ctx  context.Context
-	t    Target
-	view runtimefacts.View
-	now  time.Time
-	next map[string]time.Time
+	ctx context.Context
+	t   Target
+	// others are every target of the round whose contract loaded, this one included.
+	others []bound
+	view   runtimefacts.View
+	now    time.Time
+	next   map[string]time.Time
+	notes  []string
 }
 
 // evaluate builds the target's evidence set and evaluates the contract against it.
-func (s *Sink) evaluate(ctx context.Context, t Target, c *contract.Contract, snap *runtimefacts.Snapshot, now time.Time,
+func (s *Sink) evaluate(ctx context.Context, b bound, others []bound, snap *runtimefacts.Snapshot, now time.Time,
 	next map[string]time.Time) Result {
-	r := round{Sink: s, ctx: ctx, t: t, view: s.view(t, snap, now), now: now, next: next}
+	t, c := b.t, b.c
+	r := &round{Sink: s, ctx: ctx, t: t, others: others, view: s.view(t, snap, now), now: now, next: next}
 	var obs []evidence.Observation
 	for _, iface := range c.Interfaces {
 		obs = append(obs, r.observeInterface(iface))
@@ -193,6 +218,7 @@ func (s *Sink) evaluate(ctx context.Context, t Target, c *contract.Contract, sna
 	for _, dep := range c.Dependencies {
 		obs = append(obs, r.observeDependency(dep.Name))
 	}
+	obs = append(obs, r.observeUndeclared(c)...)
 	for _, capability := range c.Capabilities {
 		switch capability.Type {
 		case contract.CapabilityHealth:
@@ -211,25 +237,38 @@ func (s *Sink) evaluate(ctx context.Context, t Target, c *contract.Contract, sna
 	// ponytail: runtime findings only, like evidence ingestion; structural warnings are `pacto validate`'s.
 	findings, cov := validation.Evaluate(*c, set)
 	return Result{Target: t.Name, Contract: t.Contract, Status: validation.DeriveStatus(findings, cov), Coverage: cov,
-		Findings: findings, Evidence: set}
+		Findings: findings, Notes: r.notes, Evidence: set}
 }
 
 // view is the kernel's facts for the target's workloads. A selector that matches no workload in the
 // snapshot still classifies (an unmapped workload: partial, or the host's stale or failed collection).
+// A target with no start of its own (a bindings file entry) starts with the earliest process of its
+// workload, so a connection from before it started is ignored.
 func (s *Sink) view(t Target, snap *runtimefacts.Snapshot, now time.Time) runtimefacts.View {
-	ids := s.match(t.Match, snap)
+	want := s.selects(t.Match)
+	var ids []string
+	for _, w := range snap.Workloads {
+		if want != nil && want(w.Identity) {
+			ids = append(ids, w.ID)
+		}
+	}
 	if len(ids) == 0 {
 		ids = []string{""}
 	}
+	start := t.Start
+	if start.IsZero() && want != nil && s.Proc != nil {
+		start, _ = runtimewatch.StartTime(s.Proc, want)
+	}
 	v := runtimefacts.View{Now: now, Freshness: snap.StalenessBound(0)}
 	for _, id := range ids {
-		v.Workloads = append(v.Workloads, runtimefacts.Classify(snap, id, t.Start, now, 0))
+		v.Workloads = append(v.Workloads, runtimefacts.Classify(snap, id, start, now, 0))
 	}
 	return v
 }
 
-// match returns the IDs of the snapshot's workloads the selector names.
-func (s *Sink) match(sel Selector, snap *runtimefacts.Snapshot) []string {
+// selects returns whether an identity is a workload the selector names; nil when a pid selector's process
+// is gone.
+func (s *Sink) selects(sel Selector) func(runtimefacts.Identity) bool {
 	named := func(kind, v string) func(runtimefacts.Identity) bool {
 		return func(id runtimefacts.Identity) bool { return id.Kind == kind && (id.Name == v || id.ID == v) }
 	}
@@ -256,18 +295,12 @@ func (s *Sink) match(sel Selector, snap *runtimefacts.Snapshot) []string {
 		}
 		want = exactly(runtimewatch.IdentityFromProcCgroup(b))
 	}
-	var ids []string
-	for _, w := range snap.Workloads {
-		if want(w.Identity) {
-			ids = append(ids, w.ID)
-		}
-	}
-	return ids
+	return want
 }
 
 // stabilize holds a negative back as Partial until it has persisted for the window, the operator's rule:
 // the first negative opens the window and is never reported; any other verdict closes it.
-func (r round) stabilize(key string, v runtimefacts.Verdict) runtimefacts.Verdict {
+func (r *round) stabilize(key string, v runtimefacts.Verdict) runtimefacts.Verdict {
 	if v != runtimefacts.Negative {
 		return v
 	}
@@ -284,23 +317,23 @@ func (r round) stabilize(key string, v runtimefacts.Verdict) runtimefacts.Verdic
 }
 
 // probed is the provenance of an observation a probe or the binding alone decided.
-func (r round) probed() evidence.Provenance {
+func (r *round) probed() evidence.Provenance {
 	return evidence.Provenance{Collector: cmp.Or(r.Name, Collector), DetectedAt: r.now}
 }
 
 // kernel is the provenance of an observation the snapshot's facts decided.
-func (r round) kernel() evidence.Provenance {
+func (r *round) kernel() evidence.Provenance {
 	return evidence.Provenance{Collector: cmp.Or(r.Kernel, CollectorKernel), DetectedAt: r.now}
 }
 
 // unsupported is the observation of an assertion this target's binding gives no way to observe.
-func (r round) unsupported(kind evidence.ObservationKind, subjectKind, name string) evidence.Observation {
+func (r *round) unsupported(kind evidence.ObservationKind, subjectKind, name string) evidence.Observation {
 	obs, _ := evidence.NewUnobserved(kind, evidence.SubjectRef{Kind: subjectKind, Name: name}, evidence.Unsupported, r.probed())
 	return obs
 }
 
 // observeInterface judges an interface from the listeners of the target's workloads on its bound port.
-func (r round) observeInterface(iface contract.Interface) evidence.Observation {
+func (r *round) observeInterface(iface contract.Interface) evidence.Observation {
 	port, bound := r.t.Interfaces[iface.Name]
 	if !bound {
 		return r.unsupported(evidence.InterfaceObserved, "interface", iface.Name)
@@ -311,15 +344,17 @@ func (r round) observeInterface(iface contract.Interface) evidence.Observation {
 	}
 	v := r.stabilize("interface/"+iface.Name, runtimefacts.InterfaceVerdict(backing, runtimefacts.CoverageComplete))
 	p := evidence.InterfaceObservation{Type: iface.Type}
-	if v == runtimefacts.Positive && r.Protocol && r.t.Host != "" {
-		p.Protocol = r.Prober.ProbeProtocol(r.ctx, hostPort(r.t.Host, port))
+	if v == runtimefacts.Positive && r.Protocol {
+		if host, ok := r.probeHost(); ok {
+			p.Protocol = r.Prober.ProbeProtocol(r.ctx, hostPort(host, port))
+		}
 	}
 	return runtimefacts.InterfaceObservation(iface.Name, p, v, r.kernel())
 }
 
 // observeDependency judges a dependency from the target's connections to the addresses its binding
 // resolves to now.
-func (r round) observeDependency(name string) evidence.Observation {
+func (r *round) observeDependency(name string) evidence.Observation {
 	addr, bound := r.t.Dependencies[name]
 	if !bound {
 		return r.unsupported(evidence.DependencyReachable, "dependency", name)
@@ -334,16 +369,21 @@ func (r round) observeDependency(name string) evidence.Observation {
 	return runtimefacts.DependencyObservation(name, v, r.kernel())
 }
 
-// peers resolves a host:port the target validated to every address it stands for.
-func (r round) peers(addr string) ([]runtimefacts.Address, error) {
-	host, port, _ := splitAddress(addr)
-	lookup := r.Resolve
-	if lookup == nil {
-		lookup = net.DefaultResolver.LookupHost
+// lookup resolves a host, bounded by resolveTimeout.
+func (s *Sink) lookup(ctx context.Context, host string) ([]string, error) {
+	resolve := s.Resolve
+	if resolve == nil {
+		resolve = net.DefaultResolver.LookupHost
 	}
-	ctx, cancel := context.WithTimeout(r.ctx, resolveTimeout)
+	ctx, cancel := context.WithTimeout(ctx, resolveTimeout)
 	defer cancel()
-	ips, err := lookup(ctx, host)
+	return resolve(ctx, host)
+}
+
+// peers resolves a host:port the target validated to every address it stands for.
+func (r *round) peers(addr string) ([]runtimefacts.Address, error) {
+	host, port, _ := splitAddress(addr)
+	ips, err := r.lookup(r.ctx, host)
 	if err != nil {
 		return nil, err
 	}
@@ -356,25 +396,26 @@ func (r round) peers(addr string) ([]runtimefacts.Address, error) {
 
 // capabilityURL is the probe URL of a capability on the address of its binding's interface; ok is false
 // when the capability has no http binding, the interface no port or the target no probe host.
-func (r round) capabilityURL(c contract.Capability, fallbackPath string) (string, bool) {
-	if c.Binding == nil || c.Binding.Type != contract.CapabilityBindingHTTP || r.t.Host == "" {
+func (r *round) capabilityURL(c contract.Capability, fallbackPath string) (string, bool) {
+	if c.Binding == nil || c.Binding.Type != contract.CapabilityBindingHTTP {
 		return "", false
 	}
 	port, bound := r.t.Interfaces[c.Binding.Interface]
-	if !bound {
+	host, reachable := r.probeHost()
+	if !bound || !reachable {
 		return "", false
 	}
 	path := c.Binding.Path
 	if path == "" {
 		path = fallbackPath
 	}
-	u, err := probe.URL(hostPort(r.t.Host, port), path)
+	u, err := probe.URL(hostPort(host, port), path)
 	return u, err == nil
 }
 
 // hold keeps an open window open without counting the round as a negative: the operator's rule for an answer
 // that neither confirms nor refutes (a 5xx, no answer), which only a positive may close.
-func (r round) hold(key string) {
+func (r *round) hold(key string) {
 	key = r.t.Name + "/" + key
 	if first, open := r.windows[key]; open {
 		r.next[key] = first
@@ -383,7 +424,7 @@ func (r round) hold(key string) {
 
 // observeHealth probes the health endpoint: a 2xx or 3xx is present, a 404 that persists past the window
 // absent, anything else (no answer, an error status) inconclusive and leaves the window as it was.
-func (r round) observeHealth(c contract.Capability) evidence.Observation {
+func (r *round) observeHealth(c contract.Capability) evidence.Observation {
 	subj := evidence.SubjectRef{Kind: "capability", Name: c.AssertionKey()}
 	u, ok := r.capabilityURL(c, "/")
 	if !ok {
@@ -404,7 +445,7 @@ func (r round) observeHealth(c contract.Capability) evidence.Observation {
 
 // observeMetrics probes the metrics endpoint: a 200 that parses as Prometheus text is present, no answer a
 // failed collection, anything else inconclusive (metrics have no reliable negative).
-func (r round) observeMetrics(c contract.Capability) evidence.Observation {
+func (r *round) observeMetrics(c contract.Capability) evidence.Observation {
 	subj := evidence.SubjectRef{Kind: "capability", Name: c.AssertionKey()}
 	u, ok := r.capabilityURL(c, "/metrics")
 	if !ok {
@@ -420,6 +461,97 @@ func (r round) observeMetrics(c contract.Capability) evidence.Observation {
 	}
 	obs, _ := evidence.NewUnobserved(evidence.CapabilityObserved, subj, outcome, r.probed())
 	return obs
+}
+
+// probeHost is the address probes dial; ok is false when the target has none or it is out of this process's
+// reach, which a note on the result then says.
+func (r *round) probeHost() (string, bool) {
+	if r.t.Host == "" {
+		return "", false
+	}
+	if r.ForeignNetns && isLoopback(r.t.Host) {
+		note := "probes unsupported: " + r.t.Host + " is a loopback address of the host's network namespace and this " +
+			"process runs in another one (run the agent with --network=host)"
+		if !slices.Contains(r.notes, note) {
+			r.notes = append(r.notes, note)
+		}
+		return "", false
+	}
+	return r.t.Host, true
+}
+
+// isLoopback reports whether a probe host names this network namespace's loopback.
+func isLoopback(host string) bool {
+	ip := net.ParseIP(host)
+	return host == "localhost" || (ip != nil && ip.IsLoopback())
+}
+
+// observeUndeclared reports every other target of the round the workload connected to successfully that
+// its contract does not declare, named by that target's contract service: the operator's rule off
+// Kubernetes, with a target's probe host and bound ports for a Service's endpoints. A declared dependency
+// matches a target by service name, contract reference or bound address; when one matches none, it may be
+// the very target reached, so nothing is reported at all: drift goes unreported, never invented.
+func (r *round) observeUndeclared(c *contract.Contract) []evidence.Observation {
+	// Each declared dependency's binding, resolved; one that does not resolve matches by name or reference only.
+	resolved := map[string][]runtimefacts.Address{}
+	for name, addr := range r.t.Dependencies {
+		resolved[name], _ = r.peers(addr)
+	}
+	declares := func(dep contract.Dependency, o bound) bool {
+		return dep.Name == o.c.Service.Name || sameContract(dep.Ref, o.t.Contract) ||
+			slices.ContainsFunc(resolved[dep.Name], func(a runtimefacts.Address) bool { return slices.Contains(o.addrs, a) })
+	}
+	others := slices.DeleteFunc(slices.Clone(r.others), func(o bound) bool { return o.t.Name == r.t.Name })
+	candidates := runtimefacts.Binding{Dependencies: map[string][]runtimefacts.Address{}}
+	for _, dep := range c.Dependencies {
+		if !slices.ContainsFunc(others, func(o bound) bool { return declares(dep, o) }) {
+			return nil
+		}
+	}
+	for _, o := range others {
+		name := o.c.Service.Name
+		if name == "" || name == c.Service.Name || slices.ContainsFunc(c.Dependencies, func(d contract.Dependency) bool { return declares(d, o) }) {
+			continue
+		}
+		for _, a := range o.addrs {
+			// ponytail: a loopback address is the host's only for a workload on the host's network, which a
+			// loopback probe host stands for; a bridge container's loopback is its own.
+			if !isLoopback(a.IP) || isLoopback(r.t.Host) {
+				candidates.Dependencies[name] = append(candidates.Dependencies[name], a)
+			}
+		}
+	}
+	return r.view.Undeclared(candidates, r.kernel())
+}
+
+// addresses is every address a target serves its bound interfaces on: its probe host, resolved once, at each
+// bound port. A host that does not resolve gives none.
+func (s *Sink) addresses(ctx context.Context, t Target) []runtimefacts.Address {
+	if t.Host == "" || len(t.Interfaces) == 0 {
+		return nil
+	}
+	ips, err := s.lookup(ctx, t.Host)
+	if err != nil {
+		return nil
+	}
+	var out []runtimefacts.Address
+	for _, port := range t.Interfaces {
+		for _, ip := range ips {
+			out = append(out, runtimefacts.NewAddress(ip, port))
+		}
+	}
+	return out
+}
+
+// sameContract reports whether a dependency reference names a target's contract: the same reference with
+// any oci:// scheme, tag or digest dropped. A local path never matches.
+func sameContract(depRef, targetRef string) bool {
+	if !strings.HasPrefix(depRef, contract.OCIScheme) || !strings.HasPrefix(targetRef, contract.OCIScheme) {
+		return false
+	}
+	dep, _, _ := contract.SplitOCIRef(depRef)
+	target, _, _ := contract.SplitOCIRef(targetRef)
+	return dep == target
 }
 
 // hostPort joins a probe host and port.

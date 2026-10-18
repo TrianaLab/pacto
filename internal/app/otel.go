@@ -1,8 +1,8 @@
 package app
 
 import (
-	"github.com/trianalab/pacto/v3/pkg/evidence"
-	"github.com/trianalab/pacto/v3/pkg/otelobserver"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/otelobserver"
 )
 
 // ObserveOTel parses OTLP/JSON trace data and returns both the derived

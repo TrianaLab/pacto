@@ -18,7 +18,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 const (

@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 // The workload a cgroup path belongs to, from the innermost path component

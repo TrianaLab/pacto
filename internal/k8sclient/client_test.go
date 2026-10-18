@@ -22,18 +22,17 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// buildK8sConfig
+// builders.config
 // ---------------------------------------------------------------------------
 
 func TestBuildK8sConfigSuppressesAPIWarnings(t *testing.T) {
 	t.Run("in-cluster", func(t *testing.T) {
-		orig := inClusterConfigFunc
-		t.Cleanup(func() { inClusterConfigFunc = orig })
-		inClusterConfigFunc = func() (*rest.Config, error) { return &rest.Config{Host: "https://example.test"}, nil }
+		b := defaultBuilders()
+		b.inCluster = func() (*rest.Config, error) { return &rest.Config{Host: "https://example.test"}, nil }
 
-		cfg, err := buildK8sConfig()
+		cfg, err := b.config()
 		if err != nil {
-			t.Fatalf("buildK8sConfig: %v", err)
+			t.Fatalf("config: %v", err)
 		}
 		if _, ok := cfg.WarningHandlerWithContext.(rest.NoWarnings); !ok {
 			t.Fatalf("want rest.NoWarnings, got %T", cfg.WarningHandlerWithContext)
@@ -41,9 +40,8 @@ func TestBuildK8sConfigSuppressesAPIWarnings(t *testing.T) {
 	})
 
 	t.Run("kubeconfig-fallback", func(t *testing.T) {
-		orig := inClusterConfigFunc
-		t.Cleanup(func() { inClusterConfigFunc = orig })
-		inClusterConfigFunc = func() (*rest.Config, error) { return nil, fmt.Errorf("not in cluster") }
+		b := defaultBuilders()
+		b.inCluster = func() (*rest.Config, error) { return nil, fmt.Errorf("not in cluster") }
 
 		dir := t.TempDir()
 		kubeconfig := filepath.Join(dir, "config")
@@ -66,9 +64,9 @@ users:
 `), 0o644)
 		t.Setenv("KUBECONFIG", kubeconfig)
 
-		cfg, err := buildK8sConfig()
+		cfg, err := b.config()
 		if err != nil {
-			t.Fatalf("buildK8sConfig: %v", err)
+			t.Fatalf("config: %v", err)
 		}
 		if _, ok := cfg.WarningHandlerWithContext.(rest.NoWarnings); !ok {
 			t.Fatalf("want rest.NoWarnings, got %T", cfg.WarningHandlerWithContext)
@@ -77,13 +75,12 @@ users:
 }
 
 func TestBuildK8sConfig_InCluster(t *testing.T) {
-	orig := inClusterConfigFunc
-	inClusterConfigFunc = func() (*rest.Config, error) {
+	b := defaultBuilders()
+	b.inCluster = func() (*rest.Config, error) {
 		return &rest.Config{Host: "https://in-cluster:443"}, nil
 	}
-	t.Cleanup(func() { inClusterConfigFunc = orig })
 
-	config, err := buildK8sConfig()
+	config, err := b.config()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -93,11 +90,10 @@ func TestBuildK8sConfig_InCluster(t *testing.T) {
 }
 
 func TestBuildK8sConfig_Kubeconfig(t *testing.T) {
-	orig := inClusterConfigFunc
-	inClusterConfigFunc = func() (*rest.Config, error) {
+	b := defaultBuilders()
+	b.inCluster = func() (*rest.Config, error) {
 		return nil, fmt.Errorf("not in cluster")
 	}
-	t.Cleanup(func() { inClusterConfigFunc = orig })
 
 	dir := t.TempDir()
 	kubeconfig := filepath.Join(dir, "config")
@@ -120,7 +116,7 @@ users:
 `), 0o644)
 	t.Setenv("KUBECONFIG", kubeconfig)
 
-	config, err := buildK8sConfig()
+	config, err := b.config()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -130,17 +126,16 @@ users:
 }
 
 func TestBuildK8sConfig_NoConfig(t *testing.T) {
-	orig := inClusterConfigFunc
-	inClusterConfigFunc = func() (*rest.Config, error) {
+	b := defaultBuilders()
+	b.inCluster = func() (*rest.Config, error) {
 		return nil, fmt.Errorf("not in cluster")
 	}
-	t.Cleanup(func() { inClusterConfigFunc = orig })
 
 	dir := t.TempDir()
 	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
 	t.Setenv("HOME", dir)
 
-	_, err := buildK8sConfig()
+	_, err := b.config()
 	if err == nil {
 		t.Fatal("expected error when no kubeconfig exists")
 	}
@@ -172,13 +167,12 @@ users:
 `), 0o644)
 	t.Setenv("KUBECONFIG", kubeconfig)
 
-	origIC := inClusterConfigFunc
-	inClusterConfigFunc = func() (*rest.Config, error) {
+	b := defaultBuilders()
+	b.inCluster = func() (*rest.Config, error) {
 		return nil, fmt.Errorf("not in cluster")
 	}
-	t.Cleanup(func() { inClusterConfigFunc = origIC })
 
-	client, err := NewGoClient()
+	client, err := b.goClient()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -188,28 +182,26 @@ users:
 }
 
 func TestNewK8sGoClient_ConfigError(t *testing.T) {
-	origIC := inClusterConfigFunc
-	inClusterConfigFunc = func() (*rest.Config, error) {
+	b := defaultBuilders()
+	b.inCluster = func() (*rest.Config, error) {
 		return nil, fmt.Errorf("not in cluster")
 	}
-	t.Cleanup(func() { inClusterConfigFunc = origIC })
 
 	dir := t.TempDir()
 	t.Setenv("KUBECONFIG", filepath.Join(dir, "nonexistent"))
 	t.Setenv("HOME", dir)
 
-	_, err := NewGoClient()
+	_, err := b.goClient()
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestNewK8sGoClient_DiscoveryError(t *testing.T) {
-	origIC := inClusterConfigFunc
-	inClusterConfigFunc = func() (*rest.Config, error) {
+	b := defaultBuilders()
+	b.inCluster = func() (*rest.Config, error) {
 		return nil, fmt.Errorf("not in cluster")
 	}
-	t.Cleanup(func() { inClusterConfigFunc = origIC })
 
 	dir := t.TempDir()
 	kubeconfig := filepath.Join(dir, "config")
@@ -232,24 +224,21 @@ users:
 `), 0o644)
 	t.Setenv("KUBECONFIG", kubeconfig)
 
-	origDisc := newDiscoveryClientForConfig
-	newDiscoveryClientForConfig = func(*rest.Config) (discovery.DiscoveryInterface, error) {
+	b.discovery = func(*rest.Config) (discovery.DiscoveryInterface, error) {
 		return nil, fmt.Errorf("discovery creation failed")
 	}
-	t.Cleanup(func() { newDiscoveryClientForConfig = origDisc })
 
-	_, err := NewGoClient()
+	_, err := b.goClient()
 	if err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestNewK8sGoClient_DynamicError(t *testing.T) {
-	origIC := inClusterConfigFunc
-	inClusterConfigFunc = func() (*rest.Config, error) {
+	b := defaultBuilders()
+	b.inCluster = func() (*rest.Config, error) {
 		return nil, fmt.Errorf("not in cluster")
 	}
-	t.Cleanup(func() { inClusterConfigFunc = origIC })
 
 	dir := t.TempDir()
 	kubeconfig := filepath.Join(dir, "config")
@@ -272,13 +261,11 @@ users:
 `), 0o644)
 	t.Setenv("KUBECONFIG", kubeconfig)
 
-	origDyn := newDynamicForConfig
-	newDynamicForConfig = func(*rest.Config) (dynamic.Interface, error) {
+	b.dynamic = func(*rest.Config) (dynamic.Interface, error) {
 		return nil, fmt.Errorf("dynamic creation failed")
 	}
-	t.Cleanup(func() { newDynamicForConfig = origDyn })
 
-	_, err := NewGoClient()
+	_, err := b.goClient()
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -676,17 +663,47 @@ func TestReadCurrentKubeContext_MalformedConfig(t *testing.T) {
 }
 
 func TestNewDynamic(t *testing.T) {
-	orig := inClusterConfigFunc
-	t.Cleanup(func() { inClusterConfigFunc = orig })
-	inClusterConfigFunc = func() (*rest.Config, error) { return &rest.Config{Host: "https://in-cluster:443"}, nil }
-	if c, err := NewDynamic(); err != nil || c == nil {
+	b := defaultBuilders()
+	b.inCluster = func() (*rest.Config, error) { return &rest.Config{Host: "https://in-cluster:443"}, nil }
+	if c, err := b.newDynamic(); err != nil || c == nil {
 		t.Fatalf("NewDynamic = %v, %v", c, err)
 	}
 
-	inClusterConfigFunc = func() (*rest.Config, error) { return nil, fmt.Errorf("not in cluster") }
+	b.inCluster = func() (*rest.Config, error) { return nil, fmt.Errorf("not in cluster") }
 	t.Setenv("KUBECONFIG", filepath.Join(t.TempDir(), "missing"))
 	t.Setenv("HOME", t.TempDir())
-	if _, err := NewDynamic(); err == nil {
+	if _, err := b.newDynamic(); err == nil {
 		t.Fatal("no config anywhere: want error")
+	}
+}
+
+// TestExportedConstructorsUseTheAmbientKubeconfig drives the production
+// builders: outside a pod in-cluster config fails and the kubeconfig answers.
+func TestExportedConstructorsUseTheAmbientKubeconfig(t *testing.T) {
+	t.Setenv("KUBERNETES_SERVICE_HOST", "")
+	kubeconfig := filepath.Join(t.TempDir(), "config")
+	_ = os.WriteFile(kubeconfig, []byte(`apiVersion: v1
+kind: Config
+clusters:
+- cluster:
+    server: https://test:6443
+  name: test
+contexts:
+- context:
+    cluster: test
+    user: test
+  name: test
+current-context: test
+users:
+- name: test
+  user:
+    token: test
+`), 0o644)
+	t.Setenv("KUBECONFIG", kubeconfig)
+	if c, err := NewGoClient(); err != nil || c == nil {
+		t.Fatalf("NewGoClient = %v, %v", c, err)
+	}
+	if c, err := NewDynamic(); err != nil || c == nil {
+		t.Fatalf("NewDynamic = %v, %v", c, err)
 	}
 }

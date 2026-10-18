@@ -16,15 +16,16 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/evidence"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/probe"
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/probe"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 var now = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
@@ -265,7 +266,7 @@ func TestEvaluate_UnprobeableCapabilities(t *testing.T) {
 			tc.cap.Type = typ
 			c := &contract.Contract{Service: contract.Service{Name: "s"}, Capabilities: []contract.Capability{tc.cap}}
 			tc.target.Match = Selector{Unit: "svc.service"}
-			r := s.evaluate(context.Background(), tc.target, c, unitSnapshot(1, true), now, map[string]time.Time{})
+			r := s.evaluate(context.Background(), bound{t: tc.target, c: c}, nil, unitSnapshot(1, true), now, map[string]time.Time{})
 			if o := r.Evidence.Observations[0]; o.Outcome != evidence.Unsupported {
 				t.Errorf("%s %s: %+v", name, typ, o)
 			}
@@ -291,7 +292,14 @@ func TestMatch(t *testing.T) {
 		{PID: 7}: cid,
 		{PID: 8}: "",
 	} {
-		ids := s.match(sel, snap)
+		var ids []string
+		if want := s.selects(sel); want != nil {
+			for _, w := range snap.Workloads {
+				if want(w.Identity) {
+					ids = append(ids, w.ID)
+				}
+			}
+		}
 		if got := ""; len(ids) == 1 {
 			got = ids[0]
 			if got != want {
@@ -396,5 +404,184 @@ func TestEvaluate_HealthWindowSurvivesInconclusiveAnswers(t *testing.T) {
 	}
 	if _, open := s.windows[key]; open {
 		t.Fatal("a positive did not close the window")
+	}
+}
+
+// fleetSink evaluates targets whose contract reference is the service name it loads.
+func fleetSink(t *testing.T, targets []Target, contracts map[string]*contract.Contract, got *[]Result) *Sink {
+	t.Helper()
+	s := newSink(t, targets, got)
+	s.Load = func(_ context.Context, ref string) (*contract.Bundle, error) {
+		c, ok := contracts[ref]
+		if !ok {
+			return nil, errors.New("no contract")
+		}
+		return &contract.Bundle{Contract: c}, nil
+	}
+	return s
+}
+
+// connectedSnapshot is a fresh snapshot of units whose first one connected successfully to every peer.
+func connectedSnapshot(units []string, peers ...runtimefacts.Address) *runtimefacts.Snapshot {
+	snap := &runtimefacts.Snapshot{PublishIntervalSeconds: 30, LastPublished: now,
+		Collection: runtimefacts.Collection{State: runtimefacts.StateRunning}}
+	for i, u := range units {
+		w := runtimefacts.Workload{Identity: runtimefacts.Identity{Kind: runtimefacts.KindUnit, ID: u, Name: u}, BaselineAt: now.Add(-time.Minute)}
+		for _, p := range peers {
+			if i == 0 {
+				w.Connections = append(w.Connections, runtimefacts.Connection{Address: p.IP, Port: p.Port, Successes: 1, LastSuccessAt: now.Add(-time.Second)})
+			}
+		}
+		snap.Workloads = append(snap.Workloads, w)
+	}
+	return snap
+}
+
+// undeclared is the subjects of the result's undeclared dependency observations.
+func undeclared(t *testing.T, r Result) []string {
+	t.Helper()
+	var out []string
+	for _, o := range r.Evidence.Observations {
+		if d, err := o.GetDependencyObservation(); err == nil && d.Undeclared {
+			if !d.Reachable || o.Provenance.Collector != CollectorKernel {
+				t.Fatalf("undeclared = %+v", o)
+			}
+			out = append(out, o.Subject.Name)
+		}
+	}
+	return out
+}
+
+func TestEvaluate_UndeclaredPeers(t *testing.T) {
+	svc := func(name string, deps ...contract.Dependency) *contract.Contract {
+		return &contract.Contract{PactoVersion: "1.1", Service: contract.Service{Name: name, Version: "1.0.0"}, Dependencies: deps}
+	}
+	contracts := map[string]*contract.Contract{
+		"web":                        svc("web", contract.Dependency{Name: "orders", Ref: "./orders"}, contract.Dependency{Name: "pg", Ref: "./pg"}, contract.Dependency{Name: "ledger", Ref: "oci://r.io/ledger:1"}),
+		"orders":                     svc("orders"),
+		"store":                      svc("postgres"),
+		"oci://r.io/ledger@sha256:0": svc("ledger-svc"),
+		"api":                        svc("api"),
+		"local":                      svc("local"),
+		"self":                       svc("web"),
+		"anon":                       svc(""),
+		"nohost":                     svc("nohost"),
+		"lost":                       svc("lost"),
+	}
+	target := func(name, host string, port int32) Target {
+		return Target{Name: name, Contract: name, Match: Selector{Unit: name}, Host: host, Interfaces: map[string]int32{"i": port}}
+	}
+	web := target("web", "10.0.0.1", 80)
+	web.Dependencies = map[string]string{"pg": "10.0.0.3:5432"}
+	ledger := target("ledger", "10.0.0.4", 9000)
+	ledger.Contract = "oci://r.io/ledger@sha256:0"
+	targets := []Target{web, target("orders", "10.0.0.2", 8080), target("store", "10.0.0.3", 5432), ledger,
+		target("api", "10.0.0.5", 8443), target("local", "127.0.0.1", 7000), target("self", "10.0.0.6", 1),
+		target("anon", "10.0.0.7", 1), target("nohost", "", 1), target("lost", "lost.invalid", 1), target("broken", "10.0.0.8", 1)}
+	units := []string{"web"}
+	peers := []runtimefacts.Address{}
+	for _, tg := range targets[1:] {
+		units = append(units, tg.Name)
+		peers = append(peers, runtimefacts.NewAddress(tg.Host, tg.Interfaces["i"]))
+	}
+	var got []Result
+	s := fleetSink(t, targets, contracts, &got)
+	s.Resolve = func(_ context.Context, host string) ([]string, error) {
+		if host == "lost.invalid" {
+			return nil, errors.New("no such host")
+		}
+		return []string{host}, nil
+	}
+	s.Evaluate(context.Background(), connectedSnapshot(units, peers...))
+	// orders by name, store by bound address and ledger by reference are declared; a bridge workload's
+	// connection to 127.0.0.1 is its own loopback, not the host-network one.
+	if u := undeclared(t, got[0]); len(u) != 1 || u[0] != "api" {
+		t.Fatalf("undeclared = %v", u)
+	}
+	for _, f := range got[0].Findings {
+		if f.Code == finding.CodeDependencyUndeclared && f.Subject.Name != "api" {
+			t.Fatalf("finding = %+v", f)
+		}
+	}
+	if got[10].Error == "" {
+		t.Fatalf("broken = %+v", got[10])
+	}
+
+	// On the host's network the loopback is shared: the host-network peer is undeclared too.
+	targets[0].Host = "127.0.0.1"
+	s.Evaluate(context.Background(), connectedSnapshot(units, peers...))
+	if u := undeclared(t, got[0]); len(u) != 2 || u[0] != "api" || u[1] != "local" {
+		t.Fatalf("host network: undeclared = %v", u)
+	}
+
+	// A declared dependency no target stands for may be the very peer reached: nothing is reported.
+	contracts["web"].Dependencies = append(contracts["web"].Dependencies, contract.Dependency{Name: "billing", Ref: "./billing"})
+	s.Evaluate(context.Background(), connectedSnapshot(units, peers...))
+	if u := undeclared(t, got[0]); len(u) != 0 {
+		t.Fatalf("unresolved dependency: undeclared = %v", u)
+	}
+}
+
+func TestSameContract(t *testing.T) {
+	for _, tc := range []struct {
+		dep, target string
+		want        bool
+	}{
+		{"oci://r:5000/a/svc:1.0", "oci://r:5000/a/svc@sha256:0", true},
+		{"oci://r:5000/a/svc", "oci://r:5000/a/svc:2", true},
+		{"oci://r/a/svc", "oci://r/a/other", false},
+		{"./svc", "./svc", false},
+		{"oci://r/a/svc", "r/a/svc", false},
+	} {
+		if got := sameContract(tc.dep, tc.target); got != tc.want {
+			t.Errorf("sameContract(%q, %q) = %v", tc.dep, tc.target, got)
+		}
+	}
+}
+
+func TestEvaluate_ForeignNetns(t *testing.T) {
+	health := 200
+	port := server(t, &health)
+	var got []Result
+	for _, host := range []string{"127.0.0.1", "localhost"} {
+		target := Target{Name: "unit/svc.service", Contract: "./svc", Match: Selector{Unit: "svc.service"}, Host: host,
+			Interfaces: map[string]int32{"api": port}}
+		s := newSink(t, []Target{target}, &got)
+		s.ForeignNetns, s.Protocol = true, true
+		s.Evaluate(context.Background(), unitSnapshot(port, true))
+		obs := outcomes(t, got[0])
+		api, _ := obs["api"].GetInterfaceObservation()
+		if !api.Present || api.Protocol != "" || obs["health"].Outcome != evidence.Unsupported || obs["metrics"].Outcome != evidence.Unsupported {
+			t.Fatalf("%s: %+v", host, obs)
+		}
+		if len(got[0].Notes) != 1 || !strings.Contains(got[0].Notes[0], "--network=host") {
+			t.Fatalf("%s: notes = %v", host, got[0].Notes)
+		}
+	}
+}
+
+func TestEvaluate_BindingStart(t *testing.T) {
+	// The unit's only process started 10s before now: a success 20s before is a previous occupant's.
+	boot := now.Add(-time.Hour)
+	proc := procFS{fstest.MapFS{
+		"stat":     {Data: []byte("btime " + strconv.FormatInt(boot.Unix(), 10) + "\n")},
+		"5/cgroup": {Data: []byte("0::/system.slice/svc.service\n")},
+		"5/stat":   {Data: []byte("5 (svc) S 1 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 " + strconv.Itoa(int((time.Hour-10*time.Second)/(10*time.Millisecond))) + " 0")},
+	}}
+	target := Target{Name: "unit/svc.service", Contract: "./svc", Match: Selector{Unit: "svc.service"},
+		Dependencies: map[string]string{"db": "127.0.0.1:5432"}}
+	var got []Result
+	s := newSink(t, []Target{target}, &got)
+	s.Proc = proc
+	snap := unitSnapshot(1, false)
+	snap.Workloads[0].Connections[0].LastSuccessAt = now.Add(-20 * time.Second)
+	s.Evaluate(context.Background(), snap)
+	if db := outcomes(t, got[0])["db"]; db.Outcome != evidence.Insufficient {
+		t.Fatalf("db before start = %+v", db)
+	}
+	snap.Workloads[0].Connections[0].LastSuccessAt = now.Add(-5 * time.Second)
+	s.Evaluate(context.Background(), snap)
+	if d, _ := outcomes(t, got[0])["db"].GetDependencyObservation(); !d.Reachable {
+		t.Fatalf("db after start = %+v", outcomes(t, got[0])["db"])
 	}
 }

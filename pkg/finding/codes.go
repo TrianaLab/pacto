@@ -66,40 +66,11 @@ const (
 	CodeCollectionFailed       Code = "COLLECTION_FAILED"
 	CodeEvidenceStale          Code = "EVIDENCE_STALE"
 	CodeEvidenceInsufficient   Code = "EVIDENCE_INSUFFICIENT"
-	// Deprecated: no longer emitted; an extension capability is listed under
-	// Coverage.Unverified instead. Kept registered so stored findings still
-	// classify. Removed at v4.
-	CodeExtensionEvaluatorUnavailable Code = "EXTENSION_EVALUATOR_UNAVAILABLE"
 
 	// Structural (crossfield) — capability binding. Registry: {InvalidCapability, Error}.
 	CodeCapabilityInterfaceUnknown Code = "CAPABILITY_INTERFACE_UNKNOWN" // binding.interface references no declared interface
 	CodeCapabilityPathInvalid      Code = "CAPABILITY_PATH_INVALID"      // binding.path fails the net/url SSRF check
 
-)
-
-// Codes no validator emits any more. They ship in the released v3 major, so they
-// stay declared until v4 for anything that switches on them; they are deliberately
-// absent from the registry, because the published operator reference is generated
-// from those rows and listing a code nothing can produce is the drift that removing
-// them fixed. The accessors therefore treat them as unregistered, which is what
-// they already answered in v3.2.9: SeverityError from SeverityFor/DefaultSeverity,
-// and now "" from CategoryOf.
-const (
-	// Deprecated: the interface shape rules moved into the structural JSON Schema,
-	// which reports CodeSchemaViolation. Removed at v4.
-	CodeInvalidInterfaceType Code = "INVALID_INTERFACE_TYPE"
-	// Deprecated: the interface shape rules moved into the structural JSON Schema,
-	// which reports CodeSchemaViolation. Removed at v4.
-	CodeInterfaceRefRequired Code = "INTERFACE_REF_REQUIRED"
-	// Deprecated: the capability shape rules moved into the structural JSON Schema,
-	// which reports CodeSchemaViolation. Removed at v4.
-	CodeInvalidCapabilityType Code = "INVALID_CAPABILITY_TYPE"
-	// Deprecated: the capability shape rules moved into the structural JSON Schema,
-	// which reports CodeSchemaViolation. Removed at v4.
-	CodeCapabilityRefRequired Code = "CAPABILITY_REF_REQUIRED"
-	// Deprecated: policies[].target is constrained by the structural JSON Schema,
-	// which reports CodeSchemaViolation. Removed at v4.
-	CodeUnsupportedPolicyTarget Code = "UNSUPPORTED_POLICY_TARGET"
 )
 
 // codeMeta is the registry row for a code: the category and severity a producer
@@ -167,12 +138,11 @@ var registry = map[Code]codeMeta{
 	CodeDependencyUndeclared: {CategoryRuntimeDrift, SeverityWarning},
 
 	// Family 2 — uncertainty
-	CodeEvidenceMissing:               {CategoryInconclusive, SeverityUnknown},
-	CodeObservationUnsupported:        {CategoryInconclusive, SeverityUnknown},
-	CodeCollectionFailed:              {CategoryInconclusive, SeverityUnknown},
-	CodeEvidenceStale:                 {CategoryInconclusive, SeverityUnknown},
-	CodeEvidenceInsufficient:          {CategoryInconclusive, SeverityUnknown},
-	CodeExtensionEvaluatorUnavailable: {CategoryInconclusive, SeverityUnknown},
+	CodeEvidenceMissing:        {CategoryInconclusive, SeverityUnknown},
+	CodeObservationUnsupported: {CategoryInconclusive, SeverityUnknown},
+	CodeCollectionFailed:       {CategoryInconclusive, SeverityUnknown},
+	CodeEvidenceStale:          {CategoryInconclusive, SeverityUnknown},
+	CodeEvidenceInsufficient:   {CategoryInconclusive, SeverityUnknown},
 
 	// Structural (crossfield) — capability binding
 	CodeCapabilityInterfaceUnknown: {CategoryInvalidCapability, SeverityError},
@@ -200,8 +170,13 @@ var optionalSeverity = map[Code]codeMeta{
 // when the assertion was declared optional, the base row otherwise. It is the one
 // lookup, so category and severity can never be read off different rows.
 func metaFor(c Code, required bool) (codeMeta, bool) {
+	return metaIn(optionalSeverity, c, required)
+}
+
+// metaIn is metaFor reading the required-ness rows from optional.
+func metaIn(optional map[Code]codeMeta, c Code, required bool) (codeMeta, bool) {
 	if !required {
-		if m, ok := optionalSeverity[c]; ok {
+		if m, ok := optional[c]; ok {
 			return m, true
 		}
 	}
@@ -235,14 +210,6 @@ func SeverityFor(c Code, required bool) Severity {
 		return m.severity
 	}
 	return SeverityError
-}
-
-// DefaultSeverity returns the code's default severity (error if unknown).
-//
-// Deprecated: use SeverityFor, which also honours the required-ness axis. This is
-// SeverityFor with required=true. Removed at v4.
-func DefaultSeverity(c Code) Severity {
-	return SeverityFor(c, true)
 }
 
 // CodeInfo is one registry row: the category and severity a finding carrying

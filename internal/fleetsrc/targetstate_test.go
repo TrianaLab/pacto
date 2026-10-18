@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // writeFixture writes body to a temp file and returns its path.

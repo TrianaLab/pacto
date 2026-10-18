@@ -24,9 +24,9 @@ func (e *ParseError) Unwrap() error {
 
 // ValidationError represents a validation failure that makes a contract invalid.
 type ValidationError struct {
-	Path    string
-	Code    string
-	Message string
+	Path    string `json:"path"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 // Error formats the failure as "[CODE] path: message".
@@ -36,9 +36,9 @@ func (e *ValidationError) Error() string {
 
 // ValidationWarning represents a validation concern that does not invalidate the contract.
 type ValidationWarning struct {
-	Path    string
-	Code    string
-	Message string
+	Path    string `json:"path"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 // String formats the warning as "[CODE] path: message".

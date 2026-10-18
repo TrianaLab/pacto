@@ -7,9 +7,8 @@ import (
 	"testing"
 
 	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/trianalab/pacto/v3/pkg/oci"
-	"github.com/trianalab/pacto/v3/pkg/semver"
+	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/semver"
 )
 
 func TestHasExplicitTag(t *testing.T) {
@@ -241,7 +240,7 @@ func TestClient_ListTags(t *testing.T) {
 }
 
 func TestClient_ListTags_InvalidRepo(t *testing.T) {
-	client := oci.NewClient(authn.DefaultKeychain, oci.WithNameOptions(name.Insecure))
+	client := oci.NewClient(authn.DefaultKeychain)
 	_, err := client.ListTags(context.Background(), "!!!")
 	if err == nil {
 		t.Fatal("expected error for invalid repository")

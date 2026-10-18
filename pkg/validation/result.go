@@ -1,11 +1,11 @@
 package validation
 
-import "github.com/trianalab/pacto/v3/pkg/contract"
+import "github.com/trianalab/pacto/v4/pkg/contract"
 
 // ValidationResult aggregates errors and warnings from all validation layers.
 type ValidationResult struct {
-	Errors   []contract.ValidationError
-	Warnings []contract.ValidationWarning
+	Errors   []contract.ValidationError   `json:"errors"`
+	Warnings []contract.ValidationWarning `json:"warnings"`
 }
 
 // IsValid returns true if there are no errors.

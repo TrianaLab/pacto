@@ -10,7 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 // constValue is one typed string constant and the trailing comment that says
@@ -23,7 +24,7 @@ type constValue struct {
 // printRegistry writes, as JSON, the engine vocabularies the operator reference
 // documents (`gendocs registry`): the finding registry from its accessor, and
 // the evidence kinds, outcomes and fact values read from pkg/evidence's typed
-// constants. release/scripts/gen_integration_docs.py consumes it instead of
+// constants, and the Kubernetes collector names from pkg/runtimefacts. release/scripts/gen_integration_docs.py consumes it instead of
 // scraping Go source with regular expressions.
 func printRegistry(w io.Writer, evidenceDir string) error {
 	consts, err := typedConsts(evidenceDir)
@@ -44,6 +45,11 @@ func printRegistry(w io.Writer, evidenceDir string) error {
 		"observationKinds": values("ObservationKind"),
 		"outcomes":         values("Outcome"),
 		"facts":            map[string][]constValue{"Protocol": consts["Protocol"], "Exposure": consts["Exposure"]},
+		"collectors": map[string]string{
+			"kubernetes":       runtimefacts.CollectorKubernetes,
+			"kubernetesKernel": runtimefacts.CollectorKubernetesKernel,
+			"kernel":           runtimefacts.CollectorKernel,
+		},
 	})
 }
 

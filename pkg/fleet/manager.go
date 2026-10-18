@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
 // ErrNoSnapshot is returned by a [Manager] before any snapshot has been

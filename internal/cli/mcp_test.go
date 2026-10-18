@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	pactomcp "github.com/trianalab/pacto/v3/internal/mcp"
+	"github.com/trianalab/pacto/v4/internal/app"
+	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 )
 
 func TestMCPCommand_Help(t *testing.T) {

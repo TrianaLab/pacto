@@ -11,7 +11,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/registry/remote"
 
-	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 )
 
 // Store persists accepted evidence records as OCI 1.1 Referrers of the contract

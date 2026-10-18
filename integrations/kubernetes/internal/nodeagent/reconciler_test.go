@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-logr/logr/funcr"
 	appsv1 "k8s.io/api/apps/v1"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -32,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
 )
 
 func newReconciler(cfg Config, funcs interceptor.Funcs, objs ...client.Object) *Reconciler {
@@ -40,6 +41,7 @@ func newReconciler(cfg Config, funcs interceptor.Funcs, objs ...client.Object) *
 	_ = corev1.AddToScheme(s)
 	_ = appsv1.AddToScheme(s)
 	_ = rbacv1.AddToScheme(s)
+	_ = coordinationv1.AddToScheme(s)
 	_ = pactov1alpha1.AddToScheme(s)
 	c := fake.NewClientBuilder().WithScheme(s).WithInterceptorFuncs(funcs).WithObjects(objs...).Build()
 	// The fake client is uncached, so it doubles as the APIReader that
@@ -58,6 +60,34 @@ func namespace(enforce string) *corev1.Namespace {
 func observation(name string, labels map[string]string) *pactov1alpha1.NodeRuntimeObservation {
 	return &pactov1alpha1.NodeRuntimeObservation{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-ns", Labels: labels},
+	}
+}
+
+func lease(name string, labels map[string]string) *coordinationv1.Lease {
+	return &coordinationv1.Lease{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-ns", Labels: labels}}
+}
+
+// names lists the objects of one kind left in test-ns.
+func names(t *testing.T, r *Reconciler, list client.ObjectList) string {
+	t.Helper()
+	if err := r.List(context.Background(), list, client.InNamespace("test-ns")); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := meta.ExtractList(list)
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.(client.Object).GetName())
+	}
+	return strings.Join(out, ",")
+}
+
+// legacy returns the agent objects an earlier release ran in the operator namespace.
+func legacy() []client.Object {
+	om := metav1.ObjectMeta{Name: Name, Namespace: "op-ns", Labels: Labels()}
+	return []client.Object{
+		&appsv1.DaemonSet{ObjectMeta: om}, &rbacv1.RoleBinding{ObjectMeta: om},
+		&rbacv1.Role{ObjectMeta: om}, &corev1.ServiceAccount{ObjectMeta: om},
+		&pactov1alpha1.NodeRuntimeObservation{ObjectMeta: metav1.ObjectMeta{Name: "node-a", Namespace: "op-ns", Labels: Labels()}},
 	}
 }
 
@@ -89,9 +119,8 @@ func TestReconciler_IsRunnableNotReconciler(t *testing.T) {
 }
 
 func TestSync_Enabled_AppliesEverything(t *testing.T) {
-	r := newReconciler(enabledCfg(), interceptor.Funcs{}, namespace("privileged"))
-	var logs strings.Builder
-	if err := r.Sync(captureLogs(&logs)); err != nil {
+	r := newReconciler(enabledCfg(), interceptor.Funcs{}, namespace(""))
+	if err := r.Sync(context.Background()); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
 	for kind, obj := range managedObjects() {
@@ -103,42 +132,35 @@ func TestSync_Enabled_AppliesEverything(t *testing.T) {
 			t.Errorf("%s missing component label", kind)
 		}
 	}
-	if strings.Contains(logs.String(), "Pod Security") {
-		t.Errorf("a privileged namespace logs no Pod Security error:\n%s", logs.String())
-	}
 }
 
-// A namespace that enforces baseline or restricted is reported, never fatal: a
-// failed first Sync would stop the whole manager.
-func TestSync_Enabled_RestrictiveNamespaceIsLoggedNotFatal(t *testing.T) {
-	for _, level := range []string{"baseline", "restricted"} {
+// The agent namespace is labelled privileged on every sync, so a namespace an
+// admin relabelled baseline or restricted is repaired rather than silently
+// rejecting the agent pods.
+func TestSync_Enabled_LabelsTheNamespacePrivileged(t *testing.T) {
+	for _, level := range []string{"", "baseline", "restricted"} {
 		r := newReconciler(enabledCfg(), interceptor.Funcs{}, namespace(level))
-		var logs strings.Builder
-		if err := r.Sync(captureLogs(&logs)); err != nil {
-			t.Fatalf("%s: Sync must not fail: %v", level, err)
+		if err := r.Sync(context.Background()); err != nil {
+			t.Fatalf("%q: Sync: %v", level, err)
 		}
-		if !strings.Contains(logs.String(), "rejects the node agent pods") || !strings.Contains(logs.String(), level) {
-			t.Errorf("%s: want a Pod Security error in the log:\n%s", level, logs.String())
+		ns := &corev1.Namespace{}
+		if err := r.Get(context.Background(), client.ObjectKey{Name: "test-ns"}, ns); err != nil {
+			t.Fatal(err)
 		}
-		if err := r.Get(context.Background(), client.ObjectKey{Namespace: "test-ns", Name: Name}, &appsv1.DaemonSet{}); err != nil {
-			t.Errorf("%s: the DaemonSet is still applied: %v", level, err)
+		for k, v := range PodSecurityLevels {
+			if ns.Labels[k] != v {
+				t.Errorf("%q: label %s = %q, want %q", level, k, ns.Labels[k], v)
+			}
 		}
-	}
-}
-
-func TestSync_Enabled_UnreadableNamespaceIsLogged(t *testing.T) {
-	r := newReconciler(enabledCfg(), interceptor.Funcs{})
-	var logs strings.Builder
-	if err := r.Sync(captureLogs(&logs)); err != nil {
-		t.Fatalf("Sync: %v", err)
-	}
-	if !strings.Contains(logs.String(), "Could not read the namespace") {
-		t.Errorf("want the read failure logged:\n%s", logs.String())
 	}
 }
 
 func TestSync_Enabled_ApplyErrors(t *testing.T) {
 	for kind, match := range map[string]func(runtime.ApplyConfiguration) bool{
+		"namespace": func(ac runtime.ApplyConfiguration) bool {
+			_, ok := ac.(*corev1ac.NamespaceApplyConfiguration)
+			return ok
+		},
 		"serviceaccount": func(ac runtime.ApplyConfiguration) bool {
 			_, ok := ac.(*corev1ac.ServiceAccountApplyConfiguration)
 			return ok
@@ -175,9 +197,9 @@ func TestSync_Disabled_NothingToDo(t *testing.T) {
 }
 
 func TestSync_DisabledAfterEnabled_RemovesEverythingOwned(t *testing.T) {
-	foreign := observation("hand-written", nil)
 	r := newReconciler(enabledCfg(), interceptor.Funcs{}, namespace(""),
-		observation("node-a", Labels()), observation("node-b", Labels()), foreign)
+		observation("node-a", Labels()), observation("node-b", Labels()), observation("hand-written", nil),
+		lease("node-a", Labels()), lease("hand-written", nil))
 	if err := r.Sync(context.Background()); err != nil {
 		t.Fatalf("enable: %v", err)
 	}
@@ -191,12 +213,68 @@ func TestSync_DisabledAfterEnabled_RemovesEverythingOwned(t *testing.T) {
 			t.Errorf("%s should be gone, got %v", kind, err)
 		}
 	}
-	list := &pactov1alpha1.NodeRuntimeObservationList{}
-	if err := r.List(ctx, list, client.InNamespace("test-ns")); err != nil {
-		t.Fatal(err)
+	if got := names(t, r, &pactov1alpha1.NodeRuntimeObservationList{}); got != "hand-written" {
+		t.Errorf("only the unlabelled observation survives, got %q", got)
 	}
-	if len(list.Items) != 1 || list.Items[0].Name != foreign.Name {
-		t.Errorf("only the unlabelled observation survives, got %d items", len(list.Items))
+	if got := names(t, r, &coordinationv1.LeaseList{}); got != "hand-written" {
+		t.Errorf("only the unlabelled Lease survives, got %q", got)
+	}
+}
+
+// What an earlier release ran in the operator namespace is removed whether the
+// agent is enabled or not; anything else there is left alone.
+func TestSync_PrunesTheLegacyOperatorNamespace(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		cfg := enabledCfg()
+		cfg.Enabled = enabled
+		foreign := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "other", Namespace: "op-ns", Labels: Labels()}}
+		r := newReconciler(cfg, interceptor.Funcs{}, append(legacy(), namespace(""), foreign)...)
+		if err := r.Sync(context.Background()); err != nil {
+			t.Fatalf("enabled=%v: Sync: %v", enabled, err)
+		}
+		for _, obj := range legacy() {
+			if err := r.Get(context.Background(), client.ObjectKeyFromObject(obj), obj); !apierrors.IsNotFound(err) {
+				t.Errorf("enabled=%v: legacy %T %s should be gone, got %v", enabled, obj, obj.GetName(), err)
+			}
+		}
+		if err := r.Get(context.Background(), client.ObjectKeyFromObject(foreign), &appsv1.DaemonSet{}); err != nil {
+			t.Errorf("enabled=%v: a DaemonSet of another name survives: %v", enabled, err)
+		}
+	}
+}
+
+// A legacy prune error is logged, never a Sync failure; without an operator
+// namespace, or with the agent's own, there is nothing legacy to prune.
+func TestSync_LegacyPrune_ErrorsAndNoOp(t *testing.T) {
+	boom := fmt.Errorf("boom")
+	r := newReconciler(enabledCfg(), interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, k client.ObjectKey, o client.Object, opts ...client.GetOption) error {
+			if k.Namespace == "op-ns" {
+				return boom
+			}
+			return c.Get(ctx, k, o, opts...)
+		},
+	}, namespace(""))
+	var logs strings.Builder
+	if err := r.Sync(captureLogs(&logs)); err != nil {
+		t.Fatalf("Sync must not fail on a legacy prune error: %v", err)
+	}
+	if !strings.Contains(logs.String(), "from the operator namespace") {
+		t.Errorf("the legacy prune error is logged:\n%s", logs.String())
+	}
+	for _, op := range []string{"", "test-ns"} {
+		cfg := Config{Namespace: "test-ns", OperatorNamespace: op}
+		r := newReconciler(cfg, interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, k client.ObjectKey, o client.Object, opts ...client.GetOption) error {
+				if k.Namespace != "test-ns" {
+					t.Errorf("operator namespace %q: unexpected read in %q", op, k.Namespace)
+				}
+				return c.Get(ctx, k, o, opts...)
+			},
+		})
+		if err := r.Sync(context.Background()); err != nil {
+			t.Fatalf("operator namespace %q: Sync: %v", op, err)
+		}
 	}
 }
 
@@ -220,6 +298,22 @@ func TestCleanup_Errors(t *testing.T) {
 				return fmt.Errorf("boom")
 			}},
 			wantErr: "failed to list NodeRuntimeObservations: boom",
+		},
+		{
+			name: "lease list fails",
+			funcs: interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, l client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := l.(*coordinationv1.LeaseList); ok {
+					return fmt.Errorf("boom")
+				}
+				return c.List(ctx, l, opts...)
+			}},
+			wantErr: "failed to list Leases: boom",
+		},
+		{
+			name: "delete forbidden is tolerated",
+			funcs: interceptor.Funcs{Delete: func(context.Context, client.WithWatch, client.Object, ...client.DeleteOption) error {
+				return apierrors.NewForbidden(gr, "node-a", fmt.Errorf("no"))
+			}},
 		},
 		{
 			name: "list forbidden is tolerated",
@@ -248,7 +342,7 @@ func TestCleanup_Errors(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			r := newReconciler(Config{Namespace: "test-ns"}, tc.funcs, observation("node-a", Labels()))
+			r := newReconciler(Config{Namespace: "test-ns"}, tc.funcs, observation("node-a", Labels()), lease("node-a", Labels()))
 			err := r.Sync(context.Background())
 			if tc.wantErr == "" {
 				if err != nil {
@@ -273,24 +367,19 @@ func TestStart_Disabled(t *testing.T) {
 // An enabled Sync deletes the agent observations of nodes that no longer exist
 // and keeps the rest: a live node's, and an object the agent did not write.
 func TestSync_Enabled_PrunesObservationsOfRemovedNodes(t *testing.T) {
-	foreign := observation("gone-but-foreign", nil)
 	r := newReconciler(enabledCfg(), interceptor.Funcs{}, namespace(""),
 		&corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "node-a"}},
-		observation("node-a", Labels()), observation("node-gone", Labels()), foreign)
+		observation("node-a", Labels()), observation("node-gone", Labels()), observation("gone-but-foreign", nil),
+		lease("node-a", Labels()), lease("node-gone", Labels()), lease("gone-but-foreign", nil))
 	var logs strings.Builder
 	if err := r.Sync(captureLogs(&logs)); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
-	list := &pactov1alpha1.NodeRuntimeObservationList{}
-	if err := r.List(context.Background(), list, client.InNamespace("test-ns")); err != nil {
-		t.Fatal(err)
+	if got := names(t, r, &pactov1alpha1.NodeRuntimeObservationList{}); got != "gone-but-foreign,node-a" {
+		t.Errorf("observation survivors = %q, want the live node's and the foreign object", got)
 	}
-	names := make([]string, 0, len(list.Items))
-	for _, o := range list.Items {
-		names = append(names, o.Name)
-	}
-	if strings.Join(names, ",") != "gone-but-foreign,node-a" {
-		t.Errorf("survivors = %v, want the live node's and the foreign object", names)
+	if got := names(t, r, &coordinationv1.LeaseList{}); got != "gone-but-foreign,node-a" {
+		t.Errorf("Lease survivors = %q, want the live node's and the foreign object", got)
 	}
 	if !strings.Contains(logs.String(), "removed node") {
 		t.Errorf("the prune is logged:\n%s", logs.String())

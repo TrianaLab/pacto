@@ -17,7 +17,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // Scheme is the only accepted subject scheme: a subject is a remote contract

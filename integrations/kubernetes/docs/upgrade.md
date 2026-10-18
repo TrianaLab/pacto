@@ -92,6 +92,30 @@ This exact flow is exercised against a real cluster by
 applies the new CRDs, then `helm upgrade`s to the current chart and asserts the
 pre-existing resource survives and reconciles.
 
+## Upgrading to v6
+
+v6 adds the `NodeRuntimeObservation` CRD, so apply the CRDs first as
+[above](#upgrading-across-a-major-version-crd-migration). Then check these
+before `helm upgrade`:
+
+- **Removed flags and values.** `--webhook-cert-path`, `--webhook-cert-name`,
+  `--webhook-cert-key` and `--dashboard-oci-secret` are gone; the operator
+  refuses to start with an unknown flag. Replace `dashboard.ociSecret: <name>`
+  with `dashboard.ociSecrets: [<name>]`: the chart schema rejects the old key.
+- **The node agent has its own namespace.** It runs in `nodeAgent.namespace`
+  (`pacto-node-agent` by default), which the chart creates privileged for Pod
+  Security. Drop the `pod-security.kubernetes.io/enforce=privileged` label
+  you may have put on the release namespace for it. At its first sync the
+  operator deletes the agent it ran in the release namespace. A private pull
+  secret for the agent image must exist in the agent namespace too.
+- **RBAC is split by namespace.** The managed components' lifecycle permissions
+  moved from the ClusterRole to a Role in the release namespace and, with the
+  node agent, a Role in the agent namespace. The chart renders both. An
+  operator installed without the chart needs them added by hand
+  ([RBAC](rbac.md) lists every rule).
+- **Kernel evidence namespace.** `controller.kernelEvidence.namespace`
+  defaults to the agent namespace instead of the operator's.
+
 ## Rolling back
 
 **Within** a major, `helm rollback pacto-operator` reverts what the chart owns

@@ -205,18 +205,25 @@ The node agent is the optional DaemonSet (one pod per node) behind
 `collector: k8s-observer+ebpf`, check these in order:
 
 ```bash
-kubectl -n pacto-operator-system get daemonset pacto-node-agent
-kubectl get noderuntimeobservations -n pacto-operator-system
+kubectl -n pacto-node-agent get daemonset pacto-node-agent
+kubectl -n pacto-node-agent get noderuntimeobservations,leases
 kubectl -n pacto-operator-system logs deploy/pacto-operator | grep node-agent
 ```
 
-- **No DaemonSet.** `nodeAgent.enabled` is off.
-- **DaemonSet with no pods.** The namespace's Pod Security label rejects them.
-  The operator logs `Namespace Pod Security level rejects the node agent pods;
-  label it privileged` and never relabels it for you. Label the namespace
-  `pod-security.kubernetes.io/enforce=privileged`.
-- **Pods running, no `NodeRuntimeObservation` for a node.** That node's
-  findings read `EVIDENCE_STALE`. Read the agent pod's log on that node.
+- **No DaemonSet.** `nodeAgent.enabled` is off, or the agent runs in another
+  `nodeAgent.namespace`.
+- **DaemonSet with no pods.** Something rejects them in the agent namespace.
+  The operator sets its Pod Security labels to `privileged` at every sync; read
+  `kubectl -n pacto-node-agent describe daemonset pacto-node-agent` for the
+  admission message, for example from a policy engine of your own.
+- **Pods running, no `NodeRuntimeObservation` or Lease for a node.** That
+  node's findings read `EVIDENCE_STALE`. Read the agent pod's log on that node.
+  A write refused with `may only write the objects named after its node` or
+  `carries no node name` comes from the chart's admission policy: the agent's
+  token does not name its node, which needs Kubernetes 1.30 or later.
+- **A Lease older than its node's observation.** The Lease is the heartbeat;
+  the operator reads whichever of its `renewTime` and the observation's
+  `lastPublished` is newer.
 - **Collection `Failed`.** The kernel could not load the program, often because
   it lacks BTF (the kernel type information at `/sys/kernel/btf/vmlinux`).
   [Turn it on](runtime-conformance.md#turn-it-on) lists what each node

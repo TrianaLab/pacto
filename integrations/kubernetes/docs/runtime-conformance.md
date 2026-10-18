@@ -48,18 +48,11 @@ You need, on every node that runs target pods:
 - Linux 5.8 or later with BTF. BTF is type information the kernel publishes at
   `/sys/kernel/btf/vmlinux`; current distribution kernels ship it. The agent
   runs on `kubernetes.io/os: linux` nodes only.
-- An operator namespace that admits privileged pods. The agent needs `hostPID`,
-  the node's `/sys/fs/cgroup` mounted read-only, root and the `BPF`, `PERFMON`
-  and `SYS_PTRACE` capabilities. Every other
-  capability is dropped, privilege escalation is off, the root filesystem is
-  read-only and the seccomp profile is `RuntimeDefault`. The operator never
-  relabels the namespace; if Pod Security would reject the agent, it logs an
-  error naming the label.
-
-```bash
-kubectl label namespace pacto-operator-system \
-  pod-security.kubernetes.io/enforce=privileged
-```
+- The agent needs `hostPID`, the node's `/sys/fs/cgroup` read-only, root and
+  the `BPF`, `PERFMON` and `SYS_PTRACE` capabilities; everything else is
+  dropped. Only the privileged Pod Security level admits that, so it runs in
+  its own namespace (`nodeAgent.namespace`, default `pacto-node-agent`), which
+  the chart creates privileged. The release namespace keeps its own level.
 
 ```yaml
 nodeAgent:
@@ -70,15 +63,13 @@ controller:
 
 `nodeAgent.publishInterval` sets how often the agent reports.
 `controller.kernelEvidence.namespace` and `staleness` cover an agent you run
-yourself. Turning the agent off deletes the DaemonSet, its RBAC and every
-`NodeRuntimeObservation` it wrote. While it is on, the operator deletes the
-object of a node that no longer exists at each periodic sync. The
+yourself. Turning the agent off removes its namespace and everything in it. The
 [Helm reference](helm-reference.md) lists every value.
 
 ## What the node agent observes
 
-The agent is a DaemonSet (one pod per node) that the operator creates in its own
-namespace. Each pod runs `pacto agent --sink kubernetes` from the Pacto runtime
+The agent is a DaemonSet (one pod per node) that the operator creates in the
+agent namespace. Each pod runs `pacto agent --sink kubernetes` from the Pacto runtime
 image (`ghcr.io/trianalab/pacto/dashboard`, the image the Evidence Server runs;
 `--node-agent-image` overrides it). It uses eBPF: a small program the kernel
 runs safely when an event happens. The program hooks the kernel tracepoint `inet_sock_set_state`, which
@@ -97,18 +88,25 @@ network namespace. It also reads the listening sockets from `/proc` at
 start and again every resync (60 seconds by default), so an event lost in
 between heals at the next resync.
 
-Every publish interval (30 seconds by default) the agent writes its node's view
-into the status of a `NodeRuntimeObservation` object named after the node, in
-the operator namespace. The view holds, per pod, its listeners and, per peer
-address and port, the count of successful and failed connections and when each
-last happened. Peers expire ten minutes after their last attempt.
+The agent keeps its node's view in a `NodeRuntimeObservation` object named
+after the node. The view holds, per pod,
+its listeners and, per peer address and port, the count of successful and failed
+connections and when each last happened. Peers expire ten minutes after their
+last attempt.
+
+Every publish interval (30 seconds by default) it renews a Lease named after
+its node, the heartbeat the operator reads, and rewrites the object only when
+the view changed ([details](limitations.md#node-agent-heartbeat-and-identity)).
 
 ## What it never collects
 
 The node agent collects what every `pacto agent` collects and nothing else (see
 [what Pacto watches](../../runtime-conformance.md#what-pacto-watches)). It opens
-no port, and its Role lets it write only `NodeRuntimeObservation` objects in the
-operator namespace, so its evidence never leaves the cluster API.
+no port, and its Role lets it write only `NodeRuntimeObservation` objects and
+Leases in the agent namespace, so its evidence never leaves the cluster API.
+
+An admission policy keeps each agent to the objects named after its own node
+([details](limitations.md#node-agent-heartbeat-and-identity)).
 
 ## How the evidence flows
 
@@ -166,7 +164,10 @@ before the pod started is ignored, because a reused network namespace can carry
 another pod's history. With several pods the worst coverage wins: stale, then
 failed, then partial. `DEPENDENCY_UNDECLARED` is a warning because a contract
 does not claim its dependency list is complete, so it never makes a contract
-`NonCompliant`.
+`NonCompliant`. It is not reported at all while a declared dependency resolves
+to no Pacto target, by ref or by name (a local or other non-OCI ref, or an OCI
+ref no Pacto carries): that dependency could be the very service the pod
+reached, so naming it undeclared would be a false positive.
 
 ## Freshness and coverage
 
@@ -179,8 +180,8 @@ A pod's kernel view is usable at one of four levels:
   shares the host network namespace, it is not mapped yet or it was truncated.
 - **Failed** — the node's collection state is `Failed`, which reads as
   `COLLECTION_FAILED`.
-- **Stale** — no node object, or no heartbeat within the staleness bound, which
-  reads as `EVIDENCE_STALE`. The bound is three publish intervals unless
+- **Stale** — no node object, or no heartbeat (Lease renewal, else
+  `lastPublished`) within the staleness bound, which reads as `EVIDENCE_STALE`. The bound is three publish intervals unless
   `controller.kernelEvidence.staleness` sets one.
 
 `Degraded` carries the reason `PodLimitExceeded`, `ResyncFailed` or

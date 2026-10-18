@@ -42,7 +42,7 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
 ## Via Go
 
 ```bash
-go install github.com/trianalab/pacto/v3/cmd/pacto@latest
+go install github.com/trianalab/pacto/v4/cmd/pacto@latest
 ```
 
 Requires [Go 1.26.9](https://go.dev/dl/) or later. The binary is placed in `$GOBIN` (typically `~/go/bin`).
@@ -89,7 +89,7 @@ pacto update              # latest release
 pacto update v3.1.4       # specific version
 ```
 
-This verifies the new binary's SHA-256 before replacing the current one. A `go install` build cannot use it; re-run `go install github.com/trianalab/pacto/v3/cmd/pacto@latest` instead.
+This verifies the new binary's SHA-256 before replacing the current one. A `go install` build cannot use it; re-run `go install github.com/trianalab/pacto/v4/cmd/pacto@latest` instead.
 
 ## Uninstall
 

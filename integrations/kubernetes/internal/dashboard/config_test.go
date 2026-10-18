@@ -64,10 +64,10 @@ func TestConfigValidate(t *testing.T) {
 		{
 			name: "enabled with OCI secret is valid",
 			cfg: Config{
-				Enabled:   true,
-				Image:     "ghcr.io/trianalab/pacto/dashboard:1.0.0",
-				Namespace: "pacto-system",
-				OCISecret: "registry-creds",
+				Enabled:    true,
+				Image:      "ghcr.io/trianalab/pacto/dashboard:1.0.0",
+				Namespace:  "pacto-system",
+				OCISecrets: []string{"registry-creds"},
 			},
 			wantErr: false,
 		},
@@ -108,38 +108,6 @@ func TestConfigValidate(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 		})
-	}
-}
-
-func TestEffectiveOCISecrets_OCISecretsOnly(t *testing.T) {
-	cfg := Config{OCISecrets: []string{"a", "b"}}
-	got := cfg.EffectiveOCISecrets()
-	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
-		t.Fatalf("expected [a b], got %v", got)
-	}
-}
-
-func TestEffectiveOCISecrets_OCISecretFallback(t *testing.T) {
-	cfg := Config{OCISecret: "legacy"}
-	got := cfg.EffectiveOCISecrets()
-	if len(got) != 1 || got[0] != "legacy" {
-		t.Fatalf("expected [legacy], got %v", got)
-	}
-}
-
-func TestEffectiveOCISecrets_OCISecretsPrecedence(t *testing.T) {
-	cfg := Config{OCISecret: "old", OCISecrets: []string{"new"}}
-	got := cfg.EffectiveOCISecrets()
-	if len(got) != 1 || got[0] != "new" {
-		t.Fatalf("expected OCISecrets to take precedence, got %v", got)
-	}
-}
-
-func TestEffectiveOCISecrets_Empty(t *testing.T) {
-	cfg := Config{}
-	got := cfg.EffectiveOCISecrets()
-	if got != nil {
-		t.Fatalf("expected nil, got %v", got)
 	}
 }
 

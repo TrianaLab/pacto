@@ -9,6 +9,7 @@ package nodeagent
 
 import (
 	appsv1 "k8s.io/api/apps/v1"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
@@ -16,15 +17,41 @@ import (
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	rbacv1ac "k8s.io/client-go/applyconfigurations/rbac/v1"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
 )
 
-// agentVerbs is everything the agent's Role grants: server-side apply is a
-// patch, and an apply that creates the object also needs create. The agent
-// never lists, watches, updates or deletes. The operator must hold each of
-// these verbs itself (no escalate or bind), so the chart ClusterRole and the
-// RBAC markers mirror this list.
-var agentVerbs = []string{"get", "create", "patch"}
+// agentVerbs is everything the agent's Role grants on its observation:
+// server-side apply is a patch, and an apply that creates the object also needs
+// create. The agent never lists, watches, updates or deletes it. leaseVerbs add
+// update, the verb a Lease holder renews with. The operator must hold each of
+// these verbs itself (no escalate or bind), so the chart's agent-namespace Role
+// and the RBAC markers mirror both lists.
+var (
+	agentVerbs = []string{"get", "create", "patch"}
+	leaseVerbs = []string{"get", "create", "patch", "update"}
+)
+
+// PodSecurityLevels are the Pod Security Admission labels the operator sets on
+// the agent namespace: the agent pod is privileged in PSS terms (hostPID, root,
+// added capabilities, a hostPath), so enforce, audit and warn all admit it.
+var PodSecurityLevels = map[string]string{
+	PodSecurityEnforceLabel:            "privileged",
+	"pod-security.kubernetes.io/audit": "privileged",
+	"pod-security.kubernetes.io/warn":  "privileged",
+}
+
+// namespaceAC returns the agent namespace's privileged Pod Security levels and
+// component label. The chart creates the namespace with the same levels (the
+// Roles that let the operator manage the agent live in it); the operator
+// re-asserts them on every sync, so a relabelled namespace is repaired rather
+// than silently rejecting the agent pods. It sets no label the chart sets to a
+// different value (managed-by, name), so Helm's server-side apply and this one
+// never conflict.
+func namespaceAC(cfg Config) *corev1ac.NamespaceApplyConfiguration {
+	return corev1ac.Namespace(cfg.Namespace).
+		WithLabels(map[string]string{LabelComponent: ComponentValue}).
+		WithLabels(PodSecurityLevels)
+}
 
 // serviceAccountAC returns the agent's ServiceAccount.
 func serviceAccountAC(cfg Config) *corev1ac.ServiceAccountApplyConfiguration {
@@ -32,31 +59,32 @@ func serviceAccountAC(cfg Config) *corev1ac.ServiceAccountApplyConfiguration {
 	for _, name := range cfg.ImagePullSecrets {
 		sa.WithImagePullSecrets(corev1ac.LocalObjectReference().WithName(name))
 	}
-	if cfg.OwnerRef != nil {
-		sa.WithOwnerReferences(cfg.OwnerRef)
-	}
 	return sa
 }
 
-// roleAC returns the agent's Role: its only permission is its own transport
-// object, in the operator namespace. It reads no pods and no nodes from the API —
-// the agent learns everything from the kernel and /proc on its own node.
+// roleAC returns the agent's Role: its only permissions are its own transport
+// object and its heartbeat Lease, in the agent namespace. It reads no pods and
+// no nodes from the API — the agent learns everything from the kernel and /proc
+// on its own node. Which object of each kind an agent may write (its own node's)
+// is enforced by the chart's ValidatingAdmissionPolicy, not by RBAC.
 func roleAC(cfg Config) *rbacv1ac.RoleApplyConfiguration {
-	role := rbacv1ac.Role(Name, cfg.Namespace).
+	return rbacv1ac.Role(Name, cfg.Namespace).
 		WithLabels(Labels()).
-		WithRules(rbacv1ac.PolicyRule().
-			WithAPIGroups(pactov1alpha1.GroupVersion.Group).
-			WithResources("noderuntimeobservations", "noderuntimeobservations/status").
-			WithVerbs(agentVerbs...))
-	if cfg.OwnerRef != nil {
-		role.WithOwnerReferences(cfg.OwnerRef)
-	}
-	return role
+		WithRules(
+			rbacv1ac.PolicyRule().
+				WithAPIGroups(pactov1alpha1.GroupVersion.Group).
+				WithResources("noderuntimeobservations", "noderuntimeobservations/status").
+				WithVerbs(agentVerbs...),
+			rbacv1ac.PolicyRule().
+				WithAPIGroups(coordinationv1.GroupName).
+				WithResources("leases").
+				WithVerbs(leaseVerbs...),
+		)
 }
 
 // roleBindingAC binds the Role to the agent's ServiceAccount.
 func roleBindingAC(cfg Config) *rbacv1ac.RoleBindingApplyConfiguration {
-	rb := rbacv1ac.RoleBinding(Name, cfg.Namespace).
+	return rbacv1ac.RoleBinding(Name, cfg.Namespace).
 		WithLabels(Labels()).
 		WithSubjects(rbacv1ac.Subject().
 			WithKind("ServiceAccount").
@@ -66,10 +94,6 @@ func roleBindingAC(cfg Config) *rbacv1ac.RoleBindingApplyConfiguration {
 			WithAPIGroup("rbac.authorization.k8s.io").
 			WithKind("Role").
 			WithName(Name))
-	if cfg.OwnerRef != nil {
-		rb.WithOwnerReferences(cfg.OwnerRef)
-	}
-	return rb
 }
 
 // daemonSetAC returns the agent DaemonSet: one pod per node, every taint
@@ -86,8 +110,8 @@ func roleBindingAC(cfg Config) *rbacv1ac.RoleBindingApplyConfiguration {
 //
 // There are no probes. The agent opens no port, so an HTTP probe would add the
 // only network surface it has; and a hung agent already shows as a stale
-// heartbeat (lastPublished) on its NodeRuntimeObservation, which the operator
-// turns into stale evidence rather than trusting it.
+// heartbeat (its node's Lease stops being renewed), which the operator turns
+// into stale evidence rather than trusting it.
 func daemonSetAC(cfg Config) *appsv1ac.DaemonSetApplyConfiguration {
 	res := cfg.Resources.Build(DefaultResources())
 
@@ -114,7 +138,7 @@ func daemonSetAC(cfg Config) *appsv1ac.DaemonSetApplyConfiguration {
 		WithVolumeMounts(corev1ac.VolumeMount().WithName("cgroup").WithMountPath(CgroupMountPath).WithReadOnly(true)).
 		WithResources(corev1ac.ResourceRequirements().WithRequests(res.Requests).WithLimits(res.Limits))
 
-	ds := appsv1ac.DaemonSet(Name, cfg.Namespace).
+	return appsv1ac.DaemonSet(Name, cfg.Namespace).
 		WithLabels(Labels()).
 		WithSpec(appsv1ac.DaemonSetSpec().
 			WithSelector(metav1ac.LabelSelector().WithMatchLabels(SelectorLabels())).
@@ -146,8 +170,4 @@ func daemonSetAC(cfg Config) *appsv1ac.DaemonSetApplyConfiguration {
 				),
 			),
 		)
-	if cfg.OwnerRef != nil {
-		ds.WithOwnerReferences(cfg.OwnerRef)
-	}
-	return ds
 }

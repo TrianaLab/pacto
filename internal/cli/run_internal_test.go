@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -19,13 +20,13 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/runtimewatch"
-	"github.com/trianalab/pacto/v3/internal/runtimewatch/ebpf"
-	"github.com/trianalab/pacto/v3/internal/runtimewatch/evalsink"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch/ebpf"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch/evalsink"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 // runContract declares the interface api and the dependency db.
@@ -42,12 +43,18 @@ func runContract() *contract.Bundle {
 type fakeSession struct {
 	parent, name string
 	prepared     bool
+	unstartable  bool
 	closeErr     error
 	closed       bool
 }
 
-func (f *fakeSession) Prepare(*exec.Cmd) { f.prepared = true }
-func (f *fakeSession) Close() error      { f.closed = true; return f.closeErr }
+func (f *fakeSession) Prepare(c *exec.Cmd) {
+	f.prepared = true
+	if f.unstartable {
+		c.Dir = "/no/such/dir" // as a cgroup the kernel will not start the command in
+	}
+}
+func (f *fakeSession) Close() error { f.closed = true; return f.closeErr }
 
 // statusCollector reports a fixed status.
 type statusCollector struct {
@@ -69,24 +76,21 @@ type runStubs struct {
 	signalsSet chan struct{}
 }
 
-func stubRun(t *testing.T, s *runStubs) {
+func stubRun(t *testing.T, s *runStubs) deps {
 	t.Helper()
-	oc, oa, os_, osr, on, orb, oat, opi := newCollector, runAgent, newSession, setSubreaper, notifySignals, resolveRunBundle, attachTimeout, pollInterval
-	t.Cleanup(func() {
-		newCollector, runAgent, newSession, setSubreaper, notifySignals, resolveRunBundle, attachTimeout, pollInterval = oc, oa, os_, osr, on, orb, oat, opi
-	})
+	d := defaultDeps()
 	if s.collector == nil {
 		s.collector = statusCollector{status: runtimewatch.CollectorStatus{Failed: true, Reason: "LoadFailed", Message: "no BPF here"}}
 	}
-	newCollector = func(uint32) (runtimewatch.Collector, error) { return s.collector, s.collectErr }
-	runAgent = func(ctx context.Context, cfg runtimewatch.Config) {
+	d.newCollector = func(uint32) (runtimewatch.Collector, error) { return s.collector, s.collectErr }
+	d.runAgent = func(ctx context.Context, cfg runtimewatch.Config) {
 		if s.agent != nil {
 			s.agent(ctx, cfg)
 			return
 		}
 		<-ctx.Done()
 	}
-	newSession = func(parent, name string) (ebpf.Session, error) {
+	d.newSession = func(parent, name string) (ebpf.Session, error) {
 		if s.sessionErr != nil {
 			return nil, s.sessionErr
 		}
@@ -96,20 +100,21 @@ func stubRun(t *testing.T, s *runStubs) {
 		s.session.parent, s.session.name = parent, name
 		return s.session, nil
 	}
-	setSubreaper = func() error { return s.subreaper }
+	d.setSubreaper = func() error { return s.subreaper }
 	s.signalsSet = make(chan struct{}, 1)
-	notifySignals = func(c chan<- os.Signal, _ ...os.Signal) {
+	d.notifySignals = func(c chan<- os.Signal, _ ...os.Signal) {
 		s.signals = c
 		s.signalsSet <- struct{}{}
 	}
-	resolveRunBundle = func(_ *app.Service, _ context.Context, ref string) (*contract.Bundle, error) {
+	d.resolveBundle = func(_ *app.Service, _ context.Context, ref string) (*contract.Bundle, error) {
 		if ref == "missing" {
 			return nil, errors.New("no such bundle")
 		}
 		return runContract(), nil
 	}
-	attachTimeout = 5 * time.Second
-	pollInterval = 100 * time.Millisecond
+	d.attachTimeout = 5 * time.Second
+	d.pollInterval = 100 * time.Millisecond
+	return d
 }
 
 // runResult is what one `pacto run` printed and returned.
@@ -128,11 +133,11 @@ func (r runResult) final(t *testing.T) evalsink.Result {
 	return r.rounds[len(r.rounds)-1].Targets[0]
 }
 
-func runRun(t *testing.T, args ...string) runResult {
+func runRun(t *testing.T, d deps, args ...string) runResult {
 	t.Helper()
 	v := viper.New()
 	v.Set(outputFormatKey, "json")
-	cmd := newRunCommand(&app.Service{}, v, "v9")
+	cmd := newRunCommand(&app.Service{}, v, "v9", d)
 	// As under the root command, so stdout and stderr carry only what the run itself writes.
 	cmd.SilenceUsage, cmd.SilenceErrors = true, true
 	cmd.SetArgs(append([]string{"--interval=1s"}, args...))
@@ -173,7 +178,7 @@ func codes(r evalsink.Result) map[finding.Code]string {
 }
 
 func TestRunCommand_Errors(t *testing.T) {
-	stubRun(t, &runStubs{})
+	d := stubRun(t, &runStubs{})
 	empty := t.TempDir()
 	for name, tc := range map[string]struct {
 		args []string
@@ -197,14 +202,14 @@ func TestRunCommand_Errors(t *testing.T) {
 		"no such command": {args: []string{"--contract=c", "--proc-root=" + empty, "--", filepath.Join(empty, "nope")}, want: "start "},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if r := runRun(t, tc.args...); r.err == nil || !strings.Contains(r.err.Error(), tc.want) {
+			if r := runRun(t, d, tc.args...); r.err == nil || !strings.Contains(r.err.Error(), tc.want) {
 				t.Fatalf("err = %v, want %q", r.err, tc.want)
 			}
 		})
 	}
 	v := viper.New()
 	v.Set(outputFormatKey, "yaml")
-	cmd := newRunCommand(&app.Service{}, v, "v9")
+	cmd := newRunCommand(&app.Service{}, v, "v9", d)
 	cmd.SetArgs([]string{"--contract=c", "--", "true"})
 	if err := cmd.Execute(); err == nil || !strings.Contains(err.Error(), "unsupported output format") {
 		t.Fatalf("bad format: %v", err)
@@ -214,8 +219,8 @@ func TestRunCommand_Errors(t *testing.T) {
 // Without eBPF and without /proc the command still runs and its exit code is the run's; every runtime
 // assertion is unsupported.
 func TestRunCommand_Unsupported(t *testing.T) {
-	stubRun(t, &runStubs{collectErr: errors.New("kernel collection is unsupported")})
-	r := runRun(t, "--contract=c", "--bind=api=8080", "--proc-root="+t.TempDir(), "--", "sh", "-c", "echo hello; exit 3")
+	d := stubRun(t, &runStubs{collectErr: errors.New("kernel collection is unsupported")})
+	r := runRun(t, d, "--contract=c", "--bind=api=8080", "--proc-root="+t.TempDir(), "--", "sh", "-c", "echo hello; exit 3")
 	if exitOf(r.err) != 3 || r.err.Error() != "exit status 3" || r.stdout != "hello\n" || len(r.rounds) == 0 ||
 		!strings.Contains(r.stderr, "runtime evidence is unsupported here (eBPF: kernel collection is unsupported") {
 		t.Fatalf("err %v\nstdout %s\nstderr %s", r.err, r.stdout, r.stderr)
@@ -270,8 +275,8 @@ const (
 func TestRunCommand_Unprivileged(t *testing.T) {
 	t.Run("served", func(t *testing.T) {
 		s := &runStubs{subreaper: errors.New("no prctl")}
-		stubRun(t, s)
-		r := runRun(t, "--contract=c", "--bind=api=8080", "--dep=db=127.0.0.1:5432", "--fail-on=noncompliant",
+		d := stubRun(t, s)
+		r := runRun(t, d, "--contract=c", "--bind=api=8080", "--dep=db=127.0.0.1:5432", "--fail-on=noncompliant",
 			"--proc-root="+fakeProc(t, listen8080, dialedDB, unrelatedOK), "--", "sleep", "0.3")
 		if r.err != nil || !strings.Contains(r.stderr, "unprivileged mode (eBPF: no BPF here)") ||
 			!strings.Contains(r.stderr, "never unreachable") || !strings.Contains(r.stderr, "daemonizes leaves the watched tree (no prctl)") {
@@ -282,8 +287,8 @@ func TestRunCommand_Unprivileged(t *testing.T) {
 		}
 	})
 	t.Run("deaf", func(t *testing.T) {
-		stubRun(t, &runStubs{})
-		r := runRun(t, "--contract=c", "--bind=api=8080", "--dep=db=127.0.0.1:5432", "--stabilization-window=0s",
+		d := stubRun(t, &runStubs{})
+		r := runRun(t, d, "--contract=c", "--bind=api=8080", "--dep=db=127.0.0.1:5432", "--stabilization-window=0s",
 			"--fail-on=noncompliant", "--proc-root="+fakeProc(t), "--", "sleep", "1.2")
 		res := r.final(t)
 		got := codes(res)
@@ -298,8 +303,8 @@ func TestRunCommand_Unprivileged(t *testing.T) {
 		}
 	})
 	t.Run("silent dependency fails --fail-on unknown", func(t *testing.T) {
-		stubRun(t, &runStubs{})
-		r := runRun(t, "--contract=c", "--bind=api=8080", "--dep=db=127.0.0.1:5432", "--fail-on=unknown",
+		d := stubRun(t, &runStubs{})
+		r := runRun(t, d, "--contract=c", "--bind=api=8080", "--dep=db=127.0.0.1:5432", "--fail-on=unknown",
 			"--proc-root="+fakeProc(t, listen8080), "--", "true")
 		if res := r.final(t); exitOf(r.err) != 1 || res.Status != finding.StatusUnknown {
 			t.Fatalf("err %v, final %+v", r.err, res)
@@ -325,8 +330,8 @@ func TestRunCommand_EBPF(t *testing.T) {
 			<-ctx.Done()
 		},
 	}
-	stubRun(t, s)
-	r := runRun(t, "--contract=c", "--bind=api=8080", "--dep=db=10.0.0.5:5432", "--cgroup-root=/sys/fs/cgroup/x", "--fail-on=noncompliant", "--proc-root="+t.TempDir(),
+	d := stubRun(t, s)
+	r := runRun(t, d, "--contract=c", "--bind=api=8080", "--dep=db=10.0.0.5:5432", "--cgroup-root=/sys/fs/cgroup/x", "--fail-on=noncompliant", "--proc-root="+t.TempDir(),
 		"--", "sleep", "0.3")
 	name := fmt.Sprintf("pacto-run-%d", os.Getpid())
 	if r.err != nil || !strings.Contains(r.stderr, "observing the command in cgroup "+name+" with eBPF (collector pacto-run+ebpf)") ||
@@ -369,9 +374,9 @@ func TestRunCommand_Fallbacks(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := tc.stubs
-			stubRun(t, s)
-			attachTimeout = 50 * time.Millisecond
-			r := runRun(t, "--contract=c", "--proc-root="+tc.proc, "--", "true")
+			d := stubRun(t, s)
+			d.attachTimeout = 50 * time.Millisecond
+			r := runRun(t, d, "--contract=c", "--proc-root="+tc.proc, "--", "true")
 			if r.err != nil || !strings.Contains(r.stderr, "unprivileged mode ("+strings.TrimPrefix(tc.want, "eBPF: ")) && !strings.Contains(r.stderr, tc.want) {
 				t.Fatalf("err %v\nstderr %s", r.err, r.stderr)
 			}
@@ -384,12 +389,12 @@ func TestRunCommand_Fallbacks(t *testing.T) {
 
 // With --report the rounds go to the file, one whole round per line, and neither stdout nor stderr carries any.
 func TestRunCommand_Report(t *testing.T) {
-	stubRun(t, &runStubs{collectErr: errors.New("no BPF here")})
+	d := stubRun(t, &runStubs{collectErr: errors.New("no BPF here")})
 	report := filepath.Join(t.TempDir(), "rounds.jsonl")
 	if err := os.WriteFile(report, []byte("stale\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	r := runRun(t, "--contract=c", "--bind=api=8080", "--report="+report, "--proc-root="+t.TempDir(), "--", "sh", "-c", "echo out; echo err >&2")
+	r := runRun(t, d, "--contract=c", "--bind=api=8080", "--report="+report, "--proc-root="+t.TempDir(), "--", "sh", "-c", "echo out; echo err >&2")
 	b, err := os.ReadFile(report)
 	if err != nil || r.err != nil || r.stdout != "out\n" || len(r.rounds) != 0 || !strings.Contains(r.stderr, "err\n") {
 		t.Fatalf("err %v %v\nstdout %q\nstderr %s", err, r.err, r.stdout, r.stderr)
@@ -399,7 +404,7 @@ func TestRunCommand_Report(t *testing.T) {
 	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &last); err != nil || !last.Final || strings.Contains(string(b), "stale") {
 		t.Fatalf("report %s: %v", b, err)
 	}
-	if r := runRun(t, "--contract=c", "--report="+filepath.Join(t.TempDir(), "no", "such", "dir"), "--", "true"); r.err == nil ||
+	if r := runRun(t, d, "--contract=c", "--report="+filepath.Join(t.TempDir(), "no", "such", "dir"), "--", "true"); r.err == nil ||
 		!strings.Contains(r.err.Error(), "--report: ") {
 		t.Fatalf("err %v", r.err)
 	}
@@ -407,25 +412,53 @@ func TestRunCommand_Report(t *testing.T) {
 
 func TestRunCommand_Signals(t *testing.T) {
 	s := &runStubs{}
-	stubRun(t, s)
+	d := stubRun(t, s)
+	// The command is this test binary (TestRunSignalHelper), not a shell script: a shell cannot trap a
+	// signal it was started with ignored, ignores a SIGINT its foreground child exited normally through,
+	// and dies of one that lands before its trap is set, so whether a forwarded SIGINT reaches a script's
+	// trap depends on timing and on how the test was launched. The signal goes out once the helper says
+	// it handles SIGINT.
+	ready := filepath.Join(t.TempDir(), "ready")
+	t.Setenv(signalHelperEnv, ready)
 	go func() {
 		<-s.signalsSet
-		time.Sleep(200 * time.Millisecond)
+		for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(ready); err == nil {
+				break
+			}
+		}
 		s.signals <- os.Interrupt
 	}()
-	r := runRun(t, "--contract=c", "--proc-root="+t.TempDir(), "--", "sh", "-c", `trap "exit 7" INT; while :; do sleep 0.05; done`)
+	r := runRun(t, d, "--contract=c", "--proc-root="+t.TempDir(), "--", os.Args[0], "-test.run=^TestRunSignalHelper$")
 	if exitOf(r.err) != 7 {
 		t.Fatalf("err %v\nstderr %s", r.err, r.stderr)
 	}
 	// A command a signal kills exits as a shell reports it.
-	stubRun(t, &runStubs{})
-	if r := runRun(t, "--contract=c", "--proc-root="+t.TempDir(), "--", "sh", "-c", "kill -TERM $$"); exitOf(r.err) != 143 {
+	d = stubRun(t, &runStubs{})
+	if r := runRun(t, d, "--contract=c", "--proc-root="+t.TempDir(), "--", "sh", "-c", "kill -TERM $$"); exitOf(r.err) != 143 {
 		t.Fatalf("err %v", r.err)
 	}
 }
 
+// signalHelperEnv names the file TestRunSignalHelper creates once it handles SIGINT.
+const signalHelperEnv = "PACTO_TEST_RUN_SIGNAL_HELPER"
+
+// TestRunSignalHelper is the command TestRunCommand_Signals runs: it exits 7 on SIGINT.
+func TestRunSignalHelper(t *testing.T) {
+	ready := os.Getenv(signalHelperEnv)
+	if ready == "" {
+		t.Skip("the command TestRunCommand_Signals runs")
+	}
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt)
+	if err := os.WriteFile(ready, nil, 0o600); err != nil {
+		os.Exit(1)
+	}
+	<-c
+	os.Exit(7)
+}
 func TestRunCommand_Evidence(t *testing.T) {
-	stubRun(t, &runStubs{})
+	d := stubRun(t, &runStubs{})
 	kp, err := (&app.Service{}).GenerateKey(t.TempDir(), "", "", false)
 	if err != nil {
 		t.Fatal(err)
@@ -439,7 +472,7 @@ func TestRunCommand_Evidence(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer srv.Close()
-	r := runRun(t, "--contract=oci://r/a@sha256:"+strings.Repeat("a", 64), "--bind=api=8080", "--proc-root="+t.TempDir(),
+	r := runRun(t, d, "--contract=oci://r/a@sha256:"+strings.Repeat("a", 64), "--bind=api=8080", "--proc-root="+t.TempDir(),
 		"--evidence-url="+srv.URL, "--evidence-key="+kp.PrivateKeyPath, "--evidence-key-id="+kp.KeyID, "--evidence-producer=ci", "--", "true")
 	mu.Lock()
 	defer mu.Unlock()
@@ -495,5 +528,41 @@ func TestGateSink(t *testing.T) {
 	_ = g.Publish(context.Background(), runtimefacts.Snapshot{NodeName: "teardown"})
 	if last := g.freeze(); last.NodeName != "running" || next.n != 2 {
 		t.Fatalf("last %+v, passed on %d", last, next.n)
+	}
+}
+
+// The program attached but the command cannot start in the session cgroup: the run falls back to the
+// unprivileged mode, says so and removes the session.
+func TestRunCommand_EBPFStartFails(t *testing.T) {
+	s := &runStubs{
+		collector: statusCollector{status: runtimewatch.CollectorStatus{AttachedAt: time.Now()}},
+		session:   &fakeSession{unstartable: true},
+	}
+	d := stubRun(t, s)
+	r := runRun(t, d, "--contract=c", "--bind=api=8080", "--cgroup-root=/sys/fs/cgroup/x", "--proc-root="+fakeProc(t, listen8080),
+		"--", "sleep", "0.3")
+	name := fmt.Sprintf("pacto-run-%d", os.Getpid())
+	if r.err != nil || !strings.Contains(r.stderr, "unprivileged mode (eBPF: starting the command in cgroup "+name+" failed: ") ||
+		!s.session.closed {
+		t.Fatalf("err %v, session %+v\nstderr %s", r.err, s.session, r.stderr)
+	}
+	if res := r.final(t); codes(res)[finding.CodeInterfaceAbsent] != "" || r.rounds[len(r.rounds)-1].Mode != modeUnprivileged {
+		t.Fatalf("final = %+v", res)
+	}
+	// A command that cannot start at all still fails the run.
+	s = &runStubs{collector: statusCollector{status: runtimewatch.CollectorStatus{AttachedAt: time.Now()}}}
+	d = stubRun(t, s)
+	if r := runRun(t, d, "--contract=c", "--cgroup-root=/x", "--proc-root="+fakeProc(t), "--", "/no/such/command"); r.err == nil ||
+		!strings.Contains(r.err.Error(), "start /no/such/command") {
+		t.Fatalf("err %v", r.err)
+	}
+}
+
+// The command leads a process group of its own, so a terminal's Ctrl-C is not delivered to it twice.
+func TestRunCommand_OwnProcessGroup(t *testing.T) {
+	d := stubRun(t, &runStubs{})
+	r := runRun(t, d, "--contract=c", "--proc-root="+t.TempDir(), "--", "sh", "-c", `test "$(ps -o pgid= -p $$ | tr -d ' ')" = "$$"`)
+	if r.err != nil {
+		t.Fatalf("the command is not its own group leader: %v\nstderr %s", r.err, r.stderr)
 	}
 }

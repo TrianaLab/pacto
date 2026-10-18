@@ -11,11 +11,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/component"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
-	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1" //nolint:lll // Used by Config.OwnerRef field type
 )
 
 // Config holds the operator-managed node agent configuration.
@@ -28,9 +27,15 @@ type Config struct {
 	// too), unless --node-agent-image overrides it.
 	Image string
 
-	// Namespace is the operator's own namespace: the agents run there and publish
-	// their NodeRuntimeObservation objects there.
+	// Namespace is the agent's dedicated namespace: the operator labels it
+	// privileged for Pod Security, runs the agents there, and they publish their
+	// NodeRuntimeObservation objects and Leases there. It is never the operator's
+	// own namespace, which then keeps whatever Pod Security level its owner set.
 	Namespace string
+
+	// OperatorNamespace is the operator's own namespace, where earlier releases
+	// ran the agent. Whatever the agent left there is pruned on every sync.
+	OperatorNamespace string
 
 	// PublishInterval is how often each agent publishes its node's status.
 	PublishInterval time.Duration
@@ -43,9 +48,9 @@ type Config struct {
 	// registry pulls on every node the agent lands on.
 	ImagePullSecrets []string
 
-	// OwnerRef is an optional owner reference to the operator's own Deployment,
-	// attached to every managed object so a GitOps tool shows them in its tree.
-	OwnerRef *metav1ac.OwnerReferenceApplyConfiguration
+	// OwnerRef is deliberately absent: the agent's objects live in another
+	// namespace than the operator's Deployment, and Kubernetes treats a
+	// cross-namespace owner as missing and garbage-collects the dependent.
 }
 
 // ResourcesConfig holds optional resource quantity overrides for the node agent container.
@@ -80,7 +85,12 @@ func (c Config) Validate() error {
 		return fmt.Errorf("node agent image must not use 'latest' tag: %s", c.Image)
 	}
 	if c.Namespace == "" {
-		return fmt.Errorf("node agent namespace must be set (defaults to operator namespace)")
+		return fmt.Errorf("node agent namespace must be set (--node-agent-namespace)")
+	}
+	// The operator labels the agent namespace privileged; doing that to its own
+	// namespace would hand every workload there the agent's privileges.
+	if c.Namespace == c.OperatorNamespace {
+		return fmt.Errorf("node agent namespace %q must not be the operator namespace: it is labelled privileged for Pod Security", c.Namespace)
 	}
 	// The agent publishes the interval as whole seconds (publishIntervalSeconds, CRD Minimum=1), and
 	// readers derive staleness from it, so anything else would publish a value the agent does not keep.

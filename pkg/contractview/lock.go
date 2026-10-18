@@ -1,7 +1,7 @@
 package contractview
 
 import (
-	"github.com/trianalab/pacto/v3/pkg/lock"
+	"github.com/trianalab/pacto/v4/pkg/lock"
 )
 
 // ApplyLock maps a parsed lock onto a ServiceDetails: it sets svc.Lock and pins

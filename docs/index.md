@@ -87,7 +87,7 @@ prove:
 | --- | --- |
 | A process reports healthy but nothing listens on the declared port | `INTERFACE_ABSENT` |
 | A declared dependency the service keeps failing to reach | `DEPENDENCY_UNREACHABLE` |
-| A call to another Pacto service no dependency declares (Kubernetes) | `DEPENDENCY_UNDECLARED` |
+| A call to another Pacto service no dependency declares (Kubernetes, `pacto agent`) | `DEPENDENCY_UNDECLARED` |
 
 ```bash
 pacto run --contract ./payments --bind api=8080 --fail-on noncompliant -- ./payments-server

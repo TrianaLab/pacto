@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -42,28 +41,6 @@ func newReconcilerWithInterceptors(cfg Config, funcs interceptor.Funcs, objs ...
 		APIReader: c,
 		Scheme:    scheme,
 		Config:    cfg,
-	}
-}
-
-// --- ensureNamespace: non-NotFound Get error ---
-
-func TestEnsureNamespace_GetNonNotFoundError(t *testing.T) {
-	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}
-	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
-		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-			if _, ok := obj.(*corev1.Namespace); ok {
-				return fmt.Errorf("simulated namespace get error")
-			}
-			return c.Get(ctx, key, obj, opts...)
-		},
-	})
-
-	err := r.Sync(context.Background())
-	if err == nil {
-		t.Fatal("expected error from ensureNamespace Get failure")
-	}
-	if got := err.Error(); got != "namespace: simulated namespace get error" {
-		t.Errorf("unexpected error: %s", got)
 	}
 }
 
@@ -290,20 +267,9 @@ func TestStart_Enabled_ContextCancel(t *testing.T) {
 
 func TestStart_InitialReconcileFailure(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}
-	// Use a scheme missing Namespace type to cause ensureNamespace to fail
-	brokenScheme := runtime.NewScheme()
-	// Register enough types for the client to work but NOT Namespace
-	_ = appsv1.AddToScheme(brokenScheme)
-	_ = rbacv1.AddToScheme(brokenScheme)
-	// Don't register corev1, so Namespace Get will fail
-
-	// Instead, use interceptors to force an error on the initial reconcile
 	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
-		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-			if _, ok := obj.(*corev1.Namespace); ok {
-				return fmt.Errorf("simulated start failure")
-			}
-			return c.Get(ctx, key, obj, opts...)
+		Apply: func(context.Context, client.WithWatch, runtime.ApplyConfiguration, ...client.ApplyOption) error {
+			return fmt.Errorf("simulated start failure")
 		},
 	})
 
@@ -311,7 +277,7 @@ func TestStart_InitialReconcileFailure(t *testing.T) {
 	if err == nil {
 		t.Fatal("Start should return error when initial reconcile fails")
 	}
-	expected := "initial dashboard reconciliation failed: namespace: simulated start failure"
+	expected := "initial dashboard reconciliation failed: service account: simulated start failure"
 	if got := err.Error(); got != expected {
 		t.Errorf("unexpected error:\n  got:  %s\n  want: %s", got, expected)
 	}
@@ -349,9 +315,9 @@ func TestStart_Enabled_TickerReconcileError(t *testing.T) {
 	errored := make(chan struct{}, 1)
 	callCount := 0 // only touched from the Start goroutine's sequential reconcile loop
 	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
-		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-			// Let the initial reconcile succeed, then fail on ticker reconcile
-			if _, ok := obj.(*corev1.Namespace); ok {
+		// Let the initial reconcile succeed, then fail on the ticker reconcile.
+		Apply: func(ctx context.Context, c client.WithWatch, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
+			if _, ok := obj.(*corev1ac.ServiceAccountApplyConfiguration); ok {
 				callCount++
 				if callCount > 1 {
 					select {
@@ -361,7 +327,7 @@ func TestStart_Enabled_TickerReconcileError(t *testing.T) {
 					return fmt.Errorf("simulated periodic failure")
 				}
 			}
-			return c.Get(ctx, key, obj, opts...)
+			return c.Apply(ctx, obj, opts...)
 		},
 	})
 	r.tickInterval = 10 * time.Millisecond

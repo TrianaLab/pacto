@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/internal/k8sclient"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/readiness"
+	"github.com/trianalab/pacto/v4/internal/k8sclient"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/readiness"
 )
 
 // fakeK8sClient is a fake k8sclient.K8sClient driving the source's Collect path.

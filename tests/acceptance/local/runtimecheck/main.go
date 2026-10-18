@@ -45,16 +45,16 @@ func (m *multi) String() string     { return strings.Join(*m, ",") }
 func (m *multi) Set(v string) error { *m = append(*m, v); return nil }
 
 type evidenceRef struct {
-	Collector string `json:"Collector"`
+	Collector string `json:"collector"`
 }
 
 type finding struct {
-	Code    string `json:"Code"`
+	Code    string `json:"code"`
 	Subject struct {
-		Kind string `json:"Kind"`
-		Name string `json:"Name"`
-	} `json:"Subject"`
-	EvidenceRefs []evidenceRef `json:"EvidenceRefs"`
+		Kind string `json:"kind"`
+		Name string `json:"name"`
+	} `json:"subject"`
+	EvidenceRefs []evidenceRef `json:"evidenceRefs"`
 }
 
 type result struct {

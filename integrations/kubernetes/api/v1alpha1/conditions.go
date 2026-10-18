@@ -7,7 +7,7 @@ See LICENSE file in the project root for full license text.
 
 package v1alpha1
 
-import "github.com/trianalab/pacto/v3/pkg/finding"
+import "github.com/trianalab/pacto/v4/pkg/finding"
 
 const (
 	// LabelPactoName is the label key used on PactoRevision resources to link them to their parent Pacto.
@@ -41,41 +41,7 @@ const (
 
 	ReasonFound = "Found"
 
-	// Deprecated: no reconciler path emits this reason. It is reserved for API
-	// compatibility and will be removed in v6.
-	ReasonNotFound = "NotFound"
-
-	// Deprecated: no reconciler path emits this reason. It is reserved for API
-	// compatibility and will be removed in v6.
-	ReasonPortsMatch = "AllPortsMatch"
-	// Deprecated: no reconciler path emits this reason. It is reserved for API
-	// compatibility and will be removed in v6.
-	ReasonMissingPorts = "MissingPorts"
-
 	ReasonReferenceOnly = "ReferenceOnly"
-
-	// Endpoint probe reasons.
-	//
-	// Deprecated: the probe outcome is reported as evidence, not as a condition
-	// reason, so no reconciler path emits any of these. They are reserved for API
-	// compatibility and will be removed in v6.
-	ReasonEndpointOK               = "OK"
-	ReasonEndpointConnectionError  = "ConnectionFailed"
-	ReasonEndpointInvalidStatus    = "InvalidStatusCode"
-	ReasonEndpointEmptyResponse    = "EmptyResponse"
-	ReasonEndpointNotDeclared      = "NotDeclared"
-	ReasonEndpointNoPort           = "InterfaceHasNoPort"
-	ReasonEndpointInterfaceMissing = "InterfaceNotFound"
-
-	// Runtime reconciliation reasons.
-	//
-	// Deprecated: runtime reconciliation reports per-dimension findings, not these
-	// reasons, so no reconciler path emits any of them. They are reserved for API
-	// compatibility and will be removed in v6.
-	ReasonMatch    = "Match"
-	ReasonMismatch = "Mismatch"
-	ReasonMissing  = "Missing"
-	ReasonSkipped  = "Skipped"
 
 	// ReasonObservationFailed indicates the operator could not query runtime state.
 	ReasonObservationFailed = "ObservationFailed"
@@ -105,16 +71,6 @@ const (
 	// EventContractRecovered is the normal reason emitted when the contract status
 	// returns to Compliant or Reference from any degraded value.
 	EventContractRecovered = "ContractRecovered"
-)
-
-// Severity levels for runtime reconciliation checks.
-//
-// Deprecated: severity is carried by finding.Severity on the engine findings the
-// operator copies into status, so nothing emits these. They are reserved for API
-// compatibility and will be removed in v6.
-const (
-	SeverityError   = "error"
-	SeverityWarning = "warning"
 )
 
 // ContractStatus values represent contract compliance state (not runtime health).

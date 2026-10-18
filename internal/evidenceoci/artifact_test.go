@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -15,11 +16,11 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/content/memory"
 
-	"github.com/trianalab/pacto/v3/pkg/evidence"
-	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
-	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // subjectDescOf is the descriptor a registry returns when the contract revision
@@ -522,5 +523,28 @@ func TestValidateManifest_AcceptsOrasPackedArtifact(t *testing.T) {
 	}
 	if desc.Digest != art.PayloadDesc.Digest {
 		t.Errorf("payload descriptor = %s, want %s", desc.Digest, art.PayloadDesc.Digest)
+	}
+}
+
+// Records written before v4 carry PascalCase finding keys: that is how v3 encoded
+// finding.Finding. A registry keeps them forever, so the strict read path must
+// still accept them and hand back the same findings. The legacy array below is
+// the exact bytes v3 wrote for testRecord's finding.
+func TestDecodePayload_AcceptsLegacyPascalCaseFindings(t *testing.T) {
+	s := testSubject(t)
+	rec := testRecord(s)
+	current, _ := json.Marshal(rec.Findings)
+	const legacy = `[{"Code":"X","Severity":"warning","Category":"","Subject":{"Kind":"","Name":""},` +
+		`"ContractPath":"","Message":"m","EvidenceRefs":null}]`
+	payload := strings.Replace(string(mustBuild(t, rec, s).Payload), string(current), legacy, 1)
+	if !strings.Contains(payload, legacy) {
+		t.Fatal("legacy findings were not spliced into the payload")
+	}
+	got, err := DecodePayload([]byte(payload), s)
+	if err != nil {
+		t.Fatalf("DecodePayload(legacy): %v", err)
+	}
+	if !reflect.DeepEqual(got.Findings, rec.Findings) {
+		t.Fatalf("findings = %+v, want %+v", got.Findings, rec.Findings)
 	}
 }

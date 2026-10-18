@@ -2,18 +2,16 @@ package fleetsrc
 
 import (
 	"context"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
-
-// fsWalkDir is a seam for injecting a traversal error in tests.
-var fsWalkDir = filepath.WalkDir
 
 // OCISource resolves a set of registry references into contract revisions. It is
 // the published-baseline source: each ref becomes a revision the graph can diff
@@ -51,14 +49,15 @@ func (s *OCISource) Collect(ctx context.Context) (*fleet.Collection, error) {
 // reads strictly from disk, so a disconnected environment still sees every
 // service it has ever pulled.
 //
-// It holds no BundleStore. Network-freedom used to rest on passing
-// [oci.LocalOnly] to a resolver that also knows how to dial; now there is
-// nothing here that could dial, and a cache entry is read where it is found
+// It holds no BundleStore, so there is nothing here that could dial, and a cache entry is read where it is found
 // rather than looked up again afterwards by the reference it was found under —
 // see [cachedGenerations].
 type CacheSource struct {
 	id       string
 	cacheDir string
+	// walk traverses the cache; nil is filepath.WalkDir. A test sets it to
+	// inject traversal errors.
+	walk func(root string, fn fs.WalkDirFunc) error
 }
 
 // NewCacheSource returns a source over the on-disk OCI cache rooted at cacheDir.
@@ -80,7 +79,11 @@ func (s *CacheSource) Kind() string { return "cache" }
 // (nothing cached), not an error.
 func (s *CacheSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	unreadable := unreadableDirs{source: s.id, root: s.cacheDir}
-	gens, err := cachedGenerations(ctx, s.cacheDir, &unreadable)
+	walk := s.walk
+	if walk == nil {
+		walk = filepath.WalkDir
+	}
+	gens, err := cachedGenerations(ctx, walk, s.cacheDir, &unreadable)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +125,7 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 		if pinned, rerr := oci.ResolveRef(ctx, store, concrete, ""); rerr == nil {
 			concrete = pinned
 		}
-		bundle, rec, err := resolver.ResolvePinned(ctx, concrete, oci.RemoteAllowed)
+		bundle, rec, err := resolver.ResolvePinned(ctx, concrete)
 		if err != nil {
 			col.Limitations = append(col.Limitations, fleet.Limitation{
 				Code: fleet.LimitationSourceRecordInvalid, Source: id,
@@ -229,7 +232,7 @@ type cachedGeneration struct {
 // <cacheDir>/<repo...>/<tag>/bundle.tar.gz read as <repo...>:<tag> — which is
 // approximate, because a path spells a registry port and a tag with the same
 // characters it spells itself with. Results are sorted for deterministic output.
-func cachedGenerations(ctx context.Context, cacheDir string, unreadable *unreadableDirs) ([]cachedGeneration, error) {
+func cachedGenerations(ctx context.Context, walk func(string, fs.WalkDirFunc) error, cacheDir string, unreadable *unreadableDirs) ([]cachedGeneration, error) {
 	if _, err := os.Stat(cacheDir); err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -238,7 +241,7 @@ func cachedGenerations(ctx context.Context, cacheDir string, unreadable *unreada
 	}
 	var gens []cachedGeneration
 	seen := map[string]bool{}
-	err := fsWalkDir(cacheDir, func(path string, d os.DirEntry, walkErr error) error {
+	err := walk(cacheDir, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			// A cache directory is shared, and one entry it will not open is not a
 			// reason to report that nothing was ever pulled. Run pacto once under

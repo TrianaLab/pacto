@@ -15,9 +15,13 @@ the [published artifacts](artifact-hub.md) page; every value is on the
   [kind](https://kind.sigs.k8s.io/) ships by default, so older clusters are
   untested rather than blocked.
 - Helm 3.8 or newer (OCI registry support).
-- Cluster-admin permissions to install the CRDs and the operator's `ClusterRole`
-  (see [RBAC](rbac.md)). A CRD (custom resource definition) teaches Kubernetes
-  a new kind of object, here `Pacto`.
+- Cluster-admin permissions to install the CRDs, the operator's `ClusterRole`
+  and its namespaced `Role` (see [RBAC](rbac.md)). A CRD (custom resource
+  definition) teaches Kubernetes a new kind of object, here `Pacto`.
+- No Pod Security exemption for the release namespace: the operator, the
+  dashboard and the Evidence Server run under `restricted`. The optional
+  [node agent](runtime-conformance.md#turn-it-on) gets its own namespace,
+  which the chart creates privileged.
 - The [`pacto` CLI](../../installation.md) for the steps after the install. The
   Helm install itself does not need it.
 - Network access from the cluster to the registry holding your contracts. For a

@@ -1,8 +1,8 @@
 package tui
 
 import (
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/graph"
 )
 
 // neighborhoodToTree projects a fleet neighborhood (a flat digraph that may

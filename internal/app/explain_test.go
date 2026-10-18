@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // writeReadinessBundle writes a pactoVersion 1.2 bundle with a readiness section
@@ -63,18 +63,14 @@ readiness:
 	return dir
 }
 
-// pinTime pins the readiness clock for the duration of a test.
-func pinTime(t *testing.T, at time.Time) {
-	t.Helper()
-	old := timeNow
-	timeNow = func() time.Time { return at }
-	t.Cleanup(func() { timeNow = old })
+// pinnedService is a Service whose readiness clock reads at.
+func pinnedService(at time.Time) *Service {
+	return &Service{sys: sysDeps{now: func() time.Time { return at }}}
 }
 
 func TestExplain_WithReadiness(t *testing.T) {
-	pinTime(t, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC))
 	path := writeReadinessBundle(t)
-	svc := NewService(nil, nil)
+	svc := pinnedService(time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC))
 	result, err := svc.Explain(context.Background(), ExplainOptions{Path: path})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

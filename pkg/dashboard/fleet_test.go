@@ -12,10 +12,10 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/impact"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 func TestFleetSchemaNamer(t *testing.T) {
@@ -92,13 +92,7 @@ func startFleetTestServer(t *testing.T, provider fleetProvider, impactFn impactP
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := NewServer(testUI())
-	if provider != nil {
-		srv.SetFleetProvider(provider)
-	}
-	if impactFn != nil {
-		srv.SetImpactProvider(impactFn)
-	}
+	srv := NewServer(Options{UI: testUI(), Fleet: provider, Impact: impactFn})
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { _ = srv.ServeOnListener(ctx, ln) }()
 	time.Sleep(50 * time.Millisecond)
@@ -193,8 +187,7 @@ func TestCapabilities_ObservedDerivedFromSnapshot(t *testing.T) {
 		FromService: "eu/a", ToService: "eu/b", Type: fleet.RelationshipDependency,
 		Provenance: fleet.ProvenanceObserved, Resolved: true, ObservedCount: 1,
 	}}}
-	srv := NewServer(nil)
-	srv.SetFleetProvider(func(context.Context) (*fleet.Query, error) { return fleet.NewQuery(snap), nil })
+	srv := NewServer(Options{Fleet: func(context.Context) (*fleet.Query, error) { return fleet.NewQuery(snap), nil }})
 	out, err := srv.capabilities(context.Background(), nil)
 	if err != nil || !out.Body.Observed {
 		t.Errorf("expected observed=true derived from the snapshot, got %+v err=%v", out.Body, err)
@@ -379,9 +372,9 @@ func TestSourcesFromFleet(t *testing.T) {
 		{"nil query yields no sources", nil, []SourceInfo{}},
 		{"snapshot with no sources yields no sources", query(), []SourceInfo{}},
 		{
-			"available kubernetes is remapped to the k8s the frontend knows, and says what it contributed",
+			"available kubernetes keeps its kind and says what it contributed",
 			query(fleet.SourceState{ID: "cluster", Kind: "kubernetes", Status: fleet.SourceAvailable, RevisionCount: 3, TargetCount: 7}),
-			[]SourceInfo{{Type: "k8s", Enabled: true, Reason: "3 revisions, 7 targets"}},
+			[]SourceInfo{{Type: "kubernetes", Enabled: true, Reason: "3 revisions, 7 targets"}},
 		},
 		{
 			"partial stays enabled and names the status plus its cause",
@@ -414,7 +407,7 @@ func TestSourcesFromFleet(t *testing.T) {
 			// local, evidence-http, observation and target-state. The last three have
 			// no entry in the frontend's initial/colour/description tables, so they are
 			// exactly the pass-through cases worth pinning.
-			"the kinds outside the remap pass through unchanged",
+			"kinds the frontend has no table entry for pass through unchanged",
 			query(
 				fleet.SourceState{ID: "evidence", Kind: "evidence-http", Status: fleet.SourceAvailable, RevisionCount: 1},
 				fleet.SourceState{ID: "otel", Kind: "observation", Status: fleet.SourceStale},
@@ -434,7 +427,7 @@ func TestSourcesFromFleet(t *testing.T) {
 			),
 			[]SourceInfo{
 				{Type: "local", Enabled: true, Reason: "2 revisions, 1 targets"},
-				{Type: "k8s", Enabled: false, Reason: "source unavailable"},
+				{Type: "kubernetes", Enabled: false, Reason: "source unavailable"},
 			},
 		},
 		{
@@ -454,17 +447,6 @@ func TestSourcesFromFleet(t *testing.T) {
 				{Type: "oci", Enabled: true, Reason: "2 sources, 1 degraded, 6 revisions, 2 targets"},
 				{Type: "local", Enabled: true, Reason: "1 revisions, 0 targets"},
 			},
-		},
-		{
-			// Grouping on the raw kind would emit two pills both typed "k8s", which is
-			// the duplicate the aggregation exists to prevent -- so the remap has to
-			// happen before the group key, not after it.
-			"kubernetes and k8s are one kind, not two pills with one name",
-			query(
-				fleet.SourceState{ID: "cluster", Kind: "kubernetes", Status: fleet.SourceAvailable, RevisionCount: 3},
-				fleet.SourceState{ID: "other", Kind: "k8s", Status: fleet.SourceUnavailable},
-			),
-			[]SourceInfo{{Type: "k8s", Enabled: true, Reason: "2 sources, 1 degraded, 3 revisions, 0 targets"}},
 		},
 		{
 			"a fully healthy group reports its size without a degraded count",
@@ -502,3 +484,9 @@ func TestSourcesFromFleet(t *testing.T) {
 		})
 	}
 }
+
+// The provider shapes [Options] takes, named for the test helpers.
+type (
+	fleetProvider      = func(ctx context.Context) (*fleet.Query, error)
+	impactProviderFunc = func(ctx context.Context, old, new string, includeObserved bool) (*impact.Result, error)
+)

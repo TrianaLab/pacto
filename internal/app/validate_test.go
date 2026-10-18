@@ -9,10 +9,10 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v3/internal/testutil"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/graph"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 func TestValidate_LocalValid(t *testing.T) {
@@ -94,9 +94,8 @@ readiness:
 }
 
 func TestValidate_ReadinessGate_FailsWhenStale(t *testing.T) {
-	pinTime(t, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)) // security-review (2026-01-15) expired
 	dir := writeReadinessBundle(t)
-	svc := NewService(nil, nil)
+	svc := pinnedService(time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)) // security-review (2026-01-15) expired
 	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir, Readiness: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -171,9 +170,8 @@ readiness:
 }
 
 func TestValidate_ReadinessGate_PassesWhenCurrent(t *testing.T) {
-	pinTime(t, time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)) // both checks still current
 	dir := writeReadinessBundle(t)
-	svc := NewService(nil, nil)
+	svc := pinnedService(time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)) // both checks still current
 	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir, Readiness: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -184,9 +182,8 @@ func TestValidate_ReadinessGate_PassesWhenCurrent(t *testing.T) {
 }
 
 func TestValidate_ReadinessGate_OffByDefault(t *testing.T) {
-	pinTime(t, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)) // stale, but gate not requested
 	dir := writeReadinessBundle(t)
-	svc := NewService(nil, nil)
+	svc := pinnedService(time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)) // stale, but gate not requested
 	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)

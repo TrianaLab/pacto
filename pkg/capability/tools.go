@@ -10,8 +10,8 @@ import (
 	"io/fs"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/openapi"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/openapi"
 )
 
 // Tool is a single agent-invocable operation derived from an OpenAPI operation.

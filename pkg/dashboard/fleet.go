@@ -8,34 +8,10 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/impact"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
-
-// fleetProvider builds a pure fleet query on demand. The dashboard is a consumer
-// of the reusable operational-graph layer: rather than re-inventing fleet
-// aggregation, graph, freshness and completeness semantics, it delegates to a
-// provider (wired by the dashboard command from the same sources it detected)
-// and serves the resulting immutable snapshot through the API. Keeping this a
-// provider closure means the dashboard package depends only on pkg/fleet, never
-// on the concrete source implementations.
-type fleetProvider func(ctx context.Context) (*fleet.Query, error)
-
-// SetFleetProvider enables the read-only operational-graph endpoints. When unset,
-// none of the /api/fleet/* endpoints are registered, so existing deployments are
-// unaffected.
-func (s *Server) SetFleetProvider(fn fleetProvider) { s.fleetQuery = fn }
-
-// impactProviderFunc resolves the old and new contract revisions, builds a fleet
-// snapshot and analyzes the change's blast radius over it. The dashboard consumes
-// it so this package depends only on the pure impact result, never on the app
-// service, OCI client or Kubernetes.
-type impactProviderFunc func(ctx context.Context, old, new string, includeObserved bool) (*impact.Result, error)
-
-// SetImpactProvider enables the read-only /api/fleet/impact endpoint. When unset,
-// the endpoint is not registered, so existing deployments are unaffected.
-func (s *Server) SetImpactProvider(fn impactProviderFunc) { s.impactProvider = fn }
 
 // capabilitiesOutput reports which optional capabilities the running host has
 // registered, so the frontend can gate its navigation and never expose a
@@ -68,14 +44,14 @@ func (s *Server) registerCapabilitiesOperation(api huma.API) {
 
 func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOutput, error) {
 	out := &capabilitiesOutput{}
-	out.Body.Fleet = s.fleetQuery != nil
-	out.Body.Impact = s.impactProvider != nil
+	out.Body.Fleet = s.opts.Fleet != nil
+	out.Body.Impact = s.opts.Impact != nil
 	// Observed availability is DERIVED from the currently published snapshot (does
 	// it carry any observed relationship?), never a hardcoded flag — so the
 	// capability is honest on every host, including the WASM demo. If the snapshot
 	// cannot be read, observed is reported false (we cannot confirm it).
-	if s.fleetQuery != nil {
-		if q, err := s.fleetQuery(ctx); err == nil && q.HasObserved() {
+	if s.opts.Fleet != nil {
+		if q, err := s.opts.Fleet(ctx); err == nil && q.HasObserved() {
 			out.Body.Observed = true
 		}
 	}
@@ -85,7 +61,7 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 // registerFleetOperations registers the fleet endpoints when a provider is set.
 func (s *Server) registerFleetOperations(api huma.API) {
 	s.registerImpactOperation(api)
-	if s.fleetQuery == nil {
+	if s.opts.Fleet == nil {
 		return
 	}
 	huma.Register(api, huma.Operation{
@@ -157,7 +133,7 @@ type fleetSnapshotOutput struct {
 }
 
 func (s *Server) fleetSnapshot(ctx context.Context, _ *struct{}) (*fleetSnapshotOutput, error) {
-	q, err := s.fleetQuery(ctx)
+	q, err := s.opts.Fleet(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -171,7 +147,7 @@ type fleetSearchInput struct {
 	Text   string `query:"text"`
 	Owner  string `query:"owner"`
 	Scope  string `query:"scope"`
-	Status string `query:"status"`
+	Status string `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter"`
 	Source string `query:"source"`
 	Limit  int    `query:"limit"`
 	Offset int    `query:"offset"`
@@ -182,7 +158,7 @@ type fleetSearchOutput struct {
 }
 
 func (s *Server) fleetSearch(ctx context.Context, in *fleetSearchInput) (*fleetSearchOutput, error) {
-	q, err := s.fleetQuery(ctx)
+	q, err := s.opts.Fleet(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -205,7 +181,7 @@ type fleetServiceDetailOutput struct {
 }
 
 func (s *Server) fleetServiceDetail(ctx context.Context, in *fleetServiceDetailInput) (*fleetServiceDetailOutput, error) {
-	q, err := s.fleetQuery(ctx)
+	q, err := s.opts.Fleet(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -225,7 +201,7 @@ type fleetTargetDetailOutput struct {
 }
 
 func (s *Server) fleetTargetDetail(ctx context.Context, in *fleetTargetDetailInput) (*fleetTargetDetailOutput, error) {
-	q, err := s.fleetQuery(ctx)
+	q, err := s.opts.Fleet(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -266,7 +242,7 @@ type fleetGraphOutput struct {
 }
 
 func (s *Server) fleetGraph(ctx context.Context, in *fleetGraphInput) (*fleetGraphOutput, error) {
-	q, err := s.fleetQuery(ctx)
+	q, err := s.opts.Fleet(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -290,7 +266,7 @@ type fleetStatusOutput struct {
 }
 
 func (s *Server) fleetStatus(ctx context.Context, _ *struct{}) (*fleetStatusOutput, error) {
-	q, err := s.fleetQuery(ctx)
+	q, err := s.opts.Fleet(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -301,7 +277,7 @@ func (s *Server) fleetStatus(ctx context.Context, _ *struct{}) (*fleetStatusOutp
 // is set. It is independent of the fleet query provider so an impact-only wiring
 // is possible, though the dashboard command sets both from the same local root.
 func (s *Server) registerImpactOperation(api huma.API) {
-	if s.impactProvider == nil {
+	if s.opts.Impact == nil {
 		return
 	}
 	huma.Register(api, huma.Operation{
@@ -327,7 +303,7 @@ type fleetImpactOutput struct {
 }
 
 func (s *Server) fleetImpact(ctx context.Context, in *fleetImpactInput) (*fleetImpactOutput, error) {
-	res, err := s.impactProvider(ctx, in.Old, in.New, in.IncludeObserved)
+	res, err := s.opts.Impact(ctx, in.Old, in.New, in.IncludeObserved)
 	if err != nil {
 		return nil, impactHTTPError(err)
 	}
@@ -363,7 +339,7 @@ func impactHTTPError(err error) error {
 // live-host shape, not a contract-view one: only /api/sources emits it, and the
 // offline static export has no sources to report.
 type SourceInfo struct {
-	Type    string `json:"type"` // "k8s", "oci", "local"
+	Type    string `json:"type"` // the fleet source kind: "kubernetes", "oci", "local", "cache"...
 	Enabled bool   `json:"enabled"`
 	Reason  string `json:"reason,omitempty"` // why enabled/disabled
 }
@@ -389,10 +365,7 @@ func sourcesFromFleet(q *fleet.Query) []SourceInfo {
 	order := make([]string, 0, len(states))
 	byKind := make(map[string][]fleet.SourceState, len(states))
 	for _, st := range states {
-		// Group on the pill name, not the raw kind: a snapshot carrying both
-		// "kubernetes" and "k8s" would otherwise emit the two indistinguishable
-		// pills this aggregation exists to prevent.
-		kind := pillType(st.Kind)
+		kind := st.Kind
 		if _, seen := byKind[kind]; !seen {
 			order = append(order, kind)
 		}
@@ -403,21 +376,6 @@ func sourcesFromFleet(q *fleet.Query) []SourceInfo {
 		out = append(out, sourceInfoForKind(kind, byKind[kind]))
 	}
 	return out
-}
-
-// pillType names a fleet source kind the way the frontend's lookup tables do. A
-// pill's colour (.source-dot-<type>, styles/components.css) and its accessible
-// description (SOURCE_DESCRIPTIONS, lib/format.ts) are both keyed on
-// k8s/oci/local/cache, so the fleet's "kubernetes" kind goes out under the name
-// those tables know. An unmapped kind is not blank -- SourceDot falls back to the
-// kind's first letter -- but it loses its colour and its description. The two
-// names are both wire contracts (fleet source kinds and /api/sources types), so
-// this mapping is the one place they meet rather than a patch to remove.
-func pillType(kind string) string {
-	if kind == fleet.SourceKindKubernetes {
-		return "k8s"
-	}
-	return kind
 }
 
 // sourceInfoForKind collapses every source of one kind into that kind's single

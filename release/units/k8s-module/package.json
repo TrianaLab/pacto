@@ -5,6 +5,6 @@
   "pacto": {
     "releaseUnit": "k8s-module",
     "kind": "go-module",
-    "coordinate": "github.com/trianalab/pacto/integrations/kubernetes/v5"
+    "coordinate": "github.com/trianalab/pacto/integrations/kubernetes/v6"
   }
 }

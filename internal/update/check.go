@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // CheckResult holds the outcome of a version check.
@@ -33,10 +33,6 @@ type githubRelease struct {
 const cacheTTL = 24 * time.Hour
 const cacheFileName = "update-check.json"
 
-// timeNow is the only remaining package-level seam; the cache TTL is the one
-// piece of state that is genuinely process-wide.
-var timeNow = time.Now
-
 // Updater carries everything the update path talks to: the two GitHub
 // endpoints, the two HTTP clients and the running executable. It is a value the
 // caller constructs so a test points its own copy at an httptest server instead
@@ -53,6 +49,14 @@ type Updater struct {
 	DownloadClient *http.Client
 	// Executable reports the pacto binary to replace.
 	Executable func() (string, error)
+
+	// goos and goarch pick the release assets; empty is the running platform.
+	goos, goarch string
+	// chmod, rename and remove install a downloaded binary; nil is the os
+	// package's. Read them through files.
+	chmod  func(string, os.FileMode) error
+	rename func(string, string) error
+	remove func(string) error
 }
 
 // New returns an Updater pointed at github.com.
@@ -108,7 +112,7 @@ func (u *Updater) CheckForUpdate(currentVersion string) *CheckResult {
 // cachedOrFetchLatest returns the latest version, using cache when fresh.
 func (u *Updater) cachedOrFetchLatest() (string, error) {
 	c, cachePath := readCache()
-	if c != nil && timeNow().Sub(c.CheckedAt) < cacheTTL {
+	if c != nil && time.Since(c.CheckedAt) < cacheTTL {
 		return c.LatestVersion, nil
 	}
 
@@ -155,7 +159,7 @@ func writeCache(path, latestVersion string) {
 		return
 	}
 	c := cache{
-		CheckedAt:     timeNow(),
+		CheckedAt:     time.Now(),
 		LatestVersion: latestVersion,
 	}
 	data, _ := json.Marshal(c)

@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 )
 
 // INV-5 says Secret VALUES never enter operator memory. A typed Secret watch defeats it

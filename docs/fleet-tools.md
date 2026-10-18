@@ -18,6 +18,12 @@ shows version history, interfaces, configuration schemas and diffs. See the [`pa
 reference](cli-reference.md#pacto-dashboard) for its flags and environment
 variables.
 
+Its HTTP API is described at `/openapi.json`. The `status` filters of
+`/api/fleet/services`, `/api/fleet/entities` and `/api/fleet/attention` and the
+comma-separated `kinds` filter of `/api/fleet/entities` are enums checked item by
+item: an unknown value or an empty item such as a trailing comma gets a 422 that
+names the parameter, for example `query.kinds[1]`.
+
 ## Fleet queries without a browser
 
 `pacto fleet` answers the same questions from a terminal or a CI job: it builds

@@ -8,8 +8,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
 // BundleStore handles push and pull of contract bundles to/from OCI registries.
@@ -51,19 +51,6 @@ var (
 // ClientOption configures the OCI Client.
 type ClientOption func(*Client)
 
-// WithNameOptions adds name.Option values used when parsing OCI references.
-//
-// Deprecated: no production caller remains, and its only real use — name.Insecure
-// — is a GLOBAL plain-HTTP allowance where [WithInsecureRegistries] scopes the
-// same thing per host, so a test configured this way cannot catch a ref that
-// accidentally reaches the public internet over http. Use
-// [WithInsecureRegistries]. Removed at v4.
-func WithNameOptions(opts ...name.Option) ClientOption {
-	return func(c *Client) {
-		c.nameOpts = append(c.nameOpts, opts...)
-	}
-}
-
 // WithInsecureRegistries marks specific registry hosts as plain-HTTP, so refs to
 // them are pulled/resolved over http instead of https. It is scoped per host (not
 // global), so production https registries are unaffected. Intended for a
@@ -82,22 +69,17 @@ func WithInsecureRegistries(hosts ...string) ClientOption {
 	}
 }
 
-// Function variables for testing.
-var (
-	buildImageFn  = bundleToImage
-	imageDigestFn = func(img v1.Image) (v1.Hash, error) { return img.Digest() }
-	// remoteListFn is the seam that lets a test observe the repository tag
-	// listing is asked about — including the scheme it would be reached over,
-	// which no loopback test registry can exercise (go-containerregistry treats
-	// loopback as plain HTTP whether or not the allowance was applied).
-	remoteListFn = remote.List
-)
-
 // Client implements BundleStore using go-containerregistry.
 type Client struct {
 	keychain authn.Keychain
-	nameOpts []name.Option
 	insecure map[string]bool // registry hosts to reach over plain HTTP
+	// listTags lists a repository's tags; nil is remote.List. A test sets it to
+	// observe the repository asked about, including the scheme it would be
+	// reached over, which no loopback test registry can exercise
+	// (go-containerregistry treats loopback as plain HTTP either way).
+	listTags func(name.Repository, ...remote.Option) ([]string, error)
+	// imageDigest reads a pushed image's digest; nil is v1.Image.Digest.
+	imageDigest func(v1.Image) (v1.Hash, error)
 }
 
 // NewClient creates a new OCI client with the given keychain.
@@ -164,17 +146,16 @@ func (c *Client) doWithAuth(ctx context.Context, res authn.Resource, ref string,
 	return &AuthenticationError{Ref: ref, Err: lastErr, Tried: tried, Rejected: rejected}
 }
 
-// parseRef parses an OCI reference string with the client's name options. When
+// parseRef parses an OCI reference string. When
 // the ref's registry host is marked insecure, name.Insecure is applied for that
 // parse only, so that host is reached over plain HTTP without affecting others.
 func (c *Client) parseRef(ref string) (name.Reference, error) {
-	r, err := name.ParseReference(ref, c.nameOpts...)
+	r, err := name.ParseReference(ref)
 	if err != nil {
 		return nil, &InvalidRefError{Ref: ref, Err: err}
 	}
 	if c.insecure[r.Context().RegistryStr()] {
-		opts := append(append([]name.Option{}, c.nameOpts...), name.Insecure)
-		if ir, ierr := name.ParseReference(ref, opts...); ierr == nil {
+		if ir, ierr := name.ParseReference(ref, name.Insecure); ierr == nil {
 			return ir, nil
 		}
 	}
@@ -190,7 +171,7 @@ func (c *Client) Push(ctx context.Context, ref string, bundle *contract.Bundle) 
 	}
 
 	logging.LoggerFromContext(ctx).Debug("building OCI image from bundle", "ref", ref)
-	img, err := buildImageFn(bundle)
+	img, err := bundleToImage(bundle)
 	if err != nil {
 		return "", fmt.Errorf("failed to build OCI image: %w", err)
 	}
@@ -202,7 +183,11 @@ func (c *Client) Push(ctx context.Context, ref string, bundle *contract.Bundle) 
 		return "", err
 	}
 
-	digest, err := imageDigestFn(img)
+	digestOf := c.imageDigest
+	if digestOf == nil {
+		digestOf = v1.Image.Digest
+	}
+	digest, err := digestOf(img)
 	if err != nil {
 		return "", fmt.Errorf("failed to compute digest: %w", err)
 	}
@@ -279,8 +264,12 @@ func (c *Client) ListTags(ctx context.Context, repo string) ([]string, error) {
 	logging.LoggerFromContext(ctx).Debug("listing tags", "repo", repo)
 	var tags []string
 	if err := c.doWithAuth(ctx, r, repo, func(opts []remote.Option) error {
+		list := c.listTags
+		if list == nil {
+			list = remote.List
+		}
 		var opErr error
-		tags, opErr = remoteListFn(r, opts...)
+		tags, opErr = list(r, opts...)
 		return opErr
 	}); err != nil {
 		return nil, err

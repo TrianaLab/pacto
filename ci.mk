@@ -307,8 +307,8 @@ release-dry-run:
 	bash release/orchestrator/dry-run.sh
 
 # External-consumer proof for the Kubernetes integration Go module: a throwaway
-# module `go get`s github.com/trianalab/pacto/integrations/kubernetes/v5@v5.0.0 and
-# builds it with GOWORK=off and no replace, proving the /v5 semantic-import path is
+# module `go get`s github.com/trianalab/pacto/integrations/kubernetes/v6@v6.0.0 and
+# builds it with GOWORK=off and no replace, proving the /v6 semantic-import path is
 # valid Go and consumable by outside users. Local staging tags only, no publish.
 # Also invoked by release/orchestrator/dry-run.sh after the core verify-standalone.
 verify-k8s-standalone:

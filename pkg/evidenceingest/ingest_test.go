@@ -12,13 +12,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/evidence"
-	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/graph"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 const keyID = "env-a-2026"
@@ -346,7 +346,7 @@ func TestMemoryStore_Commit(t *testing.T) {
 func TestHandler_HTTP(t *testing.T) {
 	store := NewMemoryStore()
 	a, priv := newTestAcceptor(t, fakeResolver{}, store)
-	h := NewHandler(a, []string{"env-a", "env-b"}, nil, nil)
+	h := NewHandler(a, []string{"env-a", "env-b"}, nil)
 	mux := http.NewServeMux()
 	h.Routes(mux)
 	srv := httptest.NewServer(mux)
@@ -370,124 +370,10 @@ func TestHandler_HTTP(t *testing.T) {
 	post(t, srv.URL+"/api/evidence/v1/envelopes", signedEnvelopeBytes(t, priv, 3, "e3", bad), http.StatusUnprocessableEntity)
 }
 
-// onAccept is deprecated but still honoured, so it is still public behaviour a
-// v3 host can depend on. It fires once per accepted envelope and never for a
-// rejected one -- a host counting accepts must not count a replay.
-func TestHandler_OnAcceptFiresOnlyOnAccept(t *testing.T) {
-	a, priv := newTestAcceptor(t, fakeResolver{}, NewMemoryStore())
-	accepts := 0
-	h := NewHandler(a, nil, func() { accepts++ }, nil)
-	mux := http.NewServeMux()
-	h.Routes(mux)
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-
-	post(t, srv.URL+EnvelopesPath, signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet()), http.StatusAccepted)
-	if accepts != 1 {
-		t.Fatalf("onAccept fired %d times after one accept, want 1", accepts)
-	}
-	post(t, srv.URL+EnvelopesPath, signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet()), http.StatusConflict)
-	if accepts != 1 {
-		t.Errorf("onAccept fired %d times, want 1: a replay is not an accept", accepts)
-	}
-}
-
-func TestSource_Collect(t *testing.T) {
-	store := NewMemoryStore()
-	// The RESOLVED contract (service "payments" under domain ghcr.io/acme) — not the
-	// envelope Subject — is the source of the logical identity.
-	a, priv := newTestAcceptor(t, fakeResolver{c: contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "payments"}}}, store)
-	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet())); err != nil {
-		t.Fatal(err)
-	}
-	src := NewSource("", store)
-	if src.ID() != "evidence-ingest" || src.Kind() != "evidence-ingest" {
-		t.Errorf("source id/kind: %s/%s", src.ID(), src.Kind())
-	}
-	col, err := src.Collect(context.Background())
-	if err != nil || len(col.Targets) != 1 {
-		t.Fatalf("collect: %d targets err=%v", len(col.Targets), err)
-	}
-	tg := col.Targets[0]
-	if tg.Service != "payments" || tg.Domain != "ghcr.io/acme" || tg.Scope != "env-a" || tg.Kind != "external" || tg.ResolvedRef == "" || tg.EvidenceAt == nil {
-		t.Errorf("unexpected target: %+v", tg)
-	}
-	if tg.Digest != "sha256:"+strings.Repeat("a", 64) {
-		t.Errorf("digest = %q, want the resolved revision digest", tg.Digest)
-	}
-}
-
-func TestSource_CollectUnavailable(t *testing.T) {
-	src := NewSource("s", healthStore{health: SourceHealth{Status: HealthUnavailable, Subjects: 2, FailedSubjects: 2}})
-	_, err := src.Collect(context.Background())
-	if !errors.Is(err, ErrRegistryUnavailable) {
-		t.Fatalf("unreadable store should error, got %v", err)
-	}
-	if !strings.Contains(err.Error(), "2 of 2 contract subjects unreadable") {
-		t.Errorf("error should carry the sanitized reason, got %q", err)
-	}
-}
-
-func TestSource_CollectPartial(t *testing.T) {
-	rec := Record{Compliance: finding.StatusCompliant, Envelope: evidenceenvelope.Envelope{
-		ID: "e1", Producer: evidenceenvelope.Producer{ID: "env-a"},
-		EvidenceSet: evidence.EvidenceSet{Subject: evidence.SubjectRef{Kind: "service", Name: "payments"}},
-	}}
-	src := NewSource("s", healthStore{
-		recs:   []Record{rec},
-		health: SourceHealth{Status: HealthPartial, Subjects: 2, FailedSubjects: 1, InvalidArtifacts: 1},
-	})
-	col, err := src.Collect(context.Background())
-	if err != nil {
-		t.Fatalf("a partial read must still yield what it read: %v", err)
-	}
-	if len(col.Targets) != 1 {
-		t.Fatalf("targets = %d, want the one record that WAS read", len(col.Targets))
-	}
-	// The limitation is the whole signal: fleet.Build derives partial from it and
-	// stamps the timestamps, so declaring the state here as well would add a
-	// second, timestamp-less answer to the same question.
-	if col.State != nil {
-		t.Errorf("state = %+v, want nil: partiality is declared through the limitation", col.State)
-	}
-	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourcePartial {
-		t.Errorf("limitations = %+v, want one SOURCE_PARTIAL", col.Limitations)
-	}
-	if !strings.Contains(col.Limitations[0].Message, "1 of 2 contract subjects unreadable") {
-		t.Errorf("limitation should carry the store's own reason, got %q", col.Limitations[0].Message)
-	}
-}
-
-// A record whose compliance is outside the canonical vocabulary is kept out of
-// the graph and surfaced, which is what the live evidence source does with the
-// same input. Acceptance always derives the status, so only a corrupted or
-// hand-built record reaches this, and dropping it silently would read as "no
-// such target" rather than "this target could not be interpreted".
-func TestSource_CollectRejectsUninterpretableCompliance(t *testing.T) {
-	rec := Record{Compliance: "definitely-not-a-status", Envelope: evidenceenvelope.Envelope{
-		ID: "e1", Producer: evidenceenvelope.Producer{ID: "env-a"},
-		EvidenceSet: evidence.EvidenceSet{Subject: evidence.SubjectRef{Kind: "service", Name: "payments"}},
-	}}
-	src := NewSource("s", healthStore{recs: []Record{rec}, health: SourceHealth{Status: HealthReady, Subjects: 1}})
-	col, err := src.Collect(context.Background())
-	if err != nil {
-		t.Fatalf("an uninterpretable record is a limitation, not an error: %v", err)
-	}
-	if len(col.Targets) != 0 {
-		t.Errorf("targets = %+v, want none: the one record cannot be interpreted", col.Targets)
-	}
-	if len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationSourceRecordInvalid {
-		t.Fatalf("limitations = %+v, want one SOURCE_RECORD_INVALID", col.Limitations)
-	}
-	if !strings.Contains(col.Limitations[0].Message, "payments") {
-		t.Errorf("limitation should name the target, got %q", col.Limitations[0].Message)
-	}
-}
-
 func TestHandler_Ready(t *testing.T) {
 	a, priv := newTestAcceptor(t, fakeResolver{}, NewMemoryStore())
 	ready := false
-	h := NewHandler(a, nil, nil, func(ctx context.Context) bool {
+	h := NewHandler(a, nil, func(ctx context.Context) bool {
 		// Both gated paths must hand the probe the LIVE request context: it is the
 		// only thing that can cancel a store call when the caller gives up, and a
 		// Background() shortcut here would silently unbound every probe.
@@ -519,7 +405,7 @@ func TestHandler_Targets(t *testing.T) {
 	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", testEvidenceSet())); err != nil {
 		t.Fatal(err)
 	}
-	h := NewHandler(a, nil, nil, nil)
+	h := NewHandler(a, nil, nil)
 	mux := http.NewServeMux()
 	h.Routes(mux)
 	srv := httptest.NewServer(mux)
@@ -550,9 +436,7 @@ func TestHandler_Targets(t *testing.T) {
 	}
 
 	// The count bound truncates the list AND says so.
-	orig := maxSourceTargets
-	maxSourceTargets = 0
-	defer func() { maxSourceTargets = orig }()
+	h.maxTargets = 0
 	getJSON(t, srv.URL+"/api/evidence/v1/targets", &body)
 	if len(body.Targets) != 0 || !body.Truncated {
 		t.Errorf("count bound should truncate+signal, got %d truncated=%v", len(body.Targets), body.Truncated)
@@ -584,11 +468,9 @@ func TestHandler_TargetsFindingsCapAndHealth(t *testing.T) {
 		recs:   store.List(context.Background()).Records,
 		health: SourceHealth{Status: HealthPartial, Subjects: 3, FailedSubjects: 1, InvalidArtifacts: 2},
 	}
-	h := NewHandler(NewAcceptor(nil, fakeResolver{}, partial, fixedNow), nil, nil, nil)
+	h := NewHandler(NewAcceptor(nil, fakeResolver{}, partial, fixedNow), nil, nil)
 
-	orig := maxFindingsPerTarget
-	maxFindingsPerTarget = 1
-	defer func() { maxFindingsPerTarget = orig }()
+	h.maxFindings = 1
 
 	mux := http.NewServeMux()
 	h.Routes(mux)
@@ -613,7 +495,7 @@ func TestHandler_TargetsFindingsCapAndHealth(t *testing.T) {
 // external environment silently reads as gone rather than as unobserved.
 func TestHandler_TargetsUnavailable(t *testing.T) {
 	store := healthStore{health: SourceHealth{Status: HealthUnavailable, Subjects: 2, FailedSubjects: 2}}
-	h := NewHandler(NewAcceptor(nil, fakeResolver{}, store, fixedNow), nil, nil, nil)
+	h := NewHandler(NewAcceptor(nil, fakeResolver{}, store, fixedNow), nil, nil)
 	req := httptest.NewRequest(http.MethodGet, "/api/evidence/v1/targets", nil)
 	w := httptest.NewRecorder()
 	h.handleTargets(w, req)
@@ -682,7 +564,7 @@ func (brokenReader) Read([]byte) (int, error) { return 0, errors.New("read failu
 
 func TestHandler_BodyReadError(t *testing.T) {
 	a, _ := newTestAcceptor(t, fakeResolver{}, NewMemoryStore())
-	h := NewHandler(a, nil, nil, nil)
+	h := NewHandler(a, nil, nil)
 	req := httptest.NewRequest(http.MethodPost, "/api/evidence/v1/envelopes", brokenReader{})
 	w := httptest.NewRecorder()
 	h.handleEnvelope(w, req)

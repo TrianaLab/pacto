@@ -3,7 +3,7 @@
     "core": {
       "artifacts": [
         {
-          "coordinate": "github.com/trianalab/pacto/v3",
+          "coordinate": "github.com/trianalab/pacto/v4",
           "kind": "go-module",
           "tag": "v3.3.6",
           "unit": "core"
@@ -46,9 +46,9 @@
     "kubernetes": {
       "artifacts": [
         {
-          "coordinate": "github.com/trianalab/pacto/integrations/kubernetes/v5",
+          "coordinate": "github.com/trianalab/pacto/integrations/kubernetes/v6",
           "kind": "go-module",
-          "tag": "integrations/kubernetes/v5.4.3",
+          "tag": "integrations/kubernetes/v6.0.0",
           "unit": "k8s-module"
         },
         {
@@ -73,14 +73,14 @@
       ],
       "assertNoReplace": true,
       "compatibility": {
-        "pactoCore": ">=3.0.0"
+        "pactoCore": ">=4.0.0"
       },
       "goModPin": {
-        "module": "github.com/trianalab/pacto/v3",
-        "version": "v3.3.6"
+        "module": "github.com/trianalab/pacto/v4",
+        "version": "v4.0.0"
       },
       "tags": [
-        "integrations/kubernetes/v5.4.3"
+        "integrations/kubernetes/v6.0.0"
       ],
       "version": "5.4.3"
     }

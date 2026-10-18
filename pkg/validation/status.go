@@ -1,6 +1,6 @@
 package validation
 
-import "github.com/trianalab/pacto/v3/pkg/finding"
+import "github.com/trianalab/pacto/v4/pkg/finding"
 
 // DeriveStatus ranks a finding set and its coverage onto the compliance ladder.
 // It is the single producer of that ranking: the operator writes it to

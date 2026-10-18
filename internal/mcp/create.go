@@ -13,24 +13,27 @@ import (
 	"strings"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 	"gopkg.in/yaml.v3"
 )
 
-// Function variables for filesystem operations, overridable in tests.
-var (
-	osStat       = os.Stat
-	osReadFile   = os.ReadFile
-	osMkdirAll   = os.MkdirAll
-	osWriteFile  = os.WriteFile
-	osRename     = os.Rename
-	osCreateTemp = os.CreateTemp
+// fileOps is what the create, edit and check paths write files and encode YAML
+// with: the os and yaml.v3 functions in production (osFileOps), failing fakes in
+// tests, so no package state is swapped.
+type fileOps struct {
+	mkdirAll  func(string, os.FileMode) error
+	writeFile func(string, []byte, os.FileMode) error
+	rename    func(oldpath, newpath string) error
+	dirFS     func(string) fs.FS
+	marshal   func(any) ([]byte, error)
+	unmarshal func([]byte, any) error
+}
 
-	yamlMarshalFn   = yaml.Marshal
-	yamlUnmarshalFn = yaml.Unmarshal
-	osDirFS         = os.DirFS
-)
+// osFileOps is the production fileOps.
+func osFileOps() fileOps {
+	return fileOps{os.MkdirAll, os.WriteFile, os.Rename, os.DirFS, yaml.Marshal, yaml.Unmarshal}
+}
 
 // --- Input/Output types ---
 
@@ -46,12 +49,11 @@ type CreateInput struct {
 	Dependencies []DependencyInput
 
 	Workload string
-	// The three intent booleans are pointers because description inference only
-	// fills in what the caller left unsaid. A plain bool cannot tell "the caller
-	// said false" apart from "the caller said nothing", so an explicit
-	// stores_data=false against a description mentioning postgres used to be
-	// overridden into stateful/persistent/shared — the opposite of what was
-	// declared, in the section that feeds compliance and blast radius.
+	// The three intent booleans are only ever what the caller stated: the
+	// description never infers state. A keyword such as "postgres" says the
+	// service talks to a database, not that it keeps state itself, and a state
+	// section the caller did not assert becomes a runtime contradiction the
+	// moment persistence is observed. Unset reads as false (stateless).
 	StoresData                *bool
 	DataSurvivesRestart       *bool
 	DataSharedAcrossInstances *bool
@@ -172,15 +174,14 @@ type descriptionHints struct {
 	hasHTTP     bool
 	hasGRPC     bool
 	hasEvents   bool
-	storesData  bool
-	dataDurable bool
-	dataShared  bool
 	isWorker    bool
 	isScheduled bool
 }
 
 // descriptionPatterns are the keyword heuristics pacto_create applies to a
-// description; docs/mcp-integration.md lists them for agents.
+// description; docs/mcp-integration.md lists them for agents. They only infer
+// interfaces and the workload, never state: storage keywords used to set
+// stores_data and friends, asserting a state model nobody declared.
 var descriptionPatterns = []struct {
 	pattern *regexp.Regexp
 	apply   func(*descriptionHints)
@@ -188,11 +189,8 @@ var descriptionPatterns = []struct {
 	{regexp.MustCompile(`(?i)\b(REST|HTTP|API|web)\b`), func(h *descriptionHints) { h.hasHTTP = true }},
 	{regexp.MustCompile(`(?i)\bgRPC\b`), func(h *descriptionHints) { h.hasGRPC = true }},
 	{regexp.MustCompile(`(?i)\b(event|kafka|nats|pubsub|queue|message|rabbit)\b`), func(h *descriptionHints) { h.hasEvents = true }},
-	{regexp.MustCompile(`(?i)\b(postgres|mysql|database|db|mongo|dynamo|cockroach|sql)\b`), func(h *descriptionHints) { h.storesData = true; h.dataDurable = true; h.dataShared = true }},
-	{regexp.MustCompile(`(?i)\b(redis|cache|memcache)\b`), func(h *descriptionHints) { h.storesData = true }},
 	{regexp.MustCompile(`(?i)\b(worker|consumer|processor)\b`), func(h *descriptionHints) { h.isWorker = true }},
 	{regexp.MustCompile(`(?i)\b(cron|scheduled|periodic|batch)\b`), func(h *descriptionHints) { h.isScheduled = true }},
-	{regexp.MustCompile(`(?i)\b(stateful|persistent|stores? data|durable)\b`), func(h *descriptionHints) { h.storesData = true; h.dataDurable = true }},
 }
 
 func inferFromDescription(desc string) descriptionHints {
@@ -248,7 +246,9 @@ func deriveStateMap(intent stateIntent) map[string]any {
 // --- Create ---
 
 // Create builds a new pacto contract from structured input.
-func Create(input CreateInput) (*CreateResult, error) {
+func Create(input CreateInput) (*CreateResult, error) { return osFileOps().create(input) }
+
+func (o fileOps) create(input CreateInput) (*CreateResult, error) {
 	if input.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
@@ -266,7 +266,7 @@ func Create(input CreateInput) (*CreateResult, error) {
 	m := buildCreateMap(input)
 
 	// Marshal to YAML
-	yamlBytes, err := marshalContract(m)
+	yamlBytes, err := o.marshalContract(m)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal contract: %w", err)
 	}
@@ -289,7 +289,7 @@ func Create(input CreateInput) (*CreateResult, error) {
 	}
 
 	// Write files
-	fileCount, err := writeBundle(dir, yamlBytes, input)
+	fileCount, err := o.writeBundle(dir, yamlBytes, input)
 	if err != nil {
 		return nil, err
 	}
@@ -321,23 +321,12 @@ func applyHintsToCreate(input *CreateInput, h descriptionHints) {
 		}
 	}
 
-	inferBool(&input.StoresData, h.storesData)
-	inferBool(&input.DataSurvivesRestart, h.dataDurable)
-	inferBool(&input.DataSharedAcrossInstances, h.dataShared)
-
 	if input.Workload == "" {
 		if h.isScheduled {
 			input.Workload = contract.WorkloadScheduled
 		} else if h.isWorker {
 			input.Workload = contract.WorkloadJob
 		}
-	}
-}
-
-// inferBool applies an inferred true only where the caller said nothing.
-func inferBool(dst **bool, inferred bool) {
-	if *dst == nil && inferred {
-		*dst = &inferred
 	}
 }
 
@@ -448,14 +437,16 @@ func buildDependenciesList(inputs []DependencyInput) []any {
 // --- Edit ---
 
 // Edit modifies an existing pacto contract.
-func Edit(input EditInput) (*EditResult, error) {
+func Edit(input EditInput) (*EditResult, error) { return osFileOps().edit(input) }
+
+func (o fileOps) edit(input EditInput) (*EditResult, error) {
 	dir := input.Path
 	if dir == "" {
 		dir = "."
 	}
 
 	pactoPath := filepath.Join(dir, "pacto.yaml")
-	rawYAML, err := osReadFile(pactoPath)
+	rawYAML, err := os.ReadFile(pactoPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read %s: %w", pactoPath, err)
 	}
@@ -479,7 +470,7 @@ func Edit(input EditInput) (*EditResult, error) {
 		}
 	}
 
-	yamlBytes, err := marshalContract(m)
+	yamlBytes, err := o.marshalContract(m)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal contract: %w", err)
 	}
@@ -491,7 +482,7 @@ func Edit(input EditInput) (*EditResult, error) {
 	}
 
 	// Build FS for validation (existing files + new YAML + stubs for new refs)
-	bundleFS := buildBundleFSForValidation(dir, yamlBytes, c)
+	bundleFS := o.buildBundleFSForValidation(dir, yamlBytes, c)
 	if schemaRel != "" {
 		bundleFS[schemaRel] = &fstest.MapFile{Data: schemaBytes}
 	}
@@ -514,17 +505,17 @@ func Edit(input EditInput) (*EditResult, error) {
 	// The schema goes first: a failure then leaves pacto.yaml untouched rather
 	// than pointing at a schema that was never written.
 	if schemaRel != "" {
-		if err := writeConfigSchema(filepath.Join(dir, schemaRel), schemaBytes); err != nil {
+		if err := o.writeConfigSchema(filepath.Join(dir, schemaRel), schemaBytes); err != nil {
 			return nil, err
 		}
 	}
 
-	if err := atomicWriteFile(pactoPath, yamlBytes, 0644); err != nil {
+	if err := o.atomicWriteFile(pactoPath, yamlBytes, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write %s: %w", pactoPath, err)
 	}
 
 	// Scaffold any new interface contract files
-	if err := scaffoldNewInterfaceFiles(dir, input.AddInterfaces); err != nil {
+	if err := o.scaffoldNewInterfaceFiles(dir, input.AddInterfaces); err != nil {
 		return nil, err
 	}
 
@@ -746,11 +737,11 @@ func readCurrentState(m map[string]any) (storesData, dataSurvives, dataShared bo
 }
 
 // writeConfigSchema writes a merged configuration schema, creating its directory.
-func writeConfigSchema(path string, data []byte) error {
-	if err := osMkdirAll(filepath.Dir(path), 0755); err != nil {
+func (o fileOps) writeConfigSchema(path string, data []byte) error {
+	if err := o.mkdirAll(filepath.Dir(path), 0755); err != nil {
 		return fmt.Errorf("failed to create %s: %w", filepath.Dir(path), err)
 	}
-	if err := atomicWriteFile(path, data, 0644); err != nil {
+	if err := o.atomicWriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("failed to write %s: %w", path, err)
 	}
 	return nil
@@ -778,7 +769,7 @@ func mergeConfigSchema(dir string, m map[string]any, props []ConfigProperty) (st
 	if rel == "" || !filepath.IsLocal(rel) {
 		return "", nil, fmt.Errorf("add_config_properties needs a configuration with a local schema file, got %q", rel)
 	}
-	existing, err := osReadFile(filepath.Join(dir, rel))
+	existing, err := os.ReadFile(filepath.Join(dir, rel))
 	if errors.Is(err, fs.ErrNotExist) {
 		return rel, generateConfigSchema(props), nil
 	}
@@ -871,13 +862,17 @@ func applyMetadataEdits(m map[string]any, set map[string]any, remove []string) [
 // falls back to local validation with no policy resolver, which fails a
 // ref-based policy closed rather than downgrading it to a warning.
 func Check(ctx context.Context, validate Validator, path string) (*CheckResult, error) {
+	return osFileOps().check(ctx, validate, path)
+}
+
+func (o fileOps) check(ctx context.Context, validate Validator, path string) (*CheckResult, error) {
 	dir := path
 	if dir == "" {
 		dir = "."
 	}
 
 	pactoPath := filepath.Join(dir, "pacto.yaml")
-	rawYAML, err := osReadFile(pactoPath)
+	rawYAML, err := os.ReadFile(pactoPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read %s: %w", pactoPath, err)
 	}
@@ -899,7 +894,7 @@ func Check(ctx context.Context, validate Validator, path string) (*CheckResult, 
 			return nil, err
 		}
 	} else {
-		vr = validation.ValidateWithResolver(ctx, c, rawYAML, osDirFS(dir), nil)
+		vr = validation.ValidateWithResolver(ctx, c, rawYAML, o.dirFS(dir), nil)
 	}
 
 	cr := &CheckResult{
@@ -934,7 +929,7 @@ var topLevelKeyOrder = []string{
 	"policies", "dependencies", "state", "workload", "capabilities", "readiness", "metadata", "extensions",
 }
 
-func marshalContract(m map[string]any) ([]byte, error) {
+func (o fileOps) marshalContract(m map[string]any) ([]byte, error) {
 	doc := &yaml.Node{Kind: yaml.DocumentNode}
 	mapping := &yaml.Node{Kind: yaml.MappingNode}
 
@@ -950,7 +945,7 @@ func marshalContract(m map[string]any) ([]byte, error) {
 			keyNode.HeadComment = ""
 		}
 
-		valNode, err := valueToNode(val)
+		valNode, err := o.valueToNode(val)
 		if err != nil {
 			return nil, fmt.Errorf("marshaling %s: %w", key, err)
 		}
@@ -967,13 +962,13 @@ func marshalContract(m map[string]any) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func valueToNode(v any) (*yaml.Node, error) {
-	data, err := yamlMarshalFn(v)
+func (o fileOps) valueToNode(v any) (*yaml.Node, error) {
+	data, err := o.marshal(v)
 	if err != nil {
 		return nil, err
 	}
 	var doc yaml.Node
-	if err := yamlUnmarshalFn(data, &doc); err != nil {
+	if err := o.unmarshal(data, &doc); err != nil {
 		return nil, err
 	}
 	// Normally yaml wraps in a DocumentNode with one content child, but empty or
@@ -1030,13 +1025,13 @@ func buildStubFS(c *contract.Contract, yamlBytes []byte) fstest.MapFS {
 	return m
 }
 
-func buildBundleFSForValidation(dir string, yamlBytes []byte, c *contract.Contract) fstest.MapFS {
+func (o fileOps) buildBundleFSForValidation(dir string, yamlBytes []byte, c *contract.Contract) fstest.MapFS {
 	m := fstest.MapFS{
 		"pacto.yaml": &fstest.MapFile{Data: yamlBytes},
 	}
 
 	// Walk the existing directory to include all files
-	dirFS := osDirFS(dir)
+	dirFS := o.dirFS(dir)
 	// WalkDir callback always returns nil, so WalkDir itself cannot error.
 	_ = fs.WalkDir(dirFS, ".", func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -1078,8 +1073,8 @@ func buildBundleFSForValidation(dir string, yamlBytes []byte, c *contract.Contra
 
 // --- File writing ---
 
-func writeBundle(dir string, yamlBytes []byte, input CreateInput) (int, error) {
-	if err := osMkdirAll(dir, 0755); err != nil {
+func (o fileOps) writeBundle(dir string, yamlBytes []byte, input CreateInput) (int, error) {
+	if err := o.mkdirAll(dir, 0755); err != nil {
 		return 0, fmt.Errorf("failed to create directory %s: %w", dir, err)
 	}
 
@@ -1087,7 +1082,7 @@ func writeBundle(dir string, yamlBytes []byte, input CreateInput) (int, error) {
 
 	// Write pacto.yaml
 	pactoPath := filepath.Join(dir, "pacto.yaml")
-	if err := atomicWriteFile(pactoPath, yamlBytes, 0644); err != nil {
+	if err := o.atomicWriteFile(pactoPath, yamlBytes, 0644); err != nil {
 		return 0, fmt.Errorf("failed to write %s: %w", pactoPath, err)
 	}
 	fileCount++
@@ -1095,12 +1090,12 @@ func writeBundle(dir string, yamlBytes []byte, input CreateInput) (int, error) {
 	// Scaffold interface spec files
 	for _, iface := range input.Interfaces {
 		ifaceDir := filepath.Join(dir, "interfaces")
-		if err := osMkdirAll(ifaceDir, 0755); err != nil {
+		if err := o.mkdirAll(ifaceDir, 0755); err != nil {
 			return fileCount, fmt.Errorf("failed to create %s: %w", ifaceDir, err)
 		}
 		ifacePath := filepath.Join(ifaceDir, iface.Name+".yaml")
 		stub := scaffoldInterfaceStub(input.Name, iface)
-		if err := atomicWriteFile(ifacePath, stub, 0644); err != nil {
+		if err := o.atomicWriteFile(ifacePath, stub, 0644); err != nil {
 			return fileCount, fmt.Errorf("failed to write %s: %w", ifacePath, err)
 		}
 		fileCount++
@@ -1109,12 +1104,12 @@ func writeBundle(dir string, yamlBytes []byte, input CreateInput) (int, error) {
 	// Scaffold config schema if needed
 	if len(input.ConfigProperties) > 0 {
 		configDir := filepath.Join(dir, "configuration")
-		if err := osMkdirAll(configDir, 0755); err != nil {
+		if err := o.mkdirAll(configDir, 0755); err != nil {
 			return fileCount, fmt.Errorf("failed to create %s: %w", configDir, err)
 		}
 		schemaPath := filepath.Join(configDir, "schema.json")
 		schema := generateConfigSchema(input.ConfigProperties)
-		if err := atomicWriteFile(schemaPath, schema, 0644); err != nil {
+		if err := o.atomicWriteFile(schemaPath, schema, 0644); err != nil {
 			return fileCount, fmt.Errorf("failed to write %s: %w", schemaPath, err)
 		}
 		fileCount++
@@ -1123,19 +1118,19 @@ func writeBundle(dir string, yamlBytes []byte, input CreateInput) (int, error) {
 	return fileCount, nil
 }
 
-func scaffoldNewInterfaceFiles(dir string, interfaces []InterfaceInput) error {
+func (o fileOps) scaffoldNewInterfaceFiles(dir string, interfaces []InterfaceInput) error {
 	for _, iface := range interfaces {
 		ifaceDir := filepath.Join(dir, "interfaces")
-		if err := osMkdirAll(ifaceDir, 0755); err != nil {
+		if err := o.mkdirAll(ifaceDir, 0755); err != nil {
 			return fmt.Errorf("failed to create %s: %w", ifaceDir, err)
 		}
 		ifacePath := filepath.Join(ifaceDir, iface.Name+".yaml")
 		// Only write if file doesn't exist
-		if _, err := osStat(ifacePath); err == nil {
+		if _, err := os.Stat(ifacePath); err == nil {
 			continue
 		}
 		stub := scaffoldInterfaceStub("service", iface)
-		if err := atomicWriteFile(ifacePath, stub, 0644); err != nil {
+		if err := o.atomicWriteFile(ifacePath, stub, 0644); err != nil {
 			return fmt.Errorf("failed to write %s: %w", ifacePath, err)
 		}
 	}
@@ -1218,23 +1213,23 @@ func generateConfigSchema(props []ConfigProperty) []byte {
 // renames it into place, so concurrent writers never share a temp file and a
 // reader never sees a partial one. An existing file keeps its permissions; the
 // temp file is removed on any failure.
-func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
-	if fi, err := osStat(path); err == nil {
+func (o fileOps) atomicWriteFile(path string, data []byte, perm os.FileMode) error {
+	if fi, err := os.Stat(path); err == nil {
 		perm = fi.Mode().Perm()
 	}
-	f, err := osCreateTemp(filepath.Dir(path), ".pacto-tmp-"+filepath.Base(path)+"-*")
+	f, err := os.CreateTemp(filepath.Dir(path), ".pacto-tmp-"+filepath.Base(path)+"-*")
 	if err != nil {
 		return err
 	}
 	tmp := f.Name()
 	_ = f.Close()
-	err = osWriteFile(tmp, data, perm)
+	err = o.writeFile(tmp, data, perm)
 	if err == nil {
 		// CreateTemp opens 0600 and WriteFile keeps an existing file's mode.
 		err = os.Chmod(tmp, perm)
 	}
 	if err == nil {
-		err = osRename(tmp, path)
+		err = o.rename(tmp, path)
 	}
 	if err != nil {
 		_ = os.Remove(tmp)
@@ -1384,9 +1379,6 @@ func collectDerived(input CreateInput, h descriptionHints) []string {
 		}
 		if h.hasEvents {
 			derived = append(derived, "inferred event interface from description")
-		}
-		if h.storesData {
-			derived = append(derived, "inferred stateful runtime from description")
 		}
 		if h.isWorker {
 			derived = append(derived, "inferred job workload from description")

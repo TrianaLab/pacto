@@ -73,7 +73,7 @@
           <th aria-sort={ariaSort('readiness')}><button type="button" class="col-sort" data-tip="Readiness score and status" onclick={() => setSort('readiness')}>Readiness{sortIcon('readiness')}</button></th>
           <th aria-sort={ariaSort('blast')}><button type="button" class="col-sort" data-tip="Number of services impacted if this one fails" onclick={() => setSort('blast')}>Blast{sortIcon('blast')}</button></th>
           <th data-tip="Validation checks passed / total">Checks</th>
-          <th data-tip="Data source: k8s, oci, or local">Source</th>
+          <th data-tip="Data source: kubernetes, oci or local">Source</th>
         </tr>
       </thead>
       <tbody>

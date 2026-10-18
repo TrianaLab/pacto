@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/strictjson"
+	"github.com/trianalab/pacto/v4/pkg/strictjson"
 )
 
 // SubjectRef identifies the specific entity an observation is about. For per-assertion kinds it names the

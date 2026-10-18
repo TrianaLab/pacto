@@ -64,7 +64,7 @@ tests:
           content:
             apiGroups: [pacto.trianalab.io]
             resources: [noderuntimeobservations]
-            verbs: [get, list, watch]
+            verbs: [delete, get, list, watch]
       - contains:
           path: rules
           content:

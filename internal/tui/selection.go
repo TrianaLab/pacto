@@ -4,9 +4,9 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // requireDetail adds the guarantee EntityDetail's signature does not give: a

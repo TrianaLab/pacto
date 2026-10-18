@@ -23,10 +23,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/evidence"
-	"github.com/trianalab/pacto/v3/pkg/probe"
+	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/probe"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 const (
@@ -52,7 +53,7 @@ const (
 	promScrapeAnnotation      = "true"
 	promGroup                 = "monitoring.coreos.com"
 
-	collectorName  = "k8s-observer"
+	collectorName  = runtimefacts.CollectorKubernetes
 	scheduledScope = "scheduled"
 	jobScope       = "job"
 	persistentMode = "persistent"

@@ -42,17 +42,26 @@ type CRDDiscovery struct {
 	ResourceName string
 }
 
-// Impl seams, overridable in tests to exercise construction error paths without
-// a real cluster.
-var (
-	inClusterConfigFunc         = rest.InClusterConfig
-	newDiscoveryClientForConfig = func(c *rest.Config) (discovery.DiscoveryInterface, error) {
-		return discovery.NewDiscoveryClientForConfig(c)
+// builders are the client-go constructors a client is assembled from. The
+// exported constructors use defaultBuilders; a test builds its own to exercise
+// the construction error paths without a real cluster.
+type builders struct {
+	inCluster func() (*rest.Config, error)
+	discovery func(*rest.Config) (discovery.DiscoveryInterface, error)
+	dynamic   func(*rest.Config) (dynamic.Interface, error)
+}
+
+func defaultBuilders() builders {
+	return builders{
+		inCluster: rest.InClusterConfig,
+		discovery: func(c *rest.Config) (discovery.DiscoveryInterface, error) {
+			return discovery.NewDiscoveryClientForConfig(c)
+		},
+		dynamic: func(c *rest.Config) (dynamic.Interface, error) {
+			return dynamic.NewForConfig(c)
+		},
 	}
-	newDynamicForConfig = func(c *rest.Config) (dynamic.Interface, error) {
-		return dynamic.NewForConfig(c)
-	}
-)
+}
 
 // CurrentKubeContext reads the current context name from the kubeconfig file,
 // returning "" when it cannot be determined.
@@ -76,18 +85,22 @@ type k8sGoClient struct {
 // NewGoClient constructs a cluster-backed K8sClient from in-cluster config or
 // the ambient kubeconfig.
 func NewGoClient() (K8sClient, error) {
-	config, err := buildK8sConfig()
+	return defaultBuilders().goClient()
+}
+
+func (b builders) goClient() (K8sClient, error) {
+	config, err := b.config()
 	if err != nil {
 		return nil, fmt.Errorf("loading kubeconfig: %w", err)
 	}
 	config.Timeout = 5 * time.Second
 
-	disc, err := newDiscoveryClientForConfig(config)
+	disc, err := b.discovery(config)
 	if err != nil {
 		return nil, fmt.Errorf("creating discovery client: %w", err)
 	}
 
-	dyn, err := newDynamicForConfig(config)
+	dyn, err := b.dynamic(config)
 	if err != nil {
 		return nil, fmt.Errorf("creating dynamic client: %w", err)
 	}
@@ -99,9 +112,9 @@ func NewGoClient() (K8sClient, error) {
 	}, nil
 }
 
-func buildK8sConfig() (*rest.Config, error) {
+func (b builders) config() (*rest.Config, error) {
 	// Try in-cluster config first.
-	config, err := inClusterConfigFunc()
+	config, err := b.inCluster()
 	if err != nil {
 		// Fall back to kubeconfig.
 		loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
@@ -222,9 +235,13 @@ func (c *k8sGoClient) CountResources(ctx context.Context, resource, namespace st
 // NewDynamic returns a dynamic client from in-cluster config or the ambient
 // kubeconfig, for writers such as the `pacto agent` Kubernetes sink.
 func NewDynamic() (dynamic.Interface, error) {
-	config, err := buildK8sConfig()
+	return defaultBuilders().newDynamic()
+}
+
+func (b builders) newDynamic() (dynamic.Interface, error) {
+	config, err := b.config()
 	if err != nil {
 		return nil, fmt.Errorf("loading kubeconfig: %w", err)
 	}
-	return newDynamicForConfig(config)
+	return b.dynamic(config)
 }

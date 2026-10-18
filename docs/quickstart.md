@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
 Or via Go:
 
 ```bash
-go install github.com/trianalab/pacto/v3/cmd/pacto@latest
+go install github.com/trianalab/pacto/v4/cmd/pacto@latest
 ```
 
 See [Installation](installation.md) for other methods and for what to do if the script exits with `Failed to fetch latest version` — that is the anonymous GitHub API rate limit, not a broken release.

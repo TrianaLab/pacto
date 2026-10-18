@@ -26,7 +26,7 @@ function listResp(entities: any[], opts: { total?: number; offset?: number; next
     meta: {
       schemaVersion: 'pacto.dev/fleet-product/v1',
       completeness: opts.partial ? 'partial' : 'complete',
-      sources: opts.partial ? [{ id: 'k8s', kind: 'k8s', status: 'unavailable' }] : [],
+      sources: opts.partial ? [{ id: 'k8s', kind: 'kubernetes', status: 'unavailable' }] : [],
     },
     total, count: entities.length, offset, limit: 25,
     truncated: opts.nextOffset != null, nextOffset: opts.nextOffset, entities,

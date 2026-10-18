@@ -3,7 +3,7 @@ package graph
 import (
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // Scheme represents the type of a dependency reference.

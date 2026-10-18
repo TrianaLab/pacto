@@ -18,7 +18,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 var treeNow = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)
@@ -264,5 +264,47 @@ func TestRunning(t *testing.T) {
 	w.Poll(treeNow)
 	if wl := w.Snapshot(treeNow).Workloads[0]; wl.Truncated || len(wl.Listeners) != 2 {
 		t.Fatalf("exiting = %+v", wl)
+	}
+}
+
+func TestStartTime(t *testing.T) {
+	stat := func(pid string, ticks string) *fstest.MapFile {
+		return &fstest.MapFile{Data: []byte(pid + " (a b) S 1 1 1 0 -1 4194560 0 0 0 0 0 0 0 0 20 0 1 0 " + ticks + " 0 0")}
+	}
+	files := fstest.MapFS{
+		"stat":      {Data: []byte("cpu  1 2 3\nbtime 1760000000\nprocesses 9\n")},
+		"self/stat": stat("1", "1"), // not a pid
+		"10/cgroup": unitCg("api.service"),
+		"10/stat":   stat("10", "250"), // 2.5s after boot
+		"11/cgroup": unitCg("api.service"),
+		"11/stat":   stat("11", "900"),
+		"12/cgroup": unitCg("api.service"),
+		"12/stat":   {Data: []byte("12 (short) S 1")},
+		"13/cgroup": unitCg("api.service"),
+		"13/stat":   stat("13", "nope"),
+		"14/cgroup": unitCg("api.service"), // gone mid-scan: no stat
+		"15/cgroup": unitCg("other.service"),
+		"15/stat":   stat("15", "1"),
+		"16/stat":   stat("16", "1"), // no cgroup
+		"0/cgroup":  unitCg("api.service"),
+		"0/stat":    stat("0", "1"),
+	}
+	isAPI := func(id runtimefacts.Identity) bool { return id == unit("api.service") }
+	got, ok := StartTime(mapProc{files: files}, isAPI)
+	if want := time.Unix(1760000002, 0); !ok || !got.Equal(want) {
+		t.Fatalf("StartTime = %v %v, want %v", got, ok, want)
+	}
+	if _, ok := StartTime(mapProc{files: files}, func(runtimefacts.Identity) bool { return false }); ok {
+		t.Fatal("no match must not report a start")
+	}
+	for name, data := range map[string]string{"no btime": "cpu 1\n", "bad btime": "btime x\n"} {
+		files["stat"] = &fstest.MapFile{Data: []byte(data)}
+		if _, ok := StartTime(mapProc{files: files}, isAPI); ok {
+			t.Errorf("%s: want no start", name)
+		}
+	}
+	delete(files, "stat")
+	if _, ok := StartTime(mapProc{files: files}, isAPI); ok {
+		t.Error("unreadable /proc/stat: want no start")
 	}
 }

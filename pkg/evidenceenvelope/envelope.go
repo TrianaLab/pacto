@@ -21,9 +21,9 @@ import (
 	"path"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/strictjson"
+	"github.com/trianalab/pacto/v4/pkg/strictjson"
 
-	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 )
 
 // Protocol constants.

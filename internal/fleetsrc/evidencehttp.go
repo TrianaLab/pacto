@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/strictjson"
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/strictjson"
 )
 
 // maxEvidenceBodyBytes bounds the response body an evidence source reads, so a

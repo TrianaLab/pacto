@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/tests/acceptance/scenario"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/tests/acceptance/scenario"
 )
 
 // These tests hold the gate to the rule that makes its twelve facts mean anything:

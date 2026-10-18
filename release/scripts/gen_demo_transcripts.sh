@@ -8,8 +8,10 @@
 # CLI reference.
 #
 # Offline and deterministic by construction: every beat reads the committed demo
-# fixture and nothing else. Beats 11 and 12 are not here — one needs a stdin
-# handshake, the other a live dashboard — so the tour writes those two inline.
+# fixture and nothing else, and the network and the bundle cache are shut off
+# below so a beat that would reach further cannot. Beats 11 and 12 are not
+# here — one needs a stdin handshake, the other a live dashboard — so the tour
+# writes those two inline.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -22,6 +24,17 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 BIN="$WORK/pacto"
 go build -o "$BIN" ./cmd/pacto
+
+# Hermetic past this point. `pacto diff` resolves each side's dependency graph
+# from the registry, and its output turns on what that returns: one side
+# resolved and the other not (a dropped connection, a rate limit) prints
+# dependency changes the bundles do not have, and a warm ~/.cache/pacto answers
+# differently from a cold one. An empty cache and a proxy that refuses every
+# connection make both sides fail the same way on every run and every machine.
+# The fixture's dependencies are siblings in examples/demo/bundles or nothing.
+export XDG_CACHE_HOME="$WORK/cache"
+export HTTPS_PROXY=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 http_proxy=http://127.0.0.1:9
+unset NO_PROXY no_proxy
 
 mkdir -p "$OUT"
 # Drop transcripts from a previous beat numbering first. The tour snippet-includes

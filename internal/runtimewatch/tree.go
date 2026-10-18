@@ -16,8 +16,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/logging"
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 // ReasonUnprivileged marks a snapshot from TreeWatcher: polled from /proc
@@ -196,6 +196,62 @@ func procStat(p ProcFS, pid int) (int, bool) {
 	ppid, err := strconv.Atoi(string(f[1]))
 	flags, ferr := strconv.ParseUint(string(f[6]), 10, 64)
 	return ppid, err == nil && ferr == nil && flags&pfExiting == 0
+}
+
+// clockTick is one USER_HZ tick, the unit of /proc/<pid>/stat starttime: 100 Hz
+// on every architecture Linux exposes to userspace.
+const clockTick = 10 * time.Millisecond
+
+// StartTime returns when the earliest live process whose cgroup want accepts
+// started, at second precision (the snapshots' own), from its stat starttime
+// and the boot time in /proc/stat. ok is false when no process matches or the
+// boot time cannot be read.
+func StartTime(p ProcFS, want func(runtimefacts.Identity) bool) (time.Time, bool) {
+	boot, ok := bootTime(p)
+	if !ok {
+		return time.Time{}, false
+	}
+	entries, _ := p.ReadDir(".")
+	var earliest uint64
+	found := false
+	for _, e := range entries {
+		if pid, err := strconv.Atoi(e.Name()); err != nil || pid <= 0 {
+			continue
+		}
+		cg, err := p.ReadFile(e.Name() + "/cgroup")
+		if err != nil || !want(IdentityFromProcCgroup(cg)) {
+			continue
+		}
+		b, err := p.ReadFile(e.Name() + "/stat")
+		if err != nil {
+			continue
+		}
+		// starttime is field 22, the 20th after the comm's closing parenthesis.
+		f := bytes.Fields(b[bytes.LastIndexByte(b, ')')+1:])
+		if len(f) < 20 {
+			continue
+		}
+		ticks, err := strconv.ParseUint(string(f[19]), 10, 64)
+		if err == nil && (!found || ticks < earliest) {
+			earliest, found = ticks, true
+		}
+	}
+	return boot.Add(time.Duration(earliest) * clockTick).Truncate(time.Second), found
+}
+
+// bootTime reads the btime line of /proc/stat.
+func bootTime(p ProcFS) (time.Time, bool) {
+	b, err := p.ReadFile("stat")
+	if err != nil {
+		return time.Time{}, false
+	}
+	for line := range bytes.SplitSeq(b, []byte("\n")) {
+		if v, ok := bytes.CutPrefix(line, []byte("btime ")); ok {
+			sec, err := strconv.ParseInt(string(bytes.TrimSpace(v)), 10, 64)
+			return time.Unix(sec, 0), err == nil
+		}
+	}
+	return time.Time{}, false
 }
 
 // record replaces the listeners and counts every established socket not seen at

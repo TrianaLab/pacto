@@ -53,8 +53,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/tests/acceptance/scenario"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/tests/acceptance/scenario"
 )
 
 // Decoding targets are the route-neutral pkg/fleet types, not the dashboard

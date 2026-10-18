@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"strings"
 	"testing"
 	"time"
@@ -19,8 +18,7 @@ func TestProgressLabel(t *testing.T) {
 }
 
 func TestStartSpinnerCountedNoopWhenNotText(t *testing.T) {
-	withTTY(t, true)
-	var buf bytes.Buffer
+	var buf ttyBuffer
 	cmd := &cobra.Command{}
 	cmd.SetErr(&buf)
 	sp, count := startSpinnerCounted(cmd, "json", "Resolving")
@@ -32,9 +30,8 @@ func TestStartSpinnerCountedNoopWhenNotText(t *testing.T) {
 }
 
 func TestStartSpinnerCountedNoopWhenAnimDisabled(t *testing.T) {
-	withTTY(t, true)
 	t.Setenv("PACTO_NO_ANIM", "1")
-	var buf bytes.Buffer
+	var buf ttyBuffer
 	cmd := &cobra.Command{}
 	cmd.SetErr(&buf)
 	sp, count := startSpinnerCounted(cmd, "text", "Resolving")
@@ -46,18 +43,14 @@ func TestStartSpinnerCountedNoopWhenAnimDisabled(t *testing.T) {
 }
 
 func TestStartSpinnerCountedAnimatesLiveCount(t *testing.T) {
-	withTTY(t, true)
 	t.Setenv("NO_COLOR", "")
-	orig := spinnerInterval
-	spinnerInterval = time.Millisecond
-	t.Cleanup(func() { spinnerInterval = orig })
 
-	var buf bytes.Buffer
+	var buf ttyBuffer
 	cmd := &cobra.Command{}
 	cmd.SetErr(&buf)
 	sp, count := startSpinnerCounted(cmd, "text", "Resolving deps")
 	count.Add(3)
-	time.Sleep(10 * time.Millisecond) // let ticks render the bumped count
+	time.Sleep(2*spinnerInterval + spinnerInterval/2) // let ticks render the bumped count
 	sp.Stop()
 
 	out := buf.String()

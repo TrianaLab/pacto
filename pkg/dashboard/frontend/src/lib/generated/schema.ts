@@ -576,45 +576,8 @@ export interface components {
             path: string;
             summary?: string;
         };
-        ChecksSummary: {
-            /** Format: int64 */
-            failed: number;
-            /** Format: int64 */
-            passed: number;
-            /** Format: int64 */
-            total: number;
-        };
-        ComplianceCounts: {
-            /** Format: int64 */
-            conclusive: number;
-            /** Format: int64 */
-            errors: number;
-            /** Format: int64 */
-            failed: number;
-            /** Format: int64 */
-            passed: number;
-            /** Format: int64 */
-            runtimeEvaluated: number;
-            /** Format: int64 */
-            total: number;
-            /** Format: int64 */
-            unknown: number;
-            /** Format: int64 */
-            warnings: number;
-        };
         ComplianceInfo: {
-            /** Format: int64 */
-            score: number | null;
             status: string;
-            summary?: components["schemas"]["ComplianceCounts"];
-        };
-        Condition: {
-            lastTransitionAgo?: string;
-            message?: string;
-            reason?: string;
-            severity?: string;
-            status: string;
-            type: string;
         };
         ConfigurationInfo: {
             hasSchema: boolean;
@@ -788,18 +751,6 @@ export interface components {
             title: string;
             truncated?: boolean;
         };
-        EndpointStatus: {
-            error?: string;
-            healthy?: boolean;
-            interface: string;
-            /** Format: int64 */
-            latencyMs?: number;
-            message?: string;
-            /** Format: int64 */
-            statusCode?: number;
-            type?: string;
-            url?: string;
-        };
         EvaluationCoverage: {
             /** Format: int64 */
             evaluated: number;
@@ -807,23 +758,23 @@ export interface components {
             required: number;
         };
         "Finding.EvidenceRef": {
-            Collector?: string;
-            DetectedAt?: string;
-            ObservedAt: string;
-            Source: string;
+            collector?: string;
+            detectedAt?: string;
+            observedAt: string;
+            source: string;
         };
         "Finding.Finding": {
-            Category: string;
-            Code: string;
-            ContractPath: string;
-            EvidenceRefs: components["schemas"]["Finding.EvidenceRef"][] | null;
-            Message: string;
-            Severity: string;
-            Subject: components["schemas"]["Finding.SubjectRef"];
+            category: string;
+            code: string;
+            contractPath: string;
+            evidenceRefs: components["schemas"]["Finding.EvidenceRef"][] | null;
+            message: string;
+            severity: string;
+            subject: components["schemas"]["Finding.SubjectRef"];
         };
         "Finding.SubjectRef": {
-            Kind: string;
-            Name: string;
+            kind: string;
+            name: string;
         };
         "Fleet.AttentionCategoryCount": {
             category: string;
@@ -1607,6 +1558,30 @@ export interface components {
             status?: string;
             targets?: string[] | null;
         };
+        "Impact.ChangesPreview": {
+            /** Format: int64 */
+            breaking: number;
+            /** Format: int64 */
+            count: number;
+            items: components["schemas"]["Impact.ProductChange"][] | null;
+            /** Format: int64 */
+            nonBreaking: number;
+            /** Format: int64 */
+            potential: number;
+            /** Format: int64 */
+            total: number;
+            truncated: boolean;
+        };
+        "Impact.ProductChange": {
+            classification: string;
+            newTruncated?: boolean;
+            newValue?: string;
+            oldTruncated?: boolean;
+            oldValue?: string;
+            path: string;
+            reason?: string;
+            type: string;
+        };
         "Impact.Result": {
             activeTargets?: string[] | null;
             /** Format: date-time */
@@ -1625,6 +1600,11 @@ export interface components {
             schemaVersion: string;
             service: string;
             snapshotId: string;
+        };
+        "Impact.TallyBucket": {
+            /** Format: int64 */
+            count: number;
+            key: string;
         };
         ImpactRequest: {
             /** @description Canonical revision key of the old revision */
@@ -1645,11 +1625,6 @@ export interface components {
             snapshotId?: string;
             /** @description Canonical revision key of the new revision */
             toRevisionKey: string;
-        };
-        ImpactTallyBucket: {
-            /** Format: int64 */
-            count: number;
-            key: string;
         };
         Insight: {
             description?: string;
@@ -1770,12 +1745,6 @@ export interface components {
             values?: components["schemas"]["Schemax.Property"][] | null;
             valuesAreCurrent?: boolean;
         };
-        PortsInfo: {
-            expected?: number[] | null;
-            missing?: number[] | null;
-            observed?: number[] | null;
-            unexpected?: number[] | null;
-        };
         ProductAttentionItem: {
             /** @enum {string} */
             category: "non-compliant" | "unknown" | "stale" | "invalid" | "readiness" | "unresolved";
@@ -1835,30 +1804,6 @@ export interface components {
             /** Format: int64 */
             count: number;
             items: components["schemas"]["ProductAttributedLimitation"][] | null;
-            /** Format: int64 */
-            total: number;
-            truncated: boolean;
-        };
-        ProductChange: {
-            classification: string;
-            newTruncated?: boolean;
-            newValue?: string;
-            oldTruncated?: boolean;
-            oldValue?: string;
-            path: string;
-            reason?: string;
-            type: string;
-        };
-        ProductChangesPreview: {
-            /** Format: int64 */
-            breaking: number;
-            /** Format: int64 */
-            count: number;
-            items: components["schemas"]["ProductChange"][] | null;
-            /** Format: int64 */
-            nonBreaking: number;
-            /** Format: int64 */
-            potential: number;
             /** Format: int64 */
             total: number;
             truncated: boolean;
@@ -1958,15 +1903,15 @@ export interface components {
             truncated: boolean;
         };
         ProductImpact: {
-            activeTargets: components["schemas"]["ProductRefsPreview"];
-            changes: components["schemas"]["ProductChangesPreview"];
+            activeTargets: components["schemas"]["ProductRefPreview"];
+            changes: components["schemas"]["Impact.ChangesPreview"];
             classification: string;
             consumers: components["schemas"]["ProductImpactConsumersPage"];
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
             meta: components["schemas"]["Fleet.ProductMeta"];
             newRevision?: components["schemas"]["ProductRef"];
             oldRevision?: components["schemas"]["ProductRef"];
-            owners: components["schemas"]["ProductRefsPreview"];
+            owners: components["schemas"]["ProductRefPreview"];
             service: components["schemas"]["ProductRef"];
             snapshotId: string;
             snapshotMatch: boolean;
@@ -1985,8 +1930,8 @@ export interface components {
             service: components["schemas"]["ProductRef"];
         };
         ProductImpactConsumersPage: {
-            byConfidence: components["schemas"]["ImpactTallyBucket"][] | null;
-            byVerdict: components["schemas"]["ImpactTallyBucket"][] | null;
+            byConfidence: components["schemas"]["Impact.TallyBucket"][] | null;
+            byVerdict: components["schemas"]["Impact.TallyBucket"][] | null;
             /** Format: int64 */
             count: number;
             items: components["schemas"]["ProductImpactConsumer"][] | null;
@@ -2098,14 +2043,6 @@ export interface components {
             reason?: string;
             resolved: boolean;
             service?: components["schemas"]["ProductRef"];
-        };
-        ProductRefsPreview: {
-            /** Format: int64 */
-            count: number;
-            items: components["schemas"]["ProductRef"][] | null;
-            /** Format: int64 */
-            total: number;
-            truncated: boolean;
         };
         ProductRelationshipsPreview: {
             /** Format: int64 */
@@ -2223,43 +2160,43 @@ export interface components {
             sourceRevision?: string;
         };
         "Readiness.CheckResult": {
-            Category: string;
-            Description: string;
+            category: string;
+            description: string;
             /** Format: int64 */
-            EarnedWeight: number;
-            Evidence: string;
-            Excluded: boolean;
-            ID: string;
-            Status: string;
-            Type: string;
+            earnedWeight: number;
+            evidence: string;
+            excluded: boolean;
+            id: string;
+            status: string;
+            type: string;
             /** Format: int64 */
-            Weight: number;
+            weight: number;
         };
         "Readiness.Result": {
-            Checks: components["schemas"]["Readiness.CheckResult"][] | null;
+            checks: components["schemas"]["Readiness.CheckResult"][] | null;
             /** Format: int64 */
-            DaysRemaining: number | null;
+            daysRemaining: number | null;
             /** Format: int64 */
-            DeferredCount: number;
+            deferredCount: number;
             /** Format: int64 */
-            DoneCount: number;
+            doneCount: number;
             /** Format: int64 */
-            EarnedWeight: number;
-            Expired: boolean;
-            Expires: string;
+            earnedWeight: number;
+            expired: boolean;
+            expires: string;
             /** Format: int64 */
-            MinScore: number;
+            minScore: number;
             /** Format: int64 */
-            NotDoneCount: number;
+            notDoneCount: number;
             /** Format: int64 */
-            PartialCount: number;
+            partialCount: number;
             /** Format: double */
-            PartialCredit: number;
-            Passing: boolean;
+            partialCredit: number;
+            passing: boolean;
             /** Format: int64 */
-            Score: number;
+            score: number;
             /** Format: int64 */
-            TotalWeight: number;
+            totalWeight: number;
         };
         ReadinessCheckInfo: {
             category?: string;
@@ -2320,10 +2257,6 @@ export interface components {
              */
             status: string;
         };
-        ResourcesInfo: {
-            serviceExists?: boolean;
-            workloadExists?: boolean;
-        };
         RuntimeDiffRow: {
             contractPath?: string;
             declaredValue: string;
@@ -2346,30 +2279,20 @@ export interface components {
             type: string;
             value: string;
         };
-        SectionInfo: {
-            overriddenBy?: string;
-            reason?: string;
-            source?: string;
-            state: string;
-        };
         ServiceDetails: {
             capabilities?: components["schemas"]["CapabilityInfo"][] | null;
-            checksSummary?: components["schemas"]["ChecksSummary"];
             compliance?: components["schemas"]["ComplianceInfo"];
-            conditions?: components["schemas"]["Condition"][] | null;
             configurations?: components["schemas"]["ConfigurationInfo"][] | null;
             contractStatus: string;
             currentRevision?: string;
             dependencies?: components["schemas"]["DependencyInfo"][] | null;
             docs?: components["schemas"]["DocInfo"][] | null;
-            endpoints?: components["schemas"]["EndpointStatus"][] | null;
             evaluationCoverage?: components["schemas"]["EvaluationCoverage"];
             insights?: components["schemas"]["Insight"][] | null;
             interfaces?: components["schemas"]["InterfaceInfo"][] | null;
             lastReconciledAt?: string;
             /** Format: date-time */
             lastUpdated?: string;
-            latestAvailable?: string;
             lock?: components["schemas"]["LockInfo"];
             metadata?: {
                 [key: string]: string;
@@ -2379,25 +2302,17 @@ export interface components {
             observedRuntime?: components["schemas"]["ObservedRuntime"];
             owner?: components["schemas"]["Contract.Owner"];
             policies?: components["schemas"]["PolicyInfo"][] | null;
-            ports?: components["schemas"]["PortsInfo"];
             readiness?: components["schemas"]["ReadinessInfo"];
             resolvedRef?: string;
-            resources?: components["schemas"]["ResourcesInfo"];
             runtimeDiff?: components["schemas"]["RuntimeDiffRow"][] | null;
-            runtimeEvaluated?: boolean;
             sbom?: components["schemas"]["Sbom.Document"];
-            sectionMeta?: {
-                [key: string]: components["schemas"]["SectionInfo"];
-            };
             skills?: components["schemas"]["SkillInfo"][] | null;
             source: string;
             sources?: string[] | null;
             state?: components["schemas"]["StateInfo"];
             tools?: components["schemas"]["CapabilityTool"][] | null;
-            updateAvailable?: boolean;
             validation?: components["schemas"]["ValidationInfo"];
             version: string;
-            versionPolicy?: string;
             workload?: string;
         };
         ServiceListEntry: {
@@ -2599,7 +2514,8 @@ export interface operations {
                 ownerKey?: string;
                 source?: string;
                 severity?: "error" | "warning" | "info";
-                status?: string;
+                /** @description Compliance status filter */
+                status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
                 staleOnly?: boolean;
                 /** @description Max items per page (negatives rejected; excessive values capped) */
                 limit?: number;
@@ -2636,8 +2552,8 @@ export interface operations {
         parameters: {
             query?: {
                 text?: string;
-                /** @description Comma-separated entity kinds (service,revision,target,owner,source) */
-                kinds?: string;
+                /** @description Comma-separated entity kinds; an unknown or empty kind is rejected */
+                kinds?: ("service" | "revision" | "target" | "owner" | "source")[] | null;
                 /** @description Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts */
                 owner?: string;
                 /** @description Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing */
@@ -2645,7 +2561,7 @@ export interface operations {
                 domain?: string;
                 scope?: string;
                 /** @description Compliance status filter (service/revision/target) */
-                status?: string;
+                status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
                 /** @description Declared-ownership filter for service entities */
                 ownership?: "consistent" | "conflicting" | "unowned";
                 /** @description Declared-readiness filter for contract revision entities */
@@ -2935,7 +2851,8 @@ export interface operations {
                 text?: string;
                 owner?: string;
                 scope?: string;
-                status?: string;
+                /** @description Compliance status filter */
+                status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
                 source?: string;
                 limit?: number;
                 offset?: number;

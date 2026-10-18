@@ -18,7 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/component"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 )
 
 // Reconciler manages the lifecycle of Evidence Server Kubernetes resources.
@@ -52,9 +52,6 @@ func (r *Reconciler) Sync(ctx context.Context) error {
 
 	log.Info("Reconciling Evidence Server resources", "image", r.Config.Image, "namespace", r.Config.Namespace)
 
-	if err := component.EnsureNamespace(ctx, r.Client, r.Config.Namespace, Labels()); err != nil {
-		return fmt.Errorf("namespace: %w", err)
-	}
 	if err := r.apply(ctx, deploymentAC(r.Config)); err != nil {
 		return fmt.Errorf("deployment: %w", err)
 	}

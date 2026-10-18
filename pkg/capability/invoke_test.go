@@ -8,7 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/openapi"
+	"github.com/trianalab/pacto/v4/pkg/openapi"
 )
 
 func TestInvokePathQueryAndAuth(t *testing.T) {

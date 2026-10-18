@@ -11,10 +11,10 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 // richFleetQuery builds a fleet exercising every product-detail surface: two
@@ -247,7 +247,7 @@ func impactWithRes(t *testing.T, q *fleet.Query, res *impact.Result, limit, offs
 		t.Fatal(err)
 	}
 	rev := v.Revisions[0]
-	return buildProductImpact(q.ProductMeta(), snap, rev.ServiceKey, rev, rev, res, limit, offset)
+	return toProductImpact(impact.BuildProduct(q.ProductMeta(), snap, rev.ServiceKey, rev, rev, res, limit, offset))
 }
 
 // adversarialImpactResult builds an impact result whose every list is above its
@@ -255,7 +255,7 @@ func impactWithRes(t *testing.T, q *fleet.Query, res *impact.Result, limit, offs
 // and the (over-cap) path length.
 func adversarialImpactResult() (*impact.Result, int, int) {
 	const nConsumers = 250
-	longPath := make([]string, MaxImpactPath+10)
+	longPath := make([]string, impact.MaxProductPath+10)
 	for i := range longPath {
 		longPath[i] = fmt.Sprintf("svc-%03d", i)
 	}
@@ -263,15 +263,15 @@ func adversarialImpactResult() (*impact.Result, int, int) {
 	for i := range consumers {
 		consumers[i] = impact.AffectedConsumer{Service: fmt.Sprintf("consumer-%03d", i), Path: longPath}
 	}
-	owners := make([]string, MaxImpactOwners+7)
+	owners := make([]string, impact.MaxProductOwners+7)
 	for i := range owners {
 		owners[i] = fmt.Sprintf("owner-%03d", i)
 	}
-	targets := make([]string, MaxImpactActiveTargets+9)
+	targets := make([]string, impact.MaxProductActiveTargets+9)
 	for i := range targets {
 		targets[i] = fmt.Sprintf("prod/k8s/t-%03d", i)
 	}
-	lims := make([]fleet.Limitation, MaxImpactLimitations+11)
+	lims := make([]fleet.Limitation, impact.MaxProductLimitations+11)
 	for i := range lims {
 		lims[i] = fleet.Limitation{Code: fmt.Sprintf("L%03d", i)}
 	}
@@ -284,17 +284,17 @@ func TestProductImpact_ListsBounded(t *testing.T) {
 	q := richFleetQuery(t)
 	res, _, pathLen := adversarialImpactResult()
 	p := impactWithRes(t, q, res, 20, 0)
-	if p.Owners.Count != MaxImpactOwners || !p.Owners.Truncated || p.Owners.Total != len(res.Owners) {
+	if p.Owners.Count != impact.MaxProductOwners || !p.Owners.Truncated || p.Owners.Total != len(res.Owners) {
 		t.Errorf("owners not bounded: %+v", p.Owners)
 	}
-	if p.ActiveTargets.Count != MaxImpactActiveTargets || !p.ActiveTargets.Truncated {
+	if p.ActiveTargets.Count != impact.MaxProductActiveTargets || !p.ActiveTargets.Truncated {
 		t.Errorf("active targets not bounded: %+v", p.ActiveTargets)
 	}
-	if p.Limitations.Count != MaxImpactLimitations || !p.Limitations.Truncated {
+	if p.Limitations.Count != impact.MaxProductLimitations || !p.Limitations.Truncated {
 		t.Errorf("limitations not bounded: %+v", p.Limitations)
 	}
 	c0 := p.Consumers.Items[0]
-	if !c0.PathTruncated || c0.PathTotal != pathLen || len(c0.Path) != MaxImpactPath {
+	if !c0.PathTruncated || c0.PathTotal != pathLen || len(c0.Path) != impact.MaxProductPath {
 		t.Errorf("consumer path not bounded: %+v", c0)
 	}
 }
@@ -337,11 +337,11 @@ func TestProductImpact_ConsumerPaging(t *testing.T) {
 	if seen := walkImpactConsumers(t, q, res, limit, n); len(seen) != n {
 		t.Errorf("paged walk saw %d consumers, want %d", len(seen), n)
 	}
-	if big := impactWithRes(t, q, res, MaxImpactConsumers+100, 0); big.Consumers.Limit != MaxImpactConsumers {
+	if big := impactWithRes(t, q, res, impact.MaxProductConsumers+100, 0); big.Consumers.Limit != impact.MaxProductConsumers {
 		t.Errorf("excessive consumer limit not capped: %d", big.Consumers.Limit)
 	}
 	zero := impactWithRes(t, q, &impact.Result{Consumers: res.Consumers[:5]}, 0, 0)
-	if zero.Consumers.Limit != DefaultImpactConsumers || zero.Consumers.Truncated {
+	if zero.Consumers.Limit != impact.DefaultProductConsumers || zero.Consumers.Truncated {
 		t.Errorf("default limit / small result wrong: %+v", zero.Consumers)
 	}
 	if beyond := impactWithRes(t, q, res, limit, 100000); beyond.Consumers.Count != 0 || beyond.Consumers.NextOffset != nil {
@@ -469,10 +469,10 @@ func TestRouteBuilder_EntityHrefShapes(t *testing.T) {
 func TestStubProvidersForSchemaExport(t *testing.T) {
 	s := &Server{}
 	s.stubProvidersForSchemaExport()
-	if _, err := s.fleetQuery(context.Background()); err == nil {
+	if _, err := s.opts.Fleet(context.Background()); err == nil {
 		t.Error("stub fleetQuery must error")
 	}
-	if _, err := s.impactProvider(context.Background(), "old", "new", false); err == nil {
+	if _, err := s.opts.Impact(context.Background(), "old", "new", false); err == nil {
 		t.Error("stub impactProvider must error")
 	}
 }

@@ -5,8 +5,8 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // diffInterfaces compares interface lists and delegates to OpenAPI diff

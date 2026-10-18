@@ -10,24 +10,23 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/internal/k8sclient"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/internal/k8sclient"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
-// stubK8s installs a live Kubernetes source that answers, under the kubeconfig
+// k8sService is a Service with a live Kubernetes source that answers, under the kubeconfig
 // context id ctxName. An empty ctxName reproduces the in-cluster case: a dashboard
 // pod has no kubeconfig context, so the source falls back to the id "k8s".
-func stubK8s(t *testing.T, ctxName string) {
-	t.Helper()
-	origClient, origCtx := newK8sClient, currentKubeContext
-	t.Cleanup(func() { newK8sClient, currentKubeContext = origClient, origCtx })
-	newK8sClient = func() (k8sclient.K8sClient, error) {
+func k8sService(ctxName string) *Service {
+	svc := NewService(nil, nil)
+	svc.sys.newK8s = func() (k8sclient.K8sClient, error) {
 		return &fakeFleetK8sClient{
 			disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 			listData: []byte(`{"items":[{"metadata":{"name":"svc-a","namespace":"prod"},"status":{"contractStatus":"Compliant","contract":{"serviceName":"svc-a"}}}]}`),
 		}, nil
 	}
-	currentKubeContext = func() string { return ctxName }
+	svc.sys.kubeContext = func() string { return ctxName }
+	return svc
 }
 
 // writeTrace writes an OTLP/JSON export naming one caller and one callee, and
@@ -112,14 +111,15 @@ func TestService_Fleet_SourceIDsMustBeUniqueAcrossTheWholeFleet(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			svc := NewService(nil, nil)
 			if tc.stubK8s {
-				stubK8s(t, tc.kubeCtx)
+				svc = k8sService(tc.kubeCtx)
 			}
 			opts := tc.opts
 			opts.ObservationSources = append(opts.ObservationSources,
 				ObservationSourceSpec{ID: tc.id, Root: root, Path: file})
 
-			_, err := NewService(nil, nil).Fleet(context.Background(), opts)
+			_, err := svc.Fleet(context.Background(), opts)
 			if err == nil {
 				t.Fatal("a snapshot was published with two sources under one Data Source identity")
 			}
@@ -158,11 +158,11 @@ func TestService_Fleet_SourceIDCollisionWithOCIAndCache(t *testing.T) {
 // collisions, reported the same way whichever entry comes first.
 func TestService_Fleet_SourceIDCollisionIsOrderIndependent(t *testing.T) {
 	root, file := writeTrace(t, "web", "payments")
-	stubK8s(t, "")
+	svc := k8sService("")
 
 	build := func(specs ...ObservationSourceSpec) string {
 		t.Helper()
-		_, err := NewService(nil, nil).Fleet(context.Background(), FleetOptions{
+		_, err := svc.Fleet(context.Background(), FleetOptions{
 			IncludeK8s: true, IncludeCache: true, ObservationSources: specs,
 		})
 		if err == nil {
@@ -182,13 +182,13 @@ func TestService_Fleet_SourceIDCollisionIsOrderIndependent(t *testing.T) {
 // resolves to exactly one source detail. That is the invariant the rejection
 // exists to protect — one Product Data Source key, one semantic source.
 func TestService_Fleet_DistinctSourceIDsPublishOneToOne(t *testing.T) {
-	stubK8s(t, "")
+	svc := k8sService("")
 	rootA, fileA := writeTrace(t, "web", "payments")
 	rootB, fileB := writeTrace(t, "checkout", "orders")
 	local := t.TempDir()
 	writeLocalBundle(t, filepath.Join(local, "svc-a"), "svc-a")
 
-	snap, err := NewService(nil, nil).Fleet(context.Background(), FleetOptions{
+	snap, err := svc.Fleet(context.Background(), FleetOptions{
 		IncludeK8s: true,
 		LocalRoots: []string{local},
 		ObservationSources: []ObservationSourceSpec{

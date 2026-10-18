@@ -16,7 +16,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/trianalab/pacto/v3/internal/runtimewatch"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch"
 )
 
 // ErrUnsupported is the collector's answer on a platform without eBPF.

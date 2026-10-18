@@ -15,6 +15,7 @@ import (
 	"time"
 
 	batchv1 "k8s.io/api/batch/v1"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,10 +24,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/nodeagent"
-	"github.com/trianalab/pacto/v3/pkg/evidence"
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
+	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 // Kernel merge (spec section 4). The node agent publishes one NodeRuntimeObservation per node; the operator
@@ -37,8 +39,8 @@ import (
 const (
 	// collectorKernelMerged marks an observation whose verdict used kernel evidence; collectorKernel marks
 	// one only the kernel could produce (an undeclared peer).
-	collectorKernelMerged = collectorName + "+ebpf"
-	collectorKernel       = "ebpf"
+	collectorKernelMerged = runtimefacts.CollectorKubernetesKernel
+	collectorKernel       = runtimefacts.CollectorKernel
 
 	// labelJobName is the label the Job controller stamps on every pod it creates.
 	labelJobName = "batch.kubernetes.io/job-name"
@@ -74,7 +76,7 @@ func (kv *kernelView) facts() runtimefacts.View {
 	return v
 }
 
-// loadKernelView reads the target's running pods and the node objects in the agent namespace. It returns nil
+// loadKernelView reads the target's running pods and the node objects and their Leases in the agent namespace. It returns nil
 // when kernel evidence is off, so every merge below is a no-op and the output is the Kubernetes-only result.
 func (o *Observer) loadKernelView(ctx context.Context, input CollectInput, now time.Time) *kernelView {
 	if !input.KernelEvidence || input.WorkloadName == "" {
@@ -94,9 +96,27 @@ func (o *Observer) loadKernelView(ctx context.Context, input CollectInput, now t
 		o.fail("kernel", fmt.Errorf("failed to list NodeRuntimeObservations: %w", err))
 		return &kernelView{failed: true}
 	}
+	// The heartbeat is the node's Lease, renewed every publish while the observation itself is rewritten only
+	// when it changes. An agent that renews no Lease (an older one) still heartbeats through lastPublished.
+	var leases coordinationv1.LeaseList
+	if err := o.client.List(ctx, &leases, client.InNamespace(input.KernelEvidenceNamespace),
+		client.MatchingLabels(nodeagent.Labels()), client.UnsafeDisableDeepCopy); err != nil {
+		o.fail("kernel", fmt.Errorf("failed to list node agent Leases: %w", err))
+		return &kernelView{failed: true}
+	}
+	renewed := make(map[string]time.Time, len(leases.Items))
+	for i := range leases.Items {
+		if rt := leases.Items[i].Spec.RenewTime; rt != nil {
+			renewed[leases.Items[i].Name] = rt.Time
+		}
+	}
 	byNode := make(map[string]*runtimefacts.Snapshot, len(nodes.Items))
 	for i := range nodes.Items {
-		byNode[nodes.Items[i].Name] = snapshotOf(&nodes.Items[i].Status)
+		snap := snapshotOf(&nodes.Items[i].Status)
+		if rt := renewed[nodes.Items[i].Name]; rt.After(snap.LastPublished) {
+			snap.LastPublished = rt
+		}
+		byNode[nodes.Items[i].Name] = snap
 	}
 	kv := &kernelView{now: now, nodes: byNode, staleness: input.KernelEvidenceStaleness}
 	for i := range pods {
@@ -360,6 +380,9 @@ func (o *Observer) observeUndeclaredPeers(ctx context.Context, input CollectInpu
 		o.fail("kernel", fmt.Errorf("failed to list Pacto CRs: %w", err))
 		return nil
 	}
+	if unresolvedDependency(input.Contract, pactos.Items) {
+		return nil
+	}
 	index := map[runtimefacts.Address]string{}
 	for i := range pactos.Items {
 		p := &pactos.Items[i]
@@ -411,6 +434,23 @@ func undeclaredCandidate(p *unversioned.Pacto, input CollectInput) bool {
 		}
 	}
 	return true
+}
+
+// unresolvedDependency reports whether a declared dependency resolves to no Pacto in the list, neither by its
+// ref nor by its name: a local path or other non-OCI ref, or an OCI ref no loaded sibling carries. That
+// dependency may be the very service the target reached under another name, so calling any peer undeclared
+// could be a false positive. The merge then reports no undeclared peer at all: drift goes unreported, never
+// invented. A contract whose dependencies all resolve to siblings keeps the full report.
+func unresolvedDependency(c *contract.Contract, pactos []unversioned.Pacto) bool {
+	for _, dep := range c.Dependencies {
+		if !slices.ContainsFunc(pactos, func(p unversioned.Pacto) bool {
+			return p.Status.Contract != nil &&
+				(p.Status.Contract.ServiceName == dep.Name || matchesRef(dep.Ref, p.Status.Contract.ResolvedRef))
+		}) {
+			return true
+		}
+	}
+	return false
 }
 
 // TrimPod is the manager cache's transform for Pods: the operator caches every pod in the watched

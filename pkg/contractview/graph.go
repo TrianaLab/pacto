@@ -3,8 +3,8 @@ package contractview
 import (
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	depgraph "github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	depgraph "github.com/trianalab/pacto/v4/pkg/graph"
 )
 
 // DependentInfo describes a service that depends on another service.

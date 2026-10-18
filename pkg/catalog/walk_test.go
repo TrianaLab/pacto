@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // A revision reached by two routes re-declares the same dependencies. Those are

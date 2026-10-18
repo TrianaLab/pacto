@@ -1,25 +1,95 @@
 package cli
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/update"
-	"github.com/trianalab/pacto/v3/pkg/logging"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"golang.org/x/term"
+	"k8s.io/client-go/dynamic"
+
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/k8sclient"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch/ebpf"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch/evalsink"
+	"github.com/trianalab/pacto/v4/internal/tui"
+	"github.com/trianalab/pacto/v4/internal/update"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/doc"
+	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 const outputFormatKey = "output-format"
 
-// checkForUpdateFn is the function used to check for updates, overridable in tests.
-var checkForUpdateFn = update.CheckForUpdate
+// deps are what the commands reach beyond the process through: the update server, the terminal, the
+// kernel, a cluster, the Docker Engine and the registry. NewRootCommand wires the real ones; a test builds
+// a command with its own, so no test swaps package state.
+type deps struct {
+	checkForUpdate    func(current string) *update.CheckResult
+	readPassword      func(fd int) ([]byte, error)
+	executable        func() (string, error)
+	runTUI            func(context.Context, tui.Options) error
+	buildStaticExport func(*dashboard.ServiceDetails, *dashboard.GlobalGraph) (map[string][]byte, error)
+	// The runtime commands: the collector and a session touch the kernel, the dynamic client a cluster,
+	// runAgent blocks until its context ends.
+	newCollector  func(ringbuf uint32) (runtimewatch.Collector, error)
+	newDynamic    func() (dynamic.Interface, error)
+	runAgent      func(context.Context, runtimewatch.Config)
+	newDocker     func(socket string) *evalsink.Docker
+	newSession    func(parent, name string) (ebpf.Session, error)
+	setSubreaper  func() error
+	notifySignals func(chan<- os.Signal, ...os.Signal)
+	resolveBundle func(svc *app.Service, ctx context.Context, ref string) (*contract.Bundle, error)
+	// selfProc is this process's own /proc, read for its network namespace.
+	selfProc runtimewatch.ProcFS
+	// attachTimeout bounds the wait for `pacto run`'s eBPF program before the command starts.
+	attachTimeout time.Duration
+	// pollInterval is how often `pacto run`'s unprivileged mode reads the tree's sockets: a connection
+	// shorter than this may go unseen.
+	pollInterval time.Duration
+	// updateWait is how long a command waits, once done, for the update check: long enough for a cache
+	// read, short enough that a slow network fetch never delays the user.
+	updateWait time.Duration
+}
+
+// defaultDeps are the real dependencies.
+func defaultDeps() deps {
+	return deps{
+		checkForUpdate:    update.CheckForUpdate,
+		readPassword:      term.ReadPassword,
+		executable:        os.Executable,
+		runTUI:            tui.Run,
+		buildStaticExport: doc.BuildStaticExport,
+		newCollector:      ebpf.New,
+		newDynamic:        k8sclient.NewDynamic,
+		runAgent:          runtimewatch.Run,
+		newDocker:         evalsink.NewDocker,
+		newSession:        ebpf.NewSession,
+		setSubreaper:      ebpf.SetSubreaper,
+		notifySignals:     signal.Notify,
+		resolveBundle:     (*app.Service).ResolveBundle,
+		selfProc:          runtimewatch.OSProcFS{Root: "/proc"},
+		attachTimeout:     10 * time.Second,
+		pollInterval:      time.Second,
+		updateWait:        200 * time.Millisecond,
+	}
+}
 
 // NewRootCommand constructs the Cobra command tree with the given app service.
 func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
+	return newRootCommand(svc, info, defaultDeps())
+}
+
+// newRootCommand constructs the command tree over d.
+func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	v := viper.New()
 
 	root := &cobra.Command{
@@ -113,7 +183,7 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 						sendUpdate(updateResultCh, nil)
 					}
 				}()
-				sendUpdate(updateResultCh, checkForUpdateFn(info.Version))
+				sendUpdate(updateResultCh, d.checkForUpdate(info.Version))
 			}()
 		} else {
 			// Non-blocking: cobra skips PersistentPostRunE when RunE errors, so
@@ -133,7 +203,7 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 			if result != nil && cmd.Name() != "update" && v.GetString(outputFormatKey) == "text" {
 				_, _ = fmt.Fprintf(cmd.OutOrStderr(), "\nA new version of pacto is available: %s -> %s\nRun 'pacto update' to update.\n", result.CurrentVersion, result.LatestVersion)
 			}
-		case <-time.After(200 * time.Millisecond):
+		case <-time.After(d.updateWait):
 			// Check took too long (likely a network fetch) — don't delay the user
 		}
 		return nil
@@ -149,21 +219,21 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 	root.AddCommand(newGraphCommand(svc, v))
 	root.AddCommand(newFleetCommand(svc, v))
 	root.AddCommand(newEvidenceCommand(svc, v))
-	root.AddCommand(newAgentCommand(svc, v, info.Version))
-	root.AddCommand(newRunCommand(svc, v, info.Version))
+	root.AddCommand(newAgentCommand(svc, v, info.Version, d))
+	root.AddCommand(newRunCommand(svc, v, info.Version, d))
 	root.AddCommand(newImpactCommand(svc, v))
 	root.AddCommand(newOTelCommand(svc, v))
 	root.AddCommand(newExplainCommand(svc, v))
-	root.AddCommand(newDocCommand(svc, v))
+	root.AddCommand(newDocCommand(svc, v, d))
 	root.AddCommand(newGenerateCommand(svc, v))
 	root.AddCommand(newLockCommand(svc, v))
-	root.AddCommand(newLoginCommand())
+	root.AddCommand(newLoginCommand(d))
 	root.AddCommand(newLogoutCommand())
 	root.AddCommand(newVersionCommand(info, v))
 	root.AddCommand(newUpdateCommand(info.Version, update.New()))
 	root.AddCommand(newMCPCommand(svc, info.Version))
 	root.AddCommand(newDashboardCommand(svc, v, info.Version))
-	root.AddCommand(newTUICommand(svc, v))
+	root.AddCommand(newTUICommand(svc, v, d))
 
 	attachBanner(root)
 	return root

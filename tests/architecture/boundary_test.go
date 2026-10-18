@@ -33,26 +33,26 @@ import (
 // reason and more strictly: it is the leaf both the dashboard and the offline
 // exporter build on, so a k8s edge here would reach every consumer of either.
 var corePackages = []string{
-	"github.com/trianalab/pacto/v3/pkg/catalog/...",
-	"github.com/trianalab/pacto/v3/pkg/contract/...",
-	"github.com/trianalab/pacto/v3/pkg/contractview/...",
-	"github.com/trianalab/pacto/v3/pkg/dashboard/...",
-	"github.com/trianalab/pacto/v3/pkg/evidence/...",
-	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope/...",
-	"github.com/trianalab/pacto/v3/pkg/evidenceingest/...",
-	"github.com/trianalab/pacto/v3/pkg/finding/...",
-	"github.com/trianalab/pacto/v3/pkg/fleet/...",
-	"github.com/trianalab/pacto/v3/pkg/graph/...",
-	"github.com/trianalab/pacto/v3/pkg/impact/...",
-	"github.com/trianalab/pacto/v3/pkg/oci/...",
-	"github.com/trianalab/pacto/v3/pkg/otelobserver/...",
-	"github.com/trianalab/pacto/v3/pkg/probe/...",
-	"github.com/trianalab/pacto/v3/pkg/readiness/...",
-	"github.com/trianalab/pacto/v3/pkg/reconcile/...",
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts/...",
-	"github.com/trianalab/pacto/v3/pkg/schemax/...",
-	"github.com/trianalab/pacto/v3/pkg/semver/...",
-	"github.com/trianalab/pacto/v3/pkg/validation/...",
+	"github.com/trianalab/pacto/v4/pkg/catalog/...",
+	"github.com/trianalab/pacto/v4/pkg/contract/...",
+	"github.com/trianalab/pacto/v4/pkg/contractview/...",
+	"github.com/trianalab/pacto/v4/pkg/dashboard/...",
+	"github.com/trianalab/pacto/v4/pkg/evidence/...",
+	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope/...",
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest/...",
+	"github.com/trianalab/pacto/v4/pkg/finding/...",
+	"github.com/trianalab/pacto/v4/pkg/fleet/...",
+	"github.com/trianalab/pacto/v4/pkg/graph/...",
+	"github.com/trianalab/pacto/v4/pkg/impact/...",
+	"github.com/trianalab/pacto/v4/pkg/oci/...",
+	"github.com/trianalab/pacto/v4/pkg/otelobserver/...",
+	"github.com/trianalab/pacto/v4/pkg/probe/...",
+	"github.com/trianalab/pacto/v4/pkg/readiness/...",
+	"github.com/trianalab/pacto/v4/pkg/reconcile/...",
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts/...",
+	"github.com/trianalab/pacto/v4/pkg/schemax/...",
+	"github.com/trianalab/pacto/v4/pkg/semver/...",
+	"github.com/trianalab/pacto/v4/pkg/validation/...",
 }
 
 // forbiddenPrefixes are import-path prefixes a core package may never reach.
@@ -74,12 +74,12 @@ var forbiddenPrefixes = []string{
 // Evidence Server's HTTP DTO: no registry client, no credentials, no referrers
 // enumeration of their own.
 var evidenceConsumers = []string{
-	"github.com/trianalab/pacto/v3/pkg/dashboard/...",
-	"github.com/trianalab/pacto/v3/internal/fleetsrc/...",
+	"github.com/trianalab/pacto/v4/pkg/dashboard/...",
+	"github.com/trianalab/pacto/v4/internal/fleetsrc/...",
 }
 
 func TestEvidenceConsumersNeverReachTheRegistryStore(t *testing.T) {
-	const store = "github.com/trianalab/pacto/v3/internal/evidenceoci"
+	const store = "github.com/trianalab/pacto/v4/internal/evidenceoci"
 	for _, pkg := range evidenceConsumers {
 		for _, dep := range deps(t, pkg) {
 			if dep == store || strings.HasPrefix(dep, "oras.land/") {
@@ -95,10 +95,10 @@ func TestEvidenceConsumersNeverReachTheRegistryStore(t *testing.T) {
 // server or a cluster, that answer becomes a property of one delivery mechanism
 // instead of a property of the contracts.
 var catalogForbidden = []string{
-	"github.com/trianalab/pacto/v3/internal/mcp",
-	"github.com/trianalab/pacto/v3/internal/cli",
-	"github.com/trianalab/pacto/v3/pkg/dashboard",
-	"github.com/trianalab/pacto/v3/integrations/",
+	"github.com/trianalab/pacto/v4/internal/mcp",
+	"github.com/trianalab/pacto/v4/internal/cli",
+	"github.com/trianalab/pacto/v4/pkg/dashboard",
+	"github.com/trianalab/pacto/v4/integrations/",
 	"github.com/trianalab/pacto/integrations/",
 	"k8s.io/",
 	"sigs.k8s.io/",
@@ -109,12 +109,12 @@ var catalogForbidden = []string{
 // through the caller-supplied Resolver port instead, which is what keeps the
 // catalog model reusable and keeps its tests hermetic.
 var catalogAllowedPacto = map[string]bool{
-	"github.com/trianalab/pacto/v3/pkg/catalog":  true,
-	"github.com/trianalab/pacto/v3/pkg/contract": true,
+	"github.com/trianalab/pacto/v4/pkg/catalog":  true,
+	"github.com/trianalab/pacto/v4/pkg/contract": true,
 }
 
 func TestCatalogCoreIsFrameworkIndependent(t *testing.T) {
-	for _, dep := range deps(t, "github.com/trianalab/pacto/v3/pkg/catalog/...") {
+	for _, dep := range deps(t, "github.com/trianalab/pacto/v4/pkg/catalog/...") {
 		for _, bad := range catalogForbidden {
 			if strings.HasPrefix(dep, bad) {
 				t.Errorf("boundary violation: the catalog core reaches %q (prefix %q); catalog semantics must not depend on a delivery mechanism", dep, bad)
@@ -145,8 +145,8 @@ func TestCatalogCoreIsFrameworkIndependent(t *testing.T) {
 // pkg/fleet is absent from catalogAllowedPacto, so the catalog cannot reach the
 // fleet either. This is the half that was unguarded.
 func TestTheFleetNeverReachesTheCatalog(t *testing.T) {
-	const catalogRoot = "github.com/trianalab/pacto/v3/pkg/catalog"
-	for _, dep := range deps(t, "github.com/trianalab/pacto/v3/pkg/fleet/...") {
+	const catalogRoot = "github.com/trianalab/pacto/v4/pkg/catalog"
+	for _, dep := range deps(t, "github.com/trianalab/pacto/v4/pkg/fleet/...") {
 		if dep == catalogRoot || strings.HasPrefix(dep, catalogRoot+"/") {
 			t.Errorf("boundary violation: pkg/fleet reaches %q; a frozen contract-catalog session is declaration-only knowledge and must never be readable as operational fleet truth", dep)
 		}
@@ -176,8 +176,8 @@ func TestTheFleetNeverReachesTheCatalog(t *testing.T) {
 //     way to tell which one the user is reading.
 func TestEvidenceAndFindingNeverImportEachOther(t *testing.T) {
 	const (
-		evidencePkg = "github.com/trianalab/pacto/v3/pkg/evidence"
-		findingPkg  = "github.com/trianalab/pacto/v3/pkg/finding"
+		evidencePkg = "github.com/trianalab/pacto/v4/pkg/evidence"
+		findingPkg  = "github.com/trianalab/pacto/v4/pkg/finding"
 	)
 	for _, c := range []struct{ from, to, why string }{
 		{evidencePkg, findingPkg, "a collector records what it observed, never a verdict about it"},
@@ -205,7 +205,7 @@ func deps(t *testing.T, pkg string) []string {
 // package builds on (ARCHITECTURE.md, strict layering): it may reach no other
 // Pacto package, or the layering inverts and an import cycle is one edit away.
 func TestContractIsTheLeaf(t *testing.T) {
-	const self = "github.com/trianalab/pacto/v3/pkg/contract"
+	const self = "github.com/trianalab/pacto/v4/pkg/contract"
 	for _, dep := range deps(t, self) {
 		if strings.HasPrefix(dep, "github.com/trianalab/pacto/") && dep != self {
 			t.Errorf("boundary violation: pkg/contract reaches %q; the domain model imports no other Pacto package", dep)
@@ -217,8 +217,8 @@ func TestContractIsTheLeaf(t *testing.T) {
 // programs: a pkg/* -> internal/* edge would compile here and fail for every
 // outside caller, and drag the CLI's wiring into the public API.
 func TestPublicPackagesNeverReachInternal(t *testing.T) {
-	for _, dep := range deps(t, "github.com/trianalab/pacto/v3/pkg/...") {
-		if strings.HasPrefix(dep, "github.com/trianalab/pacto/v3/internal/") {
+	for _, dep := range deps(t, "github.com/trianalab/pacto/v4/pkg/...") {
+		if strings.HasPrefix(dep, "github.com/trianalab/pacto/v4/internal/") {
 			t.Errorf("boundary violation: a pkg/* package reaches %q; public packages must not depend on internal/*", dep)
 		}
 	}

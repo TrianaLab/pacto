@@ -123,7 +123,7 @@ network alone cannot show. On a plain host nobody reports them:
 | `dependencies[].compatibility` | the provider's deployed contract version | unverified, listed in `coverage.unverified` |
 | `state.persistence.scope` | read from the pod's volume claims | unverified, listed in `coverage.unverified` |
 | `workload`, `state.persistence.durability: persistent`, required `configurations` | read from the workload, volumes and bound ConfigMaps | no source: the contract reads `Unknown` with `EVIDENCE_MISSING` |
-| a call to another Pacto service no dependency declares | `DEPENDENCY_UNDECLARED` | not reported: the host does not know which peers are Pacto services |
+| a call to another Pacto service no dependency declares | `DEPENDENCY_UNDECLARED` | `pacto agent`: the same, for a call to another workload it checks; `pacto run`: not reported, it checks one command |
 
 The protocol an interface speaks (`interfaces[].type`) and the health and
 metrics capabilities are checked everywhere, by probing the bound port.

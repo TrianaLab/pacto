@@ -21,15 +21,15 @@ import (
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/runtimewatch"
-	"github.com/trianalab/pacto/v3/internal/runtimewatch/evalsink"
-	"github.com/trianalab/pacto/v3/internal/runtimewatch/kubesink"
-	"github.com/trianalab/pacto/v3/pkg/evidence"
-	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch/evalsink"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch/kubesink"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 type nopCollector struct{}
@@ -40,28 +40,27 @@ func (nopCollector) Attached() <-chan struct{}                            { retu
 func (nopCollector) Mono() uint64                                         { return 0 }
 
 // stubAgent replaces the seams and returns the config Run would have served.
-func stubAgent(t *testing.T, collectorErr, dynErr error) *runtimewatch.Config {
+func stubAgent(t *testing.T, collectorErr, dynErr error) (*runtimewatch.Config, deps) {
 	t.Helper()
-	oc, od, or := newCollector, newDynamic, runAgent
-	t.Cleanup(func() { newCollector, newDynamic, runAgent = oc, od, or })
 	got := &runtimewatch.Config{}
-	newCollector = func(size uint32) (runtimewatch.Collector, error) {
+	d := defaultDeps()
+	d.newCollector = func(size uint32) (runtimewatch.Collector, error) {
 		if size != 4096 {
 			t.Errorf("ringbuf size = %d", size)
 		}
 		return nopCollector{}, collectorErr
 	}
-	newDynamic = func() (dynamic.Interface, error) {
+	d.newDynamic = func() (dynamic.Interface, error) {
 		return dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()), dynErr
 	}
-	runAgent = func(_ context.Context, cfg runtimewatch.Config) { *got = cfg }
-	return got
+	d.runAgent = func(_ context.Context, cfg runtimewatch.Config) { *got = cfg }
+	return got, d
 }
 
-func runAgentCommand(args ...string) error {
+func runAgentCommand(d deps, args ...string) error {
 	v := viper.New()
 	v.Set(outputFormatKey, "text")
-	cmd := newAgentCommand(&app.Service{}, v, "v9")
+	cmd := newAgentCommand(&app.Service{}, v, "v9", d)
 	cmd.SetArgs(append([]string{"--ringbuf-size=4096"}, args...))
 	cmd.SetOut(&strings.Builder{})
 	cmd.SetErr(&strings.Builder{})
@@ -69,8 +68,8 @@ func runAgentCommand(args ...string) error {
 }
 
 func TestAgentCommand_Stdout(t *testing.T) {
-	got := stubAgent(t, nil, nil)
-	if err := runAgentCommand("--publish-interval=5s", "--resync-interval=10s", "--node-name=h1", "--proc-root=/p"); err != nil {
+	got, d := stubAgent(t, nil, nil)
+	if err := runAgentCommand(d, "--publish-interval=5s", "--resync-interval=10s", "--node-name=h1", "--proc-root=/p"); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := got.Sink.(runtimewatch.JSONSink); !ok || got.Keep != nil || got.Cgroups == nil ||
@@ -78,14 +77,14 @@ func TestAgentCommand_Stdout(t *testing.T) {
 		got.ResyncInterval != 10*time.Second || got.Proc != (runtimewatch.OSProcFS{Root: "/p"}) {
 		t.Fatalf("config = %+v", got)
 	}
-	if err := runAgentCommand("--cgroup-root="); err != nil || got.Cgroups != nil {
+	if err := runAgentCommand(d, "--cgroup-root="); err != nil || got.Cgroups != nil {
 		t.Fatalf("empty --cgroup-root: err %v, cgroups %v", err, got.Cgroups)
 	}
 }
 
 func TestAgentCommand_Kubernetes(t *testing.T) {
-	got := stubAgent(t, nil, nil)
-	if err := runAgentCommand("--sink=kubernetes", "--node-name=n1", "--namespace=pacto-system"); err != nil {
+	got, d := stubAgent(t, nil, nil)
+	if err := runAgentCommand(d, "--sink=kubernetes", "--node-name=n1", "--namespace=pacto-system"); err != nil {
 		t.Fatal(err)
 	}
 	s, ok := got.Sink.(*kubesink.Sink)
@@ -112,8 +111,8 @@ func TestAgentCommand_Errors(t *testing.T) {
 		"unsupported":          {collector: boom, want: "boom"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			stubAgent(t, tc.collector, tc.dyn)
-			if err := runAgentCommand(tc.args...); err == nil || !strings.Contains(err.Error(), tc.want) {
+			_, d := stubAgent(t, tc.collector, tc.dyn)
+			if err := runAgentCommand(d, tc.args...); err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("err = %v, want %q", err, tc.want)
 			}
 		})
@@ -144,15 +143,13 @@ func TestValidateIntervals(t *testing.T) {
 }
 
 func TestAgentCommand_EvalSinks(t *testing.T) {
-	got := stubAgent(t, nil, nil)
-	od := newDocker
-	t.Cleanup(func() { newDocker = od })
+	got, d := stubAgent(t, nil, nil)
 	var socket string
-	newDocker = func(s string) *evalsink.Docker { socket = s; return od(s) }
+	d.newDocker = func(s string) *evalsink.Docker { socket = s; return evalsink.NewDocker(s) }
 	bindings := filepath.Join(t.TempDir(), "b.yaml")
 	_ = os.WriteFile(bindings, []byte("- match: {unit: a.service}\n  contract: oci://r/a@sha256:"+strings.Repeat("a", 64)+"\n"), 0o600)
 
-	if err := runAgentCommand("--sink=local", "--docker", "--bindings="+bindings, "--stabilization-window=5s", "--enable-probing"); err != nil {
+	if err := runAgentCommand(d, "--sink=local", "--docker", "--bindings="+bindings, "--stabilization-window=5s", "--enable-probing"); err != nil {
 		t.Fatal(err)
 	}
 	s, ok := got.Sink.(*evalsink.Sink)
@@ -166,7 +163,7 @@ func TestAgentCommand_EvalSinks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := runAgentCommand("--sink=evidence", "--bindings="+bindings, "--evidence-url=http://e", "--evidence-key=k",
+	if err := runAgentCommand(d, "--sink=evidence", "--bindings="+bindings, "--evidence-url=http://e", "--evidence-key=k",
 		"--evidence-key-id=k1", "--evidence-producer=p"); err != nil {
 		t.Fatal(err)
 	}
@@ -194,10 +191,10 @@ func TestAgentCommand_EvalSinkErrors(t *testing.T) {
 		"evidence a local": {args: append(ev, "--bindings="+local), want: "pinned as oci://"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			stubAgent(t, nil, nil)
+			_, d := stubAgent(t, nil, nil)
 			v := viper.New()
 			v.Set(outputFormatKey, cmp.Or(tc.format, "text"))
-			cmd := newAgentCommand(&app.Service{}, v, "v9")
+			cmd := newAgentCommand(&app.Service{}, v, "v9", d)
 			cmd.SetArgs(append([]string{"--ringbuf-size=4096"}, tc.args...))
 			cmd.SetOut(&strings.Builder{})
 			cmd.SetErr(&strings.Builder{})
@@ -218,11 +215,12 @@ func TestPrintRound(t *testing.T) {
 				{Code: "EVIDENCE_MISSING", Severity: "unknown", Subject: finding.SubjectRef{Kind: "dependency", Name: "db"}, Message: "none"},
 			}},
 		{Target: "unit/x", Contract: "./x", Error: "no pacto.yaml"},
+		{Target: "unit/y", Contract: "./y", Status: "Unknown", Notes: []string{"probes unsupported: why"}},
 	}
 	var text strings.Builder
 	_ = printRound(&text, "text", agentRound{EvaluatedAt: at, Targets: results})
 	for _, want := range []string{"2026-10-18T12:00:00Z\n", "container/web  NonCompliant  1/1 evaluated  /c",
-		"[error] INTERFACE_ABSENT interface/api: gone (pacto-agent+ebpf)", "EVIDENCE_MISSING dependency/db: none\n", "unit/x  error  ./x: no pacto.yaml"} {
+		"[error] INTERFACE_ABSENT interface/api: gone (pacto-agent+ebpf)", "EVIDENCE_MISSING dependency/db: none\n", "unit/x  error  ./x: no pacto.yaml", "  - note: probes unsupported: why\n"} {
 		if !strings.Contains(text.String(), want) {
 			t.Errorf("text lacks %q:\n%s", want, text.String())
 		}
@@ -235,7 +233,7 @@ func TestPrintRound(t *testing.T) {
 	var js strings.Builder
 	_ = printRound(&js, "json", agentRound{EvaluatedAt: at, Targets: results})
 	var round agentRound
-	if err := json.Unmarshal([]byte(js.String()), &round); err != nil || len(round.Targets) != 2 || !round.EvaluatedAt.Equal(at) {
+	if err := json.Unmarshal([]byte(js.String()), &round); err != nil || len(round.Targets) != 3 || !round.EvaluatedAt.Equal(at) {
 		t.Fatalf("json %s: %v", js.String(), err)
 	}
 }
@@ -284,12 +282,10 @@ func TestEvidenceEmitter(t *testing.T) {
 }
 
 func TestAgentCommand_DockerLabelFilter(t *testing.T) {
-	stubAgent(t, nil, nil)
-	od := newDocker
-	t.Cleanup(func() { newDocker = od })
+	_, d := stubAgent(t, nil, nil)
 	var made *evalsink.Docker
-	newDocker = func(s string) *evalsink.Docker { made = od(s); return made }
-	if err := runAgentCommand("--sink=local", "--docker",
+	d.newDocker = func(s string) *evalsink.Docker { made = evalsink.NewDocker(s); return made }
+	if err := runAgentCommand(d, "--sink=local", "--docker",
 		"--docker-label-filter=com.docker.compose.project=demo", "--docker-label-filter=tier"); err != nil {
 		t.Fatal(err)
 	}
@@ -303,8 +299,35 @@ func TestAgentCommand_DockerLabelFilter(t *testing.T) {
 		{"--sink=local", "--docker", "--docker-label-filter=", "--docker-label-filter=a"},
 		{"--sink=local", "--docker", "--docker-label-filter==v"},
 	} {
-		if err := runAgentCommand(args...); err == nil {
+		if err := runAgentCommand(d, args...); err == nil {
 			t.Errorf("%v: expected an error", args)
 		}
+	}
+}
+
+// An agent off the host's network says up front that loopback-probed workloads cannot be probed.
+func TestAgentCommand_ForeignNetns(t *testing.T) {
+	link := func(name, target string) string {
+		root := t.TempDir()
+		p := filepath.Join(root, name)
+		_ = os.MkdirAll(filepath.Dir(p), 0o755)
+		if err := os.Symlink(target, p); err != nil {
+			t.Fatal(err)
+		}
+		return root
+	}
+	_, d := stubAgent(t, nil, nil)
+	d.selfProc = runtimewatch.OSProcFS{Root: link("self/ns/net", "net:[2]")}
+	bindings := filepath.Join(t.TempDir(), "b.yaml")
+	_ = os.WriteFile(bindings, []byte("- match: {unit: a.service}\n  contract: ./a\n"), 0o600)
+	v := viper.New()
+	v.Set(outputFormatKey, "text")
+	cmd := newAgentCommand(&app.Service{}, v, "v9", d)
+	cmd.SetArgs([]string{"--ringbuf-size=4096", "--sink=local", "--bindings=" + bindings, "--proc-root=" + link("1/ns/net", "net:[1]")})
+	var errOut strings.Builder
+	cmd.SetOut(&strings.Builder{})
+	cmd.SetErr(&errOut)
+	if err := cmd.Execute(); err != nil || !strings.Contains(errOut.String(), "run the agent with --network=host") {
+		t.Fatalf("err %v\nstderr %s", err, errOut.String())
 	}
 }

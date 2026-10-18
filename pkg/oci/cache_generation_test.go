@@ -10,7 +10,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // A cache entry is TWO files, and the disk cache is SHARED: another Pacto
@@ -74,12 +74,9 @@ func installGeneration(t *testing.T, ctx context.Context, ref, digest string) {
 }
 
 // atBarrier runs fn between the reader's bundle read and its identity read —
-// the window a competing writer commits in — for the next n reads.
-func atBarrier(t *testing.T, n int, fn func()) {
-	t.Helper()
-	old := afterBundleRead
-	t.Cleanup(func() { afterBundleRead = old })
-	afterBundleRead = func() {
+// the window a competing writer commits in — for the reader's next n reads.
+func atBarrier(reader *CachedStore, n int, fn func()) {
+	reader.afterBundleRead = func() {
 		if n == 0 {
 			return
 		}
@@ -109,10 +106,9 @@ func TestPullCached_ServesOneGenerationsBytesUnderThatGenerationsIdentity(t *tes
 	installGeneration(t, ctx, ref, "sha256:aaa")
 	// The writer commits generation B once the reader holds A's bundle and is
 	// about to ask what it is.
-	atBarrier(t, 1, func() { installGeneration(t, ctx, ref, "sha256:bbb") })
-
 	reader := NewCachedStore(&generationStore{digest: "sha256:aaa"})
-	bundle, rec, ok := reader.pullCached(ctx, ref)
+	atBarrier(reader, 1, func() { installGeneration(t, ctx, ref, "sha256:bbb") })
+	bundle, rec, ok := reader.PullCachedPinned(ctx, ref)
 	if !ok {
 		t.Fatal("the entry is installed throughout: a reader must see one of the two generations")
 	}
@@ -130,13 +126,12 @@ func TestPullCached_AWriterThatKeepsWinningIsAMissNotAMixture(t *testing.T) {
 	installGeneration(t, ctx, ref, "sha256:aaa")
 	digests := []string{"sha256:bbb", "sha256:ccc", "sha256:aaa"}
 	i := 0
-	atBarrier(t, len(digests), func() {
+	reader := NewCachedStore(&generationStore{digest: "sha256:aaa"})
+	atBarrier(reader, len(digests), func() {
 		installGeneration(t, ctx, ref, digests[i])
 		i++
 	})
-
-	reader := NewCachedStore(&generationStore{digest: "sha256:aaa"})
-	bundle, rec, ok := reader.pullCached(ctx, ref)
+	bundle, rec, ok := reader.PullCachedPinned(ctx, ref)
 	if ok {
 		// Serving is allowed only if it is coherent; giving up is the other
 		// acceptable answer, and the next pull repairs it.

@@ -24,10 +24,14 @@ rules:
   - apiGroups: [""]
     resources: [pods]
     verbs: [get, list, watch]
-  # Kernel evidence published by the node agent, one object per node.
+  # Kernel evidence published by the node agent, one object per node, read
+  # through the cache in the kernel evidence namespace only. The objects are
+  # named after nodes, so they cannot be scoped by resourceNames: the prunes
+  # find them by label (list) and remove them (delete). The resource is the
+  # operator's own CRD and carries no secrets.
   - apiGroups: [pacto.trianalab.io]
     resources: [noderuntimeobservations]
-    verbs: [get, list, watch]
+    verbs: [delete, get, list, watch]
   # Interface exposure: an Ingress or Gateway API HTTPRoute that routes to the port.
   - apiGroups: [networking.k8s.io]
     resources: [ingresses]
@@ -61,63 +65,25 @@ rules:
   - apiGroups: [pacto.trianalab.io]
     resources: [pactorevisions/status]
     verbs: [get, patch, update]
-  # Dashboard teardown — ALWAYS granted, even when dashboard.enabled=false, so an
-  # operator upgraded from enabled -> disabled can still remove the resources it
-  # created. Scoped to the fixed dashboard resource names, get + delete only: the
-  # operator reads these by name via its uncached API reader, so no list/watch is
-  # needed. Keeping list/watch out of the always-on set is what lets the manager
-  # start when disabled — a cluster-scoped clusterrolebindings informer would
-  # otherwise fail to sync (forbidden) and crashloop the operator.
-  - apiGroups: [""]
-    resources: [serviceaccounts, services]
-    verbs: [get, delete]
-    resourceNames: [pacto-dashboard]
-  - apiGroups: [""]
-    resources: [secrets]
-    verbs: [get, delete]
-    resourceNames: [pacto-dashboard-oci-creds]
-  - apiGroups: [apps]
-    resources: [deployments]
-    verbs: [get, delete]
-    resourceNames: [pacto-dashboard]
+  # Dashboard teardown, cluster-scoped half: ALWAYS granted, so an operator
+  # upgraded from enabled -> disabled can still remove the ClusterRole and
+  # binding it created. get + delete by name only, read through the uncached API
+  # reader: list/watch here would start a cluster-scoped informer that cannot
+  # sync while the dashboard is disabled and crashloop the operator. Everything
+  # namespaced the components manage is granted by the Roles in role.yaml and
+  # nodeagent-namespace.yaml, in the namespaces they live in.
   - apiGroups: [rbac.authorization.k8s.io]
     resources: [clusterroles, clusterrolebindings]
     verbs: [get, delete]
     resourceNames: [pacto-dashboard]
-  # Evidence Server teardown — ALWAYS granted, so an operator upgraded from
-  # enabled -> disabled can remove the Deployment and Service it created. That is
-  # the whole footprint: the accepted evidence is in the registry and is not
-  # touched by removing the component.
-  - apiGroups: [""]
-    resources: [services]
-    verbs: [get, delete]
-    resourceNames: [pacto-evidence]
-  - apiGroups: [apps]
-    resources: [deployments]
-    verbs: [get, delete]
-    resourceNames: [pacto-evidence]
-  # Node agent teardown — ALWAYS granted, so an operator upgraded from enabled ->
-  # disabled can remove the DaemonSet and the RBAC it created, by name.
-  - apiGroups: [apps]
-    resources: [daemonsets]
-    verbs: [get, delete]
-    resourceNames: [pacto-node-agent]
-  - apiGroups: [rbac.authorization.k8s.io]
-    resources: [roles, rolebindings]
-    verbs: [get, delete]
-    resourceNames: [pacto-node-agent]
-  - apiGroups: [""]
-    resources: [serviceaccounts]
-    verbs: [get, delete]
-    resourceNames: [pacto-node-agent]
-  # The agents' NodeRuntimeObservation objects are named after nodes, so they
-  # cannot be scoped by resourceNames: prune finds them by label (list) and
-  # removes them (delete). The resource is the operator's own CRD and carries no
-  # secrets, and list is already held by the kernel evidence read rule above, so
-  # this adds delete on one Pacto-owned kind and nothing else.
-  - apiGroups: [pacto.trianalab.io]
-    resources: [noderuntimeobservations]
-    verbs: [delete, list]
+  {{- if include "pacto-operator.kernelEvidence" . }}
+  # The node agent's heartbeat: one Lease per node, read through the cache in
+  # the kernel evidence namespace only (the cache never starts a cluster-wide
+  # Lease informer). Leases carry a holder name and timestamps, nothing secret.
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch]
+  {{- end }}
   {{- if .Values.controller.enableMetricsObservation }}
   # Metrics capability discovery through Prometheus Operator monitors.
   - apiGroups: [monitoring.coreos.com]
@@ -125,61 +91,23 @@ rules:
     verbs: [get, list, watch]
   {{- end }}
   {{- if .Values.dashboard.enabled }}
-  # Dashboard lifecycle management
-  - apiGroups: [""]
-    resources: [namespaces]
-    verbs: [create, get, list, watch]
-  - apiGroups: [""]
-    resources: [secrets]
-    verbs: [create, update, patch, delete]
-  - apiGroups: [""]
-    resources: [serviceaccounts, services]
-    verbs: [create, delete, get, list, patch, update, watch]
-  - apiGroups: [apps]
-    resources: [deployments]
-    verbs: [create, delete, patch, update]
+  # Dashboard lifecycle management, cluster-scoped half: the ClusterRole and
+  # binding that let the dashboard read Pactos across namespaces.
   - apiGroups: [rbac.authorization.k8s.io]
     resources: [clusterroles, clusterrolebindings]
     verbs: [create, delete, get, list, patch, update, watch]
   {{- end }}
-  {{- if .Values.evidence.enabled }}
-  # Evidence Server lifecycle management. No storage permission of any kind: the
-  # server is stateless and accepted evidence lives in the contract registry, so
-  # the operator has nothing durable to create in the cluster.
-  - apiGroups: [""]
-    resources: [namespaces]
-    verbs: [create, get, list, watch]
-  - apiGroups: [""]
-    resources: [services]
-    verbs: [create, delete, get, list, patch, update, watch]
-  - apiGroups: [apps]
-    resources: [deployments]
-    verbs: [create, delete, patch, update]
-  {{- end }}
   {{- if .Values.nodeAgent.enabled }}
-  # Node agent lifecycle management. The operator creates a Role granting the
-  # agents get, create and patch (server-side apply) on noderuntimeobservations
-  # and their status, and Kubernetes only lets it grant what it holds itself (no
-  # escalate or bind), so it holds those verbs here, plus list, watch and delete
-  # on the objects for its own read and prune. Namespaces get is the Pod
-  # Security check: the operator reads the enforce label and never writes it.
-  # Nodes get is the orphan prune: an observation whose node is gone is deleted.
+  # Node agent, cluster-scoped half. Nodes get is the orphan prune: the objects
+  # of a node that is gone are deleted. The agent namespace is read and
+  # relabelled (privileged Pod Security) by name only; the chart creates it,
+  # so the operator needs no namespace create at all.
   - apiGroups: [""]
-    resources: [namespaces, nodes]
+    resources: [nodes]
     verbs: [get]
   - apiGroups: [""]
-    resources: [serviceaccounts]
-    verbs: [create, delete, get, patch]
-  - apiGroups: [apps]
-    resources: [daemonsets]
-    verbs: [create, delete, get, patch, update]
-  - apiGroups: [rbac.authorization.k8s.io]
-    resources: [roles, rolebindings]
-    verbs: [create, delete, get, patch]
-  - apiGroups: [pacto.trianalab.io]
-    resources: [noderuntimeobservations]
-    verbs: [create, delete, get, list, patch, watch]
-  - apiGroups: [pacto.trianalab.io]
-    resources: [noderuntimeobservations/status]
-    verbs: [create, get, patch]
+    resources: [namespaces]
+    verbs: [get, patch]
+    resourceNames:
+      - {{ include "pacto-operator.nodeAgentNamespace" . }}
   {{- end }}

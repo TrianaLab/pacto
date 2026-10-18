@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // Result-bounding defaults. Queries are bounded so an agent or UI can never be

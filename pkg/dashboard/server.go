@@ -3,7 +3,7 @@
 // single bundle as service details, a dependency graph and a compliance verdict.
 //
 // Ingestion is NOT this package's job. Every live host builds its fleet snapshot
-// with pkg/fleet and hands it over via [Server.SetFleetProvider]; the dashboard
+// with pkg/fleet and hands it over via [Options].Fleet; the dashboard
 // only reads what it is given. The contract-view half is also consumed offline by
 // pkg/doc, which renders a static export with no server at all.
 package dashboard
@@ -18,30 +18,50 @@ import (
 	"net/url"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
+
+// Options configures a [Server]. Every field is optional.
+type Options struct {
+	// UI is the filesystem holding the web UI assets; nil serves no UI.
+	UI fs.FS
+	// Host and Port are where [Server.Serve] listens. An empty host is 127.0.0.1.
+	// When Port is set, the address also becomes the server URL in the OpenAPI
+	// document.
+	Host string
+	Port int
+	// Version is the Pacto version exposed by /health.
+	Version string
+	// CORSOrigin allows an explicit cross-origin client to call the API. When
+	// empty the API is same-origin only and cross-origin mutating requests are
+	// rejected.
+	CORSOrigin string
+	// Logger is injected into every request context, so handlers log through it
+	// rather than the process default. Nil is slog.Default().
+	Logger *slog.Logger
+	// Fleet enables the read-only operational-graph endpoints. When nil, none of
+	// the /api/fleet/* endpoints are registered.
+	Fleet func(ctx context.Context) (*fleet.Query, error)
+	// Impact enables the read-only /api/fleet/impact endpoint. When nil, the
+	// endpoint is not registered.
+	Impact func(ctx context.Context, old, new string, includeObserved bool) (*impact.Result, error)
+	// Refresh rebuilds the fleet snapshot for /api/refresh. When nil — as in the
+	// offline WASM demo, whose snapshot is baked in — refresh is a successful no-op.
+	Refresh func(ctx context.Context) error
+}
 
 // Server serves the dashboard web UI and REST API.
 type Server struct {
-	fleetQuery     fleetProvider               // optional: enables the read-only operational-graph (fleet) endpoints
-	fleetRefresh   func(context.Context) error // optional: rebuilds the fleet snapshot for /api/refresh
-	impactProvider impactProviderFunc          // optional: enables the read-only /api/fleet/impact endpoint
-	ui             fs.FS
-	listenAddr     string // optional: server URL for OpenAPI spec
-	version        string // optional: Pacto version to expose via /health
-	corsOrigin     string // optional: explicit cross-origin allowed to call the API (startup-only)
-
-	// logger is injected into every request context (see corsMiddleware), so the
-	// handler code that logs via logging.LoggerFromContext reaches the
-	// command-configured logger rather than the process default. Set from the
-	// dashboard command via SetLogger; defaults to slog.Default().
-	logger *slog.Logger
+	opts       Options
+	listenAddr string // server URL for the OpenAPI spec, empty when no port is set
 }
 
 // APIConfig returns the Huma configuration for the dashboard API.
@@ -107,39 +127,33 @@ func fleetSchemaNamer(t reflect.Type, hint string) string {
 	return strings.ToUpper(base[:1]) + base[1:] + "." + name
 }
 
-// NewServer creates a dashboard server. ui is the embedded filesystem containing
-// the web UI assets. Data reaches the server through [Server.SetFleetProvider].
-func NewServer(ui fs.FS) *Server {
-	return &Server{ui: ui, logger: slog.Default()}
-}
-
-// SetFleetRefresher registers the callback /api/refresh invokes to rebuild the
-// fleet snapshot. When unset — as in the offline WASM demo, whose snapshot is
-// baked in — refresh is a successful no-op.
-func (s *Server) SetFleetRefresher(fn func(context.Context) error) {
-	s.fleetRefresh = fn
-}
-
-// Serve starts the HTTP server on the given host and port and blocks until ctx is cancelled.
-// An empty host defaults to 127.0.0.1.
-func (s *Server) Serve(ctx context.Context, port int, host ...string) error {
-	h := "127.0.0.1"
-	if len(host) > 0 && host[0] != "" {
-		h = host[0]
+// NewServer creates a dashboard server configured by opts.
+func NewServer(opts Options) *Server {
+	if opts.Logger == nil {
+		opts.Logger = slog.Default()
 	}
-	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", h, port))
+	s := &Server{}
+	if opts.Port != 0 {
+		host := opts.Host
+		if host == "" || host == "0.0.0.0" {
+			host = "localhost"
+		}
+		s.listenAddr = fmt.Sprintf("http://%s:%d", host, opts.Port)
+	}
+	if opts.Host == "" {
+		opts.Host = "127.0.0.1"
+	}
+	s.opts = opts
+	return s
+}
+
+// Serve listens on the configured host and port and blocks until ctx is cancelled.
+func (s *Server) Serve(ctx context.Context) error {
+	ln, err := net.Listen("tcp", net.JoinHostPort(s.opts.Host, strconv.Itoa(s.opts.Port)))
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
 	return s.ServeOnListener(ctx, ln)
-}
-
-// SetListenAddr sets the server URL exposed in the OpenAPI spec.
-func (s *Server) SetListenAddr(host string, port int) {
-	if host == "" || host == "0.0.0.0" {
-		host = "localhost"
-	}
-	s.listenAddr = fmt.Sprintf("http://%s:%d", host, port)
 }
 
 // ServeOnListener starts the HTTP server on an existing listener.
@@ -149,7 +163,7 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 	s.registerAPI(mux)
 
 	// Static UI — served on the raw mux, not through Huma.
-	mux.Handle("/", http.FileServer(http.FS(s.ui)))
+	mux.Handle("/", http.FileServer(http.FS(s.opts.UI)))
 
 	// Every request derives from baseCtx, so Ctrl+C can actively cancel slow
 	// in-flight handlers instead of Shutdown blocking on them until the deadline.
@@ -292,42 +306,20 @@ type refreshOutput struct {
 
 // ── Huma operation handlers ─────────────────────────────────────────
 
-// SetVersion sets the Pacto version exposed by the health endpoint.
-func (s *Server) SetVersion(v string) {
-	s.version = v
-}
-
-// SetCORSOrigin allows an explicit cross-origin client to call the API. When
-// empty (the default) the API is same-origin only and cross-origin mutating
-// requests are rejected. Must be called before Serve.
-func (s *Server) SetCORSOrigin(origin string) {
-	s.corsOrigin = origin
-}
-
-// SetLogger sets the logger injected into every request context, so handlers
-// log through it (not the process default). A nil logger falls back to
-// slog.Default(). Must be called before Serve.
-func (s *Server) SetLogger(lg *slog.Logger) {
-	if lg == nil {
-		lg = slog.Default()
-	}
-	s.logger = lg
-}
-
 func (s *Server) health(_ context.Context, _ *struct{}) (*healthOutput, error) {
 	out := &healthOutput{}
 	out.Body.Status = "ok"
-	out.Body.Version = s.version
+	out.Body.Version = s.opts.Version
 	return out, nil
 }
 
 // publishedQuery returns the currently published fleet query, or nil when no
 // fleet provider is wired or no snapshot has been built yet.
 func (s *Server) publishedQuery(ctx context.Context) *fleet.Query {
-	if s.fleetQuery == nil {
+	if s.opts.Fleet == nil {
 		return nil
 	}
-	q, err := s.fleetQuery(ctx)
+	q, err := s.opts.Fleet(ctx)
 	if err != nil {
 		return nil
 	}
@@ -353,13 +345,13 @@ func (s *Server) getSources(ctx context.Context, _ *struct{}) (*getSourcesOutput
 	out.Body.Sources = sourcesFromFleet(q)
 	// A wired provider with nothing published yet is the honest "still discovering"
 	// state; no provider at all is simply a host with no sources.
-	out.Body.Discovering = s.fleetQuery != nil && q == nil
+	out.Body.Discovering = s.opts.Fleet != nil && q == nil
 	return out, nil
 }
 
 func (s *Server) refresh(ctx context.Context, _ *struct{}) (*refreshOutput, error) {
-	if s.fleetRefresh != nil {
-		if err := s.fleetRefresh(ctx); err != nil {
+	if s.opts.Refresh != nil {
+		if err := s.opts.Refresh(ctx); err != nil {
 			return nil, huma.Error502BadGateway(err.Error())
 		}
 	}
@@ -376,8 +368,8 @@ func (s *Server) refresh(ctx context.Context, _ *struct{}) (*refreshOutput, erro
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if s.corsOrigin != "" && origin == s.corsOrigin {
-			w.Header().Set("Access-Control-Allow-Origin", s.corsOrigin)
+		if s.opts.CORSOrigin != "" && origin == s.opts.CORSOrigin {
+			w.Header().Set("Access-Control-Allow-Origin", s.opts.CORSOrigin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		}
@@ -394,7 +386,7 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 		}
 		// Carry the command-configured logger on the request context so handlers
 		// log through it (not the process default) via logging.LoggerFromContext.
-		next.ServeHTTP(w, r.WithContext(logging.WithLogger(r.Context(), s.logger)))
+		next.ServeHTTP(w, r.WithContext(logging.WithLogger(r.Context(), s.opts.Logger)))
 	})
 }
 
@@ -406,7 +398,7 @@ func (s *Server) originAllowed(r *http.Request) bool {
 	if origin == "" {
 		return true
 	}
-	if s.corsOrigin != "" && origin == s.corsOrigin {
+	if s.opts.CORSOrigin != "" && origin == s.opts.CORSOrigin {
 		return true
 	}
 	u, err := url.Parse(origin)

@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // printFleetTarget must label the revision link with how it was matched, so an

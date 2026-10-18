@@ -22,9 +22,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/contractview"
-	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contractview"
+	"github.com/trianalab/pacto/v4/pkg/graph"
 )
 
 // sectionNumberer tracks hierarchical section numbers (1, 1.1, 1.1.1, etc.).

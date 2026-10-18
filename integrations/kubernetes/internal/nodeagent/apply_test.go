@@ -8,11 +8,11 @@ See LICENSE file in the project root for full license text.
 package nodeagent
 
 import (
+	"maps"
 	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 )
 
 func TestDaemonSetAC_PodShapeAndPrivileges(t *testing.T) {
@@ -80,20 +80,25 @@ func TestDaemonSetAC_PodShapeAndPrivileges(t *testing.T) {
 		t.Error("rolling update one node at a time")
 	}
 	if ds.OwnerReferences != nil {
-		t.Error("no owner reference unless configured")
+		t.Error("no owner reference: the operator's Deployment is in another namespace")
 	}
 }
 
-func TestRoleAC_GrantsOnlyTheTransportObject(t *testing.T) {
+func TestRoleAC_GrantsOnlyTheTransportObjects(t *testing.T) {
 	role := roleAC(enabledCfg())
-	if len(role.Rules) != 1 {
-		t.Fatalf("want one rule, got %d", len(role.Rules))
+	if len(role.Rules) != 2 {
+		t.Fatalf("want two rules, got %d", len(role.Rules))
 	}
 	r := role.Rules[0]
 	if !slices.Equal(r.APIGroups, []string{"pacto.trianalab.io"}) ||
 		!slices.Equal(r.Resources, []string{"noderuntimeobservations", "noderuntimeobservations/status"}) ||
 		!slices.Equal(r.Verbs, []string{"get", "create", "patch"}) || !slices.Equal(r.Verbs, agentVerbs) {
-		t.Errorf("rule: %+v", r)
+		t.Errorf("observation rule: %+v", r)
+	}
+	l := role.Rules[1]
+	if !slices.Equal(l.APIGroups, []string{"coordination.k8s.io"}) || !slices.Equal(l.Resources, []string{"leases"}) ||
+		!slices.Equal(l.Verbs, []string{"get", "create", "patch", "update"}) || !slices.Equal(l.Verbs, leaseVerbs) {
+		t.Errorf("lease rule: %+v", l)
 	}
 	rb := roleBindingAC(enabledCfg())
 	if *rb.RoleRef.Name != Name || *rb.Subjects[0].Name != Name || *rb.Subjects[0].Namespace != "test-ns" {
@@ -101,18 +106,37 @@ func TestRoleAC_GrantsOnlyTheTransportObject(t *testing.T) {
 	}
 }
 
-func TestApplyConfigs_WithOwnerRef(t *testing.T) {
+// The agent namespace carries the privileged Pod Security levels and the
+// component label, and no label the chart sets to another value.
+func TestNamespaceAC_PrivilegedLevels(t *testing.T) {
+	ns := namespaceAC(enabledCfg())
+	if *ns.Name != "test-ns" {
+		t.Fatalf("name = %s", *ns.Name)
+	}
+	want := map[string]string{
+		LabelComponent:                       ComponentValue,
+		"pod-security.kubernetes.io/enforce": "privileged",
+		"pod-security.kubernetes.io/audit":   "privileged",
+		"pod-security.kubernetes.io/warn":    "privileged",
+	}
+	if !maps.Equal(ns.Labels, want) {
+		t.Errorf("labels = %v, want %v", ns.Labels, want)
+	}
+}
+
+// No managed object carries an owner reference: the operator's Deployment
+// lives in another namespace, and a cross-namespace owner is garbage-collected
+// as missing.
+func TestApplyConfigs_NoOwnerReference(t *testing.T) {
 	cfg := enabledCfg()
-	cfg.OwnerRef = metav1ac.OwnerReference().WithName("pacto-operator").WithKind("Deployment").
-		WithAPIVersion("apps/v1").WithUID("uid").WithController(false)
 	for name, refs := range map[string]int{
 		"daemonset":      len(daemonSetAC(cfg).OwnerReferences),
 		"serviceaccount": len(serviceAccountAC(cfg).OwnerReferences),
 		"role":           len(roleAC(cfg).OwnerReferences),
 		"rolebinding":    len(roleBindingAC(cfg).OwnerReferences),
 	} {
-		if refs != 1 {
-			t.Errorf("%s: want one owner reference, got %d", name, refs)
+		if refs != 0 {
+			t.Errorf("%s: want no owner reference, got %d", name, refs)
 		}
 	}
 }

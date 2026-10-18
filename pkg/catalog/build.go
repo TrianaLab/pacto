@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // Build rejects a request it cannot answer at all, rather than answering it

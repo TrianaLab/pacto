@@ -3,7 +3,7 @@ package validation_test
 import (
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 const schemaBase = `pactoVersion: "2.0"

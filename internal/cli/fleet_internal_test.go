@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v4/internal/app"
 )
 
 func newTestService(t *testing.T) *app.Service {
@@ -77,7 +77,7 @@ func TestFleetOptionsReadersDeclareEverySharedFlag(t *testing.T) {
 	for _, cmd := range []*cobra.Command{
 		newImpactCommand(newTestService(t), viper.New()),
 		newMCPCommand(newTestService(t), "test"),
-		newTUICommand(newTestService(t), viper.New()),
+		newTUICommand(newTestService(t), viper.New(), defaultDeps()),
 	} {
 		for _, name := range fleetFlagNames() {
 			if cmd.Flags().Lookup(name) == nil {

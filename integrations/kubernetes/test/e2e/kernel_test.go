@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -21,8 +22,8 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/nodeagent"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
 )
 
 // The kernel cases run the real reconciler against envtest with kernel evidence on. There is no node agent
@@ -198,6 +199,26 @@ func TestKernelEvidence(t *testing.T) {
 		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_STALE")
 		requireNoFinding(t, p, "INTERFACE_ABSENT")
+	})
+
+	// The agent rewrites its observation only when it changes and renews its node's Lease every publish, so
+	// an hour-old observation with a fresh Lease is fresh: the Lease is the heartbeat.
+	t.Run("old_observation_fresh_lease_compliant", func(t *testing.T) {
+		ns, uid := ifaceCase(t)
+		publishNode(t, ns, time.Now().Add(-time.Hour), running, pactov1alpha1.PodRuntimeObservation{
+			UID: uid, Listeners: []pactov1alpha1.RuntimeListener{{Port: port, Family: "IPv4", Address: "0.0.0.0"}},
+		})
+		renewed := metav1.NewMicroTime(time.Now())
+		lease := &coordinationv1.Lease{
+			ObjectMeta: metav1.ObjectMeta{Name: kernelNode, Namespace: ns, Labels: nodeagent.Labels()},
+			Spec:       coordinationv1.LeaseSpec{HolderIdentity: new(kernelNode), RenewTime: &renewed},
+		}
+		if err := k8sClient.Create(testCtx, lease); err != nil {
+			t.Fatalf("create lease: %v", err)
+		}
+		p := reconcile(t, "p", ns, reconcileOpts{kernelNamespace: ns}).pacto
+		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireNoFinding(t, p, "EVIDENCE_STALE")
 	})
 
 	t.Run("failed_collection_unknown_COLLECTION_FAILED", func(t *testing.T) {

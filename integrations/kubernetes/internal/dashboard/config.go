@@ -10,7 +10,7 @@ package dashboard
 import (
 	"fmt"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/component"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -34,11 +34,6 @@ type Config struct {
 	// WatchNamespace restricts the dashboard's observation scope to a single namespace.
 	// Empty means cluster-wide (all namespaces). Inherited from the controller's --watch-namespace flag.
 	WatchNamespace string
-
-	// OCISecret is the optional name of a single Kubernetes Secret (in the operator namespace)
-	// containing OCI registry credentials. Kept for backward compatibility.
-	// If OCISecrets is also set, OCISecret is ignored.
-	OCISecret string
 
 	// OCISecrets is an optional list of Secret names (in the operator namespace) containing
 	// OCI registry credentials. Supports Opaque and kubernetes.io/dockerconfigjson secrets.
@@ -76,18 +71,6 @@ type Config struct {
 	// produced and rotated by whoever owns their storage. This configures OFFLINE
 	// input only — Pacto ships no OTLP receiver and no collector.
 	Observation []ObservationSource
-}
-
-// EffectiveOCISecrets returns the resolved list of OCI secret names.
-// OCISecrets takes precedence; if empty, falls back to OCISecret.
-func (c Config) EffectiveOCISecrets() []string {
-	if len(c.OCISecrets) > 0 {
-		return c.OCISecrets
-	}
-	if c.OCISecret != "" {
-		return []string{c.OCISecret}
-	}
-	return nil
 }
 
 // ResourcesConfig holds optional resource quantity overrides for the dashboard container.

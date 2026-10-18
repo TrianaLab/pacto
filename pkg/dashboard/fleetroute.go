@@ -3,7 +3,7 @@ package dashboard
 import (
 	"net/url"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // This file is the SINGLE canonical dashboard route builder. Route emission is a

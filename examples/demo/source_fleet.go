@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 // This file builds the in-memory operational graph (fleet) and impact provider
@@ -94,7 +94,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 
 	// The cluster collector reports what is running; the registry above reports what
 	// was declared. Keeping them apart is what lets a target say which source saw it.
-	cluster := fleet.NewMemorySource("k8s-production", "k8s", &fleet.Collection{
+	cluster := fleet.NewMemorySource("k8s-production", fleet.SourceKindKubernetes, &fleet.Collection{
 		Targets: demoTargets(src),
 	})
 	// Telemetry is a second collector over the SAME estate: it corroborates the two
@@ -113,7 +113,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 		State:       &fleet.SourceState{Status: fleet.SourcePartial},
 		Limitations: []fleet.Limitation{{Code: fleet.LimitationSourcePartial, Source: "registry-mirror", Message: "tag listing truncated by the mirror"}},
 	})
-	unavailable := fleet.NewMemorySource("edge-cluster", "k8s", &fleet.Collection{
+	unavailable := fleet.NewMemorySource("edge-cluster", fleet.SourceKindKubernetes, &fleet.Collection{
 		State: &fleet.SourceState{
 			Status: fleet.SourceUnavailable,
 			Error:  &fleet.SourceError{Code: fleet.LimitationSourceUnavailable, Message: "edge cluster unreachable"},

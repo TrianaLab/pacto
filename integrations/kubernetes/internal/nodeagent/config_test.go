@@ -27,6 +27,7 @@ func TestValidate(t *testing.T) {
 		{"latest tag", func(c *Config) { c.Image = "ghcr.io/trianalab/pacto/operator:latest" }, "'latest'"},
 		{"no tag", func(c *Config) { c.Image = "localhost:5001/pacto/operator" }, "'latest'"},
 		{"no namespace", func(c *Config) { c.Namespace = "" }, "namespace"},
+		{"operator namespace", func(c *Config) { c.Namespace = c.OperatorNamespace }, "must not be the operator namespace"},
 		{"zero interval", func(c *Config) { c.PublishInterval = 0 }, "publish interval"},
 		{"sub-second interval", func(c *Config) { c.PublishInterval = 500 * time.Millisecond }, "at least 1s"},
 		{"fractional interval", func(c *Config) { c.PublishInterval = 1500 * time.Millisecond }, "whole number of seconds"},
@@ -70,9 +71,10 @@ func TestBuildResources_DefaultsAndOverrides(t *testing.T) {
 
 func enabledCfg() Config {
 	return Config{
-		Enabled:         true,
-		Image:           "ghcr.io/trianalab/pacto/dashboard:3.5.0",
-		Namespace:       "test-ns",
-		PublishInterval: 30 * time.Second,
+		Enabled:           true,
+		Image:             "ghcr.io/trianalab/pacto/dashboard:3.5.0",
+		Namespace:         "test-ns",
+		OperatorNamespace: "op-ns",
+		PublishInterval:   30 * time.Second,
 	}
 }

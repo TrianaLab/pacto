@@ -12,7 +12,7 @@ Source-of-truth map (page -> inputs):
   rbac.md                  <- config/rbac/role.yaml + config/rbac/metrics-observation/
   operator-configuration.md<- `go run ./integrations/kubernetes/cmd --help` (real output) + cmd/main.go env vars
   contract-bindings.md     <- CRD target/contractRef/overrides fields + pacto CLI validation
-  runtime-observations.md  <- internal/observer/{runtime,kernel}.go + `go run ./cmd/gendocs registry`
+  runtime-observations.md  <- internal/observer/runtime.go + `go run ./cmd/gendocs registry`
                               (finding.Registry + pkg/evidence typed constants)
   field-coverage.md        <- pkg/validation/schema/field-coverage.yaml (the field coverage inventory)
   artifact-hub.md          <- release/release-manifest.json + artifacthub-repo.yml + Chart.yaml
@@ -272,16 +272,18 @@ def _rule_key(rule: dict) -> tuple:
     )
 
 
-def helm_rbac(k8s: str, *set_args: str) -> dict[tuple[str, str], dict]:
-    """Render the chart and return its RBAC objects keyed by (kind, name).
+def helm_rbac(k8s: str, *set_args: str) -> dict[tuple[str, str, str], dict]:
+    """Render the chart and return its RBAC objects keyed by (kind, namespace, name).
 
     Generated from `helm template`, not from config/rbac/role.yaml: the chart is
     the only documented install path, and its ClusterRole is a different object
     from the kubebuilder-generated `manager-role` under config/. Documenting the
-    latter described permissions no chart user has.
+    latter described permissions no chart user has. The namespace is part of the
+    key because the manager Role has the same name in the release namespace and
+    in the node agent's.
     """
     chart = os.path.join(k8s, "charts", "pacto-operator")
-    cmd = ["helm", "template", "pacto-operator", chart]
+    cmd = ["helm", "template", "pacto-operator", chart, "--namespace", "pacto-operator-system"]
     for s in set_args:
         cmd += ["--set", s]
     proc = subprocess.run(cmd, capture_output=True, text=True)
@@ -290,31 +292,49 @@ def helm_rbac(k8s: str, *set_args: str) -> dict[tuple[str, str], dict]:
     out = {}
     for doc in yaml.safe_load_all(proc.stdout):
         if doc and doc.get("kind") in ("ClusterRole", "Role"):
-            out[(doc["kind"], doc["metadata"]["name"])] = doc
+            meta = doc["metadata"]
+            out[(doc["kind"], meta.get("namespace", ""), meta["name"])] = doc
     return out
+
+
+def _split(full: dict, minimal: dict, key: tuple) -> tuple[list[dict], list[dict]]:
+    """The rules of one role present with every component off, and those a component adds."""
+    min_keys = {_rule_key(r) for r in (minimal.get(key) or {}).get("rules", [])}
+    rules = full[key]["rules"]
+    return [r for r in rules if _rule_key(r) in min_keys], [r for r in rules if _rule_key(r) not in min_keys]
 
 
 def gen_rbac(k8s: str) -> str:
     full = helm_rbac(k8s)
     minimal = helm_rbac(k8s, "dashboard.enabled=false", "evidence.enabled=false")
+    agent = helm_rbac(k8s, "nodeAgent.enabled=true")
     metrics_docs = load_yaml_docs(
         os.path.join(k8s, "config/rbac/metrics-observation/servicemonitor_rbac.yaml")
     )
 
-    cr_name = next(n for (k, n) in full if k == "ClusterRole")
-    role_name = next((n for (k, n) in full if k == "Role"), None)
-    full_rules = full[("ClusterRole", cr_name)]["rules"]
-    min_keys = {_rule_key(r) for r in minimal[("ClusterRole", cr_name)]["rules"]}
-    always = [r for r in full_rules if _rule_key(r) in min_keys]
-    component_only = [r for r in full_rules if _rule_key(r) not in min_keys]
+    release_ns = "pacto-operator-system"
+    cr_key = next(k for k in full if k[0] == "ClusterRole")
+    cr_name = cr_key[2]
+    mgr_key = next(k for k in full if k[0] == "Role" and k[2].endswith("-manager"))
+    le_key = next((k for k in full if k[0] == "Role" and k[2].endswith("-leader-election")), None)
+    role_name = le_key[2] if le_key else None
+    always, component_only = _split(full, minimal, cr_key)
+    ns_always, ns_component = _split(full, minimal, mgr_key)
+    agent_key = next((k for k in agent if k[0] == "Role" and k[1] != release_ns), None)
+    agent_cluster = [r for r in agent[cr_key]["rules"]
+                     if _rule_key(r) not in {_rule_key(x) for x in full[cr_key]["rules"]}]
 
     out = [banner("helm template of charts/pacto-operator (+ config/rbac/metrics-observation)")]
     out.append("# RBAC\n")
     out.append(
         "Every table below is rendered from the Helm chart itself, so it is the permission "
         "set an install actually creates. The chart creates one cluster-scoped "
-        f"`ClusterRole` (`{cr_name}`) bound to the controller's ServiceAccount, and one "
-        f"namespaced `Role` (`{role_name}`) for leader election.\n"
+        f"`ClusterRole` (`{cr_name}`) bound to the controller's ServiceAccount for what has "
+        f"to be cluster-wide, a `Role` (`{mgr_key[2]}`) in the release namespace for the "
+        "managed components that run there, a second one of the same name in the node "
+        "agent's namespace when the agent is on, and a `Role` "
+        f"(`{role_name}`) for leader election. The tables render the release namespace as "
+        f"`{release_ns}`.\n"
     )
     out.append("!!! note\n")
     out.append(
@@ -334,6 +354,7 @@ def gen_rbac(k8s: str) -> str:
     )
     out.extend(_rbac_rules_table(always))
     out.append("")
+
     # The unrestricted `secrets get,list,watch` row is the single grant reviewers
     # stop on, and the table alone gives them no reason for it and no way to tell
     # whether watchNamespace narrows it (it does not -- that flag changes what the
@@ -355,6 +376,15 @@ def gen_rbac(k8s: str) -> str:
         "cluster-wide Secret read as the cost of the operator and install it on a "
         "cluster where that is acceptable.\n"
     )
+
+    out.append(f"## Always granted in the release namespace (`{mgr_key[2]}` Role)\n")
+    out.append(
+        "The teardown half of the managed components: `get` and `delete` on the fixed names "
+        "a previous install may have created there, the node agent's included (releases "
+        "before the dedicated agent namespace ran it in the release namespace).\n"
+    )
+    out.extend(_rbac_rules_table(ns_always))
+    out.append("")
 
     if component_only:
         values = load_yaml_docs(os.path.join(k8s, "charts/pacto-operator/values.yaml"))[0]
@@ -378,6 +408,14 @@ def gen_rbac(k8s: str) -> str:
         )
         out.extend(_rbac_rules_table(component_only))
         out.append("")
+        if ns_component:
+            out.append(
+                "Their namespaced half is granted by the release namespace's "
+                f"`{mgr_key[2]}` Role, so the operator can create these kinds there and "
+                "nowhere else:\n"
+            )
+            out.extend(_rbac_rules_table(ns_component))
+            out.append("")
         escalating = [
             r for r in component_only
             # Set intersection, not `in`: apiGroups is a list of exact group names,
@@ -404,13 +442,39 @@ def gen_rbac(k8s: str) -> str:
                 "left behind.\n"
             )
 
+    if agent_key:
+        out.append("## Additionally granted with the node agent (`nodeAgent.enabled`)\n")
+        out.append(
+            f"The agent runs in its own namespace (`{agent_key[1]}` by default), which the chart "
+            "creates with the privileged Pod Security level. Cluster-wide, the operator gains "
+            "a node read (the orphan prune), a read and relabel of that one namespace by name, "
+            "and a read of the agents' heartbeat Leases (also granted when "
+            "`controller.kernelEvidence.enabled` is on alone):\n"
+        )
+        out.extend(_rbac_rules_table(agent_cluster))
+        out.append("")
+        out.append(
+            f"Everything it creates for the agent is granted by the `{agent_key[2]}` Role in the "
+            "agent namespace. The agents' own Role (written by the operator) is `get`, `create` "
+            "and `patch` on their observations and `get`, `create`, `patch` and `update` on "
+            "their Leases, and Kubernetes lets the operator grant only what it holds, so it "
+            "holds those verbs here:\n"
+        )
+        out.extend(_rbac_rules_table(agent[agent_key]["rules"]))
+        out.append("")
+        out.append(
+            "Where the API serves `ValidatingAdmissionPolicy`, the chart also renders one that "
+            "lets each agent write only the observation and Lease named after the node in its "
+            "token, which RBAC cannot express.\n"
+        )
+
     if role_name:
         out.append(f"## Namespaced Role (`{role_name}`)\n")
         out.append(
             "Created in the release namespace and bound to the same ServiceAccount. Used only "
             "for the controller-runtime leader election lease.\n"
         )
-        out.extend(_rbac_rules_table(minimal[("Role", role_name)]["rules"]))
+        out.extend(_rbac_rules_table(minimal[le_key]["rules"]))
         out.append("")
 
     metrics_role = next(
@@ -711,7 +775,6 @@ def engine_registry(repo_root: str) -> dict:
 
 def gen_runtime_observations(repo_root: str, k8s: str) -> str:
     observer_src = read(os.path.join(k8s, "internal/observer/runtime.go"))
-    kernel_src = read(os.path.join(k8s, "internal/observer/kernel.go"))
     engine = engine_registry(repo_root)
 
     dims = parse_dimensions(observer_src)
@@ -733,11 +796,9 @@ def gen_runtime_observations(repo_root: str, k8s: str) -> str:
     }
 
     # Collector names stamped into observation provenance and finding evidenceRefs.
-    k8s_collector = re.search(r'^\s*collectorName\s*=\s*"([^"]+)"', observer_src, re.M).group(1)
-    merged_suffix = re.search(r'^\s*collectorKernelMerged\s*=\s*collectorName\s*\+\s*"([^"]+)"', kernel_src, re.M).group(1)
-    kernel_collector = re.search(r'^\s*collectorKernel\s*=\s*"([^"]+)"', kernel_src, re.M).group(1)
+    collectors = engine["collectors"]
 
-    out = [banner("internal/observer/runtime.go + kernel.go, pkg/evidence, pkg/finding, api/v1alpha1")]
+    out = [banner("internal/observer/runtime.go, pkg/evidence, pkg/finding, pkg/runtimefacts, api/v1alpha1")]
     out.append("# Runtime observations\n")
     out.append(
         "What the operator looks at in your cluster, and every status and finding it can report. "
@@ -768,7 +829,9 @@ def gen_runtime_observations(repo_root: str, k8s: str) -> str:
     out.append(
         "The kernel source also reports one thing no dimension asks for: a successful connection "
         "to another Pacto-managed Service that no declared dependency resolves to, which the "
-        "engine reports as `DEPENDENCY_UNDECLARED`.\n"
+        "engine reports as `DEPENDENCY_UNDECLARED`. It reports none while a declared dependency "
+        "resolves to no Pacto target by ref or name (a local or other non-OCI ref, or an OCI ref no "
+        "Pacto carries), because that dependency could be the peer the pod reached.\n"
     )
 
     out.append("## Collectors\n")
@@ -778,9 +841,9 @@ def gen_runtime_observations(repo_root: str, k8s: str) -> str:
     )
     out.append("| Collector | Meaning |")
     out.append("| --- | --- |")
-    out.append(f"| `{k8s_collector}` | Kubernetes API only. |")
-    out.append(f"| `{k8s_collector}{merged_suffix}` | Kubernetes API result merged with node agent evidence that changed or qualified it. |")
-    out.append(f"| `{kernel_collector}` | Node agent evidence only (an undeclared peer). |")
+    out.append(f"| `{collectors['kubernetes']}` | Kubernetes API only. |")
+    out.append(f"| `{collectors['kubernetesKernel']}` | Kubernetes API result merged with node agent evidence that changed or qualified it. |")
+    out.append(f"| `{collectors['kernel']}` | Node agent evidence only (an undeclared peer). |")
     out.append("")
 
     out.append("## Observation outcomes\n")

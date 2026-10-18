@@ -27,7 +27,7 @@ type RepositoryOptions struct {
 	// login, gh, docker). A nil keychain is anonymous access.
 	Keychain authn.Keychain
 	// Insecure lists registry hosts to reach over plain HTTP, mirroring
-	// [github.com/trianalab/pacto/v3/pkg/oci.WithInsecureRegistries]. Loopback
+	// [github.com/trianalab/pacto/v4/pkg/oci.WithInsecureRegistries]. Loopback
 	// hosts are plain HTTP without being listed, matching how Pacto already
 	// resolves contract references.
 	Insecure []string

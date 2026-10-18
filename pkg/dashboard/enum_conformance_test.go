@@ -7,8 +7,8 @@ import (
 	"net/url"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // This file proves end to end that no invalid extension data

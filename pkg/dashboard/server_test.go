@@ -13,8 +13,8 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
 // startServer runs srv on an ephemeral port and returns its base URL. The server
@@ -37,8 +37,7 @@ func testUI() fstest.MapFS {
 }
 
 func TestServerHealth(t *testing.T) {
-	srv := NewServer(testUI())
-	srv.SetVersion("1.2.3")
+	srv := NewServer(Options{UI: testUI(), Version: "1.2.3"})
 	base := startServer(t, srv)
 
 	var body map[string]any
@@ -53,8 +52,7 @@ func TestServerHealth(t *testing.T) {
 
 func TestServerMetrics(t *testing.T) {
 	q := demoFleetQuery(t)
-	srv := NewServer(testUI())
-	srv.SetFleetProvider(func(context.Context) (*fleet.Query, error) { return q, nil })
+	srv := NewServer(Options{UI: testUI(), Fleet: func(context.Context) (*fleet.Query, error) { return q, nil }})
 	base := startServer(t, srv)
 
 	var body map[string]any
@@ -70,8 +68,7 @@ func TestServerMetrics(t *testing.T) {
 // A host with no published snapshot still answers /metrics, with zeroes rather
 // than a 500 — the nav polls it before the first snapshot exists.
 func TestServerMetrics_NoSnapshot(t *testing.T) {
-	srv := NewServer(testUI())
-	srv.SetFleetProvider(func(context.Context) (*fleet.Query, error) { return nil, fleet.ErrNoSnapshot })
+	srv := NewServer(Options{UI: testUI(), Fleet: func(context.Context) (*fleet.Query, error) { return nil, fleet.ErrNoSnapshot }})
 	base := startServer(t, srv)
 
 	var body map[string]any
@@ -85,8 +82,7 @@ func TestServerMetrics_NoSnapshot(t *testing.T) {
 // nav pills describe where the data on screen came from.
 func TestServerGetSources(t *testing.T) {
 	q := demoFleetQuery(t)
-	srv := NewServer(testUI())
-	srv.SetFleetProvider(func(context.Context) (*fleet.Query, error) { return q, nil })
+	srv := NewServer(Options{UI: testUI(), Fleet: func(context.Context) (*fleet.Query, error) { return q, nil }})
 	base := startServer(t, srv)
 
 	var body struct {
@@ -117,10 +113,7 @@ func TestServerGetSources_Discovering(t *testing.T) {
 	}
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
-			srv := NewServer(testUI())
-			if tc.provider != nil {
-				srv.SetFleetProvider(tc.provider)
-			}
+			srv := NewServer(Options{UI: testUI(), Fleet: tc.provider})
 			out, err := srv.getSources(context.Background(), nil)
 			if err != nil {
 				t.Fatal(err)
@@ -137,11 +130,10 @@ func TestServerGetSources_Discovering(t *testing.T) {
 
 func TestServerRefresh_Endpoint(t *testing.T) {
 	refreshed := 0
-	srv := NewServer(testUI())
-	srv.SetFleetRefresher(func(context.Context) error {
+	srv := NewServer(Options{UI: testUI(), Refresh: func(context.Context) error {
 		refreshed++
 		return nil
-	})
+	}})
 	base := startServer(t, srv)
 
 	var body struct {
@@ -169,13 +161,13 @@ func TestServerRefresh_Endpoint(t *testing.T) {
 func TestServerRefresh_Handler(t *testing.T) {
 	// No refresher (the offline demo, whose snapshot is baked in) is a successful
 	// no-op; a failing rebuild is reported rather than silently claimed as "ok".
-	srv := NewServer(nil)
+	srv := NewServer(Options{})
 	out, err := srv.refresh(context.Background(), nil)
 	if err != nil || out.Body.Status != "ok" {
 		t.Fatalf("unset refresher should succeed, got %+v err=%v", out, err)
 	}
 
-	srv.SetFleetRefresher(func(context.Context) error { return errors.New("registry down") })
+	srv = NewServer(Options{Refresh: func(context.Context) error { return errors.New("registry down") }})
 	if _, err := srv.refresh(context.Background(), nil); err == nil {
 		t.Fatal("expected a failed rebuild to surface as an error")
 	}
@@ -184,8 +176,7 @@ func TestServerRefresh_Handler(t *testing.T) {
 func TestCORSMiddleware(t *testing.T) {
 	const allowed = "http://app.example"
 	run := func(corsOrigin, method, origin string) *http.Response {
-		s := &Server{}
-		s.SetCORSOrigin(corsOrigin)
+		s := NewServer(Options{CORSOrigin: corsOrigin})
 		h := s.corsMiddleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		}))
@@ -231,24 +222,16 @@ func TestCORSMiddleware(t *testing.T) {
 	}
 }
 
-func TestSetLogger(t *testing.T) {
-	s := NewServer(fstest.MapFS{})
-
-	custom := slog.New(slog.NewTextHandler(&strings.Builder{}, nil))
-	s.SetLogger(custom)
-	if s.logger != custom {
-		t.Fatal("SetLogger did not store the provided logger")
-	}
-
+func TestServerLogger(t *testing.T) {
 	// A nil logger falls back to slog.Default() rather than leaving it unset.
-	s.SetLogger(nil)
-	if s.logger != slog.Default() {
-		t.Fatal("SetLogger(nil) should fall back to slog.Default()")
+	if s := NewServer(Options{}); s.opts.Logger != slog.Default() {
+		t.Fatal("a nil Logger should fall back to slog.Default()")
 	}
 
-	// The middleware carries the stored logger onto the request context so
+	// The middleware carries the configured logger onto the request context so
 	// handlers reach it via logging.LoggerFromContext.
-	s.SetLogger(custom)
+	custom := slog.New(slog.NewTextHandler(&strings.Builder{}, nil))
+	s := NewServer(Options{Logger: custom})
 	var got *slog.Logger
 	h := s.corsMiddleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		got = logging.LoggerFromContext(r.Context())
@@ -260,32 +243,30 @@ func TestSetLogger(t *testing.T) {
 }
 
 func TestServe_CancelledContext(t *testing.T) {
-	srv := NewServer(testUI())
+	srv := NewServer(Options{UI: testUI()})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // cancel immediately
 
 	// Port 0 lets the OS pick a free port, so Listen succeeds and the cancelled
 	// context makes ServeOnListener return at once. Either way Serve must not hang.
-	if err := srv.Serve(ctx, 0); err != nil {
+	if err := srv.Serve(ctx); err != nil {
 		t.Fatalf("cancelled Serve should return cleanly, got %v", err)
 	}
 }
 
 func TestServe_HostVariants(t *testing.T) {
 	for _, host := range []string{"0.0.0.0", ""} {
-		srv := NewServer(testUI())
+		srv := NewServer(Options{UI: testUI(), Host: host})
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		if err := srv.Serve(ctx, 0, host); err != nil {
+		if err := srv.Serve(ctx); err != nil {
 			t.Errorf("Serve(host=%q) = %v", host, err)
 		}
 	}
 }
 
 func TestServe_ListenError(t *testing.T) {
-	srv := NewServer(testUI())
-
 	// Bind a port first, then Serve on the same port to trigger a listen error.
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -293,14 +274,14 @@ func TestServe_ListenError(t *testing.T) {
 	}
 	defer ln.Close() //nolint:errcheck
 
-	port := ln.Addr().(*net.TCPAddr).Port
-	if err := srv.Serve(context.Background(), port); err == nil {
+	srv := NewServer(Options{UI: testUI(), Port: ln.Addr().(*net.TCPAddr).Port})
+	if err := srv.Serve(context.Background()); err == nil {
 		t.Error("expected listen error for already-bound port")
 	}
 }
 
 func TestServeOnListener_ServerError(t *testing.T) {
-	srv := NewServer(testUI())
+	srv := NewServer(Options{UI: testUI()})
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -314,28 +295,24 @@ func TestServeOnListener_ServerError(t *testing.T) {
 	}
 }
 
-func TestSetListenAddr(t *testing.T) {
-	srv := &Server{}
-
-	srv.SetListenAddr("192.168.1.1", 8080)
-	if srv.listenAddr != "http://192.168.1.1:8080" {
-		t.Errorf("expected http://192.168.1.1:8080, got %s", srv.listenAddr)
+func TestServerListenAddr(t *testing.T) {
+	cases := map[string]string{
+		"192.168.1.1": "http://192.168.1.1:8080",
+		"0.0.0.0":     "http://localhost:8080",
+		"":            "http://localhost:8080",
 	}
-
-	srv.SetListenAddr("0.0.0.0", 3000)
-	if srv.listenAddr != "http://localhost:3000" {
-		t.Errorf("expected http://localhost:3000 for 0.0.0.0, got %s", srv.listenAddr)
+	for host, want := range cases {
+		if got := NewServer(Options{Host: host, Port: 8080}).listenAddr; got != want {
+			t.Errorf("host %q: listenAddr = %q, want %q", host, got, want)
+		}
 	}
-
-	srv.SetListenAddr("", 3000)
-	if srv.listenAddr != "http://localhost:3000" {
-		t.Errorf("expected http://localhost:3000 for empty host, got %s", srv.listenAddr)
+	if got := NewServer(Options{}).listenAddr; got != "" {
+		t.Errorf("no port: listenAddr = %q, want none", got)
 	}
 }
 
-func TestSetListenAddr_OpenAPIServer(t *testing.T) {
-	srv := NewServer(testUI())
-	srv.SetListenAddr("10.0.0.1", 9090)
+func TestServerListenAddr_OpenAPIServer(t *testing.T) {
+	srv := NewServer(Options{UI: testUI(), Host: "10.0.0.1", Port: 9090})
 	base := startServer(t, srv)
 
 	var spec map[string]any
@@ -402,8 +379,7 @@ func TestExportOpenAPI(t *testing.T) {
 // The contract-view operations are answered by the offline static export, which
 // has no server. A live host must not pretend to serve them.
 func TestOfflineOperationsAreNotServedLive(t *testing.T) {
-	srv := NewServer(testUI())
-	srv.SetFleetProvider(func(context.Context) (*fleet.Query, error) { return demoFleetQuery(t), nil })
+	srv := NewServer(Options{UI: testUI(), Fleet: func(context.Context) (*fleet.Query, error) { return demoFleetQuery(t), nil }})
 	base := startServer(t, srv)
 
 	for _, p := range []string{"/api/services", "/api/graph", "/api/diff", "/api/services/x/refs"} {

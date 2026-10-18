@@ -20,28 +20,14 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/runtimewatch"
-	"github.com/trianalab/pacto/v3/internal/runtimewatch/ebpf"
-	"github.com/trianalab/pacto/v3/internal/runtimewatch/evalsink"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/probe"
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
-)
-
-// Seams for tests: a session and the subreaper touch the kernel, signals the
-// test process and the bundle a registry.
-var (
-	newSession       = ebpf.NewSession
-	setSubreaper     = ebpf.SetSubreaper
-	notifySignals    = signal.Notify
-	resolveRunBundle = (*app.Service).ResolveBundle
-	// attachTimeout bounds the wait for the eBPF program before the child starts.
-	attachTimeout = 10 * time.Second
-	// pollInterval is how often the unprivileged mode reads the tree's sockets:
-	// a connection shorter than this may go unseen.
-	pollInterval = time.Second
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch/ebpf"
+	"github.com/trianalab/pacto/v4/internal/runtimewatch/evalsink"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/probe"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 // Provenance collectors of `pacto run`, by mode.
@@ -69,16 +55,19 @@ func (e *ExitError) Error() string { return "exit status " + strconv.Itoa(e.Code
 
 // newRunCommand builds `pacto run`: run one command and check its process tree
 // against a contract while it runs.
-func newRunCommand(svc *app.Service, v *viper.Viper, version string) *cobra.Command {
+func newRunCommand(svc *app.Service, v *viper.Viper, version string, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run --contract <dir|oci ref> [flags] -- command [args...]",
 		Short: "Run a command and check it against its contract while it runs",
 		Long: "Starts the command and watches the TCP sockets of its whole process tree: the interfaces bound " +
 			"with --bind must be listened on, the dependencies bound with --dep reached. Every --interval it prints " +
 			"the contract's compliance and findings in --output-format; once the command exits it prints a final " +
-			"round from the last view taken while the command ran, and exits with the command's exit code. Signals " +
-			"(SIGINT, SIGTERM) are passed on to the command. With --fail-on it exits 1 instead of 0 when the final " +
-			"verdict is that bad or worse.\n\n" +
+			"round from the last view taken while the command ran, and exits with the command's exit code. With " +
+			"--fail-on it exits 1 instead of 0 when the final verdict is that bad or worse.\n\n" +
+			"The command runs in a process group of its own, so a Ctrl-C reaches it once. When pacto run owns the " +
+			"terminal, the command's group takes it over: it reads the terminal and gets Ctrl-C and Ctrl-Z straight " +
+			"from it, and pacto run takes the terminal back once it exits. Otherwise SIGINT and SIGTERM sent to " +
+			"pacto run are passed on to the command's whole group.\n\n" +
 			"The command's stdin, stdout and stderr are its own, untouched. Rounds go to stderr, each in a single " +
 			"write, or with --report to a file instead: the file is truncated when the run starts and every round " +
 			"is appended to it in a single write, so a reader following it sees whole rounds (with json, one " +
@@ -89,6 +78,8 @@ func newRunCommand(svc *app.Service, v *viper.Viper, version string) *cobra.Comm
 			"Otherwise it falls back to polling /proc every second and says so (collector pacto-run): listeners are " +
 			"seen in full, so a missing one is still confirmed, but a connection is seen only while it is open at a " +
 			"poll and a failed connection never, so a dependency is reported reachable or unknown, never unreachable. " +
+			"If the program attached but the command cannot start inside the new cgroup, the run falls back to " +
+			"polling too and says so. " +
 			"Elsewhere than Linux the command runs unobserved and every runtime assertion is unsupported.\n\n" +
 			"A negative is reported once it persists for --stabilization-window. Health and metrics capabilities are " +
 			"probed on --host at their bound interface's port. With --evidence-url every round is also signed and " +
@@ -98,7 +89,7 @@ func newRunCommand(svc *app.Service, v *viper.Viper, version string) *cobra.Comm
     --stabilization-window 30s --output-format json --report rounds.jsonl -- java -jar payments.jar`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runCommand(cmd, svc, v, version, args)
+			return runCommand(cmd, svc, v, version, args, d)
 		},
 	}
 	// Everything after the command's name is the command's own.
@@ -131,7 +122,7 @@ type runOptions struct {
 }
 
 // runCommand evaluates the flags, picks the mode, runs the child and returns its exit code.
-func runCommand(cmd *cobra.Command, svc *app.Service, v *viper.Viper, version string, args []string) error {
+func runCommand(cmd *cobra.Command, svc *app.Service, v *viper.Viper, version string, args []string, d deps) error {
 	f := cmd.Flags()
 	ref, _ := f.GetString("contract")
 	o := runOptions{version: version}
@@ -167,7 +158,7 @@ func runCommand(cmd *cobra.Command, svc *app.Service, v *viper.Viper, version st
 			return err
 		}
 	}
-	bundle, err := resolveRunBundle(svc, cmd.Context(), ref)
+	bundle, err := d.resolveBundle(svc, cmd.Context(), ref)
 	if err != nil {
 		return err
 	}
@@ -176,7 +167,7 @@ func runCommand(cmd *cobra.Command, svc *app.Service, v *viper.Viper, version st
 	}
 	window, _ := f.GetDuration("stabilization-window")
 	protocol, _ := f.GetBool("enable-probing")
-	r := &runSession{opts: o, name: name, target: target}
+	r := &runSession{opts: o, name: name, target: target, d: d}
 	r.eval = &evalsink.Sink{
 		Sources: []func(context.Context) ([]evalsink.Target, error){r.targets},
 		Load:    func(context.Context, string) (*contract.Bundle, error) { return bundle, nil },
@@ -255,6 +246,7 @@ func checkBound(c *contract.Contract, t evalsink.Target) error {
 // runSession is one `pacto run`: its target, its mode and the rounds it printed.
 type runSession struct {
 	opts   runOptions
+	d      deps
 	name   string
 	eval   *evalsink.Sink
 	gate   gateSink
@@ -280,9 +272,35 @@ func (r *runSession) run(cmd *cobra.Command, args []string) error {
 	// The watchers outlive the context main cancels on SIGINT: the child decides when the run ends.
 	ctx := context.WithoutCancel(cmd.Context())
 	r.gate.next = r.eval
-	child := exec.Command(args[0], args[1:]...)
-	child.Stdin, child.Stdout, child.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), stderr
+	tty, foreground := foregroundTerminal(cmd.InOrStdin())
+	newChild := func() *exec.Cmd {
+		c := exec.Command(args[0], args[1:]...)
+		c.Stdin, c.Stdout, c.Stderr = cmd.InOrStdin(), cmd.OutOrStdout(), stderr
+		ownGroup(c, tty, foreground)
+		return c
+	}
+	child := newChild()
 	_, _ = fmt.Fprintln(stderr, "pacto run: "+r.start(ctx, child))
+	err := child.Start()
+	// After the start, so the command does not inherit the SIGTTOU this ignores.
+	defer holdTerminal(tty, foreground)()
+	if err != nil && r.mode == modeEBPF {
+		// The program attached but the kernel would not start the command in the session cgroup: watch it
+		// from /proc instead of failing the run.
+		r.stop()
+		r.release(stderr)
+		child = newChild()
+		why := fmt.Errorf("starting the command in cgroup %s failed: %w", r.name, err)
+		_, _ = fmt.Fprintln(stderr, "pacto run: "+r.fallback(ctx, why))
+		err = child.Start()
+	}
+	if err != nil {
+		r.stop()
+		r.release(stderr)
+		return fmt.Errorf("start %s: %w", args[0], err)
+	}
+	// Evaluation starts with the command, so no round interleaves with the notices above; the snapshot
+	// published meanwhile waits for it.
 	evalCtx, cancelEval := context.WithCancel(ctx)
 	evalDone := make(chan struct{})
 	go func() {
@@ -294,15 +312,10 @@ func (r *runSession) run(cmd *cobra.Command, args []string) error {
 		cancelEval()
 		<-evalDone
 	}
-	if err := child.Start(); err != nil {
-		stopAll()
-		r.release(stderr)
-		return fmt.Errorf("start %s: %w", args[0], err)
-	}
 	pid := child.Process.Pid
 	r.gate.follow(func() bool { return runtimewatch.Exiting(r.opts.proc, pid) })
 	sigs := make(chan os.Signal, 4)
-	notifySignals(sigs, os.Interrupt, syscall.SIGTERM)
+	r.d.notifySignals(sigs, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigs)
 	waited := make(chan error, 1)
 	go func() { waited <- child.Wait() }()
@@ -312,7 +325,7 @@ func (r *runSession) run(cmd *cobra.Command, args []string) error {
 			// The command starts shutting down now, closing its listeners first if it is graceful: the
 			// view before this is the one of the running command.
 			r.gate.freeze()
-			_ = child.Process.Signal(s)
+			_ = signalGroup(child.Process, s)
 		case <-waited:
 			done = true
 		}
@@ -346,13 +359,19 @@ func (r *runSession) release(stderr io.Writer) {
 // start picks the best mode this host allows and starts its watcher, returning the notice that says which
 // one it is and what it cannot see.
 func (r *runSession) start(ctx context.Context, child *exec.Cmd) string {
-	r.stop, r.cleanup = func() {}, func() error { return nil }
 	err := r.startEBPF(ctx, child)
 	if err == nil {
 		r.mode, r.eval.Kernel = modeEBPF, runCollectorKernel
 		r.gate.open()
 		return fmt.Sprintf("observing the command in cgroup %s with eBPF (collector %s)", r.name, runCollectorKernel)
 	}
+	return r.fallback(ctx, err)
+}
+
+// fallback starts the unprivileged mode, or the unsupported one when there is no /proc either, because of
+// why eBPF cannot be used, and returns the notice that says which one it is and what it cannot see.
+func (r *runSession) fallback(ctx context.Context, err error) string {
+	r.stop, r.cleanup = func() {}, func() error { return nil }
 	if _, perr := r.opts.proc.ReadFile("self/stat"); perr != nil {
 		// Nothing to watch with: every assertion is unsupported, and the binding is dropped so none is judged.
 		r.mode = modeUnsupported
@@ -362,8 +381,8 @@ func (r *runSession) start(ctx context.Context, child *exec.Cmd) string {
 	r.mode, r.eval.Kernel = modeUnprivileged, runCollector
 	notice := fmt.Sprintf("unprivileged mode (eBPF: %v): polling the process tree's sockets in /proc every %s. Listeners are seen "+
 		"in full; connections only while open at a poll and failed connections never, so a dependency is reported reachable "+
-		"or unknown, never unreachable (collector %s)", err, pollInterval, runCollector)
-	if err := setSubreaper(); err != nil {
+		"or unknown, never unreachable (collector %s)", err, r.d.pollInterval, runCollector)
+	if err := r.d.setSubreaper(); err != nil {
 		notice += "; a process the command daemonizes leaves the watched tree (" + err.Error() + ")"
 	}
 	w := &runtimewatch.TreeWatcher{
@@ -376,7 +395,7 @@ func (r *runSession) start(ctx context.Context, child *exec.Cmd) string {
 	}
 	r.gate.open()
 	r.stop = r.watch(ctx, func(ctx context.Context) {
-		poll, publish := time.NewTicker(pollInterval), time.NewTicker(r.opts.interval)
+		poll, publish := time.NewTicker(r.d.pollInterval), time.NewTicker(r.opts.interval)
 		defer poll.Stop()
 		defer publish.Stop()
 		w.Run(ctx, poll.C, publish.C)
@@ -387,7 +406,7 @@ func (r *runSession) start(ctx context.Context, child *exec.Cmd) string {
 // startEBPF creates the session cgroup, prepares the child to start in it and runs the agent scoped to it,
 // returning once the program is attached; on any failure it undoes what it did.
 func (r *runSession) startEBPF(ctx context.Context, child *exec.Cmd) error {
-	col, err := newCollector(r.opts.ringbuf)
+	col, err := r.d.newCollector(r.opts.ringbuf)
 	if err != nil {
 		return err
 	}
@@ -395,13 +414,13 @@ func (r *runSession) startEBPF(ctx context.Context, child *exec.Cmd) error {
 	if err != nil {
 		return err
 	}
-	sess, err := newSession(parent, r.name)
+	sess, err := r.d.newSession(parent, r.name)
 	if err != nil {
 		return err
 	}
 	info := r.hostInfo()
 	stop := r.watch(ctx, func(ctx context.Context) {
-		runAgent(ctx, runtimewatch.Config{
+		r.d.runAgent(ctx, runtimewatch.Config{
 			NodeName: info.NodeName, AgentVersion: info.AgentVersion,
 			PublishInterval: r.opts.interval, ResyncInterval: r.opts.interval,
 			Proc: r.opts.proc, Cgroups: os.DirFS(parent),
@@ -409,7 +428,7 @@ func (r *runSession) startEBPF(ctx context.Context, child *exec.Cmd) error {
 			Collector: col, Sink: &r.gate,
 		})
 	})
-	if err := awaitAttach(col); err != nil {
+	if err := awaitAttach(col, r.d.attachTimeout); err != nil {
 		stop()
 		_ = sess.Close()
 		return err
@@ -456,9 +475,9 @@ func (r *runSession) sessionParent() (string, error) {
 	return "", errors.New("this process is in no cgroup v2")
 }
 
-// awaitAttach waits for the collector's first attach, or its first failure.
-func awaitAttach(col runtimewatch.Collector) error {
-	deadline := time.Now().Add(attachTimeout)
+// awaitAttach waits for the collector's first attach, or its first failure, at most timeout.
+func awaitAttach(col runtimewatch.Collector, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
 	for {
 		st := col.Status()
 		switch {
@@ -467,7 +486,7 @@ func awaitAttach(col runtimewatch.Collector) error {
 		case st.Failed && st.Reason != ebpf.ReasonAttaching:
 			return errors.New(st.Message)
 		case time.Now().After(deadline):
-			return fmt.Errorf("the eBPF program did not attach within %s", attachTimeout)
+			return fmt.Errorf("the eBPF program did not attach within %s", timeout)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

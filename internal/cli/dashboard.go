@@ -12,18 +12,18 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/fleetsrc"
-	"github.com/trianalab/pacto/v3/internal/k8sclient"
-	"github.com/trianalab/pacto/v3/pkg/dashboard"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/impact"
-	"github.com/trianalab/pacto/v3/pkg/logging"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/fleetsrc"
+	"github.com/trianalab/pacto/v4/internal/k8sclient"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 func newDashboardCommand(svc *app.Service, v *viper.Viper, version string) *cobra.Command {
@@ -138,17 +138,20 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			}, fleet.ManagerOptions{})
 			go mgr.Start(cmd.Context(), fleetRefreshInterval)
 
-			server := dashboard.NewServer(dashboard.EmbeddedUI())
-			// Thread this command's logger into the server so request handlers log
-			// through it (via request-context injection) rather than the
-			// process-global slog default.
-			server.SetLogger(logging.LoggerFromContext(cmd.Context()))
-			server.SetVersion(version)
-			server.SetListenAddr(host, port)
-			server.SetCORSOrigin(corsOrigin)
-			server.SetFleetProvider(managerFleetProvider(mgr))
-			server.SetImpactProvider(impactProviderForFleet(svc, mgr))
-			server.SetFleetRefresher(mgr.Refresh)
+			server := dashboard.NewServer(dashboard.Options{
+				UI:   dashboard.EmbeddedUI(),
+				Host: host,
+				Port: port,
+				// Thread this command's logger into the server so request handlers log
+				// through it (via request-context injection) rather than the
+				// process-global slog default.
+				Logger:     logging.LoggerFromContext(cmd.Context()),
+				Version:    version,
+				CORSOrigin: corsOrigin,
+				Fleet:      managerFleetProvider(mgr),
+				Impact:     impactProviderForFleet(svc, mgr),
+				Refresh:    mgr.Refresh,
+			})
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
@@ -156,7 +159,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			addr := fmt.Sprintf("http://%s:%d", displayHost(host), port)
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nPacto Dashboard running at %s\nSources: %s\nPress Ctrl+C to stop\n", addr, strings.Join(configured, ", "))
 
-			return server.Serve(ctx, port, host)
+			return server.Serve(ctx)
 		},
 	}
 

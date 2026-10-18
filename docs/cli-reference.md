@@ -16,9 +16,9 @@ Every command accepts `-v` / `--verbose` for debug-level logging and `--help` fo
       for the verdict.
     - **`markdown` is implemented by `pacto diff` only**, for posting a diff as a
       CI comment. Every other command silently renders text instead.
-    - **Key casing is not uniform.** `pacto validate` emits capitalised keys
-      (`"Path"`, `"Valid"`, `"Errors"`); every other command emits camelCase
-      (`"path"`, `"root"`, `"upToDate"`). Match the command you are calling.
+    - **Keys are camelCase** in every command (`"path"`, `"valid"`, `"errors"`,
+      `"upToDate"`). Before v4, `init`, `validate`, `pack`, `pull` and `push`
+      emitted capitalised keys (`"Path"`, `"Valid"`).
     - **An unrecognised value is rejected.** `--output-format yaml` exits 1 with
       `unsupported output format "yaml"` before the command runs, so a typo never
       passes for success.
@@ -1111,11 +1111,13 @@ If the artifact already exists in the registry, `pacto push` prints a warning an
 
 ## `pacto run`
 
-Starts the command and watches the TCP sockets of its whole process tree: the interfaces bound with --bind must be listened on, the dependencies bound with --dep reached. Every --interval it prints the contract's compliance and findings in --output-format; once the command exits it prints a final round from the last view taken while the command ran, and exits with the command's exit code. Signals (SIGINT, SIGTERM) are passed on to the command. With --fail-on it exits 1 instead of 0 when the final verdict is that bad or worse.
+Starts the command and watches the TCP sockets of its whole process tree: the interfaces bound with --bind must be listened on, the dependencies bound with --dep reached. Every --interval it prints the contract's compliance and findings in --output-format; once the command exits it prints a final round from the last view taken while the command ran, and exits with the command's exit code. With --fail-on it exits 1 instead of 0 when the final verdict is that bad or worse.
+
+The command runs in a process group of its own, so a Ctrl-C reaches it once. When pacto run owns the terminal, the command's group takes it over: it reads the terminal and gets Ctrl-C and Ctrl-Z straight from it, and pacto run takes the terminal back once it exits. Otherwise SIGINT and SIGTERM sent to pacto run are passed on to the command's whole group.
 
 The command's stdin, stdout and stderr are its own, untouched. Rounds go to stderr, each in a single write, or with --report to a file instead: the file is truncated when the run starts and every round is appended to it in a single write, so a reader following it sees whole rounds (with json, one object per line).
 
-With root (or BPF, PERFMON, SYS_PTRACE and write access to its own cgroup) on Linux 5.8 or later with BTF and cgroup v2, the command starts inside a new cgroup pacto-run-&lt;pid&gt; and an eBPF program sees every listener and every connection outcome of the tree, failures included (collector pacto-run+ebpf). Otherwise it falls back to polling /proc every second and says so (collector pacto-run): listeners are seen in full, so a missing one is still confirmed, but a connection is seen only while it is open at a poll and a failed connection never, so a dependency is reported reachable or unknown, never unreachable. Elsewhere than Linux the command runs unobserved and every runtime assertion is unsupported.
+With root (or BPF, PERFMON, SYS_PTRACE and write access to its own cgroup) on Linux 5.8 or later with BTF and cgroup v2, the command starts inside a new cgroup pacto-run-&lt;pid&gt; and an eBPF program sees every listener and every connection outcome of the tree, failures included (collector pacto-run+ebpf). Otherwise it falls back to polling /proc every second and says so (collector pacto-run): listeners are seen in full, so a missing one is still confirmed, but a connection is seen only while it is open at a poll and a failed connection never, so a dependency is reported reachable or unknown, never unreachable. If the program attached but the command cannot start inside the new cgroup, the run falls back to polling too and says so. Elsewhere than Linux the command runs unobserved and every runtime assertion is unsupported.
 
 A negative is reported once it persists for --stabilization-window. Health and metrics capabilities are probed on --host at their bound interface's port. With --evidence-url every round is also signed and sent to an Evidence Server, which needs the contract pinned as oci://...@sha256:&lt;digest&gt;.
 

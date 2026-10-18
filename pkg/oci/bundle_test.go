@@ -22,7 +22,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 type tarErrWriter struct{}
@@ -1139,30 +1139,30 @@ func TestWriteBundleTarGz_WriteError(t *testing.T) {
 	}
 }
 
-func TestWriteBundleTarGz_TarCloseError(t *testing.T) {
-	old := tarCloseFn
-	tarCloseFn = func(tw *tar.Writer) error { return fmt.Errorf("tar close error") }
-	defer func() { tarCloseFn = old }()
+// failAfterWriter accepts its first ok writes, then fails every one.
+type failAfterWriter struct{ ok int }
 
-	fsys := fstest.MapFS{
-		"file.txt": &fstest.MapFile{Data: []byte("data")},
+func (w *failAfterWriter) Write(p []byte) (int, error) {
+	if w.ok == 0 {
+		return 0, fmt.Errorf("write failed")
 	}
-	_, err := BundleToTarGz(fsys)
-	if err == nil {
+	w.ok--
+	return len(p), nil
+}
+
+func TestWriteBundleTarGz_TarCloseError(t *testing.T) {
+	t.Parallel()
+	// An empty tree writes nothing until the tar trailer, whose write is the
+	// gzip header's first write to the failing writer.
+	if err := writeBundleTarGz(&failAfterWriter{}, fstest.MapFS{}); err == nil {
 		t.Error("expected error when tar close fails")
 	}
 }
 
 func TestWriteBundleTarGz_GzipCloseError(t *testing.T) {
-	old := gzipCloseFn
-	gzipCloseFn = func(gw *gzip.Writer) error { return fmt.Errorf("gzip close error") }
-	defer func() { gzipCloseFn = old }()
-
-	fsys := fstest.MapFS{
-		"file.txt": &fstest.MapFile{Data: []byte("data")},
-	}
-	_, err := BundleToTarGz(fsys)
-	if err == nil {
+	t.Parallel()
+	// The gzip header goes through; the compressed body, flushed on close, fails.
+	if err := writeBundleTarGz(&failAfterWriter{ok: 1}, fstest.MapFS{}); err == nil {
 		t.Error("expected error when gzip close fails")
 	}
 }
@@ -1258,33 +1258,5 @@ func TestBundleToTarGz_DocsPreserved(t *testing.T) {
 		if len(content) == 0 {
 			t.Errorf("%s should not be empty", path)
 		}
-	}
-}
-
-func TestBundleToImage_MutateConfigError(t *testing.T) {
-	old := mutateConfigFn
-	mutateConfigFn = func(img v1.Image, cfg v1.Config) (v1.Image, error) {
-		return nil, fmt.Errorf("config error")
-	}
-	defer func() { mutateConfigFn = old }()
-
-	b := testBundle()
-	_, err := bundleToImage(b)
-	if err == nil {
-		t.Error("expected error when mutate.Config fails")
-	}
-}
-
-func TestBundleToImage_AppendLayersError(t *testing.T) {
-	old := mutateAppendLayersFn
-	mutateAppendLayersFn = func(img v1.Image, layers ...v1.Layer) (v1.Image, error) {
-		return nil, fmt.Errorf("append error")
-	}
-	defer func() { mutateAppendLayersFn = old }()
-
-	b := testBundle()
-	_, err := bundleToImage(b)
-	if err == nil {
-		t.Error("expected error when mutate.AppendLayers fails")
 	}
 }

@@ -30,14 +30,6 @@ func nameVersion(name, version string, col TreeColors) string {
 	return apply(col.Name, name) + "@" + apply(col.Version, version)
 }
 
-// RenderTree renders the dependency graph as a tree-style string
-// similar to the Unix tree command.
-//
-// Deprecated: use [RenderTreeColored] with a zero TreeColors. Removed at v4.
-func RenderTree(r *Result) string {
-	return RenderTreeColored(r, TreeColors{})
-}
-
 // RenderTreeColored renders the tree applying the given colorizers.
 func RenderTreeColored(r *Result, col TreeColors) string {
 	if r == nil || r.Root == nil {

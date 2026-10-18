@@ -37,7 +37,7 @@ function page(offset: number, partial = false): any {
     meta: {
       schemaVersion: 'pacto.dev/fleet-product/v1',
       completeness: partial ? 'partial' : 'complete',
-      sources: partial ? [{ id: 'k8s', kind: 'k8s', status: 'unavailable' }] : [],
+      sources: partial ? [{ id: 'k8s', kind: 'kubernetes', status: 'unavailable' }] : [],
     },
     total: TOTAL, offset: start, limit: PAGE, count: items.length,
     truncated: nextOffset != null, nextOffset, items,

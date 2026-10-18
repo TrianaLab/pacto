@@ -8,8 +8,8 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 func TestServiceFromContract(t *testing.T) {
@@ -759,21 +759,13 @@ func TestServiceDetailsFromBundle_EmptyConfiguration(t *testing.T) {
 
 // --- Readiness mapping ---
 
-func pinDashboardTime(t *testing.T, at time.Time) {
-	t.Helper()
-	old := timeNow
-	timeNow = func() time.Time { return at }
-	t.Cleanup(func() { timeNow = old })
-}
-
 func TestReadinessFromContract_Nil(t *testing.T) {
-	if got := readinessFromContract(&contract.Contract{}, nil); got != nil {
+	if got := readinessFromContract(&contract.Contract{}, nil, time.Now()); got != nil {
 		t.Errorf("expected nil readiness for contract without readiness, got %+v", got)
 	}
 }
 
 func TestServiceDetailsFromBundle_Readiness(t *testing.T) {
-	pinDashboardTime(t, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC))
 	c := &contract.Contract{
 		PactoVersion: "2.0",
 		Service:      contract.Service{Name: "payment-api", Version: "1.4.0"},
@@ -788,7 +780,7 @@ func TestServiceDetailsFromBundle_Readiness(t *testing.T) {
 			},
 		},
 	}
-	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c}, "local")
+	details := serviceDetailsAt(&contract.Bundle{Contract: c}, "local", time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC))
 	if details.Readiness == nil {
 		t.Fatal("expected readiness info to be present")
 	}
@@ -842,14 +834,14 @@ func (f readFailDocsFS) ReadFile(name string) ([]byte, error) {
 }
 
 func TestDocsFromContract_NilFS(t *testing.T) {
-	if got := docsFromContract(nil); got != nil {
+	if got := docsFromContract(nil, prodDocLimits); got != nil {
 		t.Errorf("expected nil for nil FS, got %+v", got)
 	}
 }
 
 func TestDocsFromContract_NoDocsDir(t *testing.T) {
 	fsys := fstest.MapFS{"pacto.yaml": &fstest.MapFile{Data: []byte("x")}}
-	if got := docsFromContract(fsys); len(got) != 0 {
+	if got := docsFromContract(fsys, prodDocLimits); len(got) != 0 {
 		t.Errorf("expected no docs, got %+v", got)
 	}
 }
@@ -860,7 +852,7 @@ func TestDocsFromContract_ReadsSortedTitlesIgnoresNonMd(t *testing.T) {
 		"docs/runbooks/deploy.md": &fstest.MapFile{Data: []byte("no h1 here")},
 		"docs/notes.txt":          &fstest.MapFile{Data: []byte("ignored")},
 	}
-	got := docsFromContract(fsys)
+	got := docsFromContract(fsys, prodDocLimits)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 md docs, got %d (%+v)", len(got), got)
 	}
@@ -876,38 +868,29 @@ func TestDocsFromContract_ReadsSortedTitlesIgnoresNonMd(t *testing.T) {
 }
 
 func TestDocsFromContract_PerDocTruncation(t *testing.T) {
-	old := maxDocBytes
-	maxDocBytes = 5
-	t.Cleanup(func() { maxDocBytes = old })
 	fsys := fstest.MapFS{"docs/big.md": &fstest.MapFile{Data: []byte("0123456789")}}
-	got := docsFromContract(fsys)
+	got := docsFromContract(fsys, docLimits{docBytes: 5, totalBytes: maxTotalDocBytes, count: maxDocCount})
 	if len(got) != 1 || !got[0].Truncated || got[0].Content != "01234" {
 		t.Errorf("expected truncated '01234', got %+v", got)
 	}
 }
 
 func TestDocsFromContract_CountCap(t *testing.T) {
-	old := maxDocCount
-	maxDocCount = 1
-	t.Cleanup(func() { maxDocCount = old })
 	fsys := fstest.MapFS{
 		"docs/a.md": &fstest.MapFile{Data: []byte("# A")},
 		"docs/b.md": &fstest.MapFile{Data: []byte("# B")},
 	}
-	if got := docsFromContract(fsys); len(got) != 1 {
+	if got := docsFromContract(fsys, docLimits{docBytes: maxDocBytes, totalBytes: maxTotalDocBytes, count: 1}); len(got) != 1 {
 		t.Errorf("expected count cap to 1, got %d", len(got))
 	}
 }
 
 func TestDocsFromContract_TotalCap(t *testing.T) {
-	old := maxTotalDocBytes
-	maxTotalDocBytes = 6
-	t.Cleanup(func() { maxTotalDocBytes = old })
 	fsys := fstest.MapFS{
 		"docs/a.md": &fstest.MapFile{Data: []byte("aaaa")},
 		"docs/b.md": &fstest.MapFile{Data: []byte("bbbb")},
 	}
-	got := docsFromContract(fsys)
+	got := docsFromContract(fsys, docLimits{docBytes: maxDocBytes, totalBytes: 6, count: maxDocCount})
 	if len(got) != 2 {
 		t.Fatalf("expected 2 docs, got %d (%+v)", len(got), got)
 	}
@@ -918,13 +901,12 @@ func TestDocsFromContract_TotalCap(t *testing.T) {
 
 func TestDocsFromContract_UnreadableFileSkipped(t *testing.T) {
 	fsys := readFailDocsFS{fstest.MapFS{"docs/a.md": &fstest.MapFile{Data: []byte("# A")}}}
-	if got := docsFromContract(fsys); len(got) != 0 {
+	if got := docsFromContract(fsys, prodDocLimits); len(got) != 0 {
 		t.Errorf("expected unreadable doc skipped, got %+v", got)
 	}
 }
 
 func TestServiceDetailsFromBundle_ReadinessDocPath(t *testing.T) {
-	pinDashboardTime(t, time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC))
 	c := &contract.Contract{
 		PactoVersion: "2.0",
 		Service:      contract.Service{Name: "svc", Version: "1.0.0"},
@@ -937,7 +919,7 @@ func TestServiceDetailsFromBundle_ReadinessDocPath(t *testing.T) {
 		},
 	}
 	fsys := fstest.MapFS{"docs/runbooks/deploy.md": &fstest.MapFile{Data: []byte("# Deploy")}}
-	details := ServiceDetailsFromBundle(&contract.Bundle{Contract: c, FS: fsys}, "local")
+	details := serviceDetailsAt(&contract.Bundle{Contract: c, FS: fsys}, "local", time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC))
 	if len(details.Docs) != 1 || details.Docs[0].Path != "docs/runbooks/deploy.md" {
 		t.Fatalf("expected 1 doc, got %+v", details.Docs)
 	}
@@ -988,3 +970,5 @@ func TestServiceDetailsFromBundle_NoSBOM(t *testing.T) {
 		t.Fatalf("expected nil SBOM, got %+v", d.SBOM)
 	}
 }
+
+var prodDocLimits = docLimits{docBytes: maxDocBytes, totalBytes: maxTotalDocBytes, count: maxDocCount}

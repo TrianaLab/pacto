@@ -776,7 +776,8 @@ fields:
     evidence: 'none: the field has no runtime counterpart'
     rule: 'schema: array'
     outcomes: PARSE_ERROR when not a list
-    limitations: the list is not claimed to be exhaustive; undeclared peers are drift warnings
+    limitations: the list is not claimed to be exhaustive; undeclared peers are drift warnings, not reported while any entry
+      resolves to no Pacto target by ref or name (a local or non-OCI ref, or an unresolved OCI ref)
     tests:
       unit:
       - pkg/validation/evaluate_test.go:TestEvaluate_UndeclaredDependency
@@ -816,10 +817,15 @@ fields:
         reason: 'provider endpoints and, with the node agent, the latest connection success and failure'
       agent:
         evidence: verified
-        reason: 'the kernel''s latest connection success and failure to the bound host:port'
+        reason: 'the kernel''s latest connection success and failure to the bound host:port, ignoring timestamps from before
+          the workload started; a reachable checked workload no entry names is DEPENDENCY_UNDECLARED, by the same
+          suppression rule'
         tests:
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_UndeclaredPeers
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_BindingStart
         - tests/acceptance/local/runtime-docker.sh:docker-dependency-reachable
         - tests/acceptance/local/runtime-docker.sh:docker-dependency-refused
+        - tests/acceptance/local/runtime-docker.sh:docker-dependency-undeclared
       run:
         evidence: partial
         reason: 'eBPF mode sees successes and failures; unprivileged mode never sees a failure, so it never confirms unreachable'

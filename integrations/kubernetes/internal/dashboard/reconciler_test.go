@@ -315,10 +315,10 @@ func assertClusterResourceNotFound(t *testing.T, c client.Client, ctx context.Co
 
 func TestReconcile_OCISecret_CreatesManagedSecret(t *testing.T) {
 	cfg := Config{
-		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
-		Namespace: "test-ns",
-		OCISecret: "my-creds",
+		Enabled:    true,
+		Image:      "ghcr.io/trianalab/pacto/dashboard:0.24.2",
+		Namespace:  "test-ns",
+		OCISecrets: []string{"my-creds"},
 	}
 	srcSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-creds", Namespace: "test-ns"},
@@ -432,10 +432,10 @@ func TestReconcile_NoOCISecrets_CleansUpManagedSecret(t *testing.T) {
 
 func TestReconcile_OCISecret_MissingSourceSecret(t *testing.T) {
 	cfg := Config{
-		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
-		Namespace: "test-ns",
-		OCISecret: "nonexistent",
+		Enabled:    true,
+		Image:      "ghcr.io/trianalab/pacto/dashboard:0.24.2",
+		Namespace:  "test-ns",
+		OCISecrets: []string{"nonexistent"},
 	}
 	r := newReconciler(cfg)
 	ctx := context.Background()
@@ -451,7 +451,7 @@ func TestReconcile_OCICredentials_CleanupGetError(t *testing.T) {
 		Enabled:   true,
 		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
 		Namespace: "test-ns",
-		// No OCISecret/OCISecrets → triggers cleanup path
+		// No OCISecrets → triggers cleanup path
 	}
 	scheme := newScheme()
 	fakeClient := fake.NewClientBuilder().WithScheme(scheme).
@@ -479,10 +479,10 @@ func TestReconcile_OCICredentials_CleanupGetError(t *testing.T) {
 
 func TestReconcile_OCICredentials_MergeError(t *testing.T) {
 	cfg := Config{
-		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.2",
-		Namespace: "test-ns",
-		OCISecret: "bad-secret",
+		Enabled:    true,
+		Image:      "ghcr.io/trianalab/pacto/dashboard:0.24.2",
+		Namespace:  "test-ns",
+		OCISecrets: []string{"bad-secret"},
 	}
 	// Create an opaque secret with no valid keys → MergeToDockerConfigJSON will fail
 	badSecret := &corev1.Secret{

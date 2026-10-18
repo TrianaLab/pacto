@@ -39,6 +39,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 CLUSTER="${KIND_CLUSTER:-pacto-runtime}"
 NS=pacto-system
+# The node agent runs in its own namespace, the only one labelled privileged;
+# the release namespace stays at baseline to prove it needs nothing more.
+AGENT_NS=pacto-node-agent
 APP=conf
 REG_HOST="pacto-registry.${NS}.svc.cluster.local:5000"
 LOCAL_REG_PORT=5597
@@ -52,12 +55,12 @@ case "$CMD" in
   status)
     use_existing_cluster "make e2e-runtime-conformance-kind-up"
     kubectl -n "$APP" get pactos
-    kubectl -n "$NS" get "$NRO" -o wide
+    kubectl -n "$AGENT_NS" get "$NRO",leases -o wide
     exit 0 ;;
   logs)
     use_existing_cluster "make e2e-runtime-conformance-kind-up"
     dump_diag "$NS"
-    kubectl -n "$NS" logs ds/pacto-node-agent --tail=200 || true
+    kubectl -n "$AGENT_NS" logs ds/pacto-node-agent --tail=200 || true
     exit 0 ;;
   down) down_cluster; exit 0 ;;
   run|up) : ;;
@@ -87,7 +90,7 @@ summary() {
 }
 
 # shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
-trap 'rc=$?; [ $rc -ne 0 ] && [ -n "$CURRENT" ] && FAILED+=("$CURRENT"); [ ${#SCENARIOS[@]} -gt 0 ] && summary; if [ $rc -ne 0 ]; then dump_diag "$NS"; kubectl -n "$NS" logs ds/pacto-node-agent --tail=100 || true; kubectl -n "$NS" get "$NRO" -o yaml | tail -80 || true; fi; pkill -f "kubectl.*port-forward" 2>/dev/null || true; exit $rc' EXIT
+trap 'rc=$?; [ $rc -ne 0 ] && [ -n "$CURRENT" ] && FAILED+=("$CURRENT"); [ ${#SCENARIOS[@]} -gt 0 ] && summary; if [ $rc -ne 0 ]; then dump_diag "$NS"; kubectl -n "$AGENT_NS" logs ds/pacto-node-agent --tail=100 || true; kubectl -n "$AGENT_NS" get "$NRO" -o yaml | tail -80 || true; fi; pkill -f "kubectl.*port-forward" 2>/dev/null || true; exit $rc' EXIT
 
 # miss MSG — a failed assertion: reported, charged to the open scenario, not fatal.
 miss() {
@@ -104,7 +107,7 @@ _pacto_holds() { # NAME CHECKER-FLAGS...
   LAST="$(kubectl -n "$APP" get pacto "$name" -o json 2>&1 | "$CHECK" status "$@" 2>&1)"
 }
 _nro_holds() {
-  LAST="$(kubectl -n "$NS" get "$NRO" -o json 2>&1 | "$CHECK" nro "$@" 2>&1)"
+  LAST="$(kubectl -n "$AGENT_NS" get "$NRO" -o json 2>&1 | "$CHECK" nro "$@" 2>&1)"
 }
 
 # expect_pacto NAME ROUNDS CHECKER-FLAGS... — the Pacto's status eventually satisfies the flags.
@@ -142,9 +145,10 @@ docker pull "$AGNHOST" >/dev/null
 load_images "$OP_IMG" "$DASH_IMG" "$AGNHOST"
 
 # The node agent needs hostPID and BPF capabilities, which only the privileged Pod
-# Security level admits. The chart documents this and deliberately does not label.
+# Security level admits. The chart creates the agent namespace privileged; the
+# release namespace enforces baseline, which would reject an agent pod there.
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-kubectl label namespace "$NS" pod-security.kubernetes.io/enforce=privileged --overwrite >/dev/null
+kubectl label namespace "$NS" pod-security.kubernetes.io/enforce=baseline --overwrite >/dev/null
 kubectl create namespace "$APP" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 echo "== in-cluster registry: contracts resolve by OCI ref, so dependencies find their sibling =="
@@ -308,8 +312,14 @@ SETS=(--set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullP
       --set controller.stabilizationWindow=20s)
 helm upgrade --install pacto-operator "$CHART" -n "$NS" "${SETS[@]}" --wait --timeout 240s
 wait_ready pacto-operator
-eventually 40 kubectl -n "$NS" get ds pacto-node-agent >/dev/null 2>&1 || fail "the operator never created the node agent DaemonSet"
-kubectl -n "$NS" rollout status ds/pacto-node-agent --timeout=180s
+eventually 40 kubectl -n "$AGENT_NS" get ds pacto-node-agent >/dev/null 2>&1 || fail "the operator never created the node agent DaemonSet"
+kubectl -n "$AGENT_NS" rollout status ds/pacto-node-agent --timeout=180s
+[ "$(kubectl get ns "$AGENT_NS" -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}')" = privileged ] \
+  || fail "the agent namespace is not labelled privileged"
+[ "$(kubectl get ns "$NS" -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io/enforce}')" = baseline ] \
+  || fail "the release namespace lost its baseline Pod Security level"
+eventually 40 kubectl -n "$AGENT_NS" get lease "$(kubectl get nodes -o jsonpath='{.items[0].metadata.name}')" >/dev/null 2>&1 \
+  || fail "the node agent never renewed its heartbeat Lease"
 expect_nro 40 -state Running
 
 echo "== workloads (all agnhost, loaded into the node) =="
@@ -598,15 +608,15 @@ expect_pacto conforming "$R" -status Compliant -no-findings -covered
 scenario "agent-failed" "the agent loses CAP_BPF, cannot attach, and reports Failed"
 # A strategic merge on the capabilities list: the operator re-applies the
 # DaemonSet on its own interval, so the window to observe this is that interval.
-CAPS="$(kubectl -n "$NS" get ds pacto-node-agent -o jsonpath='{.spec.template.spec.containers[0].securityContext.capabilities.add}')"
+CAPS="$(kubectl -n "$AGENT_NS" get ds pacto-node-agent -o jsonpath='{.spec.template.spec.containers[0].securityContext.capabilities.add}')"
 NOBPF="$(printf '%s' "$CAPS" | tr -d '[]"' | tr ',' '\n' | grep -vx BPF | sed 's/.*/"&"/' | paste -sd, -)"
-kubectl -n "$NS" patch ds pacto-node-agent --type=json \
+kubectl -n "$AGENT_NS" patch ds pacto-node-agent --type=json \
   -p "[{\"op\": \"replace\", \"path\": \"/spec/template/spec/containers/0/securityContext/capabilities/add\", \"value\": [${NOBPF}]}]" >/dev/null
-kubectl -n "$NS" rollout status ds/pacto-node-agent --timeout=120s >/dev/null || true
+kubectl -n "$AGENT_NS" rollout status ds/pacto-node-agent --timeout=120s >/dev/null || true
 expect_nro 40 -state Failed
 expect_pacto conforming 40 -status Unknown -expect COLLECTION_FAILED:unknown:interface/api
-kubectl -n "$NS" rollout undo ds/pacto-node-agent >/dev/null
-kubectl -n "$NS" rollout status ds/pacto-node-agent --timeout=120s >/dev/null
+kubectl -n "$AGENT_NS" rollout undo ds/pacto-node-agent >/dev/null
+kubectl -n "$AGENT_NS" rollout status ds/pacto-node-agent --timeout=120s >/dev/null
 expect_nro 40 -state Running
 expect_pacto conforming "$R" -status Compliant -no-findings
 
@@ -614,11 +624,61 @@ scenario "agent-stopped-stale" "the agent is removed while kernel evidence stays
 helm upgrade pacto-operator "$CHART" -n "$NS" "${SETS[@]}" --set nodeAgent.enabled=false \
   --set controller.kernelEvidence.enabled=true --wait --timeout 240s >/dev/null
 expect_pacto conforming "$R" -status Unknown -expect EVIDENCE_STALE:unknown:interface/api
+# Disabling removes the agent namespace and everything in it; Kubernetes refuses
+# to re-create a namespace that is still terminating.
+kubectl wait --for=delete "namespace/$AGENT_NS" --timeout=180s >/dev/null 2>&1 || miss "the agent namespace was not removed"
 helm upgrade pacto-operator "$CHART" -n "$NS" "${SETS[@]}" --wait --timeout 240s >/dev/null
-eventually 40 kubectl -n "$NS" get ds pacto-node-agent >/dev/null 2>&1 || miss "the node agent was not re-created"
-kubectl -n "$NS" rollout status ds/pacto-node-agent --timeout=180s >/dev/null || miss "the node agent did not roll out again"
+eventually 40 kubectl -n "$AGENT_NS" get ds pacto-node-agent >/dev/null 2>&1 || miss "the node agent was not re-created"
+kubectl -n "$AGENT_NS" rollout status ds/pacto-node-agent --timeout=180s >/dev/null || miss "the node agent did not roll out again"
 expect_nro 40 -state Running
 expect_pacto conforming "$R" -status Compliant -no-findings
+
+scenario "agent-node-binding" "an agent's token may write only its own node's observation and Lease"
+# The admission policy, through a token bound to the agent pod exactly like the
+# one the kubelet mounts. Server-side dry runs: authorization and admission run,
+# nothing is stored. A client without the kubeconfig's admin certificate, so
+# the token is the only credential the API server sees.
+AGENT_POD="$(kubectl -n "$AGENT_NS" get pods -l app.kubernetes.io/name=pacto-node-agent -o jsonpath='{.items[0].metadata.name}')"
+NODE="$(kubectl -n "$AGENT_NS" get pod "$AGENT_POD" -o jsonpath='{.spec.nodeName}')"
+BOUND="$(kubectl -n "$AGENT_NS" create token pacto-node-agent --bound-object-kind Pod --bound-object-name "$AGENT_POD" --duration 10m)"
+UNBOUND="$(kubectl -n "$AGENT_NS" create token pacto-node-agent --duration 10m)"
+AGENT_KUBE="$(mktemp -d)"
+kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d > "$AGENT_KUBE/ca.crt"
+SERVER="$(kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.server}')"
+: > "$AGENT_KUBE/config"
+# as_token TOKEN KIND NAME — dry-run apply KIND (lease|nro) named NAME with TOKEN; prints the API answer.
+as_token() {
+  local obj
+  case "$2" in
+    lease) obj="apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata: {name: $3, namespace: $AGENT_NS}
+spec: {holderIdentity: $3}" ;;
+    nro) obj="apiVersion: pacto.trianalab.io/v1alpha1
+kind: NodeRuntimeObservation
+metadata: {name: $3, namespace: $AGENT_NS}" ;;
+  esac
+  printf '%s\n' "$obj" | kubectl --kubeconfig "$AGENT_KUBE/config" --server "$SERVER" \
+    --certificate-authority "$AGENT_KUBE/ca.crt" --token "$1" apply --server-side --dry-run=server \
+    --field-manager=pacto-node-agent --force-conflicts -f - 2>&1
+}
+for kind in lease nro; do
+  if out="$(as_token "$BOUND" "$kind" "$NODE")"; then pass "$kind of its own node ($NODE) is allowed"; else miss "$kind of its own node refused: $out"; fi
+  if out="$(as_token "$BOUND" "$kind" "not-$NODE")"; then
+    miss "$kind of another node was allowed: $out"
+  elif [[ "$out" == *"may only write the objects named after its node"* ]]; then
+    pass "$kind of another node is denied by the admission policy"
+  else
+    miss "$kind of another node failed for another reason: $out"
+  fi
+  if out="$(as_token "$UNBOUND" "$kind" "$NODE")"; then
+    miss "$kind with a token naming no node was allowed: $out"
+  elif [[ "$out" == *"carries no node name"* ]]; then
+    pass "$kind with a token naming no node is denied"
+  else
+    miss "$kind with a token naming no node failed for another reason: $out"
+  fi
+done
 
 CURRENT=""
 [ ${#FAILED[@]} -eq 0 ] || fail "${#FAILED[@]} assertion(s) failed in: $(printf '%s\n' "${FAILED[@]}" | sort -u | paste -sd' ' -)"

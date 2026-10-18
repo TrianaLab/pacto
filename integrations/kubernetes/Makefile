@@ -42,7 +42,7 @@ GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null || echo "unknown")
 BUILD_DATE := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 
 # Dashboard image tag. The monorepo release manifest is the single source of
-# truth for published versions. `go list -m github.com/trianalab/pacto/v3`
+# truth for published versions. `go list -m github.com/trianalab/pacto/v4`
 # returns empty under the same-repo go.work workspace (it resolves to the
 # workspace copy, which has no version), so it CANNOT supply the release tag and
 # would bake an untagged dashboard image. Use the release manifest when present
@@ -52,7 +52,7 @@ PACTO_MANIFEST := $(firstword $(wildcard ../../release/release-manifest.json rel
 ifneq ($(PACTO_MANIFEST),)
 PACTO_VERSION := $(shell node -e 'const fs=require("fs");process.stdout.write(JSON.parse(fs.readFileSync("$(PACTO_MANIFEST)","utf8")).units["dashboard-image"].version)')
 else
-PACTO_VERSION := $(shell echo '$(call gomodver,github.com/trianalab/pacto/v3)' | sed 's/^v//')
+PACTO_VERSION := $(shell echo '$(call gomodver,github.com/trianalab/pacto/v4)' | sed 's/^v//')
 endif
 DASHBOARD_IMG := ghcr.io/trianalab/pacto/dashboard:$(PACTO_VERSION)
 

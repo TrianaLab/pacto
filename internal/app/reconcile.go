@@ -3,9 +3,9 @@ package app
 import (
 	"context"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/otelobserver"
-	"github.com/trianalab/pacto/v3/pkg/reconcile"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/otelobserver"
+	"github.com/trianalab/pacto/v4/pkg/reconcile"
 )
 
 // ReconcileOptions configures declared-vs-observed reconciliation: the fleet

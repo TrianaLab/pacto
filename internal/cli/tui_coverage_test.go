@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/trianalab/pacto/v3/internal/tui"
+	"github.com/trianalab/pacto/v4/internal/tui"
 )
 
 // embodiedByTUI are commands the TUI *is* rather than runs: their whole output

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // mockStore implements oci.BundleStore for resolver tests.
@@ -32,26 +32,12 @@ func (m *mockStore) Pull(_ context.Context, _ string) (*contract.Bundle, error) 
 
 func (m *mockStore) ListTags(context.Context, string) ([]string, error) { return nil, nil }
 
-func TestResolver_CacheHit(t *testing.T) {
-	bundle := newTestBundle()
-	store := &mockStore{bundle: bundle}
-	resolver := oci.NewResolver(store)
-
-	b, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0", oci.LocalOnly)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if b.Contract.Service.Name != "test-svc" {
-		t.Errorf("got name %q, want test-svc", b.Contract.Service.Name)
-	}
-}
-
 func TestResolver_CacheMissSuccessfulPull(t *testing.T) {
 	bundle := newTestBundle()
 	store := &mockStore{bundle: bundle}
 	resolver := oci.NewResolver(store)
 
-	b, err := resolver.Resolve(context.Background(), "oci://ghcr.io/org/svc:1.0.0", oci.RemoteAllowed)
+	b, err := resolver.Resolve(context.Background(), "oci://ghcr.io/org/svc:1.0.0")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -66,7 +52,7 @@ func TestResolver_CacheMissAuthFailure(t *testing.T) {
 	}
 	resolver := oci.NewResolver(store)
 
-	_, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0", oci.RemoteAllowed)
+	_, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -82,7 +68,7 @@ func TestResolver_CacheMissArtifactNotFound(t *testing.T) {
 	}
 	resolver := oci.NewResolver(store)
 
-	_, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0", oci.RemoteAllowed)
+	_, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -98,7 +84,7 @@ func TestResolver_CacheMissRegistryUnreachable(t *testing.T) {
 	}
 	resolver := oci.NewResolver(store)
 
-	_, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0", oci.RemoteAllowed)
+	_, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -114,7 +100,7 @@ func TestResolver_InvalidBundle(t *testing.T) {
 	}
 	resolver := oci.NewResolver(store)
 
-	_, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0", oci.RemoteAllowed)
+	_, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -130,81 +116,13 @@ func TestResolver_InvalidRef(t *testing.T) {
 	}
 	resolver := oci.NewResolver(store)
 
-	_, err := resolver.Resolve(context.Background(), "bad-ref:1.0.0", oci.RemoteAllowed)
+	_, err := resolver.Resolve(context.Background(), "bad-ref:1.0.0")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
 	var invalidRefErr *oci.InvalidRefError
 	if !errors.As(err, &invalidRefErr) {
 		t.Errorf("expected InvalidRefError, got %T: %v", err, err)
-	}
-}
-
-func TestResolver_LocalOnly_CacheMiss(t *testing.T) {
-	store := &mockStore{
-		pullErr: fmt.Errorf("not found"),
-	}
-	resolver := oci.NewResolver(store)
-
-	_, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0", oci.LocalOnly)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	var notFoundErr *oci.ArtifactNotFoundError
-	if !errors.As(err, &notFoundErr) {
-		t.Errorf("expected ArtifactNotFoundError, got %T: %v", err, err)
-	}
-}
-
-func TestResolver_LocalOnly_NeverContactsRegistry(t *testing.T) {
-	// A CachedStore's Pull falls through to the registry on a cache miss. LocalOnly
-	// must read the cache directly instead, or an offline caller that walks every
-	// cached ref (the dashboard's fleet cache source) turns a disk walk into one
-	// network wait per ref and blocks until the registry answers.
-	cached, inner := newCachedStoreWithTempDir(t)
-	resolver := oci.NewResolver(cached)
-	ctx := context.Background()
-
-	if _, err := cached.Pull(ctx, "ghcr.io/org/svc:1.0.0"); err != nil {
-		t.Fatalf("warming the cache: %v", err)
-	}
-	if got := inner.pullCount.Load(); got != 1 {
-		t.Fatalf("warm-up made %d registry pulls, want 1", got)
-	}
-
-	if _, err := resolver.Resolve(ctx, "ghcr.io/org/svc:1.0.0", oci.LocalOnly); err != nil {
-		t.Fatalf("cached ref should resolve offline: %v", err)
-	}
-	var notFound *oci.ArtifactNotFoundError
-	_, err := resolver.Resolve(ctx, "ghcr.io/org/other:9.9.9", oci.LocalOnly)
-	if !errors.As(err, &notFound) {
-		t.Fatalf("uncached ref = %T %v, want ArtifactNotFoundError", err, err)
-	}
-	if got := inner.pullCount.Load(); got != 1 {
-		t.Errorf("LocalOnly made %d registry pulls, want 0 beyond the warm-up", got-1)
-	}
-}
-
-func TestResolver_LocalOnly_TypedErrorPassthrough(t *testing.T) {
-	// A store with no cache of its own has nothing local to read, so LocalOnly
-	// falls back to its Pull; a typed auth error must surface as-is rather than
-	// being masked as a cache miss.
-	store := &mockStore{
-		pullErr: &oci.AuthenticationError{Ref: "ghcr.io/org/svc:1.0.0", Err: fmt.Errorf("401")},
-	}
-	resolver := oci.NewResolver(store)
-
-	_, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0", oci.LocalOnly)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	var authErr *oci.AuthenticationError
-	if !errors.As(err, &authErr) {
-		t.Errorf("expected AuthenticationError, got %T: %v", err, err)
-	}
-	var notFoundErr *oci.ArtifactNotFoundError
-	if errors.As(err, &notFoundErr) {
-		t.Errorf("typed error must not be masked as ArtifactNotFoundError: %v", err)
 	}
 }
 
@@ -216,7 +134,7 @@ func TestResolver_ResolveConstrained_UntaggedTypedError(t *testing.T) {
 	}
 	resolver := oci.NewResolver(store)
 
-	_, err := resolver.ResolveConstrained(context.Background(), "ghcr.io/org/svc", "^1.0.0", oci.RemoteAllowed)
+	_, err := resolver.ResolveConstrained(context.Background(), "ghcr.io/org/svc", "^1.0.0")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -234,7 +152,7 @@ func TestResolver_NilContract(t *testing.T) {
 	store := &mockStore{bundle: &contract.Bundle{}}
 	resolver := oci.NewResolver(store)
 
-	_, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0", oci.RemoteAllowed)
+	_, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -250,7 +168,7 @@ func TestResolver_StripsOCIPrefix(t *testing.T) {
 	store := &refCapturingStore{bundle: bundle, capturedRef: &pulledRef}
 	resolver := oci.NewResolver(store)
 
-	_, err := resolver.Resolve(context.Background(), "oci://ghcr.io/org/svc:1.0.0", oci.RemoteAllowed)
+	_, err := resolver.Resolve(context.Background(), "oci://ghcr.io/org/svc:1.0.0")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -352,7 +270,7 @@ func TestResolver_ResolveConstrained_UntaggedWithConstraint(t *testing.T) {
 	}
 	resolver := oci.NewResolver(store)
 
-	b, err := resolver.ResolveConstrained(context.Background(), "ghcr.io/org/svc", "^2.0.0", oci.RemoteAllowed)
+	b, err := resolver.ResolveConstrained(context.Background(), "ghcr.io/org/svc", "^2.0.0")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -371,7 +289,7 @@ func TestResolver_ResolveConstrained_NoMatchingVersion(t *testing.T) {
 	}
 	resolver := oci.NewResolver(store)
 
-	_, err := resolver.ResolveConstrained(context.Background(), "ghcr.io/org/svc", "^5.0.0", oci.RemoteAllowed)
+	_, err := resolver.ResolveConstrained(context.Background(), "ghcr.io/org/svc", "^5.0.0")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -392,7 +310,7 @@ func TestResolver_ResolveConstrained_UntaggedNoConstraint(t *testing.T) {
 	}
 	resolver := oci.NewResolver(store)
 
-	b, err := resolver.ResolveConstrained(context.Background(), "ghcr.io/org/svc", "", oci.RemoteAllowed)
+	b, err := resolver.ResolveConstrained(context.Background(), "ghcr.io/org/svc", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -411,7 +329,7 @@ func TestResolver_ResolveConstrained_UntaggedNoTags(t *testing.T) {
 	}
 	resolver := oci.NewResolver(store)
 
-	_, err := resolver.ResolveConstrained(context.Background(), "ghcr.io/org/svc", "", oci.RemoteAllowed)
+	_, err := resolver.ResolveConstrained(context.Background(), "ghcr.io/org/svc", "")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
@@ -429,7 +347,7 @@ func TestResolver_ResolveConstrained_TaggedIgnoresConstraint(t *testing.T) {
 	}
 	resolver := oci.NewResolver(store)
 
-	b, err := resolver.ResolveConstrained(context.Background(), "ghcr.io/org/svc:1.0.0", "^5.0.0", oci.RemoteAllowed)
+	b, err := resolver.ResolveConstrained(context.Background(), "ghcr.io/org/svc:1.0.0", "^5.0.0")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -439,43 +357,6 @@ func TestResolver_ResolveConstrained_TaggedIgnoresConstraint(t *testing.T) {
 	// Should have pulled the explicit tag, ignoring the constraint
 	if store.lastPullRef != "ghcr.io/org/svc:1.0.0" {
 		t.Errorf("expected pull ref ghcr.io/org/svc:1.0.0, got %q", store.lastPullRef)
-	}
-}
-
-func TestResolver_ListVersions(t *testing.T) {
-	store := &tagMockStore{
-		tags: []string{"v1.0.0", "latest", "2.0.0", "abc", "1.5.0"},
-	}
-	resolver := oci.NewResolver(store)
-
-	versions, err := resolver.ListVersions(context.Background(), "oci://ghcr.io/org/svc")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Should return only semver tags, sorted descending
-	if len(versions) != 3 {
-		t.Fatalf("expected 3 versions, got %d: %v", len(versions), versions)
-	}
-	if versions[0] != "2.0.0" {
-		t.Errorf("expected first version 2.0.0, got %q", versions[0])
-	}
-	if versions[1] != "1.5.0" {
-		t.Errorf("expected second version 1.5.0, got %q", versions[1])
-	}
-	if versions[2] != "v1.0.0" {
-		t.Errorf("expected third version v1.0.0, got %q", versions[2])
-	}
-}
-
-func TestResolver_ListVersions_Error(t *testing.T) {
-	store := &tagMockStore{
-		tagsErr: fmt.Errorf("registry error"),
-	}
-	resolver := oci.NewResolver(store)
-
-	_, err := resolver.ListVersions(context.Background(), "ghcr.io/org/svc")
-	if err == nil {
-		t.Fatal("expected error, got nil")
 	}
 }
 
@@ -496,138 +377,6 @@ func TestNoMatchingVersionError_Unwrap(t *testing.T) {
 	err := &oci.NoMatchingVersionError{Ref: "r", Constraint: "c", Err: innerErr}
 	if errors.Unwrap(err) != innerErr {
 		t.Errorf("Unwrap() did not return the wrapped error")
-	}
-}
-
-func TestResolver_ResolveConstrained_LocalOnly(t *testing.T) {
-	bundle := newTestBundle()
-	store := &tagMockStore{bundle: bundle}
-	resolver := oci.NewResolver(store)
-
-	b, err := resolver.ResolveConstrained(context.Background(), "oci://ghcr.io/org/svc:1.0.0", "^1.0.0", oci.LocalOnly)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if b.Contract.Service.Name != "test-svc" {
-		t.Errorf("got name %q, want test-svc", b.Contract.Service.Name)
-	}
-}
-
-func TestResolver_ResolveLocal_NilContract(t *testing.T) {
-	store := &mockStore{bundle: &contract.Bundle{}}
-	resolver := oci.NewResolver(store)
-
-	_, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0", oci.LocalOnly)
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	var invalidErr *oci.InvalidBundleError
-	if !errors.As(err, &invalidErr) {
-		t.Errorf("expected InvalidBundleError, got %T: %v", err, err)
-	}
-	if !strings.Contains(err.Error(), "bundle has no contract") {
-		t.Errorf("expected error to mention 'bundle has no contract', got %v", err)
-	}
-}
-
-// pullTrackingStore tracks which refs were pulled.
-type pullTrackingStore struct {
-	bundle     *contract.Bundle
-	tags       []string
-	pulledRefs []string
-}
-
-func (s *pullTrackingStore) Push(context.Context, string, *contract.Bundle) (string, error) {
-	return "", nil
-}
-func (s *pullTrackingStore) Resolve(context.Context, string) (string, error) { return "", nil }
-func (s *pullTrackingStore) Pull(_ context.Context, ref string) (*contract.Bundle, error) {
-	s.pulledRefs = append(s.pulledRefs, ref)
-	return s.bundle, nil
-}
-func (s *pullTrackingStore) ListTags(_ context.Context, _ string) ([]string, error) {
-	return s.tags, nil
-}
-
-func TestResolver_FetchAllVersions_PullsAllSemverTags(t *testing.T) {
-	bundle := newTestBundle()
-	store := &pullTrackingStore{
-		bundle: bundle,
-		tags:   []string{"v1.0.0", "latest", "2.0.0", "abc", "1.5.0"},
-	}
-	resolver := oci.NewResolver(store)
-
-	versions, err := resolver.FetchAllVersions(context.Background(), "ghcr.io/org/svc")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	// Should return only semver tags, sorted descending.
-	if len(versions) != 3 {
-		t.Fatalf("expected 3 versions, got %d: %v", len(versions), versions)
-	}
-	if versions[0] != "2.0.0" {
-		t.Errorf("expected first version 2.0.0, got %q", versions[0])
-	}
-
-	// Should have pulled all 3 semver versions.
-	if len(store.pulledRefs) != 3 {
-		t.Fatalf("expected 3 pulls, got %d: %v", len(store.pulledRefs), store.pulledRefs)
-	}
-	// Verify each pull ref includes the tag.
-	for _, ref := range store.pulledRefs {
-		if !strings.Contains(ref, ":") {
-			t.Errorf("expected ref with tag, got %q", ref)
-		}
-	}
-}
-
-func TestResolver_FetchAllVersions_StripsOCIPrefix(t *testing.T) {
-	bundle := newTestBundle()
-	store := &pullTrackingStore{
-		bundle: bundle,
-		tags:   []string{"1.0.0"},
-	}
-	resolver := oci.NewResolver(store)
-
-	versions, err := resolver.FetchAllVersions(context.Background(), "oci://ghcr.io/org/svc")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(versions) != 1 {
-		t.Fatalf("expected 1 version, got %d", len(versions))
-	}
-	if store.pulledRefs[0] != "ghcr.io/org/svc:1.0.0" {
-		t.Errorf("expected ref without oci:// prefix, got %q", store.pulledRefs[0])
-	}
-}
-
-func TestResolver_FetchAllVersions_ContinuesOnPullError(t *testing.T) {
-	// Pull always fails, but FetchAllVersions should still return the version list.
-	store := &tagMockStore{
-		tags:    []string{"1.0.0", "2.0.0"},
-		pullErr: fmt.Errorf("pull failed"),
-	}
-	resolver := oci.NewResolver(store)
-
-	versions, err := resolver.FetchAllVersions(context.Background(), "ghcr.io/org/svc")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(versions) != 2 {
-		t.Fatalf("expected 2 versions, got %d", len(versions))
-	}
-}
-
-func TestResolver_FetchAllVersions_ListTagsError(t *testing.T) {
-	store := &tagMockStore{
-		tagsErr: fmt.Errorf("auth error"),
-	}
-	resolver := oci.NewResolver(store)
-
-	_, err := resolver.FetchAllVersions(context.Background(), "ghcr.io/org/svc")
-	if err == nil {
-		t.Fatal("expected error, got nil")
 	}
 }
 
@@ -685,7 +434,7 @@ func TestResolver_UnexpectedError(t *testing.T) {
 	}
 	resolver := oci.NewResolver(store)
 
-	_, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0", oci.RemoteAllowed)
+	_, err := resolver.Resolve(context.Background(), "ghcr.io/org/svc:1.0.0")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}

@@ -6,17 +6,17 @@ import (
 )
 
 func TestRenderTree_Nil(t *testing.T) {
-	if got := RenderTree(nil); got != "" {
+	if got := RenderTreeColored(nil, TreeColors{}); got != "" {
 		t.Errorf("expected empty string for nil result, got %q", got)
 	}
-	if got := RenderTree(&Result{}); got != "" {
+	if got := RenderTreeColored(&Result{}, TreeColors{}); got != "" {
 		t.Errorf("expected empty string for nil root, got %q", got)
 	}
 }
 
 func TestRenderTree_NoDependencies(t *testing.T) {
 	r := &Result{Root: &Node{Name: "svc", Version: "1.0.0"}}
-	got := RenderTree(r)
+	got := RenderTreeColored(r, TreeColors{})
 	if got != "svc@1.0.0\n" {
 		t.Errorf("expected 'svc@1.0.0\\n', got %q", got)
 	}
@@ -33,7 +33,7 @@ func TestRenderTree_DirectDependencies(t *testing.T) {
 			},
 		},
 	}
-	got := RenderTree(r)
+	got := RenderTreeColored(r, TreeColors{})
 	mustContain := []string{
 		"svc-a@1.0.0",
 		"├─ svc-b@1.0.0",
@@ -79,7 +79,7 @@ func TestRenderTree_TransitiveWithShared(t *testing.T) {
 			},
 		},
 	}
-	got := RenderTree(r)
+	got := RenderTreeColored(r, TreeColors{})
 	mustContain := []string{
 		"frontend@1.0.0",
 		"├─ backend@1.0.0",
@@ -105,7 +105,7 @@ func TestRenderTree_ErrorEdge(t *testing.T) {
 			},
 		},
 	}
-	got := RenderTree(r)
+	got := RenderTreeColored(r, TreeColors{})
 	if !strings.Contains(got, "missing:1.0.0 (error: not found)") {
 		t.Errorf("expected shortened ref with error, got:\n%s", got)
 	}
@@ -121,7 +121,7 @@ func TestRenderTree_BareRef(t *testing.T) {
 			},
 		},
 	}
-	got := RenderTree(r)
+	got := RenderTreeColored(r, TreeColors{})
 	if !strings.Contains(got, "└─ dep:1.0.0") {
 		t.Errorf("expected shortened bare ref, got:\n%s", got)
 	}
@@ -137,7 +137,7 @@ func TestRenderTree_CyclesAndConflicts(t *testing.T) {
 			{Name: "dep-c", Versions: []string{"dep-c@1.0.0", "dep-c@2.0.0"}},
 		},
 	}
-	got := RenderTree(r)
+	got := RenderTreeColored(r, TreeColors{})
 	if !strings.Contains(got, "Cycles (1):") {
 		t.Errorf("expected cycles section, got:\n%s", got)
 	}
@@ -163,7 +163,7 @@ func TestRenderTree_LocalAnnotation(t *testing.T) {
 			},
 		},
 	}
-	got := RenderTree(r)
+	got := RenderTreeColored(r, TreeColors{})
 	if !strings.Contains(got, "dep-svc@2.0.0 [local]") {
 		t.Errorf("expected [local] annotation, got:\n%s", got)
 	}
@@ -184,7 +184,7 @@ func TestRenderTree_ReferenceEdge(t *testing.T) {
 			},
 		},
 	}
-	got := RenderTree(r)
+	got := RenderTreeColored(r, TreeColors{})
 	mustContain := []string{
 		"svc-a@1.0.0",
 		"├─ svc-b@1.0.0",
@@ -221,25 +221,10 @@ func TestShortRef(t *testing.T) {
 	}
 }
 
-func TestRenderTreeColoredIdentityMatchesPlain(t *testing.T) {
-	r := &Result{
-		Root: &Node{
-			Name:    "svc",
-			Version: "1.0.0",
-			Dependencies: []Edge{
-				{Ref: "reg/dep:1.0.0", Node: &Node{Name: "dep", Version: "1.0.0"}},
-			},
-		},
-	}
-	if RenderTreeColored(r, TreeColors{}) != RenderTree(r) {
-		t.Fatal("zero TreeColors must equal plain RenderTree")
-	}
-}
-
 func TestRenderTree_EmptyVersionOmitsSeparator(t *testing.T) {
 	// Root with empty version should not render "@"
 	r := &Result{Root: &Node{Name: "svc", Version: ""}}
-	got := RenderTree(r)
+	got := RenderTreeColored(r, TreeColors{})
 	if got != "svc\n" {
 		t.Errorf("expected 'svc\\n', got %q", got)
 	}
@@ -253,7 +238,7 @@ func TestRenderTree_EmptyVersionOmitsSeparator(t *testing.T) {
 			},
 		},
 	}
-	got = RenderTree(r)
+	got = RenderTreeColored(r, TreeColors{})
 	if !strings.Contains(got, "└─ child\n") {
 		t.Errorf("expected child without @, got:\n%s", got)
 	}

@@ -9,10 +9,10 @@ import (
 	"strings"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/trianalab/pacto/v3/pkg/capability"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/openapi"
-	"github.com/trianalab/pacto/v3/pkg/skills"
+	"github.com/trianalab/pacto/v4/pkg/capability"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/openapi"
+	"github.com/trianalab/pacto/v4/pkg/skills"
 )
 
 // CapabilityOptions configures capability-tool registration for a bundle.

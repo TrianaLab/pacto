@@ -20,10 +20,7 @@ import (
 func TestRunWiresTheSenderBeforeStarting(t *testing.T) {
 	var capturedModel *Model
 	var sawAMessage, wiredAtFirstMessage bool
-	orig := newProgram
-	t.Cleanup(func() { newProgram = orig })
-
-	newProgram = func(m tea.Model, opts ...tea.ProgramOption) *tea.Program {
+	newProgram := func(m tea.Model, opts ...tea.ProgramOption) *tea.Program {
 		capturedModel = m.(*Model)
 		filter := func(_ tea.Model, _ tea.Msg) tea.Msg {
 			if !sawAMessage {
@@ -49,7 +46,7 @@ func TestRunWiresTheSenderBeforeStarting(t *testing.T) {
 	// enough to take a message, or there is nothing to observe.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
-	if err := Run(ctx, testOptions()); err != nil {
+	if err := run(ctx, testOptions(), newProgram); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
@@ -65,16 +62,10 @@ func TestRunWiresTheSenderBeforeStarting(t *testing.T) {
 }
 
 func TestRunReturnsPromptlyWhenContextIsCancelled(t *testing.T) {
-	orig := newProgram
-	t.Cleanup(func() { newProgram = orig })
-
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	newProgram = func(m tea.Model, opts ...tea.ProgramOption) *tea.Program {
-		return tea.NewProgram(m, append(opts, tea.WithoutRenderer())...)
-	}
-
+	// The real constructor: a cancelled program returns before it touches the terminal.
 	done := make(chan error, 1)
 	go func() {
 		done <- Run(ctx, testOptions())

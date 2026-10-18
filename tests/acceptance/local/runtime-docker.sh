@@ -13,7 +13,10 @@
 #   - a container that never listens on its bound port is INTERFACE_ABSENT,
 #     cited to collector pacto-agent+ebpf, in both network modes;
 #   - a container whose declared dependency refuses it is
-#     DEPENDENCY_UNREACHABLE, and one that reaches it is Compliant.
+#     DEPENDENCY_UNREACHABLE, and one that reaches it is Compliant;
+#   - a container that reaches another labelled container its contract does
+#     not declare reports DEPENDENCY_UNDECLARED named by that container's
+#     contract service, while the one that declares it reports none.
 #
 # Assertions over the JSON rounds are a typed decode in
 # tests/acceptance/local/runtimecheck. Every scenario runs; the summary names
@@ -68,6 +71,8 @@ cleanup() {
   docker rmi "$IMG" >/dev/null 2>&1 || true
   rm -rf "$WORK"
   [ $rc -eq 0 ] && [ ${#FAILED[@]} -gt 0 ] && rc=1
+  # bash 3.2 reports 0 in this trap after a set -u abort: a run that never reached the end failed.
+  [ $rc -eq 0 ] && [ -z "${DONE:-}" ] && rc=1
   exit $rc
 }
 trap cleanup EXIT
@@ -84,7 +89,7 @@ workload() {
   local args=()
   while [ "$1" != "--" ]; do args+=("$1"); shift; done
   shift
-  docker run -d --name "$name" --label "dev.pacto.contract=/fixtures/$contract" "${args[@]}" \
+  docker run -d --name "$name" --label "dev.pacto.contract=/fixtures/$contract" ${args[@]+"${args[@]}"} \
     --entrypoint sh "$AGNHOST" -c "$*" >/dev/null
   CONTAINERS+=("$name")
 }
@@ -99,6 +104,8 @@ workload client client --label "dev.pacto.dep.backend=$BACKEND:8080" -- \
   "while :; do /agnhost connect $BACKEND:8080 --timeout=1s >/dev/null 2>&1; sleep 1; done"
 workload refused client --label "dev.pacto.dep.backend=$BACKEND:9" -- \
   "while :; do /agnhost connect $BACKEND:9 --timeout=1s >/dev/null 2>&1; sleep 1; done"
+workload stray stray -- \
+  "while :; do /agnhost connect $BACKEND:8080 --timeout=1s >/dev/null 2>&1; sleep 1; done"
 
 docker run -d --name "agent-$RUN_ID" --privileged --pid=host --cgroupns=host --user 0 \
   -v /var/run/docker.sock:/var/run/docker.sock -v /sys/fs/cgroup:/host/sys/fs/cgroup:ro \
@@ -136,9 +143,14 @@ expect 20 -target "container/hostdeaf-$RUN_ID" -status NonCompliant -expect INTE
   -collector INTERFACE_ABSENT=pacto-agent+ebpf
 
 scenario docker-dependency-reachable "a container reaching its declared dependency is Compliant"
-expect 20 -target "container/client-$RUN_ID" -status Compliant -covered
+expect 20 -target "container/client-$RUN_ID" -status Compliant -covered -forbid DEPENDENCY_UNDECLARED
 
 scenario docker-dependency-refused "a container refused by its declared dependency is DEPENDENCY_UNREACHABLE"
 expect 20 -target "container/refused-$RUN_ID" -status NonCompliant -expect DEPENDENCY_UNREACHABLE:dependency/backend \
   -collector DEPENDENCY_UNREACHABLE=pacto-agent+ebpf
+
+scenario docker-dependency-undeclared "a container reaching a labelled container it does not declare is DEPENDENCY_UNDECLARED"
+expect 20 -target "container/stray-$RUN_ID" -expect DEPENDENCY_UNDECLARED:dependency/served \
+  -collector DEPENDENCY_UNDECLARED=pacto-agent+ebpf
 CURRENT=""
+DONE=1

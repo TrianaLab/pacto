@@ -36,7 +36,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/tests/acceptance/scenario"
+	"github.com/trianalab/pacto/v4/tests/acceptance/scenario"
 )
 
 func main() {

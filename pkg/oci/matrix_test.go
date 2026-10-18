@@ -23,10 +23,9 @@ import (
 	"testing/fstest"
 
 	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // ── hermetic registry harness ────────────────────────────────────────────────
@@ -82,7 +81,7 @@ func (k hostKeychain) Resolve(r authn.Resource) (authn.Authenticator, error) {
 }
 
 func insecureClient(kc authn.Keychain) *oci.Client {
-	return oci.NewClient(kc, oci.WithNameOptions(name.Insecure))
+	return oci.NewClient(kc)
 }
 
 // depSpec is one rendered dependency line for a synthesized pacto.yaml.
@@ -184,7 +183,7 @@ func TestMatrix_Cache_ColdMissPullsAndPersists(t *testing.T) {
 	proxy := &countingProxy{inner: client}
 	res := oci.NewResolver(oci.NewCachedStore(proxy))
 
-	b, err := res.Resolve(context.Background(), host+"/svc/a:1.0.0", oci.RemoteAllowed)
+	b, err := res.Resolve(context.Background(), host+"/svc/a:1.0.0")
 	if err != nil {
 		t.Fatalf("cold Resolve: %v", err)
 	}
@@ -209,7 +208,7 @@ func TestMatrix_Cache_WarmInMemoryServesWithoutInnerPull(t *testing.T) {
 	ref := host + "/svc/a:1.0.0"
 
 	for i := range 4 {
-		if _, err := res.Resolve(context.Background(), ref, oci.RemoteAllowed); err != nil {
+		if _, err := res.Resolve(context.Background(), ref); err != nil {
 			t.Fatalf("Resolve #%d: %v", i, err)
 		}
 	}
@@ -228,14 +227,14 @@ func TestMatrix_Cache_WarmDiskServesOffline(t *testing.T) {
 	ref := host + "/svc/a:1.0.0"
 
 	// Process 1: populate the disk cache.
-	if _, err := oci.NewResolver(oci.NewCachedStore(client)).Resolve(context.Background(), ref, oci.RemoteAllowed); err != nil {
+	if _, err := oci.NewResolver(oci.NewCachedStore(client)).Resolve(context.Background(), ref); err != nil {
 		t.Fatalf("process 1 Resolve: %v", err)
 	}
 
 	// Registry offline; process 2 (fresh memory, same disk) must still resolve.
 	stop()
 	proxy := &countingProxy{inner: client}
-	b, err := oci.NewResolver(oci.NewCachedStore(proxy)).Resolve(context.Background(), ref, oci.RemoteAllowed)
+	b, err := oci.NewResolver(oci.NewCachedStore(proxy)).Resolve(context.Background(), ref)
 	if err != nil {
 		t.Fatalf("offline disk Resolve: %v", err)
 	}
@@ -257,14 +256,14 @@ func TestMatrix_Cache_NoCacheSkipsDiskReads(t *testing.T) {
 	ref := host + "/svc/a:1.0.0"
 
 	// Warm the disk cache.
-	if _, err := oci.NewResolver(oci.NewCachedStore(client)).Resolve(context.Background(), ref, oci.RemoteAllowed); err != nil {
+	if _, err := oci.NewResolver(oci.NewCachedStore(client)).Resolve(context.Background(), ref); err != nil {
 		t.Fatalf("warm Resolve: %v", err)
 	}
 
 	stop() // registry offline
 	cs := oci.NewCachedStore(client)
 	cs.DisableCache() // --no-cache: disk reads skipped
-	if _, err := oci.NewResolver(cs).Resolve(context.Background(), ref, oci.RemoteAllowed); err == nil {
+	if _, err := oci.NewResolver(cs).Resolve(context.Background(), ref); err == nil {
 		t.Fatal("expected failure: --no-cache must skip disk and the registry is offline")
 	}
 }
@@ -279,7 +278,7 @@ func TestMatrix_Cache_NoCacheRefetchesAfterTagMoves(t *testing.T) {
 
 	// v1 published + cached to disk (warm process).
 	pushTag(t, client, host, "svc/moving", "stable", makeBundle(t, "moving", "1.0.0", "v1"))
-	if _, err := oci.NewResolver(oci.NewCachedStore(client)).Resolve(context.Background(), ref, oci.RemoteAllowed); err != nil {
+	if _, err := oci.NewResolver(oci.NewCachedStore(client)).Resolve(context.Background(), ref); err != nil {
 		t.Fatalf("warm Resolve: %v", err)
 	}
 
@@ -288,7 +287,7 @@ func TestMatrix_Cache_NoCacheRefetchesAfterTagMoves(t *testing.T) {
 
 	cs := oci.NewCachedStore(client)
 	cs.DisableCache()
-	b, err := oci.NewResolver(cs).Resolve(context.Background(), ref, oci.RemoteAllowed)
+	b, err := oci.NewResolver(cs).Resolve(context.Background(), ref)
 	if err != nil {
 		t.Fatalf("--no-cache Resolve after tag move: %v", err)
 	}
@@ -307,11 +306,11 @@ func TestMatrix_Cache_ImmutableTagStableAcrossProcesses(t *testing.T) {
 	pushTag(t, client, host, "svc/a", "1.2.3", makeBundle(t, "a", "1.2.3", "immutable"))
 	ref := host + "/svc/a:1.2.3"
 
-	first, err := oci.NewResolver(oci.NewCachedStore(client)).Resolve(context.Background(), ref, oci.RemoteAllowed)
+	first, err := oci.NewResolver(oci.NewCachedStore(client)).Resolve(context.Background(), ref)
 	if err != nil {
 		t.Fatalf("process 1 Resolve: %v", err)
 	}
-	second, err := oci.NewResolver(oci.NewCachedStore(client)).Resolve(context.Background(), ref, oci.RemoteAllowed)
+	second, err := oci.NewResolver(oci.NewCachedStore(client)).Resolve(context.Background(), ref)
 	if err != nil {
 		t.Fatalf("process 2 Resolve: %v", err)
 	}
@@ -363,7 +362,7 @@ func TestMatrix_Version_DigestPinIsImmutable(t *testing.T) {
 	pushTag(t, client, host, "svc/a", "1.0.0", makeBundle(t, "a", "9.9.9", "moved"))
 
 	res := oci.NewResolver(oci.NewCachedStore(client))
-	b, err := res.Resolve(ctx, pinnedRef, oci.RemoteAllowed)
+	b, err := res.Resolve(ctx, pinnedRef)
 	if err != nil {
 		t.Fatalf("Resolve digest-pinned ref: %v", err)
 	}
@@ -387,11 +386,11 @@ func TestMatrix_Version_SameNameDifferentRegistries(t *testing.T) {
 
 	ctx := context.Background()
 	res := oci.NewResolver(oci.NewCachedStore(client))
-	ba, err := res.Resolve(ctx, hostA+"/org/svc:1.0.0", oci.RemoteAllowed)
+	ba, err := res.Resolve(ctx, hostA+"/org/svc:1.0.0")
 	if err != nil {
 		t.Fatalf("Resolve from A: %v", err)
 	}
-	bb, err := res.Resolve(ctx, hostB+"/org/svc:1.0.0", oci.RemoteAllowed)
+	bb, err := res.Resolve(ctx, hostB+"/org/svc:1.0.0")
 	if err != nil {
 		t.Fatalf("Resolve from B: %v", err)
 	}
@@ -420,7 +419,7 @@ func TestMatrix_Cache_ConcurrentColdResolveSameArtifact(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			b, err := res.Resolve(context.Background(), ref, oci.RemoteAllowed)
+			b, err := res.Resolve(context.Background(), ref)
 			errs[i] = err
 			if err == nil {
 				names[i] = b.Contract.Service.Name
@@ -449,7 +448,7 @@ func TestMatrix_Cache_ConcurrentWarmReadsSingleInnerPull(t *testing.T) {
 
 	proxy := &countingProxy{inner: client}
 	res := oci.NewResolver(oci.NewCachedStore(proxy))
-	if _, err := res.Resolve(context.Background(), ref, oci.RemoteAllowed); err != nil {
+	if _, err := res.Resolve(context.Background(), ref); err != nil {
 		t.Fatalf("prime Resolve: %v", err)
 	}
 
@@ -458,7 +457,7 @@ func TestMatrix_Cache_ConcurrentWarmReadsSingleInnerPull(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, _ = res.Resolve(context.Background(), ref, oci.RemoteAllowed)
+			_, _ = res.Resolve(context.Background(), ref)
 		}()
 	}
 	wg.Wait()
@@ -482,11 +481,11 @@ func TestMatrix_Cache_InterruptedThenRetry(t *testing.T) {
 
 	cancelled, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := res.Resolve(cancelled, ref, oci.RemoteAllowed); err == nil {
+	if _, err := res.Resolve(cancelled, ref); err == nil {
 		t.Fatal("expected failure on cancelled context")
 	}
 
-	b, err := res.Resolve(context.Background(), ref, oci.RemoteAllowed)
+	b, err := res.Resolve(context.Background(), ref)
 	if err != nil {
 		t.Fatalf("retry Resolve: %v", err)
 	}
@@ -512,7 +511,7 @@ func TestMatrix_Version_RangeSelectsHighestDeterministically(t *testing.T) {
 	ref := host + "/svc/a"
 
 	for i := range 5 {
-		b, err := res.ResolveConstrained(context.Background(), ref, "^1.0.0", oci.RemoteAllowed)
+		b, err := res.ResolveConstrained(context.Background(), ref, "^1.0.0")
 		if err != nil {
 			t.Fatalf("iteration %d: %v", i, err)
 		}
@@ -535,7 +534,7 @@ func TestMatrix_Version_PreRelease(t *testing.T) {
 	ctx := context.Background()
 
 	// Stable constraint must not select the 2.0.0-rc.1 pre-release.
-	b, err := res.ResolveConstrained(ctx, ref, "^1.0.0", oci.RemoteAllowed)
+	b, err := res.ResolveConstrained(ctx, ref, "^1.0.0")
 	if err != nil {
 		t.Fatalf("constrained Resolve: %v", err)
 	}
@@ -544,7 +543,7 @@ func TestMatrix_Version_PreRelease(t *testing.T) {
 	}
 
 	// Unconstrained: highest overall, and 2.0.0-rc.1 sorts above 1.1.0.
-	b, err = res.ResolveConstrained(ctx, ref, "", oci.RemoteAllowed)
+	b, err = res.ResolveConstrained(ctx, ref, "")
 	if err != nil {
 		t.Fatalf("unconstrained Resolve: %v", err)
 	}
@@ -565,7 +564,7 @@ func TestMatrix_Version_HostPortBareRefResolves(t *testing.T) {
 	pushTag(t, client, host, "svc/a", "1.1.0", makeBundle(t, "a", "1.1.0", "m"))
 
 	res := oci.NewResolver(oci.NewCachedStore(client))
-	b, err := res.ResolveConstrained(context.Background(), host+"/svc/a", "", oci.RemoteAllowed)
+	b, err := res.ResolveConstrained(context.Background(), host+"/svc/a", "")
 	if err != nil {
 		t.Fatalf("bare host:port Resolve: %v", err)
 	}
@@ -588,10 +587,10 @@ func TestMatrix_Version_MixedAuthAndPlain(t *testing.T) {
 
 	res := oci.NewResolver(oci.NewCachedStore(client))
 	ctx := context.Background()
-	if b, err := res.Resolve(ctx, plain+"/svc/plain:1.0.0", oci.RemoteAllowed); err != nil || b.Contract.Service.Name != "plain" {
+	if b, err := res.Resolve(ctx, plain+"/svc/plain:1.0.0"); err != nil || b.Contract.Service.Name != "plain" {
 		t.Fatalf("plain resolve: b=%v err=%v", b, err)
 	}
-	if b, err := res.Resolve(ctx, auth+"/svc/auth:1.0.0", oci.RemoteAllowed); err != nil || b.Contract.Service.Name != "auth" {
+	if b, err := res.Resolve(ctx, auth+"/svc/auth:1.0.0"); err != nil || b.Contract.Service.Name != "auth" {
 		t.Fatalf("auth resolve: b=%v err=%v", b, err)
 	}
 }
@@ -609,11 +608,11 @@ func TestMatrix_Version_HostScopedCredentials(t *testing.T) {
 
 	res := oci.NewResolver(oci.NewCachedStore(client))
 	ctx := context.Background()
-	if _, err := res.Resolve(ctx, auth1+"/svc/a:1.0.0", oci.RemoteAllowed); err != nil {
+	if _, err := res.Resolve(ctx, auth1+"/svc/a:1.0.0"); err != nil {
 		t.Fatalf("auth1 (scoped creds) should resolve: %v", err)
 	}
 	// auth2 has no creds in the keychain -> anonymous -> rejected.
-	_, err := res.Resolve(ctx, auth2+"/svc/a:1.0.0", oci.RemoteAllowed)
+	_, err := res.Resolve(ctx, auth2+"/svc/a:1.0.0")
 	if err == nil {
 		t.Fatal("expected auth failure on registry without scoped credentials")
 	}

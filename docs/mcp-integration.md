@@ -84,7 +84,7 @@ Claude: payments-api is valid. Suggestion: "No dependencies declared. If this
         service depends on others, declare them explicitly."
 ```
 
-Two things to notice. Pacto never guesses dependencies: naming PostgreSQL adds no `dependencies` section, so the second prompt adds one. And the contract is stateful because the description says "stateful" and "stores data". The generator matches whole words, so without those phrases you get a stateless contract.
+Two things to notice. Pacto never guesses dependencies: naming PostgreSQL adds no `dependencies` section, so the second prompt adds one. And it is stateful only because the agent passed `stores_data` and `data_survives_restart`.
 
 ---
 
@@ -191,20 +191,19 @@ These four are the default server, and every mode except `--root` carries them a
 
 ### How `pacto_create` reads a description
 
-`description` is matched against fixed keyword lists, case-insensitively and on whole words. A match only fills in what the call left unsaid: explicit `interfaces`, `workload` or state flags always win, and every inference is listed in the result's `derived`.
+`description` is matched against fixed keyword lists, case-insensitively and on whole words. A match only fills in what the call left unsaid: explicit `interfaces` or `workload` always win, and every inference is listed in the result's `derived`.
 
 | Keywords | Inferred |
 |----------|----------|
 | `REST`, `HTTP`, `API`, `web` | a public `openapi` interface named `http-api` |
 | `gRPC` | an internal `grpc` interface named `grpc-api` |
 | `event`, `kafka`, `nats`, `pubsub`, `queue`, `message`, `rabbit` | an `asyncapi` interface named `events` |
-| `postgres`, `mysql`, `database`, `db`, `mongo`, `dynamo`, `cockroach`, `sql` | stateful, persistent and shared data |
-| `redis`, `cache`, `memcache` | stateful data |
-| `stateful`, `persistent`, `stores data`, `durable` | stateful and persistent data |
 | `worker`, `consumer`, `processor` | a `job` workload |
 | `cron`, `scheduled`, `periodic`, `batch` | a `scheduled` workload (wins over `job`) |
 
-Interfaces are only inferred when the call passes none. The lists are a heuristic, not a parser: "no database" still matches `database`.
+Interfaces are only inferred when the call passes none. The lists are a heuristic, not a parser: "no HTTP" still matches `HTTP`.
+
+State is never inferred: without the state flags the contract is stateless. Naming `postgres` says the service uses a database, not that it keeps state.
 
 ---
 

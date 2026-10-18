@@ -6,8 +6,8 @@ import (
 	"sort"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 )
 
 // ProductSchemaVersion is the wire version of the product-oriented dashboard API
@@ -644,12 +644,6 @@ var attentionCategoryOrder = []string{"non-compliant", "invalid", "unknown", "st
 // AttentionCategoriesList returns the canonical display order of the triage
 // categories, worst first, as a fresh copy the caller may modify.
 func AttentionCategoriesList() []string { return slices.Clone(attentionCategoryOrder) }
-
-// AttentionCategories is the canonical display order of the triage categories.
-// Writing to it changes nothing: Pacto reads its own copy.
-//
-// Deprecated: a mutable package variable; use AttentionCategoriesList. Removed at v4.
-var AttentionCategories = AttentionCategoriesList()
 
 func attentionCategories(items []AttentionItem) []AttentionCategoryCount {
 	counts := map[string]int{}

@@ -163,14 +163,13 @@ tests:
           path: spec.template.spec.containers[0].args
           content: "--metrics-secure=true"
 
-  - it: should include dashboard OCI secret arg
+  - it: rejects the removed dashboard.ociSecret value (use dashboard.ociSecrets)
     set:
       dashboard.enabled: true
       dashboard.ociSecret: my-secret
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: "--dashboard-oci-secret=my-secret"
+      - failedTemplate:
+          errorPattern: "Additional property ociSecret is not allowed"
 
   - it: should include dashboard OCI secrets arg when list is set
     set:
@@ -182,21 +181,6 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: "--dashboard-oci-secrets=ghcr-creds,ecr-creds"
-
-  - it: should prefer ociSecrets over ociSecret
-    set:
-      dashboard.enabled: true
-      dashboard.ociSecret: old-secret
-      dashboard.ociSecrets:
-        - new-secret
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: "--dashboard-oci-secrets=new-secret"
-      - notContains:
-          path: spec.template.spec.containers[0].args
-          content: "--dashboard-oci-secret=old-secret"
-
 
   - it: should include no trace-source arg by default
     asserts:

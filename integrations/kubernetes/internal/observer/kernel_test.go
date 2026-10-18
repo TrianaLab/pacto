@@ -19,6 +19,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
+	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -30,12 +31,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	pactoapi "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/nodeagent"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/evidence"
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
-	"github.com/trianalab/pacto/v3/pkg/strictjson"
+	pactoapi "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/pkg/strictjson"
 )
 
 const (
@@ -57,6 +58,7 @@ func kernelScheme() *runtime.Scheme {
 	_ = pactoapi.AddToScheme(s)
 	_ = discoveryv1.AddToScheme(s)
 	_ = networkingv1.AddToScheme(s)
+	_ = coordinationv1.AddToScheme(s)
 	return s
 }
 
@@ -620,6 +622,20 @@ func TestKernelMerge_UndeclaredPeer(t *testing.T) {
 	}
 }
 
+// TestKernelMerge_UndeclaredKeptWhenDependencyResolvesByName checks a non-OCI dependency ref does not
+// suppress the report when the dependency's name resolves it to a sibling.
+func TestKernelMerge_UndeclaredKeptWhenDependencyResolvesByName(t *testing.T) {
+	f := newKernelFixture()
+	f.entry().Connections = []pactoapi.RuntimeConnection{connOK("10.96.0.20", 5432)}
+	c := fake.NewClientBuilder().WithScheme(kernelScheme()).WithObjects(f.objects(true)...).Build()
+	in := f.input(true)
+	in.Contract.Dependencies[0].Ref = "../payments"
+	set, _, _ := New(c).Collect(context.Background(), in)
+	if _, p := depObs(t, set, "ledger"); !p.Undeclared {
+		t.Fatalf("got %+v, want ledger reported undeclared", p)
+	}
+}
+
 func TestKernelMerge_UndeclaredExclusions(t *testing.T) {
 	conn := []pactoapi.RuntimeConnection{connOK("10.96.0.20", 5432)}
 	tests := []struct {
@@ -631,6 +647,13 @@ func TestKernelMerge_UndeclaredExclusions(t *testing.T) {
 		{name: "name equals a declared dependency", ledgr: kPacto("ledger", "ledger", "payments", "3.0.0", "registry/other:1")},
 		{name: "a declared dependency resolves to it", input: func(in *CollectInput) {
 			in.Contract.Dependencies = append(in.Contract.Dependencies, contract.Dependency{Name: "books", Ref: "oci://registry/ledger"})
+		}},
+		// A declared dependency no sibling resolves to may be the reached peer under another name.
+		{name: "a local dependency ref resolves to no sibling", input: func(in *CollectInput) {
+			in.Contract.Dependencies = append(in.Contract.Dependencies, contract.Dependency{Name: "books", Ref: "../books"})
+		}},
+		{name: "an OCI dependency ref resolves to no sibling", input: func(in *CollectInput) {
+			in.Contract.Dependencies = append(in.Contract.Dependencies, contract.Dependency{Name: "books", Ref: "oci://registry/elsewhere"})
 		}},
 		{name: "same contract service as the target", ledgr: kPacto("ledger", "ledger", "checkout", "3.0.0", "registry/ledger:3")},
 		{name: "no contract status", ledgr: &pactoapi.Pacto{
@@ -1015,5 +1038,45 @@ func TestSnapshotParity(t *testing.T) {
 	}
 	if got := snapshotOf(&status); !reflect.DeepEqual(*got, snap) {
 		t.Fatalf("snapshotOf:\n got  %+v\n want %+v", *got, snap)
+	}
+}
+
+// TestKernelMerge_LeaseHeartbeat checks the node's Lease is its heartbeat: the agent rewrites the
+// observation only when it changes, so an old lastPublished with a freshly renewed Lease is fresh. A Lease
+// renewed before lastPublished, one without the agent labels or without a renewTime changes nothing (an
+// older agent heartbeats through lastPublished alone), and a failed Lease read is a collection failure.
+func TestKernelMerge_LeaseHeartbeat(t *testing.T) {
+	lease := func(renewed *metav1.MicroTime, labels map[string]string) *coordinationv1.Lease {
+		return &coordinationv1.Lease{
+			ObjectMeta: metav1.ObjectMeta{Name: kNode, Namespace: kAgentNS, Labels: labels},
+			Spec:       coordinationv1.LeaseSpec{RenewTime: renewed},
+		}
+	}
+	micro := func(ago time.Duration) *metav1.MicroTime { m := metav1.NewMicroTime(kTime(ago).Time); return &m }
+	for name, tc := range map[string]struct {
+		lease *coordinationv1.Lease
+		funcs interceptor.Funcs
+		want  evidence.Outcome
+	}{
+		"renewed lease keeps an unchanged observation fresh": {lease: lease(micro(5*time.Second), nodeagent.Labels()), want: evidence.Observed},
+		"no lease: lastPublished decides":                    {want: evidence.Stale},
+		"lease renewed long ago":                             {lease: lease(micro(20*time.Minute), nodeagent.Labels()), want: evidence.Stale},
+		"lease without renewTime":                            {lease: lease(nil, nodeagent.Labels()), want: evidence.Stale},
+		"lease without the agent labels":                     {lease: lease(micro(5*time.Second), nil), want: evidence.Stale},
+		"lease list fails": {lease: lease(micro(5*time.Second), nodeagent.Labels()),
+			funcs: interceptor.Funcs{List: failList[*coordinationv1.LeaseList]()}, want: evidence.Failed},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newKernelFixture()
+			f.node.Status.LastPublished = kTime(10 * time.Minute)
+			if tc.lease != nil {
+				f.extra = append(f.extra, tc.lease)
+			}
+			f.funcs = tc.funcs
+			set, _ := f.collect(t)
+			if o, _ := iface(t, set); o.Outcome != tc.want {
+				t.Fatalf("got %s, want %s", o.Outcome, tc.want)
+			}
+		})
 	}
 }

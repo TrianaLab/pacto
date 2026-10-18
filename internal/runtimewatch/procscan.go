@@ -21,7 +21,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/runtimefacts"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 // ProcFS is the slice of the host /proc the scanner reads. fs.FS has no
@@ -54,6 +54,15 @@ func (p OSProcFS) Readlink(name string) (string, error) { return os.Readlink(p.p
 
 // Open implements ProcFS.
 func (p OSProcFS) Open(name string) (io.ReadCloser, error) { return os.Open(p.path(name)) }
+
+// ForeignNetns reports whether self, this process's own /proc, shows a network namespace other than the
+// host's (pid 1 in host): a workload's loopback address is then not this process's. A link that cannot be
+// read says nothing, so it reports false.
+func ForeignNetns(host, self ProcFS) bool {
+	h, herr := host.Readlink("1/ns/net")
+	s, serr := self.Readlink("self/ns/net")
+	return herr == nil && serr == nil && h != s
+}
 
 // ListenerKey identifies a listening socket inside one network namespace.
 type ListenerKey struct {

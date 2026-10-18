@@ -9,7 +9,7 @@ import (
 	"slices"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // ResolvedPolicy holds a compiled policy schema and its origin for error reporting.

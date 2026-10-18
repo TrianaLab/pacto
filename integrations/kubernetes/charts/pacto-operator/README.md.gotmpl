@@ -30,11 +30,11 @@ This chart deploys the [Pacto Operator](https://github.com/TrianaLab/pacto/tree/
 What the chart installs:
 
 - Controller `Deployment` with health and readiness probes
-- RBAC: a `ServiceAccount`, a cluster-scoped `ClusterRole` + `ClusterRoleBinding` (the manager role) and a namespaced leader-election `Role` + `RoleBinding`
+- RBAC: a `ServiceAccount`, a cluster-scoped `ClusterRole` + `ClusterRoleBinding` (reads, and the dashboard's ClusterRole), a manager `Role` + `RoleBinding` in the release namespace (the dashboard and Evidence Server lifecycle) and a namespaced leader-election `Role` + `RoleBinding`
 - Metrics `Service` on port 8443 (HTTPS by default with the chart's `metrics.secure=true`; see [Metrics and Observability](#metrics-and-observability))
 - CRDs: `Pacto`, `PactoRevision` and `NodeRuntimeObservation` (from the `crds/` directory)
 - Optional: Prometheus `ServiceMonitor`
-- Optional: the node agent `DaemonSet` (`nodeAgent.enabled`, off by default)
+- Optional: the node agent `DaemonSet` (`nodeAgent.enabled`, off by default), in its own namespace (`nodeAgent.namespace`, default `pacto-node-agent`) that the chart creates privileged for Pod Security, with a `ValidatingAdmissionPolicy` binding each agent's writes to its own node
 
 The operator never modifies your workloads. It only reads them and reports whether they match their contracts.
 
@@ -117,7 +117,7 @@ The resolved mode is **auto-detected from the shape of the reference** and repor
 
 #### Registry credentials
 
-The operator pulls contracts using the credential paths described under [Private OCI Registries](#private-oci-registries). When both are configured, `dashboard.ociSecrets` (plural list) **takes precedence over** `dashboard.ociSecret` (singular). Opaque secrets used for dashboard credentials **must** include a `registry` key naming the target hostname, because go-containerregistry performs exact hostname matching.
+The operator pulls contracts using the credential paths described under [Private OCI Registries](#private-oci-registries). The dashboard reads its credentials from the `dashboard.ociSecrets` list. Opaque secrets used for dashboard credentials **must** include a `registry` key naming the target hostname, because go-containerregistry performs exact hostname matching.
 
 ## Dashboard
 
@@ -143,7 +143,7 @@ There are two independent credential paths for private registries:
 | Credential | Used by | Configured via |
 |------------|---------|----------------|
 | `spec.contractRef.pullSecretRef` | **Operator** (pulling contracts during reconciliation) | Per-Pacto CR field |
-| `dashboard.ociSecret` / `dashboard.ociSecrets` | **Dashboard** pod (browsing contracts in the UI) | Helm value |
+| `dashboard.ociSecrets` | **Dashboard** pod (browsing contracts in the UI) | Helm value |
 
 All three secret formats are supported in both paths:
 
@@ -192,15 +192,6 @@ The operator watches the Secret — credential rotation triggers re-reconciliati
 
 To give the dashboard pod access to private registries, create Secrets in the **operator namespace** and configure them via Helm values. The operator reads these source secrets, merges their credentials, and creates a managed `dockerconfigjson` secret that the dashboard pod mounts automatically.
 
-**Single secret** (backward compatible):
-
-```yaml
-dashboard:
-  ociSecret: oci-creds
-```
-
-**Multiple secrets** (recommended for multi-registry setups):
-
 ```yaml
 dashboard:
   ociSecrets:
@@ -208,7 +199,7 @@ dashboard:
     - ecr-creds
 ```
 
-When `ociSecrets` is set, it takes precedence over `ociSecret`. Credentials from all secrets are merged; later secrets override earlier ones for the same registry.
+Credentials from all secrets are merged; later secrets override earlier ones for the same registry.
 
 ```bash
 # Option 1: dockerconfigjson (recommended for multi-registry)

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 )
 
 var now = time.Date(2026, 10, 18, 12, 0, 0, 0, time.UTC)

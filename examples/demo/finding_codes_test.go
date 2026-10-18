@@ -9,7 +9,7 @@ import (
 	"testing"
 	"unicode"
 
-	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 )
 
 // TestDemoFindingCodesAreRegistered pins every finding the demo fleet records to

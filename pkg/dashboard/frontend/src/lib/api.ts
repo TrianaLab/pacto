@@ -64,15 +64,15 @@ export type FindingSeverity = NonNullable<ProductAttentionList['items']>[number]
 // ── product request shapes (derived from the generated operations) ────────────
 // The wire query/body types come straight from the generated operations, so adding,
 // changing or removing an OPTIONAL wire request field flows into the facade type
-// automatically. The only fields redeclared are the deliberate ergonomic
-// refinements: `kinds`/`views` are arrays here but a comma-joined string on the
-// wire. Every other field is inherited, never repeated by hand.
+// automatically. The only field redeclared is the deliberate ergonomic refinement:
+// `views` is an array here but a comma-joined string on the wire. Every other
+// field is inherited, never repeated by hand.
 type FleetEntitiesQuery = NonNullable<operations['fleet-entities']['parameters']['query']>;
 type FleetNeighborhoodQuery = NonNullable<operations['fleet-neighborhood']['parameters']['query']>;
 type FleetAttentionQuery = NonNullable<operations['fleet-attention']['parameters']['query']>;
 type FleetImpactBody = NonNullable<operations['fleet-impact-post']['requestBody']>['content']['application/json'];
 
-export type FleetEntitiesInput = Omit<FleetEntitiesQuery, 'kinds'> & { kinds?: EntityKind[] };
+export type FleetEntitiesInput = FleetEntitiesQuery;
 export type FleetNeighborhoodInput = Omit<FleetNeighborhoodQuery, 'views'> & { views?: KnowledgeView[] };
 export type FleetAttentionInput = FleetAttentionQuery;
 export type FleetImpactInput = FleetImpactBody;
@@ -283,10 +283,7 @@ export const api = {
   // ── Operational graph (fleet) legacy ──
   fleetSnapshot: (): Promise<GetResponse<'/api/fleet/snapshot'>> => unwrap(client.GET('/api/fleet/snapshot')),
   fleetServices: (
-    params: {
-      text?: string; owner?: string; scope?: string; status?: string;
-      source?: string; limit?: number; offset?: number;
-    } = {},
+    params: NonNullable<operations['fleet-search']['parameters']['query']> = {},
   ): Promise<GetResponse<'/api/fleet/services'>> => unwrap(client.GET('/api/fleet/services', { params: { query: params } })),
   fleetServiceGraph: (
     name: string,
@@ -309,7 +306,7 @@ export const api = {
   fleetEntities: (params: FleetEntitiesInput = {}): Promise<ProductEntityList> => {
     const { kinds, ...rest } = params;
     return productGet(client.GET('/api/fleet/entities', {
-      params: { query: { ...rest, kinds: kinds?.length ? kinds.join(',') : undefined } },
+      params: { query: { ...rest, kinds: kinds?.length ? kinds : undefined } },
     }));
   },
   fleetEntityDetail: async (kind: EntityKind, key: string): Promise<NarrowedEntityDetail> => {

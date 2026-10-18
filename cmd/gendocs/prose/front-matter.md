@@ -16,9 +16,9 @@ Every command accepts `-v` / `--verbose` for debug-level logging and `--help` fo
       for the verdict.
     - **`markdown` is implemented by `pacto diff` only**, for posting a diff as a
       CI comment. Every other command silently renders text instead.
-    - **Key casing is not uniform.** `pacto validate` emits capitalised keys
-      (`"Path"`, `"Valid"`, `"Errors"`); every other command emits camelCase
-      (`"path"`, `"root"`, `"upToDate"`). Match the command you are calling.
+    - **Keys are camelCase** in every command (`"path"`, `"valid"`, `"errors"`,
+      `"upToDate"`). Before v4, `init`, `validate`, `pack`, `pull` and `push`
+      emitted capitalised keys (`"Path"`, `"Valid"`).
     - **An unrecognised value is rejected.** `--output-format yaml` exits 1 with
       `unsupported output format "yaml"` before the command runs, so a typo never
       passes for success.

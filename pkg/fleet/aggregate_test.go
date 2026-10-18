@@ -7,8 +7,8 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 )
 
 // The tallies exist so a product surface can draw a proportion without counting a
@@ -303,7 +303,7 @@ func TestAttentionCategories_CanonicalOrderWithZerosAndUnknowns(t *testing.T) {
 		order = append(order, b.Category)
 		sum += b.Count
 	}
-	wantOrder := append(append([]string{}, AttentionCategories...), "a-future-category", "zzz-another")
+	wantOrder := append(AttentionCategoriesList(), "a-future-category", "zzz-another")
 	if len(order) != len(wantOrder) {
 		t.Fatalf("categories = %v, want %v", order, wantOrder)
 	}
@@ -315,7 +315,7 @@ func TestAttentionCategories_CanonicalOrderWithZerosAndUnknowns(t *testing.T) {
 	if sum != len(items) {
 		t.Errorf("buckets sum to %d, want %d (the buckets must partition the population)", sum, len(items))
 	}
-	if got[0].Count != 1 || got[len(AttentionCategories)-1].Count != 2 {
+	if got[0].Count != 1 || got[len(AttentionCategoriesList())-1].Count != 2 {
 		t.Errorf("counts landed in the wrong buckets: %+v", got)
 	}
 }
@@ -416,14 +416,12 @@ func TestServiceEdgeTally_CountsDistinctDependenciesNotDeclarationRecords(t *tes
 }
 
 // TestAttentionCategoriesList_IsACopy: the canonical order cannot be changed
-// through the list a caller holds, nor through the deprecated variable.
+// through the list a caller holds.
 func TestAttentionCategoriesList_IsACopy(t *testing.T) {
 	got := AttentionCategoriesList()
 	got[0] = "mutated"
-	AttentionCategories[0] = "mutated"
-	t.Cleanup(func() { AttentionCategories = AttentionCategoriesList() })
 	if AttentionCategoriesList()[0] != "non-compliant" {
-		t.Fatal("the canonical order changed through a returned copy or the deprecated var")
+		t.Fatal("the canonical order changed through a returned copy")
 	}
 	if c := attentionCategories(nil); c[0].Category != "non-compliant" {
 		t.Errorf("counts read a mutated order: %+v", c)
