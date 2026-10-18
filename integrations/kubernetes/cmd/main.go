@@ -399,13 +399,19 @@ func newManager(o *options) (ctrl.Manager, error) {
 // --watch-namespace says: a cluster-wide Lease informer would cache every controller's leader election.
 // --watch-namespace restricts everything else to that one namespace.
 func cacheOptions(o *options) cache.Options {
-	kernel := cache.ByObject{Namespaces: map[string]cache.Config{o.kernelEvidenceNamespace: {}}}
 	opts := cache.Options{
 		ByObject: map[client.Object]cache.ByObject{
-			&corev1.Pod{}:                           {Transform: observer.TrimPod},
-			&pactov1alpha1.NodeRuntimeObservation{}: kernel,
-			&coordinationv1.Lease{}:                 kernel,
+			&corev1.Pod{}: {Transform: observer.TrimPod},
 		},
+	}
+	// A ByObject entry makes the manager resolve the kind at startup, so registering the
+	// node agent kinds only with kernel evidence on keeps an operator that has it off
+	// starting even where the NodeRuntimeObservation CRD was never applied (helm upgrade
+	// installs no new CRDs).
+	if o.enableKernelEvidence {
+		kernel := cache.ByObject{Namespaces: map[string]cache.Config{o.kernelEvidenceNamespace: {}}}
+		opts.ByObject[&pactov1alpha1.NodeRuntimeObservation{}] = kernel
+		opts.ByObject[&coordinationv1.Lease{}] = kernel
 	}
 	if o.watchNamespace != "" {
 		opts.DefaultNamespaces = map[string]cache.Config{o.watchNamespace: {}}
