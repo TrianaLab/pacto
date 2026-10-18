@@ -22,6 +22,7 @@ import PreviewSection from './PreviewSection.svelte';
 import KnowledgeBanner from './KnowledgeBanner.svelte';
 // @ts-expect-error
 import RelationshipList from './RelationshipList.svelte';
+// @ts-expect-error
 import FindingList from './FindingList.svelte';
 import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
 
