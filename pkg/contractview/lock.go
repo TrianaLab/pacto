@@ -1,30 +1,8 @@
 package contractview
 
 import (
-	"errors"
-	"io/fs"
-
 	"github.com/trianalab/pacto/v3/pkg/lock"
 )
-
-// lockFromFS reads pacto.lock from a bundle FS. Since pacto.lock now ships inside
-// the bundle (no longer default-ignored), it is present in every source's bundle
-// FS — local, OCI and cache — so this single reader covers them all. Returns
-// (nil, nil) when the FS is nil or the lockfile is absent (a lockfile is
-// optional); a parse/schema error is returned so callers surface it.
-func lockFromFS(fsys fs.FS) (*lock.Lock, error) {
-	if fsys == nil {
-		return nil, nil
-	}
-	data, err := fs.ReadFile(fsys, lock.FileName)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	return lock.Parse(data)
-}
 
 // ApplyLock maps a parsed lock onto a ServiceDetails: it sets svc.Lock and pins
 // LockedDigest/LockedVersion on each matching dependency (by name), configuration

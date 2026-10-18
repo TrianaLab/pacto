@@ -8,6 +8,8 @@ See LICENSE file in the project root for full license text.
 package controller
 
 import (
+	"fmt"
+	"slices"
 	"testing"
 	"testing/fstest"
 
@@ -249,5 +251,20 @@ func TestPopulateContractStatus_ConfigurationWithSchema(t *testing.T) {
 	cfg := pacto.Status.Configurations[0]
 	if len(cfg.Properties) == 0 {
 		t.Error("expected properties to be populated from schema when values are empty")
+	}
+}
+
+// A contract with more unverified facets than the CRD allows must not get its status write rejected.
+func TestCapUnverified(t *testing.T) {
+	paths := make([]string, 0, maxUnverified+10)
+	for i := range maxUnverified + 10 {
+		paths = append(paths, fmt.Sprintf("interfaces[name=i%04d].type", i))
+	}
+	got := capUnverified(paths)
+	if len(got) != maxUnverified || !slices.IsSorted(got) || got[0] != paths[0] {
+		t.Fatalf("capUnverified kept %d paths (sorted=%v), want the first %d", len(got), slices.IsSorted(got), maxUnverified)
+	}
+	if got := capUnverified(paths[:3]); len(got) != 3 {
+		t.Fatalf("short list changed: %v", got)
 	}
 }

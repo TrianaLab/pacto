@@ -12,7 +12,9 @@ Source-of-truth map (page -> inputs):
   rbac.md                  <- config/rbac/role.yaml + config/rbac/metrics-observation/
   operator-configuration.md<- `go run ./integrations/kubernetes/cmd --help` (real output) + cmd/main.go env vars
   contract-bindings.md     <- CRD target/contractRef/overrides fields + pacto CLI validation
-  runtime-observations.md  <- internal/observer/runtime.go + pkg/evidence + pkg/finding + api enums
+  runtime-observations.md  <- internal/observer/{runtime,kernel}.go + `go run ./cmd/gendocs registry`
+                              (finding.Registry + pkg/evidence typed constants)
+  field-coverage.md        <- pkg/validation/schema/field-coverage.yaml (the field coverage inventory)
   artifact-hub.md          <- release/release-manifest.json + artifacthub-repo.yml + Chart.yaml
   _compatibility.md        <- integration.yaml (compatibility) + release/release-manifest.json
   _install-command.md      <- release/release-manifest.json (operator-chart version)
@@ -67,18 +69,6 @@ def read(path: str) -> str:
 def load_yaml_docs(path: str) -> list:
     with open(path, encoding="utf-8") as fh:
         return [d for d in yaml.safe_load_all(fh) if d is not None]
-
-
-def go_string_consts(src: str, type_name: str) -> dict[str, str]:
-    """Return {GoIdentifier: "literal"} for `Ident TypeName = "literal"` and
-    `Ident = "literal"` declarations (the latter inside a typed const block)."""
-    out: dict[str, str] = {}
-    # `Name Type = "value"`  and  `Name = "value"`
-    for m in re.finditer(r'^\s*(\w+)\s+' + re.escape(type_name) + r'\s*=\s*"([^"]*)"', src, re.M):
-        out[m.group(1)] = m.group(2)
-    for m in re.finditer(r'^\s*(\w+)\s*=\s*"([^"]*)"\s*(?://.*)?$', src, re.M):
-        out.setdefault(m.group(1), m.group(2))
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -431,8 +421,9 @@ def gen_rbac(k8s: str) -> str:
         out.append(
             "Needed alongside the base role when `--enable-metrics-observation` is set. It is a "
             "separate `ClusterRole` (`metrics-observation-role`), never a patch of the base role, "
-            "so the base grants are untouched. **The Helm chart does not package it, and the "
-            "chart cannot set the flag that needs it** -- apply the two objects yourself. "
+            "so the base grants are untouched. The Helm chart grants the same rules itself when "
+            "`controller.enableMetricsObservation` is on; apply the two objects yourself only for "
+            "an operator installed without the chart. "
             "[Opt-in features](limitations.md#opt-in-features) has the YAML and the caveats.\n"
         )
         out.extend(_rbac_rules_table(metrics_role["rules"]))
@@ -704,64 +695,98 @@ def parse_dimensions(observer_src: str) -> list[dict]:
     return dims
 
 
+def engine_registry(repo_root: str) -> dict:
+    """The engine vocabularies, read through Go rather than scraped from source:
+    `go run ./cmd/gendocs registry` prints the finding registry (finding.Registry)
+    and pkg/evidence's typed kinds, outcomes and fact values as JSON."""
+    proc = subprocess.run(
+        ["go", "run", "./cmd/gendocs", "registry"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return json.loads(proc.stdout)
+
+
 def gen_runtime_observations(repo_root: str, k8s: str) -> str:
     observer_src = read(os.path.join(k8s, "internal/observer/runtime.go"))
-    evidence_src = read(os.path.join(repo_root, "pkg/evidence/evidence.go"))
-    codes_src = read(os.path.join(repo_root, "pkg/finding/codes.go"))
-    finding_src = read(os.path.join(repo_root, "pkg/finding/finding.go"))
-    conditions_src = read(os.path.join(k8s, "api/v1alpha1/conditions.go"))
+    kernel_src = read(os.path.join(k8s, "internal/observer/kernel.go"))
+    engine = engine_registry(repo_root)
 
     dims = parse_dimensions(observer_src)
-    outcomes = go_string_consts(evidence_src, "Outcome")
-    kinds = go_string_consts(evidence_src, "ObservationKind")
-    contract_status = {
-        k: v for k, v in go_string_consts(conditions_src, "").items()
-        if k.startswith("ContractStatus")
-    }
-
-    # Finding registry: Code ident -> "STRING", plus Category/Severity idents -> "String".
-    code_strings = {}
-    code_strings.update(go_string_consts(codes_src, "Code"))
-    code_strings.update(go_string_consts(finding_src, "Code"))
-    cat_strings = go_string_consts(finding_src, "Category")
-    sev_strings = go_string_consts(finding_src, "Severity")
-    registry: list[tuple[str, str, str]] = []  # (code, category, severity)
-    for m in re.finditer(r"^\s*(Code\w+):\s*\{(Category\w+),\s*(Severity\w+)\}", codes_src, re.M):
-        code = code_strings.get(m.group(1), m.group(1))
-        cat = cat_strings.get(m.group(2), m.group(2))
-        sev = sev_strings.get(m.group(3), m.group(3))
-        registry.append((code, cat, sev))
+    outcomes = engine["outcomes"]
+    kinds = engine["observationKinds"]
+    registry = [(r["code"], r["category"], r["severity"]) for r in engine["findings"]]
 
     # Map dimensions to the flag that gates them (keyword match on flag help text).
     gate = {
         "Health": "`--enable-probing` (Tier A active probe; passive Tier B otherwise)",
         "Metrics": "`--enable-metrics-observation`",
-        "Interfaces": "`--interface-name-match-discovery` (optional positive-availability assist)",
+        "Interfaces": "`--interface-name-match-discovery` (optional positive-availability assist); "
+                      "`--enable-probing` for the protocol fact",
+    }
+    # Dimensions the kernel merge in internal/observer/kernel.go folds node agent evidence into.
+    kernel_dims = {
+        "Interfaces": "listeners on the ready backing pods",
+        "Dependencies": "outbound connections from the target pods",
     }
 
-    out = [banner("internal/observer/runtime.go, pkg/evidence, pkg/finding, api/v1alpha1")]
+    # Collector names stamped into observation provenance and finding evidenceRefs.
+    k8s_collector = re.search(r'^\s*collectorName\s*=\s*"([^"]+)"', observer_src, re.M).group(1)
+    merged_suffix = re.search(r'^\s*collectorKernelMerged\s*=\s*collectorName\s*\+\s*"([^"]+)"', kernel_src, re.M).group(1)
+    kernel_collector = re.search(r'^\s*collectorKernel\s*=\s*"([^"]+)"', kernel_src, re.M).group(1)
+
+    out = [banner("internal/observer/runtime.go + kernel.go, pkg/evidence, pkg/finding, api/v1alpha1")]
     out.append("# Runtime observations\n")
     out.append(
-        "The operator's collector reads Kubernetes resources and produces typed Evidence, "
-        "which the Pacto engine evaluates into Findings and a contract status. This page is "
-        "generated from the collector and the shared engine reasoning packages.\n"
+        "What the operator looks at in your cluster, and every status and finding it can report. "
+        "It gathers evidence (typed observations of what is running) from two sources, and the "
+        "Pacto engine turns that evidence into findings and a contract status. The Kubernetes "
+        "collector reads Kubernetes resources and always runs. The optional node agent watches "
+        "TCP sockets in the Linux kernel with eBPF and publishes one `NodeRuntimeObservation` per "
+        "node; the operator merges it into some dimensions when kernel evidence is on "
+        "(`--enable-kernel-evidence`). See [Runtime conformance](runtime-conformance.md). This "
+        "page is generated from the operator's observer and the shared engine packages.\n"
     )
 
     out.append("## Observation dimensions\n")
     out.append(
-        "Each dimension is observed only when the contract declares the corresponding "
-        "section. Spec sections refer to the operator specification.\n"
+        "A dimension is one thing the operator checks, such as interfaces or dependencies. "
+        "Each is observed only when the contract declares the matching section. Spec sections "
+        "refer to the operator specification. A dash in the kernel column means the dimension "
+        "comes from the Kubernetes API alone.\n"
     )
-    out.append("| Dimension | Spec section | Gated by |")
-    out.append("| --- | --- | --- |")
+    out.append("| Dimension | Spec section | Gated by | Kernel evidence |")
+    out.append("| --- | --- | --- | --- |")
     for d in dims:
-        out.append(f"| {d['name']} | {d['section']} | {gate.get(d['name'], 'always on')} |")
+        out.append(
+            f"| {d['name']} | {d['section']} | {gate.get(d['name'], 'always on')} "
+            f"| {kernel_dims.get(d['name'], '-')} |"
+        )
+    out.append("")
+    out.append(
+        "The kernel source also reports one thing no dimension asks for: a successful connection "
+        "to another Pacto-managed Service that no declared dependency resolves to, which the "
+        "engine reports as `DEPENDENCY_UNDECLARED`.\n"
+    )
+
+    out.append("## Collectors\n")
+    out.append(
+        "Every observation names the collector that produced it in its provenance, and every "
+        "finding copies that name into `evidenceRefs[].collector`.\n"
+    )
+    out.append("| Collector | Meaning |")
+    out.append("| --- | --- |")
+    out.append(f"| `{k8s_collector}` | Kubernetes API only. |")
+    out.append(f"| `{k8s_collector}{merged_suffix}` | Kubernetes API result merged with node agent evidence that changed or qualified it. |")
+    out.append(f"| `{kernel_collector}` | Node agent evidence only (an undeclared peer). |")
     out.append("")
 
     out.append("## Observation outcomes\n")
     out.append(
-        "Every observation carries an outcome. Non-`Observed` outcomes never fabricate a "
-        "violation -- they resolve to an uncertainty (`Unknown`) finding.\n"
+        "Every observation carries an outcome. Only `Observed` can lead to a violation; "
+        "every other outcome becomes an `Unknown` finding instead.\n"
     )
     out.append("| Outcome | Meaning |")
     out.append("| --- | --- |")
@@ -772,21 +797,37 @@ def gen_runtime_observations(repo_root: str, k8s: str) -> str:
         "Stale": "Last known data is too old to trust.",
         "Insufficient": "Partial/ambiguous, not conclusive (includes within-stabilization-window negatives).",
     }
-    for name in ["Observed", "Unsupported", "Failed", "Stale", "Insufficient"]:
-        if name in outcomes.values() or name in outcomes:
+    order = ["Observed", "Unsupported", "Failed", "Stale", "Insufficient"]
+    for name in order + sorted(set(outcomes) - set(order)):
+        if name in outcomes:
             out.append(f"| `{name}` | {outcome_desc.get(name, '')} |")
     out.append("")
 
     out.append("## Assertion kinds\n")
-    out.append("The evidence kinds the collector emits, one per observed assertion:\n")
-    for k in sorted(kinds.values()):
+    out.append("An assertion is one claim of the contract the operator can check. These are the "
+               "kinds of evidence it emits, one per assertion:\n")
+    for k in sorted(kinds):
         out.append(f"- `{k}`")
+    out.append("")
+
+    out.append("## Facts\n")
+    out.append(
+        "Details an observation can carry beyond \"it is there\", such as the protocol a port "
+        "answers with. An empty fact means not observed: the engine lists the check in "
+        "`evaluationCoverage.unverified` and never treats it as a contradiction. Values are "
+        "generated from `pkg/evidence/facts.go`.\n"
+    )
+    out.append("| Fact | Value | Meaning |")
+    out.append("| --- | --- | --- |")
+    for typ in ("Protocol", "Exposure"):
+        for fact in engine["facts"][typ]:
+            out.append(f"| `{typ}` | `{fact['value']}` | {oneline(fact['meaning'])} |")
     out.append("")
 
     out.append("## Contract status\n")
     out.append(
-        "The high-level `status.contractStatus` compliance state (contract fidelity, NOT "
-        "runtime health). Enum values are generated from the `Pacto` API.\n"
+        "`status.contractStatus` says whether the service matches its contract. It is not a "
+        "health check. Values are generated from the `Pacto` API.\n"
     )
     out.append("| Status | Meaning |")
     out.append("| --- | --- |")
@@ -811,13 +852,13 @@ def gen_runtime_observations(repo_root: str, k8s: str) -> str:
 
     out.append("## Findings\n")
     out.append(
-        "Typed conclusions from the engine, grouped by severity family. Family 1 (confirmed "
-        "violations, `RuntimeDrift`/`error`) requires conclusive contradicting evidence; family 2 "
-        "(`Inconclusive`/`unknown`) captures evidence that could not confirm or refute. "
-        "A code appearing under two severities carries the required-ness axis: it is an error "
-        "when the contract declares the assertion it reports on `required`, and a warning when "
-        "that assertion is optional, because an optional assertion cannot make a contract "
-        "non-compliant. "
+        "A finding is one conclusion from the engine. Findings fall in two families. Confirmed "
+        "violations (`RuntimeDrift`, `error`) need evidence that clearly contradicts the "
+        "contract. Uncertainty findings (`Inconclusive`, `unknown`) mean the evidence could "
+        "neither confirm nor refute it. "
+        "A code listed under two severities is an error when the claim it reports on is "
+        "`required` and a warning when it is optional, because an optional claim cannot make a "
+        "contract non-compliant. "
         "Generated from `pkg/finding/codes.go`.\n"
     )
     by_sev: dict[str, list[tuple[str, str]]] = {}
@@ -833,6 +874,118 @@ def gen_runtime_observations(repo_root: str, k8s: str) -> str:
         for code, cat in sorted(set(items)):
             out.append(f"| `{code}` | `{cat}` |")
         out.append("")
+    return "\n".join(out).rstrip() + "\n"
+
+
+# ---------------------------------------------------------------------------
+# Field coverage  <-  pkg/validation/schema/field-coverage.yaml
+# ---------------------------------------------------------------------------
+
+RUNTIME_CLASSES = [
+    ("verified", "A runtime fact can both satisfy and contradict the declaration."),
+    ("partial", "A runtime fact exists, but some values or environments stay unverified."),
+    ("static-only", "Checked by `pacto validate` only; nothing at runtime reads it."),
+    ("not-applicable", "Identity, container or open object with nothing to verify."),
+]
+
+
+def _coverage_tests(tests: dict | None) -> str:
+    """Render {unit: [...], integration: [...], e2e: [...]} as one table cell."""
+    parts = []
+    for kind in ("unit", "integration", "e2e"):
+        refs = (tests or {}).get(kind) or []
+        if refs:
+            parts.append(f"{kind}: " + ", ".join(f"`{r}`" for r in refs))
+    return "; ".join(parts) or "none"
+
+
+PLATFORMS = [
+    ("kubernetes", "Kubernetes", "the operator with its node agent"),
+    ("agent", "`pacto agent`", "a Docker host or a server"),
+    ("run", "`pacto run`", "one wrapped command"),
+]
+
+
+def _platform_cell(f: dict, key: str) -> str:
+    p = (f.get("platforms") or {}).get(key)
+    return f"`{p['evidence']}`" if p else "-"
+
+
+def gen_field_coverage(repo_root: str) -> str:
+    inv = load_yaml_docs(os.path.join(repo_root, "pkg/validation/schema/field-coverage.yaml"))[0]
+    fields = inv["fields"]  # YAML order is the schema order; keep it
+    out = [banner("pkg/validation/schema/field-coverage.yaml")]
+    out.append("# Field coverage\n")
+    out.append(
+        "For every field you can write in a contract, this page says what checks it: "
+        "`pacto validate` alone, a runtime check against the running service or nothing. "
+        "Use it to answer \"if I declare this, will Pacto notice when reality disagrees?\" "
+        "Each field also names the tests that prove its rule.\n"
+    )
+    out.append(
+        "[Runtime conformance](../../runtime-conformance.md) runs three ways, and they do not "
+        "see the same things: the Kubernetes operator also reads the cluster API, while "
+        "`pacto agent` and `pacto run` see only the host. Every runtime-checked field says, "
+        "per way, whether its evidence is `verified`, `partial` or `unverified` and why.\n"
+    )
+    out.append(
+        "The page is generated from `pkg/validation/schema/field-coverage.yaml`. "
+        "`pkg/validation/fieldcoverage_test.go` fails when a schema path or enum value is missing "
+        "from that file, when an entry names no schema path and when a referenced test does "
+        "not exist. Paths use `[]` for array items.\n"
+    )
+    out.append("## Runtime classes\n")
+    out.append("| Class | Meaning | Fields |")
+    out.append("| --- | --- | --- |")
+    for cls, desc in RUNTIME_CLASSES:
+        n = sum(1 for f in fields.values() if f.get("runtime") == cls)
+        out.append(f"| `{cls}` | {desc} | {n} |")
+    out.append("")
+    out.append(
+        "A runtime check never turns \"could not look\" into a violation. A check with no "
+        "usable fact is listed in `status.evaluationCoverage.unverified` and leaves the "
+        "contract status unchanged.\n"
+    )
+    out.append("## Summary\n")
+    out.append("| Field | Runtime | " + " | ".join(label for _, label, _ in PLATFORMS) + " | Outcomes |")
+    out.append("| --- | --- | " + " | ".join("---" for _ in PLATFORMS) + " | --- |")
+    for path, f in fields.items():
+        cells = " | ".join(_platform_cell(f, key) for key, _, _ in PLATFORMS)
+        out.append(f"| `{path}` | `{f.get('runtime', '')}` | {cells} | {oneline(f.get('outcomes'))} |")
+    out.append("")
+    out.append("## Fields\n")
+    for path, f in fields.items():
+        out.append(f"### `{path}`\n")
+        out.append("| Key | Value |")
+        out.append("| --- | --- |")
+        for key in ("meaning", "runtime", "evidence", "rule", "outcomes", "limitations"):
+            val = oneline(str(f.get(key, "")))
+            if key == "runtime":
+                val = f"`{val}`"
+            out.append(f"| {key.capitalize()} | {val} |")
+        out.append(f"| Tests | {_coverage_tests(f.get('tests'))} |")
+        out.append("")
+        platforms = f.get("platforms") or {}
+        if platforms:
+            out.append("| Platform | Evidence | Why | Tests |")
+            out.append("| --- | --- | --- | --- |")
+            for key, label, where in PLATFORMS:
+                p = platforms[key]
+                tests = ", ".join(f"`{t}`" for t in p.get("tests") or []) or (
+                    "the e2e scenarios above" if key == "kubernetes" else "-")
+                out.append(f"| {label} ({where}) | `{p['evidence']}` | {oneline(p['reason'])} | {tests} |")
+            out.append("")
+        values = f.get("values") or {}
+        if values:
+            out.append("| Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |")
+            out.append("| --- | --- | --- | --- | --- | --- | --- |")
+            for val, v in values.items():
+                cells = [oneline(str(v.get(k, ""))) or "-" for k in ("meaning", "rule", "outcomes", "limitations")]
+                out.append(
+                    f"| `{val}` | `{v.get('runtime', '')}` | " + " | ".join(cells)
+                    + f" | {_coverage_tests(v.get('tests'))} |"
+                )
+            out.append("")
     return "\n".join(out).rstrip() + "\n"
 
 
@@ -947,8 +1100,10 @@ def gen_chart_command(repo_root: str, verb: str) -> str:
 # `helm upgrade` pinned to an exact chart version: the reader was told to install
 # chart X and to apply whatever CRDs happened to be on the default branch that
 # day. Same drift class as the `--version` literal above, so same fix -- pin the
-# ref to the integration release tag the docs describe.
-CRD_FILES = ("pactos", "pactorevisions")
+# ref to the integration release tag the docs describe. The file list is read
+# from config/crd/bases, so a new CRD cannot be left out of the upgrade snippet
+# (`helm upgrade` never adds or updates CRDs).
+CRD_BASES = "integrations/kubernetes/config/crd/bases"
 RAW_BASE = "https://raw.githubusercontent.com/TrianaLab/pacto"
 
 
@@ -956,12 +1111,9 @@ def gen_crd_apply(repo_root: str) -> str:
     manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
     tag = manifest["units"]["k8s-module"]["tag"]
     out = [banner("release/release-manifest.json"), "```bash"]
-    for name in CRD_FILES:
+    for path in sorted(glob.glob(os.path.join(repo_root, CRD_BASES, "*.yaml"))):
         out.append("kubectl apply --server-side --force-conflicts \\")
-        out.append(
-            f"  -f {RAW_BASE}/{tag}/integrations/kubernetes/config/crd/bases/"
-            f"pacto.trianalab.io_{name}.yaml"
-        )
+        out.append(f"  -f {RAW_BASE}/{tag}/{CRD_BASES}/{os.path.basename(path)}")
     out.append("```")
     return "\n".join(out) + "\n"
 
@@ -1075,6 +1227,7 @@ def main() -> int:
         "operator-configuration.md": gen_operator_configuration(repo_root, k8s),
         "contract-bindings.md": gen_contract_bindings(k8s),
         "runtime-observations.md": gen_runtime_observations(repo_root, k8s),
+        "field-coverage.md": gen_field_coverage(repo_root),
         "artifact-hub.md": gen_artifact_hub(repo_root, k8s),
         "_compatibility.md": gen_compatibility(repo_root, k8s),
         "_install-command.md": gen_chart_command(repo_root, "install"),

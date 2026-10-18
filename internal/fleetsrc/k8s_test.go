@@ -120,7 +120,7 @@ func TestK8sSource_Collect_FullMapping(t *testing.T) {
 	      "lastReconciledAt":"2026-07-29T10:00:00Z",
 	      "findings":[
 	        {"code":"WORKLOAD_MISMATCH","severity":"error","category":"RuntimeDrift","subject":"payments","contractPath":"spec.workload","message":"drift",
-	         "evidenceRefs":[{"source":"k8s","observedAt":"2026-07-29T09:59:00Z"}]}
+	         "evidenceRefs":[{"source":"k8s","observedAt":"2026-07-29T09:59:00Z","collector":"k8s-observer+ebpf","detectedAt":"2026-07-29T09:58:30Z"}]}
 	      ]
 	    }
 	  }
@@ -167,7 +167,7 @@ func TestK8sSource_Collect_FullMapping(t *testing.T) {
 			Subject:      finding.SubjectRef{Name: "payments"},
 			ContractPath: "spec.workload",
 			Message:      "drift",
-			EvidenceRefs: []finding.EvidenceRef{{Source: "k8s", ObservedAt: "2026-07-29T09:59:00Z"}},
+			EvidenceRefs: []finding.EvidenceRef{{Source: "k8s", ObservedAt: "2026-07-29T09:59:00Z", Collector: "k8s-observer+ebpf", DetectedAt: "2026-07-29T09:58:30Z"}},
 		}},
 	}
 	if !reflect.DeepEqual(tg, want) {

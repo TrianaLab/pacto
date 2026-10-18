@@ -21,17 +21,17 @@ type CapabilityOptions struct {
 	Creds       capability.Credentials
 	AllowWrites bool
 	HTTPClient  *http.Client
-	// Resolver is passed through to the authoring tools this server also
-	// registers, so pacto_check here runs the same recursive policy resolution
-	// `pacto validate` runs. See NewServer.
-	Resolver PolicyResolverFor
+	// Validator is passed through to the authoring tools this server also
+	// registers, so pacto_check here runs the same validation path `pacto
+	// validate` runs. See Validator.
+	Validator Validator
 }
 
 // NewCapabilityServer builds an MCP server that exposes both the authoring tools
 // and the bundle's capability tools + pacto_skill. The server's instructions
 // describe the capability tools so an agent knows they invoke the live service.
 func NewCapabilityServer(bundle *contract.Bundle, opts CapabilityOptions, version string, stderr io.Writer) (*mcpsdk.Server, error) {
-	server := newServer(version, baseInstructions+"\n\n"+capabilityInstructions(bundle, opts), opts.Resolver)
+	server := newServer(version, baseInstructions+"\n\n"+capabilityInstructions(bundle, opts), opts.Validator)
 	if err := RegisterCapabilities(server, bundle, opts, stderr); err != nil {
 		return nil, err
 	}
@@ -68,9 +68,8 @@ func RegisterCapabilities(server *mcpsdk.Server, bundle *contract.Bundle, opts C
 	if len(opts.Creds) > 0 && opts.BaseURL == "" {
 		return fmt.Errorf("--auth requires an explicit --base-url (refusing to send credentials to a bundle-declared server)")
 	}
-	ifaces := httpInterfaces(bundle.Contract)
-	for _, iface := range ifaces {
-		if err := registerInterface(server, bundle.FS, iface, len(ifaces) > 1, opts, stderr); err != nil {
+	for _, it := range capability.ToolsForContract(bundle.Contract, bundle.FS, opts.AllowWrites) {
+		if err := registerInterface(server, it, opts, stderr); err != nil {
 			return err
 		}
 	}
@@ -78,20 +77,10 @@ func RegisterCapabilities(server *mcpsdk.Server, bundle *contract.Bundle, opts C
 	return nil
 }
 
-func httpInterfaces(c *contract.Contract) []contract.Interface {
-	var out []contract.Interface
-	for _, iface := range c.Interfaces {
-		if iface.Type == contract.InterfaceTypeOpenAPI && iface.Ref != "" {
-			out = append(out, iface)
-		}
-	}
-	return out
-}
-
-func registerInterface(server *mcpsdk.Server, fsys fs.FS, iface contract.Interface, prefixed bool, opts CapabilityOptions, stderr io.Writer) error {
-	doc, err := openapi.ReadDoc(fsys, iface.Ref)
-	if err != nil {
-		return fmt.Errorf("interface %q: %w", iface.Name, err)
+func registerInterface(server *mcpsdk.Server, it capability.InterfaceTools, opts CapabilityOptions, stderr io.Writer) error {
+	iface, doc := it.Interface, it.Doc
+	if it.Err != nil {
+		return fmt.Errorf("interface %q: %w", iface.Name, it.Err)
 	}
 	base := opts.BaseURL
 	if base == "" && len(doc.Servers) > 0 {
@@ -101,19 +90,14 @@ func registerInterface(server *mcpsdk.Server, fsys fs.FS, iface contract.Interfa
 		return fmt.Errorf("interface %q: no base URL (set --base-url or add servers[] to the spec)", iface.Name)
 	}
 
-	tools := capability.BuildTools(doc, opts.AllowWrites)
 	if !opts.AllowWrites {
 		if n := countMutating(doc); n > 0 {
 			_, _ = fmt.Fprintf(stderr, "pacto mcp: skipped %d mutating operation(s) in interface %q (use --allow-writes to expose)\n", n, iface.Name)
 		}
 	}
 
-	prefix := ""
-	if prefixed {
-		prefix = iface.Name + "_"
-	}
-	for _, tool := range tools {
-		name := prefix + tool.Name
+	for _, tool := range it.Tools {
+		name := tool.Name
 		// operationId is bundle content, and the SDK's AddTool REPLACES a tool of the
 		// same name. A contract declaring `operationId: pacto_check` therefore used to
 		// take over the authoring tool, so an agent asking Pacto to validate a

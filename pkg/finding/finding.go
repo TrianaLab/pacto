@@ -66,8 +66,8 @@ const (
 	CategoryInconclusive           Category = "Inconclusive" // family 2; distinct from CategoryMissingEvidence
 )
 
-// One representative durable v2 code; the full set (including evidence-based and
-// legacy-v1 codes) is registered in Task 2.2.
+// CodeStatelessPersistent lives beside the types; every other code, and the
+// category and severity each one carries, is in codes.go.
 const (
 	CodeStatelessPersistent Code = "STATELESS_PERSISTENT_CONFLICT"
 )
@@ -79,13 +79,17 @@ type SubjectRef struct {
 }
 
 // EvidenceRef links a finding to the evidence that supports it.
+// Source and ObservedAt describe the evidence set; Collector and DetectedAt the observation the finding
+// was derived from, and stay empty (and off the wire) when no observation was matched.
 type EvidenceRef struct {
 	Source     string
 	ObservedAt string
+	Collector  string `json:",omitempty"`
+	DetectedAt string `json:",omitempty"`
 }
 
 // Finding is a typed conclusion produced by the engine. Contract-only findings
-// leave EvidenceRefs empty; evidence-based findings (Phase 5, Evaluate) populate it.
+// leave EvidenceRefs empty; evidence-based findings (validation.Evaluate) populate it.
 type Finding struct {
 	Code         Code
 	Severity     Severity

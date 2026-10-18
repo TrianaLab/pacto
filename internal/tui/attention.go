@@ -21,10 +21,9 @@ type attentionScreen struct {
 }
 
 // attentionCategories returns the category tabs: an "All" sentinel followed by
-// a COPY of the package list. fleet.AttentionCategories is a mutable package
-// var, so it is never indexed, sorted or appended to in place.
+// the canonical order.
 func attentionCategories() []string {
-	return append([]string{""}, fleet.AttentionCategories...)
+	return append([]string{""}, fleet.AttentionCategoriesList()...)
 }
 
 func newAttentionScreen(c *Context) screen {

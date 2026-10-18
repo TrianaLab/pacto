@@ -713,7 +713,7 @@ func TestCollect_WithConfiguration(t *testing.T) {
 		Now:            time.Now(),
 	}
 
-	evidenceSet, _ := obs.Collect(ctx, input)
+	evidenceSet, _, _ := obs.Collect(ctx, input)
 
 	// Find the configuration observation.
 	var configObs *evidence.Observation

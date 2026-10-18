@@ -21,6 +21,9 @@ var (
 type Service struct {
 	BundleStore  oci.BundleStore
 	PluginRunner PluginRunner
+	// Version is the running CLI version, recorded into pacto.lock provenance.
+	// Empty reads as "dev".
+	Version string
 }
 
 // NewService creates a new application service with the given dependencies.

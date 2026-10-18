@@ -174,8 +174,9 @@ func TestTraceExport_GroupsEveryCallOfOneCaller(t *testing.T) {
 func TestFactCount_MatchesTheItemisedDerivation(t *testing.T) {
 	const want = 3 + // sources: oci, cache, orders-traces (evidence sources owe nothing)
 		1 + // every declared service is in the snapshot, exactly once
-		3 + // revisions: checkout x2, orders x1 (payments is evidence-only)
-		2 + // operational targets: one per running workload
+		4 + // revisions: checkout x2, orders x1, inventory x1 (payments is evidence-only)
+		3 + // operational targets: one per running workload
+		1 + // the kernel caught inventory's deaf interface
 		9 + // 3 per relationship, declared/observed/reconciled, x3 relationships
 		1 + // the remote target survived enrichment
 		1 //  the round read every fact from ONE snapshot
@@ -465,4 +466,34 @@ func mustExist(t *testing.T, s Scenario, name string) Service {
 		t.Fatalf("the scenario refers to service %q but never declares it", name)
 	}
 	return svc
+}
+
+// A deaf workload is deaf ON a port. Without one there is no interface bound to
+// anything, so no kernel could report it absent and the fact would be unprovable.
+func TestValidate_RefusesADeafWorkloadOnNoPort(t *testing.T) {
+	s := mutate(func(s *Scenario) {
+		for i := range s.Services {
+			if w := s.Services[i].Workload; w != nil && w.Deaf {
+				w.Port = 0
+			}
+		}
+	})
+	err := s.Validate()
+	if err == nil || !strings.Contains(err.Error(), "deaf on no port") {
+		t.Errorf("Validate = %v, want a refusal naming the deaf workload with no port", err)
+	}
+}
+
+// Every workload says what the harness runs for it: a real listener, nothing to
+// listen for, or a deliberate lie.
+func TestWorkload_ModeSaysWhatRuns(t *testing.T) {
+	for w, want := range map[Workload]string{
+		{Port: 8080}:             WorkloadServe,
+		{}:                       WorkloadIdle,
+		{Port: 8080, Deaf: true}: WorkloadDeaf,
+	} {
+		if got := w.Mode(); got != want {
+			t.Errorf("%+v.Mode() = %q, want %q", w, got, want)
+		}
+	}
 }

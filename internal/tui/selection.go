@@ -4,6 +4,8 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/trianalab/pacto/v3/pkg/contract"
+
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 )
 
@@ -91,8 +93,8 @@ func bundleRef(id fleet.RevisionIdentity) (ref string, local bool) {
 		}
 		return dir, true
 	}
-	if ref != "" && !strings.HasPrefix(ref, "oci://") {
-		ref = "oci://" + ref
+	if ref != "" && !strings.HasPrefix(ref, contract.OCIScheme) {
+		ref = contract.OCIScheme + ref
 	}
 	return ref, false
 }

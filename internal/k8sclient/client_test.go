@@ -674,3 +674,19 @@ func TestReadCurrentKubeContext_MalformedConfig(t *testing.T) {
 		t.Errorf("CurrentKubeContext() = %q, want empty for malformed config", got)
 	}
 }
+
+func TestNewDynamic(t *testing.T) {
+	orig := inClusterConfigFunc
+	t.Cleanup(func() { inClusterConfigFunc = orig })
+	inClusterConfigFunc = func() (*rest.Config, error) { return &rest.Config{Host: "https://in-cluster:443"}, nil }
+	if c, err := NewDynamic(); err != nil || c == nil {
+		t.Fatalf("NewDynamic = %v, %v", c, err)
+	}
+
+	inClusterConfigFunc = func() (*rest.Config, error) { return nil, fmt.Errorf("not in cluster") }
+	t.Setenv("KUBECONFIG", filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("HOME", t.TempDir())
+	if _, err := NewDynamic(); err == nil {
+		t.Fatal("no config anywhere: want error")
+	}
+}

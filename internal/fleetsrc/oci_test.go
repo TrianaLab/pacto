@@ -810,3 +810,22 @@ func mustGeneration(t *testing.T, dir, marker, ref, digest string) {
 	}
 	mustSidecar(t, dir, string(rec))
 }
+
+// TestRevisionDomain_IsTheSharedIdentityRule: the OCI source keys a revision's
+// domain by contract.OCIDomain, the rule evidence ingestion keys a record by
+// (pkg/evidenceingest TestAccept_DomainMatchesFleetIdentity), so the two always
+// name the same service.
+func TestRevisionDomain_IsTheSharedIdentityRule(t *testing.T) {
+	for ref, want := range map[string]string{
+		"oci://ghcr.io/acme/payments:1.0":         "ghcr.io/acme",
+		"localhost:5000/acme/payments@sha256:abc": "localhost:5000/acme",
+		"ghcr.io/acme/payments:1.0@sha256:abc":    "ghcr.io/acme",
+		"payments:1.0":                            "",
+		"./svc-v2":                                "",
+		"/abs/bundle":                             "",
+	} {
+		if got := revisionOf(ref, ref, oci.CachedRef{}, nil).Domain; got != want || got != contract.OCIDomain(ref) {
+			t.Errorf("revisionOf(%q).Domain = %q, want %q", ref, got, want)
+		}
+	}
+}

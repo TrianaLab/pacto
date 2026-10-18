@@ -1,7 +1,7 @@
 # Scenario 05: Advanced workload and state patterns.
 #
 # Covers: hybrid state (API with cache), scheduled jobs, event-driven
-# consumers, recreate upgrade strategy, metadata fields.
+# consumers, metadata fields.
 #
 # Services:
 #   product-catalog — hybrid state service with local cache (warm-up on start)
@@ -18,61 +18,59 @@ metadata:
 spec:
   target:
     serviceName: product-catalog
+    interfaceBindings:
+      - interface: rest-api
+        servicePort: 8080
+      - interface: metrics
+        servicePort: 9090
   checkIntervalSeconds: 60
   contractRef:
     inline: |
-      pactoVersion: "1.0"
+      pactoVersion: "2.0"
       service:
         name: product-catalog
         version: "2.0.1"
-        owner: team/catalog
-        image:
-          ref: ghcr.io/acme/product-catalog:2.0.1
+        owner:
+          team: catalog
       interfaces:
         - name: rest-api
-          type: http
-          port: 8080
+          type: openapi
+          ref: interfaces/openapi.yaml
           visibility: public
         - name: metrics
-          type: http
-          port: 9090
+          type: openapi
+          ref: interfaces/metrics.yaml
           visibility: internal
       configurations:
         - name: default
-          schema: config-schema.json
+          schema: configuration/schema.json
+          required: true
           values:
             UPSTREAM_API: https://inventory.internal/api
             CACHE_MAX_SIZE_MB: 512
             CACHE_TTL_SECONDS: 3600
             WARMUP_ON_START: true
             API_KEY: secret://vault/product-catalog/upstream-api-key
-      runtime:
-        workload: service
-        state:
-          type: hybrid
-          persistence:
-            scope: local
-            durability: ephemeral
-          dataCriticality: low
-        lifecycle:
-          upgradeStrategy: rolling
-          gracefulShutdownSeconds: 10
-        health:
-          interface: rest-api
-          path: /health
-        metrics:
-          interface: metrics
-          path: /metrics
-      scaling:
-        min: 2
-        max: 6
+      workload: service
+      state:
+        type: hybrid
+        persistence:
+          scope: local
+          durability: ephemeral
+        dataCriticality: low
+      capabilities:
+        - type: health
+          binding: {type: http, interface: rest-api, path: /health}
+        - type: metrics
+          binding: {type: http, interface: metrics, path: /metrics}
       metadata:
         team: catalog
         tier: standard
         cache-strategy: write-through
 ---
 # notification-worker — event consumer that processes messages from RabbitMQ.
-# Has an event interface (consumed topics) and a health HTTP interface.
+# Has an event interface (consumed topics) and an HTTP admin interface for
+# health and metrics.
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -81,10 +79,13 @@ metadata:
 spec:
   target:
     serviceName: notification-worker
+    interfaceBindings:
+      - interface: admin
+        servicePort: 8080
   checkIntervalSeconds: 60
   contractRef:
     inline: |
-      pactoVersion: "1.0"
+      pactoVersion: "2.0"
       service:
         name: notification-worker
         version: "1.3.0"
@@ -98,20 +99,19 @@ spec:
             - type: chat
               value: "#notifications"
               purpose: support
-        image:
-          ref: ghcr.io/acme/notification-worker:1.3.0
       interfaces:
         - name: notification-events
-          type: event
+          type: asyncapi
+          ref: interfaces/events.yaml
           visibility: internal
-          contract: openapi.yaml
-        - name: health
-          type: http
-          port: 8080
+        - name: admin
+          type: openapi
+          ref: interfaces/admin.yaml
           visibility: internal
       configurations:
         - name: default
-          schema: config-schema.json
+          schema: configuration/schema.json
+          required: true
           values:
             BROKER_URL: amqp://rabbitmq:5672
             BROKER_CREDENTIALS: secret://vault/notification-worker/broker-credentials
@@ -126,26 +126,18 @@ spec:
           ref: oci://ghcr.io/acme/rabbitmq-pacto
           required: true
           compatibility: "^3.13.0"
-      runtime:
-        workload: service
-        state:
-          type: stateless
-          persistence:
-            scope: local
-            durability: ephemeral
-          dataCriticality: medium
-        lifecycle:
-          upgradeStrategy: recreate
-          gracefulShutdownSeconds: 60
-        health:
-          interface: health
-          path: /health
-        metrics:
-          interface: health
-          path: /metrics
-      scaling:
-        min: 2
-        max: 8
+      workload: service
+      state:
+        type: stateless
+        persistence:
+          scope: local
+          durability: ephemeral
+        dataCriticality: medium
+      capabilities:
+        - type: health
+          binding: {type: http, interface: admin, path: /health}
+        - type: metrics
+          binding: {type: http, interface: admin, path: /metrics}
       metadata:
         team: notifications
         tier: standard
@@ -153,7 +145,6 @@ spec:
 ---
 # report-generator — scheduled job that runs daily at 2 AM.
 # Workload type "scheduled" means it runs on a cron schedule and exits.
-# No scaling section (validation rejects scaling for jobs).
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -163,29 +154,27 @@ spec:
   checkIntervalSeconds: 600
   contractRef:
     inline: |
-      pactoVersion: "1.0"
+      pactoVersion: "2.0"
       service:
         name: report-generator
         version: "1.2.0"
-        owner: team/analytics
-        image:
-          ref: ghcr.io/acme/report-generator:1.2.0
+        owner:
+          team: analytics
       interfaces:
-        - name: health
-          type: http
-          port: 8080
+        - name: admin
+          type: openapi
+          ref: interfaces/admin.yaml
           visibility: internal
-      runtime:
-        workload: scheduled
-        state:
-          type: stateless
-          persistence:
-            scope: local
-            durability: ephemeral
-          dataCriticality: low
-        health:
-          interface: health
-          path: /ready
+      workload: scheduled
+      state:
+        type: stateless
+        persistence:
+          scope: local
+          durability: ephemeral
+        dataCriticality: low
+      capabilities:
+        - type: health
+          binding: {type: http, interface: admin, path: /ready}
       metadata:
         schedule: "0 2 * * *"
         timeout: 3600

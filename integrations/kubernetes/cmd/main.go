@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package main
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"flag"
@@ -21,6 +22,7 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
@@ -32,13 +34,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/component"
 	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/controller"
 	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/dashboard"
 	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/evidence"
 	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/nodeagent"
+	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/observer"
 	// +kubebuilder:scaffold:imports
 )
 
@@ -66,71 +70,86 @@ func init() {
 	// +kubebuilder:scaffold:scheme
 }
 
-//nolint:gocyclo // Sequential setup code — inherent to Kubebuilder main().
-func main() {
-	var metricsAddr string
-	var metricsCertPath, metricsCertName, metricsCertKey string
-	var webhookCertPath, webhookCertName, webhookCertKey string
-	var enableLeaderElection bool
-	var probeAddr string
-	var secureMetrics bool
-	var enableHTTP2 bool
-	var enableDashboard bool
-	var watchNamespace string
-	var dashboardOCISecret string
-	var dashboardOCISecrets string
-	var dashboardCPURequest, dashboardCPULimit string
-	var dashboardMemoryRequest, dashboardMemoryLimit string
-	var dashboardObservation []dashboard.ObservationSource
-	var enableEvidence bool
-	var evidenceTrustSecret, evidenceCredentialsSecret string
-	var evidenceSubjects []string
-	var evidenceCPURequest, evidenceCPULimit string
-	var evidenceMemoryRequest, evidenceMemoryLimit string
-	var showVersion bool
-	var stabilizationWindow time.Duration
-	var enableMetricsObservation bool
-	var enableProbing bool
-	var enableInterfaceNameMatchDiscovery bool
-	var tlsOpts []func(*tls.Config)
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to. "+
+// options holds every command-line setting of the operator.
+type options struct {
+	metricsAddr                                      string
+	metricsCertPath, metricsCertName, metricsCertKey string
+	webhookCertPath, webhookCertName, webhookCertKey string
+	enableLeaderElection                             bool
+	probeAddr                                        string
+	secureMetrics                                    bool
+	enableHTTP2                                      bool
+	showVersion                                      bool
+	watchNamespace                                   string
+
+	enableDashboard      bool
+	dashboardOCISecret   string
+	dashboardOCISecrets  string
+	dashboardResources   component.Resources
+	dashboardObservation []dashboard.ObservationSource
+
+	enableEvidence            bool
+	evidenceTrustSecret       string
+	evidenceCredentialsSecret string
+	evidenceSubjects          []string
+	evidenceResources         component.Resources
+
+	stabilizationWindow               time.Duration
+	enableMetricsObservation          bool
+	enableProbing                     bool
+	enableInterfaceNameMatchDiscovery bool
+	enableKernelEvidence              bool
+	kernelEvidenceNamespace           string
+	kernelEvidenceStaleness           time.Duration
+
+	enableNodeAgent          bool
+	nodeAgentImage           string
+	nodeAgentPullSecrets     []string
+	nodeAgentPublishInterval time.Duration
+	nodeAgentResources       component.Resources
+
+	zap zap.Options
+}
+
+// webhookDeprecated prefixes the help of the webhook certificate flags.
+const webhookDeprecated = "Deprecated: ignored, the operator registers no webhook and runs no webhook server; " +
+	"removed at v6. "
+
+// bindFlags registers every operator flag on fs.
+func bindFlags(fs *flag.FlagSet, o *options) {
+	fs.StringVar(&o.metricsAddr, "metrics-bind-address", ":8080", "The address the metrics endpoint binds to. "+
 		"Use :8443 for HTTPS or :8080 for HTTP, or set to 0 to disable the metrics service.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
+	fs.StringVar(&o.probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
+	fs.BoolVar(&o.enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	flag.BoolVar(&secureMetrics, "metrics-secure", false,
+	fs.BoolVar(&o.secureMetrics, "metrics-secure", false,
 		"If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=true to enable HTTPS.")
-	flag.StringVar(&webhookCertPath, "webhook-cert-path", "", "The directory that contains the webhook certificate.")
-	flag.StringVar(&webhookCertName, "webhook-cert-name", "tls.crt", "The name of the webhook certificate file.")
-	flag.StringVar(&webhookCertKey, "webhook-cert-key", "tls.key", "The name of the webhook key file.")
-	flag.StringVar(&metricsCertPath, "metrics-cert-path", "",
+	fs.StringVar(&o.webhookCertPath, "webhook-cert-path", "",
+		webhookDeprecated+"The directory that contains the webhook certificate.")
+	fs.StringVar(&o.webhookCertName, "webhook-cert-name", "tls.crt",
+		webhookDeprecated+"The name of the webhook certificate file.")
+	fs.StringVar(&o.webhookCertKey, "webhook-cert-key", "tls.key", webhookDeprecated+"The name of the webhook key file.")
+	fs.StringVar(&o.metricsCertPath, "metrics-cert-path", "",
 		"The directory that contains the metrics server certificate.")
-	flag.StringVar(&metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
-	flag.StringVar(&metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
-	flag.BoolVar(&enableHTTP2, "enable-http2", false,
-		"If set, HTTP/2 will be enabled for the metrics and webhook servers")
-	flag.BoolVar(&enableDashboard, "enable-dashboard", false,
+	fs.StringVar(&o.metricsCertName, "metrics-cert-name", "tls.crt", "The name of the metrics server certificate file.")
+	fs.StringVar(&o.metricsCertKey, "metrics-cert-key", "tls.key", "The name of the metrics server key file.")
+	fs.BoolVar(&o.enableHTTP2, "enable-http2", false,
+		"If set, HTTP/2 will be enabled for the metrics server")
+	fs.BoolVar(&o.enableDashboard, "enable-dashboard", false,
 		"Enable the managed Pacto dashboard deployment. Disabled by default.")
-	flag.StringVar(&watchNamespace, "watch-namespace", "",
+	fs.StringVar(&o.watchNamespace, "watch-namespace", "",
 		"Restrict the controller to watch a single namespace. Empty (default) means cluster-wide. "+
 			"The dashboard inherits this scope automatically.")
-	flag.StringVar(&dashboardOCISecret, "dashboard-oci-secret", "",
+	fs.StringVar(&o.dashboardOCISecret, "dashboard-oci-secret", "",
 		"Optional: name of a Secret in the operator namespace containing OCI registry credentials. "+
 			"Supports Opaque (registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson secrets. "+
 			"Ignored when --dashboard-oci-secrets is set.")
-	flag.StringVar(&dashboardOCISecrets, "dashboard-oci-secrets", "",
+	fs.StringVar(&o.dashboardOCISecrets, "dashboard-oci-secrets", "",
 		"Optional: comma-separated list of Secret names in the operator namespace for OCI registry credentials. "+
 			"Takes precedence over --dashboard-oci-secret.")
-	flag.StringVar(&dashboardCPURequest, "dashboard-cpu-request", "",
-		"CPU request for the dashboard container (e.g. 50m). Empty uses the built-in default.")
-	flag.StringVar(&dashboardCPULimit, "dashboard-cpu-limit", "",
-		"CPU limit for the dashboard container (e.g. 200m). Empty uses the built-in default.")
-	flag.StringVar(&dashboardMemoryRequest, "dashboard-memory-request", "",
-		"Memory request for the dashboard container (e.g. 128Mi). Empty uses the built-in default.")
-	flag.StringVar(&dashboardMemoryLimit, "dashboard-memory-limit", "",
-		"Memory limit for the dashboard container (e.g. 512Mi). Empty uses the built-in default.")
-	flag.Func("dashboard-trace-source",
+	bindResourceFlags(fs, &o.dashboardResources, "dashboard", "dashboard", "50m", "200m", "128Mi", "512Mi")
+	fs.Func("dashboard-trace-source",
 		"Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as "+
 			"name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source "+
 			"identity. Configures offline input only; Pacto runs no OTLP receiver.",
@@ -139,57 +158,100 @@ func main() {
 			if err != nil {
 				return err
 			}
-			dashboardObservation = append(dashboardObservation, src)
+			o.dashboardObservation = append(o.dashboardObservation, src)
 			return nil
 		})
-	flag.BoolVar(&enableEvidence, "enable-evidence-server", false,
+	fs.BoolVar(&o.enableEvidence, "enable-evidence-server", false,
 		"Enable the managed Pacto Evidence Server deployment. Disabled by default.")
-	flag.Func("evidence-subject",
+	fs.Func("evidence-subject",
 		"Repeatable: an exact contract revision evidence is stored on, as oci://<repo>@sha256:<digest>. "+
 			"The registry holding it IS the durable evidence store — accepted records are published as OCI 1.1 "+
 			"referrers of that manifest. At least one is required when the Evidence Server is enabled.",
 		func(subject string) error {
-			evidenceSubjects = append(evidenceSubjects, subject)
+			o.evidenceSubjects = append(o.evidenceSubjects, subject)
 			return nil
 		})
-	flag.StringVar(&evidenceCredentialsSecret, "evidence-credentials-secret", "",
+	fs.StringVar(&o.evidenceCredentialsSecret, "evidence-credentials-secret", "",
 		"Optional: name of an existing kubernetes.io/dockerconfigjson Secret with contract-registry credentials, "+
 			"mounted read-only. Empty means anonymous or in-cluster registry access.")
-	flag.StringVar(&evidenceTrustSecret, "evidence-trust-secret", "",
+	fs.StringVar(&o.evidenceTrustSecret, "evidence-trust-secret", "",
 		"Name of a Secret of trusted producer public keys, mounted read-only. Required when the Evidence Server is enabled.")
-	flag.StringVar(&evidenceCPURequest, "evidence-cpu-request", "",
-		"CPU request for the Evidence Server container. Empty uses the built-in default.")
-	flag.StringVar(&evidenceCPULimit, "evidence-cpu-limit", "",
-		"CPU limit for the Evidence Server container. Empty uses the built-in default.")
-	flag.StringVar(&evidenceMemoryRequest, "evidence-memory-request", "",
-		"Memory request for the Evidence Server container. Empty uses the built-in default.")
-	flag.StringVar(&evidenceMemoryLimit, "evidence-memory-limit", "",
-		"Memory limit for the Evidence Server container. Empty uses the built-in default.")
-	flag.BoolVar(&showVersion, "version", false, "Print version information and exit.")
-	flag.DurationVar(&stabilizationWindow, "stabilization-window", 2*time.Minute,
+	bindResourceFlags(fs, &o.evidenceResources, "evidence", "Evidence Server")
+	fs.BoolVar(&o.showVersion, "version", false, "Print version information and exit.")
+	fs.DurationVar(&o.stabilizationWindow, "stabilization-window", 2*time.Minute,
 		"The stabilization window duration for compliance assertions before they trigger a false condition. "+
 			"Assertions must remain unsatisfied for this entire window before being considered a failure.")
-	flag.BoolVar(&enableMetricsObservation, "enable-metrics-observation", false,
+	fs.BoolVar(&o.enableMetricsObservation, "enable-metrics-observation", false,
 		"Enable full metrics observation (discovery + active probe). When disabled, metrics dimension returns Unsupported.")
-	flag.BoolVar(&enableProbing, "enable-probing", false,
-		"Enable active in-cluster HTTP probing of health capability endpoints (Tier A). Off by default; "+
-			"when off, health uses passive readiness-probe and EndpointSlice signals only.")
-	flag.BoolVar(&enableInterfaceNameMatchDiscovery, "interface-name-match-discovery", false,
+	fs.BoolVar(&o.enableProbing, "enable-probing", false,
+		"Enable active in-cluster probing: health capability endpoints over HTTP (Tier A) and the wire protocol "+
+			"of each present interface. Off by default; when off, health uses passive readiness-probe and "+
+			"EndpointSlice signals only and interface protocols read unverified.")
+	fs.BoolVar(&o.enableInterfaceNameMatchDiscovery, "interface-name-match-discovery", false,
 		"Enable resolving an unbound interface's Service port by matching a Service port whose name equals "+
 			"the interface name (positive availability assist only; never produces an absent or error result).")
-	opts := zap.Options{
-		Development: true,
+	fs.BoolVar(&o.enableKernelEvidence, "enable-kernel-evidence", false,
+		"Merge the node agent's kernel observations (NodeRuntimeObservation objects) into interface and "+
+			"dependency evidence. Off by default; when off, evidence comes from the Kubernetes API only.")
+	fs.StringVar(&o.kernelEvidenceNamespace, "kernel-evidence-namespace", "",
+		"Namespace the node agent publishes NodeRuntimeObservation objects to. Empty uses the operator namespace.")
+	fs.DurationVar(&o.kernelEvidenceStaleness, "kernel-evidence-staleness", 0,
+		"How old a node's kernel observation heartbeat may be before its evidence reads stale. "+
+			"0 uses three times the publish interval the node agent reports.")
+	fs.BoolVar(&o.enableNodeAgent, "enable-node-agent", false,
+		"Enable the managed node agent DaemonSet, which observes TCP socket state with eBPF on every node and "+
+			"publishes it as NodeRuntimeObservation objects. Needs a namespace that admits privileged pods. "+
+			"Disabled by default.")
+	fs.StringVar(&o.nodeAgentImage, "node-agent-image", "",
+		"Image the node agent runs pacto agent from. Empty uses the dashboard image this binary was built "+
+			"with, the runtime image the Evidence Server runs too.")
+	fs.Func("node-agent-image-pull-secret",
+		"Secret the node agent's ServiceAccount pulls its image with (repeatable).",
+		func(v string) error {
+			o.nodeAgentPullSecrets = append(o.nodeAgentPullSecrets, v)
+			return nil
+		})
+	fs.DurationVar(&o.nodeAgentPublishInterval, "node-agent-publish-interval", 30*time.Second,
+		"How often each node agent publishes its node's NodeRuntimeObservation.")
+	bindResourceFlags(fs, &o.nodeAgentResources, "node-agent", "node agent")
+	o.zap.BindFlags(fs)
+}
+
+// bindResourceFlags registers --<prefix>-{cpu,memory}-{request,limit} for one component's container. examples,
+// when given, are the cpu-request, cpu-limit, memory-request and memory-limit values the help shows.
+func bindResourceFlags(fs *flag.FlagSet, rc *component.Resources, prefix, container string, examples ...string) {
+	for i, f := range []struct {
+		name, resource, kind string
+		into                 *string
+	}{
+		{"cpu-request", "CPU", "request", &rc.CPURequest},
+		{"cpu-limit", "CPU", "limit", &rc.CPULimit},
+		{"memory-request", "Memory", "request", &rc.MemoryRequest},
+		{"memory-limit", "Memory", "limit", &rc.MemoryLimit},
+	} {
+		example := ""
+		if i < len(examples) {
+			example = " (e.g. " + examples[i] + ")"
+		}
+		help := fmt.Sprintf("%s %s for the %s container%s.", f.resource, f.kind, container, example)
+		fs.StringVar(f.into, prefix+"-"+f.name, "", help+" Empty uses the built-in default.")
 	}
-	opts.BindFlags(flag.CommandLine)
+}
+
+func main() {
+	// Production logging by default: JSON, info level, no stack traces on warnings. --zap-devel turns on the
+	// development encoder.
+	o := options{zap: zap.Options{Development: false}}
+	bindFlags(flag.CommandLine, &o)
 	flag.Parse()
 
-	if showVersion {
+	if o.showVersion {
 		fmt.Printf("pacto-operator %s (commit: %s, built: %s)\n", version, gitCommit, buildDate)
 		fmt.Printf("dashboard-image: %s\n", dashboardImage)
 		os.Exit(0)
 	}
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&o.zap)))
 
 	setupLog.Info("Starting pacto-operator",
 		"version", version,
@@ -198,104 +260,16 @@ func main() {
 		"dashboard-image", dashboardImage,
 	)
 
-	// if the enable-http2 flag is false (the default), http/2 should be disabled
-	// due to its vulnerabilities. More specifically, disabling http/2 will
-	// prevent from being vulnerable to the HTTP/2 Stream Cancellation and
-	// Rapid Reset CVEs. For more information see:
-	// - https://github.com/advisories/GHSA-qppj-fm5r-hxr3
-	// - https://github.com/advisories/GHSA-4374-p667-p6c8
-	disableHTTP2 := func(c *tls.Config) {
-		setupLog.Info("Disabling HTTP/2")
-		c.NextProtos = []string{"http/1.1"}
+	// Dashboard, Evidence Server and node agent are always deployed to the operator's own namespace.
+	operatorNamespace := os.Getenv("POD_NAMESPACE")
+	if operatorNamespace == "" {
+		setupLog.Error(nil, "POD_NAMESPACE environment variable must be set (use the downward API)")
+		os.Exit(1)
 	}
+	// The kernel evidence namespace defaults to the operator's, where the managed node agent publishes.
+	o.kernelEvidenceNamespace = cmp.Or(o.kernelEvidenceNamespace, operatorNamespace)
 
-	if !enableHTTP2 {
-		tlsOpts = append(tlsOpts, disableHTTP2)
-	}
-
-	// Initial webhook TLS options
-	webhookTLSOpts := tlsOpts
-	webhookServerOptions := webhook.Options{
-		TLSOpts: webhookTLSOpts,
-	}
-
-	if len(webhookCertPath) > 0 {
-		setupLog.Info("Initializing webhook certificate watcher using provided certificates",
-			"webhook-cert-path", webhookCertPath, "webhook-cert-name", webhookCertName, "webhook-cert-key", webhookCertKey)
-
-		webhookServerOptions.CertDir = webhookCertPath
-		webhookServerOptions.CertName = webhookCertName
-		webhookServerOptions.KeyName = webhookCertKey
-	}
-
-	webhookServer := webhook.NewServer(webhookServerOptions)
-
-	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
-	// More info:
-	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/metrics/server
-	// - https://book.kubebuilder.io/reference/metrics.html
-	metricsServerOptions := metricsserver.Options{
-		BindAddress:   metricsAddr,
-		SecureServing: secureMetrics,
-		TLSOpts:       tlsOpts,
-	}
-
-	if secureMetrics {
-		// FilterProvider is used to protect the metrics endpoint with authn/authz.
-		// These configurations ensure that only authorized users and service accounts
-		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
-		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/metrics/filters#WithAuthenticationAndAuthorization
-		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
-	}
-
-	// If the certificate is not specified, controller-runtime will automatically
-	// generate self-signed certificates for the metrics server. While convenient for development and testing,
-	// this setup is not recommended for production.
-	//
-	// TODO(user): If you enable certManager, uncomment the following lines:
-	// - [METRICS-WITH-CERTS] at config/default/kustomization.yaml to generate and use certificates
-	// managed by cert-manager for the metrics server.
-	// - [PROMETHEUS-WITH-CERTS] at config/prometheus/kustomization.yaml for TLS certification.
-	if len(metricsCertPath) > 0 {
-		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
-			"metrics-cert-path", metricsCertPath, "metrics-cert-name", metricsCertName, "metrics-cert-key", metricsCertKey)
-
-		metricsServerOptions.CertDir = metricsCertPath
-		metricsServerOptions.CertName = metricsCertName
-		metricsServerOptions.KeyName = metricsCertKey
-	}
-
-	mgrOpts := ctrl.Options{
-		Scheme:                 scheme,
-		Metrics:                metricsServerOptions,
-		WebhookServer:          webhookServer,
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "a4917283.pacto.io",
-		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
-		// when the Manager ends. This requires the binary to immediately end when the
-		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
-		// speeds up voluntary leader transitions as the new leader don't have to wait
-		// LeaseDuration time first.
-		//
-		// In the default scaffold provided, the program ends immediately after
-		// the manager stops, so would be fine to enable this option. However,
-		// if you are doing or is intended to do any operation such as perform cleanups
-		// after the manager stops then its usage might be unsafe.
-		// LeaderElectionReleaseOnCancel: true,
-	}
-
-	// Restrict the cache to a single namespace when --watch-namespace is set.
-	if watchNamespace != "" {
-		mgrOpts.Cache = cache.Options{
-			DefaultNamespaces: map[string]cache.Config{
-				watchNamespace: {},
-			},
-		}
-		setupLog.Info("Watching single namespace", "namespace", watchNamespace)
-	}
-
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOpts)
+	mgr, err := newManager(&o)
 	if err != nil {
 		setupLog.Error(err, "Failed to start manager")
 		os.Exit(1)
@@ -307,10 +281,13 @@ func main() {
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder()
 		Recorder:                          mgr.GetEventRecorderFor("pacto-controller"),
 		Loader:                            loader.New(),
-		StabilizationWindow:               stabilizationWindow,
-		EnableMetricsObservation:          enableMetricsObservation,
-		EnableProbing:                     enableProbing,
-		EnableInterfaceNameMatchDiscovery: enableInterfaceNameMatchDiscovery,
+		StabilizationWindow:               o.stabilizationWindow,
+		EnableMetricsObservation:          o.enableMetricsObservation,
+		EnableProbing:                     o.enableProbing,
+		EnableInterfaceNameMatchDiscovery: o.enableInterfaceNameMatchDiscovery,
+		KernelEvidence:                    o.enableKernelEvidence,
+		KernelEvidenceNamespace:           o.kernelEvidenceNamespace,
+		KernelEvidenceStaleness:           o.kernelEvidenceStaleness,
 	}
 	if err := pactoReconciler.SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Failed to create controller", "controller", "Pacto")
@@ -326,126 +303,8 @@ func main() {
 	}
 	// +kubebuilder:scaffold:builder
 
-	// Dashboard feature toggle — always deployed to the operator's own namespace.
-	dashboardNamespace := os.Getenv("POD_NAMESPACE")
-	if dashboardNamespace == "" {
-		setupLog.Error(nil, "POD_NAMESPACE environment variable must be set (use the downward API)")
-		os.Exit(1)
-	}
-
-	if enableDashboard && dashboardImage == "" {
-		setupLog.Error(nil, "Dashboard enabled but no dashboard image was set at build time. "+
-			"This binary was not built with the required -ldflags for dashboard support.")
-		os.Exit(1)
-	}
-
-	var parsedOCISecrets []string
-	if dashboardOCISecrets != "" {
-		for s := range strings.SplitSeq(dashboardOCISecrets, ",") {
-			if trimmed := strings.TrimSpace(s); trimmed != "" {
-				parsedOCISecrets = append(parsedOCISecrets, trimmed)
-			}
-		}
-	}
-
-	// Discover the operator's own Deployment for setting ownerReferences on dashboard resources.
-	// This enables ArgoCD to display dashboard resources in the operator's resource tree.
-	var ownerRef *metav1ac.OwnerReferenceApplyConfiguration
-	if operatorDeployName := os.Getenv("OPERATOR_DEPLOYMENT_NAME"); operatorDeployName != "" {
-		operatorDeploy := &appsv1.Deployment{}
-		if err := mgr.GetAPIReader().Get(context.Background(), client.ObjectKey{
-			Namespace: dashboardNamespace,
-			Name:      operatorDeployName,
-		}, operatorDeploy); err != nil {
-			setupLog.Error(err, "Failed to look up operator Deployment for ownerReference",
-				"deployment", operatorDeployName)
-		} else {
-			ownerRef = metav1ac.OwnerReference().
-				WithAPIVersion("apps/v1").
-				WithKind("Deployment").
-				WithName(operatorDeploy.Name).
-				WithUID(operatorDeploy.UID)
-		}
-	}
-
-	// When the Evidence Server is enabled, wire the dashboard to its internal
-	// Service so the dashboard consumes the evidence Operational Graph
-	// contribution read-only over HTTP (it never touches the evidence bucket).
-	evidenceSourceURL := ""
-	if enableEvidence {
-		evidenceSourceURL = fmt.Sprintf("http://%s.%s.svc:%d", evidence.Name, dashboardNamespace, evidence.EvidencePort)
-	}
-
-	// The controller and the workloads it manages resolve contract refs against
-	// the same registries, so the plain-HTTP allowance is inherited from the
-	// operator's own environment rather than configured three times.
-	insecureRegistries := os.Getenv(loader.InsecureRegistriesEnvVar)
-
-	dashCfg := dashboard.Config{
-		Enabled:            enableDashboard,
-		Image:              dashboardImage,
-		Namespace:          dashboardNamespace,
-		WatchNamespace:     watchNamespace,
-		OCISecret:          dashboardOCISecret,
-		OCISecrets:         parsedOCISecrets,
-		OwnerRef:           ownerRef,
-		EvidenceSourceURL:  evidenceSourceURL,
-		InsecureRegistries: insecureRegistries,
-		Observation:        dashboardObservation,
-		Resources: dashboard.ResourcesConfig{
-			CPURequest:    dashboardCPURequest,
-			CPULimit:      dashboardCPULimit,
-			MemoryRequest: dashboardMemoryRequest,
-			MemoryLimit:   dashboardMemoryLimit,
-		},
-	}
-	if err := dashCfg.Validate(); err != nil {
-		setupLog.Error(err, "Invalid dashboard configuration")
-		os.Exit(1)
-	}
-
-	dashReconciler := &dashboard.Reconciler{
-		Client: mgr.GetClient(),
-		// Uncached reader for cleanup: disabling the dashboard must not start a
-		// cluster-scoped informer whose list/watch RBAC is granted only when the
-		// dashboard is enabled (that would fail cache sync and crashloop).
-		APIReader: mgr.GetAPIReader(),
-		Scheme:    mgr.GetScheme(),
-		Config:    dashCfg,
-	}
-	if err := mgr.Add(dashReconciler); err != nil {
-		setupLog.Error(err, "Failed to add dashboard reconciler")
-		os.Exit(1)
-	}
-
-	evidenceCfg := evidence.Config{
-		Enabled:            enableEvidence,
-		Image:              dashboardImage, // the runtime image runs `pacto evidence serve`
-		Namespace:          dashboardNamespace,
-		Subjects:           evidenceSubjects,
-		TrustSecret:        evidenceTrustSecret,
-		CredentialsSecret:  evidenceCredentialsSecret,
-		InsecureRegistries: insecureRegistries,
-		Resources: evidence.ResourcesConfig{
-			CPURequest:    evidenceCPURequest,
-			CPULimit:      evidenceCPULimit,
-			MemoryRequest: evidenceMemoryRequest,
-			MemoryLimit:   evidenceMemoryLimit,
-		},
-		OwnerRef: ownerRef,
-	}
-	if err := evidenceCfg.Validate(); err != nil {
-		setupLog.Error(err, "Invalid evidence configuration")
-		os.Exit(1)
-	}
-	evidenceReconciler := &evidence.Reconciler{
-		Client:    mgr.GetClient(),
-		APIReader: mgr.GetAPIReader(),
-		Scheme:    mgr.GetScheme(),
-		Config:    evidenceCfg,
-	}
-	if err := mgr.Add(evidenceReconciler); err != nil {
-		setupLog.Error(err, "Failed to add evidence reconciler")
+	if err := addComponents(mgr, &o, operatorNamespace); err != nil {
+		setupLog.Error(err, "Failed to set up the managed components")
 		os.Exit(1)
 	}
 
@@ -463,4 +322,233 @@ func main() {
 		setupLog.Error(err, "Failed to run manager")
 		os.Exit(1)
 	}
+}
+
+// newManager builds the controller manager: metrics server, leader election, health probes and the cache.
+// No webhook server is configured: the operator registers no webhook, and controller-runtime only starts one
+// when something asks the manager for it.
+func newManager(o *options) (ctrl.Manager, error) {
+	// if the enable-http2 flag is false (the default), http/2 should be disabled
+	// due to its vulnerabilities. More specifically, disabling http/2 will
+	// prevent from being vulnerable to the HTTP/2 Stream Cancellation and
+	// Rapid Reset CVEs. For more information see:
+	// - https://github.com/advisories/GHSA-qppj-fm5r-hxr3
+	// - https://github.com/advisories/GHSA-4374-p667-p6c8
+	var tlsOpts []func(*tls.Config)
+	if !o.enableHTTP2 {
+		tlsOpts = append(tlsOpts, func(c *tls.Config) {
+			setupLog.Info("Disabling HTTP/2")
+			c.NextProtos = []string{"http/1.1"}
+		})
+	}
+	if o.webhookCertPath != "" {
+		setupLog.Info("Ignoring deprecated --webhook-cert-path: the operator runs no webhook server")
+	}
+
+	// Metrics endpoint is enabled in 'config/default/kustomization.yaml'. The Metrics options configure the server.
+	// More info:
+	// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/metrics/server
+	// - https://book.kubebuilder.io/reference/metrics.html
+	metricsServerOptions := metricsserver.Options{
+		BindAddress:   o.metricsAddr,
+		SecureServing: o.secureMetrics,
+		TLSOpts:       tlsOpts,
+	}
+
+	if o.secureMetrics {
+		// FilterProvider is used to protect the metrics endpoint with authn/authz.
+		// These configurations ensure that only authorized users and service accounts
+		// can access the metrics endpoint. The RBAC are configured in 'config/rbac/kustomization.yaml'. More info:
+		// https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.23.1/pkg/metrics/filters#WithAuthenticationAndAuthorization
+		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
+	}
+
+	// If the certificate is not specified, controller-runtime will automatically
+	// generate self-signed certificates for the metrics server. While convenient for development and testing,
+	// this setup is not recommended for production: with cert-manager, the [METRICS-WITH-CERTS] section of
+	// config/default/kustomization.yaml and [PROMETHEUS-WITH-CERTS] of config/prometheus/kustomization.yaml
+	// provide managed certificates.
+	if len(o.metricsCertPath) > 0 {
+		setupLog.Info("Initializing metrics certificate watcher using provided certificates",
+			"metrics-cert-path", o.metricsCertPath, "metrics-cert-name", o.metricsCertName, "metrics-cert-key", o.metricsCertKey)
+
+		metricsServerOptions.CertDir = o.metricsCertPath
+		metricsServerOptions.CertName = o.metricsCertName
+		metricsServerOptions.KeyName = o.metricsCertKey
+	}
+
+	mgrOpts := ctrl.Options{
+		Scheme:                 scheme,
+		Metrics:                metricsServerOptions,
+		HealthProbeBindAddress: o.probeAddr,
+		LeaderElection:         o.enableLeaderElection,
+		LeaderElectionID:       "a4917283.pacto.io",
+		// LeaderElectionReleaseOnCancel defines if the leader should step down voluntarily
+		// when the Manager ends. This requires the binary to immediately end when the
+		// Manager is stopped, otherwise, this setting is unsafe. Setting this significantly
+		// speeds up voluntary leader transitions as the new leader don't have to wait
+		// LeaseDuration time first.
+		//
+		// In the default scaffold provided, the program ends immediately after
+		// the manager stops, so would be fine to enable this option. However,
+		// if you are doing or is intended to do any operation such as perform cleanups
+		// after the manager stops then its usage might be unsafe.
+		// LeaderElectionReleaseOnCancel: true,
+	}
+
+	// Pods are cached only for the kernel merge, which reads a handful of their fields: the transform drops
+	// the rest (managedFields included) before they reach the cache.
+	mgrOpts.Cache = cache.Options{
+		ByObject: map[client.Object]cache.ByObject{
+			&corev1.Pod{}: {Transform: observer.TrimPod},
+		},
+	}
+	// Restrict the cache to a single namespace when --watch-namespace is set. The node agent publishes its
+	// observations in its own namespace, so kernel evidence widens the cache for that one kind only.
+	if o.watchNamespace != "" {
+		mgrOpts.Cache.DefaultNamespaces = map[string]cache.Config{o.watchNamespace: {}}
+		if o.enableKernelEvidence && o.kernelEvidenceNamespace != o.watchNamespace {
+			mgrOpts.Cache.ByObject[&pactov1alpha1.NodeRuntimeObservation{}] = cache.ByObject{
+				Namespaces: map[string]cache.Config{o.kernelEvidenceNamespace: {}},
+			}
+		}
+		setupLog.Info("Watching single namespace", "namespace", o.watchNamespace)
+	}
+
+	return ctrl.NewManager(ctrl.GetConfigOrDie(), mgrOpts)
+}
+
+// addComponents validates the dashboard, Evidence Server and node agent configurations and registers each
+// sub-component with the manager. A disabled component is still registered: its first sync is its cleanup.
+func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
+	if o.enableDashboard && dashboardImage == "" {
+		return fmt.Errorf("dashboard enabled but no dashboard image was set at build time: " +
+			"this binary was not built with the required -ldflags for dashboard support")
+	}
+
+	var parsedOCISecrets []string
+	for s := range strings.SplitSeq(o.dashboardOCISecrets, ",") {
+		if trimmed := strings.TrimSpace(s); trimmed != "" {
+			parsedOCISecrets = append(parsedOCISecrets, trimmed)
+		}
+	}
+
+	ownerRef := operatorOwnerRef(mgr, namespace)
+
+	// When the Evidence Server is enabled, wire the dashboard to its internal
+	// Service so the dashboard consumes the evidence Operational Graph
+	// contribution read-only over HTTP (it never touches the evidence bucket).
+	evidenceSourceURL := ""
+	if o.enableEvidence {
+		evidenceSourceURL = fmt.Sprintf("http://%s.%s.svc:%d", evidence.Name, namespace, evidence.EvidencePort)
+	}
+
+	// The controller and the workloads it manages resolve contract refs against
+	// the same registries, so the plain-HTTP allowance is inherited from the
+	// operator's own environment rather than configured three times.
+	insecureRegistries := os.Getenv(loader.InsecureRegistriesEnvVar)
+
+	dashCfg := dashboard.Config{
+		Enabled:            o.enableDashboard,
+		Image:              dashboardImage,
+		Namespace:          namespace,
+		WatchNamespace:     o.watchNamespace,
+		OCISecret:          o.dashboardOCISecret,
+		OCISecrets:         parsedOCISecrets,
+		OwnerRef:           ownerRef,
+		EvidenceSourceURL:  evidenceSourceURL,
+		InsecureRegistries: insecureRegistries,
+		Observation:        o.dashboardObservation,
+		Resources:          o.dashboardResources,
+	}
+	if err := dashCfg.Validate(); err != nil {
+		return fmt.Errorf("invalid dashboard configuration: %w", err)
+	}
+	if err := mgr.Add(&dashboard.Reconciler{
+		Client: mgr.GetClient(),
+		// Uncached reader for cleanup: disabling the dashboard must not start a
+		// cluster-scoped informer whose list/watch RBAC is granted only when the
+		// dashboard is enabled (that would fail cache sync and crashloop).
+		APIReader: mgr.GetAPIReader(),
+		Scheme:    mgr.GetScheme(),
+		Config:    dashCfg,
+	}); err != nil {
+		return fmt.Errorf("failed to add dashboard reconciler: %w", err)
+	}
+
+	evidenceCfg := evidence.Config{
+		Enabled:            o.enableEvidence,
+		Image:              dashboardImage, // the runtime image runs `pacto evidence serve`
+		Namespace:          namespace,
+		Subjects:           o.evidenceSubjects,
+		TrustSecret:        o.evidenceTrustSecret,
+		CredentialsSecret:  o.evidenceCredentialsSecret,
+		InsecureRegistries: insecureRegistries,
+		Resources:          o.evidenceResources,
+		OwnerRef:           ownerRef,
+	}
+	if err := evidenceCfg.Validate(); err != nil {
+		return fmt.Errorf("invalid evidence configuration: %w", err)
+	}
+	if err := mgr.Add(&evidence.Reconciler{
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
+		Scheme:    mgr.GetScheme(),
+		Config:    evidenceCfg,
+	}); err != nil {
+		return fmt.Errorf("failed to add evidence reconciler: %w", err)
+	}
+
+	nodeAgentCfg := nodeagent.Config{
+		Enabled:          o.enableNodeAgent,
+		Image:            cmp.Or(o.nodeAgentImage, dashboardImage), // the runtime image runs `pacto agent`
+		Namespace:        namespace,
+		PublishInterval:  o.nodeAgentPublishInterval,
+		Resources:        o.nodeAgentResources,
+		ImagePullSecrets: o.nodeAgentPullSecrets,
+		OwnerRef:         ownerRef,
+	}
+	if err := nodeAgentCfg.Validate(); err != nil {
+		return fmt.Errorf("invalid node agent configuration: %w", err)
+	}
+	// The agents publish into the operator namespace; observations nobody merges,
+	// or merges from elsewhere, are a silent misconfiguration worth a loud line.
+	if o.enableNodeAgent && !o.enableKernelEvidence {
+		setupLog.Info("Node agent enabled without --enable-kernel-evidence: its observations are published " +
+			"but never merged into compliance evidence")
+	}
+	if o.enableNodeAgent && o.kernelEvidenceNamespace != namespace {
+		setupLog.Info("Kernel evidence is read from a namespace the managed node agent does not publish to",
+			"kernelEvidenceNamespace", o.kernelEvidenceNamespace, "nodeAgentNamespace", namespace)
+	}
+	if err := mgr.Add(&nodeagent.Reconciler{
+		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
+		Scheme:    mgr.GetScheme(),
+		Config:    nodeAgentCfg,
+	}); err != nil {
+		return fmt.Errorf("failed to add node agent reconciler: %w", err)
+	}
+	return nil
+}
+
+// operatorOwnerRef discovers the operator's own Deployment for the ownerReferences of the managed
+// components' resources, so ArgoCD displays them in the operator's resource tree. nil when the Deployment
+// is not named (OPERATOR_DEPLOYMENT_NAME) or cannot be read.
+func operatorOwnerRef(mgr ctrl.Manager, namespace string) *metav1ac.OwnerReferenceApplyConfiguration {
+	name := os.Getenv("OPERATOR_DEPLOYMENT_NAME")
+	if name == "" {
+		return nil
+	}
+	operatorDeploy := &appsv1.Deployment{}
+	key := client.ObjectKey{Namespace: namespace, Name: name}
+	if err := mgr.GetAPIReader().Get(context.Background(), key, operatorDeploy); err != nil {
+		setupLog.Error(err, "Failed to look up operator Deployment for ownerReference", "deployment", name)
+		return nil
+	}
+	return metav1ac.OwnerReference().
+		WithAPIVersion("apps/v1").
+		WithKind("Deployment").
+		WithName(operatorDeploy.Name).
+		WithUID(operatorDeploy.UID)
 }

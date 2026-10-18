@@ -77,6 +77,53 @@ Controller arguments derived from values
 {{- if .Values.controller.stabilizationWindow }}
 - --stabilization-window={{ .Values.controller.stabilizationWindow }}
 {{- end }}
+{{- if .Values.controller.enableProbing }}
+- --enable-probing
+{{- end }}
+{{- if .Values.controller.enableMetricsObservation }}
+- --enable-metrics-observation
+{{- end }}
+{{- /* Kernel evidence follows the managed node agent: either switch turns it on. */}}
+{{- with .Values.controller.kernelEvidence }}
+{{- if or .enabled $.Values.nodeAgent.enabled }}
+- --enable-kernel-evidence
+{{- if .namespace }}
+- --kernel-evidence-namespace={{ .namespace }}
+{{- end }}
+{{- if .staleness }}
+- --kernel-evidence-staleness={{ .staleness }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- with .Values.nodeAgent }}
+{{- if .enabled }}
+- --enable-node-agent
+{{- range $.Values.imagePullSecrets }}
+- --node-agent-image-pull-secret={{ .name }}
+{{- end }}
+{{- if .publishInterval }}
+- --node-agent-publish-interval={{ .publishInterval }}
+{{- end }}
+{{- with .resources }}
+{{- if .requests }}
+{{- if .requests.cpu }}
+- --node-agent-cpu-request={{ .requests.cpu }}
+{{- end }}
+{{- if .requests.memory }}
+- --node-agent-memory-request={{ .requests.memory }}
+{{- end }}
+{{- end }}
+{{- if .limits }}
+{{- if .limits.cpu }}
+- --node-agent-cpu-limit={{ .limits.cpu }}
+{{- end }}
+{{- if .limits.memory }}
+- --node-agent-memory-limit={{ .limits.memory }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- if .Values.dashboard.enabled }}
 - --enable-dashboard
 {{- if .Values.dashboard.ociSecrets }}

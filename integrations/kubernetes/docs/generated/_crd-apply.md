@@ -6,7 +6,9 @@
 
 ```bash
 kubectl apply --server-side --force-conflicts \
-  -f https://raw.githubusercontent.com/TrianaLab/pacto/integrations/kubernetes/v5.4.3/integrations/kubernetes/config/crd/bases/pacto.trianalab.io_pactos.yaml
+  -f https://raw.githubusercontent.com/TrianaLab/pacto/integrations/kubernetes/v5.4.3/integrations/kubernetes/config/crd/bases/pacto.trianalab.io_noderuntimeobservations.yaml
 kubectl apply --server-side --force-conflicts \
   -f https://raw.githubusercontent.com/TrianaLab/pacto/integrations/kubernetes/v5.4.3/integrations/kubernetes/config/crd/bases/pacto.trianalab.io_pactorevisions.yaml
+kubectl apply --server-side --force-conflicts \
+  -f https://raw.githubusercontent.com/TrianaLab/pacto/integrations/kubernetes/v5.4.3/integrations/kubernetes/config/crd/bases/pacto.trianalab.io_pactos.yaml
 ```

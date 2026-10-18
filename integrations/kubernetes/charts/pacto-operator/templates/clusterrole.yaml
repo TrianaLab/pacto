@@ -16,9 +16,25 @@ rules:
     resources: [secrets]
     verbs: [get, list, watch]
   # ConfigMap-backed configuration collection (required-configurations dimension).
+  # Read through the manager's cache, whose informer needs list and watch to sync.
   - apiGroups: [""]
     resources: [configmaps]
-    verbs: [get]
+    verbs: [get, list, watch]
+  # Target pods, mapped onto the node agent's kernel observations (kernel evidence).
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  # Kernel evidence published by the node agent, one object per node.
+  - apiGroups: [pacto.trianalab.io]
+    resources: [noderuntimeobservations]
+    verbs: [get, list, watch]
+  # Interface exposure: an Ingress or Gateway API HTTPRoute that routes to the port.
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [httproutes]
+    verbs: [get, list, watch]
   # EndpointSlice readiness for interface availability + dependency reachability.
   - apiGroups: [discovery.k8s.io]
     resources: [endpointslices]
@@ -80,6 +96,34 @@ rules:
     resources: [deployments]
     verbs: [get, delete]
     resourceNames: [pacto-evidence]
+  # Node agent teardown — ALWAYS granted, so an operator upgraded from enabled ->
+  # disabled can remove the DaemonSet and the RBAC it created, by name.
+  - apiGroups: [apps]
+    resources: [daemonsets]
+    verbs: [get, delete]
+    resourceNames: [pacto-node-agent]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [get, delete]
+    resourceNames: [pacto-node-agent]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    verbs: [get, delete]
+    resourceNames: [pacto-node-agent]
+  # The agents' NodeRuntimeObservation objects are named after nodes, so they
+  # cannot be scoped by resourceNames: prune finds them by label (list) and
+  # removes them (delete). The resource is the operator's own CRD and carries no
+  # secrets, and list is already held by the kernel evidence read rule above, so
+  # this adds delete on one Pacto-owned kind and nothing else.
+  - apiGroups: [pacto.trianalab.io]
+    resources: [noderuntimeobservations]
+    verbs: [delete, list]
+  {{- if .Values.controller.enableMetricsObservation }}
+  # Metrics capability discovery through Prometheus Operator monitors.
+  - apiGroups: [monitoring.coreos.com]
+    resources: [servicemonitors, podmonitors]
+    verbs: [get, list, watch]
+  {{- end }}
   {{- if .Values.dashboard.enabled }}
   # Dashboard lifecycle management
   - apiGroups: [""]
@@ -111,4 +155,31 @@ rules:
   - apiGroups: [apps]
     resources: [deployments]
     verbs: [create, delete, patch, update]
+  {{- end }}
+  {{- if .Values.nodeAgent.enabled }}
+  # Node agent lifecycle management. The operator creates a Role granting the
+  # agents get, create and patch (server-side apply) on noderuntimeobservations
+  # and their status, and Kubernetes only lets it grant what it holds itself (no
+  # escalate or bind), so it holds those verbs here, plus list, watch and delete
+  # on the objects for its own read and prune. Namespaces get is the Pod
+  # Security check: the operator reads the enforce label and never writes it.
+  # Nodes get is the orphan prune: an observation whose node is gone is deleted.
+  - apiGroups: [""]
+    resources: [namespaces, nodes]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    verbs: [create, delete, get, patch]
+  - apiGroups: [apps]
+    resources: [daemonsets]
+    verbs: [create, delete, get, patch, update]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [create, delete, get, patch]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [noderuntimeobservations]
+    verbs: [create, delete, get, list, patch, watch]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [noderuntimeobservations/status]
+    verbs: [create, get, patch]
   {{- end }}

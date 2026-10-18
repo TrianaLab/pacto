@@ -100,6 +100,11 @@ var divergentFleetFlagTypes = map[string]string{
 	// Reconciliation compares the snapshot's declared edges against exactly one
 	// observed trace document, which it reads itself.
 	"pacto fleet reconcile --traces": "string",
+	// Not a source: the one Evidence Server the host agent sends its signed
+	// evidence to.
+	"pacto agent --evidence-url": "string",
+	// The same for `pacto run`: where its rounds are sent, not a source.
+	"pacto run --evidence-url": "string",
 }
 
 // yankedFleetSubcommands returns the `pacto fleet` subcommands the TUI can put

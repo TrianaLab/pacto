@@ -34,7 +34,7 @@ type ContractFetcher interface {
 // OCIBase is the base a fetcher reports for a bundle that arrived over the
 // network. A relative reference declared under it must not resolve: honouring
 // it would let a remote contract choose which local files Pacto reads.
-const OCIBase = "oci://"
+const OCIBase = contract.OCIScheme
 
 // OriginContractFetcher is a [ContractFetcher] that is told which contract
 // declared each dependency. [ResolveWithOptions] always prefers it.

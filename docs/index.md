@@ -40,8 +40,8 @@ dependencies:
 ## Who breaks when a dependency ships a new version
 
 The `compatibility` range above records which versions of `auth` this revision
-accepts, and `pacto.lock` pins the rest of the transitive closure by digest. So
-when auth is about to ship 3.0, Pacto answers per consumer:
+accepts, and `pacto.lock` pins every dependency below it to the exact published
+build. So when auth is about to ship 3.0, Pacto answers per consumer:
 
 ```console
 $ pacto impact ./auth-2.1.0 ./auth-3.0.0 --local .
@@ -76,6 +76,29 @@ pass.
 
 `validate` and `diff` pay off at one service; `impact` and the graph pay off at
 the second consumer.
+
+## Check what is actually running
+
+Pacto can check what a running service actually does on the network against
+what its contract says, on any Linux machine, and tells you only what it can
+prove:
+
+| What it catches | Finding |
+| --- | --- |
+| A process reports healthy but nothing listens on the declared port | `INTERFACE_ABSENT` |
+| A declared dependency the service keeps failing to reach | `DEPENDENCY_UNREACHABLE` |
+| A call to another Pacto service no dependency declares (Kubernetes) | `DEPENDENCY_UNDECLARED` |
+
+```bash
+pacto run --contract ./payments --bind api=8080 --fail-on noncompliant -- ./payments-server
+```
+
+Pacto watches TCP connections in the Linux kernel with eBPF (small, safe
+programs the kernel runs on events). It never reads payloads or secrets, and
+when it cannot see it says "don't know" instead of guessing. Run it three ways:
+`pacto run` wraps one command (a laptop, a CI job), `pacto agent` watches a
+Docker host or a server and the Kubernetes operator deploys the same agent on
+every node. See [Runtime conformance](runtime-conformance.md).
 
 ## Where to start
 

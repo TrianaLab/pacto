@@ -4,9 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/prober"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v3/pkg/probe"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -41,7 +41,7 @@ func TestCollect_Workload_Satisfied(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	if len(es.Observations) != 1 {
 		t.Fatalf("expected 1 observation, got %d", len(es.Observations))
 	}
@@ -83,7 +83,7 @@ func TestCollect_Workload_MismatchExplicit(t *testing.T) {
 		WorkloadExplicit: true, // explicit -> mismatch assertable
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := es.Observations[0]
 	if o.Outcome != evidence.Observed {
 		t.Errorf("expected Observed for mismatch, got %s", o.Outcome)
@@ -116,7 +116,7 @@ func TestCollect_Workload_MismatchNonExplicit(t *testing.T) {
 		WorkloadExplicit: false, // non-explicit -> EVIDENCE_INSUFFICIENT
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := es.Observations[0]
 	if o.Outcome != evidence.Insufficient {
 		t.Errorf("expected Insufficient for non-explicit mismatch, got %s", o.Outcome)
@@ -142,7 +142,7 @@ func TestCollect_Workload_NotFound(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	// Workload NotFound -> NO observation emitted (nil) so engine sees EVIDENCE_MISSING.
 	if len(es.Observations) != 0 {
 		t.Errorf("expected no observations (NotFound -> skip-emit), got %d", len(es.Observations))
@@ -170,7 +170,7 @@ func TestCollect_Workload_APIError(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	// InvalidKind defaults to observeDeployment, which will NotFound -> NO observation (skip-emit).
 	// To test Failed, we'd need a real API error. Skip for now.
 	if len(es.Observations) != 0 {
@@ -199,7 +199,7 @@ func TestCollect_Persistence_Durable(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -236,7 +236,7 @@ func TestCollect_Persistence_Ephemeral(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -275,7 +275,7 @@ func TestCollect_Persistence_Ambiguous(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -315,7 +315,7 @@ func TestCollect_Persistence_StatefulSetVCT(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -349,7 +349,7 @@ func TestCollect_Persistence_NoVolumes(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -382,7 +382,7 @@ func TestCollect_Persistence_NotFound(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	// Workload NotFound -> NO observation emitted (nil) so engine sees EVIDENCE_MISSING.
 	if o != nil {
@@ -414,7 +414,7 @@ func TestCollect_WorkloadAndPersistence(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	if len(es.Observations) != 2 {
 		t.Errorf("expected 2 observations (workload + persistence), got %d", len(es.Observations))
 	}
@@ -446,7 +446,7 @@ func TestCollect_NoWorkloadOrPersistence(t *testing.T) {
 		ContractRef: "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	if len(es.Observations) != 0 {
 		t.Errorf("expected 0 observations, got %d", len(es.Observations))
 	}
@@ -553,7 +553,7 @@ func TestCollect_Workload_Job(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := es.Observations[0]
 	wl, err := o.GetWorkloadObservation()
 	if err != nil {
@@ -578,7 +578,7 @@ func TestCollect_NoWorkloadName(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	if len(es.Observations) != 0 {
 		t.Errorf("expected 0 observations when WorkloadName is empty, got %d", len(es.Observations))
 	}
@@ -602,7 +602,7 @@ func TestCollect_SubjectName(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	// EvidenceSet.Subject is the runtime target.
 	if es.Subject.Name != "default/k8s-service-name" {
 		t.Errorf("expected EvidenceSet.Subject.Name=default/k8s-service-name, got %s", es.Subject.Name)
@@ -644,7 +644,7 @@ func TestCollect_HealthCapability(t *testing.T) {
 		},
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	// Should have one health observation.
 	if len(es.Observations) != 1 {
 		t.Fatalf("expected 1 observation, got %d", len(es.Observations))
@@ -686,7 +686,7 @@ func TestCollect_MetricsSatisfied(t *testing.T) {
 	obs := &Observer{
 		client: fc,
 		prober: &fakeMetricsProber{
-			result: prober.Result{
+			result: probe.Result{
 				Reachable:        true,
 				StatusCode:       200,
 				PrometheusParsed: true,
@@ -705,7 +705,7 @@ func TestCollect_MetricsSatisfied(t *testing.T) {
 		EnableMetricsObservation: true,
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	if len(es.Observations) != 1 {
 		t.Fatalf("expected 1 observation, got %d", len(es.Observations))
 	}
@@ -731,10 +731,18 @@ func TestCollect_MetricsSatisfied(t *testing.T) {
 }
 
 type fakeMetricsProber struct {
-	result prober.Result
+	result   probe.Result
+	protocol evidence.Protocol
+	// protocolAddr records the last protocol probe target, to prove it is the trusted Service DNS name.
+	protocolAddr string
 }
 
-func (f *fakeMetricsProber) Probe(ctx context.Context, url string) prober.Result {
+func (f *fakeMetricsProber) ProbeProtocol(_ context.Context, addr string) evidence.Protocol {
+	f.protocolAddr = addr
+	return f.protocol
+}
+
+func (f *fakeMetricsProber) Probe(ctx context.Context, url string) probe.Result {
 	f.result.URL = url
 	return f.result
 }

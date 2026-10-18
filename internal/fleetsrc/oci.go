@@ -96,7 +96,7 @@ func (s *CacheSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 			})
 			continue
 		}
-		col.Revisions = append(col.Revisions, revisionOf(g.ref, strings.TrimPrefix(g.ref, "oci://"), g.rec, g.bundle))
+		col.Revisions = append(col.Revisions, revisionOf(g.ref, contract.TrimOCIScheme(g.ref), g.rec, g.bundle))
 	}
 	return col, nil
 }
@@ -118,7 +118,7 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 		// ask about that. An already-explicit tag or digest costs nothing (ResolveRef
 		// returns it unchanged, no round trip); the oci:// spelling is stripped because
 		// the registry client parses a bare reference, unlike the resolver.
-		concrete := strings.TrimPrefix(ref, "oci://")
+		concrete := contract.TrimOCIScheme(ref)
 		if pinned, rerr := oci.ResolveRef(ctx, store, concrete, ""); rerr == nil {
 			concrete = pinned
 		}
@@ -172,7 +172,7 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 //
 // A pre-sidecar cache entry still has no digest, and still says so.
 func revisionOf(ref, concrete string, rec oci.CachedRef, bundle *contract.Bundle) fleet.RawRevision {
-	rev := fleet.RawRevision{Bundle: bundle, Domain: OciDomain(ref), RequestedRef: ref, ResolvedRef: concrete}
+	rev := fleet.RawRevision{Bundle: bundle, Domain: contract.OCIDomain(ref), RequestedRef: ref, ResolvedRef: concrete}
 	if rec.Digest != "" {
 		rev.Digest = rec.Digest
 		rev.ResolvedRef = pinRefToDigest(concrete, rec.Digest)
@@ -187,38 +187,7 @@ func revisionOf(ref, concrete string, rec oci.CachedRef, bundle *contract.Bundle
 // scheme-less "repo@digest" would be resolved as a local filesystem path by
 // graph.ParseDependencyRef, breaking a canonical Product Impact).
 func pinRefToDigest(ref, digest string) string {
-	return "oci://" + oci.PinRefToDigest(ref, digest)
-}
-
-// OciDomain derives the logical-service domain (the registry+org/repo scope) from
-// a reference, so the same service name published to two different registries or
-// organizations stays distinct in the operational graph. It is the repo path with
-// its final segment (the artifact/service name) removed; a bare single-segment ref
-// (no registry/org) or a local filesystem path is the default (empty) domain.
-//
-//	oci://ghcr.io/acme/payments:1.0       -> ghcr.io/acme
-//	localhost:5000/acme/payments@sha256:x -> localhost:5000/acme
-//	payments:1.0                          -> "" (default domain)
-//	./svc  or  /abs/path                  -> "" (local path, no domain)
-func OciDomain(ref string) string {
-	// A local filesystem path has no registry/org domain.
-	if strings.HasPrefix(ref, ".") || strings.HasPrefix(ref, "/") || strings.HasPrefix(ref, "~") {
-		return ""
-	}
-	r := strings.TrimPrefix(ref, "oci://")
-	if i := strings.Index(r, "@"); i >= 0 {
-		r = r[:i] // strip digest
-	}
-	// Strip a tag: a ':' in the final path segment (after the last '/'), so a
-	// registry port (localhost:5000/...) is never mistaken for a tag separator.
-	slash := strings.LastIndex(r, "/")
-	if colon := strings.LastIndex(r, ":"); colon > slash {
-		r = r[:colon]
-	}
-	if slash = strings.LastIndex(r, "/"); slash >= 0 {
-		return r[:slash]
-	}
-	return ""
+	return contract.OCIScheme + oci.PinRefToDigest(ref, digest)
 }
 
 // cachedGeneration is ONE cache entry read whole: the bundle bytes and the

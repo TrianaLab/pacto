@@ -67,7 +67,7 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		env = append(env, corev1ac.EnvVar().WithName(DockerConfigEnvVar).WithValue(RegistryMountPath))
 	}
 
-	res := cfg.Resources.BuildResources()
+	res := cfg.Resources.Build(DefaultResources())
 
 	container := corev1ac.Container().
 		WithName("evidence").

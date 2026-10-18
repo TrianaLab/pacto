@@ -1,5 +1,9 @@
 # GitOps promotion gates
 
+Make Flux or Argo CD stop the next rollout step when a service breaks its
+contract. Copy one snippet below and a `NonCompliant` Pacto turns the
+Kustomization unready or the Application Degraded.
+
 Nothing here blocks a deploy. By the time the operator has a verdict the pods
 are already serving. What these snippets buy is that **the next step stops**:
 the Kustomization goes unready, the dependent one never starts, the Argo
@@ -12,8 +16,8 @@ exactly this, and the two snippets below use it.
 
 ## Flux
 
-Flux decides health with kstatus, which recognises only `Ready`, `Reconciling`
-and `Stalled`. Pacto publishes `ContractValid`, `RuntimeObserved` and
+Flux decides health with kstatus, its built-in status reader, which recognises
+only the `Ready`, `Reconciling` and `Stalled` conditions. Pacto publishes `ContractValid`, `RuntimeObserved` and
 `ReadinessSatisfied`, so kstatus discards all three and the object falls through
 to `Current`: the gate looks configured and gates nothing.
 `spec.healthCheckExprs` (kustomize-controller v1.5.0, flux2 v2.5.0 and later)

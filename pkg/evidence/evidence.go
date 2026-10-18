@@ -69,9 +69,18 @@ type WorkloadObservation struct {
 type InterfaceObservation struct {
 	Type    string `json:"type"`
 	Present bool   `json:"present"` // AVAILABILITY / reachability (B1)
+	// Protocol is the wire protocol family a probe saw on the port; empty = not probed or no answer.
+	Protocol Protocol `json:"protocol,omitempty"`
+	// Exposure is how far the interface is reachable from; empty = unknown.
+	Exposure Exposure `json:"exposure,omitempty"`
 }
 type DependencyObservation struct {
 	Reachable bool `json:"reachable"`
+	// Version is the provider's deployed contract version; empty = unknown.
+	Version string `json:"version,omitempty"`
+	// Undeclared marks a peer the producer resolved to a Pacto-managed service that matches no declared
+	// dependency. Subject.Name then names that service, not a contract dependency.
+	Undeclared bool `json:"undeclared,omitempty"`
 }
 type ConfigurationObservation struct {
 	Present    bool `json:"present"`
@@ -79,6 +88,9 @@ type ConfigurationObservation struct {
 }
 type PersistenceObservation struct {
 	Durable bool `json:"durable"`
+	// Shared is true when one durable claim is mounted by more than one replica, false for per-replica
+	// claims or a single replica, nil when unknown.
+	Shared *bool `json:"shared,omitempty"`
 }
 
 // Observation is a single observed fact. Value holds the typed payload as raw JSON and is set iff
@@ -153,9 +165,25 @@ func (o Observation) validate() error {
 	return nil
 }
 
-// checkKind proves Value decodes as the payload type for Kind. Rejects EXTRA fields; a subset shape
-// (missing fields) is accepted.
+// verdictKeys lists the payload keys an Observed value must carry per kind. A missing or null key would
+// decode to the zero value and read as a confirmed negative (`{}` would become Present=false), so it is
+// rejected instead. ConfigurationPresent's conformant is only required when present is true: it is
+// meaningless for an absent configuration. Optional keys (protocol, version, shared...) stay optional.
+var verdictKeys = map[ObservationKind][]string{
+	CapabilityObserved:   {"present"},
+	WorkloadObserved:     {"type"},
+	InterfaceObserved:    {"type", "present"},
+	DependencyReachable:  {"reachable"},
+	ConfigurationPresent: {"present"},
+	PersistenceObserved:  {"durable"},
+}
+
+// checkKind proves Value decodes as the payload type for Kind. Rejects EXTRA fields and any payload that
+// omits a verdict-bearing key (verdictKeys).
 func (o Observation) checkKind() error {
+	if err := o.checkVerdictKeys(); err != nil {
+		return fmt.Errorf("value does not match kind %s: %w", o.Kind, err)
+	}
 	var err error
 	switch o.Kind {
 	case CapabilityObserved:
@@ -173,6 +201,23 @@ func (o Observation) checkKind() error {
 	}
 	if err != nil {
 		return fmt.Errorf("value does not match kind %s: %w", o.Kind, err)
+	}
+	return nil
+}
+
+func (o Observation) checkVerdictKeys() error {
+	var keys map[string]json.RawMessage
+	if err := json.Unmarshal(o.Value, &keys); err != nil {
+		return err
+	}
+	required := verdictKeys[o.Kind]
+	if o.Kind == ConfigurationPresent && string(keys["present"]) == "true" {
+		required = append(required, "conformant")
+	}
+	for _, k := range required {
+		if v, ok := keys[k]; !ok || string(v) == "null" {
+			return fmt.Errorf("missing required key %q", k)
+		}
 	}
 	return nil
 }
@@ -235,16 +280,28 @@ func NewWorkloadObserved(subject SubjectRef, wType string, prov Provenance) Obse
 		Value: mustMarshal(WorkloadObservation{Type: wType}), Provenance: prov}
 }
 
-// NewInterfaceObserved constructs an Observed interface observation.
+// NewInterfaceObserved constructs an Observed interface observation carrying availability only.
 func NewInterfaceObserved(subject SubjectRef, iType string, present bool, prov Provenance) Observation {
-	return Observation{Kind: InterfaceObserved, Subject: subject, Outcome: Observed,
-		Value: mustMarshal(InterfaceObservation{Type: iType, Present: present}), Provenance: prov}
+	return NewInterfaceObservation(subject, InterfaceObservation{Type: iType, Present: present}, prov)
 }
 
-// NewDependencyReachable constructs an Observed dependency observation.
+// NewInterfaceObservation constructs an Observed interface observation from a full payload, for producers
+// that also report Protocol or Exposure.
+func NewInterfaceObservation(subject SubjectRef, p InterfaceObservation, prov Provenance) Observation {
+	return Observation{Kind: InterfaceObserved, Subject: subject, Outcome: Observed,
+		Value: mustMarshal(p), Provenance: prov}
+}
+
+// NewDependencyReachable constructs an Observed dependency observation carrying reachability only.
 func NewDependencyReachable(subject SubjectRef, reachable bool, prov Provenance) Observation {
+	return NewDependencyObservation(subject, DependencyObservation{Reachable: reachable}, prov)
+}
+
+// NewDependencyObservation constructs an Observed dependency observation from a full payload, for
+// producers that also report Version or Undeclared.
+func NewDependencyObservation(subject SubjectRef, p DependencyObservation, prov Provenance) Observation {
 	return Observation{Kind: DependencyReachable, Subject: subject, Outcome: Observed,
-		Value: mustMarshal(DependencyObservation{Reachable: reachable}), Provenance: prov}
+		Value: mustMarshal(p), Provenance: prov}
 }
 
 // NewConfigurationPresent constructs an Observed configuration observation. When present is true,
@@ -254,10 +311,16 @@ func NewConfigurationPresent(subject SubjectRef, present bool, conformant bool, 
 		Value: mustMarshal(ConfigurationObservation{Present: present, Conformant: conformant}), Provenance: prov}
 }
 
-// NewPersistenceObserved constructs an Observed persistence observation.
+// NewPersistenceObserved constructs an Observed persistence observation carrying durability only.
 func NewPersistenceObserved(subject SubjectRef, durable bool, prov Provenance) Observation {
+	return NewPersistenceObservation(subject, PersistenceObservation{Durable: durable}, prov)
+}
+
+// NewPersistenceObservation constructs an Observed persistence observation from a full payload, for
+// producers that also report Shared.
+func NewPersistenceObservation(subject SubjectRef, p PersistenceObservation, prov Provenance) Observation {
 	return Observation{Kind: PersistenceObserved, Subject: subject, Outcome: Observed,
-		Value: mustMarshal(PersistenceObservation{Durable: durable}), Provenance: prov}
+		Value: mustMarshal(p), Provenance: prov}
 }
 
 // NewUnobserved builds a payload-less observation for any non-Observed outcome. Identity is carried on

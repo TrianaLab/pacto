@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1211,5 +1212,67 @@ func TestVerify_UsesEnvelopePackage(t *testing.T) {
 	}
 	if err := evidenceenvelope.Verify(env, ts, time.Now()); err != nil {
 		t.Fatalf("Verify: %v", err)
+	}
+}
+
+func TestSignEvidenceSetAndPostEnvelope(t *testing.T) {
+	svc := &Service{}
+	kp, err := svc.GenerateKey(t.TempDir(), "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := SignOptions{KeyPath: kp.PrivateKeyPath, KeyID: kp.KeyID, ProducerID: "agent", Sequence: 7}
+	env, err := svc.SignEvidenceSet(sampleEvidenceSet(), opts)
+	if err != nil || env.Sequence != 7 || len(env.Signature.Value) == 0 {
+		t.Fatalf("SignEvidenceSet = %+v, %v", env, err)
+	}
+	if _, err := svc.SignEvidenceSet(evidence.EvidenceSet{}, opts); err == nil {
+		t.Fatal("an invalid set was signed")
+	}
+
+	var got []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+	res, err := svc.PostEnvelope(context.Background(), srv.URL, env)
+	if err != nil || res.StatusCode != http.StatusAccepted {
+		t.Fatalf("PostEnvelope = %+v, %v", res, err)
+	}
+	if back, err := evidenceenvelope.Decode(got); err != nil || back.ID != env.ID {
+		t.Fatalf("posted %s: %v", got, err)
+	}
+	// An envelope whose evidence cannot encode is never posted.
+	env.EvidenceSet.Observations = []evidence.Observation{{Kind: "bogus"}}
+	if _, err := svc.PostEnvelope(context.Background(), srv.URL, env); err == nil {
+		t.Fatal("an unencodable envelope was posted")
+	}
+}
+
+// TestPostEnvelope_BoundedClient: the sender neither hangs on a host that never
+// answers nor reads an unbounded answer into memory.
+func TestPostEnvelope_BoundedClient(t *testing.T) {
+	if evidenceClient.Timeout == 0 {
+		t.Fatal("evidenceClient must carry a timeout")
+	}
+	big := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(bytes.Repeat([]byte("x"), maxSendResponse+10))
+	}))
+	defer big.Close()
+	res, err := postEnvelope(context.Background(), big.URL, []byte("{}"))
+	if err != nil || len(res.Body) != maxSendResponse {
+		t.Fatalf("body len = %d, err = %v; want %d", len(res.Body), err, maxSendResponse)
+	}
+
+	stall := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-stall }))
+	defer slow.Close()
+	defer close(stall)
+	old := evidenceClient
+	t.Cleanup(func() { evidenceClient = old })
+	evidenceClient = &http.Client{Timeout: 50 * time.Millisecond}
+	if _, err := postEnvelope(context.Background(), slow.URL, []byte("{}")); err == nil {
+		t.Fatal("want a timeout from a host that never answers")
 	}
 }

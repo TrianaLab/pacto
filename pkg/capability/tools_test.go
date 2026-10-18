@@ -2,7 +2,9 @@ package capability
 
 import (
 	"testing"
+	"testing/fstest"
 
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/openapi"
 )
 
@@ -164,4 +166,33 @@ func toStringSet(v any) map[string]bool {
 		}
 	}
 	return out
+}
+
+func TestToolsForContract(t *testing.T) {
+	spec := []byte("openapi: 3.0.0\ninfo: {title: t, version: '1'}\npaths:\n  /a:\n    get: {operationId: getA, responses: {'200': {description: ok}}}\n    post: {operationId: postA, responses: {'200': {description: ok}}}\n")
+	fsys := fstest.MapFS{"a.yaml": {Data: spec}, "b.yaml": {Data: spec}}
+	iface := func(name, typ, ref string) contract.Interface {
+		return contract.Interface{Name: name, Type: typ, Ref: ref}
+	}
+
+	one := ToolsForContract(&contract.Contract{Interfaces: []contract.Interface{
+		iface("api", contract.InterfaceTypeOpenAPI, "a.yaml"),
+		iface("rpc", contract.InterfaceTypeGRPC, "x.proto"),
+		iface("noref", contract.InterfaceTypeOpenAPI, ""),
+	}}, fsys, false)
+	if len(one) != 1 || len(one[0].Tools) != 1 || one[0].Tools[0].Name != "getA" || one[0].Doc == nil {
+		t.Fatalf("single interface: %+v", one)
+	}
+
+	many := ToolsForContract(&contract.Contract{Interfaces: []contract.Interface{
+		iface("a", contract.InterfaceTypeOpenAPI, "a.yaml"),
+		iface("b", contract.InterfaceTypeOpenAPI, "b.yaml"),
+		iface("gone", contract.InterfaceTypeOpenAPI, "missing.yaml"),
+	}}, fsys, true)
+	if len(many) != 3 || many[0].Tools[0].Name != "a_getA" || many[1].Tools[1].Name != "b_postA" {
+		t.Fatalf("prefixed names: %+v", many)
+	}
+	if many[2].Err == nil || many[2].Tools != nil {
+		t.Errorf("unreadable interface: want Err and no tools, got %+v", many[2])
+	}
 }

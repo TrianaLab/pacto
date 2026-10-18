@@ -1,6 +1,9 @@
 package finding
 
-import "testing"
+import (
+	"encoding/json"
+	"testing"
+)
 
 func TestFinding_Fields(t *testing.T) {
 	f := Finding{
@@ -36,5 +39,18 @@ func TestFinding_EvidenceRefs(t *testing.T) {
 	}
 	if f.EvidenceRefs[0].Source != "kubernetes" {
 		t.Errorf("source = %q, want kubernetes", f.EvidenceRefs[0].Source)
+	}
+}
+
+// An evidence ref with no matched observation must serialize exactly as it did before Collector and
+// DetectedAt existed.
+func TestEvidenceRef_ProvenanceOmittedWhenEmpty(t *testing.T) {
+	data, err := json.Marshal(EvidenceRef{Source: "k8s", ObservedAt: "2026-10-17T00:00:00Z"})
+	if err != nil || string(data) != `{"Source":"k8s","ObservedAt":"2026-10-17T00:00:00Z"}` {
+		t.Errorf("set-level ref = %s (%v)", data, err)
+	}
+	data, _ = json.Marshal(EvidenceRef{Source: "k8s", ObservedAt: "t", Collector: "ebpf", DetectedAt: "d"})
+	if string(data) != `{"Source":"k8s","ObservedAt":"t","Collector":"ebpf","DetectedAt":"d"}` {
+		t.Errorf("observation ref = %s", data)
 	}
 }

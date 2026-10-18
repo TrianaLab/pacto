@@ -10,7 +10,7 @@ import (
 )
 
 // ExampleEvaluate is the canonical "custom collector" flow shown in
-// docs/collectors.md: construct a Contract, have a collector produce a validated
+// docs/model.md: construct a Contract, have a collector produce a validated
 // EvidenceSet, then call the pure engine and inspect Findings + Coverage. It is a
 // compiled, run test (the // Output line is asserted by `go test`), so the
 // documentation snippet can never drift from an API that actually exists.

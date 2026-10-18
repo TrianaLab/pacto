@@ -1,13 +1,37 @@
 # External evidence
 
-The **external evidence protocol** lets environments that cannot be watched — edge sites, air-gapped estates, customer tenants, ephemeral CI runners — participate in the operational graph. A remote environment produces and signs a Pacto `EvidenceSet` and reports it outbound. The platform verifies the signature, evaluates the evidence and exposes the result as an operational target.
+Some environments cannot be watched from your platform: edge sites, air-gapped estates, customer tenants and short-lived CI runners. The **external evidence protocol** lets them report on themselves. The remote side signs a report and pushes it to you, and Pacto checks it against the contract.
 
-The protocol is one-directional: Pacto never dials into a remote environment. The remote side initiates contact and only pushes. Accepted evidence is stored by your contract registry as an OCI 1.1 referrer. There is no bucket, no PVC and no database — the Evidence Server is stateless.
+*Evidence* is what a tool saw in a running system. Pacto carries it in an `EvidenceSet`: a list of observations about one service. In Kubernetes the operator gathers evidence itself, and the optional node agent adds what the kernel saw on the network (see [runtime conformance](runtime-conformance.md)). This page covers evidence that arrives from outside.
+
+## Quick example
+
+The producer (the remote environment) makes a key, signs a report and sends it. The platform runs the receiving server.
+
+```bash
+# Producer: create a signing key bound to the producer "edge-eu-west".
+pacto evidence keygen --producer edge-eu-west --key-id edge-eu-west-2026
+
+# Producer: sign an EvidenceSet and send it.
+pacto evidence sign evidence.json --key edge-eu-west-2026.key \
+  --key-id edge-eu-west-2026 --producer edge-eu-west --sequence 1 > envelope.json
+pacto evidence send envelope.json --url https://pacto.example.com/api/evidence/v1/envelopes
+
+# Platform: accept reports about one exact contract revision.
+pacto evidence serve --trust ./trust \
+  --subject oci://registry.example.com/acme/payments-api@sha256:<digest>
+```
+
+Hand the `edge-eu-west__edge-eu-west-2026.pub` file to the platform and put it in `./trust`.
+
+## How it works
+
+Traffic goes one way. Pacto never connects to a remote environment; the remote side starts every request and only pushes. Accepted evidence is stored in your contract registry as an OCI 1.1 *referrer*: an artifact attached to the contract revision it is about. There is no bucket, no PVC and no database, so the Evidence Server keeps no state of its own.
 
 !!! warning "GHCR cannot host Pacto evidence"
     GitHub Container Registry does not serve the native OCI Referrers API, which the Evidence Server requires. GHCR works fine for contracts — only evidence needs the Referrers endpoint. Publish contracts you want to carry evidence to a conformant registry (zot, Docker Hub, Harbor, ECR, ACR, Artifactory).
 
-**Pacto does not sign OCI bundles.** What it signs is evidence envelopes: every envelope is Ed25519-signed and verified against a trust store before ingestion.
+**Pacto does not sign OCI bundles.** It signs evidence *envelopes*: the wrapper around one report. Every envelope is Ed25519-signed and checked against a trust store (the list of public keys you accept) before it is stored.
 
 ---
 
@@ -57,7 +81,28 @@ A full envelope on the wire:
 
 **Bounds.** An envelope is capped at **1 MiB** and may carry at most **10,000 observations**. Oversized payloads are refused before parsing. Decoding rejects unknown fields and requires `apiVersion`, `kind`, `id`, `producer.id` and `producer.keyId`.
 
+**Complete observation payloads.** An `Observed` observation must carry every verdict-bearing key for its kind, even when false: `present` (capability), `type` (workload), `type` and `present` (interface), `reachable` (dependency), `durable` (persistence) and `present` (configuration, plus `conformant` when `present` is `true`). A missing or `null` key is rejected, never read as a confirmed negative. Other keys, such as `protocol`, are optional.
+
 **Freshness and replay.** `issuedAt` and `expiresAt` bound the validity window. Verification rejects expired or not-yet-valid envelopes. A zero `expiresAt` disables the expiry check. Each producer stamps a strictly increasing `sequence`. Ingestion rejects a repeated `id` or a non-increasing `sequence`. Replay protection runs inside the serialized commit, over a duplicate-id set and a per-producer sequence maximum. Both are re-derived from the registry on every commit, so they survive process restarts.
+
+---
+
+## Producers that ship with Pacto
+
+You do not have to build an `EvidenceSet` yourself to use this protocol. Two
+Pacto commands observe a running service and send signed envelopes with the
+same `--evidence-url`, `--evidence-key`, `--evidence-key-id` and
+`--evidence-producer` flags:
+
+- [`pacto agent --sink evidence`](runtime-agent.md#sending-evidence) watches
+  every bound workload on a host and sends one envelope per workload each round.
+- [`pacto run --evidence-url ...`](runtime-run.md#send-the-result-to-your-platform)
+  sends one envelope per round about the command it wraps.
+
+Both sign with a 24-hour expiry and sequences that start at the wall clock in
+nanoseconds, so they keep increasing across restarts. Both need the contract
+pinned as `oci://...@sha256:<digest>`, which must also be one of the server's
+`--subject` values.
 
 ---
 

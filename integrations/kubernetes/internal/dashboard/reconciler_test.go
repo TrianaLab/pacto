@@ -116,19 +116,9 @@ func TestReconcile_Enabled_UpdatesExistingResources(t *testing.T) {
 	}
 
 	// Pre-create a deployment with an old image
-	oldDeploy := BuildDeployment(Config{
-		Enabled:   true,
-		Image:     "ghcr.io/trianalab/pacto/dashboard:0.24.0",
-		Namespace: "test-ns",
-	})
+	oldDeploy := managedDeployment("test-ns", "ghcr.io/trianalab/pacto/dashboard:0.24.0")
 
-	r := newReconciler(cfg,
-		BuildServiceAccount(cfg),
-		BuildClusterRole(),
-		BuildClusterRoleBinding(cfg),
-		oldDeploy,
-		BuildService(cfg),
-	)
+	r := newReconciler(cfg, append(managedRBAC("test-ns"), oldDeploy, managedService("test-ns"))...)
 	ctx := context.Background()
 
 	err := r.Sync(ctx)
@@ -152,13 +142,7 @@ func TestReconcile_DisabledAfterEnabled_CleansUp(t *testing.T) {
 	}
 
 	// Create resources as if dashboard was enabled
-	r := newReconciler(cfg,
-		BuildServiceAccount(cfg),
-		BuildClusterRole(),
-		BuildClusterRoleBinding(cfg),
-		BuildDeployment(cfg),
-		BuildService(cfg),
-	)
+	r := newReconciler(cfg, append(managedRBAC("test-ns"), managedDeployment("test-ns", cfg.Image), managedService("test-ns"))...)
 	ctx := context.Background()
 
 	// Now disable the dashboard
@@ -225,24 +209,18 @@ func TestReconcile_PreservesExternalLabelsAndAnnotations(t *testing.T) {
 	}
 
 	// Pre-create a deployment with external labels/annotations (e.g. from ArgoCD)
-	deploy := BuildDeployment(cfg)
+	deploy := managedDeployment("test-ns", cfg.Image)
 	deploy.Labels["argocd.argoproj.io/instance"] = "pacto"
 	deploy.Annotations = map[string]string{
 		"argocd.argoproj.io/tracking-id": "some-tracking-id",
 	}
 
-	svc := BuildService(cfg)
+	svc := managedService("test-ns")
 	svc.Annotations = map[string]string{
 		"external.io/managed": "true",
 	}
 
-	r := newReconciler(cfg,
-		BuildServiceAccount(cfg),
-		BuildClusterRole(),
-		BuildClusterRoleBinding(cfg),
-		deploy,
-		svc,
-	)
+	r := newReconciler(cfg, append(managedRBAC("test-ns"), deploy, svc)...)
 	ctx := context.Background()
 
 	err := r.Sync(ctx)
@@ -536,14 +514,7 @@ func TestReconcile_Cleanup_IncludesManagedSecret(t *testing.T) {
 			Labels:    Labels(),
 		},
 	}
-	r := newReconciler(cfg,
-		BuildServiceAccount(cfg),
-		BuildClusterRole(),
-		BuildClusterRoleBinding(cfg),
-		BuildDeployment(cfg),
-		BuildService(cfg),
-		managedSecret,
-	)
+	r := newReconciler(cfg, append(managedRBAC("test-ns"), managedDeployment("test-ns", cfg.Image), managedService("test-ns"), managedSecret)...)
 	ctx := context.Background()
 
 	// Disable and reconcile
@@ -558,5 +529,38 @@ func TestReconcile_Cleanup_IncludesManagedSecret(t *testing.T) {
 	err = r.Get(ctx, client.ObjectKey{Namespace: "test-ns", Name: ManagedSecretName}, s)
 	if !apierrors.IsNotFound(err) {
 		t.Error("expected managed secret to be cleaned up on disable")
+	}
+}
+
+// managedRBAC, managedDeployment and managedService are the dashboard's objects as an earlier sync left
+// them, for tests that start from an installed dashboard.
+func managedRBAC(ns string) []client.Object {
+	return []client.Object{
+		&corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: Name, Namespace: ns, Labels: Labels()}},
+		&rbacv1.ClusterRole{ObjectMeta: metav1.ObjectMeta{Name: Name, Labels: Labels()}},
+		&rbacv1.ClusterRoleBinding{
+			ObjectMeta: metav1.ObjectMeta{Name: Name, Labels: Labels()},
+			RoleRef:    rbacv1.RoleRef{APIGroup: rbacv1.GroupName, Kind: "ClusterRole", Name: Name},
+		},
+	}
+}
+
+func managedDeployment(ns, image string) *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: Name, Namespace: ns, Labels: Labels()},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{MatchLabels: SelectorLabels()},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: SelectorLabels()},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "dashboard", Image: image}}},
+			},
+		},
+	}
+}
+
+func managedService(ns string) *corev1.Service {
+	return &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: Name, Namespace: ns, Labels: Labels()},
+		Spec:       corev1.ServiceSpec{Selector: SelectorLabels(), Ports: []corev1.ServicePort{{Port: DashboardPort}}},
 	}
 }

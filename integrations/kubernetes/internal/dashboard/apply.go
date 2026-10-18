@@ -122,7 +122,7 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		)
 	}
 
-	res := cfg.Resources.BuildResources()
+	res := cfg.Resources.Build(DefaultResources())
 
 	container := corev1ac.Container().
 		WithName("dashboard").

@@ -205,7 +205,7 @@ func TestCleanup_GetNonNotFoundError(t *testing.T) {
 func TestCleanup_DeleteError(t *testing.T) {
 	cfg := Config{Enabled: false, Namespace: "test-ns"}
 	// Pre-create a managed service so cleanup will try to delete it
-	svc := BuildService(Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"})
+	svc := managedService("test-ns")
 
 	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
 		Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
@@ -395,7 +395,7 @@ func TestStart_Enabled_TickerReconcileError(t *testing.T) {
 func TestReconcile_Disabled_CleanupError(t *testing.T) {
 	cfg := Config{Enabled: false, Namespace: "test-ns"}
 	// Create a managed deployment so cleanup will attempt to get/delete it
-	deploy := BuildDeployment(Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"})
+	deploy := managedDeployment("test-ns", "img:v1")
 
 	r := newReconcilerWithInterceptors(cfg, interceptor.Funcs{
 		Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {

@@ -62,6 +62,22 @@ func TestRangeContains(t *testing.T) {
 	}
 }
 
+func TestRangeCheck(t *testing.T) {
+	r, err := contract.ParseRange("^1.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := r.Check("1.3.0"); !ok || err != nil {
+		t.Errorf("Check(1.3.0) = %v, %v; want true, nil", ok, err)
+	}
+	if ok, err := r.Check("2.0.0"); ok || err != nil {
+		t.Errorf("Check(2.0.0) = %v, %v; want false, nil", ok, err)
+	}
+	if ok, err := r.Check("not-a-version"); ok || err == nil {
+		t.Errorf("Check(not-a-version) = %v, %v; want false and an error", ok, err)
+	}
+}
+
 func TestRange_String(t *testing.T) {
 	r, err := contract.ParseRange("^2.0.0")
 	if err != nil {

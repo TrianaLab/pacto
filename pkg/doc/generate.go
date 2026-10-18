@@ -149,7 +149,7 @@ func writeSnapshotSummary(b *strings.Builder, d *contractview.ServiceDetails) {
 		fmt.Fprintln(b, "| Field | Value |")
 		fmt.Fprintln(b, "|-------|-------|")
 		for _, r := range rows {
-			fmt.Fprintf(b, "| **%s** | `%s` |\n", r[0], escapeMarkdownCell(r[1]))
+			fmt.Fprintf(b, "| **%s** | `%s` |\n", r[0], EscapeMarkdownCell(r[1]))
 		}
 		fmt.Fprintln(b)
 	}
@@ -213,7 +213,7 @@ func writeKV(b *strings.Builder, k, v string) {
 	if v == "" {
 		return
 	}
-	fmt.Fprintf(b, "| **%s** | `%s` |\n", k, escapeMarkdownCell(v))
+	fmt.Fprintf(b, "| **%s** | `%s` |\n", k, EscapeMarkdownCell(v))
 }
 
 // ── 2 Architecture (Mermaid) ──────────────────────────────────────────
@@ -445,10 +445,7 @@ func sanitizeMermaidID(s string) string {
 // non-canonical digest) fall back to the ref itself rather than a second
 // hand-rolled split.
 func depName(ref string) string {
-	body := strings.TrimPrefix(ref, "oci://")
-	if i := strings.Index(body, "@"); i != -1 {
-		body = body[:i]
-	}
+	body, _ := contract.SplitOCIDigest(contract.TrimOCIScheme(ref))
 	if r, err := contract.ParseOCIReference(body); err == nil {
 		return path.Base(r.Repository)
 	}
@@ -527,7 +524,7 @@ func writeConfigList(b *strings.Builder, configs []contractview.ConfigurationInf
 			fmt.Fprintf(b, "_%s_\n\n", name)
 		}
 		if cfg.Ref != "" {
-			fmt.Fprintf(b, "References: `%s`\n\n", escapeMarkdownCell(cfg.Ref))
+			fmt.Fprintf(b, "References: `%s`\n\n", EscapeMarkdownCell(cfg.Ref))
 			continue
 		}
 		if len(cfg.Values) == 0 {
@@ -538,7 +535,7 @@ func writeConfigList(b *strings.Builder, configs []contractview.ConfigurationInf
 		fmt.Fprintln(b, "| Property | Type | Value |")
 		fmt.Fprintln(b, "|----------|------|-------|")
 		for _, p := range cfg.Values {
-			fmt.Fprintf(b, "| `%s` | `%s` | `%s` |\n", escapeMarkdownCell(p.Key), escapeMarkdownCell(p.Type), escapeMarkdownCell(p.Value))
+			fmt.Fprintf(b, "| `%s` | `%s` | `%s` |\n", EscapeMarkdownCell(p.Key), EscapeMarkdownCell(p.Type), EscapeMarkdownCell(p.Value))
 		}
 		fmt.Fprintln(b)
 	}
@@ -555,9 +552,9 @@ func writePolicies(b *strings.Builder, d *contractview.ServiceDetails, num *sect
 	fmt.Fprintln(b, "|------|------|--------|")
 	for _, p := range d.Policies {
 		if p.Ref != "" {
-			fmt.Fprintf(b, "| `%s` | Remote | `%s` |\n", p.Name, escapeMarkdownCell(p.Ref))
+			fmt.Fprintf(b, "| `%s` | Remote | `%s` |\n", p.Name, EscapeMarkdownCell(p.Ref))
 		} else {
-			fmt.Fprintf(b, "| `%s` | Local | `%s` |\n", p.Name, escapeMarkdownCell(p.Schema))
+			fmt.Fprintf(b, "| `%s` | Local | `%s` |\n", p.Name, EscapeMarkdownCell(p.Schema))
 		}
 	}
 	fmt.Fprintln(b)
@@ -585,7 +582,7 @@ func writeDependencyTable(b *strings.Builder, deps []contractview.DependencyInfo
 			req = "Yes"
 		}
 		fmt.Fprintf(b, "| `%s` | `%s` | %s | %s | %s | %s | %s |\n",
-			escapeMarkdownCell(dep.Name), escapeMarkdownCell(dep.Ref), dash(dep.Compatibility),
+			EscapeMarkdownCell(dep.Name), EscapeMarkdownCell(dep.Ref), dash(dep.Compatibility),
 			req, dash(dep.LockedVersion), dash(dep.LockedDigest), dash(dep.DriftStatus))
 	}
 	fmt.Fprintln(b)
@@ -654,7 +651,7 @@ func writeReadiness(b *strings.Builder, d *contractview.ServiceDetails, num *sec
 	fmt.Fprintf(b, "## %s. Readiness\n\n", num.Next(1))
 	fmt.Fprintf(b, "Score `%d/100` · gate `%d`", r.Score, r.MinScore)
 	if r.Expires != "" {
-		fmt.Fprintf(b, " · expires `%s`", escapeMarkdownCell(r.Expires))
+		fmt.Fprintf(b, " · expires `%s`", EscapeMarkdownCell(r.Expires))
 	}
 	fmt.Fprintln(b)
 	fmt.Fprintln(b)
@@ -664,8 +661,8 @@ func writeReadiness(b *strings.Builder, d *contractview.ServiceDetails, num *sec
 		fmt.Fprintln(b, "|----|------|----------|--------|----------|-------:|-------------|")
 		for _, ch := range r.Checks {
 			fmt.Fprintf(b, "| `%s` | `%s` | %s | `%s` | %s | %d | %s |\n",
-				escapeMarkdownCell(ch.ID), escapeMarkdownCell(ch.Type), dash(ch.Category),
-				escapeMarkdownCell(ch.Status), dash(ch.Evidence), ch.Weight, dashText(ch.Description))
+				EscapeMarkdownCell(ch.ID), EscapeMarkdownCell(ch.Type), dash(ch.Category),
+				EscapeMarkdownCell(ch.Status), dash(ch.Evidence), ch.Weight, dashText(ch.Description))
 		}
 		fmt.Fprintln(b)
 	}
@@ -677,8 +674,8 @@ func writeReadiness(b *strings.Builder, d *contractview.ServiceDetails, num *sec
 		fmt.Fprintln(b, "|------|---------|--------|-------------|")
 		for _, rev := range r.Revisions {
 			fmt.Fprintf(b, "| `%s` | `%s` | %s | %s |\n",
-				escapeMarkdownCell(rev.Date), escapeMarkdownCell(rev.Version),
-				escapeMarkdownCell(rev.Author), dashText(rev.Description))
+				EscapeMarkdownCell(rev.Date), EscapeMarkdownCell(rev.Version),
+				EscapeMarkdownCell(rev.Author), dashText(rev.Description))
 		}
 		fmt.Fprintln(b)
 	}
@@ -695,7 +692,7 @@ func writeSBOM(b *strings.Builder, d *contractview.ServiceDetails, num *sectionN
 	fmt.Fprintln(b, "| Package | Version | License | Supplier |")
 	fmt.Fprintln(b, "|---------|---------|---------|----------|")
 	for _, p := range d.SBOM.Packages {
-		fmt.Fprintf(b, "| `%s` | `%s` | %s | %s |\n", escapeMarkdownCell(p.Name), escapeMarkdownCell(p.Version), dash(p.License), dash(p.Supplier))
+		fmt.Fprintf(b, "| `%s` | `%s` | %s | %s |\n", EscapeMarkdownCell(p.Name), EscapeMarkdownCell(p.Version), dash(p.License), dash(p.Supplier))
 	}
 	fmt.Fprintln(b)
 }
@@ -708,13 +705,13 @@ func writeLockfile(b *strings.Builder, d *contractview.ServiceDetails, num *sect
 	}
 	fmt.Fprintf(b, "## %s. Lockfile\n\n", num.Next(1))
 	if d.Lock.RootDigest != "" {
-		fmt.Fprintf(b, "Root digest: `%s`\n\n", escapeMarkdownCell(d.Lock.RootDigest))
+		fmt.Fprintf(b, "Root digest: `%s`\n\n", EscapeMarkdownCell(d.Lock.RootDigest))
 	}
 	if len(d.Lock.Dependencies) > 0 {
 		fmt.Fprintln(b, "| Dependency | Version | Digest |")
 		fmt.Fprintln(b, "|------------|---------|--------|")
 		for _, l := range d.Lock.Dependencies {
-			fmt.Fprintf(b, "| `%s` | `%s` | `%s` |\n", escapeMarkdownCell(l.Name), escapeMarkdownCell(l.Version), escapeMarkdownCell(l.Digest))
+			fmt.Fprintf(b, "| `%s` | `%s` | `%s` |\n", EscapeMarkdownCell(l.Name), EscapeMarkdownCell(l.Version), EscapeMarkdownCell(l.Digest))
 		}
 		fmt.Fprintln(b)
 	}
@@ -722,7 +719,7 @@ func writeLockfile(b *strings.Builder, d *contractview.ServiceDetails, num *sect
 		fmt.Fprintln(b, "| Reference | Kind | Version | Digest |")
 		fmt.Fprintln(b, "|-----------|------|---------|--------|")
 		for _, l := range d.Lock.References {
-			fmt.Fprintf(b, "| `%s` | `%s` | `%s` | `%s` |\n", escapeMarkdownCell(l.Name), escapeMarkdownCell(l.Kind), escapeMarkdownCell(l.Version), escapeMarkdownCell(l.Digest))
+			fmt.Fprintf(b, "| `%s` | `%s` | `%s` | `%s` |\n", EscapeMarkdownCell(l.Name), EscapeMarkdownCell(l.Kind), EscapeMarkdownCell(l.Version), EscapeMarkdownCell(l.Digest))
 		}
 		fmt.Fprintln(b)
 	}
@@ -766,12 +763,12 @@ func writeMetadataFooter(b *strings.Builder, d *contractview.ServiceDetails) {
 
 // ── shared cell helpers ────────────────────────────────────────────────
 
-// escapeMarkdownCell escapes characters that would corrupt a Markdown table
-// cell that wraps user-controlled text in a code span. GitHub-flavored Markdown
-// resolves these backslash escapes inside table cells before code-span parsing,
-// so a backtick no longer terminates the span early and a pipe no longer splits
-// the cell into extra columns.
-func escapeMarkdownCell(s string) string {
+// EscapeMarkdownCell escapes the two characters that corrupt a Markdown table
+// cell wrapping contract-controlled text in a code span: a backtick terminates
+// the span early and a pipe splits the cell into extra columns. GitHub-flavored
+// Markdown resolves these backslash escapes inside table cells before code-span
+// parsing. `pacto diff --output-format markdown` escapes through here too.
+func EscapeMarkdownCell(s string) string {
 	s = strings.ReplaceAll(s, "`", "\\`")
 	s = strings.ReplaceAll(s, "|", "\\|")
 	return s
@@ -782,15 +779,19 @@ func dash(s string) string {
 	if s == "" {
 		return "—"
 	}
-	return "`" + escapeMarkdownCell(s) + "`"
+	return "`" + EscapeMarkdownCell(s) + "`"
 }
 
-// dashText renders free-form text (no code span), or an em-dash when empty.
+// dashText renders free-form text (no code span) for a table cell, or an
+// em-dash when empty. A pipe would split the cell and a line break would end
+// the row, so the one is escaped and the other folded into a space; backticks
+// stay, because in free text they are the author's own code spans.
 func dashText(s string) string {
 	if s == "" {
 		return "—"
 	}
-	return s
+	s = strings.ReplaceAll(s, "|", "\\|")
+	return strings.Join(strings.Fields(strings.ReplaceAll(s, "\r", "")), " ")
 }
 
 func capitalizeFirst(s string) string {

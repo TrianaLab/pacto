@@ -218,3 +218,13 @@ func (c *k8sGoClient) CountResources(ctx context.Context, resource, namespace st
 	}
 	return 0, err
 }
+
+// NewDynamic returns a dynamic client from in-cluster config or the ambient
+// kubeconfig, for writers such as the `pacto agent` Kubernetes sink.
+func NewDynamic() (dynamic.Interface, error) {
+	config, err := buildK8sConfig()
+	if err != nil {
+		return nil, fmt.Errorf("loading kubeconfig: %w", err)
+	}
+	return newDynamicForConfig(config)
+}

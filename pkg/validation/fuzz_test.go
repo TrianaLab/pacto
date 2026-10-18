@@ -4,6 +4,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/trianalab/pacto/v3/pkg/contract"
 )
 
 // FuzzValidCapabilityPath proves INV-6 path normalization is total and SSRF-safe.
@@ -21,7 +23,7 @@ func FuzzValidCapabilityPath(f *testing.F) {
 	}
 	const trusted = "svc.ns.svc:8080"
 	f.Fuzz(func(t *testing.T, path string) {
-		ok := validCapabilityPath(path) // must not panic
+		ok := contract.ValidCapabilityPath(path) // must not panic
 
 		// SSRF invariant: authority stays trusted for any path.
 		u := url.URL{Scheme: "http", Host: trusted, Path: path}

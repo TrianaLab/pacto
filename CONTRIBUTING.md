@@ -1,6 +1,12 @@
 # Contributing to Pacto
 
-Thank you for your interest in contributing to Pacto! This guide will help you get started.
+Thanks for helping. This guide gets you from a fresh clone to a merged pull request. The short version:
+
+1. Fork, clone and run `make build`.
+2. Make your change, with tests (coverage must stay at 100%).
+3. Run `make ci` before you push.
+4. Title the pull request `type: description`, for example `fix: handle empty refs`.
+5. Add a changeset (`npx changeset`) if users will notice the change.
 
 ## Code of Conduct
 
@@ -51,7 +57,7 @@ To build and test the Go engine:
    make ci
    ```
 
-   This runs the same gates GitHub Actions runs on a pull request: formatting, vetting, cyclomatic complexity and linting. It also runs unit tests at 100% total coverage, the CLI integration suite, the frontend suite, the operator's envtest suite and the chart gates. **Always run `make ci` before pushing** to catch issues early. The kind, Compose and browser acceptances are not part of it; they need a Docker daemon and run in their own CI jobs.
+   This runs the same checks as a pull request in GitHub Actions: formatting, vet, complexity, lint, unit tests at 100% coverage, the CLI integration suite, the frontend suite, the operator tests and the chart checks. **Run it before every push.** The kind, Compose and browser tests need Docker and run in their own CI jobs.
 
    Individual targets:
 
@@ -76,18 +82,22 @@ To build and test the Go engine:
    make e2e-dashboard-kind          # kind: dashboard enabled/disabled lifecycle, no crashloop
    make e2e-evidence-kind           # kind: operator-managed Evidence Server + real in-cluster ingestion
    make e2e-upgrade-kind            # kind: real v4 -> v5 chart + CRD migration
+   make e2e-runtime-conformance-kind # kind: eBPF node agent + runtime conformance of every contract field
+   make e2e-runtime-docker          # Docker: host agent judging labelled containers with eBPF
+   make e2e-runtime-run             # Docker: pacto run, privileged (eBPF) and unprivileged (/proc)
    ```
 
-   The `-kind` scenarios each self-provision a kind cluster (reused via
+   [kind](https://kind.sigs.k8s.io/) runs a throwaway Kubernetes cluster inside
+   Docker. The `-kind` scenarios each create one (reused via
    `KIND_CLUSTER`) and, on failure, dump cluster diagnostics before exiting. To
    keep a failed cluster and its namespace for inspection instead of tearing it
    down, set `KEEP_E2E_CLUSTER=1` (e.g. `KEEP_E2E_CLUSTER=1 make e2e-reconcile-kind`).
+   `make e2e-runtime-conformance-kind-up` leaves the eBPF node agent scenario
+   running the same way, with `-status`, `-logs` and `-down` beside it.
 
-   **Test the whole product locally.** One command brings up a fully-configured
-   install: operator, dashboard, Evidence Server and an in-cluster registry, with
-   reconciled Pacto CRs (including a declared dependency edge) and a signed
-   EvidenceEnvelope ingested as an external target. It leaves the cluster running
-   so you can click through the Operational Graph and Impact in a browser:
+   **Test the whole product locally.** One command installs the operator,
+   dashboard, Evidence Server and a registry with sample contracts, and leaves
+   the cluster running so you can click through it in a browser:
 
    ```bash
    make e2e-operational-graph-up      # bring it up and leave it running (prints how to reach the dashboard)

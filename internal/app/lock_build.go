@@ -37,7 +37,7 @@ func (s *Service) buildLock(ctx context.Context, ref string, bundle *contract.Bu
 
 	l := &lock.Lock{
 		LockVersion: lock.CurrentLockVersion,
-		Pacto:       lock.PactoInfo{Version: BuildVersion},
+		Pacto:       lock.PactoInfo{Version: s.buildVersion()},
 		Root:        lock.RootInfo{Name: bundle.Contract.Service.Name, Version: bundle.Contract.Service.Version},
 	}
 

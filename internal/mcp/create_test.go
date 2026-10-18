@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"maps"
@@ -11,7 +12,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"testing/fstest"
 
 	"github.com/trianalab/pacto/v3/internal/app"
 	"github.com/trianalab/pacto/v3/internal/testutil"
@@ -2103,9 +2103,8 @@ func TestBuildBundleFSForValidation_WalkDirErrorsSkipped(t *testing.T) {
 		Interfaces:     []contract.Interface{{Name: "new-api", Type: "openapi", Ref: "interfaces/new-api.yaml"}},
 		Configurations: []contract.Configuration{{Name: "default", Schema: "configuration/schema.json"}},
 	}
-	result := buildBundleFSForValidation(dir, []byte("test"), c)
+	mapFS := buildBundleFSForValidation(dir, []byte("test"), c)
 	// Should have stub for new interface and config
-	mapFS := result.(fstest.MapFS)
 	if _, ok := mapFS["interfaces/new-api.yaml"]; !ok {
 		t.Error("expected stub for new interface")
 	}
@@ -2570,5 +2569,204 @@ func TestCreateTool_AsyncAPIRoundTrips(t *testing.T) {
 	}
 	if !check.Valid {
 		t.Errorf("re-reading the created bundle is invalid: %+v", check.Errors)
+	}
+}
+
+// TestEdit_AddConfigProperties_WritesAndMergesSchema pins the fix for
+// add_config_properties declaring a configuration and dropping the properties:
+// they land in configuration/schema.json, and a second edit merges rather than
+// replaces.
+func TestEdit_AddConfigProperties_WritesAndMergesSchema(t *testing.T) {
+	dir := testutil.WriteTestBundle(t)
+	if _, err := Edit(EditInput{Path: dir, AddConfigProperties: []ConfigProperty{{Name: "PORT", Type: "integer", Required: true}}}); err != nil {
+		t.Fatalf("first edit: %v", err)
+	}
+	if _, err := Edit(EditInput{Path: dir, AddConfigProperties: []ConfigProperty{{Name: "LOG_LEVEL"}, {Name: "PORT", Type: "integer", Required: true}}}); err != nil {
+		t.Fatalf("second edit: %v", err)
+	}
+	var schema struct {
+		Properties map[string]map[string]any `json:"properties"`
+		Required   []string                  `json:"required"`
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "configuration", "schema.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &schema); err != nil {
+		t.Fatal(err)
+	}
+	if schema.Properties["PORT"]["type"] != "integer" || schema.Properties["LOG_LEVEL"]["type"] != "string" {
+		t.Errorf("properties = %v, want PORT and LOG_LEVEL", schema.Properties)
+	}
+	if len(schema.Required) != 1 || schema.Required[0] != "PORT" {
+		t.Errorf("required = %v, want [PORT] once", schema.Required)
+	}
+	res, err := Check(context.Background(), nil, dir)
+	if err != nil || !res.Valid {
+		t.Fatalf("edited bundle must stay valid: %+v %v", res, err)
+	}
+}
+
+func TestEdit_AddConfigProperties_DryRunWritesNothing(t *testing.T) {
+	dir := testutil.WriteTestBundle(t)
+	if _, err := Edit(EditInput{Path: dir, DryRun: true, AddConfigProperties: []ConfigProperty{{Name: "PORT"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "configuration")); !os.IsNotExist(err) {
+		t.Errorf("dry run wrote the schema: %v", err)
+	}
+}
+
+func TestEdit_AddConfigProperties_SchemaWriteFailuresLeavePactoYAML(t *testing.T) {
+	for name, fail := range map[string]func(*testing.T){
+		"mkdir": func(t *testing.T) {
+			old := osMkdirAll
+			t.Cleanup(func() { osMkdirAll = old })
+			osMkdirAll = func(p string, m os.FileMode) error {
+				if strings.Contains(p, "configuration") {
+					return fmt.Errorf("mkdir denied")
+				}
+				return old(p, m)
+			}
+		},
+		"write": func(t *testing.T) {
+			old := osWriteFile
+			t.Cleanup(func() { osWriteFile = old })
+			osWriteFile = func(p string, d []byte, m os.FileMode) error {
+				if strings.Contains(p, "schema.json") {
+					return fmt.Errorf("disk full")
+				}
+				return old(p, d, m)
+			}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := testutil.WriteTestBundle(t)
+			before, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+			fail(t)
+			if _, err := Edit(EditInput{Path: dir, AddConfigProperties: []ConfigProperty{{Name: "PORT"}}}); err == nil {
+				t.Fatal("expected an error")
+			}
+			after, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+			if !bytes.Equal(before, after) {
+				t.Error("pacto.yaml changed although the schema was never written")
+			}
+		})
+	}
+}
+
+func TestMergeConfigSchema(t *testing.T) {
+	cfg := func(schema any) map[string]any {
+		return map[string]any{"configurations": []any{"not-a-map", map[string]any{"name": "default", "schema": schema}}}
+	}
+	props := []ConfigProperty{{Name: "PORT", Type: "integer", Required: true}}
+	dir := t.TempDir()
+	for name, m := range map[string]map[string]any{
+		"no schema":       cfg(nil),
+		"escaping schema": cfg("../outside.json"),
+		"no configs":      {},
+	} {
+		if _, _, err := mergeConfigSchema(dir, m, props); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
+	}
+}
+
+func TestMergeConfigSchema_ExistingSchemas(t *testing.T) {
+	cfg := func(schema any) map[string]any {
+		return map[string]any{"configurations": []any{map[string]any{"name": "default", "schema": schema}}}
+	}
+	props := []ConfigProperty{{Name: "PORT", Type: "integer", Required: true}}
+	dir := t.TempDir()
+	write := func(name, data string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(data), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("bad.json", "not json")
+	write("null.json", "null")
+	if err := os.Mkdir(filepath.Join(dir, "adir.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{"bad.json", "null.json", "adir.json"} {
+		if _, _, err := mergeConfigSchema(dir, cfg(rel), props); err == nil {
+			t.Errorf("%s: expected an error", rel)
+		}
+	}
+
+	// An existing schema keeps its own keys, gets PORT replaced and PORT required once.
+	write("s.json", `{"type":"object","title":"keep","properties":{"PORT":{"type":"string"},"HOST":{"type":"string"}},"required":["HOST"]}`)
+	_, data, err := mergeConfigSchema(dir, cfg("s.json"), props)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	p := got["properties"].(map[string]any)
+	if got["title"] != "keep" || p["HOST"] == nil || p["PORT"].(map[string]any)["type"] != "integer" {
+		t.Errorf("merged = %s", data)
+	}
+	if fmt.Sprint(got["required"]) != "[HOST PORT]" {
+		t.Errorf("required = %v", got["required"])
+	}
+
+	// A schema with no properties or required gains them.
+	write("bare.json", `{"type":"object"}`)
+	if _, data, err = mergeConfigSchema(dir, cfg("bare.json"), []ConfigProperty{{Name: "X"}}); err != nil || !strings.Contains(string(data), `"X"`) || strings.Contains(string(data), "required") {
+		t.Errorf("bare merge = %s, %v", data, err)
+	}
+}
+
+func TestAtomicWriteFile_UniqueTempPreservesModeAndCleansUp(t *testing.T) {
+	dir := t.TempDir()
+	if err := atomicWriteFile(filepath.Join(dir, "missing", "f"), []byte("x"), 0o644); err == nil {
+		t.Error("expected CreateTemp to fail in a missing directory")
+	}
+
+	target := filepath.Join(dir, "f")
+	if err := os.WriteFile(target, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := atomicWriteFile(target, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(target); fi.Mode().Perm() != 0o600 {
+		t.Errorf("mode = %v, want the existing 0600 kept", fi.Mode().Perm())
+	}
+	fresh := filepath.Join(dir, "g")
+	if err := atomicWriteFile(fresh, []byte("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if fi, _ := os.Stat(fresh); fi.Mode().Perm() != 0o644 {
+		t.Errorf("mode = %v, want 0644 for a new file", fi.Mode().Perm())
+	}
+
+	old := osRename
+	t.Cleanup(func() { osRename = old })
+	osRename = func(string, string) error { return fmt.Errorf("rename failed") }
+	if err := atomicWriteFile(target, []byte("x"), 0o644); err == nil {
+		t.Fatal("expected the rename error")
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".pacto-tmp-") {
+			t.Errorf("temp file %s left behind", e.Name())
+		}
+	}
+}
+
+func TestEdit_AddConfigProperties_UnreadableSchemaFails(t *testing.T) {
+	dir := testutil.WriteTestBundle(t)
+	if err := os.MkdirAll(filepath.Join(dir, "configuration"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "configuration", "schema.json"), []byte("not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Edit(EditInput{Path: dir, AddConfigProperties: []ConfigProperty{{Name: "PORT"}}}); err == nil {
+		t.Fatal("expected an error for a schema that is not JSON")
 	}
 }

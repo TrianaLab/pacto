@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/trianalab/pacto/v3/pkg/contract"
+
 	"github.com/trianalab/pacto/v3/internal/k8sclient"
 	"github.com/trianalab/pacto/v3/pkg/finding"
 	"github.com/trianalab/pacto/v3/pkg/fleet"
@@ -71,21 +73,20 @@ func ContractRefs(ctx context.Context, client k8sclient.K8sClient, namespace str
 // the repository. A ':' is only a tag separator in the final path segment, so a
 // registry port (localhost:5000/svc) survives.
 func repoFromRef(ref string) string {
+	// The last '@' and never a leading one: a leading '@' is not a digest
+	// separator, which is the one place this differs from contract.SplitOCIRef.
 	if i := strings.LastIndex(ref, "@"); i > 0 {
 		ref = ref[:i]
 	}
-	slash := strings.LastIndex(ref, "/")
-	if colon := strings.LastIndex(ref, ":"); colon > slash {
-		return ref[:colon]
-	}
-	return ref
+	repo, _, _ := contract.SplitOCITag(ref)
+	return repo
 }
 
 // ID implements [fleet.Source].
 func (s *K8sSource) ID() string { return s.id }
 
 // Kind implements [fleet.Source].
-func (s *K8sSource) Kind() string { return "kubernetes" }
+func (s *K8sSource) Kind() string { return fleet.SourceKindKubernetes }
 
 // Collect discovers the Pacto CRD, lists its resources in the configured
 // namespace, and projects each into a target. A cluster with no Pacto CRD
@@ -146,8 +147,8 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 		// cache sources derive it, so a service's runtime target correlates with its
 		// published baseline (same registry+org → same logical service) instead of
 		// splitting into a k8s-only and an OCI-only service.
-		Domain:          OciDomain(resolvedRef),
-		Kind:            "kubernetes",
+		Domain:          contract.OCIDomain(resolvedRef),
+		Kind:            fleet.SourceKindKubernetes,
 		Name:            item.Metadata.Name,
 		Service:         service,
 		ResolvedRef:     resolvedRef,
@@ -171,10 +172,8 @@ func (s *K8sSource) targetFrom(item k8sItem) fleet.RawTarget {
 // digestFromRef extracts the @sha256:... digest from a resolved OCI ref, or ""
 // when the ref carries no digest.
 func digestFromRef(ref string) string {
-	if i := strings.Index(ref, "@"); i >= 0 {
-		return ref[i+1:]
-	}
-	return ""
+	_, digest := contract.SplitOCIDigest(ref)
+	return digest
 }
 
 // parseK8sTime parses an RFC3339 timestamp, returning nil when absent or
@@ -200,7 +199,7 @@ func findingsFromK8s(in []k8sFinding) []finding.Finding {
 	for _, f := range in {
 		var refs []finding.EvidenceRef
 		for _, r := range f.EvidenceRefs {
-			refs = append(refs, finding.EvidenceRef{Source: r.Source, ObservedAt: r.ObservedAt})
+			refs = append(refs, finding.EvidenceRef{Source: r.Source, ObservedAt: r.ObservedAt, Collector: r.Collector, DetectedAt: r.DetectedAt})
 		}
 		out = append(out, finding.Finding{
 			Code:         finding.Code(f.Code),
@@ -289,4 +288,6 @@ type k8sFinding struct {
 type k8sEvidenceRef struct {
 	Source     string `json:"source"`
 	ObservedAt string `json:"observedAt"`
+	Collector  string `json:"collector"`
+	DetectedAt string `json:"detectedAt"`
 }

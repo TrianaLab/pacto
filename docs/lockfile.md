@@ -1,6 +1,6 @@
 # Lockfile
 
-`pacto.lock` is to a contract bundle what `go.sum` is to a Go module:
+`pacto.lock` pins the exact version of every contract yours depends on, so every build and every teammate resolves the same thing. Run `pacto lock`, commit the file and Pacto refuses to continue if a dependency later changes under you. It plays the same role as other lockfiles:
 
 | Tool | Lockfile | What it pins |
 |------|----------|--------------|
@@ -9,9 +9,9 @@
 | npm | `package-lock.json` | Exact package versions and integrity hashes |
 | Pacto | `pacto.lock` | OCI digests for dependencies and references |
 
-It captures the exact resolved state of your contract's dependency closure and reference closure, committed to git and shipped inside the pushed bundle. When the lock is present, Pacto verifies that every resolved dependency and every config/policy reference matches its pinned digest. Any mismatch is a hard error: you cannot validate, graph, diff or push a bundle whose lock has drifted.
+It records a digest (a content hash) for every dependency and every configuration or policy reference, including the ones your dependencies pull in. When the lock is present, Pacto checks each one against its pinned digest. Any mismatch is an error: you cannot validate, graph, diff or push a bundle whose lock no longer matches.
 
-The lockfile **ships inside any bundle produced from a directory that contains `pacto.lock`**, because both `pacto pack` and `pacto push` archive it. The dashboard can therefore surface pinned digests and drift for services sourced from OCI registries or Kubernetes clusters, not just local directories. Shipping the lock remains opt-in. A contract without a `pacto.lock` next to `pacto.yaml` behaves as before: dependencies and references resolve live and nothing extra is included in the bundle. (To keep an existing lock out of a pushed bundle, see [`.pactoignore`](pactoignore.md).)
+The lock is optional. Without a `pacto.lock` next to `pacto.yaml`, Pacto resolves dependencies fresh each time. With one, `pacto pack` and `pacto push` include it in the bundle, so the dashboard can show pinned digests and drift for services read from a registry or a cluster too. To keep the lock out of a pushed bundle, list it in [`.pactoignore`](pactoignore.md).
 
 ---
 
@@ -19,8 +19,8 @@ The lockfile **ships inside any bundle produced from a directory that contains `
 
 A `pacto.lock` file records:
 
-- **Full transitive dependency closure** — every dependency declared in `dependencies[]`, recursively resolved through the dependency tree, pinned by OCI digest.
-- **Full transitive reference closure** — every config/policy reference declared in `configurations[].ref` and `policies[].ref`, recursively resolved (reference jumps), pinned by OCI digest. One entry per declared reference *occurrence*, tagged with the contract that declared it, so a root contract's `settings` reference and a referenced bundle's own `settings` reference stay distinct pins.
+- **Every dependency, all the way down** — every dependency declared in `dependencies[]`, recursively resolved through the dependency tree, pinned by OCI digest.
+- **Every reference, all the way down** — every config/policy reference declared in `configurations[].ref` and `policies[].ref`, followed through each referenced bundle, pinned by OCI digest. One entry per declared reference *occurrence*, tagged with the contract that declared it, so a root contract's `settings` reference and a referenced bundle's own `settings` reference stay distinct pins.
 - **Local dependencies and references** — file-based deps and refs pinned by their content hash (`sha256:...`) so local changes invalidate the lock.
 
 The lock does not capture configuration values (`configurations[].values`), runtime metadata or scaling parameters. It only pins the structural dependencies and references that form the contract's external boundary.
@@ -58,7 +58,9 @@ The `--update-name` flag re-resolves only the named dependency (repeatable) to t
 
 ### `pacto lock --check`
 
-Verifies that the lockfile is up-to-date without modifying it. Exits non-zero if the lock is stale or has conflicts. Useful as a CI gate: the step fails unless contributors have run `pacto lock` after editing dependencies or references. Re-lock whenever a floating (unpinned) upstream ref is republished — it changes the resolved digest, so `lock --check` fails until you re-pin and commit. Use `pacto lock --update` (or `--update-name <dep>`): plain `pacto lock` keeps a dependency pin whose constraint is unchanged, so it rewrites the file without clearing the drift.
+Checks that the lockfile is up to date without changing it, and exits non-zero if it is stale or has conflicts. Run it in CI: the step fails until someone runs `pacto lock` after editing dependencies or references.
+
+If a dependency points at a tag (not a digest) and that tag is republished, its digest changes and `lock --check` fails. Fix it with `pacto lock --update` or `--update-name <dep>`. Plain `pacto lock` keeps pins whose constraint did not change, so it does not clear this drift.
 
 ```bash
 pacto lock --check

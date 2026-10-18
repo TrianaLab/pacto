@@ -386,3 +386,23 @@ func TestBundleResolverAdapter_ResolveBundleFrom(t *testing.T) {
 		}
 	})
 }
+
+// TestValidationReport carries Validate's verdict, and its hard error, to the
+// pacto_check port unchanged.
+func TestValidationReport(t *testing.T) {
+	store := &mockBundleStore{
+		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
+			b := testBundle()
+			b.RawYAML = nil
+			b.FS = nil
+			return b, nil
+		},
+	}
+	if _, err := NewService(store, nil).ValidationReport(context.Background(), "oci://ghcr.io/acme/svc:1.0.0"); err == nil {
+		t.Error("expected the Validate error")
+	}
+	r, err := NewService(nil, nil).ValidationReport(context.Background(), "oci://ghcr.io/acme/svc:1.0.0")
+	if err != nil || r.IsValid() {
+		t.Errorf("want an invalid verdict and no error, got %+v, %v", r, err)
+	}
+}

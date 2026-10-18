@@ -282,8 +282,16 @@ func TestAcceptor_InvalidEvidence(t *testing.T) {
 	a, priv := newTestAcceptor(t, fakeResolver{}, NewMemoryStore())
 	bad := testEvidenceSet()
 	bad.Subject = evidence.SubjectRef{} // invalid: empty subject
-	if _, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", bad)); !errors.Is(err, ErrInvalidEvidence) {
+	_, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, 1, "e1", bad))
+	if !errors.Is(err, ErrInvalidEvidence) {
 		t.Errorf("invalid evidence should be ErrInvalidEvidence, got %v", err)
+	}
+	// The detail reaches the error the handler logs, never the response body.
+	if err == nil || !strings.Contains(err.Error(), "subject kind is empty") {
+		t.Errorf("want the validation detail in the error, got %v", err)
+	}
+	if _, _, msg := classifyAcceptError(err); strings.Contains(msg, "subject") {
+		t.Errorf("response message leaks the detail: %q", msg)
 	}
 }
 
@@ -753,19 +761,31 @@ func TestAccept_CrossDomainIsolation(t *testing.T) {
 	}
 }
 
-func TestOCIRefHelpers(t *testing.T) {
-	dig := "sha256:" + strings.Repeat("a", 64)
-	if got := ociDomain("oci://ghcr.io/acme/payments@" + dig); got != "ghcr.io/acme" {
-		t.Errorf("ociDomain = %q, want ghcr.io/acme", got)
+// TestAccept_DomainMatchesFleetIdentity: the record's domain is the one the
+// fleet sources key the same contract by (contract.OCIDomain), so evidence lands
+// on the service the graph already holds -- a tag before the digest included.
+func TestAccept_DomainMatchesFleetIdentity(t *testing.T) {
+	store := NewMemoryStore()
+	a, priv := newTestAcceptor(t, fakeResolver{c: contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "payments"}}}, store)
+	dig := "sha256:" + strings.Repeat("c", 64)
+	for i, ref := range []string{
+		"oci://reg-c.io/team/payments:1.0.0@" + dig,
+		"oci://localhost:5000/team/payments@" + dig,
+		"oci://payments@" + dig,
+	} {
+		es := testEvidenceSet()
+		es.Subject = evidence.SubjectRef{Kind: "service", Name: fmt.Sprintf("s%d", i)}
+		es.ContractRef = ref
+		rec, err := a.Accept(context.Background(), signedEnvelopeBytes(t, priv, uint64(i+1), fmt.Sprintf("id%d", i), es))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if rec.Domain != contract.OCIDomain(ref) || rec.Digest != dig {
+			t.Errorf("%s: domain %q digest %q, want %q %q", ref, rec.Domain, rec.Digest, contract.OCIDomain(ref), dig)
+		}
 	}
-	if got := ociDomain("noslash"); got != "" { // no org segment → empty domain
-		t.Errorf("ociDomain(noslash) = %q, want empty", got)
-	}
-	if got := ociDigest("oci://ghcr.io/x@" + dig); got != dig {
-		t.Errorf("ociDigest = %q, want %q", got, dig)
-	}
-	if got := ociDigest("oci://ghcr.io/x:tag"); got != "" { // no digest → empty
-		t.Errorf("ociDigest(no @) = %q, want empty", got)
+	if got := digestOf("oci://ghcr.io/x:tag"); got != "" {
+		t.Errorf("digestOf(no @) = %q, want empty", got)
 	}
 }
 
@@ -845,5 +865,16 @@ func TestNewAcceptor_DefaultClock(t *testing.T) {
 	}
 	if _, err := a.Accept(context.Background(), data); err != nil {
 		t.Fatalf("default-clock accept should succeed: %v", err)
+	}
+}
+
+func TestCheckContractRef(t *testing.T) {
+	if err := CheckContractRef("oci://ghcr.io/acme/svc@sha256:" + strings.Repeat("a", 64)); err != nil {
+		t.Fatalf("digest ref rejected: %v", err)
+	}
+	for _, ref := range []string{"./svc", "oci://ghcr.io/acme/svc:1.0.0"} {
+		if err := CheckContractRef(ref); err == nil {
+			t.Errorf("%q accepted", ref)
+		}
 	}
 }

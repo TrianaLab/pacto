@@ -12,4 +12,5 @@ Revision: orders-service@sha256:abf75f569260779a932066089e72cf0c2e6c8ac61a22fcf8
 Stale: false
 Coverage: 5/5 evaluated
   finding [error] STATELESS_PERSISTENT_CONFLICT: declared stateless but the observed workload mounts a persistent volume
+  finding [error] INTERFACE_ABSENT: nothing listens on the declared http interface (seen by k8s-observer+ebpf)
 ```

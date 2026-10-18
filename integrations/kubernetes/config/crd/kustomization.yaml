@@ -4,6 +4,7 @@
 resources:
 - bases/pacto.trianalab.io_pactos.yaml
 - bases/pacto.trianalab.io_pactorevisions.yaml
+- bases/pacto.trianalab.io_noderuntimeobservations.yaml
 # +kubebuilder:scaffold:crdkustomizeresource
 
 patches:

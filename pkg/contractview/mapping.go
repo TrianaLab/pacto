@@ -9,6 +9,7 @@ import (
 
 	"github.com/trianalab/pacto/v3/pkg/capability"
 	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v3/pkg/lock"
 	"github.com/trianalab/pacto/v3/pkg/openapi"
 	"github.com/trianalab/pacto/v3/pkg/readiness"
 	"github.com/trianalab/pacto/v3/pkg/sbom"
@@ -83,7 +84,7 @@ func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDe
 	// Since the lock now ships inside the bundle for every source (local, OCI,
 	// cache), this single read surfaces pins and lights up dependency drift
 	// cluster-wide. A nil FS or absent/malformed lock leaves svc untouched.
-	if l, err := lockFromFS(bundle.FS); err == nil {
+	if l, err := lock.ReadFS(bundle.FS); err == nil {
 		ApplyLock(svc, l)
 	}
 
@@ -157,8 +158,6 @@ var (
 	maxDocCount      = 50          // safety cap on number of docs
 )
 
-const docsDir = "docs"
-
 // docsFromContract reads the bundle's docs/**/*.md files (sorted by path),
 // applying per-doc, total, and count caps. Missing docs/ or an unreadable file
 // is skipped rather than failing the whole service.
@@ -168,19 +167,13 @@ func docsFromContract(fsys fs.FS) []DocInfo {
 	}
 	var docs []DocInfo
 	total := 0
-	_ = fs.WalkDir(fsys, docsDir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil // docs/ absent or an unreadable subtree: skip silently
-		}
-		if d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
-			return nil
-		}
+	contract.WalkDocs(fsys, func(p string) bool {
 		if len(docs) >= maxDocCount || total >= maxTotalDocBytes {
-			return fs.SkipAll
+			return false
 		}
 		data, readErr := fs.ReadFile(fsys, p)
 		if readErr != nil {
-			return nil // skip unreadable file
+			return true // skip unreadable file
 		}
 		truncated := false
 		if len(data) > maxDocBytes {
@@ -199,7 +192,7 @@ func docsFromContract(fsys fs.FS) []DocInfo {
 			Content:   content,
 			Truncated: truncated,
 		})
-		return nil
+		return true
 	})
 	return docs
 }
@@ -285,32 +278,15 @@ func toolsFromContract(c *contract.Contract, fsys fs.FS) []CapabilityTool {
 	if fsys == nil {
 		return nil
 	}
-	openapiIfaces := 0
-	for _, iface := range c.Interfaces {
-		if iface.Type == contract.InterfaceTypeOpenAPI && iface.Ref != "" {
-			openapiIfaces++
-		}
-	}
 	var out []CapabilityTool
-	for _, iface := range c.Interfaces {
-		if iface.Type != contract.InterfaceTypeOpenAPI || iface.Ref == "" {
-			continue
-		}
-		doc, err := openapi.ReadDoc(fsys, iface.Ref)
-		if err != nil {
-			continue
-		}
-		prefix := ""
-		if openapiIfaces > 1 {
-			prefix = iface.Name + "_"
-		}
-		for _, tool := range capability.BuildTools(doc, true) {
+	for _, it := range capability.ToolsForContract(c, fsys, true) {
+		for _, tool := range it.Tools {
 			summary := tool.Summary
 			if summary == "" {
 				summary = tool.Description
 			}
 			out = append(out, CapabilityTool{
-				Name:     prefix + tool.Name,
+				Name:     tool.Name,
 				Method:   tool.Method,
 				Path:     tool.Path,
 				Summary:  summary,

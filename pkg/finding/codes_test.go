@@ -1,6 +1,9 @@
 package finding
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCategoryOf(t *testing.T) {
 	cases := map[Code]Category{
@@ -30,6 +33,11 @@ func TestCategoryOf(t *testing.T) {
 		CodeInterfaceAbsent:       CategoryRuntimeDrift,
 		CodeConfigurationAbsent:   CategoryRuntimeDrift,
 		CodeConfigurationMismatch: CategoryRuntimeDrift,
+		// Facet violations and undeclared drift (RuntimeDrift).
+		CodeInterfaceProtocolMismatch:   CategoryRuntimeDrift,
+		CodeInterfaceVisibilityMismatch: CategoryRuntimeDrift,
+		CodeDependencyVersionMismatch:   CategoryRuntimeDrift,
+		CodeDependencyUndeclared:        CategoryRuntimeDrift,
 		// Family 2 — uncertainty (Inconclusive).
 		CodeEvidenceMissing:               CategoryInconclusive,
 		CodeObservationUnsupported:        CategoryInconclusive,
@@ -55,6 +63,7 @@ func expectedSeverities() map[Code]Severity {
 		// Warning-severity codes.
 		CodeTagNotDigest:         SeverityWarning,
 		CodePolicyRefNotEnforced: SeverityWarning,
+		CodeDependencyUndeclared: SeverityWarning,
 		// Family 2 — uncertainty -> Unknown.
 		CodeEvidenceMissing:               SeverityUnknown,
 		CodeObservationUnsupported:        SeverityUnknown,
@@ -72,11 +81,16 @@ func TestSeverityFor_ByFamily(t *testing.T) {
 	errorFamily1 := []Code{
 		CodeWorkloadMismatch, CodePersistenceMismatch, CodeDependencyUnreachable,
 		CodeCapabilityAbsent, CodeInterfaceAbsent, CodeConfigurationAbsent, CodeConfigurationMismatch,
+		CodeInterfaceProtocolMismatch, CodeInterfaceVisibilityMismatch, CodeDependencyVersionMismatch,
 	}
 	for _, code := range errorFamily1 {
 		if got := SeverityFor(code, true); got != SeverityError {
 			t.Errorf("SeverityFor(%q, true) = %q, want error (family-1)", code, got)
 		}
+	}
+	// An undeclared peer is drift the contract never ruled out: a warning even for a required caller.
+	if got := SeverityFor(CodeDependencyUndeclared, true); got != SeverityWarning {
+		t.Errorf("SeverityFor(DEPENDENCY_UNDECLARED, true) = %q, want warning", got)
 	}
 	// Family 2 -> Unknown.
 	for _, code := range []Code{
@@ -102,17 +116,19 @@ func TestSeverityFor_ByFamily(t *testing.T) {
 }
 
 // An optional assertion cannot make the contract non-compliant, so a confirmed
-// violation of one is a warning — but only for the three codes that declare the
-// axis. Anything else keeps its registry row whatever required says.
+// violation of one is a warning — but only for the codes that declare the axis.
+// Anything else keeps its registry row whatever required says.
 func TestSeverityFor_OptionalAssertion(t *testing.T) {
-	for _, code := range []Code{CodeDependencyUnreachable, CodeConfigurationAbsent, CodeConfigurationMismatch} {
+	for _, code := range []Code{CodeDependencyUnreachable, CodeConfigurationAbsent, CodeConfigurationMismatch, CodeDependencyVersionMismatch} {
 		if got := SeverityFor(code, false); got != SeverityWarning {
 			t.Errorf("SeverityFor(%q, optional) = %q, want warning", code, got)
 		}
 	}
 	// No axis declared: an error-severity code with no optional row stays an error.
-	if got := SeverityFor(CodeWorkloadMismatch, false); got != SeverityError {
-		t.Errorf("SeverityFor(WORKLOAD_MISMATCH, optional) = %q, want error", got)
+	for _, code := range []Code{CodeWorkloadMismatch, CodeInterfaceProtocolMismatch, CodeInterfaceVisibilityMismatch} {
+		if got := SeverityFor(code, false); got != SeverityError {
+			t.Errorf("SeverityFor(%q, optional) = %q, want error", code, got)
+		}
 	}
 	if got := SeverityFor(CodeEvidenceMissing, false); got != SeverityUnknown {
 		t.Errorf("SeverityFor(EVIDENCE_MISSING, optional) = %q, want unknown", got)
@@ -242,5 +258,44 @@ func TestFamily1CodesAreAbsentNaming(t *testing.T) {
 		CodeInterfaceAbsent != "INTERFACE_ABSENT" ||
 		CodeConfigurationAbsent != "CONFIGURATION_ABSENT" {
 		t.Fatal("family-1 absence codes must use the *_ABSENT naming")
+	}
+}
+
+// A facet violation contradicts a declared value rather than reporting a missing
+// one, so family 1 names it *_MISMATCH.
+func TestFamily1FacetCodesAreMismatchNaming(t *testing.T) {
+	for code, want := range map[Code]string{
+		CodeInterfaceProtocolMismatch:   "INTERFACE_PROTOCOL_MISMATCH",
+		CodeInterfaceVisibilityMismatch: "INTERFACE_VISIBILITY_MISMATCH",
+		CodeDependencyVersionMismatch:   "DEPENDENCY_VERSION_MISMATCH",
+	} {
+		if string(code) != want || !strings.HasSuffix(want, "_MISMATCH") {
+			t.Errorf("family-1 facet code %q must be the *_MISMATCH string %q", code, want)
+		}
+	}
+	if CodeDependencyUndeclared != "DEPENDENCY_UNDECLARED" {
+		t.Errorf("CodeDependencyUndeclared = %q", CodeDependencyUndeclared)
+	}
+}
+
+func TestRegistry(t *testing.T) {
+	rows := Registry()
+	if len(rows) != len(registry)+len(optionalSeverity) {
+		t.Fatalf("rows = %d, want %d", len(rows), len(registry)+len(optionalSeverity))
+	}
+	for i := 1; i < len(rows); i++ {
+		a, b := rows[i-1], rows[i]
+		if a.Code > b.Code || (a.Code == b.Code && a.Optional && !b.Optional) {
+			t.Fatalf("not sorted at %d: %+v then %+v", i, a, b)
+		}
+	}
+	for _, r := range rows {
+		if r.Severity != SeverityFor(r.Code, !r.Optional) || r.Category != CategoryFor(r.Code, !r.Optional) {
+			t.Errorf("row %+v disagrees with SeverityFor/CategoryFor", r)
+		}
+	}
+	rows[0].Code = "MUTATED"
+	if Registry()[0].Code == "MUTATED" {
+		t.Error("Registry must return a copy")
 	}
 }

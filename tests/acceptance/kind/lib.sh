@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Shared harness for the kind acceptance scenarios (reconcile.sh, evidence.sh,
-# dashboard-modes.sh, observation.sh, operational-graph.sh, upgrade-v4-v5.sh).
+# dashboard-modes.sh, observation.sh, operational-graph.sh, upgrade-v4-v5.sh,
+# runtime-conformance.sh).
 # Sourced, never executed directly.
 #
 # ONE implementation per stable shared concern: reporting, eventual conditions,

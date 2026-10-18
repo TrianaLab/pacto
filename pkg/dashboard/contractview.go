@@ -28,7 +28,7 @@ import (
 
 // ── DTOs ─────────────────────────────────────────────────────────────
 
-type ValidationCatalogEntry = contractview.ValidationCatalogEntry
+type ValidationCatalogEntry = contractview.ValidationCatalogEntry //nolint:staticcheck // deprecated alias
 type DependentInfo = contractview.DependentInfo
 type CrossReference = contractview.CrossReference
 type CrossReferences = contractview.CrossReferences
@@ -201,9 +201,10 @@ func ComputeCompliance(cs ContractStatus, conditions []Condition) *ComplianceInf
 
 // LookupValidation returns the catalog entry for a condition type.
 //
-// Deprecated: use [contractview.LookupValidation]. Removed at v4.
+// Deprecated: the retired operator condition vocabulary; see
+// [contractview.ValidationCatalogEntry]. Removed at v4.
 func LookupValidation(conditionType string) ValidationCatalogEntry {
-	return contractview.LookupValidation(conditionType)
+	return contractview.LookupValidation(conditionType) //nolint:staticcheck // deprecated forwarder
 }
 
 // ApplyLock maps a parsed lock onto a ServiceDetails.

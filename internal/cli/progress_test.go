@@ -71,3 +71,12 @@ func TestStartSpinnerCountedAnimatesLiveCount(t *testing.T) {
 		t.Fatalf("expected line-clear on stop, got %q", out)
 	}
 }
+
+func TestEnvFlag(t *testing.T) {
+	for v, want := range map[string]bool{"": false, "1": true, "true": true, "TRUE": true, "yes": true, "0": false, "false": false, "F": false} {
+		t.Setenv("PACTO_TEST_FLAG", v)
+		if got := envFlag("PACTO_TEST_FLAG"); got != want {
+			t.Errorf("envFlag(%q) = %v, want %v", v, got, want)
+		}
+	}
+}

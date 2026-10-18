@@ -1,7 +1,8 @@
 # Troubleshooting
 
-Start every investigation with the CR status: it carries the contract status,
-conditions and typed findings.
+When a `Pacto` shows a status you did not expect, this page tells you why and
+what to change. Start with the status the operator wrote on the `Pacto` object:
+it holds the verdict, the stage that produced it and one finding per problem.
 
 ```bash
 kubectl describe pacto <name>
@@ -93,11 +94,19 @@ before you go looking for something that is not there:
 evidenceRefs:
   - source: k8s
     observedAt: "2026-08-22T21:31:04Z"
+    collector: k8s-observer
+    detectedAt: "2026-08-22T21:31:04Z"
 ```
 
-That is the whole record — which collector saw it and when. There is no body to
-fetch: the operator's observations are **recomputed every reconcile and never
-stored**, so the reference dates the reading rather than retrieving it. What it
+That is the whole record — which collector saw it and when. `collector` is
+`k8s-observer` for the Kubernetes API alone, `k8s-observer+ebpf` when [node
+agent evidence](runtime-conformance.md) decided or qualified the result and
+`ebpf` when only the kernel saw it. A finding with no matched observation, such
+as `EVIDENCE_MISSING`, carries `source` and `observedAt` only. There is no body
+to fetch: the operator's observations are **recomputed every reconcile and never
+stored**, so the reference dates the reading rather than retrieving it. The node
+agent's raw socket view is the one exception you can read back, in the
+`NodeRuntimeObservation` object named after the pod's node. What it
 is good for is age: an `observedAt` that stopped advancing while
 `metadata.generation` moved on is a leftover from a reconcile that no longer
 runs.
@@ -123,8 +132,13 @@ says why:
 - **`OBSERVATION_UNSUPPORTED`** — the dimension cannot be observed here: an
   `ExternalName` dependency, or a metrics capability while
   `--enable-metrics-observation` is off.
-- **`COLLECTION_FAILED`** — the cluster query errored. Check the
-  `RuntimeObserved` condition and the operator logs.
+- **`COLLECTION_FAILED`** — the cluster query errored, or the node agent
+  could not load its kernel program. Check the `RuntimeObserved` condition and
+  the operator logs.
+- **`EVIDENCE_STALE`** — the node agent on the pod's node stopped reporting.
+  See [Node agent evidence is missing](#node-agent-evidence-is-missing).
+- **`EVIDENCE_INSUFFICIENT`** — some evidence arrived but not enough to decide,
+  for example the node agent saw only part of a pod.
 
 A contract that could not be obtained transiently also reads `Unknown` rather
 than `Invalid`.
@@ -163,20 +177,47 @@ Add a `spec.target` to enable runtime observation.
 ## Metrics or health always `Unknown`
 
 The metrics dimension returns `Unsupported` unless `--enable-metrics-observation`
-is set, and active health probing requires `--enable-probing`. Both are
-controller flags the Helm chart does not expose — see
+is set, and active health probing requires `--enable-probing`. The chart sets
+them through `controller.enableMetricsObservation` and
+`controller.enableProbing` — see
 [Opt-in features](limitations.md#opt-in-features).
 
 With probing off, health falls back to the workload, which needs an **`httpGet`
 readiness probe** on the container behind the health capability's port plus a
-Ready endpoint for it. A liveness-only pod, an `exec` or `tcpSocket` probe or
+Ready endpoint for it. When the capability declares a path, the probe's path
+must equal it. A liveness-only pod, an `exec` or `tcpSocket` probe or
 no probe leaves nothing to read. Passive observation can confirm health but
 never contradict it, so `Unknown` is the honest answer here, not a broken one.
 
 ## Operator RBAC errors
 
 If the logs show forbidden errors reading Services, workloads or EndpointSlices,
-confirm the operator's `ClusterRole` is installed. See [RBAC](rbac.md). Metrics
-observation needs an additional `metrics-observation-role` ClusterRole the chart
-does not package — again
-[Opt-in features](limitations.md#opt-in-features).
+confirm the operator's `ClusterRole` is installed. See [RBAC](rbac.md). The chart
+adds read access to `ServiceMonitor` and `PodMonitor` only when
+`controller.enableMetricsObservation` is on. If you set the controller flag by
+hand instead, grant that access yourself, as
+[Opt-in features](limitations.md#opt-in-features) shows.
+
+## Node agent evidence is missing
+
+The node agent is the optional DaemonSet (one pod per node) behind
+[runtime conformance](runtime-conformance.md). If findings never carry
+`collector: k8s-observer+ebpf`, check these in order:
+
+```bash
+kubectl -n pacto-operator-system get daemonset pacto-node-agent
+kubectl get noderuntimeobservations -n pacto-operator-system
+kubectl -n pacto-operator-system logs deploy/pacto-operator | grep node-agent
+```
+
+- **No DaemonSet.** `nodeAgent.enabled` is off.
+- **DaemonSet with no pods.** The namespace's Pod Security label rejects them.
+  The operator logs `Namespace Pod Security level rejects the node agent pods;
+  label it privileged` and never relabels it for you. Label the namespace
+  `pod-security.kubernetes.io/enforce=privileged`.
+- **Pods running, no `NodeRuntimeObservation` for a node.** That node's
+  findings read `EVIDENCE_STALE`. Read the agent pod's log on that node.
+- **Collection `Failed`.** The kernel could not load the program, often because
+  it lacks BTF (the kernel type information at `/sys/kernel/btf/vmlinux`).
+  [Turn it on](runtime-conformance.md#turn-it-on) lists what each node
+  needs.

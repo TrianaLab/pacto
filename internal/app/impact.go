@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/trianalab/pacto/v3/internal/fleetsrc"
+	"github.com/trianalab/pacto/v3/pkg/contract"
+
 	"github.com/trianalab/pacto/v3/pkg/fleet"
 	"github.com/trianalab/pacto/v3/pkg/graph"
 	"github.com/trianalab/pacto/v3/pkg/impact"
@@ -103,5 +104,5 @@ func revisionDomain(ref string) string {
 	if parsed.IsLocal() {
 		return ""
 	}
-	return fleetsrc.OciDomain(parsed.Location)
+	return contract.OCIDomain(parsed.Location)
 }

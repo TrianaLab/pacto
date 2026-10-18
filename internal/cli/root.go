@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -106,7 +105,7 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 		cmd.SetContext(withAnimDisabled(cmd.Context(), v.GetBool("no-anim")))
 
 		// Start async update check
-		if info.Version != "dev" && os.Getenv("PACTO_NO_UPDATE_CHECK") != "1" {
+		if info.Version != "dev" && !envFlag("PACTO_NO_UPDATE_CHECK") {
 			go func() {
 				defer func() {
 					if r := recover(); r != nil {
@@ -150,6 +149,8 @@ func NewRootCommand(svc *app.Service, info VersionInfo) *cobra.Command {
 	root.AddCommand(newGraphCommand(svc, v))
 	root.AddCommand(newFleetCommand(svc, v))
 	root.AddCommand(newEvidenceCommand(svc, v))
+	root.AddCommand(newAgentCommand(svc, v, info.Version))
+	root.AddCommand(newRunCommand(svc, v, info.Version))
 	root.AddCommand(newImpactCommand(svc, v))
 	root.AddCommand(newOTelCommand(svc, v))
 	root.AddCommand(newExplainCommand(svc, v))

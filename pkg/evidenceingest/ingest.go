@@ -80,16 +80,21 @@ var (
 	ErrRegistryIncomplete  = errors.New("evidence ingest: the evidence store could not be read completely")
 )
 
+// CheckContractRef reports whether a producer may send evidence about ref: an immutable oci:// reference
+// with a complete sha256 digest (ErrContractRefPolicy otherwise). A host's repository allowlist is checked
+// on top at ingest.
+func CheckContractRef(ref string) error { return validateContractRef(ref, nil) }
+
 // validateContractRef enforces the externally-reported contract-ref policy: an
 // immutable oci:// digest reference (a full, well-formed sha256 digest — not
 // merely a string that contains "@sha256:"), optionally within an allowlisted
 // repository matched on path-segment boundaries so "ghcr.io/acme" never
 // authorizes "ghcr.io/acme-attacker".
 func validateContractRef(ref string, allowedRepos []string) error {
-	if !strings.HasPrefix(ref, "oci://") {
+	if !strings.HasPrefix(ref, contract.OCIScheme) {
 		return ErrContractRefPolicy // no local paths, no bare refs
 	}
-	body := strings.TrimPrefix(ref, "oci://")
+	body := contract.TrimOCIScheme(ref)
 	repo, digest, ok := strings.Cut(body, "@")
 	if !ok || !validSHA256Digest(digest) {
 		return ErrContractRefPolicy // require a complete immutable digest, not a mutable tag
@@ -108,26 +113,9 @@ func validateContractRef(ref string, allowedRepos []string) error {
 	return ErrContractRefPolicy
 }
 
-// ociDomain returns the domain (registry + org — everything before the final
-// path segment, the service name) of an oci digest ref, matching the domain a
-// contract's OCI source is keyed under. Empty for a ref with no org segment.
-func ociDomain(ref string) string {
-	s := strings.TrimPrefix(ref, "oci://")
-	if i := strings.Index(s, "@"); i >= 0 {
-		s = s[:i]
-	}
-	if i := strings.LastIndex(s, "/"); i >= 0 {
-		return s[:i]
-	}
-	return ""
-}
-
-// ociDigest returns the "sha256:…" digest of an oci ref (empty when absent).
-func ociDigest(ref string) string {
-	if i := strings.Index(ref, "@"); i >= 0 {
-		return ref[i+1:]
-	}
-	return ""
+func digestOf(ref string) string {
+	_, digest := contract.SplitOCIDigest(ref)
+	return digest
 }
 
 // validSHA256Digest reports whether d is a complete "sha256:<64 lowercase hex>"
@@ -233,7 +221,10 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 		return Record{}, err
 	}
 	if errs := evidence.ValidateEvidenceSet(env.EvidenceSet); len(errs) > 0 {
-		return Record{}, ErrInvalidEvidence
+		// The detail is for the server log (the handler logs err and answers
+		// with classifyAcceptError's generic message), so a producer can be told
+		// which observation was wrong by whoever runs the server.
+		return Record{}, fmt.Errorf("%w: %w", ErrInvalidEvidence, errors.Join(errs...))
 	}
 	// Enforce the contract-ref policy BEFORE resolving: a remote producer must not
 	// be able to drive the host to read a local path or a mutable/unapproved ref.
@@ -271,8 +262,10 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 		// The logical service is what the ContractRef resolved to, never the
 		// envelope Subject; the domain and digest come from the immutable ref.
 		Service: c.Service.Name,
-		Domain:  ociDomain(env.EvidenceSet.ContractRef),
-		Digest:  ociDigest(env.EvidenceSet.ContractRef),
+		// contract.OCIDomain is the rule the fleet sources key a contract's
+		// domain by, so evidence lands on the same service identity.
+		Domain: contract.OCIDomain(env.EvidenceSet.ContractRef),
+		Digest: digestOf(env.EvidenceSet.ContractRef),
 	}
 	if err := a.store.Commit(ctx, rec); err != nil {
 		// Replay is a defined, safe-to-surface outcome; any other commit failure is

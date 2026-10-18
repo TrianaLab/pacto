@@ -1,6 +1,10 @@
 package graph
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/trianalab/pacto/v3/pkg/contract"
+)
 
 // Scheme represents the type of a dependency reference.
 type Scheme int
@@ -25,7 +29,7 @@ func (s Scheme) String() string {
 }
 
 const (
-	ociPrefix  = "oci://"
+	ociPrefix  = contract.OCIScheme
 	filePrefix = "file://"
 )
 

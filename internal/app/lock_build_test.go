@@ -54,8 +54,8 @@ func TestBuildLockCapturesDigest(t *testing.T) {
 	if l.Root.Name != "root" || l.Root.Version != "2.1.0" {
 		t.Errorf("root info wrong: %+v", l.Root)
 	}
-	if l.Pacto.Version != BuildVersion {
-		t.Errorf("pacto version: got %q want %q", l.Pacto.Version, BuildVersion)
+	if l.Pacto.Version != "dev" {
+		t.Errorf("pacto version: got %q want dev", l.Pacto.Version)
 	}
 	if l.LockVersion != lock.CurrentLockVersion {
 		t.Errorf("lock version: got %d", l.LockVersion)
@@ -827,11 +827,11 @@ func TestBuildReferenceClosureLocalTransitive(t *testing.T) {
 	assertRef(byName, "from-p", "3.1.0")
 }
 
-func TestSetBuildVersion(t *testing.T) {
-	orig := BuildVersion
-	t.Cleanup(func() { BuildVersion = orig })
-	SetBuildVersion("9.9.9")
-	if BuildVersion != "9.9.9" {
-		t.Errorf("SetBuildVersion: got %q", BuildVersion)
+func TestBuildVersion(t *testing.T) {
+	if got := (&Service{}).buildVersion(); got != "dev" {
+		t.Errorf("unset: got %q, want dev", got)
+	}
+	if got := (&Service{Version: "9.9.9"}).buildVersion(); got != "9.9.9" {
+		t.Errorf("set: got %q", got)
 	}
 }

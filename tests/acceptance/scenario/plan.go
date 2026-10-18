@@ -43,7 +43,7 @@ import (
 //
 //	push         <digest key> <bundle dir> <repository:tag>
 //	observation  <source id> <configMap name> <file key> <export path>
-//	workload     <service> <deployment> <service port, 0 when unexposed>
+//	workload     <service> <deployment> <service port, 0 when unexposed> <mode>
 //	signer       <producer id> <key id>
 //	evidence     <subject> <payload path> <sequence> <envelope id>
 const (
@@ -53,6 +53,28 @@ const (
 	RecordSigner      = "signer"
 	RecordEvidence    = "evidence"
 )
+
+// Workload modes, the last field of a workload record: what the harness runs.
+//
+//	serve  something that really listens on the port
+//	idle   nothing to listen for: the workload is unexposed (port 0)
+//	deaf   ready, bound to the port, and listening on nothing (Workload.Deaf)
+const (
+	WorkloadServe = "serve"
+	WorkloadIdle  = "idle"
+	WorkloadDeaf  = "deaf"
+)
+
+// Mode is what the harness runs for w: one of the Workload* modes.
+func (w Workload) Mode() string {
+	switch {
+	case w.Deaf:
+		return WorkloadDeaf
+	case w.Port == 0:
+		return WorkloadIdle
+	}
+	return WorkloadServe
+}
 
 // observationFileKey is the key an observation ConfigMap stores its export under,
 // and the file name the operator mounts it as. One value, two consumers: the
@@ -106,7 +128,12 @@ func (s Scenario) Plan(dir string) ([]byte, error) {
 		// business, after the push. So a workload record is identical whichever
 		// revision the fixture deploys, and moving the deployment cannot reach the
 		// shell at all.
-		b.add(RecordWorkload, svc.Name, svc.Workload.Name, strconv.Itoa(svc.Workload.Port))
+		//
+		// The mode says whether anything listens. Before the node agent nothing
+		// could tell, so every workload ran a pause container; with a kernel
+		// watching, a served interface has to be served for real, and the deaf one
+		// is the only workload allowed to lie.
+		b.add(RecordWorkload, svc.Name, svc.Workload.Name, strconv.Itoa(svc.Workload.Port), svc.Workload.Mode())
 	}
 	for _, src := range s.Sources {
 		if src.Kind != SourceObservation {
@@ -342,6 +369,24 @@ func (s Scenario) EvidenceSubjects(domain string, digests map[string]string) ([]
 		}
 		seen[set.ContractRef] = true
 		out = append(out, set.ContractRef)
+	}
+	// And the revision every deaf workload runs: a host agent reports on it as
+	// signed evidence (the Compose surface's route to runtime conformance), so the
+	// server has to store against it. Kubernetes carries it too, unused there,
+	// because two surfaces configured with different subjects would be two demos.
+	for _, svc := range s.DeafServices() {
+		rev, err := svc.DeployedRevision()
+		if err != nil {
+			return nil, fmt.Errorf("scenario %s: %w", s.Name, err)
+		}
+		ref, err := s.digestRef(svc, rev, domain, digests)
+		if err != nil {
+			return nil, err
+		}
+		if ref = "oci://" + ref; !seen[ref] {
+			seen[ref] = true
+			out = append(out, ref)
+		}
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("scenario %s: no evidence is declared, so the Evidence Server would have no subject to store against", s.Name)

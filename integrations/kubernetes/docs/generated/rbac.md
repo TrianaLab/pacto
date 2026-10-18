@@ -18,24 +18,32 @@ Present in every install, including one with every managed component disabled. W
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |
-| `"" (core)` | `configmaps` | `get` | *not name-restricted* |
+| `"" (core)` | `configmaps` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `events` | `create`, `patch` | *not name-restricted* |
+| `"" (core)` | `pods` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `secrets` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `secrets` | `delete`, `get` | `pacto-dashboard-oci-creds` |
+| `"" (core)` | `serviceaccounts` | `delete`, `get` | `pacto-node-agent` |
 | `"" (core)` | `serviceaccounts`, `services` | `delete`, `get` | `pacto-dashboard` |
 | `"" (core)` | `services` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `services` | `delete`, `get` | `pacto-evidence` |
+| `apps` | `daemonsets` | `delete`, `get` | `pacto-node-agent` |
 | `apps` | `deployments` | `delete`, `get` | `pacto-dashboard` |
 | `apps` | `deployments` | `delete`, `get` | `pacto-evidence` |
 | `apps` | `deployments`, `replicasets`, `statefulsets` | `get`, `list`, `watch` | *not name-restricted* |
 | `batch` | `cronjobs`, `jobs` | `get`, `list`, `watch` | *not name-restricted* |
 | `discovery.k8s.io` | `endpointslices` | `get`, `list`, `watch` | *not name-restricted* |
+| `gateway.networking.k8s.io` | `httproutes` | `get`, `list`, `watch` | *not name-restricted* |
+| `networking.k8s.io` | `ingresses` | `get`, `list`, `watch` | *not name-restricted* |
+| `pacto.trianalab.io` | `noderuntimeobservations` | `get`, `list`, `watch` | *not name-restricted* |
+| `pacto.trianalab.io` | `noderuntimeobservations` | `delete`, `list` | *not name-restricted* |
 | `pacto.trianalab.io` | `pactorevisions` | `create`, `get`, `list`, `watch` | *not name-restricted* |
 | `pacto.trianalab.io` | `pactorevisions/status` | `get`, `patch`, `update` | *not name-restricted* |
 | `pacto.trianalab.io` | `pactos` | `create`, `delete`, `get`, `list`, `patch`, `update`, `watch` | *not name-restricted* |
 | `pacto.trianalab.io` | `pactos/finalizers` | `update` | *not name-restricted* |
 | `pacto.trianalab.io` | `pactos/status` | `get`, `patch`, `update` | *not name-restricted* |
 | `rbac.authorization.k8s.io` | `clusterroles`, `clusterrolebindings` | `delete`, `get` | `pacto-dashboard` |
+| `rbac.authorization.k8s.io` | `roles`, `rolebindings` | `delete`, `get` | `pacto-node-agent` |
 
 !!! warning "Why the operator can read Secrets in every namespace"
 
@@ -75,7 +83,7 @@ Created in the release namespace and bound to the same ServiceAccount. Used only
 
 ## Optional: metrics-observation ClusterRole
 
-Needed alongside the base role when `--enable-metrics-observation` is set. It is a separate `ClusterRole` (`metrics-observation-role`), never a patch of the base role, so the base grants are untouched. **The Helm chart does not package it, and the chart cannot set the flag that needs it** -- apply the two objects yourself. [Opt-in features](limitations.md#opt-in-features) has the YAML and the caveats.
+Needed alongside the base role when `--enable-metrics-observation` is set. It is a separate `ClusterRole` (`metrics-observation-role`), never a patch of the base role, so the base grants are untouched. The Helm chart grants the same rules itself when `controller.enableMetricsObservation` is on; apply the two objects yourself only for an operator installed without the chart. [Opt-in features](limitations.md#opt-in-features) has the YAML and the caveats.
 
 | API groups | Resources | Verbs | Limited to |
 | --- | --- | --- | --- |

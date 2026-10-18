@@ -5,7 +5,6 @@ import (
 	"errors"
 	"path/filepath"
 
-	"github.com/trianalab/pacto/v3/internal/fleetsrc"
 	"github.com/trianalab/pacto/v3/pkg/catalog"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/graph"
@@ -144,7 +143,7 @@ func (r catalogResolver) remote(ctx context.Context, location, constraint string
 	}
 	return catalog.Resolution{
 		Contract:    p.Bundle.Contract,
-		Domain:      fleetsrc.OciDomain(location),
+		Domain:      contract.OCIDomain(location),
 		Content:     catalog.ContentID{Scheme: catalog.SchemeOCI, Digest: p.Digest},
 		ResolvedRef: oci.PinRefToDigest(p.Ref, p.Digest),
 		Base:        catalogOCIBase,

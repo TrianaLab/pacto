@@ -89,6 +89,14 @@ jobs:
               # projects — the kind fixture AND the distributed Compose artifact —
               # plus the shared harness. A change there changes what they prove.
               - 'tests/acceptance/**'
+              # The runtime collector, its evaluation and its two front-ends: the
+              # runtime image the kind runtime-conformance shard and the local
+              # runtime acceptances run is built from them.
+              - 'internal/runtimewatch/**'
+              - 'pkg/runtimefacts/**'
+              - 'pkg/probe/**'
+              - 'internal/cli/agent.go'
+              - 'internal/cli/run.go'
 
   ci-static:
     needs: changes
@@ -240,7 +248,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd]
+        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd, runtime-conformance]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -293,6 +301,10 @@ jobs:
         with:
           version: v5.5.0
       - run: make ci-e2e-compose
+      # Portable runtime evidence on this runner's kernel: the host agent over
+      # labelled containers and `pacto run` in both modes (see ci.mk).
+      - run: make test-acceptance-local-runtime-docker
+      - run: make test-acceptance-local-runtime-run
 
   release-dry-run:
     needs: changes

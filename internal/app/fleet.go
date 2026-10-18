@@ -123,7 +123,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		if err != nil {
 			// An unreachable cluster (no kubeconfig, no API server) surfaces as an
 			// unavailable source, consistent with the other source kinds.
-			sources = append(sources, fleet.NewFailingSource(id, "kubernetes", err))
+			sources = append(sources, fleet.NewFailingSource(id, fleet.SourceKindKubernetes, err))
 		} else {
 			sources = append(sources, fleetsrc.NewK8sSource(id, client, opts.K8sNamespace))
 		}

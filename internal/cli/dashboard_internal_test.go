@@ -235,8 +235,7 @@ func TestNewDashboardCommand_InvalidArgs(t *testing.T) {
 }
 
 func TestParseDashboardArgs_Empty(t *testing.T) {
-	t.Setenv("PACTO_DASHBOARD_REPO", "")
-	dir, repos, err := parseDashboardArgs(nil)
+	dir, repos, err := parseDashboardArgs(nil, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -249,8 +248,7 @@ func TestParseDashboardArgs_Empty(t *testing.T) {
 }
 
 func TestParseDashboardArgs_LocalOnly(t *testing.T) {
-	t.Setenv("PACTO_DASHBOARD_REPO", "")
-	dir, repos, err := parseDashboardArgs([]string{"./services"})
+	dir, repos, err := parseDashboardArgs([]string{"./services"}, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -267,7 +265,7 @@ func TestParseDashboardArgs_Mixed(t *testing.T) {
 		"./services",
 		"oci://ghcr.io/org/svc-a",
 		"oci://ghcr.io/org/svc-b",
-	})
+	}, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -280,7 +278,7 @@ func TestParseDashboardArgs_Mixed(t *testing.T) {
 }
 
 func TestParseDashboardArgs_MultipleLocalPaths(t *testing.T) {
-	_, _, err := parseDashboardArgs([]string{"./a", "./b"})
+	_, _, err := parseDashboardArgs([]string{"./a", "./b"}, "")
 	if err == nil {
 		t.Fatal("expected an error for multiple local paths")
 	}
@@ -290,8 +288,7 @@ func TestParseDashboardArgs_MultipleLocalPaths(t *testing.T) {
 }
 
 func TestParseDashboardArgs_EnvVarFallback(t *testing.T) {
-	t.Setenv("PACTO_DASHBOARD_REPO", "ghcr.io/org/svc-a,ghcr.io/org/svc-b")
-	dir, repos, err := parseDashboardArgs(nil)
+	dir, repos, err := parseDashboardArgs(nil, "ghcr.io/org/svc-a,ghcr.io/org/svc-b")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -304,8 +301,7 @@ func TestParseDashboardArgs_EnvVarFallback(t *testing.T) {
 }
 
 func TestParseDashboardArgs_OCIArgsOverrideEnvVar(t *testing.T) {
-	t.Setenv("PACTO_DASHBOARD_REPO", "ghcr.io/org/from-env")
-	_, repos, err := parseDashboardArgs([]string{"oci://ghcr.io/org/from-arg"})
+	_, repos, err := parseDashboardArgs([]string{"oci://ghcr.io/org/from-arg"}, "ghcr.io/org/from-env")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -315,7 +311,7 @@ func TestParseDashboardArgs_OCIArgsOverrideEnvVar(t *testing.T) {
 }
 
 func TestParseDashboardArgs_EmptyOCIRef(t *testing.T) {
-	_, _, err := parseDashboardArgs([]string{"oci://"})
+	_, _, err := parseDashboardArgs([]string{"oci://"}, "")
 	if err == nil {
 		t.Fatal("expected an error for an empty OCI reference")
 	}

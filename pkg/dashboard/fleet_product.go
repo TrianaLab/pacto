@@ -502,34 +502,13 @@ func buildProductImpact(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKe
 // pageImpactConsumers offset-pages a sorted consumer list with defaulted/capped
 // limit and a next-offset cursor.
 func pageImpactConsumers(all []ProductImpactConsumer, limit, offset int) ProductImpactConsumersPage {
-	total := len(all)
-	if limit <= 0 {
-		limit = DefaultImpactConsumers
-	}
-	if limit > MaxImpactConsumers {
-		limit = MaxImpactConsumers
-	}
-	start := offset
-	if start > total {
-		start = total
-	}
-	end := start + limit
-	if end > total {
-		end = total
-	}
-	page := append([]ProductImpactConsumer{}, all[start:end]...)
-	truncated := end < total
-	var next *int
-	if truncated {
-		n := end
-		next = &n
-	}
+	pg := fleet.Paginate(all, limit, offset, DefaultImpactConsumers, MaxImpactConsumers)
 	// The two tallies cover EVERY consumer, not this page. A consumer chart drawn from
 	// a page reads exactly like a chart of the whole blast radius, so the complete
 	// distributions are computed here and the page carries them.
 	return ProductImpactConsumersPage{
-		Total: total, Count: len(page), Limit: limit, Offset: start,
-		Truncated: truncated, NextOffset: next, Items: page,
+		Total: len(all), Count: len(pg.Items), Limit: pg.Limit, Offset: pg.Offset,
+		Truncated: pg.Truncated, NextOffset: pg.NextOffset, Items: pg.Items,
 		ByVerdict:    tallyConsumers(all, verdictOrder, func(c ProductImpactConsumer) string { return c.CompatibilityVerdict }),
 		ByConfidence: tallyConsumers(all, confidenceOrder, func(c ProductImpactConsumer) string { return c.Confidence }),
 	}

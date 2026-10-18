@@ -285,3 +285,120 @@ func TestConfigurationObservation_ConformantField(t *testing.T) {
 		})
 	}
 }
+
+// Producers that do not set the runtime-conformance facts must emit exactly the JSON they emitted before
+// those fields existed, so an older reader decoding strictly never sees a key it does not know.
+func TestFactFields_OmittedWhenUnset_ByteIdentical(t *testing.T) {
+	cases := map[string]struct {
+		obs  Observation
+		want string
+	}{
+		"interface":   {allObserved()[2], `{"type":"openapi","present":true}`},
+		"dependency":  {allObserved()[3], `{"reachable":true}`},
+		"persistence": {allObserved()[5], `{"durable":true}`},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			if string(tc.obs.Value) != tc.want {
+				t.Errorf("payload = %s, want %s", tc.obs.Value, tc.want)
+			}
+			data, err := json.Marshal(tc.obs)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+			want := `{"kind":"` + string(tc.obs.Kind) + `","subject":{"kind":"` + tc.obs.Subject.Kind + `","name":"` +
+				tc.obs.Subject.Name + `"},"outcome":"Observed","value":` + tc.want +
+				`,"provenance":{"collector":"k8s-observer","detectedAt":"` + prov().DetectedAt.Format(time.RFC3339Nano) + `"}}`
+			if string(data) != want {
+				t.Errorf("marshal =\n%s\nwant\n%s", data, want)
+			}
+		})
+	}
+}
+
+func TestFactFields_RoundTrip(t *testing.T) {
+	shared := true
+	iface := NewInterfaceObservation(sr("interface", "api"),
+		InterfaceObservation{Type: "grpc", Present: true, Protocol: ProtocolHTTP2, Exposure: ExposureInternal}, prov())
+	dep := NewDependencyObservation(sr("dependency", "billing"),
+		DependencyObservation{Reachable: true, Version: "1.2.3", Undeclared: true}, prov())
+	pers := NewPersistenceObservation(sr("service", "orders"),
+		PersistenceObservation{Durable: true, Shared: &shared}, prov())
+
+	for _, o := range []Observation{iface, dep, pers} {
+		data, err := json.Marshal(o)
+		if err != nil {
+			t.Fatalf("marshal %s: %v", o.Kind, err)
+		}
+		var back Observation
+		if err := json.Unmarshal(data, &back); err != nil {
+			t.Fatalf("unmarshal %s: %v", o.Kind, err)
+		}
+		if string(back.Value) != string(o.Value) {
+			t.Errorf("%s value = %s, want %s", o.Kind, back.Value, o.Value)
+		}
+	}
+	if i, _ := iface.GetInterfaceObservation(); i.Protocol != ProtocolHTTP2 || i.Exposure != ExposureInternal {
+		t.Errorf("interface facts lost: %+v", i)
+	}
+	if d, _ := dep.GetDependencyObservation(); d.Version != "1.2.3" || !d.Undeclared {
+		t.Errorf("dependency facts lost: %+v", d)
+	}
+	if p, _ := pers.GetPersistenceObservation(); p.Shared == nil || !*p.Shared {
+		t.Errorf("persistence facts lost: %+v", p)
+	}
+	// shared=false is a fact, not an absence: it must survive the wire as false, not vanish into nil.
+	notShared := false
+	local := NewPersistenceObservation(sr("service", "orders"), PersistenceObservation{Durable: true, Shared: &notShared}, prov())
+	if string(local.Value) != `{"durable":true,"shared":false}` {
+		t.Errorf("shared=false payload = %s", local.Value)
+	}
+}
+
+// TestUnmarshal_RequiresVerdictKeys: an Observed payload missing (or nulling) a verdict-bearing key would
+// decode to the zero value and read as a confirmed violation, so it is rejected; complete payloads pass.
+func TestUnmarshal_RequiresVerdictKeys(t *testing.T) {
+	obs := func(kind, subject, value string) string {
+		return `{"kind":"` + kind + `","subject":{"kind":"` + subject + `","name":"x"},"outcome":"Observed","value":` + value +
+			`,"provenance":{"collector":"c","detectedAt":"2026-01-01T00:00:00Z"}}`
+	}
+	reject := []string{
+		obs("CapabilityObserved", "capability", `{}`),
+		obs("CapabilityObserved", "capability", `{"present":null}`),
+		obs("CapabilityObserved", "capability", `[]`),
+		obs("CapabilityObserved", "capability", `{"present":true,"extra":1}`),
+		obs("WorkloadObserved", "service", `{}`),
+		obs("InterfaceObserved", "interface", `{"present":true}`),
+		obs("InterfaceObserved", "interface", `{"type":"http"}`),
+		obs("DependencyReachable", "dependency", `{"version":"1.0.0"}`),
+		obs("ConfigurationPresent", "configuration", `{}`),
+		obs("ConfigurationPresent", "configuration", `{"present":true}`),
+		obs("PersistenceObserved", "service", `{"shared":true}`),
+	}
+	for i, s := range reject {
+		var o Observation
+		if err := json.Unmarshal([]byte(s), &o); err == nil {
+			t.Errorf("reject case %d: expected rejection, got nil", i)
+		}
+	}
+	accept := []string{
+		obs("CapabilityObserved", "capability", `{"present":false}`),
+		obs("WorkloadObserved", "service", `{"type":""}`),
+		obs("InterfaceObserved", "interface", `{"type":"http","present":false}`),
+		obs("DependencyReachable", "dependency", `{"reachable":false}`),
+		obs("ConfigurationPresent", "configuration", `{"present":false}`),
+		obs("ConfigurationPresent", "configuration", `{"present":true,"conformant":false}`),
+		obs("PersistenceObserved", "service", `{"durable":false}`),
+	}
+	for i, s := range accept {
+		var o Observation
+		if err := json.Unmarshal([]byte(s), &o); err != nil {
+			t.Errorf("accept case %d: %v", i, err)
+		}
+	}
+	// First-party constructors emit every verdict key even when false (no omitempty), so they round-trip.
+	s := SubjectRef{Kind: "configuration", Name: "x"}
+	if _, err := json.Marshal(NewConfigurationPresent(s, true, false, prov())); err != nil {
+		t.Errorf("constructor payload rejected: %v", err)
+	}
+}

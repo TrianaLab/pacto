@@ -188,6 +188,8 @@ type reconcileOpts struct {
 	// probingDisabled turns OFF active Tier-A health probing so the passive Tier-B readiness-probe path is
 	// exercised (M11). The zero value keeps probing ON, preserving every existing case.
 	probingDisabled bool
+	// kernelNamespace, when set, turns kernel evidence on and reads NodeRuntimeObservations from it.
+	kernelNamespace string
 }
 
 // reconcile builds a real PactoReconciler (direct, strongly-consistent client; no background manager) and
@@ -216,7 +218,9 @@ func reconcile(t *testing.T, name, ns string, opts reconcileOpts) reconcileResul
 		EnableMetricsObservation: opts.metricsEnabled,
 		// Active Tier-A health probing is opt-in (M4a). Existing e2e health assertions rely on it; the
 		// passive Tier-B path is driven by opts.probingDisabled (M11).
-		EnableProbing: !opts.probingDisabled,
+		EnableProbing:           !opts.probingDisabled,
+		KernelEvidence:          opts.kernelNamespace != "",
+		KernelEvidenceNamespace: opts.kernelNamespace,
 	}
 	req := ctrl.Request{NamespacedName: client.ObjectKey{Namespace: ns, Name: name}}
 	if _, err := r.Reconcile(testCtx, req); err != nil {

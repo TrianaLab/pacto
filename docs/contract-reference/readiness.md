@@ -1,6 +1,8 @@
 # Readiness
 
-The operational readiness a service declares about itself. The other sections
+`readiness` is a checklist a team fills in about its own service, such as "we
+have a runbook" or "we load-tested it". Pacto turns it into a score and flags it
+when the score is too low or the assessment has expired. The other sections
 are in [Contract sections](sections.md),
 [Configuration and policy](configuration-and-policy.md) and
 [Dependencies and state](dependencies-and-state.md).

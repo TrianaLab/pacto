@@ -17,6 +17,11 @@ import (
 // into pkg/fleet. This is the inversion the architecture requires — the fleet
 // layer defines the contract; adapters (including the dashboard) depend inward
 // on it.
+// SourceKindKubernetes is the Kind of a source reading the Pacto CRDs of a
+// cluster. The dashboard's legacy /api/sources pills name it "k8s" instead; that
+// is a separate, older wire vocabulary and both stay as they are.
+const SourceKindKubernetes = "kubernetes"
+
 type Source interface {
 	// ID is the stable identifier of this source instance (e.g. "oci", "k8s",
 	// "local", or a named environment like "production-eu"). Used as provenance.

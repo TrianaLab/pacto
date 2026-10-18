@@ -1,7 +1,8 @@
 # Configuration and policy
 
-How a service declares the configuration it accepts and the rules it is held to.
-The other sections are in [Contract sections](sections.md),
+Two fields: `configurations` lists the settings a service reads at runtime, and
+`policies` lists the rules its contract must follow. Both point at a JSON Schema,
+so tools can check values and contracts before anything ships. The other sections are in [Contract sections](sections.md),
 [Dependencies and state](dependencies-and-state.md) and
 [Readiness](readiness.md).
 

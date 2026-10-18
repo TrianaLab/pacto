@@ -807,6 +807,8 @@ export interface components {
             required: number;
         };
         "Finding.EvidenceRef": {
+            Collector?: string;
+            DetectedAt?: string;
             ObservedAt: string;
             Source: string;
         };
@@ -1191,6 +1193,8 @@ export interface components {
             unowned: number;
         };
         "Fleet.ProductEvidenceRef": {
+            collector?: string;
+            detectedAt?: string;
             observedAt?: string;
             source?: string;
         };

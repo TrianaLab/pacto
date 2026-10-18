@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -22,6 +23,11 @@ var (
 
 func main() {
 	if err := run(); err != nil {
+		// pacto run ends with its command's exit code, having said all there is to say.
+		var exit *cli.ExitError
+		if errors.As(err, &exit) {
+			os.Exit(exit.Code)
+		}
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -45,7 +51,7 @@ func run() error {
 	store := oci.NewCachedStore(oci.NewClient(keychain, clientOpts...))
 
 	svc := app.NewService(store, &plugin.SubprocessRunner{})
-	app.SetBuildVersion(version)
+	svc.Version = version
 	root := cli.NewRootCommand(svc, cli.VersionInfo{
 		Version:   version,
 		GitCommit: gitCommit,

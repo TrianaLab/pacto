@@ -54,6 +54,9 @@ type ProductSubjectRef struct {
 type ProductEvidenceRef struct {
 	Source     string `json:"source,omitempty"`
 	ObservedAt string `json:"observedAt,omitempty"`
+	// Collector names who saw it: k8s-observer, k8s-observer+ebpf or ebpf.
+	Collector  string `json:"collector,omitempty"`
+	DetectedAt string `json:"detectedAt,omitempty"`
 }
 
 // ProductEvidenceRefsPreview is a bounded preview of a finding's evidence refs.
@@ -90,7 +93,7 @@ func productFinding(f finding.Finding) ProductFinding {
 	n := min(total, MaxEvidenceRefsPreview)
 	items := make([]ProductEvidenceRef, 0, n)
 	for _, r := range f.EvidenceRefs[:n] {
-		items = append(items, ProductEvidenceRef{Source: r.Source, ObservedAt: r.ObservedAt})
+		items = append(items, ProductEvidenceRef{Source: r.Source, ObservedAt: r.ObservedAt, Collector: r.Collector, DetectedAt: r.DetectedAt})
 	}
 	return ProductFinding{
 		Code:         string(f.Code),

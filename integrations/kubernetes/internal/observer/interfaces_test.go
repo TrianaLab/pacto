@@ -665,7 +665,7 @@ func TestCollect_Now(t *testing.T) {
 			Contract:    &contract.Contract{},
 			Now:         fixedNow,
 		}
-		es, _ := obs.Collect(context.Background(), input)
+		es, _, _ := obs.Collect(context.Background(), input)
 		if !es.ObservedAt.Equal(fixedNow) {
 			t.Errorf("ObservedAt = %v, want %v", es.ObservedAt, fixedNow)
 		}
@@ -679,7 +679,7 @@ func TestCollect_Now(t *testing.T) {
 			Now:         time.Time{},
 		}
 		before := time.Now()
-		es, _ := obs.Collect(context.Background(), input)
+		es, _, _ := obs.Collect(context.Background(), input)
 		after := time.Now()
 		if es.ObservedAt.Before(before) || es.ObservedAt.After(after) {
 			t.Errorf("ObservedAt = %v, want between %v and %v", es.ObservedAt, before, after)
@@ -694,7 +694,7 @@ func TestCollect_Now(t *testing.T) {
 			Contract:     &contract.Contract{},
 			Now:          time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
 		}
-		es, _ := obs.Collect(context.Background(), input)
+		es, _, _ := obs.Collect(context.Background(), input)
 		want := "test-ns/test-workload"
 		if es.Subject.Name != want {
 			t.Errorf("Subject.Name = %q, want %q", es.Subject.Name, want)
@@ -710,7 +710,7 @@ func TestCollect_Now(t *testing.T) {
 			},
 			Now: time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
 		}
-		es, windowUpdates := obs.Collect(context.Background(), input)
+		es, windowUpdates, _ := obs.Collect(context.Background(), input)
 		if len(es.Observations) != 0 {
 			t.Errorf("len(Observations) = %d, want 0 (no dimensions)", len(es.Observations))
 		}
@@ -773,7 +773,7 @@ func TestCollect_Now(t *testing.T) {
 			ObservationWindows:  map[string]*metav1.Time{},
 			Now:                 time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
 		}
-		es, _ := obs.Collect(context.Background(), input)
+		es, _, _ := obs.Collect(context.Background(), input)
 		// Should have both interface and workload observations.
 		if len(es.Observations) != 2 {
 			t.Errorf("len(Observations) = %d, want 2 (interface + workload)", len(es.Observations))
@@ -813,7 +813,7 @@ func TestCollect_Now(t *testing.T) {
 			},
 			Now: time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC),
 		}
-		es, _ := obs.Collect(context.Background(), input)
+		es, _, _ := obs.Collect(context.Background(), input)
 		// Should have persistence observation.
 		if len(es.Observations) != 1 {
 			t.Errorf("len(Observations) = %d, want 1 (persistence)", len(es.Observations))

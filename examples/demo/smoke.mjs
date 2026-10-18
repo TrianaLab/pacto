@@ -89,6 +89,13 @@ const someTargetKey = Object.keys(snap.targets || {})[0];
 const tdetail = json(call("GET", `/api/fleet/target?key=${encodeURIComponent(someTargetKey)}`));
 check("fleet target detail resolves by key", tdetail.target && tdetail.target.key === someTargetKey, someTargetKey);
 
+// The recorded kernel finding the target page renders as "seen by: Kubernetes + kernel"
+// (collectorLabel in the frontend maps the collector k8s-observer+ebpf to that label).
+const kernelKey = Object.keys(snap.targets || {}).find((k) => JSON.stringify(snap.targets[k]).includes("INTERFACE_ABSENT"));
+const kernelDetail = kernelKey ? JSON.stringify(json(call("GET", `/api/fleet/target?key=${encodeURIComponent(kernelKey)}`))) : "";
+check("a recorded INTERFACE_ABSENT finding cites collector k8s-observer+ebpf",
+  kernelDetail.includes("INTERFACE_ABSENT") && kernelDetail.includes('"k8s-observer+ebpf"'), kernelKey);
+
 // Impact: payments-service's oldest revision against its newest, resolved
 // entirely from embedded bundles, no OCI. Uses the same published snapshot the
 // graph serves. The pair is named from what was actually diffed -- the label

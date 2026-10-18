@@ -46,8 +46,10 @@ var corePackages = []string{
 	"github.com/trianalab/pacto/v3/pkg/impact/...",
 	"github.com/trianalab/pacto/v3/pkg/oci/...",
 	"github.com/trianalab/pacto/v3/pkg/otelobserver/...",
+	"github.com/trianalab/pacto/v3/pkg/probe/...",
 	"github.com/trianalab/pacto/v3/pkg/readiness/...",
 	"github.com/trianalab/pacto/v3/pkg/reconcile/...",
+	"github.com/trianalab/pacto/v3/pkg/runtimefacts/...",
 	"github.com/trianalab/pacto/v3/pkg/schemax/...",
 	"github.com/trianalab/pacto/v3/pkg/semver/...",
 	"github.com/trianalab/pacto/v3/pkg/validation/...",
@@ -63,6 +65,9 @@ var forbiddenPrefixes = []string{
 	// if it could reach a registry directly the store would stop being swappable
 	// and an external collector would inherit registry credentials it never needs.
 	"oras.land/",
+	// The kernel collector lives in internal/runtimewatch/ebpf, behind `pacto
+	// agent`; pkg/runtimefacts carries its facts without linking the loader.
+	"github.com/cilium/ebpf",
 }
 
 // evidenceConsumers read accepted evidence. They must reach it ONLY through the
@@ -194,6 +199,29 @@ func deps(t *testing.T, pkg string) []string {
 		t.Fatalf("go list -deps %s: %v\n%s", pkg, err, out)
 	}
 	return strings.Split(strings.TrimSpace(string(out)), "\n")
+}
+
+// TestContractIsTheLeaf keeps pkg/contract the domain layer every other
+// package builds on (ARCHITECTURE.md, strict layering): it may reach no other
+// Pacto package, or the layering inverts and an import cycle is one edit away.
+func TestContractIsTheLeaf(t *testing.T) {
+	const self = "github.com/trianalab/pacto/v3/pkg/contract"
+	for _, dep := range deps(t, self) {
+		if strings.HasPrefix(dep, "github.com/trianalab/pacto/") && dep != self {
+			t.Errorf("boundary violation: pkg/contract reaches %q; the domain model imports no other Pacto package", dep)
+		}
+	}
+}
+
+// TestPublicPackagesNeverReachInternal keeps pkg/* importable by external Go
+// programs: a pkg/* -> internal/* edge would compile here and fail for every
+// outside caller, and drag the CLI's wiring into the public API.
+func TestPublicPackagesNeverReachInternal(t *testing.T) {
+	for _, dep := range deps(t, "github.com/trianalab/pacto/v3/pkg/...") {
+		if strings.HasPrefix(dep, "github.com/trianalab/pacto/v3/internal/") {
+			t.Errorf("boundary violation: a pkg/* package reaches %q; public packages must not depend on internal/*", dep)
+		}
+	}
 }
 
 func TestCorePackagesHaveNoKubernetesOrIntegrationDeps(t *testing.T) {

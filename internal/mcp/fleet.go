@@ -32,12 +32,12 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 // (identical to NewServer) so a caller with no fleet sources degrades cleanly.
 // When provideImpact is non-nil the pacto_impact tool is registered too; a nil
 // provider omits it, so a caller that cannot resolve revisions degrades cleanly.
-func NewFleetServer(version string, q *fleet.Query, provideImpact impactProvider, resolverFor PolicyResolverFor) *mcpsdk.Server {
+func NewFleetServer(version string, q *fleet.Query, provideImpact impactProvider, validate Validator) *mcpsdk.Server {
 	instructions := baseInstructions
 	if q != nil {
 		instructions += "\n\n" + fleetInstructions
 	}
-	server := newServer(version, instructions, resolverFor)
+	server := newServer(version, instructions, validate)
 	if q != nil {
 		registerFleetTools(server, q, provideImpact)
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -51,12 +52,25 @@ func animDisabledFromCmd(cmd *cobra.Command) bool {
 	return disabled
 }
 
+// envFlag reads an opt-out environment variable. Values follow strconv.ParseBool
+// ("1", "t", "true" and their false counterparts "0", "f", "false", in any of
+// ParseBool's casings); unset or empty is false. A value ParseBool cannot read
+// still counts as true: someone set the opt-out, so honour it.
+func envFlag(name string) bool {
+	v := os.Getenv(name)
+	if v == "" {
+		return false
+	}
+	b, err := strconv.ParseBool(v)
+	return err != nil || b
+}
+
 // animationsEnabled reports whether motion is allowed at all (--no-anim flag and
 // PACTO_NO_ANIM env both off). It does NOT consider color or TTY — callers add
 // those. This governs the spinner (motion regardless of color); animate adds
 // color on top for color-only reveals.
 func animationsEnabled(cmd *cobra.Command) bool {
-	return !animDisabledFromCmd(cmd) && os.Getenv("PACTO_NO_ANIM") == ""
+	return !animDisabledFromCmd(cmd) && !envFlag("PACTO_NO_ANIM")
 }
 
 // animate reports whether a colored animation should play on w: motion enabled

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -19,11 +20,12 @@ import (
 
 // Function variables for filesystem operations, overridable in tests.
 var (
-	osStat      = os.Stat
-	osReadFile  = os.ReadFile
-	osMkdirAll  = os.MkdirAll
-	osWriteFile = os.WriteFile
-	osRename    = os.Rename
+	osStat       = os.Stat
+	osReadFile   = os.ReadFile
+	osMkdirAll   = os.MkdirAll
+	osWriteFile  = os.WriteFile
+	osRename     = os.Rename
+	osCreateTemp = os.CreateTemp
 
 	yamlMarshalFn   = yaml.Marshal
 	yamlUnmarshalFn = yaml.Unmarshal
@@ -177,6 +179,8 @@ type descriptionHints struct {
 	isScheduled bool
 }
 
+// descriptionPatterns are the keyword heuristics pacto_create applies to a
+// description; docs/mcp-integration.md lists them for agents.
 var descriptionPatterns = []struct {
 	pattern *regexp.Regexp
 	apply   func(*descriptionHints)
@@ -423,15 +427,8 @@ func dependencyName(dep DependencyInput) string {
 	if dep.Name != "" {
 		return dep.Name
 	}
-	ref := strings.TrimPrefix(dep.Ref, "oci://")
-	if at := strings.IndexByte(ref, '@'); at >= 0 {
-		ref = ref[:at]
-	}
-	slash := strings.LastIndex(ref, "/")
-	if colon := strings.LastIndex(ref, ":"); colon > slash {
-		ref = ref[:colon]
-	}
-	return ref[strings.LastIndex(ref, "/")+1:]
+	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(dep.Ref))
+	return repo[strings.LastIndex(repo, "/")+1:]
 }
 
 func buildDependenciesList(inputs []DependencyInput) []any {
@@ -474,6 +471,14 @@ func Edit(input EditInput) (*EditResult, error) {
 
 	changes := applyEdits(m, input)
 
+	var schemaRel string
+	var schemaBytes []byte
+	if len(input.AddConfigProperties) > 0 {
+		if schemaRel, schemaBytes, err = mergeConfigSchema(dir, m, input.AddConfigProperties); err != nil {
+			return nil, err
+		}
+	}
+
 	yamlBytes, err := marshalContract(m)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal contract: %w", err)
@@ -487,6 +492,9 @@ func Edit(input EditInput) (*EditResult, error) {
 
 	// Build FS for validation (existing files + new YAML + stubs for new refs)
 	bundleFS := buildBundleFSForValidation(dir, yamlBytes, c)
+	if schemaRel != "" {
+		bundleFS[schemaRel] = &fstest.MapFile{Data: schemaBytes}
+	}
 
 	result := validation.Validate(c, yamlBytes, bundleFS)
 	if !result.IsValid() {
@@ -501,6 +509,14 @@ func Edit(input EditInput) (*EditResult, error) {
 			Summary: summary,
 			Changes: changes,
 		}, nil
+	}
+
+	// The schema goes first: a failure then leaves pacto.yaml untouched rather
+	// than pointing at a schema that was never written.
+	if schemaRel != "" {
+		if err := writeConfigSchema(filepath.Join(dir, schemaRel), schemaBytes); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := atomicWriteFile(pactoPath, yamlBytes, 0644); err != nil {
@@ -729,6 +745,83 @@ func readCurrentState(m map[string]any) (storesData, dataSurvives, dataShared bo
 	return
 }
 
+// writeConfigSchema writes a merged configuration schema, creating its directory.
+func writeConfigSchema(path string, data []byte) error {
+	if err := osMkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("failed to create %s: %w", filepath.Dir(path), err)
+	}
+	if err := atomicWriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write %s: %w", path, err)
+	}
+	return nil
+}
+
+// firstConfigSchema returns the schema path of the first configuration that
+// declares one, or "".
+func firstConfigSchema(m map[string]any) string {
+	cfgs, _ := m["configurations"].([]any)
+	for _, cfg := range cfgs {
+		if cm, ok := cfg.(map[string]any); ok {
+			if rel, _ := cm["schema"].(string); rel != "" {
+				return rel
+			}
+		}
+	}
+	return ""
+}
+
+// mergeConfigSchema resolves the schema add_config_properties writes to (the
+// first configuration's local schema file) and returns it with props merged in.
+// A property already in the schema is replaced; required names are unioned.
+func mergeConfigSchema(dir string, m map[string]any, props []ConfigProperty) (string, []byte, error) {
+	rel := firstConfigSchema(m)
+	if rel == "" || !filepath.IsLocal(rel) {
+		return "", nil, fmt.Errorf("add_config_properties needs a configuration with a local schema file, got %q", rel)
+	}
+	existing, err := osReadFile(filepath.Join(dir, rel))
+	if errors.Is(err, fs.ErrNotExist) {
+		return rel, generateConfigSchema(props), nil
+	}
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to read %s: %w", rel, err)
+	}
+	var schema map[string]any
+	if err := json.Unmarshal(existing, &schema); err != nil || schema == nil {
+		return "", nil, fmt.Errorf("configuration schema %s is not a JSON object", rel)
+	}
+	return rel, mergeSchemaProperties(schema, props), nil
+}
+
+// mergeSchemaProperties adds props to a decoded schema object and re-encodes it.
+func mergeSchemaProperties(schema map[string]any, props []ConfigProperty) []byte {
+	properties, _ := schema["properties"].(map[string]any)
+	if properties == nil {
+		properties = map[string]any{}
+	}
+	required, _ := schema["required"].([]any)
+	have := map[any]bool{}
+	for _, r := range required {
+		have[r] = true
+	}
+	fresh := map[string]any{}
+	_ = json.Unmarshal(generateConfigSchema(props), &fresh) //nolint:errcheck // generated by us
+	for name, def := range fresh["properties"].(map[string]any) {
+		properties[name] = def
+	}
+	for _, p := range props {
+		if p.Required && !have[p.Name] {
+			required = append(required, p.Name)
+			have[p.Name] = true
+		}
+	}
+	schema["properties"] = properties
+	if len(required) > 0 {
+		schema["required"] = required
+	}
+	data, _ := json.MarshalIndent(schema, "", "  ") //nolint:errcheck // decoded JSON always re-encodes
+	return append(data, '\n')
+}
+
 func ensureConfigSection(m map[string]any) {
 	if _, ok := m["configurations"]; ok {
 		return
@@ -772,23 +865,15 @@ func applyMetadataEdits(m map[string]any, set map[string]any, remove []string) [
 
 // Check validates an existing contract and returns structured results.
 //
-// It runs the same recursive policy resolution `pacto validate` runs, so an
-// agent looping until Check says valid stops on a contract CI also accepts. The
-// local-only validator used by pack and push downgrades an unresolvable
-// policies[].ref to a warning, which is exactly the disagreement that let a loop
-// terminate on a contract the pipeline then rejected.
-func Check(ctx context.Context, resolverFor PolicyResolverFor, path string) (*CheckResult, error) {
+// The verdict comes from validate, the same path `pacto validate` runs
+// (lockfile verification, recursive policy resolution), so an agent looping
+// until Check says valid stops on a contract CI also accepts. A nil validate
+// falls back to local validation with no policy resolver, which fails a
+// ref-based policy closed rather than downgrading it to a warning.
+func Check(ctx context.Context, validate Validator, path string) (*CheckResult, error) {
 	dir := path
 	if dir == "" {
 		dir = "."
-	}
-
-	// Built from dir, not from the process working directory: a relative
-	// policies[].ref means "next to the contract that declared it", and the
-	// contract being checked is the one in dir.
-	var resolver validation.BundleResolver
-	if resolverFor != nil {
-		resolver = resolverFor(dir)
 	}
 
 	pactoPath := filepath.Join(dir, "pacto.yaml")
@@ -798,9 +883,6 @@ func Check(ctx context.Context, resolverFor PolicyResolverFor, path string) (*Ch
 	}
 
 	c, parseErr := contract.Parse(bytes.NewReader(rawYAML))
-
-	bundleFS := osDirFS(dir)
-
 	if parseErr != nil {
 		result := &CheckResult{Valid: false}
 		result.Errors = []ValidationItem{{
@@ -811,7 +893,14 @@ func Check(ctx context.Context, resolverFor PolicyResolverFor, path string) (*Ch
 		return result, nil
 	}
 
-	vr := validation.ValidateWithResolver(ctx, c, rawYAML, bundleFS, resolver)
+	var vr validation.ValidationResult
+	if validate != nil {
+		if vr, err = validate(ctx, dir); err != nil {
+			return nil, err
+		}
+	} else {
+		vr = validation.ValidateWithResolver(ctx, c, rawYAML, osDirFS(dir), nil)
+	}
 
 	cr := &CheckResult{
 		Valid:   vr.IsValid(),
@@ -941,7 +1030,7 @@ func buildStubFS(c *contract.Contract, yamlBytes []byte) fstest.MapFS {
 	return m
 }
 
-func buildBundleFSForValidation(dir string, yamlBytes []byte, c *contract.Contract) fs.FS {
+func buildBundleFSForValidation(dir string, yamlBytes []byte, c *contract.Contract) fstest.MapFS {
 	m := fstest.MapFS{
 		"pacto.yaml": &fstest.MapFile{Data: yamlBytes},
 	}
@@ -1125,13 +1214,32 @@ func generateConfigSchema(props []ConfigProperty) []byte {
 	return append(data, '\n')
 }
 
+// atomicWriteFile writes data to a uniquely named temp file next to path and
+// renames it into place, so concurrent writers never share a temp file and a
+// reader never sees a partial one. An existing file keeps its permissions; the
+// temp file is removed on any failure.
 func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
-	dir := filepath.Dir(path)
-	tmpFile := filepath.Join(dir, ".pacto-tmp-"+filepath.Base(path))
-	if err := osWriteFile(tmpFile, data, perm); err != nil {
+	if fi, err := osStat(path); err == nil {
+		perm = fi.Mode().Perm()
+	}
+	f, err := osCreateTemp(filepath.Dir(path), ".pacto-tmp-"+filepath.Base(path)+"-*")
+	if err != nil {
 		return err
 	}
-	return osRename(tmpFile, path)
+	tmp := f.Name()
+	_ = f.Close()
+	err = osWriteFile(tmp, data, perm)
+	if err == nil {
+		// CreateTemp opens 0600 and WriteFile keeps an existing file's mode.
+		err = os.Chmod(tmp, perm)
+	}
+	if err == nil {
+		err = osRename(tmp, path)
+	}
+	if err != nil {
+		_ = os.Remove(tmp)
+	}
+	return err
 }
 
 // --- Contract summary ---

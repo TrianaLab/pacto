@@ -7,6 +7,8 @@ See LICENSE file in the project root for full license text.
 
 package v1alpha1
 
+import "github.com/trianalab/pacto/v3/pkg/finding"
+
 const (
 	// LabelPactoName is the label key used on PactoRevision resources to link them to their parent Pacto.
 	LabelPactoName = "pacto.trianalab.io/pacto"
@@ -116,12 +118,14 @@ const (
 )
 
 // ContractStatus values represent contract compliance state (not runtime health).
+// The four a finding set ranks onto are the engine's own (pkg/finding), so the
+// operator and the dashboard can never spell one differently.
 const (
-	ContractStatusCompliant    = "Compliant"
-	ContractStatusWarning      = "Warning"
-	ContractStatusNonCompliant = "NonCompliant"
+	ContractStatusCompliant    = finding.StatusCompliant
+	ContractStatusWarning      = finding.StatusWarning
+	ContractStatusNonCompliant = finding.StatusNonCompliant
 	ContractStatusReference    = "Reference"
-	ContractStatusUnknown      = "Unknown"
+	ContractStatusUnknown      = finding.StatusUnknown
 	// ContractStatusInvalid means structural validation failed OR a malformed artifact could not be parsed.
 	ContractStatusInvalid = "Invalid"
 	// ContractStatusNotEvaluated is a reserved enum value that the operator does not currently emit:

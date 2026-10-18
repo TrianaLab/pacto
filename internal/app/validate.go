@@ -170,3 +170,14 @@ func (a *bundleResolverAdapter) ResolveBundleFrom(ctx context.Context, base, ref
 	}
 	return b, graph.OCIBase, nil
 }
+
+// ValidationReport runs Validate for the bundle at dir and returns the verdict in
+// the shape the MCP pacto_check port consumes, so the tool and `pacto validate`
+// share one validation path (lockfile verification included).
+func (s *Service) ValidationReport(ctx context.Context, dir string) (validation.ValidationResult, error) {
+	r, err := s.Validate(ctx, ValidateOptions{Path: dir})
+	if err != nil {
+		return validation.ValidationResult{}, err
+	}
+	return validation.ValidationResult{Errors: r.Errors, Warnings: r.Warnings}, nil
+}

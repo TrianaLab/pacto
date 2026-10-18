@@ -1,7 +1,8 @@
 # Contract sections
 
-The sections that identify a service and describe its surface. Configuration and
-policy are in [Configuration and policy](configuration-and-policy.md);
+The fields that name a service, say who owns it and list what it exposes:
+`pactoVersion`, `service`, `interfaces`, `capabilities`, `metadata` and
+`extensions`. Configuration and policy are in [Configuration and policy](configuration-and-policy.md);
 dependencies and state are in
 [Dependencies and state](dependencies-and-state.md); readiness is in
 [Readiness](readiness.md).
@@ -112,6 +113,28 @@ Declares the service's communication boundaries. Optional — a service with no 
 !!! note
     Interface names must be unique within a contract. Every interface requires a non-empty `ref` (`SCHEMA_VIOLATION` otherwise), and the referenced file must exist in the bundle (`FILE_NOT_FOUND` otherwise). A `.json`, `.yaml` or `.yml` ref must also parse (`INVALID_INTERFACE_SPEC` otherwise); any other extension — a gRPC `.proto`, say — carries no format this layer can check, so it is only checked for existence. There is no `port` field — ports are a deployment concern. Health and metrics endpoints are declared as [capabilities](#capabilities), not interfaces.
 
+### Interfaces at runtime
+
+The Kubernetes operator checks two fields of a running interface: `type` and
+`visibility`.
+
+- **`type`.** The operator sends a probe to the port and looks at the protocol
+  that answers. `openapi` accepts HTTP/1 or HTTP/2 and `grpc` accepts HTTP/2.
+  Anything else is `INTERFACE_PROTOCOL_MISMATCH`. A TLS port, no answer and
+  `asyncapi` stay unverified.
+- **`visibility`** (`internal` when omitted). It is contradicted only when the
+  operator sees an address outside private networks: a public `externalIPs`
+  entry, or a `LoadBalancer` Service (without an internal load balancer
+  annotation) or an Ingress whose status carries a public IP or hostname. That
+  is `INTERFACE_VISIBILITY_MISMATCH`. A `NodePort` Service, an internal or
+  address-less load balancer and an HTTPRoute leave exposure unknown, so the
+  field stays unverified. A `public` interface seen only in-cluster is not a
+  contradiction either, because the operator may not see the gateway in front
+  of it.
+
+A field the operator could not check never changes the contract status. See
+[Runtime conformance](../integrations/kubernetes/runtime-conformance.md).
+
 ---
 
 ## `capabilities`
@@ -156,7 +179,7 @@ capabilities:
     ref: example.com/tracing
 ```
 
-A `health` or `metrics` capability may be declared with no binding. That is a valid declaration for another collector to verify, but the current Kubernetes integration cannot actively verify an unbound capability and reports it as Unsupported/Unknown. An `extension` capability requires a namespaced `ref` and must not declare a binding.
+A `health` or `metrics` capability may be declared with no binding. That is a valid declaration for another collector to verify, but the current Kubernetes integration cannot actively verify an unbound capability and reports it as Unsupported/Unknown. An `extension` capability requires a namespaced `ref` and must not declare a binding. Pacto has no evaluator for an extension, so it is listed in `coverage.unverified` as `capabilities[ref=<ref>]` and never counts as a required assertion: a contract declaring one can still reach Compliant, and that verdict says nothing about the extension.
 
 ---
 

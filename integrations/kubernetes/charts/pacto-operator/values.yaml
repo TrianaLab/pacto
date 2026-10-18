@@ -80,6 +80,30 @@ controller:
   # meanwhile). Empty string uses the controller default (2m). Accepts a Go
   # duration (e.g. "30s", "5m").
   stabilizationWindow: ""
+  # -- Actively probe in-cluster endpoints: the health capability over HTTP and
+  # the wire protocol of each present interface. Off by default; when off, health
+  # uses passive readiness-probe and EndpointSlice signals only and interface
+  # protocols read unverified.
+  enableProbing: false
+  # -- Observe the metrics capability (ServiceMonitor, PodMonitor, annotation or
+  # named-port discovery plus an active scrape). Also grants read access to
+  # ServiceMonitors and PodMonitors. Off by default; when off, metrics read
+  # unsupported.
+  enableMetricsObservation: false
+  kernelEvidence:
+    # -- Merge the node agent's kernel observations (NodeRuntimeObservation
+    # objects) into interface and dependency evidence. Needs the node agent
+    # running; off by default, so evidence comes from the Kubernetes API only.
+    # Kernel evidence is on whenever this OR nodeAgent.enabled is true: a
+    # managed agent whose observations nobody merges would be pure cost. Set
+    # this alone only for an agent you run yourself.
+    enabled: false
+    # -- Namespace the node agent publishes to. Empty uses the operator namespace.
+    namespace: ""
+    # -- How old a node's heartbeat may be before its evidence reads stale. Empty
+    # uses three times the node agent's publish interval. Accepts a Go duration
+    # (e.g. "2m").
+    staleness: ""
 
 leaderElection:
   # -- Enable leader election for HA deployments
@@ -146,7 +170,8 @@ dashboard:
     # declared files — through a root it cannot follow a symlink out of — never
     # writes to them and never scans the mount. Whoever owns that storage owns
     # producing and rotating the exports. This configures OFFLINE input only:
-    # Pacto ships no OTLP receiver and deploys no collector.
+    # Pacto ships no OTLP receiver and no trace collector (the optional node
+    # agent is an eBPF socket observer, not a trace pipeline).
     sources: []
     #   - name: orders
     #     file: traces.json
@@ -266,6 +291,41 @@ evidence:
       # -- Memory limit for the Evidence Server container. It verifies and
       # forwards one envelope at a time and stores nothing locally, so this is
       # sized for a single writer.
+      memory: 256Mi
+
+# The node agent: a DaemonSet the operator creates in its own namespace, one pod
+# per node (every taint tolerated), running `pacto agent` from the pacto runtime
+# image the operator was built with (the image the Evidence Server runs).
+# It watches TCP socket state with eBPF and publishes each node's listeners and
+# connections as a NodeRuntimeObservation object; it opens no port. Enabling it
+# also turns on controller kernel evidence (see controller.kernelEvidence).
+#
+# The pod needs hostPID, root and the BPF, PERFMON and SYS_PTRACE capabilities,
+# so the operator namespace must admit privileged pods: a
+# pod-security.kubernetes.io/enforce label of baseline or restricted rejects
+# them. The operator never relabels the namespace; it logs an error naming the
+# label instead. Label it yourself:
+#   kubectl label namespace <ns> pod-security.kubernetes.io/enforce=privileged
+# The kernel needs BTF (/sys/kernel/btf/vmlinux), which current distribution
+# kernels ship.
+nodeAgent:
+  # -- Deploy the node agent DaemonSet. Off by default.
+  enabled: false
+  # -- How often each agent publishes its node's observation. A Go duration;
+  # kernel evidence reads stale after three intervals unless
+  # controller.kernelEvidence.staleness says otherwise.
+  publishInterval: "30s"
+  resources:
+    requests:
+      # -- CPU request for the node agent container
+      cpu: 50m
+      # -- Memory request for the node agent container
+      memory: 64Mi
+    limits:
+      # -- CPU limit for the node agent container
+      cpu: 200m
+      # -- Memory limit for the node agent container. The agent caps the pods
+      # and connections it tracks, and the kernel ring buffer is charged here.
       memory: 256Mi
 
 # -- Node selector for the controller pod

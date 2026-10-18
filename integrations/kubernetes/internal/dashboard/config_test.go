@@ -111,30 +111,6 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
-func TestHasLatestTag(t *testing.T) {
-	tests := []struct {
-		image string
-		want  bool
-	}{
-		{"ghcr.io/trianalab/pacto/dashboard:0.24.2", false},
-		{"ghcr.io/trianalab/pacto/dashboard:latest", true},
-		{"ghcr.io/trianalab/pacto/dashboard", true},
-		{"my-registry.com/dashboard:v1.2.3", false},
-		{"dashboard:1.0", false},
-		{"dashboard:latest", true},
-		{"dashboard", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.image, func(t *testing.T) {
-			got := hasLatestTag(tt.image)
-			if got != tt.want {
-				t.Errorf("hasLatestTag(%q) = %v, want %v", tt.image, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestEffectiveOCISecrets_OCISecretsOnly(t *testing.T) {
 	cfg := Config{OCISecrets: []string{"a", "b"}}
 	got := cfg.EffectiveOCISecrets()
@@ -169,7 +145,7 @@ func TestEffectiveOCISecrets_Empty(t *testing.T) {
 
 func TestBuildResources_Defaults(t *testing.T) {
 	rc := ResourcesConfig{}
-	res := rc.BuildResources()
+	res := rc.Build(DefaultResources())
 	if res.Requests.Cpu().String() != "50m" {
 		t.Errorf("expected default CPU request 50m, got %s", res.Requests.Cpu().String())
 	}
@@ -188,7 +164,7 @@ func TestBuildResources_AllOverrides(t *testing.T) {
 		MemoryRequest: "256Mi",
 		MemoryLimit:   "1Gi",
 	}
-	res := rc.BuildResources()
+	res := rc.Build(DefaultResources())
 	if res.Requests.Cpu().String() != "100m" {
 		t.Errorf("expected CPU request 100m, got %s", res.Requests.Cpu().String())
 	}

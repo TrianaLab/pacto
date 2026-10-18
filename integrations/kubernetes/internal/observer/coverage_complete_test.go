@@ -56,7 +56,7 @@ func TestObserveWorkloadDim_APIError(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := es.Observations[0]
 	if o.Outcome != evidence.Failed {
 		t.Errorf("expected Failed for API error, got %s", o.Outcome)
@@ -81,7 +81,7 @@ func TestObservePersistenceDim_APIError(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -442,7 +442,7 @@ func TestCollect_EvidenceSetFields(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	if es.Subject.Kind != "service" {
 		t.Errorf("expected Subject.Kind=service, got %s", es.Subject.Kind)
 	}
@@ -478,7 +478,7 @@ func TestCollect_WorkloadNameOnly(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	// When ServiceName is empty, Subject uses workload name.
 	if es.Subject.Name != "default/my-app" {
 		t.Errorf("expected Subject.Name=default/my-app, got %s", es.Subject.Name)
@@ -897,7 +897,7 @@ func TestObservePersistenceDim_DefaultClass(t *testing.T) {
 	// a persistence class we set manually - but we can't do that without modifying internal state.
 	// Instead, we'll add a test that covers the StatefulSet VCT path more thoroughly.
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	// This test actually covers the ephemeral path (no volumes).
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {

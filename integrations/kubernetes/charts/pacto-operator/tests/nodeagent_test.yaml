@@ -1,0 +1,218 @@
+suite: node agent tests
+tests:
+  # --- operator args wiring ---
+  - it: does not pass node agent flags when the node agent is disabled (default)
+    template: templates/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-node-agent
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-kernel-evidence
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--node-agent-
+
+  - it: hands the controller's imagePullSecrets to the node agent
+    template: templates/deployment.yaml
+    set:
+      nodeAgent.enabled: true
+      imagePullSecrets:
+        - name: regcred
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --node-agent-image-pull-secret=regcred
+
+  - it: passes the node agent flags with defaults when enabled
+    template: templates/deployment.yaml
+    set:
+      nodeAgent.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-node-agent
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --node-agent-publish-interval=30s
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --node-agent-cpu-request=50m
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --node-agent-cpu-limit=200m
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --node-agent-memory-request=64Mi
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --node-agent-memory-limit=256Mi
+
+  # The agent runs `pacto agent` from the runtime image the operator was built
+  # with (as the Evidence Server does), so the chart passes no image at all.
+  - it: leaves the node agent image to the operator
+    template: templates/deployment.yaml
+    set:
+      nodeAgent.enabled: true
+      image.repository: localhost:5001/pacto-operator/pacto-controller
+      image.tag: 9.9.9
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: localhost:5001/pacto-operator/pacto-controller:9.9.9
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--node-agent-image=
+
+  - it: passes overridden publish interval and resources
+    template: templates/deployment.yaml
+    set:
+      nodeAgent.enabled: true
+      nodeAgent.publishInterval: 10s
+      nodeAgent.resources.requests.cpu: 20m
+      nodeAgent.resources.limits.memory: 512Mi
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --node-agent-publish-interval=10s
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --node-agent-cpu-request=20m
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --node-agent-memory-limit=512Mi
+
+  # Kernel evidence follows the managed agent: observations nobody merges would
+  # be pure cost.
+  - it: turns kernel evidence on with the node agent
+    template: templates/deployment.yaml
+    set:
+      nodeAgent.enabled: true
+      controller.kernelEvidence.staleness: 2m
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-kernel-evidence
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kernel-evidence-staleness=2m
+
+  - it: keeps kernel evidence available without the managed agent
+    template: templates/deployment.yaml
+    set:
+      controller.kernelEvidence.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-kernel-evidence
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --enable-node-agent
+
+  # --- schema ---
+  - it: rejects an unknown nodeAgent key
+    template: templates/deployment.yaml
+    set:
+      nodeAgent.privileged: true
+    asserts:
+      - failedTemplate: {}
+
+  - it: rejects a publish interval that is not a Go duration
+    template: templates/deployment.yaml
+    set:
+      nodeAgent.publishInterval: thirty
+    asserts:
+      - failedTemplate: {}
+
+  # --- RBAC ---
+  - it: always grants node agent teardown RBAC
+    template: templates/clusterrole.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [apps]
+            resources: [daemonsets]
+            verbs: [get, delete]
+            resourceNames: [pacto-node-agent]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [rbac.authorization.k8s.io]
+            resources: [roles, rolebindings]
+            verbs: [get, delete]
+            resourceNames: [pacto-node-agent]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [serviceaccounts]
+            verbs: [get, delete]
+            resourceNames: [pacto-node-agent]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [pacto.trianalab.io]
+            resources: [noderuntimeobservations]
+            verbs: [delete, list]
+
+  # Teardown never needs watch: a cached informer without the matching RBAC
+  # would fail to sync and crashloop a disabled operator.
+  - it: grants no node agent lifecycle RBAC when disabled
+    template: templates/clusterrole.yaml
+    asserts:
+      - notExists:
+          path: $.rules[?(@.resources[0]=="daemonsets" && @.verbs[0]=="create")]
+      - notExists:
+          path: $.rules[?(@.resources[0]=="roles" && @.verbs[0]=="create")]
+      - notExists:
+          path: $.rules[?(@.resources[0]=="noderuntimeobservations/status")]
+      - notExists:
+          path: $.rules[?(@.resources[1]=="nodes")]
+
+  - it: grants node agent lifecycle RBAC when enabled
+    template: templates/clusterrole.yaml
+    set:
+      nodeAgent.enabled: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [apps]
+            resources: [daemonsets]
+            verbs: [create, delete, get, patch, update]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [rbac.authorization.k8s.io]
+            resources: [roles, rolebindings]
+            verbs: [create, delete, get, patch]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [serviceaccounts]
+            verbs: [create, delete, get, patch]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [pacto.trianalab.io]
+            resources: [noderuntimeobservations]
+            verbs: [create, delete, get, list, patch, watch]
+      # The agents' Role is get, create and patch (server-side apply); the
+      # operator holds exactly that on the status subresource.
+      - contains:
+          path: rules
+          content:
+            apiGroups: [pacto.trianalab.io]
+            resources: [noderuntimeobservations/status]
+            verbs: [create, get, patch]
+      # Read, never write: the operator does not relabel the namespace, and
+      # reads a node only to prune the observation of a removed one.
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [namespaces, nodes]
+            verbs: [get]

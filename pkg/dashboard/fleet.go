@@ -410,9 +410,11 @@ func sourcesFromFleet(q *fleet.Query) []SourceInfo {
 // description (SOURCE_DESCRIPTIONS, lib/format.ts) are both keyed on
 // k8s/oci/local/cache, so the fleet's "kubernetes" kind goes out under the name
 // those tables know. An unmapped kind is not blank -- SourceDot falls back to the
-// kind's first letter -- but it loses its colour and its description.
+// kind's first letter -- but it loses its colour and its description. The two
+// names are both wire contracts (fleet source kinds and /api/sources types), so
+// this mapping is the one place they meet rather than a patch to remove.
 func pillType(kind string) string {
-	if kind == "kubernetes" {
+	if kind == fleet.SourceKindKubernetes {
 		return "k8s"
 	}
 	return kind

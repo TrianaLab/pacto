@@ -1,6 +1,9 @@
 # Dependencies and state
 
-What a service depends on, what it keeps and how it runs. The other sections are
+Three fields: `dependencies` lists the other services this one calls, `workload`
+says how it runs (a long-running service, a job or a scheduled job) and `state`
+says what data it keeps. Impact analysis, the lockfile and the Kubernetes
+operator all read them. The other sections are
 in [Contract sections](sections.md),
 [Configuration and policy](configuration-and-policy.md) and
 [Readiness](readiness.md).
@@ -47,6 +50,12 @@ When an `oci://` reference omits the tag, pacto queries the registry for availab
     Pinning and constraining are two separate decisions here. If you pin, the pin
     wins; keep `compatibility` truthful anyway, because consumers and the
     [lockfile](../lockfile.md) read it as your declared range.
+
+    At runtime the Kubernetes operator does check the range: when the provider
+    runs under its own Pacto resource, the contract version it reports outside
+    `compatibility` is `DEPENDENCY_VERSION_MISMATCH`, an error for a required
+    dependency and a warning for an optional one. An unknown version is not a
+    contradiction.
 
 !!! note
     Validation rejects OCI references whose tag or digest is malformed. Tags must follow the OCI tag grammar (`[A-Za-z0-9_][A-Za-z0-9._-]{0,127}`), and digests must be well-formed (`sha256:<64 hex>` or `sha512:<128 hex>`). The same check applies to config and policy refs.
@@ -131,6 +140,12 @@ The combination of `state.type`, `persistence.scope` and `persistence.durability
 - **`shared`** — data is shared across all instances via a common store.
 - **`ephemeral`** — data can be lost on restart without impact. Caches, temp files, reconstructible state.
 - **`persistent`** — data must survive restarts. Requires durable storage.
+
+At runtime the Kubernetes operator reads `scope` from the workload: one
+PersistentVolumeClaim in the pod template of a workload with more than one
+replica is shared, so `local` scope with such a claim is `PERSISTENCE_MISMATCH`.
+`shared` scope with per-replica storage is not a contradiction, because the
+shared store may live outside the cluster.
 
 ### State invariants
 

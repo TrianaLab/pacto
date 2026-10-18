@@ -297,6 +297,7 @@ func TestProductFindingEvidenceRefsBounded(t *testing.T) {
 	for i := range refs {
 		refs[i] = finding.EvidenceRef{Source: fmt.Sprintf("src-%d", i), ObservedAt: "2030-01-01"}
 	}
+	refs[0].Collector, refs[0].DetectedAt = "k8s-observer+ebpf", "2029-12-31T23:59:00Z"
 	pf := productFinding(finding.Finding{
 		Code: finding.Code("DRIFT"), Severity: finding.SeverityUnknown,
 		Category: finding.CategoryInconclusive, Subject: finding.SubjectRef{Kind: "interface", Name: "http"},
@@ -311,6 +312,9 @@ func TestProductFindingEvidenceRefsBounded(t *testing.T) {
 	}
 	if !er.Truncated {
 		t.Error("an over-cap evidence list must report truncated=true")
+	}
+	if got := er.Items[0]; got.Collector != "k8s-observer+ebpf" || got.DetectedAt != "2029-12-31T23:59:00Z" {
+		t.Errorf("evidence provenance dropped: %+v", got)
 	}
 	// Every scalar finding fact is preserved, and the finite severity enum carries
 	// through (including unknown, which the engine really emits). Compare the whole

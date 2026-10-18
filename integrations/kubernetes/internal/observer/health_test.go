@@ -24,9 +24,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/prober"
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v3/pkg/probe"
 )
 
 func TestObserveHealthDim_NoBinding(t *testing.T) {
@@ -269,7 +269,7 @@ func TestObserveHealthDim_TierB_ReadinessProbe_Satisfied(t *testing.T) {
 
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc, dep, slice).Build(),
-		prober: prober.New(5 * time.Second),
+		prober: probe.New(5 * time.Second),
 	}
 
 	cap := contract.Capability{
@@ -385,7 +385,7 @@ func TestObserveHealthDim_TierB_LivenessOnly_Insufficient(t *testing.T) {
 
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc, dep, slice).Build(),
-		prober: prober.New(5 * time.Second),
+		prober: probe.New(5 * time.Second),
 	}
 
 	cap := contract.Capability{
@@ -480,7 +480,7 @@ func TestObserveHealthDim_TierB_NotReady_Failed(t *testing.T) {
 
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc, dep, slice).Build(),
-		prober: prober.New(5 * time.Second),
+		prober: probe.New(5 * time.Second),
 	}
 
 	cap := contract.Capability{
@@ -590,7 +590,7 @@ func TestObserveHealthDim_Sidecar_CorrectContainer(t *testing.T) {
 	}
 
 	ready := true
-	port := int32(8080)
+	port := int32(9090) // EndpointSlices carry the target (container) port
 	slice := &discoveryv1.EndpointSlice{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-svc-abc",
@@ -611,7 +611,7 @@ func TestObserveHealthDim_Sidecar_CorrectContainer(t *testing.T) {
 
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc, dep, slice).Build(),
-		prober: prober.New(5 * time.Second),
+		prober: probe.New(5 * time.Second),
 	}
 
 	cap := contract.Capability{
@@ -703,7 +703,7 @@ func TestObserveHealthDim_NamedTargetPort(t *testing.T) {
 			},
 		},
 		Ports: []discoveryv1.EndpointPort{
-			{Port: &port},
+			{Name: new("http"), Port: &port}, // the slice names the Service port
 		},
 		Endpoints: []discoveryv1.Endpoint{
 			{
@@ -714,7 +714,7 @@ func TestObserveHealthDim_NamedTargetPort(t *testing.T) {
 
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc, dep, slice).Build(),
-		prober: prober.New(5 * time.Second),
+		prober: probe.New(5 * time.Second),
 	}
 
 	cap := contract.Capability{
@@ -812,7 +812,7 @@ func TestObserveHealthDim_TierB_UsesOwningBindingNotFirst(t *testing.T) {
 
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc, dep, slice).Build(),
-		prober: prober.New(5 * time.Second),
+		prober: probe.New(5 * time.Second),
 	}
 	cap := contract.Capability{
 		Type: contract.CapabilityHealth,
@@ -860,7 +860,7 @@ func TestObserveHealthDim_WindowUpdates(t *testing.T) {
 
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc).Build(),
-		prober: prober.New(5 * time.Second),
+		prober: probe.New(5 * time.Second),
 	}
 
 	cap := contract.Capability{
@@ -1001,7 +1001,7 @@ func TestObserveHealthDim_Job_CronJob(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			o := &Observer{
 				client: fake.NewClientBuilder().WithObjects(svc, tc.obj, slice).Build(),
-				prober: prober.New(5 * time.Second),
+				prober: probe.New(5 * time.Second),
 			}
 
 			cap := contract.Capability{
@@ -1051,7 +1051,7 @@ func TestObserveHealthDim_EmptyInterfaceBindings_NoPort(t *testing.T) {
 
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc).Build(),
-		prober: prober.New(5 * time.Second),
+		prober: probe.New(5 * time.Second),
 	}
 
 	cap := contract.Capability{
@@ -1115,7 +1115,7 @@ func TestObserveHealthDim_NoReadinessProbe_Insufficient(t *testing.T) {
 
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc, dep).Build(),
-		prober: prober.New(5 * time.Second),
+		prober: probe.New(5 * time.Second),
 	}
 
 	cap := contract.Capability{
@@ -1150,7 +1150,7 @@ func TestObserveHealthDim_NoReadinessProbe_Insufficient(t *testing.T) {
 }
 
 func TestHandleHealthProbeResult_2xx_Satisfied(t *testing.T) {
-	result := prober.Result{
+	result := probe.Result{
 		Reachable:  true,
 		StatusCode: 200,
 	}
@@ -1162,7 +1162,7 @@ func TestHandleHealthProbeResult_2xx_Satisfied(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, updates := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, input.Now, 8080)
+	obs, updates := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, input.Now, 8080, "")
 
 	if obs.Outcome != evidence.Observed {
 		t.Errorf("expected Observed for 2xx, got %s", obs.Outcome)
@@ -1190,7 +1190,7 @@ func TestHandleHealthProbeResult_2xx_Satisfied(t *testing.T) {
 }
 
 func TestHandleHealthProbeResult_3xx_Satisfied(t *testing.T) {
-	result := prober.Result{
+	result := probe.Result{
 		Reachable:  true,
 		StatusCode: 301,
 	}
@@ -1202,7 +1202,7 @@ func TestHandleHealthProbeResult_3xx_Satisfied(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, _ := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, input.Now, 8080)
+	obs, _ := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, input.Now, 8080, "")
 
 	if obs.Outcome != evidence.Observed {
 		t.Errorf("expected Observed for 3xx, got %s", obs.Outcome)
@@ -1218,7 +1218,7 @@ func TestHandleHealthProbeResult_3xx_Satisfied(t *testing.T) {
 }
 
 func TestHandleHealthProbeResult_404_WithinWindow(t *testing.T) {
-	result := prober.Result{
+	result := probe.Result{
 		Reachable:  true,
 		StatusCode: 404,
 	}
@@ -1231,7 +1231,7 @@ func TestHandleHealthProbeResult_404_WithinWindow(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, updates := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, now, 8080)
+	obs, updates := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, now, 8080, "")
 
 	if obs.Outcome != evidence.Insufficient {
 		t.Errorf("expected Insufficient for first 404, got %s", obs.Outcome)
@@ -1247,7 +1247,7 @@ func TestHandleHealthProbeResult_404_WithinWindow(t *testing.T) {
 }
 
 func TestHandleHealthProbeResult_404_BeyondWindow(t *testing.T) {
-	result := prober.Result{
+	result := probe.Result{
 		Reachable:  true,
 		StatusCode: 404,
 	}
@@ -1264,7 +1264,7 @@ func TestHandleHealthProbeResult_404_BeyondWindow(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, updates := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, now, 8080)
+	obs, updates := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, now, 8080, "")
 
 	if obs.Outcome != evidence.Observed {
 		t.Errorf("expected Observed for 404 beyond window, got %s", obs.Outcome)
@@ -1284,7 +1284,7 @@ func TestHandleHealthProbeResult_404_BeyondWindow(t *testing.T) {
 }
 
 func TestHandleHealthProbeResult_5xx_Insufficient(t *testing.T) {
-	result := prober.Result{
+	result := probe.Result{
 		Reachable:  true,
 		StatusCode: 500,
 	}
@@ -1296,7 +1296,7 @@ func TestHandleHealthProbeResult_5xx_Insufficient(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, updates := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, input.Now, 8080)
+	obs, updates := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, input.Now, 8080, "")
 
 	if obs.Outcome != evidence.Insufficient {
 		t.Errorf("expected Insufficient for 5xx, got %s", obs.Outcome)
@@ -1308,7 +1308,7 @@ func TestHandleHealthProbeResult_5xx_Insufficient(t *testing.T) {
 }
 
 func TestHandleHealthProbeResult_501_Insufficient(t *testing.T) {
-	result := prober.Result{
+	result := probe.Result{
 		Reachable:  true,
 		StatusCode: 501,
 	}
@@ -1320,7 +1320,7 @@ func TestHandleHealthProbeResult_501_Insufficient(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	obs, _ := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, input.Now, 8080)
+	obs, _ := New(fake.NewClientBuilder().Build()).handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, input.Now, 8080, "")
 
 	if obs.Outcome != evidence.Insufficient {
 		t.Errorf("expected Insufficient for 501, got %s", obs.Outcome)
@@ -1329,7 +1329,7 @@ func TestHandleHealthProbeResult_501_Insufficient(t *testing.T) {
 
 func TestHandleHealthProbeResult_Unreachable_TierB(t *testing.T) {
 	// When probe is unreachable, tier B fallback is tried.
-	result := prober.Result{
+	result := probe.Result{
 		Reachable: false,
 		Error:     "connection refused",
 	}
@@ -1395,7 +1395,7 @@ func TestHandleHealthProbeResult_Unreachable_TierB(t *testing.T) {
 
 	obs := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc, dep, slice).Build(),
-		prober: prober.New(5 * time.Second),
+		prober: probe.New(5 * time.Second),
 	}
 
 	input := CollectInput{
@@ -1412,7 +1412,7 @@ func TestHandleHealthProbeResult_Unreachable_TierB(t *testing.T) {
 	}
 	prov := evidence.Provenance{Collector: "k8s-observer"}
 
-	observation, _ := obs.handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, input.Now, 8080)
+	observation, _ := obs.handleHealthProbeResult(context.Background(), result, subj, "health", input, prov, input.Now, 8080, "")
 
 	// Tier B should succeed.
 	if observation.Outcome != evidence.Observed {
@@ -1469,7 +1469,7 @@ func TestObserveHealthDim_ContainerNotExposingPort_Insufficient(t *testing.T) {
 
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc, dep).Build(),
-		prober: prober.New(5 * time.Second),
+		prober: probe.New(5 * time.Second),
 	}
 
 	cap := contract.Capability{
@@ -1604,7 +1604,7 @@ func TestObserveHealthDim_Coverage_AllWorkloadKinds(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			o := &Observer{
 				client: fake.NewClientBuilder().WithObjects(svc, tc.obj, slice).Build(),
-				prober: prober.New(5 * time.Second),
+				prober: probe.New(5 * time.Second),
 			}
 
 			cap := contract.Capability{
@@ -1656,7 +1656,7 @@ func TestObserveHealthDim_ServiceGetError_Failed(t *testing.T) {
 
 	o := &Observer{
 		client: clientWithError,
-		prober: prober.New(5 * time.Second),
+		prober: probe.New(5 * time.Second),
 	}
 
 	cap := contract.Capability{
@@ -1710,7 +1710,7 @@ func TestCheckReadinessProbeFallbackFromInput_ServiceGetError(t *testing.T) {
 		},
 	}
 
-	hasProbe, podReady := o.checkReadinessProbeFallbackFromInput(context.Background(), input, 8080)
+	hasProbe, podReady := o.checkReadinessProbeFallbackFromInput(context.Background(), input, 8080, "")
 
 	if hasProbe || podReady {
 		t.Errorf("expected (false, false) for Service GET error, got (%v, %v)", hasProbe, podReady)
@@ -1718,7 +1718,7 @@ func TestCheckReadinessProbeFallbackFromInput_ServiceGetError(t *testing.T) {
 }
 
 func TestCheckReadinessProbeFallback_NoPodSpec(t *testing.T) {
-	// Test podSpec == nil (workload exists but second Get fails).
+	// Test podSpec == nil: the one workload read fails, so there is no pod template to judge.
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-svc", Namespace: "default"},
 		Spec: corev1.ServiceSpec{
@@ -1741,18 +1741,12 @@ func TestCheckReadinessProbeFallback_NoPodSpec(t *testing.T) {
 		},
 	}
 
-	// Use an interceptor that succeeds on the first Get but fails on the second.
-	getCount := 0
 	clientWithError := fake.NewClientBuilder().
 		WithObjects(svc, dep).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, client client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 				if _, ok := obj.(*appsv1.Deployment); ok {
-					getCount++
-					if getCount > 1 {
-						// Second Get fails.
-						return errors.NewInternalError(fmt.Errorf("forced second Get error"))
-					}
+					return errors.NewInternalError(fmt.Errorf("forced Get error"))
 				}
 				return client.Get(ctx, key, obj, opts...)
 			},
@@ -1767,7 +1761,7 @@ func TestCheckReadinessProbeFallback_NoPodSpec(t *testing.T) {
 		WorkloadKind: "Deployment",
 	}
 
-	hasProbe, podReady := o.checkReadinessProbeFallback(context.Background(), input, svc, 8080)
+	hasProbe, podReady := o.checkReadinessProbeFallback(context.Background(), input, svc, 8080, "")
 
 	if hasProbe || podReady {
 		t.Errorf("expected (false, false) for nil podSpec, got (%v, %v)", hasProbe, podReady)
@@ -1816,7 +1810,7 @@ func TestCheckReadinessProbeFallback_NoTargetPortMatch(t *testing.T) {
 		WorkloadKind: "Deployment",
 	}
 
-	hasProbe, podReady := o.checkReadinessProbeFallback(context.Background(), input, svc, 8080)
+	hasProbe, podReady := o.checkReadinessProbeFallback(context.Background(), input, svc, 8080, "")
 
 	if hasProbe || podReady {
 		t.Errorf("expected (false, false) for no target port match, got (%v, %v)", hasProbe, podReady)
@@ -1835,7 +1829,7 @@ func TestObserveHealthDim_ProbingEnabled_TierAActive(t *testing.T) {
 	}
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc).Build(),
-		prober: &fakeMetricsProber{result: prober.Result{Reachable: true, StatusCode: 200}},
+		prober: &fakeMetricsProber{result: probe.Result{Reachable: true, StatusCode: 200}},
 	}
 	cap := contract.Capability{
 		Type:    contract.CapabilityHealth,
@@ -1894,7 +1888,7 @@ func TestObserveHealthDim_ProbingDisabled_SkipsActiveProbe(t *testing.T) {
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc, dep).Build(),
 		// A 200-returning prober: if the gate were bypassed this would report Observed.
-		prober: &fakeMetricsProber{result: prober.Result{Reachable: true, StatusCode: 200}},
+		prober: &fakeMetricsProber{result: probe.Result{Reachable: true, StatusCode: 200}},
 	}
 	cap := contract.Capability{
 		Type:    contract.CapabilityHealth,

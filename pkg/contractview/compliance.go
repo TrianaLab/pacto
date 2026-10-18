@@ -3,6 +3,10 @@ package contractview
 import "math"
 
 // ValidationCatalogEntry enriches a condition type with category, label, and default severity.
+//
+// Deprecated: the catalog is the retired per-check operator condition
+// vocabulary (ServiceExists, PortsValid...). Nothing in Pacto populates
+// ServiceDetails.Conditions any more; compliance comes from findings. Removed at v4.
 type ValidationCatalogEntry struct {
 	Category string
 	Label    string
@@ -27,6 +31,8 @@ var validationCatalog = map[string]ValidationCatalogEntry{
 
 // LookupValidation returns the catalog entry for a condition type.
 // Unknown types get category "other", the type name as label, and "error" severity.
+//
+// Deprecated: see [ValidationCatalogEntry]. Removed at v4.
 func LookupValidation(conditionType string) ValidationCatalogEntry {
 	if entry, ok := validationCatalog[conditionType]; ok {
 		return entry

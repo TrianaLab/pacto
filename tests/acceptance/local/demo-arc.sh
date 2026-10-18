@@ -70,6 +70,8 @@ OUT="$("$BIN" $(beat_args 4))" || fail "beat 4: fleet get failed"
 assert_contains "$OUT" "Compliance: NonCompliant"                 "confirmed violation"
 assert_contains "$OUT" "Coverage: 5/5 evaluated"                  "every check was actually evaluated"
 assert_contains "$OUT" "STATELESS_PERSISTENT_CONFLICT"            "the specific contradiction is named"
+assert_contains "$OUT" "INTERFACE_ABSENT: nothing listens on the declared http interface (seen by k8s-observer+ebpf)" \
+  "the recorded kernel finding names the collector that saw it"
 
 echo "== beat 5: a breaking change, refused =="
 # pacto diff exits 1 on BREAKING, so capture without tripping set -e.

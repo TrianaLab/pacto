@@ -44,7 +44,7 @@ func TestCollect_Workload_CronJob(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := es.Observations[0]
 	wl, err := o.GetWorkloadObservation()
 	if err != nil {
@@ -83,7 +83,7 @@ func TestCollect_Workload_ReplicaSet(t *testing.T) {
 		WorkloadExplicit: true,
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := es.Observations[0]
 	wl, err := o.GetWorkloadObservation()
 	if err != nil {
@@ -133,7 +133,7 @@ func TestCollect_Persistence_MixedVolumes(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -183,7 +183,7 @@ func TestCollect_Persistence_ConfigMapVolume(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -233,7 +233,7 @@ func TestCollect_Persistence_SecretVolume(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -283,7 +283,7 @@ func TestCollect_Persistence_DownwardAPIVolume(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -333,7 +333,7 @@ func TestCollect_Persistence_ProjectedVolume(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")
@@ -387,7 +387,7 @@ func TestCollect_Persistence_AmbiguousMixed(t *testing.T) {
 		ContractRef:  "ghcr.io/org/my-service:1.0.0",
 	}
 
-	es, _ := obs.Collect(context.Background(), input)
+	es, _, _ := obs.Collect(context.Background(), input)
 	o := findObservation(es.Observations, evidence.PersistenceObserved)
 	if o == nil {
 		t.Fatal("PersistenceObserved not found")

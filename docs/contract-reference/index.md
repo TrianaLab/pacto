@@ -1,6 +1,18 @@
 # Contract Reference (v2.0)
 
-A Pacto contract is a YAML file (`pacto.yaml`) that describes a service's operational interface — interfaces, dependencies, runtime behavior, configuration, capabilities and readiness. The sections and their fields are split across [contract sections](sections.md), [configuration and policy](configuration-and-policy.md), [dependencies and state](dependencies-and-state.md) and [readiness](readiness.md); the rules are in [validation layers](validation.md), [overrides](overrides.md) and [change classification](diff.md). What stays here is the bundle layout all of them assume.
+A Pacto contract is one YAML file, `pacto.yaml`, that says what a service is and
+what it needs to run: its interfaces, dependencies, configuration, capabilities
+and readiness. This section is the field-by-field reference. The smallest valid
+contract is four lines:
+
+```yaml
+pactoVersion: "2.0"
+service:
+  name: my-library
+  version: 1.0.0
+```
+
+The fields are split across [contract sections](sections.md), [configuration and policy](configuration-and-policy.md), [dependencies and state](dependencies-and-state.md) and [readiness](readiness.md). The rules are in [validation layers](validation.md), [overrides](overrides.md) and [change classification](diff.md). This page covers the bundle layout all of them assume.
 
 Each `interfaces`, `configurations` and `policies` entry points at a schema you already have — an OpenAPI document, an AsyncAPI event definition, a gRPC service descriptor, a JSON Schema. Every referenced file must parse as JSON or YAML; see [interface types](sections.md#interface-types).
 
@@ -77,16 +89,6 @@ Generate with any standard tool ([Syft](https://github.com/anchore/syft), [Trivy
 
 ## Minimal contract
 
-Only `pactoVersion` and `service` are required. All other sections — `workload`, `state`, `interfaces`, `configurations`, `policies`, `dependencies`, `capabilities`, `readiness`, `metadata` and `extensions` — are optional:
-
-```yaml
-pactoVersion: "2.0"
-
-service:
-  name: my-library
-  version: 1.0.0
-```
-
-This is useful for lightweight dependency declarations, shared libraries or contracts where runtime semantics are managed externally.
+Only `pactoVersion` and `service` are required, as in the four-line example at the top of this page. All other sections — `workload`, `state`, `interfaces`, `configurations`, `policies`, `dependencies`, `capabilities`, `readiness`, `metadata` and `extensions` — are optional. A minimal contract is useful for lightweight dependency declarations, shared libraries or contracts where runtime semantics are managed externally.
 
 ---

@@ -102,8 +102,11 @@ Each reconciliation compares the declared contract against observed runtime evid
 | Code | What contradicted the contract |
 |------|--------------------------------|
 | `INTERFACE_ABSENT` | a declared interface is not served |
+| `INTERFACE_PROTOCOL_MISMATCH` | the interface port answers with a protocol its `type` rules out (needs active probing) |
+| `INTERFACE_VISIBILITY_MISMATCH` | an `internal` interface (the default) is exposed outside the cluster |
 | `CAPABILITY_ABSENT` | a declared capability (health, metrics, extension) is not present |
 | `DEPENDENCY_UNREACHABLE` | a declared dependency cannot be reached |
+| `DEPENDENCY_VERSION_MISMATCH` | the provider's deployed contract version is outside `compatibility` |
 | `CONFIGURATION_ABSENT` / `CONFIGURATION_MISMATCH` | a declared configuration is missing or differs |
 | `WORKLOAD_MISMATCH` | the observed workload kind differs from the declared workload |
 | `PERSISTENCE_MISMATCH` | observed storage differs from the declared state model |
@@ -117,7 +120,7 @@ Each reconciliation compares the declared contract against observed runtime evid
 | `OBSERVATION_UNSUPPORTED` | the dimension cannot be observed in this environment |
 | `COLLECTION_FAILED` | the cluster query needed to observe the assertion errored |
 
-Severity is derived, not authored: a required assertion that is contradicted is `error`; an optional one is `warning`; one that cannot be observed is `unknown`.
+Severity is derived, not authored: a required assertion that is contradicted is `error`; an optional one is `warning`; one that cannot be observed is `unknown`. `DEPENDENCY_UNDECLARED` (a connection, seen by the node agent, to another Pacto service no dependency declares) is always a `warning`. See [Runtime conformance](docs/runtime-conformance.md) for the node agent and these checks.
 
 ### Status derivation
 
@@ -141,8 +144,9 @@ By default the operator observes health passively (readiness-probe and EndpointS
 
 | Flag | Default | Effect |
 |------|---------|--------|
-| `--enable-probing` | off | Active in-cluster HTTP probing of health capability endpoints (Tier A). When off, health uses passive readiness-probe and EndpointSlice signals only. |
-| `--enable-metrics-observation` | off | Full metrics observation (discovery + active probe). When off, the metrics dimension returns Unsupported. |
+| `--enable-probing` | off | Active in-cluster HTTP probing of health capability endpoints (Tier A) and of each present interface's wire protocol. When off, health uses passive readiness-probe and EndpointSlice signals only and interface protocols stay unverified. Chart value `controller.enableProbing`. |
+| `--enable-metrics-observation` | off | Full metrics observation (discovery + active probe). When off, the metrics dimension returns Unsupported. Chart value `controller.enableMetricsObservation`. |
+| `--enable-kernel-evidence` | off | Merge the node agent's kernel observations into interface and dependency evidence. The chart turns it on with `nodeAgent.enabled`. |
 | `--interface-name-match-discovery` | off | Resolve an unbound interface's Service port by matching a Service port whose name equals the interface name (positive availability assist only; never yields an absent or error result). |
 
 > **Note:** `ContractStatus` reflects contract validation/compliance, not runtime health.

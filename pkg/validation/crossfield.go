@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -214,7 +213,7 @@ func validateCapabilities(c *contract.Contract, result *ValidationResult) {
 					fmt.Sprintf("capability binding references interface %q, which is not declared in interfaces[]", cap.Binding.Interface),
 				)
 			}
-			if cap.Binding.Path != "" && !validCapabilityPath(cap.Binding.Path) {
+			if cap.Binding.Path != "" && !contract.ValidCapabilityPath(cap.Binding.Path) {
 				result.AddError(
 					fmt.Sprintf("capabilities[%d].binding.path", i),
 					"CAPABILITY_PATH_INVALID",
@@ -241,26 +240,6 @@ func validateCapabilities(c *contract.Contract, result *ValidationResult) {
 		}
 		seen[key] = i
 	}
-}
-
-// validCapabilityPath enforces INV-6 (SSRF-safe): an application path must start with a single "/" and
-// carry no scheme, authority/host, userinfo, fragment or opaque component. This crossfield check is
-// AUTHORITATIVE for INV-6; the JSON-schema pattern is defense-in-depth. The collector additionally builds
-// the probe URL with net/url using the host from the trusted binding, never from this path.
-func validCapabilityPath(path string) bool {
-	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") {
-		return false
-	}
-	u, err := url.Parse(path)
-	if err != nil {
-		return false
-	}
-	// u.Path is decoded, so a leading "//" also catches encoded-authority forms
-	// like /%2Fevil.example and /%2f%2fevil.example (INV-6 MUST-reject set).
-	if strings.HasPrefix(u.Path, "//") {
-		return false
-	}
-	return u.Scheme == "" && u.Host == "" && u.User == nil && u.Fragment == "" && u.Opaque == ""
 }
 
 // missingFile reports whether a bundle-relative ref fails to resolve to a

@@ -559,10 +559,8 @@ func stageCacheEntry(dir string, rec CachedRef, bundle *contract.Bundle) error {
 
 // digestFromRef returns the manifest digest a reference already pins, else "".
 func digestFromRef(ref string) string {
-	if i := strings.Index(ref, "@"); i >= 0 {
-		return ref[i+1:]
-	}
-	return ""
+	_, digest := contract.SplitOCIDigest(ref)
+	return digest
 }
 
 // PinRefToDigest rewrites a reference to its immutable digest-pinned form
@@ -570,15 +568,8 @@ func digestFromRef(ref string) string {
 // carries. A tag is a ':' after the last '/', so a registry port
 // (localhost:5000/...) is never mistaken for a tag separator.
 func PinRefToDigest(ref, digest string) string {
-	r := strings.TrimPrefix(ref, "oci://")
-	if i := strings.Index(r, "@"); i >= 0 {
-		r = r[:i]
-	}
-	slash := strings.LastIndex(r, "/")
-	if colon := strings.LastIndex(r, ":"); colon > slash {
-		r = r[:colon]
-	}
-	return r + "@" + digest
+	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(ref))
+	return repo + "@" + digest
 }
 
 // storePull remembers a bundle under the key it was looked up by, together with
@@ -652,7 +643,7 @@ const entryNamespace = "_v2"
 // are not valid OCI references and [CachedStore.contained] rejects them rather
 // than the encoding growing cases for them.
 func (c *CachedStore) entryDir(ref string) string {
-	repo, tag, tagged := splitRefTag(ref)
+	repo, tag, tagged := contract.SplitOCITag(ref)
 	parts := append([]string{entryNamespace}, strings.Split(repo, "/")...)
 	for i, p := range parts[1:] {
 		parts[i+1] = escapeRefSegment(p)
@@ -700,17 +691,6 @@ func (c *CachedStore) contained(rel string) string {
 		return filepath.Join(c.cacheDir, "_invalid")
 	}
 	return filepath.Join(c.cacheDir, rel)
-}
-
-// splitRefTag splits a reference into its repository and its tag. A tag is a
-// ':' after the last '/', so a registry port is never mistaken for one; the last
-// result reports whether there was a tag at all, which "" alone cannot.
-func splitRefTag(ref string) (repo, tag string, tagged bool) {
-	slash := strings.LastIndex(ref, "/")
-	if colon := strings.LastIndex(ref, ":"); colon > slash {
-		return ref[:colon], ref[colon+1:], true
-	}
-	return ref, "", false
 }
 
 // escapeRefSegment percent-escapes the two characters that would otherwise make

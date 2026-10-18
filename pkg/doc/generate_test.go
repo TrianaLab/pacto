@@ -12,7 +12,7 @@ import (
 	"github.com/trianalab/pacto/v3/pkg/schemax"
 )
 
-// ── Task 4: header / overview / runtime ────────────────────────────────
+// ── header / overview / runtime ────────────────────────────────
 
 func TestGenerate_HeaderOverviewRuntime(t *testing.T) {
 	d := &contractview.ServiceDetails{
@@ -31,7 +31,7 @@ func TestGenerate_HeaderOverviewRuntime(t *testing.T) {
 	}
 }
 
-// ── Task 5: interfaces / configuration / policies ──────────────────────
+// ── interfaces / configuration / policies ──────────────────────
 
 func TestGenerate_InterfacesConfigPolicies(t *testing.T) {
 	d := &contractview.ServiceDetails{
@@ -58,7 +58,7 @@ func TestGenerate_InterfacesConfigPolicies(t *testing.T) {
 	}
 }
 
-// ── Task 6: dependencies / readiness / SBOM / lock / docs / metadata ────
+// ── dependencies / readiness / SBOM / lock / docs / metadata ────
 
 func TestGenerate_DepsReadinessSbomLockDocs(t *testing.T) {
 	d := &contractview.ServiceDetails{
@@ -825,4 +825,20 @@ func headingAnchorsIn(md string) map[string]bool {
 		out[headingAnchor(strings.TrimSpace(t))] = true
 	}
 	return out
+}
+
+// TestDashText_KeepsTheTableShape: free text in a table cell must not split the
+// cell (a pipe) or end the row (a line break); the author's code spans stay.
+func TestDashText_KeepsTheTableShape(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                     "—",
+		"plain":                "plain",
+		"a | b":                `a \| b`,
+		"line one\r\nline two": "line one line two",
+		"uses `x|y` in code":   "uses `x\\|y` in code",
+	} {
+		if got := dashText(in); got != want {
+			t.Errorf("dashText(%q) = %q, want %q", in, got, want)
+		}
+	}
 }

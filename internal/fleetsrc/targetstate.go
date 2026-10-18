@@ -137,6 +137,16 @@ type findingFixture struct {
 	SubjectKind string `yaml:"subjectKind,omitempty" json:"subjectKind,omitempty"`
 	SubjectName string `yaml:"subjectName,omitempty" json:"subjectName,omitempty"`
 	Message     string `yaml:"message,omitempty" json:"message,omitempty"`
+	// EvidenceRefs records which collector saw the finding, so a demo can show provenance such as
+	// "seen by: Kubernetes + kernel" (collector k8s-observer+ebpf).
+	EvidenceRefs []evidenceRefFixture `yaml:"evidenceRefs,omitempty" json:"evidenceRefs,omitempty"`
+}
+
+type evidenceRefFixture struct {
+	Source     string `yaml:"source" json:"source"`
+	ObservedAt string `yaml:"observedAt,omitempty" json:"observedAt,omitempty"`
+	Collector  string `yaml:"collector,omitempty" json:"collector,omitempty"`
+	DetectedAt string `yaml:"detectedAt,omitempty" json:"detectedAt,omitempty"`
 }
 
 type stateFixture struct {
@@ -178,6 +188,11 @@ func (t targetFixture) validate() string {
 		if !validSeverities[f.Severity] {
 			return fmt.Sprintf("unknown finding severity %q", f.Severity)
 		}
+		for _, r := range f.EvidenceRefs {
+			if r.Source == "" {
+				return "finding evidence source is required"
+			}
+		}
 	}
 	return ""
 }
@@ -185,12 +200,17 @@ func (t targetFixture) validate() string {
 func (t targetFixture) toRaw() fleet.RawTarget {
 	var findings []finding.Finding
 	for _, f := range t.Findings {
+		var refs []finding.EvidenceRef
+		for _, r := range f.EvidenceRefs {
+			refs = append(refs, finding.EvidenceRef{Source: r.Source, ObservedAt: r.ObservedAt, Collector: r.Collector, DetectedAt: r.DetectedAt})
+		}
 		findings = append(findings, finding.Finding{
-			Code:     finding.Code(f.Code),
-			Severity: finding.Severity(f.Severity),
-			Category: finding.Category(f.Category),
-			Subject:  finding.SubjectRef{Kind: f.SubjectKind, Name: f.SubjectName},
-			Message:  f.Message,
+			Code:         finding.Code(f.Code),
+			Severity:     finding.Severity(f.Severity),
+			Category:     finding.Category(f.Category),
+			Subject:      finding.SubjectRef{Kind: f.SubjectKind, Name: f.SubjectName},
+			Message:      f.Message,
+			EvidenceRefs: refs,
 		})
 	}
 	return fleet.RawTarget{

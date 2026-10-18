@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/trianalab/pacto/v3/pkg/contract"
+
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/v3/internal/app"
@@ -81,7 +83,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			traces := v.GetStringSlice("dashboard.traces")
 			traceSources := v.GetStringSlice("dashboard.trace-sources")
 
-			dir, repos, err := parseDashboardArgs(args)
+			dir, repos, err := parseDashboardArgs(args, v.GetString("dashboard.repo"))
 			if err != nil {
 				return err
 			}
@@ -109,9 +111,10 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			// is the only place that answer stays true.
 			cluster, _ := k8sclient.NewGoClient()
 			det := dashboardSources{
-				local:   localRootHasBundle(dir),
-				cache:   !noCache && cacheHasEntries(cacheDir),
-				cluster: cluster,
+				local:       localRootHasBundle(dir),
+				cache:       !noCache && cacheHasEntries(cacheDir),
+				cluster:     cluster,
+				evidenceURL: v.GetString("evidence-source-url"),
 			}
 
 			fopts := dashboardFleetOptions(dir, repos, namespace, observation, det)
@@ -171,6 +174,9 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.cors-origin", cmd.Flags().Lookup("cors-origin"))
 	_ = v.BindPFlag("dashboard.traces", cmd.Flags().Lookup("traces"))
 	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
+	// Env-only settings, bound by name so they read the same through any viper.
+	_ = v.BindEnv("dashboard.repo", "PACTO_DASHBOARD_REPO")
+	_ = v.BindEnv("evidence-source-url", "PACTO_EVIDENCE_SOURCE_URL")
 
 	return cmd
 }
@@ -178,11 +184,11 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 // parseDashboardArgs splits positional arguments into a local directory and
 // OCI repository references. Arguments prefixed with "oci://" are treated as
 // OCI refs (prefix stripped); all others are local paths. At most one local
-// path is allowed. When no OCI args are given, falls back to the
-// PACTO_DASHBOARD_REPO env var. When no local path is given, defaults to ".".
-func parseDashboardArgs(args []string) (dir string, repos []string, err error) {
+// path is allowed. When no OCI args are given, falls back to envRepos (the
+// comma-separated PACTO_DASHBOARD_REPO). When no local path is given, defaults to ".".
+func parseDashboardArgs(args []string, envRepos string) (dir string, repos []string, err error) {
 	for _, arg := range args {
-		if ref, ok := strings.CutPrefix(arg, "oci://"); ok {
+		if ref, ok := strings.CutPrefix(arg, contract.OCIScheme); ok {
 			if ref == "" {
 				return "", nil, fmt.Errorf("empty OCI reference: %q", arg)
 			}
@@ -194,10 +200,8 @@ func parseDashboardArgs(args []string) (dir string, repos []string, err error) {
 			dir = arg
 		}
 	}
-	if len(repos) == 0 {
-		if envRepos := os.Getenv("PACTO_DASHBOARD_REPO"); envRepos != "" {
-			repos = strings.Split(envRepos, ",")
-		}
+	if len(repos) == 0 && envRepos != "" {
+		repos = strings.Split(envRepos, ",")
 	}
 	if dir == "" {
 		dir = "."
@@ -221,6 +225,9 @@ type dashboardSources struct {
 	local   bool
 	cache   bool
 	cluster k8sclient.K8sClient // nil when no cluster client could be built
+	// evidenceURL is the operator-wired Evidence Server (PACTO_EVIDENCE_SOURCE_URL);
+	// empty means none is configured.
+	evidenceURL string
 }
 
 // localRootHasBundle reports whether dir looks like a place contracts live: a
@@ -516,8 +523,8 @@ func dashboardFleetOptions(dir string, repos []string, namespace string, observa
 	// An operator-wired dashboard learns its managed Evidence Server via env; when
 	// set, consume its read-only contribution. Unset means no evidence source
 	// (unconfigured), not an unavailable one — so add nothing.
-	if url := os.Getenv("PACTO_EVIDENCE_SOURCE_URL"); url != "" {
-		fopts.EvidenceURLs = append(fopts.EvidenceURLs, url)
+	if det.evidenceURL != "" {
+		fopts.EvidenceURLs = append(fopts.EvidenceURLs, det.evidenceURL)
 	}
 	return fopts
 }

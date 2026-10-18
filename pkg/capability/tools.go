@@ -7,8 +7,10 @@ package capability
 
 import (
 	"fmt"
+	"io/fs"
 	"strings"
 
+	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/openapi"
 )
 
@@ -58,6 +60,45 @@ func BuildTools(doc *openapi.Doc, allowWrites bool) []Tool {
 		})
 	}
 	return tools
+}
+
+// InterfaceTools is one OpenAPI interface's tools as every surface names them.
+type InterfaceTools struct {
+	Interface contract.Interface
+	// Doc is the parsed OpenAPI document; nil when Err is set.
+	Doc *openapi.Doc
+	// Err is why the interface's document could not be read. Each surface
+	// decides whether that is fatal (MCP) or a gap to skip (fleet, dashboard).
+	Err error
+	// Tools carry the interface-prefixed name (see ToolsForContract).
+	Tools []Tool
+}
+
+// ToolsForContract builds the tools of every OpenAPI interface with a ref, in
+// declaration order. When the contract declares more than one, each tool name is
+// prefixed "<interface>_" so two interfaces cannot collide; with exactly one the
+// operation name stands alone. MCP, the fleet and the dashboard all name tools
+// through here, so an operation is called the same thing everywhere.
+func ToolsForContract(c *contract.Contract, fsys fs.FS, allowWrites bool) []InterfaceTools {
+	var out []InterfaceTools
+	for _, iface := range c.Interfaces {
+		if iface.Type == contract.InterfaceTypeOpenAPI && iface.Ref != "" {
+			out = append(out, InterfaceTools{Interface: iface})
+		}
+	}
+	for i := range out {
+		it := &out[i]
+		if it.Doc, it.Err = openapi.ReadDoc(fsys, it.Interface.Ref); it.Err != nil {
+			continue
+		}
+		it.Tools = BuildTools(it.Doc, allowWrites)
+		if len(out) > 1 {
+			for j := range it.Tools {
+				it.Tools[j].Name = it.Interface.Name + "_" + it.Tools[j].Name
+			}
+		}
+	}
+	return out
 }
 
 // buildInputSchema builds a self-contained JSON Schema for the tool: path/query/

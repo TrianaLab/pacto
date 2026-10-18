@@ -84,6 +84,7 @@ func TestDocsDoNotConflateOrOverclaimCollectors(t *testing.T) {
 		"docs/operational-graph.md", "docs/impact.md", "docs/evidence.md",
 		"docs/quickstart.md", "docs/developers.md", "docs/fleet-tools.md",
 		"docs/mcp-integration.md", "docs/patterns/index.md",
+		"docs/runtime-conformance.md", "docs/runtime-run.md", "docs/runtime-agent.md",
 	}
 	engineConflation := regexp.MustCompile(`(?i)kubernetes (collector|operator)[^.\n]{0,30}\bis the engine\b`)
 	overclaim := regexp.MustCompile(`(?i)\b(ECS|Nomad|Terraform)\b[^.\n]{0,40}\b(collector|shipped|supported|implemented)\b`)
@@ -97,7 +98,7 @@ func TestDocsDoNotConflateOrOverclaimCollectors(t *testing.T) {
 			t.Errorf("%s calls the Kubernetes collector/operator 'the engine' — the engine is the pure Evaluate function", f)
 		}
 		if overclaim.MatchString(s) {
-			t.Errorf("%s presents an unimplemented collector (ECS/Nomad/Terraform) as shipped/supported — only the Kubernetes collector is implemented", f)
+			t.Errorf("%s presents an unimplemented collector (ECS/Nomad/Terraform) as shipped/supported — the implemented collectors are the Kubernetes integration's (API collector and eBPF kernel source) and the OTel observer", f)
 		}
 	}
 }

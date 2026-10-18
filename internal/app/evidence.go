@@ -158,6 +158,20 @@ type SignOptions struct {
 // returns it. The envelope ID defaults to a content hash so signing is
 // deterministic given the same evidence, key and IssuedAt.
 func (s *Service) SignEvidence(opts SignOptions) (evidenceenvelope.Envelope, error) {
+	return s.sign(opts, func() (evidence.EvidenceSet, error) { return readEvidenceSet(opts.EvidencePath) })
+}
+
+// SignEvidenceSet is SignEvidence for a set a producer holds in memory (opts.EvidencePath is unused): `pacto
+// agent --sink evidence` signs one per target and interval. The set is validated like a file's.
+func (s *Service) SignEvidenceSet(set evidence.EvidenceSet, opts SignOptions) (evidenceenvelope.Envelope, error) {
+	if errs := evidence.ValidateEvidenceSet(set); len(errs) > 0 {
+		return evidenceenvelope.Envelope{}, fmt.Errorf("invalid evidence set: %w", errors.Join(errs...))
+	}
+	return s.sign(opts, func() (evidence.EvidenceSet, error) { return set, nil })
+}
+
+// sign wraps the set load returns in a signed Envelope.
+func (s *Service) sign(opts SignOptions, load func() (evidence.EvidenceSet, error)) (evidenceenvelope.Envelope, error) {
 	if opts.KeyID == "" {
 		return evidenceenvelope.Envelope{}, fmt.Errorf("key-id is required")
 	}
@@ -168,7 +182,7 @@ func (s *Service) SignEvidence(opts SignOptions) (evidenceenvelope.Envelope, err
 	if err != nil {
 		return evidenceenvelope.Envelope{}, err
 	}
-	set, err := readEvidenceSet(opts.EvidencePath)
+	set, err := load()
 	if err != nil {
 		return evidenceenvelope.Envelope{}, err
 	}
@@ -510,18 +524,42 @@ func (s *Service) SendEvidence(ctx context.Context, url, envelopePath string) (S
 	if err != nil {
 		return SendResult{}, err
 	}
+	return postEnvelope(ctx, url, data)
+}
+
+// PostEnvelope is SendEvidence for an envelope held in memory.
+func (s *Service) PostEnvelope(ctx context.Context, url string, env evidenceenvelope.Envelope) (SendResult, error) {
+	data, err := json.Marshal(env)
+	if err != nil {
+		return SendResult{}, err
+	}
+	return postEnvelope(ctx, url, data)
+}
+
+// evidenceClient posts envelopes. A timeout, because http.DefaultClient has
+// none and an ingestion host that accepts the connection and never answers
+// would otherwise hang the sender (and the agent's emit loop) forever.
+var evidenceClient = &http.Client{Timeout: 30 * time.Second}
+
+// maxSendResponse bounds how much of the host's answer is read back: it is
+// shown to a human or logged, never parsed, so a megabyte is plenty and a
+// hostile host cannot exhaust the sender's memory.
+const maxSendResponse = 1 << 20
+
+// postEnvelope posts an encoded envelope to an ingestion host.
+func postEnvelope(ctx context.Context, url string, data []byte) (SendResult, error) {
 	url = normalizeIngestURL(url)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
 		return SendResult{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := evidenceClient.Do(req)
 	if err != nil {
 		return SendResult{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSendResponse))
 	if err != nil {
 		return SendResult{}, err
 	}

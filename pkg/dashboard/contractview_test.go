@@ -65,7 +65,7 @@ func TestComputeCompliance_ForwardsToContractview(t *testing.T) {
 
 func TestLookupValidation_ForwardsToContractview(t *testing.T) {
 	for _, in := range []string{"SchemaValid", "no-such-condition"} {
-		if got, want := LookupValidation(in), contractview.LookupValidation(in); !reflect.DeepEqual(got, want) {
+		if got, want := LookupValidation(in), contractview.LookupValidation(in); !reflect.DeepEqual(got, want) { //nolint:staticcheck // pins the deprecated forwarder
 			t.Errorf("LookupValidation(%q) = %+v, want %+v", in, got, want)
 		}
 	}

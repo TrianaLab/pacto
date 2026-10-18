@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/trianalab/pacto/v3/pkg/contract"
 	"github.com/trianalab/pacto/v3/pkg/logging"
@@ -135,7 +134,7 @@ func (r *Resolver) ResolvePinned(ctx context.Context, ref string, mode ResolveMo
 }
 
 func (r *Resolver) resolvePinned(ctx context.Context, ref, constraint string, mode ResolveMode) (*contract.Bundle, CachedRef, error) {
-	ref = strings.TrimPrefix(ref, "oci://")
+	ref = contract.TrimOCIScheme(ref)
 
 	if mode == LocalOnly {
 		return r.resolveLocal(ctx, ref)
@@ -168,7 +167,7 @@ func (r *Resolver) resolvePinned(ctx context.Context, ref, constraint string, mo
 // Deprecated: no production code in Pacto uses this method since the dashboard
 // stopped resolving versions itself. Removed at v4.
 func (r *Resolver) ListVersions(ctx context.Context, ref string) ([]string, error) {
-	ref = strings.TrimPrefix(ref, "oci://")
+	ref = contract.TrimOCIScheme(ref)
 	tags, err := r.store.ListTags(ctx, ref)
 	if err != nil {
 		return nil, err
@@ -183,7 +182,7 @@ func (r *Resolver) ListVersions(ctx context.Context, ref string) ([]string, erro
 // Deprecated: no production code in Pacto uses this method since the dashboard
 // stopped fetching all versions. Removed at v4.
 func (r *Resolver) FetchAllVersions(ctx context.Context, ref string) ([]string, error) {
-	ref = strings.TrimPrefix(ref, "oci://")
+	ref = contract.TrimOCIScheme(ref)
 	tags, err := r.store.ListTags(ctx, ref)
 	if err != nil {
 		return nil, err

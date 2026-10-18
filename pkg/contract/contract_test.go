@@ -469,3 +469,14 @@ func TestInterfaceTypeConstants(t *testing.T) {
 		}
 	}
 }
+
+func TestValidCapabilityPath(t *testing.T) {
+	for path, want := range map[string]bool{
+		"/health": true, "/a?b=c": true, "": false, "health": false, "//evil.example": false,
+		"/%2Fevil.example": false, "/a#frag": false, "/%zz": false,
+	} {
+		if got := ValidCapabilityPath(path); got != want {
+			t.Errorf("ValidCapabilityPath(%q) = %v, want %v", path, got, want)
+		}
+	}
+}

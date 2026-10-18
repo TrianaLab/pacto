@@ -1,6 +1,9 @@
 package validation
 
 import (
+	"encoding/json"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -203,20 +206,22 @@ func TestEvaluate_OptionalDependency(t *testing.T) {
 	}
 }
 
+// TestEvaluate_ExtensionCapability: an extension has no evaluator, so it is listed as unverified coverage
+// rather than a required assertion nothing could satisfy, and a contract declaring one can reach Compliant.
 func TestEvaluate_ExtensionCapability(t *testing.T) {
 	c := contract.Contract{
 		Service:      contract.Service{Name: "orders", Version: "1"},
 		Capabilities: []contract.Capability{{Type: contract.CapabilityExtension, Ref: "example.com/custom"}},
 	}
 	fs, cov := Evaluate(c, es())
-	if !hasCode(fs, finding.CodeExtensionEvaluatorUnavailable) {
-		t.Fatalf("want EXTENSION_EVALUATOR_UNAVAILABLE, got %v", fs)
+	if len(fs) != 0 {
+		t.Fatalf("want no findings, got %v", fs)
 	}
-	if cov.Required != 1 || cov.Evaluated != 0 {
-		t.Errorf("extension coverage = %+v, want {0,1}", cov)
+	if cov.Required != 0 || cov.Evaluated != 0 || !slices.Equal(cov.Unverified, []string{"capabilities[ref=example.com/custom]"}) {
+		t.Errorf("extension coverage = %+v, want {0,0} with the ref unverified", cov)
 	}
-	if hasCode(fs, finding.CodeEvidenceMissing) {
-		t.Error("extension must NOT route through EVIDENCE_MISSING")
+	if got := DeriveStatus(fs, cov); got != finding.StatusCompliant {
+		t.Errorf("status = %s, want Compliant", got)
 	}
 }
 
@@ -224,22 +229,14 @@ func TestEvaluate_ExtensionIdentityByRef(t *testing.T) {
 	c := contract.Contract{
 		Service: contract.Service{Name: "orders", Version: "1"},
 		Capabilities: []contract.Capability{
-			{Type: contract.CapabilityExtension, Ref: "acme.io/backup"},
 			{Type: contract.CapabilityExtension, Ref: "acme.io/security-scan"},
+			{Type: contract.CapabilityExtension, Ref: "acme.io/backup"},
 		},
 	}
-	fs, cov := Evaluate(c, es())
-	if cov.Required != 2 || cov.Evaluated != 0 {
-		t.Fatalf("two distinct extensions coverage = %+v, want {0,2}", cov)
-	}
-	subjects := map[string]bool{}
-	for _, f := range fs {
-		if f.Code == finding.CodeExtensionEvaluatorUnavailable {
-			subjects[f.Subject.Name] = true
-		}
-	}
-	if !subjects["acme.io/backup"] || !subjects["acme.io/security-scan"] {
-		t.Errorf("extension findings must be keyed by ref, got %v", subjects)
+	_, cov := Evaluate(c, es())
+	want := []string{"capabilities[ref=acme.io/backup]", "capabilities[ref=acme.io/security-scan]"}
+	if cov.Required != 0 || !slices.Equal(cov.Unverified, want) {
+		t.Fatalf("two distinct extensions coverage = %+v, want each ref unverified, sorted", cov)
 	}
 }
 
@@ -286,26 +283,377 @@ func TestEvaluate_ServiceScopedMatchByServiceName(t *testing.T) {
 }
 
 // The registry owns a finding's category, not the call site. Every code that
-// reaches evalAssertion today happens to be RuntimeDrift, so a hardcoded literal
+// reaches assert today happens to be RuntimeDrift, so a hardcoded literal
 // there looks right until the first drift code that is not — at which point the
-// finding carries a category the registry disagrees with. Driving evalAssertion
+// finding carries a category the registry disagrees with. Driving assert
 // with a non-RuntimeDrift code is how that stays caught.
 func TestEvalAssertion_CategoryComesFromTheRegistry(t *testing.T) {
-	var findings []finding.Finding
-	var cov Coverage
 	set := es(evidence.NewCapabilityObserved(sr("capability", "health"), true, prov()))
+	e := &evaluator{ev: set}
 
-	evalAssertion(&findings, &cov, set, finding.EvidenceRef{}, evidence.CapabilityObserved,
-		"capability", "health", "capabilities[0]", true,
+	e.assert(evidence.CapabilityObserved, "capability", "health", "capabilities[0]", true,
 		func(evidence.Observation) (bool, finding.Code, string) {
 			// Registry row: {Inconclusive, Unknown}, deliberately not RuntimeDrift.
 			return true, finding.CodeEvidenceInsufficient, "contradicted"
 		})
 
+	findings := e.findings
 	if len(findings) != 1 {
 		t.Fatalf("expected one finding, got %v", findings)
 	}
 	if findings[0].Category != finding.CategoryInconclusive {
 		t.Errorf("Category = %q, want the registry's %q", findings[0].Category, finding.CategoryInconclusive)
+	}
+}
+
+func boolp(b bool) *bool { return &b }
+
+func ifaceContract(typ, visibility string) contract.Contract {
+	return contract.Contract{
+		Service:    contract.Service{Name: "orders", Version: "1"},
+		Interfaces: []contract.Interface{{Name: "api", Type: typ, Ref: "i", Visibility: visibility}},
+	}
+}
+
+func ifaceObs(present bool, p evidence.Protocol, x evidence.Exposure) evidence.Observation {
+	return evidence.NewInterfaceObservation(sr("interface", "api"),
+		evidence.InterfaceObservation{Type: "openapi", Present: present, Protocol: p, Exposure: x}, prov())
+}
+
+// facetOutcome reduces one Evaluate run to what a facet table cares about: the codes emitted and whether
+// the path was listed as unverified.
+func facetOutcome(fs []finding.Finding, cov Coverage, path string) (codes []finding.Code, unverified bool) {
+	for _, f := range fs {
+		codes = append(codes, f.Code)
+	}
+	for _, p := range cov.Unverified {
+		if p == path {
+			unverified = true
+		}
+	}
+	return codes, unverified
+}
+
+func TestEvaluate_InterfaceTypeFacet(t *testing.T) {
+	const path = "interfaces[name=api].type"
+	cases := []struct {
+		typ        string
+		p          evidence.Protocol
+		violation  bool
+		unverified bool
+	}{
+		{contract.InterfaceTypeOpenAPI, evidence.ProtocolHTTP1, false, false},
+		{contract.InterfaceTypeOpenAPI, evidence.ProtocolHTTP2, false, false},
+		{contract.InterfaceTypeOpenAPI, evidence.ProtocolOther, true, false},
+		{contract.InterfaceTypeOpenAPI, evidence.ProtocolTLS, false, true},
+		{contract.InterfaceTypeOpenAPI, "", false, true},
+		{contract.InterfaceTypeGRPC, evidence.ProtocolHTTP2, false, false},
+		{contract.InterfaceTypeGRPC, evidence.ProtocolHTTP1, true, false},
+		{contract.InterfaceTypeGRPC, evidence.ProtocolOther, true, false},
+		{contract.InterfaceTypeGRPC, evidence.ProtocolTLS, false, true},
+		{contract.InterfaceTypeAsyncAPI, evidence.ProtocolHTTP1, false, true},
+		{contract.InterfaceTypeAsyncAPI, evidence.ProtocolOther, false, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.typ+"/"+string(tc.p), func(t *testing.T) {
+			fs, cov := Evaluate(ifaceContract(tc.typ, contract.VisibilityInternal), es(ifaceObs(true, tc.p, evidence.ExposureInternal)))
+			codes, unv := facetOutcome(fs, cov, path)
+			if got := hasCode(fs, finding.CodeInterfaceProtocolMismatch); got != tc.violation {
+				t.Errorf("violation = %v, want %v (codes %v)", got, tc.violation, codes)
+			}
+			if unv != tc.unverified {
+				t.Errorf("unverified = %v, want %v (%v)", unv, tc.unverified, cov.Unverified)
+			}
+			if cov.Required != 1 || cov.Evaluated != 1 {
+				t.Errorf("facets must not touch Required/Evaluated: %+v", cov)
+			}
+		})
+	}
+	fs, _ := Evaluate(ifaceContract(contract.InterfaceTypeGRPC, ""), es(ifaceObs(true, evidence.ProtocolHTTP1, "")))
+	for _, f := range fs {
+		if f.Code == finding.CodeInterfaceProtocolMismatch {
+			if f.Severity != finding.SeverityError || f.Category != finding.CategoryRuntimeDrift || f.ContractPath != path {
+				t.Errorf("protocol mismatch finding = %+v", f)
+			}
+		}
+	}
+}
+
+// The exposure vocabulary is the contract's visibility vocabulary, so the core names no platform.
+func TestExposureMirrorsVisibility(t *testing.T) {
+	if string(evidence.ExposureInternal) != contract.VisibilityInternal {
+		t.Fatalf("ExposureInternal = %q, want contract.VisibilityInternal", evidence.ExposureInternal)
+	}
+	fs, _ := Evaluate(ifaceContract(contract.InterfaceTypeOpenAPI, contract.VisibilityInternal), es(ifaceObs(true, evidence.ProtocolHTTP1, evidence.ExposureExternal)))
+	if !hasCode(fs, finding.CodeInterfaceVisibilityMismatch) || strings.Contains(fs[0].Message, "cluster") {
+		t.Fatalf("visibility finding names a platform: %v", fs)
+	}
+}
+
+func TestEvaluate_InterfaceVisibilityFacet(t *testing.T) {
+	const path = "interfaces[name=api].visibility"
+	cases := []struct {
+		name       string
+		visibility string
+		x          evidence.Exposure
+		violation  bool
+		unverified bool
+	}{
+		{"internal-internal", contract.VisibilityInternal, evidence.ExposureInternal, false, false},
+		{"omitted-internal", "", evidence.ExposureInternal, false, false},
+		{"internal-external", contract.VisibilityInternal, evidence.ExposureExternal, true, false},
+		{"omitted-external", "", evidence.ExposureExternal, true, false},
+		{"public-external", contract.VisibilityPublic, evidence.ExposureExternal, false, false},
+		{"public-internal", contract.VisibilityPublic, evidence.ExposureInternal, false, true},
+		{"internal-unknown", contract.VisibilityInternal, "", false, true},
+		{"public-unknown", contract.VisibilityPublic, "", false, true},
+		{"unknown-visibility", "bogus", evidence.ExposureExternal, false, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fs, cov := Evaluate(ifaceContract(contract.InterfaceTypeOpenAPI, tc.visibility), es(ifaceObs(true, evidence.ProtocolHTTP1, tc.x)))
+			codes, unv := facetOutcome(fs, cov, path)
+			if got := hasCode(fs, finding.CodeInterfaceVisibilityMismatch); got != tc.violation {
+				t.Errorf("violation = %v, want %v (codes %v)", got, tc.violation, codes)
+			}
+			if unv != tc.unverified {
+				t.Errorf("unverified = %v, want %v (%v)", unv, tc.unverified, cov.Unverified)
+			}
+		})
+	}
+}
+
+// Facets are only judged on an interface that is Observed and Present: an absent interface reports
+// INTERFACE_ABSENT and nothing about a protocol nobody could have seen.
+func TestEvaluate_InterfaceFacetsNeedPresentObservation(t *testing.T) {
+	c := ifaceContract(contract.InterfaceTypeGRPC, contract.VisibilityInternal)
+	fs, cov := Evaluate(c, es(ifaceObs(false, evidence.ProtocolHTTP1, evidence.ExposureExternal)))
+	if len(fs) != 1 || fs[0].Code != finding.CodeInterfaceAbsent || len(cov.Unverified) != 0 {
+		t.Fatalf("absent interface: fs=%v cov=%+v", fs, cov)
+	}
+	if want := `interface "api" is not being served`; fs[0].Message != want {
+		t.Fatalf("absent message = %q, want the platform-neutral %q", fs[0].Message, want)
+	}
+	fs, cov = Evaluate(c, es(unobs(t, evidence.InterfaceObserved, "interface", "api", evidence.Stale)))
+	if len(fs) != 1 || fs[0].Code != finding.CodeEvidenceStale || len(cov.Unverified) != 0 {
+		t.Fatalf("stale interface: fs=%v cov=%+v", fs, cov)
+	}
+}
+
+func depContract(required bool, compatibility string) contract.Contract {
+	return contract.Contract{
+		Service:      contract.Service{Name: "orders", Version: "1"},
+		Dependencies: []contract.Dependency{{Name: "payments", Ref: "oci://p", Required: required, Compatibility: compatibility}},
+	}
+}
+
+func depObs(reachable bool, version string, undeclared bool, name string) evidence.Observation {
+	return evidence.NewDependencyObservation(sr("dependency", name),
+		evidence.DependencyObservation{Reachable: reachable, Version: version, Undeclared: undeclared}, prov())
+}
+
+func TestEvaluate_DependencyCompatibilityFacet(t *testing.T) {
+	const path = "dependencies[name=payments].compatibility"
+	cases := []struct {
+		name          string
+		required      bool
+		compatibility string
+		version       string
+		severity      finding.Severity // "" = no violation
+		unverified    bool
+	}{
+		{"in-range", true, "^1.0.0", "1.4.2", "", false},
+		{"out-of-range-required", true, "^1.0.0", "2.0.0", finding.SeverityError, false},
+		{"out-of-range-optional", false, "^1.0.0", "2.0.0", finding.SeverityWarning, false},
+		{"unknown-version", true, "^1.0.0", "", "", true},
+		{"non-semver-version", true, "^1.0.0", "latest", "", true},
+		{"unparseable-range", true, "not a range", "1.0.0", "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fs, cov := Evaluate(depContract(tc.required, tc.compatibility), es(depObs(true, tc.version, false, "payments")))
+			var got finding.Severity
+			for _, f := range fs {
+				if f.Code == finding.CodeDependencyVersionMismatch {
+					got = f.Severity
+					if f.ContractPath != path {
+						t.Errorf("ContractPath = %q", f.ContractPath)
+					}
+				}
+			}
+			if got != tc.severity {
+				t.Errorf("severity = %q, want %q (%v)", got, tc.severity, fs)
+			}
+			if _, unv := facetOutcome(fs, cov, path); unv != tc.unverified {
+				t.Errorf("unverified = %v, want %v", unv, tc.unverified)
+			}
+		})
+	}
+	// An unreachable dependency is still Observed, so its version is still judged.
+	fs, _ := Evaluate(depContract(true, "^1.0.0"), es(depObs(false, "2.0.0", false, "payments")))
+	if !hasCode(fs, finding.CodeDependencyUnreachable) || !hasCode(fs, finding.CodeDependencyVersionMismatch) {
+		t.Errorf("unreachable + out of range: %v", fs)
+	}
+	// No Observed observation: no facet verdict at all.
+	fs, cov := Evaluate(depContract(false, "^1.0.0"), es(unobs(t, evidence.DependencyReachable, "dependency", "payments", evidence.Failed)))
+	if len(fs) != 0 || len(cov.Unverified) != 0 {
+		t.Errorf("optional failed dependency: fs=%v cov=%+v", fs, cov)
+	}
+}
+
+func TestEvaluate_UndeclaredDependency(t *testing.T) {
+	c := depContract(true, "^1.0.0")
+	set := es(
+		depObs(true, "1.0.0", false, "payments"),
+		depObs(true, "", true, "ledger"),        // reported
+		depObs(false, "", true, "audit"),        // not reachable: no claim
+		depObs(true, "", false, "unmarked"),     // producer did not mark it undeclared
+		depObs(true, "1.0.0", true, "payments"), // names a declared dependency: already judged
+		unobs(t, evidence.DependencyReachable, "dependency", "ghost", evidence.Insufficient),
+	)
+	fs, cov := Evaluate(c, set)
+	var got []finding.Finding
+	for _, f := range fs {
+		if f.Code == finding.CodeDependencyUndeclared {
+			got = append(got, f)
+		}
+	}
+	if len(got) != 1 || got[0].Subject.Name != "ledger" || got[0].Severity != finding.SeverityWarning ||
+		got[0].Category != finding.CategoryRuntimeDrift || got[0].ContractPath != "dependencies" {
+		t.Fatalf("undeclared findings = %+v", got)
+	}
+	if cov.Required != 1 || cov.Evaluated != 1 {
+		t.Errorf("undeclared peers must not touch coverage: %+v", cov)
+	}
+	if DeriveStatus(fs, cov) == finding.StatusNonCompliant {
+		t.Errorf("an undeclared peer alone must never make the contract non-compliant")
+	}
+}
+
+func stateContract(scope, durability string) contract.Contract {
+	return contract.Contract{
+		Service: contract.Service{Name: "orders", Version: "1"},
+		State:   &contract.State{Type: contract.StateStateful, Persistence: contract.Persistence{Scope: scope, Durability: durability}},
+	}
+}
+
+func persObs(durable bool, shared *bool) evidence.Observation {
+	return evidence.NewPersistenceObservation(sr("service", "orders"),
+		evidence.PersistenceObservation{Durable: durable, Shared: shared}, prov())
+}
+
+func TestEvaluate_PersistenceScopeFacet(t *testing.T) {
+	const path = "state.persistence.scope"
+	cases := []struct {
+		name       string
+		scope      string
+		shared     *bool
+		violation  bool
+		unverified bool
+	}{
+		{"local-not-shared", contract.ScopeLocal, boolp(false), false, false},
+		{"local-shared", contract.ScopeLocal, boolp(true), true, false},
+		{"shared-shared", contract.ScopeShared, boolp(true), false, false},
+		{"shared-not-shared", contract.ScopeShared, boolp(false), false, true},
+		{"local-unknown", contract.ScopeLocal, nil, false, true},
+		{"bogus-scope", "bogus", boolp(true), false, true},
+	}
+	for _, durability := range []string{contract.DurabilityPersistent, contract.DurabilityEphemeral} {
+		for _, tc := range cases {
+			t.Run(durability+"/"+tc.name, func(t *testing.T) {
+				fs, cov := Evaluate(stateContract(tc.scope, durability), es(persObs(true, tc.shared)))
+				var scopeViolation bool
+				for _, f := range fs {
+					if f.Code == finding.CodePersistenceMismatch && f.ContractPath == path {
+						scopeViolation = true
+					}
+				}
+				if scopeViolation != tc.violation {
+					t.Errorf("violation = %v, want %v (%v)", scopeViolation, tc.violation, fs)
+				}
+				if _, unv := facetOutcome(fs, cov, path); unv != tc.unverified {
+					t.Errorf("unverified = %v, want %v", unv, tc.unverified)
+				}
+				wantReq := 0
+				if durability == contract.DurabilityPersistent {
+					wantReq = 1
+				}
+				if cov.Required != wantReq || cov.Evaluated != wantReq {
+					t.Errorf("coverage = %+v, want %d/%d", cov, wantReq, wantReq)
+				}
+			})
+		}
+	}
+}
+
+// For ephemeral state Durable is never asserted and a missing observation is not a gap.
+func TestEvaluate_EphemeralStateNeverAssertsDurability(t *testing.T) {
+	c := stateContract(contract.ScopeLocal, contract.DurabilityEphemeral)
+	fs, cov := Evaluate(c, es(persObs(false, boolp(false))))
+	if len(fs) != 0 || cov.Required != 0 {
+		t.Fatalf("ephemeral + not durable: fs=%v cov=%+v", fs, cov)
+	}
+	fs, cov = Evaluate(c, es())
+	if len(fs) != 0 || cov.Required != 0 || len(cov.Unverified) != 0 {
+		t.Fatalf("ephemeral + no observation: fs=%v cov=%+v", fs, cov)
+	}
+	fs, cov = Evaluate(c, es(unobs(t, evidence.PersistenceObserved, "service", "orders", evidence.Unsupported)))
+	if len(fs) != 0 || cov.Required != 0 || len(cov.Unverified) != 0 {
+		t.Fatalf("ephemeral + unsupported: fs=%v cov=%+v", fs, cov)
+	}
+	// Persistent durability contradicted and scope contradicted: two findings, one per path.
+	fs, _ = Evaluate(stateContract(contract.ScopeLocal, contract.DurabilityPersistent), es(persObs(false, boolp(true))))
+	if len(fs) != 2 {
+		t.Fatalf("durability + scope contradiction: %v", fs)
+	}
+}
+
+// Every finding derived from an observation carries that observation's provenance; a finding with no
+// matched observation keeps the set-level ref only.
+func TestEvaluate_PerObservationProvenance(t *testing.T) {
+	at := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	p := evidence.Provenance{Collector: "k8s-observer+ebpf", DetectedAt: at}
+	iface := evidence.NewInterfaceObservation(sr("interface", "public-api"),
+		evidence.InterfaceObservation{Type: "openapi", Present: true, Protocol: evidence.ProtocolOther}, p)
+	stale, _ := evidence.NewUnobserved(evidence.CapabilityObserved, sr("capability", "health"), evidence.Stale,
+		evidence.Provenance{Collector: "k8s-observer"})
+	fs, _ := Evaluate(fullContract(), es(iface, stale))
+
+	refs := map[finding.Code]finding.EvidenceRef{}
+	for _, f := range fs {
+		refs[f.Code] = f.EvidenceRefs[0]
+	}
+	if r := refs[finding.CodeInterfaceProtocolMismatch]; r.Collector != "k8s-observer+ebpf" || r.DetectedAt != "2026-10-17T12:00:00Z" || r.Source != "k8s" {
+		t.Errorf("protocol mismatch ref = %+v", r)
+	}
+	if r := refs[finding.CodeEvidenceStale]; r.Collector != "k8s-observer" || r.DetectedAt != "" {
+		t.Errorf("stale ref (zero DetectedAt) = %+v", r)
+	}
+	if r := refs[finding.CodeEvidenceMissing]; r.Collector != "" || r.DetectedAt != "" || r.Source != "k8s" {
+		t.Errorf("missing ref = %+v", r)
+	}
+}
+
+func TestEvaluate_UnverifiedSortedUnique(t *testing.T) {
+	c := contract.Contract{
+		Service: contract.Service{Name: "orders", Version: "1"},
+		Interfaces: []contract.Interface{
+			{Name: "b", Type: "openapi", Ref: "i"},
+			{Name: "a", Type: "openapi", Ref: "i"},
+		},
+	}
+	set := es(
+		evidence.NewInterfaceObserved(sr("interface", "b"), "openapi", true, prov()),
+		evidence.NewInterfaceObserved(sr("interface", "a"), "openapi", true, prov()),
+	)
+	_, cov := Evaluate(c, set)
+	want := []string{"interfaces[name=a].type", "interfaces[name=a].visibility", "interfaces[name=b].type", "interfaces[name=b].visibility"}
+	if strings.Join(cov.Unverified, ",") != strings.Join(want, ",") {
+		t.Errorf("Unverified = %v, want %v", cov.Unverified, want)
+	}
+	// Nothing unverified: the key is off the wire.
+	_, cov = Evaluate(contract.Contract{Service: c.Service}, es())
+	if data, _ := json.Marshal(cov); string(data) != `{"evaluated":0,"required":0}` {
+		t.Errorf("empty coverage JSON = %s", data)
 	}
 }

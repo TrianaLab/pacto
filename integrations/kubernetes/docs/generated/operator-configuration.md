@@ -27,9 +27,11 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-trace-source` | `value` |  | chart value | Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source identity. Configures offline input only; Pacto runs no OTLP receiver. |
 | `-enable-dashboard` | `bool` |  | chart value | Enable the managed Pacto dashboard deployment. Disabled by default. |
 | `-enable-evidence-server` | `bool` |  | chart value | Enable the managed Pacto Evidence Server deployment. Disabled by default. |
-| `-enable-http2` | `bool` |  | no | If set, HTTP/2 will be enabled for the metrics and webhook servers |
-| `-enable-metrics-observation` | `bool` |  | no | Enable full metrics observation (discovery + active probe). When disabled, metrics dimension returns Unsupported. |
-| `-enable-probing` | `bool` |  | no | Enable active in-cluster HTTP probing of health capability endpoints (Tier A). Off by default; when off, health uses passive readiness-probe and EndpointSlice signals only. |
+| `-enable-http2` | `bool` |  | no | If set, HTTP/2 will be enabled for the metrics server |
+| `-enable-kernel-evidence` | `bool` |  | chart value | Merge the node agent's kernel observations (NodeRuntimeObservation objects) into interface and dependency evidence. Off by default; when off, evidence comes from the Kubernetes API only. |
+| `-enable-metrics-observation` | `bool` |  | chart value | Enable full metrics observation (discovery + active probe). When disabled, metrics dimension returns Unsupported. |
+| `-enable-node-agent` | `bool` |  | chart value | Enable the managed node agent DaemonSet, which observes TCP socket state with eBPF on every node and publishes it as NodeRuntimeObservation objects. Needs a namespace that admits privileged pods. Disabled by default. |
+| `-enable-probing` | `bool` |  | chart value | Enable active in-cluster probing: health capability endpoints over HTTP (Tier A) and the wire protocol of each present interface. Off by default; when off, health uses passive readiness-probe and EndpointSlice signals only and interface protocols read unverified. |
 | `-evidence-cpu-limit` | `string` |  | chart value | CPU limit for the Evidence Server container. Empty uses the built-in default. |
 | `-evidence-cpu-request` | `string` |  | chart value | CPU request for the Evidence Server container. Empty uses the built-in default. |
 | `-evidence-credentials-secret` | `string` |  | chart value | Optional: name of an existing kubernetes.io/dockerconfigjson Secret with contract-registry credentials, mounted read-only. Empty means anonymous or in-cluster registry access. |
@@ -39,6 +41,8 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-evidence-trust-secret` | `string` |  | chart value | Name of a Secret of trusted producer public keys, mounted read-only. Required when the Evidence Server is enabled. |
 | `-health-probe-bind-address` | `string` | `:8081` | always on | The address the probe endpoint binds to. |
 | `-interface-name-match-discovery` | `bool` |  | no | Enable resolving an unbound interface's Service port by matching a Service port whose name equals the interface name (positive availability assist only; never produces an absent or error result). |
+| `-kernel-evidence-namespace` | `string` |  | chart value | Namespace the node agent publishes NodeRuntimeObservation objects to. Empty uses the operator namespace. |
+| `-kernel-evidence-staleness` | `duration` |  | chart value | How old a node's kernel observation heartbeat may be before its evidence reads stale. 0 uses three times the publish interval the node agent reports. |
 | `-kubeconfig` | `string` |  | no | Paths to a kubeconfig. Only required if out-of-cluster. |
 | `-leader-elect` | `bool` |  | chart value | Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager. |
 | `-metrics-bind-address` | `string` | `:8080` | chart value | The address the metrics endpoint binds to. Use :8443 for HTTPS or :8080 for HTTP, or set to 0 to disable the metrics service. |
@@ -46,13 +50,20 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-metrics-cert-name` | `string` | `tls.crt` | no | The name of the metrics server certificate file. |
 | `-metrics-cert-path` | `string` |  | no | The directory that contains the metrics server certificate. |
 | `-metrics-secure` | `bool` |  | chart value | If set, the metrics endpoint is served securely via HTTPS. Use --metrics-secure=true to enable HTTPS. |
+| `-node-agent-cpu-limit` | `string` |  | chart value | CPU limit for the node agent container. Empty uses the built-in default. |
+| `-node-agent-cpu-request` | `string` |  | chart value | CPU request for the node agent container. Empty uses the built-in default. |
+| `-node-agent-image` | `string` |  | no | Image the node agent runs pacto agent from. Empty uses the dashboard image this binary was built with, the runtime image the Evidence Server runs too. |
+| `-node-agent-image-pull-secret` | `value` |  | chart value | Secret the node agent's ServiceAccount pulls its image with (repeatable). |
+| `-node-agent-memory-limit` | `string` |  | chart value | Memory limit for the node agent container. Empty uses the built-in default. |
+| `-node-agent-memory-request` | `string` |  | chart value | Memory request for the node agent container. Empty uses the built-in default. |
+| `-node-agent-publish-interval` | `duration` | `30s` | chart value | How often each node agent publishes its node's NodeRuntimeObservation. |
 | `-stabilization-window` | `duration` | `2m0s` | chart value | The stabilization window duration for compliance assertions before they trigger a false condition. Assertions must remain unsatisfied for this entire window before being considered a failure. |
 | `-version` | `bool` |  | no | Print version information and exit. |
 | `-watch-namespace` | `string` |  | chart value | Restrict the controller to watch a single namespace. Empty (default) means cluster-wide. The dashboard inherits this scope automatically. |
-| `-webhook-cert-key` | `string` | `tls.key` | no | The name of the webhook key file. |
-| `-webhook-cert-name` | `string` | `tls.crt` | no | The name of the webhook certificate file. |
-| `-webhook-cert-path` | `string` |  | no | The directory that contains the webhook certificate. |
-| `-zap-devel` | `bool` | `true` | no | Development Mode defaults(encoder=consoleEncoder,logLevel=Debug,stackTraceLevel=Warn). Production Mode defaults(encoder=jsonEncoder,logLevel=Info,stackTraceLevel=Error) |
+| `-webhook-cert-key` | `string` | `tls.key` | no | Deprecated: ignored, the operator registers no webhook and runs no webhook server; removed at v6. The name of the webhook key file. |
+| `-webhook-cert-name` | `string` | `tls.crt` | no | Deprecated: ignored, the operator registers no webhook and runs no webhook server; removed at v6. The name of the webhook certificate file. |
+| `-webhook-cert-path` | `string` |  | no | Deprecated: ignored, the operator registers no webhook and runs no webhook server; removed at v6. The directory that contains the webhook certificate. |
+| `-zap-devel` | `bool` |  | no | Development Mode defaults(encoder=consoleEncoder,logLevel=Debug,stackTraceLevel=Warn). Production Mode defaults(encoder=jsonEncoder,logLevel=Info,stackTraceLevel=Error) |
 | `-zap-encoder` | `value` |  | no | Zap log encoding (one of 'json' or 'console') |
 | `-zap-log-level` | `value` |  | no | Zap Level to configure the verbosity of logging. Can be one of 'debug', 'info', 'error', 'panic' or any integer value > 0 which corresponds to custom debug levels of increasing verbosity |
 | `-zap-stacktrace-level` | `value` |  | no | Zap Level at and above which stacktraces are captured (one of 'info', 'error', 'panic'). |

@@ -1,9 +1,8 @@
 # Limitations
 
-The operator is deliberately conservative: it never fabricates a violation from
-evidence it cannot trust, and it never writes to the workloads it observes. It is
-not a read-only component overall — see below. The boundaries here follow from
-that stance.
+What the operator cannot see, what you must switch on yourself and where its
+answers lag. The rule behind all of it: the operator never reports a violation
+it cannot prove, and it never changes the workloads it watches.
 
 ## Read-only towards your workloads
 
@@ -19,8 +18,9 @@ list and the flags that switch the managed components off.
 
 ## Observation boundaries
 
-Several dimensions resolve to `Unsupported` (which reads as `Unknown`, never
-`NonCompliant`) rather than guess:
+When the operator has no reliable way to check something, it reports
+`Unsupported` instead of guessing. `Unsupported` makes the contract `Unknown`,
+never `NonCompliant`. That happens for:
 
 - **External or non-Pacto Services** -- a dependency backed by an `ExternalName`
   Service, or a Service the operator does not manage, cannot be reached reliably
@@ -53,32 +53,27 @@ in-cluster request surface:
 
 See [Operator configuration](operator-configuration.md) for these flags.
 
-!!! warning "The chart does not expose these flags"
-    All three are controller command-line flags, and the chart renders a fixed
-    argument list with no `extraArgs` value. On the documented install path
-    there is **no way to turn any of them on**: `helm template` the chart and
-    the container's `args` contain none of them. Treat these as
-    not-yet-available through Helm rather than as switches you can flip.
+The chart exposes the first two as `controller.enableProbing` and
+`controller.enableMetricsObservation`; the second also grants read access to
+ServiceMonitors and PodMonitors. Name-match discovery has no chart value.
 
-    The only way to turn one on today is to add the flag to the running
-    Deployment yourself, accepting that it is not managed state:
+!!! warning "Name-match discovery is not a chart value"
+    The chart renders a fixed argument list with no `extraArgs` value, so the
+    only way to turn `--interface-name-match-discovery` on is to add it to the
+    running Deployment yourself:
 
     ```bash
     kubectl patch deployment pacto-operator -n pacto-operator-system \
       --type=json \
-      -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--enable-probing"}]'
+      -p='[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--interface-name-match-discovery"}]'
     ```
 
-    **This does not survive `helm upgrade`.** Helm re-renders `args` from the
-    template and your addition disappears silently: the operator comes back with
-    the feature off and nothing reports the change. Re-apply the patch
-    after every upgrade, or do not rely on the feature yet.
+    **This does not survive `helm upgrade`.** Helm re-renders `args` and the
+    flag disappears silently. Re-apply the patch after every upgrade.
 
-    Metrics observation needs one more thing: the operator's ServiceAccount has
-    no read access to `monitoring.coreos.com`, so `--enable-metrics-observation`
-    alone changes nothing. Grant it alongside the chart's own RBAC — a separate
-    ClusterRole, never a patch of `manager-role`, whose rules are an atomic list
-    a strategic merge would wipe:
+    An operator installed without the chart needs its own grant for
+    `--enable-metrics-observation`. Add a separate ClusterRole, never a patch of
+    `manager-role`, whose rules are an atomic list a strategic merge would wipe:
 
     ```yaml
     apiVersion: rbac.authorization.k8s.io/v1
@@ -109,6 +104,49 @@ See [Operator configuration](operator-configuration.md) for these flags.
     it is not published with a release, and no test or CI job deploys from it.
     It is a source of the YAML above, not a supported install path.
 
+## Runtime conformance boundaries
+
+The [node agent and the complementary checks](runtime-conformance.md) never
+turn what they cannot see into a violation. These things stay out of reach:
+
+- **Visibility now defaults to internal.** An interface with no `visibility`
+  is `internal`, so one served through a `LoadBalancer` Service or an Ingress
+  that publishes a public address reports `INTERFACE_VISIBILITY_MISMATCH` after
+  upgrading, node agent or not. Declare `visibility: public` for it.
+- **`hostNetwork` pods** share the node's network namespace, so their sockets
+  cannot be attributed. With the agent on, their interfaces read `Insufficient`
+  unless another backing pod is seen listening.
+- **Loopback-only listeners** do not serve the pod IP and do not count as
+  serving the port.
+- **TCP only.** UDP sockets are not observed, so a UDP or SCTP Service port
+  gets no kernel opinion; the Kubernetes result stands.
+- **Connection history.** A dependency is judged from the latest success and
+  failure within the staleness bound. A dependency the workload has not called
+  recently has no kernel opinion, and a recent success never overrides a
+  provider with no ready endpoint; the two together read `Insufficient`.
+- **TLS** hides the protocol inside, so a TLS port leaves `interfaces[].type`
+  unverified, and `asyncapi` names no wire protocol to check.
+- **Socket-level load balancing** (for example a kube-proxy replacement)
+  connects to the backend pod directly. The operator matches every current
+  endpoint IP too, so a connection to a backend that has since left the
+  EndpointSlice no longer counts.
+- **Exposure** is `external` only when a Service or Ingress status shows a
+  public address ([how exposure is decided](runtime-conformance.md#how-exposure-is-decided)).
+  The operator does not read node or gateway addresses, so a `NodePort`
+  Service or an HTTPRoute leaves exposure unknown. A route outside its watch
+  scope, another route kind or a mesh gateway is not seen, so `internal` can
+  miss an exposure; it never invents one.
+- **Kernel requirements.** A node without BTF (the kernel type information
+  the agent needs) reports `Failed`, which turns its pods' interface checks
+  into `COLLECTION_FAILED`.
+- **Docker Compose and bare hosts.** The node agent is the Kubernetes way to
+  run `pacto agent`. On a Docker host or a server, run
+  [`pacto agent`](../../runtime-agent.md) yourself; the cluster-only checks
+  then stay unverified ([what stays unverified off Kubernetes](../../runtime-conformance.md#what-stays-unverified-off-kubernetes)).
+- **Private registries.** The agent's ServiceAccount carries the chart's
+  `imagePullSecrets`, which must exist in the operator namespace. An operator
+  installed without the chart passes `--node-agent-image-pull-secret` itself.
+
 ## `NotEvaluated` is reserved
 
 `NotEvaluated` is a valid `contractStatus` enum value that the operator does not
@@ -133,8 +171,10 @@ did not:
 - `CONFIGURATION_ABSENT`, for a declared Secret or ConfigMap
 
 A **mismatch** — something that is there and contradicts the contract — is
-`NonCompliant` on the first reconcile that observes it, with no delay:
-`WORKLOAD_MISMATCH`, `PERSISTENCE_MISMATCH` and `CONFIGURATION_MISMATCH`. There
+`NonCompliant` on the first check that observes it, with no delay:
+`WORKLOAD_MISMATCH`, `PERSISTENCE_MISMATCH`, `CONFIGURATION_MISMATCH`,
+`INTERFACE_PROTOCOL_MISMATCH`, `INTERFACE_VISIBILITY_MISMATCH` and
+`DEPENDENCY_VERSION_MISMATCH`. There
 is nothing transient to wait out; the evidence is already conclusive.
 
 This split matters if you gate deployments on the verdict. See

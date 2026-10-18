@@ -58,6 +58,11 @@ targets:
         subjectKind: service
         subjectName: orders
         message: drift detected
+        evidenceRefs:
+          - source: k8s
+            observedAt: 2026-07-29T09:40:00Z
+            collector: k8s-observer+ebpf
+            detectedAt: 2026-07-29T09:39:00Z
   - name: minimal
     service: minimal
 state:
@@ -86,15 +91,26 @@ func TestTargetStateFileSource_ValidYAML(t *testing.T) {
 	if orders.Coverage == nil || orders.Coverage.Required != 3 {
 		t.Errorf("coverage not mapped: %+v", orders.Coverage)
 	}
-	if len(orders.Findings) != 1 || orders.Findings[0].Code != finding.Code("DRIFT") {
-		t.Errorf("finding not mapped: %+v", orders.Findings)
-	}
-	if orders.Findings[0].Subject.Name != "orders" || orders.Findings[0].Message != "drift detected" {
-		t.Errorf("finding subject/message not mapped: %+v", orders.Findings[0])
-	}
+	assertOrdersFinding(t, orders.Findings)
 	// The minimal entry has no findings → toRaw's nil-findings branch.
 	if fm := findTarget(t, col.Targets, "minimal"); len(fm.Findings) != 0 {
 		t.Errorf("minimal target should carry no findings: %+v", fm.Findings)
+	}
+}
+
+// assertOrdersFinding checks the one recorded finding on the orders target, kept
+// apart so TestTargetStateFileSource_ValidYAML stays under the cyclo gate.
+func assertOrdersFinding(t *testing.T, findings []finding.Finding) {
+	t.Helper()
+	if len(findings) != 1 || findings[0].Code != finding.Code("DRIFT") {
+		t.Fatalf("finding not mapped: %+v", findings)
+	}
+	if findings[0].Subject.Name != "orders" || findings[0].Message != "drift detected" {
+		t.Errorf("finding subject/message not mapped: %+v", findings[0])
+	}
+	if refs := findings[0].EvidenceRefs; len(refs) != 1 || refs[0] != (finding.EvidenceRef{Source: "k8s",
+		ObservedAt: "2026-07-29T09:40:00Z", Collector: "k8s-observer+ebpf", DetectedAt: "2026-07-29T09:39:00Z"}) {
+		t.Errorf("evidence refs not mapped: %+v", refs)
 	}
 }
 
@@ -188,6 +204,12 @@ targets:
     findings:
       - code: X
         severity: critical
+  - service: s
+    name: no-evidence-source
+    findings:
+      - code: X
+        evidenceRefs:
+          - collector: k8s-observer+ebpf
 `
 
 func TestTargetStateFileSource_InvalidEntriesSkipped(t *testing.T) {
@@ -199,8 +221,8 @@ func TestTargetStateFileSource_InvalidEntriesSkipped(t *testing.T) {
 	if len(col.Targets) != 1 || col.Targets[0].Name != "good" {
 		t.Fatalf("only the valid entry should be kept, got %+v", col.Targets)
 	}
-	if len(col.Limitations) != 6 {
-		t.Fatalf("want 6 SOURCE_RECORD_INVALID limitations, got %d: %+v", len(col.Limitations), col.Limitations)
+	if len(col.Limitations) != 7 {
+		t.Fatalf("want 7 SOURCE_RECORD_INVALID limitations, got %d: %+v", len(col.Limitations), col.Limitations)
 	}
 	for _, l := range col.Limitations {
 		if l.Code != fleet.LimitationSourceRecordInvalid || l.Source != "ts" {

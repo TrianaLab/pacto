@@ -2,8 +2,10 @@ package lock
 
 import (
 	"fmt"
+	"io/fs"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
 func sample() *Lock {
@@ -354,5 +356,26 @@ func TestMarshalWritesTheCurrentSchemaVersion(t *testing.T) {
 	}
 	if l.LockVersion != 1 {
 		t.Error("Marshal must not mutate its receiver")
+	}
+}
+
+func TestReadFS(t *testing.T) {
+	const valid = "lockVersion: 2\nroot:\n  name: api\n  version: 1.0.0\n"
+	l, err := ReadFS(fstest.MapFS{FileName: {Data: []byte(valid)}})
+	if err != nil || l == nil || l.Root.Name != "api" {
+		t.Fatalf("present: %+v, %v", l, err)
+	}
+	for name, fsys := range map[string]fs.FS{"absent": fstest.MapFS{}, "nil": nil} {
+		if l, err := ReadFS(fsys); l != nil || err != nil {
+			t.Errorf("%s: want (nil, nil), got (%+v, %v)", name, l, err)
+		}
+	}
+	for name, fsys := range map[string]fs.FS{
+		"unsupported version": fstest.MapFS{FileName: {Data: []byte("lockVersion: 99\n")}},
+		"not a regular file":  fstest.MapFS{FileName + "/nested": {Data: []byte("x")}},
+	} {
+		if _, err := ReadFS(fsys); err == nil {
+			t.Errorf("%s: expected an error", name)
+		}
 	}
 }

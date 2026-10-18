@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -411,5 +412,46 @@ func TestServiceEdgeTally_CountsDistinctDependenciesNotDeclarationRecords(t *tes
 	}
 	if got != want {
 		t.Errorf("edge tally = %+v, want %+v", got, want)
+	}
+}
+
+// TestAttentionCategoriesList_IsACopy: the canonical order cannot be changed
+// through the list a caller holds, nor through the deprecated variable.
+func TestAttentionCategoriesList_IsACopy(t *testing.T) {
+	got := AttentionCategoriesList()
+	got[0] = "mutated"
+	AttentionCategories[0] = "mutated"
+	t.Cleanup(func() { AttentionCategories = AttentionCategoriesList() })
+	if AttentionCategoriesList()[0] != "non-compliant" {
+		t.Fatal("the canonical order changed through a returned copy or the deprecated var")
+	}
+	if c := attentionCategories(nil); c[0].Category != "non-compliant" {
+		t.Errorf("counts read a mutated order: %+v", c)
+	}
+}
+
+func TestPaginate(t *testing.T) {
+	all := []int{0, 1, 2, 3, 4}
+	for _, c := range []struct {
+		limit, offset    int
+		items            []int
+		effLimit, effOff int
+		next             int // -1 = last page
+	}{
+		{0, 0, []int{0, 1}, 2, 0, 2},     // default limit
+		{10, 0, []int{0, 1, 2}, 3, 0, 3}, // capped
+		{3, 3, []int{3, 4}, 3, 3, -1},    // last page
+		{2, 9, []int{}, 2, 5, -1},        // offset past the end
+	} {
+		p := Paginate(all, c.limit, c.offset, 2, 3)
+		if !slices.Equal(p.Items, c.items) || p.Limit != c.effLimit || p.Offset != c.effOff ||
+			p.Truncated != (c.next >= 0) || (c.next >= 0 && *p.NextOffset != c.next) || (c.next < 0 && p.NextOffset != nil) {
+			t.Errorf("Paginate(limit=%d, offset=%d) = %+v", c.limit, c.offset, p)
+		}
+	}
+	p := Paginate(all, 2, 0, 2, 3)
+	p.Items[0] = 99
+	if all[0] != 0 {
+		t.Error("Items must be a copy")
 	}
 }

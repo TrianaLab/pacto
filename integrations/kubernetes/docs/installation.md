@@ -1,7 +1,11 @@
 # Install the Kubernetes operator
 
-The operator ships as a Helm chart and a controller image. Coordinates are on the
-[published artifacts](artifact-hub.md) page; every value is on the
+Install the operator with one Helm command, then point it at a contract and it
+tells you whether the running service matches. This page takes you from an
+empty cluster to your first verdict.
+
+The operator ships as a Helm chart and a controller image. Coordinates are on
+the [published artifacts](artifact-hub.md) page; every value is on the
 [Helm reference](helm-reference.md).
 
 ## Prerequisites
@@ -12,7 +16,8 @@ The operator ships as a Helm chart and a controller image. Coordinates are on th
   untested rather than blocked.
 - Helm 3.8 or newer (OCI registry support).
 - Cluster-admin permissions to install the CRDs and the operator's `ClusterRole`
-  (see [RBAC](rbac.md)).
+  (see [RBAC](rbac.md)). A CRD (custom resource definition) teaches Kubernetes
+  a new kind of object, here `Pacto`.
 - The [`pacto` CLI](../../installation.md) for the steps after the install. The
   Helm install itself does not need it.
 - Network access from the cluster to the registry holding your contracts. For a
@@ -22,9 +27,9 @@ The operator ships as a Helm chart and a controller image. Coordinates are on th
 
 ## Install with Helm
 
-The chart is published as an OCI artifact. Installing it also installs the CRDs
-(bundled under the chart's `crds/` directory) and, by default, the
-operator-managed dashboard.
+The chart lives in an OCI registry. Installing it also installs the CRDs
+(bundled under the chart's `crds/` directory) and, by default, a dashboard the
+operator runs for you.
 
 !!! warning "At chart defaults the operator can escalate its own privileges"
 
@@ -60,14 +65,23 @@ helm install pacto-operator \
   --set dashboard.enabled=false
 ```
 
-- `controller.watchNamespace` restricts observation to a single namespace (empty
-  means cluster-wide).
+- `controller.watchNamespace` watches one namespace only (empty means the
+  whole cluster).
 - `metrics.serviceMonitor.enabled` creates a Prometheus `ServiceMonitor`.
-- `dashboard.enabled` toggles the operator-managed dashboard.
+- `dashboard.enabled` turns the operator-managed dashboard on or off.
 
-Metrics observation, active health probing and name-match discovery are
-controller flags the chart does not expose:
-[Opt-in features](limitations.md#opt-in-features) explains what that costs you.
+Three checks are off by default because they cost something:
+
+- `controller.enableProbing` lets the operator send requests to your Services
+  to check health and protocol.
+- `controller.enableMetricsObservation` checks the metrics capability.
+- `nodeAgent.enabled` runs a small agent on every node that watches which ports
+  your pods really listen on and which services they really connect to. It has
+  requirements of its own, listed in
+  [Runtime conformance](runtime-conformance.md).
+
+[Opt-in features](limitations.md#opt-in-features) explains each one.
+Name-match discovery has no chart value.
 
 !!! warning "The dashboard has no authentication — do not expose it"
 
@@ -125,17 +139,20 @@ pacto-operator    1/1     1            1           21s
 ```
 
 Two Deployments: `pacto-operator` is the controller Helm created,
-`pacto-dashboard` is the one the controller created in turn. **With `--set
+`pacto-dashboard` is the one the controller created in turn. With
+`nodeAgent.enabled=true` you also get a `pacto-node-agent` DaemonSet (one pod
+per node). **With `--set
 dashboard.enabled=false` you get `pacto-operator` alone** — no dashboard
 reconciler lines in the log below, no port-forward and [Bind your first
-contract](#bind-your-first-contract) needs a contract of your own. Both CRDs are
-registered either way:
+contract](#bind-your-first-contract) needs a contract of your own. The three
+CRDs are registered either way:
 
 ```bash
 kubectl get crds | grep pacto.trianalab.io
 ```
 
 ```text
+noderuntimeobservations.pacto.trianalab.io   2026-08-22T21:24:59Z
 pactorevisions.pacto.trianalab.io   2026-08-22T21:24:59Z
 pactos.pacto.trianalab.io           2026-08-22T21:24:59Z
 ```
@@ -253,8 +270,8 @@ binding and the interface and its health capability resolve:
 ```
 
 Two findings remain: the `metrics` capability needs
-`--enable-metrics-observation`, which [the chart does not
-expose](limitations.md#opt-in-features), and the `default` configuration needs a
+`controller.enableMetricsObservation` (see
+[Opt-in features](limitations.md#opt-in-features)), and the `default` configuration needs a
 `configBindings` entry naming the ConfigMap or Secret behind it. See
 [Contract bindings](contract-bindings.md) for both, and [Runtime
 observations](runtime-observations.md) for how a finding maps to a status.
@@ -269,11 +286,12 @@ That removes the controller and everything owner-referenced to it, dashboard and
 Evidence Server included. Five things survive, in any order:
 
 - **The CRDs and your `Pacto` resources.** Helm never deletes CRDs, and deleting
-  them takes every `Pacto` and `PactoRevision` with them. No finalizers, so it
-  returns immediately.
+  them takes every `Pacto`, `PactoRevision` and `NodeRuntimeObservation` with
+  them. No finalizers, so it returns immediately.
 - **The dashboard's cluster-scoped RBAC**, which a namespaced owner cannot own.
 - **Anything you created by hand** — the Evidence Server's trust Secret, your
-  registry-credentials Secret, the `metrics-observation-role` ClusterRole.
+  registry-credentials Secret, a `metrics-observation-role` ClusterRole you
+  applied yourself.
 - **The leader-election Lease** `a4917283.pacto.io`, inert once the controller
   is gone and reused on reinstall.
 - **The namespace**, if `--create-namespace` created it.
@@ -288,7 +306,8 @@ kubectl get clusterrole,clusterrolebinding | grep pacto
 Then remove what is left:
 
 ```bash
-kubectl delete crd pactos.pacto.trianalab.io pactorevisions.pacto.trianalab.io
+kubectl delete crd pactos.pacto.trianalab.io pactorevisions.pacto.trianalab.io \
+  noderuntimeobservations.pacto.trianalab.io
 kubectl delete clusterrole,clusterrolebinding pacto-dashboard
 kubectl delete clusterrole metrics-observation-role               # if granted
 kubectl delete clusterrolebinding metrics-observation-rolebinding # if granted

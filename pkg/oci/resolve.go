@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/trianalab/pacto/v3/pkg/contract"
+
 	msemver "github.com/Masterminds/semver/v3"
 	"github.com/trianalab/pacto/v3/pkg/logging"
 	"github.com/trianalab/pacto/v3/pkg/semver"
@@ -25,12 +27,8 @@ var ErrNoMatchingTag = errors.New("no matching tag")
 // HasExplicitTag reports whether an OCI reference includes an explicit tag
 // or digest (e.g. "repo:v1" or "repo@sha256:...").
 func HasExplicitTag(ref string) bool {
-	if strings.Contains(ref, "@") {
-		return true
-	}
-	lastSlash := strings.LastIndex(ref, "/")
-	lastColon := strings.LastIndex(ref, ":")
-	return lastColon > lastSlash
+	_, _, tagged := contract.SplitOCITag(ref)
+	return tagged || strings.Contains(ref, "@")
 }
 
 // BestTag selects the highest semver tag from tags. If constraint is non-empty,
