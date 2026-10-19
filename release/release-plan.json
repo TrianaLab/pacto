@@ -5,43 +5,43 @@
         {
           "coordinate": "github.com/trianalab/pacto/v4",
           "kind": "go-module",
-          "tag": "v3.3.6",
+          "tag": "v4.0.0",
           "unit": "core"
         },
         {
           "kind": "binaries",
-          "release": "v3.3.6",
+          "release": "v4.0.0",
           "unit": "cli"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto/dashboard",
           "kind": "oci-image",
-          "tag": "3.3.6",
+          "tag": "4.0.0",
           "unit": "dashboard-image"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto/dashboard-contract",
           "kind": "oci-image",
-          "tag": "3.3.6",
+          "tag": "4.0.0",
           "unit": "dashboard-contract-bundle"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto",
           "kind": "oci-image",
-          "tag": "3.3.6",
+          "tag": "4.0.0",
           "unit": "demo-bundles"
         },
         {
           "coordinate": "ghcr.io/trianalab/pacto/demo",
           "kind": "oci-image",
-          "tag": "3.3.6",
+          "tag": "4.0.0",
           "unit": "demo-compose"
         }
       ],
       "tags": [
-        "v3.3.6"
+        "v4.0.0"
       ],
-      "version": "3.3.6"
+      "version": "4.0.0"
     },
     "kubernetes": {
       "artifacts": [
@@ -54,21 +54,21 @@
         {
           "coordinate": "ghcr.io/trianalab/pacto/operator",
           "kind": "oci-image",
-          "tag": "5.4.3",
+          "tag": "6.0.0",
           "unit": "operator-image"
         },
         {
-          "appVersion": "5.4.3",
-          "chartVersion": "5.4.3",
+          "appVersion": "6.0.0",
+          "chartVersion": "6.0.0",
           "coordinate": "ghcr.io/trianalab/pacto/charts/pacto-operator",
-          "defaultImageTag": "5.4.3",
+          "defaultImageTag": "6.0.0",
           "kind": "helm-chart",
           "unit": "operator-chart"
         },
         {
           "kind": "docs",
           "unit": "k8s-docs",
-          "version": "5.4.3"
+          "version": "6.0.0"
         }
       ],
       "assertNoReplace": true,
@@ -82,7 +82,7 @@
       "tags": [
         "integrations/kubernetes/v6.0.0"
       ],
-      "version": "5.4.3"
+      "version": "6.0.0"
     }
   },
   "publishOrder": [
