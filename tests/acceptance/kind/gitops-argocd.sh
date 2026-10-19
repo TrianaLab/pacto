@@ -265,8 +265,23 @@ echo "== Argo CD $ARGOCD_VERSION (core install: no API server, no UI) =="
 # --server-side: Argo's Application CRD is far past the size a
 # last-applied-configuration annotation can hold, and a client-side apply of it
 # fails on exactly that.
-kubectl apply -n "$ARGO_NS" --server-side \
-  -f "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/core-install.yaml" > /dev/null
+#
+# Its images are pulled on the host (retried) and loaded into the node, with
+# `Always` rewritten to `IfNotPresent` so the node never pulls them itself. Left
+# to the node, redis comes from public.ecr.aws, whose anonymous pulls from shared
+# runners get throttled: on 2026-10-19 argocd-redis sat in ImagePullBackOff for
+# the whole five-minute rollout wait on a tree that had passed an hour before.
+ARGO_MANIFEST="$(mktemp)"
+bash "$_PACTO_ROOT/release/scripts/retry.sh" curl -fsSL -o "$ARGO_MANIFEST" \
+  "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/core-install.yaml"
+sed -i.bak 's/imagePullPolicy: Always/imagePullPolicy: IfNotPresent/' "$ARGO_MANIFEST"
+ARGO_IMAGES="$(awk '$1 == "image:" { print $2 }' "$ARGO_MANIFEST" | sort -u)"
+for img in $ARGO_IMAGES; do
+  bash "$_PACTO_ROOT/release/scripts/retry.sh" docker pull "$img" > /dev/null
+done
+# shellcheck disable=SC2086  # one image reference per word
+load_images $ARGO_IMAGES
+kubectl apply -n "$ARGO_NS" --server-side -f "$ARGO_MANIFEST" > /dev/null
 # The apply returns as soon as the CRD objects are written, which is before the
 # API server serves argoproj.io in discovery. Anything applied in that window
 # fails with `no matches for kind`, which reads like a manifest problem. Asking

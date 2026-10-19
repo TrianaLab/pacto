@@ -417,6 +417,11 @@ jobs:
           node-version: '22'
       - run: npm ci --ignore-scripts
       - run: make artifact-drift
+      # On a Version PR, the core checksum in the operator's go.sum has to describe
+      # the tree the squash merge will tag. This checkout is the merge ref, so a
+      # main that moved under the PR fails here instead of at release time.
+      - name: Operator go.sum matches the core tree to be tagged
+        run: bash release/orchestrator/verify-core-gosum.sh
 
   # Integration test for the version command: real `npm run release:version` in a
   # throwaway clone with pending changesets -> ready transaction detect.mjs acts on.
