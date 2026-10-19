@@ -2,7 +2,6 @@ package plugin
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -191,12 +190,7 @@ func TestFindPlugin_NotFound(t *testing.T) {
 func TestFindPlugin_HomeDirError(t *testing.T) {
 	t.Setenv("PATH", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
-
-	orig := userHomeDirFn
-	userHomeDirFn = func() (string, error) {
-		return "", fmt.Errorf("no home dir")
-	}
-	defer func() { userHomeDirFn = orig }()
+	t.Setenv("HOME", "") // os.UserHomeDir fails without it
 
 	_, err := findPlugin("test")
 	if err == nil {
@@ -265,9 +259,7 @@ func TestInstalled_PATHShadowsConfigDirAndMatchesFind(t *testing.T) {
 func TestInstalled_HomeDirError(t *testing.T) {
 	t.Setenv("PATH", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
-	orig := userHomeDirFn
-	userHomeDirFn = func() (string, error) { return "", fmt.Errorf("no home dir") }
-	t.Cleanup(func() { userHomeDirFn = orig })
+	t.Setenv("HOME", "") // os.UserHomeDir fails without it
 
 	if got := Installed(); len(got) != 0 {
 		t.Fatalf("expected no plugins, got %v", got)
@@ -311,11 +303,7 @@ func TestSubprocessRunner_Run_Timeout(t *testing.T) {
 	buildTestPlugin(t, dir, "slow", slowPluginSrc)
 	t.Setenv("PATH", dir)
 
-	old := pluginTimeout
-	pluginTimeout = 50 * time.Millisecond
-	defer func() { pluginTimeout = old }()
-
-	runner := &SubprocessRunner{}
+	runner := &SubprocessRunner{timeout: 50 * time.Millisecond}
 	_, err := runner.Run(context.Background(), "slow", GenerateRequest{ProtocolVersion: ProtocolVersion})
 	if err == nil || !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("expected timeout error, got %v", err)
@@ -327,11 +315,7 @@ func TestSubprocessRunner_Run_OutputTooLarge(t *testing.T) {
 	buildTestPlugin(t, dir, "flood", floodPluginSrc)
 	t.Setenv("PATH", dir)
 
-	old := maxPluginOutput
-	maxPluginOutput = 1024 // plugin writes 256 KB
-	defer func() { maxPluginOutput = old }()
-
-	runner := &SubprocessRunner{}
+	runner := &SubprocessRunner{maxOutput: 1024} // plugin writes 256 KB
 	_, err := runner.Run(context.Background(), "flood", GenerateRequest{ProtocolVersion: ProtocolVersion})
 	if err == nil || !strings.Contains(err.Error(), "output exceeded") {
 		t.Fatalf("expected output-exceeded error, got %v", err)

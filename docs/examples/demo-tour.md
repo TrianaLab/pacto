@@ -27,6 +27,11 @@ Every command below is written to be pasted from the repository root.
 To drive a real stack instead, see the [Docker Compose demo](compose-demo.md),
 which needs no clone and no CLI.
 
+The tour shows [runtime conformance](../integrations/kubernetes/runtime-conformance.md)
+(checking what a service really does on the network) as a recorded finding only:
+story 2 shows one the kernel saw. To watch it live, use the Compose demo or the
+node agent on a Kubernetes cluster.
+
 ## The fleet
 
 Sixteen services are in the snapshot. Five carry the stories:
@@ -75,6 +80,11 @@ targets:
         severity: error
         category: RuntimeDrift
         message: declared stateless but the observed workload mounts a persistent volume
+      - code: INTERFACE_ABSENT
+        severity: error
+        category: RuntimeDrift
+        message: nothing listens on the declared http interface
+        evidenceRefs: [{ source: k8s, collector: k8s-observer+ebpf }]
 
   - { scope: production-eu, kind: kubernetes-workload, name: identity/auth-service,
       service: auth-service, compliance: Unknown,
@@ -103,10 +113,12 @@ A confirmed violation reads differently:
 --8<-- "examples/demo/generated/_beat-04.md"
 
 `Coverage: 5/5 evaluated` is what separates this from the Unknown above: every
-check ran, so the verdict is a conclusion rather than a gap. The finding names
-the exact contradiction — the contract declares the workload stateless, the
-observation found a persistent volume mounted. One fact disagreeing with one
-declaration, not a score.
+check ran, so the verdict is a conclusion rather than a gap. Each finding names
+one exact contradiction. The contract declares the workload stateless and the
+observation found a persistent volume mounted. The contract declares an `http`
+interface and nothing listens on its port: `seen by k8s-observer+ebpf` says the
+node agent saw that in the kernel, and Kubernetes agreed. One fact disagreeing
+with one declaration, not a score.
 
 ## Story 3 — "I am about to ship a change that might break someone"
 

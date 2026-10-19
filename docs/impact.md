@@ -1,16 +1,21 @@
 # Impact analysis (`pacto impact`)
 
-A semantic diff tells you *how* a revision changed. The operational graph tells
-you *who depends on the service and where it runs*. **Impact analysis** composes
-the two to answer the question a reviewer actually asks before merging: *if this
-revision ships, who is affected?*
+Impact analysis answers the question a reviewer asks before merging: *if this
+revision ships, who is affected?* Give it the old and new contract and it lists
+the services that depend on this one, whether each still works with the new
+version, where they run and who owns them.
 
-Impact is framework-independent (`pkg/impact`). It consumes the pure diff engine
-([change classification](contract-reference/diff.md)) and the immutable
-[operational graph](operational-graph.md) read model, and imports no Kubernetes,
-OCI, dashboard, MCP or HTTP code. One analysis therefore backs the CLI command,
-the MCP tool and the dashboard's **Change analysis** workspace, and given the same
-snapshot all three return the identical answer.
+```bash
+pacto impact ./payments-api@1.4.0 ./payments-api@2.0.0 --local ./services
+```
+
+It joins two things Pacto already has. The semantic diff says *how* the contract
+changed ([change classification](contract-reference/diff.md)). The
+[operational graph](operational-graph.md) says *who depends on the service and
+where it runs*. The code lives in `pkg/impact` and uses no Kubernetes, OCI,
+dashboard, MCP or HTTP code. So the CLI command, the MCP tool and the dashboard's
+**Change analysis** workspace run the same analysis and, given the same
+snapshot, return the same answer.
 
 ## Diff × graph → impact
 

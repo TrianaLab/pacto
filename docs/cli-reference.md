@@ -16,12 +16,12 @@ Every command accepts `-v` / `--verbose` for debug-level logging and `--help` fo
       for the verdict.
     - **`markdown` is implemented by `pacto diff` only**, for posting a diff as a
       CI comment. Every other command silently renders text instead.
-    - **Key casing is not uniform.** `pacto validate` emits capitalised keys
-      (`"Path"`, `"Valid"`, `"Errors"`); every other command emits camelCase
-      (`"path"`, `"root"`, `"upToDate"`). Match the command you are calling.
-    - **An unrecognised value is ignored, not rejected.** `--output-format yaml`
-      prints text and no warning — there is no YAML output — so a typo is
-      indistinguishable from success.
+    - **Keys are camelCase** in every command (`"path"`, `"valid"`, `"errors"`,
+      `"upToDate"`). Before v4, `init`, `validate`, `pack`, `pull` and `push`
+      emitted capitalised keys (`"Path"`, `"Valid"`).
+    - **An unrecognised value is rejected.** `--output-format yaml` exits 1 with
+      `unsupported output format "yaml"` before the command runs, so a typo never
+      passes for success.
 
     The interactive and side-effecting commands (`login`, `logout`, `update`,
     `mcp`, `dashboard`) inherit the flag from the root command and always emit text.
@@ -98,6 +98,53 @@ Non-semver tags (e.g. `latest`, `main`) are ignored during resolution. Digest-pi
     discovery selects the highest semver tag and does **not** apply per-dependency
     `compatibility` constraints. Root-contract pulls (a tagless top-level `oci://`
     ref) also select the highest semver tag with no constraint.
+
+---
+
+## `pacto agent`
+
+Runs until interrupted. Watches TCP listeners and outbound connection outcomes with an eBPF program, attributes each socket to the workload that created it (a Kubernetes pod, a container, a systemd unit or a pacto run session, from its cgroup, or from its network namespace when the cgroup names none) and publishes a snapshot every --publish-interval. --sink kubernetes writes the node's NodeRuntimeObservation status (pods only; what the Pacto operator's node agent DaemonSet runs); --sink stdout prints one JSON snapshot per line.
+
+--sink local and --sink evidence check workloads against their contracts on this host. The workloads come from --bindings (a YAML list of {match: {unit|container|cgroup|session|pid}, contract, host, interfaces: {name: port}, dependencies: {name: host:port}}) and with --docker from running containers labelled dev.pacto.contract=<dir|oci ref>, dev.pacto.bind.&lt;interface&gt;=&lt;port&gt; and dev.pacto.dep.&lt;dependency&gt;=<host:port>. Interfaces and dependencies are judged from the kernel's view, health and metrics capabilities by probing the bound port; a negative is reported once it persists for --stabilization-window. --sink local prints every target's compliance and findings each interval in --output-format; --sink evidence signs each target's evidence and sends it to an Evidence Server, which needs contracts pinned as oci://...@sha256:&lt;digest&gt;. Envelope sequences start at the wall clock in nanoseconds and count up, so they keep increasing across restarts as long as the clock does.
+
+Needs Linux 5.8 or later with BTF, root (or BPF, PERFMON and SYS_PTRACE) and the host's /proc and cgroupfs.
+
+```
+pacto agent [flags]
+```
+
+**Examples:**
+
+```
+  pacto agent --sink stdout --publish-interval 5s
+  pacto agent --sink kubernetes --cgroup-root /host/sys/fs/cgroup
+  pacto agent --sink local --docker --cgroup-root /host/sys/fs/cgroup
+  pacto agent --sink evidence --bindings bindings.yaml --evidence-url https://evidence.example.com \
+    --evidence-key agent.key --evidence-key-id k1 --evidence-producer host-1
+```
+
+**Flags:**
+
+```
+      --bindings string                   with --sink local or evidence: YAML file binding workloads to contracts
+      --cgroup-root string                where the host cgroup v2 hierarchy is mounted; empty attributes by network namespace only (default "/sys/fs/cgroup")
+      --docker                            with --sink local or evidence: check running containers labelled dev.pacto.contract (Docker Engine API on /var/run/docker.sock)
+      --docker-label-filter stringArray   with --docker: only check containers that also carry this label (key=value or key; repeatable, all must match), e.g. com.docker.compose.project=demo
+      --enable-probing                    also probe the wire protocol of every interface found listening
+      --evidence-key string               with --sink evidence: private key file envelopes are signed with
+      --evidence-key-id string            with --sink evidence: key id (must match the server's trust entry)
+      --evidence-producer string          with --sink evidence: producer id
+      --evidence-url string               with --sink evidence: Evidence Server base URL
+  -h, --help                              help for agent
+      --namespace string                  namespace the NodeRuntimeObservation is written to with --sink kubernetes (default $POD_NAMESPACE)
+      --node-name string                  name of this host; with --sink kubernetes also the NodeRuntimeObservation name (default $NODE_NAME)
+      --proc-root string                  where the host /proc is mounted (a pod needs hostPID, a container --pid=host) (default "/proc")
+      --publish-interval duration         how often a snapshot is published (whole seconds) (default 30s)
+      --resync-interval duration          how often workloads, network namespaces and listeners are re-read from /proc (default 1m0s)
+      --ringbuf-size uint32               kernel ring buffer size in bytes; a power of two and a multiple of the page size (default 262144)
+      --sink string                       where snapshots go: one of [kubernetes stdout local evidence] (default "stdout")
+      --stabilization-window duration     how long a negative must persist before it is reported (default 2m0s)
+```
 
 ---
 
@@ -1062,6 +1109,54 @@ If the artifact already exists in the registry, `pacto push` prints a warning an
 
 ---
 
+## `pacto run`
+
+Starts the command and watches the TCP sockets of its whole process tree: the interfaces bound with --bind must be listened on, the dependencies bound with --dep reached. Every --interval it prints the contract's compliance and findings in --output-format; once the command exits it prints a final round from the last view taken while the command ran, and exits with the command's exit code. With --fail-on it exits 1 instead of 0 when the final verdict is that bad or worse.
+
+The command runs in a process group of its own, so a Ctrl-C reaches it once. When pacto run owns the terminal, the command's group takes it over: it reads the terminal and gets Ctrl-C and Ctrl-Z straight from it, and pacto run takes the terminal back once it exits. Otherwise SIGINT and SIGTERM sent to pacto run are passed on to the command's whole group.
+
+The command's stdin, stdout and stderr are its own, untouched. Rounds go to stderr, each in a single write, or with --report to a file instead: the file is truncated when the run starts and every round is appended to it in a single write, so a reader following it sees whole rounds (with json, one object per line).
+
+With root (or BPF, PERFMON, SYS_PTRACE and write access to its own cgroup) on Linux 5.8 or later with BTF and cgroup v2, the command starts inside a new cgroup pacto-run-&lt;pid&gt; and an eBPF program sees every listener and every connection outcome of the tree, failures included (collector pacto-run+ebpf). Otherwise it falls back to polling /proc every second and says so (collector pacto-run): listeners are seen in full, so a missing one is still confirmed, but a connection is seen only while it is open at a poll and a failed connection never, so a dependency is reported reachable or unknown, never unreachable. If the program attached but the command cannot start inside the new cgroup, the run falls back to polling too and says so. Elsewhere than Linux the command runs unobserved and every runtime assertion is unsupported.
+
+A negative is reported once it persists for --stabilization-window. Health and metrics capabilities are probed on --host at their bound interface's port. With --evidence-url every round is also signed and sent to an Evidence Server, which needs the contract pinned as oci://...@sha256:&lt;digest&gt;.
+
+```
+pacto run --contract <dir|oci ref> [flags] -- command [args...]
+```
+
+**Examples:**
+
+```
+  pacto run --contract ./payments --bind api=8080 --dep postgres=127.0.0.1:5432 -- ./payments-server
+  pacto run --contract oci://ghcr.io/acme/payments:1.4.0 --bind api=8080 --fail-on noncompliant \
+    --stabilization-window 30s --output-format json --report rounds.jsonl -- java -jar payments.jar
+```
+
+**Flags:**
+
+```
+      --bind stringArray                interface=port the command serves the interface on (repeatable)
+      --cgroup-root string              cgroup v2 directory the session cgroup is created in (default: the caller's own cgroup under /sys/fs/cgroup)
+      --contract string                 contract bundle directory or oci:// reference (required)
+      --dep stringArray                 dependency=host:port the command reaches the dependency at (repeatable)
+      --enable-probing                  also probe the wire protocol of every interface found listening
+      --evidence-key string             private key file envelopes are signed with
+      --evidence-key-id string          key id (must match the server's trust entry)
+      --evidence-producer string        producer id
+      --evidence-url string             Evidence Server base URL
+      --fail-on string                  exit 1 when the command exits 0 but the final verdict is this bad or worse: one of [none noncompliant unknown] (default "none")
+  -h, --help                            help for run
+      --host string                     address capability and protocol probes dial (default "127.0.0.1")
+      --interval duration               how often a round is evaluated and printed (whole seconds) (default 10s)
+      --proc-root string                where /proc is mounted (default "/proc")
+      --report string                   file every round is appended to instead of stderr (truncated when the run starts)
+      --ringbuf-size uint32             kernel ring buffer size in bytes; a power of two and a multiple of the page size (default 262144)
+      --stabilization-window duration   how long a negative must persist before it is reported (default 2m0s)
+```
+
+---
+
 ## `pacto tui`
 
 Opens a full-screen terminal UI over the same fleet snapshot `pacto fleet` queries. Navigate services, revisions, targets, owners and sources, then run pacto's verbs against whatever is selected — the selection becomes the argument, so you never type a path.
@@ -1216,19 +1311,22 @@ pacto version [flags]
 ## Environment variables
 
 Boolean variables are parsed the way Go parses a boolean: `1`, `t`, `T`,
-`true`, `TRUE` and `True` enable them. Anything else — including `yes` and
-`on` — reads as *off*, silently. The two exceptions are called out in the table.
+`true`, `TRUE` and `True` enable them and `0`, `f`, `F`, `false`, `FALSE` and
+`False` disable them. Anything else — including `yes` and `on` — reads as *off*,
+silently, except for the two opt-outs `PACTO_NO_ANIM` and
+`PACTO_NO_UPDATE_CHECK`: there any other non-empty value reads as *on*, because
+whoever set an opt-out meant it.
 
 | Variable | Description |
 |----------|-------------|
 | `PACTO_CACHE_DIR` | Cache directory for the `pacto dashboard` bundle scan. The core CLI cache location is controlled by `XDG_CACHE_HOME` (see below). |
 | `PACTO_NO_CACHE` | Boolean. Disable OCI bundle caching (equivalent to `--no-cache`) |
-| `PACTO_NO_ANIM` | **Any non-empty value** disables spinners and animations (equivalent to `--no-anim`). `PACTO_NO_ANIM=0` also disables them. |
-| `PACTO_NO_UPDATE_CHECK` | **Exactly `1`** disables automatic update checks. No other value has any effect. |
+| `PACTO_NO_ANIM` | Boolean. Disables spinners and animations (equivalent to `--no-anim`). |
+| `PACTO_NO_UPDATE_CHECK` | Boolean. Disables automatic update checks. |
 | `PACTO_REGISTRY_USERNAME` | Registry username for authentication |
 | `PACTO_REGISTRY_PASSWORD` | Registry password for authentication |
 | `PACTO_REGISTRY_TOKEN` | Registry token for authentication |
-| `PACTO_INSECURE_REGISTRIES` | Comma-separated registry **hosts** the Evidence Server may reach over plain HTTP instead of HTTPS. Scoped per host, so HTTPS registries are unaffected, and scoped to the evidence commands — `pacto push` and `pacto pull` do not read it. Loopback hosts are already plain HTTP without being listed. Intended for a controlled in-cluster registry, never the public internet: it disables transport encryption, so credentials and payloads travel in the clear. |
+| `PACTO_INSECURE_REGISTRIES` | Comma-separated registry **hosts** Pacto may reach over plain HTTP instead of HTTPS. It applies to every registry access: `pacto push`, `pacto pull`, dependency and policy resolution and the Evidence Server. Scoped per host, so HTTPS registries are unaffected. Loopback hosts are already plain HTTP without being listed. Intended for a controlled in-cluster registry, never the public internet: it disables transport encryption, so credentials and payloads travel in the clear. |
 | `PACTO_EVIDENCE_SOURCE_URL` | Base URL of an Evidence Server whose read-only [operational-graph](operational-graph.md) contribution `pacto dashboard` should consume. Set by the operator when it wires a managed Evidence Server; unset means *no evidence source configured*, which is not the same as an unavailable one. |
 | `XDG_CONFIG_HOME` | Override config directory (default: `~/.config`). Affects `pacto login` credentials and update check cache |
 | `XDG_CACHE_HOME` | Override cache directory (default: `~/.cache`). Affects OCI bundle cache location |

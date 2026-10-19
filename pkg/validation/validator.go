@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"io/fs"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // Validate runs all three validation layers in order on the given contract.
@@ -71,9 +71,6 @@ func ValidateStructuralRaw(rawYAML []byte) ValidationResult {
 	return ValidateStructural(data)
 }
 
-// Function variable for testing.
-var jsonUnmarshalFn = json.Unmarshal
-
 // yamlToGeneric converts YAML bytes to a generic interface{} suitable for
 // JSON Schema validation. It goes through JSON to ensure type compatibility
 // with the JSON Schema library.
@@ -95,11 +92,9 @@ func yamlToGeneric(data []byte) (any, error) {
 		return nil, err
 	}
 
+	// Bytes json.Marshal just produced always decode into an any.
 	var result any
-	if err := jsonUnmarshalFn(jsonBytes, &result); err != nil {
-		return nil, err
-	}
-
+	_ = json.Unmarshal(jsonBytes, &result)
 	return result, nil
 }
 

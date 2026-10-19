@@ -1,0 +1,4 @@
+pactoVersion: "2.0"
+service:
+  name: stray
+  version: 1.0.0

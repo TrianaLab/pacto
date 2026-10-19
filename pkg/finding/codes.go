@@ -1,5 +1,10 @@
 package finding
 
+import (
+	"slices"
+	"strings"
+)
+
 const (
 	// Durable v2 codes (may occur for v2 Operational Contracts).
 	CodeUnsupportedPactoVersion      Code = "UNSUPPORTED_PACTO_VERSION"
@@ -46,44 +51,26 @@ const (
 	CodeInterfaceAbsent       Code = "INTERFACE_ABSENT"
 	CodeConfigurationAbsent   Code = "CONFIGURATION_ABSENT"
 	CodeConfigurationMismatch Code = "CONFIGURATION_MISMATCH"
+	// Facet violations: a declared facet of an observed assertion contradicts the observed fact.
+	CodeInterfaceProtocolMismatch   Code = "INTERFACE_PROTOCOL_MISMATCH"   // interfaces[].type vs the probed protocol
+	CodeInterfaceVisibilityMismatch Code = "INTERFACE_VISIBILITY_MISMATCH" // internal interface exposed outside the cluster
+	CodeDependencyVersionMismatch   Code = "DEPENDENCY_VERSION_MISMATCH"   // provider version outside dependencies[].compatibility
+
+	// Runtime drift that is not a contract violation. Registry: {RuntimeDrift, Warning}. The contract does not
+	// claim its dependency list is exhaustive, so an undeclared peer can never make it non-compliant.
+	CodeDependencyUndeclared Code = "DEPENDENCY_UNDECLARED"
 
 	// Family 2 — insufficient/unreliable evidence (emitted by Evaluate). Registry: {Inconclusive, Unknown}.
-	CodeEvidenceMissing               Code = "EVIDENCE_MISSING"
-	CodeObservationUnsupported        Code = "OBSERVATION_UNSUPPORTED"
-	CodeCollectionFailed              Code = "COLLECTION_FAILED"
-	CodeEvidenceStale                 Code = "EVIDENCE_STALE"
-	CodeEvidenceInsufficient          Code = "EVIDENCE_INSUFFICIENT"
-	CodeExtensionEvaluatorUnavailable Code = "EXTENSION_EVALUATOR_UNAVAILABLE"
+	CodeEvidenceMissing        Code = "EVIDENCE_MISSING"
+	CodeObservationUnsupported Code = "OBSERVATION_UNSUPPORTED"
+	CodeCollectionFailed       Code = "COLLECTION_FAILED"
+	CodeEvidenceStale          Code = "EVIDENCE_STALE"
+	CodeEvidenceInsufficient   Code = "EVIDENCE_INSUFFICIENT"
 
 	// Structural (crossfield) — capability binding. Registry: {InvalidCapability, Error}.
 	CodeCapabilityInterfaceUnknown Code = "CAPABILITY_INTERFACE_UNKNOWN" // binding.interface references no declared interface
 	CodeCapabilityPathInvalid      Code = "CAPABILITY_PATH_INVALID"      // binding.path fails the net/url SSRF check
 
-)
-
-// Codes no validator emits any more. They ship in the released v3 major, so they
-// stay declared until v4 for anything that switches on them; they are deliberately
-// absent from the registry, because the published operator reference is generated
-// from those rows and listing a code nothing can produce is the drift that removing
-// them fixed. The accessors therefore treat them as unregistered, which is what
-// they already answered in v3.2.9: SeverityError from SeverityFor/DefaultSeverity,
-// and now "" from CategoryOf.
-const (
-	// Deprecated: the interface shape rules moved into the structural JSON Schema,
-	// which reports CodeSchemaViolation. Removed at v4.
-	CodeInvalidInterfaceType Code = "INVALID_INTERFACE_TYPE"
-	// Deprecated: the interface shape rules moved into the structural JSON Schema,
-	// which reports CodeSchemaViolation. Removed at v4.
-	CodeInterfaceRefRequired Code = "INTERFACE_REF_REQUIRED"
-	// Deprecated: the capability shape rules moved into the structural JSON Schema,
-	// which reports CodeSchemaViolation. Removed at v4.
-	CodeInvalidCapabilityType Code = "INVALID_CAPABILITY_TYPE"
-	// Deprecated: the capability shape rules moved into the structural JSON Schema,
-	// which reports CodeSchemaViolation. Removed at v4.
-	CodeCapabilityRefRequired Code = "CAPABILITY_REF_REQUIRED"
-	// Deprecated: policies[].target is constrained by the structural JSON Schema,
-	// which reports CodeSchemaViolation. Removed at v4.
-	CodeUnsupportedPolicyTarget Code = "UNSUPPORTED_POLICY_TARGET"
 )
 
 // codeMeta is the registry row for a code: the category and severity a producer
@@ -136,21 +123,26 @@ var registry = map[Code]codeMeta{
 	CodeDuplicateCapability:          {CategoryDuplicateName, SeverityError},
 
 	// Family 1 — confirmed violations
-	CodeWorkloadMismatch:      {CategoryRuntimeDrift, SeverityError},
-	CodePersistenceMismatch:   {CategoryRuntimeDrift, SeverityError},
-	CodeDependencyUnreachable: {CategoryRuntimeDrift, SeverityError},
-	CodeCapabilityAbsent:      {CategoryRuntimeDrift, SeverityError},
-	CodeInterfaceAbsent:       {CategoryRuntimeDrift, SeverityError},
-	CodeConfigurationAbsent:   {CategoryRuntimeDrift, SeverityError},
-	CodeConfigurationMismatch: {CategoryRuntimeDrift, SeverityError},
+	CodeWorkloadMismatch:            {CategoryRuntimeDrift, SeverityError},
+	CodePersistenceMismatch:         {CategoryRuntimeDrift, SeverityError},
+	CodeDependencyUnreachable:       {CategoryRuntimeDrift, SeverityError},
+	CodeCapabilityAbsent:            {CategoryRuntimeDrift, SeverityError},
+	CodeInterfaceAbsent:             {CategoryRuntimeDrift, SeverityError},
+	CodeConfigurationAbsent:         {CategoryRuntimeDrift, SeverityError},
+	CodeConfigurationMismatch:       {CategoryRuntimeDrift, SeverityError},
+	CodeInterfaceProtocolMismatch:   {CategoryRuntimeDrift, SeverityError},
+	CodeInterfaceVisibilityMismatch: {CategoryRuntimeDrift, SeverityError},
+	CodeDependencyVersionMismatch:   {CategoryRuntimeDrift, SeverityError},
+
+	// Runtime drift, never a violation
+	CodeDependencyUndeclared: {CategoryRuntimeDrift, SeverityWarning},
 
 	// Family 2 — uncertainty
-	CodeEvidenceMissing:               {CategoryInconclusive, SeverityUnknown},
-	CodeObservationUnsupported:        {CategoryInconclusive, SeverityUnknown},
-	CodeCollectionFailed:              {CategoryInconclusive, SeverityUnknown},
-	CodeEvidenceStale:                 {CategoryInconclusive, SeverityUnknown},
-	CodeEvidenceInsufficient:          {CategoryInconclusive, SeverityUnknown},
-	CodeExtensionEvaluatorUnavailable: {CategoryInconclusive, SeverityUnknown},
+	CodeEvidenceMissing:        {CategoryInconclusive, SeverityUnknown},
+	CodeObservationUnsupported: {CategoryInconclusive, SeverityUnknown},
+	CodeCollectionFailed:       {CategoryInconclusive, SeverityUnknown},
+	CodeEvidenceStale:          {CategoryInconclusive, SeverityUnknown},
+	CodeEvidenceInsufficient:   {CategoryInconclusive, SeverityUnknown},
 
 	// Structural (crossfield) — capability binding
 	CodeCapabilityInterfaceUnknown: {CategoryInvalidCapability, SeverityError},
@@ -160,7 +152,7 @@ var registry = map[Code]codeMeta{
 // optionalSeverity holds the registry's required-ness axis: the row a code carries
 // when the assertion it reports on was declared OPTIONAL. An optional assertion
 // cannot make the contract non-compliant, so a confirmed violation of one is a
-// warning. Only the three assertions that carry `required` in a contract can reach
+// warning. Only the assertions that carry `required` in a contract can reach
 // these codes with required=false; every other code has no such axis and keeps its
 // registry row whatever the caller passes.
 //
@@ -168,17 +160,23 @@ var registry = map[Code]codeMeta{
 // reference is generated from them, so listing DEPENDENCY_UNREACHABLE here is what
 // stops the reference from claiming it is only ever an error.
 var optionalSeverity = map[Code]codeMeta{
-	CodeDependencyUnreachable: {CategoryRuntimeDrift, SeverityWarning},
-	CodeConfigurationAbsent:   {CategoryRuntimeDrift, SeverityWarning},
-	CodeConfigurationMismatch: {CategoryRuntimeDrift, SeverityWarning},
+	CodeDependencyUnreachable:     {CategoryRuntimeDrift, SeverityWarning},
+	CodeConfigurationAbsent:       {CategoryRuntimeDrift, SeverityWarning},
+	CodeConfigurationMismatch:     {CategoryRuntimeDrift, SeverityWarning},
+	CodeDependencyVersionMismatch: {CategoryRuntimeDrift, SeverityWarning},
 }
 
 // metaFor resolves the registry row for a code on both axes: the required-ness row
 // when the assertion was declared optional, the base row otherwise. It is the one
 // lookup, so category and severity can never be read off different rows.
 func metaFor(c Code, required bool) (codeMeta, bool) {
+	return metaIn(optionalSeverity, c, required)
+}
+
+// metaIn is metaFor reading the required-ness rows from optional.
+func metaIn(optional map[Code]codeMeta, c Code, required bool) (codeMeta, bool) {
 	if !required {
-		if m, ok := optionalSeverity[c]; ok {
+		if m, ok := optional[c]; ok {
 			return m, true
 		}
 	}
@@ -214,10 +212,27 @@ func SeverityFor(c Code, required bool) Severity {
 	return SeverityError
 }
 
-// DefaultSeverity returns the code's default severity (error if unknown).
-//
-// Deprecated: use SeverityFor, which also honours the required-ness axis. This is
-// SeverityFor with required=true. Removed at v4.
-func DefaultSeverity(c Code) Severity {
-	return SeverityFor(c, true)
+// CodeInfo is one registry row: the category and severity a finding carrying
+// Code is stamped with. Optional marks the row used when the assertion was
+// declared optional (see SeverityFor); a code without that axis has no such row.
+type CodeInfo struct {
+	Code     Code     `json:"code"`
+	Category Category `json:"category"`
+	Severity Severity `json:"severity"`
+	Optional bool     `json:"optional,omitempty"`
+}
+
+// Registry returns every registry row, sorted by code with the required row
+// first. It is a fresh copy: the registry itself cannot be changed through it.
+func Registry() []CodeInfo {
+	out := make([]CodeInfo, 0, len(registry)+len(optionalSeverity))
+	for c, m := range registry {
+		out = append(out, CodeInfo{Code: c, Category: m.category, Severity: m.severity})
+	}
+	for c, m := range optionalSeverity {
+		out = append(out, CodeInfo{Code: c, Category: m.category, Severity: m.severity, Optional: true})
+	}
+	// Stable, so the required row (appended first) stays ahead of the optional one.
+	slices.SortStableFunc(out, func(a, b CodeInfo) int { return strings.Compare(string(a.Code), string(b.Code)) })
+	return out
 }

@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/cli"
-	"github.com/trianalab/pacto/v3/pkg/evidence"
-	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/cli"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
 )
 
 // runEvidence executes the CLI with args and returns stdout plus any error.

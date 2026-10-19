@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -75,5 +76,25 @@ func TestMain_ErrorExit(t *testing.T) {
 	}
 	if exitErr.ExitCode() == 0 {
 		t.Error("expected non-zero exit code")
+	}
+}
+
+// pacto run ends with its command's exit code and adds no error line of its own.
+func TestMain_RunExitCode(t *testing.T) {
+	if dir := os.Getenv("TEST_PACTO_MAIN_RUN"); dir != "" {
+		os.Args = []string{"pacto", "run", "--contract", dir, "--proc-root", dir, "--", "sh", "-c", "exit 5"}
+		main()
+		return
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(dir+"/pacto.yaml", []byte("pactoVersion: \"2.0\"\nservice:\n  name: s\n  version: 1.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(os.Args[0], "-test.run=TestMain_RunExitCode")
+	cmd.Env = append(os.Environ(), "TEST_PACTO_MAIN_RUN="+dir)
+	out, err := cmd.CombinedOutput()
+	exitErr, ok := err.(*exec.ExitError)
+	if !ok || exitErr.ExitCode() != 5 || strings.Contains(string(out), "exit status 5") {
+		t.Fatalf("err %v, output:\n%s", err, out)
 	}
 }

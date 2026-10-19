@@ -16,15 +16,14 @@ import (
 	"github.com/opencontainers/go-digest"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/trianalab/pacto/v3/pkg/capability"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/lock"
-	"github.com/trianalab/pacto/v3/pkg/openapi"
-	"github.com/trianalab/pacto/v3/pkg/readiness"
-	"github.com/trianalab/pacto/v3/pkg/sbom"
-	"github.com/trianalab/pacto/v3/pkg/skills"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/capability"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/lock"
+	"github.com/trianalab/pacto/v4/pkg/readiness"
+	"github.com/trianalab/pacto/v4/pkg/sbom"
+	"github.com/trianalab/pacto/v4/pkg/skills"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // Bounds keep the projected snapshot from growing unboundedly on pathological
@@ -44,13 +43,9 @@ type BuildOptions struct {
 	// FreshnessWindow marks a target's evidence stale when it is older than this.
 	// Zero disables target-evidence staleness classification.
 	FreshnessWindow time.Duration
-	// AllowPartial returns a partial snapshot when a source fails. When false, a
-	// single source failure is fatal. Defaults to true (fail open with explicit
-	// limitations rather than losing every other source's records).
-	AllowPartial bool
-	// DisallowPartial forces fail-closed behavior. It exists because the zero
-	// value of AllowPartial is the desired default (true); set this to require a
-	// complete snapshot.
+	// DisallowPartial forces fail-closed behavior: a single source failure is
+	// fatal. The zero value fails open with explicit limitations rather than
+	// losing every other source's records.
 	DisallowPartial bool
 	// Concurrency bounds simultaneous source Collect calls. Defaults to
 	// min(8, len(sources)).
@@ -844,27 +839,13 @@ func toolsFrom(c *contract.Contract, fsys fs.FS) (tools []ToolSummary, specsRead
 	if fsys == nil {
 		return nil, nil
 	}
-	openapiIfaces := 0
-	for _, iface := range c.Interfaces {
-		if iface.Type == contract.InterfaceTypeOpenAPI && iface.Ref != "" {
-			openapiIfaces++
-		}
-	}
 	var out []ToolSummary
-	for _, iface := range c.Interfaces {
-		if iface.Type != contract.InterfaceTypeOpenAPI || iface.Ref == "" {
+	for _, it := range capability.ToolsForContract(c, fsys, true) {
+		if it.Err != nil {
 			continue
 		}
-		doc, err := openapi.ReadDoc(fsys, iface.Ref)
-		if err != nil {
-			continue
-		}
-		specsRead = append(specsRead, iface.Name)
-		prefix := ""
-		if openapiIfaces > 1 {
-			prefix = iface.Name + "_"
-		}
-		for _, tool := range capability.BuildTools(doc, true) {
+		specsRead = append(specsRead, it.Interface.Name)
+		for _, tool := range it.Tools {
 			if len(out) >= maxToolsPerRevision {
 				return out, specsRead
 			}
@@ -873,7 +854,7 @@ func toolsFrom(c *contract.Contract, fsys fs.FS) (tools []ToolSummary, specsRead
 				summary = tool.Description
 			}
 			out = append(out, ToolSummary{
-				Name: prefix + tool.Name, Interface: iface.Name,
+				Name: tool.Name, Interface: it.Interface.Name,
 				Method: tool.Method, Path: tool.Path,
 				Summary: summary, Mutating: tool.Mutating,
 			})
@@ -898,18 +879,12 @@ func docsFrom(fsys fs.FS) []DocRef {
 		return nil
 	}
 	var out []DocRef
-	_ = fs.WalkDir(fsys, "docs", func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil // docs/ absent or an unreadable subtree: skip silently
-		}
-		if d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
-			return nil
-		}
+	contract.WalkDocs(fsys, func(p string) bool {
 		if len(out) >= maxDocRefs {
-			return fs.SkipAll
+			return false
 		}
 		out = append(out, DocRef{Path: p, Title: humanizeTitle(p), digest: docDigest(fsys, p)})
-		return nil
+		return true
 	})
 	return out
 }
@@ -953,17 +928,10 @@ func lockFrom(raw RawRevision) *lock.Lock {
 	if raw.Lock != nil {
 		return raw.Lock
 	}
-	if raw.Bundle == nil || raw.Bundle.FS == nil {
+	if raw.Bundle == nil {
 		return nil
 	}
-	data, err := fs.ReadFile(raw.Bundle.FS, lock.FileName)
-	if err != nil {
-		return nil
-	}
-	l, err := lock.Parse(data)
-	if err != nil {
-		return nil
-	}
+	l, _ := lock.ReadFS(raw.Bundle.FS) //nolint:errcheck // an unreadable lockfile is no lock
 	return l
 }
 

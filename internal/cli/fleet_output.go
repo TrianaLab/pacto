@@ -3,10 +3,13 @@ package cli
 import (
 	"fmt"
 	"io"
+	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 func printFleetSearch(cmd *cobra.Command, res *fleet.SearchResult, format string) error {
@@ -101,7 +104,7 @@ func printFleetTarget(cmd *cobra.Command, tv *fleet.TargetView, format string) e
 			_, _ = fmt.Fprintf(w, "Coverage: %d/%d evaluated\n", t.Coverage.Evaluated, t.Coverage.Required)
 		}
 		for _, f := range t.Findings {
-			_, _ = fmt.Fprintf(w, "  finding [%s] %s: %s\n", f.Severity, f.Code, f.Message)
+			_, _ = fmt.Fprintf(w, "  finding [%s] %s: %s%s\n", f.Severity, f.Code, f.Message, seenBy(f.EvidenceRefs))
 		}
 		for _, l := range t.Limitations {
 			_, _ = fmt.Fprintf(w, "  limitation [%s] %s\n", l.Code, l.Message)
@@ -191,4 +194,19 @@ func orDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// seenBy names the distinct collectors behind a finding's evidence, so a reader can tell what the kernel
+// saw (collector k8s-observer+ebpf) from what Kubernetes reported.
+func seenBy(refs []finding.EvidenceRef) string {
+	var cs []string
+	for _, r := range refs {
+		if r.Collector != "" && !slices.Contains(cs, r.Collector) {
+			cs = append(cs, r.Collector)
+		}
+	}
+	if len(cs) == 0 {
+		return ""
+	}
+	return " (seen by " + strings.Join(cs, ", ") + ")"
 }

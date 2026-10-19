@@ -3,9 +3,9 @@ package app
 import (
 	"context"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/graph"
-	"github.com/trianalab/pacto/v3/pkg/lock"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/lock"
 )
 
 // buildLock resolves the full dependency + reference closure for a contract and
@@ -37,7 +37,7 @@ func (s *Service) buildLock(ctx context.Context, ref string, bundle *contract.Bu
 
 	l := &lock.Lock{
 		LockVersion: lock.CurrentLockVersion,
-		Pacto:       lock.PactoInfo{Version: BuildVersion},
+		Pacto:       lock.PactoInfo{Version: s.buildVersion()},
 		Root:        lock.RootInfo{Name: bundle.Contract.Service.Name, Version: bundle.Contract.Service.Version},
 	}
 

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 func TestDiffInterfaces_TypeChanged(t *testing.T) {

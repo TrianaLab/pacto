@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 func TestLoadSnapshotProducesACommand(t *testing.T) {

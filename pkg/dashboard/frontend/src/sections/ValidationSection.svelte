@@ -2,7 +2,7 @@
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import SectionState from './SectionState.svelte';
 
-  let { validation, conditions = [], open = $bindable(false), id = '' } = $props();
+  let { validation, open = $bindable(false), id = '' } = $props();
 
   // Only render when there are issues to show. Conditions live in Overview, so
   // they must not make this (errors/warnings-only) section render empty.

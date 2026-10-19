@@ -12,8 +12,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // A cache entry is TWO facts about one artifact: the bundle.tar.gz a walker keys
@@ -230,44 +230,20 @@ func TestCachedStore_PullPinnedBindsTheDigestToTheBytesItFetched(t *testing.T) {
 }
 
 // ResolvePinned is the seam the fleet's OCI source uses to learn a revision's
-// immutable identity. It must carry the pull's own binding through — offline too,
-// where the recorded identity is all there is and dialling a registry is exactly
-// what the mode forbids. The cold store's registry would answer a DIFFERENT
-// digest, so a re-derived identity is visible as such.
+// immutable identity. It must carry the pull's own binding through.
 func TestResolverPinned_CarriesTheBindingTheStoreMade(t *testing.T) {
 	useTempCacheHome(t)
 	const ref = "localhost:5000/demo/checkout:1.0.0"
 	ctx := context.Background()
 
 	warm := oci.NewCachedStore(&movingTagStore{})
-	bundle, rec, err := oci.NewResolver(warm).ResolvePinned(ctx, "oci://"+ref, oci.RemoteAllowed)
+	bundle, rec, err := oci.NewResolver(warm).ResolvePinned(ctx, "oci://"+ref)
 	if err != nil {
 		t.Fatalf("ResolvePinned() error: %v", err)
 	}
 	digest := rec.Digest
 	if got := bundle.Contract.Service.Name; got != digest {
 		t.Fatalf("resolved the artifact published as %q under digest %s", got, digest)
-	}
-
-	registry := &countingStore{}
-	cold := oci.NewCachedStore(registry)
-	local, localRec, err := oci.NewResolver(cold).ResolvePinned(ctx, ref, oci.LocalOnly)
-	if err != nil {
-		t.Fatalf("LocalOnly ResolvePinned() error: %v", err)
-	}
-	if localRec.Digest != digest {
-		t.Errorf("LocalOnly reported digest %q, want the recorded %q: offline identity is read back WITH the bytes", localRec.Digest, digest)
-	}
-	// And it reports WHICH reference the cache holds those bytes under, read from
-	// the same generation as the digest beside it.
-	if localRec.Ref != ref {
-		t.Errorf("LocalOnly reported ref %q, want the recorded %q", localRec.Ref, ref)
-	}
-	if registry.pullCount.Load() != 0 {
-		t.Errorf("the offline path pulled %d times, want none", registry.pullCount.Load())
-	}
-	if local.Contract.Service.Name != bundle.Contract.Service.Name {
-		t.Errorf("offline served %q, want the cached %q", local.Contract.Service.Name, bundle.Contract.Service.Name)
 	}
 }
 

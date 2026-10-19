@@ -110,6 +110,33 @@ dependencies: [ { name: checkout, ref: 'oci://{{.Domain}}/checkout', required: f
 `,
 			},
 		}},
+	}, {
+		// Inventory is the runtime-conformance negative: it binds its public API to
+		// port 8080 and is ready, but nothing in it listens there. Kubernetes alone
+		// would call it served (Ready pod, Service endpoint); the node agent on
+		// Kubernetes and the host agent on Compose watch its sockets with eBPF and
+		// report INTERFACE_ABSENT, which is the one thing only the kernel can see.
+		Name:     "inventory",
+		Repo:     "inventory",
+		Workload: &Workload{Name: "inventory", Interface: "api", Port: 8080, Deaf: true},
+		Revisions: []Revision{{
+			Version:  "1.0.0",
+			Dir:      "inventory",
+			Deployed: true,
+			Files: map[string]string{
+				"pacto.yaml": `pactoVersion: "2.0"
+service: { name: inventory, version: "1.0.0", owner: { team: commerce, dri: d, contacts: [ { type: email, value: a@e.com, purpose: escalation } ] } }
+interfaces: [ { name: api, type: openapi, ref: openapi.yaml, visibility: public } ]
+workload: service
+state: { type: stateless, persistence: { scope: local, durability: ephemeral }, dataCriticality: low }
+`,
+				"openapi.yaml": `openapi: "3.0.0"
+info: { title: inventory, version: "1.0.0" }
+paths:
+  /stock: { get: { responses: { "200": { description: ok } } } }
+`,
+			},
+		}},
 	}},
 	Sources: []Source{
 		{ID: "oci", Kind: SourceRegistry},

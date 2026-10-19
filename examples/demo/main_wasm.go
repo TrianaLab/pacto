@@ -13,8 +13,8 @@ import (
 	"syscall/js"
 
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
-	"github.com/trianalab/pacto/v3/pkg/dashboard"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // embeddedBundles holds the demo contracts baked into the wasm binary at build
@@ -61,8 +61,7 @@ func main() {
 
 	// nil UI fs: the static host serves the UI, and every answer comes from the
 	// fleet snapshot built below out of the embedded contracts — no OCI, no server.
-	srv := dashboard.NewServer(nil)
-	srv.SetVersion(version) // surfaced via /health → shown in the navbar
+	opts := dashboard.Options{Version: version} // version is surfaced via /health → shown in the navbar
 
 	// Wire the operational graph (fleet) and impact provider from the embedded
 	// bundles + deterministic targets, so the Operational Graph and Impact pages
@@ -71,15 +70,15 @@ func main() {
 		panic(err)
 	} else {
 		q := fleet.NewQuery(snap)
-		srv.SetFleetProvider(func(context.Context) (*fleet.Query, error) { return q, nil })
-		srv.SetImpactProvider(demoImpactProvider(snap, byRef))
+		opts.Fleet = func(context.Context) (*fleet.Query, error) { return q, nil }
+		opts.Impact = demoImpactProvider(snap, byRef)
 		// The observed capability is derived from the snapshot's observed edges;
 		// the demo carries them, so no flag is needed.
 	}
 
 	mux := http.NewServeMux()
 	api := humago.New(mux, dashboard.APIConfig())
-	srv.RegisterOperations(api)
+	dashboard.NewServer(opts).RegisterOperations(api)
 	handler = mux
 
 	js.Global().Set("__pactoServe", js.FuncOf(serve))

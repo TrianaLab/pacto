@@ -7,7 +7,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/opencontainers/go-digest"
 
-	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/graph"
 )
 
 // This file owns ONE of the two independent identity dimensions the fleet model
@@ -208,20 +208,4 @@ func ParseCanonicalOCIRef(ref string) (repository string, dgst digest.Digest, er
 	default: // IdentityMalformed
 		return "", "", fmt.Errorf("OCI reference %q has an invalid repository or content digest under the OCI grammar the resolver uses", ref)
 	}
-}
-
-// IsDigestPinnedRef reports whether ref is a canonical, immutable,
-// resolver-compatible OCI reference (see [ParseCanonicalOCIRef]). It does NOT
-// cross-check a recorded content digest; callers that judge retrievable snapshot
-// content must use [ClassifyContentIdentity] so retrievability means the same thing
-// everywhere.
-//
-// Deprecated: use [ParseCanonicalOCIRef] and test its error, which answers the same
-// ref-only question and also says WHY a ref fails it; use [ClassifyContentIdentity]
-// instead whenever a recorded content digest exists to cross-check, since a ref that
-// is digest-pinned but contradicts the recorded digest is not retrievable content.
-// Removed at v4.
-func IsDigestPinnedRef(ref string) bool {
-	_, _, err := ParseCanonicalOCIRef(ref)
-	return err == nil
 }

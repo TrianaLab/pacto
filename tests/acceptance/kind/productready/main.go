@@ -53,8 +53,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/tests/acceptance/scenario"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/tests/acceptance/scenario"
 )
 
 // Decoding targets are the route-neutral pkg/fleet types, not the dashboard
@@ -444,6 +444,16 @@ func (p *prober) probe() (discovered, []string) {
 		evTgtKey[ev.Service] = p.evidenceTarget(svcKey[ev.Service], ev.Via)
 	}
 
+	// Fact 14: the kernel caught every deaf workload. Kubernetes believes it serves
+	// (Ready pod, Service endpoint); only the eBPF agent's view of its sockets can
+	// say nothing listens, so the finding must be cited to the surface's kernel
+	// collector, which is what the dashboard shows as "seen by".
+	if p.surface.Has(scenario.CapabilityRuntimeConformance) {
+		for _, svc := range p.scn.DeafServices() {
+			p.kernelCaught(svcKey[svc.Name], svc.Workload.Interface)
+		}
+	}
+
 	got := p.journeyInput(svcKey, revKey, tgtKey, evTgtKey)
 
 	// Final fact: all the preceding facts came out of ONE snapshot. Each mismatching
@@ -675,6 +685,41 @@ func (p *prober) evidenceTarget(serviceKey, via string) string {
 	}
 	p.failf("service %s has no target attributed to %q", serviceKey, via)
 	return ""
+}
+
+// kernelCaught proves one of the service's targets reports INTERFACE_ABSENT on
+// the bound interface with an evidence ref from the surface's kernel collector.
+// The collector, not the code alone: an INTERFACE_ABSENT the platform API could
+// have produced would prove nothing about the kernel.
+func (p *prober) kernelCaught(serviceKey, iface string) {
+	if serviceKey == "" {
+		return
+	}
+	want := p.surface.KernelCollector()
+	var seen []string
+	for _, t := range p.list("target", serviceKey) {
+		d := p.detail("target", t.Key)
+		if d == nil || d.Target == nil {
+			continue
+		}
+		for _, f := range d.Target.Findings.Items {
+			// The operator's findings name the subject as one "interface/<name>"
+			// string; a kind and a name is the same subject spelled out.
+			subject := f.Subject.Kind == "interface" && f.Subject.Name == iface ||
+				f.Subject.Kind == "" && f.Subject.Name == "interface/"+iface
+			if f.Code != "INTERFACE_ABSENT" || !subject {
+				seen = append(seen, f.Code)
+				continue
+			}
+			for _, ref := range f.EvidenceRefs.Items {
+				if ref.Collector == want {
+					return
+				}
+				seen = append(seen, f.Code+" seen by "+ref.Collector)
+			}
+		}
+	}
+	p.failf("service %s has no INTERFACE_ABSENT on interface/%s seen by %s (findings: %s)", serviceKey, iface, want, strings.Join(seen, ", "))
 }
 
 // journeyInput projects the DISCOVERED keys into the handoff the browser suite

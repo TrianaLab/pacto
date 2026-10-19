@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 func newLogoutCommand() *cobra.Command {

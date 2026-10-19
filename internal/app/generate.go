@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/logging"
-	"github.com/trianalab/pacto/v3/pkg/override"
-	"github.com/trianalab/pacto/v3/pkg/plugin"
+	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/override"
+	"github.com/trianalab/pacto/v4/pkg/plugin"
 )
 
 // PluginRunner abstracts plugin execution so the app layer does not depend
@@ -51,7 +51,7 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) (*Generate
 	}
 
 	logging.LoggerFromContext(ctx).Debug("preparing bundle directory")
-	bundleDir, cleanup, err := prepareBundleDir(ref, bundle.FS)
+	bundleDir, cleanup, err := s.prepareBundleDir(ref, bundle.FS)
 	if err != nil {
 		return nil, err
 	}
@@ -80,12 +80,12 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) (*Generate
 		return nil, err
 	}
 
-	absOutput, err := absPathFn(outputDir)
+	absOutput, err := s.env().absPath(outputDir)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve output directory: %w", err)
 	}
 	for _, f := range resp.Files {
-		if err := writeGeneratedFile(absOutput, f); err != nil {
+		if err := s.writeGeneratedFile(absOutput, f); err != nil {
 			return nil, err
 		}
 	}
@@ -101,7 +101,7 @@ func (s *Service) Generate(ctx context.Context, opts GenerateOptions) (*Generate
 
 // writeGeneratedFile validates a plugin-returned file path and writes it under
 // absOutput. Paths must be relative and must not escape the output directory.
-func writeGeneratedFile(absOutput string, f plugin.GeneratedFile) error {
+func (s *Service) writeGeneratedFile(absOutput string, f plugin.GeneratedFile) error {
 	if filepath.IsAbs(f.Path) {
 		return fmt.Errorf("plugin file path %q must be relative", f.Path)
 	}
@@ -115,7 +115,7 @@ func writeGeneratedFile(absOutput string, f plugin.GeneratedFile) error {
 	if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
 		return fmt.Errorf("failed to create directory for %s: %w", f.Path, err)
 	}
-	if err := writeFileFn(outPath, []byte(f.Content), 0644); err != nil {
+	if err := s.env().writeFile(outPath, []byte(f.Content), 0644); err != nil {
 		return fmt.Errorf("failed to write %s: %w", f.Path, err)
 	}
 	return nil
@@ -124,12 +124,12 @@ func writeGeneratedFile(absOutput string, f plugin.GeneratedFile) error {
 // prepareBundleDir returns a directory path containing the bundle files.
 // For local directories it returns ref directly. For OCI bundles it writes
 // the in-memory FS to a temp directory.
-func prepareBundleDir(ref string, bundleFS fs.FS) (dir string, cleanup func(), err error) {
+func (s *Service) prepareBundleDir(ref string, bundleFS fs.FS) (dir string, cleanup func(), err error) {
 	if !isOCIRef(ref) {
 		return ref, nil, nil
 	}
 
-	tmpDir, err := mkdirTempFn("", "pacto-bundle-*")
+	tmpDir, err := s.env().mkdirTemp("", "pacto-bundle-*")
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to create temp directory: %w", err)
 	}

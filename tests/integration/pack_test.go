@@ -89,8 +89,8 @@ func testPackJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(output), &result); err != nil {
 		t.Fatalf("expected valid JSON output, got: %s", output)
 	}
-	if result["Name"] != "pack-json" {
-		t.Errorf("expected Name=pack-json, got %v", result["Name"])
+	if result["name"] != "pack-json" {
+		t.Errorf("expected name=pack-json, got %v", result["name"])
 	}
 }
 

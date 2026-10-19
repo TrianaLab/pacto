@@ -10,12 +10,11 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/trianalab/pacto/v3/internal/tui"
-	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v4/internal/tui"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
 func TestTUIRequiresATerminal(t *testing.T) {
-	withTTY(t, false)
 	root := NewRootCommand(newTestService(t), VersionInfo{Version: "dev"})
 	root.SetOut(io.Discard)
 	root.SetErr(io.Discard)
@@ -27,14 +26,12 @@ func TestTUIRequiresATerminal(t *testing.T) {
 }
 
 func TestTUIReportsAnExecutableLookupFailure(t *testing.T) {
-	withTTY(t, true)
-	orig := osExecutable
-	t.Cleanup(func() { osExecutable = orig })
-	osExecutable = func() (string, error) { return "", errors.New("no exe") }
+	d := defaultDeps()
+	d.executable = func() (string, error) { return "", errors.New("no exe") }
 
-	root := NewRootCommand(newTestService(t), VersionInfo{Version: "dev"})
-	root.SetOut(io.Discard)
-	root.SetErr(io.Discard)
+	root := newRootCommand(newTestService(t), VersionInfo{Version: "dev"}, d)
+	root.SetOut(&ttyBuffer{})
+	root.SetErr(&ttyBuffer{})
 	root.SetArgs([]string{"tui"})
 	if err := root.Execute(); err == nil || !strings.Contains(err.Error(), "no exe") {
 		t.Fatalf("err = %v, want the executable lookup error", err)
@@ -42,23 +39,18 @@ func TestTUIReportsAnExecutableLookupFailure(t *testing.T) {
 }
 
 func TestTUIPassesTheFlagsThroughToTheProgram(t *testing.T) {
-	withTTY(t, true)
-	origExe := osExecutable
-	t.Cleanup(func() { osExecutable = origExe })
-	osExecutable = func() (string, error) { return "/fake/pacto", nil }
-
-	origRun := tuiRun
-	t.Cleanup(func() { tuiRun = origRun })
+	d := defaultDeps()
+	d.executable = func() (string, error) { return "/fake/pacto", nil }
 	var got tui.Options
-	tuiRun = func(_ context.Context, o tui.Options) error {
+	d.runTUI = func(_ context.Context, o tui.Options) error {
 		got = o
 		return nil
 	}
 
 	dir := t.TempDir()
-	root := NewRootCommand(newTestService(t), VersionInfo{Version: "dev"})
-	root.SetOut(io.Discard)
-	root.SetErr(io.Discard)
+	root := newRootCommand(newTestService(t), VersionInfo{Version: "dev"}, d)
+	root.SetOut(&ttyBuffer{})
+	root.SetErr(&ttyBuffer{})
 	root.SetArgs([]string{"tui", "--local", dir, "--read-only"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute() = %v, want nil", err)
@@ -83,22 +75,17 @@ func TestTUIPassesTheFlagsThroughToTheProgram(t *testing.T) {
 // --name=value form so it cannot swallow a positional, a flag left at its default
 // contributes nothing, and a non-source flag is not smuggled onto the line.
 func TestTUICarriesTheSourceFlagsForYanking(t *testing.T) {
-	withTTY(t, true)
-	origExe := osExecutable
-	t.Cleanup(func() { osExecutable = origExe })
-	osExecutable = func() (string, error) { return "/fake/pacto", nil }
-
-	origRun := tuiRun
-	t.Cleanup(func() { tuiRun = origRun })
+	d := defaultDeps()
+	d.executable = func() (string, error) { return "/fake/pacto", nil }
 	var got tui.Options
-	tuiRun = func(_ context.Context, o tui.Options) error {
+	d.runTUI = func(_ context.Context, o tui.Options) error {
 		got = o
 		return nil
 	}
 
-	root := NewRootCommand(newTestService(t), VersionInfo{Version: "dev"})
-	root.SetOut(io.Discard)
-	root.SetErr(io.Discard)
+	root := newRootCommand(newTestService(t), VersionInfo{Version: "dev"}, d)
+	root.SetOut(&ttyBuffer{})
+	root.SetErr(&ttyBuffer{})
 	root.SetArgs([]string{"tui", "--local", "a", "--local", "b", "--k8s", "--read-only"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute() = %v, want nil", err)
@@ -114,14 +101,14 @@ func TestTUICarriesTheSourceFlagsForYanking(t *testing.T) {
 func TestTUISourceArgsAreEmptyWhenNothingWasTyped(t *testing.T) {
 	// A bare `pacto tui` must not manufacture a --local=. that the reader never
 	// typed: an unset flag has to stay off the yanked line.
-	cmd := newTUICommand(newTestService(t), viper.New())
+	cmd := newTUICommand(newTestService(t), viper.New(), defaultDeps())
 	if args := fleetSourceArgs(cmd); len(args) != 0 {
 		t.Fatalf("fleetSourceArgs on an untouched command = %v, want nothing", args)
 	}
 }
 
 func TestTUIDeclaresTheSharedSourceFlags(t *testing.T) {
-	cmd := newTUICommand(newTestService(t), viper.New())
+	cmd := newTUICommand(newTestService(t), viper.New(), defaultDeps())
 	for _, name := range fleetFlagNames() {
 		if cmd.Flags().Lookup(name) == nil {
 			t.Errorf("pacto tui does not declare %q", name)
@@ -137,21 +124,16 @@ func TestTUIDeclaresTheSharedSourceFlags(t *testing.T) {
 // warning from a snapshot build lands on top of the frame with nothing to
 // repaint it.
 func TestTUIKeepsTheLoggerOffTheAltScreen(t *testing.T) {
-	withTTY(t, true)
-	origExe := osExecutable
-	t.Cleanup(func() { osExecutable = origExe })
-	osExecutable = func() (string, error) { return "/fake/pacto", nil }
-
-	origRun := tuiRun
-	t.Cleanup(func() { tuiRun = origRun })
+	d := defaultDeps()
+	d.executable = func() (string, error) { return "/fake/pacto", nil }
 	var got context.Context
-	tuiRun = func(ctx context.Context, _ tui.Options) error {
+	d.runTUI = func(ctx context.Context, _ tui.Options) error {
 		got = ctx
 		return nil
 	}
 
-	var out, errOut strings.Builder
-	root := NewRootCommand(newTestService(t), VersionInfo{Version: "dev"})
+	var out, errOut ttyBuffer
+	root := newRootCommand(newTestService(t), VersionInfo{Version: "dev"}, d)
 	root.SetOut(&out)
 	root.SetErr(&errOut)
 	// -v is what docs/developers.md tells readers to pass, and it is the case

@@ -31,8 +31,16 @@ type Capability string
 // publishes the link. Only Kubernetes has one.
 const CapabilityOperationalTarget Capability = "operational-target"
 
+// CapabilityRuntimeConformance is a kernel view of every workload's sockets: an
+// eBPF agent that can see a bound interface nothing listens on, which no
+// platform API reports. Both surfaces have one, by different routes: Kubernetes
+// runs the operator's node agent and merges its facts into the Pacto status;
+// Compose runs `pacto agent --sink evidence --docker` as a privileged host
+// container that signs what it sees and sends it to the demo's Evidence Server.
+const CapabilityRuntimeConformance Capability = "runtime-conformance"
+
 // allCapabilities is every capability a surface can be measured against.
-var allCapabilities = []Capability{CapabilityOperationalTarget}
+var allCapabilities = []Capability{CapabilityOperationalTarget, CapabilityRuntimeConformance}
 
 // Surface is one deployment surface of the canonical scenario.
 type Surface string
@@ -49,8 +57,26 @@ const (
 // provides nothing, instead of inheriting the reference surface's answers by
 // having no absences recorded against it.
 var surfaceCapabilities = map[Surface][]Capability{
-	SurfaceKubernetes: {CapabilityOperationalTarget},
-	SurfaceCompose:    {},
+	SurfaceKubernetes: {CapabilityOperationalTarget, CapabilityRuntimeConformance},
+	SurfaceCompose:    {CapabilityRuntimeConformance},
+}
+
+// kernelCollectors is the provenance collector a surface's kernel verdicts are
+// cited to: the operator merges the node agent's facts with its own
+// (k8s-observer+ebpf); the host agent decides from the kernel alone
+// (pacto-agent+ebpf). The dashboard shows it as "seen by".
+var kernelCollectors = map[Surface]string{
+	SurfaceKubernetes: "k8s-observer+ebpf",
+	SurfaceCompose:    "pacto-agent+ebpf",
+}
+
+// KernelCollector is the collector s cites a kernel verdict to, empty for a
+// surface without CapabilityRuntimeConformance.
+func (s Surface) KernelCollector() string {
+	if !s.Has(CapabilityRuntimeConformance) {
+		return ""
+	}
+	return kernelCollectors[s]
 }
 
 // Surfaces returns every declared surface, in a stable order.

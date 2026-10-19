@@ -5,6 +5,11 @@
 // helpers shared by the CLI, dashboard, and operator.
 package contract
 
+import (
+	"net/url"
+	"strings"
+)
+
 // Contract is the root aggregate — the parsed in-memory representation of a pacto.yaml.
 type Contract struct {
 	PactoVersion   string          `yaml:"pactoVersion" json:"pactoVersion"`
@@ -315,6 +320,26 @@ type CapabilityBinding struct {
 	Type      string `yaml:"type" json:"type"`                     // "http" (the only supported transport)
 	Interface string `yaml:"interface" json:"interface"`           // declared interface providing the address/port anchor
 	Path      string `yaml:"path,omitempty" json:"path,omitempty"` // relative to the resolved endpoint; must start with "/" (INV-6)
+}
+
+// ValidCapabilityPath enforces INV-6 (SSRF-safe): an application path must start with a single "/" and
+// carry no scheme, authority/host, userinfo, fragment or opaque component. The validation crossfield check
+// built on it is AUTHORITATIVE for INV-6; the JSON-schema pattern is defense-in-depth. The collector additionally builds
+// the probe URL with net/url using the host from the trusted binding, never from this path.
+func ValidCapabilityPath(path string) bool {
+	if !strings.HasPrefix(path, "/") || strings.HasPrefix(path, "//") {
+		return false
+	}
+	u, err := url.Parse(path)
+	if err != nil {
+		return false
+	}
+	// u.Path is decoded, so a leading "//" also catches encoded-authority forms
+	// like /%2Fevil.example and /%2f%2fevil.example (INV-6 MUST-reject set).
+	if strings.HasPrefix(u.Path, "//") {
+		return false
+	}
+	return u.Scheme == "" && u.Host == "" && u.User == nil && u.Fragment == "" && u.Opaque == ""
 }
 
 // CapabilityBindingType constants.

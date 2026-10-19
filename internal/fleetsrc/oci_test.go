@@ -15,9 +15,9 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/name"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // fakeStore is an oci.BundleStore for the source tests.
@@ -295,9 +295,8 @@ func TestCacheSource_Collect_CancelStopsTheWalk(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	entries := 0
-	orig := fsWalkDir
-	fsWalkDir = func(root string, fn fs.WalkDirFunc) error {
-		return orig(root, func(p string, d fs.DirEntry, walkErr error) error {
+	walk := func(root string, fn fs.WalkDirFunc) error {
+		return filepath.WalkDir(root, func(p string, d fs.DirEntry, walkErr error) error {
 			if d != nil && d.Name() == oci.CachedBundleFile {
 				entries++
 				cancel()
@@ -305,9 +304,8 @@ func TestCacheSource_Collect_CancelStopsTheWalk(t *testing.T) {
 			return fn(p, d, walkErr)
 		})
 	}
-	t.Cleanup(func() { fsWalkDir = orig })
 
-	if _, err := NewCacheSource("cache", dir).Collect(ctx); !errors.Is(err, context.Canceled) {
+	if _, err := (&CacheSource{id: "cache", cacheDir: dir, walk: walk}).Collect(ctx); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Collect err = %v, want context.Canceled", err)
 	}
 	if entries != 1 {
@@ -341,15 +339,13 @@ func TestCacheSource_Collect_StatError(t *testing.T) {
 }
 
 func TestCacheSource_Collect_WalkError(t *testing.T) {
-	orig := fsWalkDir
 	// Simulate WalkDir invoking the callback with a traversal error, as it does
 	// for an unreadable directory.
-	fsWalkDir = func(root string, fn fs.WalkDirFunc) error {
+	walk := func(root string, fn fs.WalkDirFunc) error {
 		return fn(root, nil, errors.New("walk failed"))
 	}
-	t.Cleanup(func() { fsWalkDir = orig })
 	dir := t.TempDir()
-	if _, err := NewCacheSource("cache", dir).Collect(context.Background()); err == nil {
+	if _, err := (&CacheSource{id: "cache", cacheDir: dir, walk: walk}).Collect(context.Background()); err == nil {
 		t.Fatal("expected walk error")
 	}
 }
@@ -371,17 +367,15 @@ func TestCacheSource_Collect_RefusedEntryIsAGapNotAnAbort(t *testing.T) {
 	// gate never sees. WalkDir hands the callback a traversal error for the
 	// directory it could not open and then carries on with the rest of the tree,
 	// converting an fs.SkipDir answer into "carry on" — reproduced exactly.
-	orig := fsWalkDir
-	fsWalkDir = func(root string, fn fs.WalkDirFunc) error {
+	walk := func(root string, fn fs.WalkDirFunc) error {
 		refused := filepath.Join(root, "refused")
 		if err := fn(refused, nil, errors.New("permission denied")); err != nil && !errors.Is(err, fs.SkipDir) {
 			return err
 		}
 		return filepath.WalkDir(root, fn)
 	}
-	t.Cleanup(func() { fsWalkDir = orig })
 
-	col, err := NewCacheSource("cache", dir).Collect(context.Background())
+	col, err := (&CacheSource{id: "cache", cacheDir: dir, walk: walk}).Collect(context.Background())
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -809,4 +803,23 @@ func mustGeneration(t *testing.T, dir, marker, ref, digest string) {
 		t.Fatal(err)
 	}
 	mustSidecar(t, dir, string(rec))
+}
+
+// TestRevisionDomain_IsTheSharedIdentityRule: the OCI source keys a revision's
+// domain by contract.OCIDomain, the rule evidence ingestion keys a record by
+// (pkg/evidenceingest TestAccept_DomainMatchesFleetIdentity), so the two always
+// name the same service.
+func TestRevisionDomain_IsTheSharedIdentityRule(t *testing.T) {
+	for ref, want := range map[string]string{
+		"oci://ghcr.io/acme/payments:1.0":         "ghcr.io/acme",
+		"localhost:5000/acme/payments@sha256:abc": "localhost:5000/acme",
+		"ghcr.io/acme/payments:1.0@sha256:abc":    "ghcr.io/acme",
+		"payments:1.0":                            "",
+		"./svc-v2":                                "",
+		"/abs/bundle":                             "",
+	} {
+		if got := revisionOf(ref, ref, oci.CachedRef{}, nil).Domain; got != want || got != contract.OCIDomain(ref) {
+			t.Errorf("revisionOf(%q).Domain = %q, want %q", ref, got, want)
+		}
+	}
 }

@@ -8,7 +8,7 @@ See LICENSE file in the project root for full license text.
 package evidence
 
 import (
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -67,7 +67,7 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		env = append(env, corev1ac.EnvVar().WithName(DockerConfigEnvVar).WithValue(RegistryMountPath))
 	}
 
-	res := cfg.Resources.BuildResources()
+	res := cfg.Resources.Build(DefaultResources())
 
 	container := corev1ac.Container().
 		WithName("evidence").

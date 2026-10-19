@@ -1,6 +1,6 @@
 # Plugin Development
 
-Pacto uses an out-of-process plugin architecture for artifact generation. A plugin is a standalone executable that receives a contract via JSON on stdin and writes generated file descriptions to stdout. A plugin can turn a contract into any artifact — Helm charts, Terraform, Kubernetes manifests — in any language.
+A plugin turns a contract into files: Helm charts, Terraform, Kubernetes manifests, a README. It is a separate program, written in any language. `pacto generate <name>` sends it the contract as JSON on stdin, and the plugin answers with a list of files on stdout. The [Bash example](#example-minimal-plugin-in-bash) below is a complete, working plugin.
 
 ---
 
@@ -11,7 +11,7 @@ Pacto uses an out-of-process plugin architecture for artifact generation. A plug
 | **pacto-plugin-schema-infer** | Infers a JSON Schema from sample configuration files (JSON, YAML, TOML) |
 | **pacto-plugin-openapi-infer** | Extracts OpenAPI 3.1 specs from source code (FastAPI, Huma) |
 
-Both run *inward*: they derive interfaces you already have rather than asking you to hand-author a schema. **No deployment-artifact plugin ships with Pacto.** `pacto generate helm` is a plugin you write or install, not one Pacto provides. Without a `pacto-plugin-helm` on your `PATH` it exits 1 with `plugin "helm" not found (looked for pacto-plugin-helm in $PATH and ~/.config/pacto/plugins/)`.
+Both work in the other direction: they read files you already have and write contract inputs, so you do not hand-write a schema. **No deployment-artifact plugin ships with Pacto.** `pacto generate helm` is a plugin you write or install, not one Pacto provides. Without a `pacto-plugin-helm` on your `PATH` it exits 1 with `plugin "helm" not found (looked for pacto-plugin-helm in $PATH and ~/.config/pacto/plugins/)`.
 
 See [Installation](installation.md#installing-the-official-plugins) for how to install them. Refer to each plugin's README for usage:
 
@@ -22,7 +22,7 @@ See [Installation](installation.md#installing-the-official-plugins) for how to i
 
 ## How it works
 
-Pacto loads the contract, finds the plugin binary (`pacto-plugin-<name>`), writes a `GenerateRequest` JSON to stdin, reads the `GenerateResponse` from stdout and writes the generated files. Plugins are language-agnostic, version-independent and receive a read-only snapshot of the contract. Pacto bounds execution with a 60-second timeout and a 64 MB output cap.
+Pacto loads the contract, finds the plugin program (`pacto-plugin-<name>`), writes a request to its stdin, reads the response from its stdout and writes the files. A plugin gets a copy of the contract and cannot change it. Pacto stops a plugin after 60 seconds or 64 MB of output.
 
 ---
 

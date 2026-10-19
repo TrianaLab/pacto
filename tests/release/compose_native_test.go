@@ -11,7 +11,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"gopkg.in/yaml.v3"
 
-	"github.com/trianalab/pacto/v3/tests/acceptance/scenario"
+	"github.com/trianalab/pacto/v4/tests/acceptance/scenario"
 )
 
 // Docker Compose owns the demo application's OCI artifact type: `docker compose

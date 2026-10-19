@@ -6,8 +6,8 @@ import (
 	"io/fs"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contractview"
-	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/contractview"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
 )
 
 // BuildStaticExport returns the embedded dashboard UI tree (path -> bytes) with

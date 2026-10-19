@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"io"
 	"os"
 	"strings"
 	"testing"
@@ -12,27 +11,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// withTTY forces isTerminal to report v and restores it after the test.
-func withTTY(t *testing.T, v bool) {
-	t.Helper()
-	orig := isTerminal
-	isTerminal = func(io.Writer) bool { return v }
-	t.Cleanup(func() { isTerminal = orig })
-}
+// ttyBuffer is a buffer that says it is a terminal.
+type ttyBuffer struct{ bytes.Buffer }
 
-func TestDefaultIsTerminal(t *testing.T) {
-	// no Fd() -> short-circuits to false
-	if defaultIsTerminal(&bytes.Buffer{}) {
-		t.Fatal("buffer is not a terminal")
+func (*ttyBuffer) IsTerminal() bool { return true }
+
+func TestIsTerminal(t *testing.T) {
+	// no Fd() and no IsTerminal -> false
+	if isTerminal(&bytes.Buffer{}) || !isTerminal(&ttyBuffer{}) {
+		t.Fatal("a buffer is a terminal only when it says so")
 	}
 	// os.Stdout has Fd(); under `go test` it is not a TTY, so this returns
 	// false, but it executes the term.IsTerminal line for coverage.
-	_ = defaultIsTerminal(os.Stdout)
+	_ = isTerminal(os.Stdout)
 }
 
 func TestStartSpinnerNoopWhenNotText(t *testing.T) {
-	withTTY(t, true)
-	var buf bytes.Buffer
+	var buf ttyBuffer
 	cmd := &cobra.Command{}
 	cmd.SetErr(&buf)
 	sp := startSpinner(cmd, "json", "Pulling")
@@ -43,7 +38,6 @@ func TestStartSpinnerNoopWhenNotText(t *testing.T) {
 }
 
 func TestStartSpinnerNoopWhenNotTTY(t *testing.T) {
-	withTTY(t, false)
 	var buf bytes.Buffer
 	cmd := &cobra.Command{}
 	cmd.SetErr(&buf)
@@ -55,8 +49,7 @@ func TestStartSpinnerNoopWhenNotTTY(t *testing.T) {
 }
 
 func TestStartSpinnerNoopWhenAnimDisabled(t *testing.T) {
-	withTTY(t, true)
-	var buf bytes.Buffer
+	var buf ttyBuffer
 	cmd := &cobra.Command{}
 	cmd.SetContext(withAnimDisabled(context.Background(), true))
 	cmd.SetErr(&buf)
@@ -68,17 +61,13 @@ func TestStartSpinnerNoopWhenAnimDisabled(t *testing.T) {
 }
 
 func TestStartSpinnerAnimatesAndClears(t *testing.T) {
-	withTTY(t, true)
 	t.Setenv("NO_COLOR", "") // ensure color path
-	orig := spinnerInterval
-	spinnerInterval = time.Millisecond
-	t.Cleanup(func() { spinnerInterval = orig })
 
-	var buf bytes.Buffer
+	var buf ttyBuffer
 	cmd := &cobra.Command{}
 	cmd.SetErr(&buf)
 	sp := startSpinner(cmd, "text", "Pulling")
-	time.Sleep(10 * time.Millisecond) // let several ticks fire
+	time.Sleep(2*spinnerInterval + spinnerInterval/2) // let several ticks fire
 	sp.Stop()
 
 	out := buf.String()
@@ -94,21 +83,19 @@ func TestStartSpinnerAnimatesAndClears(t *testing.T) {
 }
 
 func TestUseColorRespectsNoColor(t *testing.T) {
-	withTTY(t, true)
 	t.Setenv("NO_COLOR", "1")
-	if useColor(&bytes.Buffer{}) {
+	if useColor(&ttyBuffer{}) {
 		t.Fatal("NO_COLOR set should disable color")
 	}
 	t.Setenv("NO_COLOR", "")
-	if !useColor(&bytes.Buffer{}) {
+	if !useColor(&ttyBuffer{}) {
 		t.Fatal("TTY + no NO_COLOR should enable color")
 	}
 }
 
 func TestStartSpinnerNoColorFrame(t *testing.T) {
-	withTTY(t, true)
 	t.Setenv("NO_COLOR", "1")
-	var buf bytes.Buffer
+	var buf ttyBuffer
 	cmd := &cobra.Command{}
 	cmd.SetErr(&buf)
 	sp := startSpinner(cmd, "text", "Pushing")
@@ -132,12 +119,10 @@ func TestGlyphs(t *testing.T) {
 }
 
 func TestOkGlyph(t *testing.T) {
-	withTTY(t, true)
 	t.Setenv("NO_COLOR", "")
-	if !strings.Contains(okGlyph(&bytes.Buffer{}), "✓") {
+	if !strings.Contains(okGlyph(&ttyBuffer{}), "✓") {
 		t.Fatal("TTY okGlyph should have check")
 	}
-	withTTY(t, false)
 	if okGlyph(&bytes.Buffer{}) != "" {
 		t.Fatal("non-TTY okGlyph must be empty")
 	}
@@ -151,28 +136,26 @@ func TestCheckLine(t *testing.T) {
 }
 
 func TestAnimate(t *testing.T) {
-	withTTY(t, true)
 	t.Setenv("NO_COLOR", "")
 	t.Setenv("PACTO_NO_ANIM", "")
 	cmd := &cobra.Command{} // no context set -> not disabled (nil-ctx path)
-	if !animate(cmd, &bytes.Buffer{}) {
+	if !animate(cmd, &ttyBuffer{}) {
 		t.Fatal("should animate on TTY")
 	}
 	cmd.SetContext(withAnimDisabled(context.Background(), true))
-	if animate(cmd, &bytes.Buffer{}) {
+	if animate(cmd, &ttyBuffer{}) {
 		t.Fatal("--no-anim must disable")
 	}
 	cmd.SetContext(withAnimDisabled(context.Background(), false))
 	t.Setenv("PACTO_NO_ANIM", "1")
-	if animate(cmd, &bytes.Buffer{}) {
+	if animate(cmd, &ttyBuffer{}) {
 		t.Fatal("PACTO_NO_ANIM must disable")
 	}
 }
 
 func TestStopOK(t *testing.T) {
-	withTTY(t, true)
 	t.Setenv("NO_COLOR", "")
-	var buf bytes.Buffer
+	var buf ttyBuffer
 	cmd := &cobra.Command{}
 	cmd.SetErr(&buf)
 	sp := startSpinner(cmd, "text", "x")

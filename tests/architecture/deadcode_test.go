@@ -17,8 +17,8 @@ import (
 // greps for callers finds some. The audit found roughly twenty of them.
 //
 // This is the tripwire for the next one. It reports every production symbol in
-// the v3 module whose only references outside its own declaration live in test
-// files.
+// the v3 module, or in the operator module under integrations/kubernetes, whose
+// only references outside its own declaration live in test files.
 //
 // Matching is by NAME, not by resolved identity, because golang.org/x/tools is
 // not a dependency of this module and `go mod tidy` is forbidden here, so
@@ -72,7 +72,17 @@ var deadCodeAllowlist = map[string]string{
 	"pkg/contract.EvidenceTypeReport":       schemaVocabulary,
 	"pkg/contract.EvidenceTypeTicket":       schemaVocabulary,
 	"pkg/contract.EvidenceTypeURL":          schemaVocabulary,
+
+	"integrations/kubernetes/api/v1alpha1.CollectionRunning":  crdVocabulary,
+	"integrations/kubernetes/api/v1alpha1.CollectionDegraded": crdVocabulary,
+	"integrations/kubernetes/api/v1alpha1.CollectionFailed":   crdVocabulary,
 }
+
+// crdVocabulary is the operator's counterpart of schemaVocabulary: the values
+// of a CRD field enum (+kubebuilder:validation:Enum), written by the node agent
+// and read back as plain strings. The CRD's OpenAPI enum is the enforced copy,
+// and removing a constant from the v5 API package is a breaking change.
+const crdVocabulary = "CRD field enum mirrored by a +kubebuilder:validation:Enum marker; part of the v5 API package"
 
 // schemaVocabulary is the reason a whole const block can be live with no Go
 // caller at all. The values a bundle author may write are declared twice --
@@ -353,7 +363,8 @@ func skipTree(root, path string) bool {
 // is exactly as dead as one reached only from a _test.go file.
 func isTestSupport(pkgDir string) bool {
 	return pkgDir == "tests" || strings.HasPrefix(pkgDir, "tests/") ||
-		pkgDir == "testutil" || strings.HasSuffix(pkgDir, "/testutil")
+		pkgDir == "testutil" || strings.HasSuffix(pkgDir, "/testutil") ||
+		strings.HasPrefix(pkgDir, "integrations/kubernetes/test/")
 }
 
 // policedDecls reports whether the gate answers for dead code in a package. It
@@ -363,6 +374,11 @@ func isTestSupport(pkgDir string) bool {
 func policedDecls(pkgDir string) bool {
 	if isTestSupport(pkgDir) {
 		return false
+	}
+	// The operator module is policed too: it has its own 100% coverage gate,
+	// which keeps its dead code alive exactly as this module's gate does.
+	if strings.HasPrefix(pkgDir, "integrations/kubernetes/") {
+		return true
 	}
 	for _, ex := range [...]string{"integrations", "examples"} {
 		if pkgDir == ex || strings.HasPrefix(pkgDir, ex+"/") {

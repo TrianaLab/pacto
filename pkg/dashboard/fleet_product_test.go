@@ -10,10 +10,10 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/impact"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // validDigest returns a syntactically valid lower-case sha256 content digest for
@@ -61,13 +61,22 @@ func TestProductEndpoints_Serve(t *testing.T) {
 		t.Errorf("overview schema = %q", ov.Meta.SchemaVersion)
 	}
 
-	// Entities search + comma-separated kinds + bad filter.
+	// Entities search + comma-separated kinds + bad filters. Kinds and status are
+	// enums: an unknown or empty kind and an unknown status are refused up front.
 	var ents fleet.EntityList
-	getJSON(t, base+"/api/fleet/entities?text=payment&kinds=service,", http.StatusOK, &ents)
+	getJSON(t, base+"/api/fleet/entities?text=payment&kinds=service,target", http.StatusOK, &ents)
 	if ents.Count == 0 {
 		t.Error("expected a service entity hit")
 	}
 	expectStatus(t, base+"/api/fleet/entities?status=Bogus", http.StatusUnprocessableEntity)
+	expectStatus(t, base+"/api/fleet/entities?kinds=service,", http.StatusUnprocessableEntity)
+	expectStatus(t, base+"/api/fleet/entities?kinds=bogus", http.StatusUnprocessableEntity)
+	expectStatus(t, base+"/api/fleet/attention?status=Bogus", http.StatusUnprocessableEntity)
+	expectStatus(t, base+"/api/fleet/services?status=Bogus", http.StatusUnprocessableEntity)
+	// Values each enum admits can still be refused by the query: a filter that does
+	// not apply to the requested kinds, or a negative page.
+	expectStatus(t, base+"/api/fleet/entities?kinds=source&status=Compliant", http.StatusUnprocessableEntity)
+	expectStatus(t, base+"/api/fleet/services?limit=-1", http.StatusUnprocessableEntity)
 
 	// Entity detail: found, missing (404), unknown kind (422).
 	var det fleet.EntityDetail
@@ -299,72 +308,6 @@ func TestProductImpactPost_NotRegisteredWithoutImpactProvider(t *testing.T) {
 	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
 	defer cancel()
 	postJSON(t, base+"/api/fleet/impact", impactRequest{FromRevisionKey: "a", ToRevisionKey: "b"}, http.StatusNotFound, nil)
-}
-
-func TestImmutableRef(t *testing.T) {
-	d1 := validDigest("a")
-	d2 := validDigest("b")
-	// A canonical digest-pinned ResolvedRef consistent with the content digest is exact.
-	if ref, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a@" + d1, Digest: d1}); err != nil || ref != "oci://x/a@"+d1 {
-		t.Errorf("digest-pinned ref must be exact: %q %v", ref, err)
-	}
-	// A canonical digest-pinned ref with no recorded digest is still exact (nothing to contradict).
-	if _, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a@" + d1}); err != nil {
-		t.Errorf("digest-pinned ref without a recorded digest must be exact: %v", err)
-	}
-	// The dashboard bug: a digest-pinned ref with the oci:// scheme STRIPPED is a
-	// local path to the resolver and must be rejected, not silently accepted.
-	if _, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "x/a@" + d1, Digest: d1}); err == nil {
-		t.Error("a scheme-less digest ref must be rejected (it resolves as a local path)")
-	}
-	// A mutable tag ResolvedRef must NOT be accepted as exact merely for being non-empty.
-	if _, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a:1.0", Digest: d1}); err == nil {
-		t.Error("a tag ResolvedRef must be rejected as non-exact")
-	}
-	// A short/invalid digest body must be rejected even with the oci:// scheme.
-	if _, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a@sha256:abc", Digest: "sha256:abc"}); err == nil {
-		t.Error("a malformed digest body must be rejected")
-	}
-	// A local path is mutable.
-	if _, err := immutableRef(&fleet.ContractRevision{RequestedRef: "file:///abs"}); err == nil {
-		t.Error("a local-path revision must be rejected")
-	}
-	// A revision with no ref at all is rejected.
-	if _, err := immutableRef(&fleet.ContractRevision{}); err == nil {
-		t.Error("a revision with no ref must error")
-	}
-	// An inconsistent digest-pinned ref (valid ref digest != valid content digest) is rejected.
-	if _, err := immutableRef(&fleet.ContractRevision{ResolvedRef: "oci://x/a@" + d1, Digest: d2}); err == nil {
-		t.Error("an inconsistent digest/ref must be rejected")
-	}
-
-	// The revision label comes from the record (service + version), not the key.
-	l := revisionRefFromRecord(&fleet.ContractRevision{Key: "svc@d", Service: "svc", Version: "1.2.3", Digest: "d"})
-	if l == nil || l.Label != "svc 1.2.3" {
-		t.Errorf("revision link must be a record label: %+v", l)
-	}
-}
-
-// TestImmutableRef_ExactMatchButNonRetrievable proves that Product Impact
-// by canonical identity rejects non-retrievable content EVEN WHEN a target's revision
-// match is exact. The two dimensions are independent -- a runtime target carrying a
-// trusted content digest with no canonical ref is an EXACT revision match (see
-// fleet.TestMatchRevision_RecordedDigestNoRef_Exact and
-// fleet.TestTargetIdentity_ExactMatch_NonRetrievable), yet its content cannot be
-// retrieved through a canonical ref, so canonical Product Impact must refuse it.
-func TestImmutableRef_ExactMatchButNonRetrievable(t *testing.T) {
-	dA := validDigest("a")
-	// A revision known only by its recorded content digest (no canonical ResolvedRef):
-	// exactly the shape a k8s-observed target matches EXACTLY.
-	rev := &fleet.ContractRevision{Key: "svc@a", Service: "svc", ServiceKey: fleet.NewServiceKey("svc"), Digest: dA}
-	if _, err := immutableRef(rev); err == nil {
-		t.Error("Product Impact must reject content that is not resolver-retrievable, even when a target matches this revision exactly")
-	}
-	// The predicate immutableRef enforces (content retrievability) is false, which is
-	// independent of the exact revision-match certainty a linked target would report.
-	if fleet.ClassifyContentIdentity(rev.ResolvedRef, rev.Digest).Retrievable() {
-		t.Error("a recorded digest with no canonical ref must not be retrievable")
-	}
 }
 
 func postJSON(t *testing.T, url string, body any, wantStatus int, into any) {

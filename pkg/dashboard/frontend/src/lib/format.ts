@@ -69,20 +69,6 @@ export function complianceClass(score: number): string {
   return 'score-err';
 }
 
-/**
- * "E of R" evaluation-coverage label for the detail view and list badge. Returns
- * '' unless the service was runtime-evaluated AND carries an evaluationCoverage —
- * a definition-only view cannot assert how many assertions were evaluated. Metadata
- * only; never affects status or percentage.
- */
-export function evaluationCoverageLabel(
-  svc: { runtimeEvaluated?: boolean; evaluationCoverage?: { evaluated: number; required: number } | null } | null | undefined,
-): string {
-  const ec = svc?.evaluationCoverage;
-  if (!svc?.runtimeEvaluated || !ec) return '';
-  return `${ec.evaluated} of ${ec.required}`;
-}
-
 export function complianceStatusClass(status: string): string {
   if (status === 'OK') return 'score-ok';
   if (status === 'WARNING') return 'score-warn';
@@ -214,32 +200,19 @@ export function isReasonActionable(reason: string | undefined): boolean {
 }
 
 const SOURCE_DESCRIPTIONS: Record<string, string> = {
-  k8s: 'Kubernetes — live cluster runtime data',
+  kubernetes: 'Kubernetes — live cluster runtime data',
   oci: 'OCI Registry — versioned contract bundles',
   local: 'Local — contracts from local filesystem',
   cache: 'Cache — offline baseline from a previously pulled bundle',
+  'target-state': 'Target state — a file describing where each revision runs',
+  'evidence-http': 'Evidence Server — signed reports from remote environments',
+  'evidence-ingest': 'Evidence Server — signed reports accepted by this server',
+  observation: 'Observation — recorded calls between services',
+  catalog: 'Catalog — contracts discovered in a registry',
 };
 
 export function sourceTooltip(src: string): string {
   return SOURCE_DESCRIPTIONS[src] || src;
-}
-
-const VERSION_POLICY_LABELS: Record<string, string> = {
-  'tracking': 'Tracking latest',
-  'pinned-tag': 'Pinned to tag',
-  'pinned-digest': 'Pinned to digest',
-};
-
-export function versionPolicyLabel(policy: string | undefined): string {
-  if (!policy) return '';
-  return VERSION_POLICY_LABELS[policy] || policy;
-}
-
-export function versionPolicyClass(policy: string | undefined): string {
-  if (policy === 'pinned-digest') return 'policy-digest';
-  if (policy === 'pinned-tag') return 'policy-tag';
-  if (policy === 'tracking') return 'policy-tracking';
-  return '';
 }
 
 // ── Lock and drift helpers ──

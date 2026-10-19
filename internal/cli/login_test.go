@@ -9,15 +9,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 func TestLoginCommand_ReadPasswordError(t *testing.T) {
-	old := readPasswordFn
-	readPasswordFn = func(int) ([]byte, error) { return nil, fmt.Errorf("read failed") }
-	t.Cleanup(func() { readPasswordFn = old })
+	d := defaultDeps()
+	d.readPassword = func(int) ([]byte, error) { return nil, fmt.Errorf("read failed") }
 
-	cmd := newLoginCommand()
+	cmd := newLoginCommand(d)
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{"ghcr.io", "--username", "user"})
@@ -28,15 +27,14 @@ func TestLoginCommand_ReadPasswordError(t *testing.T) {
 }
 
 func TestLoginCommand_ReadPasswordSuccess(t *testing.T) {
-	old := readPasswordFn
-	readPasswordFn = func(int) ([]byte, error) { return []byte("secret"), nil }
-	t.Cleanup(func() { readPasswordFn = old })
+	d := defaultDeps()
+	d.readPassword = func(int) ([]byte, error) { return []byte("secret"), nil }
 
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	t.Setenv("XDG_CONFIG_HOME", "")
 
-	cmd := newLoginCommand()
+	cmd := newLoginCommand(d)
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	cmd.SetArgs([]string{"ghcr.io", "--username", "user"})
@@ -76,7 +74,7 @@ func TestLoginCommand_KeepsOtherRegistriesWhenTheConfigCannotBeRead(t *testing.T
 	}
 	t.Cleanup(func() { _ = os.Chmod(configPath, 0600) })
 
-	cmd := newLoginCommand()
+	cmd := newLoginCommand(defaultDeps())
 	out := &bytes.Buffer{}
 	cmd.SetOut(out)
 	cmd.SetErr(&bytes.Buffer{})
@@ -105,11 +103,9 @@ func TestLoginCommand_KeepsOtherRegistriesWhenTheConfigCannotBeRead(t *testing.T
 	}
 }
 
-func TestReadPasswordFn_Default(t *testing.T) {
-	// Exercise the default readPasswordFn (which wraps term.ReadPassword).
-	// Using an invalid fd ensures it returns an error without needing a real terminal.
-	_, err := readPasswordFn(-1)
-	if err == nil {
-		t.Error("expected error from readPasswordFn with invalid fd")
+func TestReadPassword_Default(t *testing.T) {
+	// The default reads the terminal; an invalid fd errors without needing one.
+	if _, err := defaultDeps().readPassword(-1); err == nil {
+		t.Error("expected error from readPassword with invalid fd")
 	}
 }

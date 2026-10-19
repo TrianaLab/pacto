@@ -325,10 +325,15 @@ select {
 }
 .source-dot + .source-dot { margin-left: 4px; }
 .source-dot:hover { transform: scale(1.2); }
-.source-dot-k8s { background: #3b82f6; }
+.source-dot-kubernetes { background: #3b82f6; }
 .source-dot-oci { background: #8b5cf6; }
 .source-dot-local { background: #f59e0b; }
 .source-dot-cache { background: #64748b; }
+.source-dot-target-state { background: #14b8a6; }
+.source-dot-evidence-http { background: #ec4899; }
+.source-dot-evidence-ingest { background: #ec4899; }
+.source-dot-observation { background: #22c55e; }
+.source-dot-catalog { background: #a16207; }
 
 /* ─── Tooltip ─── */
 [data-tip] {
@@ -367,6 +372,12 @@ select {
 [data-tip]:focus-visible::after {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+}
+/* A hidden tip is still an absolutely positioned box, and an absolutely positioned
+   box counts toward the page's scrollable width even at opacity 0: one near an edge
+   would widen the page. Take it out of layout until it is shown. */
+[data-tip]:not(:hover):not(:focus-visible)::after {
+  display: none;
 }
 /* Align tooltip to an edge when the host is near that side of the viewport, so
    the centered box can't overflow off-screen (set manually, or automatically by

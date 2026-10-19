@@ -17,7 +17,6 @@ package integration
 
 import (
 	"context"
-	"fmt"
 	"io/fs"
 	"net/http/httptest"
 	"strings"
@@ -25,12 +24,12 @@ import (
 	"testing/fstest"
 
 	"github.com/google/go-containerregistry/pkg/authn"
-	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/registry"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/oci"
+	"gopkg.in/yaml.v3"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 )
 
 // testOCIEnv bundles an in-process OCI registry and a configured loader for tests.
@@ -48,7 +47,7 @@ func newTestOCIEnv(t *testing.T) *testOCIEnv {
 	t.Cleanup(srv.Close)
 
 	host := strings.TrimPrefix(srv.URL, "http://")
-	client := oci.NewClient(authn.DefaultKeychain, oci.WithNameOptions(name.Insecure))
+	client := oci.NewClient(authn.DefaultKeychain)
 
 	return &testOCIEnv{
 		server: srv,
@@ -77,78 +76,32 @@ func (e *testOCIEnv) pushBundle(t *testing.T, repo, tag string, bundle *contract
 }
 
 func newBundle(svcName, version string) *contract.Bundle {
-	port := 8080
-	pactoYAML := []byte(fmt.Sprintf(`pactoVersion: "1.0"
-service:
-  name: %s
-  version: "%s"
-interfaces:
-  - name: api
-    type: http
-    port: 8080
-`, svcName, version))
-
-	return &contract.Bundle{
-		Contract: &contract.Contract{
-			PactoVersion: "1.0",
-			Service: contract.ServiceIdentity{
-				Name:    svcName,
-				Version: version,
-			},
-			Interfaces: []contract.Interface{
-				{Name: "api", Type: "http", Port: &port},
-			},
-		},
-		RawYAML: pactoYAML,
-		FS: fstest.MapFS{
-			"pacto.yaml": &fstest.MapFile{Data: pactoYAML},
-			"docs":       &fstest.MapFile{Mode: fs.ModeDir | 0755},
-		},
-	}
+	return bundleOf(&contract.Contract{
+		PactoVersion: "2.0",
+		Service:      contract.Service{Name: svcName, Version: version, Owner: contract.Owner{Team: "team-a"}},
+		Workload:     contract.WorkloadService,
+	})
 }
 
-func newBundleWithRuntime(svcName, version, workload string) *contract.Bundle {
-	port := 8080
-	graceful := 30
-	pactoYAML := []byte(fmt.Sprintf(`pactoVersion: "1.0"
-service:
-  name: %s
-  version: "%s"
-interfaces:
-  - name: api
-    type: http
-    port: 8080
-runtime:
-  workload: %s
-  state:
-    type: stateless
-  lifecycle:
-    upgradeStrategy: rolling
-    gracefulShutdownSeconds: 30
-`, svcName, version, workload))
+// newBundleWithWorkload is newBundle with a chosen workload kind and a stateless state section.
+func newBundleWithWorkload(svcName, version, workload string) *contract.Bundle {
+	b := newBundle(svcName, version)
+	b.Contract.Workload = workload
+	b.Contract.State = &contract.State{Type: contract.StateStateless}
+	return bundleOf(b.Contract)
+}
 
+// bundleOf packs a contract with its YAML as pacto.yaml.
+func bundleOf(c *contract.Contract) *contract.Bundle {
+	raw, err := yaml.Marshal(c)
+	if err != nil {
+		panic(err)
+	}
 	return &contract.Bundle{
-		Contract: &contract.Contract{
-			PactoVersion: "1.0",
-			Service: contract.ServiceIdentity{
-				Name:    svcName,
-				Version: version,
-			},
-			Interfaces: []contract.Interface{
-				{Name: "api", Type: "http", Port: &port},
-			},
-			Runtime: &contract.Runtime{
-				Workload: workload,
-				State:    contract.State{Type: "stateless"},
-				Lifecycle: &contract.Lifecycle{
-					UpgradeStrategy:         "rolling",
-					GracefulShutdownSeconds: &graceful,
-				},
-			},
-		},
-		RawYAML: pactoYAML,
+		Contract: c,
+		RawYAML:  raw,
 		FS: fstest.MapFS{
-			"pacto.yaml": &fstest.MapFile{Data: pactoYAML},
+			"pacto.yaml": &fstest.MapFile{Data: raw},
 			"docs":       &fstest.MapFile{Mode: fs.ModeDir | 0755},
 		},
 	}
@@ -225,23 +178,20 @@ func TestOCI_Pull_NonexistentRef(t *testing.T) {
 	}
 }
 
-func TestOCI_Pull_ContractWithRuntime(t *testing.T) {
+func TestOCI_Pull_ContractWithWorkload(t *testing.T) {
 	env := newTestOCIEnv(t)
-	env.pushBundle(t, "org/runtime-svc", "1.0.0", newBundleWithRuntime("runtime-svc", "1.0.0", "service"))
+	env.pushBundle(t, "org/runtime-svc", "1.0.0", newBundleWithWorkload("runtime-svc", "1.0.0", contract.WorkloadJob))
 
 	result, err := env.loader.Load(context.Background(), env.ref("org/runtime-svc", "1.0.0"), "", nil)
 	if err != nil {
 		t.Fatalf("Load failed: %v", err)
 	}
 
-	if result.Contract.Runtime == nil {
-		t.Fatal("expected runtime section in contract")
+	if result.Contract.Workload != contract.WorkloadJob {
+		t.Errorf("expected workload=job, got %s", result.Contract.Workload)
 	}
-	if result.Contract.Runtime.Workload != "service" {
-		t.Errorf("expected workload=service, got %s", result.Contract.Runtime.Workload)
-	}
-	if result.Contract.Runtime.Lifecycle == nil || result.Contract.Runtime.Lifecycle.UpgradeStrategy != "rolling" {
-		t.Error("expected lifecycle.upgradeStrategy=rolling")
+	if result.Contract.State == nil || result.Contract.State.Type != contract.StateStateless {
+		t.Error("expected state.type=stateless")
 	}
 }
 
@@ -328,7 +278,7 @@ func TestOCI_Load_InlineTakesPrecedenceOverOCI(t *testing.T) {
 	env := newTestOCIEnv(t)
 	env.pushBundle(t, "org/should-not-use", "1.0.0", newBundle("oci-svc", "1.0.0"))
 
-	inlineContract := `pactoVersion: "1.0"
+	inlineContract := `pactoVersion: "2.0"
 service:
   name: inline-svc
   version: 9.9.9
@@ -415,7 +365,7 @@ func TestOCI_Pull_InlineHasNoDigest(t *testing.T) {
 	env := newTestOCIEnv(t)
 	_ = env // just to use the env setup
 
-	inlineContract := `pactoVersion: "1.0"
+	inlineContract := `pactoVersion: "2.0"
 service:
   name: inline-svc
   version: 1.0.0

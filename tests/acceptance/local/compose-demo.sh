@@ -12,11 +12,13 @@
 #
 # No generic OCI tool appears on either path: neither this harness nor CI
 # installs ORAS. Compose writes the artifact and Compose reads it, which is the
-# claim. And there is no bind mount in the published model — every immutable
+# claim. And there is no fixture bind mount in the published model — every immutable
 # fixture input (the plan, the seed script, the bundle documents, the
 # observation fixture) travels inside the application as a Compose `config`
 # with inline `content`, and only mutable runtime state (the embedded registry,
-# the Evidence Server's keys) lives in a named volume. Project identity stays
+# the Evidence Server's keys) lives in a named volume. The one declared
+# exception is the host agent's two kernel interfaces (the Docker socket and
+# /sys/fs/cgroup), fixed paths every Docker host has. Project identity stays
 # the user's: an explicit `-p` per copy, never a top-level `name:` that would
 # make two versions collide.
 #
@@ -315,7 +317,7 @@ netfilter() {
 #
 # DOCKER-USER is the one FORWARD hook Docker guarantees it will not rewrite. In on
 # this project's bridge and out somewhere else is refused; in on it and out on it
-# is untouched, so the four services keep talking. This arm cannot reach a
+# is untouched, so the demo's services keep talking. This arm cannot reach a
 # host-local packet, and that is the point: it is one of two independent controls,
 # not a general "deny everything".
 #
@@ -1074,14 +1076,26 @@ echo "== 8. what is actually running reads nothing from this machine =="
 # what was intended and this is what happened.
 ids="$(docker compose -p "$PROJ1" ps -aq)"
 [ -n "$ids" ] || fail "the demo started no containers"
+# The one declared exception is the host agent's two kernel interfaces, fixed
+# absolute paths every Docker host has (scenario.ComposeAgentHostMounts): the
+# Engine API socket and the cgroup hierarchy, in the agent container only.
+agent_id="$(docker compose -p "$PROJ1" ps -aq agent)"
+[ -n "$agent_id" ] || fail "the demo runs no host agent, so nothing watches the deaf workload's sockets"
+# Docker Desktop reports the socket mount by the proxy it routes it through.
+agent_binds="$(docker inspect --format '{{range .Mounts}}{{if eq .Type "bind"}}{{println .Source}}{{end}}{{end}}' "$agent_id" | grep . | sort | tr '\n' ' ')"
+case "$agent_binds" in
+"/sys/fs/cgroup /var/run/docker.sock " | "/run/host-services/docker.proxy.sock /sys/fs/cgroup ") ;;
+*) fail "the host agent bind-mounts [$agent_binds], want exactly the cgroup hierarchy and the Engine API socket" ;;
+esac
+others="$(grep -v "^$agent_id" <<<"$ids")"
 # shellcheck disable=SC2086 # the ids are one docker-generated hex token per line
-binds="$(docker inspect --format '{{range .Mounts}}{{if eq .Type "bind"}}{{println .Source}}{{end}}{{end}}' $ids | grep -c . || true)"
+binds="$(docker inspect --format '{{range .Mounts}}{{if eq .Type "bind"}}{{println .Source}}{{end}}{{end}}' $others | grep -c . || true)"
 [ "$binds" = "0" ] || {
 	# shellcheck disable=SC2086
 	docker inspect --format '{{range .Mounts}}{{if eq .Type "bind"}}{{println .Source}}{{end}}{{end}}' $ids >&2
-	fail "the running demo bind-mounts $binds host paths; a published application has no directory beside it to mount"
+	fail "the running demo bind-mounts $binds host paths outside the host agent; a published application has no directory beside it to mount"
 }
-pass "zero bind mounts: every fixture input arrived inline, as a Compose config"
+pass "no bind mounts but the host agent's two kernel interfaces: every fixture input arrived inline, as a Compose config"
 
 # The one path Compose does record is where it cached the application it fetched.
 # It must not be in this checkout — that would be the execution path reading a
@@ -1167,7 +1181,7 @@ pass "a brand-new Evidence Server container serves the same target and still ref
 echo "== 11. the documented network boundary =="
 # The claim, exactly: after the artifact and its digest-pinned images have been
 # pulled, the stack requires no external network access; its private Compose
-# service network stays up because the four services must reach each other.
+# service network stays up because the demo's services must reach each other.
 #
 # Two operations are involved and this stage keeps them apart. FETCHING THE
 # APPLICATION is a registry read — `-f oci://…` performs it on every invocation

@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // Two references that spell to ONE legacy cache directory. The port form is the
@@ -75,7 +75,7 @@ func TestPullCached_AnEntryNamingAnotherReferenceIsAMissColdAndWarm(t *testing.T
 }
 
 // TestPullPinned_AnAliasEntryIsRefetchedNotServed is the same counterexample on
-// the RemoteAllowed path, where a miss has somewhere to go: the registry holds
+// the pull path, where a miss has somewhere to go: the registry holds
 // the artifact actually asked for, and that is what must come back. The entry
 // the lookup passed over belongs to another reference and must survive intact —
 // it is that reference's offline baseline.

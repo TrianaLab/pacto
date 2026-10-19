@@ -100,7 +100,7 @@ func TestResourcesConfigValidate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.rc.Validate()
+			err := tt.rc.Validate("evidence")
 			if tt.wantErr && err == nil {
 				t.Fatal("expected error, got nil")
 			}
@@ -125,7 +125,7 @@ func TestDefaultResources(t *testing.T) {
 }
 
 func TestBuildResources_Defaults(t *testing.T) {
-	res := ResourcesConfig{}.BuildResources()
+	res := ResourcesConfig{}.Build(DefaultResources())
 	if res.Requests.Cpu().String() != "25m" {
 		t.Errorf("expected default CPU request 25m, got %s", res.Requests.Cpu().String())
 	}
@@ -144,7 +144,7 @@ func TestBuildResources_AllOverrides(t *testing.T) {
 		MemoryRequest: "128Mi",
 		MemoryLimit:   "1Gi",
 	}
-	res := rc.BuildResources()
+	res := rc.Build(DefaultResources())
 	if res.Requests.Cpu().String() != "100m" {
 		t.Errorf("expected CPU request 100m, got %s", res.Requests.Cpu().String())
 	}
@@ -156,24 +156,6 @@ func TestBuildResources_AllOverrides(t *testing.T) {
 	}
 	if res.Limits.Memory().String() != "1Gi" {
 		t.Errorf("expected memory limit 1Gi, got %s", res.Limits.Memory().String())
-	}
-}
-
-func TestHasLatestTag(t *testing.T) {
-	tests := []struct {
-		image string
-		want  bool
-	}{
-		{"ghcr.io/trianalab/pacto:0.1.0", false}, // real tag
-		{"ghcr.io/trianalab/pacto:latest", true}, // explicit latest
-		{"ghcr.io/trianalab/pacto", true},        // no tag
-		{"registry:5000/pacto:1.0.0", false},     // tag after registry-port colon
-		{"registry:5000/pacto", true},            // no tag, port colon then break
-	}
-	for _, tt := range tests {
-		if got := hasLatestTag(tt.image); got != tt.want {
-			t.Errorf("hasLatestTag(%q) = %v, want %v", tt.image, got, tt.want)
-		}
 	}
 }
 

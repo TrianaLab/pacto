@@ -1,6 +1,12 @@
 # Contract overrides
 
-Pacto supports a Helm-style override system that lets you modify contract values without editing `pacto.yaml` directly. Overrides are available on all commands that take a contract reference: `validate`, `explain`, `doc`, `generate`, `graph`, `pack`, `push` and `lock`. The two commands that take a pair of contracts (`diff`, `impact`) use the prefixed flags in [Diff overrides](#diff-overrides). See the [CLI reference](../cli-reference.md) for the complete command and flag listing.
+Overrides change contract values at the command line without editing `pacto.yaml`, the same way Helm values work:
+
+```bash
+pacto validate . --set service.version=2.0.0 -f values-prod.yaml
+```
+
+Overrides are available on all commands that take a contract reference: `validate`, `explain`, `doc`, `generate`, `graph`, `pack`, `push` and `lock`. The two commands that take a pair of contracts (`diff`, `impact`) use the prefixed flags in [Diff overrides](#diff-overrides). See the [CLI reference](../cli-reference.md) for the complete command and flag listing.
 
 ## Override flags
 

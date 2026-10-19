@@ -49,20 +49,3 @@ func FuzzFilter(f *testing.F) {
 		}
 	})
 }
-
-// FuzzLessDesc proves the mixed comparator is a strict order: irreflexive and
-// antisymmetric for any pair of tags (so sort.Slice with it never panics).
-func FuzzLessDesc(f *testing.F) {
-	f.Add("1.0.0", "2.0.0")
-	f.Add("latest", "1.0.0")
-	f.Add("main", "dev")
-	f.Add("1.0.0", "1.0.0")
-	f.Fuzz(func(t *testing.T, a, b string) {
-		if LessDesc(a, a) {
-			t.Fatalf("LessDesc(%q,%q) must be irreflexive", a, a)
-		}
-		if LessDesc(a, b) && LessDesc(b, a) {
-			t.Fatalf("LessDesc not antisymmetric for %q,%q", a, b)
-		}
-	})
-}

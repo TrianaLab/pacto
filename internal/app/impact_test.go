@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 // writeImpactService writes a minimal valid bundle for `name` at `version` into

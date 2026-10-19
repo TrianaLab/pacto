@@ -36,33 +36,13 @@ func Latest(tags []string) string {
 	return f[0]
 }
 
-// LessDesc reports whether tag a should sort before tag b in descending order
-// (latest first). Valid semver sorts before invalid; two invalid tags fall back
-// to reverse-lexicographic order. Use as the less-func for sorting mixed lists.
-//
-// Deprecated: no production code in Pacto uses this function; it exists only for
-// same-package tests. Removed at v4.
-func LessDesc(a, b string) bool {
-	va, ea := semver.NewVersion(a)
-	vb, eb := semver.NewVersion(b)
-	switch {
-	case ea == nil && eb == nil:
-		return vb.LessThan(va) // descending: higher first
-	case ea != nil && eb != nil:
-		return a > b // both invalid: reverse-lexicographic
-	default:
-		return ea == nil // valid semver sorts before invalid
-	}
-}
-
 // Compare orders two version strings for ASCENDING (oldest-first) sorting and
 // returns -1, 0 or 1. Two valid semver versions compare by semver precedence
 // (so 1.9.0 < 1.10.0 < 2.0.0 and a prerelease sorts before its release); a valid
 // semver version sorts before (is "less than") a non-semver one; two non-semver
 // versions compare EQUAL (0), leaving any deterministic tie-break to the caller.
-// It is the ascending counterpart to LessDesc for callers that need a total order
-// with an explicit "equal" signal (e.g. a content-digest tie-break) rather than a
-// bare less-func.
+// Callers that need a total order get an explicit "equal" signal (e.g. for a
+// content-digest tie-break) rather than a bare less-func.
 func Compare(a, b string) int {
 	va, ea := semver.NewVersion(a)
 	vb, eb := semver.NewVersion(b)

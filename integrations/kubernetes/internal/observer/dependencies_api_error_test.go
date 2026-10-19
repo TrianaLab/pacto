@@ -23,9 +23,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	pactoapi "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/evidence"
+	pactoapi "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 )
 
 // TestObserveDependenciesDim_APIErrors tests various API error scenarios.
@@ -48,7 +48,7 @@ func TestObserveDependenciesDim_APIErrors(t *testing.T) {
 			Contract: &pactoapi.ContractInfo{
 				ServiceName: "payment-service",
 				Version:     "1.0.0",
-				ResolvedRef: "oci://registry/payments-pacto:1.0.0",
+				ResolvedRef: "registry/payments-pacto:1.0.0",
 			},
 		},
 	}
@@ -195,7 +195,7 @@ func TestCollect_Dependencies(t *testing.T) {
 			Contract: &pactoapi.ContractInfo{
 				ServiceName: "payment-service",
 				Version:     "1.0.0",
-				ResolvedRef: "oci://registry/payments-pacto:1.0.0",
+				ResolvedRef: "registry/payments-pacto:1.0.0",
 			},
 		},
 	}
@@ -234,7 +234,7 @@ func TestCollect_Dependencies(t *testing.T) {
 		Now:                 now,
 	}
 
-	es, windowUpdates := obs.Collect(context.Background(), input)
+	es, windowUpdates, _ := obs.Collect(context.Background(), input)
 
 	// Check that we have at least one dependency observation.
 	foundDep := false
@@ -290,7 +290,7 @@ func TestCollect_NoDependencies(t *testing.T) {
 		Now:                 now,
 	}
 
-	es, windowUpdates := obs.Collect(context.Background(), input)
+	es, windowUpdates, _ := obs.Collect(context.Background(), input)
 
 	// Check that no dependency observations are emitted.
 	for _, o := range es.Observations {

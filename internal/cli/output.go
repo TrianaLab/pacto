@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"io"
 	"slices"
-	"strings"
 
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/pkg/diff"
-	"github.com/trianalab/pacto/v3/pkg/graph"
-	"github.com/trianalab/pacto/v3/pkg/sbom"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/diff"
+	"github.com/trianalab/pacto/v4/pkg/doc"
+	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/sbom"
 )
 
 // outputFormats is the closed --output-format vocabulary. checkOutputFormat
@@ -395,25 +395,17 @@ func printDiffMarkdownTable(w io.Writer, changes []diff.Change) {
 	_, _ = fmt.Fprintln(w, "|---|---|---|---|---|---|")
 	for _, c := range changes {
 		_, _ = fmt.Fprintf(w, "| %s | `%s` | %s | %s | %s | %s |\n",
-			c.Classification, escapeMDCell(c.Path), c.Type, escapeMDCell(c.Reason),
+			c.Classification, doc.EscapeMarkdownCell(c.Path), c.Type, doc.EscapeMarkdownCell(c.Reason),
 			formatMDValue(c.OldValue), formatMDValue(c.NewValue))
 	}
 	_, _ = fmt.Fprintln(w)
-}
-
-// escapeMDCell escapes the two characters that corrupt a Markdown table cell
-// holding contract-controlled text: a pipe splits the row into extra columns,
-// and a backtick terminates the code span the cell is wrapped in. GitHub
-// resolves these backslash escapes in a table cell before code-span parsing.
-func escapeMDCell(s string) string {
-	return strings.ReplaceAll(strings.ReplaceAll(s, "`", "\\`"), "|", "\\|")
 }
 
 func formatMDValue(v any) string {
 	if v == nil {
 		return ""
 	}
-	return "`" + escapeMDCell(fmt.Sprintf("%v", v)) + "`"
+	return "`" + doc.EscapeMarkdownCell(fmt.Sprintf("%v", v)) + "`"
 }
 
 func formatChangeValues(c diff.Change) string {
@@ -461,7 +453,7 @@ func printSBOMChangeRows(w io.Writer, changes []sbom.Change) {
 	_, _ = fmt.Fprintln(w, "|---|---|---|---|---|")
 	for _, c := range changes {
 		_, _ = fmt.Fprintf(w, "| `%s` | %s | %s | %s | %s |\n",
-			escapeMDCell(c.Package), c.Type, escapeMDCell(c.Field),
+			doc.EscapeMarkdownCell(c.Package), c.Type, doc.EscapeMarkdownCell(c.Field),
 			formatMDValue(nonEmpty(c.OldValue)), formatMDValue(nonEmpty(c.NewValue)))
 	}
 	_, _ = fmt.Fprintln(w)

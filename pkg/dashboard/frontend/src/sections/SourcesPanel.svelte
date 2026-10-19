@@ -38,7 +38,6 @@
       svc?.docs?.length && `${svc.docs.length} docs`,
       svc?.readiness && 'readiness',
       svc?.observedRuntime && 'observed runtime',
-      svc?.resources && 'resources',
     ].filter(Boolean);
   }
 </script>
@@ -54,7 +53,7 @@
   {:else}
     <p class="src-intro">
       What each connected source contributes. The view is priority-merged:
-      <strong>k8s</strong> runtime over <strong>local</strong> over <strong>oci</strong> over <strong>cache</strong> for the contract base.
+      <strong>kubernetes</strong> runtime over <strong>local</strong> over <strong>oci</strong> over <strong>cache</strong> for the contract base.
     </p>
     {#each data.sources || [] as s}
       <div class="src-row">

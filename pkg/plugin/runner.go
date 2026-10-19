@@ -7,6 +7,7 @@ package plugin
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,18 +17,23 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
-// Plugin execution limits, overridable in tests. They bound a buggy or hostile
-// plugin: pluginTimeout caps wall-clock, maxPluginOutput caps buffered stdout.
-var (
+// Plugin execution limits. They bound a buggy or hostile plugin:
+// pluginTimeout caps wall-clock, maxPluginOutput caps buffered stdout.
+const (
 	pluginTimeout   = 60 * time.Second
 	maxPluginOutput = 64 << 20 // 64 MB
 )
 
 // SubprocessRunner discovers and executes plugin binaries via stdin/stdout JSON.
-type SubprocessRunner struct{}
+// The zero value runs with the production limits.
+type SubprocessRunner struct {
+	// timeout and maxOutput override pluginTimeout and maxPluginOutput when set.
+	timeout   time.Duration
+	maxOutput int
+}
 
 // cappedBuffer buffers up to limit bytes and then discards the rest, recording
 // that truncation happened. It never blocks the child process.
@@ -67,23 +73,24 @@ func (r *SubprocessRunner) Run(ctx context.Context, name string, req GenerateReq
 	}
 
 	logging.LoggerFromContext(ctx).Debug("executing plugin", "plugin", name)
-	ctx, cancel := context.WithTimeout(ctx, pluginTimeout)
+	timeout, limit := cmp.Or(r.timeout, pluginTimeout), cmp.Or(r.maxOutput, maxPluginOutput)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary)
 	cmd.Stdin = bytes.NewReader(input)
 
-	stdout := &cappedBuffer{limit: maxPluginOutput}
+	stdout := &cappedBuffer{limit: limit}
 	var stderr bytes.Buffer
 	cmd.Stdout = stdout
 	cmd.Stderr = &stderr
 
 	err = cmd.Run()
 	if stdout.truncated {
-		return nil, fmt.Errorf("plugin %s: output exceeded %d bytes", name, maxPluginOutput)
+		return nil, fmt.Errorf("plugin %s: output exceeded %d bytes", name, limit)
 	}
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
-			return nil, fmt.Errorf("plugin %s: timed out after %s", name, pluginTimeout)
+			return nil, fmt.Errorf("plugin %s: timed out after %s", name, timeout)
 		}
 		if errMsg := strings.TrimSpace(stderr.String()); errMsg != "" {
 			return nil, fmt.Errorf("plugin %s: %s", name, errMsg)
@@ -168,14 +175,11 @@ func findPlugin(name string) (string, error) {
 	return "", fmt.Errorf("plugin %q not found (looked for %s in $PATH and ~/.config/pacto/plugins/)", name, binaryName)
 }
 
-// userHomeDirFn is a function variable for testing.
-var userHomeDirFn = os.UserHomeDir
-
 // pactoConfigDir returns the pacto configuration directory path.
 func pactoConfigDir() (string, error) {
 	configDir := os.Getenv("XDG_CONFIG_HOME")
 	if configDir == "" {
-		home, err := userHomeDirFn()
+		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", err
 		}

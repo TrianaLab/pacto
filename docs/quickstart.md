@@ -20,7 +20,7 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
 Or via Go:
 
 ```bash
-go install github.com/trianalab/pacto/v3/cmd/pacto@latest
+go install github.com/trianalab/pacto/v4/cmd/pacto@latest
 ```
 
 See [Installation](installation.md) for other methods and for what to do if the script exits with `Failed to fetch latest version` — that is the anonymous GitHub API rate limit, not a broken release.
@@ -68,7 +68,7 @@ $ pacto validate my-service
 my-service is valid
 ```
 
-Validation runs three layers: structural, cross-field and policy checks. See the [Contract Reference](contract-reference/validation.md#validation-layers) for the full rules.
+Validation checks three things: the file's shape, that fields agree with each other (a capability must bind to a declared interface, for example) and your policies. See the [Contract Reference](contract-reference/validation.md#validation-layers) for the full rules.
 
 ## 4. Add consumers
 
@@ -140,7 +140,7 @@ The classification is `BREAKING` and the exit code is 1. That is the CI gate: `p
 
 ## 7. Find the affected consumers
 
-`pacto impact` projects the diff onto the dependency graph and reports which consumers are incompatible:
+`pacto impact` takes that diff, finds every service that depends on `my-service` and tells you which ones break:
 
 ```console
 $ pacto impact . ../v2 --local ..
@@ -200,4 +200,7 @@ For a real registry like GHCR, you need `pacto login` with a personal access tok
 | Understand every contract field | [Contract Reference](contract-reference/index.md) |
 | See contracts for real services | [Examples](examples/index.md) |
 | Explore contracts visually | Run `pacto dashboard` or [`pacto tui`](fleet-tools.md#the-terminal-ui) |
+| Check what a running service does on the network | [Runtime conformance](runtime-conformance.md) |
+| Check a service in CI or on your laptop | [`pacto run`](runtime-run.md) |
+| Check every service on a Docker host or server | [`pacto agent`](runtime-agent.md) |
 | Runtime compliance in Kubernetes | [Kubernetes Operator](integrations/kubernetes/overview.md) |

@@ -25,10 +25,10 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/registry"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/graph"
-	"github.com/trianalab/pacto/v3/pkg/lock"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/lock"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // ── hermetic registry harness (test-local; mirrors pkg/oci matrix harness) ────

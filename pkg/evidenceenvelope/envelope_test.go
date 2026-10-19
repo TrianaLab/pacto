@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 )
 
 // Fixed clock points around the envelope's validity window.

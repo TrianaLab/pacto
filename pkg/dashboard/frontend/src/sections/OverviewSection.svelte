@@ -1,42 +1,13 @@
 <script>
   import CollapsibleSection from '../CollapsibleSection.svelte';
 
-  let { conditions = [], runtime, scaling, metadata, open = $bindable(true), id = '', source = '' } = $props();
+  let { runtime, scaling, metadata, open = $bindable(true), id = '', source = '' } = $props();
 
   let hasRuntime = $derived(!!runtime);
   let hasCards = $derived(hasRuntime || !!scaling || (metadata && Object.keys(metadata).length > 0));
 </script>
 
 <CollapsibleSection title="Overview" bind:open {id} {source}>
-  {#if conditions?.length > 0}
-    <div class="subsection">
-      <h3>Conditions</h3>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Check</th><th>Status</th><th>Reason</th><th>Message</th></tr></thead>
-          <tbody>
-            {#each conditions as cond}
-              <tr>
-                <td><strong>{cond.type}</strong></td>
-                <td>
-                  {#if cond.status === 'True'}
-                    <span class="badge badge-ok">Pass</span>
-                  {:else if cond.status === 'False'}
-                    <span class="badge badge-{cond.severity === 'warning' ? 'warn' : 'err'}">Fail</span>
-                  {:else}
-                    <span class="badge badge-neutral">{cond.status}</span>
-                  {/if}
-                </td>
-                <td class="text-2">{cond.reason || '—'}</td>
-                <td class="text-2">{cond.message || '—'}</td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  {/if}
-
   {#if hasCards}
     <div class="cards-row">
       {#if hasRuntime}
@@ -79,12 +50,9 @@
 </CollapsibleSection>
 
 <style>
-  .subsection { margin-top: var(--sp-4); }
-  .subsection h3 { margin-bottom: var(--sp-2); }
   .cards-row { display: flex; flex-wrap: wrap; gap: var(--sp-3); margin-top: var(--sp-3); }
   .cards-row .card { flex: 1; min-width: 240px; }
   .cards-row .card h3 { margin-bottom: var(--sp-2); }
-  .text-2 { color: var(--c-text-2); }
 
   @media (max-width: 768px) {
     .cards-row { flex-direction: column; }

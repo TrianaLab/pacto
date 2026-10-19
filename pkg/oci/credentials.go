@@ -44,34 +44,12 @@ func EnvInsecureRegistries() []string {
 	return out
 }
 
-var userHomeDirFn = os.UserHomeDir
-
-// ExportedUserHomeDirFn returns the current userHomeDirFn for testing.
-//
-// Deprecated: use t.Setenv("HOME", dir) instead. This is a test hook on the
-// exported surface of a released major, so any importer can redirect credential
-// and cache resolution in a running process. Removed at v4 together with
-// [SetUserHomeDirFn].
-func ExportedUserHomeDirFn() func() (string, error) { return userHomeDirFn }
-
-// SetUserHomeDirFn sets userHomeDirFn and returns the previous value for deferred restore.
-//
-// Deprecated: use t.Setenv("HOME", dir) instead, which scopes the override to
-// one test instead of the process. An exported mutable process-global that only
-// tests set lets any importer repoint where pacto reads credentials and writes
-// its cache. Removed at v4.
-func SetUserHomeDirFn(fn func() (string, error)) func() (string, error) {
-	old := userHomeDirFn
-	userHomeDirFn = fn
-	return old
-}
-
 // PactoConfigDir returns the pacto configuration directory.
 // It respects $XDG_CONFIG_HOME, defaulting to ~/.config/pacto.
 func PactoConfigDir() (string, error) {
 	configDir := os.Getenv("XDG_CONFIG_HOME")
 	if configDir == "" {
-		home, err := userHomeDirFn()
+		home, err := os.UserHomeDir()
 		if err != nil {
 			return "", err
 		}

@@ -9,9 +9,9 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/dashboard"
-	"github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/graph"
 )
 
 func TestDoc_Local(t *testing.T) {
@@ -99,14 +99,13 @@ func TestDoc_NotFound(t *testing.T) {
 }
 
 func TestDoc_GenerateError(t *testing.T) {
-	original := generateDoc
-	generateDoc = func(_ *dashboard.ServiceDetails, _ *graph.Result) (string, error) {
+	generateDocHook := func(_ *dashboard.ServiceDetails, _ *graph.Result) (string, error) {
 		return "", fmt.Errorf("generate failed")
 	}
-	t.Cleanup(func() { generateDoc = original })
 
 	path := writeTestBundle(t)
 	svc := NewService(nil, nil)
+	svc.sys.generateDoc = generateDocHook
 	_, err := svc.Doc(context.Background(), DocOptions{Path: path})
 	if err == nil {
 		t.Error("expected error from generateDoc")

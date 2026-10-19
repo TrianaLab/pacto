@@ -20,11 +20,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Masterminds/semver/v3"
-
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/diff"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/diff"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // SchemaVersion identifies the impact wire model.
@@ -453,15 +451,15 @@ func compatibilityVerdict(constraint, version string, declared bool) string {
 	if !declared || constraint == "" || version == "" {
 		return CompatibilityUnknown
 	}
-	cs, err := semver.NewConstraint(constraint)
+	rng, err := contract.ParseRange(constraint)
 	if err != nil {
 		return CompatibilityUnknown
 	}
-	v, err := semver.NewVersion(version)
-	if err != nil {
+	ok, err := rng.Check(version)
+	switch {
+	case err != nil:
 		return CompatibilityUnknown
-	}
-	if cs.Check(v) {
+	case ok:
 		return CompatibilityCompatible
 	}
 	return CompatibilityIncompatible

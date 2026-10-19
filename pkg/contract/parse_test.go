@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 func TestParse_ValidMinimal(t *testing.T) {

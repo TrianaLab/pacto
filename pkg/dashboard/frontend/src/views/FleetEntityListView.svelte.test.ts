@@ -145,7 +145,7 @@ describe('FleetEntityListView', () => {
   it('says the list is partial when the snapshot is, rather than implying completeness', async () => {
     const resp = listResp([rev('a')], { total: 1 });
     resp.meta.completeness = 'partial';
-    resp.meta.sources = [{ id: 's1', kind: 'k8s', status: 'degraded' }];
+    resp.meta.sources = [{ id: 's1', kind: 'kubernetes', status: 'degraded' }];
     entitiesFn.mockResolvedValue(resp);
     const { target, component } = mountView({ kind: 'revision' });
     await vi.waitFor(() => expect(target.querySelectorAll('.lv-item').length).toBe(1));

@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/types"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"

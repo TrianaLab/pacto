@@ -4,7 +4,7 @@ import (
 	"context"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // --- pacto_create ---
@@ -18,14 +18,14 @@ func createTool() *mcpsdk.Tool {
 			"config files. Supports dry_run mode.",
 		InputSchema: inputSchema(map[string]property{
 			"name":                         {Type: "string", Description: "Service name (DNS-compatible, e.g. 'payment-api')"},
-			"description":                  {Type: "string", Description: "Natural-language description for inference (e.g. 'REST API backed by postgres')"},
+			"description":                  {Type: "string", Description: "Natural-language description; infers interfaces and workload only, never state (set stores_data and friends explicitly)"},
 			"path":                         {Type: "string", Description: "Output directory (defaults to service name)"},
 			"version":                      {Type: "string", Description: "Service version (defaults to '0.1.0')"},
 			"owner":                        {Type: "string", Description: "Owner identifier (e.g. 'team/platform')"},
 			"interfaces":                   {Type: "string", Description: "JSON array of interfaces: [{name, type, visibility?}]"},
 			"dependencies":                 {Type: "string", Description: "JSON array of dependencies: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted)"},
 			"workload":                     {Type: "string", Description: "Workload type", Enum: []string{"service", "job", "scheduled"}},
-			"stores_data":                  {Type: "boolean", Description: "Whether the service stores data (drives state model)"},
+			"stores_data":                  {Type: "boolean", Description: "Whether the service stores data (drives state model; never inferred from the description, unset means stateless)"},
 			"data_survives_restart":        {Type: "boolean", Description: "Whether data must survive pod restarts"},
 			"data_shared_across_instances": {Type: "boolean", Description: "Whether data is shared across instances"},
 			"data_loss_impact":             {Type: "string", Description: "Impact of data loss", Enum: []string{"low", "medium", "high"}},
@@ -37,8 +37,8 @@ func createTool() *mcpsdk.Tool {
 }
 
 // createArgs is the wire shape of pacto_create. The three intent booleans are
-// pointers so an explicit false is distinguishable from an omitted argument:
-// description inference only fills in what the caller left unsaid.
+// pointers so an omitted argument reads as false; the description never
+// infers them.
 type createArgs struct {
 	Name                      string `json:"name"`
 	Description               string `json:"description"`
@@ -197,9 +197,9 @@ type checkArgs struct {
 	Path string `json:"path"`
 }
 
-func checkHandler(resolverFor PolicyResolverFor) mcpsdk.ToolHandlerFor[checkArgs, any] {
+func checkHandler(validate Validator) mcpsdk.ToolHandlerFor[checkArgs, any] {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, args checkArgs) (*mcpsdk.CallToolResult, any, error) {
-		result, err := Check(ctx, resolverFor, args.Path)
+		result, err := Check(ctx, validate, args.Path)
 		if err != nil {
 			return nil, nil, err
 		}

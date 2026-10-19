@@ -8,6 +8,8 @@ rules:
   - ""
   resources:
   - configmaps
+  - pods
+  - services
   verbs:
   - get
   - list
@@ -21,42 +23,30 @@ rules:
   - patch
 - apiGroups:
   - ""
+  resourceNames:
+  - pacto-node-agent
   resources:
   - namespaces
   verbs:
-  - create
   - get
-  - list
-  - watch
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - nodes
+  verbs:
+  - get
 - apiGroups:
   - ""
   resources:
   - secrets
-  - serviceaccounts
-  - services
   verbs:
-  - create
-  - delete
   - get
-  - list
-  - patch
-  - update
   - watch
 - apiGroups:
   - apps
   resources:
   - deployments
-  verbs:
-  - create
-  - delete
-  - get
-  - list
-  - patch
-  - update
-  - watch
-- apiGroups:
-  - apps
-  resources:
   - replicasets
   - statefulsets
   verbs:
@@ -73,10 +63,43 @@ rules:
   - list
   - watch
 - apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - discovery.k8s.io
   resources:
   - endpointslices
   verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - gateway.networking.k8s.io
+  resources:
+  - httproutes
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - pacto.trianalab.io
+  resources:
+  - noderuntimeobservations
+  verbs:
+  - delete
   - get
   - list
   - watch
@@ -129,3 +152,120 @@ rules:
   - patch
   - update
   - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: manager-role
+  namespace: pacto-node-agent
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - serviceaccounts
+  verbs:
+  - create
+  - delete
+  - get
+  - patch
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  verbs:
+  - create
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - coordination.k8s.io
+  resources:
+  - leases
+  verbs:
+  - create
+  - delete
+  - patch
+  - update
+- apiGroups:
+  - pacto.trianalab.io
+  resources:
+  - noderuntimeobservations
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - pacto.trianalab.io
+  resources:
+  - noderuntimeobservations/status
+  verbs:
+  - create
+  - get
+  - patch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resources:
+  - rolebindings
+  - roles
+  verbs:
+  - create
+  - delete
+  - get
+  - patch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: manager-role
+  namespace: system
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  - serviceaccounts
+  - services
+  verbs:
+  - create
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - ""
+  resourceNames:
+  - pacto-node-agent
+  resources:
+  - serviceaccounts
+  verbs:
+  - delete
+  - get
+- apiGroups:
+  - apps
+  resourceNames:
+  - pacto-node-agent
+  resources:
+  - daemonsets
+  verbs:
+  - delete
+  - get
+- apiGroups:
+  - apps
+  resources:
+  - deployments
+  verbs:
+  - create
+  - delete
+  - get
+  - patch
+  - update
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resourceNames:
+  - pacto-node-agent
+  resources:
+  - rolebindings
+  - roles
+  verbs:
+  - delete
+  - get

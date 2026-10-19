@@ -1,22 +1,28 @@
 # Fleet tools
 
-The three surfaces that read the fleet: the dashboard, `pacto fleet` from a
-terminal or CI job and the terminal UI. The contract-to-infrastructure side is
-in [For platform engineers](platform-engineers.md).
+Three ways to see all your services at once: the dashboard in a browser,
+`pacto fleet` in a terminal or CI job and `pacto tui` in an interactive
+terminal. All three read the same [operational graph](operational-graph.md).
+The contract-to-infrastructure side is in [For platform
+engineers](platform-engineers.md).
 
 ## Dashboard
 
-`pacto dashboard` launches the operational dashboard over the same contracts the
-CLI manages and the operator verifies, organised around four workflows: what
-needs attention right now, the service inventory, the
-[Operational Graph](operational-graph.md) and change analysis. Sources are
-auto-detected at startup and merged per service. Running alongside the Kubernetes
-operator therefore gives the full contract experience — version history,
-interface details, configuration schemas and diffs — with no explicit OCI
-arguments: the dashboard discovers repositories from the `resolvedRef` fields in
-Pacto CRD statuses. See the [`pacto dashboard`
+`pacto dashboard` opens a web dashboard over the same contracts the CLI manages
+and the operator checks. It has four views: what needs attention now, the
+service list, the [Operational Graph](operational-graph.md) and change
+analysis. It finds its sources at startup and merges them per service. Next to
+the Kubernetes operator it needs no OCI arguments: it reads the registry
+addresses from the `resolvedRef` field in each Pacto resource's status, then
+shows version history, interfaces, configuration schemas and diffs. See the [`pacto dashboard`
 reference](cli-reference.md#pacto-dashboard) for its flags and environment
 variables.
+
+Its HTTP API is described at `/openapi.json`. The `status` filters of
+`/api/fleet/services`, `/api/fleet/entities` and `/api/fleet/attention` and the
+comma-separated `kinds` filter of `/api/fleet/entities` are enums checked item by
+item: an unknown value or an empty item such as a trailing comma gets a 422 that
+names the parameter, for example `query.kinds[1]`.
 
 ## Fleet queries without a browser
 

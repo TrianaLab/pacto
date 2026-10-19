@@ -1,8 +1,8 @@
 # GitHub Actions Integration
 
-Validate contracts, detect breaking changes and publish bundles from CI with the
-official [Pacto CLI](https://github.com/marketplace/actions/pacto-cli) GitHub
-Action.
+The official [Pacto CLI](https://github.com/marketplace/actions/pacto-cli)
+GitHub Action runs Pacto in your workflows: validate a contract, fail a pull
+request on a breaking change and publish the contract on release.
 
 ---
 
@@ -56,10 +56,10 @@ non-zero on a `BREAKING` result (see
           comment-on-pr: 'true'
 ```
 
-`fail-on-breaking` defaults to `true`, so a breaking change fails the step, and
-`comment-on-pr` posts the diff. That comment is written as the
-workflow's `GITHUB_TOKEN`, which is read-only by default, so grant the job
-`pull-requests: write` or the comment fails with a `403` while the diff itself
+`fail-on-breaking` defaults to `true`, so a breaking change fails the step.
+`comment-on-pr` posts the diff on the pull request. It posts with the workflow's
+`GITHUB_TOKEN`, which is read-only by default: grant the job
+`pull-requests: write`, or the comment fails with a `403` even when the diff
 passes.
 
 ### Publish on release

@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 )
 
 // OTLP SpanKind values that denote an outbound call (the span's peer is a
@@ -251,19 +251,6 @@ func EvidenceSets(edges []Edge, opts Options) []evidence.EvidenceSet {
 		})
 	}
 	return sets
-}
-
-// Observe parses OTLP/JSON traces and returns the EvidenceSets they imply.
-//
-// Deprecated: no production code in Pacto calls this convenience wrapper; callers
-// use ParseTraces, DependencyEdges and EvidenceSets directly. The operator's own
-// runtime observer has a method of the same name. Removed at v4.
-func Observe(data []byte, opts Options) ([]evidence.EvidenceSet, error) {
-	td, err := ParseTraces(data)
-	if err != nil {
-		return nil, err
-	}
-	return EvidenceSets(DependencyEdges(td), opts), nil
 }
 
 // attrValue returns the string value of attribute key, or "".

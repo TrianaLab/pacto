@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/trianalab/pacto/v3/pkg/logging"
-	"github.com/trianalab/pacto/v3/pkg/oci"
-	"github.com/trianalab/pacto/v3/pkg/override"
+	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/override"
 )
 
 // PackOptions holds options for the pack command.
@@ -18,9 +18,9 @@ type PackOptions struct {
 
 // PackResult holds the result of the pack command.
 type PackResult struct {
-	Output  string
-	Name    string
-	Version string
+	Output  string `json:"output"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
 }
 
 // Pack validates a contract bundle and produces a tar.gz archive.
@@ -45,7 +45,7 @@ func (s *Service) Pack(ctx context.Context, opts PackOptions) (*PackResult, erro
 	}
 
 	logging.LoggerFromContext(ctx).Debug("writing archive", "output", output)
-	if err := writeFileFn(output, data, 0644); err != nil {
+	if err := s.env().writeFile(output, data, 0644); err != nil {
 		return nil, fmt.Errorf("failed to write %s: %w", output, err)
 	}
 

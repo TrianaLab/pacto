@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
+
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/plugin"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/plugin"
 )
 
 // Verb is one keybound action. Argv is the invocation a reader could have typed
@@ -228,14 +230,8 @@ func lockUpdateArgv(_ *Context, sel Selection) []string {
 // repository path with any tag or digest cut off. That is the service name for
 // every ref that follows the convention and a legal directory name for the rest.
 func pullDir(ref string) string {
-	r := strings.TrimPrefix(ref, "oci://")
-	if i := strings.LastIndex(r, "/"); i >= 0 {
-		r = r[i+1:]
-	}
-	if i := strings.IndexAny(r, ":@"); i >= 0 {
-		r = r[:i]
-	}
-	return r
+	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(ref))
+	return repo[strings.LastIndex(repo, "/")+1:]
 }
 
 // hasRemoteRef is the Applies predicate for pull: a local directory is already

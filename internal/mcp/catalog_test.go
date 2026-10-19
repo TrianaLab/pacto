@@ -15,8 +15,8 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/trianalab/pacto/v3/pkg/catalog"
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/catalog"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 var catalogBuiltAt = time.Date(2026, 8, 20, 9, 0, 0, 0, time.UTC)

@@ -23,11 +23,18 @@ func ParseRange(s string) (Range, error) {
 
 // Contains returns true if the given version string satisfies this range.
 func (r Range) Contains(version string) bool {
+	ok, _ := r.Check(version)
+	return ok
+}
+
+// Check reports whether version satisfies this range, with an error when version is not semver, so a
+// caller can tell "outside the range" from "no usable version".
+func (r Range) Check(version string) (bool, error) {
 	v, err := semver.NewVersion(version)
 	if err != nil {
-		return false
+		return false, fmt.Errorf("invalid semver version %q: %w", version, err)
 	}
-	return r.constraint.Check(v)
+	return r.constraint.Check(v), nil
 }
 
 // String returns the original range string.

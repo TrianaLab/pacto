@@ -1,0 +1,250 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: noderuntimeobservations.pacto.trianalab.io
+spec:
+  group: pacto.trianalab.io
+  names:
+    kind: NodeRuntimeObservation
+    listKind: NodeRuntimeObservationList
+    plural: noderuntimeobservations
+    singular: noderuntimeobservation
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .status.nodeName
+      name: Node
+      type: string
+    - jsonPath: .status.collection.state
+      name: State
+      type: string
+    - jsonPath: .status.lastPublished
+      name: Last Published
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          NodeRuntimeObservation carries the socket facts the Pacto node agent observed
+          on one node. It is written only by that node's agent (status subresource) and
+          read by the operator. Its name is the node name.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          status:
+            description: status is the agent's published observation.
+            properties:
+              agentVersion:
+                description: AgentVersion is the node agent build version.
+                type: string
+              collection:
+                description: Collection is the health of the kernel collection.
+                properties:
+                  droppedEvents:
+                    description: |-
+                      DroppedEvents is the cumulative number of kernel events lost because the
+                      ring buffer was full, since the agent started.
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  lastDropAt:
+                    description: LastDropAt is when the agent last saw DroppedEvents
+                      increase.
+                    format: date-time
+                    type: string
+                  lastResyncAt:
+                    description: LastResyncAt is when the agent last completed a /proc
+                      baseline scan.
+                    format: date-time
+                    type: string
+                  message:
+                    description: Message is a human-readable explanation of a non-Running
+                      state.
+                    maxLength: 1024
+                    type: string
+                  reason:
+                    description: Reason is a CamelCase machine-readable cause for
+                      a non-Running state.
+                    maxLength: 128
+                    type: string
+                  state:
+                    description: State is Running, Degraded or Failed.
+                    enum:
+                    - Running
+                    - Degraded
+                    - Failed
+                    type: string
+                required:
+                - state
+                type: object
+              kernelRelease:
+                description: KernelRelease is the node's kernel release (uname -r).
+                type: string
+              lastPublished:
+                description: 'LastPublished is the heartbeat: the time of the most
+                  recent publish.'
+                format: date-time
+                type: string
+              nodeName:
+                description: NodeName is the Kubernetes node this object describes.
+                type: string
+              observingSince:
+                description: ObservingSince is when this agent process started.
+                format: date-time
+                type: string
+              pods:
+                description: Pods are the pods running on the node, sorted by UID.
+                items:
+                  description: PodRuntimeObservation is what the kernel showed for
+                    one pod on the node.
+                  properties:
+                    baselineAt:
+                      description: BaselineAt is the last /proc scan that saw the
+                        pod.
+                      format: date-time
+                      type: string
+                    connections:
+                      description: Connections are the pod's outbound TCP peers within
+                        the retention window.
+                      items:
+                        description: |-
+                          RuntimeConnection aggregates outbound TCP connection attempts from a pod to
+                          one peer address and port within the retention window.
+                        properties:
+                          address:
+                            description: Address is the peer IP address.
+                            maxLength: 45
+                            minLength: 1
+                            type: string
+                          failures:
+                            description: |-
+                              Failures counts handshakes that went from SYN_SENT straight to CLOSE
+                              (refused, reset or timed out).
+                            format: int64
+                            minimum: 0
+                            type: integer
+                          lastFailureAt:
+                            description: LastFailureAt is the time of the most recent
+                              failure.
+                            format: date-time
+                            type: string
+                          lastSuccessAt:
+                            description: LastSuccessAt is the time of the most recent
+                              success.
+                            format: date-time
+                            type: string
+                          port:
+                            description: Port is the peer port.
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                          successes:
+                            description: Successes counts handshakes that reached
+                              ESTABLISHED.
+                            format: int64
+                            minimum: 0
+                            type: integer
+                        required:
+                        - address
+                        - port
+                        type: object
+                      maxItems: 128
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    listeners:
+                      description: Listeners are the pod's TCP listening sockets.
+                      items:
+                        description: RuntimeListener is a TCP socket in LISTEN state
+                          inside a pod's network namespace.
+                        properties:
+                          address:
+                            description: |-
+                              Address is the bound local address (0.0.0.0 or :: for all addresses). A
+                              loopback-only listener does not serve traffic sent to the pod IP.
+                            maxLength: 45
+                            type: string
+                          family:
+                            description: Family is the socket address family.
+                            enum:
+                            - IPv4
+                            - IPv6
+                            type: string
+                          port:
+                            description: Port is the local (container) port.
+                            format: int32
+                            maximum: 65535
+                            minimum: 1
+                            type: integer
+                          process:
+                            description: |-
+                              Process is the command name of the process that opened the listener, when
+                              the agent saw it happen (empty when only the /proc baseline knows it).
+                            maxLength: 16
+                            type: string
+                        required:
+                        - family
+                        - port
+                        type: object
+                      maxItems: 64
+                      type: array
+                      x-kubernetes-list-type: atomic
+                    netnsShared:
+                      description: |-
+                        NetnsShared is true when the pod's network namespace is not its own (the
+                        host namespace for hostNetwork pods). Socket events in it cannot be
+                        attributed to the pod, so listeners and connections stay empty.
+                      type: boolean
+                    observedSince:
+                      description: ObservedSince is when the agent first mapped the
+                        pod's network namespace.
+                      format: date-time
+                      type: string
+                    truncated:
+                      description: |-
+                        Truncated is true when a per-pod or per-node bound was hit, so listeners or
+                        connections may be missing entries.
+                      type: boolean
+                    uid:
+                      description: UID is the pod UID, read from the pod's cgroup
+                        path.
+                      maxLength: 36
+                      minLength: 1
+                      type: string
+                  required:
+                  - uid
+                  type: object
+                maxItems: 256
+                type: array
+                x-kubernetes-list-type: atomic
+              publishIntervalSeconds:
+                description: |-
+                  PublishIntervalSeconds is how often the agent publishes; readers derive
+                  staleness from it.
+                format: int32
+                minimum: 1
+                type: integer
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

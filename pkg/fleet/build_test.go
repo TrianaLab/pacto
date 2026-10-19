@@ -10,9 +10,9 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/lock"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/lock"
 )
 
 // -------------------- sanitizeError --------------------
@@ -1224,7 +1224,7 @@ func TestBuild_PreCancelledContext(t *testing.T) {
 
 func TestBuild_CancelDuringCollect(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	src := NewMemorySource("s", "mem", nil).WithCollectFunc(func(c context.Context) (*Collection, error) {
+	src := withCollect(NewMemorySource("s", "mem", nil), func(c context.Context) (*Collection, error) {
 		cancel() // cancel the parent context, but succeed
 		return &Collection{}, nil
 	})
@@ -1236,7 +1236,7 @@ func TestBuild_CancelDuringCollect(t *testing.T) {
 
 func TestBuild_CollectFuncReturnsCtxErr(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	src := NewMemorySource("s", "mem", nil).WithCollectFunc(func(c context.Context) (*Collection, error) {
+	src := withCollect(NewMemorySource("s", "mem", nil), func(c context.Context) (*Collection, error) {
 		cancel()
 		return nil, c.Err()
 	})
@@ -1269,7 +1269,7 @@ func TestBuild_ConcurrencyOptions(t *testing.T) {
 
 func TestBuild_NilCollection(t *testing.T) {
 	// A source returning (nil, nil) must be treated as an empty collection.
-	src := NewMemorySource("s", "mem", nil).WithCollectFunc(func(c context.Context) (*Collection, error) {
+	src := withCollect(NewMemorySource("s", "mem", nil), func(c context.Context) (*Collection, error) {
 		return nil, nil
 	})
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
@@ -1483,10 +1483,10 @@ func TestBuild_ObservedRelationships(t *testing.T) {
 		t.Errorf("observed relationship = %+v", rel)
 	}
 	// Observed adjacency is populated and SEPARATE from the declared indexes.
-	if deps := snap.ObservedDependents(NewServiceKey("api")); len(deps) != 1 || deps[0] != NewServiceKey("web") {
+	if deps := snap.observedReverse[NewServiceKey("api")]; len(deps) != 1 || deps[0] != NewServiceKey("web") {
 		t.Errorf("observed dependents of api = %v, want [web]", deps)
 	}
-	if fwd := snap.ObservedDependencies(NewServiceKey("web")); len(fwd) != 2 {
+	if fwd := snap.observedForward[NewServiceKey("web")]; len(fwd) != 2 {
 		t.Errorf("observed dependencies of web = %v, want [api cache]", fwd)
 	}
 	if len(snap.reverseDeps[NewServiceKey("api")]) != 0 {

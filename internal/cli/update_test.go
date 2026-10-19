@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/internal/update"
+	"github.com/trianalab/pacto/v4/internal/update"
 )
 
 // platformAsset returns the release asset name for the current platform, matching

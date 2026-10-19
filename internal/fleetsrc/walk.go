@@ -6,7 +6,7 @@ import (
 	"io/fs"
 	"path/filepath"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // maxUnreadableNotes bounds how many refused directories are named one by one

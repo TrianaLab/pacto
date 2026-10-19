@@ -1,0 +1,57 @@
+{{- if and .Values.nodeAgent.enabled (.Capabilities.APIVersions.Has "admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy") }}
+{{- $ns := include "pacto-operator.nodeAgentNamespace" . }}
+# Binds every node agent's writes to its own node. RBAC lets each agent write
+# NodeRuntimeObservations and Leases in its namespace, but cannot say WHICH:
+# both are named after nodes. The ServiceAccount token the kubelet projects
+# into the agent pod carries the pod's node name
+# (authentication.kubernetes.io/node-name, Kubernetes 1.30 or later with
+# ServiceAccountTokenPodNodeInfo, on by default), so an agent may only write the
+# objects named after that node. A token without the claim is denied, never
+# trusted: an agent that cannot prove its node publishes nothing, which the
+# operator reads as stale evidence rather than as a violation.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "pacto-operator.fullname" . }}-node-agent-identity
+  labels:
+    {{- include "pacto-operator.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: {{ $ns }}
+    resourceRules:
+      - apiGroups: [pacto.trianalab.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [noderuntimeobservations, noderuntimeobservations/status]
+      - apiGroups: [coordination.k8s.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE]
+        resources: [leases]
+  matchConditions:
+    - name: node-agent-service-account
+      expression: request.userInfo.username == "system:serviceaccount:{{ $ns }}:pacto-node-agent"
+  validations:
+    - expression: >-
+        'authentication.kubernetes.io/node-name' in request.userInfo.extra &&
+        size(request.userInfo.extra['authentication.kubernetes.io/node-name']) == 1 &&
+        request.userInfo.extra['authentication.kubernetes.io/node-name'][0] == object.metadata.name
+      messageExpression: >-
+        'authentication.kubernetes.io/node-name' in request.userInfo.extra
+        ? 'the node agent on node ' + request.userInfo.extra['authentication.kubernetes.io/node-name'][0] +
+          ' may only write the objects named after its node, not ' + object.metadata.name
+        : 'the node agent token carries no node name (authentication.kubernetes.io/node-name needs Kubernetes 1.30 or later), so it may not write ' + object.metadata.name
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "pacto-operator.fullname" . }}-node-agent-identity
+  labels:
+    {{- include "pacto-operator.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "pacto-operator.fullname" . }}-node-agent-identity
+  validationActions: [Deny]
+{{- end }}

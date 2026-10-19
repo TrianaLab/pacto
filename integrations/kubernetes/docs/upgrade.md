@@ -1,8 +1,10 @@
 # Upgrade the Kubernetes operator
 
-The Kubernetes integration is versioned independently from Pacto core: the
-operator image, Helm chart, Go module and this documentation set bump together
-on their own cadence.
+Most upgrades are one `helm upgrade`. A release that changes or adds a CRD
+needs one extra step first, and this page shows it.
+
+The Kubernetes integration has its own version, separate from Pacto core: the
+operator image, Helm chart, Go module and these docs move together.
 
 ## Upgrade with Helm
 
@@ -12,24 +14,27 @@ enough. The currently published chart:
 --8<-- "integrations/kubernetes/docs/generated/_upgrade-command.md"
 
 !!! warning "An upgrade reverts hand-patched controller flags"
-    `helm upgrade` re-renders the Deployment's `args` from the template, so an
-    opt-in flag you patched in by hand disappears silently. Nothing fails; the
-    dimension goes back to `Unsupported` or to passive observation. Re-apply
-    the patch after every upgrade, and see
-    [Limitations — opt-in features](limitations.md#opt-in-features) for why it
-    is not managed state.
+    `helm upgrade` rebuilds the Deployment's `args` from the chart, so a flag
+    you patched in by hand disappears without an error. Set opt-in features
+    through chart values such as `controller.enableProbing`,
+    `controller.enableMetricsObservation` and `nodeAgent.enabled`, which
+    survive an upgrade. A flag with no chart value, such as name-match
+    discovery, has to be patched again after every upgrade; see
+    [Limitations — opt-in features](limitations.md#opt-in-features).
 
 ## Upgrading across a major version (CRD migration)
 
-Helm never upgrades the CustomResourceDefinitions bundled under a chart's `crds/`
-directory: it installs them on the first `helm install` and then leaves them
-untouched on every `helm upgrade`. A major release that changes the CRD schema
-therefore has one extra, ordered step — **apply the new CRDs before you run
-`helm upgrade`**:
+A CRD (CustomResourceDefinition) tells Kubernetes what a `Pacto` object looks
+like. Helm installs the CRDs in a chart's `crds/` directory on the first
+`helm install` and never touches them again: `helm upgrade` neither updates a
+changed CRD nor adds a new one. A release that changes the schema or ships a
+new CRD therefore has one extra, ordered step: **apply the new CRDs before you
+run `helm upgrade`**.
 
-**Step 1 — apply the new CRDs out of band.** Server-side apply is required:
-these CRDs exceed the client-side last-applied-configuration annotation limit,
-and `--force-conflicts` takes ownership of the fields the previous install set.
+**Step 1 — apply the new CRDs yourself.** Use server-side apply
+(`--server-side`): these CRDs are too large for the annotation a client-side
+apply writes, and `--force-conflicts` takes over the fields the previous
+install set.
 The URLs are pinned to the release tag these docs describe, so the schema you
 apply is the one the chart in step 2 expects:
 
@@ -87,14 +92,38 @@ This exact flow is exercised against a real cluster by
 applies the new CRDs, then `helm upgrade`s to the current chart and asserts the
 pre-existing resource survives and reconciles.
 
+## Upgrading to v6
+
+v6 adds the `NodeRuntimeObservation` CRD, so apply the CRDs first as
+[above](#upgrading-across-a-major-version-crd-migration). Then check these
+before `helm upgrade`:
+
+- **Removed flags and values.** `--webhook-cert-path`, `--webhook-cert-name`,
+  `--webhook-cert-key` and `--dashboard-oci-secret` are gone; the operator
+  refuses to start with an unknown flag. Replace `dashboard.ociSecret: <name>`
+  with `dashboard.ociSecrets: [<name>]`: the chart schema rejects the old key.
+- **The node agent has its own namespace.** It runs in `nodeAgent.namespace`
+  (`pacto-node-agent` by default), which the chart creates privileged for Pod
+  Security. Drop the `pod-security.kubernetes.io/enforce=privileged` label
+  you may have put on the release namespace for it. At its first sync the
+  operator deletes the agent it ran in the release namespace. A private pull
+  secret for the agent image must exist in the agent namespace too.
+- **RBAC is split by namespace.** The managed components' lifecycle permissions
+  moved from the ClusterRole to a Role in the release namespace and, with the
+  node agent, a Role in the agent namespace. The chart renders both. An
+  operator installed without the chart needs them added by hand
+  ([RBAC](rbac.md) lists every rule).
+- **Kernel evidence namespace.** `controller.kernelEvidence.namespace`
+  defaults to the agent namespace instead of the operator's.
+
 ## Rolling back
 
 **Within** a major, `helm rollback pacto-operator` reverts what the chart owns
 and leaves your `Pacto` resources untouched; re-apply any
 [hand-patched controller flags](#upgrade-with-helm) afterwards. **Across** a
 major it is not that clean. Helm does not manage `crds/` in either direction, so
-a rollback leaves the new CRD in place and the old controller writes v4-only
-status fields the apiserver prunes while returning success. A real return to the
+a rollback leaves the new CRD in place. The old controller then writes v4-only
+status fields that the API server drops while still reporting success. A real return to the
 previous major means rolling the chart back *and* server-side applying the
 previous release's CRDs, the mirror image of step 1.
 

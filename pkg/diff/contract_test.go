@@ -3,7 +3,7 @@ package diff
 import (
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 func TestDiffContract_OwnerAdded(t *testing.T) {

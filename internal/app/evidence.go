@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
@@ -22,19 +21,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v3/internal/evidenceoci"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/evidence"
-	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
-	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
-	"github.com/trianalab/pacto/v3/pkg/graph"
-	"github.com/trianalab/pacto/v3/pkg/oci"
-	"github.com/trianalab/pacto/v3/pkg/strictjson"
+	"github.com/trianalab/pacto/v4/internal/evidenceoci"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/strictjson"
 )
-
-// randReader is the entropy source for key generation, overridable in tests to
-// exercise the failure path (crypto/rand.Reader effectively never fails).
-var randReader io.Reader = rand.Reader
 
 // KeyPair describes an Ed25519 signing keypair written to disk. The private key
 // is the base64 32-byte seed (0600); the public key is the base64 32-byte key.
@@ -53,7 +48,7 @@ type KeyPair struct {
 // 0600) and <keyId>.pub (public key, 0644). Existing files are NOT overwritten
 // unless force is set, so a re-run can never silently destroy a private seed.
 func (s *Service) GenerateKey(dir, producer, keyID string, force bool) (KeyPair, error) {
-	pub, priv, err := ed25519.GenerateKey(randReader)
+	pub, priv, err := ed25519.GenerateKey(s.env().rand)
 	if err != nil {
 		return KeyPair{}, err
 	}
@@ -97,10 +92,10 @@ func (s *Service) GenerateKey(dir, producer, keyID string, force bool) (KeyPair,
 	}
 	pubB64 := base64.StdEncoding.EncodeToString(pub)
 	seed := base64.StdEncoding.EncodeToString(priv.Seed())
-	if err := writeFileFn(privPath, []byte(seed+"\n"), 0o600); err != nil {
+	if err := s.env().writeFile(privPath, []byte(seed+"\n"), 0o600); err != nil {
 		return KeyPair{}, err
 	}
-	if err := writeFileFn(pubPath, []byte(pubB64+"\n"), 0o644); err != nil {
+	if err := s.env().writeFile(pubPath, []byte(pubB64+"\n"), 0o644); err != nil {
 		return KeyPair{}, err
 	}
 	return KeyPair{KeyID: keyID, ProducerID: producer, PrivateKeyPath: privPath, PublicKeyPath: pubPath, PublicKey: pubB64}, nil
@@ -158,6 +153,20 @@ type SignOptions struct {
 // returns it. The envelope ID defaults to a content hash so signing is
 // deterministic given the same evidence, key and IssuedAt.
 func (s *Service) SignEvidence(opts SignOptions) (evidenceenvelope.Envelope, error) {
+	return s.sign(opts, func() (evidence.EvidenceSet, error) { return readEvidenceSet(opts.EvidencePath) })
+}
+
+// SignEvidenceSet is SignEvidence for a set a producer holds in memory (opts.EvidencePath is unused): `pacto
+// agent --sink evidence` signs one per target and interval. The set is validated like a file's.
+func (s *Service) SignEvidenceSet(set evidence.EvidenceSet, opts SignOptions) (evidenceenvelope.Envelope, error) {
+	if errs := evidence.ValidateEvidenceSet(set); len(errs) > 0 {
+		return evidenceenvelope.Envelope{}, fmt.Errorf("invalid evidence set: %w", errors.Join(errs...))
+	}
+	return s.sign(opts, func() (evidence.EvidenceSet, error) { return set, nil })
+}
+
+// sign wraps the set load returns in a signed Envelope.
+func (s *Service) sign(opts SignOptions, load func() (evidence.EvidenceSet, error)) (evidenceenvelope.Envelope, error) {
 	if opts.KeyID == "" {
 		return evidenceenvelope.Envelope{}, fmt.Errorf("key-id is required")
 	}
@@ -168,7 +177,7 @@ func (s *Service) SignEvidence(opts SignOptions) (evidenceenvelope.Envelope, err
 	if err != nil {
 		return evidenceenvelope.Envelope{}, err
 	}
-	set, err := readEvidenceSet(opts.EvidencePath)
+	set, err := load()
 	if err != nil {
 		return evidenceenvelope.Envelope{}, err
 	}
@@ -424,12 +433,12 @@ type ServeOptions struct {
 	Producers []string // trusted producer ids advertised on GET /producers
 }
 
-// readinessTimeout bounds ONE readiness preflight end to end: every configured
+// defaultReadinessTimeout bounds ONE readiness preflight end to end: every configured
 // subject's resolve and Referrers walk, together. It sits inside the readiness
 // probe's five-second period so probes cannot pile up, and it is the backstop for
 // any caller — a healthcheck, a curl — that sets no deadline of its own. A var so
-// a test can shorten it.
-var readinessTimeout = 3 * time.Second
+// Service can shorten it.
+const defaultReadinessTimeout = 3 * time.Second
 
 // buildEvidenceHost assembles the ingestion HTTP mux over the contract registry:
 // it loads the trust store, parses the configured contract subjects and opens one
@@ -459,12 +468,13 @@ func (s *Service) buildEvidenceHost(opts ServeOptions) (*http.ServeMux, error) {
 		return nil, err
 	}
 	acceptor := evidenceingest.NewAcceptor(trust, s.EvidenceResolver(), store, nil)
-	handler := evidenceingest.NewHandler(acceptor, opts.Producers, nil, func(ctx context.Context) bool {
+	timeout := s.env().readinessTimeout
+	handler := evidenceingest.NewHandler(acceptor, opts.Producers, func(ctx context.Context) bool {
 		// Parented on the asking REQUEST, never on the server's lifetime: the
 		// preflight must die when the caller hangs up, and die on its own budget
 		// when the registry accepts the connection and then answers nothing. One
 		// deadline covers every subject's resolve and Referrers walk together.
-		ctx, cancel := context.WithTimeout(ctx, readinessTimeout)
+		ctx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		return store.Ready(ctx) == nil
 	})
@@ -510,18 +520,42 @@ func (s *Service) SendEvidence(ctx context.Context, url, envelopePath string) (S
 	if err != nil {
 		return SendResult{}, err
 	}
+	return s.postEnvelope(ctx, url, data)
+}
+
+// PostEnvelope is SendEvidence for an envelope held in memory.
+func (s *Service) PostEnvelope(ctx context.Context, url string, env evidenceenvelope.Envelope) (SendResult, error) {
+	data, err := json.Marshal(env)
+	if err != nil {
+		return SendResult{}, err
+	}
+	return s.postEnvelope(ctx, url, data)
+}
+
+// evidenceClient posts envelopes. A timeout, because http.DefaultClient has
+// none and an ingestion host that accepts the connection and never answers
+// would otherwise hang the sender (and the agent's emit loop) forever.
+var evidenceClient = &http.Client{Timeout: 30 * time.Second}
+
+// maxSendResponse bounds how much of the host's answer is read back: it is
+// shown to a human or logged, never parsed, so a megabyte is plenty and a
+// hostile host cannot exhaust the sender's memory.
+const maxSendResponse = 1 << 20
+
+// postEnvelope posts an encoded envelope to an ingestion host.
+func (s *Service) postEnvelope(ctx context.Context, url string, data []byte) (SendResult, error) {
 	url = normalizeIngestURL(url)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(data))
 	if err != nil {
 		return SendResult{}, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.env().httpClient.Do(req)
 	if err != nil {
 		return SendResult{}, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxSendResponse))
 	if err != nil {
 		return SendResult{}, err
 	}

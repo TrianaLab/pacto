@@ -4,7 +4,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // Root is one requested root and what became of it. Every requested root that

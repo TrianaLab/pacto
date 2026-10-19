@@ -195,7 +195,7 @@ func TestDeploymentAC_WithObservationSources(t *testing.T) {
 		Enabled:           true,
 		Image:             "img:v1",
 		Namespace:         "test-ns",
-		OCISecret:         "my-creds",
+		OCISecrets:        []string{"my-creds"},
 		EvidenceSourceURL: "http://pacto-evidence.test-ns.svc:8686",
 		Observation: []ObservationSource{
 			{Name: "orders", File: "traces.json", ExistingClaim: "orders-traces"},

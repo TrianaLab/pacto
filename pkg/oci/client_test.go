@@ -20,8 +20,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 func newTestClient(t *testing.T) (*oci.Client, string) {
@@ -30,7 +30,7 @@ func newTestClient(t *testing.T) (*oci.Client, string) {
 	srv := httptest.NewServer(reg)
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
-	client := oci.NewClient(authn.DefaultKeychain, oci.WithNameOptions(name.Insecure))
+	client := oci.NewClient(authn.DefaultKeychain)
 	return client, host
 }
 
@@ -251,7 +251,7 @@ func TestClient_Pull_InvalidImage(t *testing.T) {
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
 
-	client := oci.NewClient(authn.DefaultKeychain, oci.WithNameOptions(name.Insecure))
+	client := oci.NewClient(authn.DefaultKeychain)
 
 	// Push an image that has a layer but no pacto.yaml using remote.Write directly.
 	ref, err := name.ParseReference(host+"/test/invalid:v1", name.Insecure)
@@ -304,7 +304,7 @@ func TestClient_Push_RemoteWriteError(t *testing.T) {
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
 
-	client := oci.NewClient(authn.DefaultKeychain, oci.WithNameOptions(name.Insecure))
+	client := oci.NewClient(authn.DefaultKeychain)
 	ctx := context.Background()
 	b := newTestBundle()
 

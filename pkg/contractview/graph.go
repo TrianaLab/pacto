@@ -3,8 +3,8 @@ package contractview
 import (
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	depgraph "github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	depgraph "github.com/trianalab/pacto/v4/pkg/graph"
 )
 
 // DependentInfo describes a service that depends on another service.
@@ -176,7 +176,7 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reas
 
 // unresolvedReason classifies why a dependency ref could not be resolved.
 func unresolvedReason(depRef string, reasonFn unresolvedReasonFunc) string {
-	if !strings.HasPrefix(depRef, "oci://") {
+	if !strings.HasPrefix(depRef, contract.OCIScheme) {
 		return "non_oci_ref"
 	}
 	if reasonFn != nil {

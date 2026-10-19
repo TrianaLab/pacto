@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // The fake resolver records every call, so the suite can assert not only what

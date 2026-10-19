@@ -10,7 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// This file is the COMPOSE surface: the same scenario, projected onto four
+// This file is the COMPOSE surface: the same scenario, projected onto a few
 // containers instead of a cluster.
 //
 // Everything the two surfaces share is derived from the same fields — which
@@ -33,8 +33,9 @@ import (
 // and that type carries a compose file and nothing else — no directory, no
 // second layer, no README. So every immutable fixture input the demo reads
 // travels INLINE, as a Compose `configs` entry mounted read-only into the one
-// service that reads it. Nothing is bind-mounted, and there is no run directory
-// to be in: a user runs the artifact straight out of the registry by digest.
+// service that reads it. Nothing is bind-mounted but the host agent's two kernel
+// interfaces (ComposeAgentHostMounts), and there is no run directory to be in: a
+// user runs the artifact straight out of the registry by digest.
 //
 // Three things stay outside the artifact, because an artifact is immutable and
 // they are not: the keypair (minted at run time into a volume), the registry's
@@ -214,9 +215,17 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 			return nil, fmt.Errorf("scenario %s: %w", s.Name, err)
 		}
 	}
-	seedInputs, dashInputs, subjects, err := s.composeInputs()
+	seedInputs, dashInputs, subjects, digests, err := s.composeInputs()
 	if err != nil {
 		return nil, err
+	}
+	workloads, err := s.composeDeafWorkloads(opts.PactoImage, digests)
+	if err != nil {
+		return nil, err
+	}
+	var agent Signer
+	if len(workloads) > 0 {
+		agent = composeAgentSigner
 	}
 	for _, subj := range subjects {
 		if err := checkComposeValue(subj); err != nil {
@@ -240,7 +249,7 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 			Image:      opts.PactoImage,
 			Restart:    "unless-stopped",
 			Entrypoint: []string{"/bin/sh", "-euc"},
-			Command:    []string{evidenceScript(signer, subjects)},
+			Command:    []string{evidenceScript(signer, agent, subjects)},
 			// Ingestion RESOLVES each envelope's ContractRef before accepting it, so
 			// the server reaches the registry itself; without this it answers 502
 			// contract_resolution_failed on a plain-HTTP demo registry.
@@ -313,6 +322,8 @@ func (s Scenario) Compose(opts ComposeOptions) ([]byte, error) {
 			Volumes:   []string{composeStateVolume + ":" + composeStateMount},
 			Configs:   mounts(dashInputs),
 		},
+		Agent:     composeAgent(opts.PactoImage, agent),
+		Workloads: workloads,
 	}, Configs: contents(seedInputs, dashInputs)}
 
 	var buf bytes.Buffer
@@ -349,24 +360,24 @@ type composeInput struct {
 // business reading the seed's private key plan, and the seed has no business
 // reading an observation export. Compose only creates the files a service
 // declares, so the split is enforced by the runtime and not by convention.
-func (s Scenario) composeInputs() (seed, dashboard []composeInput, subjects []string, err error) {
+func (s Scenario) composeInputs() (seed, dashboard []composeInput, subjects []string, digests map[string]string, err error) {
 	files, err := s.MaterializeFiles(ComposeDomain)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	plan, err := s.Plan(ComposeArtifactMount)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	// No registry exists yet, so the digests come from the bytes above. The seed
 	// re-checks each one against what it actually publishes.
-	digests, err := s.Digests(files)
+	digests, err = s.Digests(files)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	payloads, err := s.EvidencePayloads(ComposeArtifactMount, ComposeDomain, digests)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	seedFiles := map[string]string{"plan.tsv": string(plan), "seed.sh": seedScript}
 	for rel, body := range files {
@@ -382,7 +393,7 @@ func (s Scenario) composeInputs() (seed, dashboard []composeInput, subjects []st
 		}
 		export, err := s.TraceExport(src.ID)
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		dashFiles[src.ID+".json"] = string(export)
 	}
@@ -407,18 +418,18 @@ func (s Scenario) composeInputs() (seed, dashboard []composeInput, subjects []st
 		return out, nil
 	}
 	if seed, err = convert(seedFiles); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	if dashboard, err = convert(dashFiles); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	// The subjects come from the SAME digests the payloads were built against, so
 	// the server is configured with exactly the revisions the envelopes name — it
 	// cannot be told to store evidence anywhere else.
 	if subjects, err = s.EvidenceSubjects(ComposeDomain, digests); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return seed, dashboard, subjects, nil
+	return seed, dashboard, subjects, digests, nil
 }
 
 // literal is inline config content that survives Compose's interpolation pass.
@@ -518,6 +529,120 @@ func (s Scenario) composeDashboardArgs() ([]string, error) {
 	return args, nil
 }
 
+// composeAgentSigner is the identity the host agent signs its evidence as: its
+// own producer and key, minted beside the scenario's signer, so the evidence it
+// sends is never mistaken for the remote environment's.
+var composeAgentSigner = Signer{Producer: "compose-host-agent", KeyID: "host-agent"}
+
+// composeAgentStateMount is where the agent reads the state volume, read-only:
+// it needs its private key from it and nothing else. Not the image HOME, because
+// the agent runs as root and a root-owned cache written there would lock the
+// dashboard out of its own.
+const composeAgentStateMount = "/state"
+
+// ComposeAgentHostMounts are the ONLY host paths the demo mounts, and only into
+// the agent: the Docker Engine API (to read the workloads' dev.pacto.* labels)
+// and the host's cgroup v2 hierarchy (to attribute each socket to a container).
+// They are fixed paths every Linux Docker host has, Docker Desktop's VM
+// included, never a directory beside the artifact, so the published file still
+// carries no fixture input outside itself.
+var ComposeAgentHostMounts = []string{
+	"/var/run/docker.sock:/var/run/docker.sock",
+	"/sys/fs/cgroup:/host/sys/fs/cgroup:ro",
+}
+
+// composeAgent is the host agent: `pacto agent --sink evidence --docker`, which
+// watches every container on the Docker host's kernel with eBPF, checks the ones
+// labelled dev.pacto.contract against their contracts and sends what it sees,
+// signed, to the demo's Evidence Server. Nothing (the zero service, omitted)
+// when no workload is deaf.
+//
+// It needs what a kernel observer needs and the rest of the demo does not:
+// privileged (to load the eBPF program), the host's PID and cgroup namespaces
+// (to see other containers' processes and cgroups), root, and the two host
+// mounts above. On a host that cannot load the program it keeps running and
+// says so in its log; the rest of the demo is unaffected.
+func composeAgent(image string, agent Signer) composeService {
+	if agent == (Signer{}) {
+		return composeService{}
+	}
+	return composeService{
+		Image:   image,
+		Restart: "unless-stopped",
+		// Only this project's containers: the daemon is shared, and another Compose
+		// project's labelled workloads are not this demo's to judge. Compose
+		// interpolates the project name the user chose with -p.
+		Command: []string{"agent", "--sink", "evidence", "--docker",
+			"--docker-label-filter", "com.docker.compose.project=${COMPOSE_PROJECT_NAME}",
+			"--cgroup-root", "/host/sys/fs/cgroup",
+			"--publish-interval", RuntimePublishInterval, "--resync-interval", RuntimePublishInterval,
+			"--stabilization-window", RuntimeStabilizationWindow,
+			"--evidence-url", ComposeEvidenceURL,
+			"--evidence-key", composeAgentStateMount + "/keys/" + agent.KeyID + ".key",
+			"--evidence-key-id", agent.KeyID,
+			"--evidence-producer", agent.Producer},
+		User:       "0",
+		Privileged: true,
+		Pid:        "host",
+		Cgroup:     "host",
+		Environment: map[string]string{
+			// It resolves each labelled contract from the demo's registry before
+			// judging it, and HOME is where that cache goes.
+			"PACTO_INSECURE_REGISTRIES": ComposeRegistryHost,
+			"HOME":                      "/tmp",
+		},
+		// Its key exists once the Evidence Server has minted it, and its envelopes
+		// are accepted once the server is ready.
+		DependsOn:   map[string]composeDep{"evidence": {Condition: "service_healthy"}},
+		Volumes:     append([]string{composeStateVolume + ":" + composeAgentStateMount + ":ro"}, ComposeAgentHostMounts...),
+		Healthcheck: &composeHealth{Disable: true},
+	}
+}
+
+// composeDeafWorkloads is one container per deaf workload: ready, labelled with
+// its pinned contract and the port its interface is bound to, and listening on
+// nothing. The host agent reads the labels, sees no socket on the port and
+// reports INTERFACE_ABSENT. Only the deaf workloads run here: the others need a
+// controller to become targets, which is the capability Compose does not have.
+func (s Scenario) composeDeafWorkloads(image string, digests map[string]string) (map[string]composeService, error) {
+	out := map[string]composeService{}
+	for _, svc := range s.DeafServices() {
+		rev, err := svc.DeployedRevision()
+		if err != nil {
+			return nil, fmt.Errorf("scenario %s: %w", s.Name, err)
+		}
+		ref, err := s.digestRef(svc, rev, ComposeDomain, digests)
+		if err != nil {
+			return nil, err
+		}
+		w := svc.Workload
+		if err := checkComposeValue(w.Name); err != nil {
+			return nil, fmt.Errorf("scenario %s: workload name: %w", s.Name, err)
+		}
+		if _, taken := composeReservedServices[w.Name]; taken {
+			return nil, fmt.Errorf("scenario %s: workload %s would replace the demo's own %s service", s.Name, w.Name, w.Name)
+		}
+		out[w.Name] = composeService{
+			Image:   image,
+			Restart: "unless-stopped",
+			// A shell that answers SIGTERM at once and opens no socket.
+			Entrypoint: []string{"/bin/sh", "-c", "trap 'exit 0' TERM; while sleep 1; do :; done"},
+			Labels: map[string]string{
+				"dev.pacto.contract":            "oci://" + ref,
+				"dev.pacto.bind." + w.Interface: strconv.Itoa(w.Port),
+			},
+			Healthcheck: &composeHealth{Disable: true},
+		}
+	}
+	return out, nil
+}
+
+// composeReservedServices are the demo's own service names, which a workload
+// must not take.
+var composeReservedServices = map[string]struct{}{
+	"registry": {}, "evidence": {}, "seed": {}, "dashboard": {}, "agent": {},
+}
+
 // evidenceScript starts the Evidence Server on the identity the scenario
 // declares, minting its keypair on first run.
 //
@@ -526,22 +651,31 @@ func (s Scenario) composeDashboardArgs() ([]string, error) {
 // signing material in the directory whose job is to hold only public keys. The
 // guard makes a restart reuse the identity it already published, so an envelope
 // signed before the restart still verifies after it.
-func evidenceScript(signer Signer, subjects []string) string {
+func evidenceScript(signer, agent Signer, subjects []string) string {
 	serve := "exec pacto evidence serve" +
 		" --listen-address 0.0.0.0:" + strconv.Itoa(composeEvidencePort) +
 		" --trust " + composeTrustDir
 	for _, subj := range subjects {
 		serve += " --subject " + subj
 	}
-	return strings.Join([]string{
-		"mkdir -p " + composeTrustDir + " " + composeKeyDir,
-		"if [ ! -f " + composeKeyDir + "/" + signer.KeyID + ".key ]; then",
-		"  pacto evidence keygen --out " + composeTrustDir +
-			" --key-id " + signer.KeyID + " --producer " + signer.Producer,
-		"  mv " + composeTrustDir + "/" + signer.KeyID + ".key " + composeKeyDir + "/" + signer.KeyID + ".key",
-		"fi",
-		serve + " --producer " + signer.Producer,
-	}, "\n") + "\n"
+	lines := []string{"mkdir -p " + composeTrustDir + " " + composeKeyDir}
+	// The host agent's identity, when there is one, is minted the same way and
+	// trusted beside the scenario's signer, which stays the last --producer.
+	for _, id := range []Signer{agent, signer} {
+		if id == (Signer{}) {
+			continue
+		}
+		lines = append(lines,
+			"if [ ! -f "+composeKeyDir+"/"+id.KeyID+".key ]; then",
+			"  pacto evidence keygen --out "+composeTrustDir+
+				" --key-id "+id.KeyID+" --producer "+id.Producer,
+			"  mv "+composeTrustDir+"/"+id.KeyID+".key "+composeKeyDir+"/"+id.KeyID+".key",
+			"fi")
+	}
+	if agent != (Signer{}) {
+		serve += " --producer " + agent.Producer
+	}
+	return strings.Join(append(lines, serve+" --producer "+signer.Producer), "\n") + "\n"
 }
 
 // portMapping is a published port as Compose reads it: the default, overridable
@@ -615,9 +749,10 @@ func checkComposeValue(v string) error {
 	return nil
 }
 
-// The Compose file shape. Services are named fields rather than a map so the
-// generated file reads in startup order; there are four of them because the demo
-// runs four containers, not because the scenario declares any.
+// The Compose file shape. The demo's own services are named fields rather than a
+// map so the generated file reads in startup order; the four of them run whatever
+// the scenario declares. The host agent and the deaf workloads follow, and exist
+// only when the scenario declares a deaf workload.
 //
 // No `name:`. There is no run directory to derive one from either, so the
 // project name is the user's `-p`, always — which is what the documented journey
@@ -676,11 +811,19 @@ type composeServices struct {
 	Evidence  composeService `yaml:"evidence"`
 	Seed      composeService `yaml:"seed"`
 	Dashboard composeService `yaml:"dashboard"`
+	// Agent and Workloads exist only when the scenario declares a deaf workload.
+	Agent     composeService            `yaml:"agent,omitempty"`
+	Workloads map[string]composeService `yaml:",inline"`
 }
 
 type composeService struct {
 	Image       string                 `yaml:"image"`
 	Restart     string                 `yaml:"restart,omitempty"`
+	User        string                 `yaml:"user,omitempty"`
+	Privileged  bool                   `yaml:"privileged,omitempty"`
+	Pid         string                 `yaml:"pid,omitempty"`
+	Cgroup      string                 `yaml:"cgroup,omitempty"`
+	Labels      map[string]string      `yaml:"labels,omitempty"`
 	DependsOn   map[string]composeDep  `yaml:"depends_on,omitempty"`
 	Entrypoint  []string               `yaml:"entrypoint,omitempty"`
 	Command     []string               `yaml:"command,omitempty"`

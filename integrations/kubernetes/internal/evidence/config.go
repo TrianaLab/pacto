@@ -10,6 +10,8 @@ package evidence
 import (
 	"fmt"
 
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1" //nolint:lll // Used by Config.OwnerRef field type
@@ -62,32 +64,8 @@ type Config struct {
 	OwnerRef *metav1ac.OwnerReferenceApplyConfiguration
 }
 
-// ResourcesConfig holds optional resource quantity overrides.
-type ResourcesConfig struct {
-	CPURequest    string
-	CPULimit      string
-	MemoryRequest string
-	MemoryLimit   string
-}
-
-// Validate checks that any provided resource quantity overrides are parseable so
-// a bad --evidence-cpu-request (etc.) fails fast at startup.
-func (rc ResourcesConfig) Validate() error {
-	for _, q := range []struct{ name, val string }{
-		{"cpu-request", rc.CPURequest},
-		{"cpu-limit", rc.CPULimit},
-		{"memory-request", rc.MemoryRequest},
-		{"memory-limit", rc.MemoryLimit},
-	} {
-		if q.val == "" {
-			continue
-		}
-		if _, err := resource.ParseQuantity(q.val); err != nil {
-			return fmt.Errorf("invalid evidence %s quantity %q: %w", q.name, q.val, err)
-		}
-	}
-	return nil
-}
+// ResourcesConfig holds optional resource quantity overrides for the evidence container.
+type ResourcesConfig = component.Resources
 
 // DefaultResources returns the built-in default resource requirements.
 func DefaultResources() corev1.ResourceRequirements {
@@ -102,24 +80,6 @@ func DefaultResources() corev1.ResourceRequirements {
 	}
 }
 
-// BuildResources returns resource requirements, applying any overrides.
-func (rc ResourcesConfig) BuildResources() corev1.ResourceRequirements {
-	res := DefaultResources()
-	if rc.CPURequest != "" {
-		res.Requests[corev1.ResourceCPU] = resource.MustParse(rc.CPURequest)
-	}
-	if rc.MemoryRequest != "" {
-		res.Requests[corev1.ResourceMemory] = resource.MustParse(rc.MemoryRequest)
-	}
-	if rc.CPULimit != "" {
-		res.Limits[corev1.ResourceCPU] = resource.MustParse(rc.CPULimit)
-	}
-	if rc.MemoryLimit != "" {
-		res.Limits[corev1.ResourceMemory] = resource.MustParse(rc.MemoryLimit)
-	}
-	return res
-}
-
 // Validate checks the config is valid when the feature is enabled.
 func (c Config) Validate() error {
 	if !c.Enabled {
@@ -128,7 +88,7 @@ func (c Config) Validate() error {
 	if c.Image == "" {
 		return fmt.Errorf("evidence image must be set at build time via ldflags")
 	}
-	if hasLatestTag(c.Image) {
+	if component.HasLatestTag(c.Image) {
 		return fmt.Errorf("evidence image must not use 'latest' tag: %s", c.Image)
 	}
 	if c.Namespace == "" {
@@ -140,18 +100,5 @@ func (c Config) Validate() error {
 	if len(c.Subjects) == 0 {
 		return fmt.Errorf("evidence enabled but no contract subject set: the registry is the evidence store (set evidence.registry.subjects)")
 	}
-	return c.Resources.Validate()
-}
-
-// hasLatestTag reports whether an image ref uses the :latest tag or no tag.
-func hasLatestTag(image string) bool {
-	for i := len(image) - 1; i >= 0; i-- {
-		if image[i] == ':' {
-			return image[i+1:] == "latest"
-		}
-		if image[i] == '/' {
-			break
-		}
-	}
-	return true
+	return c.Resources.Validate("evidence")
 }

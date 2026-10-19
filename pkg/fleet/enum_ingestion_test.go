@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 )
 
 // These tests enforce the ingestion/domain invariant: every

@@ -22,10 +22,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/ignore"
-	"github.com/trianalab/pacto/v3/pkg/lock"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/ignore"
+	"github.com/trianalab/pacto/v4/pkg/lock"
 )
 
 // maxScanDepth bounds how deep LocalSource descends below its root.

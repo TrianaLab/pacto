@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // ONE ownership question, asked the same way everywhere.

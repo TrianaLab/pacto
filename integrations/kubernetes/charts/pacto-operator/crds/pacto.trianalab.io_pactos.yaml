@@ -91,6 +91,10 @@ spec:
                         - Opaque with "token" key (bearer token)
                         - Opaque with "username"+"password" keys (basic auth)
                         - kubernetes.io/dockerconfigjson (standard Docker registry auth)
+                      For Opaque secrets, add a "registry" key (e.g. "ghcr.io") to bind the
+                      credentials to that host; the operator then refuses to send them to any
+                      other registry. Recommended to prevent a contract from redirecting a
+                      referenced secret to an attacker-controlled registry.
                     type: string
                 type: object
               overrides:
@@ -495,6 +499,17 @@ spec:
                       the contract declares.
                     format: int32
                     type: integer
+                  unverified:
+                    description: |-
+                      Unverified lists, sorted, the contract paths of declared facets that have a
+                      runtime check but no usable fact this time (for example
+                      interfaces[name=api].type with probing off). Metadata only: it never changes
+                      the contract status.
+                    items:
+                      type: string
+                    maxItems: 256
+                    type: array
+                    x-kubernetes-list-type: atomic
                 required:
                 - evaluated
                 - required
@@ -525,6 +540,16 @@ spec:
                         description: EvidenceRefStatus links a finding to the evidence
                           that supports it.
                         properties:
+                          collector:
+                            description: |-
+                              Collector names the producer of the matched observation: k8s-observer for
+                              the Kubernetes API alone, k8s-observer+ebpf when kernel evidence was merged
+                              in, ebpf when only the kernel saw it.
+                            type: string
+                          detectedAt:
+                            description: DetectedAt is the RFC 3339 time the matched
+                              observation was made.
+                            type: string
                           observedAt:
                             description: ObservedAt is the ISO8601 timestamp when
                               the evidence was collected.

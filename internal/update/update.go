@@ -1,6 +1,7 @@
 package update
 
 import (
+	"cmp"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -18,14 +19,27 @@ type UpdateResult struct {
 	NewVersion      string
 }
 
-// Testability hooks.
-var (
-	runtimeGOOS   = runtime.GOOS
-	runtimeGOARCH = runtime.GOARCH
-	osChmod       = os.Chmod
-	osRename      = os.Rename
-	osRemove      = os.Remove
-)
+// platform is the os and arch the release assets are picked for: the running
+// binary's unless a test set goos and goarch.
+func (u *Updater) platform() (goos, goarch string) {
+	return cmp.Or(u.goos, runtime.GOOS), cmp.Or(u.goarch, runtime.GOARCH)
+}
+
+// files is the filesystem the downloaded binary is installed through: the os
+// package's unless a test set the fields.
+func (u *Updater) files() (chmod func(string, os.FileMode) error, rename func(string, string) error, remove func(string) error) {
+	chmod, rename, remove = os.Chmod, os.Rename, os.Remove
+	if u.chmod != nil {
+		chmod = u.chmod
+	}
+	if u.rename != nil {
+		rename = u.rename
+	}
+	if u.remove != nil {
+		remove = u.remove
+	}
+	return chmod, rename, remove
+}
 
 // Update downloads and installs the specified version of pacto.
 // If targetVersion is empty, it fetches the latest release.
@@ -50,7 +64,7 @@ func (u *Updater) Update(currentVersion, targetVersion string) (*UpdateResult, e
 
 	// Fetch the published checksums so the downloaded binary can be verified
 	// before it replaces the running executable (supply-chain integrity).
-	expected, err := u.expectedChecksum(u.checksumsURL("TrianaLab/pacto", targetVersion), binaryAssetName())
+	expected, err := u.expectedChecksum(u.checksumsURL("TrianaLab/pacto", targetVersion), u.binaryAssetName())
 	if err != nil {
 		return nil, err
 	}
@@ -109,31 +123,33 @@ func (u *Updater) downloadAndInstall(downloadURL, targetPath, expectedSHA256 str
 		return err
 	}
 
-	if err := osChmod(tmpPath, 0755); err != nil {
+	chmod, _, _ := u.files()
+	if err := chmod(tmpPath, 0755); err != nil {
 		return fmt.Errorf("failed to set executable permission: %w", err)
 	}
 
-	return installFile(tmpPath, targetPath)
+	return u.installFile(tmpPath, targetPath)
 }
 
 // installFile renames tmpPath onto targetPath. On Windows a running executable
 // cannot be overwritten directly, so it falls back to moving the current file
 // aside first and restoring it if the swap fails.
-func installFile(tmpPath, targetPath string) error {
-	if err := osRename(tmpPath, targetPath); err != nil {
-		if runtimeGOOS != "windows" {
+func (u *Updater) installFile(tmpPath, targetPath string) error {
+	_, rename, remove := u.files()
+	if err := rename(tmpPath, targetPath); err != nil {
+		if goos, _ := u.platform(); goos != "windows" {
 			return fmt.Errorf("failed to replace binary: %w", err)
 		}
 		old := targetPath + ".old"
-		_ = osRemove(old)
-		if rerr := osRename(targetPath, old); rerr != nil {
+		_ = remove(old)
+		if rerr := rename(targetPath, old); rerr != nil {
 			return fmt.Errorf("failed to move current executable aside: %w", rerr)
 		}
-		if rerr := osRename(tmpPath, targetPath); rerr != nil {
-			_ = osRename(old, targetPath) // best-effort restore
+		if rerr := rename(tmpPath, targetPath); rerr != nil {
+			_ = rename(old, targetPath) // best-effort restore
 			return fmt.Errorf("failed to replace binary: %w", rerr)
 		}
-		_ = osRemove(old)
+		_ = remove(old)
 	}
 	return nil
 }
@@ -155,12 +171,13 @@ func verifyChecksum(path, expectedHex string) error {
 
 // binaryAssetName returns the release asset filename for the current platform,
 // matching the names produced by the release workflow (pacto_<os>_<arch>[.exe]).
-func binaryAssetName() string {
+func (u *Updater) binaryAssetName() string {
+	goos, goarch := u.platform()
 	ext := ""
-	if runtimeGOOS == "windows" {
+	if goos == "windows" {
 		ext = ".exe"
 	}
-	return fmt.Sprintf("pacto_%s_%s%s", runtimeGOOS, runtimeGOARCH, ext)
+	return fmt.Sprintf("pacto_%s_%s%s", goos, goarch, ext)
 }
 
 // checksumsURL returns the URL of the checksums.txt asset for a release.
@@ -248,7 +265,7 @@ func (u *Updater) validateRelease(tag string) error {
 func (u *Updater) buildDownloadURL(tag string) string {
 	return fmt.Sprintf(
 		"%s/TrianaLab/pacto/releases/download/%s/%s",
-		u.DownloadBaseURL, tag, binaryAssetName(),
+		u.DownloadBaseURL, tag, u.binaryAssetName(),
 	)
 }
 

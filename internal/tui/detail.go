@@ -7,7 +7,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // detailScreen renders one fleet.EntityDetail in a scrollable viewport. It

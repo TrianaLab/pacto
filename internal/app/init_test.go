@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 func TestInit_ReadOnlyDir(t *testing.T) {
@@ -122,16 +122,15 @@ func TestInit_WriteFileErrors(t *testing.T) {
 			}
 			defer func() { _ = os.Chdir(orig) }()
 
-			old := writeFileFn
-			writeFileFn = func(name string, data []byte, perm os.FileMode) error {
+			writeFileHook := func(name string, data []byte, perm os.FileMode) error {
 				if strings.Contains(name, failFile) {
 					return fmt.Errorf("write failed")
 				}
 				return os.WriteFile(name, data, perm)
 			}
-			defer func() { writeFileFn = old }()
 
 			svc := NewService(nil, nil)
+			svc.sys.writeFile = writeFileHook
 			_, err := svc.Init(context.Background(), InitOptions{Name: "test-svc"})
 			if err == nil {
 				t.Errorf("expected error when writing %s fails", failFile)

@@ -3,27 +3,19 @@ package cli
 import (
 	"errors"
 	"io"
-	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/tui"
-	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/tui"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
-
-// osExecutable is a seam so the TTY-less test can exercise the failure path.
-var osExecutable = os.Executable
-
-// tuiRun is a seam so the test can check the flags reach tui.Options without
-// starting a full-screen program.
-var tuiRun = tui.Run
 
 // newTUICommand builds `pacto tui`: the full-screen terminal front-end. It
 // takes the same fleet source flags as `pacto fleet`, because the snapshot it
 // navigates is the same snapshot.
-func newTUICommand(svc *app.Service, v *viper.Viper) *cobra.Command {
+func newTUICommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tui",
 		Short: "Browse the fleet and run pacto commands in a full-screen terminal UI",
@@ -45,7 +37,7 @@ func newTUICommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			if !isTerminal(cmd.OutOrStdout()) {
 				return errors.New("pacto tui needs an interactive terminal; use the plain commands in a pipeline")
 			}
-			exe, err := osExecutable()
+			exe, err := d.executable()
 			if err != nil {
 				return err
 			}
@@ -61,7 +53,7 @@ func newTUICommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			// Not verbose, whatever the flag says: nothing reads these records,
 			// so formatting them at Debug is work for a writer that drops them.
 			ctx := logging.WithLogger(cmd.Context(), logging.New(io.Discard, false))
-			return tuiRun(ctx, tui.Options{
+			return d.runTUI(ctx, tui.Options{
 				Svc:   svc,
 				Fleet: fleetOptions(cmd),
 				// The yanked line has to resolve the snapshot on screen, not one

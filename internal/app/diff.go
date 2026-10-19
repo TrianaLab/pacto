@@ -7,14 +7,13 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
-	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/diff"
-	"github.com/trianalab/pacto/v3/pkg/graph"
-	"github.com/trianalab/pacto/v3/pkg/logging"
-	"github.com/trianalab/pacto/v3/pkg/override"
-	"github.com/trianalab/pacto/v3/pkg/sbom"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/diff"
+	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/override"
+	"github.com/trianalab/pacto/v4/pkg/sbom"
 )
 
 // DiffOptions holds options for the diff command.
@@ -177,10 +176,8 @@ func (f *localOverrideFetcher) FetchFrom(ctx context.Context, base string, dep c
 // ociRefName extracts the last path segment from an OCI location,
 // stripping any tag. e.g. "ghcr.io/org/pactos/my-svc:1.0.0" → "my-svc".
 func ociRefName(location string) string {
-	if idx := strings.LastIndex(location, ":"); idx > strings.LastIndex(location, "/") {
-		location = location[:idx]
-	}
-	return path.Base(location)
+	repo, _, _ := contract.SplitOCITag(location)
+	return path.Base(repo)
 }
 
 // collectNodes walks the dependency graph and returns all nodes indexed by name.

@@ -13,11 +13,11 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/v3/internal/app"
-	pactomcp "github.com/trianalab/pacto/v3/internal/mcp"
-	"github.com/trianalab/pacto/v3/pkg/capability"
-	"github.com/trianalab/pacto/v3/pkg/catalog"
-	"github.com/trianalab/pacto/v3/pkg/impact"
+	"github.com/trianalab/pacto/v4/internal/app"
+	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
+	"github.com/trianalab/pacto/v4/pkg/capability"
+	"github.com/trianalab/pacto/v4/pkg/catalog"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 func newMCPCommand(svc *app.Service, version string) *cobra.Command {
@@ -112,11 +112,11 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 		if err != nil {
 			return nil, err
 		}
-		return pactomcp.NewFleetServer(version, q, mcpImpactProvider(cmd, svc), svc.PolicyResolver), nil
+		return pactomcp.NewFleetServer(version, q, mcpImpactProvider(cmd, svc), svc.ValidationReport), nil
 	case len(args) > 0:
 		return buildCapabilityServer(cmd, svc, version, args[0])
 	}
-	return pactomcp.NewServer(svc.PolicyResolver, version), nil
+	return pactomcp.NewServer(svc.ValidationReport, version), nil
 }
 
 // checkMCPMode rejects an invocation that selects more than one server. The
@@ -198,7 +198,7 @@ func buildCapabilityServer(cmd *cobra.Command, svc *app.Service, version, ref st
 		BaseURL:     baseURL,
 		Creds:       creds,
 		AllowWrites: allowWrites,
-		Resolver:    svc.PolicyResolver,
+		Validator:   svc.ValidationReport,
 	}
 	return pactomcp.NewCapabilityServer(bundle, opts, version, cmd.ErrOrStderr())
 }

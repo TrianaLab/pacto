@@ -5,6 +5,6 @@
   "pacto": {
     "releaseUnit": "core",
     "kind": "go-module",
-    "coordinate": "github.com/trianalab/pacto/v3"
+    "coordinate": "github.com/trianalab/pacto/v4"
   }
 }

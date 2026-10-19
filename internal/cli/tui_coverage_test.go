@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/trianalab/pacto/v3/internal/tui"
+	"github.com/trianalab/pacto/v4/internal/tui"
 )
 
 // embodiedByTUI are commands the TUI *is* rather than runs: their whole output
@@ -30,6 +30,8 @@ var embodiedByTUI = map[string]string{
 // exclusion is a decision on the record rather than an oversight. Adding a new
 // command forces a choice: give it a verb, or add it here with a reason.
 var excludedFromTUI = map[string]string{
+	"agent":           "a long-running host daemon",
+	"run":             "wraps a process and lives as long as it does",
 	"fleet reconcile": "requires a --traces file, which no selection can supply",
 	"dashboard":       "a long-running server; the TUI is the terminal equivalent of it",
 	"doc":             "writes a file or serves a site, neither of which belongs on a screen stack",

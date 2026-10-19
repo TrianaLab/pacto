@@ -538,6 +538,16 @@ type EvidenceRefStatus struct {
 
 	// ObservedAt is the ISO8601 timestamp when the evidence was collected.
 	ObservedAt string `json:"observedAt"`
+
+	// Collector names the producer of the matched observation: k8s-observer for
+	// the Kubernetes API alone, k8s-observer+ebpf when kernel evidence was merged
+	// in, ebpf when only the kernel saw it.
+	// +optional
+	Collector string `json:"collector,omitempty"`
+
+	// DetectedAt is the RFC 3339 time the matched observation was made.
+	// +optional
+	DetectedAt string `json:"detectedAt,omitempty"`
 }
 
 // FindingStatus is a typed conclusion emitted by the Pacto engine.
@@ -600,6 +610,14 @@ type EvaluationCoverage struct {
 	Evaluated int32 `json:"evaluated"`
 	// Required is the total number of required assertions the contract declares.
 	Required int32 `json:"required"`
+	// Unverified lists, sorted, the contract paths of declared facets that have a
+	// runtime check but no usable fact this time (for example
+	// interfaces[name=api].type with probing off). Metadata only: it never changes
+	// the contract status.
+	// +kubebuilder:validation:MaxItems=256
+	// +listType=atomic
+	// +optional
+	Unverified []string `json:"unverified,omitempty"`
 }
 
 // ObservationWindow tracks the first sustained NEGATIVE observation for one assertion, so a transient

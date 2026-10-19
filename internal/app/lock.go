@@ -8,9 +8,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/lock"
-	"github.com/trianalab/pacto/v3/pkg/override"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/lock"
+	"github.com/trianalab/pacto/v4/pkg/override"
 )
 
 // LockOptions configures the lock command.
@@ -34,10 +34,6 @@ type LockResult struct {
 	Dependencies int        `json:"dependencies"`
 	References   int        `json:"references"`
 }
-
-// marshalLockFn serializes a lock to bytes; overridable in tests to exercise the
-// marshal-error path (yaml.Marshal of a valid lock does not fail in practice).
-var marshalLockFn = (*lock.Lock).Marshal
 
 // lockPathFor returns the pacto.lock path beside a local ref. The second return
 // value is false for OCI references, which have no on-disk lock.
@@ -91,11 +87,11 @@ func (s *Service) Lock(ctx context.Context, opts LockOptions) (*LockResult, erro
 		fresh = mergePreservingPins(existing, fresh, opts.UpdateNames)
 	}
 
-	data, err := marshalLockFn(fresh)
+	data, err := s.env().marshalLock(fresh)
 	if err != nil {
 		return nil, err
 	}
-	if err := writeFileFn(lockPath, data, 0o644); err != nil {
+	if err := s.env().writeFile(lockPath, data, 0o644); err != nil {
 		return nil, err
 	}
 	return &LockResult{Path: lockPath, Lock: fresh, Written: true,

@@ -37,10 +37,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/lock"
-	"github.com/trianalab/pacto/v3/pkg/readiness"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/lock"
+	"github.com/trianalab/pacto/v4/pkg/readiness"
 )
 
 // ServiceKey is the stable identity of a logical service (its name).
@@ -143,34 +143,11 @@ func NewRevisionKey(serviceKey ServiceKey, contentID string) RevisionKey {
 // NewTargetKey builds a collision-safe target key from its scope, kind, and
 // name. Each component is percent-escaped (so an embedded "/" or "%" can never
 // forge a component boundary) and the three components are joined with "/". The
-// encoding round-trips through [ParseTargetKey]; a separate human display string
+// encoding is canonical (see the round-trip test); a separate human display string
 // is available via [TargetRecord.DisplayName]. Two distinct (scope,kind,name)
 // triples can never map to the same key.
 func NewTargetKey(scope, kind, name string) TargetKey {
 	return TargetKey(escapeKeyPart(scope) + "/" + escapeKeyPart(kind) + "/" + escapeKeyPart(name))
-}
-
-// ParseTargetKey losslessly decodes a target key back into its components. ok is
-// false when the key is not a well-formed three-component key OR any component is
-// not CANONICALLY encoded — an invalid escape (e.g. a bare "%", "%2G") or a
-// non-canonical one (e.g. lowercase "%2f") is rejected rather than silently
-// mis-decoded, so only keys [NewTargetKey] could have produced round-trip.
-//
-// Deprecated: no production code in Pacto uses this function; it exists only for
-// same-package tests. Removed at v4.
-func ParseTargetKey(k TargetKey) (scope, kind, name string, ok bool) {
-	parts := strings.Split(string(k), "/")
-	if len(parts) != 3 {
-		return "", "", "", false
-	}
-	for _, p := range parts {
-		// A component is canonical iff re-encoding its decoding reproduces it
-		// exactly; escapeKeyPart only ever emits %25 and %2F.
-		if escapeKeyPart(unescapeKeyPart(p)) != p {
-			return "", "", "", false
-		}
-	}
-	return unescapeKeyPart(parts[0]), unescapeKeyPart(parts[1]), unescapeKeyPart(parts[2]), true
 }
 
 // escapeKeyPart percent-encodes "%" first (so encoding is unambiguous) then "/".
@@ -333,20 +310,6 @@ const (
 	// LimitationObservedNotTargetScoped: runtime observation establishes
 	// service-to-service traffic, not which concrete provider target served it.
 	LimitationObservedNotTargetScoped = "OBSERVED_NOT_TARGET_SCOPED"
-
-	// Deprecated: nothing emits REVISION_CONTENT_CONFLICT any more. It reported two
-	// sources pinning one revision key to different contract bodies, which a
-	// content-addressed key makes impossible; the disagreements that are real are
-	// reported as LimitationRevisionDocConflict and LimitationRevisionLockConflict.
-	// The name is kept so a v3 consumer that branches on it still compiles.
-	// Removed at v4.
-	LimitationRevisionConflict = "REVISION_CONTENT_CONFLICT"
-	// Deprecated: nothing emits REVISION_CONTENT_MUTABLE any more. A revision
-	// resolved through a tag or a local path is reported as
-	// LimitationRevisionUnresolved instead, which says the same thing about its
-	// identity at the point the identity is derived. The name is kept so a v3
-	// consumer that branches on it still compiles. Removed at v4.
-	LimitationRevisionContentMutable = "REVISION_CONTENT_MUTABLE"
 )
 
 // Limitation is a structured, machine-readable reason an answer is incomplete.
@@ -704,24 +667,6 @@ type FleetSnapshot struct {
 	// callers can layer observed evidence on top rather than conflating the two.
 	observedReverse map[ServiceKey][]ServiceKey
 	observedForward map[ServiceKey][]ServiceKey
-}
-
-// ObservedDependents returns the services observed calling the given service at
-// runtime (the observed-edge reverse index), separate from declared dependents.
-//
-// Deprecated: no production code in Pacto uses this method; it exists only for
-// same-package tests. Removed at v4.
-func (s *FleetSnapshot) ObservedDependents(key ServiceKey) []ServiceKey {
-	return append([]ServiceKey(nil), s.observedReverse[key]...)
-}
-
-// ObservedDependencies returns the services the given service was observed calling
-// at runtime (the observed-edge forward index), separate from declared ones.
-//
-// Deprecated: no production code in Pacto uses this method; it exists only for
-// same-package tests. Removed at v4.
-func (s *FleetSnapshot) ObservedDependencies(key ServiceKey) []ServiceKey {
-	return append([]ServiceKey(nil), s.observedForward[key]...)
 }
 
 // Service returns the logical service record by name, or nil.

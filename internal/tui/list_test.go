@@ -6,9 +6,10 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/atotto/clipboard"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // newLoadedContext returns a Context with a real query over the test snapshot,
@@ -33,6 +34,9 @@ func newContextOver(t *testing.T, snap *fleet.FleetSnapshot) *Context {
 		Snapshot: snap,
 		Width:    100,
 		Height:   30,
+
+		execProcess:    tea.ExecProcess,
+		clipboardWrite: clipboard.WriteAll,
 	}
 }
 

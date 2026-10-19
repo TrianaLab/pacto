@@ -4,9 +4,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/readiness"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/readiness"
 )
 
 // Backend-authoritative aggregates over a COMPLETE population.

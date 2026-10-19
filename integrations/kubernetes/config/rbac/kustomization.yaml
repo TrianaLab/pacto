@@ -28,4 +28,14 @@ resources:
 - pacto_admin_role.yaml
 - pacto_editor_role.yaml
 - pacto_viewer_role.yaml
-
+# The node agent's namespace and its half of manager-role are the Helm chart's:
+# this kustomize install never enables the agent, and the namespace override in
+# config/default would otherwise fold that Role onto the operator namespace's.
+patches:
+- patch: |-
+    $patch: delete
+    apiVersion: rbac.authorization.k8s.io/v1
+    kind: Role
+    metadata:
+      name: manager-role
+      namespace: pacto-node-agent

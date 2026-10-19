@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/trianalab/pacto/v3/pkg/graph"
-	"github.com/trianalab/pacto/v3/pkg/logging"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // PullOptions holds options for the pull command.
@@ -17,10 +17,10 @@ type PullOptions struct {
 
 // PullResult holds the result of the pull command.
 type PullResult struct {
-	Ref     string
-	Output  string
-	Name    string
-	Version string
+	Ref     string `json:"ref"`
+	Output  string `json:"output"`
+	Name    string `json:"name"`
+	Version string `json:"version"`
 }
 
 // Pull fetches a contract bundle from an OCI registry and extracts it to disk.

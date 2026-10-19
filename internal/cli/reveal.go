@@ -7,11 +7,11 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v4/internal/app"
 )
 
-// revealStagger is a var so tests shrink it to ~1ms. ~300ms total / lines.
-var revealStagger = 60 * time.Millisecond
+// revealStagger is the pause between revealed lines: ~300ms in total.
+const revealStagger = 60 * time.Millisecond
 
 // bannerLines returns the solid-block PACTO wordmark plus a tagline led by the
 // brackets mark, colored brand indigo when color (wrapped in ansiIndigo…ansiReset).

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/plugin"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/plugin"
 )
 
 func TestGenerate_Success(t *testing.T) {
@@ -203,11 +203,9 @@ func TestGenerate_WriteFileError_FlatPath(t *testing.T) {
 	dir := t.TempDir()
 	outputDir := filepath.Join(dir, "gen-output")
 
-	old := writeFileFn
-	writeFileFn = func(name string, data []byte, perm os.FileMode) error {
+	writeFileHook := func(name string, data []byte, perm os.FileMode) error {
 		return fmt.Errorf("write failed")
 	}
-	defer func() { writeFileFn = old }()
 
 	runner := &mockPluginRunner{
 		RunFn: func(_ context.Context, _ string, _ plugin.GenerateRequest) (*plugin.GenerateResponse, error) {
@@ -218,6 +216,7 @@ func TestGenerate_WriteFileError_FlatPath(t *testing.T) {
 	}
 
 	svc := NewService(nil, runner)
+	svc.sys.writeFile = writeFileHook
 	_, err := svc.Generate(context.Background(), GenerateOptions{
 		Path:      bundleDir,
 		OutputDir: outputDir,
@@ -260,14 +259,13 @@ func TestGenerate_AbsPathError(t *testing.T) {
 	dir := t.TempDir()
 	outputDir := filepath.Join(dir, "gen-output")
 
-	old := absPathFn
-	absPathFn = func(string) (string, error) {
+	absPathHook := func(string) (string, error) {
 		return "", fmt.Errorf("getwd failed")
 	}
-	defer func() { absPathFn = old }()
 
 	runner := &mockPluginRunner{}
 	svc := NewService(nil, runner)
+	svc.sys.absPath = absPathHook
 	_, err := svc.Generate(context.Background(), GenerateOptions{
 		Path:      bundleDir,
 		OutputDir: outputDir,
@@ -309,15 +307,14 @@ func TestGenerate_PathTraversalDotDot(t *testing.T) {
 }
 
 func TestGenerate_MkdirTempError(t *testing.T) {
-	old := mkdirTempFn
-	mkdirTempFn = func(string, string) (string, error) {
+	mkdirTempHook := func(string, string) (string, error) {
 		return "", fmt.Errorf("temp failed")
 	}
-	defer func() { mkdirTempFn = old }()
 
 	store := &mockBundleStore{}
 	runner := &mockPluginRunner{}
 	svc := NewService(store, runner)
+	svc.sys.mkdirTemp = mkdirTempHook
 	_, err := svc.Generate(context.Background(), GenerateOptions{
 		Path:      "oci://ghcr.io/acme/svc:1.0.0",
 		OutputDir: filepath.Join(t.TempDir(), "out"),

@@ -9,7 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // stubPlugin puts a pacto-plugin-<name> on an isolated PATH and returns the

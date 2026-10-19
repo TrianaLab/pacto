@@ -9,8 +9,8 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 )
 
 // readyContract returns a readiness assessment that passes, so a revision built

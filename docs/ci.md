@@ -1,6 +1,6 @@
 # CI integration
 
-Two steps in your pipeline prevent breaking changes from reaching production: validate the contract on every pull request, and diff it against what you published. `pacto diff` exits non-zero when the change is breaking. Branch protection is what actually stops the merge.
+Add two steps to your CI so a pull request that breaks your contract fails its checks: validate the contract, then compare it with the version you published. `pacto diff` exits non-zero when the change is breaking. Your branch protection rules turn that failed check into a blocked merge.
 
 ---
 
@@ -12,7 +12,7 @@ Put three things in your repository:
 2. **`pacto.lock`** next to it — the dependency lockfile
 3. **The CI workflow** that runs `pacto validate` and `pacto diff`
 
-`pacto lock .` writes the lockfile by resolving every dependency and recording the digest. Commit it so every build pins the same closure. Interface files (`interfaces/openapi.yaml`, configuration schemas) go in too.
+`pacto lock .` writes the lockfile: it looks up every dependency and records its exact digest (a content hash). Commit it so every build uses the same dependency versions. Commit the interface files (`interfaces/openapi.yaml`, configuration schemas) too.
 
 ---
 
@@ -25,7 +25,7 @@ Put three things in your repository:
   run: pacto validate .
 ```
 
-This catches structural errors, cross-field violations and policy failures. Add `--readiness` to gate on readiness scores; without it, validation ignores the `readiness:` block.
+This catches missing or malformed fields, fields that contradict each other and policy failures. Add `--readiness` to gate on readiness scores; without it, validation ignores the `readiness:` block.
 
 ### Step 2: Diff against the published version
 
@@ -40,7 +40,7 @@ This catches structural errors, cross-field violations and policy failures. Add 
 
 ## Exit codes and what blocks a merge
 
-`pacto diff` exits 1 on a breaking change. The CI step fails, marking the pull request as failing checks. Branch protection is what prevents the merge. Pacto does not do that: the exit code is the signal and your repository's protection rules are the gate.
+`pacto diff` exits 1 on a breaking change, so the CI step fails and the pull request shows a failing check. Pacto stops there. Your repository's branch protection rules decide whether a failing check blocks the merge.
 
 A `BREAKING` classification means the new version is incompatible with consumers pinned to the old major. Release it as a new major (`1.4.2` → `2.0.0`) so consumers can choose when to move.
 

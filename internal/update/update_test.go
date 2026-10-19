@@ -31,16 +31,12 @@ func sha256hex(s string) string {
 // writeChecksums writes a sha256sum-format line for the current platform binary
 // asset to w (used by the test release servers).
 func writeChecksums(w io.Writer, content string) {
-	_, _ = fmt.Fprintf(w, "%s  %s\n", sha256hex(content), binaryAssetName())
+	_, _ = fmt.Fprintf(w, "%s  %s\n", sha256hex(content), New().binaryAssetName())
 }
 
 // writePluginChecksums writes a sha256sum-format line for a plugin asset.
 func writePluginChecksums(w io.Writer, name, content string) {
-	ext := ""
-	if runtimeGOOS == "windows" {
-		ext = ".exe"
-	}
-	_, _ = fmt.Fprintf(w, "%s  %s_%s_%s%s\n", sha256hex(content), name, runtimeGOOS, runtimeGOARCH, ext)
+	_, _ = fmt.Fprintf(w, "%s  %s\n", sha256hex(content), New().pluginAssetName(strings.TrimPrefix(name, "pacto-plugin-")))
 }
 
 // updaterFor points every endpoint at server and makes execPath the binary the
@@ -65,11 +61,8 @@ func TestBuildDownloadURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			origGOOS, origGOARCH := runtimeGOOS, runtimeGOARCH
-			runtimeGOOS, runtimeGOARCH = tt.goos, tt.goarch
-			t.Cleanup(func() { runtimeGOOS, runtimeGOARCH = origGOOS, origGOARCH })
-
 			u := New()
+			u.goos, u.goarch = tt.goos, tt.goarch
 			if got := u.buildDownloadURL(tt.tag); got != u.DownloadBaseURL+tt.expected {
 				t.Errorf("expected %s, got %s", u.DownloadBaseURL+tt.expected, got)
 			}
@@ -351,10 +344,6 @@ func TestDownloadAndReplace_CreateTempError(t *testing.T) {
 }
 
 func TestDownloadAndReplace_ChmodError(t *testing.T) {
-	origChmod := osChmod
-	osChmod = func(string, fs.FileMode) error { return fmt.Errorf("chmod error") }
-	t.Cleanup(func() { osChmod = origChmod })
-
 	execDir := t.TempDir()
 	execPath := filepath.Join(execDir, "pacto")
 	if err := os.WriteFile(execPath, []byte("old"), 0755); err != nil {
@@ -366,7 +355,9 @@ func TestDownloadAndReplace_ChmodError(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	err := updaterFor(server, execPath).downloadAndReplace(server.URL+"/binary", sha256hex("new-binary"))
+	u := updaterFor(server, execPath)
+	u.chmod = func(string, fs.FileMode) error { return fmt.Errorf("chmod error") }
+	err := u.downloadAndReplace(server.URL+"/binary", sha256hex("new-binary"))
 	if err == nil {
 		t.Fatal("expected error from chmod")
 	}
@@ -376,10 +367,6 @@ func TestDownloadAndReplace_ChmodError(t *testing.T) {
 }
 
 func TestDownloadAndReplace_RenameError(t *testing.T) {
-	origRename := osRename
-	osRename = func(string, string) error { return fmt.Errorf("rename error") }
-	t.Cleanup(func() { osRename = origRename })
-
 	execDir := t.TempDir()
 	execPath := filepath.Join(execDir, "pacto")
 	if err := os.WriteFile(execPath, []byte("old"), 0755); err != nil {
@@ -391,7 +378,9 @@ func TestDownloadAndReplace_RenameError(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	err := updaterFor(server, execPath).downloadAndReplace(server.URL+"/binary", sha256hex("new-binary"))
+	u := updaterFor(server, execPath)
+	u.rename = func(string, string) error { return fmt.Errorf("rename error") }
+	err := u.downloadAndReplace(server.URL+"/binary", sha256hex("new-binary"))
 	if err == nil {
 		t.Fatal("expected error from rename")
 	}
@@ -586,7 +575,7 @@ func TestUpdate_ChecksumMismatch(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]string{"tag_name": "v2.0.0"})
 		case strings.HasSuffix(r.URL.Path, "checksums.txt"):
 			// Publish a checksum that does NOT match the served binary.
-			_, _ = fmt.Fprintf(w, "%s  %s\n", sha256hex("the-real-binary"), binaryAssetName())
+			_, _ = fmt.Fprintf(w, "%s  %s\n", sha256hex("the-real-binary"), New().binaryAssetName())
 		default:
 			_, _ = w.Write([]byte("a-tampered-binary"))
 		}
@@ -610,32 +599,29 @@ func TestUpdate_ChecksumMismatch(t *testing.T) {
 }
 
 func TestInstallFile_WindowsFallback(t *testing.T) {
-	origGOOS, origRename, origRemove := runtimeGOOS, osRename, osRemove
-	t.Cleanup(func() { runtimeGOOS, osRename, osRemove = origGOOS, origRename, origRemove })
-	runtimeGOOS = "windows"
-	osRemove = func(string) error { return nil }
+	u := &Updater{goos: "windows", remove: func(string) error { return nil }}
 
 	t.Run("fallback succeeds", func(t *testing.T) {
 		var calls int
-		osRename = func(_, _ string) error {
+		u.rename = func(_, _ string) error {
 			calls++
 			if calls == 1 {
 				return fmt.Errorf("in use") // direct rename fails
 			}
 			return nil // move-aside + final rename succeed
 		}
-		if err := installFile("tmp", "target"); err != nil {
+		if err := u.installFile("tmp", "target"); err != nil {
 			t.Fatalf("expected fallback success, got %v", err)
 		}
 	})
 
 	t.Run("move-aside fails", func(t *testing.T) {
 		var calls int
-		osRename = func(_, _ string) error {
+		u.rename = func(_, _ string) error {
 			calls++
 			return fmt.Errorf("fail %d", calls) // every rename fails
 		}
-		if err := installFile("tmp", "target"); err == nil ||
+		if err := u.installFile("tmp", "target"); err == nil ||
 			!strings.Contains(err.Error(), "failed to move current executable aside") {
 			t.Fatalf("expected move-aside error, got %v", err)
 		}
@@ -643,7 +629,7 @@ func TestInstallFile_WindowsFallback(t *testing.T) {
 
 	t.Run("final rename fails and restores", func(t *testing.T) {
 		var calls int
-		osRename = func(_, _ string) error {
+		u.rename = func(_, _ string) error {
 			calls++
 			switch calls {
 			case 1:
@@ -654,7 +640,7 @@ func TestInstallFile_WindowsFallback(t *testing.T) {
 				return fmt.Errorf("swap failed") // final rename + restore
 			}
 		}
-		if err := installFile("tmp", "target"); err == nil ||
+		if err := u.installFile("tmp", "target"); err == nil ||
 			!strings.Contains(err.Error(), "failed to replace binary") {
 			t.Fatalf("expected replace error, got %v", err)
 		}

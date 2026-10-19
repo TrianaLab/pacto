@@ -1,16 +1,23 @@
 # The Pacto model
 
-How Pacto reaches an answer: what a contract declares, what a collector observes
-and what the engine concludes from the two. One rule governs the whole model:
-**a confirmed contradiction is an error; an inability to observe is `Unknown`,
-not a contradiction**. Most of what follows is the machinery that keeps those two
-apart.
+How Pacto decides whether a running service matches its contract. Three words
+carry the whole page:
+
+- A **contract** is what the service's authors say it is (`pacto.yaml`).
+- **Evidence** is what a tool saw in the running system, such as "a pod listens
+  on port 8080".
+- A **collector** is the tool that gathers that evidence.
+
+The engine compares the two and reports **findings**: one line per problem, each
+with a code such as `INTERFACE_ABSENT`. One rule governs it: **a confirmed
+contradiction is an error; not being able to look is `Unknown`, never a
+contradiction**. Most of what follows keeps those two apart.
 
 ## Declaration versus observation
 
-The contract is stable author *intent*: what a service is operationally,
-independent of any orchestrator. What it looks like at runtime is an
-*observation*, and it lives entirely outside the contract. The `Contract` type
+The contract records *intent*: what a service is, whatever platform runs it.
+What it looks like at runtime is an *observation*, and it lives entirely outside
+the contract. The `Contract` type
 (`pkg/contract`) carries only intent — no `runtime` block, no port, no scaling
 and no image field, because those are delivery concerns owned by integrations.
 Runtime facts travel in a separate `EvidenceSet` (`pkg/evidence`), produced by a
@@ -34,11 +41,13 @@ The heart of the system is a pure function (`pkg/validation/evaluate.go`):
 Evaluate(contract.Contract, evidence.EvidenceSet) -> ([]finding.Finding, Coverage)
 ```
 
-It is stateless: it reads a collector-stamped `Outcome` on each observation and
-applies no temporal, network or Kubernetes logic. For each required assertion —
-an interface's availability, a capability, a dependency, a configuration, the
-workload, persistence — it looks for a matching observation and produces exactly
-one of three results:
+It keeps no state. Each observation carries an `Outcome` the collector set
+(`Observed`, `Failed`, `Stale` and so on), and the engine applies no timing,
+network or Kubernetes logic of its own. An *assertion* is one thing the contract
+claims, such as "the interface `public-api` is served". For each required
+assertion — an interface's availability, a capability, a dependency, a
+configuration, the workload, persistence — the engine looks for a matching
+observation and produces exactly one of three results:
 
 | Result | When | Finding |
 |---|---|---|
@@ -47,7 +56,7 @@ one of three results:
 | **Satisfied** | A matching `Observed` observation is consistent with the contract. | None. |
 
 A required assertion Pacto cannot observe is never silently treated as a pass.
-`Coverage` reports how many required assertions were evaluated versus declared.
+`Coverage` is the count of what the engine could check: it reports how many required assertions were evaluated versus declared.
 It never changes the aggregate compliance state, because an inability to observe
 is not a violation.
 
@@ -76,18 +85,37 @@ A *collector* is any component that observes a real system and produces a valid
 `EvidenceSet`. That `EvidenceSet` is the stable extension boundary, not a
 collector interface: a collector is not a plugin and cannot be installed as one.
 The two extend Pacto in opposite directions — a plugin consumes a contract to
-generate an artifact, a collector observes a system to produce evidence. The
-Kubernetes collector (`integrations/kubernetes`) is the first shipped one, and
-the "custom collector" box below is a design extension point.
+generate an artifact, a collector observes a system to produce evidence.
+
+Pacto ships one general runtime collector and plugs it into each platform. The
+watcher (`internal/runtimewatch`) observes TCP listeners and connection
+outcomes with eBPF and names the workload behind each socket: a pod, a
+container, a systemd unit, a `pacto run` session or a plain process. Its facts
+are platform neutral (`pkg/runtimefacts`), and so are its health, metrics and
+protocol probes (`pkg/probe`). Three front ends put it to work (see [runtime
+conformance](runtime-conformance.md)):
+
+- `pacto run` wraps one command and evaluates it locally.
+- `pacto agent` watches a host, binds workloads to contracts from Docker labels
+  or a bindings file and evaluates them locally or sends signed evidence.
+- The Kubernetes operator (`integrations/kubernetes`) deploys `pacto agent` on
+  every node and merges what it publishes with its own Kubernetes collector,
+  which reads the API server, into one `EvidenceSet`.
+
+Every path ends in the same `Evaluate`. The "custom collector" box below is a
+design extension point.
 
 ```mermaid
 flowchart LR
     C["Pacto contract<br/>declared intent"]
     subgraph Collectors["Collectors — environment-specific"]
-        K["Kubernetes collector<br/><i>first-party, shipped</i>"]
+        W["Runtime watcher: eBPF + probes<br/><i>first-party, any Linux host</i>"]
+        K["Kubernetes collector<br/><i>first-party, operator</i>"]
         X["Custom collector<br/><i>external integration</i>"]
     end
-    K --> E["EvidenceSet<br/>observed facts"]
+    W -- "pacto run / pacto agent" --> E["EvidenceSet<br/>observed facts"]
+    W -- "node agent, merged by the operator" --> K
+    K --> E
     X -.-> E
     C --> V["Evaluate"]
     E --> V

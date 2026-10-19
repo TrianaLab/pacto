@@ -2,17 +2,12 @@ package app
 
 import (
 	"context"
-	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/logging"
-	"github.com/trianalab/pacto/v3/pkg/override"
-	"github.com/trianalab/pacto/v3/pkg/readiness"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/override"
+	"github.com/trianalab/pacto/v4/pkg/readiness"
 )
-
-// timeNow is the clock used to derive readiness freshness. It is a variable so
-// tests can pin "now" for deterministic readiness status.
-var timeNow = time.Now
 
 // ExplainOptions holds options for the explain command.
 type ExplainOptions struct {
@@ -160,7 +155,7 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 		})
 	}
 
-	if eval := readiness.Evaluate(c.Readiness, timeNow()); eval != nil {
+	if eval := readiness.Evaluate(c.Readiness, s.env().now()); eval != nil {
 		er := &ExplainReadiness{
 			Score:         eval.Score,
 			MinScore:      eval.MinScore,

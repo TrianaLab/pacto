@@ -1,29 +1,29 @@
 #!/usr/bin/env bash
-# Real cross-major operator upgrade — v4 -> v5 chart + CRD migration
+# Real cross-major operator upgrade — v4 -> v6 chart + CRD migration
 # Unlike reconcile.sh (which upgrades a 0.0.0-prev fixture that
 # is just the NEW chart repackaged with an older number — same CRDs, no real
 # schema change), this test installs the ACTUAL previous-major operator: the v4.7.0
 # chart (byte-faithful fixture, see tests/acceptance/kind/fixtures/pacto-operator-v4/) with
 # its v4 CRDs, driven by the real published v4 controller image 4.7.0. It then
-# performs the DOCUMENTED CRD migration mechanism and upgrades to the v5 chart built
+# performs the DOCUMENTED CRD migration mechanism and upgrades to the v6 chart built
 # from the working tree, proving an existing v4-stored Pacto survives the schema
-# change and reconciles under v5.
+# change and reconciles under v6.
 #
 # Flow:
 #   1. clean slate -> install the v4 fixture chart (helm auto-installs its v4 CRDs
 #      from crds/) with the real v4 image 4.7.0.
 #   2. create a representative v4-shaped Pacto CR + its target workload; let the v4
 #      operator reconcile; capture status.contractStatus + the CR UID.
-#   3. server-side apply the NEW v5 CRDs (config/crd/bases/*.yaml) — the documented
+#   3. server-side apply the NEW v6 CRDs (every file in config/crd/bases/) — the documented
 #      mechanism, because `helm upgrade` never touches a chart's crds/. Prove the
 #      apply succeeds and the CRD schema actually changed (v4 Passed/Failed printer
-#      columns -> v5 Errors/Warnings).
-#   4. helm upgrade to the v5 chart built from the working tree. Prove the SAME CR
+#      columns -> v6 Errors/Warnings).
+#   4. helm upgrade to the v6 chart built from the working tree. Prove the SAME CR
 #      (unchanged UID) is still stored + readable under the new CRD (no decode /
-#      conversion error, i.e. NOT silently dropped) and reconciles to a v5 status
-#      that carries a v5-only field (status.evaluationCoverage).
+#      conversion error, i.e. NOT silently dropped) and reconciles to a v6 status
+#      that carries a post-v4 field (status.evaluationCoverage).
 #   5. clean uninstall.
-# Prints V4-TO-V5-UPGRADE PASS.
+# Prints V4-TO-V6-UPGRADE PASS.
 set -euo pipefail
 # shellcheck source=tests/acceptance/kind/lib.sh
 source "$(dirname "$0")/lib.sh"
@@ -39,38 +39,39 @@ V4_TAG="4.7.0"
 # silently change what this cross-major migration test installs. Verified in
 # SOURCE.md; the guard below fails closed if the live tag no longer resolves here.
 V4_DIGEST="sha256:a2e8e27dd8b080e797436ab376cef3f95467c7f91c9408bacc09aad8ff769e7d"
-V5_REPO="pacto/operator"
-V5_TAG="5.0.0-e2e"
-V5_IMG="${V5_REPO}:${V5_TAG}"
+NEW_REPO="pacto/operator"
+NEW_TAG="6.0.0-e2e"
+NEW_IMG="${NEW_REPO}:${NEW_TAG}"
 CRD_PACTOS=pactos.pacto.trianalab.io
 CRD_REVS=pactorevisions.pacto.trianalab.io
+CRD_NROS=noderuntimeobservations.pacto.trianalab.io
 
-echo "== build the v5 operator image from the working tree (root Dockerfile) =="
+echo "== build the v6 operator image from the working tree (root Dockerfile) =="
 # The dashboard is incidental to this test but must be ENABLED: the real v4.7.0
 # operator sets up a cached ClusterRoleBinding watch whose RBAC the chart grants
 # only when dashboard.enabled=true, so with it disabled the v4 manager's caches
 # never sync and the Pacto reconciler never runs. Enabling it is v4's default,
-# fully supported config. The v5 image's baked-in dashboard image is a
+# fully supported config. The v6 image's baked-in dashboard image is a
 # non-pullable placeholder (the dashboard pod is harmless ImagePullBackOff — this
 # test asserts the operator + CR, never the dashboard), which keeps the build fast.
 docker build --provenance=false -f "$ROOT/integrations/kubernetes/Dockerfile" \
-  --build-arg VERSION="$V5_TAG" --build-arg DASHBOARD_IMAGE="pacto-dashboard:disabled" \
-  -t "$V5_IMG" "$ROOT"
+  --build-arg VERSION="$NEW_TAG" --build-arg DASHBOARD_IMAGE="pacto-dashboard:disabled" \
+  -t "$NEW_IMG" "$ROOT"
 
-echo "== package the v4 fixture chart (as 4.7.0) + the v5 chart (as 5.0.0) =="
+echo "== package the v4 fixture chart (as 4.7.0) + the v6 chart (as 6.0.0) =="
 # The v4.7.0 release was cut from a 0.1.0 source with a package-time version
 # override; reproduce that exactly.
 V4_CHART="$(package_chart "$FIXTURE" --version 4.7.0 --app-version 4.7.0)"
-V5_CHART="$(package_chart "$PACTO_CHART" --version 5.0.0 --app-version "$V5_TAG")"
+NEW_CHART="$(package_chart "$PACTO_CHART" --version 6.0.0 --app-version "$NEW_TAG")"
 
 ensure_cluster
-# Only the locally built v5 image is loaded. The real v4 image is a published,
+# Only the locally built v6 image is loaded. The real v4 image is a published,
 # public, multi-arch one and the kind node pulls it directly from ghcr at install
 # time (pullPolicy=IfNotPresent) — pulling it host-side first would only add a
 # copy of what the node can fetch itself. (load_images could carry it: it narrows
 # every export to the node's platform. Nothing here needs that.)
-echo "== load the freshly built v5 image into kind =="
-load_images "$V5_IMG"
+echo "== load the freshly built v6 image into kind =="
+load_images "$NEW_IMG"
 
 # Clean slate so helm's first install genuinely installs the v4 CRDs (helm skips
 # crds/ that already exist). Also runs on EXIT so a rerun / failure leaves nothing.
@@ -80,7 +81,7 @@ load_images "$V5_IMG"
 cleanup() {
   helm_teardown "$NS"
   kubectl delete ns "$DEMO_NS" --wait=false >/dev/null 2>&1 || true
-  kubectl delete crd "$CRD_PACTOS" "$CRD_REVS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl delete crd "$CRD_PACTOS" "$CRD_REVS" "$CRD_NROS" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   kubectl delete clusterrole,clusterrolebinding pacto-operator-manager pacto-dashboard \
     --ignore-not-found --wait=false >/dev/null 2>&1 || true
 }
@@ -127,7 +128,7 @@ echo "== STEP 2: create a representative v4-shaped Pacto CR + let v4 reconcile =
 # The v4 operator embeds an older engine core, so it may report this contract as
 # invalid (e.g. an unknown newer field) and land on NonCompliant — that is fine and
 # faithful: the point is the v4 operator RECONCILES the CR and writes a status
-# (surfaced, not dropped). The v5 operator resolves it to Compliant after upgrade.
+# (surfaced, not dropped). The v6 operator resolves it to Compliant after upgrade.
 kubectl create namespace "$DEMO_NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl -n "$DEMO_NS" create deployment orders --image=registry.k8s.io/pause:3.9 >/dev/null 2>&1 || true
 kubectl -n "$DEMO_NS" rollout status deployment/orders --timeout=90s >/dev/null
@@ -161,45 +162,47 @@ V4_UID=$(kubectl -n "$DEMO_NS" get pacto orders -o jsonpath='{.metadata.uid}')
 echo "  v4 reconciled: contractStatus=$V4_STATUS uid=$V4_UID"
 
 echo
-echo "== STEP 3: CRD migration — server-side apply the NEW v5 CRDs BEFORE the upgrade =="
+echo "== STEP 3: CRD migration — server-side apply the NEW v6 CRDs BEFORE the upgrade =="
 # helm upgrade never touches a chart's crds/, so the new schema must be applied out
 # of band. Server-side apply is required: these CRDs exceed the client-side
 # last-applied-configuration annotation limit. --force-conflicts takes ownership of
-# the fields helm set when it installed the v4 CRDs.
-kubectl apply --server-side --force-conflicts -f "$ROOT/integrations/kubernetes/config/crd/bases/pacto.trianalab.io_pactos.yaml"
-kubectl apply --server-side --force-conflicts -f "$ROOT/integrations/kubernetes/config/crd/bases/pacto.trianalab.io_pactorevisions.yaml"
-V5COLS=$(kubectl get crd "$CRD_PACTOS" -o jsonpath='{.spec.versions[0].additionalPrinterColumns[*].name}')
-echo "  migrated CRD printer columns (v5): $V5COLS"
-echo "$V5COLS" | grep -qw Errors || fail "CRD did not migrate to the v5 schema (no 'Errors' column): $V5COLS"
+# the fields helm set when it installed the v4 CRDs. The WHOLE directory, as the
+# docs say: v6 adds CRDs v4 never had (NodeRuntimeObservation), and the v6
+# manager cannot start without them -- its cache resolves every kind it reads.
+kubectl apply --server-side --force-conflicts -f "$ROOT/integrations/kubernetes/config/crd/bases/"
+kubectl get crd "$CRD_NROS" >/dev/null || fail "CRD migration did not create the NodeRuntimeObservation CRD"
+NEWCOLS=$(kubectl get crd "$CRD_PACTOS" -o jsonpath='{.spec.versions[0].additionalPrinterColumns[*].name}')
+echo "  migrated CRD printer columns (v6): $NEWCOLS"
+echo "$NEWCOLS" | grep -qw Errors || fail "CRD did not migrate to the v6 schema (no 'Errors' column): $NEWCOLS"
 # The stored v4 CR must remain readable under the new CRD (no decode/conversion
 # error, same UID) — proof it was NOT silently dropped by the schema change.
 POST_UID=$(kubectl -n "$DEMO_NS" get pacto orders -o jsonpath='{.metadata.uid}' 2>/dev/null) \
   || fail "existing Pacto CR is no longer readable after the CRD migration"
 [ "$POST_UID" = "$V4_UID" ] || fail "CR UID changed across the CRD migration ($V4_UID -> $POST_UID)"
-echo "  existing CR still stored + readable under the v5 CRD (uid unchanged)"
+echo "  existing CR still stored + readable under the v6 CRD (uid unchanged)"
 
 echo
-echo "== STEP 4: helm upgrade to the v5 chart (built from the working tree) =="
-helm upgrade pacto-operator "$V5_CHART" -n "$NS" \
-  --set image.repository="$V5_REPO" --set image.tag="$V5_TAG" --set image.pullPolicy=Never \
+echo "== STEP 4: helm upgrade to the v6 chart (built from the working tree) =="
+helm upgrade pacto-operator "$NEW_CHART" -n "$NS" \
+  --set image.repository="$NEW_REPO" --set image.tag="$NEW_TAG" --set image.pullPolicy=Never \
   --set dashboard.enabled=true --set controller.stabilizationWindow=5s --wait --timeout 180s
 wait_ready pacto-operator 120s >/dev/null
 UP_IMG=$(kubectl -n "$NS" get deploy pacto-operator -o jsonpath='{.spec.template.spec.containers[0].image}')
 echo "  operator rolled to: $UP_IMG"
-echo "$UP_IMG" | grep -q "${V5_REPO}:${V5_TAG}" || fail "operator did not roll to the v5 image: $UP_IMG"
+echo "$UP_IMG" | grep -q "${NEW_REPO}:${NEW_TAG}" || fail "operator did not roll to the v6 image: $UP_IMG"
 kubectl -n "$NS" get deploy pacto-operator -o jsonpath='{.spec.template.spec.containers[0].args}' \
-  | grep -q 'stabilization-window=5s' || fail "v5 controller args missing --stabilization-window=5s"
+  | grep -q 'stabilization-window=5s' || fail "v6 controller args missing --stabilization-window=5s"
 
-echo "== the v5 operator reconciles the pre-existing CR to a v5 status =="
+echo "== the v6 operator reconciles the pre-existing CR to a v6 status =="
 wait_pacto_status "$DEMO_NS" orders Compliant \
-  && echo "  contractStatus=Compliant (v5)" \
-  || fail "v5 operator did not reconcile the pre-existing CR to Compliant"
+  && echo "  contractStatus=Compliant (v6)" \
+  || fail "v6 operator did not reconcile the pre-existing CR to Compliant"
 FINAL_UID=$(kubectl -n "$DEMO_NS" get pacto orders -o jsonpath='{.metadata.uid}')
 [ "$FINAL_UID" = "$V4_UID" ] || fail "CR was recreated across the upgrade ($V4_UID -> $FINAL_UID)"
 COV=$(kubectl -n "$DEMO_NS" get pacto orders -o jsonpath='{.status.evaluationCoverage}' 2>/dev/null || true)
-[ -n "$COV" ] || fail "v5-only status field evaluationCoverage missing — CR not re-reconciled under v5"
-echo "  same CR (uid=$FINAL_UID) now carries the v5-only status.evaluationCoverage: $COV"
-echo "  migration summary: v4 contractStatus='$V4_STATUS' -> v5 contractStatus='Compliant'"
+[ -n "$COV" ] || fail "post-v4 status field evaluationCoverage missing — CR not re-reconciled under v6"
+echo "  same CR (uid=$FINAL_UID) now carries the post-v4 status.evaluationCoverage: $COV"
+echo "  migration summary: v4 contractStatus='$V4_STATUS' -> v6 contractStatus='Compliant'"
 
 echo
 echo "== STEP 5: clean uninstall =="
@@ -209,4 +212,4 @@ deploy_exists pacto-operator \
   && fail "operator Deployment survived uninstall" || echo "  operator runtime resources removed"
 
 echo
-echo "V4-TO-V5-UPGRADE PASS"
+echo "V4-TO-V6-UPGRADE PASS"

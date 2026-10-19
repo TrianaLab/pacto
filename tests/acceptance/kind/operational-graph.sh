@@ -41,6 +41,9 @@ DEMO_NS=demo
 REG_HOST="pacto-registry.${NS}.svc.cluster.local:5000"
 LOCAL_REG_PORT=5601
 LOCAL_EV_PORT=8687
+# The workload that really serves its interface: with the node agent watching
+# the kernel, a pause container bound to a port would be caught as deaf.
+AGNHOST="registry.k8s.io/e2e-test-images/agnhost:2.53"
 # shellcheck source=tests/acceptance/kind/lib.sh
 source "$(dirname "$0")/lib.sh"
 
@@ -96,7 +99,8 @@ echo "== package the operator chart =="
 CHART="$(package_chart "$PACTO_CHART")"
 
 ensure_cluster
-load_images "$DASH_IMG" "$OP_IMG"
+"$ROOT/release/scripts/retry.sh" docker pull -q "$AGNHOST" >/dev/null
+load_images "$DASH_IMG" "$OP_IMG" "$AGNHOST"
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 echo "== an in-cluster OCI registry makes contract revisions resolvable =="
@@ -210,12 +214,26 @@ echo "== declared services: the projected Pacto CRs, resolved FROM THE REGISTRY 
 # binding, or the operator has nothing to observe interface availability against
 # and its only honest answer is Unknown. A declared port produces both; a zero
 # port is the scenario saying this workload is deliberately unexposed.
+#
+# The node agent watches every pod's sockets, so the mode decides what runs: a
+# served workload really listens (agnhost netexec), an idle one has nothing to
+# listen for, and the deaf one is Ready behind its Service while listening on
+# nothing, which only the kernel can tell. It is the one workload expected to
+# reconcile NonCompliant.
 kubectl create namespace "$DEMO_NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 workloads=()
-while IFS=$'\t' read -r service deployment port extra; do
-  [ -n "$service" ] && [ -n "$deployment" ] && [ -n "$port" ] && [ -z "${extra:-}" ] \
+statuses=() # the status each workload must reconcile to, by index
+while IFS=$'\t' read -r service deployment port mode extra; do
+  [ -n "$service" ] && [ -n "$deployment" ] && [ -n "$port" ] && [ -n "$mode" ] && [ -z "${extra:-}" ] \
     || fail "malformed workload record in $PLAN"
-  kubectl -n "$DEMO_NS" create deployment "$deployment" --image=registry.k8s.io/pause:3.9 >/dev/null 2>&1 || true
+  case "$mode" in
+    serve) kubectl -n "$DEMO_NS" create deployment "$deployment" --image="$AGNHOST" --port="$port" \
+             -- /agnhost netexec --http-port="$port" >/dev/null 2>&1 || true
+           statuses+=(Compliant) ;;
+    idle|deaf) kubectl -n "$DEMO_NS" create deployment "$deployment" --image=registry.k8s.io/pause:3.9 >/dev/null 2>&1 || true
+           if [ "$mode" = deaf ]; then statuses+=(NonCompliant); else statuses+=(Compliant); fi ;;
+    *) fail "unknown workload mode $mode in $PLAN" ;;
+  esac
   kubectl -n "$DEMO_NS" rollout status "deployment/$deployment" --timeout=90s
   [ "$port" = 0 ] \
     || kubectl -n "$DEMO_NS" expose deployment "$deployment" --name="$deployment" --port="$port" >/dev/null 2>&1 || true
@@ -226,9 +244,10 @@ kubectl apply -f "$CRS" >/dev/null
 # Compliant is this run's readiness barrier, not a fact under test: the gate below
 # re-derives every verdict from the live Product API. Waiting here only keeps the
 # gate from starting before the operator has reconciled anything.
-for service in "${workloads[@]}"; do
-  wait_pacto_status "$DEMO_NS" "$service" Compliant \
-    && pass "$service reconciled Compliant" || fail "$service did not reconcile"
+for i in "${!workloads[@]}"; do
+  service="${workloads[$i]}" status="${statuses[$i]}"
+  wait_pacto_status "$DEMO_NS" "$service" "$status" \
+    && pass "$service reconciled $status" || fail "$service did not reconcile"
 done
 
 echo "== ingest the declared signed EvidenceEnvelopes from a 'remote' environment =="

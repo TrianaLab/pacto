@@ -1,4 +1,4 @@
-[![CI](https://github.com/TrianaLab/pacto/actions/workflows/ci.yml/badge.svg)](https://github.com/TrianaLab/pacto/actions/workflows/ci.yml) [![Docs](https://img.shields.io/badge/docs-pacto.run-blue)](https://pacto.run) [![PkgGoDev](https://pkg.go.dev/badge/github.com/trianalab/pacto/v3)](https://pkg.go.dev/github.com/trianalab/pacto/v3) [![codecov](https://codecov.io/github/TrianaLab/pacto/graph/badge.svg?token=p3AJpP3BbO)](https://codecov.io/github/TrianaLab/pacto) [![GitHub Release](https://img.shields.io/github/v/release/TrianaLab/pacto)](https://github.com/TrianaLab/pacto/releases/latest) [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/pacto-operator)](https://artifacthub.io/packages/search?repo=pacto-operator) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/TrianaLab/pacto/actions/workflows/ci.yml/badge.svg)](https://github.com/TrianaLab/pacto/actions/workflows/ci.yml) [![Docs](https://img.shields.io/badge/docs-pacto.run-blue)](https://pacto.run) [![PkgGoDev](https://pkg.go.dev/badge/github.com/trianalab/pacto/v4)](https://pkg.go.dev/github.com/trianalab/pacto/v4) [![codecov](https://codecov.io/github/TrianaLab/pacto/graph/badge.svg?token=p3AJpP3BbO)](https://codecov.io/github/TrianaLab/pacto) [![GitHub Release](https://img.shields.io/github/v/release/TrianaLab/pacto)](https://github.com/TrianaLab/pacto/releases/latest) [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/pacto-operator)](https://artifacthub.io/packages/search?repo=pacto-operator) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 # Pacto
 
@@ -20,8 +20,8 @@ already run.
 ## Who breaks when a dependency ships a new version
 
 A Pacto dependency records the range this revision accepts — `auth ^2.0.0` —
-and `pacto.lock` pins the rest of the transitive closure by digest. So when auth
-is about to ship 3.0, Pacto answers per consumer:
+and `pacto.lock` pins every dependency below it to the exact published build.
+So when auth is about to ship 3.0, Pacto answers per consumer:
 
 ```console
 $ pacto impact ./auth-2.1.0 ./auth-3.0.0 --local .
@@ -55,6 +55,29 @@ something wrong. A program will not.
 `validate` and `diff` pay off at one service; `impact` and the graph pay off at
 the second consumer. `pacto dashboard` and `pacto tui` put the same answers in a
 browser or a terminal.
+
+## Check what is actually running
+
+Pacto can check what a running service actually does on the network against
+what its contract says, on any Linux machine, and tells you only what it can
+prove:
+
+| What it catches | Finding |
+| --- | --- |
+| A process reports healthy but nothing listens on the declared port | `INTERFACE_ABSENT` |
+| A declared dependency the service keeps failing to reach | `DEPENDENCY_UNREACHABLE` |
+| A call to another Pacto service no dependency declares (Kubernetes) | `DEPENDENCY_UNDECLARED` |
+
+```bash
+pacto run --contract ./payments --bind api=8080 --fail-on noncompliant -- ./payments-server
+```
+
+Pacto watches TCP connections in the Linux kernel with eBPF (small, safe
+programs the kernel runs on events). It never reads payloads or secrets, and
+when it cannot see it says "don't know" instead of guessing. Run it three ways:
+`pacto run` wraps one command (a laptop, a CI job), `pacto agent` watches a
+Docker host or a server and the Kubernetes operator deploys the same agent on
+every node. See [Runtime conformance](https://pacto.run/latest/runtime-conformance/).
 
 ## What a contract declares
 
@@ -125,7 +148,7 @@ is the only row that scores first-class on all six capability columns.
 curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | bash
 
 # Go
-go install github.com/trianalab/pacto/v3/cmd/pacto@latest
+go install github.com/trianalab/pacto/v4/cmd/pacto@latest
 
 # From source
 git clone https://github.com/TrianaLab/pacto.git && cd pacto && make build
@@ -150,6 +173,7 @@ Full documentation at **[pacto.run](https://pacto.run)**.
 | [For Platform Engineers](https://pacto.run/latest/platform-engineers) | Consume contracts for deployment, policies and graphs |
 | [CLI Reference](https://pacto.run/latest/cli-reference) | All commands, flags and output formats |
 | [Dashboard](https://pacto.run/latest/dashboard-docker) | Deploy the dashboard container alongside the operator |
+| [Runtime conformance](https://pacto.run/latest/runtime-conformance/) | Check what running services do on the network, on any Linux host |
 | [Kubernetes Operator](https://pacto.run/latest/integrations/kubernetes/overview/) | Runtime contract tracking and verification |
 | [MCP Integration](https://pacto.run/latest/mcp-integration) | Connect AI tools (Claude, Cursor, Copilot) to Pacto via MCP |
 | [Plugin Development](https://pacto.run/latest/plugins) | Build plugins to generate artifacts from contracts |

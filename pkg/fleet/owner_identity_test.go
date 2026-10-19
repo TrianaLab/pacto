@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // CANONICAL OWNER IDENTITY vs FREE-TEXT OWNER SEARCH.

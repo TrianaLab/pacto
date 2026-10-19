@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,10 +16,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/internal/testutil"
-	"github.com/trianalab/pacto/v3/pkg/evidence"
-	"github.com/trianalab/pacto/v3/pkg/evidenceenvelope"
-	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 )
 
 // sampleEvidenceSet returns a minimal, structurally valid EvidenceSet.
@@ -131,10 +132,7 @@ func TestLoadTrustStore_DuplicateKeyID(t *testing.T) {
 }
 
 func TestGenerateKey_RandError(t *testing.T) {
-	old := randReader
-	randReader = errReader{}
-	defer func() { randReader = old }()
-	if _, err := (&Service{}).GenerateKey(t.TempDir(), "", "", false); err == nil {
+	if _, err := (&Service{sys: sysDeps{rand: errReader{}}}).GenerateKey(t.TempDir(), "", "", false); err == nil {
 		t.Fatal("expected error from failing entropy source")
 	}
 }
@@ -156,25 +154,22 @@ func TestGenerateKey_MkdirError(t *testing.T) {
 }
 
 func TestGenerateKey_WriteErrors(t *testing.T) {
-	old := writeFileFn
-	defer func() { writeFileFn = old }()
-
 	// Private-key write fails.
-	writeFileFn = func(string, []byte, os.FileMode) error { return errors.New("disk full") }
-	if _, err := (&Service{}).GenerateKey(t.TempDir(), "", "", false); err == nil {
+	svc := &Service{sys: sysDeps{writeFile: func(string, []byte, os.FileMode) error { return errors.New("disk full") }}}
+	if _, err := svc.GenerateKey(t.TempDir(), "", "", false); err == nil {
 		t.Fatal("expected private-key write error")
 	}
 
 	// Public-key write fails (private succeeds).
 	calls := 0
-	writeFileFn = func(string, []byte, os.FileMode) error {
+	svc.sys.writeFile = func(string, []byte, os.FileMode) error {
 		calls++
 		if calls == 1 {
 			return nil
 		}
 		return errors.New("disk full")
 	}
-	if _, err := (&Service{}).GenerateKey(t.TempDir(), "", "", false); err == nil {
+	if _, err := svc.GenerateKey(t.TempDir(), "", "", false); err == nil {
 		t.Fatal("expected public-key write error")
 	}
 }
@@ -908,9 +903,6 @@ func TestServeEvidence_RegistryOutage(t *testing.T) {
 // it never restarts it.
 func TestServeEvidence_ReadinessIsBounded(t *testing.T) {
 	budget := 500 * time.Millisecond
-	restore := readinessTimeout
-	readinessTimeout = budget
-	t.Cleanup(func() { readinessTimeout = restore })
 
 	// Two concurrent probes — a kubelet's and a producer's, say. Each must be
 	// bounded on its own, which is only true if nothing serializes them behind a
@@ -924,6 +916,7 @@ func TestServeEvidence_ReadinessIsBounded(t *testing.T) {
 	srv := httptest.NewServer(reg)
 	t.Cleanup(srv.Close)
 	f := evidenceFixtureOn(t, srv.Listener.Addr().String())
+	f.svc.sys.readinessTimeout = budget
 	base := serveEvidence(t, f.svc, f.serveOptions())
 
 	reg.stall()
@@ -989,9 +982,6 @@ func await(t *testing.T, ch <-chan struct{}, n int, patience time.Duration, what
 func TestServeEvidence_ReadinessFollowsTheCaller(t *testing.T) {
 	// A budget far longer than anything this test waits for, so only the caller's
 	// disconnect can be what ends the registry request.
-	restore := readinessTimeout
-	readinessTimeout = 10 * time.Second
-	t.Cleanup(func() { readinessTimeout = restore })
 
 	reg := &stalledRegistry{
 		inner:     testutil.NewReferrersRegistry(testutil.ReferrersOptions{}),
@@ -1001,6 +991,7 @@ func TestServeEvidence_ReadinessFollowsTheCaller(t *testing.T) {
 	srv := httptest.NewServer(reg)
 	t.Cleanup(srv.Close)
 	f := evidenceFixtureOn(t, srv.Listener.Addr().String())
+	f.svc.sys.readinessTimeout = 10 * time.Second
 	base := serveEvidence(t, f.svc, f.serveOptions())
 
 	reg.stall()
@@ -1211,5 +1202,65 @@ func TestVerify_UsesEnvelopePackage(t *testing.T) {
 	}
 	if err := evidenceenvelope.Verify(env, ts, time.Now()); err != nil {
 		t.Fatalf("Verify: %v", err)
+	}
+}
+
+func TestSignEvidenceSetAndPostEnvelope(t *testing.T) {
+	svc := &Service{}
+	kp, err := svc.GenerateKey(t.TempDir(), "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	opts := SignOptions{KeyPath: kp.PrivateKeyPath, KeyID: kp.KeyID, ProducerID: "agent", Sequence: 7}
+	env, err := svc.SignEvidenceSet(sampleEvidenceSet(), opts)
+	if err != nil || env.Sequence != 7 || len(env.Signature.Value) == 0 {
+		t.Fatalf("SignEvidenceSet = %+v, %v", env, err)
+	}
+	if _, err := svc.SignEvidenceSet(evidence.EvidenceSet{}, opts); err == nil {
+		t.Fatal("an invalid set was signed")
+	}
+
+	var got []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+	res, err := svc.PostEnvelope(context.Background(), srv.URL, env)
+	if err != nil || res.StatusCode != http.StatusAccepted {
+		t.Fatalf("PostEnvelope = %+v, %v", res, err)
+	}
+	if back, err := evidenceenvelope.Decode(got); err != nil || back.ID != env.ID {
+		t.Fatalf("posted %s: %v", got, err)
+	}
+	// An envelope whose evidence cannot encode is never posted.
+	env.EvidenceSet.Observations = []evidence.Observation{{Kind: "bogus"}}
+	if _, err := svc.PostEnvelope(context.Background(), srv.URL, env); err == nil {
+		t.Fatal("an unencodable envelope was posted")
+	}
+}
+
+// TestPostEnvelope_BoundedClient: the sender neither hangs on a host that never
+// answers nor reads an unbounded answer into memory.
+func TestPostEnvelope_BoundedClient(t *testing.T) {
+	if (&Service{}).env().httpClient.Timeout == 0 {
+		t.Fatal("the evidence client must carry a timeout")
+	}
+	big := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(bytes.Repeat([]byte("x"), maxSendResponse+10))
+	}))
+	defer big.Close()
+	res, err := (&Service{}).postEnvelope(context.Background(), big.URL, []byte("{}"))
+	if err != nil || len(res.Body) != maxSendResponse {
+		t.Fatalf("body len = %d, err = %v; want %d", len(res.Body), err, maxSendResponse)
+	}
+
+	stall := make(chan struct{})
+	slow := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-stall }))
+	defer slow.Close()
+	defer close(stall)
+	svc := &Service{sys: sysDeps{httpClient: &http.Client{Timeout: 50 * time.Millisecond}}}
+	if _, err := svc.postEnvelope(context.Background(), slow.URL, []byte("{}")); err == nil {
+		t.Fatal("want a timeout from a host that never answers")
 	}
 }

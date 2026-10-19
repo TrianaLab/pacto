@@ -1,0 +1,8 @@
+pactoVersion: "2.0"
+service:
+  name: served
+  version: 1.0.0
+interfaces:
+  - name: api
+    type: openapi
+    ref: interfaces/openapi.yaml

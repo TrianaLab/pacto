@@ -2,18 +2,14 @@ package dashboard
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"github.com/trianalab/pacto/v3/pkg/diff"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 // registerProductOperations registers the product-oriented dashboard APIs. They
@@ -24,7 +20,7 @@ import (
 // require the fleet provider; the POST-impact endpoint also requires the impact
 // provider.
 func (s *Server) registerProductOperations(api huma.API) {
-	if s.fleetQuery == nil {
+	if s.opts.Fleet == nil {
 		return
 	}
 	huma.Register(api, huma.Operation{
@@ -63,7 +59,7 @@ func (s *Server) registerProductOperations(api huma.API) {
 		Description: "Reads ONE in-bundle document body belonging to exactly the given canonical revision. The path must be one the revision already published in its docs list, which is what prevents traversal and cross-revision reads; the body is size-bounded and an oversized or unreadable document is an explicit error rather than empty content.",
 	}, s.fleetRevisionDocument)
 
-	if s.impactProvider != nil {
+	if s.opts.Impact != nil {
 		huma.Register(api, huma.Operation{
 			OperationID: "fleet-impact-post", Method: http.MethodPost, Path: "/api/fleet/impact",
 			Summary: "Analyze impact by canonical identity", Tags: []string{"Fleet"},
@@ -75,7 +71,7 @@ func (s *Server) registerProductOperations(api huma.API) {
 type fleetOverviewOutput struct{ Body *ProductOverview }
 
 func (s *Server) fleetOverview(ctx context.Context, _ *struct{}) (*fleetOverviewOutput, error) {
-	q, err := s.fleetQuery(ctx)
+	q, err := s.opts.Fleet(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -83,31 +79,31 @@ func (s *Server) fleetOverview(ctx context.Context, _ *struct{}) (*fleetOverview
 }
 
 type fleetEntitiesInput struct {
-	Text         string `query:"text"`
-	Kinds        string `query:"kinds" doc:"Comma-separated entity kinds (service,revision,target,owner,source)"`
-	Owner        string `query:"owner" doc:"Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts"`
-	OwnerKey     string `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
-	Domain       string `query:"domain"`
-	Scope        string `query:"scope"`
-	Status       string `query:"status" doc:"Compliance status filter (service/revision/target)"`
-	Ownership    string `query:"ownership" enum:"consistent,conflicting,unowned" doc:"Declared-ownership filter for service entities"`
-	Readiness    string `query:"readiness" enum:"passing,below-threshold,expired,not-declared" doc:"Declared-readiness filter for contract revision entities"`
-	SourceHealth string `query:"sourceHealth" enum:"available,partial,stale,unavailable" doc:"Source-health filter for source entities"`
-	Source       string `query:"source"`
-	Service      string `query:"service" doc:"Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service)"`
-	Limit        int    `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
-	Offset       int    `query:"offset" minimum:"0"`
+	Text         string   `query:"text"`
+	Kinds        []string `query:"kinds" enum:"service,revision,target,owner,source" doc:"Comma-separated entity kinds; an unknown or empty kind is rejected"`
+	Owner        string   `query:"owner" doc:"Free-text owner SEARCH: case-insensitive substring over team, DRI and contacts"`
+	OwnerKey     string   `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
+	Domain       string   `query:"domain"`
+	Scope        string   `query:"scope"`
+	Status       string   `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter (service/revision/target)"`
+	Ownership    string   `query:"ownership" enum:"consistent,conflicting,unowned" doc:"Declared-ownership filter for service entities"`
+	Readiness    string   `query:"readiness" enum:"passing,below-threshold,expired,not-declared" doc:"Declared-readiness filter for contract revision entities"`
+	SourceHealth string   `query:"sourceHealth" enum:"available,partial,stale,unavailable" doc:"Source-health filter for source entities"`
+	Source       string   `query:"source"`
+	Service      string   `query:"service" doc:"Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service)"`
+	Limit        int      `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
+	Offset       int      `query:"offset" minimum:"0"`
 }
 
 type fleetEntitiesOutput struct{ Body *ProductEntityList }
 
 func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fleetEntitiesOutput, error) {
-	q, err := s.fleetQuery(ctx)
+	q, err := s.opts.Fleet(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
 	res, err := q.Entities(fleet.EntityFilter{
-		Text: in.Text, Kinds: parseKinds(in.Kinds), Owner: in.Owner, OwnerKey: in.OwnerKey, Domain: in.Domain,
+		Text: in.Text, Kinds: entityKinds(in.Kinds), Owner: in.Owner, OwnerKey: in.OwnerKey, Domain: in.Domain,
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, Source: in.Source,
 		Ownership: in.Ownership, Readiness: in.Readiness,
 		Service: in.Service, Limit: in.Limit, Offset: in.Offset,
@@ -126,7 +122,7 @@ type fleetEntityDetailInput struct {
 type fleetEntityDetailOutput struct{ Body *ProductEntityDetail }
 
 func (s *Server) fleetEntityDetail(ctx context.Context, in *fleetEntityDetailInput) (*fleetEntityDetailOutput, error) {
-	q, err := s.fleetQuery(ctx)
+	q, err := s.opts.Fleet(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -145,7 +141,7 @@ type fleetRevisionDocumentInput struct {
 type fleetRevisionDocumentOutput struct{ Body *ProductRevisionDocument }
 
 func (s *Server) fleetRevisionDocument(ctx context.Context, in *fleetRevisionDocumentInput) (*fleetRevisionDocumentOutput, error) {
-	q, err := s.fleetQuery(ctx)
+	q, err := s.opts.Fleet(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -170,7 +166,7 @@ type fleetNeighborhoodInput struct {
 type fleetNeighborhoodOutput struct{ Body *ProductNeighborhood }
 
 func (s *Server) fleetNeighborhood(ctx context.Context, in *fleetNeighborhoodInput) (*fleetNeighborhoodOutput, error) {
-	q, err := s.fleetQuery(ctx)
+	q, err := s.opts.Fleet(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -194,7 +190,7 @@ type fleetAttentionInput struct {
 	OwnerKey  string `query:"ownerKey" doc:"Exact canonical owner IDENTITY, namespaced as team:NAME or dri:NAME, exactly as canonical owner links carry it. A bare owner name matches nothing"`
 	Source    string `query:"source"`
 	Severity  string `query:"severity" enum:"error,warning,info"`
-	Status    string `query:"status"`
+	Status    string `query:"status" enum:"Compliant,Invalid,NonCompliant,NotEvaluated,Reference,Unknown,Warning" doc:"Compliance status filter"`
 	StaleOnly bool   `query:"staleOnly"`
 	Limit     int    `query:"limit" minimum:"0" doc:"Max items per page (negatives rejected; excessive values capped)"`
 	Offset    int    `query:"offset" minimum:"0" doc:"Page offset (negatives rejected)"`
@@ -203,7 +199,7 @@ type fleetAttentionInput struct {
 type fleetAttentionOutput struct{ Body *ProductAttentionList }
 
 func (s *Server) fleetAttention(ctx context.Context, in *fleetAttentionInput) (*fleetAttentionOutput, error) {
-	q, err := s.fleetQuery(ctx)
+	q, err := s.opts.Fleet(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -218,113 +214,47 @@ func (s *Server) fleetAttention(ctx context.Context, in *fleetAttentionInput) (*
 	return &fleetAttentionOutput{Body: toProductAttentionList(res)}, nil
 }
 
-// Product-impact bounds. Every impact list is bounded; consumers are pageable.
-const (
-	DefaultImpactConsumers = 100
-	MaxImpactConsumers     = 500
-	MaxImpactPath          = 50
-	MaxImpactOwners        = 200
-	MaxImpactActiveTargets = 200
-	MaxImpactLimitations   = 100
-	// MaxImpactChanges bounds the field-level change list. MaxChangeValueRunes bounds
-	// EACH rendered value, so one changed OpenAPI schema cannot make the answer
-	// unbounded; both truncations are reported rather than silent.
-	MaxImpactChanges    = 300
-	MaxChangeValueRunes = 400
-)
-
 // ProductImpactConsumer is a navigable affected consumer with a bounded path.
 type ProductImpactConsumer struct {
-	Service              ProductRef   `json:"service"`
-	Path                 []ProductRef `json:"path"`
-	PathTotal            int          `json:"pathTotal"`
-	PathTruncated        bool         `json:"pathTruncated"`
-	Depth                int          `json:"depth"`
-	Direct               bool         `json:"direct"`
-	Confidence           string       `json:"confidence"`
-	CompatibilityVerdict string       `json:"compatibilityVerdict"`
-	Owner                string       `json:"owner,omitempty"`
+	impact.ProductConsumer
+	Service ProductRef   `json:"service"`
+	Path    []ProductRef `json:"path"`
 }
 
 // ProductImpactConsumersPage is a stable, offset-paged consumer answer.
-// ImpactTallyBucket is one bucket of a COMPLETE consumer distribution: a canonical
-// dimension value and how many of the impact's consumers carry it.
-type ImpactTallyBucket struct {
-	Key   string `json:"key"`
-	Count int    `json:"count"`
-}
-
 type ProductImpactConsumersPage struct {
-	Total      int                     `json:"total"`
-	Count      int                     `json:"count"`
-	Limit      int                     `json:"limit"`
-	Offset     int                     `json:"offset"`
-	Truncated  bool                    `json:"truncated"`
-	NextOffset *int                    `json:"nextOffset,omitempty"`
-	Items      []ProductImpactConsumer `json:"items"`
-	// ByVerdict and ByConfidence are computed over EVERY consumer, not over Items.
-	// They are what a chart must be drawn from: Items is one page, so counting it
-	// would present "the first 50 consumers" as the blast radius.
-	ByVerdict    []ImpactTallyBucket `json:"byVerdict"`
-	ByConfidence []ImpactTallyBucket `json:"byConfidence"`
+	impact.ConsumersPage
+	Items []ProductImpactConsumer `json:"items"`
 }
 
-// ProductChange is one field-level semantic difference between the two revisions,
-// rendered for display. Values are STRINGS (not `any`): a change can carry a whole
-// OpenAPI schema, so the transport renders and bounds it here rather than shipping
-// an unbounded, untyped payload the client would have to format.
-type ProductChange struct {
-	Path           string `json:"path"`
-	Type           string `json:"type"`
-	Classification string `json:"classification"`
-	Reason         string `json:"reason,omitempty"`
-	OldValue       string `json:"oldValue,omitempty"`
-	NewValue       string `json:"newValue,omitempty"`
-	OldTruncated   bool   `json:"oldTruncated,omitempty"`
-	NewTruncated   bool   `json:"newTruncated,omitempty"`
-}
-
-// ProductChangesPreview is the bounded field-level diff, ordered breaking first.
-// Total counts EVERY change found, so a truncated preview never reads as the
-// complete set.
-type ProductChangesPreview struct {
-	Total       int             `json:"total"`
-	Count       int             `json:"count"`
-	Truncated   bool            `json:"truncated"`
-	Breaking    int             `json:"breaking"`
-	Potential   int             `json:"potential"`
-	NonBreaking int             `json:"nonBreaking"`
-	Items       []ProductChange `json:"items"`
-}
-
-// ProductRefsPreview is a bounded preview of navigable references (owners, targets).
-type ProductRefsPreview struct {
-	Total     int          `json:"total"`
-	Count     int          `json:"count"`
-	Truncated bool         `json:"truncated"`
-	Items     []ProductRef `json:"items"`
-}
-
-// ProductImpact is the navigable impact answer: canonical, href-bearing references
-// for the changed service, revisions, consumers, path steps, owners and active
-// targets, all bounded. It deliberately does NOT embed the raw impact.Result; the
-// raw GET /api/fleet/impact endpoint remains for machine consumers that want it.
-// SnapshotMatch is true ONLY on a success, which means BOTH the graph snapshot
-// matched AND the old/new content analyzed was the exact immutable content the
-// canonical revisions name.
+// ProductImpact is the navigable impact answer: [impact.Product] with a canonical
+// href on every reference. It deliberately does NOT embed the raw impact.Result;
+// the raw GET /api/fleet/impact endpoint remains for machine consumers that want
+// it.
 type ProductImpact struct {
-	Meta           fleet.ProductMeta          `json:"meta"`
-	SnapshotID     string                     `json:"snapshotId"`
-	SnapshotMatch  bool                       `json:"snapshotMatch"`
-	Service        ProductRef                 `json:"service"`
-	OldRevision    *ProductRef                `json:"oldRevision,omitempty"`
-	NewRevision    *ProductRef                `json:"newRevision,omitempty"`
-	Classification string                     `json:"classification"`
-	Changes        ProductChangesPreview      `json:"changes"`
-	Consumers      ProductImpactConsumersPage `json:"consumers"`
-	Owners         ProductRefsPreview         `json:"owners"`
-	ActiveTargets  ProductRefsPreview         `json:"activeTargets"`
-	Limitations    fleet.LimitationsPreview   `json:"limitations"`
+	impact.Product
+	Service       ProductRef                 `json:"service"`
+	OldRevision   *ProductRef                `json:"oldRevision,omitempty"`
+	NewRevision   *ProductRef                `json:"newRevision,omitempty"`
+	Consumers     ProductImpactConsumersPage `json:"consumers"`
+	Owners        ProductRefPreview          `json:"owners"`
+	ActiveTargets ProductRefPreview          `json:"activeTargets"`
+}
+
+func toProductImpact(p *impact.Product) *ProductImpact {
+	items := make([]ProductImpactConsumer, len(p.Consumers.Items))
+	for i, c := range p.Consumers.Items {
+		items[i] = ProductImpactConsumer{ProductConsumer: c, Service: productRef(c.Service), Path: productRefs(c.Path)}
+	}
+	return &ProductImpact{
+		Product:       *p,
+		Service:       productRef(p.Service),
+		OldRevision:   productRefPtr(p.OldRevision),
+		NewRevision:   productRefPtr(p.NewRevision),
+		Consumers:     ProductImpactConsumersPage{ConsumersPage: p.Consumers, Items: items},
+		Owners:        productRefPreview(p.Owners),
+		ActiveTargets: productRefPreview(p.ActiveTargets),
+	}
 }
 
 // impactRequest is the POST-impact body: canonical revision keys, the snapshot the
@@ -346,7 +276,7 @@ type fleetImpactPostInput struct {
 type fleetImpactPostOutput struct{ Body *ProductImpact }
 
 func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) (*fleetImpactPostOutput, error) {
-	q, err := s.fleetQuery(ctx)
+	q, err := s.opts.Fleet(ctx)
 	if err != nil {
 		return nil, huma.Error503ServiceUnavailable("fleet snapshot unavailable", err)
 	}
@@ -360,7 +290,7 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 	}
 	// Both keys must exist, belong to the SAME logical service, and (if given) match
 	// the requested ServiceKey - before any content is fetched.
-	svcKey, fromRev, toRev, err := validateImpactRevisions(snap, b)
+	svcKey, fromRev, toRev, err := impact.ProductRevisions(snap, b.ServiceKey, b.FromRevisionKey, b.ToRevisionKey)
 	if err != nil {
 		return nil, huma.Error422UnprocessableEntity("revisionKey", err)
 	}
@@ -368,15 +298,15 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 	// immutable content the snapshot revisions name. A mutable tag or a local path is
 	// rejected BEFORE the provider is invoked, so the server never fetches
 	// potentially-different content and then claims snapshot parity.
-	oldRef, err := immutableRef(fromRev)
+	oldRef, err := impact.ImmutableRef(fromRev)
 	if err != nil {
 		return nil, huma.Error422UnprocessableEntity("fromRevisionKey", err)
 	}
-	newRef, err := immutableRef(toRev)
+	newRef, err := impact.ImmutableRef(toRev)
 	if err != nil {
 		return nil, huma.Error422UnprocessableEntity("toRevisionKey", err)
 	}
-	res, err := s.impactProvider(ctx, oldRef, newRef, b.IncludeObserved)
+	res, err := s.opts.Impact(ctx, oldRef, newRef, b.IncludeObserved)
 	if err != nil {
 		return nil, impactHTTPError(err)
 	}
@@ -386,324 +316,7 @@ func (s *Server) fleetImpactPost(ctx context.Context, in *fleetImpactPostInput) 
 	if res.SnapshotID != snap.SnapshotID {
 		return nil, huma.Error409Conflict("snapshot changed during analysis; refetch and retry")
 	}
-	return &fleetImpactPostOutput{Body: buildProductImpact(q.ProductMeta(), snap, svcKey, fromRev, toRev, res, b.Limit, b.Offset)}, nil
-}
-
-// validateImpactRevisions looks up both revisions, requires them to exist and to
-// belong to the same logical service, and (when a ServiceKey is given) requires it
-// to match that service exactly. It returns the verified service key and the two
-// revision records so labels come from records, never reconstructed from strings.
-func validateImpactRevisions(snap *fleet.FleetSnapshot, req impactRequest) (fleet.ServiceKey, *fleet.ContractRevision, *fleet.ContractRevision, error) {
-	from := snap.Revisions[fleet.RevisionKey(req.FromRevisionKey)]
-	if from == nil {
-		return "", nil, nil, errors.New("no revision with this fromRevisionKey in the published snapshot")
-	}
-	to := snap.Revisions[fleet.RevisionKey(req.ToRevisionKey)]
-	if to == nil {
-		return "", nil, nil, errors.New("no revision with this toRevisionKey in the published snapshot")
-	}
-	if from.ServiceKey != to.ServiceKey {
-		return "", nil, nil, fmt.Errorf("the two revisions belong to different services (%s vs %s)", from.ServiceKey, to.ServiceKey)
-	}
-	if req.ServiceKey != "" && fleet.ServiceKey(req.ServiceKey) != from.ServiceKey {
-		return "", nil, nil, fmt.Errorf("serviceKey %q does not match the revisions' service %q", req.ServiceKey, from.ServiceKey)
-	}
-	return from.ServiceKey, from, to, nil
-}
-
-// immutableRef returns the IMMUTABLE, canonical, resolver-compatible reference the
-// provider must fetch for a canonical Product Impact. This enforces the CONTENT-
-// RETRIEVABILITY dimension only: content is retrievable ONLY when the revision's
-// ResolvedRef is a canonical OCI digest reference
-// (oci://registry/repo@<validated digest>) AND that digest is internally
-// consistent with the revision's recorded content digest. A mutable tag, a local
-// filesystem path, a scheme-less ref (which the resolver would treat as a local
-// path), a missing ref or an inconsistent/malformed digest is rejected -- using the
-// SAME classifier (fleet.ClassifyContentIdentity) the detail Retrievable flag uses.
-// It is independent of any target's revision-match certainty: a target can match this
-// revision EXACTLY (a trusted digest with no canonical ref) yet Product Impact still
-// rejects it here, because the content is not retrievable through a canonical ref.
-func immutableRef(rev *fleet.ContractRevision) (string, error) {
-	ei := fleet.ClassifyContentIdentity(rev.ResolvedRef, rev.Digest)
-	if ei.Retrievable() {
-		return rev.ResolvedRef, nil
-	}
-	if ei.Class == fleet.IdentityDigestMismatch {
-		return "", fmt.Errorf("revision %s has an inconsistent immutable reference: %s", rev.Key, ei.Reason())
-	}
-	return "", fmt.Errorf(
-		"exact snapshot content is not retrievable for revision %s: %s (%s); use the raw ref-based /api/fleet/impact endpoint for mutable-content analysis",
-		rev.Key, ei.Reason(), mutableRefDescription(rev))
-}
-
-// mutableRefDescription names the mutable reference a revision resolved through,
-// for the rejection message.
-func mutableRefDescription(rev *fleet.ContractRevision) string {
-	if rev.ResolvedRef != "" {
-		return "resolvedRef " + rev.ResolvedRef
-	}
-	if rev.RequestedRef != "" {
-		return "requestedRef " + rev.RequestedRef
-	}
-	return "no reference"
-}
-
-// buildProductImpact enriches a raw impact result with canonical, navigable,
-// href-bearing references (all looked up in the snapshot so identities are exact
-// and labels come from records) and bounds every list. SnapshotMatch is true
-// because non-exact content was already rejected before analysis.
-func buildProductImpact(meta fleet.ProductMeta, snap *fleet.FleetSnapshot, svcKey fleet.ServiceKey, fromRev, toRev *fleet.ContractRevision, res *impact.Result, limit, offset int) *ProductImpact {
-	consumers := make([]ProductImpactConsumer, 0, len(res.Consumers))
-	for _, c := range res.Consumers {
-		path := productRefs(pathFleetRefs(snap, c.Path))
-		pathTotal := len(path)
-		pathTruncated := false
-		if pathTotal > MaxImpactPath {
-			path = path[:MaxImpactPath]
-			pathTruncated = true
-		}
-		consumers = append(consumers, ProductImpactConsumer{
-			Service:              productRef(serviceRefFromSnap(snap, fleet.NewServiceKeyDomain(c.Domain, c.Service))),
-			Path:                 path,
-			PathTotal:            pathTotal,
-			PathTruncated:        pathTruncated,
-			Depth:                c.Depth,
-			Direct:               c.Direct,
-			Confidence:           string(c.Confidence),
-			CompatibilityVerdict: c.CompatibilityVerdict,
-			Owner:                c.Owner,
-		})
-	}
-	// Deterministic order so paging is stable across identical requests.
-	sort.Slice(consumers, func(i, j int) bool { return consumers[i].Service.Key < consumers[j].Service.Key })
-
-	owners := make([]ProductRef, 0, len(res.Owners))
-	for _, o := range res.Owners {
-		owners = append(owners, productRef(fleet.EntityRef{Kind: fleet.KindOwner, Key: o, Label: o}))
-	}
-	targets := make([]ProductRef, 0, len(res.ActiveTargets))
-	for _, tk := range res.ActiveTargets {
-		targets = append(targets, productRef(targetRefFromSnap(snap, tk)))
-	}
-	return &ProductImpact{
-		Meta: meta, SnapshotID: snap.SnapshotID, SnapshotMatch: true,
-		Service:        productRef(serviceRefFromSnap(snap, svcKey)),
-		OldRevision:    productRefPtr(revisionRefFromRecord(fromRev)),
-		NewRevision:    productRefPtr(revisionRefFromRecord(toRev)),
-		Classification: res.Classification,
-		Changes:        boundProductChanges(res),
-		Consumers:      pageImpactConsumers(consumers, limit, offset),
-		Owners:         boundProductRefs(owners, MaxImpactOwners),
-		ActiveTargets:  boundProductRefs(targets, MaxImpactActiveTargets),
-		Limitations:    boundImpactLimitations(res.Limitations),
-	}
-}
-
-// pageImpactConsumers offset-pages a sorted consumer list with defaulted/capped
-// limit and a next-offset cursor.
-func pageImpactConsumers(all []ProductImpactConsumer, limit, offset int) ProductImpactConsumersPage {
-	total := len(all)
-	if limit <= 0 {
-		limit = DefaultImpactConsumers
-	}
-	if limit > MaxImpactConsumers {
-		limit = MaxImpactConsumers
-	}
-	start := offset
-	if start > total {
-		start = total
-	}
-	end := start + limit
-	if end > total {
-		end = total
-	}
-	page := append([]ProductImpactConsumer{}, all[start:end]...)
-	truncated := end < total
-	var next *int
-	if truncated {
-		n := end
-		next = &n
-	}
-	// The two tallies cover EVERY consumer, not this page. A consumer chart drawn from
-	// a page reads exactly like a chart of the whole blast radius, so the complete
-	// distributions are computed here and the page carries them.
-	return ProductImpactConsumersPage{
-		Total: total, Count: len(page), Limit: limit, Offset: start,
-		Truncated: truncated, NextOffset: next, Items: page,
-		ByVerdict:    tallyConsumers(all, verdictOrder, func(c ProductImpactConsumer) string { return c.CompatibilityVerdict }),
-		ByConfidence: tallyConsumers(all, confidenceOrder, func(c ProductImpactConsumer) string { return c.Confidence }),
-	}
-}
-
-// verdictOrder and confidenceOrder are the canonical display orders of the two
-// consumer dimensions, worst/strongest first. They are declared here rather than
-// derived from the data so an empty bucket keeps its place and the chart does not
-// reorder itself between two analyses of the same change.
-var (
-	verdictOrder    = []string{impact.CompatibilityIncompatible, impact.CompatibilityCompatible, impact.CompatibilityUnknown}
-	confidenceOrder = []string{
-		string(impact.ConfidenceCorroborated), string(impact.ConfidenceContractual), string(impact.ConfidenceDeclared),
-		string(impact.ConfidenceObserved), string(impact.ConfidenceInferred), string(impact.ConfidenceUnknown),
-	}
-)
-
-// tallyConsumers counts the COMPLETE consumer population by one dimension, emitting
-// the known buckets in canonical order followed by any unrecognized value. Buckets
-// always sum to len(all), so a consumer can draw a proportion without inventing a
-// remainder, and a value the engine grows later shows up as itself instead of
-// silently vanishing from the chart.
-func tallyConsumers(all []ProductImpactConsumer, order []string, key func(ProductImpactConsumer) string) []ImpactTallyBucket {
-	counts := map[string]int{}
-	for i := range all {
-		counts[key(all[i])]++
-	}
-	out := make([]ImpactTallyBucket, 0, len(order))
-	for _, k := range order {
-		out = append(out, ImpactTallyBucket{Key: k, Count: counts[k]})
-		delete(counts, k)
-	}
-	extra := make([]string, 0, len(counts))
-	for k := range counts {
-		extra = append(extra, k)
-	}
-	sort.Strings(extra)
-	for _, k := range extra {
-		out = append(out, ImpactTallyBucket{Key: k, Count: counts[k]})
-	}
-	return out
-}
-
-// boundProductChanges renders the impact result's three change sets into ONE
-// display-ordered, bounded field-level diff: breaking first, then potentially
-// breaking, then non-breaking, which is the order a reviewer reads them in. Total
-// counts every change found, so a truncated preview is never mistaken for the whole
-// change.
-func boundProductChanges(res *impact.Result) ProductChangesPreview {
-	out := ProductChangesPreview{
-		Breaking:    len(res.BreakingChanges),
-		Potential:   len(res.PotentiallyBreakingChanges),
-		NonBreaking: len(res.NonBreakingChanges),
-		Items:       []ProductChange{},
-	}
-	out.Total = out.Breaking + out.Potential + out.NonBreaking
-	for _, set := range [][]diff.Change{res.BreakingChanges, res.PotentiallyBreakingChanges, res.NonBreakingChanges} {
-		for _, ch := range set {
-			if len(out.Items) >= MaxImpactChanges {
-				out.Truncated = true
-				out.Count = len(out.Items)
-				return out
-			}
-			oldVal, oldCut := renderChangeValue(ch.OldValue)
-			newVal, newCut := renderChangeValue(ch.NewValue)
-			out.Items = append(out.Items, ProductChange{
-				Path:           ch.Path,
-				Type:           ch.Type.String(),
-				Classification: ch.Classification.String(),
-				Reason:         ch.Reason,
-				OldValue:       oldVal, OldTruncated: oldCut,
-				NewValue: newVal, NewTruncated: newCut,
-			})
-		}
-	}
-	out.Count = len(out.Items)
-	return out
-}
-
-// renderChangeValue renders one diff value as a bounded display string. Composite
-// values are indented JSON (the same shape the client used to format itself); an
-// unmarshalable value falls back to Go's default formatting rather than vanishing.
-// It reports whether the value was cut so the UI can say so.
-func renderChangeValue(v any) (string, bool) {
-	if v == nil {
-		return "", false
-	}
-	var s string
-	switch t := v.(type) {
-	case string:
-		s = t
-	default:
-		if b, err := json.MarshalIndent(v, "", "  "); err == nil {
-			s = string(b)
-		} else {
-			s = fmt.Sprint(v)
-		}
-	}
-	r := []rune(s)
-	if len(r) > MaxChangeValueRunes {
-		return string(r[:MaxChangeValueRunes]), true
-	}
-	return s, false
-}
-
-// boundProductRefs bounds a reference list into a preview with truncation
-// metadata. Callers always pass a non-nil (make-initialized) slice.
-func boundProductRefs(refs []ProductRef, max int) ProductRefsPreview {
-	total := len(refs)
-	truncated := total > max
-	items := refs
-	if truncated {
-		items = refs[:max]
-	}
-	return ProductRefsPreview{Total: total, Count: len(items), Truncated: truncated, Items: items}
-}
-
-// boundImpactLimitations bounds the impact limitations into a preview. It copies
-// the slice so the answer never aliases the raw impact result.
-func boundImpactLimitations(ls []fleet.Limitation) fleet.LimitationsPreview {
-	total := len(ls)
-	truncated := total > MaxImpactLimitations
-	n := total
-	if truncated {
-		n = MaxImpactLimitations
-	}
-	items := append([]fleet.Limitation{}, ls[:n]...)
-	return fleet.LimitationsPreview{Total: total, Count: len(items), Truncated: truncated, Items: items}
-}
-
-// serviceRefFromSnap builds a route-neutral service reference for an
-// already-canonical key, taking the human label from the snapshot record when
-// present and otherwise decoding the key (never re-encoding it).
-func serviceRefFromSnap(snap *fleet.FleetSnapshot, key fleet.ServiceKey) fleet.EntityRef {
-	name, domain := "", ""
-	if s := snap.Services[key]; s != nil {
-		name, domain = s.Name, s.Domain
-	} else {
-		domain, name = fleet.ParseServiceKey(key)
-	}
-	return fleet.EntityRef{Kind: fleet.KindService, Key: string(key), Label: name, Domain: domain}
-}
-
-// revisionRefFromRecord builds a route-neutral revision reference whose label is
-// the record's service and version, never the raw key.
-func revisionRefFromRecord(rev *fleet.ContractRevision) *fleet.EntityRef {
-	label := rev.Service
-	if rev.Version != "" {
-		label = rev.Service + " " + rev.Version
-	}
-	return &fleet.EntityRef{Kind: fleet.KindRevision, Key: string(rev.Key), Label: label, Secondary: rev.Digest, Domain: rev.Domain}
-}
-
-// targetRefFromSnap builds a route-neutral target reference whose label is the
-// record's DisplayName when present, otherwise the raw key.
-func targetRefFromSnap(snap *fleet.FleetSnapshot, key string) fleet.EntityRef {
-	tk := fleet.TargetKey(key)
-	label := key
-	domain := ""
-	if t := snap.Targets[tk]; t != nil {
-		label, domain = t.DisplayName(), t.Domain
-	}
-	return fleet.EntityRef{Kind: fleet.KindTarget, Key: key, Label: label, Domain: domain}
-}
-
-// pathFleetRefs turns an impact path of ALREADY-CANONICAL service keys into
-// route-neutral references. Each element is a canonical ServiceKey (its own domain
-// baked in), so it is used verbatim and never re-encoded with another step's domain.
-func pathFleetRefs(snap *fleet.FleetSnapshot, keys []string) []fleet.EntityRef {
-	out := make([]fleet.EntityRef, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, serviceRefFromSnap(snap, fleet.ServiceKey(k)))
-	}
-	return out
+	return &fleetImpactPostOutput{Body: toProductImpact(impact.BuildProduct(q.ProductMeta(), snap, svcKey, fromRev, toRev, res, b.Limit, b.Offset))}, nil
 }
 
 // productQueryError maps a product-query error to HTTP: absent → 404, a document
@@ -723,17 +336,11 @@ func productQueryError(err error) error {
 	return huma.Error422UnprocessableEntity("invalid query", err)
 }
 
-// parseKinds splits a comma-separated kinds parameter into entity kinds, ignoring
-// empty segments so a trailing comma is harmless.
-func parseKinds(s string) []fleet.EntityKind {
-	if s == "" {
-		return nil
-	}
-	var out []fleet.EntityKind
-	for _, p := range strings.Split(s, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			out = append(out, fleet.EntityKind(p))
-		}
+// entityKinds converts the validated kinds parameter into entity kinds.
+func entityKinds(kinds []string) []fleet.EntityKind {
+	out := make([]fleet.EntityKind, 0, len(kinds))
+	for _, k := range kinds {
+		out = append(out, fleet.EntityKind(k))
 	}
 	return out
 }
@@ -743,10 +350,10 @@ func parseKinds(s string) []fleet.EntityKind {
 // generation. The handlers are never invoked during export, so the stubs' errors
 // are unreachable; they exist only to satisfy the nil-provider gates.
 func (s *Server) stubProvidersForSchemaExport() {
-	s.fleetQuery = func(context.Context) (*fleet.Query, error) {
+	s.opts.Fleet = func(context.Context) (*fleet.Query, error) {
 		return nil, errors.New("schema export only")
 	}
-	s.impactProvider = func(context.Context, string, string, bool) (*impact.Result, error) {
+	s.opts.Impact = func(context.Context, string, string, bool) (*impact.Result, error) {
 		return nil, errors.New("schema export only")
 	}
 }

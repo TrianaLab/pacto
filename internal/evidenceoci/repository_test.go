@@ -16,8 +16,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"oras.land/oras-go/v2/registry/remote/auth"
 
-	"github.com/trianalab/pacto/v3/internal/testutil"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 func TestPlainHTTP(t *testing.T) {

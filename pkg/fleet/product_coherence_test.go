@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // Three Product answers that were each true in isolation and misleading on screen.

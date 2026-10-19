@@ -1,6 +1,7 @@
 <script>
   import SeverityBadge from './SeverityBadge.svelte';
   import EntityLink from './EntityLink.svelte';
+  import { seenBy } from '../lib/entityLabels.ts';
 
   // Renders findings for any rich entity page. Items are either a
   // ProductFinding or an AttributedFinding ({ finding, entity }); when attributed, the
@@ -13,6 +14,7 @@
 <ul class="finding-list">
   {#each items as it, i (i)}
     {@const f = finding(it)}
+    {@const by = seenBy(f.evidenceRefs?.items)}
     <li class="finding">
       <SeverityBadge severity={f.severity} />
       <div class="f-body">
@@ -22,6 +24,7 @@
           {#if f.category}<span>{f.category}</span>{/if}
           {#if f.contractPath}<span class="f-path">{f.contractPath}</span>{/if}
           {#if f.evidenceRefs?.total}<span>{f.evidenceRefs.total} evidence ref{f.evidenceRefs.total === 1 ? '' : 's'}</span>{/if}
+          {#if by}<span>seen by: {by}</span>{/if}
         </span>
       </div>
     </li>

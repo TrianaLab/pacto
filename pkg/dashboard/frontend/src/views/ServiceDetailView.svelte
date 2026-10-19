@@ -23,10 +23,8 @@
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { navigate, serviceUrl, serviceVersionUrl, diffUrl, ownerUrl } from '../lib/router.ts';
-  import { complianceClass, classificationClass, versionPolicyLabel, versionPolicyClass, ownerIsStructured, referencedDocPaths, paginate, evaluationCoverageLabel } from '../lib/format.ts';
+  import { complianceClass, classificationClass, ownerIsStructured, referencedDocPaths, paginate } from '../lib/format.ts';
   import { versionTimelineData } from '../lib/chartData.ts';
-  import StatusBadge from '../components/StatusBadge.svelte';
-  import ComplianceScore from '../components/ComplianceScore.svelte';
   import OwnerLink from '../components/OwnerLink.svelte';
   import SourceDot from '../components/SourceDot.svelte';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
@@ -143,7 +141,6 @@
   let baselineLabel = $derived(detail?.version && detail.version !== currentVersion ? detail.version : 'current');
   let insights = $derived(detail?.insights || []);
   // "E of R" evaluation-coverage label — empty unless runtime-evaluated (see helper).
-  let evalCoverage = $derived(evaluationCoverageLabel(detail));
   let sources = $derived.by(() => {
     const s = detail?.sources || [];
     return s.length ? s : detail?.source ? [detail.source] : [];
@@ -165,13 +162,6 @@
     try {
       detail = version ? await api.serviceAtVersion(name, version) : await api.service(name);
       loading = false;
-
-      // Surface failures on load: open Validation (and Dependencies) when the
-      // contract has errors, so the compliance story isn't hidden behind a
-      // collapsed section the user has to hunt for.
-      if ((detail.compliance?.summary?.errors || 0) > 0) {
-        openSections = { ...openSections, validation: true, dependencies: true };
-      }
 
       versionsError = false;
       depsError = false;
@@ -348,30 +338,9 @@
   <header class="detail-header fade-in-up">
     <div class="detail-title-row">
       <h1>{detail.name}</h1>
-      {#if detail.runtimeEvaluated}
-        <StatusBadge status={detail.contractStatus} />
-      {:else}
-        <span class="badge badge-definition" data-tip="No cluster runtime data for this view — showing the contract definition only (runtime status unknown)">
-          <span class="badge-dot"></span>Definition only
-        </span>
-      {/if}
-      {#if detail.runtimeEvaluated && detail.compliance}
-        {#if detail.compliance.score != null}
-          <ComplianceScore score={detail.compliance.score} />
-        {/if}
-        {#if detail.compliance.summary?.errors > 0}
-          <button type="button" class="badge badge-err badge-link" onclick={() => scrollToSection('validation')} data-tip="Jump to Validation">{detail.compliance.summary.errors} error{detail.compliance.summary.errors > 1 ? 's' : ''}</button>
-        {/if}
-        {#if detail.compliance.summary?.warnings > 0}
-          <button type="button" class="badge badge-warn badge-link" onclick={() => scrollToSection('validation')} data-tip="Jump to Validation">{detail.compliance.summary.warnings} warning{detail.compliance.summary.warnings > 1 ? 's' : ''}</button>
-        {/if}
-      {/if}
-      {#if detail.checksSummary && detail.runtimeEvaluated && detail.contractStatus !== 'Reference'}
-        <span class="text-2">{detail.checksSummary.passed}/{detail.checksSummary.total} checks</span>
-      {/if}
-      {#if evalCoverage}
-        <span class="text-2 eval-coverage" data-tip="Required assertions actually evaluated at runtime — metadata, does not change status">Evaluation coverage: {evalCoverage}</span>
-      {/if}
+      <span class="badge badge-definition" data-tip="No cluster runtime data for this view — showing the contract definition only (runtime status unknown)">
+        <span class="badge-dot"></span>Definition only
+      </span>
       {#if blastRadius > 0}
         <a href="#/graph" class="blast-indicator" class:blast-warn={blastRadius >= 3 && blastRadius < 5} class:blast-high={blastRadius >= 5} data-tip="If this service fails, {blastRadius} other service{blastRadius !== 1 ? 's are' : ' is'} transitively impacted">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7" opacity="0.4"/><circle cx="12" cy="12" r="11" opacity="0.2"/></svg>
@@ -381,17 +350,6 @@
     </div>
     <div class="detail-meta">
       {#if detail.version}<span class="pill">{detail.version}</span>{/if}
-      {#if detail.contractStatus !== 'Reference'}
-        {#if detail.versionPolicy}
-          <span class="pill pill-policy {versionPolicyClass(detail.versionPolicy)}" data-tip={detail.resolvedRef || ''}>{versionPolicyLabel(detail.versionPolicy)}</span>
-        {/if}
-        {#if detail.updateAvailable && detail.latestAvailable}
-          <span class="pill pill-update" data-tip="Informational — does not affect compliance">
-            {detail.latestAvailable} available
-          </span>
-          <a href={compareDiffUrl({ fromName: name, fromVer: detail.version, toName: name, toVer: detail.latestAvailable })} class="btn btn-sm btn-update">Compare</a>
-        {/if}
-      {/if}
       {#each sources as src}
         <SourceDot source={src} />
       {/each}
@@ -457,28 +415,9 @@
     </div>
   {/if}
 
-  <!-- Endpoints (health/metrics probes) -->
-  {#if detail.endpoints?.length > 0}
-    <div class="section">
-      <div class="section-title">Endpoint Probes</div>
-      <div class="probes-grid">
-        {#each detail.endpoints as ep}
-          <div class="probe" class:probe-ok={ep.healthy === true} class:probe-err={ep.healthy === false}>
-            <span class="probe-label">{ep.interface}{ep.type ? ` (${ep.type})` : ''}</span>
-            {#if ep.url}<code class="probe-url">{ep.url}</code>{/if}
-            {#if ep.statusCode}<span class="pill">{ep.statusCode}</span>{/if}
-            {#if ep.latencyMs != null}<span class="text-3">{ep.latencyMs}ms</span>{/if}
-            {#if ep.error}<span class="text-err">{ep.error}</span>{/if}
-          </div>
-        {/each}
-      </div>
-    </div>
-  {/if}
-
   <!-- Domain sections -->
   <OverviewSection
     id="section-overview"
-    conditions={detail.conditions || []}
     runtime={detail.runtime}
     scaling={detail.scaling}
     metadata={detail.metadata}
@@ -513,7 +452,7 @@
 
   <SbomSection id="section-sbom" sbom={detail.sbom} bind:open={openSections.sbom} />
 
-  <ValidationSection id="section-validation" validation={detail.validation} conditions={detail.conditions || []} bind:open={openSections.validation} />
+  <ValidationSection id="section-validation" validation={detail.validation} bind:open={openSections.validation} />
 
   <RuntimeDiffSection id="section-runtimeDiff" runtimeDiff={detail.runtimeDiff || []} bind:open={openSections.runtimeDiff} />
 
@@ -738,18 +677,6 @@
 
   .insights-list { display: flex; flex-direction: column; gap: var(--sp-2); }
 
-  .probes-grid { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
-  .probe {
-    display: flex; align-items: center; gap: var(--sp-2);
-    padding: var(--sp-3) var(--sp-3);
-    border-radius: var(--radius-sm);
-    background: var(--c-surface); border: 1px solid var(--c-border);
-    font-size: var(--text-sm);
-  }
-  .probe-ok { border-color: var(--c-ok-border); }
-  .probe-err { border-color: var(--c-err-border); }
-  .probe-label { font-weight: 500; }
-  .probe-url { font-size: var(--text-xs); color: var(--c-text-3); }
 
   .text-2 { color: var(--c-text-2); }
   .text-3 { color: var(--c-text-3); }
@@ -785,20 +712,7 @@
     color: var(--c-text-2); font-size: var(--text-sm);
   }
 
-  .pill-policy {
-    font-size: var(--text-xs); font-weight: 500; opacity: 0.85;
-  }
-  .policy-tracking { background: var(--c-neutral-bg); color: var(--c-text-2); }
-  .policy-tag { background: var(--c-accent-bg); color: var(--c-accent); }
-  .policy-digest { background: var(--c-accent-bg); color: var(--c-accent); }
 
-  .pill-update {
-    background: var(--c-info-bg, var(--c-accent-bg)); color: var(--c-info, var(--c-accent));
-    font-size: var(--text-xs); font-weight: 500;
-  }
-  .btn-update {
-    font-size: var(--text-xs); padding: 4px 10px;
-  }
 
   /* Fixed layout so the nowrap cells can't over-grow the table and flash a
      spurious horizontal scrollbar; Version is left flexible to absorb rounding.
@@ -850,8 +764,6 @@
     .detail-title-row { gap: var(--sp-2); }
     .detail-title-row h1 { width: 100%; }
     .detail-meta { gap: var(--sp-2); }
-    .probes-grid { flex-direction: column; }
-    .probe { flex-wrap: wrap; }
     .diff-inline-header { flex-wrap: wrap; }
     .version-actions { margin-left: 0; width: 100%; }
     .version-actions > * { flex: 1; justify-content: center; }

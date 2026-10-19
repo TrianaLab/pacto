@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"gopkg.in/yaml.v3"
 )
 

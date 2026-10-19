@@ -16,8 +16,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	corev1 "k8s.io/api/core/v1"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/component"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 )
 
 // RevisionMirror keeps a PactoRevision for every registry tag of every Pacto whose

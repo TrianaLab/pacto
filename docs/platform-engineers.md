@@ -1,6 +1,6 @@
 # Pacto for Platform Engineers
 
-You manage the infrastructure that runs services. Pull a validated, machine-readable contract from an OCI registry and get everything needed to run a service: workload type, state model, interfaces, capabilities, dependencies and config schema. The contract states operational *intent* — what the service is, not how to deploy it — so how you provision, scale and wire it stays your decision.
+You run the platform other teams deploy to. This guide shows how to pull a service's contract from a registry and read what it needs to run: workload type, state, interfaces, capabilities, dependencies and config schema. The contract says *what* the service is, not *how* to deploy it, so provisioning, scaling and wiring stay your decision.
 
 ---
 
@@ -23,7 +23,7 @@ flowchart LR
 pacto pull oci://ghcr.io/acme/payments-api-pacto:2.1.0
 ```
 
-`explain`, `diff`, `graph` and `generate` accept `oci://` refs directly (resolving through the local cache), so this explicit `pull` is optional.
+`explain`, `diff`, `graph` and `generate` accept `oci://` references directly and cache what they download, so this `pull` step is optional.
 
 A private repository needs credentials first: `pacto login <registry>`, or an already-authenticated `gh` for GHCR. [Authentication](cli-reference.md#authentication) gives the full resolution order.
 
@@ -54,7 +54,7 @@ payments-api@2.1.0
 └─ notifications@1.0.0 (shared)
 ```
 
-Dependencies are resolved recursively from OCI registries. Results are cached locally for fast repeated lookups. Use `--with-references` to also see config/policy references, or `--only-references` to show only reference edges.
+Pacto follows each dependency to its own contract in the registry, all the way down, and caches the results. Add `--with-references` to also show configuration and policy references, or `--only-references` to show only those.
 
 ### 5. Generate deployment artifacts
 
@@ -98,7 +98,8 @@ Deployment mechanics the contract deliberately does not carry — upgrade strate
 - [CI integration](ci.md) — using Pacto in pipelines
 - [GitHub Actions integration](github-actions.md) — the pacto-actions workflow
 - [Fleet tools](fleet-tools.md) — reading the fleet (dashboard, `pacto fleet`, terminal UI)
-- [Kubernetes operator](integrations/kubernetes/overview.md) — the runtime
-  evidence source
+- [Kubernetes operator](integrations/kubernetes/overview.md) — checks running
+  services against their contracts, including
+  [what they actually do on the network](integrations/kubernetes/runtime-conformance.md)
 - [The operational graph](operational-graph.md) — the fleet-wide read model
 - [For developers](developers.md) — the other side of the same contract

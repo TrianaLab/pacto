@@ -22,7 +22,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/stream"
 	"github.com/google/go-containerregistry/pkg/v1/types"
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 const (
@@ -33,14 +33,6 @@ const (
 // bundle's OCI digest depends only on content — never on filesystem timestamps.
 var tarEpoch = time.Unix(0, 0).UTC()
 
-// Function variables for testing.
-var (
-	mutateConfigFn       = mutate.Config
-	mutateAppendLayersFn = mutate.AppendLayers
-	tarCloseFn           = func(tw *tar.Writer) error { return tw.Close() }
-	gzipCloseFn          = func(gw *gzip.Writer) error { return gw.Close() }
-)
-
 // bundleToImage converts a contract.Bundle into an OCI v1.Image.
 func bundleToImage(b *contract.Bundle) (v1.Image, error) {
 	if b == nil || b.Contract == nil || b.FS == nil {
@@ -50,24 +42,21 @@ func bundleToImage(b *contract.Bundle) (v1.Image, error) {
 	// Start with empty image, store metadata as labels.
 	img := empty.Image
 
-	img, err := mutateConfigFn(img, v1.Config{
+	// Neither mutation can fail here: mutate.Config only errors when the base's
+	// config or manifest does (empty.Image's never do), and mutate.AppendLayers
+	// only on a nil layer.
+	img, _ = mutate.Config(img, v1.Config{
 		Labels: map[string]string{
 			"io.pacto.name":         b.Contract.Service.Name,
 			"io.pacto.version":      b.Contract.Service.Version,
 			"io.pacto.pactoVersion": b.Contract.PactoVersion,
 		},
 	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to set config: %w", err)
-	}
 
 	// Create a tar.gz layer from bundle FS.
 	layer := stream.NewLayer(newBundleTarReader(b.FS), stream.WithMediaType(LayerMediaType))
 
-	img, err = mutateAppendLayersFn(img, layer)
-	if err != nil {
-		return nil, fmt.Errorf("failed to append layer: %w", err)
-	}
+	img, _ = mutate.AppendLayers(img, layer)
 
 	img = mutate.MediaType(img, types.OCIManifestSchema1)
 
@@ -280,10 +269,10 @@ func writeBundleTarGz(w io.Writer, fsys fs.FS) error {
 	if err := walkTar(tw, fsys); err != nil {
 		return err
 	}
-	if err := tarCloseFn(tw); err != nil {
+	if err := tw.Close(); err != nil {
 		return err
 	}
-	return gzipCloseFn(gw)
+	return gw.Close()
 }
 
 // BundleToTarGz creates a tar.gz archive of all files in the bundle FS.

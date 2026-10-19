@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/cli"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/cli"
 )
 
 // impactErrWriter always fails writes, to drive the JSON encode error path.

@@ -22,113 +22,56 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 )
 
-// Test extractPort with int64 port
-func TestExtractPort_Int64(t *testing.T) {
-	epMap := map[string]any{
-		"port": int64(9090),
+func TestExtractPort(t *testing.T) {
+	byName := func(name string) (int32, bool) { return 8443, name == "web" }
+	cases := []struct {
+		name string
+		ep   map[string]any
+		want int32
+	}{
+		{"number", map[string]any{"port": int64(9090)}, 9090},
+		{"resolved name", map[string]any{"port": "web"}, 8443},
+		{"unresolved name", map[string]any{"port": "metrics"}, 0},
+		{"missing", map[string]any{}, 0},
+		{"out of range", map[string]any{"port": int64(70000)}, 0},
+		{"invalid type", map[string]any{"port": 3.14}, 0},
 	}
-	port := extractPort(epMap)
-	if port != 9090 {
-		t.Errorf("expected port 9090, got %d", port)
-	}
-}
-
-// Test extractPort with string port (named port)
-func TestExtractPort_String(t *testing.T) {
-	epMap := map[string]any{
-		"port": "metrics",
-	}
-	port := extractPort(epMap)
-	if port != 0 {
-		t.Errorf("expected port 0 for named port, got %d", port)
-	}
-}
-
-// Test extractPort with missing port
-func TestExtractPort_Missing(t *testing.T) {
-	epMap := map[string]any{}
-	port := extractPort(epMap)
-	if port != 0 {
-		t.Errorf("expected port 0 for missing port, got %d", port)
+	for _, tc := range cases {
+		if got := extractPort(tc.ep, byName); got != tc.want {
+			t.Errorf("%s: extractPort = %d, want %d", tc.name, got, tc.want)
+		}
 	}
 }
 
-// Test extractPort with invalid port type
-func TestExtractPort_InvalidType(t *testing.T) {
-	epMap := map[string]any{
-		"port": 3.14,
+func TestSelectsLabels(t *testing.T) {
+	monitor := func(matchLabels map[string]any) unstructured.Unstructured {
+		spec := map[string]any{}
+		if matchLabels != nil {
+			spec["selector"] = map[string]any{"matchLabels": matchLabels}
+		}
+		return unstructured.Unstructured{Object: map[string]any{"spec": spec}}
 	}
-	port := extractPort(epMap)
-	if port != 0 {
-		t.Errorf("expected port 0 for invalid type, got %d", port)
+	target := map[string]string{"app": "test", "tier": "backend"}
+	cases := []struct {
+		name     string
+		selector map[string]any
+		want     bool
+	}{
+		{"subset matches", map[string]any{"app": "test"}, true},
+		{"value differs", map[string]any{"app": "other"}, false},
+		{"label missing", map[string]any{"zone": "a"}, false},
+		{"empty selector matches", map[string]any{}, true},
+		{"non-string value", map[string]any{"app": 123}, false},
+		{"no matchLabels", nil, false},
 	}
-}
-
-// Test labelsMatch with matching labels
-func TestLabelsMatch_Match(t *testing.T) {
-	target := map[string]string{
-		"app":  "test",
-		"tier": "backend",
-	}
-	selector := map[string]any{
-		"app": "test",
-	}
-	if !labelsMatch(target, selector) {
-		t.Error("expected labels to match")
-	}
-}
-
-// Test labelsMatch with no match
-func TestLabelsMatch_NoMatch(t *testing.T) {
-	target := map[string]string{
-		"app": "test",
-	}
-	selector := map[string]any{
-		"app": "other",
-	}
-	if labelsMatch(target, selector) {
-		t.Error("expected labels not to match")
-	}
-}
-
-// Test labelsMatch with missing label in target
-func TestLabelsMatch_MissingLabel(t *testing.T) {
-	target := map[string]string{
-		"app": "test",
-	}
-	selector := map[string]any{
-		"tier": "backend",
-	}
-	if labelsMatch(target, selector) {
-		t.Error("expected labels not to match when label missing")
-	}
-}
-
-// Test labelsMatch with empty selector
-func TestLabelsMatch_EmptySelector(t *testing.T) {
-	target := map[string]string{
-		"app": "test",
-	}
-	selector := map[string]any{}
-	if !labelsMatch(target, selector) {
-		t.Error("expected empty selector to match")
-	}
-}
-
-// Test labelsMatch with non-string value in selector
-func TestLabelsMatch_NonStringValue(t *testing.T) {
-	target := map[string]string{
-		"app": "test",
-	}
-	selector := map[string]any{
-		"app": 123,
-	}
-	if labelsMatch(target, selector) {
-		t.Error("expected non-string selector value not to match")
+	for _, tc := range cases {
+		if got := selectsLabels(monitor(tc.selector), target); got != tc.want {
+			t.Errorf("%s: selectsLabels = %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
 
@@ -368,7 +311,7 @@ func TestDiscoverFromServiceMonitor_Match(t *testing.T) {
 		client: fake.NewClientBuilder().WithObjects(sm).Build(),
 	}
 
-	target := o.discoverFromServiceMonitor(context.Background(), "default", "test-svc", svc)
+	target := o.discoverFromServiceMonitor(context.Background(), "default", svc)
 	if target == nil {
 		t.Fatal("expected target, got nil")
 	}
@@ -421,7 +364,7 @@ func TestDiscoverFromServiceMonitor_DefaultPath(t *testing.T) {
 		client: fake.NewClientBuilder().WithObjects(sm).Build(),
 	}
 
-	target := o.discoverFromServiceMonitor(context.Background(), "default", "test-svc", svc)
+	target := o.discoverFromServiceMonitor(context.Background(), "default", svc)
 	if target == nil {
 		t.Fatal("expected target, got nil")
 	}
@@ -472,7 +415,7 @@ func TestDiscoverFromServiceMonitor_NoMatch(t *testing.T) {
 		client: fake.NewClientBuilder().WithObjects(sm).Build(),
 	}
 
-	target := o.discoverFromServiceMonitor(context.Background(), "default", "test-svc", svc)
+	target := o.discoverFromServiceMonitor(context.Background(), "default", svc)
 	if target != nil {
 		t.Errorf("expected nil target when labels don't match, got %+v", target)
 	}
@@ -496,7 +439,7 @@ func TestDiscoverFromServiceMonitor_CRDNotInstalled(t *testing.T) {
 
 	o := &Observer{client: errClient}
 
-	target := o.discoverFromServiceMonitor(context.Background(), "default", "test-svc", svc)
+	target := o.discoverFromServiceMonitor(context.Background(), "default", svc)
 	if target != nil {
 		t.Errorf("expected nil target when CRD not installed, got %+v", target)
 	}
@@ -553,7 +496,7 @@ func TestDiscoverFromServiceMonitor_WithAuthFields(t *testing.T) {
 		client: fake.NewClientBuilder().WithObjects(sm).Build(),
 	}
 
-	target := o.discoverFromServiceMonitor(context.Background(), "default", "test-svc", svc)
+	target := o.discoverFromServiceMonitor(context.Background(), "default", svc)
 	if target == nil {
 		t.Fatal("expected target, got nil")
 	}
@@ -609,7 +552,7 @@ func TestDiscoverFromPodMonitor_Match(t *testing.T) {
 		client: fake.NewClientBuilder().WithObjects(pm).Build(),
 	}
 
-	target := o.discoverFromPodMonitor(context.Background(), "default", svc)
+	target := o.discoverFromPodMonitor(context.Background(), "default", svc, nil)
 	if target == nil {
 		t.Fatal("expected target, got nil")
 	}
@@ -664,7 +607,7 @@ func TestDiscoverFromPodMonitor_DefaultPath(t *testing.T) {
 		client: fake.NewClientBuilder().WithObjects(pm).Build(),
 	}
 
-	target := o.discoverFromPodMonitor(context.Background(), "default", svc)
+	target := o.discoverFromPodMonitor(context.Background(), "default", svc, nil)
 	if target == nil {
 		t.Fatal("expected target, got nil")
 	}
@@ -717,7 +660,7 @@ func TestDiscoverFromPodMonitor_NoMatch(t *testing.T) {
 		client: fake.NewClientBuilder().WithObjects(pm).Build(),
 	}
 
-	target := o.discoverFromPodMonitor(context.Background(), "default", svc)
+	target := o.discoverFromPodMonitor(context.Background(), "default", svc, nil)
 	if target != nil {
 		t.Errorf("expected nil target when labels don't match, got %+v", target)
 	}
@@ -743,7 +686,7 @@ func TestDiscoverFromPodMonitor_CRDNotInstalled(t *testing.T) {
 
 	o := &Observer{client: errClient}
 
-	target := o.discoverFromPodMonitor(context.Background(), "default", svc)
+	target := o.discoverFromPodMonitor(context.Background(), "default", svc, nil)
 	if target != nil {
 		t.Errorf("expected nil target when CRD not installed, got %+v", target)
 	}
@@ -792,7 +735,7 @@ func TestDiscoverFromPodMonitor_NilServiceSelector(t *testing.T) {
 		client: fake.NewClientBuilder().WithObjects(pm).Build(),
 	}
 
-	target := o.discoverFromPodMonitor(context.Background(), "default", svc)
+	target := o.discoverFromPodMonitor(context.Background(), "default", svc, nil)
 	if target != nil {
 		t.Errorf("expected nil target when service selector is nil, got %+v", target)
 	}
@@ -845,7 +788,7 @@ func TestDiscoverFromPodMonitor_WithAuthFields(t *testing.T) {
 		client: fake.NewClientBuilder().WithObjects(pm).Build(),
 	}
 
-	target := o.discoverFromPodMonitor(context.Background(), "default", svc)
+	target := o.discoverFromPodMonitor(context.Background(), "default", svc, nil)
 	if target == nil {
 		t.Fatal("expected target, got nil")
 	}
@@ -909,7 +852,7 @@ func TestDiscoverMetricsTarget_ServiceMonitorPrecedence(t *testing.T) {
 		client: fake.NewClientBuilder().WithObjects(sm).Build(),
 	}
 
-	target, method := o.discoverMetricsTarget(context.Background(), "default", "test-svc", svc, "/contract", 8080)
+	target, method := o.discoverMetricsTarget(context.Background(), "default", svc, nil, "/contract", 8080)
 	if target == nil {
 		t.Fatal("expected target, got nil")
 	}
@@ -975,7 +918,7 @@ func TestDiscoverMetricsTarget_PodMonitorPrecedence(t *testing.T) {
 		client: fake.NewClientBuilder().WithObjects(pm).Build(),
 	}
 
-	target, method := o.discoverMetricsTarget(context.Background(), "default", "test-svc", svc, "/contract", 8080)
+	target, method := o.discoverMetricsTarget(context.Background(), "default", svc, nil, "/contract", 8080)
 	if target == nil {
 		t.Fatal("expected target, got nil")
 	}
@@ -1009,7 +952,7 @@ func TestDiscoverMetricsTarget_AnnotationPrecedence(t *testing.T) {
 		client: fake.NewClientBuilder().Build(),
 	}
 
-	target, method := o.discoverMetricsTarget(context.Background(), "default", "test-svc", svc, "/contract", 8080)
+	target, method := o.discoverMetricsTarget(context.Background(), "default", svc, nil, "/contract", 8080)
 	if target == nil {
 		t.Fatal("expected target, got nil")
 	}
@@ -1040,7 +983,7 @@ func TestDiscoverMetricsTarget_NamedPortPrecedence(t *testing.T) {
 		client: fake.NewClientBuilder().Build(),
 	}
 
-	target, method := o.discoverMetricsTarget(context.Background(), "default", "test-svc", svc, "/contract", 8080)
+	target, method := o.discoverMetricsTarget(context.Background(), "default", svc, nil, "/contract", 8080)
 	if target == nil {
 		t.Fatal("expected target, got nil")
 	}
@@ -1070,7 +1013,7 @@ func TestDiscoverMetricsTarget_ContractFallback(t *testing.T) {
 		client: fake.NewClientBuilder().Build(),
 	}
 
-	target, method := o.discoverMetricsTarget(context.Background(), "default", "test-svc", svc, "/contract/metrics", 9999)
+	target, method := o.discoverMetricsTarget(context.Background(), "default", svc, nil, "/contract/metrics", 9999)
 	if target == nil {
 		t.Fatal("expected target, got nil")
 	}
@@ -1128,7 +1071,7 @@ func TestDiscoverFromServiceMonitor_InvalidEndpointType(t *testing.T) {
 		client: fake.NewClientBuilder().WithObjects(sm).Build(),
 	}
 
-	target := o.discoverFromServiceMonitor(context.Background(), "default", "test-svc", svc)
+	target := o.discoverFromServiceMonitor(context.Background(), "default", svc)
 	if target == nil {
 		t.Fatal("expected target from second endpoint, got nil")
 	}
@@ -1182,7 +1125,7 @@ func TestDiscoverFromPodMonitor_InvalidEndpointType(t *testing.T) {
 		client: fake.NewClientBuilder().WithObjects(pm).Build(),
 	}
 
-	target := o.discoverFromPodMonitor(context.Background(), "default", svc)
+	target := o.discoverFromPodMonitor(context.Background(), "default", svc, nil)
 	if target == nil {
 		t.Fatal("expected target from second endpoint, got nil")
 	}
@@ -1209,7 +1152,7 @@ func TestDiscoverMetricsTarget_NoPathReturnsNil(t *testing.T) {
 		client: fake.NewClientBuilder().Build(),
 	}
 
-	target, method := o.discoverMetricsTarget(context.Background(), "default", "test-svc", svc, "", 8080)
+	target, method := o.discoverMetricsTarget(context.Background(), "default", svc, nil, "", 8080)
 	if target != nil {
 		t.Errorf("expected nil target when no discovery succeeds and contractPath is empty, got %+v", target)
 	}

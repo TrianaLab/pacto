@@ -4,8 +4,8 @@ import (
 	"context"
 	"os"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/otelobserver"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/otelobserver"
 )
 
 // ObservationSource reads runtime-observed dependency edges from an OTLP/JSON

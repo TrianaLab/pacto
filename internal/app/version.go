@@ -1,8 +1,9 @@
 package app
 
-// BuildVersion is the pacto CLI version, recorded into pacto.lock provenance.
-// It is set from main via SetBuildVersion (Task 9); defaults to "dev".
-var BuildVersion = "dev"
-
-// SetBuildVersion records the running CLI version for lock provenance.
-func SetBuildVersion(v string) { BuildVersion = v }
+// buildVersion is the CLI version recorded into pacto.lock provenance.
+func (s *Service) buildVersion() string {
+	if s.Version == "" {
+		return "dev"
+	}
+	return s.Version
+}

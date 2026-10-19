@@ -23,14 +23,13 @@ func TestRunWriteAsksBeforeItRuns(t *testing.T) {
 
 func TestConfirmingAWriteExecsTheRealBinary(t *testing.T) {
 	var got []string
-	orig := execProcess
-	t.Cleanup(func() { execProcess = orig })
-	execProcess = func(cmd *exec.Cmd, fn tea.ExecCallback) tea.Cmd {
+	fake := func(cmd *exec.Cmd, fn tea.ExecCallback) tea.Cmd {
 		got = cmd.Args
 		return func() tea.Msg { return fn(nil) }
 	}
 
 	c := newLoadedContext(t)
+	c.execProcess = fake
 	c.Exe = "/opt/bin/pacto"
 	conf := runWrite(c, "Push?", []string{"pacto", "push", "./svc"})().(pushMsg).s
 	// confirmScreen calls onYes during Update, so execProcess has already been
@@ -57,13 +56,12 @@ func TestConfirmingAWriteExecsTheRealBinary(t *testing.T) {
 
 func TestDecliningAWriteExecsNothing(t *testing.T) {
 	called := false
-	orig := execProcess
-	t.Cleanup(func() { execProcess = orig })
-	execProcess = func(*exec.Cmd, tea.ExecCallback) tea.Cmd {
+	fake := func(*exec.Cmd, tea.ExecCallback) tea.Cmd {
 		called = true
 		return nil
 	}
 	c := newLoadedContext(t)
+	c.execProcess = fake
 	conf := runWrite(c, "Push?", []string{"pacto", "push", "./svc"})().(pushMsg).s
 	conf.Update(c, tea.KeyPressMsg{Code: 'n', Text: "n"})
 	if called {
@@ -114,14 +112,13 @@ func TestWriteVerbsCarryTheWriteFlag(t *testing.T) {
 // invocation and can print an upgrade banner into the middle of a push.
 func TestTheWriteSubprocessIsNotToldToAdvertise(t *testing.T) {
 	var got *exec.Cmd
-	orig := execProcess
-	t.Cleanup(func() { execProcess = orig })
-	execProcess = func(cmd *exec.Cmd, fn tea.ExecCallback) tea.Cmd {
+	fake := func(cmd *exec.Cmd, fn tea.ExecCallback) tea.Cmd {
 		got = cmd
 		return func() tea.Msg { return fn(nil) }
 	}
 
 	c := newLoadedContext(t)
+	c.execProcess = fake
 	execVerb(c, []string{"push", "./svc"})
 	for _, want := range []string{"PACTO_NO_UPDATE_CHECK=1", "NO_COLOR=1"} {
 		if !slices.Contains(got.Env, want) {

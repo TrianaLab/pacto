@@ -28,10 +28,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/graph"
-	"github.com/trianalab/pacto/v3/pkg/semver"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/semver"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // Roots walked for contracts. `pacto-dashboard` lives beside ./bundles rather

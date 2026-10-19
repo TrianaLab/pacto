@@ -11,8 +11,8 @@ import (
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
-	"github.com/trianalab/pacto/v3/internal/testutil"
-	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 )
 
 // acceptedAt is the fixed acceptance instant records are dated from, so every

@@ -1,0 +1,3 @@
+openapi: 3.0.3
+info: {title: served, version: 1.0.0}
+paths: {}

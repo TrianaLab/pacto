@@ -13,11 +13,11 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/fleetsrc"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/dashboard"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/fleetsrc"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // This file is the REAL-provider Product Impact integration test. It exercises
@@ -129,13 +129,10 @@ func singleRevKey(t *testing.T, snap *fleet.FleetSnapshot) string {
 func serveImpact(t *testing.T, mgr *fleet.Manager, svc *app.Service, fleetOverride func(context.Context) (*fleet.Query, error)) string {
 	t.Helper()
 	ui := fstest.MapFS{"index.html": &fstest.MapFile{Data: []byte("<html></html>")}}
-	srv := dashboard.NewServer(ui)
-	if fleetOverride != nil {
-		srv.SetFleetProvider(fleetOverride)
-	} else {
-		srv.SetFleetProvider(managerFleetProvider(mgr))
+	if fleetOverride == nil {
+		fleetOverride = managerFleetProvider(mgr)
 	}
-	srv.SetImpactProvider(impactProviderForFleet(svc, mgr))
+	srv := dashboard.NewServer(dashboard.Options{UI: ui, Fleet: fleetOverride, Impact: impactProviderForFleet(svc, mgr)})
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)

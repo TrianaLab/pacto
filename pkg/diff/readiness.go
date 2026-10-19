@@ -5,7 +5,7 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // ptrChanged reports whether two optional values differ, treating "absent" as

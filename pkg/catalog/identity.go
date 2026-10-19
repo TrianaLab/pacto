@@ -56,12 +56,6 @@ func NewContentID(scheme ContentScheme, dgst string) (ContentID, error) {
 	return ContentID{Scheme: scheme, Digest: dgst}, nil
 }
 
-// Zero reports whether the identity is unset.
-//
-// Deprecated: no production code in Pacto uses this method; it exists only for
-// test assertions. Removed at v4.
-func (c ContentID) Zero() bool { return c == ContentID{} }
-
 // String renders the identity for display and logs. Both halves are constrained
 // -- a closed enum and a validated digest -- so the join is unambiguous. It is
 // never used to derive identity; comparisons go field by field.

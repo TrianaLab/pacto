@@ -11,15 +11,15 @@ import (
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
-	"github.com/trianalab/pacto/v3/internal/app"
-	pactomcp "github.com/trianalab/pacto/v3/internal/mcp"
+	"github.com/trianalab/pacto/v4/internal/app"
+	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 )
 
 // mcpCallTool sets up an in-memory MCP server+client and calls the named tool.
 func mcpCallTool(t *testing.T, svc *app.Service, toolName string, args map[string]any) *mcpsdk.CallToolResult {
 	t.Helper()
 	ctx := context.Background()
-	server := pactomcp.NewServer(svc.PolicyResolver, "test-e2e")
+	server := pactomcp.NewServer(svc.ValidationReport, "test-e2e")
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{Name: "e2e-client", Version: "1.0"}, nil)
 
 	t1, t2 := mcpsdk.NewInMemoryTransports()

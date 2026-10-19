@@ -5,7 +5,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/trianalab/pacto/v3/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 // impactProvider resolves the old and new contract revisions, builds a fleet

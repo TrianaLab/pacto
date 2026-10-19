@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/otelobserver"
+	"github.com/trianalab/pacto/v4/pkg/otelobserver"
 )
 
 func TestService_ObserveOTel(t *testing.T) {

@@ -41,12 +41,6 @@ type Code string
 type Category string
 
 const (
-	// Deprecated: no code maps to this category. The interface shape rules that
-	// used it (INVALID_INTERFACE_TYPE, INTERFACE_REF_REQUIRED) moved into the
-	// structural JSON Schema, which reports SCHEMA_VIOLATION; a missing or
-	// unparseable spec file is CategoryInvalidFile. Nothing can produce it, so do
-	// not write a consumer case for it. Removed at v4.
-	CategoryInterfaceMismatch      Category = "InterfaceMismatch"
 	CategoryStateMismatch          Category = "StateMismatch"
 	CategoryPolicyViolation        Category = "PolicyViolation"
 	CategoryConfigurationViolation Category = "ConfigurationViolation"
@@ -66,32 +60,36 @@ const (
 	CategoryInconclusive           Category = "Inconclusive" // family 2; distinct from CategoryMissingEvidence
 )
 
-// One representative durable v2 code; the full set (including evidence-based and
-// legacy-v1 codes) is registered in Task 2.2.
+// CodeStatelessPersistent lives beside the types; every other code, and the
+// category and severity each one carries, is in codes.go.
 const (
 	CodeStatelessPersistent Code = "STATELESS_PERSISTENT_CONFLICT"
 )
 
 // SubjectRef identifies the thing a finding is about.
 type SubjectRef struct {
-	Kind string // e.g. service, interface, dependency, configuration, policy
-	Name string
+	Kind string `json:"kind"` // e.g. service, interface, dependency, configuration, policy
+	Name string `json:"name"`
 }
 
 // EvidenceRef links a finding to the evidence that supports it.
+// Source and ObservedAt describe the evidence set; Collector and DetectedAt the observation the finding
+// was derived from, and stay empty (and off the wire) when no observation was matched.
 type EvidenceRef struct {
-	Source     string
-	ObservedAt string
+	Source     string `json:"source"`
+	ObservedAt string `json:"observedAt"`
+	Collector  string `json:"collector,omitempty"`
+	DetectedAt string `json:"detectedAt,omitempty"`
 }
 
 // Finding is a typed conclusion produced by the engine. Contract-only findings
-// leave EvidenceRefs empty; evidence-based findings (Phase 5, Evaluate) populate it.
+// leave EvidenceRefs empty; evidence-based findings (validation.Evaluate) populate it.
 type Finding struct {
-	Code         Code
-	Severity     Severity
-	Category     Category
-	Subject      SubjectRef
-	ContractPath string
-	Message      string
-	EvidenceRefs []EvidenceRef
+	Code         Code          `json:"code"`
+	Severity     Severity      `json:"severity"`
+	Category     Category      `json:"category"`
+	Subject      SubjectRef    `json:"subject"`
+	ContractPath string        `json:"contractPath"`
+	Message      string        `json:"message"`
+	EvidenceRefs []EvidenceRef `json:"evidenceRefs"`
 }

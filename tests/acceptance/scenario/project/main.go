@@ -36,7 +36,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/trianalab/pacto/v3/tests/acceptance/scenario"
+	"github.com/trianalab/pacto/v4/tests/acceptance/scenario"
 )
 
 func main() {
@@ -111,6 +111,7 @@ func helm(s scenario.Scenario, argv []string) {
 	if err != nil {
 		exit(err)
 	}
+	values = append(values, s.HelmRuntimeValues()...)
 	write(*out, []byte(strings.Join(values, "\n")+"\n"))
 	fmt.Printf("  %d chart values -> %s\n", len(values), *out)
 }

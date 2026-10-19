@@ -7,11 +7,11 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/diff"
-	"github.com/trianalab/pacto/v3/pkg/graph"
-	"github.com/trianalab/pacto/v3/pkg/sbom"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/diff"
+	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/sbom"
 )
 
 type errWriter struct{}
@@ -47,7 +47,7 @@ func TestPrintInitResult_JSON(t *testing.T) {
 	if err := printInitResult(cmd, result, "json"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(buf.String(), `"Dir"`) {
+	if !strings.Contains(buf.String(), `"dir"`) {
 		t.Errorf("expected JSON output, got %q", buf.String())
 	}
 }
@@ -107,7 +107,7 @@ func TestPrintPackResult_JSON(t *testing.T) {
 	if err := printPackResult(cmd, result, "json"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(buf.String(), `"Output"`) {
+	if !strings.Contains(buf.String(), `"output"`) {
 		t.Errorf("expected JSON output, got %q", buf.String())
 	}
 }
@@ -578,7 +578,7 @@ func TestPrintValidateResult_JSON(t *testing.T) {
 	if err := printValidateResult(cmd, result, "json"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(buf.String(), `"Valid": true`) {
+	if !strings.Contains(buf.String(), `"valid": true`) {
 		t.Errorf("expected JSON output, got %q", buf.String())
 	}
 }
@@ -1238,9 +1238,8 @@ func TestNonEmpty(t *testing.T) {
 }
 
 func TestPrintGraphResultColored(t *testing.T) {
-	withTTY(t, true)
 	t.Setenv("NO_COLOR", "")
-	var buf bytes.Buffer
+	var buf ttyBuffer
 	cmd := &cobra.Command{}
 	cmd.SetOut(&buf)
 	result := &graph.Result{Root: &graph.Node{Name: "svc", Version: "1.0.0"}}
@@ -1253,7 +1252,6 @@ func TestPrintGraphResultColored(t *testing.T) {
 }
 
 func TestPrintGraphResultPlainWhenNotTTY(t *testing.T) {
-	withTTY(t, false)
 	var buf bytes.Buffer
 	cmd := &cobra.Command{}
 	cmd.SetOut(&buf)
@@ -1267,9 +1265,8 @@ func TestPrintGraphResultPlainWhenNotTTY(t *testing.T) {
 }
 
 func TestColorClassification(t *testing.T) {
-	withTTY(t, true)
 	t.Setenv("NO_COLOR", "")
-	w := &bytes.Buffer{}
+	w := &ttyBuffer{}
 	if !strings.Contains(colorClassification(w, "BREAKING"), "\033[31m") {
 		t.Fatal("BREAKING should be red")
 	}
@@ -1282,16 +1279,14 @@ func TestColorClassification(t *testing.T) {
 	if colorClassification(w, "WEIRD") != "WEIRD" {
 		t.Fatal("unknown classification should pass through")
 	}
-	withTTY(t, false)
 	if colorClassification(&bytes.Buffer{}, "BREAKING") != "BREAKING" {
 		t.Fatal("off-TTY should be plain")
 	}
 }
 
 func TestPrintValidateResultColored(t *testing.T) {
-	withTTY(t, true)
 	t.Setenv("NO_COLOR", "")
-	var buf bytes.Buffer
+	var buf ttyBuffer
 	cmd := &cobra.Command{}
 	cmd.SetOut(&buf)
 	_ = printValidateResult(cmd, &app.ValidateResult{Valid: true, Path: "svc"}, "text")
@@ -1306,7 +1301,6 @@ func TestPrintValidateResultColored(t *testing.T) {
 }
 
 func TestPrintPushResultGlyphOffTTY(t *testing.T) {
-	withTTY(t, false)
 	var buf bytes.Buffer
 	cmd := &cobra.Command{}
 	cmd.SetOut(&buf)
@@ -1317,9 +1311,8 @@ func TestPrintPushResultGlyphOffTTY(t *testing.T) {
 }
 
 func TestDiffColors(t *testing.T) {
-	withTTY(t, true)
 	t.Setenv("NO_COLOR", "")
-	col := diffColors(&bytes.Buffer{})
+	col := diffColors(&ttyBuffer{})
 	if col.Added == nil {
 		t.Fatal("TTY diffColors should populate")
 	}
@@ -1327,7 +1320,6 @@ func TestDiffColors(t *testing.T) {
 	if !strings.Contains(col.Added("test"), "\033[32m") {
 		t.Fatal("Added should apply green")
 	}
-	withTTY(t, false)
 	if diffColors(&bytes.Buffer{}).Added != nil {
 		t.Fatal("off-TTY diffColors must be zero")
 	}

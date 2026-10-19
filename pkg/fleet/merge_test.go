@@ -7,10 +7,10 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/lock"
-	"github.com/trianalab/pacto/v3/pkg/readiness"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/lock"
+	"github.com/trianalab/pacto/v4/pkg/readiness"
 )
 
 func TestMergeRevision_FillsEmptyAndUnionsSources(t *testing.T) {

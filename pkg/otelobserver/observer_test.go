@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
 )
 
 const twoServiceTrace = `{
@@ -218,17 +218,18 @@ func TestEvidenceSets_CustomCollectorAndContractRef(t *testing.T) {
 }
 
 func TestObserve_EndToEndAndParseError(t *testing.T) {
-	sets, err := Observe([]byte(twoServiceTrace), Options{
-		ObservedAt:  time.Unix(1, 0).UTC(),
-		ContractRef: func(string) string { return "oci://x@sha256:a" },
-	})
+	td, err := ParseTraces([]byte(twoServiceTrace))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	sets := EvidenceSets(DependencyEdges(td), Options{
+		ObservedAt:  time.Unix(1, 0).UTC(),
+		ContractRef: func(string) string { return "oci://x@sha256:a" },
+	})
 	if len(sets) != 1 || sets[0].Subject.Name != "frontend" {
 		t.Fatalf("unexpected sets: %+v", sets)
 	}
-	if _, err := Observe([]byte("{bad"), Options{}); err == nil {
+	if _, err := ParseTraces([]byte("{bad")); err == nil {
 		t.Fatal("expected parse error")
 	}
 }

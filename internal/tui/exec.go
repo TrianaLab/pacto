@@ -7,10 +7,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// execProcess is a seam so tests can assert on the argv without spawning
-// anything. It is restored with t.Cleanup in every test that replaces it.
-var execProcess = tea.ExecProcess
-
 // execDoneMsg reports the outcome of a subprocess run.
 type execDoneMsg struct{ err error }
 
@@ -43,5 +39,5 @@ func execVerb(c *Context, args []string) tea.Cmd {
 	// can print an upgrade banner into the middle of a push. The second keeps
 	// its colour out of a frame this process is about to redraw.
 	cmd.Env = append(os.Environ(), "PACTO_NO_UPDATE_CHECK=1", "NO_COLOR=1")
-	return execProcess(cmd, func(err error) tea.Msg { return execDoneMsg{err: err} })
+	return c.execProcess(cmd, func(err error) tea.Msg { return execDoneMsg{err: err} })
 }

@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 // This file builds the in-memory operational graph (fleet) and impact provider
@@ -94,7 +94,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 
 	// The cluster collector reports what is running; the registry above reports what
 	// was declared. Keeping them apart is what lets a target say which source saw it.
-	cluster := fleet.NewMemorySource("k8s-production", "k8s", &fleet.Collection{
+	cluster := fleet.NewMemorySource("k8s-production", fleet.SourceKindKubernetes, &fleet.Collection{
 		Targets: demoTargets(src),
 	})
 	// Telemetry is a second collector over the SAME estate: it corroborates the two
@@ -113,7 +113,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 		State:       &fleet.SourceState{Status: fleet.SourcePartial},
 		Limitations: []fleet.Limitation{{Code: fleet.LimitationSourcePartial, Source: "registry-mirror", Message: "tag listing truncated by the mirror"}},
 	})
-	unavailable := fleet.NewMemorySource("edge-cluster", "k8s", &fleet.Collection{
+	unavailable := fleet.NewMemorySource("edge-cluster", fleet.SourceKindKubernetes, &fleet.Collection{
 		State: &fleet.SourceState{
 			Status: fleet.SourceUnavailable,
 			Error:  &fleet.SourceError{Code: fleet.LimitationSourceUnavailable, Message: "edge cluster unreachable"},
@@ -202,16 +202,27 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 			// Three severities on one target: the severity distribution is a real
 			// distribution, and the findings table has something to sort.
 			Findings: []finding.Finding{
-				{Code: "CONTRACT_VIOLATION", Severity: finding.SeverityError, Category: "RuntimeDrift", Subject: finding.SubjectRef{Kind: "interface", Name: "orders-http"}, Message: "response schema drifted from the declared contract"},
-				{Code: "UNDECLARED_DEPENDENCY", Severity: finding.SeverityWarning, Category: "Relationship", Subject: finding.SubjectRef{Kind: "dependency", Name: "payments-service"}, Message: "observed calling payments-service more often than the declared budget"},
-				{Code: "COVERAGE_INCOMPLETE", Severity: finding.SeverityInfo, Category: "Evidence", Message: "1 of 5 required checks could not be evaluated from the available evidence"},
+				{Code: finding.CodeInterfaceProtocolMismatch, Severity: finding.SeverityError, Category: finding.CategoryRuntimeDrift, Subject: finding.SubjectRef{Kind: "interface", Name: "http"}, Message: "the http interface answers with a protocol other than the declared OpenAPI one"},
+				{Code: finding.CodeDependencyUndeclared, Severity: finding.SeverityWarning, Category: finding.CategoryRuntimeDrift, Subject: finding.SubjectRef{Kind: "dependency", Name: "fraud-service"}, Message: "observed calling fraud-service, which the contract does not declare"},
+				{Code: finding.CodeEvidenceMissing, Severity: finding.SeverityUnknown, Category: finding.CategoryInconclusive, Message: "1 of 5 required checks could not be evaluated from the available evidence"},
+			}},
+		// Recorded kernel-backed finding: the node agent saw nothing listen on the
+		// declared port, and the Kubernetes API agreed, so the evidence ref names
+		// both collectors. The dashboard shows it as "seen by: Kubernetes + kernel".
+		{Scope: "staging", Kind: "Deployment", Name: "orders-service", Service: "orders-service",
+			ResolvedRef: demoRegistry + "orders-service:1.2.0", Compliance: fleet.StatusNonCompliant,
+			Coverage: cov(5, 5), EvidenceAt: at(older), ReconciledAt: at(older),
+			Labels: map[string]string{"env": "staging", "region": "eu-west-1", "app.kubernetes.io/name": "orders-service"},
+			Findings: []finding.Finding{
+				{Code: finding.CodeInterfaceAbsent, Severity: finding.SeverityError, Category: finding.CategoryRuntimeDrift, Subject: finding.SubjectRef{Kind: "interface", Name: "http"}, Message: "nothing listens on the declared http interface",
+					EvidenceRefs: []finding.EvidenceRef{{Source: "k8s", ObservedAt: older.Format(time.RFC3339), Collector: "k8s-observer+ebpf", DetectedAt: older.Format(time.RFC3339)}}},
 			}},
 		{Scope: "prod", Kind: "Deployment", Name: "auth-service", Service: "auth-service", Compliance: fleet.StatusUnknown,
 			Coverage: cov(1, 5), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
 			Labels:          prod(map[string]string{"app.kubernetes.io/name": "auth-service"}),
 			ObservedRuntime: map[string]any{"replicas": 3},
 			Findings: []finding.Finding{
-				{Code: "EVIDENCE_INSUFFICIENT", Severity: finding.SeverityWarning, Category: "Evidence", Message: "the collector could not read the running interface, so compliance is unknown rather than clean"},
+				{Code: finding.CodeEvidenceInsufficient, Severity: finding.SeverityUnknown, Category: finding.CategoryInconclusive, Message: "the collector could not read the running interface, so compliance is unknown rather than clean"},
 			}},
 		{Scope: "staging", Kind: "Deployment", Name: "fraud-service", Service: "fraud-service", Compliance: fleet.StatusCompliant,
 			Coverage: cov(5, 5), EvidenceAt: at(stale), ReconciledAt: at(stale),

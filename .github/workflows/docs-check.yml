@@ -90,6 +90,7 @@ jobs:
               - 'integrations/**/internal/observer/**'
               - 'pkg/evidence/**'
               - 'pkg/finding/**'
+              - 'cmd/gendocs/**'
               - 'release/release-manifest.json'
               # docs/examples/demo-tour.md snippet-includes the transcripts in
               # examples/demo/generated, and generated_paths() puts them under the

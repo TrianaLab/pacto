@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 func TestAttentionListsItems(t *testing.T) {
@@ -33,15 +33,15 @@ func TestAttentionListsItems(t *testing.T) {
 }
 
 func TestAttentionCategoryFilterCyclesWithoutMutatingThePackageVar(t *testing.T) {
-	before := append([]string(nil), fleet.AttentionCategories...)
+	before := fleet.AttentionCategoriesList()
 	c := newLoadedContext(t)
 	s := newAttentionScreen(c)
 	for i := 0; i < len(before)+2; i++ {
 		s, _ = s.Update(c, tea.KeyPressMsg{Code: tea.KeyTab})
 	}
-	for i, v := range fleet.AttentionCategories {
+	for i, v := range fleet.AttentionCategoriesList() {
 		if v != before[i] {
-			t.Fatalf("fleet.AttentionCategories was mutated at %d: %q != %q", i, v, before[i])
+			t.Fatalf("the canonical attention order was mutated at %d: %q != %q", i, v, before[i])
 		}
 	}
 }

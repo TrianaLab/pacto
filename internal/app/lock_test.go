@@ -10,10 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/internal/testutil"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/lock"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/lock"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // writeRoot writes a minimal local root contract declaring one OCI dep and
@@ -229,10 +229,9 @@ func TestLockMarshalError(t *testing.T) {
 	// must not leave a partial/corrupt lock on disk.
 	dir := writeRoot(t)
 	beforeExists, before := lockState(t, dir)
-	old := writeFileFn
-	writeFileFn = func(_ string, _ []byte, _ os.FileMode) error { return errors.New("disk full") }
-	defer func() { writeFileFn = old }()
+	writeFileHook := func(_ string, _ []byte, _ os.FileMode) error { return errors.New("disk full") }
 	s := NewService(authStore("sha256:v1"), nil)
+	s.sys.writeFile = writeFileHook
 	_, err := s.Lock(context.Background(), LockOptions{Path: dir})
 	if err == nil || !strings.Contains(err.Error(), "disk full") {
 		t.Fatalf("expected write error, got %v", err)
@@ -247,10 +246,9 @@ func TestLockMarshalError(t *testing.T) {
 func TestLockMarshalFails(t *testing.T) {
 	dir := writeRoot(t)
 	beforeExists, before := lockState(t, dir)
-	old := marshalLockFn
-	marshalLockFn = func(_ *lock.Lock) ([]byte, error) { return nil, errors.New("marshal boom") }
-	defer func() { marshalLockFn = old }()
+	marshalLockHook := func(_ *lock.Lock) ([]byte, error) { return nil, errors.New("marshal boom") }
 	s := NewService(authStore("sha256:v1"), nil)
+	s.sys.marshalLock = marshalLockHook
 	_, err := s.Lock(context.Background(), LockOptions{Path: dir})
 	if err == nil || !strings.Contains(err.Error(), "marshal boom") {
 		t.Fatalf("expected marshal error, got %v", err)

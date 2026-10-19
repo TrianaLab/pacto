@@ -1,10 +1,10 @@
 # Pacto for Developers
 
-You own the service — and you own the contract. Pacto gives you a structured way to declare your service's operational contract alongside your code, so platform engineers, CI systems and other teams have an accurate, machine-readable description of what your service needs to run.
+You own the service, so you own its contract. This guide shows how to write one next to your code: a `pacto.yaml` file that says what your service exposes, what it needs and how it behaves. Platform engineers, CI and other teams then read the same file instead of asking you.
 
-Already have a contract and want a single answer? [Quickstart](quickstart.md) is
-the five-minute path, the [CLI reference](cli-reference.md) is every command and
-flag, and [contract sections](contract-reference/sections.md) is every field.
+New to Pacto? Start with the five-minute [Quickstart](quickstart.md). The
+[CLI reference](cli-reference.md) lists every command and
+[contract sections](contract-reference/sections.md) lists every field.
 
 ---
 
@@ -25,7 +25,7 @@ flowchart LR
 pacto init my-service
 ```
 
-This scaffolds a bundle with a valid contract. Edit `pacto.yaml` to match your service.
+This creates a `my-service/` directory (a *bundle*: the contract plus the files it points to) with a valid starter contract. Edit `pacto.yaml` to match your service.
 
 ### 2. Infer schemas from your code (optional)
 
@@ -82,6 +82,8 @@ pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service
 ```
 
 See [Validation layers](contract-reference/validation.md) for the rules and error codes. `push` validates before uploading; use `--force` to overwrite an existing tag.
+
+Running on Kubernetes? The [operator](integrations/kubernetes/overview.md) can then check what your service actually does on the network against this contract. See [runtime conformance](integrations/kubernetes/runtime-conformance.md).
 
 ---
 

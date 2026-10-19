@@ -10,30 +10,29 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/internal/testutil"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
-// stubPolicyResolver answers every ref with the same bundle, or the same error.
-type stubPolicyResolver struct {
+// pullCounter is a registry stub that records every ref it is asked for and
+// answers with the same bundle, or the same error.
+type pullCounter struct {
 	bundle *contract.Bundle
 	err    error
 	refs   []string
-	roots  []string
 }
 
-func (r *stubPolicyResolver) ResolveBundle(_ context.Context, ref string) (*contract.Bundle, error) {
-	r.refs = append(r.refs, ref)
-	return r.bundle, r.err
-}
-
-// forRoot makes the stub a PolicyResolverFor, recording which root it was built
-// for. The root is the whole reason the tool takes a factory rather than a
-// resolver, so a test that never looks at it cannot see the factory work.
-func (r *stubPolicyResolver) forRoot(root string) validation.BundleResolver {
-	r.roots = append(r.roots, root)
-	return r
+// validator wires the stub registry behind the real `pacto validate` path, the
+// one the command layer hands NewServer.
+func (p *pullCounter) validator() Validator {
+	return app.NewService(&testutil.MockBundleStore{
+		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
+			p.refs = append(p.refs, ref)
+			return p.bundle, p.err
+		},
+	}, nil).ValidationReport
 }
 
 // bundleWithPolicyRef writes a contract whose only policy is a ref, which is the
@@ -59,8 +58,8 @@ func TestCheck_RefPolicyIsResolved(t *testing.T) {
 	dir := bundleWithPolicyRef(t)
 
 	t.Run("a ref the resolver cannot fetch is invalid", func(t *testing.T) {
-		r := &stubPolicyResolver{err: errors.New("not found")}
-		res, err := Check(context.Background(), r.forRoot, dir)
+		r := &pullCounter{err: errors.New("not found")}
+		res, err := Check(context.Background(), r.validator(), dir)
 		if err != nil {
 			t.Fatalf("Check: %v", err)
 		}
@@ -68,13 +67,8 @@ func TestCheck_RefPolicyIsResolved(t *testing.T) {
 			t.Error("valid = true, want false for an unresolvable policy ref")
 		}
 		assertCode(t, res, "POLICY_REF_UNRESOLVED")
-		if len(r.refs) != 1 || r.refs[0] != "oci://ghcr.io/acme/platform-policy:1.0.0" {
-			t.Errorf("resolver saw %v, want the declared ref exactly once", r.refs)
-		}
-		// The bundle being checked, not the directory the server was started in:
-		// a relative policies[].ref means "next to the contract that wrote it".
-		if len(r.roots) != 1 || r.roots[0] != dir {
-			t.Errorf("resolver built for %v, want [%s]", r.roots, dir)
+		if len(r.refs) == 0 || !strings.Contains(r.refs[0], "ghcr.io/acme/platform-policy:1.0.0") {
+			t.Errorf("registry saw %v, want the declared ref", r.refs)
 		}
 	})
 
@@ -90,10 +84,10 @@ func TestCheck_RefPolicyIsResolved(t *testing.T) {
 	})
 
 	t.Run("a resolvable ref is enforced, not skipped", func(t *testing.T) {
-		r := &stubPolicyResolver{bundle: &contract.Bundle{FS: fstest.MapFS{
+		r := &pullCounter{bundle: &contract.Bundle{FS: fstest.MapFS{
 			"policy/schema.json": {Data: []byte(`{"required":["metadata"]}`)},
 		}}}
-		res, err := Check(context.Background(), r.forRoot, dir)
+		res, err := Check(context.Background(), r.validator(), dir)
 		if err != nil {
 			t.Fatalf("Check: %v", err)
 		}
@@ -104,12 +98,12 @@ func TestCheck_RefPolicyIsResolved(t *testing.T) {
 	})
 }
 
-// TestCheckTool_UsesTheWiredResolver proves the resolver reaches the tool, not
+// TestCheckTool_UsesTheWiredValidator proves the validator reaches the tool, not
 // just the function: NewServer's parameter is what closes the gap.
-func TestCheckTool_UsesTheWiredResolver(t *testing.T) {
+func TestCheckTool_UsesTheWiredValidator(t *testing.T) {
 	dir := bundleWithPolicyRef(t)
-	r := &stubPolicyResolver{err: errors.New("registry unreachable")}
-	res := callToolOn(t, NewServer(r.forRoot, "test"), "pacto_check", map[string]any{"path": dir})
+	r := &pullCounter{err: errors.New("registry unreachable")}
+	res := callToolOn(t, NewServer(r.validator(), "test"), "pacto_check", map[string]any{"path": dir})
 	if res.IsError {
 		t.Fatalf("unexpected error: %s", resultText(t, res))
 	}
@@ -121,7 +115,7 @@ func TestCheckTool_UsesTheWiredResolver(t *testing.T) {
 		t.Error("valid = true, want false for an unresolvable policy ref")
 	}
 	if len(r.refs) == 0 {
-		t.Error("the wired resolver was never consulted")
+		t.Error("the wired validator never reached the registry")
 	}
 }
 
@@ -154,4 +148,33 @@ func TestCheck_ResolverIsNotNeededWithoutARefPolicy(t *testing.T) {
 func resultString(res *CheckResult) string {
 	data, _ := json.Marshal(res)
 	return string(data)
+}
+
+// TestCheck_VerifiesTheLockfile pins the reason Check takes the whole validate
+// path: with a resolver alone a corrupt or drifted pacto.lock passed pacto_check
+// and then failed `pacto validate` in CI.
+func TestCheck_VerifiesTheLockfile(t *testing.T) {
+	dir := testutil.WriteTestBundle(t)
+	if err := os.WriteFile(filepath.Join(dir, "pacto.lock"), []byte("not a lockfile"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Check(context.Background(), app.NewService(nil, nil).ValidationReport, dir)
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+	if res.Valid {
+		t.Fatal("valid = true, want false for an unverifiable pacto.lock")
+	}
+}
+
+// TestCheck_ValidatorErrorIsReturned: a validation path that cannot reach a
+// verdict is an error, never a pass.
+func TestCheck_ValidatorErrorIsReturned(t *testing.T) {
+	dir := testutil.WriteTestBundle(t)
+	failing := func(context.Context, string) (validation.ValidationResult, error) {
+		return validation.ValidationResult{}, errors.New("boom")
+	}
+	if _, err := Check(context.Background(), failing, dir); err == nil {
+		t.Fatal("expected the validator error")
+	}
 }

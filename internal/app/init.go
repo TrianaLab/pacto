@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
 // InitOptions holds options for the init command.
@@ -16,8 +16,8 @@ type InitOptions struct {
 
 // InitResult holds the result of the init command.
 type InitResult struct {
-	Dir  string
-	Path string
+	Dir  string `json:"dir"`
+	Path string `json:"path"`
 }
 
 const defaultContract = `pactoVersion: "2.0"
@@ -141,19 +141,19 @@ func (s *Service) Init(ctx context.Context, opts InitOptions) (*InitResult, erro
 	// Write pacto.yaml.
 	pactoPath := filepath.Join(dir, "pacto.yaml")
 	content := fmt.Sprintf(defaultContract, name)
-	if err := writeFileFn(pactoPath, []byte(content), 0644); err != nil {
+	if err := s.env().writeFile(pactoPath, []byte(content), 0644); err != nil {
 		return nil, fmt.Errorf("failed to write pacto.yaml: %w", err)
 	}
 
 	// Write placeholder contract and configuration files.
 	openapiPath := filepath.Join(dir, "interfaces", "openapi.yaml")
 	openapiContent := fmt.Sprintf(defaultOpenAPI, name)
-	if err := writeFileFn(openapiPath, []byte(openapiContent), 0644); err != nil {
+	if err := s.env().writeFile(openapiPath, []byte(openapiContent), 0644); err != nil {
 		return nil, fmt.Errorf("failed to write %s: %w", openapiPath, err)
 	}
 
 	schemaPath := filepath.Join(dir, "configuration", "schema.json")
-	if err := writeFileFn(schemaPath, []byte(defaultConfigSchema), 0644); err != nil {
+	if err := s.env().writeFile(schemaPath, []byte(defaultConfigSchema), 0644); err != nil {
 		return nil, fmt.Errorf("failed to write %s: %w", schemaPath, err)
 	}
 
