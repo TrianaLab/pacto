@@ -28,7 +28,7 @@ login is needed; against a private registry, `docker login <registry>` first.
 Resolve the release you want to the digest it published, then run that digest:
 
 ```sh
-DEMO=$(docker manifest inspect -v ghcr.io/trianalab/pacto/demo:3.3.6 \
+DEMO=$(docker manifest inspect -v ghcr.io/trianalab/pacto/demo:4.0.0 \
   | sed -n 's/.*"digest": "\(sha256:[a-f0-9]*\)".*/\1/p' | head -1)
 
 docker compose -f "oci://ghcr.io/trianalab/pacto/demo@$DEMO" \
