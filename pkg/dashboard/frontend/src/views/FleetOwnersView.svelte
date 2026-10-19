@@ -27,7 +27,10 @@
   const anyFilter = $derived(!!text);
 
   let textDraft = $state(text);
-  $effect(() => { textDraft = text; });
+  // The text the last submit wrote to the URL. Its echo reaches `text` a hashchange later,
+  // by when the reader may have typed on; adopting it would drop those keystrokes.
+  let submittedText = null;
+  $effect(() => { if (text !== submittedText) textDraft = text; submittedText = null; });
 
   // One reusable, race-safe loader: dedupes the initial load and
   // guards against a stale response overwriting a newer route/filter/refresh.
@@ -62,7 +65,7 @@
   const hasNext = $derived(list?.nextOffset != null);
   const prevOffset = $derived(Math.max(0, (list?.offset ?? pageOffset) - PAGE_SIZE));
 
-  function submitSearch(e) { e.preventDefault(); location.hash = fleetOwnersUrl({ text: textDraft }); }
+  function submitSearch(e) { e.preventDefault(); submittedText = textDraft; location.hash = fleetOwnersUrl({ text: textDraft }); }
   function clearAll() { location.hash = fleetOwnersUrl(); }
   const chips = $derived(text ? [{ key: 'text', label: 'Search', value: text }] : []);
 

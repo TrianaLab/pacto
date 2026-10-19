@@ -168,7 +168,7 @@
   <!-- Desktop right section -->
   <div class="navbar-right navbar-right-desktop">
     {#each enabledSources as src}
-      <span class="source-tag" data-tip={sourceTooltip(src.type)} data-tip-align="right"><SourceDot source={src.type} />{src.type}</span>
+      <span class="source-tag" data-tip={sourceTooltip(src.type)} data-tip-align="right"><SourceDot source={src.type} /><span class="source-tag-label">{src.type}</span></span>
     {/each}
     {#if discovering}
       <span class="pill" style="font-size:11px">discovering…</span>
@@ -297,10 +297,18 @@
     position: relative;
   }
   .search-trigger:hover { border-color: var(--c-text-3); }
-  .search-trigger-text { flex: 1; }
+  /* One line that truncates: wrapping a squeezed placeholder spills it out of the bar. */
+  .search-trigger { min-width: 9rem; }
+  .search-trigger-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* The only part of the bar allowed to give way: the source labels truncate (down to the
+     dot, which carries the initial and the full description) before the bar can push the
+     page sideways. The source count and the label widths are data and font dependent. */
   .navbar-right {
-    display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; flex-shrink: 0;
+    display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; min-width: 0;
   }
+  .source-tag { min-width: 0; }
+  .source-tag :global(.source-dot) { flex-shrink: 0; }
+  .source-tag-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .source-tag {
     display: inline-flex; align-items: center; gap: 5px;
     font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;

@@ -204,6 +204,11 @@ const SOURCE_DESCRIPTIONS: Record<string, string> = {
   oci: 'OCI Registry — versioned contract bundles',
   local: 'Local — contracts from local filesystem',
   cache: 'Cache — offline baseline from a previously pulled bundle',
+  'target-state': 'Target state — a file describing where each revision runs',
+  'evidence-http': 'Evidence Server — signed reports from remote environments',
+  'evidence-ingest': 'Evidence Server — signed reports accepted by this server',
+  observation: 'Observation — recorded calls between services',
+  catalog: 'Catalog — contracts discovered in a registry',
 };
 
 export function sourceTooltip(src: string): string {

@@ -27,7 +27,10 @@
   const anyFilter = $derived(!!(text || sourceHealth));
 
   let textDraft = $state(text);
-  $effect(() => { textDraft = text; });
+  // The text the last submit wrote to the URL. Its echo reaches `text` a hashchange later,
+  // by when the reader may have typed on; adopting it would drop those keystrokes.
+  let submittedText = null;
+  $effect(() => { if (text !== submittedText) textDraft = text; submittedText = null; });
 
   // One reusable, race-safe loader: dedupes the initial load and
   // guards against a stale response overwriting a newer route/filter/refresh.
@@ -76,7 +79,7 @@
   function urlWith(patch, off = 0) {
     return fleetSourcesUrl({ text: patch.text ?? text, sourceHealth: patch.sourceHealth ?? sourceHealth, offset: off });
   }
-  function submitSearch(e) { e.preventDefault(); location.hash = urlWith({ text: textDraft }); }
+  function submitSearch(e) { e.preventDefault(); submittedText = textDraft; location.hash = urlWith({ text: textDraft }); }
   function clearAll() { location.hash = fleetSourcesUrl(); }
   const chips = $derived([
     text ? { key: 'text', label: 'Search', value: text } : null,
