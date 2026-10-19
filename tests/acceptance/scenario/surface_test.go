@@ -81,3 +81,20 @@ func TestSurfaces_AreTheParseableOnes(t *testing.T) {
 		t.Errorf("Surfaces() lists %d surfaces, %d are declared", len(Surfaces()), len(surfaceCapabilities))
 	}
 }
+
+// Both surfaces watch the kernel, by different routes, and cite what it saw to
+// different collectors. An unknown surface watches nothing and cites nothing.
+func TestSurface_BothSurfacesWatchTheKernel(t *testing.T) {
+	for s, want := range map[Surface]string{
+		SurfaceKubernetes: "k8s-observer+ebpf",
+		SurfaceCompose:    "pacto-agent+ebpf",
+		"swarm":           "",
+	} {
+		if got := s.KernelCollector(); got != want {
+			t.Errorf("surface %q cites the kernel as %q, want %q", s, got, want)
+		}
+		if s.Valid() != s.Has(CapabilityRuntimeConformance) {
+			t.Errorf("surface %q: valid=%v but runtime conformance=%v", s, s.Valid(), s.Has(CapabilityRuntimeConformance))
+		}
+	}
+}

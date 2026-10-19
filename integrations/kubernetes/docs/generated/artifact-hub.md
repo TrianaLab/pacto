@@ -14,7 +14,7 @@ Published artifact coordinates for the Kubernetes integration. All coordinates a
 | --- | --- | --- | --- |
 | Controller image | oci-image | `ghcr.io/trianalab/pacto/operator` | `5.4.3` |
 | Helm chart | helm-chart | `ghcr.io/trianalab/pacto/charts/pacto-operator` | `5.4.3` |
-| Go module | go-module | `github.com/trianalab/pacto/integrations/kubernetes/v5` | `5.4.3` |
+| Go module | go-module | `github.com/trianalab/pacto/integrations/kubernetes/v6` | `5.4.3` |
 | Documentation | docs | `mkdocs:integrations/kubernetes` | `5.4.3` |
 
 ## Verify a published artifact

@@ -89,6 +89,13 @@ const someTargetKey = Object.keys(snap.targets || {})[0];
 const tdetail = json(call("GET", `/api/fleet/target?key=${encodeURIComponent(someTargetKey)}`));
 check("fleet target detail resolves by key", tdetail.target && tdetail.target.key === someTargetKey, someTargetKey);
 
+// The recorded kernel finding the target page renders as "seen by: Kubernetes + kernel"
+// (collectorLabel in the frontend maps the collector k8s-observer+ebpf to that label).
+const kernelKey = Object.keys(snap.targets || {}).find((k) => JSON.stringify(snap.targets[k]).includes("INTERFACE_ABSENT"));
+const kernelDetail = kernelKey ? JSON.stringify(json(call("GET", `/api/fleet/target?key=${encodeURIComponent(kernelKey)}`))) : "";
+check("a recorded INTERFACE_ABSENT finding cites collector k8s-observer+ebpf",
+  kernelDetail.includes("INTERFACE_ABSENT") && kernelDetail.includes('"k8s-observer+ebpf"'), kernelKey);
+
 // Impact: payments-service's oldest revision against its newest, resolved
 // entirely from embedded bundles, no OCI. Uses the same published snapshot the
 // graph serves. The pair is named from what was actually diffed -- the label
@@ -118,16 +125,16 @@ check("include-observed surfaces the audit-log shadow consumer",
 // the same revision the service page lands on. payments-service 2.1.1 declares a
 // readiness block that fails its gate (a stale ai-evals check drops the score to
 // 70 < 80); orders-service 1.2.0 declares an all-current block that passes. The
-// revision embeds the raw readiness.Result untagged, hence the capitalised keys.
+// revision embeds readiness.Result, whose keys are camelCase since v4.
 check("payments newest revision exposes readiness", newRev.readiness != null, newRev.version);
-check("payments readiness Score 70", newRev.readiness && newRev.readiness.Score === 70, newRev.readiness && `score ${newRev.readiness.Score}`);
-check("payments readiness gate FAIL", newRev.readiness && newRev.readiness.Passing === false);
+check("payments readiness Score 70", newRev.readiness && newRev.readiness.score === 70, newRev.readiness && `score ${newRev.readiness.score}`);
+check("payments readiness gate FAIL", newRev.readiness && newRev.readiness.passing === false);
 
 const ordRevs = (json(call("GET", "/api/fleet/service?key=orders-service")).revisions || [])
   .slice().sort(byVersion);
 const ordRev = ordRevs[ordRevs.length - 1] || {};
-check("orders newest revision readiness passes", ordRev.readiness && ordRev.readiness.Passing === true,
-  ordRev.readiness && `score ${ordRev.readiness.Score}`);
+check("orders newest revision readiness passes", ordRev.readiness && ordRev.readiness.passing === true,
+  ordRev.readiness && `score ${ordRev.readiness.score}`);
 
 // ── Product API: the demo must be RICH through the paths the product UI uses ──
 // The product UI never reads the raw snapshot above; it reads these endpoints. A

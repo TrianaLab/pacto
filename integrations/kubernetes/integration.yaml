@@ -9,7 +9,7 @@ maintainers:
     contact: pacto-maintainers@trianalab.example
 sourceModules:
   - path: integrations/kubernetes
-    module: github.com/trianalab/pacto/integrations/kubernetes/v5
+    module: github.com/trianalab/pacto/integrations/kubernetes/v6
 documentation:
   source: integrations/kubernetes/docs
   generateCommand: make -C integrations/kubernetes docs-generate
@@ -19,7 +19,7 @@ role:
 releaseUnits:
   - id: k8s-module
     kind: go-module
-    coordinate: github.com/trianalab/pacto/integrations/kubernetes/v5
+    coordinate: github.com/trianalab/pacto/integrations/kubernetes/v6
     tagPrefix: integrations/kubernetes/
   - id: operator-image
     kind: oci-image
@@ -33,4 +33,4 @@ releaseUnits:
     versionedWith: operator-chart
 group: kubernetes            # fixed release group (module + image + chart + docs bump together)
 compatibility:
-  pactoCore: ">=3.0.0"       # engine module versions this integration supports
+  pactoCore: ">=4.0.0"       # engine module versions this integration supports

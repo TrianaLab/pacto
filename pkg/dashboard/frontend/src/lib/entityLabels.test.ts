@@ -5,6 +5,7 @@ import {
   attentionCategoryLabel, ATTENTION_CATEGORIES,
   provenanceLabel, provenanceIsImplied,
   sourceHealthTallyParts, sourceHealthTally, sourceHealthSentence,
+  collectorLabel, seenBy,
 } from './entityLabels.ts';
 import { statusLabel } from './format.ts';
 
@@ -200,5 +201,23 @@ describe('the fleet-wide source health tally', () => {
     // Partial is the one that is easiest to misread as "the fleet has less in it".
     expect(sourceHealthSentence('partial')).toContain('missing from the snapshot rather than absent from the fleet');
     expect(sourceHealthSentence('nonsense')).toContain('does not recognize');
+  });
+});
+
+describe('evidence collector in plain words', () => {
+  it('maps each known collector and keeps an unknown one verbatim', () => {
+    expect(collectorLabel('k8s-observer')).toBe('Kubernetes');
+    expect(collectorLabel('k8s-observer+ebpf')).toBe('Kubernetes + kernel');
+    expect(collectorLabel('ebpf')).toBe('kernel');
+    expect(collectorLabel('pacto-agent+ebpf')).toBe('kernel (host agent)');
+    expect(collectorLabel('pacto-run+ebpf')).toBe('kernel (pacto run)');
+    expect(collectorLabel('otel')).toBe('otel');
+    expect(collectorLabel(undefined)).toBe('');
+  });
+
+  it('joins distinct collectors and says nothing when none was recorded', () => {
+    expect(seenBy([{ collector: 'ebpf' }, { collector: 'k8s-observer' }, { collector: 'ebpf' }, {}])).toBe('kernel, Kubernetes');
+    expect(seenBy([{}])).toBe('');
+    expect(seenBy(undefined)).toBe('');
   });
 });

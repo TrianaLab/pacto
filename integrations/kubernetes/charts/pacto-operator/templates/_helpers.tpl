@@ -77,12 +77,59 @@ Controller arguments derived from values
 {{- if .Values.controller.stabilizationWindow }}
 - --stabilization-window={{ .Values.controller.stabilizationWindow }}
 {{- end }}
+{{- if .Values.controller.enableProbing }}
+- --enable-probing
+{{- end }}
+{{- if .Values.controller.enableMetricsObservation }}
+- --enable-metrics-observation
+{{- end }}
+{{- /* Kernel evidence follows the managed node agent: either switch turns it on. */}}
+{{- with .Values.controller.kernelEvidence }}
+{{- if or .enabled $.Values.nodeAgent.enabled }}
+- --enable-kernel-evidence
+{{- if .namespace }}
+- --kernel-evidence-namespace={{ .namespace }}
+{{- end }}
+{{- if .staleness }}
+- --kernel-evidence-staleness={{ .staleness }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- /* Always passed: a disabled agent is pruned from its namespace, and kernel evidence defaults to it. */}}
+- --node-agent-namespace={{ include "pacto-operator.nodeAgentNamespace" . }}
+{{- with .Values.nodeAgent }}
+{{- if .enabled }}
+- --enable-node-agent
+{{- range $.Values.imagePullSecrets }}
+- --node-agent-image-pull-secret={{ .name }}
+{{- end }}
+{{- if .publishInterval }}
+- --node-agent-publish-interval={{ .publishInterval }}
+{{- end }}
+{{- with .resources }}
+{{- if .requests }}
+{{- if .requests.cpu }}
+- --node-agent-cpu-request={{ .requests.cpu }}
+{{- end }}
+{{- if .requests.memory }}
+- --node-agent-memory-request={{ .requests.memory }}
+{{- end }}
+{{- end }}
+{{- if .limits }}
+{{- if .limits.cpu }}
+- --node-agent-cpu-limit={{ .limits.cpu }}
+{{- end }}
+{{- if .limits.memory }}
+- --node-agent-memory-limit={{ .limits.memory }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
 {{- if .Values.dashboard.enabled }}
 - --enable-dashboard
 {{- if .Values.dashboard.ociSecrets }}
 - --dashboard-oci-secrets={{ join "," .Values.dashboard.ociSecrets }}
-{{- else if .Values.dashboard.ociSecret }}
-- --dashboard-oci-secret={{ .Values.dashboard.ociSecret }}
 {{- end }}
 {{- with .Values.dashboard.resources }}
 {{- if .requests }}
@@ -140,4 +187,30 @@ Controller arguments derived from values
 {{- end }}
 {{- end }}
 {{- end }}
+{{- end }}
+
+{{/*
+The node agent namespace. The operator labels it privileged for Pod Security,
+so it may never be the release namespace.
+*/}}
+{{- define "pacto-operator.nodeAgentNamespace" -}}
+{{- if and .Values.nodeAgent.enabled (eq .Values.nodeAgent.namespace .Release.Namespace) }}
+{{- fail "nodeAgent.namespace must not be the release namespace: the node agent namespace is labelled privileged for Pod Security" }}
+{{- end }}
+{{- .Values.nodeAgent.namespace }}
+{{- end }}
+
+{{/*
+The namespace the operator reads kernel evidence (NodeRuntimeObservations and
+heartbeat Leases) from.
+*/}}
+{{- define "pacto-operator.kernelEvidenceNamespace" -}}
+{{- .Values.controller.kernelEvidence.namespace | default (include "pacto-operator.nodeAgentNamespace" .) }}
+{{- end }}
+
+{{/*
+Whether kernel evidence is on: either switch turns it on.
+*/}}
+{{- define "pacto-operator.kernelEvidence" -}}
+{{- if or .Values.controller.kernelEvidence.enabled .Values.nodeAgent.enabled }}true{{ end }}
 {{- end }}

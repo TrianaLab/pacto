@@ -1,14 +1,20 @@
 # The Pacto Operational Graph
 
-A single contract tells you what one service is. Most questions span many: *what
-depends on payments-api, which revision runs in `production-eu`, is any of it
-non-compliant and how sure are we?* The **Pacto Operational Graph** composes
-contracts, revisions and operational targets into one versioned read model that
-humans, CLIs, platforms and agents can query.
+The operational graph answers questions that span many services: *what depends
+on payments-api, which revision runs in `production-eu`, is any of it failing its
+contract and how sure are we?* It joins contracts, their published revisions and
+the places they run into one view that people, CLIs, platforms and agents can
+query.
 
-It is framework-independent (`pkg/fleet`), pure and read-only: it observes no
-environment and evaluates nothing itself. Internally the immutable read model is a
-**Fleet Snapshot** and the pure query layer over it a **Fleet Query**.
+```bash
+pacto fleet search                                     # services found under .
+pacto fleet graph payments-api --direction dependents  # who depends on it
+pacto fleet status                                     # what needs attention
+```
+
+The graph only reads. It watches nothing and judges nothing: it collects
+results other parts of Pacto produced. The code lives in `pkg/fleet`. Internally the frozen view is called a **Fleet Snapshot** and the
+query layer over it a **Fleet Query**.
 
 ## Three identities, never flattened
 
@@ -198,9 +204,9 @@ performs I/O, and a single snapshot serves concurrent queries.
 | **status** | What needs attention: non-compliant or unknown targets, invalid contracts, stale evidence, missing readiness, unresolved dependencies. |
 | **explain** | Deterministic, structured reasons for a subject's state. Pacto embeds no model — it hands an agent structured reasons to turn into prose. |
 
-Two more operations are not queries: `snapshot` emits the whole read model as one
-document, `reconcile` reports declared dependencies against observed ones. Every
-answer carries a `meta` envelope, here from
+Two more operations are not queries: `snapshot` emits the whole read model and
+`reconcile` compares declared dependencies with observed ones. Every answer
+carries a `meta` envelope, here from
 `pacto fleet search --output-format json` with an unreachable OCI source:
 
 ```json

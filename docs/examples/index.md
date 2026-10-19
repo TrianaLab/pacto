@@ -1,11 +1,15 @@
 # Example Contracts
 
-This section provides ready-to-use Pacto contracts for common infrastructure services. Use these as references when writing your own contracts, or as dependencies. New to authoring? Start with the [developer guide](../developers.md).
-
-To see the whole dashboard in your browser with nothing to install, open the [live dashboard demo](dashboard-demo.md) — its source and curated contract set live in [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo). For a real fleet on your own machine — a registry, an Evidence Server and the dashboard, pulled as one OCI artifact — see the [Docker Compose demo](compose-demo.md). To drive one from the command line instead, the [guided tour](demo-tour.md) walks six user stories over a fixture fleet, offline. That same fixture opens in the [terminal UI](../fleet-tools.md#the-terminal-ui) if you would rather browse it than type paths, and `pacto tui --root oci://ghcr.io/trianalab/pacto/pacto-demo:1.0.0 --local ""` gets most of it out of the registry with no clone.
+Copy-ready contracts for common services: databases, a message broker, a proxy, a cron job and more. Start from the one closest to your service, or use them as dependencies. New to writing contracts? Read the [developer guide](../developers.md) first.
 
 !!! tip
-    These contracts represent the **operational interface** of each service — not a deployment recipe. They describe what a service exposes and how it behaves — not how to deploy it. Each one composes schemas you already have — an OpenAPI or AsyncAPI document, a gRPC service descriptor, JSON Schema for `configurations` — rather than inventing a new format. The contract is the relational layer Pacto adds around them — ownership, dependencies, compatibility, lifecycle. Every referenced spec file must parse as JSON or YAML (see [interface types](../contract-reference/sections.md#interface-types)).
+    A contract describes what a service exposes and how it behaves, not how to deploy it. It points at the specs you already have (OpenAPI, AsyncAPI, a gRPC descriptor, JSON Schema for `configurations`) and adds what they lack: owner, dependencies, compatibility and state. Every referenced spec file must parse as JSON or YAML (see [interface types](../contract-reference/sections.md#interface-types)).
+
+Want to see contracts in action instead?
+
+- [Live dashboard demo](dashboard-demo.md): the dashboard in your browser, nothing to install. Its source is in [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo). Its runtime conformance finding is recorded.
+- [Docker Compose demo](compose-demo.md): a registry, an Evidence Server and the dashboard on your machine, from one OCI artifact. A host agent checks runtime conformance live.
+- [Guided tour](demo-tour.md): six user stories from the command line, offline. Its runtime conformance finding is recorded. The same fleet opens in the [terminal UI](../fleet-tools.md#the-terminal-ui); `pacto tui --root oci://ghcr.io/trianalab/pacto/pacto-demo:1.0.0 --local ""` opens most of it straight from the registry.
 
 ## Available examples
 
@@ -591,9 +595,8 @@ It prints the service and one line per dependency. A ref it cannot resolve — t
 
 ## One contract, many sections
 
-The examples above each show a contract shaped by one kind of service. This one
-is shaped by nothing: it declares most of the optional sections at once, so it
-reads as a field checklist rather than a recommendation. Nothing here is required
+This contract declares most optional sections at once. Read it as a field
+checklist, not a recommendation. Nothing here is required
 beyond `pactoVersion` and `service`, and the three sections it leaves out —
 `readiness`, `metadata` and `extensions` — are in
 [Contract sections](../contract-reference/sections.md), which is the complete list.
@@ -651,9 +654,8 @@ state:
   dataCriticality: high
 ```
 
-That contract is step 1 of the [operational control loop](../model.md#the-operational-control-loop)
-— declare, read, constrain, act, observe, evaluate — which the model page states
-once, including which two steps external systems perform rather than Pacto. The
-rest of this site is that loop in detail: [`pacto explain` and MCP](../mcp-integration.md)
-read it, and the [Kubernetes collector](../integrations/kubernetes/runtime-observations.md)
-observes against it.
+Writing a contract like this is the first step. Next, tools read it:
+[`pacto explain` and MCP](../mcp-integration.md) for people and AI assistants.
+Then, on Kubernetes, the [operator](../integrations/kubernetes/runtime-observations.md)
+checks the running service against it. [The model](../model.md#the-operational-control-loop)
+shows the whole loop.

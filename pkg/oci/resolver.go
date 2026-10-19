@@ -4,28 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/logging"
-	"github.com/trianalab/pacto/v3/pkg/semver"
-)
-
-// ResolveMode controls whether remote fetching is allowed.
-type ResolveMode int
-
-const (
-	// LocalOnly restricts resolution to the local disk cache.
-	//
-	// Deprecated: no production caller remains — the fleet OCI source moved to a
-	// resolver that also knows how to dial, so "offline" is now a decision the
-	// caller makes about which sources to include rather than a resolver mode.
-	// Use [RemoteAllowed] with a [CachedStore]. Removed at v4 along with
-	// [CachedStore.PullCached], [CachedStore.PullCachedPinned] and
-	// [ReadCachedRef], which exist to serve it.
-	LocalOnly ResolveMode = iota
-	// RemoteAllowed permits fetching from the OCI registry on cache miss.
-	RemoteAllowed
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/semver"
 )
 
 // InvalidRefError indicates the OCI reference could not be parsed.
@@ -86,8 +67,7 @@ func NewResolver(store BundleStore) *Resolver {
 
 // Resolve fetches a Pacto bundle for the given OCI reference.
 //
-// In LocalOnly mode, only the disk cache is checked.
-// In RemoteAllowed mode, a cache miss triggers a pull from the registry.
+// A cache miss triggers a pull from the registry.
 //
 // Errors are typed:
 //   - *InvalidRefError: ref cannot be parsed
@@ -95,8 +75,8 @@ func NewResolver(store BundleStore) *Resolver {
 //   - *AuthenticationError: credentials rejected (401/403)
 //   - *RegistryUnreachableError: network/DNS failure
 //   - *InvalidBundleError: pulled artifact is not a valid Pacto bundle
-func (r *Resolver) Resolve(ctx context.Context, ref string, mode ResolveMode) (*contract.Bundle, error) {
-	return r.ResolveConstrained(ctx, ref, "", mode)
+func (r *Resolver) Resolve(ctx context.Context, ref string) (*contract.Bundle, error) {
+	return r.ResolveConstrained(ctx, ref, "")
 }
 
 // ResolveConstrained fetches a Pacto bundle, resolving untagged refs using
@@ -108,8 +88,8 @@ func (r *Resolver) Resolve(ctx context.Context, ref string, mode ResolveMode) (*
 //
 // Additional error type:
 //   - *NoMatchingVersionError: no tags satisfy the constraint
-func (r *Resolver) ResolveConstrained(ctx context.Context, ref, constraint string, mode ResolveMode) (*contract.Bundle, error) {
-	bundle, _, err := r.resolvePinned(ctx, ref, constraint, mode)
+func (r *Resolver) ResolveConstrained(ctx context.Context, ref, constraint string) (*contract.Bundle, error) {
+	bundle, _, err := r.resolvePinned(ctx, ref, constraint)
 	return bundle, err
 }
 
@@ -119,29 +99,18 @@ func (r *Resolver) ResolveConstrained(ctx context.Context, ref, constraint strin
 // a pull is a second observation of a mutable tag: re-pushed in between, it
 // names bytes the caller never read.
 //
-// LocalOnly reports the record written beside the cached bundle, read from the
-// same cache generation as the bytes — never re-derived, which offline would
-// mean dialing a registry the mode promised not to touch. Its Ref is what the
-// cache says these bytes ARE. An entry that recorded nothing reports nothing,
-// and the caller's own reference is then all there is.
-//
-// Remote resolution reports the digest alone, because there is no second
-// identity to carry: the bytes came from the registry under the reference this
+// It reports the digest alone, because there is no second identity to carry: the bytes came from the registry under the reference this
 // call named, or from a cache entry that STATES that reference — a stored
 // generation naming any other reference is not a hit for this one and the
-// registry is asked (see [CachedStore.pullCached]).
-func (r *Resolver) ResolvePinned(ctx context.Context, ref string, mode ResolveMode) (*contract.Bundle, CachedRef, error) {
-	return r.resolvePinned(ctx, ref, "", mode)
+// registry is asked (see [CachedStore.cachedEntryFrom]).
+func (r *Resolver) ResolvePinned(ctx context.Context, ref string) (*contract.Bundle, CachedRef, error) {
+	return r.resolvePinned(ctx, ref, "")
 }
 
-func (r *Resolver) resolvePinned(ctx context.Context, ref, constraint string, mode ResolveMode) (*contract.Bundle, CachedRef, error) {
-	ref = strings.TrimPrefix(ref, "oci://")
+func (r *Resolver) resolvePinned(ctx context.Context, ref, constraint string) (*contract.Bundle, CachedRef, error) {
+	ref = contract.TrimOCIScheme(ref)
 
-	if mode == LocalOnly {
-		return r.resolveLocal(ctx, ref)
-	}
-
-	// For untagged refs in remote mode, resolve the best tag first.
+	// For untagged refs, resolve the best tag first.
 	if !HasExplicitTag(ref) {
 		resolved, err := ResolveRef(ctx, r.store, ref, constraint)
 		if err != nil {
@@ -159,44 +128,6 @@ func (r *Resolver) resolvePinned(ctx context.Context, ref, constraint string, mo
 	}
 
 	return r.resolveWithFetch(ctx, ref)
-}
-
-// ListVersions returns all semver tags available for the given OCI repo reference.
-// The ref should be untagged (e.g. "ghcr.io/org/svc-pacto"). Non-semver tags are
-// excluded. Results are sorted descending (latest first).
-//
-// Deprecated: no production code in Pacto uses this method since the dashboard
-// stopped resolving versions itself. Removed at v4.
-func (r *Resolver) ListVersions(ctx context.Context, ref string) ([]string, error) {
-	ref = strings.TrimPrefix(ref, "oci://")
-	tags, err := r.store.ListTags(ctx, ref)
-	if err != nil {
-		return nil, err
-	}
-	return FilterSemverTags(tags), nil
-}
-
-// FetchAllVersions lists all semver tags for the given OCI repo reference and
-// pulls each one, ensuring they are cached by the underlying BundleStore.
-// Returns the version list sorted descending (latest first).
-//
-// Deprecated: no production code in Pacto uses this method since the dashboard
-// stopped fetching all versions. Removed at v4.
-func (r *Resolver) FetchAllVersions(ctx context.Context, ref string) ([]string, error) {
-	ref = strings.TrimPrefix(ref, "oci://")
-	tags, err := r.store.ListTags(ctx, ref)
-	if err != nil {
-		return nil, err
-	}
-	versions := FilterSemverTags(tags)
-	for _, v := range versions {
-		// Pull triggers caching in CachedStore. Errors are non-fatal —
-		// we still return versions that were successfully listed.
-		if _, pullErr := r.store.Pull(ctx, ref+":"+v); pullErr != nil {
-			logging.LoggerFromContext(ctx).Warn("failed to cache version", "ref", ref+":"+v, "error", pullErr)
-		}
-	}
-	return versions, nil
 }
 
 // classifyPullError returns the error unchanged when it is already one of the
@@ -217,49 +148,6 @@ func classifyPullError(err error) error {
 		return err
 	}
 	return nil
-}
-
-// cachedPuller is a store that can serve from its own cache, with the identity
-// recorded for what it serves, without contacting the registry (see
-// [CachedStore.PullCachedPinned]).
-type cachedPuller interface {
-	PullCachedPinned(ctx context.Context, ref string) (*contract.Bundle, CachedRef, bool)
-}
-
-func (r *Resolver) resolveLocal(ctx context.Context, ref string) (*contract.Bundle, CachedRef, error) {
-	// A cached store's Pull falls through to the REGISTRY on a cache miss, so
-	// asking it to Pull would make LocalOnly a network call -- the exact opposite
-	// of what the mode promises, and enough to hang a caller that walks thousands
-	// of cached refs offline. Read the cache directly when the store can.
-	if cp, ok := r.store.(cachedPuller); ok {
-		bundle, rec, hit := cp.PullCachedPinned(ctx, ref)
-		if !hit {
-			return nil, CachedRef{}, &ArtifactNotFoundError{Ref: ref, Err: errors.New("not found in local cache")}
-		}
-		// The whole record travels, reference included: it came from the generation
-		// that supplied these bytes, and the reference the caller used to find it is
-		// only a lookup key.
-		return localBundle(ref, bundle, rec)
-	}
-	// A store with no cache of its own has nothing "local" to read; its Pull is
-	// the only option, and its typed auth/not-found/unreachable errors are more
-	// useful to the caller than a blanket cache miss.
-	bundle, err := r.store.Pull(ctx, ref)
-	if err != nil {
-		if typed := classifyPullError(err); typed != nil {
-			return nil, CachedRef{}, typed
-		}
-		return nil, CachedRef{}, &ArtifactNotFoundError{Ref: ref, Err: fmt.Errorf("not found in local cache: %w", err)}
-	}
-	// Nothing recorded an identity for these bytes, so none is claimed.
-	return localBundle(ref, bundle, CachedRef{})
-}
-
-func localBundle(ref string, bundle *contract.Bundle, rec CachedRef) (*contract.Bundle, CachedRef, error) {
-	if bundle.Contract == nil {
-		return nil, CachedRef{}, &InvalidBundleError{Ref: ref, Err: fmt.Errorf("bundle has no contract")}
-	}
-	return bundle, rec, nil
 }
 
 func (r *Resolver) resolveWithFetch(ctx context.Context, ref string) (*contract.Bundle, CachedRef, error) {

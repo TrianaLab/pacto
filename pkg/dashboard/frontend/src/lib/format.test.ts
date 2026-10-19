@@ -32,8 +32,6 @@ import {
   compareScoresUnassessedLast,
   extractOwnerDetail,
   computeTooltipPosition,
-  versionPolicyLabel,
-  versionPolicyClass,
   countHighImpact,
   filterServices,
   paginate,
@@ -54,7 +52,6 @@ import {
   abbreviateDigests,
   driftBadgeClass,
   driftBadgeLabel,
-  evaluationCoverageLabel,
   completenessLabel,
   completenessClass,
 } from './format.ts';
@@ -196,10 +193,13 @@ describe('changeTypeClass', () => {
 
 describe('sourceTooltip', () => {
   it('returns description for known sources', () => {
-    expect(sourceTooltip('k8s')).toContain('Kubernetes');
+    expect(sourceTooltip('kubernetes')).toContain('Kubernetes');
     expect(sourceTooltip('oci')).toContain('OCI');
     expect(sourceTooltip('local')).toContain('Local');
     expect(sourceTooltip('cache')).toContain('Cache');
+    for (const kind of ['target-state', 'evidence-http', 'evidence-ingest', 'observation', 'catalog']) {
+      expect(sourceTooltip(kind)).not.toBe(kind);
+    }
   });
 
   it('returns the input for unknown sources', () => {
@@ -837,23 +837,6 @@ describe('compareScoresUnassessedLast', () => {
   });
 });
 
-describe('versionPolicyLabel', () => {
-  it('returns label for tracking', () => expect(versionPolicyLabel('tracking')).toBe('Tracking latest'));
-  it('returns label for pinned-tag', () => expect(versionPolicyLabel('pinned-tag')).toBe('Pinned to tag'));
-  it('returns label for pinned-digest', () => expect(versionPolicyLabel('pinned-digest')).toBe('Pinned to digest'));
-  it('returns empty for undefined', () => expect(versionPolicyLabel(undefined)).toBe(''));
-  it('returns empty for empty string', () => expect(versionPolicyLabel('')).toBe(''));
-  it('returns raw value for unknown policy', () => expect(versionPolicyLabel('custom')).toBe('custom'));
-});
-
-describe('versionPolicyClass', () => {
-  it('returns policy-tracking for tracking', () => expect(versionPolicyClass('tracking')).toBe('policy-tracking'));
-  it('returns policy-tag for pinned-tag', () => expect(versionPolicyClass('pinned-tag')).toBe('policy-tag'));
-  it('returns policy-digest for pinned-digest', () => expect(versionPolicyClass('pinned-digest')).toBe('policy-digest'));
-  it('returns empty for undefined', () => expect(versionPolicyClass(undefined)).toBe(''));
-  it('returns empty for unknown policy', () => expect(versionPolicyClass('other')).toBe(''));
-});
-
 describe('countHighImpact', () => {
   it('counts services with blastRadius >= 3', () => {
     const services = [
@@ -1410,22 +1393,6 @@ describe('breakableIdentifierHtml', () => {
 });
 
 // ── B-2 ruling: Unknown in denominator, distinct from needsAttention ──
-
-describe('evaluationCoverageLabel', () => {
-  it('renders "E of R" when runtime-evaluated with coverage', () => {
-    expect(evaluationCoverageLabel({ runtimeEvaluated: true, evaluationCoverage: { evaluated: 4, required: 5 } })).toBe('4 of 5');
-  });
-  it('is omitted when the service was not runtime-evaluated', () => {
-    expect(evaluationCoverageLabel({ runtimeEvaluated: false, evaluationCoverage: { evaluated: 4, required: 5 } })).toBe('');
-  });
-  it('is omitted when there is no coverage even if runtime-evaluated', () => {
-    expect(evaluationCoverageLabel({ runtimeEvaluated: true })).toBe('');
-  });
-  it('is omitted for null/undefined input', () => {
-    expect(evaluationCoverageLabel(null)).toBe('');
-    expect(evaluationCoverageLabel(undefined)).toBe('');
-  });
-});
 
 describe('summarize B-2 ruling', () => {
   it('all-Unknown fleet reads 0%, NOT N/A', () => {

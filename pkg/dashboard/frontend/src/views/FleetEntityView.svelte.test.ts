@@ -577,7 +577,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
       // ONCE, in the page header; the body explains what it COSTS instead of restating it.
       meta, entity: ref('source', 'kubernetes'), status: 'available',
       source: {
-        kind: 'k8s', health: 'available', revisionCount: 12, targetCount: 8,
+        kind: 'kubernetes', health: 'available', revisionCount: 12, targetCount: 8,
         contributed: { services: 5, revisions: 12, targets: 8 },
         entities: { total: 25, count: 1, truncated: true, items: [ref('target', 'prod/k8s/a')] },
         limitations: { total: 0, count: 0, truncated: false, items: [] },
@@ -607,7 +607,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     detailFn.mockResolvedValue({
       meta, entity: ref('source', 'edge-cluster'),
       source: {
-        kind: 'k8s', health: 'unavailable', revisionCount: 0, targetCount: 0,
+        kind: 'kubernetes', health: 'unavailable', revisionCount: 0, targetCount: 0,
         contributed: { services: 0, revisions: 0, targets: 0 },
         error: { code: 'SOURCE_UNAVAILABLE', message: 'edge cluster unreachable' },
         entities: { total: 0, count: 0, truncated: false, items: [] },
@@ -666,7 +666,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     detailFn.mockResolvedValue({
       meta, entity: ref('source', 'edge-cluster'), status: 'unavailable',
       source: {
-        kind: 'k8s', health: 'unavailable', revisionCount: 0, targetCount: 0,
+        kind: 'kubernetes', health: 'unavailable', revisionCount: 0, targetCount: 0,
         entities: { total: 0, count: 0, truncated: false, items: [] },
         limitations: { total: 0, count: 0, truncated: false, items: [] },
       },

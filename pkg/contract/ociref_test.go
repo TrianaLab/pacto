@@ -3,7 +3,7 @@ package contract_test
 import (
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // hex64 is a syntactically valid 64-char lowercase hex sha256 digest body.
@@ -129,5 +129,75 @@ func TestOCIReferenceString(t *testing.T) {
 				t.Errorf("String() = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestTrimOCIScheme(t *testing.T) {
+	for in, want := range map[string]string{
+		"oci://ghcr.io/a/b": "ghcr.io/a/b",
+		"ghcr.io/a/b":       "ghcr.io/a/b",
+		"oci://":            "",
+		"":                  "",
+		"./oci://x":         "./oci://x",
+	} {
+		if got := contract.TrimOCIScheme(in); got != want {
+			t.Errorf("TrimOCIScheme(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestSplitOCIRef(t *testing.T) {
+	const d = "sha256:" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	cases := []struct {
+		in                string
+		repo, tag, digest string
+		tagged            bool // SplitOCITag on the digest-free part
+	}{
+		{"ghcr.io/acme/svc", "ghcr.io/acme/svc", "", "", false},
+		{"ghcr.io/acme/svc:1.0.0", "ghcr.io/acme/svc", "1.0.0", "", true},
+		{"ghcr.io/acme/svc@" + d, "ghcr.io/acme/svc", "", d, false},
+		{"ghcr.io/acme/svc:1.0.0@" + d, "ghcr.io/acme/svc", "1.0.0", d, true},
+		{"localhost:5000/svc", "localhost:5000/svc", "", "", false},
+		{"localhost:5000/svc:2", "localhost:5000/svc", "2", "", true},
+		{"localhost:5000", "localhost", "5000", "", true},
+		{"svc", "svc", "", "", false},
+		{"svc:", "svc", "", "", true},
+		{"oci://ghcr.io/acme/svc:1", "oci://ghcr.io/acme/svc", "1", "", true},
+		{"oci://svc", "oci://svc", "", "", false},
+		{"a@b@c", "a", "", "b@c", false},
+		{"repo@", "repo", "", "", false},
+		{"", "", "", "", false},
+	}
+	for _, c := range cases {
+		repo, tag, digest := contract.SplitOCIRef(c.in)
+		if repo != c.repo || tag != c.tag || digest != c.digest {
+			t.Errorf("SplitOCIRef(%q) = (%q, %q, %q), want (%q, %q, %q)", c.in, repo, tag, digest, c.repo, c.tag, c.digest)
+		}
+		rest, _ := contract.SplitOCIDigest(c.in)
+		if _, _, tagged := contract.SplitOCITag(rest); tagged != c.tagged {
+			t.Errorf("SplitOCITag(%q) tagged = %v, want %v", rest, tagged, c.tagged)
+		}
+	}
+}
+
+func TestOCIDomain(t *testing.T) {
+	for in, want := range map[string]string{
+		"oci://ghcr.io/acme/payments:1.0":       "ghcr.io/acme",
+		"ghcr.io/acme/payments":                 "ghcr.io/acme",
+		"localhost:5000/acme/payments@sha256:x": "localhost:5000/acme",
+		"localhost:5000/payments:1":             "localhost:5000",
+		"ghcr.io/acme/team/payments:1@sha256:x": "ghcr.io/acme/team",
+		"payments:1.0":                          "",
+		"payments":                              "",
+		"oci://payments":                        "",
+		"./svc":                                 "",
+		"../a/b":                                "",
+		"/abs/path/svc":                         "",
+		"~/svc":                                 "",
+		"":                                      "",
+	} {
+		if got := contract.OCIDomain(in); got != want {
+			t.Errorf("OCIDomain(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

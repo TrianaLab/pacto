@@ -10,7 +10,7 @@ import (
 	"math"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 const (
@@ -26,33 +26,33 @@ const (
 
 // Result is the derived readiness assessment.
 type Result struct {
-	Score         int
-	TotalWeight   int
-	EarnedWeight  int
-	MinScore      int
-	PartialCredit float64
-	Expires       string
-	Expired       bool
-	DaysRemaining *int
-	DoneCount     int
-	PartialCount  int
-	NotDoneCount  int
-	DeferredCount int
-	Passing       bool
-	Checks        []CheckResult
+	Score         int           `json:"score"`
+	TotalWeight   int           `json:"totalWeight"`
+	EarnedWeight  int           `json:"earnedWeight"`
+	MinScore      int           `json:"minScore"`
+	PartialCredit float64       `json:"partialCredit"`
+	Expires       string        `json:"expires"`
+	Expired       bool          `json:"expired"`
+	DaysRemaining *int          `json:"daysRemaining"`
+	DoneCount     int           `json:"doneCount"`
+	PartialCount  int           `json:"partialCount"`
+	NotDoneCount  int           `json:"notDoneCount"`
+	DeferredCount int           `json:"deferredCount"`
+	Passing       bool          `json:"passing"`
+	Checks        []CheckResult `json:"checks"`
 }
 
 // CheckResult is the derived state of one declared check.
 type CheckResult struct {
-	ID           string
-	Type         string
-	Category     string
-	Status       string
-	Evidence     string
-	Description  string
-	Weight       int
-	EarnedWeight int
-	Excluded     bool
+	ID           string `json:"id"`
+	Type         string `json:"type"`
+	Category     string `json:"category"`
+	Status       string `json:"status"`
+	Evidence     string `json:"evidence"`
+	Description  string `json:"description"`
+	Weight       int    `json:"weight"`
+	EarnedWeight int    `json:"earnedWeight"`
+	Excluded     bool   `json:"excluded"`
 }
 
 // Evaluate derives the readiness Result at time now. Returns nil when no

@@ -1,9 +1,9 @@
 package fleet
 
 import (
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/readiness"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/readiness"
 )
 
 // This file defines the reusable bounded preview shapes every entity-detail and
@@ -37,11 +37,6 @@ const (
 	ProductSeverityError   ProductSeverity = ProductSeverity(finding.SeverityError)
 	ProductSeverityWarning ProductSeverity = ProductSeverity(finding.SeverityWarning)
 	ProductSeverityInfo    ProductSeverity = ProductSeverity(finding.SeverityInfo)
-	// ProductSeverityUnknown mirrors [finding.SeverityUnknown].
-	//
-	// Deprecated: no production code in Pacto uses this constant; it exists only
-	// for same-package tests. Removed at v4.
-	ProductSeverityUnknown ProductSeverity = ProductSeverity(finding.SeverityUnknown)
 )
 
 // ProductSubjectRef is the product-shaped, camelCase subject a finding is about.
@@ -54,6 +49,9 @@ type ProductSubjectRef struct {
 type ProductEvidenceRef struct {
 	Source     string `json:"source,omitempty"`
 	ObservedAt string `json:"observedAt,omitempty"`
+	// Collector names who saw it: k8s-observer, k8s-observer+ebpf or ebpf.
+	Collector  string `json:"collector,omitempty"`
+	DetectedAt string `json:"detectedAt,omitempty"`
 }
 
 // ProductEvidenceRefsPreview is a bounded preview of a finding's evidence refs.
@@ -90,7 +88,7 @@ func productFinding(f finding.Finding) ProductFinding {
 	n := min(total, MaxEvidenceRefsPreview)
 	items := make([]ProductEvidenceRef, 0, n)
 	for _, r := range f.EvidenceRefs[:n] {
-		items = append(items, ProductEvidenceRef{Source: r.Source, ObservedAt: r.ObservedAt})
+		items = append(items, ProductEvidenceRef{Source: r.Source, ObservedAt: r.ObservedAt, Collector: r.Collector, DetectedAt: r.DetectedAt})
 	}
 	return ProductFinding{
 		Code:         string(f.Code),

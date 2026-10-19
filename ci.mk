@@ -10,9 +10,10 @@ REPOWISE_VERSION ?= 0.36.0
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
        ci-e2e-envtest ci-e2e-kind ci-e2e-kind-dashboard ci-e2e-kind-upgrade ci-e2e-kind-reconcile \
        ci-e2e-compose test-acceptance-compose test-browser-compose \
+       test-acceptance-local-runtime-docker test-acceptance-local-runtime-run \
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
-       test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd \
+       test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-runtime-conformance \
        ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
@@ -69,6 +70,19 @@ ci-engine: ci-test test-integration test-acceptance-local
 # learning that the privileged script is unsafe only once it had already run.
 ci-e2e-compose: test-acceptance-compose-selftest test-browser-compose
 
+# Portable runtime evidence on the local Docker daemon's kernel: the host agent
+# judging labelled containers (runtime-docker.sh) and `pacto run` wrapping one
+# command, privileged with eBPF and unprivileged from /proc (runtime-run.sh).
+# Each builds the runtime image from the root Dockerfile; see the headers of the
+# two scripts. They run as steps of the ci-e2e-compose job, which has the Docker
+# daemon, rather than in ci-engine, which has to run on a laptop with nothing
+# installed.
+test-acceptance-local-runtime-docker:
+	bash tests/acceptance/local/runtime-docker.sh
+
+test-acceptance-local-runtime-run:
+	bash tests/acceptance/local/runtime-run.sh
+
 # Dashboard leg: frontend lint + tests.
 ci-dashboard: ci-ui
 
@@ -106,7 +120,7 @@ ci-e2e-envtest:
 # say which boundary broke, and cannot be sharded.
 test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
 	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
-	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd
+	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-runtime-conformance
 
 test-acceptance-kind-dashboard:
 	bash tests/acceptance/kind/dashboard-modes.sh
@@ -152,6 +166,14 @@ test-acceptance-kind-gitops-flux:
 # because a customization Argo does not recognise leaves the Application green.
 test-acceptance-kind-gitops-argocd:
 	bash tests/acceptance/kind/gitops-argocd.sh
+
+# eBPF runtime conformance: the operator-managed node agent attaches to a real
+# kernel, and every runtime contract field's documented verdict is reproduced
+# against live workloads, including the contradictions only the kernel can see
+# (endpoints ready but nothing listening, refused dependencies, undeclared peers)
+# and the agent's own stale and failed states.
+test-acceptance-kind-runtime-conformance:
+	bash tests/acceptance/kind/runtime-conformance.sh
 
 # Compatibility aliases for the older names. Temporary.
 ci-e2e-kind:                    test-acceptance-kind
@@ -285,16 +307,19 @@ release-dry-run:
 	bash release/orchestrator/dry-run.sh
 
 # External-consumer proof for the Kubernetes integration Go module: a throwaway
-# module `go get`s github.com/trianalab/pacto/integrations/kubernetes/v5@v5.0.0 and
-# builds it with GOWORK=off and no replace, proving the /v5 semantic-import path is
+# module `go get`s github.com/trianalab/pacto/integrations/kubernetes/v6@v6.0.0 and
+# builds it with GOWORK=off and no replace, proving the /v6 semantic-import path is
 # valid Go and consumable by outside users. Local staging tags only, no publish.
 # Also invoked by release/orchestrator/dry-run.sh after the core verify-standalone.
 verify-k8s-standalone:
 	bash release/orchestrator/verify-k8s-standalone.sh
 
+# internal/runtimewatch/ebpf is excluded the way the operator excludes its /cmd:
+# it loads a program into the kernel, so it is covered by `make test-ebpf` (a
+# privileged container) and the kind e2e shards, not by unit tests.
 ci-test:
 	@echo "==> Running unit tests with race detector and coverage..."
-	@go test -race $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /examples/) -coverprofile=coverage.out
+	@go test -race $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /examples/ | grep -v /internal/runtimewatch/ebpf) -coverprofile=coverage.out
 	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$NF}'); \
 	if [ "$$total" != "100.0%" ]; then \
 		echo "FAIL: total coverage is $$total, expected 100.0%"; \

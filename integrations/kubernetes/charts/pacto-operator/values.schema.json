@@ -155,6 +155,27 @@
         },
         "stabilizationWindow": {
           "type": "string"
+        },
+        "enableProbing": {
+          "type": "boolean"
+        },
+        "enableMetricsObservation": {
+          "type": "boolean"
+        },
+        "kernelEvidence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "namespace": {
+              "type": "string"
+            },
+            "staleness": {
+              "type": "string"
+            }
+          }
         }
       }
     },
@@ -212,9 +233,6 @@
         "enabled": {
           "type": "boolean"
         },
-        "ociSecret": {
-          "type": "string"
-        },
         "ociSecrets": {
           "type": "array",
           "items": {
@@ -224,7 +242,7 @@
         "observation": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Offline OTLP/JSON trace exports mounted read-only into the dashboard. Not an OTLP receiver and not a collector.",
+          "description": "Offline OTLP/JSON trace exports mounted read-only into the dashboard. Not an OTLP receiver and not a trace collector.",
           "properties": {
             "sources": {
               "type": "array",
@@ -550,6 +568,58 @@
           }
         }
       ]
+    },
+    "nodeAgent": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The eBPF node agent DaemonSet (runs `pacto agent` from the pacto runtime image) in its own namespace, which the chart creates privileged for Pod Security.",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "namespace": {
+          "type": "string",
+          "description": "Dedicated agent namespace (a DNS-1123 label); not the release namespace",
+          "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+          "maxLength": 63
+        },
+        "publishInterval": {
+          "type": "string",
+          "description": "Go duration, e.g. 30s",
+          "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$"
+        },
+        "resources": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Resource requests and limits for the node agent container",
+          "properties": {
+            "requests": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cpu": {
+                  "type": "string"
+                },
+                "memory": {
+                  "type": "string"
+                }
+              }
+            },
+            "limits": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cpu": {
+                  "type": "string"
+                },
+                "memory": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "nodeSelector": {
       "type": "object"

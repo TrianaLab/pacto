@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // writeBundle writes a minimal parseable pacto.yaml for service name at dir.

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/internal/testutil"
+	"github.com/trianalab/pacto/v4/internal/testutil"
 )
 
 // Type aliases for shared mocks so existing tests in this package compile

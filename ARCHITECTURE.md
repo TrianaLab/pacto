@@ -27,7 +27,7 @@ The model keeps ten roles distinct.
 | **Policy** — a JSON Schema that validates the contract itself | `pkg/contract` `Policy`; resolved and enforced in `pkg/validation` | Yes |
 | **Evidence** — a runtime observation, external to the contract | `pkg/evidence` `Observation` / `EvidenceSet` | Yes |
 | **Evaluation result** — typed findings plus coverage | `pkg/finding` `Finding`; `pkg/validation` `Coverage` | Yes |
-| **Collector** — turns a real system into evidence | any component producing a valid `EvidenceSet` (`pkg/evidence`); the first-party one is the Kubernetes collector (`integrations/kubernetes`) | No core interface — Evidence is the boundary |
+| **Collector** — turns a real system into evidence | any component producing a valid `EvidenceSet` (`pkg/evidence`); first party: the runtime watcher (`internal/runtimewatch`, behind `pacto run` and `pacto agent`) and the Kubernetes collector in `integrations/kubernetes`, which merges the watcher's node agent output | No core interface — Evidence is the boundary |
 | **Plugin / controller / external actor** — interprets a contract and acts through existing tools | `pkg/plugin` (out-of-process); controllers live in `integrations/*` | Boundary, not core logic |
 
 ## Dependency graph
@@ -106,6 +106,7 @@ systems or framework-specific details.
 | `internal/k8sclient` | Shared, dashboard-independent Kubernetes access seam |
 | `internal/fleetsrc` | Concrete, cluster-free `fleet.Source` implementations |
 | `internal/evidenceoci` | Persists accepted evidence as OCI 1.1 referrers |
+| `internal/runtimewatch` | Linux runtime watcher behind `pacto agent` and `pacto run`: eBPF socket collector (`ebpf/`), `/proc` scan, cgroup identity resolvers and sinks (`evalsink` evaluates on the host, `kubesink` writes `NodeRuntimeObservation`) |
 | `internal/update` | Async GitHub version checking and self-update |
 | `internal/testutil` | Shared mocks and fixtures (`MockBundleStore`, `MockPluginRunner`, `TestBundle()`) |
 
@@ -125,7 +126,18 @@ A collector feeds the engine by producing a `pkg/evidence` `EvidenceSet`, and
 there is nothing else to implement. Concrete collector APIs live in their own
 integrations (the Kubernetes observer is
 `integrations/kubernetes/internal/observer`); the pure engine never imports
-them. `tests/architecture/collector_docs_test.go` fails if a `pkg/collector`
+them. The runtime watcher follows the same rule. `internal/runtimewatch`
+(kernel side in `internal/runtimewatch/ebpf`) turns socket events into a
+platform-neutral snapshot; `pkg/runtimefacts` holds that snapshot, the workload
+bindings and the pure verdicts that turn both into observations, and `pkg/probe`
+the SSRF-safe health, metrics and protocol probes. `pacto run` and `pacto
+agent --sink local|evidence` evaluate on the host through `evalsink`. The
+Kubernetes node agent is only a configuration of the same agent: the operator's
+DaemonSet runs `pacto agent --sink kubernetes` from the runtime image, which
+publishes `NodeRuntimeObservation` objects, and the observer folds them into its
+own `EvidenceSet` (`internal/observer/kernel.go`) with the same
+`pkg/runtimefacts` verdicts. The engine sees one evidence set per target and no
+new interface. `tests/architecture/collector_docs_test.go` fails if a `pkg/collector`
 package reappears without a real implementation behind it.
 
 ## The OCI bundle cache key
@@ -172,7 +184,7 @@ hand-maintained copy of the schema drifts silently.
 7. **Embedded schemas** — JSON Schema compiled into the binary
 8. **Deterministic validation** — no configurable rules; same input, same result
 9. **Compose, do not replace** — Pacto never defines a schema language of its own; the contract adds only the relational and temporal layer no single interface owns
-10. **Single service-information model** — `ServiceDetails` (built by `ServiceDetailsFromBundle`) is the one service-information model consumed by the dashboard server, the `pacto doc` Markdown renderer and the static HTML exporter, so they cannot drift
+10. **Two projections, shared readers** — a bundle is projected twice, on purpose. `pkg/fleet` builds the live operational snapshot the dashboard and the MCP fleet tools serve: many sources, bounded, no document bodies. `pkg/contractview` (`ServiceDetailsFromBundle`) builds the offline view of one bundle, bodies included, that the `pacto doc` Markdown renderer and the static HTML exporter render. What keeps them from drifting is the bundle readers they share: tool naming (`capability.ToolsForContract`, also behind MCP capability tools), lockfile reading (`lock.ReadFS`) and the docs walk (`contract.WalkDocs`)
 
 ## Architectural invariants
 

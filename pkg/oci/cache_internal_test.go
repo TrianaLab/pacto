@@ -13,7 +13,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 func TestEntryDir_TraversalBlocked(t *testing.T) {
@@ -127,16 +127,13 @@ func (s *stubStore) Pull(context.Context, string) (*contract.Bundle, error) {
 // bounded: after pulling more distinct refs than the cap, the cache holds at
 // most cap entries and the oldest ref is evicted (re-pulls from inner).
 func TestCachedStore_PullCacheEvictsBeyondCap(t *testing.T) {
-	old := pullCacheMaxEntries
-	pullCacheMaxEntries = 2
-	t.Cleanup(func() { pullCacheMaxEntries = old })
-
 	inner := &stubStore{}
 	c := &CachedStore{
 		inner:     inner,
 		pullCache: map[string]*list.Element{},
 		pullLRU:   list.New(),
 		tagsCache: map[string]tagsEntry{},
+		maxPulled: 2,
 	}
 	ctx := context.Background()
 
@@ -383,16 +380,13 @@ func TestPinRefToDigest_DropsWhateverTheRefAlreadyPins(t *testing.T) {
 // cache (no MoveToFront on the read path) would evict the accessed entry instead
 // and fail this test.
 func TestCachedStore_PullCacheEvictsLRUNotFIFO(t *testing.T) {
-	old := pullCacheMaxEntries
-	pullCacheMaxEntries = 2
-	t.Cleanup(func() { pullCacheMaxEntries = old })
-
 	inner := &stubStore{}
 	c := &CachedStore{
 		inner:     inner,
 		pullCache: map[string]*list.Element{},
 		pullLRU:   list.New(),
 		tagsCache: map[string]tagsEntry{},
+		maxPulled: 2,
 	}
 	ctx := context.Background()
 

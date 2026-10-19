@@ -5,8 +5,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	depgraph "github.com/trianalab/pacto/v3/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	depgraph "github.com/trianalab/pacto/v4/pkg/graph"
 )
 
 func TestExtractServiceNameFromRef_PlainName(t *testing.T) {
@@ -448,27 +448,6 @@ func containsStr(s, sub string) bool {
 		}
 	}
 	return false
-}
-
-func TestNormalizeContractStatus(t *testing.T) {
-	cases := []struct {
-		in   ContractStatus
-		want ContractStatus
-	}{
-		{StatusCompliant, StatusCompliant},
-		{StatusWarning, StatusWarning},
-		{StatusNonCompliant, StatusNonCompliant},
-		{StatusUnknown, StatusUnknown},
-		{StatusReference, StatusReference},
-		{"Progressing", StatusUnknown},
-		{"", StatusUnknown},
-	}
-	for _, c := range cases {
-		got := NormalizeContractStatus(c.in)
-		if got != c.want {
-			t.Errorf("NormalizeContractStatus(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
 }
 
 func TestGlobalGraphFromResult_NilResult(t *testing.T) {

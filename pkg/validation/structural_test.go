@@ -2,9 +2,8 @@ package validation
 
 import (
 	"fmt"
+	"strings"
 	"testing"
-
-	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
 func TestSchemaBytes(t *testing.T) {
@@ -15,14 +14,14 @@ func TestSchemaBytes(t *testing.T) {
 }
 
 func TestCompileSchema_InvalidJSON(t *testing.T) {
-	_, err := compileSchema([]byte("{invalid json!"))
+	_, err := compileSchema([]byte("{invalid json!"), schemaResourceURL)
 	if err == nil {
 		t.Error("expected error for invalid JSON")
 	}
 }
 
 func TestCompileSchema_InvalidSchema(t *testing.T) {
-	_, err := compileSchema([]byte(`{"type": 12345}`))
+	_, err := compileSchema([]byte(`{"type": 12345}`), schemaResourceURL)
 	if err == nil {
 		t.Error("expected error for invalid schema")
 	}
@@ -38,11 +37,8 @@ func TestMustCompileSchema_Panics(t *testing.T) {
 }
 
 func TestValidateStructural_NonValidationError(t *testing.T) {
-	old := schemaValidateFn
-	schemaValidateFn = func(*jsonschema.Schema, any) error { return fmt.Errorf("internal error") }
-	defer func() { schemaValidateFn = old }()
-
-	result := ValidateStructural(map[string]any{"pactoVersion": "2.0"})
+	var result ValidationResult
+	addSchemaError(&result, fmt.Errorf("internal error"))
 	if result.IsValid() {
 		t.Error("expected invalid result")
 	}
@@ -55,33 +51,12 @@ func TestValidateStructural_NonValidationError(t *testing.T) {
 }
 
 func TestCompileSchema_AddResourceError(t *testing.T) {
-	old := addResourceFn
-	addResourceFn = func(_ *jsonschema.Compiler, _ string, _ any) error {
-		return fmt.Errorf("injected AddResource error")
-	}
-	defer func() { addResourceFn = old }()
-
-	_, err := compileSchema([]byte(`{"type": "object"}`))
+	// A meta-schema URL is already registered, so AddResource refuses it.
+	_, err := compileSchema([]byte(`{"type": "object"}`), "https://json-schema.org/draft/2020-12/schema")
 	if err == nil {
 		t.Fatal("expected error from AddResource")
 	}
-	if got := err.Error(); got != "failed to add schema resource: injected AddResource error" {
-		t.Errorf("unexpected error: %s", got)
-	}
-}
-
-func TestYamlToGeneric_UnmarshalError(t *testing.T) {
-	old := jsonUnmarshalFn
-	jsonUnmarshalFn = func([]byte, any) error {
-		return fmt.Errorf("injected unmarshal error")
-	}
-	defer func() { jsonUnmarshalFn = old }()
-
-	_, err := yamlToGeneric([]byte(`key: value`))
-	if err == nil {
-		t.Fatal("expected error from json.Unmarshal")
-	}
-	if got := err.Error(); got != "injected unmarshal error" {
+	if got := err.Error(); !strings.HasPrefix(got, "failed to add schema resource: ") {
 		t.Errorf("unexpected error: %s", got)
 	}
 }

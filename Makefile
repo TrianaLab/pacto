@@ -26,8 +26,12 @@ IMAGE := ghcr.io/trianalab/pacto/dashboard
         e2e-evidence-kind e2e-reconcile-kind e2e-upgrade-kind e2e-observed e2e-docs \
         e2e-observation-kind e2e-observation-kind-up e2e-observation-kind-status \
         e2e-observation-kind-logs e2e-observation-kind-down \
+        e2e-runtime-conformance-kind e2e-runtime-conformance-kind-up e2e-runtime-conformance-kind-status \
+        e2e-runtime-conformance-kind-logs e2e-runtime-conformance-kind-down \
+        e2e-runtime-docker e2e-runtime-run \
         e2e-dashboard-kind-browser e2e-all-operational-graph test-browser-docs-site \
-        generate-dashboard-openapi generate-dashboard-sdk check-dashboard-sdk-drift
+        generate-dashboard-openapi generate-dashboard-sdk check-dashboard-sdk-drift \
+        bpf-generate test-ebpf
 
 # Local docs preview includes the in-browser WASM dashboard demo at /demo/.
 DOCS_DEMO := docs/demo
@@ -189,6 +193,24 @@ e2e-observation-kind-logs:
 e2e-observation-kind-down:
 	bash tests/acceptance/kind/observation.sh down
 
+# eBPF runtime conformance in a local kind cluster: the node agent, the kernel
+# merge and every runtime contract field's verdict against live workloads. Same
+# up/status/logs/down lifecycle as the observation vertical.
+e2e-runtime-conformance-kind: test-acceptance-kind-runtime-conformance
+e2e-runtime-conformance-kind-up:
+	KEEP_E2E_CLUSTER=1 bash tests/acceptance/kind/runtime-conformance.sh up
+e2e-runtime-conformance-kind-status:
+	bash tests/acceptance/kind/runtime-conformance.sh status
+e2e-runtime-conformance-kind-logs:
+	bash tests/acceptance/kind/runtime-conformance.sh logs
+e2e-runtime-conformance-kind-down:
+	bash tests/acceptance/kind/runtime-conformance.sh down
+
+# Portable runtime evidence on the local Docker daemon: the host agent over
+# labelled containers, and `pacto run` in its privileged and unprivileged modes.
+e2e-runtime-docker: test-acceptance-local-runtime-docker
+e2e-runtime-run: test-acceptance-local-runtime-run
+
 # ── Operational-graph story acceptances (section M) ─────────────────────────
 # Observed relationships end to end in a real browser: the demo folds observed
 # edges into the snapshot, so the Operational Graph's Observed layer and the impact
@@ -233,7 +255,7 @@ test-browser-compose:
 e2e-all-operational-graph: e2e-operational-graph-core test-browser test-browser-live
 
 coverage:
-	go test -race $(shell go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /examples/) -coverprofile=coverage.out
+	go test -race $(shell go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /examples/ | grep -v /internal/runtimewatch/ebpf) -coverprofile=coverage.out
 	go tool cover -html=coverage.out -o coverage.html
 	@go tool cover -func=coverage.out | tail -1
 
@@ -316,6 +338,34 @@ docker-run: docker-build
 		-v "$(HOME)/.kube/config:/home/pacto/.kube/config:ro" \
 		-v "$(HOME)/.cache/pacto:/home/pacto/.cache/pacto" \
 		$(IMAGE):$(VERSION)
+
+# bpf2go must match the github.com/cilium/ebpf version in go.mod: the generated
+# loader calls into that library. Apple clang has no BPF target, so the object is
+# compiled in a pinned Linux image; the output (internal/runtimewatch/ebpf/
+# sockstate_bpfel.*) is committed, so neither CI nor the image build needs clang.
+BPF2GO_VERSION ?= v0.22.0
+BPF_BUILDER_IMAGE ?= golang:1.26.9-trixie
+RUNTIMEWATCH_EBPF_DIR := internal/runtimewatch/ebpf
+
+bpf-generate: ## Regenerate the agent's eBPF object and Go bindings (needs Docker).
+	docker run --rm -v "$(CURDIR):/src" -w /src/$(RUNTIMEWATCH_EBPF_DIR) \
+		$(BPF_BUILDER_IMAGE) bash -ec 'export DEBIAN_FRONTEND=noninteractive; \
+		apt-get update -qq && apt-get install -y -qq --no-install-recommends clang llvm libbpf-dev >/dev/null; \
+		for attempt in 1 2 3 4 5; do \
+		  if GOFLAGS= GOWORK=off go install github.com/cilium/ebpf/cmd/bpf2go@$(BPF2GO_VERSION); then break; fi; \
+		  if [ "$$attempt" = 5 ]; then echo "go install bpf2go failed after 5 attempts" >&2; exit 1; fi; \
+		  sleep $$((attempt * 5)); \
+		done; \
+		bpf2go -target bpfel -go-package ebpf -tags linux sockstate bpf/sockstate.c -- -O2 -g -Wall -Werror -I/usr/include/$$(uname -m)-linux-gnu; \
+		chown $(shell id -u):$(shell id -g) sockstate_bpfel.go sockstate_bpfel.o'
+
+# The kernel test loads and attaches the real program, so it needs root and a
+# Linux kernel with BTF; on macOS that is Docker Desktop's VM. It also creates a
+# child cgroup, which --privileged makes writable.
+test-ebpf: ## Run the agent kernel test in a privileged container (needs Docker).
+	docker run --rm --privileged -v "$(CURDIR):/src" -w /src \
+		-e GOFLAGS=-buildvcs=false $(BPF_BUILDER_IMAGE) \
+		go test -tags ebpf -count=1 -v ./$(RUNTIMEWATCH_EBPF_DIR)/
 
 clean:
 	rm -f "$(GOBIN)/pacto" coverage.out coverage.html

@@ -5,10 +5,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v4/internal/app"
 )
 
 func TestBannerStatic(t *testing.T) {
@@ -42,7 +41,6 @@ func TestInitLines(t *testing.T) {
 }
 
 func TestRevealInitOffTTY(t *testing.T) {
-	withTTY(t, false)
 	var buf bytes.Buffer
 	revealInit(&cobra.Command{}, &buf, initLines(&app.InitResult{Dir: "svc", Path: "svc/pacto.yaml"}))
 	if buf.String() != "Created svc/\n  svc/pacto.yaml\n  svc/interfaces/\n  svc/configuration/\n" {
@@ -51,13 +49,9 @@ func TestRevealInitOffTTY(t *testing.T) {
 }
 
 func TestRevealInitTTY(t *testing.T) {
-	withTTY(t, true)
 	t.Setenv("NO_COLOR", "")
 	t.Setenv("PACTO_NO_ANIM", "")
-	orig := revealStagger
-	revealStagger = time.Millisecond
-	t.Cleanup(func() { revealStagger = orig })
-	var buf bytes.Buffer
+	var buf ttyBuffer
 	revealInit(&cobra.Command{}, &buf, initLines(&app.InitResult{Dir: "svc", Path: "svc/pacto.yaml"}))
 	if !strings.Contains(buf.String(), "✓") || !strings.Contains(buf.String(), "\033[32m") {
 		t.Fatal("TTY init should show green ✓")

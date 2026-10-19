@@ -2,12 +2,13 @@ package fleet
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"testing/fstest"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 )
 
 // The tallies exist so a product surface can draw a proportion without counting a
@@ -302,7 +303,7 @@ func TestAttentionCategories_CanonicalOrderWithZerosAndUnknowns(t *testing.T) {
 		order = append(order, b.Category)
 		sum += b.Count
 	}
-	wantOrder := append(append([]string{}, AttentionCategories...), "a-future-category", "zzz-another")
+	wantOrder := append(AttentionCategoriesList(), "a-future-category", "zzz-another")
 	if len(order) != len(wantOrder) {
 		t.Fatalf("categories = %v, want %v", order, wantOrder)
 	}
@@ -314,7 +315,7 @@ func TestAttentionCategories_CanonicalOrderWithZerosAndUnknowns(t *testing.T) {
 	if sum != len(items) {
 		t.Errorf("buckets sum to %d, want %d (the buckets must partition the population)", sum, len(items))
 	}
-	if got[0].Count != 1 || got[len(AttentionCategories)-1].Count != 2 {
+	if got[0].Count != 1 || got[len(AttentionCategoriesList())-1].Count != 2 {
 		t.Errorf("counts landed in the wrong buckets: %+v", got)
 	}
 }
@@ -411,5 +412,44 @@ func TestServiceEdgeTally_CountsDistinctDependenciesNotDeclarationRecords(t *tes
 	}
 	if got != want {
 		t.Errorf("edge tally = %+v, want %+v", got, want)
+	}
+}
+
+// TestAttentionCategoriesList_IsACopy: the canonical order cannot be changed
+// through the list a caller holds.
+func TestAttentionCategoriesList_IsACopy(t *testing.T) {
+	got := AttentionCategoriesList()
+	got[0] = "mutated"
+	if AttentionCategoriesList()[0] != "non-compliant" {
+		t.Fatal("the canonical order changed through a returned copy")
+	}
+	if c := attentionCategories(nil); c[0].Category != "non-compliant" {
+		t.Errorf("counts read a mutated order: %+v", c)
+	}
+}
+
+func TestPaginate(t *testing.T) {
+	all := []int{0, 1, 2, 3, 4}
+	for _, c := range []struct {
+		limit, offset    int
+		items            []int
+		effLimit, effOff int
+		next             int // -1 = last page
+	}{
+		{0, 0, []int{0, 1}, 2, 0, 2},     // default limit
+		{10, 0, []int{0, 1, 2}, 3, 0, 3}, // capped
+		{3, 3, []int{3, 4}, 3, 3, -1},    // last page
+		{2, 9, []int{}, 2, 5, -1},        // offset past the end
+	} {
+		p := Paginate(all, c.limit, c.offset, 2, 3)
+		if !slices.Equal(p.Items, c.items) || p.Limit != c.effLimit || p.Offset != c.effOff ||
+			p.Truncated != (c.next >= 0) || (c.next >= 0 && *p.NextOffset != c.next) || (c.next < 0 && p.NextOffset != nil) {
+			t.Errorf("Paginate(limit=%d, offset=%d) = %+v", c.limit, c.offset, p)
+		}
+	}
+	p := Paginate(all, 2, 0, 2, 3)
+	p.Items[0] = 99
+	if all[0] != 0 {
+		t.Error("Items must be a copy")
 	}
 }

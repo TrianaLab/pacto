@@ -8,20 +8,18 @@
 // the same rendering serves both the live dashboard and `pacto doc`, which writes
 // a standalone offline page with no server to link.
 //
-// [github.com/trianalab/pacto/v3/pkg/dashboard] aliases these types so a v3
+// [github.com/trianalab/pacto/v4/pkg/dashboard] aliases these types so a v3
 // importer and the generated TypeScript SDK keep working. New code should import
 // this package directly.
 package contractview
 
 import (
-	"slices"
 	"strconv"
-	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/sbom"
-	"github.com/trianalab/pacto/v3/pkg/schemax"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/sbom"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
 
 // ContractStatus represents the contract compliance status of a service.
@@ -38,26 +36,6 @@ const (
 	StatusInvalid      ContractStatus = "Invalid"
 	StatusNotEvaluated ContractStatus = "NotEvaluated"
 )
-
-// canonicalStatuses is the complete contract-status vocabulary. It is a list
-// rather than a switch case because the vocabulary has to be readable as a set:
-// NormalizeContractStatus accepts exactly these values, so the set a parity check
-// compares is the set production normalizes against, and a status cannot be added
-// to the dashboard's vocabulary anywhere else. The fleet's copy is
-// fleet.CanonicalStatuses; TestContractStatusVocabularyMatchesFleet compares them.
-var canonicalStatuses = []ContractStatus{
-	StatusCompliant, StatusWarning, StatusNonCompliant, StatusUnknown,
-	StatusReference, StatusInvalid, StatusNotEvaluated,
-}
-
-// NormalizeContractStatus maps any non-standard status to one of the canonical
-// contract statuses.
-func NormalizeContractStatus(s ContractStatus) ContractStatus {
-	if slices.Contains(canonicalStatuses, s) {
-		return s
-	}
-	return StatusUnknown
-}
 
 // ComplianceStatus represents the overall compliance assessment of a service.
 type ComplianceStatus string
@@ -78,22 +56,7 @@ type EvaluationCoverage struct {
 
 // ComplianceInfo holds the computed compliance state for a service.
 type ComplianceInfo struct {
-	Status  ComplianceStatus  `json:"status"`
-	Score   *int              `json:"score"`
-	Summary *ComplianceCounts `json:"summary,omitempty"`
-}
-
-// ComplianceCounts summarizes validation check results.
-type ComplianceCounts struct {
-	Total    int `json:"total"`
-	Passed   int `json:"passed"`
-	Failed   int `json:"failed"`
-	Errors   int `json:"errors"`
-	Warnings int `json:"warnings"`
-	Unknown  int `json:"unknown"`
-	// Secondary metrics per B-2 ruling (informational, distinguish failure from uncertainty).
-	RuntimeEvaluated int `json:"runtimeEvaluated"` // Compliant + Warning + NonCompliant + Unknown
-	Conclusive       int `json:"conclusive"`       // Compliant + Warning + NonCompliant
+	Status ComplianceStatus `json:"status"`
 }
 
 // ReadinessInfo is the derived readiness assessment surfaced in the dashboard.
@@ -179,16 +142,6 @@ type Service struct {
 	Sources        []string       `json:"sources,omitempty"` // all sources this service appears in
 }
 
-// The values [ServiceDetails.VersionPolicy] takes. The field itself is deprecated
-// and currently has no writer, but the frontend still maps these exact strings, so
-// they stay the one spelling of the vocabulary rather than a comment above the
-// field and a literal in TypeScript.
-const (
-	VersionPolicyTracking     = "tracking"      // follows latest (no explicit pin)
-	VersionPolicyPinnedTag    = "pinned-tag"    // pinned to a specific semver tag
-	VersionPolicyPinnedDigest = "pinned-digest" // pinned to an immutable digest
-)
-
 // ServiceDetails contains all information for the service detail view.
 type ServiceDetails struct {
 	Service
@@ -199,15 +152,6 @@ type ServiceDetails struct {
 	// Contract references from operator.
 	ResolvedRef     string `json:"resolvedRef,omitempty"`
 	CurrentRevision string `json:"currentRevision,omitempty"`
-
-	// Version tracking: derived from resolvedRef and version history.
-	//
-	// Deprecated: the three fields below have had no writer since the dashboard's
-	// version-tracking stack was removed. They are omitempty, so they are simply
-	// absent on the wire. The names stay through v3 and are removed at v4.
-	VersionPolicy   string `json:"versionPolicy,omitempty"`   // one of VersionPolicyTracking, VersionPolicyPinnedTag, VersionPolicyPinnedDigest
-	LatestAvailable string `json:"latestAvailable,omitempty"` // highest semver from version history
-	UpdateAvailable bool   `json:"updateAvailable,omitempty"` // true when latestAvailable > version
 
 	Interfaces     []InterfaceInfo     `json:"interfaces,omitempty"`
 	Configurations []ConfigurationInfo `json:"configurations,omitempty"`
@@ -257,124 +201,11 @@ type ServiceDetails struct {
 	// RuntimeDiff is the semantic contract-vs-runtime comparison.
 	RuntimeDiff []RuntimeDiffRow `json:"runtimeDiff,omitempty"`
 
-	// Endpoints carried the health and metrics endpoints the operator had
-	// probed, with the status code and latency it saw.
-	//
-	// Deprecated: nothing populates this. Its only writer was the dashboard's
-	// Kubernetes source, which read the probe results off the Pacto CRD status
-	// and went with the ingestion stack. The offline export, which is the only
-	// surviving producer of a ServiceDetails, never populated it. Endpoint
-	// health is a fleet observation now. Removed at v4.
-	Endpoints []EndpointStatus `json:"endpoints,omitempty"`
-
-	// Conditions carried the operator's reconciliation conditions, one per
-	// contract assertion, and fed both the compliance score and the checks
-	// summary.
-	//
-	// Deprecated: nothing populates this. Its only writer was the dashboard's
-	// Kubernetes source, which copied status.conditions off the Pacto CRD and
-	// went with the ingestion stack. ServiceDetailsFromBundle still reads it
-	// when it computes Compliance, but from a bundle it is always empty, so
-	// every contract the offline export renders scores against zero
-	// conditions. Removed at v4.
-	Conditions []Condition `json:"conditions,omitempty"`
-
 	// Insights are computed diagnostic messages (critical, warning, info).
 	Insights []Insight `json:"insights,omitempty"`
 
-	// ChecksSummary carried the operator's passed/total check counts for the
-	// list view's compact checks badge.
-	//
-	// Deprecated: nothing populates this. Its only writer was the dashboard's
-	// Kubernetes source, which derived the counts from the CRD conditions and
-	// went with the ingestion stack. The offline export, which is the only
-	// surviving producer of a ServiceDetails, never populated it. Removed at v4.
-	ChecksSummary *ChecksSummary `json:"checksSummary,omitempty"`
-
-	// Resources reported whether the Kubernetes Service and workload the
-	// contract names actually exist.
-	//
-	// Deprecated: nothing populates this. Its only writer was the dashboard's
-	// Kubernetes source, which read the CRD's resource status and went with the
-	// ingestion stack. GenerateInsights still consults it, so the two
-	// missing-resource insights it can raise are unreachable from a bundle.
-	// Removed at v4.
-	Resources *ResourcesInfo `json:"resources,omitempty"`
-
-	// Ports reported the declared-versus-observed port comparison the operator
-	// made against the live Service.
-	//
-	// Deprecated: nothing populates this. Its only writer was the dashboard's
-	// Kubernetes source, which read the CRD's port status and went with the
-	// ingestion stack. GenerateInsights still consults it, so the missing and
-	// unexpected port insights are unreachable from a bundle. Removed at v4.
-	Ports *PortsInfo `json:"ports,omitempty"`
-
 	LastUpdated      *time.Time `json:"lastUpdated,omitempty"`
 	LastReconciledAt string     `json:"lastReconciledAt,omitempty"`
-
-	// RuntimeEvaluated was true only when a Kubernetes runtime overlay had been
-	// applied — that is, when the operator had actually observed this service —
-	// so the UI could tell a definition-only view from an evaluated one.
-	//
-	// Deprecated: nothing populates this. Its only writer was the dashboard's
-	// multi-source merge, which set it as it laid a Kubernetes overlay over a
-	// contract, and it went with the ingestion stack. The offline export, which
-	// is the only surviving producer of a ServiceDetails, is definition-only by
-	// construction. Removed at v4.
-	RuntimeEvaluated bool `json:"runtimeEvaluated,omitempty"`
-
-	// SectionMeta described, per section id, why a section was shown or absent
-	// and which source supplied it. Keys are the Section* ids.
-	//
-	// Deprecated: nothing populates this. Its two writers were the dashboard's
-	// multi-source resolver and the getService handler, both of which needed to
-	// know which source answered — and both went with the ingestion stack when
-	// the fleet took that job over. The offline export, which is the only
-	// surviving producer of a ServiceDetails, never populated it. Source
-	// availability is now reported per source by /api/sources, not per section.
-	// Removed at v4.
-	SectionMeta map[string]SectionInfo `json:"sectionMeta,omitempty"`
-}
-
-// Section state values for SectionInfo.State. Retained, like SectionMeta
-// itself, only so the released pkg/dashboard names keep resolving.
-const (
-	SectionPresent       = "present"        // has data from an available source
-	SectionEmpty         = "empty"          // applicable + source available, but nothing declared
-	SectionNotApplicable = "not_applicable" // cannot apply to this contract (e.g. runtime on a reference)
-	SectionUnavailable   = "unavailable"    // a source that would supply it was unreachable / not present
-)
-
-// Section ids for SectionMeta. Retained, like SectionMeta itself, only so the
-// released pkg/dashboard names keep resolving.
-const (
-	SectionInterfaces      = "interfaces"
-	SectionConfigurations  = "configurations"
-	SectionPolicies        = "policies"
-	SectionCapabilities    = "capabilities"
-	SectionDependencies    = "dependencies"
-	SectionReadiness       = "readiness"
-	SectionDocs            = "docs"
-	SectionSBOM            = "sbom"
-	SectionRuntime         = "runtime"
-	SectionValidation      = "validation"
-	SectionObservedRuntime = "observedRuntime"
-	SectionRuntimeDiff     = "runtimeDiff"
-	SectionResources       = "resources"
-	SectionPorts           = "ports"
-	SectionEndpoints       = "endpoints"
-	SectionConditions      = "conditions"
-)
-
-// SectionInfo records the availability + provenance of one dashboard section so
-// the UI can explain absence (not-applicable vs unavailable vs empty) and label
-// where present data came from.
-type SectionInfo struct {
-	State        string `json:"state"`                  // one of the Section* state consts
-	Reason       string `json:"reason,omitempty"`       // human note for non-present states
-	Source       string `json:"source,omitempty"`       // "k8s" | "oci" | "local" | "cache"
-	OverriddenBy string `json:"overriddenBy,omitempty"` // source that overrode a contract value (e.g. "k8s")
 }
 
 // InterfaceEndpoint is a single API endpoint parsed from an OpenAPI spec.
@@ -532,20 +363,6 @@ type ValidationIssue struct {
 	Message string `json:"message"`
 }
 
-// ResourcesInfo holds Kubernetes resource existence checks.
-type ResourcesInfo struct {
-	ServiceExists  *bool `json:"serviceExists,omitempty"`
-	WorkloadExists *bool `json:"workloadExists,omitempty"`
-}
-
-// PortsInfo holds port comparison results.
-type PortsInfo struct {
-	Expected   []int `json:"expected,omitempty"`
-	Observed   []int `json:"observed,omitempty"`
-	Missing    []int `json:"missing,omitempty"`
-	Unexpected []int `json:"unexpected,omitempty"`
-}
-
 // Version represents a historical version of a service.
 type Version struct {
 	Version        string     `json:"version"`
@@ -601,18 +418,6 @@ type ServiceSourceData struct {
 	Service    *ServiceDetails `json:"service"`
 }
 
-// EndpointStatus describes the observed status of a service endpoint.
-type EndpointStatus struct {
-	Interface  string `json:"interface"`
-	Type       string `json:"type,omitempty"` // "health", "metrics", or empty
-	URL        string `json:"url,omitempty"`
-	Healthy    *bool  `json:"healthy,omitempty"`
-	StatusCode *int   `json:"statusCode,omitempty"`
-	LatencyMs  *int64 `json:"latencyMs,omitempty"`
-	Error      string `json:"error,omitempty"`
-	Message    string `json:"message,omitempty"`
-}
-
 // DependencyGraph holds a resolved dependency tree for visualization.
 type DependencyGraph struct {
 	Root      *GraphNode `json:"root"`
@@ -642,33 +447,11 @@ type GraphEdge struct {
 	DriftStatus   string `json:"driftStatus,omitempty"`
 }
 
-// Condition represents a reconciliation condition (mirroring operator CRD status.conditions).
-type Condition struct {
-	Type              string `json:"type"`
-	Status            string `json:"status"` // "True", "False", "Unknown"
-	Reason            string `json:"reason,omitempty"`
-	Message           string `json:"message,omitempty"`
-	Severity          string `json:"severity,omitempty"` // "error", "warning"
-	LastTransitionAgo string `json:"lastTransitionAgo,omitempty"`
-}
-
 // Insight represents a diagnostic finding (critical, warning, info).
 type Insight struct {
 	Severity    string `json:"severity"` // "critical", "warning", "info"
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
-}
-
-// ChecksSummary holds pass/fail check counts.
-//
-// Deprecated: describes [ServiceDetails.ChecksSummary], which nothing
-// populates. The dashboard's Kubernetes source was the only thing that ever
-// built one, from the operator's CRD conditions, and it went with the
-// ingestion stack. Removed at v4.
-type ChecksSummary struct {
-	Total  int `json:"total"`
-	Passed int `json:"passed"`
-	Failed int `json:"failed"`
 }
 
 // GenerateInsights derives diagnostic insights from the service details
@@ -692,8 +475,6 @@ func (d *ServiceDetails) GenerateInsights() {
 	}
 
 	ins = append(ins, validationInsights(d.Validation)...)
-	ins = append(ins, resourceInsights(d.Resources)...)
-	ins = append(ins, portInsights(d.Ports)...)
 
 	d.Insights = ins
 }
@@ -712,47 +493,11 @@ func validationInsights(v *ValidationInfo) []Insight {
 	return ins
 }
 
-func resourceInsights(r *ResourcesInfo) []Insight {
-	if r == nil {
-		return nil
-	}
-	var ins []Insight
-	if r.ServiceExists != nil && !*r.ServiceExists {
-		ins = append(ins, Insight{Severity: "critical", Title: "Service resource not found", Description: "The Kubernetes Service resource does not exist."})
-	}
-	if r.WorkloadExists != nil && !*r.WorkloadExists {
-		ins = append(ins, Insight{Severity: "critical", Title: "Workload not found", Description: "The target workload does not exist."})
-	}
-	return ins
-}
-
-func portInsights(p *PortsInfo) []Insight {
-	if p == nil {
-		return nil
-	}
-	var ins []Insight
-	if len(p.Missing) > 0 {
-		ins = append(ins, Insight{Severity: "warning", Title: "Missing ports: " + joinInts(p.Missing), Description: "Ports declared in contract but not found on the service."})
-	}
-	if len(p.Unexpected) > 0 {
-		ins = append(ins, Insight{Severity: "info", Title: "Unexpected ports: " + joinInts(p.Unexpected), Description: "Ports found on the service but not declared in contract."})
-	}
-	return ins
-}
-
 func plural(n int) string {
 	if n != 1 {
 		return "s"
 	}
 	return ""
-}
-
-func joinInts(vals []int) string {
-	s := make([]string, len(vals))
-	for i, v := range vals {
-		s[i] = strconv.Itoa(v)
-	}
-	return strings.Join(s, ", ")
 }
 
 // ServiceListEntry is an enriched Service for the list view, including

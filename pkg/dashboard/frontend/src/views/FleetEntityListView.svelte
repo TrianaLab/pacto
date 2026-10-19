@@ -43,7 +43,10 @@
   const pluralTitle = $derived(plural[0].toUpperCase() + plural.slice(1));
 
   let textDraft = $state(text);
-  $effect(() => { textDraft = text; });
+  // The text the last submit wrote to the URL. Its echo reaches `text` a hashchange later,
+  // by when the reader may have typed on; adopting it would drop those keystrokes.
+  let submittedText = null;
+  $effect(() => { if (text !== submittedText) textDraft = text; submittedText = null; });
 
   const loader = createProductLoader(() => api.fleetEntities({
     kinds: [kind],
@@ -99,7 +102,7 @@
       readiness: patch.readiness ?? readinessFilter, offset: off,
     });
   }
-  function submitSearch(e) { e.preventDefault(); location.hash = urlWith({ text: textDraft }); }
+  function submitSearch(e) { e.preventDefault(); submittedText = textDraft; location.hash = urlWith({ text: textDraft }); }
   function clearAll() { location.hash = fleetEntityListUrl(kind, { service }); }
   const chips = $derived([
     text ? { key: 'text', label: 'Search', value: text } : null,

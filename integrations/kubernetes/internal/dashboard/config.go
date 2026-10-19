@@ -10,6 +10,8 @@ package dashboard
 import (
 	"fmt"
 
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1" //nolint:lll // Used by Config.OwnerRef field type
@@ -32,11 +34,6 @@ type Config struct {
 	// WatchNamespace restricts the dashboard's observation scope to a single namespace.
 	// Empty means cluster-wide (all namespaces). Inherited from the controller's --watch-namespace flag.
 	WatchNamespace string
-
-	// OCISecret is the optional name of a single Kubernetes Secret (in the operator namespace)
-	// containing OCI registry credentials. Kept for backward compatibility.
-	// If OCISecrets is also set, OCISecret is ignored.
-	OCISecret string
 
 	// OCISecrets is an optional list of Secret names (in the operator namespace) containing
 	// OCI registry credentials. Supports Opaque and kubernetes.io/dockerconfigjson secrets.
@@ -76,45 +73,8 @@ type Config struct {
 	Observation []ObservationSource
 }
 
-// EffectiveOCISecrets returns the resolved list of OCI secret names.
-// OCISecrets takes precedence; if empty, falls back to OCISecret.
-func (c Config) EffectiveOCISecrets() []string {
-	if len(c.OCISecrets) > 0 {
-		return c.OCISecrets
-	}
-	if c.OCISecret != "" {
-		return []string{c.OCISecret}
-	}
-	return nil
-}
-
 // ResourcesConfig holds optional resource quantity overrides for the dashboard container.
-type ResourcesConfig struct {
-	CPURequest    string
-	CPULimit      string
-	MemoryRequest string
-	MemoryLimit   string
-}
-
-// Validate checks that any provided resource quantity overrides are parseable,
-// so an invalid --dashboard-cpu-request (etc.) fails fast at operator startup
-// instead of panicking via MustParse during the first reconcile.
-func (rc ResourcesConfig) Validate() error {
-	for _, q := range []struct{ name, val string }{
-		{"cpu-request", rc.CPURequest},
-		{"cpu-limit", rc.CPULimit},
-		{"memory-request", rc.MemoryRequest},
-		{"memory-limit", rc.MemoryLimit},
-	} {
-		if q.val == "" {
-			continue
-		}
-		if _, err := resource.ParseQuantity(q.val); err != nil {
-			return fmt.Errorf("invalid dashboard %s quantity %q: %w", q.name, q.val, err)
-		}
-	}
-	return nil
-}
+type ResourcesConfig = component.Resources
 
 // DefaultResources returns the built-in default resource requirements.
 func DefaultResources() corev1.ResourceRequirements {
@@ -129,24 +89,6 @@ func DefaultResources() corev1.ResourceRequirements {
 	}
 }
 
-// BuildResources returns resource requirements, applying any overrides from the config.
-func (rc ResourcesConfig) BuildResources() corev1.ResourceRequirements {
-	res := DefaultResources()
-	if rc.CPURequest != "" {
-		res.Requests[corev1.ResourceCPU] = resource.MustParse(rc.CPURequest)
-	}
-	if rc.MemoryRequest != "" {
-		res.Requests[corev1.ResourceMemory] = resource.MustParse(rc.MemoryRequest)
-	}
-	if rc.CPULimit != "" {
-		res.Limits[corev1.ResourceCPU] = resource.MustParse(rc.CPULimit)
-	}
-	if rc.MemoryLimit != "" {
-		res.Limits[corev1.ResourceMemory] = resource.MustParse(rc.MemoryLimit)
-	}
-	return res
-}
-
 // Validate checks that the config is valid when the feature is enabled.
 func (c Config) Validate() error {
 	if !c.Enabled {
@@ -159,25 +101,11 @@ func (c Config) Validate() error {
 		return fmt.Errorf("dashboard namespace must be set (defaults to operator namespace)")
 	}
 	// Reject "latest" tag
-	if hasLatestTag(c.Image) {
+	if component.HasLatestTag(c.Image) {
 		return fmt.Errorf("dashboard image must not use 'latest' tag: %s", c.Image)
 	}
-	if err := c.Resources.Validate(); err != nil {
+	if err := c.Resources.Validate("dashboard"); err != nil {
 		return err
 	}
 	return c.validateObservation()
-}
-
-func hasLatestTag(image string) bool {
-	// Check for :latest suffix or no tag at all (which defaults to latest)
-	for i := len(image) - 1; i >= 0; i-- {
-		if image[i] == ':' {
-			return image[i+1:] == "latest"
-		}
-		if image[i] == '/' {
-			break
-		}
-	}
-	// No tag found — treated as implicit latest
-	return true
 }

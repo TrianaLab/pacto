@@ -1,6 +1,6 @@
 # Installation
 
-Three ways in. The installer script is the shortest; the Go and from-source builds are for contributors and for machines that already have a Go toolchain.
+Install the `pacto` command-line tool (CLI). Most people should use the installer script: one command, plugins included. The other two ways need Go and suit contributors.
 
 | Method | Installs | `pacto version` reports |
 |---|---|---|
@@ -8,7 +8,7 @@ Three ways in. The installer script is the shortest; the Go and from-source buil
 | [`go install`](#via-go) | `pacto` only | `dev`, with commit and date `unknown` |
 | [From source](#from-source) | `pacto` only | version, commit and date from your checkout |
 
-Not installing yet? The [live dashboard demo](examples/dashboard-demo.md) runs Pacto in your browser with nothing to download.
+Want to look first? The [live dashboard demo](examples/dashboard-demo.md) runs Pacto in your browser with nothing to install.
 
 ## Via installer script
 
@@ -16,12 +16,12 @@ Not installing yet? The [live dashboard demo](examples/dashboard-demo.md) runs P
 curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | bash
 ```
 
-This installs into `/usr/local/bin`: `pacto`, `pacto-plugin-schema-infer` and `pacto-plugin-openapi-infer`. The script verifies SHA-256 checksums before installing. Plugin installation is best-effort: if it fails the script warns, installs `pacto` anyway and exits 0.
+This puts three programs in `/usr/local/bin`: `pacto`, `pacto-plugin-schema-infer` and `pacto-plugin-openapi-infer`. The script checks each download's SHA-256 checksum first. If a plugin fails to install, the script warns and still installs `pacto`.
 
 Pass `--version` for a specific release: `bash -s -- --version v3.1.4`.
 
 !!! warning "If the script cannot find a version (GitHub API rate limit)"
-    The script resolves the version through the anonymous GitHub API (60 requests per hour per IP). On a shared address it can exit with `Failed to fetch latest version`. Set `GH_TOKEN` to any GitHub token and re-run:
+    The script asks the GitHub API for the latest version. Without a token GitHub allows 60 requests per hour per IP address, so on a shared network it can fail with `Failed to fetch latest version`. Set `GH_TOKEN` to any GitHub token and run it again:
 
     ```bash
     curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh \
@@ -42,7 +42,7 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
 ## Via Go
 
 ```bash
-go install github.com/trianalab/pacto/v3/cmd/pacto@latest
+go install github.com/trianalab/pacto/v4/cmd/pacto@latest
 ```
 
 Requires [Go 1.26.9](https://go.dev/dl/) or later. The binary is placed in `$GOBIN` (typically `~/go/bin`).
@@ -89,7 +89,7 @@ pacto update              # latest release
 pacto update v3.1.4       # specific version
 ```
 
-This verifies the new binary's SHA-256 before replacing the current one. A `go install` build cannot use it; re-run `go install github.com/trianalab/pacto/v3/cmd/pacto@latest` instead.
+This verifies the new binary's SHA-256 before replacing the current one. A `go install` build cannot use it; re-run `go install github.com/trianalab/pacto/v4/cmd/pacto@latest` instead.
 
 ## Uninstall
 
@@ -113,7 +113,7 @@ The last two follow `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` where you set them. R
 
 ## Supply chain: what is signed and what is not
 
-Pacto's release pipeline signs some artifacts and not others. A signature you assume exists is worse than one you know does not:
+Some release artifacts are signed and some are not. Know which before you rely on a signature:
 
 | Artifact | What ships with it |
 | --- | --- |
@@ -124,7 +124,7 @@ Pacto's release pipeline signs some artifacts and not others. A signature you as
 | `ghcr.io/trianalab/pacto/dashboard-contract` | Nothing. **Unsigned.** |
 | The demo contract bundles (`ghcr.io/trianalab/pacto/<service>`) | Nothing. **Unsigned.** |
 
-The three signed images are signed keylessly by the release workflow through GitHub's OIDC issuer, so verification pins *who built it* rather than a key you have to trust separately:
+The release workflow signs the three images with [Cosign](https://docs.sigstore.dev/cosign/) "keyless" signing: the signature is tied to the GitHub workflow that built the image, not to a key you must store. Verifying it proves *who built it*:
 
 ```bash
 cosign verify \

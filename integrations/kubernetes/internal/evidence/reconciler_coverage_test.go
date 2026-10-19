@@ -42,27 +42,6 @@ func newReconcilerWithInterceptors(cfg Config, funcs interceptor.Funcs, objs ...
 	}
 }
 
-// --- ensureNamespace: non-NotFound Get error ---
-
-func TestEnsureNamespace_GetNonNotFoundError(t *testing.T) {
-	r := newReconcilerWithInterceptors(enabledCfg(), interceptor.Funcs{
-		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-			if _, ok := obj.(*corev1.Namespace); ok {
-				return fmt.Errorf("simulated namespace get error")
-			}
-			return c.Get(ctx, key, obj, opts...)
-		},
-	})
-
-	err := r.Sync(context.Background())
-	if err == nil {
-		t.Fatal("expected error from ensureNamespace Get failure")
-	}
-	if got := err.Error(); got != "namespace: simulated namespace get error" {
-		t.Errorf("unexpected error: %s", got)
-	}
-}
-
 // --- apply errors: Deployment / Service ---
 
 func TestReconcile_DeploymentApplyError(t *testing.T) {
@@ -197,18 +176,15 @@ func TestStart_Enabled_ContextCancel(t *testing.T) {
 
 func TestStart_InitialReconcileFailure(t *testing.T) {
 	r := newReconcilerWithInterceptors(enabledCfg(), interceptor.Funcs{
-		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-			if _, ok := obj.(*corev1.Namespace); ok {
-				return fmt.Errorf("simulated start failure")
-			}
-			return c.Get(ctx, key, obj, opts...)
+		Apply: func(context.Context, client.WithWatch, runtime.ApplyConfiguration, ...client.ApplyOption) error {
+			return fmt.Errorf("simulated start failure")
 		},
 	})
 	err := r.Start(context.Background())
 	if err == nil {
 		t.Fatal("Start should return error when initial reconcile fails")
 	}
-	expected := "initial evidence reconciliation failed: namespace: simulated start failure"
+	expected := "initial evidence reconciliation failed: deployment: simulated start failure"
 	if got := err.Error(); got != expected {
 		t.Errorf("unexpected error:\n  got:  %s\n  want: %s", got, expected)
 	}
@@ -234,8 +210,9 @@ func TestStart_Enabled_TickerReconcileError(t *testing.T) {
 	errored := make(chan struct{}, 1)
 	callCount := 0 // touched only from the Start goroutine's sequential loop
 	r := newReconcilerWithInterceptors(enabledCfg(), interceptor.Funcs{
-		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-			if _, ok := obj.(*corev1.Namespace); ok {
+		// Let the initial reconcile succeed, then fail on the ticker reconcile.
+		Apply: func(ctx context.Context, c client.WithWatch, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error {
+			if _, ok := obj.(*appsv1ac.DeploymentApplyConfiguration); ok {
 				callCount++
 				if callCount > 1 {
 					select {
@@ -245,7 +222,7 @@ func TestStart_Enabled_TickerReconcileError(t *testing.T) {
 					return fmt.Errorf("simulated periodic failure")
 				}
 			}
-			return c.Get(ctx, key, obj, opts...)
+			return c.Apply(ctx, obj, opts...)
 		},
 	})
 	r.tickInterval = 10 * time.Millisecond

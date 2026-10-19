@@ -48,6 +48,34 @@ func (s Scenario) HelmValues() ([]string, error) {
 	return out, nil
 }
 
+// HelmRuntimeValues turns on the chart's runtime conformance when the scenario
+// declares a deaf workload: the node agent DaemonSet, protocol probing, and a
+// publish interval and stabilization window short enough for a run to see the
+// negative within minutes instead of the production defaults. Nothing when no
+// workload is deaf, because nothing would then be owed.
+//
+// A projection rather than run values in the harness: whether a kernel must be
+// watching is the fixture's to say, and the Compose surface derives its host
+// agent from the same declaration.
+func (s Scenario) HelmRuntimeValues() []string {
+	if len(s.DeafServices()) == 0 {
+		return nil
+	}
+	return []string{
+		"nodeAgent.enabled=true",
+		"nodeAgent.publishInterval=" + RuntimePublishInterval,
+		"controller.enableProbing=true",
+		"controller.stabilizationWindow=" + RuntimeStabilizationWindow,
+	}
+}
+
+// The runtime timing both surfaces run with: how often the agent publishes what
+// it sees, and how long a negative must persist before it is reported.
+const (
+	RuntimePublishInterval     = "5s"
+	RuntimeStabilizationWindow = "20s"
+)
+
 // HelmEvidenceValues configures the chart's Evidence Server with the scenario's
 // canonical contract subjects, as `evidence.registry.subjects[i]=<ref>` strings.
 //

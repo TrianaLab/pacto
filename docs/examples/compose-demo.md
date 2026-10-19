@@ -9,7 +9,9 @@ search:
 A complete Pacto fleet running on your machine. An OCI registry holds real
 published contract revisions, an Evidence Server ingests a signed envelope
 from a "remote" environment and the dashboard shows the operational graph
-they add up to.
+they add up to. It also shows runtime conformance live: a host agent watches
+the containers' sockets with eBPF and reports a service that is up but serves
+nothing.
 
 There is no repository to clone, nothing to build and no file to download. The
 demo is published as an OCI artifact that Docker Compose owns and runs directly.
@@ -46,20 +48,42 @@ Then open <http://localhost:8080/#/fleet>.
 
 ## What you get
 
-Three services. `checkout` has two published revisions — 1.1.0 drops an API path
+Four services. `checkout` has two published revisions — 1.1.0 drops an API path
 1.0.0 exposed. `orders` declares `checkout` and is observed calling it, declares
 `payments` and is never seen calling it. `payments` reaches the fleet as signed
 evidence from a remote environment; `checkout` is observed calling it with no
 contract declaring so.
 
 The three edges are deliberately one of each: matched, declared but never
-observed and observed but never declared. Follow the graph from `orders` to
+observed and observed but never declared. The observed calls come from a
+recorded trace file, not from watching the containers. Follow the graph from `orders` to
 `checkout`, open a revision to read its contract and compare `checkout` 1.0.0
 with 1.1.0 to see a change analysed.
 
 For the same moves at the command line — six user stories from "what is out
 there" to "an agent reading the same server" — follow the
 [guided tour](demo-tour.md).
+
+## The live runtime check
+
+`inventory` is the live part. Its container is running and labelled with its
+contract and the port its API is bound to (`dev.pacto.contract`,
+`dev.pacto.bind.api=8080`), but nothing in it listens there. The `agent` service
+runs [`pacto agent`](../runtime-agent.md) with `--sink evidence --docker`: it
+reads those labels, watches every container's TCP sockets with eBPF, and sends
+what it sees, signed with its own key, to the Evidence Server. About half a
+minute after start, `inventory` shows `INTERFACE_ABSENT` on `api`, seen by
+`pacto-agent+ebpf` (the kernel). No platform API could report that: Docker
+only knows the container is up.
+
+The agent needs what a kernel observer needs, and the rest of the demo does not:
+a privileged container in the host's PID and cgroup namespaces, running as root,
+with the Docker socket and `/sys/fs/cgroup` mounted. Those two paths are the
+only host paths the demo mounts. On Linux that means kernel 5.8 or later with BTF
+and cgroup v2. On Docker Desktop (macOS and Windows) the "host" is Docker's own
+Linux VM, which meets all of it. Where the kernel cannot load the program, the
+agent says so in `docker compose -p pacto-demo logs agent` and `inventory` stays
+without that finding; everything else works unchanged.
 
 ## Ports
 

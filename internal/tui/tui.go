@@ -6,13 +6,15 @@ package tui
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/atotto/clipboard"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // Options configures a TUI session.
@@ -70,6 +72,15 @@ type Context struct {
 	// announced the arming is cleared with it.
 	pendingDiff   Selection
 	pendingImpact Selection
+
+	// execProcess hands the terminal to a write verb's subprocess: tea.ExecProcess,
+	// or a fake that asserts on the argv without spawning anything.
+	execProcess func(*exec.Cmd, tea.ExecCallback) tea.Cmd
+	// clipboardWrite copies a line to the system clipboard. atotto/clipboard is
+	// already linked into the binary through charm.land/bubbles/v2/textinput, which
+	// this package imports, so real copying costs no extra weight and no new module
+	// edge. Tests replace it to drive both outcomes on a machine with no clipboard.
+	clipboardWrite func(string) error
 }
 
 // transitionFrames is how long a screen change takes to wipe into place: four
@@ -104,6 +115,9 @@ func New(o Options) *Model {
 			Width:      80,
 			Height:     24,
 			Anim:       o.Anim,
+
+			execProcess:    tea.ExecProcess,
+			clipboardWrite: clipboard.WriteAll,
 		},
 		stack: []screen{loadingScreen{}},
 	}

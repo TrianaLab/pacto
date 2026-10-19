@@ -191,8 +191,8 @@ the exit status is discarded, so a failed read reads as an empty one.
 
 Go binds a module's version to its import path: a path ending `/vN` carries only
 `vN.y.z`, and an unsuffixed path only v0 and v1. Both Go modules here publish on a
-suffixed path — `github.com/trianalab/pacto/v3` and
-`github.com/trianalab/pacto/integrations/kubernetes/v5` — so the major in the path
+suffixed path — `github.com/trianalab/pacto/v4` and
+`github.com/trianalab/pacto/integrations/kubernetes/v6` — so the major in the path
 and the major in the version are the same number, always.
 
 A major changeset moves the version. It does not move the path, and it cannot: the
@@ -209,5 +209,7 @@ go.mod:79:2: require github.com/trianalab/pacto/v3: version "v4.0.0" invalid: sh
 `build-release-plan.mjs` now refuses to emit a plan whose version does not fit its
 path, and `apply-release-plan.mjs` refuses to write the require, so the release stops
 before the Version PR exists rather than mid-transaction. **Rename the path, merge
-that, then land the major changeset.** `tests/release/k8s_module_path_test.go` holds
-the Kubernetes half of the rename to every declared coordinate.
+that, then land the major changeset.** Both may share a pull request; the operator's
+`go.sum` gains the new pin only in the Version PR (`apply-release-plan.mjs`, section 8).
+`tests/release/k8s_module_path_test.go` holds the Kubernetes half of the rename to every
+declared coordinate.

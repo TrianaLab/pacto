@@ -75,6 +75,67 @@ tests:
           path: spec.template.spec.containers[0].args
           content: "--watch-namespace=production"
 
+  - it: should not enable probing, metrics observation or kernel evidence by default
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-probing"
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-metrics-observation"
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-kernel-evidence"
+
+  - it: should pass the observation feature flags when enabled
+    set:
+      controller.enableProbing: true
+      controller.enableMetricsObservation: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-probing"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-metrics-observation"
+
+  - it: should enable kernel evidence with the operator-namespace default
+    set:
+      controller.kernelEvidence.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--enable-kernel-evidence"
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--kernel-evidence-namespace="
+        any: true
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--kernel-evidence-staleness="
+        any: true
+
+  - it: should pass the kernel evidence namespace and staleness when set
+    set:
+      controller.kernelEvidence.enabled: true
+      controller.kernelEvidence.namespace: node-agents
+      controller.kernelEvidence.staleness: 2m
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--kernel-evidence-namespace=node-agents"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--kernel-evidence-staleness=2m"
+
+  - it: should ignore kernel evidence settings while it is disabled
+    set:
+      controller.kernelEvidence.namespace: node-agents
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--kernel-evidence-namespace=node-agents"
+
   - it: should use custom image tag
     set:
       image.tag: "v1.2.3"
@@ -102,14 +163,13 @@ tests:
           path: spec.template.spec.containers[0].args
           content: "--metrics-secure=true"
 
-  - it: should include dashboard OCI secret arg
+  - it: rejects the removed dashboard.ociSecret value (use dashboard.ociSecrets)
     set:
       dashboard.enabled: true
       dashboard.ociSecret: my-secret
     asserts:
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: "--dashboard-oci-secret=my-secret"
+      - failedTemplate:
+          errorPattern: "Additional property ociSecret is not allowed"
 
   - it: should include dashboard OCI secrets arg when list is set
     set:
@@ -121,21 +181,6 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: "--dashboard-oci-secrets=ghcr-creds,ecr-creds"
-
-  - it: should prefer ociSecrets over ociSecret
-    set:
-      dashboard.enabled: true
-      dashboard.ociSecret: old-secret
-      dashboard.ociSecrets:
-        - new-secret
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: "--dashboard-oci-secrets=new-secret"
-      - notContains:
-          path: spec.template.spec.containers[0].args
-          content: "--dashboard-oci-secret=old-secret"
-
 
   - it: should include no trace-source arg by default
     asserts:

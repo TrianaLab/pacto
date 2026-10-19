@@ -26,7 +26,7 @@ function listResp(entities: any[], opts: { total?: number; offset?: number; next
     meta: {
       schemaVersion: 'pacto.dev/fleet-product/v1',
       completeness: opts.partial ? 'partial' : 'complete',
-      sources: opts.partial ? [{ id: 'k8s', kind: 'k8s', status: 'unavailable' }] : [],
+      sources: opts.partial ? [{ id: 'k8s', kind: 'kubernetes', status: 'unavailable' }] : [],
     },
     total, count: entities.length, offset, limit: 25,
     truncated: opts.nextOffset != null, nextOffset: opts.nextOffset, entities,
@@ -383,6 +383,28 @@ describe('FleetServicesView — owner search vs owner identity', () => {
     // The exact-owner chip names the namespace as well as the name: the filter in force
     // is `team:team-a`, and a chip reading only "team-a" would not say which alice.
       .toEqual(['Owner: team-a (Team) ×', 'Owner search: team ×']);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('the URL echo of a submit does not overwrite what was typed after it', async () => {
+    entitiesFn.mockResolvedValue(listResp([svc('domain-a')]));
+    const props = $state({ refreshTick: 0, text: '' });
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(FleetServicesView, { target, props });
+    await vi.waitFor(() => expect(rows(target).length).toBe(1));
+    const input = target.querySelector('[data-testid="svc-search"]') as HTMLInputElement;
+    const type = (v: string) => { input.value = v; input.dispatchEvent(new Event('input', { bubbles: true })); flushSync(); };
+    type('p');
+    input.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    expect(location.hash).toBe('#/fleet/services?text=p');
+    type('pa');
+    props.text = 'p'; // the hashchange from the submit lands only now
+    flushSync();
+    expect(input.value).toBe('pa');
+    props.text = 'q'; // a navigation the reader did not type still re-syncs the box
+    flushSync();
+    expect(input.value).toBe('q');
     unmount(component); document.body.removeChild(target);
   });
 });

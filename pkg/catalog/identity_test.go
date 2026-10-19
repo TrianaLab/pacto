@@ -30,7 +30,7 @@ func TestNewContentIDAcceptsOnlyAClosedSchemeAndARealDigest(t *testing.T) {
 				if err != nil {
 					t.Fatalf("NewContentID: %v", err)
 				}
-				if id.Zero() || id.Scheme != tc.scheme || id.Digest != tc.digest {
+				if id == (ContentID{}) || id.Scheme != tc.scheme || id.Digest != tc.digest {
 					t.Errorf("id = %+v, want the validated pair", id)
 				}
 				return
@@ -41,7 +41,7 @@ func TestNewContentIDAcceptsOnlyAClosedSchemeAndARealDigest(t *testing.T) {
 			if !errors.Is(err, ErrInvalidContentID) {
 				t.Errorf("err = %v, want ErrInvalidContentID", err)
 			}
-			if !id.Zero() {
+			if id != (ContentID{}) {
 				t.Errorf("a rejected pair returned %+v", id)
 			}
 		})

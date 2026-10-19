@@ -454,6 +454,11 @@ func TestCompose_TellsEveryPactoProcessTheRegistryIsPlainHTTP(t *testing.T) {
 		if svc["image"] != composeOpts.PactoImage {
 			continue
 		}
+		// A workload under observation borrows the image for its shell and runs
+		// no pacto at all.
+		if labels, _ := svc["labels"].(map[string]any); labels["dev.pacto.contract"] != nil {
+			continue
+		}
 		n++
 		env, _ := svc["environment"].(map[string]any)
 		if env["PACTO_INSECURE_REGISTRIES"] != ComposeRegistryHost {
@@ -550,14 +555,19 @@ func TestCompose_EmitsThePinnedReferencesUnchanged(t *testing.T) {
 		"evidence":  composeOpts.PactoImage,
 		"seed":      composeOpts.PactoImage,
 		"dashboard": composeOpts.PactoImage,
+		"agent":     composeOpts.PactoImage,
+		"inventory": composeOpts.PactoImage,
 	}
 	services, ok := f["services"].(map[string]any)
 	if !ok {
 		t.Fatal("the projection declares no services")
 	}
 	if len(services) != len(want) {
-		t.Fatalf("the projection runs %v; this checks %v", keysOfAny(services), keysOfAny(map[string]any{
-			"registry": nil, "evidence": nil, "seed": nil, "dashboard": nil}))
+		checked := map[string]any{}
+		for name := range want {
+			checked[name] = nil
+		}
+		t.Fatalf("the projection runs %v; this checks %v", keysOfAny(services), keysOfAny(checked))
 	}
 	for name, img := range want {
 		svc := composeSvc(t, f, name)
@@ -636,14 +646,17 @@ func TestCompose_OrdersStartupOnObservedReadiness(t *testing.T) {
 	}
 }
 
-// Mutable state is in a named volume, and NOTHING is bind-mounted.
+// Mutable state is in a named volume, and NOTHING is bind-mounted but the host
+// agent's two kernel interfaces.
 //
 // A bind mount is a path on the machine that started the demo. There is no such
 // path: the artifact is one compose file pulled from a registry by digest, so a
 // bind mount would resolve against whatever directory the user happened to be in
 // and the demo would come up reading someone else's files, or nothing at all.
 // This is the assertion that the projection never regrows the run directory it
-// used to have.
+// used to have. The one exception is declared, fixed and absolute: the host
+// agent reads the Docker Engine API socket and the host's cgroup hierarchy,
+// which every Docker host has at the same path and which carry no fixture input.
 func TestCompose_BindMountsNothing(t *testing.T) {
 	f := composeFileOf(t, OperationalGraph)
 	vols, ok := f["volumes"].(map[string]any)
@@ -654,6 +667,9 @@ func TestCompose_BindMountsNothing(t *testing.T) {
 	for name, raw := range services {
 		svc, _ := raw.(map[string]any)
 		for _, m := range listOf(t, svc, "volumes") {
+			if name == "agent" && slices.Contains(ComposeAgentHostMounts, m) {
+				continue
+			}
 			source, _, _ := strings.Cut(m, ":")
 			if _, declared := vols[source]; !declared {
 				t.Errorf("service %s mounts %q, which is not one of this application's named volumes; a published artifact has no host path to bind", name, m)
@@ -795,5 +811,80 @@ func TestCompose_SaysWhatItIsAndWhatCanRunIt(t *testing.T) {
 		PactoImage: composeOpts.PactoImage, RegistryImage: composeOpts.RegistryImage,
 	}); err == nil || !strings.Contains(err.Error(), "version") {
 		t.Errorf("the projection built an unversioned artifact: %v", err)
+	}
+}
+
+// The Compose surface's route to runtime conformance: a privileged host agent
+// that reads the deaf workload's labels, and an Evidence Server configured to
+// store what it sends. The workload's contract label must be one of the server's
+// subjects, or every envelope the agent signs is refused and the demo shows
+// nothing; and the agent must sign as an identity the server trusts.
+func TestCompose_RunsAHostAgentOverTheDeafWorkload(t *testing.T) {
+	f := composeFileOf(t, OperationalGraph)
+	agent := composeSvc(t, f, "agent")
+	for key, want := range map[string]any{"privileged": true, "pid": "host", "cgroup": "host", "user": "0"} {
+		if agent[key] != want {
+			t.Errorf("the agent's %s is %v, want %v: it cannot load eBPF or see other containers without it", key, agent[key], want)
+		}
+	}
+	cmd := argsOf(t, agent, "command")
+	for _, want := range []string{"agent --sink evidence --docker", "--evidence-producer " + composeAgentSigner.Producer, "--evidence-url " + ComposeEvidenceURL} {
+		if !strings.Contains(cmd, want) {
+			t.Errorf("the agent runs %q, which lacks %q", cmd, want)
+		}
+	}
+	script := argsOf(t, composeSvc(t, f, "evidence"), "command")
+	if !strings.Contains(script, "--key-id "+composeAgentSigner.KeyID+" --producer "+composeAgentSigner.Producer) {
+		t.Errorf("the Evidence Server never mints the agent's identity:\n%s", script)
+	}
+	subjects := composeEvidenceSubjects(t, OperationalGraph)
+	deaf := OperationalGraph.DeafServices()
+	if len(deaf) == 0 {
+		t.Fatal("the fixture has no deaf workload, so this proves nothing")
+	}
+	for _, svc := range deaf {
+		labels, _ := composeSvc(t, f, svc.Workload.Name)["labels"].(map[string]any)
+		ref, _ := labels["dev.pacto.contract"].(string)
+		if !slices.Contains(subjects, ref) {
+			t.Errorf("workload %s is labelled with contract %q, which the Evidence Server does not store against %v", svc.Name, ref, subjects)
+		}
+		if got := labels["dev.pacto.bind."+svc.Workload.Interface]; got != strconv.Itoa(svc.Workload.Port) {
+			t.Errorf("workload %s binds %s to %v, want %d", svc.Name, svc.Workload.Interface, got, svc.Workload.Port)
+		}
+	}
+}
+
+// No deaf workload, no agent: a privileged container is not something to run
+// when nothing obliges it.
+func TestCompose_RunsNoAgentWhenNothingIsDeaf(t *testing.T) {
+	s := mutate(func(s *Scenario) {
+		for i := range s.Services {
+			if w := s.Services[i].Workload; w != nil {
+				w.Deaf = false
+			}
+		}
+	})
+	services, _ := composeFileOf(t, s)["services"].(map[string]any)
+	for _, name := range []string{"agent", "inventory"} {
+		if _, ok := services[name]; ok {
+			t.Errorf("the projection runs %s with no deaf workload declared", name)
+		}
+	}
+	if strings.Contains(argsOf(t, composeSvc(t, composeFileOf(t, s), "evidence"), "command"), composeAgentSigner.Producer) {
+		t.Error("the Evidence Server mints an agent identity nothing uses")
+	}
+}
+
+// A workload may not take one of the demo's own service names.
+func TestCompose_RefusesAWorkloadNamedLikeTheDemo(t *testing.T) {
+	s := mutate(func(s *Scenario) {
+		for i := range s.Services {
+			if w := s.Services[i].Workload; w != nil && w.Deaf {
+				w.Name = "dashboard"
+			}
+		}
+	})
+	if _, err := s.Compose(composeOpts); err == nil || !strings.Contains(err.Error(), "would replace the demo's own dashboard") {
+		t.Errorf("Compose = %v, want a refusal naming the clash", err)
 	}
 }

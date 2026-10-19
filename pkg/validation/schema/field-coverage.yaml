@@ -1,0 +1,2034 @@
+# Field coverage inventory for the Pacto v2.0 contract schema.
+#
+# One entry per schema path (dotted, [] for array items) and, under values, one per
+# enum value. pkg/validation/fieldcoverage_test.go walks the schema and fails when a
+# path or enum value is missing here, when an entry here names no schema path, when a
+# key is empty, or when a referenced test does not exist.
+#
+# runtime:
+#   verified        a runtime fact can both satisfy and contradict the declaration
+#   partial         a runtime fact exists but some values or environments stay unverified
+#   static-only     checked by pacto validate only; nothing at runtime reads it
+#   not-applicable  identity, container or open object with nothing to verify
+#
+# tests: unit (path/file_test.go:TestName), integration
+# (tests/integration/field_coverage_test.go:TestFieldCoverage/<case>, the real CLI),
+# e2e (tests/acceptance/kind/runtime-conformance.sh:<scenario id>).
+#
+# platforms: every field whose runtime is verified or partial says, per way of
+# running runtime conformance, how far that way's evidence goes and why:
+#   kubernetes  the operator with the node agent; its evidence equals runtime and
+#               its tests are the entry's e2e scenarios
+#   agent       pacto agent on a Docker host or server (labels, bindings file)
+#   run         pacto run wrapping one command
+# evidence is verified, partial or unverified. A verified or partial agent or run
+# entry names its tests: Go tests, or tests/acceptance/local/runtime-docker.sh and
+# runtime-run.sh scenario ids.
+fields:
+  pactoVersion:
+    meaning: Contract format version; selects the JSON Schema the contract is validated against.
+    runtime: not-applicable
+    evidence: 'none: the field has no runtime counterpart'
+    rule: parse rejects anything but "2.0" before any other layer runs
+    outcomes: PARSE_ERROR when unsupported
+    limitations: only 2.0 exists
+    tests:
+      unit:
+      - pkg/contract/parse_test.go:TestParse_UnsupportedVersion
+      - pkg/validation/structural_test.go:TestValidateStructuralRaw_UnsupportedVersion_V10
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid
+      e2e: []
+    values:
+      '2.0':
+        meaning: the Operational Contract format this release reads
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0
+          e2e: []
+  service:
+    meaning: Identity block of the service the contract describes.
+    runtime: not-applicable
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: object with name and version'
+    outcomes: PARSE_ERROR or SCHEMA_VIOLATION when malformed
+    limitations: container only; its children carry the semantics
+    tests:
+      unit:
+      - pkg/contract/parse_test.go:TestParse_ValidFull_Service
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service/invalid
+      e2e: []
+  service.name:
+    meaning: DNS-style service name; the identity of the contract everywhere.
+    runtime: static-only
+    evidence: used as the subject name of service-scoped evidence (workload, persistence), never checked against a runtime
+      name
+    rule: schema pattern
+    outcomes: SCHEMA_VIOLATION
+    limitations: the operator binds a runtime target by the Pacto CR, not by this name
+    tests:
+      unit:
+      - pkg/contract/parse_test.go:TestParse_MissingServiceName
+      - pkg/validation/evaluate_test.go:TestEvaluate_ServiceScopedMatchByServiceName
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.name/invalid
+      e2e: []
+  service.version:
+    meaning: Semantic version of this contract revision.
+    runtime: static-only
+    evidence: consumers read it from the provider's Pacto status as DependencyObservation.Version for their compatibility
+      check
+    rule: 'cross-field: valid semver'
+    outcomes: INVALID_SEMVER
+    limitations: the running image version is never compared with it; it is the provider-side input of dependencies[].compatibility
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateServiceVersion_InvalidSemver
+      - pkg/validation/structural_test.go:TestValidateStructuralRaw_VersionMustBeOnePathComponent
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.version/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch
+  service.owner:
+    meaning: Who owns the service.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: at least one of team or dri'
+    outcomes: SCHEMA_VIOLATION when empty
+    limitations: ownership is metadata for routing and dashboards
+    tests:
+      unit:
+      - pkg/contract/owner_test.go:TestOwner_IsEmpty
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner/invalid
+      e2e: []
+  service.owner.team:
+    meaning: Owning team identifier.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: schema pattern
+    outcomes: SCHEMA_VIOLATION
+    limitations: not checked against any directory
+    tests:
+      unit:
+      - pkg/contract/owner_test.go:TestOwnerKey_TeamAndDRINamespacesNeverCollide
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.team/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.team/invalid
+      e2e: []
+  service.owner.dri:
+    meaning: Directly responsible individual.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: schema pattern
+    outcomes: SCHEMA_VIOLATION
+    limitations: not checked against any directory
+    tests:
+      unit:
+      - pkg/contract/owner_test.go:TestOwner_DisplayString
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.dri/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.dri/invalid
+      e2e: []
+  service.owner.contacts:
+    meaning: Ways to reach the owner.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: array of contact objects'
+    outcomes: PARSE_ERROR when not a list
+    limitations: treated as a set; order is irrelevant
+    tests:
+      unit:
+      - pkg/contract/owner_test.go:TestOwner_EqualComparesContactsAsASet
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts/invalid
+      e2e: []
+  service.owner.contacts[]:
+    meaning: One contact entry.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: object with type and value'
+    outcomes: PARSE_ERROR when not an object
+    limitations: never contacted or verified
+    tests:
+      unit:
+      - pkg/contract/owner_test.go:TestOwner_ContactSetOrdersByTypeThenValueThenPurpose
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[]/invalid
+      e2e: []
+  service.owner.contacts[].type:
+    meaning: Channel of the contact.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: schema enum
+    outcomes: SCHEMA_VIOLATION
+    limitations: the value is not checked to match the channel (an email type may hold a URL)
+    tests:
+      unit:
+      - pkg/contract/owner_test.go:TestOwner_YAMLRoundTrip
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].type/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].type/invalid
+      e2e: []
+    values:
+      email:
+        meaning: an email address
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].type=email
+          e2e: []
+      url:
+        meaning: a web page or form
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].type=url
+          e2e: []
+      group:
+        meaning: a mailing list or directory group
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].type=group
+          e2e: []
+      oncall:
+        meaning: a paging rotation
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].type=oncall
+          e2e: []
+      chat:
+        meaning: a chat channel
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].type=chat
+          e2e: []
+      other:
+        meaning: any other channel
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].type=other
+          e2e: []
+  service.owner.contacts[].value:
+    meaning: Address of the contact.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: required, non-empty'
+    outcomes: SCHEMA_VIOLATION
+    limitations: never validated as reachable
+    tests:
+      unit:
+      - pkg/contract/owner_test.go:TestOwner_YAMLRoundTrip
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].value/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].value/invalid
+      e2e: []
+  service.owner.contacts[].purpose:
+    meaning: Why to use this contact.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: schema enum
+    outcomes: SCHEMA_VIOLATION
+    limitations: informational
+    tests:
+      unit:
+      - pkg/contract/owner_test.go:TestOwner_YAMLRoundTrip
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].purpose/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].purpose/invalid
+      e2e: []
+    values:
+      ownership:
+        meaning: accountable owner
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].purpose=ownership
+          e2e: []
+      support:
+        meaning: day-to-day questions
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].purpose=support
+          e2e: []
+      escalation:
+        meaning: when support does not answer
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].purpose=escalation
+          e2e: []
+      oncall:
+        meaning: operational incidents
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].purpose=oncall
+          e2e: []
+      notifications:
+        meaning: announcements and change notices
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/service.owner.contacts[].purpose=notifications
+          e2e: []
+  interfaces:
+    meaning: The interfaces the service exposes.
+    runtime: not-applicable
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: array'
+    outcomes: PARSE_ERROR when not a list
+    limitations: container; each item is a runtime assertion
+    tests:
+      unit:
+      - pkg/contract/parse_test.go:TestParse_ValidFull_Interfaces
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces/invalid
+      e2e: []
+  interfaces[]:
+    meaning: One exposed interface. Its availability is always a required runtime assertion.
+    runtime: verified
+    evidence: InterfaceObserved.Present from ready EndpointSlice endpoints on the bound Service port, refined by the node
+      agent's LISTEN sockets in the backing pods
+    rule: Present=false beyond the stabilization window contradicts the declaration; endpoints ready but no pod listening
+      on the target port (complete kernel coverage) is also Present=false
+    outcomes: Compliant when present; INTERFACE_ABSENT (error) when absent; OBSERVATION_UNSUPPORTED when unbound; EVIDENCE_STALE
+      or COLLECTION_FAILED when the node agent is stale or failed; DUPLICATE_INTERFACE_NAME statically
+    limitations: needs a spec.target.interfaceBindings entry (or name-match discovery); hostNetwork pods are unattributable
+      to the kernel and keep the Kubernetes result
+    tests:
+      unit:
+      - pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension
+      - pkg/validation/evaluate_test.go:TestEvaluate_UnknownCodesAndMessages
+      - pkg/validation/crossfield_test.go:TestValidateInterfaceNamesUnique_Duplicate
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[]/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:conforming-workload
+      - tests/acceptance/kind/runtime-conformance.sh:listener-absent
+      - tests/acceptance/kind/runtime-conformance.sh:unbound-interface
+      - tests/acceptance/kind/runtime-conformance.sh:agent-stopped-stale
+      - tests/acceptance/kind/runtime-conformance.sh:agent-failed
+      - tests/acceptance/kind/runtime-conformance.sh:pod-restart
+      - tests/acceptance/kind/runtime-conformance.sh:rollout-replacement
+      - tests/acceptance/kind/runtime-conformance.sh:same-node-attribution
+    platforms:
+      kubernetes:
+        evidence: verified
+        reason: 'ready EndpointSlice endpoints, refined by the node agent''s listeners in the backing pods'
+      agent:
+        evidence: verified
+        reason: 'the kernel''s listeners of the bound container, unit or process on the bound port'
+        tests:
+        - tests/acceptance/local/runtime-docker.sh:docker-served
+        - tests/acceptance/local/runtime-docker.sh:docker-deaf
+        - tests/acceptance/local/runtime-docker.sh:docker-hostnet-served
+        - tests/acceptance/local/runtime-docker.sh:docker-hostnet-deaf
+      run:
+        evidence: verified
+        reason: 'the command tree''s listeners, in full in both eBPF and unprivileged mode'
+        tests:
+        - tests/acceptance/local/runtime-run.sh:run-ebpf-served
+        - tests/acceptance/local/runtime-run.sh:run-ebpf-deaf
+        - tests/acceptance/local/runtime-run.sh:run-unprivileged-served
+        - tests/acceptance/local/runtime-run.sh:run-unprivileged-deaf
+  interfaces[].name:
+    meaning: Interface identifier; the subject name of its evidence and the key of the CR binding.
+    runtime: not-applicable
+    evidence: 'identity only: it names the InterfaceObserved subject; the runtime check lives on interfaces[]'
+    rule: 'schema: required; cross-field: unique'
+    outcomes: SCHEMA_VIOLATION, DUPLICATE_INTERFACE_NAME
+    limitations: a renamed interface without a renamed binding becomes unbound (Unsupported)
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateInterfaceNamesUnique_Duplicate
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].name/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].name/invalid
+      e2e: []
+  interfaces[].type:
+    meaning: Interface specification family.
+    runtime: partial
+    evidence: InterfaceObservation.Protocol from the active protocol probe (h2c preface; classifies http1, http2, tls, other)
+    rule: OpenAPI is satisfied by http1 or http2 and contradicted by other; gRPC is satisfied by http2 and contradicted by
+      http1 or other; tls, an empty protocol and AsyncAPI leave the facet unverified
+    outcomes: Compliant; INTERFACE_PROTOCOL_MISMATCH (error); listed in evaluationCoverage.unverified otherwise; SCHEMA_VIOLATION
+      statically
+    limitations: requires --enable-probing; TLS hides the protocol; AsyncAPI names no wire protocol; judged only when the
+      interface is Observed and present
+    tests:
+      unit:
+      - pkg/validation/evaluate_test.go:TestEvaluate_InterfaceTypeFacet
+      - pkg/validation/evaluate_test.go:TestEvaluate_InterfaceFacetsNeedPresentObservation
+      - pkg/validation/structural_test.go:TestStructural_V20InterfaceTypes
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:conforming-workload
+      - tests/acceptance/kind/runtime-conformance.sh:protocol-mismatch
+    platforms:
+      kubernetes:
+        evidence: partial
+        reason: 'protocol probe on the Service port with controller.enableProbing; tls and asyncapi stay unverified'
+      agent:
+        evidence: partial
+        reason: 'protocol probe on the bound port with --enable-probing; tls and asyncapi stay unverified'
+        tests:
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_Compliant
+      run:
+        evidence: partial
+        reason: 'protocol probe on --host at the bound port with --enable-probing; tls and asyncapi stay unverified'
+        tests:
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_Compliant
+    values:
+      openapi:
+        meaning: HTTP API described by an OpenAPI document.
+        runtime: verified
+        evidence: Protocol
+        rule: http1 or http2 satisfies; other contradicts
+        outcomes: Compliant or INTERFACE_PROTOCOL_MISMATCH
+        limitations: tls or no probe answer is unverified
+        tests:
+          unit:
+          - pkg/validation/evaluate_test.go:TestEvaluate_InterfaceTypeFacet
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=openapi
+          e2e:
+          - tests/acceptance/kind/runtime-conformance.sh:conforming-workload
+          - tests/acceptance/kind/runtime-conformance.sh:protocol-mismatch
+      grpc:
+        meaning: gRPC service; HTTP/2 on the wire.
+        runtime: verified
+        evidence: Protocol
+        rule: http2 satisfies; http1 or other contradicts
+        outcomes: Compliant or INTERFACE_PROTOCOL_MISMATCH
+        limitations: tls or no probe answer is unverified
+        tests:
+          unit:
+          - pkg/validation/evaluate_test.go:TestEvaluate_InterfaceTypeFacet
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=grpc
+          e2e:
+          - tests/acceptance/kind/runtime-conformance.sh:protocol-mismatch
+      asyncapi:
+        meaning: Message-driven API described by an AsyncAPI document.
+        runtime: static-only
+        evidence: Protocol is ignored
+        rule: no wire protocol is implied, so nothing satisfies or contradicts it
+        outcomes: always listed as unverified when the interface is present
+        limitations: brokers and protocols vary (Kafka, AMQP, MQTT, WebSocket)
+        tests:
+          unit:
+          - pkg/validation/evaluate_test.go:TestEvaluate_InterfaceTypeFacet
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=asyncapi
+          e2e: []
+  interfaces[].ref:
+    meaning: Path of the interface specification inside the bundle.
+    runtime: static-only
+    evidence: 'none: request and response conformance against the spec is not observed (no payload capture)'
+    rule: 'cross-field: file exists; YAML or JSON parses (.proto is not parsed)'
+    outcomes: FILE_NOT_FOUND, INVALID_INTERFACE_SPEC
+    limitations: only the protocol family is checked at runtime, through interfaces[].type
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateInterfaceFiles_FileNotFound
+      - pkg/validation/crossfield_test.go:TestValidateInterfaceFileContent_InvalidYAML
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].ref/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].ref/invalid
+      e2e: []
+  interfaces[].visibility:
+    meaning: Intended audience of the interface; omitted means internal (the schema default, applied by the engine).
+    runtime: partial
+    evidence: 'InterfaceObservation.Exposure: external only on a public address (a public spec.externalIPs entry, a LoadBalancer
+      without an internal-LB annotation whose status carries a public IP or a hostname not starting with internal-, or an
+      Ingress routing to the port whose status carries one); internal only for a ClusterIP Service no Ingress or HTTPRoute
+      routes to; unknown otherwise (NodePort, internal or address-less LoadBalancer or Ingress, any HTTPRoute, a read error)'
+    rule: internal is satisfied by internal and contradicted by external; public is satisfied by external; public with internal
+      exposure and an unknown exposure are unverified
+    outcomes: Compliant; INTERFACE_VISIBILITY_MISMATCH (error); listed in evaluationCoverage.unverified otherwise; SCHEMA_VIOLATION
+      statically
+    limitations: node and gateway addresses are not read, so NodePort and HTTPRoute exposure is unknown; exposure through
+      a gateway the operator cannot see (cloud load balancer outside the cluster, service mesh ingress) is invisible; judged
+      only when the interface is Observed and present
+    tests:
+      unit:
+      - pkg/validation/evaluate_test.go:TestEvaluate_InterfaceVisibilityFacet
+      - integrations/kubernetes/internal/observer/exposure_test.go:TestInterfaceExposure
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].visibility/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].visibility/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:conforming-workload
+      - tests/acceptance/kind/runtime-conformance.sh:visibility-mismatch
+    platforms:
+      kubernetes:
+        evidence: partial
+        reason: 'exposure from Service, Ingress and load balancer status; NodePort and HTTPRoute stay unknown'
+      agent:
+        evidence: unverified
+        reason: 'no source off Kubernetes: a host does not know who can reach a port, so the facet is listed in coverage.unverified'
+      run:
+        evidence: unverified
+        reason: 'no source off Kubernetes: a host does not know who can reach a port, so the facet is listed in coverage.unverified'
+    values:
+      internal:
+        meaning: Only callers inside the cluster may reach it.
+        runtime: verified
+        evidence: Exposure
+        rule: internal satisfies; external contradicts
+        outcomes: Compliant or INTERFACE_VISIBILITY_MISMATCH
+        limitations: unknown exposure is unverified
+        tests:
+          unit:
+          - pkg/validation/evaluate_test.go:TestEvaluate_InterfaceVisibilityFacet
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].visibility=internal
+          e2e:
+          - tests/acceptance/kind/runtime-conformance.sh:conforming-workload
+          - tests/acceptance/kind/runtime-conformance.sh:visibility-mismatch
+      public:
+        meaning: Meant to be reachable from outside the cluster.
+        runtime: partial
+        evidence: Exposure
+        rule: external satisfies; internal and unknown are unverified, never a violation
+        outcomes: Compliant or unverified
+        limitations: a public interface behind an external gateway looks internal
+        tests:
+          unit:
+          - pkg/validation/evaluate_test.go:TestEvaluate_InterfaceVisibilityFacet
+          - integrations/kubernetes/internal/observer/exposure_test.go:TestInterfaceFacts_ProtocolAndExposure
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].visibility=public
+          e2e:
+          - tests/acceptance/kind/runtime-conformance.sh:visibility-mismatch
+  configurations:
+    meaning: Configuration inputs the service consumes.
+    runtime: not-applicable
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: array'
+    outcomes: PARSE_ERROR when not a list
+    limitations: container; each item is a runtime assertion
+    tests:
+      unit:
+      - pkg/contract/contract_test.go:TestContract_Configurations
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations/invalid
+      e2e: []
+  configurations[]:
+    meaning: One configuration input. Required ones are runtime assertions.
+    runtime: partial
+    evidence: ConfigurationPresent from the bound ConfigMap or Secret key (spec.target.configBindings)
+    rule: absent contradicts; present but failing the declared schema contradicts
+    outcomes: Compliant; CONFIGURATION_ABSENT or CONFIGURATION_MISMATCH (error, warning when optional); OBSERVATION_UNSUPPORTED
+      when a required one is unbound; DUPLICATE_CONFIGURATION_NAME statically
+    limitations: needs a configBinding; environment variables set directly on the pod are not read
+    tests:
+      unit:
+      - pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension
+      - pkg/validation/crossfield_test.go:TestValidateConfigurationNamesUnique_Duplicate
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[]/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:configuration-absent
+      - tests/acceptance/kind/runtime-conformance.sh:configuration-mismatch
+      - tests/acceptance/kind/runtime-conformance.sh:configuration-optional
+    platforms:
+      kubernetes:
+        evidence: partial
+        reason: 'presence of the ConfigMap or Secret key bound in spec.target.configBindings'
+      agent:
+        evidence: unverified
+        reason: 'no source off Kubernetes; a required configuration reads EVIDENCE_MISSING (Unknown)'
+      run:
+        evidence: unverified
+        reason: 'no source off Kubernetes; a required configuration reads EVIDENCE_MISSING (Unknown)'
+  configurations[].name:
+    meaning: Configuration identifier; subject of its evidence and key of the CR binding.
+    runtime: not-applicable
+    evidence: identity only; the runtime check lives on configurations[]
+    rule: 'schema: required; cross-field: unique'
+    outcomes: SCHEMA_VIOLATION, DUPLICATE_CONFIGURATION_NAME
+    limitations: a rename without a rebind leaves it unbound
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateConfigurationNamesUnique_Duplicate
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].name/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].name/invalid
+      e2e: []
+  configurations[].schema:
+    meaning: JSON Schema the configuration must satisfy.
+    runtime: verified
+    evidence: 'ConfigurationObservation.Conformant: the live bound content validated against this schema'
+    rule: content failing the schema contradicts
+    outcomes: Compliant or CONFIGURATION_MISMATCH; FILE_NOT_FOUND, INVALID_CONFIG_JSON, INVALID_CONFIG_SCHEMA statically
+    limitations: an inline contract has no bundle filesystem, so conformance is Insufficient
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateConfigFiles_FileNotFound
+      - pkg/validation/crossfield_test.go:TestValidateConfigSchemaContent_InvalidSchema
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].schema/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].schema/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:configuration-mismatch
+    platforms:
+      kubernetes:
+        evidence: verified
+        reason: 'the bound content validated against the schema'
+      agent:
+        evidence: unverified
+        reason: 'no configuration content is read off Kubernetes'
+      run:
+        evidence: unverified
+        reason: 'no configuration content is read off Kubernetes'
+  configurations[].ref:
+    meaning: OCI reference to a configuration defined by another bundle.
+    runtime: static-only
+    evidence: 'none: the referenced bundle defines no schema path to validate live content against'
+    rule: 'cross-field: valid OCI reference'
+    outcomes: INVALID_CONFIG_REF; at runtime a ref-only configuration stays Insufficient
+    limitations: documented in the design as not doing
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateConfigRef_InvalidOCI
+      - pkg/validation/crossfield_test.go:TestValidateConfigRef_ValidOCI
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].ref/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].ref/invalid
+      e2e: []
+  configurations[].values:
+    meaning: Declared configuration values, validated against the schema.
+    runtime: static-only
+    evidence: 'none: the runtime check reads live content, not these declared values'
+    rule: 'cross-field: values satisfy the schema'
+    outcomes: CONFIG_VALUES_VALIDATION_FAILED
+    limitations: the operator may merge spec.overrides into them before validation
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateConfigValues_WithSchema_Invalid
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].values/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].values/invalid
+      e2e: []
+  configurations[].required:
+    meaning: Whether the service cannot run without it.
+    runtime: partial
+    evidence: decides the severity axis of the configuration evidence
+    rule: 'required: a gap is Unknown and a contradiction an error; optional: a gap is silent and a contradiction a warning'
+    outcomes: EVIDENCE_MISSING and friends only when required; CONFIGURATION_* as warning when optional; SCHEMA_VIOLATION
+      when omitted
+    limitations: not shown by pacto diff
+    tests:
+      unit:
+      - pkg/validation/schema_binding_test.go:TestSchema_ConfigurationMissingRequired_Rejected
+      - pkg/contract/contract_test.go:TestRequired_SerializationRoundTrip
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].required/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/configurations[].required/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:configuration-optional
+    platforms:
+      kubernetes:
+        evidence: partial
+        reason: 'sets the severity axis of the configuration evidence'
+      agent:
+        evidence: unverified
+        reason: 'no source off Kubernetes; required makes the missing configuration read EVIDENCE_MISSING (Unknown) instead of being skipped'
+      run:
+        evidence: unverified
+        reason: 'no source off Kubernetes; required makes the missing configuration read EVIDENCE_MISSING (Unknown) instead of being skipped'
+  policies:
+    meaning: Policies the contract itself must satisfy.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: array'
+    outcomes: PARSE_ERROR when not a list
+    limitations: policies constrain the contract document, not the running service
+    tests:
+      unit:
+      - pkg/contract/parse_test.go:TestParse_ValidFull_Policies
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/policies/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/policies/invalid
+      e2e: []
+  policies[]:
+    meaning: One policy source.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'cross-field: unique name; schema: exactly one of schema or ref'
+    outcomes: DUPLICATE_POLICY_NAME
+    limitations: never evaluated at runtime
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidatePolicyNamesUnique_Duplicate
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/policies[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/policies[]/invalid
+      e2e: []
+  policies[].name:
+    meaning: Policy identifier.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: required; cross-field: unique'
+    outcomes: SCHEMA_VIOLATION
+    limitations: used to name the policy in findings
+    tests:
+      unit:
+      - pkg/contract/contract_test.go:TestPolicy_NameField
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/policies[].name/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/policies[].name/invalid
+      e2e: []
+  policies[].schema:
+    meaning: JSON Schema in the bundle the contract must satisfy.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'policy layer: the raw contract is validated against it'
+    outcomes: POLICY_VIOLATION, FILE_NOT_FOUND, INVALID_POLICY_JSON, INVALID_POLICY_SCHEMA
+    limitations: evaluated by pacto validate and by the operator before observation
+    tests:
+      unit:
+      - pkg/validation/policy_test.go:TestEnforcePolicies_SinglePolicyViolated
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/policies[].schema/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/policies[].schema/invalid
+      e2e: []
+  policies[].ref:
+    meaning: Reference to a bundle whose policies apply.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'policy layer: resolved recursively with a resolver; without one it is reported, not enforced'
+    outcomes: INVALID_POLICY_REF, POLICY_REF_UNRESOLVED, POLICY_REF_CYCLE, POLICY_REF_NOT_ENFORCED (warning)
+    limitations: the operator validates without a resolver, so a ref-based policy is only a warning there
+    tests:
+      unit:
+      - pkg/validation/policy_test.go:TestResolvePoliciesWithResolver_Resolved
+      - pkg/validation/crossfield_test.go:TestValidatePolicyFields_InvalidRef
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/policies[].ref/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/policies[].ref/invalid
+      e2e: []
+  policies[].target:
+    meaning: What the policy applies to; omitted means contract.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: schema enum
+    outcomes: SCHEMA_VIOLATION
+    limitations: only one target exists and nothing reads the value
+    tests:
+      unit:
+      - pkg/contract/contract_test.go:TestPolicy_Target
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/policies[].target/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/policies[].target/invalid
+      e2e: []
+    values:
+      contract:
+        meaning: the policy validates the contract document
+        runtime: static-only
+        evidence: 'none: the field has no runtime counterpart'
+        rule: schema enum; the only value
+        outcomes: no runtime outcome; only the static result below
+        limitations: not observed at runtime
+        tests:
+          unit:
+          - pkg/contract/contract_test.go:TestPolicy_Target
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/policies[].target=contract
+          e2e: []
+  dependencies:
+    meaning: Services this service calls.
+    runtime: not-applicable
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: array'
+    outcomes: PARSE_ERROR when not a list
+    limitations: the list is not claimed to be exhaustive; undeclared peers are drift warnings, not reported while any entry
+      resolves to no Pacto target by ref or name (a local or non-OCI ref, or an unresolved OCI ref)
+    tests:
+      unit:
+      - pkg/validation/evaluate_test.go:TestEvaluate_UndeclaredDependency
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:dependency-undeclared
+  dependencies[]:
+    meaning: One dependency; required ones are runtime assertions.
+    runtime: verified
+    evidence: DependencyReachable from the provider Pacto's Service endpoints and, with the node agent, the latest TCP connect
+      success and failure timestamps from the target pods to the provider, per peer address
+    rule: 'a peer is positive when its latest success is within the staleness bound and not older than its latest failure,
+      negative when its latest failure is within the bound and newer than its latest success; timestamps from before the
+      pod started are ignored; any positive peer makes the dependency reachable, otherwise any negative peer is a windowed
+      contradiction; zero ready provider endpoints beyond the window contradict; a kernel positive never overrides a
+      Kubernetes negative (Insufficient); kernel silence never contradicts'
+    outcomes: Compliant; DEPENDENCY_UNREACHABLE (error, warning when optional); OBSERVATION_UNSUPPORTED when the provider
+      is not a Pacto target; DEPENDENCY_UNDECLARED (warning) for reachable peers no entry names
+    limitations: the provider must be a sibling Pacto target in the cluster; external services are Unsupported
+    tests:
+      unit:
+      - pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension
+      - pkg/validation/evaluate_test.go:TestEvaluate_UndeclaredDependency
+      - pkg/validation/crossfield_test.go:TestValidateDependencyNamesUnique_Duplicate
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[]/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:dependency-reachable-kernel
+      - tests/acceptance/kind/runtime-conformance.sh:dependency-refused
+      - tests/acceptance/kind/runtime-conformance.sh:dependency-undeclared
+    platforms:
+      kubernetes:
+        evidence: verified
+        reason: 'provider endpoints and, with the node agent, the latest connection success and failure'
+      agent:
+        evidence: verified
+        reason: 'the kernel''s latest connection success and failure to the bound host:port, ignoring timestamps from before
+          the workload started; a reachable checked workload no entry names is DEPENDENCY_UNDECLARED, by the same
+          suppression rule'
+        tests:
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_UndeclaredPeers
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_BindingStart
+        - tests/acceptance/local/runtime-docker.sh:docker-dependency-reachable
+        - tests/acceptance/local/runtime-docker.sh:docker-dependency-refused
+        - tests/acceptance/local/runtime-docker.sh:docker-dependency-undeclared
+      run:
+        evidence: partial
+        reason: 'eBPF mode sees successes and failures; unprivileged mode never sees a failure, so it never confirms unreachable'
+        tests:
+        - tests/acceptance/local/runtime-run.sh:run-ebpf-dependency-reachable
+        - tests/acceptance/local/runtime-run.sh:run-ebpf-dependency-refused
+        - tests/acceptance/local/runtime-run.sh:run-unprivileged-dependency-reachable
+        - tests/acceptance/local/runtime-run.sh:run-unprivileged-dependency-refused
+  dependencies[].name:
+    meaning: Dependency identifier; subject of its evidence.
+    runtime: not-applicable
+    evidence: identity only; the runtime check lives on dependencies[]
+    rule: 'schema: required; cross-field: unique'
+    outcomes: SCHEMA_VIOLATION, DUPLICATE_DEPENDENCY_NAME
+    limitations: the provider is found by ref, not by name
+    tests:
+      unit:
+      - pkg/contract/contract_test.go:TestDependency_NameField
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].name/invalid
+      e2e: []
+  dependencies[].ref:
+    meaning: Reference to the provider's contract bundle.
+    runtime: partial
+    evidence: 'resolution key: matched against sibling Pacto status.contract.resolvedRef to find the provider Service'
+    rule: a ref that matches no sibling cannot be observed
+    outcomes: OBSERVATION_UNSUPPORTED when no sibling matches; INVALID_OCI_REF and TAG_NOT_DIGEST (warning) statically
+    limitations: a ref without a scheme is a local path and gets no static check
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateDependencyRefs_InvalidOCI
+      - pkg/validation/crossfield_test.go:TestValidateDependencyRefs_TagNotDigestWarning
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].ref/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].ref/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:dependency-reachable-kernel
+    platforms:
+      kubernetes:
+        evidence: partial
+        reason: 'resolution key matched against sibling Pacto resolvedRef to find the provider Service'
+      agent:
+        evidence: unverified
+        reason: 'the binding names the address; the ref is never resolved to a running provider'
+      run:
+        evidence: unverified
+        reason: '--dep names the address; the ref is never resolved to a running provider'
+  dependencies[].required:
+    meaning: Whether the service cannot work without the provider.
+    runtime: partial
+    evidence: decides the severity axis of the dependency evidence
+    rule: 'required: a gap is Unknown and a contradiction an error; optional: a gap is silent and a contradiction a warning'
+    outcomes: DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when omitted
+    limitations: none beyond the parent
+    tests:
+      unit:
+      - pkg/validation/evaluate_test.go:TestEvaluate_OptionalDependency
+      - pkg/validation/schema_binding_test.go:TestSchema_DependencyMissingRequired_Rejected
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].required/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:dependency-optional-warning
+    platforms:
+      kubernetes:
+        evidence: partial
+        reason: 'sets the severity axis of the dependency evidence'
+      agent:
+        evidence: partial
+        reason: 'sets the severity of a bound dependency''s evidence; an unbound one is unsupported'
+        tests:
+        - tests/acceptance/local/runtime-docker.sh:docker-dependency-refused
+      run:
+        evidence: partial
+        reason: 'sets the severity of a bound dependency''s evidence; only eBPF mode confirms a failure'
+        tests:
+        - tests/acceptance/local/runtime-run.sh:run-ebpf-dependency-refused
+  dependencies[].compatibility:
+    meaning: Semver range of provider versions this service accepts.
+    runtime: partial
+    evidence: 'DependencyObservation.Version: the provider Pacto''s status.contract.version; when several targets match the
+      ref, the only one inside the range is the target (none or several is Insufficient)'
+    rule: a version inside the range satisfies; outside contradicts; an unknown or non-semver version is unverified
+    outcomes: Compliant; DEPENDENCY_VERSION_MISMATCH (error, warning when optional); listed in evaluationCoverage.unverified
+      otherwise; INVALID_COMPATIBILITY statically
+    limitations: the provider's contract version is trusted as its deployed version; judged only when the dependency is Observed
+    tests:
+      unit:
+      - pkg/validation/evaluate_test.go:TestEvaluate_DependencyCompatibilityFacet
+      - pkg/validation/crossfield_test.go:TestValidateDependencyRefs_InvalidCompatibility
+      - integrations/kubernetes/internal/observer/regressions_test.go:TestDependency_VersionTieBreak
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].compatibility/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:dependency-version-mismatch
+    platforms:
+      kubernetes:
+        evidence: partial
+        reason: 'the provider Pacto''s deployed contract version'
+      agent:
+        evidence: unverified
+        reason: 'no source off Kubernetes: no provider version is known, so the facet is listed in coverage.unverified'
+      run:
+        evidence: unverified
+        reason: 'no source off Kubernetes: no provider version is known, so the facet is listed in coverage.unverified'
+  state:
+    meaning: How the service holds state.
+    runtime: not-applicable
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: object with type, persistence and dataCriticality'
+    outcomes: PARSE_ERROR when not an object
+    limitations: declaring it makes the operator produce a persistence observation
+    tests:
+      unit:
+      - pkg/contract/parse_test.go:TestParse_ValidFull_State
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/state/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/state/invalid
+      e2e: []
+  state.type:
+    meaning: Statefulness of the service.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: schema enum; stateless forces ephemeral durability
+    outcomes: SCHEMA_VIOLATION
+    limitations: no runtime signal distinguishes stateful from hybrid; durability and scope carry the checkable part
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateStatePersistenceInvariants_StatelessPersistent
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/state.type/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/state.type/invalid
+      e2e: []
+    values:
+      stateless:
+        meaning: keeps no state between requests; durability must be ephemeral
+        runtime: static-only
+        evidence: 'none: the field has no runtime counterpart'
+        rule: schema enum (stateless also requires ephemeral durability)
+        outcomes: no runtime outcome; only the static result below
+        limitations: not observed at runtime
+        tests:
+          unit:
+          - pkg/validation/structural_test.go:TestStructural_V20RejectsBadEnumsAndRanges
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/state.type=stateless
+          e2e: []
+      stateful:
+        meaning: owns state that outlives a request
+        runtime: static-only
+        evidence: 'none: the field has no runtime counterpart'
+        rule: schema enum (stateless also requires ephemeral durability)
+        outcomes: no runtime outcome; only the static result below
+        limitations: not observed at runtime
+        tests:
+          unit:
+          - pkg/validation/structural_test.go:TestStructural_V20RejectsBadEnumsAndRanges
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/state.type=stateful
+          e2e: []
+      hybrid:
+        meaning: mixes stateless serving with some owned state
+        runtime: static-only
+        evidence: 'none: the field has no runtime counterpart'
+        rule: schema enum (stateless also requires ephemeral durability)
+        outcomes: no runtime outcome; only the static result below
+        limitations: not observed at runtime
+        tests:
+          unit:
+          - pkg/validation/structural_test.go:TestStructural_V20RejectsBadEnumsAndRanges
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/state.type=hybrid
+          e2e: []
+  state.persistence:
+    meaning: Where and how long state lives.
+    runtime: not-applicable
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: required object with scope and durability'
+    outcomes: SCHEMA_VIOLATION when missing
+    limitations: container
+    tests:
+      unit:
+      - pkg/contract/parse_test.go:TestParse_ValidFull_State
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/state.persistence/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/state.persistence/invalid
+      e2e: []
+  state.persistence.scope:
+    meaning: Whether state is private to a replica or shared between replicas.
+    runtime: partial
+    evidence: 'PersistenceObservation.Shared from the pod template: one writable PVC claim is shared when more than one pod
+      runs at once (Deployment, ReplicaSet or StatefulSet replicas, Job parallelism); StatefulSet volumeClaimTemplates give
+      each replica its own claim; a claim opened read-only or mounted read-only by every container is ignored'
+    rule: local is satisfied by not shared and contradicted by shared; shared is satisfied by shared; shared with per-replica
+      storage and an unknown value are unverified
+    outcomes: Compliant; PERSISTENCE_MISMATCH (error) at state.persistence.scope; listed in evaluationCoverage.unverified
+      otherwise; SCHEMA_VIOLATION statically
+    limitations: a shared store outside the cluster (managed database) is invisible; checked for ephemeral durability too,
+      without asserting durability
+    tests:
+      unit:
+      - pkg/validation/evaluate_test.go:TestEvaluate_PersistenceScopeFacet
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/state.persistence.scope/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/state.persistence.scope/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:persistence-scope
+    platforms:
+      kubernetes:
+        evidence: partial
+        reason: 'writable volume claims shared by more than one running pod'
+      agent:
+        evidence: unverified
+        reason: 'no source off Kubernetes: no volume claims, so the facet is listed in coverage.unverified'
+      run:
+        evidence: unverified
+        reason: 'no source off Kubernetes: no volume claims, so the facet is listed in coverage.unverified'
+    values:
+      local:
+        meaning: Each replica owns its state.
+        runtime: verified
+        evidence: Shared
+        rule: false satisfies; true contradicts
+        outcomes: Compliant or PERSISTENCE_MISMATCH
+        limitations: no PVC gives no fact (unverified)
+        tests:
+          unit:
+          - pkg/validation/evaluate_test.go:TestEvaluate_PersistenceScopeFacet
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/state.persistence.scope=local
+          e2e:
+          - tests/acceptance/kind/runtime-conformance.sh:persistence-scope
+      shared:
+        meaning: Replicas share one state store.
+        runtime: partial
+        evidence: Shared
+        rule: true satisfies; false is unverified, never a violation
+        outcomes: Compliant or unverified
+        limitations: the shared store may live outside the cluster
+        tests:
+          unit:
+          - pkg/validation/evaluate_test.go:TestEvaluate_PersistenceScopeFacet
+          - integrations/kubernetes/internal/observer/exposure_test.go:TestSharedClaim
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/state.persistence.scope=shared
+          e2e:
+          - tests/acceptance/kind/runtime-conformance.sh:persistence-scope
+  state.persistence.durability:
+    meaning: Whether state must survive a restart.
+    runtime: partial
+    evidence: PersistenceObservation.Durable from the workload's volumes (a PVC or a non-ephemeral volume)
+    rule: persistent with no durable binding contradicts; ephemeral is never asserted
+    outcomes: Compliant; PERSISTENCE_MISMATCH (error) at state.persistence.durability; Unknown codes when unobservable; SCHEMA_VIOLATION
+      statically
+    limitations: requires a workload target; a volume claim proves storage exists, not that the application writes to it
+    tests:
+      unit:
+      - pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension
+      - pkg/validation/evaluate_test.go:TestEvaluate_EphemeralStateNeverAssertsDurability
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/state.persistence.durability/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/state.persistence.durability/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:persistence-durability
+    platforms:
+      kubernetes:
+        evidence: partial
+        reason: 'the workload''s volumes'
+      agent:
+        evidence: unverified
+        reason: 'no source off Kubernetes; persistent durability reads EVIDENCE_MISSING (Unknown)'
+      run:
+        evidence: unverified
+        reason: 'no source off Kubernetes; persistent durability reads EVIDENCE_MISSING (Unknown)'
+    values:
+      persistent:
+        meaning: State must survive restarts and rescheduling.
+        runtime: verified
+        evidence: Durable
+        rule: a durable volume binding satisfies; none contradicts
+        outcomes: Compliant or PERSISTENCE_MISMATCH (required assertion)
+        limitations: durability semantics of the storage class are not checked
+        tests:
+          unit:
+          - pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/state.persistence.durability=persistent
+          e2e:
+          - tests/acceptance/kind/runtime-conformance.sh:persistence-durability
+      ephemeral:
+        meaning: State may be lost on restart.
+        runtime: static-only
+        evidence: Durable is ignored
+        rule: 'never asserted: keeping a volume is not a contradiction'
+        outcomes: no durability finding; scope is still judged
+        limitations: nothing to observe
+        tests:
+          unit:
+          - pkg/validation/evaluate_test.go:TestEvaluate_EphemeralStateNeverAssertsDurability
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/state.persistence.durability=ephemeral
+          e2e: []
+  state.dataCriticality:
+    meaning: Business impact of losing the data.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: schema enum, required
+    outcomes: SCHEMA_VIOLATION
+    limitations: no runtime signal for criticality
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestStructural_V20RejectsBadEnumsAndRanges
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/state.dataCriticality/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/state.dataCriticality/invalid
+      e2e: []
+    values:
+      low:
+        meaning: loss is an inconvenience
+        runtime: static-only
+        evidence: 'none: the field has no runtime counterpart'
+        rule: schema enum
+        outcomes: no runtime outcome; only the static result below
+        limitations: not observed at runtime
+        tests:
+          unit:
+          - pkg/validation/structural_test.go:TestStructural_V20RejectsBadEnumsAndRanges
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/state.dataCriticality=low
+          e2e: []
+      medium:
+        meaning: loss hurts but is recoverable
+        runtime: static-only
+        evidence: 'none: the field has no runtime counterpart'
+        rule: schema enum
+        outcomes: no runtime outcome; only the static result below
+        limitations: not observed at runtime
+        tests:
+          unit:
+          - pkg/validation/structural_test.go:TestStructural_V20RejectsBadEnumsAndRanges
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/state.dataCriticality=medium
+          e2e: []
+      high:
+        meaning: loss is a serious incident
+        runtime: static-only
+        evidence: 'none: the field has no runtime counterpart'
+        rule: schema enum
+        outcomes: no runtime outcome; only the static result below
+        limitations: not observed at runtime
+        tests:
+          unit:
+          - pkg/validation/structural_test.go:TestStructural_V20RejectsBadEnumsAndRanges
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/state.dataCriticality=high
+          e2e: []
+  workload:
+    meaning: Execution pattern of the workload.
+    runtime: verified
+    evidence: WorkloadObserved.Type mapped from the target workload kind (Deployment, StatefulSet, ReplicaSet to service;
+      Job to job; CronJob to scheduled)
+    rule: a different mapped type contradicts
+    outcomes: Compliant; WORKLOAD_MISMATCH (error); Unknown codes when no workload target; SCHEMA_VIOLATION statically
+    limitations: requires a workload reference on the Pacto CR
+    tests:
+      unit:
+      - pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension
+      - pkg/contract/contract_test.go:TestWorkloadConstants
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/workload/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/workload/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:conforming-workload
+      - tests/acceptance/kind/runtime-conformance.sh:workload-mismatch
+      - tests/acceptance/kind/runtime-conformance.sh:workload-job
+      - tests/acceptance/kind/runtime-conformance.sh:workload-scheduled
+    platforms:
+      kubernetes:
+        evidence: verified
+        reason: 'the target workload kind'
+      agent:
+        evidence: unverified
+        reason: 'no source off Kubernetes; a declared workload reads EVIDENCE_MISSING (Unknown)'
+      run:
+        evidence: unverified
+        reason: 'no source off Kubernetes; a declared workload reads EVIDENCE_MISSING (Unknown)'
+    values:
+      service:
+        meaning: Long-running server.
+        runtime: verified
+        evidence: WorkloadObservation.Type
+        rule: Deployment, StatefulSet or ReplicaSet satisfies
+        outcomes: Compliant or WORKLOAD_MISMATCH
+        limitations: none
+        tests:
+          unit:
+          - pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/workload=service
+          e2e:
+          - tests/acceptance/kind/runtime-conformance.sh:conforming-workload
+          - tests/acceptance/kind/runtime-conformance.sh:workload-mismatch
+      job:
+        meaning: Run-to-completion task.
+        runtime: verified
+        evidence: WorkloadObservation.Type
+        rule: Job satisfies
+        outcomes: Compliant or WORKLOAD_MISMATCH
+        limitations: none
+        tests:
+          unit:
+          - pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/workload=job
+          e2e:
+          - tests/acceptance/kind/runtime-conformance.sh:workload-job
+      scheduled:
+        meaning: Task run on a schedule.
+        runtime: verified
+        evidence: WorkloadObservation.Type
+        rule: CronJob satisfies
+        outcomes: Compliant or WORKLOAD_MISMATCH
+        limitations: none
+        tests:
+          unit:
+          - pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/workload=scheduled
+          e2e:
+          - tests/acceptance/kind/runtime-conformance.sh:workload-scheduled
+  capabilities:
+    meaning: Operational capabilities the service offers.
+    runtime: not-applicable
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: array'
+    outcomes: PARSE_ERROR when not a list
+    limitations: container
+    tests:
+      unit:
+      - pkg/contract/parse_test.go:TestParse_ValidFull_Capabilities
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities/invalid
+      e2e: []
+  capabilities[]:
+    meaning: One capability; each is a required runtime assertion.
+    runtime: partial
+    evidence: CapabilityObserved from a health probe or a metrics scrape on the bound endpoint
+    rule: an absent endpoint contradicts
+    outcomes: Compliant; CAPABILITY_ABSENT (error); OBSERVATION_UNSUPPORTED when unbound; extensions listed under
+      coverage.unverified; DUPLICATE_CAPABILITY statically
+    limitations: extension capabilities have no evaluator
+    tests:
+      unit:
+      - pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension
+      - pkg/validation/crossfield_test.go:TestValidateCapabilities_DuplicateStandard
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[]/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:health-capability
+      - tests/acceptance/kind/runtime-conformance.sh:metrics-capability
+    platforms:
+      kubernetes:
+        evidence: partial
+        reason: 'health probe or metrics scrape on the bound endpoint'
+      agent:
+        evidence: partial
+        reason: 'health probe or metrics scrape at the target''s host and bound port; metrics has no reliable negative'
+        tests:
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_Compliant
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_NegativesAfterTheWindow
+      run:
+        evidence: partial
+        reason: 'health probe or metrics scrape on --host at the bound port; metrics has no reliable negative'
+        tests:
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_Compliant
+        - internal/cli/run_internal_test.go:TestRunCommand_Unprivileged
+  capabilities[].type:
+    meaning: Kind of capability.
+    runtime: partial
+    evidence: CapabilityObservation.Present
+    rule: health and metrics are observed; extension is never observed
+    outcomes: Compliant, CAPABILITY_ABSENT or Unknown codes; SCHEMA_VIOLATION statically
+    limitations: metrics needs --enable-metrics-observation
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestStructural_V20CapabilityTypes
+      - pkg/contract/contract_test.go:TestCapability_StandardTypes
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:health-capability
+      - tests/acceptance/kind/runtime-conformance.sh:metrics-capability
+    platforms:
+      kubernetes:
+        evidence: partial
+        reason: 'health: absence confirmed by a 404; metrics: presence only'
+      agent:
+        evidence: partial
+        reason: 'health: absence confirmed by a 404; metrics: presence only'
+        tests:
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_NegativesAfterTheWindow
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_InconclusiveProbes
+      run:
+        evidence: partial
+        reason: 'health: absence confirmed by a 404; metrics: presence only'
+        tests:
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_NegativesAfterTheWindow
+    values:
+      health:
+        meaning: A health endpoint.
+        runtime: verified
+        evidence: CapabilityObservation.Present
+        rule: 'tier A: an active probe of binding.path answers; tier B (probing off): an httpGet readiness probe on the bound
+          port whose path equals binding.path, with ready endpoints'
+        outcomes: Compliant, CAPABILITY_ABSENT or EVIDENCE_INSUFFICIENT
+        limitations: tier B infers health from the readiness probe instead of calling it
+        tests:
+          unit:
+          - pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type=health
+          e2e:
+          - tests/acceptance/kind/runtime-conformance.sh:health-capability
+      metrics:
+        meaning: A Prometheus metrics endpoint.
+        runtime: partial
+        evidence: CapabilityObservation.Present
+        rule: a scrape of the discovered endpoint (ServiceMonitor, PodMonitor, annotations, named port, then binding.path)
+          returns metrics
+        outcomes: Compliant, CAPABILITY_ABSENT or Unknown codes
+        limitations: only with --enable-metrics-observation; only the first metrics capability is observed
+        tests:
+          unit:
+          - pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type=metrics
+          e2e:
+          - tests/acceptance/kind/runtime-conformance.sh:metrics-capability
+      extension:
+        meaning: A namespaced, vendor-defined capability.
+        runtime: static-only
+        evidence: none
+        rule: no evaluator is registered
+        outcomes: listed under coverage.unverified as capabilities[ref=<ref>]; never a finding and never counted as
+          required
+        limitations: Pacto cannot verify an extension, so a Compliant verdict says nothing about it; read coverage.unverified
+        tests:
+          unit:
+          - pkg/validation/evaluate_test.go:TestEvaluate_ExtensionCapability
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type=extension
+          e2e: []
+  capabilities[].ref:
+    meaning: Namespaced identifier of an extension capability.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: required for extension and forbidden otherwise; cross-field: domain-qualified'
+    outcomes: CAPABILITY_REF_INVALID, SCHEMA_VIOLATION
+    limitations: identity only
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateCapabilities_Extension_InvalidRef
+      - pkg/validation/evaluate_test.go:TestEvaluate_ExtensionIdentityByRef
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].ref/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].ref/invalid
+      e2e: []
+  capabilities[].binding:
+    meaning: Where the capability is served.
+    runtime: partial
+    evidence: decides whether the capability can be observed at all
+    rule: health or metrics without a binding cannot be probed
+    outcomes: OBSERVATION_UNSUPPORTED when missing; SCHEMA_VIOLATION on an extension
+    limitations: none beyond the parent
+    tests:
+      unit:
+      - pkg/validation/schema_binding_test.go:TestSchema_CapabilityBinding_UnboundHealthValid
+      - pkg/validation/schema_binding_test.go:TestSchema_ExtensionWithBinding_Rejected
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].binding/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].binding/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:health-capability
+    platforms:
+      kubernetes:
+        evidence: partial
+        reason: 'decides whether the capability can be probed at all'
+      agent:
+        evidence: partial
+        reason: 'an http binding on a bound interface is probed; anything else is unsupported'
+        tests:
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_UnprobeableCapabilities
+      run:
+        evidence: partial
+        reason: 'an http binding on a bound interface is probed; anything else is unsupported'
+        tests:
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_UnprobeableCapabilities
+  capabilities[].binding.type:
+    meaning: Transport of the capability endpoint.
+    runtime: partial
+    evidence: selects the probe; only http exists
+    rule: http is probed
+    outcomes: SCHEMA_VIOLATION for anything else
+    limitations: no other transport can be observed
+    tests:
+      unit:
+      - pkg/validation/schema_binding_test.go:TestSchema_CapabilityBinding_UnknownTransportRejected
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].binding.type/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].binding.type/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:health-capability
+    platforms:
+      kubernetes:
+        evidence: partial
+        reason: 'selects the probe; only http exists'
+      agent:
+        evidence: partial
+        reason: 'selects the probe; only http exists'
+        tests:
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_UnprobeableCapabilities
+      run:
+        evidence: partial
+        reason: 'selects the probe; only http exists'
+        tests:
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_UnprobeableCapabilities
+    values:
+      http:
+        meaning: Plain HTTP endpoint.
+        runtime: partial
+        evidence: the probe target
+        rule: probed over HTTP
+        outcomes: observed through capabilities[].type
+        limitations: the only transport
+        tests:
+          unit:
+          - pkg/validation/schema_binding_test.go:TestSchema_CapabilityBinding_Valid
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].binding.type=http
+          e2e:
+          - tests/acceptance/kind/runtime-conformance.sh:health-capability
+  capabilities[].binding.interface:
+    meaning: Declared interface that owns the endpoint.
+    runtime: partial
+    evidence: mapped through the interface binding to the Service port that is probed
+    rule: an unbound interface cannot be probed
+    outcomes: CAPABILITY_INTERFACE_UNKNOWN statically; OBSERVATION_UNSUPPORTED at runtime when the interface is unbound
+    limitations: none beyond the interface binding
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateCapabilities_BindingInterfaceUnknown
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].binding.interface/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].binding.interface/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:health-capability
+    platforms:
+      kubernetes:
+        evidence: partial
+        reason: 'mapped through the interface binding to the probed Service port'
+      agent:
+        evidence: partial
+        reason: 'mapped to the interface''s bound port; an unbound interface leaves the capability unsupported'
+        tests:
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_UnprobeableCapabilities
+      run:
+        evidence: partial
+        reason: 'mapped to the interface''s --bind port; an unbound interface leaves the capability unsupported'
+        tests:
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_UnprobeableCapabilities
+  capabilities[].binding.path:
+    meaning: Application path of the endpoint on its interface.
+    runtime: partial
+    evidence: tier A probes this path; tier B compares it with the readiness probe path; metrics falls back to it last
+    rule: a tier B path that differs from the readiness probe path is insufficient, not a violation
+    outcomes: CAPABILITY_PATH_INVALID statically (SSRF guard); EVIDENCE_INSUFFICIENT on a tier B path mismatch
+    limitations: without probing, the path is only compared, never called
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateCapabilities_BindingPathInvalid
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].binding.path/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].binding.path/invalid
+      e2e:
+      - tests/acceptance/kind/runtime-conformance.sh:health-capability
+      - tests/acceptance/kind/runtime-conformance.sh:metrics-capability
+    platforms:
+      kubernetes:
+        evidence: partial
+        reason: 'probed directly, or compared with the readiness probe path'
+      agent:
+        evidence: partial
+        reason: 'probed directly at the bound port; there is no readiness probe to fall back on'
+        tests:
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_Compliant
+      run:
+        evidence: partial
+        reason: 'probed directly at the bound port; there is no readiness probe to fall back on'
+        tests:
+        - internal/runtimewatch/evalsink/sink_test.go:TestEvaluate_Compliant
+  readiness:
+    meaning: Production-readiness self-assessment.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: object with expires and claims'
+    outcomes: PARSE_ERROR when not an object
+    limitations: readiness claims are unverified attestations scored by pkg/readiness, never observed
+    tests:
+      unit:
+      - pkg/contract/contract_test.go:TestContract_Readiness
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness/invalid
+      e2e: []
+  readiness.minScore:
+    meaning: Score the assessment must reach to pass the gate (default 100).
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: 0 to 100; gate: score >= minScore'
+    outcomes: SCHEMA_VIOLATION; gate result in pacto validate --readiness and the operator ReadinessSatisfied condition
+    limitations: readiness claims are unverified attestations scored by pkg/readiness, never observed
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructuralRaw_V20_MinScoreOutOfRange
+      - pkg/readiness/readiness_test.go:TestEvaluate_PassingGate
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.minScore/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.minScore/invalid
+      e2e: []
+  readiness.expires:
+    meaning: Date after which the assessment no longer counts.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'cross-field: canonical date (the schema format is not asserted)'
+    outcomes: INVALID_READINESS_EXPIRES; an expired assessment scores 0
+    limitations: readiness claims are unverified attestations scored by pkg/readiness, never observed
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateReadiness_InvalidExpires
+      - pkg/readiness/readiness_test.go:TestEvaluate_Expired
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.expires/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.expires/invalid
+      e2e: []
+  readiness.partialCredit:
+    meaning: Credit a partial claim earns (default 0.5).
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: 0 to 1'
+    outcomes: SCHEMA_VIOLATION
+    limitations: readiness claims are unverified attestations scored by pkg/readiness, never observed
+    tests:
+      unit:
+      - pkg/readiness/readiness_test.go:TestEvaluate_CustomPartialCredit
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.partialCredit/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.partialCredit/invalid
+      e2e: []
+  readiness.history:
+    meaning: Revisions of the assessment.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: array'
+    outcomes: PARSE_ERROR when not a list
+    limitations: display only
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateReadiness_AllRevisionFields
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.history/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.history/invalid
+      e2e: []
+  readiness.history[]:
+    meaning: One revision.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: object with date, version, author and description'
+    outcomes: PARSE_ERROR when not an object
+    limitations: display only
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateReadiness_AllRevisionFields
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.history[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.history[]/invalid
+      e2e: []
+  readiness.history[].date:
+    meaning: Date of the revision.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: required; cross-field: non-blank canonical date'
+    outcomes: INVALID_READINESS_REVISION
+    limitations: display only
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateReadiness_InvalidRevisionDate
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.history[].date/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.history[].date/invalid
+      e2e: []
+  readiness.history[].version:
+    meaning: Service version assessed.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: required; cross-field: non-blank'
+    outcomes: INVALID_READINESS_REVISION
+    limitations: display only
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateReadiness_BlankRevisionFields
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.history[].version/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.history[].version/invalid
+      e2e: []
+  readiness.history[].author:
+    meaning: Who wrote the revision.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: required; cross-field: non-blank'
+    outcomes: INVALID_READINESS_REVISION
+    limitations: display only
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateReadiness_BlankRevisionFields
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.history[].author/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.history[].author/invalid
+      e2e: []
+  readiness.history[].description:
+    meaning: What changed.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: required; cross-field: non-blank'
+    outcomes: INVALID_READINESS_REVISION
+    limitations: display only
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateReadiness_BlankRevisionFields
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.history[].description/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.history[].description/invalid
+      e2e: []
+  readiness.claims:
+    meaning: Readiness claims.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: required, at least one'
+    outcomes: SCHEMA_VIOLATION
+    limitations: readiness claims are unverified attestations scored by pkg/readiness, never observed
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructuralRaw_V20_ReadinessEmptyClaims
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims/invalid
+      e2e: []
+  readiness.claims[]:
+    meaning: One claim.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'cross-field: unique id'
+    outcomes: DUPLICATE_READINESS_ID
+    limitations: readiness claims are unverified attestations scored by pkg/readiness, never observed
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateReadiness_DuplicateClaimID
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[]/invalid
+      e2e: []
+  readiness.claims[].id:
+    meaning: Claim identifier.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema pattern; cross-field: unique'
+    outcomes: SCHEMA_VIOLATION, DUPLICATE_READINESS_ID
+    limitations: readiness claims are unverified attestations scored by pkg/readiness, never observed
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructuralRaw_V20_ReadinessMissingID
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].id/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].id/invalid
+      e2e: []
+  readiness.claims[].type:
+    meaning: Kind of evidence the claim points at.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: schema enum
+    outcomes: SCHEMA_VIOLATION
+    limitations: the evidence is not fetched or checked against its type
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructuralRaw_V20_ReadinessInvalidType
+      - pkg/contract/contract_test.go:TestEvidenceTypeConstants
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].type/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].type/invalid
+      e2e: []
+    values:
+      url:
+        meaning: a web page
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].type=url
+          e2e: []
+      document:
+        meaning: a document in the repository or a wiki
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].type=document
+          e2e: []
+      ticket:
+        meaning: an issue tracker entry
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].type=ticket
+          e2e: []
+      report:
+        meaning: a generated report
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].type=report
+          e2e: []
+      artifact:
+        meaning: a build or scan artifact
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].type=artifact
+          e2e: []
+      identifier:
+        meaning: an external identifier
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].type=identifier
+          e2e: []
+      other:
+        meaning: anything else
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].type=other
+          e2e: []
+  readiness.claims[].category:
+    meaning: Area of readiness the claim covers.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: schema enum
+    outcomes: SCHEMA_VIOLATION
+    limitations: used for grouping in the dashboard only
+    tests:
+      unit:
+      - pkg/contract/contract_test.go:TestReadinessCategoryConstants
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].category/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].category/invalid
+      e2e: []
+    values:
+      architecture:
+        meaning: 'readiness area: architecture'
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].category=architecture
+          e2e: []
+      testing:
+        meaning: 'readiness area: testing'
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].category=testing
+          e2e: []
+      code-quality:
+        meaning: 'readiness area: code-quality'
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].category=code-quality
+          e2e: []
+      observability:
+        meaning: 'readiness area: observability'
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].category=observability
+          e2e: []
+      security:
+        meaning: 'readiness area: security'
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].category=security
+          e2e: []
+      documentation:
+        meaning: 'readiness area: documentation'
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].category=documentation
+          e2e: []
+      infrastructure:
+        meaning: 'readiness area: infrastructure'
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].category=infrastructure
+          e2e: []
+      ci-cd:
+        meaning: 'readiness area: ci-cd'
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].category=ci-cd
+          e2e: []
+      deployment:
+        meaning: 'readiness area: deployment'
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].category=deployment
+          e2e: []
+      resilience:
+        meaning: 'readiness area: resilience'
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].category=resilience
+          e2e: []
+      backup-recovery:
+        meaning: 'readiness area: backup-recovery'
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].category=backup-recovery
+          e2e: []
+      incident-response:
+        meaning: 'readiness area: incident-response'
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].category=incident-response
+          e2e: []
+      compliance:
+        meaning: 'readiness area: compliance'
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].category=compliance
+          e2e: []
+      other:
+        meaning: 'readiness area: other'
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].category=other
+          e2e: []
+  readiness.claims[].status:
+    meaning: Self-reported state of the claim.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: schema enum; scored by pkg/readiness
+    outcomes: SCHEMA_VIOLATION
+    limitations: readiness claims are unverified attestations scored by pkg/readiness, never observed
+    tests:
+      unit:
+      - pkg/contract/contract_test.go:TestReadinessStatusConstants
+      - pkg/readiness/readiness_test.go:TestEvaluate_ScoringWithStatuses
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].status/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].status/invalid
+      e2e: []
+    values:
+      done:
+        meaning: earns its full weight
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].status=done
+          e2e: []
+      partial:
+        meaning: earns weight times partialCredit
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].status=partial
+          e2e: []
+      not-done:
+        meaning: earns nothing
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].status=not-done
+          e2e: []
+      deferred:
+        meaning: excluded from the score
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].status=deferred
+          e2e: []
+  readiness.claims[].evidence:
+    meaning: Pointer to the evidence for the claim.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'cross-field: non-blank'
+    outcomes: EMPTY_READINESS_EVIDENCE
+    limitations: never dereferenced
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateReadiness_EmptyEvidence
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].evidence/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].evidence/invalid
+      e2e: []
+  readiness.claims[].weight:
+    meaning: Weight of the claim in the score.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: non-negative integer'
+    outcomes: SCHEMA_VIOLATION
+    limitations: readiness claims are unverified attestations scored by pkg/readiness, never observed
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructuralRaw_V20_BadReadinessWeight
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].weight/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].weight/invalid
+      e2e: []
+  readiness.claims[].description:
+    meaning: Human description of the claim.
+    runtime: static-only
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'cross-field: non-blank when present'
+    outcomes: EMPTY_READINESS_DESCRIPTION
+    limitations: display only
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateReadiness_BlankDescription
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].description/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].description/invalid
+      e2e: []
+  metadata:
+    meaning: Free-form key/value annotations.
+    runtime: not-applicable
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: object'
+    outcomes: PARSE_ERROR when not a map
+    limitations: open object; displayed, never checked
+    tests:
+      unit:
+      - pkg/contract/parse_test.go:TestParse_OptionalFields
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/metadata/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/metadata/invalid
+      e2e: []
+  extensions:
+    meaning: Free-form vendor extension data.
+    runtime: not-applicable
+    evidence: 'none: the field has no runtime counterpart'
+    rule: 'schema: object'
+    outcomes: PARSE_ERROR when not a map
+    limitations: open object; no Pacto code reads it
+    tests:
+      unit:
+      - pkg/contract/parse_test.go:TestParse_OptionalFields
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/extensions/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/extensions/invalid
+      e2e: []

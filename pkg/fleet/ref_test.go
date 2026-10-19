@@ -72,9 +72,6 @@ func TestParseCanonicalOCIRef(t *testing.T) {
 					t.Errorf("digest = %q, want %q", dgst.String(), c.wantDig)
 				}
 			}
-			if got := IsDigestPinnedRef(c.ref); got != c.ok {
-				t.Errorf("IsDigestPinnedRef(%q) = %v, want %v", c.ref, got, c.ok)
-			}
 		})
 	}
 }

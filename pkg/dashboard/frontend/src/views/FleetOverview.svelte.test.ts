@@ -27,7 +27,7 @@ function baseOverview(partial = false): any {
       asOf: '2026-07-29T10:00:00Z',
       completeness: partial ? 'partial' : 'complete',
       sources: partial
-        ? [{ id: 'oci', kind: 'oci', status: 'available' }, { id: 'k8s', kind: 'k8s', status: 'unavailable' }]
+        ? [{ id: 'oci', kind: 'oci', status: 'available' }, { id: 'k8s', kind: 'kubernetes', status: 'unavailable' }]
         : [{ id: 'oci', kind: 'oci', status: 'available' }],
       // The complete-population tally, which is deliberately LARGER than the bounded
       // `sources` list above it: the meta list is capped and least-healthy-biased, so

@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package controller
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -18,6 +19,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -26,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	k8svalidation "k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -35,16 +39,16 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"gopkg.in/yaml.v3"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/credentials"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/metrics"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/observer"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
-	"github.com/trianalab/pacto/v3/pkg/oci"
-	"github.com/trianalab/pacto/v3/pkg/schemax"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/metrics"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // ContractLoader abstracts contract loading and tag listing.
@@ -71,6 +75,13 @@ type PactoReconciler struct {
 	EnableMetricsObservation          bool
 	EnableProbing                     bool
 	EnableInterfaceNameMatchDiscovery bool
+	// KernelEvidence merges the node agent's NodeRuntimeObservations (read from
+	// KernelEvidenceNamespace) into the runtime evidence. Those objects are not
+	// watched: they change every publish interval, so the periodic requeue reads
+	// them. KernelEvidenceStaleness zero means three publish intervals.
+	KernelEvidence          bool
+	KernelEvidenceNamespace string
+	KernelEvidenceStaleness time.Duration
 }
 
 // +kubebuilder:rbac:groups=pacto.trianalab.io,resources=pactos,verbs=get;list;watch;create;update;patch;delete
@@ -85,6 +96,10 @@ type PactoReconciler struct {
 // +kubebuilder:rbac:groups=apps,resources=deployments;statefulsets;replicasets,verbs=get;list;watch
 // +kubebuilder:rbac:groups=batch,resources=jobs;cronjobs,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch
+// +kubebuilder:rbac:groups=pacto.trianalab.io,resources=noderuntimeobservations,verbs=get;list;watch
+// +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch
+// +kubebuilder:rbac:groups=gateway.networking.k8s.io,resources=httproutes,verbs=get;list;watch
 
 func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -113,53 +128,12 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	//    Fields will be repopulated by each step below.
 	r.resetDerivedStatus(pacto)
 
-	// 3. Resolve pull secret credentials (if specified)
-	var ociAuth *authn.AuthConfig
-	if secretName := pacto.Spec.ContractRef.PullSecretRef; secretName != "" {
-		auth, secretErr := r.resolveOCIAuth(ctx, pacto.Namespace, secretName, pacto.Spec.ContractRef.OCI)
-		if secretErr != nil {
-			return r.failReconciliation(ctx, pacto, fmt.Sprintf("failed to read pull secret %q: %v", secretName, secretErr),
-				&pactov1alpha1.ValidationResult{
-					Valid:  false,
-					Errors: []pactov1alpha1.ValidationIssue{{Path: "spec.contractRef.pullSecretRef", Message: secretErr.Error()}},
-				}, prevContractStatus, pactov1alpha1.ContractStatusUnknown)
-		}
-		ociAuth = auth
+	// 3-5. Load the contract, apply overrides and validate the effective contract.
+	ec, failure := r.loadEffectiveContract(ctx, pacto)
+	if failure != nil {
+		return r.failReconciliation(ctx, pacto, failure.msg, failure.validation, prevContractStatus, failure.status)
 	}
-
-	// 4. Determine resolution policy and load the contract
-	ociRef := pacto.Spec.ContractRef.OCI
-	pacto.Status.ResolutionPolicy = resolutionPolicy(ociRef)
-
-	loadResult, err := r.Loader.Load(ctx, ociRef, pacto.Spec.ContractRef.Inline, ociAuth)
-	if err != nil {
-		status := classifyLoadError(err)
-		return r.failReconciliation(ctx, pacto, err.Error(),
-			&pactov1alpha1.ValidationResult{
-				Valid:  false,
-				Errors: []pactov1alpha1.ValidationIssue{{Message: err.Error()}},
-			}, prevContractStatus, status)
-	}
-
-	// 4b. Apply configuration overrides (if specified)
-	effectiveLR, overriddenKeys, overrideErr := applyOverrides(loadResult, pacto.Spec.Overrides)
-	if overrideErr != nil {
-		return r.failReconciliation(ctx, pacto, fmt.Sprintf("override error: %s", overrideErr.Error()),
-			&pactov1alpha1.ValidationResult{
-				Valid:  false,
-				Errors: []pactov1alpha1.ValidationIssue{{Path: "spec.overrides", Message: overrideErr.Error()}},
-			}, prevContractStatus, pactov1alpha1.ContractStatusInvalid)
-	}
-	effectiveContract := effectiveLR.Contract
-
-	// 5. Structural + cross-field + policy validation (on effective contract)
-	contractResult := validation.Validate(effectiveContract, effectiveLR.RawYAML, effectiveLR.BundleFS)
-	pacto.Status.Validation = mapValidationResult(contractResult)
-
-	if len(contractResult.Errors) > 0 {
-		msg := formatValidationErrors(contractResult.Errors)
-		return r.failReconciliation(ctx, pacto, msg, pacto.Status.Validation, prevContractStatus, pactov1alpha1.ContractStatusInvalid)
-	}
+	effectiveContract := ec.effective.Contract
 
 	r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionTrue,
 		pactov1alpha1.ReasonContractParsed,
@@ -167,13 +141,11 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// 6. Populate contract-derived status fields (from effective contract)
 	pacto.Status.ContractVersion = effectiveContract.Service.Version
-	r.populateContractStatus(pacto, &effectiveLR)
+	r.populateContractStatus(pacto, &ec.effective)
 
 	// Mark overridden keys in configuration status
 	for i := range pacto.Status.Configurations {
-		if keys, ok := overriddenKeys[pacto.Status.Configurations[i].Name]; ok {
-			pacto.Status.Configurations[i].OverriddenKeys = keys
-		}
+		pacto.Status.Configurations[i].OverriddenKeys = ec.overriddenKeys[pacto.Status.Configurations[i].Name]
 	}
 
 	// 6b. Evaluate declared readiness (separate dimension from compliance).
@@ -181,7 +153,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 	r.reconcileReadiness(pacto, effectiveContract, readinessWasUnmet)
 
 	// 7. Ensure PactoRevision for current version
-	revisionName, revErr := r.ensureRevision(ctx, pacto, loadResult)
+	revisionName, revErr := r.ensureRevision(ctx, pacto, ec.loaded)
 	if revErr != nil {
 		log.Error(revErr, "Failed to ensure PactoRevision")
 	} else {
@@ -203,63 +175,174 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		return r.finishReconciliation(ctx, pacto, prevContractStatus)
 	}
 
-	// 9. Resolve target
-	workloadName, workloadKind := pacto.ResolvedWorkload()
-	serviceName := pacto.Spec.Target.ServiceName
+	// 9-15. Observe the target and judge the contract against what was observed.
+	r.evaluateRuntime(ctx, pacto, ec)
+	return r.finishReconciliation(ctx, pacto, prevContractStatus)
+}
 
-	// 10. Collect runtime evidence and evaluate findings
-	obs := observer.New(r.Client)
+// effectiveContract is the loaded contract with the CR's overrides applied and validated.
+type effectiveContract struct {
+	loaded         *loader.LoadResult
+	effective      loader.LoadResult
+	overriddenKeys map[string][]string
+	validation     validation.ValidationResult
+}
 
-	// Build CollectInput from the resolved target (spec section 9.1).
-	workloadExplicit := pacto.Spec.Target.WorkloadRef != nil &&
-		pacto.Spec.Target.WorkloadRef.Name != "" &&
-		pacto.Spec.Target.WorkloadRef.Kind != ""
+// loadFailure is why no effective contract could be produced, phrased for failReconciliation.
+type loadFailure struct {
+	msg        string
+	validation *pactov1alpha1.ValidationResult
+	status     string
+}
 
-	// Map InterfaceBindings from CR to observer types
-	interfaceBindings := make([]observer.InterfaceBinding, len(pacto.Spec.Target.InterfaceBindings))
-	for i, b := range pacto.Spec.Target.InterfaceBindings {
-		interfaceBindings[i] = observer.InterfaceBinding{
-			Interface:   b.Interface,
-			ServicePort: b.ServicePort,
+// loadEffectiveContract resolves the pull secret, loads the contract, applies the configuration overrides
+// and validates the result (steps 3 to 5). status.validation and status.resolutionPolicy are set on the way.
+func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pactov1alpha1.Pacto) (*effectiveContract, *loadFailure) {
+	// 3. Resolve pull secret credentials (if specified)
+	var ociAuth *authn.AuthConfig
+	if secretName := pacto.Spec.ContractRef.PullSecretRef; secretName != "" {
+		auth, secretErr := r.resolveOCIAuth(ctx, pacto.Namespace, secretName, pacto.Spec.ContractRef.OCI)
+		if secretErr != nil {
+			return nil, &loadFailure{
+				msg:        fmt.Sprintf("failed to read pull secret %q: %v", secretName, secretErr),
+				validation: invalidAt("spec.contractRef.pullSecretRef", secretErr),
+				status:     pactov1alpha1.ContractStatusUnknown,
+			}
+		}
+		ociAuth = auth
+	}
+
+	// 4. Determine resolution policy and load the contract
+	ociRef := pacto.Spec.ContractRef.OCI
+	pacto.Status.ResolutionPolicy = resolutionPolicy(ociRef)
+
+	loadResult, err := r.Loader.Load(ctx, ociRef, pacto.Spec.ContractRef.Inline, ociAuth)
+	if err != nil {
+		return nil, &loadFailure{msg: err.Error(), validation: invalidAt("", err), status: classifyLoadError(err)}
+	}
+
+	// 4b. Apply configuration overrides (if specified)
+	effectiveLR, overriddenKeys, overrideErr := applyOverrides(loadResult, pacto.Spec.Overrides)
+	if overrideErr != nil {
+		return nil, &loadFailure{
+			msg:        fmt.Sprintf("override error: %s", overrideErr.Error()),
+			validation: invalidAt("spec.overrides", overrideErr),
+			status:     pactov1alpha1.ContractStatusInvalid,
 		}
 	}
 
-	// Convert ObservationWindows from status into the map format
-	observationWindows := make(map[string]*metav1.Time)
-	for _, w := range pacto.Status.ObservationWindows {
-		key := fmt.Sprintf("%s/%s", w.Kind, w.Subject)
-		observationWindows[key] = &w.FirstObservedNegativeAt
+	// 5. Structural + cross-field + policy validation (on effective contract)
+	contractResult := validation.Validate(effectiveLR.Contract, effectiveLR.RawYAML, effectiveLR.BundleFS)
+	pacto.Status.Validation = mapValidationResult(contractResult)
+	if len(contractResult.Errors) > 0 {
+		return nil, &loadFailure{
+			msg:        formatValidationErrors(contractResult.Errors),
+			validation: pacto.Status.Validation,
+			status:     pactov1alpha1.ContractStatusInvalid,
+		}
 	}
 
-	now := time.Now()
-	collectInput := observer.CollectInput{
-		Namespace:                         pacto.Namespace,
-		ServiceName:                       serviceName,
-		WorkloadName:                      workloadName,
-		WorkloadKind:                      workloadKind,
-		ContractRef:                       loadResult.ResolvedRef,
-		WorkloadExplicit:                  workloadExplicit,
-		Contract:                          effectiveContract,
-		BundleFS:                          loadResult.BundleFS,
-		InterfaceBindings:                 interfaceBindings,
-		ConfigBindings:                    pacto.Spec.Target.ConfigBindings,
-		StabilizationWindow:               r.StabilizationWindow,
-		ObservationWindows:                observationWindows,
-		Now:                               now,
-		EnableMetricsObservation:          r.EnableMetricsObservation,
-		EnableProbing:                     r.EnableProbing,
-		EnableInterfaceNameMatchDiscovery: r.EnableInterfaceNameMatchDiscovery,
-	}
+	return &effectiveContract{loaded: loadResult, effective: effectiveLR, overriddenKeys: overriddenKeys, validation: contractResult}, nil
+}
 
-	evidenceSet, windowUpdates := obs.Collect(ctx, collectInput)
+// invalidAt is the one-issue validation result of a contract that could not be obtained or overridden.
+func invalidAt(path string, err error) *pactov1alpha1.ValidationResult {
+	return &pactov1alpha1.ValidationResult{
+		Valid:  false,
+		Errors: []pactov1alpha1.ValidationIssue{{Path: path, Message: err.Error()}},
+	}
+}
+
+// evaluateRuntime collects the target's runtime evidence and judges the effective contract against it
+// (steps 9 to 15), filling the runtime half of the status.
+func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alpha1.Pacto, ec *effectiveContract) {
+	effectiveContract := ec.effective.Contract
+	obs := observer.New(r.Client)
+
+	// 10. Collect runtime evidence (spec section 9.1).
+	evidenceSet, windowUpdates, collectErr := obs.Collect(ctx, r.buildCollectInput(pacto, ec))
 
 	// Apply window updates (spec section 9.5): upsert by (Kind, Subject); nil resets the entry; windows for
 	// assertions no longer declared by the effective contract are pruned.
 	r.applyObservationWindowUpdates(pacto, windowUpdates, declaredWindowKeys(effectiveContract))
 
-	// 11. Populate lean observed runtime into status (backward compat for dashboard)
+	// 11-12. Lean observed runtime and resources status (backward compat for dashboard).
+	obsErr := r.observeBackCompat(ctx, obs, pacto)
+
+	// A Collect failure already covers the workload read the back-compat view shares with it.
+	r.setRuntimeObservedCondition(pacto, cmp.Or(collectErr, obsErr))
+
+	// 13. Evaluate: contract × evidence → findings + coverage; contract-only structural findings first.
+	findings, cov := validation.Evaluate(*effectiveContract, evidenceSet)
+	allFindings := append(ec.validation.Findings(), findings...)
+	pacto.Status.Findings = mapFindings(allFindings)
+
+	// 14. Copy EvaluationCoverage. Reported metadata: the engine charges a required
+	//     assertion and emits its Unknown finding in the same branch, so a coverage
+	//     gap never outranks what the findings already say.
+	pacto.Status.EvaluationCoverage = &pactov1alpha1.EvaluationCoverage{
+		Evaluated:  int32(cov.Evaluated),
+		Required:   int32(cov.Required),
+		Unverified: capUnverified(cov.Unverified),
+	}
+
+	// 15. Count the findings; rank them with the SHARED ladder. Deriving it here too is
+	//     what made one contract read Warning in kubectl and Compliant in the dashboard.
+	summary := summarizeFindings(allFindings)
+	pacto.Status.Summary = &summary
+	pacto.Status.ContractStatus = validation.DeriveStatus(allFindings, cov)
+}
+
+// buildCollectInput maps the resolved target, its bindings and the persisted observation windows onto the
+// observer's input (spec section 9.1).
+func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effectiveContract) observer.CollectInput {
+	workloadName, workloadKind := pacto.ResolvedWorkload()
+	workloadRef := pacto.Spec.Target.WorkloadRef
+
+	interfaceBindings := make([]observer.InterfaceBinding, len(pacto.Spec.Target.InterfaceBindings))
+	for i, b := range pacto.Spec.Target.InterfaceBindings {
+		interfaceBindings[i] = observer.InterfaceBinding{Interface: b.Interface, ServicePort: b.ServicePort}
+	}
+
+	observationWindows := make(map[string]*metav1.Time)
+	for _, w := range pacto.Status.ObservationWindows {
+		observationWindows[fmt.Sprintf("%s/%s", w.Kind, w.Subject)] = &w.FirstObservedNegativeAt
+	}
+
+	return observer.CollectInput{
+		Namespace:                         pacto.Namespace,
+		ServiceName:                       pacto.Spec.Target.ServiceName,
+		WorkloadName:                      workloadName,
+		WorkloadKind:                      workloadKind,
+		ContractRef:                       ec.loaded.ResolvedRef,
+		WorkloadExplicit:                  workloadRef != nil && workloadRef.Name != "" && workloadRef.Kind != "",
+		Contract:                          ec.effective.Contract,
+		BundleFS:                          ec.loaded.BundleFS,
+		BundleDigest:                      ec.loaded.ResolvedDigest,
+		InterfaceBindings:                 interfaceBindings,
+		ConfigBindings:                    pacto.Spec.Target.ConfigBindings,
+		StabilizationWindow:               r.StabilizationWindow,
+		ObservationWindows:                observationWindows,
+		Now:                               time.Now(),
+		EnableMetricsObservation:          r.EnableMetricsObservation,
+		EnableProbing:                     r.EnableProbing,
+		EnableInterfaceNameMatchDiscovery: r.EnableInterfaceNameMatchDiscovery,
+		KernelEvidence:                    r.KernelEvidence,
+		KernelEvidenceNamespace:           r.KernelEvidenceNamespace,
+		KernelEvidenceStaleness:           r.KernelEvidenceStaleness,
+	}
+}
+
+// observeBackCompat fills status.observedRuntime and status.resources, the lean runtime view the dashboard
+// reads, and returns the observation error.
+func (r *PactoReconciler) observeBackCompat(ctx context.Context, obs *observer.Observer, pacto *pactov1alpha1.Pacto) error {
+	workloadName, workloadKind := pacto.ResolvedWorkload()
+	serviceName := pacto.Spec.Target.ServiceName
 	snapshot, obsErr := obs.Observe(ctx, pacto.Namespace, serviceName, workloadName, workloadKind)
-	if snapshot != nil && snapshot.WorkloadExists {
+	if snapshot == nil {
+		snapshot = &observer.RuntimeSnapshot{}
+	}
+	if snapshot.WorkloadExists {
 		pacto.Status.ObservedRuntime = &pactov1alpha1.ObservedRuntime{
 			WorkloadKind:                   snapshot.WorkloadKind,
 			DeploymentStrategy:             snapshot.DeploymentStrategy,
@@ -272,40 +355,24 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 		}
 	}
 
-	r.setRuntimeObservedCondition(pacto, obsErr)
-
-	// 12. Resources status (backward compat)
-	hasService := serviceName != ""
-	if hasService {
-		pacto.Status.Resources = &pactov1alpha1.ResourcesStatus{
-			Service: &pactov1alpha1.ResourceStatus{
-				Name:   serviceName,
-				Exists: snapshot != nil && snapshot.ServiceExists,
-			},
-		}
+	if serviceName == "" && workloadName == "" {
+		return obsErr
+	}
+	pacto.Status.Resources = &pactov1alpha1.ResourcesStatus{}
+	if serviceName != "" {
+		pacto.Status.Resources.Service = &pactov1alpha1.ResourceStatus{Name: serviceName, Exists: snapshot.ServiceExists}
 	}
 	if workloadName != "" {
-		if pacto.Status.Resources == nil {
-			pacto.Status.Resources = &pactov1alpha1.ResourcesStatus{}
-		}
-		pacto.Status.Resources.Workload = &pactov1alpha1.ResourceStatus{
-			Name:   workloadName,
-			Kind:   workloadKind,
-			Exists: snapshot != nil && snapshot.WorkloadExists,
-		}
+		pacto.Status.Resources.Workload = &pactov1alpha1.ResourceStatus{Name: workloadName, Kind: workloadKind, Exists: snapshot.WorkloadExists}
 	}
+	return obsErr
+}
 
-	// 13. Evaluate: contract × evidence → findings + coverage
-	findings, cov := validation.Evaluate(*effectiveContract, evidenceSet)
-
-	// Append contract-only findings from structural validation
-	structuralFindings := contractResult.Findings()
-	allFindings := append(structuralFindings, findings...)
-
-	// Map findings to status
-	pacto.Status.Findings = make([]pactov1alpha1.FindingStatus, 0, len(allFindings))
-	for _, f := range allFindings {
-		findingStatus := pactov1alpha1.FindingStatus{
+// mapFindings copies engine findings into their status form.
+func mapFindings(findings []finding.Finding) []pactov1alpha1.FindingStatus {
+	out := make([]pactov1alpha1.FindingStatus, 0, len(findings))
+	for _, f := range findings {
+		st := pactov1alpha1.FindingStatus{
 			Code:         string(f.Code),
 			Severity:     string(f.Severity),
 			Category:     string(f.Category),
@@ -314,29 +381,16 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 			Message:      f.Message,
 		}
 		for _, er := range f.EvidenceRefs {
-			findingStatus.EvidenceRefs = append(findingStatus.EvidenceRefs, pactov1alpha1.EvidenceRefStatus{
+			st.EvidenceRefs = append(st.EvidenceRefs, pactov1alpha1.EvidenceRefStatus{
 				Source:     er.Source,
 				ObservedAt: er.ObservedAt,
+				Collector:  er.Collector,
+				DetectedAt: er.DetectedAt,
 			})
 		}
-		pacto.Status.Findings = append(pacto.Status.Findings, findingStatus)
+		out = append(out, st)
 	}
-
-	// 14. Copy EvaluationCoverage. Reported metadata: the engine charges a required
-	//     assertion and emits its Unknown finding in the same branch, so a coverage
-	//     gap never outranks what the findings already say.
-	pacto.Status.EvaluationCoverage = &pactov1alpha1.EvaluationCoverage{
-		Evaluated: int32(cov.Evaluated),
-		Required:  int32(cov.Required),
-	}
-
-	// 15. Count the findings; rank them with the SHARED ladder. Deriving it here too is
-	//     what made one contract read Warning in kubectl and Compliant in the dashboard.
-	summary := summarizeFindings(allFindings)
-	pacto.Status.Summary = &summary
-	pacto.Status.ContractStatus = validation.DeriveStatus(allFindings, cov)
-
-	return r.finishReconciliation(ctx, pacto, prevContractStatus)
+	return out
 }
 
 // resetDerivedStatus clears all status fields that are recomputed each reconciliation.
@@ -991,11 +1045,7 @@ func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1alph
 		version = "unknown"
 	}
 
-	sanitizedVersion := strings.ReplaceAll(version, ".", "-")
-	revisionName := fmt.Sprintf("%s-%s-%s", pacto.Name, sanitizedVersion, shortHash)
-	if len(revisionName) > 253 {
-		revisionName = revisionName[:253]
-	}
+	revisionName := revisionNameFor(pacto.Name, version, shortHash)
 
 	existing := &pactov1alpha1.PactoRevision{}
 	err := r.Get(ctx, client.ObjectKey{Namespace: pacto.Namespace, Name: revisionName}, existing)
@@ -1035,7 +1085,7 @@ func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1alph
 			Namespace: pacto.Namespace,
 			Labels: map[string]string{
 				pactov1alpha1.LabelPactoName:       pacto.Name,
-				pactov1alpha1.LabelRevisionVersion: version,
+				pactov1alpha1.LabelRevisionVersion: versionLabelValue(version),
 			},
 		},
 		Spec: pactov1alpha1.PactoRevisionSpec{
@@ -1072,13 +1122,72 @@ func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1alph
 	return revisionName, nil
 }
 
-// setRuntimeObservedCondition records whether runtime evidence was collected. On an
-// observation API error it reports False (ReasonObservationFailed) rather than
-// claiming success, so a failure is distinguishable from a genuine observation.
+// revisionNameFor names the PactoRevision of one contract version. The legacy
+// form (dots to dashes) is kept whenever it is already a valid object name, so
+// no existing revision is renamed; anything else (build metadata, upper case,
+// a version too long for the hash to survive) gets a sanitised version segment
+// and keeps the content hash at the end, where truncation cannot reach it.
+func revisionNameFor(pactoName, version, shortHash string) string {
+	legacy := fmt.Sprintf("%s-%s-%s", pactoName, strings.ReplaceAll(version, ".", "-"), shortHash)
+	if len(k8svalidation.IsDNS1123Subdomain(legacy)) == 0 {
+		return legacy
+	}
+	suffix := "-" + shortHash
+	head := pactoName
+	if v := dnsSegment(version); v != "" {
+		head += "-" + v
+	}
+	if maxHead := k8svalidation.DNS1123SubdomainMaxLength - len(suffix); len(head) > maxHead {
+		head = strings.TrimRight(head[:maxHead], "-.")
+	}
+	return head + suffix
+}
+
+// dnsSegment lowercases s, maps every rune outside [a-z0-9-] to '-', collapses
+// runs of '-' and trims them from both ends.
+func dnsSegment(s string) string {
+	var b strings.Builder
+	for _, c := range strings.ToLower(s) {
+		if (c < 'a' || c > 'z') && (c < '0' || c > '9') {
+			c = '-'
+		}
+		if c == '-' && strings.HasSuffix(b.String(), "-") {
+			continue
+		}
+		b.WriteRune(c)
+	}
+	return strings.Trim(b.String(), "-")
+}
+
+// versionLabelValue makes a contract version usable as a label value: a valid
+// version is returned unchanged; otherwise runes outside [A-Za-z0-9._-] become
+// '-', and a result over 63 characters is cut and suffixed with a short hash
+// of the full version so distinct long versions stay distinct.
+func versionLabelValue(version string) string {
+	if len(k8svalidation.IsValidLabelValue(version)) == 0 {
+		return version
+	}
+	out := strings.Map(func(c rune) rune {
+		if c < utf8.RuneSelf && (c == '.' || c == '_' || c == '-' || unicode.IsLetter(c) || unicode.IsDigit(c)) {
+			return c
+		}
+		return '-'
+	}, version)
+	if len(out) > k8svalidation.LabelValueMaxLength {
+		sum := fmt.Sprintf("%x", sha256.Sum256([]byte(version)))[:8]
+		out = out[:k8svalidation.LabelValueMaxLength-len(sum)-1] + "-" + sum
+	}
+	return strings.Trim(out, "-._")
+}
+
+// setRuntimeObservedCondition records whether runtime evidence was collected. When
+// any read failed (obsErr may join several, one per line) it reports False
+// (ReasonObservationFailed) with every failure in the message, rather than
+// claiming success: True means the collection fully succeeded.
 func (r *PactoReconciler) setRuntimeObservedCondition(pacto *pactov1alpha1.Pacto, obsErr error) {
 	if obsErr != nil {
 		r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionFalse,
-			pactov1alpha1.ReasonObservationFailed, fmt.Sprintf("Runtime observation failed: %v", obsErr))
+			pactov1alpha1.ReasonObservationFailed, "Runtime observation failed: "+strings.ReplaceAll(obsErr.Error(), "\n", "; "))
 		return
 	}
 	r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionTrue,
@@ -1263,4 +1372,16 @@ func mapOwnerToInfo(o contract.Owner) *pactov1alpha1.OwnerInfo {
 		})
 	}
 	return result
+}
+
+// maxUnverified is the CRD's MaxItems on status.evaluationCoverage.unverified: a longer list would make
+// the API server reject the whole status write.
+const maxUnverified = 256
+
+// capUnverified keeps the first maxUnverified of the engine's sorted paths, so the list stays sorted.
+func capUnverified(paths []string) []string {
+	if len(paths) > maxUnverified {
+		return paths[:maxUnverified]
+	}
+	return paths
 }

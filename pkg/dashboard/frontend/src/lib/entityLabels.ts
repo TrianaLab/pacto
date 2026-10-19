@@ -268,3 +268,25 @@ export function sourceHealthSentence(status: string | undefined): string {
       return 'This data source reported a health state Pacto does not recognize, so how much of it reached the snapshot is unknown.';
   }
 }
+
+/**
+ * collectorLabel says, in plain words, who saw the evidence behind a finding.
+ * The operator stamps each evidence ref with the producer of the matched
+ * observation; an unknown producer is shown verbatim rather than guessed at.
+ */
+export function collectorLabel(collector: string | undefined): string {
+  switch (collector) {
+    case 'k8s-observer': return 'Kubernetes';
+    case 'k8s-observer+ebpf': return 'Kubernetes + kernel';
+    case 'ebpf': return 'kernel';
+    // The host agent and pacto run decide from the kernel's view alone.
+    case 'pacto-agent+ebpf': return 'kernel (host agent)';
+    case 'pacto-run+ebpf': return 'kernel (pacto run)';
+    default: return collector ?? '';
+  }
+}
+
+/** seenBy joins the distinct collector labels of a finding's evidence refs. */
+export function seenBy(refs: { collector?: string }[] | null | undefined): string {
+  return [...new Set((refs ?? []).map((r) => collectorLabel(r.collector)).filter(Boolean))].join(', ');
+}

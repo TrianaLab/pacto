@@ -8,8 +8,9 @@ search:
 # Live dashboard demo
 
 **Try Pacto without installing anything.** The dashboard runs entirely in your
-browser, with the engine and a curated set of demo contracts compiled to
-WebAssembly. No backend, no live registry, nothing leaves the tab.
+browser: the engine and a set of demo contracts are compiled to WebAssembly (a
+format browsers run directly). No backend, no live registry, nothing leaves the
+tab.
 
 <a href="../../demo/#/fleet" class="md-button md-button--primary">Open the live dashboard demo →</a>
 
@@ -25,10 +26,7 @@ complete knowledge teaches you nothing about the day it isn't.
 sources that share a name. A name is not an identity, so the graph keeps them
 apart.
 
-The demo deliberately shows no runtime states. There is no cluster observing
-workloads, so a runtime status would be fiction.
-
-Look at:
+## What to look at
 
 - **Fleet overview** — eighteen services spanning edge, domain, infra, platform
   and external tiers. Open it on the degraded sources and the duplicate name
@@ -41,6 +39,16 @@ Look at:
   everything reports complete is not every day.
 - **Change analysis** — the `v1.2.1 → v2.0.1` step removes the `/charges` API
   and shows which consumers the break reaches.
+
+## What it cannot show
+
+There is no cluster behind the demo. The compliance states on its targets are
+recorded fixture data. It shows
+[runtime conformance](../integrations/kubernetes/runtime-conformance.md) (what a
+service really does on the network) as one recorded finding, not a live check:
+the staging `orders-service` target carries `INTERFACE_ABSENT`, and its evidence
+line says "seen by: Kubernetes + kernel". A live check needs the node agent on a
+Kubernetes cluster or the [Docker Compose demo](compose-demo.md).
 
 To run the dashboard against your own services, see
 [Dashboard container](../dashboard-docker.md). The source and build harness live

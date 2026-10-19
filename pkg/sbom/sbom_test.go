@@ -206,61 +206,6 @@ func TestParseFromFS_SkipsDirectories(t *testing.T) {
 	}
 }
 
-func TestHasSBOM_True_SPDX(t *testing.T) {
-	fsys := fstest.MapFS{
-		"sbom/sbom.spdx.json": &fstest.MapFile{Data: []byte("{}")},
-	}
-	if !HasSBOM(fsys) {
-		t.Error("expected HasSBOM=true for SPDX file")
-	}
-}
-
-func TestHasSBOM_True_CycloneDX(t *testing.T) {
-	fsys := fstest.MapFS{
-		"sbom/bom.cdx.json": &fstest.MapFile{Data: []byte("{}")},
-	}
-	if !HasSBOM(fsys) {
-		t.Error("expected HasSBOM=true for CycloneDX file")
-	}
-}
-
-func TestHasSBOM_False_NilFS(t *testing.T) {
-	if HasSBOM(nil) {
-		t.Error("expected HasSBOM=false for nil FS")
-	}
-}
-
-func TestHasSBOM_False_NoDir(t *testing.T) {
-	fsys := fstest.MapFS{}
-	if HasSBOM(fsys) {
-		t.Error("expected HasSBOM=false when no sbom/ dir")
-	}
-}
-
-func TestHasSBOM_False_UnrecognizedFiles(t *testing.T) {
-	fsys := fstest.MapFS{
-		"sbom/readme.txt": &fstest.MapFile{Data: []byte("not an sbom")},
-	}
-	if HasSBOM(fsys) {
-		t.Error("expected HasSBOM=false for unrecognized files")
-	}
-}
-
-// A directory whose name ends in .spdx.json is not an SBOM. ParseFromFS skips
-// directories, and the deprecation note on HasSBOM says the two answer the same
-// question, so HasSBOM has to skip them too.
-func TestHasSBOM_False_DirectoryNamedLikeAnSBOM(t *testing.T) {
-	fsys := fstest.MapFS{
-		"sbom/deps.spdx.json/inner.txt": &fstest.MapFile{Data: []byte("not an sbom")},
-	}
-	if HasSBOM(fsys) {
-		t.Error("expected HasSBOM=false for a directory named like an SBOM")
-	}
-	if doc, err := ParseFromFS(fsys); err != nil || doc != nil {
-		t.Errorf("ParseFromFS must agree: doc=%+v err=%v", doc, err)
-	}
-}
-
 func TestParseSPDX_ReadError(t *testing.T) {
 	// parseSPDX is called when a .spdx.json file exists in the directory listing,
 	// but reading it fails. We test this via the exported ParseFromFS.

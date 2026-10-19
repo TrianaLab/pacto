@@ -5,14 +5,14 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/contractview"
-	"github.com/trianalab/pacto/v3/pkg/graph"
-	"github.com/trianalab/pacto/v3/pkg/sbom"
-	"github.com/trianalab/pacto/v3/pkg/schemax"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contractview"
+	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/sbom"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
 
-// ── Task 4: header / overview / runtime ────────────────────────────────
+// ── header / overview / runtime ────────────────────────────────
 
 func TestGenerate_HeaderOverviewRuntime(t *testing.T) {
 	d := &contractview.ServiceDetails{
@@ -31,7 +31,7 @@ func TestGenerate_HeaderOverviewRuntime(t *testing.T) {
 	}
 }
 
-// ── Task 5: interfaces / configuration / policies ──────────────────────
+// ── interfaces / configuration / policies ──────────────────────
 
 func TestGenerate_InterfacesConfigPolicies(t *testing.T) {
 	d := &contractview.ServiceDetails{
@@ -58,7 +58,7 @@ func TestGenerate_InterfacesConfigPolicies(t *testing.T) {
 	}
 }
 
-// ── Task 6: dependencies / readiness / SBOM / lock / docs / metadata ────
+// ── dependencies / readiness / SBOM / lock / docs / metadata ────
 
 func TestGenerate_DepsReadinessSbomLockDocs(t *testing.T) {
 	d := &contractview.ServiceDetails{
@@ -88,7 +88,6 @@ func TestGenerate_DepsReadinessSbomLockDocs(t *testing.T) {
 // ── Comprehensive snapshot (no graph) ──────────────────────────────────
 
 func fullSnapshot() *contractview.ServiceDetails {
-	score := 90
 	return &contractview.ServiceDetails{
 		Service: contractview.Service{
 			Name:           "payments-api",
@@ -96,7 +95,7 @@ func fullSnapshot() *contractview.ServiceDetails {
 			Owner:          contract.Owner{Team: "team/payments"},
 			ContractStatus: contractview.StatusCompliant,
 		},
-		Compliance: &contractview.ComplianceInfo{Status: contractview.ComplianceOK, Score: &score},
+		Compliance: &contractview.ComplianceInfo{Status: contractview.ComplianceOK},
 		Workload:   "service",
 		State: &contractview.StateInfo{
 			Type:                  "stateful",
@@ -825,4 +824,20 @@ func headingAnchorsIn(md string) map[string]bool {
 		out[headingAnchor(strings.TrimSpace(t))] = true
 	}
 	return out
+}
+
+// TestDashText_KeepsTheTableShape: free text in a table cell must not split the
+// cell (a pipe) or end the row (a line break); the author's code spans stay.
+func TestDashText_KeepsTheTableShape(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                     "—",
+		"plain":                "plain",
+		"a | b":                `a \| b`,
+		"line one\r\nline two": "line one line two",
+		"uses `x|y` in code":   "uses `x\\|y` in code",
+	} {
+		if got := dashText(in); got != want {
+			t.Errorf("dashText(%q) = %q, want %q", in, got, want)
+		}
+	}
 }

@@ -5,13 +5,10 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/v3/pkg/oci"
-	"golang.org/x/term"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
-var readPasswordFn = func(fd int) ([]byte, error) { return term.ReadPassword(fd) }
-
-func newLoginCommand() *cobra.Command {
+func newLoginCommand(d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:     "login <registry>",
 		Short:   "Log in to an OCI registry",
@@ -29,7 +26,7 @@ func newLoginCommand() *cobra.Command {
 
 			if password == "" {
 				_, _ = fmt.Fprint(cmd.OutOrStdout(), "Password: ")
-				pw, err := readPasswordFn(int(syscall.Stdin))
+				pw, err := d.readPassword(int(syscall.Stdin))
 				if err != nil {
 					return fmt.Errorf("failed to read password: %w", err)
 				}

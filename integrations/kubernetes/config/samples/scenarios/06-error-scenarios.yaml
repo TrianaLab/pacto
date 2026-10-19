@@ -1,10 +1,14 @@
-# Scenario 06: Error scenarios — invalid contracts and missing targets.
+# Scenario 06: Error scenarios — an invalid contract and unobservable targets.
 #
-# These produce Warning/NonCompliant contract statuses to verify the operator handles
-# failures correctly and the dashboard displays useful error information.
+# These produce Invalid and Unknown contract statuses to verify the operator
+# handles failures correctly and the dashboard displays useful error information.
+# Only bad-contract is invalid; the other two are valid contracts whose runtime
+# evidence cannot be collected.
 ---
 # ghost-service — target does not exist in the cluster.
-# The operator will set contractStatus=NonCompliant with ServiceExists=False.
+# No Service or Deployment can be observed, so the operator reports
+# EVIDENCE_MISSING and contractStatus=Unknown (a missing target is not proof of
+# a violation).
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -13,30 +17,34 @@ metadata:
 spec:
   target:
     serviceName: ghost-service
+    interfaceBindings:
+      - interface: http-api
+        servicePort: 8080
   checkIntervalSeconds: 60
   contractRef:
     inline: |
-      pactoVersion: "1.0"
+      pactoVersion: "2.0"
       service:
         name: ghost-service
         version: "1.0.0"
-        owner: team/devops
+        owner:
+          team: devops
       interfaces:
         - name: http-api
-          type: http
-          port: 8080
+          type: openapi
+          ref: interfaces/openapi.yaml
           visibility: public
-      runtime:
-        workload: service
-        state:
-          type: stateless
-          persistence:
-            scope: local
-            durability: ephemeral
-          dataCriticality: low
+      workload: service
+      state:
+        type: stateless
+        persistence:
+          scope: local
+          durability: ephemeral
+        dataCriticality: low
 ---
-# bad-contract — malformed version string.
-# The operator will set contractStatus=NonCompliant with ContractValid=False.
+# bad-contract — malformed version string; everything else is valid.
+# Validation fails with INVALID_SEMVER, so the operator sets
+# contractStatus=Invalid with ContractValid=False.
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -48,13 +56,14 @@ spec:
   checkIntervalSeconds: 60
   contractRef:
     inline: |
-      pactoVersion: "1.0"
+      pactoVersion: "2.0"
       service:
         name: bad-contract
         version: "not-semver"
 ---
-# port-mismatch — contract declares port 9999 but the service exposes 8080.
-# The operator will set contractStatus=Warning with PortsValid=False.
+# port-mismatch — the binding points the interface at Service port 9999, but the
+# frontend Service only exposes 3000. The port cannot be mapped, so the operator
+# reports EVIDENCE_INSUFFICIENT on http-api and contractStatus=Unknown.
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -63,23 +72,27 @@ metadata:
 spec:
   target:
     serviceName: frontend
+    interfaceBindings:
+      - interface: http-api
+        servicePort: 9999
   checkIntervalSeconds: 60
   contractRef:
     inline: |
-      pactoVersion: "1.0"
+      pactoVersion: "2.0"
       service:
         name: port-mismatch
         version: "1.0.0"
+        owner:
+          team: frontend
       interfaces:
         - name: http-api
-          type: http
-          port: 9999
+          type: openapi
+          ref: interfaces/openapi.yaml
           visibility: public
-      runtime:
-        workload: service
-        state:
-          type: stateless
-          persistence:
-            scope: local
-            durability: ephemeral
-          dataCriticality: low
+      workload: service
+      state:
+        type: stateless
+        persistence:
+          scope: local
+          durability: ephemeral
+        dataCriticality: low

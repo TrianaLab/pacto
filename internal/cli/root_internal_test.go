@@ -2,28 +2,30 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/update"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/update"
 )
 
 func TestNewRootCommand_PanicRecovery(t *testing.T) {
-	old := checkForUpdateFn
-	checkForUpdateFn = func(string) *update.CheckResult {
+	d := defaultDeps()
+	d.checkForUpdate = func(string) *update.CheckResult {
 		panic("injected panic for test")
 	}
-	t.Cleanup(func() { checkForUpdateFn = old })
 
 	t.Setenv("PACTO_NO_UPDATE_CHECK", "")
 
 	svc := app.NewService(nil, nil)
-	root := NewRootCommand(svc, VersionInfo{Version: "v1.0.0"})
+	root := newRootCommand(svc, VersionInfo{Version: "v1.0.0"}, d)
 	root.SetArgs([]string{"version"})
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -34,10 +36,9 @@ func TestNewRootCommand_PanicRecovery(t *testing.T) {
 }
 
 func TestBannerOnRootHelpTTY(t *testing.T) {
-	withTTY(t, true)
 	t.Setenv("NO_COLOR", "")
 	root := NewRootCommand(nil, VersionInfo{Version: "dev"})
-	var buf bytes.Buffer
+	var buf ttyBuffer
 	root.SetOut(&buf)
 	root.SetArgs([]string{"--help"})
 	_ = root.Execute()
@@ -82,7 +83,6 @@ func TestPactoNoAnimEnvSetsContext(t *testing.T) {
 }
 
 func TestNoBannerWhenNotTTY(t *testing.T) {
-	withTTY(t, false)
 	root := NewRootCommand(nil, VersionInfo{Version: "dev"})
 	var buf bytes.Buffer
 	root.SetOut(&buf)
@@ -94,10 +94,9 @@ func TestNoBannerWhenNotTTY(t *testing.T) {
 }
 
 func TestNoBannerOnSubcommandHelp(t *testing.T) {
-	withTTY(t, true)
 	t.Setenv("NO_COLOR", "")
 	root := NewRootCommand(nil, VersionInfo{Version: "dev"})
-	var buf bytes.Buffer
+	var buf ttyBuffer
 	root.SetOut(&buf)
 	root.SetArgs([]string{"version", "--help"})
 	_ = root.Execute()
@@ -107,11 +106,10 @@ func TestNoBannerOnSubcommandHelp(t *testing.T) {
 }
 
 func TestBannerStaticWhenAnimDisabled(t *testing.T) {
-	withTTY(t, true)
 	t.Setenv("NO_COLOR", "")
 	t.Setenv("PACTO_NO_ANIM", "1")
 	root := NewRootCommand(nil, VersionInfo{Version: "dev"})
-	var buf bytes.Buffer
+	var buf ttyBuffer
 	root.SetOut(&buf)
 	root.SetArgs([]string{"--help"})
 	_ = root.Execute()
@@ -155,5 +153,43 @@ func TestRootSecondExecuteAfterErrorDoesNotDeadlock(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("second Execute deadlocked on the update channel")
+	}
+}
+
+// A fresh cached release newer than this one is announced after a text command and never after a
+// machine-readable one. The wait is unbounded here: the cache read is the code under test, and under
+// load it can outlast the 200ms a user is made to wait.
+func TestUpdateNotification(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		want bool
+	}{
+		{[]string{"version"}, true},
+		{[]string{"version", "--output-format", "json"}, false},
+		{[]string{"version", "--output-format", "markdown"}, false},
+	} {
+		tmpDir := t.TempDir()
+		t.Setenv("XDG_CONFIG_HOME", tmpDir)
+		t.Setenv("PACTO_NO_UPDATE_CHECK", "")
+		if err := os.MkdirAll(filepath.Join(tmpDir, "pacto"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		data, _ := json.Marshal(map[string]any{"checked_at": time.Now(), "latest_version": "v99.0.0"})
+		if err := os.WriteFile(filepath.Join(tmpDir, "pacto", "update-check.json"), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		d := defaultDeps()
+		d.updateWait = time.Hour
+		root := newRootCommand(app.NewService(nil, nil), VersionInfo{Version: "v0.0.1"}, d)
+		root.SetArgs(tc.args)
+		var out bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&out)
+		if err := root.Execute(); err != nil {
+			t.Fatalf("%v: %v", tc.args, err)
+		}
+		if got := strings.Contains(out.String(), "A new version of pacto is available"); got != tc.want {
+			t.Errorf("%v: notified %v, want %v\n%s", tc.args, got, tc.want, out.String())
+		}
 	}
 }

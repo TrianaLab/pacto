@@ -11,6 +11,11 @@
 #   billing-api ──configurations.ref──→ platform-config
 #               ──policies.ref──→ platform-policy
 #               ──dep──→ payment-gateway
+#
+# Inline contracts carry no bundle files, so platform-config's schema and
+# platform-policy's policy/schema.json are not read here, and the operator
+# does not fetch billing-api's ref-based configuration and policy. Publish the
+# definitions as OCI bundles for those checks to run.
 ---
 # platform-config — shared configuration schema for all services.
 # Defines standard config keys (observability, health, etc.) with a JSON Schema
@@ -24,14 +29,16 @@ spec:
   checkIntervalSeconds: 600
   contractRef:
     inline: |
-      pactoVersion: "1.0"
+      pactoVersion: "2.0"
       service:
         name: platform-config
         version: "1.0.0"
-        owner: team/platform
+        owner:
+          team: platform
       configurations:
         - name: default
-          schema: config-schema.json
+          schema: configuration/schema.json
+          required: true
           values:
             LOG_LEVEL: info
             LOG_FORMAT: json
@@ -44,9 +51,9 @@ spec:
         description: Shared configuration schema for platform services
 ---
 # platform-policy — shared policy that validates contracts themselves.
-# Defines a JSON Schema applied to pacto.yaml to enforce org standards:
-# e.g., all services must declare health checks and an owner.
-# Services adopt this policy via policies[].ref.
+# Its bundle carries a JSON Schema at policy/schema.json, applied to pacto.yaml
+# to enforce org standards: e.g., all services must declare health checks and
+# an owner. Services adopt this policy via policies[].ref.
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -56,14 +63,15 @@ spec:
   checkIntervalSeconds: 600
   contractRef:
     inline: |
-      pactoVersion: "1.0"
+      pactoVersion: "2.0"
       service:
         name: platform-policy
         version: "2.0.0"
-        owner: team/platform
+        owner:
+          team: platform
       policies:
         - name: platform-policy
-          ref: oci://ghcr.io/acme/platform-policy-pacto:2.0.0
+          schema: policy/schema.json
       metadata:
         description: Enforces org standards (health checks, owner required)
 ---
@@ -79,19 +87,20 @@ spec:
   checkIntervalSeconds: 600
   contractRef:
     inline: |
-      pactoVersion: "1.0"
+      pactoVersion: "2.0"
       service:
         name: payment-gateway
         version: "4.2.0"
-        owner: external
+        owner:
+          team: external
       interfaces:
         - name: charges-api
-          type: http
-          port: 443
+          type: openapi
+          ref: interfaces/charges.yaml
           visibility: public
         - name: webhooks
-          type: http
-          port: 443
+          type: openapi
+          ref: interfaces/webhooks.yaml
           visibility: public
 ---
 # billing-api — adopts platform config and policy via cross-contract references.
@@ -106,28 +115,31 @@ metadata:
 spec:
   target:
     serviceName: billing-api
+    interfaceBindings:
+      - interface: http-api
+        servicePort: 8080
   checkIntervalSeconds: 60
   contractRef:
     inline: |
-      pactoVersion: "1.0"
+      pactoVersion: "2.0"
       service:
         name: billing-api
         version: "1.2.0"
-        owner: team/billing
-        image:
-          ref: ghcr.io/acme/billing-api:1.2.0
+        owner:
+          team: billing
       interfaces:
         - name: http-api
-          type: http
-          port: 8080
+          type: openapi
+          ref: interfaces/openapi.yaml
           visibility: internal
         - name: billing-events
-          type: event
+          type: asyncapi
+          ref: interfaces/events.yaml
           visibility: internal
-          contract: openapi.yaml
       configurations:
         - name: default
           ref: oci://ghcr.io/acme/platform-config-pacto:1.0.0
+          required: true
       policies:
         - name: platform-policy
           ref: oci://ghcr.io/acme/platform-policy-pacto:2.0.0
@@ -136,26 +148,18 @@ spec:
           ref: oci://ghcr.io/acme/payment-gateway-pacto
           required: true
           compatibility: "^4.0.0"
-      runtime:
-        workload: service
-        state:
-          type: stateless
-          persistence:
-            scope: local
-            durability: ephemeral
-          dataCriticality: high
-        lifecycle:
-          upgradeStrategy: rolling
-          gracefulShutdownSeconds: 30
-        health:
-          interface: http-api
-          path: /health
-        metrics:
-          interface: http-api
-          path: /metrics
-      scaling:
-        min: 1
-        max: 8
+      workload: service
+      state:
+        type: stateless
+        persistence:
+          scope: local
+          durability: ephemeral
+        dataCriticality: high
+      capabilities:
+        - type: health
+          binding: {type: http, interface: http-api, path: /health}
+        - type: metrics
+          binding: {type: http, interface: http-api, path: /metrics}
       metadata:
         team: billing
         tier: standard

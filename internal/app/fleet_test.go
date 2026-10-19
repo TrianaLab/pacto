@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/internal/k8sclient"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/internal/k8sclient"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 func writeLocalBundle(t *testing.T, dir, name string) {
@@ -326,17 +326,15 @@ func (f *fakeFleetK8sClient) CountResources(context.Context, string, string) (in
 }
 
 func TestService_Fleet_IncludeK8s(t *testing.T) {
-	origClient, origCtx := newK8sClient, currentKubeContext
-	t.Cleanup(func() { newK8sClient, currentKubeContext = origClient, origCtx })
-	newK8sClient = func() (k8sclient.K8sClient, error) {
+	svc := NewService(nil, nil)
+	svc.sys.newK8s = func() (k8sclient.K8sClient, error) {
 		return &fakeFleetK8sClient{
 			disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
 			listData: []byte(`{"items":[{"metadata":{"name":"svc-a","namespace":"prod"},"status":{"contractStatus":"Compliant","contract":{"serviceName":"svc-a"}}}]}`),
 		}, nil
 	}
-	currentKubeContext = func() string { return "my-ctx" }
+	svc.sys.kubeContext = func() string { return "my-ctx" }
 
-	svc := NewService(nil, nil)
 	snap, err := svc.Fleet(context.Background(), FleetOptions{LocalRoots: nil, IncludeK8s: true})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -352,12 +350,10 @@ func TestService_Fleet_IncludeK8s(t *testing.T) {
 }
 
 func TestService_Fleet_IncludeK8s_ClientError(t *testing.T) {
-	origClient, origCtx := newK8sClient, currentKubeContext
-	t.Cleanup(func() { newK8sClient, currentKubeContext = origClient, origCtx })
-	newK8sClient = func() (k8sclient.K8sClient, error) { return nil, errors.New("no cluster") }
-	currentKubeContext = func() string { return "" } // exercise the "k8s" id fallback
-
 	svc := NewService(nil, nil)
+	svc.sys.newK8s = func() (k8sclient.K8sClient, error) { return nil, errors.New("no cluster") }
+	svc.sys.kubeContext = func() string { return "" } // exercise the "k8s" id fallback
+
 	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeK8s: true})
 	if err != nil {
 		t.Fatalf("Fleet returned a hard error, want partial: %v", err)

@@ -8,7 +8,7 @@ See LICENSE file in the project root for full license text.
 package dashboard
 
 import (
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -108,7 +108,7 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		volumes = append(volumes, vol)
 	}
 
-	if len(cfg.EffectiveOCISecrets()) > 0 {
+	if len(cfg.OCISecrets) > 0 {
 		volumeMounts = append(volumeMounts,
 			corev1ac.VolumeMount().WithName("oci-creds").WithMountPath("/home/pacto/.docker").WithReadOnly(true),
 		)
@@ -122,7 +122,7 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		)
 	}
 
-	res := cfg.Resources.BuildResources()
+	res := cfg.Resources.Build(DefaultResources())
 
 	container := corev1ac.Container().
 		WithName("dashboard").

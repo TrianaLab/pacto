@@ -17,7 +17,7 @@ type DiffColors struct {
 
 // RenderDiffTree renders a graph diff as a tree-style string,
 // showing only nodes that have changes in their subtree.
-// Uses the same tree connectors as RenderTree for consistency.
+// Uses the same tree connectors as RenderTreeColored for consistency.
 func RenderDiffTree(d *GraphDiff) string {
 	return RenderDiffTreeColored(d, DiffColors{})
 }

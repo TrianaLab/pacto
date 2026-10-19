@@ -9,7 +9,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry/remote"
 
-	"github.com/trianalab/pacto/v3/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 )
 
 // maxManifestBytes bounds one referrer manifest. A Pacto evidence manifest is a

@@ -1,6 +1,7 @@
 package oci
 
 import (
+	"cmp"
 	"compress/gzip"
 	"container/list"
 	"context"
@@ -13,20 +14,21 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
 // pullCacheMaxEntries bounds the in-memory pulled-bundle cache. Long-running
 // callers (the dashboard prefetches every version of every repo on a loop)
 // would otherwise retain every bundle — with its decompressed FS — forever,
 // scaling memory with repo×version count and eventually OOMing. Evicted entries
-// still serve from the disk cache. Package var so tests can shrink it.
+// still serve from the disk cache. CachedStore.maxPulled overrides it (tests
+// shrink it).
 //
 // ponytail: count-based LRU. Entries vary in size (SBOMs dwarf tiny contracts),
 // so this bounds count, not bytes. Switch to a byte-budget LRU if a few huge
 // bundles ever blow the ceiling on their own.
-var pullCacheMaxEntries = 512
+const pullCacheMaxEntries = 512
 
 // tagsTTL bounds how long one observation of a repository's tag set is reused.
 // See [CachedStore.ListTags] for why an unbounded memo is wrong. It is half the
@@ -73,6 +75,12 @@ type CachedStore struct {
 
 	tagsMu    sync.Mutex
 	tagsCache map[string]tagsEntry
+
+	// maxPulled caps pullCache; zero is pullCacheMaxEntries.
+	maxPulled int
+	// afterBundleRead runs inside every disk read of this store between the
+	// bundle read and the identity read (see readCacheGeneration); nil is none.
+	afterBundleRead func()
 }
 
 // pullEntry is the value stored in each pullLRU list element. ref is the LOOKUP
@@ -129,7 +137,7 @@ func pactoCacheDir() (string, error) {
 	if os.Getenv("XDG_CACHE_HOME") != "" {
 		return CacheDirFor(""), nil
 	}
-	home, err := userHomeDirFn()
+	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
@@ -192,61 +200,12 @@ func (c *CachedStore) ListTags(ctx context.Context, repo string) ([]string, erro
 	return tags, nil
 }
 
-// PullCached returns the bundle for ref from the in-memory cache, then the disk
-// cache (skipped when DisableCache is active), and reports whether it was found.
-// It NEVER contacts the registry, so it is the offline read path: [Resolver] in
-// [LocalOnly] mode uses it, which is what keeps "local only" from silently
-// becoming a per-ref network pull on a cache miss.
-//
-// Deprecated: it exists to serve [LocalOnly], which has no production caller.
-// Use [CachedStore.Pull], which reads the cache first and falls through to the
-// registry. Removed at v4.
-func (c *CachedStore) PullCached(ctx context.Context, ref string) (*contract.Bundle, bool) {
-	bundle, _, hit := c.pullCached(ctx, ref)
-	return bundle, hit
-}
-
-// PullCachedPinned is [CachedStore.PullCached] plus the identity RECORDED with
-// the bundle it serves — the reference it was pulled under AND the manifest
-// digest of the artifact that answered, read from the same cache generation as
-// the bytes. So the offline reader reports what it actually got and never has to
-// ask a registry the mode forbids.
-//
-// The record is the entry's own statement, not the lookup key echoed back, and a
-// hit is only reported when the two AGREE (see [CachedStore.pullCached]). A zero
-// record means the entry predates the sidecar and states no identity at all.
-//
-// Deprecated: it exists to serve [LocalOnly], which has no production caller.
-// Use [CachedStore.PullPinned], which reads the cache first and falls through to
-// the registry. Removed at v4.
-func (c *CachedStore) PullCachedPinned(ctx context.Context, ref string) (*contract.Bundle, CachedRef, bool) {
-	return c.pullCached(ctx, ref)
-}
-
 // Materialized reports whether this store has written a bundle into the disk
 // cache during this process. A dashboard uses it to tell "the cache is empty
 // because nothing has been pulled yet" from "the cache holds what this session
 // pulled" — the pod's cache is an emptyDir, so the first is where every
 // operator-managed run starts.
 func (c *CachedStore) Materialized() bool { return c.materialized.Load() }
-
-// pullCached is [CachedStore.PullCached] plus the identity recorded for the
-// served bundle, so a hit reports what the pull observed rather than what the
-// lookup key spells.
-//
-// A hit requires the two to AGREE. An entry that states a DIFFERENT reference is
-// some other artifact's, and serving it here would publish its bytes and its
-// digest under the reference this call named — the mixed revision that the
-// injective key ([CachedStore.entryDir]) prevents for entries written by this
-// version and that a legacy entry, written when the key still aliased, can still
-// offer. Disagreement is therefore a MISS: online the registry is asked for the
-// artifact actually wanted, offline the caller is told it is not cached. An entry
-// that states NOTHING (written before the sidecar existed) contradicts nothing
-// and is served with no identity, as it always was.
-func (c *CachedStore) pullCached(ctx context.Context, ref string) (*contract.Bundle, CachedRef, bool) {
-	bundle, rec, _, ok := c.cachedEntryFrom(ctx, ref)
-	return bundle, rec, ok
-}
 
 // cacheLeg names which store answered a lookup. It is not decoration: a memory
 // hit was put there by THIS process, which already observed the registry for it,
@@ -260,7 +219,19 @@ const (
 	legDisk
 )
 
-// cachedEntryFrom is [CachedStore.pullCached] plus the leg that answered.
+// cachedEntryFrom serves ref from the cache and reports the leg that answered,
+// with the identity recorded for the served bundle, so a hit reports what the
+// pull observed rather than what the lookup key spells.
+//
+// A hit requires the two to AGREE. An entry that states a DIFFERENT reference is
+// some other artifact's, and serving it here would publish its bytes and its
+// digest under the reference this call named — the mixed revision that the
+// injective key ([CachedStore.entryDir]) prevents for entries written by this
+// version and that a legacy entry, written when the key still aliased, can still
+// offer. Disagreement is therefore a MISS and the registry is asked for the
+// artifact actually wanted. An entry that states NOTHING (written before the
+// sidecar existed) contradicts nothing and is served with no identity, as it
+// always was.
 func (c *CachedStore) cachedEntryFrom(ctx context.Context, ref string) (*contract.Bundle, CachedRef, cacheLeg, bool) {
 	bundle, rec, leg := c.cachedEntry(ctx, ref)
 	if leg == legNone {
@@ -276,7 +247,7 @@ func (c *CachedStore) cachedEntryFrom(ctx context.Context, ref string) (*contrac
 
 // cachedEntry finds what the cache holds under ref — memory first, then disk —
 // without judging whether it is ref's. Both legs return the pair the entry
-// itself supplied, so [CachedStore.pullCached] can apply ONE rule to both and a
+// itself supplied, so [CachedStore.cachedEntryFrom] can apply ONE rule to both and a
 // warm read can never answer differently from the cold read that filled it.
 func (c *CachedStore) cachedEntry(ctx context.Context, ref string) (*contract.Bundle, CachedRef, cacheLeg) {
 	// 1. In-memory cache (fastest). The pair is copied out under the mutex: a
@@ -297,7 +268,7 @@ func (c *CachedStore) cachedEntry(ctx context.Context, ref string) (*contract.Bu
 		return nil, CachedRef{}, legNone
 	}
 	for _, dir := range c.entryDirs(ref) {
-		if bundle, rec, ok := ReadCacheEntry(dir); ok {
+		if bundle, rec, ok := readCacheEntry(dir, c.afterBundleRead); ok {
 			logging.LoggerFromContext(ctx).Debug("cache hit (disk)", "ref", ref)
 			// The sidecar was committed with these exact bytes, so it is the
 			// identity of what was just loaded, not a fresh guess about a tag.
@@ -408,28 +379,6 @@ const CachedBundleFile = "bundle.tar.gz"
 type CachedRef struct {
 	Ref    string `json:"ref"`
 	Digest string `json:"digest,omitempty"`
-}
-
-// ReadCachedRef reads ONE file: the sidecar beside a cached bundle. The second
-// result is false when the entry predates the sidecar or the file is unusable.
-//
-// It is NOT an entry read, and it is not how a reader learns what a bundle is.
-// Pairing what it returns with bytes read separately by pathname is exactly the
-// splice [ReadCacheEntry] exists to prevent: the two observations can straddle a
-// competing writer's commit, and the reader then publishes one generation's
-// content under the next generation's identity. Anything that needs both facts
-// must call [ReadCacheEntry]; this reports what a sidecar says, for callers
-// checking what a WRITER wrote.
-//
-// Deprecated: no production caller reads a sidecar on its own, and the pairing
-// it invites is the splice [ReadCacheEntry] exists to prevent. Use
-// [ReadCacheEntry]. Removed at v4.
-func ReadCachedRef(dir string) (CachedRef, bool) {
-	b, err := os.ReadFile(filepath.Join(dir, CachedRefFile))
-	if err != nil {
-		return CachedRef{}, false
-	}
-	return parseCachedRef(b)
 }
 
 // readCachedRefFrom reads the sidecar through an already-open entry handle, so
@@ -559,10 +508,8 @@ func stageCacheEntry(dir string, rec CachedRef, bundle *contract.Bundle) error {
 
 // digestFromRef returns the manifest digest a reference already pins, else "".
 func digestFromRef(ref string) string {
-	if i := strings.Index(ref, "@"); i >= 0 {
-		return ref[i+1:]
-	}
-	return ""
+	_, digest := contract.SplitOCIDigest(ref)
+	return digest
 }
 
 // PinRefToDigest rewrites a reference to its immutable digest-pinned form
@@ -570,15 +517,8 @@ func digestFromRef(ref string) string {
 // carries. A tag is a ':' after the last '/', so a registry port
 // (localhost:5000/...) is never mistaken for a tag separator.
 func PinRefToDigest(ref, digest string) string {
-	r := strings.TrimPrefix(ref, "oci://")
-	if i := strings.Index(r, "@"); i >= 0 {
-		r = r[:i]
-	}
-	slash := strings.LastIndex(r, "/")
-	if colon := strings.LastIndex(r, ":"); colon > slash {
-		r = r[:colon]
-	}
-	return r + "@" + digest
+	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(ref))
+	return repo + "@" + digest
 }
 
 // storePull remembers a bundle under the key it was looked up by, together with
@@ -597,7 +537,7 @@ func (c *CachedStore) storePull(ref string, bundle *contract.Bundle, rec CachedR
 	c.pullCache[ref] = c.pullLRU.PushFront(&pullEntry{ref: ref, rec: rec, bundle: bundle})
 	// Evict least-recently-used entries beyond the cap. Len > cap ≥ 0 guarantees
 	// a non-nil Back() each iteration.
-	for c.pullLRU.Len() > pullCacheMaxEntries {
+	for c.pullLRU.Len() > cmp.Or(c.maxPulled, pullCacheMaxEntries) {
 		oldest := c.pullLRU.Back()
 		c.pullLRU.Remove(oldest)
 		delete(c.pullCache, oldest.Value.(*pullEntry).ref)
@@ -652,7 +592,7 @@ const entryNamespace = "_v2"
 // are not valid OCI references and [CachedStore.contained] rejects them rather
 // than the encoding growing cases for them.
 func (c *CachedStore) entryDir(ref string) string {
-	repo, tag, tagged := splitRefTag(ref)
+	repo, tag, tagged := contract.SplitOCITag(ref)
 	parts := append([]string{entryNamespace}, strings.Split(repo, "/")...)
 	for i, p := range parts[1:] {
 		parts[i+1] = escapeRefSegment(p)
@@ -668,7 +608,7 @@ func (c *CachedStore) entryDir(ref string) string {
 // legacyEntryDir returns the directory ref's entry lived in before the key was
 // injective. READ-ONLY: nothing is written here any more, and an entry found
 // here is only served when its sidecar names the reference asked for (see
-// [CachedStore.pullCached]) — that is what keeps two references that still
+// [CachedStore.cachedEntryFrom]) — that is what keeps two references that still
 // collide under this spelling from crossing.
 func (c *CachedStore) legacyEntryDir(ref string) string {
 	return c.contained(strings.ReplaceAll(ref, ":", "/"))
@@ -700,17 +640,6 @@ func (c *CachedStore) contained(rel string) string {
 		return filepath.Join(c.cacheDir, "_invalid")
 	}
 	return filepath.Join(c.cacheDir, rel)
-}
-
-// splitRefTag splits a reference into its repository and its tag. A tag is a
-// ':' after the last '/', so a registry port is never mistaken for one; the last
-// result reports whether there was a tag at all, which "" alone cannot.
-func splitRefTag(ref string) (repo, tag string, tagged bool) {
-	slash := strings.LastIndex(ref, "/")
-	if colon := strings.LastIndex(ref, ":"); colon > slash {
-		return ref[:colon], ref[colon+1:], true
-	}
-	return ref, "", false
 }
 
 // escapeRefSegment percent-escapes the two characters that would otherwise make
@@ -778,8 +707,14 @@ const cacheEntryAttempts = 3
 // replaced. Absent is coherent — retry and read the generation that displaced
 // it, or report a miss the next pull repairs.
 func ReadCacheEntry(dir string) (*contract.Bundle, CachedRef, bool) {
+	return readCacheEntry(dir, nil)
+}
+
+// readCacheEntry is ReadCacheEntry with a hook run between the bundle read and
+// the identity read of every attempt (nil runs none).
+func readCacheEntry(dir string, afterBundleRead func()) (*contract.Bundle, CachedRef, bool) {
 	for range cacheEntryAttempts {
-		bundle, rec, swapped := readCacheGeneration(dir)
+		bundle, rec, swapped := readCacheGeneration(dir, afterBundleRead)
 		if !swapped {
 			return bundle, rec, bundle != nil
 		}
@@ -787,18 +722,16 @@ func ReadCacheEntry(dir string) (*contract.Bundle, CachedRef, bool) {
 	return nil, CachedRef{}, false
 }
 
-// afterBundleRead runs between the two observations a cache-entry read makes:
-// after the bundle bytes have come off a held generation and before the identity
-// beside them is read through the same handle. That instant is the one a
-// competing writer commits in, and it is the only place a test can prove the
-// reader stays on one generation. Production never replaces it; the zero value
-// is a no-op.
-var afterBundleRead = func() {}
-
 // readCacheGeneration reads one generation through a single directory handle.
 // The last result reports that the generation went away mid-read, so the caller
 // can read its successor instead of returning half of each.
-func readCacheGeneration(dir string) (*contract.Bundle, CachedRef, bool) {
+//
+// afterBundleRead, when set, runs between the two observations: after the
+// bundle bytes have come off the held generation and before the identity beside
+// them is read through the same handle. That instant is the one a competing
+// writer commits in, and the only place a test can prove the reader stays on
+// one generation.
+func readCacheGeneration(dir string, afterBundleRead func()) (*contract.Bundle, CachedRef, bool) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, CachedRef{}, false // no entry here at all: an ordinary miss
@@ -815,7 +748,9 @@ func readCacheGeneration(dir string) (*contract.Bundle, CachedRef, bool) {
 		return nil, CachedRef{}, false
 	}
 
-	afterBundleRead()
+	if afterBundleRead != nil {
+		afterBundleRead()
+	}
 
 	rec, ok := readCachedRefFrom(root)
 	// No sidecar has two meanings: an entry written before sidecars existed —

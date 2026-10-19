@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 // stubImpact returns a provider yielding res/err, recording the arguments it saw.

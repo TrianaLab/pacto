@@ -80,6 +80,30 @@ controller:
   # meanwhile). Empty string uses the controller default (2m). Accepts a Go
   # duration (e.g. "30s", "5m").
   stabilizationWindow: ""
+  # -- Actively probe in-cluster endpoints: the health capability over HTTP and
+  # the wire protocol of each present interface. Off by default; when off, health
+  # uses passive readiness-probe and EndpointSlice signals only and interface
+  # protocols read unverified.
+  enableProbing: false
+  # -- Observe the metrics capability (ServiceMonitor, PodMonitor, annotation or
+  # named-port discovery plus an active scrape). Also grants read access to
+  # ServiceMonitors and PodMonitors. Off by default; when off, metrics read
+  # unsupported.
+  enableMetricsObservation: false
+  kernelEvidence:
+    # -- Merge the node agent's kernel observations (NodeRuntimeObservation
+    # objects) into interface and dependency evidence. Needs the node agent
+    # running; off by default, so evidence comes from the Kubernetes API only.
+    # Kernel evidence is on whenever this OR nodeAgent.enabled is true: a
+    # managed agent whose observations nobody merges would be pure cost. Set
+    # this alone only for an agent you run yourself.
+    enabled: false
+    # -- Namespace the node agent publishes to. Empty uses nodeAgent.namespace.
+    namespace: ""
+    # -- How old a node's heartbeat may be before its evidence reads stale. Empty
+    # uses three times the node agent's publish interval. Accepts a Go duration
+    # (e.g. "2m").
+    staleness: ""
 
 leaderElection:
   # -- Enable leader election for HA deployments
@@ -108,14 +132,10 @@ dashboard:
   # The dashboard image is controlled by the operator and derived from the
   # bundled Pacto library version. It is not user-configurable.
   enabled: true
-  # -- Optional Secret name for OCI registry credentials (backward compatible).
-  # Supports Opaque secrets (keys: registry + token, or registry + username + password)
-  # and kubernetes.io/dockerconfigjson secrets. Ignored when ociSecrets is set.
-  ociSecret: ""
   # -- List of Secret names for OCI registry credentials.
-  # Supports Opaque (with registry key) and kubernetes.io/dockerconfigjson secrets.
+  # Supports Opaque (keys: registry + token, or registry + username + password)
+  # and kubernetes.io/dockerconfigjson secrets.
   # When set, credentials from all secrets are merged; later secrets override earlier ones for the same registry.
-  # Takes precedence over ociSecret.
   ociSecrets: []
   # A `# --` comment only reaches the generated Helm reference when it sits on a
   # LEAF key: the table is flattened, so a comment on `resources:` is never
@@ -146,7 +166,8 @@ dashboard:
     # declared files — through a root it cannot follow a symlink out of — never
     # writes to them and never scans the mount. Whoever owns that storage owns
     # producing and rotating the exports. This configures OFFLINE input only:
-    # Pacto ships no OTLP receiver and deploys no collector.
+    # Pacto ships no OTLP receiver and no trace collector (the optional node
+    # agent is an eBPF socket observer, not a trace pipeline).
     sources: []
     #   - name: orders
     #     file: traces.json
@@ -266,6 +287,46 @@ evidence:
       # -- Memory limit for the Evidence Server container. It verifies and
       # forwards one envelope at a time and stores nothing locally, so this is
       # sized for a single writer.
+      memory: 256Mi
+
+# The node agent: a DaemonSet the operator creates in its own dedicated
+# namespace, one pod per node (every taint tolerated), running `pacto agent`
+# from the pacto runtime image the operator was built with (the image the
+# Evidence Server runs). It watches TCP socket state with eBPF and publishes
+# each node's listeners and connections as a NodeRuntimeObservation object and
+# renews a heartbeat Lease per node; it opens no port. Enabling it also turns on
+# controller kernel evidence (see controller.kernelEvidence).
+#
+# The pod needs hostPID, root and the BPF, PERFMON and SYS_PTRACE capabilities,
+# which only the privileged Pod Security level admits. The chart creates
+# nodeAgent.namespace with pod-security.kubernetes.io/enforce, audit and warn
+# set to privileged and the operator keeps them so; the release namespace keeps
+# whatever level you set. Where the API serves ValidatingAdmissionPolicy, the
+# chart also binds each agent's writes to its own node's objects.
+# The kernel needs BTF (/sys/kernel/btf/vmlinux), which current distribution
+# kernels ship.
+nodeAgent:
+  # -- Deploy the node agent DaemonSet. Off by default.
+  enabled: false
+  # -- Dedicated namespace the agents run and publish in. The chart creates it
+  # and labels it privileged for Pod Security; it must not be the release
+  # namespace and must not exist outside this release.
+  namespace: pacto-node-agent
+  # -- How often each agent publishes its node's observation. A Go duration;
+  # kernel evidence reads stale after three intervals unless
+  # controller.kernelEvidence.staleness says otherwise.
+  publishInterval: "30s"
+  resources:
+    requests:
+      # -- CPU request for the node agent container
+      cpu: 50m
+      # -- Memory request for the node agent container
+      memory: 64Mi
+    limits:
+      # -- CPU limit for the node agent container
+      cpu: 200m
+      # -- Memory limit for the node agent container. The agent caps the pods
+      # and connections it tracks, and the kernel ring buffer is charged here.
       memory: 256Mi
 
 # -- Node selector for the controller pod

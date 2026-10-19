@@ -1,8 +1,8 @@
 # Composition Patterns
 
-Pacto's primitives — bundles, references, configurations, policies, metadata — compose into platform interfaces. Each pattern below says when to reach for it, which primitives it relies on and how a minimal version looks.
+Proven ways to arrange contracts once you have more than one: several services in one repository, infrastructure your platform offers, shared configuration and platform rules. Each pattern names the problem, the Pacto building blocks it uses ("primitives": bundles, references, configurations, policies and metadata) and a minimal example.
 
-Each pattern is independent. Stack what you need; ignore what you don't.
+The patterns are independent. Use the ones you need.
 
 ---
 
@@ -105,7 +105,13 @@ configurations:
     required: true
 ```
 
-**Why this works.** A one-component repository pays almost nothing for this layout, and adding a second component is one new bundle dir plus one root dependency. The root maps to a single deployment unit; each component is validated and versioned independently. The root is a lean aggregator — it carries only `service` and `dependencies[]` (plus any `policies`), deliberately omitting `workload`, `state`, `interfaces` and `configurations`. The compatibility range in the root's `dependencies[]` lets you version components independently while the root version stays pinned to what your deployment artifact published. Your own tooling can distinguish a root from a component by naming convention or structurally (`dependencies[]` present, `configurations` absent), since Pacto itself does not key off the name.
+**Why this works.**
+
+- The root is one deployment unit. Each component is validated and versioned on its own.
+- Adding a component costs one new bundle directory and one root dependency.
+- The root only lists `service` and `dependencies[]` (plus any `policies`). It leaves out `workload`, `state`, `interfaces` and `configurations`.
+- The compatibility range in each root dependency lets components move at their own pace while the root version matches what you deployed.
+- Pacto does not treat the name "root" specially. Your tooling can spot a root by name or by shape (`dependencies[]` present, `configurations` absent).
 
 ---
 
@@ -287,7 +293,7 @@ A service pinned to `platform-policy:2.0.0` keeps validating against v2's rules 
 - **Backwards is checked.** A service can never silently weaken its policy — `pacto diff` flags removing or changing a policy ref as potentially breaking
 - **The version is the negotiation point.** Conversations about "should we require X?" become "should we publish v4 that requires X, with a six-month adoption window?"
 
-**Two dials.** Pinning the policy's major version (above) makes each new bar opt-in and negotiated. Alternatively, a rule layer referenced *transitively* through the platform contract can be left unpinned. Republishing that one schema then propagates a new rule fleet-wide immediately, with no per-service bump. The cost is lockfile drift: every republish changes the resolved digest and forces services to re-lock, and [`pacto lock --check`](../lockfile.md) fails until they do. Pinned is opt-in and negotiated; floating is instant and unilateral but forces re-locks.
+**Pinned or floating.** Pinning the policy version (above) makes each new bar opt-in. The alternative is to leave a rule layer unpinned, referenced through the platform contract. Republishing that one schema then applies a new rule to every service at once, with no per-service bump. The cost: each republish changes the digest, so every service must re-lock and [`pacto lock --check`](../lockfile.md) fails until it does.
 
 **Coordinate with `pacto validate`.** When a service ref-bumps from `2.0.0` to `3.0.0`, `pacto diff` reports the changed policy ref. `pacto validate` resolves the new policy and fails *before* merge if the contract does not satisfy it, so the team sees the gap and either fixes it or stays on `2.0.0`.
 

@@ -32,6 +32,7 @@ on:
       - 'integrations/**/internal/observer/**'
       - 'pkg/evidence/**'
       - 'pkg/finding/**'
+      - 'cmd/gendocs/**'
       - 'examples/demo/**'
       # The demo embeds the dashboard UI + engine, so redeploy when they change.
       - 'pkg/dashboard/**'

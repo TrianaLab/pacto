@@ -5,7 +5,8 @@
 # demo show every target state without a live cluster, and never fabricates a
 # runtime fact — each entry is an explicit, declared observation with provenance.
 #
-# It exercises: a compliant target, a non-compliant target (confirmed drift), an
+# It exercises: a compliant target, a non-compliant target (confirmed drift, one
+# finding of it recorded from the kernel by the node agent), an
 # unknown target (insufficient evidence) and stale targets (old evidence). Under
 # --freshness 24h, all three timestamped targets read as stale; fraud-service is
 # the oldest by design. The source itself is marked available; a second,
@@ -43,6 +44,20 @@ targets:
         subjectKind: state
         subjectName: orders-db
         message: declared stateless but the observed workload mounts a persistent volume
+      # Recorded kernel-backed finding: the node agent saw nothing listen on the
+      # declared port, and the Kubernetes API agreed, so the evidence names the
+      # collector k8s-observer+ebpf (Kubernetes + kernel).
+      - code: INTERFACE_ABSENT
+        severity: error
+        category: RuntimeDrift
+        subjectKind: interface
+        subjectName: http
+        message: nothing listens on the declared http interface
+        evidenceRefs:
+          - source: k8s
+            observedAt: 2026-07-29T09:40:00Z
+            collector: k8s-observer+ebpf
+            detectedAt: 2026-07-29T09:38:00Z
 
   - scope: production-eu
     kind: kubernetes-workload

@@ -144,4 +144,10 @@ function baseUrl(): string {
  * backend URL, query serialization and request body from the OpenAPI contract;
  * handwritten code never reconstructs any of them.
  */
-export const client = createClient<paths>({ baseUrl: baseUrl(), fetch: dashboardFetch });
+// Array query params go out comma-separated (`kinds=service,target`), the form the
+// backend declares (`explode: false`) and validates item by item.
+export const client = createClient<paths>({
+  baseUrl: baseUrl(),
+  fetch: dashboardFetch,
+  querySerializer: { array: { style: 'form', explode: false } },
+});

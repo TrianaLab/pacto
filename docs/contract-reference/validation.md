@@ -1,7 +1,14 @@
 # Validation layers
 
-`pacto validate` runs three successive layers over a contract, and so does
-anything else that has to trust one. `pack` and `push` both refuse before they
+`pacto validate` tells you whether a contract is well-formed before anyone
+relies on it. Run it in the bundle directory:
+
+```bash
+pacto validate .
+```
+
+It runs three checks in order, and so does anything else that has to trust a
+contract. `pack` and `push` both refuse before they
 write or transmit a byte, and the operator revalidates every bundle it loads.
 Each layer short-circuits — if it fails, the layers after it are skipped, which
 is why one broken field can hide the rest.

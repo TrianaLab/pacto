@@ -55,8 +55,8 @@ func TestInitCommand(t *testing.T) {
 		if err := json.Unmarshal([]byte(output), &result); err != nil {
 			t.Fatalf("expected valid JSON output, got: %s", output)
 		}
-		if result["Dir"] != "json-svc" {
-			t.Errorf("expected Dir=json-svc, got %v", result["Dir"])
+		if result["dir"] != "json-svc" {
+			t.Errorf("expected dir=json-svc, got %v", result["dir"])
 		}
 	})
 

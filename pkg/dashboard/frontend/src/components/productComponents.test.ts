@@ -22,6 +22,8 @@ import PreviewSection from './PreviewSection.svelte';
 import KnowledgeBanner from './KnowledgeBanner.svelte';
 // @ts-expect-error
 import RelationshipList from './RelationshipList.svelte';
+// @ts-expect-error
+import FindingList from './FindingList.svelte';
 import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
 
 let target: HTMLElement;
@@ -380,5 +382,16 @@ describe('RelationshipList — fine-grained edges are service-scoped, never Unkn
   it('still renders a merged service edge\'s own difference verdict', () => {
     comp = mount(RelationshipList, { target, props: { items: [{ ...fineGrained, observationScope: undefined, serviceCorroboration: undefined, difference: 'matched' }] } });
     expect(target.textContent).toMatch(/Matched/);
+  });
+});
+
+describe('FindingList provenance', () => {
+  it('says which collector saw each finding, in plain words', () => {
+    const f = (collector?: string) => ({ code: 'INTERFACE_ABSENT', severity: 'error', message: 'm',
+      evidenceRefs: { total: 1, count: 1, truncated: false, items: [collector ? { source: 'k8s', collector } : { source: 'k8s' }] } });
+    comp = mount(FindingList, { target, props: { items: [f('k8s-observer+ebpf'), f()] } });
+    const metas = [...target.querySelectorAll('.f-meta')].map((m) => m.textContent ?? '');
+    expect(metas[0]).toContain('seen by: Kubernetes + kernel');
+    expect(metas[1]).not.toContain('seen by');
   });
 });

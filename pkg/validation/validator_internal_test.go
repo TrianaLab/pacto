@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 func TestYamlToGeneric_InvalidYAML(t *testing.T) {

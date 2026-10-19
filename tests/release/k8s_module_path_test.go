@@ -10,11 +10,11 @@ import (
 )
 
 // The Kubernetes integration is a nested Go module. Its module/import path carries
-// the major suffix (…/integrations/kubernetes/v5), which is DISTINCT from the source
-// directory (integrations/kubernetes/), the module tag (integrations/kubernetes/v5.0.0)
+// the major suffix (…/integrations/kubernetes/v6), which is DISTINCT from the source
+// directory (integrations/kubernetes/), the module tag (integrations/kubernetes/v6.0.0)
 // and the OCI image/chart coordinates (ghcr.io/…, unchanged). This gate keeps every
 // declared module coordinate in sync with go.mod and fails if any active file
-// announces the bare (missing-/v5) module path as the Go module.
+// announces the bare (missing-/v6) module path as the Go module.
 
 // k8sModulePath reads the authoritative module path from the operator go.mod.
 func k8sModulePath(t *testing.T, root string) string {
@@ -30,15 +30,15 @@ func k8sModulePath(t *testing.T, root string) string {
 	return m[1]
 }
 
-func TestKubernetesModulePathIsV5Everywhere(t *testing.T) {
+func TestKubernetesModulePathIsV6Everywhere(t *testing.T) {
 	root := repoRoot(t)
 	mod := k8sModulePath(t, root)
-	if !strings.HasSuffix(mod, "/v5") {
-		t.Fatalf("operator go.mod module %q must carry the /v5 major suffix", mod)
+	if !strings.HasSuffix(mod, "/v6") {
+		t.Fatalf("operator go.mod module %q must carry the /v6 major suffix", mod)
 	}
-	bare := strings.TrimSuffix(mod, "/v5") // github.com/…/integrations/kubernetes
+	bare := strings.TrimSuffix(mod, "/v6") // github.com/…/integrations/kubernetes
 
-	// Surfaces that DECLARE the module coordinate must use the exact /v5 path.
+	// Surfaces that DECLARE the module coordinate must use the exact /v6 path.
 	for _, f := range []string{
 		"release/release-manifest.json",
 		"release/release-plan.json",
@@ -55,8 +55,15 @@ func TestKubernetesModulePathIsV5Everywhere(t *testing.T) {
 	}
 
 	// No active, git-tracked text file may announce the BARE module path (the module
-	// path without /v5). Directory references use github.com/<owner>/<repo>/tree/…,
-	// which does not contain the bare module path, so they are unaffected.
+	// path without /v6) or a previous major's. History may name a previous major: the
+	// CHANGELOGs, the v1-to-v2 migration guide and the last release's transaction record
+	// what was true when they were written. Directory references use
+	// github.com/<owner>/<repo>/tree/…, which does not contain the bare module path, so
+	// they are unaffected.
+	history := func(rel string) bool {
+		return strings.HasSuffix(rel, "CHANGELOG.md") || rel == "MIGRATION.md" || rel == "release/release-transaction.json"
+	}
+	ref := regexp.MustCompile(regexp.QuoteMeta(bare) + `(/v\d+)?\b`)
 	out, err := exec.Command("git", "-C", root, "ls-files").Output()
 	if err != nil {
 		t.Fatalf("git ls-files: %v", err)
@@ -70,15 +77,16 @@ func TestKubernetesModulePathIsV5Everywhere(t *testing.T) {
 			continue
 		}
 		b, e := os.ReadFile(filepath.Join(root, rel))
-		if e != nil {
+		if e != nil || !strings.Contains(string(b), bare) {
 			continue
 		}
-		// Remove every correct "<bare>/v5" occurrence; anything left is a bare path.
-		stripped := strings.ReplaceAll(string(b), bare+"/v5", "")
-		if strings.Contains(stripped, bare) {
-			for i, line := range strings.Split(string(b), "\n") {
-				if strings.Contains(strings.ReplaceAll(line, bare+"/v5", ""), bare) {
-					t.Errorf("%s:%d announces the bare Kubernetes module path (missing /v5): %s", rel, i+1, strings.TrimSpace(line))
+		for i, line := range strings.Split(string(b), "\n") {
+			for _, m := range ref.FindAllStringSubmatch(line, -1) {
+				switch {
+				case m[1] == "":
+					t.Errorf("%s:%d announces the bare Kubernetes module path (missing /v6): %s", rel, i+1, strings.TrimSpace(line))
+				case m[1] != "/v6" && !history(rel):
+					t.Errorf("%s:%d announces a previous major of the Kubernetes module path (%s, not /v6): %s", rel, i+1, m[1], strings.TrimSpace(line))
 				}
 			}
 		}

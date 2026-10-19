@@ -1,6 +1,32 @@
 # Packaging ignore
 
-The `.pactoignore` file lets you exclude files and directories from contract bundles when running `pacto pack` or `pacto push`. It uses gitignore-style syntax and is applied automatically when present in the contract directory.
+Keep files out of the contract you publish. Put a `.pactoignore` file next to `pacto.yaml`, write patterns the way you would in `.gitignore`, and `pacto pack` and `pacto push` leave the matching files out. Use it for build output, editor files and anything secret, such as the sample config you inferred a schema from.
+
+## Example `.pactoignore`
+
+```text
+# Build artifacts
+dist/
+build/
+*.log
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+
+# Temporary files
+tmp/
+*.tmp
+
+# Large binaries not needed in the bundle
+data/*.bin
+
+# Include specific exception
+!data/config.bin
+```
+
+The final `!data/config.bin` re-includes one file that an earlier pattern excluded (negation).
 
 ---
 
@@ -20,7 +46,7 @@ The `.pactoignore` file lets you exclude files and directories from contract bun
 | `/` at end | Match directories only |
 | `!` at start | Negate the pattern (include matching files even if earlier patterns excluded them) |
 
-Last-match-wins: if a file matches multiple patterns, the final pattern in the file determines whether it is ignored or included.
+The last matching pattern wins: if a file matches several, the last one decides whether it is left out or kept.
 
 ---
 
@@ -58,32 +84,6 @@ The same rule applies to `configurations[].schema`, `policies[].schema` and any 
 
 ---
 
-## Example `.pactoignore`
-
-```text
-# Build artifacts
-dist/
-build/
-*.log
-
-# Editor files
-.vscode/
-.idea/
-*.swp
-
-# Temporary files
-tmp/
-*.tmp
-
-# Large binaries not needed in the bundle
-data/*.bin
-
-# Include specific exception
-!data/config.bin
-```
-
-The final `!data/config.bin` re-includes one file that an earlier pattern excluded (negation).
-
 ---
 
 ## Commands affected
@@ -93,7 +93,7 @@ The final `!data/config.bin` re-includes one file that an earlier pattern exclud
 - **`pacto pack`** — files matching ignore patterns are excluded from the tar.gz archive
 - **`pacto push`** — files matching ignore patterns are excluded from the OCI artifact
 
-Every command that loads a local bundle reads through the ignore filter, so ignored files are invisible to all of them. The commands that validate the bundle (`validate`, `pack`, `push`) hard-fail on a missing referenced file, while `graph`, `diff`, `doc` and `explain` simply do not see the file and produce incomplete output. Only `pacto pack` and `pacto push` additionally package the filtered file set into the shipped artifact.
+Every command that loads a local bundle reads through the ignore filter, so ignored files are invisible to all of them. The commands that validate the bundle (`validate`, `pack`, `push`) hard-fail on a missing referenced file, while `graph`, `diff`, `doc` and `explain` do not see the file and produce incomplete output. Only `pacto pack` and `pacto push` additionally package the filtered file set into the shipped artifact.
 
 ---
 

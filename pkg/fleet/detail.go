@@ -5,9 +5,9 @@ import (
 	"sort"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/readiness"
-	"github.com/trianalab/pacto/v3/pkg/semver"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/readiness"
+	"github.com/trianalab/pacto/v4/pkg/semver"
 )
 
 // This file builds the strongly typed, discriminated entity-detail model. There

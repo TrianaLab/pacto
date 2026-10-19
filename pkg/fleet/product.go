@@ -2,11 +2,12 @@ package fleet
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 )
 
 // ProductSchemaVersion is the wire version of the product-oriented dashboard API
@@ -608,32 +609,10 @@ func (q *Query) Attention(f AttentionFilter) (*AttentionList, error) {
 		}
 	}
 	sortAttention(filtered)
-	total := len(filtered)
-	limit := f.Limit
-	if limit <= 0 {
-		limit = DefaultAttentionLimit
-	}
-	if limit > MaxAttentionLimit {
-		limit = MaxAttentionLimit
-	}
-	start := f.Offset
-	if start > total {
-		start = total
-	}
-	end := start + limit
-	if end > total {
-		end = total
-	}
-	page := append([]AttentionItem{}, filtered[start:end]...)
-	truncated := end < total
-	var next *int
-	if truncated {
-		n := end
-		next = &n
-	}
+	pg := Paginate(filtered, f.Limit, f.Offset, DefaultAttentionLimit, MaxAttentionLimit)
 	return &AttentionList{
-		Meta: q.productMeta(), Total: total, Count: len(page),
-		Limit: limit, Offset: start, Truncated: truncated, NextOffset: next, Items: page,
+		Meta: q.productMeta(), Total: len(filtered), Count: len(pg.Items),
+		Limit: pg.Limit, Offset: pg.Offset, Truncated: pg.Truncated, NextOffset: pg.NextOffset, Items: pg.Items,
 		Severities: attentionSeverities(filtered), Categories: attentionCategories(filtered),
 	}, nil
 }
@@ -658,17 +637,21 @@ type AttentionCategoryCount struct {
 	Count    int    `json:"count"`
 }
 
-// AttentionCategories is the canonical display order of the triage categories,
-// worst first. It mirrors the AttentionItem.Category enum.
-var AttentionCategories = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "readiness"}
+// attentionCategoryOrder is the canonical display order of the triage
+// categories, worst first. It mirrors the AttentionItem.Category enum.
+var attentionCategoryOrder = []string{"non-compliant", "invalid", "unknown", "stale", "unresolved", "readiness"}
+
+// AttentionCategoriesList returns the canonical display order of the triage
+// categories, worst first, as a fresh copy the caller may modify.
+func AttentionCategoriesList() []string { return slices.Clone(attentionCategoryOrder) }
 
 func attentionCategories(items []AttentionItem) []AttentionCategoryCount {
 	counts := map[string]int{}
 	for i := range items {
 		counts[items[i].Category]++
 	}
-	out := make([]AttentionCategoryCount, 0, len(AttentionCategories))
-	for _, c := range AttentionCategories {
+	out := make([]AttentionCategoryCount, 0, len(attentionCategoryOrder))
+	for _, c := range attentionCategoryOrder {
 		out = append(out, AttentionCategoryCount{Category: c, Count: counts[c]})
 		delete(counts, c)
 	}

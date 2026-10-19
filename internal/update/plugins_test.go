@@ -2,11 +2,13 @@ package update
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -40,11 +42,8 @@ func TestBuildPluginDownloadURL(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			origGOOS, origGOARCH := runtimeGOOS, runtimeGOARCH
-			runtimeGOOS, runtimeGOARCH = tt.goos, tt.goarch
-			t.Cleanup(func() { runtimeGOOS, runtimeGOARCH = origGOOS, origGOARCH })
-
 			u := New()
+			u.goos, u.goarch = tt.goos, tt.goarch
 			if got := u.buildPluginDownloadURL(tt.tag, tt.plugin); got != u.DownloadBaseURL+tt.expected {
 				t.Errorf("expected %s, got %s", u.DownloadBaseURL+tt.expected, got)
 			}
@@ -229,10 +228,6 @@ func TestUpdatePlugins_MissingChecksum(t *testing.T) {
 func TestUpdatePlugins_WindowsExt(t *testing.T) {
 	setupTestEnv(t)
 
-	origGOOS := runtimeGOOS
-	runtimeGOOS = "windows"
-	t.Cleanup(func() { runtimeGOOS = origGOOS })
-
 	dir := pluginsOnPath(t, "pacto-plugin-foo.exe")
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -240,14 +235,16 @@ func TestUpdatePlugins_WindowsExt(t *testing.T) {
 		case "/repos/TrianaLab/pacto-plugins/releases/latest":
 			_ = json.NewEncoder(w).Encode(githubRelease{TagName: "v1.0.0"})
 		case "/TrianaLab/pacto-plugins/releases/download/v1.0.0/checksums.txt":
-			writePluginChecksums(w, "pacto-plugin-foo", "new-plugin")
+			_, _ = fmt.Fprintf(w, "%s  pacto-plugin-foo_windows_%s.exe\n", sha256hex("new-plugin"), runtime.GOARCH)
 		default:
 			_, _ = w.Write([]byte("new-plugin"))
 		}
 	}))
 	t.Cleanup(server.Close)
 
-	results, err := testUpdater(server).UpdatePlugins()
+	u := testUpdater(server)
+	u.goos = "windows"
+	results, err := u.UpdatePlugins()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

@@ -1,10 +1,90 @@
 # MCP Integration
 
-Pacto includes a built-in [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server that exposes contract operations as tools, so an AI assistant can create, edit and validate Pacto contracts directly.
+Let an AI assistant such as Claude, Cursor or Copilot write and check Pacto contracts, call your service's API and answer questions about your fleet. `pacto mcp` is a Model Context Protocol (MCP) server. MCP is the standard way an AI assistant discovers and calls tools.
 
-Point the server at a bundle and every operation in the bundle's OpenAPI interface becomes an executable agent tool.
+## Connect your MCP client
 
-MCP is an integration surface. The projection that turns a bundle's interface into callable tools lives in `pkg/capability`; MCP is the transport.
+Every client starts the `pacto` binary and talks to it over stdin and stdout. Pick yours:
+
+=== "Claude Code"
+
+    Add to your project's `.mcp.json`:
+
+    ```json
+    {
+      "mcpServers": {
+        "pacto": { "command": "pacto", "args": ["mcp"] }
+      }
+    }
+    ```
+
+=== "Claude Desktop"
+
+    Add to `claude_desktop_config.json` (`~/Library/Application Support/Claude/` on macOS, `%APPDATA%\Claude\` on Windows):
+
+    ```json
+    {
+      "mcpServers": {
+        "pacto": { "command": "pacto", "args": ["mcp"] }
+      }
+    }
+    ```
+
+=== "Cursor"
+
+    Add to `.cursor/mcp.json`:
+
+    ```json
+    {
+      "mcpServers": {
+        "pacto": { "command": "pacto", "args": ["mcp"] }
+      }
+    }
+    ```
+
+=== "GitHub Copilot"
+
+    Add to `.vscode/mcp.json` (requires VS Code 1.99+ and the Copilot Chat extension):
+
+    ```json
+    {
+      "servers": {
+        "pacto": { "command": "pacto", "args": ["mcp"] }
+      }
+    }
+    ```
+
+To serve a bundle's operations as tools, append the bundle reference and flags to `args` (see [bundle capabilities](#bundle-capabilities)).
+
+Every snippet above is the **authoring** server, and `pacto_create` and `pacto_edit` write files. If the agent must change nothing, use [catalog mode](#catalog-mode) instead:
+
+```json
+{
+  "mcpServers": {
+    "pacto": { "command": "pacto", "args": ["mcp", "--root", "oci://ghcr.io/acme/platform:1.4.0"] }
+  }
+}
+```
+
+`--fleet` is not the read-only choice, despite its tools being read-only: it adds the fleet family *beside* the authoring tools rather than instead of them.
+
+### Example prompts
+
+```text
+You:    Create a pacto contract for a stateful Go HTTP API called user-service
+        that stores data in PostgreSQL
+Claude: [creates pacto.yaml with an http-api openapi interface, state.type
+         stateful and persistence.durability persistent -- and no dependency]
+
+You:    Add a dependency on payments-api
+Claude: [calls pacto_edit with add_dependencies]
+
+You:    Check the contract in ./payments-api
+Claude: payments-api is valid. Suggestion: "No dependencies declared. If this
+        service depends on others, declare them explicitly."
+```
+
+Two things to notice. Pacto never guesses dependencies: naming PostgreSQL adds no `dependencies` section, so the second prompt adds one. And it is stateful only because the agent passed `stores_data` and `data_survives_restart`.
 
 ---
 
@@ -18,7 +98,7 @@ flowchart LR
     MCP -->|"JSON responses"| AI
 ```
 
-The assistant works through the tool interface.
+What the assistant can reach depends on how you start the server:
 
 | Mode | What it reaches |
 |------|-----------------|
@@ -33,7 +113,7 @@ The assistant works through the tool interface.
 
 | Family | Tools | What they do | Safety boundary |
 |--------|-------|--------------|-----------------|
-| **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files, not live systems. `pacto_edit` writes only after validation — with a [known gap](#pacto_edit-can-write-a-bundle-that-pacto-validate-rejects). |
+| **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files, not live systems. `pacto_edit` writes only after validation. |
 | **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call is bounded by a 30-second timeout and follows no redirect at all — a 3xx comes back to the agent as the result. |
 | **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only understanding of the *operational system* — services, revisions, targets, relationships and status. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects. | Read-only always: they write nothing, anywhere. Two things that boundary does *not* cover — read-only is not offline, and a read-only *family* is not a read-only *server*: see [Fleet query safety](#fleet-query-safety). The only server with no write tool is catalog mode. |
 
@@ -105,9 +185,25 @@ These four are the default server, and every mode except `--root` carries them a
 !!! warning
     Passing a real JSON array or object where the JSON-encoded string is expected is a **silent no-op**. The argument is discarded, the call still succeeds, `changes` comes back `null` and nothing is written — check the result's `changes` and `summary`. `pacto_check`'s own "add an interface" suggestion carries `add_interfaces` as a real array, so an agent that forwards that tool call verbatim walks into this.
 
-### `pacto_edit` can write a bundle that `pacto validate` rejects
+**`pacto_check` is `pacto validate`.** It runs the same validation path, including `pacto.lock` verification and recursive `policies[].ref` resolution, so a contract it calls valid is one CI accepts.
 
-It scaffolds a stub spec file only for `openapi` and `grpc` interfaces. An `asyncapi` interface is added to `pacto.yaml` with a derived ref and no file is created, so the tool reports success while the referenced file is missing. Create the AsyncAPI document yourself after the edit.
+**`add_config_properties` writes the schema.** `pacto_edit` merges the properties into the first configuration's local schema file (`configuration/schema.json` when it has to declare one). A property already in the schema is replaced and `required` names are unioned.
+
+### How `pacto_create` reads a description
+
+`description` is matched against fixed keyword lists, case-insensitively and on whole words. A match only fills in what the call left unsaid: explicit `interfaces` or `workload` always win, and every inference is listed in the result's `derived`.
+
+| Keywords | Inferred |
+|----------|----------|
+| `REST`, `HTTP`, `API`, `web` | a public `openapi` interface named `http-api` |
+| `gRPC` | an internal `grpc` interface named `grpc-api` |
+| `event`, `kafka`, `nats`, `pubsub`, `queue`, `message`, `rabbit` | an `asyncapi` interface named `events` |
+| `worker`, `consumer`, `processor` | a `job` workload |
+| `cron`, `scheduled`, `periodic`, `batch` | a `scheduled` workload (wins over `job`) |
+
+Interfaces are only inferred when the call passes none. The lists are a heuristic, not a parser: "no HTTP" still matches `HTTP`.
+
+State is never inferred: without the state flags the contract is stateless. Naming `postgres` says the service uses a database, not that it keeps state.
 
 ---
 
@@ -176,92 +272,6 @@ pacto mcp -t http --port 9090
 ```
 
 Connect your client to `http://127.0.0.1:8585/mcp` (or your chosen port).
-
----
-
-## Connect your MCP client
-
-Every client points the same way — it runs the `pacto` binary over stdio. Pick yours:
-
-=== "Claude Code"
-
-    Add to your project's `.mcp.json`:
-
-    ```json
-    {
-      "mcpServers": {
-        "pacto": { "command": "pacto", "args": ["mcp"] }
-      }
-    }
-    ```
-
-=== "Claude Desktop"
-
-    Add to `claude_desktop_config.json` (`~/Library/Application Support/Claude/` on macOS, `%APPDATA%\Claude\` on Windows):
-
-    ```json
-    {
-      "mcpServers": {
-        "pacto": { "command": "pacto", "args": ["mcp"] }
-      }
-    }
-    ```
-
-=== "Cursor"
-
-    Add to `.cursor/mcp.json`:
-
-    ```json
-    {
-      "mcpServers": {
-        "pacto": { "command": "pacto", "args": ["mcp"] }
-      }
-    }
-    ```
-
-=== "GitHub Copilot"
-
-    Add to `.vscode/mcp.json` (requires VS Code 1.99+ and the Copilot Chat extension):
-
-    ```json
-    {
-      "servers": {
-        "pacto": { "command": "pacto", "args": ["mcp"] }
-      }
-    }
-    ```
-
-To serve a bundle's operations as executable tools, append the bundle reference and flags to `args`.
-
-Every snippet above is the **authoring** server, and `pacto_create` and `pacto_edit` write files. If the agent must change nothing, use catalog mode instead:
-
-```json
-{
-  "mcpServers": {
-    "pacto": { "command": "pacto", "args": ["mcp", "--root", "oci://ghcr.io/acme/platform:1.4.0"] }
-  }
-}
-```
-
-`--fleet` is not the read-only choice, despite its tools being read-only: it adds the fleet family *beside* the authoring tools rather than instead of them.
-
-### Example prompts
-
-```text
-You:    Create a pacto contract for a stateful Go HTTP API called user-service
-        that stores data in PostgreSQL
-Claude: [creates pacto.yaml with an http-api openapi interface, state.type
-         stateful and persistence.durability persistent -- and no dependency]
-
-You:    Add a dependency on payments-api
-Claude: [calls pacto_edit with add_dependencies]
-
-You:    Check the contract in ./payments-api
-Claude: payments-api is valid. Suggestion: "No dependencies declared. If this
-        service depends on others, declare them explicitly."
-```
-
-The first answer is the honest one. Dependencies are never inferred — a description that names PostgreSQL still produces no `dependencies` section, which is why the second prompt exists. `PostgreSQL` is also not the word that made this contract stateful: the generator matches whole words against your description. Here "stateful" and "stores data" did the work. Ask for the same contract without those two phrases and you get a stateless one.
 
 ---
 

@@ -7,9 +7,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/otelobserver"
-	"github.com/trianalab/pacto/v3/pkg/reconcile"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/otelobserver"
+	"github.com/trianalab/pacto/v4/pkg/reconcile"
 )
 
 func TestObservedFromEdges_DomainScopedAndUnresolved(t *testing.T) {

@@ -4,13 +4,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/evidence"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // ExampleEvaluate is the canonical "custom collector" flow shown in
-// docs/collectors.md: construct a Contract, have a collector produce a validated
+// docs/model.md: construct a Contract, have a collector produce a validated
 // EvidenceSet, then call the pure engine and inspect Findings + Coverage. It is a
 // compiled, run test (the // Output line is asserted by `go test`), so the
 // documentation snippet can never drift from an API that actually exists.

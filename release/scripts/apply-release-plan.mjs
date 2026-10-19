@@ -252,10 +252,20 @@ function stable(v) {
 // a byte-identical tree. Deterministic input, deterministic hash, so the re-run is a no-op.
 // Section 1 has already proved the pin names a version this module path can carry, so the
 // coordinate resolved below is one the proxy can actually be asked about.
+//
+// Also skipped between a module-path rename and the major changeset that follows it. The
+// path already says /vN, so the plan pins vN.0.0, but the core unit still reads vN-1:
+// nothing at vN.0.0 is released from this tree, and the commit that will be is the Version
+// PR's, whose CHANGELOGs and unit versions change the hash. Minting the entry here would
+// then freeze it, because a present entry is never recomputed, and ship the v3.3.2
+// mismatch. go.work's replace resolves the pin in the meantime; the Version PR, where the
+// unit reaches vN, stages the entry from the tree it releases. The same rule exempts
+// TestOperatorGoSumCoversThePinnedCoreVersion.
+const renamePending = majorOf(`v${core.version}`) < pathMajor;
 {
   const rel = 'integrations/kubernetes/go.sum';
   const before = readFileSync(R(rel), 'utf8');
-  if (!before.includes(`${pin.module} ${pin.version} h1:`)) {
+  if (!renamePending && !before.includes(`${pin.module} ${pin.version} h1:`)) {
     const opDir = R('integrations', 'kubernetes');
     // Section 1 already pinned the require, so go.mod is at its final state here.
     // `-mod=mod` below licenses go to rewrite it; nothing about resolving one

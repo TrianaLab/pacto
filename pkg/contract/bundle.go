@@ -3,6 +3,7 @@ package contract
 import (
 	"errors"
 	"io/fs"
+	"strings"
 )
 
 // Bundle represents a contract bundled with its referenced files.
@@ -28,4 +29,25 @@ func (b *Bundle) Raw() ([]byte, error) {
 		return nil, errors.New("bundle has no raw YAML or filesystem")
 	}
 	return fs.ReadFile(b.FS, "pacto.yaml")
+}
+
+// DocsDir is the bundle directory that holds Markdown documentation.
+const DocsDir = "docs"
+
+// WalkDocs calls fn with the path of every docs/**/*.md file in fsys, in lexical
+// order, until fn returns false. A missing docs/ or an unreadable subtree is
+// skipped rather than reported: documentation is optional. A nil fsys has none.
+func WalkDocs(fsys fs.FS, fn func(path string) bool) {
+	if fsys == nil {
+		return
+	}
+	_ = fs.WalkDir(fsys, DocsDir, func(p string, d fs.DirEntry, err error) error { //nolint:errcheck // the callback never fails
+		if err != nil || d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
+			return nil
+		}
+		if !fn(p) {
+			return fs.SkipAll
+		}
+		return nil
+	})
 }

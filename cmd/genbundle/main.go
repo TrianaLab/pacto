@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
 )
 
 func main() {

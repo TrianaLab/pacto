@@ -22,10 +22,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v5/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // port is the Service port every fixture uses; the collector resolves probe targets to it.
@@ -788,10 +788,15 @@ func TestExtensionCapability(t *testing.T) {
 		Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
 	})
 	p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-	requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
-	requireFinding(t, p, "EXTENSION_EVALUATOR_UNAVAILABLE")
+	// No evaluator exists for an extension, so it is listed as unverified coverage rather than counted as a
+	// required assertion nothing could satisfy: the contract reaches Compliant.
+	requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+	requireNoFinding(t, p, "EXTENSION_EVALUATOR_UNAVAILABLE")
 	requireNoFinding(t, p, "EVIDENCE_MISSING")
-	requireCoverage(t, p, 0, 1) // required but never evaluable (no collector observation)
+	requireCoverage(t, p, 0, 0)
+	if u := p.Status.EvaluationCoverage.Unverified; len(u) != 1 || u[0] != "capabilities[ref=example.com/backup]" {
+		t.Fatalf("unverified = %v, want [capabilities[ref=example.com/backup]]", u)
+	}
 }
 
 // =====================================================================================
@@ -811,7 +816,7 @@ func TestDependencies(t *testing.T) {
 
 	t.Run("ready_backend_compliant", func(t *testing.T) {
 		ns := newNamespace(t)
-		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		createService(t, ns, "pay-svc", port)
 		createEndpointSlice(t, ns, "pay-svc", port, 1)
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
@@ -823,7 +828,7 @@ func TestDependencies(t *testing.T) {
 
 	t.Run("zero_ready_within_window_unknown", func(t *testing.T) {
 		ns := newNamespace(t)
-		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		createService(t, ns, "pay-svc", port)
 		createEndpointSlice(t, ns, "pay-svc", port, 0)
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
@@ -835,7 +840,7 @@ func TestDependencies(t *testing.T) {
 
 	t.Run("zero_ready_beyond_window_noncompliant_DEPENDENCY_UNREACHABLE", func(t *testing.T) {
 		ns := newNamespace(t)
-		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		createService(t, ns, "pay-svc", port)
 		createEndpointSlice(t, ns, "pay-svc", port, 0)
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
@@ -861,7 +866,7 @@ func TestDependencies(t *testing.T) {
 		// Sibling CR resolves to a serviceName, but the backing Service itself is absent -> a windowed
 		// reachability negative (spec section 7.6). Within window -> honest Unknown, never a violation.
 		ns := newNamespace(t)
-		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		// no createService("pay-svc") -> Service GET returns NotFound
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
 			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
@@ -874,7 +879,7 @@ func TestDependencies(t *testing.T) {
 	t.Run("sibling_service_notfound_beyond_window_noncompliant_DEPENDENCY_UNREACHABLE", func(t *testing.T) {
 		// Same absent-Service negative sustained beyond the stabilization window -> confirmed unreachable.
 		ns := newNamespace(t)
-		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
 			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
 		reconcile(t, "p", ns, reconcileOpts{}) // seed window (within -> Unknown)
@@ -889,7 +894,7 @@ func TestDependencies(t *testing.T) {
 		// Sibling resolves to a type=ExternalName Service (no selector, no endpoints) -> the observer cannot
 		// count readiness, so the honest subcode is Unsupported (spec section 7.6), never a violation.
 		ns := newNamespace(t)
-		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		createExternalNameService(t, ns, "pay-svc", "payments.external.example.com")
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
 			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
@@ -911,7 +916,7 @@ func TestDependencies(t *testing.T) {
 
 	t.Run("optional_beyond_window_warning", func(t *testing.T) {
 		ns := newNamespace(t)
-		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		createService(t, ns, "pay-svc", port)
 		createEndpointSlice(t, ns, "pay-svc", port, 0)
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
@@ -932,7 +937,7 @@ func TestDependencies(t *testing.T) {
 		// boundary, run a COLLECTION_FAILED cycle (the dependency Service GET errors) and assert the
 		// window is PRESERVED and the status is Unknown, then a normal reconcile confirms NonCompliant.
 		ns := newNamespace(t)
-		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		createService(t, ns, "pay-svc", port)
 		createEndpointSlice(t, ns, "pay-svc", port, 0) // sustained zero-ready negative
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
@@ -971,7 +976,7 @@ func TestDependencies(t *testing.T) {
 
 	t.Run("window_resets_when_backend_becomes_ready", func(t *testing.T) {
 		ns := newNamespace(t)
-		createSiblingPacto(t, ns, "pay", "pay-svc", "oci://ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
+		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		createService(t, ns, "pay-svc", port)
 		createEndpointSlice(t, ns, "pay-svc", port, 0)
 		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
@@ -1396,7 +1401,7 @@ func TestReconciledStatusIsNamedByTheFleet(t *testing.T) {
 		want      string
 	}{
 		{"compliant", reconcileWorkloadCompliant, fleet.StatusCompliant},
-		{"unknown", reconcileExtensionUnknown, fleet.StatusUnknown},
+		{"unknown", reconcileUnboundUnknown, fleet.StatusUnknown},
 		{"noncompliant", reconcilePersistenceNonCompliant, fleet.StatusNonCompliant},
 		{"invalid", reconcileInvalid, fleet.StatusInvalid},
 		{"reference", reconcileReference, fleet.StatusReference},
@@ -1434,11 +1439,14 @@ func reconcileWorkloadCompliant(t *testing.T) *pactov1alpha1.Pacto {
 	return reconcile(t, "cmp", ns, reconcileOpts{}).pacto
 }
 
-func reconcileExtensionUnknown(t *testing.T) *pactov1alpha1.Pacto {
+// reconcileUnboundUnknown declares an interface the CR never binds to a Service port: the collector cannot
+// observe it (OBSERVATION_UNSUPPORTED), which is Unknown. An extension capability no longer serves here: it is
+// listed as unverified coverage and reaches Compliant.
+func reconcileUnboundUnknown(t *testing.T) *pactov1alpha1.Pacto {
 	ns := newNamespace(t)
 	createPacto(t, "unk", ns, pactov1alpha1.PactoSpec{
 		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
-			name: "svc-unknown", caps: []capSpec{{typ: "extension", ref: "example.com/x"}}})},
+			name: "svc-unknown", ifaces: []ifaceSpec{{name: "api"}}})},
 		Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
 	})
 	return reconcile(t, "unk", ns, reconcileOpts{}).pacto

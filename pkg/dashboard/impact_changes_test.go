@@ -3,12 +3,11 @@ package dashboard
 import (
 	"context"
 	"net/http"
-	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/diff"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/diff"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 // The Change-analysis workspace shows the field-level semantic diff AND the blast
@@ -68,7 +67,7 @@ func TestProductImpact_ChangesTruncateHonestly(t *testing.T) {
 	q := twoDomainDashboardQuery(t)
 	snapID := q.SnapshotID()
 	from := revKeyForDomain(t, q, "domain-a")
-	many := make([]diff.Change, MaxImpactChanges+5)
+	many := make([]diff.Change, impact.MaxProductChanges+5)
 	for i := range many {
 		many[i] = diff.Change{Path: "p", Type: diff.Modified, Classification: diff.NonBreaking}
 	}
@@ -86,11 +85,11 @@ func TestProductImpact_ChangesTruncateHonestly(t *testing.T) {
 	if !out.Changes.Truncated {
 		t.Fatal("an over-bound change set must report truncation")
 	}
-	if out.Changes.Count != MaxImpactChanges {
-		t.Errorf("count = %d, want the bound %d", out.Changes.Count, MaxImpactChanges)
+	if out.Changes.Count != impact.MaxProductChanges {
+		t.Errorf("count = %d, want the bound %d", out.Changes.Count, impact.MaxProductChanges)
 	}
-	if out.Changes.Total != MaxImpactChanges+6 {
-		t.Errorf("total = %d, want every change found (%d)", out.Changes.Total, MaxImpactChanges+6)
+	if out.Changes.Total != impact.MaxProductChanges+6 {
+		t.Errorf("total = %d, want every change found (%d)", out.Changes.Total, impact.MaxProductChanges+6)
 	}
 	// The breaking change is never the one dropped: it sorts first.
 	if out.Changes.Items[0].Classification != "BREAKING" {
@@ -112,34 +111,5 @@ func TestProductImpact_ChangesEmptyIsAnAnswer(t *testing.T) {
 	postJSON(t, base+"/api/fleet/impact", impactRequest{SnapshotID: snapID, FromRevisionKey: from, ToRevisionKey: from}, http.StatusOK, &out)
 	if out.Changes.Total != 0 || out.Changes.Count != 0 || out.Changes.Truncated || out.Changes.Items == nil {
 		t.Errorf("empty change preview = %+v, want zeroed with a non-nil items slice", out.Changes)
-	}
-}
-
-// renderChangeValue bounds EACH value: one changed OpenAPI schema must not make the
-// answer unbounded, and the cut is reported rather than silent.
-func TestRenderChangeValue(t *testing.T) {
-	if s, cut := renderChangeValue(nil); s != "" || cut {
-		t.Errorf("nil = %q/%v, want empty and uncut", s, cut)
-	}
-	if s, cut := renderChangeValue("plain"); s != "plain" || cut {
-		t.Errorf("string = %q/%v, want passthrough", s, cut)
-	}
-	// A composite value renders as indented JSON, the shape a reviewer can read.
-	s, cut := renderChangeValue(map[string]any{"a": 1})
-	if cut || !strings.Contains(s, "\"a\": 1") {
-		t.Errorf("composite = %q/%v, want indented JSON", s, cut)
-	}
-	// A value JSON cannot encode still renders something rather than vanishing.
-	if s, _ := renderChangeValue(make(chan int)); s == "" {
-		t.Error("an unmarshalable value must still render")
-	}
-	long, cut := renderChangeValue(strings.Repeat("x", MaxChangeValueRunes+50))
-	if !cut || len([]rune(long)) != MaxChangeValueRunes {
-		t.Errorf("over-long value = %d runes cut=%v, want %d runes cut", len([]rune(long)), cut, MaxChangeValueRunes)
-	}
-	// Truncation counts RUNES, so a multi-byte value is never cut mid-character.
-	multi, cut := renderChangeValue(strings.Repeat("é", MaxChangeValueRunes+10))
-	if !cut || len([]rune(multi)) != MaxChangeValueRunes {
-		t.Errorf("multibyte cut = %d runes, want %d", len([]rune(multi)), MaxChangeValueRunes)
 	}
 }

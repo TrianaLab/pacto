@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/tests/acceptance/scenario"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/tests/acceptance/scenario"
 )
 
 // These tests hold the gate to the rule that makes its twelve facts mean anything:
@@ -153,6 +153,41 @@ type fakeProduct struct {
 	// no operational target. The EXTERNAL target still exists; it comes from the
 	// Evidence Server, which Compose runs.
 	noController bool
+	// deafCollector, when set, is the collector the deaf workload's
+	// INTERFACE_ABSENT is cited to instead of the surface's kernel collector.
+	deafCollector string
+}
+
+// surface is the surface the fake stands in for.
+func (f *fakeProduct) surface() scenario.Surface {
+	if f.noController {
+		return scenario.SurfaceCompose
+	}
+	return scenario.SurfaceKubernetes
+}
+
+// deafFindings is what the kernel reports about a deaf workload: nothing listens
+// on its bound interface.
+func (f *fakeProduct) deafFindings(svc string) fleet.FindingsPreview {
+	s, _ := scenario.OperationalGraph.Service(svc)
+	if s.Workload == nil || !s.Workload.Deaf {
+		return fleet.FindingsPreview{}
+	}
+	collector := f.deafCollector
+	if collector == "" {
+		collector = f.surface().KernelCollector()
+	}
+	// The operator spells the subject as one string; the evidence path as a kind
+	// and a name. The gate must read both.
+	subject := fleet.ProductSubjectRef{Name: "interface/" + s.Workload.Interface}
+	if f.noController {
+		subject = fleet.ProductSubjectRef{Kind: "interface", Name: s.Workload.Interface}
+	}
+	return fleet.FindingsPreview{Total: 1, Count: 1, Items: []fleet.ProductFinding{{
+		Code: "INTERFACE_ABSENT", Severity: "error",
+		Subject:      subject,
+		EvidenceRefs: fleet.ProductEvidenceRefsPreview{Total: 1, Count: 1, Items: []fleet.ProductEvidenceRef{{Collector: collector}}},
+	}}}
 }
 
 // revisionSources is the provenance the fake serves for every revision.
@@ -257,7 +292,9 @@ func (f *fakeProduct) list(id string, q url.Values) fleet.EntityList {
 			// Generic handler for any other service with a workload
 			for _, s := range scenario.OperationalGraph.Services {
 				if s.Workload != nil && service == fxServiceKey(s.Name) {
-					if !f.noController {
+					// A deaf workload's target exists on Compose too: the host agent
+					// reports it over the Evidence Server.
+					if !f.noController || s.Workload.Deaf {
 						refs = []fleet.EntityRef{{Kind: "target", Key: "tgt:" + s.Name, Label: s.Name}}
 					}
 					break
@@ -313,6 +350,10 @@ func (f *fakeProduct) detail(id, kind, key string) (fleet.EntityDetail, bool) {
 					LinkState: "exact",
 					Revision:  &fleet.EntityRef{Kind: "revision", Key: "rev:" + svcName},
 					Source:    "k8s",
+					Findings:  f.deafFindings(svcName),
+				}
+				if f.noController {
+					d.Target.Source = fxEvidence
 				}
 			} else {
 				return d, false
@@ -781,4 +822,27 @@ func containsSubstring(problems []string, want string) bool {
 		}
 	}
 	return false
+}
+
+// The deaf workload must be caught BY THE KERNEL. An INTERFACE_ABSENT cited to
+// the platform observer alone, or the right finding on the wrong surface's
+// collector, proves nothing about the eBPF agent, so the gate refuses both.
+func TestGateRequiresTheKernelToCatchTheDeafWorkload(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		f    *fakeProduct
+		want string
+	}{
+		{"kubernetes, cited to the platform observer", &fakeProduct{deafCollector: "k8s-observer"}, "seen by k8s-observer+ebpf"},
+		{"compose, cited to the operator's merge", &fakeProduct{noController: true, deafCollector: "k8s-observer+ebpf"}, "seen by pacto-agent+ebpf"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newProber(t, tc.f, 1)
+			p.on(tc.f.surface())
+			_, problems := p.run(io.Discard)
+			if !containsSubstring(problems, tc.want) {
+				t.Errorf("the gate did not refuse a deaf workload the kernel never reported (want %q): %v", tc.want, problems)
+			}
+		})
+	}
 }

@@ -41,3 +41,59 @@ tests:
             verbs: [get, delete]
             resourceNames: [pacto-dashboard]
         any: true
+
+  - it: should let the cached client list and watch configmaps
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [configmaps]
+            verbs: [get, list, watch]
+
+  - it: should always grant the kernel evidence and exposure reads
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [pods]
+            verbs: [get, list, watch]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [pacto.trianalab.io]
+            resources: [noderuntimeobservations]
+            verbs: [delete, get, list, watch]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [networking.k8s.io]
+            resources: [ingresses]
+            verbs: [get, list, watch]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [gateway.networking.k8s.io]
+            resources: [httproutes]
+            verbs: [get, list, watch]
+
+  - it: should grant monitor reads only with metrics observation
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [monitoring.coreos.com]
+            resources: [servicemonitors, podmonitors]
+            verbs: [get, list, watch]
+
+  - it: should grant monitor reads when metrics observation is enabled
+    set:
+      controller.enableMetricsObservation: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [monitoring.coreos.com]
+            resources: [servicemonitors, podmonitors]
+            verbs: [get, list, watch]

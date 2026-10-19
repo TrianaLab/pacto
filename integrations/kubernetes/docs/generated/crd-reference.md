@@ -9,6 +9,60 @@
 Custom Resource Definitions installed by the operator. Field lists below are generated from the authoritative OpenAPI v3 schema in `config/crd/bases/`.
 
 
+## NodeRuntimeObservation
+
+- **API group**: `pacto.trianalab.io`
+- **Version**: `v1alpha1`
+- **Kind**: `NodeRuntimeObservation`
+- **Plural**: `noderuntimeobservations`
+- **Scope**: Namespaced
+
+### Additional printer columns
+
+| Name | Type | JSONPath |
+| --- | --- | --- |
+| Node | string | `.status.nodeName` |
+| State | string | `.status.collection.state` |
+| Last Published | date | `.status.lastPublished` |
+
+### Fields
+
+| Field | Type | Required | Default | Enum | Description |
+| --- | --- | --- | --- | --- | --- |
+| `status` | `object` | no |  |  | status is the agent's published observation. |
+| `status.agentVersion` | `string` | no |  |  | AgentVersion is the node agent build version. |
+| `status.collection` | `object` | no |  |  | Collection is the health of the kernel collection. |
+| `status.collection.droppedEvents` | `integer` | no |  |  | DroppedEvents is the cumulative number of kernel events lost because the ring buffer was full, since the agent started. |
+| `status.collection.lastDropAt` | `string` | no |  |  | LastDropAt is when the agent last saw DroppedEvents increase. |
+| `status.collection.lastResyncAt` | `string` | no |  |  | LastResyncAt is when the agent last completed a /proc baseline scan. |
+| `status.collection.message` | `string` | no |  |  | Message is a human-readable explanation of a non-Running state. |
+| `status.collection.reason` | `string` | no |  |  | Reason is a CamelCase machine-readable cause for a non-Running state. |
+| `status.collection.state` | `string` | yes |  | `Running`, `Degraded`, `Failed` | State is Running, Degraded or Failed. |
+| `status.kernelRelease` | `string` | no |  |  | KernelRelease is the node's kernel release (uname -r). |
+| `status.lastPublished` | `string` | no |  |  | LastPublished is the heartbeat: the time of the most recent publish. |
+| `status.nodeName` | `string` | no |  |  | NodeName is the Kubernetes node this object describes. |
+| `status.observingSince` | `string` | no |  |  | ObservingSince is when this agent process started. |
+| `status.pods` | `[]object` | no |  |  | Pods are the pods running on the node, sorted by UID. |
+| `status.pods[].baselineAt` | `string` | no |  |  | BaselineAt is the last /proc scan that saw the pod. |
+| `status.pods[].connections` | `[]object` | no |  |  | Connections are the pod's outbound TCP peers within the retention window. |
+| `status.pods[].connections[].address` | `string` | yes |  |  | Address is the peer IP address. |
+| `status.pods[].connections[].failures` | `integer` | no |  |  | Failures counts handshakes that went from SYN_SENT straight to CLOSE (refused, reset or timed out). |
+| `status.pods[].connections[].lastFailureAt` | `string` | no |  |  | LastFailureAt is the time of the most recent failure. |
+| `status.pods[].connections[].lastSuccessAt` | `string` | no |  |  | LastSuccessAt is the time of the most recent success. |
+| `status.pods[].connections[].port` | `integer` | yes |  |  | Port is the peer port. |
+| `status.pods[].connections[].successes` | `integer` | no |  |  | Successes counts handshakes that reached ESTABLISHED. |
+| `status.pods[].listeners` | `[]object` | no |  |  | Listeners are the pod's TCP listening sockets. |
+| `status.pods[].listeners[].address` | `string` | no |  |  | Address is the bound local address (0.0.0.0 or :: for all addresses). A loopback-only listener does not serve traffic sent to the pod IP. |
+| `status.pods[].listeners[].family` | `string` | yes |  | `IPv4`, `IPv6` | Family is the socket address family. |
+| `status.pods[].listeners[].port` | `integer` | yes |  |  | Port is the local (container) port. |
+| `status.pods[].listeners[].process` | `string` | no |  |  | Process is the command name of the process that opened the listener, when the agent saw it happen (empty when only the /proc baseline knows it). |
+| `status.pods[].netnsShared` | `boolean` | no |  |  | NetnsShared is true when the pod's network namespace is not its own (the host namespace for hostNetwork pods). Socket events in it cannot be attributed to the pod, so listeners and connections stay empty. |
+| `status.pods[].observedSince` | `string` | no |  |  | ObservedSince is when the agent first mapped the pod's network namespace. |
+| `status.pods[].truncated` | `boolean` | no |  |  | Truncated is true when a per-pod or per-node bound was hit, so listeners or connections may be missing entries. |
+| `status.pods[].uid` | `string` | yes |  |  | UID is the pod UID, read from the pod's cgroup path. |
+| `status.publishIntervalSeconds` | `integer` | no |  |  | PublishIntervalSeconds is how often the agent publishes; readers derive staleness from it. |
+
+
 ## PactoRevision
 
 - **API group**: `pacto.trianalab.io`
@@ -144,11 +198,14 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.evaluationCoverage` | `object` | no |  |  | EvaluationCoverage reports how many required assertions were evaluated (metadata; never affects ContractStatus). |
 | `status.evaluationCoverage.evaluated` | `integer` | yes |  |  | Evaluated is the number of required assertions with a conclusive (Observed) observation. |
 | `status.evaluationCoverage.required` | `integer` | yes |  |  | Required is the total number of required assertions the contract declares. |
+| `status.evaluationCoverage.unverified` | `[]string` | no |  |  | Unverified lists, sorted, the contract paths of declared facets that have a runtime check but no usable fact this time (for example interfaces[name=api].type with probing off). Metadata only: it never changes the contract status. |
 | `status.findings` | `[]object` | no |  |  | Findings is the list of typed conclusions from the Pacto engine. Includes both contract-only findings (structural/semantic) and evidence-based findings (runtime drift). |
 | `status.findings[].category` | `string` | yes |  |  | Category groups related codes (e.g. RuntimeDrift, PolicyViolation). |
 | `status.findings[].code` | `string` | yes |  |  | Code is the stable finding identifier (e.g. WORKLOAD_MISMATCH). |
 | `status.findings[].contractPath` | `string` | no |  |  | ContractPath is the YAML path to the relevant contract field. |
 | `status.findings[].evidenceRefs` | `[]object` | no |  |  | EvidenceRefs links the finding to supporting evidence. |
+| `status.findings[].evidenceRefs[].collector` | `string` | no |  |  | Collector names the producer of the matched observation: k8s-observer for the Kubernetes API alone, k8s-observer+ebpf when kernel evidence was merged in, ebpf when only the kernel saw it. |
+| `status.findings[].evidenceRefs[].detectedAt` | `string` | no |  |  | DetectedAt is the RFC 3339 time the matched observation was made. |
 | `status.findings[].evidenceRefs[].observedAt` | `string` | yes |  |  | ObservedAt is the ISO8601 timestamp when the evidence was collected. |
 | `status.findings[].evidenceRefs[].source` | `string` | yes |  |  | Source is the evidence source (e.g. "k8s"). |
 | `status.findings[].message` | `string` | yes |  |  | Message is a human-readable description. |

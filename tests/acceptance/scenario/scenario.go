@@ -116,6 +116,15 @@ type Workload struct {
 	// has needed one, and a slice of one is harder to read than a pair.
 	Interface string
 	Port      int
+	// Deaf runs the workload READY but listening on nothing, so the bound port is
+	// served by no socket. Kubernetes alone believes it serves (its pod is Ready,
+	// its Service has an endpoint); only the kernel's view of the workload's
+	// sockets can say otherwise. It is the runtime-conformance negative every
+	// surface that provides CapabilityRuntimeConformance must catch: an
+	// INTERFACE_ABSENT finding on the bound interface, cited to the surface's
+	// kernel collector. A deaf workload needs a Port, or there is nothing to be
+	// deaf on.
+	Deaf bool
 }
 
 // Revision is one published version of a service.
@@ -230,6 +239,18 @@ func (s Scenario) Service(name string) (Service, bool) {
 	return Service{}, false
 }
 
+// DeafServices returns every service whose workload is deaf: the runtime
+// conformance negatives the fixture obliges a surface to catch.
+func (s Scenario) DeafServices() []Service {
+	var out []Service
+	for _, svc := range s.Services {
+		if svc.Workload != nil && svc.Workload.Deaf {
+			out = append(out, svc)
+		}
+	}
+	return out
+}
+
 // SourceID returns the id of the single source playing the given role.
 func (s Scenario) SourceID(kind SourceKind) string {
 	for _, src := range s.Sources {
@@ -259,6 +280,9 @@ func (s Scenario) SourceID(kind SourceKind) string {
 func (s Scenario) Validate() error {
 	for _, svc := range s.Services {
 		if svc.Workload != nil {
+			if svc.Workload.Deaf && svc.Workload.Port == 0 {
+				return fmt.Errorf("scenario %s: service %s is deaf on no port; a deaf workload binds an interface to a port nothing listens on", s.Name, svc.Name)
+			}
 			if _, err := svc.DeployedRevision(); err != nil {
 				return fmt.Errorf("scenario %s: %w", s.Name, err)
 			}
@@ -362,6 +386,9 @@ func (s Scenario) FactCount(surface Surface) int {
 		// denominator no projection agreed to.
 		if svc.Workload != nil && surface.Has(CapabilityOperationalTarget) {
 			n++ // exactly one operational target, linking exactly to it
+		}
+		if svc.Workload != nil && svc.Workload.Deaf && surface.Has(CapabilityRuntimeConformance) {
+			n++ // the kernel caught the deaf interface: INTERFACE_ABSENT, cited to it
 		}
 	}
 	n += 3 * len(s.Relationships) // declared, observed, and reconciled as one edge

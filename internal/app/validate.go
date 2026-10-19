@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/graph"
-	"github.com/trianalab/pacto/v3/pkg/logging"
-	"github.com/trianalab/pacto/v3/pkg/override"
-	"github.com/trianalab/pacto/v3/pkg/readiness"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/override"
+	"github.com/trianalab/pacto/v4/pkg/readiness"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // ValidateOptions holds options for the validate command.
@@ -25,10 +25,10 @@ type ValidateOptions struct {
 
 // ValidateResult holds the result of the validate command.
 type ValidateResult struct {
-	Path     string
-	Valid    bool
-	Errors   []contract.ValidationError
-	Warnings []contract.ValidationWarning
+	Path     string                       `json:"path"`
+	Valid    bool                         `json:"valid"`
+	Errors   []contract.ValidationError   `json:"errors"`
+	Warnings []contract.ValidationWarning `json:"warnings"`
 }
 
 // Validate loads a contract, runs validation, and returns the result.
@@ -77,7 +77,7 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 
 	// Opt-in readiness gate. Time-dependent, so only when explicitly requested.
 	if opts.Readiness {
-		if eval := readiness.Evaluate(bundle.Contract.Readiness, timeNow()); eval != nil && !eval.Passing {
+		if eval := readiness.Evaluate(bundle.Contract.Readiness, s.env().now()); eval != nil && !eval.Passing {
 			state := "score below gate"
 			if eval.Expired {
 				state = "assessment expired"
@@ -169,4 +169,15 @@ func (a *bundleResolverAdapter) ResolveBundleFrom(ctx context.Context, base, ref
 		return nil, "", err
 	}
 	return b, graph.OCIBase, nil
+}
+
+// ValidationReport runs Validate for the bundle at dir and returns the verdict in
+// the shape the MCP pacto_check port consumes, so the tool and `pacto validate`
+// share one validation path (lockfile verification included).
+func (s *Service) ValidationReport(ctx context.Context, dir string) (validation.ValidationResult, error) {
+	r, err := s.Validate(ctx, ValidateOptions{Path: dir})
+	if err != nil {
+		return validation.ValidationResult{}, err
+	}
+	return validation.ValidationResult{Errors: r.Errors, Warnings: r.Warnings}, nil
 }

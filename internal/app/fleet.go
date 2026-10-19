@@ -8,10 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v3/internal/fleetsrc"
-	"github.com/trianalab/pacto/v3/internal/k8sclient"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
-	"github.com/trianalab/pacto/v3/pkg/oci"
+	"github.com/trianalab/pacto/v4/internal/fleetsrc"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
 // errNoBundleStore marks an OCI or cache source configured without a store.
@@ -25,12 +24,6 @@ func bundleStoreCacheDir(store any) string {
 	}
 	return ""
 }
-
-// Kubernetes access seams, overridable in tests to avoid real cluster access.
-var (
-	newK8sClient       = k8sclient.NewGoClient
-	currentKubeContext = k8sclient.CurrentKubeContext
-)
 
 // FleetOptions configures how a fleet snapshot is assembled from sources. Local
 // bundle roots supply contract revisions; target-state fixture files supply
@@ -115,15 +108,15 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		}
 	}
 	if opts.IncludeK8s {
-		id := currentKubeContext()
+		id := s.env().kubeContext()
 		if id == "" {
 			id = "k8s"
 		}
-		client, err := newK8sClient()
+		client, err := s.env().newK8s()
 		if err != nil {
 			// An unreachable cluster (no kubeconfig, no API server) surfaces as an
 			// unavailable source, consistent with the other source kinds.
-			sources = append(sources, fleet.NewFailingSource(id, "kubernetes", err))
+			sources = append(sources, fleet.NewFailingSource(id, fleet.SourceKindKubernetes, err))
 		} else {
 			sources = append(sources, fleetsrc.NewK8sSource(id, client, opts.K8sNamespace))
 		}

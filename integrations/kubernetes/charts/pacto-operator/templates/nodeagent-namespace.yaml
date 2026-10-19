@@ -1,0 +1,67 @@
+{{- if .Values.nodeAgent.enabled }}
+{{- $ns := include "pacto-operator.nodeAgentNamespace" . }}
+# The node agent's dedicated namespace: the only one that admits its privileged
+# pods. The chart creates it because the Role below, which lets the operator
+# manage the agent, has to live in it; the operator re-asserts the Pod Security
+# labels on every sync. Disabling the agent removes the namespace and with it
+# everything the agents published.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $ns }}
+  labels:
+    {{- include "pacto-operator.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-agent
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged
+---
+# The operator's lifecycle permissions in the agent namespace. It grants the
+# agents' Role (get, create and patch on their observations and status; get,
+# create, patch and update on their Leases), and Kubernetes only lets it grant
+# what it holds itself (no escalate or bind), so it holds those verbs here, plus
+# delete for the prunes. list and watch on both kinds are in the ClusterRole,
+# which the kernel evidence read needs whether or not the agent is managed.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pacto-operator.fullname" . }}-manager
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pacto-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    verbs: [create, delete, get, patch]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [create, delete, get, patch]
+  - apiGroups: [apps]
+    resources: [daemonsets]
+    verbs: [create, delete, get, patch, update]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [noderuntimeobservations]
+    verbs: [create, delete, get, patch]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [noderuntimeobservations/status]
+    verbs: [create, get, patch]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [create, delete, get, patch, update]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "pacto-operator.fullname" . }}-manager
+  namespace: {{ $ns }}
+  labels:
+    {{- include "pacto-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "pacto-operator.fullname" . }}-manager
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pacto-operator.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}

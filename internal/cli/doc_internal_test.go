@@ -6,20 +6,19 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/testutil"
-	"github.com/trianalab/pacto/v3/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/testutil"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
 )
 
 // TestDocCommand_BuildExportError exercises the otherwise-unreachable
 // buildStaticExport failure branches in both the --serve and -o NAME.html paths
-// by stubbing the package-level indirection.
+// by injecting a failing export.
 func TestDocCommand_BuildExportError(t *testing.T) {
-	orig := buildStaticExport
-	buildStaticExport = func(_ *dashboard.ServiceDetails, _ *dashboard.GlobalGraph) (map[string][]byte, error) {
+	d := defaultDeps()
+	d.buildStaticExport = func(_ *dashboard.ServiceDetails, _ *dashboard.GlobalGraph) (map[string][]byte, error) {
 		return nil, errors.New("boom")
 	}
-	t.Cleanup(func() { buildStaticExport = orig })
 
 	for _, tt := range []struct {
 		name string
@@ -33,7 +32,7 @@ func TestDocCommand_BuildExportError(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			bundleDir := testutil.WriteTestBundle(t)
 			svc := app.NewService(nil, nil)
-			root := NewRootCommand(svc, VersionInfo{Version: "test"})
+			root := newRootCommand(svc, VersionInfo{Version: "test"}, d)
 			root.SetArgs(tt.args(bundleDir))
 
 			err := root.Execute()

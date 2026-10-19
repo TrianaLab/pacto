@@ -1,0 +1,9 @@
+pactoVersion: "2.0"
+service:
+  name: client
+  version: 1.0.0
+dependencies:
+  - name: backend
+    ref: oci://ghcr.io/acme/backend:1.0.0
+    required: true
+    compatibility: "^1.0.0"

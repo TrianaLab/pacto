@@ -10,7 +10,7 @@ package dashboard
 import (
 	"testing"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"k8s.io/apimachinery/pkg/types"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
@@ -94,10 +94,10 @@ func TestDeploymentAC_WithWatchNamespace(t *testing.T) {
 
 func TestDeploymentAC_WithOCISecrets(t *testing.T) {
 	cfg := Config{
-		Enabled:   true,
-		Image:     "img:v1",
-		Namespace: "test-ns",
-		OCISecret: "my-creds",
+		Enabled:    true,
+		Image:      "img:v1",
+		Namespace:  "test-ns",
+		OCISecrets: []string{"my-creds"},
 	}
 	ac := deploymentAC(cfg)
 	deploy, ok := ac.(*appsv1ac.DeploymentApplyConfiguration)

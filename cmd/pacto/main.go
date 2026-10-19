@@ -2,15 +2,16 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/internal/cli"
-	"github.com/trianalab/pacto/v3/pkg/oci"
-	"github.com/trianalab/pacto/v3/pkg/plugin"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/cli"
+	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/plugin"
 )
 
 // Build-time variables set via ldflags.
@@ -22,6 +23,11 @@ var (
 
 func main() {
 	if err := run(); err != nil {
+		// pacto run ends with its command's exit code, having said all there is to say.
+		var exit *cli.ExitError
+		if errors.As(err, &exit) {
+			os.Exit(exit.Code)
+		}
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -45,7 +51,7 @@ func run() error {
 	store := oci.NewCachedStore(oci.NewClient(keychain, clientOpts...))
 
 	svc := app.NewService(store, &plugin.SubprocessRunner{})
-	app.SetBuildVersion(version)
+	svc.Version = version
 	root := cli.NewRootCommand(svc, cli.VersionInfo{
 		Version:   version,
 		GitCommit: gitCommit,

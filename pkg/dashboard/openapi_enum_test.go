@@ -5,7 +5,7 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 )
 
 // This file is the OpenAPI vocabulary spec: it proves the

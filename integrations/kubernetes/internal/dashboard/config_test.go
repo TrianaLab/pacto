@@ -64,10 +64,10 @@ func TestConfigValidate(t *testing.T) {
 		{
 			name: "enabled with OCI secret is valid",
 			cfg: Config{
-				Enabled:   true,
-				Image:     "ghcr.io/trianalab/pacto/dashboard:1.0.0",
-				Namespace: "pacto-system",
-				OCISecret: "registry-creds",
+				Enabled:    true,
+				Image:      "ghcr.io/trianalab/pacto/dashboard:1.0.0",
+				Namespace:  "pacto-system",
+				OCISecrets: []string{"registry-creds"},
 			},
 			wantErr: false,
 		},
@@ -111,65 +111,9 @@ func TestConfigValidate(t *testing.T) {
 	}
 }
 
-func TestHasLatestTag(t *testing.T) {
-	tests := []struct {
-		image string
-		want  bool
-	}{
-		{"ghcr.io/trianalab/pacto/dashboard:0.24.2", false},
-		{"ghcr.io/trianalab/pacto/dashboard:latest", true},
-		{"ghcr.io/trianalab/pacto/dashboard", true},
-		{"my-registry.com/dashboard:v1.2.3", false},
-		{"dashboard:1.0", false},
-		{"dashboard:latest", true},
-		{"dashboard", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.image, func(t *testing.T) {
-			got := hasLatestTag(tt.image)
-			if got != tt.want {
-				t.Errorf("hasLatestTag(%q) = %v, want %v", tt.image, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestEffectiveOCISecrets_OCISecretsOnly(t *testing.T) {
-	cfg := Config{OCISecrets: []string{"a", "b"}}
-	got := cfg.EffectiveOCISecrets()
-	if len(got) != 2 || got[0] != "a" || got[1] != "b" {
-		t.Fatalf("expected [a b], got %v", got)
-	}
-}
-
-func TestEffectiveOCISecrets_OCISecretFallback(t *testing.T) {
-	cfg := Config{OCISecret: "legacy"}
-	got := cfg.EffectiveOCISecrets()
-	if len(got) != 1 || got[0] != "legacy" {
-		t.Fatalf("expected [legacy], got %v", got)
-	}
-}
-
-func TestEffectiveOCISecrets_OCISecretsPrecedence(t *testing.T) {
-	cfg := Config{OCISecret: "old", OCISecrets: []string{"new"}}
-	got := cfg.EffectiveOCISecrets()
-	if len(got) != 1 || got[0] != "new" {
-		t.Fatalf("expected OCISecrets to take precedence, got %v", got)
-	}
-}
-
-func TestEffectiveOCISecrets_Empty(t *testing.T) {
-	cfg := Config{}
-	got := cfg.EffectiveOCISecrets()
-	if got != nil {
-		t.Fatalf("expected nil, got %v", got)
-	}
-}
-
 func TestBuildResources_Defaults(t *testing.T) {
 	rc := ResourcesConfig{}
-	res := rc.BuildResources()
+	res := rc.Build(DefaultResources())
 	if res.Requests.Cpu().String() != "50m" {
 		t.Errorf("expected default CPU request 50m, got %s", res.Requests.Cpu().String())
 	}
@@ -188,7 +132,7 @@ func TestBuildResources_AllOverrides(t *testing.T) {
 		MemoryRequest: "256Mi",
 		MemoryLimit:   "1Gi",
 	}
-	res := rc.BuildResources()
+	res := rc.Build(DefaultResources())
 	if res.Requests.Cpu().String() != "100m" {
 		t.Errorf("expected CPU request 100m, got %s", res.Requests.Cpu().String())
 	}

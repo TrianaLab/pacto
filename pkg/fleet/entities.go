@@ -105,32 +105,10 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	}
 	sortEntityRefs(filtered)
 
-	total := len(filtered)
-	limit := f.Limit
-	if limit <= 0 {
-		limit = DefaultEntityLimit
-	}
-	if limit > MaxEntityLimit {
-		limit = MaxEntityLimit
-	}
-	start := f.Offset
-	if start > total {
-		start = total
-	}
-	end := start + limit
-	if end > total {
-		end = total
-	}
-	page := append([]EntityRef{}, filtered[start:end]...)
-	truncated := end < total
-	var next *int
-	if truncated {
-		n := end
-		next = &n
-	}
+	pg := Paginate(filtered, f.Limit, f.Offset, DefaultEntityLimit, MaxEntityLimit)
 	return &EntityList{
-		Meta: q.productMeta(), Total: total, Count: len(page),
-		Limit: limit, Offset: start, Truncated: truncated, NextOffset: next, Entities: page,
+		Meta: q.productMeta(), Total: len(filtered), Count: len(pg.Items),
+		Limit: pg.Limit, Offset: pg.Offset, Truncated: pg.Truncated, NextOffset: pg.NextOffset, Entities: pg.Items,
 		Aggregate: q.aggregate(filtered),
 	}, nil
 }
@@ -500,4 +478,32 @@ func sortEntityRefs(refs []EntityRef) {
 		}
 		return refs[i].Key < refs[j].Key
 	})
+}
+
+// Page is one offset page of a sorted list: its items and the effective bounds.
+// NextOffset is the offset of the next page, nil on the last one.
+type Page[T any] struct {
+	Items      []T
+	Limit      int
+	Offset     int
+	Truncated  bool
+	NextOffset *int
+}
+
+// Paginate returns the page of all starting at offset. A limit <= 0 becomes
+// defLimit and a limit above maxLimit is capped there; an offset past the end
+// yields an empty last page. Items is a copy, never a window onto all. Negative
+// offsets are the caller's to reject.
+func Paginate[T any](all []T, limit, offset, defLimit, maxLimit int) Page[T] {
+	if limit <= 0 {
+		limit = defLimit
+	}
+	limit = min(limit, maxLimit)
+	start := min(offset, len(all))
+	end := min(start+limit, len(all))
+	p := Page[T]{Items: append([]T{}, all[start:end]...), Limit: limit, Offset: start, Truncated: end < len(all)}
+	if p.Truncated {
+		p.NextOffset = &end
+	}
+	return p
 }

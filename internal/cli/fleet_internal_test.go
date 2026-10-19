@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 
-	"github.com/trianalab/pacto/v3/internal/app"
+	"github.com/trianalab/pacto/v4/internal/app"
 )
 
 func newTestService(t *testing.T) *app.Service {
@@ -77,7 +77,7 @@ func TestFleetOptionsReadersDeclareEverySharedFlag(t *testing.T) {
 	for _, cmd := range []*cobra.Command{
 		newImpactCommand(newTestService(t), viper.New()),
 		newMCPCommand(newTestService(t), "test"),
-		newTUICommand(newTestService(t), viper.New()),
+		newTUICommand(newTestService(t), viper.New(), defaultDeps()),
 	} {
 		for _, name := range fleetFlagNames() {
 			if cmd.Flags().Lookup(name) == nil {
@@ -100,6 +100,11 @@ var divergentFleetFlagTypes = map[string]string{
 	// Reconciliation compares the snapshot's declared edges against exactly one
 	// observed trace document, which it reads itself.
 	"pacto fleet reconcile --traces": "string",
+	// Not a source: the one Evidence Server the host agent sends its signed
+	// evidence to.
+	"pacto agent --evidence-url": "string",
+	// The same for `pacto run`: where its rounds are sent, not a source.
+	"pacto run --evidence-url": "string",
 }
 
 // yankedFleetSubcommands returns the `pacto fleet` subcommands the TUI can put

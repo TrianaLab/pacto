@@ -78,8 +78,9 @@ tests:
       - notExists:
           path: $.rules[?(@.resources[*]=="persistentvolumeclaims")]
 
-  - it: always grants evidence teardown RBAC
-    template: templates/clusterrole.yaml
+  - it: always grants evidence teardown RBAC in the release namespace
+    template: templates/role.yaml
+    documentIndex: 0
     set:
       evidence.enabled: false
     asserts:

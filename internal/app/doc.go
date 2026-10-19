@@ -6,17 +6,12 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/contractview"
-	"github.com/trianalab/pacto/v3/pkg/doc"
-	"github.com/trianalab/pacto/v3/pkg/graph"
-	"github.com/trianalab/pacto/v3/pkg/logging"
-	"github.com/trianalab/pacto/v3/pkg/override"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contractview"
+	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/logging"
+	"github.com/trianalab/pacto/v4/pkg/override"
 )
-
-// generateDoc is the function used to generate documentation. It is a variable
-// so that tests can replace it to simulate errors.
-var generateDoc = doc.Generate
 
 // DocOptions holds options for the doc command.
 type DocOptions struct {
@@ -59,7 +54,7 @@ func (s *Service) Doc(ctx context.Context, opts DocOptions) (*DocResult, error) 
 	logging.LoggerFromContext(ctx).Debug("generating markdown documentation")
 	details := contractview.ServiceDetailsFromBundle(bundle, "local")
 	details.GenerateInsights()
-	markdown, err := generateDoc(details, gr)
+	markdown, err := s.env().generateDoc(details, gr)
 	if err != nil {
 		return nil, fmt.Errorf("generating documentation: %w", err)
 	}

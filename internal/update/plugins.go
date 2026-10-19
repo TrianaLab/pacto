@@ -3,7 +3,7 @@ package update
 import (
 	"fmt"
 
-	"github.com/trianalab/pacto/v3/pkg/plugin"
+	"github.com/trianalab/pacto/v4/pkg/plugin"
 )
 
 const pluginsRepo = "TrianaLab/pacto-plugins"
@@ -40,7 +40,7 @@ func (u *Updater) UpdatePlugins() ([]PluginUpdateResult, error) {
 
 	var results []PluginUpdateResult
 	for _, p := range plugins {
-		binary := pluginAssetName(p.Name)
+		binary := u.pluginAssetName(p.Name)
 		expected, ok := sums[binary]
 		if !ok {
 			return results, fmt.Errorf("no checksum published for plugin %s", p.Name)
@@ -57,18 +57,19 @@ func (u *Updater) UpdatePlugins() ([]PluginUpdateResult, error) {
 // pluginAssetName returns the release asset filename for a plugin on the
 // current platform, matching the names produced by the plugins release
 // workflow (pacto-plugin-<name>_<os>_<arch>[.exe]).
-func pluginAssetName(name string) string {
+func (u *Updater) pluginAssetName(name string) string {
+	goos, goarch := u.platform()
 	ext := ""
-	if runtimeGOOS == "windows" {
+	if goos == "windows" {
 		ext = ".exe"
 	}
-	return fmt.Sprintf("pacto-plugin-%s_%s_%s%s", name, runtimeGOOS, runtimeGOARCH, ext)
+	return fmt.Sprintf("pacto-plugin-%s_%s_%s%s", name, goos, goarch, ext)
 }
 
 // buildPluginDownloadURL constructs the download URL for a plugin binary.
 func (u *Updater) buildPluginDownloadURL(tag, name string) string {
 	return fmt.Sprintf(
 		"%s/%s/releases/download/%s/%s",
-		u.DownloadBaseURL, pluginsRepo, tag, pluginAssetName(name),
+		u.DownloadBaseURL, pluginsRepo, tag, u.pluginAssetName(name),
 	)
 }

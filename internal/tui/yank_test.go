@@ -11,8 +11,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/trianalab/pacto/v3/internal/app"
-	"github.com/trianalab/pacto/v3/pkg/fleet"
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 func TestYankProducesARunnableInvocation(t *testing.T) {
@@ -144,11 +144,10 @@ func TestYankDoesNotShareTheSourceArgsBacking(t *testing.T) {
 // line alone makes a real clipboard failure look like a session that never had
 // one -- so the status carries both.
 func TestYankFallsBackToShowingTheLineWhenTheClipboardFails(t *testing.T) {
-	orig := clipboardWrite
-	t.Cleanup(func() { clipboardWrite = orig })
-	clipboardWrite = func(string) error { return errBoom }
+	fake := func(string) error { return errBoom }
 
 	c := newLoadedContext(t)
+	c.clipboardWrite = fake
 	l := newListScreen(c)
 	cmd, handled := dispatchVerb(c, l, tea.KeyPressMsg{Code: 'y', Text: "y"})
 	if !handled {
@@ -170,7 +169,7 @@ func TestYankFallsBackToShowingTheLineWhenTheClipboardFails(t *testing.T) {
 // the same as it being connected: clipboardWrite was nil for the whole branch,
 // so y printed the line while four surfaces said it copied.
 func TestYankIsWiredToARealClipboard(t *testing.T) {
-	if clipboardWrite == nil {
+	if New(testOptions()).ctx.clipboardWrite == nil {
 		t.Fatal("clipboardWrite is nil, so y never copies while Verb.Help says it does")
 	}
 }
@@ -209,15 +208,14 @@ func TestYankArgvWithoutBundle(t *testing.T) {
 }
 
 func TestVerbYankWithClipboard(t *testing.T) {
-	orig := clipboardWrite
-	t.Cleanup(func() { clipboardWrite = orig })
 	var copied string
-	clipboardWrite = func(s string) error {
+	fake := func(s string) error {
 		copied = s
 		return nil
 	}
 
 	c := newLoadedContext(t)
+	c.clipboardWrite = fake
 	sel := Selection{Ref: "./svc", Label: "svc"}
 	cmd := verbYank(c, sel)
 	msg := cmd().(statusMsg)

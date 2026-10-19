@@ -1,6 +1,12 @@
 # pacto diff and change classification: what counts as a breaking change { #change-classification-rules }
 
-`pacto diff` classifies every detected change using a deterministic rule table. This is what powers breaking change detection in CI pipelines, and the tables below are the complete list — every field Pacto compares and the verdict it reaches.
+`pacto diff` compares two versions of a contract and tells you which changes can break the services that depend on it. Run it in CI to catch a breaking change before it merges:
+
+```bash
+pacto diff oci://ghcr.io/acme/payments-api:1.4.0 ./payments-api
+```
+
+Every change goes through a fixed rule table, so the same two contracts always give the same answer. The tables below are the complete list: every field Pacto compares and the verdict it reaches.
 
 Each change is classified as:
 

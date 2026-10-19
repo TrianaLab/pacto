@@ -7,19 +7,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/capability"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/openapi"
-	"github.com/trianalab/pacto/v3/pkg/readiness"
-	"github.com/trianalab/pacto/v3/pkg/sbom"
-	"github.com/trianalab/pacto/v3/pkg/schemax"
-	"github.com/trianalab/pacto/v3/pkg/skills"
-	"github.com/trianalab/pacto/v3/pkg/validation"
+	"github.com/trianalab/pacto/v4/pkg/capability"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/lock"
+	"github.com/trianalab/pacto/v4/pkg/openapi"
+	"github.com/trianalab/pacto/v4/pkg/readiness"
+	"github.com/trianalab/pacto/v4/pkg/sbom"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
+	"github.com/trianalab/pacto/v4/pkg/skills"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
-
-// timeNow is the clock used to derive readiness freshness. It is a variable so
-// tests can pin "now" for deterministic readiness status.
-var timeNow = time.Now
 
 // ServiceFromContract builds a Service summary from a parsed contract.
 func ServiceFromContract(c *contract.Contract, source string) Service {
@@ -32,8 +29,14 @@ func ServiceFromContract(c *contract.Contract, source string) Service {
 	}
 }
 
-// ServiceDetailsFromBundle builds full ServiceDetails from a contract bundle.
+// ServiceDetailsFromBundle builds full ServiceDetails from a contract bundle,
+// deriving readiness freshness as of now.
 func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDetails {
+	return serviceDetailsAt(bundle, source, time.Now())
+}
+
+// serviceDetailsAt is ServiceDetailsFromBundle with readiness evaluated at now.
+func serviceDetailsAt(bundle *contract.Bundle, source string, now time.Time) *ServiceDetails {
 	c := bundle.Contract
 
 	svc := &ServiceDetails{
@@ -49,8 +52,8 @@ func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDe
 	svc.Policies = policiesFromContract(c, bundle.FS)
 	svc.Tools = toolsFromContract(c, bundle.FS)
 	svc.Skills = skillsFromContract(bundle.FS)
-	svc.Docs = docsFromContract(bundle.FS)
-	svc.Readiness = readinessFromContract(c, docPathSet(svc.Docs))
+	svc.Docs = docsFromContract(bundle.FS, docLimits{maxDocBytes, maxTotalDocBytes, maxDocCount})
+	svc.Readiness = readinessFromContract(c, docPathSet(svc.Docs), now)
 	svc.Metadata = metadataFromContract(c)
 
 	// Validation. Ask the bundle for the document rather than reading RawYAML:
@@ -76,14 +79,13 @@ func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDe
 		}
 	}
 
-	// Compute compliance for non-k8s sources (no conditions available).
-	svc.Compliance = ComputeCompliance(svc.ContractStatus, svc.Conditions)
+	svc.Compliance = ComputeCompliance(svc.ContractStatus)
 
 	// Apply the embedded lockfile (pacto.lock) when the bundle FS carries one.
 	// Since the lock now ships inside the bundle for every source (local, OCI,
 	// cache), this single read surfaces pins and lights up dependency drift
 	// cluster-wide. A nil FS or absent/malformed lock leaves svc untouched.
-	if l, err := lockFromFS(bundle.FS); err == nil {
+	if l, err := lock.ReadFS(bundle.FS); err == nil {
 		ApplyLock(svc, l)
 	}
 
@@ -99,8 +101,8 @@ func ServiceDetailsFromBundle(bundle *contract.Bundle, source string) *ServiceDe
 // declared, so the dashboard treats readiness as an optional dimension. A check
 // whose evidence is the path of an in-bundle doc (a key in docPaths) gets DocPath
 // set so the UI can render that doc inline.
-func readinessFromContract(c *contract.Contract, docPaths map[string]bool) *ReadinessInfo {
-	eval := readiness.Evaluate(c.Readiness, timeNow())
+func readinessFromContract(c *contract.Contract, docPaths map[string]bool, now time.Time) *ReadinessInfo {
+	eval := readiness.Evaluate(c.Readiness, now)
 	if eval == nil {
 		return nil
 	}
@@ -148,47 +150,45 @@ func readinessFromContract(c *contract.Contract, docPaths map[string]bool) *Read
 	return info
 }
 
-// Caps on in-bundle docs surfaced to the dashboard. Vars (not consts) so tests
-// can shrink them. The dashboard is a local read-only tool, so eager inlining
-// with these caps is acceptable.
-var (
-	maxDocBytes      = 256 * 1024  // per-doc cap before truncation
-	maxTotalDocBytes = 1024 * 1024 // total cap across all docs
-	maxDocCount      = 50          // safety cap on number of docs
-)
+// docLimits caps the in-bundle docs surfaced to the dashboard. The dashboard
+// is a local read-only tool, so eager inlining within these caps is acceptable.
+type docLimits struct {
+	docBytes   int // per-doc cap before truncation
+	totalBytes int // total cap across all docs
+	count      int // safety cap on number of docs
+}
 
-const docsDir = "docs"
+// Production doc caps; skills share maxDocCount.
+const (
+	maxDocBytes      = 256 * 1024
+	maxTotalDocBytes = 1024 * 1024
+	maxDocCount      = 50
+)
 
 // docsFromContract reads the bundle's docs/**/*.md files (sorted by path),
 // applying per-doc, total, and count caps. Missing docs/ or an unreadable file
 // is skipped rather than failing the whole service.
-func docsFromContract(fsys fs.FS) []DocInfo {
+func docsFromContract(fsys fs.FS, lim docLimits) []DocInfo {
 	if fsys == nil {
 		return nil
 	}
 	var docs []DocInfo
 	total := 0
-	_ = fs.WalkDir(fsys, docsDir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return nil // docs/ absent or an unreadable subtree: skip silently
-		}
-		if d.IsDir() || !strings.HasSuffix(strings.ToLower(d.Name()), ".md") {
-			return nil
-		}
-		if len(docs) >= maxDocCount || total >= maxTotalDocBytes {
-			return fs.SkipAll
+	contract.WalkDocs(fsys, func(p string) bool {
+		if len(docs) >= lim.count || total >= lim.totalBytes {
+			return false
 		}
 		data, readErr := fs.ReadFile(fsys, p)
 		if readErr != nil {
-			return nil // skip unreadable file
+			return true // skip unreadable file
 		}
 		truncated := false
-		if len(data) > maxDocBytes {
-			data = data[:maxDocBytes]
+		if len(data) > lim.docBytes {
+			data = data[:lim.docBytes]
 			truncated = true
 		}
-		if total+len(data) > maxTotalDocBytes {
-			data = data[:maxTotalDocBytes-total]
+		if total+len(data) > lim.totalBytes {
+			data = data[:lim.totalBytes-total]
 			truncated = true
 		}
 		total += len(data)
@@ -199,7 +199,7 @@ func docsFromContract(fsys fs.FS) []DocInfo {
 			Content:   content,
 			Truncated: truncated,
 		})
-		return nil
+		return true
 	})
 	return docs
 }
@@ -285,32 +285,15 @@ func toolsFromContract(c *contract.Contract, fsys fs.FS) []CapabilityTool {
 	if fsys == nil {
 		return nil
 	}
-	openapiIfaces := 0
-	for _, iface := range c.Interfaces {
-		if iface.Type == contract.InterfaceTypeOpenAPI && iface.Ref != "" {
-			openapiIfaces++
-		}
-	}
 	var out []CapabilityTool
-	for _, iface := range c.Interfaces {
-		if iface.Type != contract.InterfaceTypeOpenAPI || iface.Ref == "" {
-			continue
-		}
-		doc, err := openapi.ReadDoc(fsys, iface.Ref)
-		if err != nil {
-			continue
-		}
-		prefix := ""
-		if openapiIfaces > 1 {
-			prefix = iface.Name + "_"
-		}
-		for _, tool := range capability.BuildTools(doc, true) {
+	for _, it := range capability.ToolsForContract(c, fsys, true) {
+		for _, tool := range it.Tools {
 			summary := tool.Summary
 			if summary == "" {
 				summary = tool.Description
 			}
 			out = append(out, CapabilityTool{
-				Name:     prefix + tool.Name,
+				Name:     tool.Name,
 				Method:   tool.Method,
 				Path:     tool.Path,
 				Summary:  summary,

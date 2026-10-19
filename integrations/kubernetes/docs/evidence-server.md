@@ -1,16 +1,20 @@
 # The Evidence Server
 
-The dashboard is the only managed component a default install deploys.
-`evidence.enabled` is `false`, and turning it on has three requirements the
-chart will not guess. Settle the first before you publish anything: it decides
-where the contract itself has to live.
+The Evidence Server lets places the operator cannot watch, such as CI runners
+or edge sites, send signed reports about a service into your cluster. Pacto
+checks each report against the contract and stores it in your registry.
+*Evidence* here means a record of what a tool saw in a running system.
+
+It is off by default (`evidence.enabled: false`). Turning it on needs three
+things the chart cannot guess. Settle the first before you publish anything: it
+decides which registry the contract itself has to live in.
 
 ## Check the registry serves the native Referrers API
 
-Evidence is stored as an OCI 1.1 referrer of the contract revision it reports
-on, in that contract's own repository, and Pacto does not fall back to the
-tag-based scheme. So the registry holding the contract must implement Referrers
-discovery. **GHCR does not qualify** — which matters here more than anywhere
+Each report is stored next to the contract version it is about, in the same
+registry repository, as an OCI 1.1 *referrer* (an artifact that points at
+another artifact). Pacto does not fall back to the older tag-based scheme, so
+the registry holding the contract must support Referrers lookup. **GHCR does not qualify** — which matters here more than anywhere
 else on this site, because every other page publishes to `ghcr.io` — and neither
 does CNCF distribution (`registry:2`, `registry:3`); see
 [Evidence in OCI](../../evidence.md#registry-conformance). Publishing the

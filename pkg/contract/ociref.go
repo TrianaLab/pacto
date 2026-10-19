@@ -49,19 +49,7 @@ func ParseOCIReference(s string) (OCIReference, error) {
 
 	ref := OCIReference{}
 
-	// Split digest first
-	if idx := strings.Index(s, "@"); idx != -1 {
-		ref.Digest = s[idx+1:]
-		s = s[:idx]
-	}
-
-	// Split tag
-	// Find last colon that's not part of port — we look for colon after the last slash
-	lastSlash := strings.LastIndex(s, "/")
-	if colonIdx := strings.LastIndex(s, ":"); colonIdx > lastSlash {
-		ref.Tag = s[colonIdx+1:]
-		s = s[:colonIdx]
-	}
+	s, ref.Tag, ref.Digest = SplitOCIRef(s)
 
 	// What remains is registry/repository
 	slashIdx := strings.Index(s, "/")
@@ -85,4 +73,59 @@ func ParseOCIReference(s string) (OCIReference, error) {
 		return OCIReference{}, fmt.Errorf("invalid OCI reference: malformed digest %q (want sha256:<64 hex> or sha512:<128 hex>)", ref.Digest)
 	}
 	return ref, nil
+}
+
+// OCIScheme is the scheme that marks a reference as a registry reference rather
+// than a local path.
+const OCIScheme = "oci://"
+
+// TrimOCIScheme strips a leading [OCIScheme], if any.
+func TrimOCIScheme(ref string) string { return strings.TrimPrefix(ref, OCIScheme) }
+
+// SplitOCIDigest splits ref at its first '@' into what precedes it and the
+// digest after it. digest is "" when ref pins none.
+func SplitOCIDigest(ref string) (rest, digest string) {
+	rest, digest, _ = strings.Cut(ref, "@")
+	return rest, digest
+}
+
+// SplitOCITag splits ref into repository and tag. A tag is a ':' after the last
+// '/', so a registry port (localhost:5000/svc) is never mistaken for one; tagged
+// reports whether there was a tag at all, which "" alone cannot. It does not
+// know about digests: split those off first with [SplitOCIDigest].
+func SplitOCITag(ref string) (repo, tag string, tagged bool) {
+	slash := strings.LastIndex(ref, "/")
+	if colon := strings.LastIndex(ref, ":"); colon > slash {
+		return ref[:colon], ref[colon+1:], true
+	}
+	return ref, "", false
+}
+
+// SplitOCIRef splits ref into repository, tag and digest, leniently: it never
+// fails and validates nothing (use [ParseOCIReference] for that). A scheme, if
+// any, stays on repo; call [TrimOCIScheme] first to drop it.
+func SplitOCIRef(ref string) (repo, tag, digest string) {
+	rest, digest := SplitOCIDigest(ref)
+	repo, tag, _ = SplitOCITag(rest)
+	return repo, tag, digest
+}
+
+// OCIDomain returns the domain a reference's service lives under: the
+// repository with its final segment (the service name) removed, scheme, tag and
+// digest dropped. A single-segment reference has the default (empty) domain, and
+// so does a local filesystem path, which names no registry at all.
+//
+//	oci://ghcr.io/acme/payments:1.0       -> ghcr.io/acme
+//	localhost:5000/acme/payments@sha256:x -> localhost:5000/acme
+//	payments:1.0                          -> ""
+//	./svc, /abs/path, ~/svc               -> ""
+func OCIDomain(ref string) string {
+	if strings.HasPrefix(ref, ".") || strings.HasPrefix(ref, "/") || strings.HasPrefix(ref, "~") {
+		return ""
+	}
+	repo, _, _ := SplitOCIRef(TrimOCIScheme(ref))
+	if slash := strings.LastIndex(repo, "/"); slash >= 0 {
+		return repo[:slash]
+	}
+	return ""
 }

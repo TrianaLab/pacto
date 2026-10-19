@@ -4,7 +4,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/trianalab/pacto/v3/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 )
 
 // bytesAllocated reports the heap bytes a call allocates. It is used to prove that

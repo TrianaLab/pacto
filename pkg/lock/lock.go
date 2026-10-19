@@ -3,7 +3,9 @@
 package lock
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"sort"
 
 	"gopkg.in/yaml.v3"
@@ -164,6 +166,24 @@ func Parse(data []byte) (*Lock, error) {
 		return nil, fmt.Errorf("unsupported lockVersion %d (want %d..%d)", l.LockVersion, MinLockVersion, CurrentLockVersion)
 	}
 	return &l, nil
+}
+
+// ReadFS reads and parses pacto.lock from a bundle FS. pacto.lock ships inside
+// the bundle, so this one reader serves every source (local, OCI, cache). It
+// returns (nil, nil) when fsys is nil or carries no lockfile, which is optional;
+// any other read or parse error is returned so the caller decides what it means.
+func ReadFS(fsys fs.FS) (*Lock, error) {
+	if fsys == nil {
+		return nil, nil
+	}
+	data, err := fs.ReadFile(fsys, FileName)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return Parse(data)
 }
 
 // Dependency returns the entry with the given name.

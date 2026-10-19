@@ -3,7 +3,7 @@ package fleet
 import (
 	"time"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // Bounded projections of what a contract revision DECLARES.

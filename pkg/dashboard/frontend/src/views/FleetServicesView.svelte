@@ -39,10 +39,12 @@
 
   // The search box is a local draft synced from the URL; it commits on submit so
   // typing does not spam browser history. It re-syncs when the URL text changes
-  // (external navigation / back-forward), which never clobbers mid-typing because the
-  // prop only changes on a committed navigation.
+  // (external navigation / back-forward).
   let textDraft = $state(text);
-  $effect(() => { textDraft = text; });
+  // The text the last submit wrote to the URL. Its echo reaches `text` a hashchange later,
+  // by when the reader may have typed on; adopting it would drop those keystrokes.
+  let submittedText = null;
+  $effect(() => { if (text !== submittedText) textDraft = text; submittedText = null; });
 
   // One reusable, race-safe loader: the fetcher reads the current
   // params at request time; sync(key) dedupes the initial load and the generation
@@ -107,7 +109,7 @@
     });
   }
   function apply(patch) { location.hash = urlWith(patch); }
-  function submitSearch(e) { e.preventDefault(); apply({ text: textDraft }); }
+  function submitSearch(e) { e.preventDefault(); submittedText = textDraft; apply({ text: textDraft }); }
   function clearAll() { location.hash = fleetServicesUrl(); }
 
   // A picked suggestion goes to that exact service, by the canonical href the backend

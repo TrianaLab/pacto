@@ -1,8 +1,8 @@
 # Dashboard Container
 
-The dashboard ships as a container image running the same `pacto dashboard`
-server as the CLI. The [platform engineer guide](platform-engineers.md) covers
-where it fits in operator, compliance and impact-analysis work.
+Run the Pacto dashboard, a web UI for your services, their contracts,
+dependencies and compliance, as a container. It is the same server as
+`pacto dashboard` in the CLI, packaged for Docker and Kubernetes.
 
 ## Image
 
@@ -58,18 +58,17 @@ Most `PACTO_DASHBOARD_*` variables map to the CLI flag of the same name. Two do
 not: `PACTO_DASHBOARD_REPO` is the repository positional argument, and
 `PACTO_DASHBOARD_TRACE_SOURCES` maps to `--trace-source`, singular.
 
-The two trace variables are the container's only way to feed observed
-dependencies into the operational graph as
-[named observation sources](operational-graph.md#sources). Pacto ships no
-OpenTelemetry (OTLP) receiver, so observed evidence arrives as offline trace
-exports you mount in. Under Kubernetes the operator-managed dashboard sets
+The two trace variables let the dashboard learn which services really call
+each other, from trace files. Pacto has no OpenTelemetry (OTLP) receiver, so
+you export traces to files and mount them in. Each file becomes a
+[named observation source](operational-graph.md#sources). Under Kubernetes the operator-managed dashboard sets
 `PACTO_DASHBOARD_TRACE_SOURCES` for you from `dashboard.observation.sources` —
 see [offline trace sources](integrations/kubernetes/installation.md#offline-trace-sources-for-the-dashboard).
 
-`PACTO_CACHE_DIR` sets only the directory the dashboard **scans**. The **write**
-location is `XDG_CACHE_HOME`, so persisting the cache means mounting a volume at
-`~/.cache/pacto/oci`; the container default works because `HOME=/home/pacto`
-makes the two coincide. The Kubernetes example below mounts an `emptyDir` there
+`PACTO_CACHE_DIR` sets only where the dashboard **reads** cached bundles. It
+**writes** them under `XDG_CACHE_HOME`. To keep the cache, mount a volume at
+`~/.cache/pacto/oci`. The defaults line up because the image sets
+`HOME=/home/pacto`. The Kubernetes example below mounts an `emptyDir` there
 instead, so its cache is rebuilt on every restart.
 The CLI reference lists [every variable](cli-reference.md#environment-variables).
 
@@ -85,12 +84,12 @@ bindings are:
 
 ### Kubernetes + OCI hybrid mode
 
-With the Kubernetes source active and the operator populating
-`status.contract.resolvedRef`, the dashboard discovers the contract repositories
-itself: **runtime truth from the operator plus contract truth from OCI**. If a
-registry is unreachable or a private one is unauthenticated it **silently
-degrades to Kubernetes-only**, without the OCI-backed history, interfaces,
-schemas and diffs.
+When the Kubernetes source is on and the operator fills
+`status.contract.resolvedRef`, the dashboard finds the contract repositories
+by itself. You get **what is running from the operator and the contracts from
+the registry**. If a registry is unreachable, or private and not logged in, the
+dashboard **quietly falls back to Kubernetes only**: no version history,
+interfaces, schemas or diffs.
 
 ### Mounting the `k8s` and `local` sources
 

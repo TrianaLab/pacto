@@ -20,9 +20,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v5/internal/prober"
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/evidence"
+	"github.com/trianalab/pacto/v4/pkg/probe"
 )
 
 func TestObserveMetricsDim_NoCapability(t *testing.T) {
@@ -316,7 +316,7 @@ func TestObserveMetricsDim_ProbeReachable200Parsed(t *testing.T) {
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc).Build(),
 		prober: &fakeMetricsProber{
-			result: prober.Result{
+			result: probe.Result{
 				Reachable:        true,
 				StatusCode:       200,
 				PrometheusParsed: true,
@@ -380,7 +380,7 @@ func TestObserveMetricsDim_Probe200NotParsed(t *testing.T) {
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc).Build(),
 		prober: &fakeMetricsProber{
-			result: prober.Result{
+			result: probe.Result{
 				Reachable:        true,
 				StatusCode:       200,
 				PrometheusParsed: false,
@@ -434,7 +434,7 @@ func TestObserveMetricsDim_Probe404(t *testing.T) {
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc).Build(),
 		prober: &fakeMetricsProber{
-			result: prober.Result{
+			result: probe.Result{
 				Reachable:  true,
 				StatusCode: 404,
 			},
@@ -487,7 +487,7 @@ func TestObserveMetricsDim_Probe410(t *testing.T) {
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc).Build(),
 		prober: &fakeMetricsProber{
-			result: prober.Result{
+			result: probe.Result{
 				Reachable:  true,
 				StatusCode: 410,
 			},
@@ -540,7 +540,7 @@ func TestObserveMetricsDim_Probe5xx(t *testing.T) {
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc).Build(),
 		prober: &fakeMetricsProber{
-			result: prober.Result{
+			result: probe.Result{
 				Reachable:  true,
 				StatusCode: 500,
 			},
@@ -593,7 +593,7 @@ func TestObserveMetricsDim_Probe401(t *testing.T) {
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc).Build(),
 		prober: &fakeMetricsProber{
-			result: prober.Result{
+			result: probe.Result{
 				Reachable:  true,
 				StatusCode: 401,
 			},
@@ -646,7 +646,7 @@ func TestObserveMetricsDim_ProbeTransportError(t *testing.T) {
 	o := &Observer{
 		client: fake.NewClientBuilder().WithObjects(svc).Build(),
 		prober: &fakeMetricsProber{
-			result: prober.Result{
+			result: probe.Result{
 				Reachable: false,
 				Error:     "connection refused",
 			},

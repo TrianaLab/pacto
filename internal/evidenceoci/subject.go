@@ -16,11 +16,13 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // Scheme is the only accepted subject scheme: a subject is a remote contract
 // revision, never a local path.
-const Scheme = "oci://"
+const Scheme = contract.OCIScheme
 
 // ErrInvalidSubject reports a configured subject that is not an exact, immutable
 // remote contract revision.

@@ -5,8 +5,8 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/trianalab/pacto/v3/pkg/contract"
-	"github.com/trianalab/pacto/v3/pkg/lock"
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/lock"
 )
 
 const sampleLockYAML = `lockVersion: 2
@@ -39,62 +39,6 @@ references:
     digest: sha256:pol333
     contentHash: ccc
 `
-
-func TestLockFromFS_Present(t *testing.T) {
-	fsys := fstest.MapFS{lock.FileName: {Data: []byte(sampleLockYAML)}}
-
-	l, err := lockFromFS(fsys)
-	if err != nil {
-		t.Fatalf("lockFromFS: %v", err)
-	}
-	if l == nil {
-		t.Fatal("expected non-nil lock")
-	}
-	if l.Root.Name != "api" {
-		t.Errorf("expected root name 'api', got %q", l.Root.Name)
-	}
-	if len(l.Dependencies) != 1 {
-		t.Fatalf("expected 1 dependency, got %d", len(l.Dependencies))
-	}
-}
-
-func TestLockFromFS_Absent(t *testing.T) {
-	l, err := lockFromFS(fstest.MapFS{})
-	if err != nil {
-		t.Fatalf("expected nil error for absent lock, got %v", err)
-	}
-	if l != nil {
-		t.Fatalf("expected nil lock for absent file, got %+v", l)
-	}
-}
-
-func TestLockFromFS_NilFS(t *testing.T) {
-	l, err := lockFromFS(nil)
-	if err != nil {
-		t.Fatalf("expected nil error for nil FS, got %v", err)
-	}
-	if l != nil {
-		t.Fatalf("expected nil lock for nil FS, got %+v", l)
-	}
-}
-
-func TestLockFromFS_ParseError(t *testing.T) {
-	// Valid YAML but wrong lockVersion → lock.Parse returns an error.
-	fsys := fstest.MapFS{lock.FileName: {Data: []byte("lockVersion: 99\nroot:\n  name: x\n")}}
-	_, err := lockFromFS(fsys)
-	if err == nil {
-		t.Fatal("expected error for unsupported lockVersion")
-	}
-}
-
-func TestLockFromFS_ReadError(t *testing.T) {
-	// A non-ErrNotExist read error (here: pacto.lock is a directory) is surfaced.
-	fsys := fstest.MapFS{lock.FileName + "/nested": {Data: []byte("x")}}
-	_, err := lockFromFS(fsys)
-	if err == nil {
-		t.Fatal("expected error when pacto.lock is not a regular file")
-	}
-}
 
 // TestServiceDetailsFromBundle_EmbeddedLock proves the uniform lock read: an
 // OCI/cache-style bundle whose in-memory FS carries pacto.lock has its pins
