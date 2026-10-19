@@ -40,26 +40,26 @@
     "k8s-docs": {
       "artifactKind": "docs",
       "coordinate": "mkdocs:integrations/kubernetes",
-      "tag": "6.0.0",
-      "version": "6.0.0"
+      "tag": "6.0.1",
+      "version": "6.0.1"
     },
     "k8s-module": {
       "artifactKind": "go-module",
       "coordinate": "github.com/trianalab/pacto/integrations/kubernetes/v6",
-      "tag": "integrations/kubernetes/v6.0.0",
-      "version": "6.0.0"
+      "tag": "integrations/kubernetes/v6.0.1",
+      "version": "6.0.1"
     },
     "operator-chart": {
       "artifactKind": "helm-chart",
       "coordinate": "ghcr.io/trianalab/pacto/charts/pacto-operator",
-      "tag": "6.0.0",
-      "version": "6.0.0"
+      "tag": "6.0.1",
+      "version": "6.0.1"
     },
     "operator-image": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/operator",
-      "tag": "6.0.0",
-      "version": "6.0.0"
+      "tag": "6.0.1",
+      "version": "6.0.1"
     }
   }
 }
