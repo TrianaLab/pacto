@@ -134,13 +134,14 @@ jobs:
       # the hash of the core tree about to be tagged, tagging it ships an operator
       # whose standalone build fails with a checksum mismatch. 4.0.0/6.0.0 did, after
       # main moved under the Version PR; the tags were already out when the operator
-      # image build noticed.
+      # image build noticed. Only the operator units read that go.sum, so a recovery
+      # narrowed to core-line units (e.g. units=cli) is not held hostage by it.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
-        if: steps.d.outputs.release == 'true'
+        if: steps.d.outputs.release == 'true' && (contains(fromJSON(steps.d.outputs.units_json), 'k8s-module') || contains(fromJSON(steps.d.outputs.units_json), 'operator-image'))
         with:
           go-version-file: go.mod
       - name: Guard — operator go.sum matches the core tree about to be tagged
-        if: steps.d.outputs.release == 'true'
+        if: steps.d.outputs.release == 'true' && (contains(fromJSON(steps.d.outputs.units_json), 'k8s-module') || contains(fromJSON(steps.d.outputs.units_json), 'operator-image'))
         run: bash release/orchestrator/verify-core-gosum.sh
       - name: Guard — recovery is bound to the exact source commit
         if: github.event_name == 'workflow_dispatch'
