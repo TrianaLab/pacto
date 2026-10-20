@@ -1,0 +1,283 @@
+package app
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
+	k8stesting "k8s.io/client-go/testing"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
+)
+
+const (
+	dlA = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	dlB = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	dlC = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	dlD = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+)
+
+type fakeDeliveryRegistry struct {
+	hosts      []string
+	resolveErr error
+}
+
+func (f *fakeDeliveryRegistry) Annotations(_ context.Context, ref string) (map[string]string, error) {
+	_, d, _ := strings.Cut(ref, "@")
+	m := map[string]string{dlA: "oci://reg/pactos/payments@" + dlC, dlB: "oci://reg/pactos/payments@" + dlD}
+	return map[string]string{delivery.ContractAnnotation: m[d]}, nil
+}
+
+func (f *fakeDeliveryRegistry) Pull(_ context.Context, ref string) (*contract.Bundle, error) {
+	v := "1.0.0"
+	if strings.HasSuffix(ref, dlD) {
+		v = "1.1.0"
+	}
+	return &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "payments", Version: v}}}, nil
+}
+
+func (f *fakeDeliveryRegistry) Resolve(context.Context, string) (string, error) {
+	return dlB, f.resolveErr
+}
+
+func obj(apiVersion, kind, ns, name string, fields map[string]any) *unstructured.Unstructured {
+	u := &unstructured.Unstructured{Object: map[string]any{"apiVersion": apiVersion, "kind": kind,
+		"metadata": map[string]any{"namespace": ns, "name": name, "uid": "uid-" + name}}}
+	for k, v := range fields {
+		u.Object[k] = v
+	}
+	return u
+}
+
+func deliveryFixture(t *testing.T, user string, groups []string, extra map[string]any, objs ...runtime.Object) (*Delivery, *dynamicfake.FakeDynamicClient, *fakeDeliveryRegistry) {
+	t.Helper()
+	stage := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "prod", "payments-prod", map[string]any{
+		"spec":   map[string]any{"service": map[string]any{"name": "payments"}, "environment": "prod", "applyRef": map[string]any{"name": "payments"}},
+		"status": map[string]any{"pointer": dlA, "verified": []any{dlA}},
+	})
+	repo := obj("source.toolkit.fluxcd.io/v1", "OCIRepository", "prod", "payments", map[string]any{
+		"spec": map[string]any{"url": "oci://reg.example/apps/payments", "insecure": true},
+	})
+	all := append([]runtime.Object{stage, repo}, objs...)
+	lists := map[schema.GroupVersionResource]string{gvrStages: "StageList", gvrOperations: "OperationList", gvrApprovals: "ApprovalList",
+		gvrPactos: "PactoList", gvrOCIRepository: "OCIRepositoryList"}
+	c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists, all...)
+	c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+		gs := make([]any, 0, len(groups))
+		for _, g := range groups {
+			gs = append(gs, g)
+		}
+		return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"userInfo": map[string]any{
+			"username": user, "groups": gs, "extra": extra}}}}, nil
+	})
+	reg := &fakeDeliveryRegistry{}
+	d := &Delivery{Dynamic: c, Registry: func(hosts ...string) DeliveryRegistry { reg.hosts = hosts; return reg },
+		Policy: delivery.ClassPolicy{AgentGroups: []string{"pacto:agents"}}, Now: func() time.Time { return time.Unix(1_800_000_000, 0) }}
+	return d, c, reg
+}
+
+func TestDeliveryPlanAndPropose(t *testing.T) {
+	d, _, reg := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
+	ctx := context.Background()
+	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, Reason: "ship", OnBehalfOf: "alice"}
+	plan, spec, err := d.Plan(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plan.Predicted != delivery.PredictProceeds || spec.Params.From != dlA || spec.Actor.User != "system:serviceaccount:agents:bot" ||
+		spec.OnBehalfOf.User != "alice" || reg.hosts[0] != "reg.example" {
+		t.Fatalf("plan %+v spec %+v hosts %v", plan, spec, reg.hosts)
+	}
+	req.IntentDigest = "sha256:0"
+	var stale *PlanStaleError
+	if _, _, err := d.Propose(ctx, req); !errors.As(err, &stale) || stale.Plan.IntentDigest != plan.IntentDigest || !strings.Contains(err.Error(), "PlanStale") {
+		t.Fatalf("want PlanStale with the fresh plan, got %v", err)
+	}
+	req.IntentDigest, req.Name = plan.IntentDigest, "p1"
+	op, _, err := d.Propose(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if op.Metadata.Name != "p1" || op.Spec.IntentDigest != plan.IntentDigest || op.Metadata.Finalizers[0] != recordFinalizer ||
+		op.Metadata.Labels["delivery.pacto.trianalab.io/stage"] != "payments-prod" {
+		t.Fatalf("created %+v", op)
+	}
+	got, err := d.Get(ctx, "prod", "p1")
+	if err != nil || got.Spec.Params.To != dlB {
+		t.Fatalf("get: %+v %v", got, err)
+	}
+	if err := d.Cancel(ctx, "prod", "p1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.Cancel(ctx, "prod", "p1"); err == nil {
+		t.Fatal("cancelling a missing operation must fail")
+	}
+}
+
+func TestDeliveryProposeGeneratesNameAndRollback(t *testing.T) {
+	cited := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p0", map[string]any{
+		"status": map[string]any{"pointer": map[string]any{"before": dlB, "after": dlA}},
+	})
+	d, c, _ := deliveryFixture(t, "alice", nil, nil, cited)
+	var generated string
+	c.PrependReactor("create", "operations", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		u := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured)
+		generated = u.GetGenerateName()
+		u.SetName(generated + "x")
+		return true, u, nil
+	})
+	op, plan, err := d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeRollback, Undoes: "p0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if generated != "payments-prod-rollback-" || op.Spec.Params.From != dlA || op.Spec.Params.To != dlB || op.Spec.Params.Undoes != "uid-p0" ||
+		plan.Predicted != delivery.PredictProceeds {
+		t.Fatalf("rollback: %q %+v %+v", generated, op.Spec, plan)
+	}
+	if _, _, err := d.Plan(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeRollback, Undoes: "gone"}); err == nil {
+		t.Fatal("a rollback citing nothing must fail")
+	}
+	op, _, err = d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeUnfreeze})
+	if err != nil || op.Spec.Facet != delivery.FacetFreeze {
+		t.Fatalf("unfreeze: %+v %v", op, err)
+	}
+}
+
+func TestDeliveryRefusals(t *testing.T) {
+	d, c, reg := deliveryFixture(t, "alice", nil, nil)
+	ctx := context.Background()
+	base := delivery.Request{Namespace: "prod", Stage: "payments-prod"}
+	if _, _, err := d.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "missing", To: dlB}); err == nil {
+		t.Fatal("missing stage")
+	}
+	r := base
+	r.Type = "pacto.dev/scale"
+	if _, _, err := d.Plan(ctx, r); err == nil || !strings.Contains(err.Error(), "unknown operation type") {
+		t.Fatalf("unknown type: %v", err)
+	}
+	if _, _, err := d.Plan(ctx, base); err == nil || !strings.Contains(err.Error(), "--to is required") {
+		t.Fatalf("no to: %v", err)
+	}
+	r = base
+	r.To = "v2"
+	if _, _, err := d.Plan(ctx, r); err == nil || !strings.Contains(err.Error(), "currently resolves to "+dlB) {
+		t.Fatalf("a tag is refused naming its digest: %v", err)
+	}
+	reg.resolveErr = errors.New("no such tag")
+	if _, _, err := d.Plan(ctx, r); err == nil || !strings.Contains(err.Error(), "no such tag") {
+		t.Fatalf("unresolvable tag: %v", err)
+	}
+	r.From, r.To = dlB, dlA
+	if p, spec, err := d.Plan(ctx, r); err != nil || spec.Params.From != dlB || p.Predicted != delivery.PredictRejected {
+		t.Fatalf("explicit from: %+v %v", p, err)
+	}
+	c.PrependReactor("get", "ocirepositories", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("forbidden")
+	})
+	r = base
+	r.To = "v2"
+	if _, _, err := d.Plan(ctx, r); err == nil || !strings.Contains(err.Error(), "forbidden") {
+		t.Fatalf("unreadable OCIRepository for a tag: %v", err)
+	}
+	r.To = dlB
+	if p, _, err := d.Plan(ctx, r); err != nil || p.Predicted != delivery.PredictHeld {
+		t.Fatalf("an unreadable OCIRepository holds: %+v %v", p, err)
+	}
+	c.PrependReactor("list", "pactos", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("no CRD")
+	})
+	if p, _, err := d.Plan(ctx, r); err != nil || p.Predicted != delivery.PredictHeld {
+		t.Fatalf("an unlistable Pacto set holds: %+v %v", p, err)
+	}
+	c.PrependReactor("create", "operations", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("denied by admission")
+	})
+	if _, _, err := d.Propose(ctx, r); err == nil || !strings.Contains(err.Error(), "denied by admission") {
+		t.Fatalf("create failure: %v", err)
+	}
+	cctx, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, _, err := d.Plan(cctx, r); err == nil {
+		t.Fatal("a cancelled snapshot build must fail")
+	}
+	if _, _, err := d.Propose(cctx, r); err == nil {
+		t.Fatal("propose surfaces the plan failure")
+	}
+}
+
+func TestDeliverySecureRegistry(t *testing.T) {
+	d, c, reg := deliveryFixture(t, "alice", nil, nil)
+	ctx := context.Background()
+	ri := c.Resource(gvrOCIRepository).Namespace("prod")
+	u, _ := ri.Get(ctx, "payments", metav1.GetOptions{})
+	_ = unstructured.SetNestedField(u.Object, false, "spec", "insecure")
+	if _, err := ri.Update(ctx, u, metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := d.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB}); err != nil || len(reg.hosts) != 0 {
+		t.Fatalf("a secure OCIRepository asks for no plain-HTTP host: %v %v", reg.hosts, err)
+	}
+}
+
+func TestDeliveryWhoAmIAndApprove(t *testing.T) {
+	op := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p1", map[string]any{
+		"spec": map[string]any{"intentDigest": "sha256:i"},
+	})
+	ctx := context.Background()
+	d, c, _ := deliveryFixture(t, "alice", []string{"devs"}, map[string]any{authTimeExtra: []any{"2026-10-20T10:00:00Z"}}, op)
+	who, err := d.WhoAmI(ctx)
+	if err != nil || who.User != "alice" || who.Class != delivery.ClassHuman || who.AuthTime != "2026-10-20T10:00:00Z" {
+		t.Fatalf("whoami: %+v %v", who, err)
+	}
+	c.PrependReactor("create", "approvals", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		u := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured)
+		spec := u.Object["spec"].(map[string]any)
+		if spec["by"] != "alice" || spec["operationUID"] != "uid-p1" || spec["intentDigest"] != "sha256:i" || spec["authTime"] != "2026-10-20T10:00:00Z" {
+			t.Errorf("approval spec %+v", spec)
+		}
+		u.SetName("p1-x")
+		return true, u, nil
+	})
+	if name, err := d.Approve(ctx, "prod", "p1", delivery.Approve, "ok"); err != nil || name != "p1-x" {
+		t.Fatalf("approve: %q %v", name, err)
+	}
+	if _, err := d.Approve(ctx, "prod", "gone", delivery.Approve, ""); err == nil {
+		t.Fatal("approving a missing operation")
+	}
+
+	d, _, _ = deliveryFixture(t, "system:serviceaccount:agents:bot", nil, nil, op)
+	if _, err := d.Approve(ctx, "prod", "p1", delivery.Approve, ""); err == nil || !strings.Contains(err.Error(), "agents may not approve") {
+		t.Fatalf("agent: %v", err)
+	}
+	d, _, _ = deliveryFixture(t, "bob", nil, nil, op)
+	if _, err := d.Approve(ctx, "prod", "p1", delivery.Approve, ""); err == nil || !strings.Contains(err.Error(), "fresh interactive login") {
+		t.Fatalf("no auth time: %v", err)
+	}
+	d, c, _ = deliveryFixture(t, "bob", nil, map[string]any{authTimeExtra: []any{"1"}}, op)
+	c.PrependReactor("create", "approvals", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("denied")
+	})
+	if _, err := d.Approve(ctx, "prod", "p1", delivery.Approve, ""); err == nil || !strings.Contains(err.Error(), "denied") {
+		t.Fatalf("create failure: %v", err)
+	}
+	c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("unauthorized")
+	})
+	if _, err := d.WhoAmI(ctx); err == nil {
+		t.Fatal("whoami failure")
+	}
+	if _, err := d.Approve(ctx, "prod", "p1", delivery.Approve, ""); err == nil {
+		t.Fatal("approve surfaces whoami failure")
+	}
+	if _, _, err := d.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB}); err == nil {
+		t.Fatal("plan surfaces whoami failure")
+	}
+}
