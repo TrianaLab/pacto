@@ -937,6 +937,8 @@ fi
 #     digest-pinned contract, and the same publish again writes nothing;
 #   - a breaking change published as a minor is refused and writes nothing;
 #   - delivery promotes the published version with no extra step;
+#   - publish --propose waits for Flux to verify the new version, then
+#     proposes it on a Stage that does not promote by itself;
 #   - an artifact pushed another way, unsigned though it names a valid
 #     contract, is never a candidate and a promote of it is refused.
 # `pacto publish` runs on the host, where the in-cluster registry name does not
@@ -1093,6 +1095,59 @@ published_in "$P" "$D1" billing || fail "the Stage does not remember $D1 as publ
 [ "$(field "$P" "$OPP" actorClass)" = controller ] || fail "the promote was not raised by the promoter"
 pass "the promoter promoted $D1 by itself and the contract check verified it"
 
+echo "== publish --propose waits for Flux, then proposes on a Stage that does not promote by itself =="
+M=publish-manual
+kubectl create namespace "$M" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl -n "$M" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl -n "$M" apply -f - >/dev/null <<YAML
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata: {name: billing-candidates}
+spec: {interval: 5s, insecure: true, url: "oci://${REG_HOST}/apps/billing", ref: {semver: ">=0.0.0"}, $VERIFY}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: billing
+  labels: {delivery.pacto.trianalab.io/apply-ref: billing}
+spec: {interval: 30s, insecure: true, url: "oci://${REG_HOST}/apps/billing", ref: {}, $VERIFY}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: billing}
+spec:
+  interval: 1m
+  sourceRef: {kind: OCIRepository, name: billing}
+  path: ./
+  prune: true
+  timeout: 2m
+  targetNamespace: $M
+  healthChecks: [{apiVersion: apps/v1, kind: Deployment, name: billing, namespace: $M}]
+---
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Stage
+metadata: {name: billing}
+spec:
+  service: {name: billing}
+  environment: publish-manual
+  applyRef: {name: billing}
+  candidates: {ociRepositoryRef: {name: billing-candidates}}
+  gates: {verify: {window: 3m}}
+YAML
+billing_contract 1.0.1 service
+git -C "$PUB" -c user.email=ci@e.com -c user.name=ci commit -qam "billing 1.0.1"
+OUT="$(KUBECONFIG="$AGENT_A" pub --propose "$M/billing" 2>&1)" || fail "publish --propose failed: $OUT"
+D2="$(grep -oE "^Deploy: ${REG_HOST}/apps/billing@sha256:[0-9a-f]{64}" <<<"$OUT" | sed 's/.*@//')"
+OPM="$(grep -oE "on $M/billing as Operation [a-z0-9.-]+" <<<"$OUT" | awk '{print $NF}')"
+{ [ -n "$D2" ] && [ -n "$OPM" ]; } || fail "publish --propose named no deploy artifact or Operation: $OUT"
+published_in "$M" "$D2" billing || fail "--propose did not wait for the Stage to record $D2 as published"
+wait_concluded "$M" "$OPM" Succeeded/Verified
+[ "$(kubectl -n "$M" get deploy billing -o jsonpath='{.spec.template.metadata.annotations.version}')" = 1.0.1 ] \
+  || fail "the manual Stage does not run billing 1.0.1"
+pass "publish --propose waited for Flux to verify $D2, and the promote it raised shipped billing 1.0.1"
+OPP2="$(wait_op "$P" "$D2")"
+wait_concluded "$P" "$OPP2" Succeeded/Verified
+
 echo "== an artifact pushed another way is never a candidate =="
 FOREIGN_TREE="$(mktemp -d)"; FOREIGN_TGZ="$(mktemp -t foreign.XXXXXX)"
 (PACTO_OUT="$FOREIGN_TREE" PACTO_VERSION=9.9.9 BILLING_BUNDLE="${REG_HOST}/demo/billing" "$PUB/render.sh")
@@ -1106,7 +1161,7 @@ unverified() {
 eventually 40 unverified || fail "Flux never refused the unsigned 9.9.9: $(kubectl -n "$P" get ocirepository billing-candidates -o jsonpath='{.status.conditions}')"
 never_candidate() {
   [ -z "$(op_to "$P" "$FOREIGN")" ] && ! published_in "$P" "$FOREIGN" billing \
-    && [ "$(kubectl -n "$P" get stage billing -o jsonpath='{.status.pointer}')" = "$D1" ]
+    && [ "$(kubectl -n "$P" get stage billing -o jsonpath='{.status.pointer}')" = "$D2" ]
 }
 always 7 never_candidate || fail "the unsigned artifact became a candidate"
 as_agent "$AGENT_A" propose -n "$P" --stage billing --to "$FOREIGN" --name foreign --reason "pushed by hand" >/dev/null
