@@ -71,11 +71,16 @@ type DockerfileBuild struct {
 }
 
 // PublishSign is how every published digest is signed: exactly one of
-// Keyless, Key and KMS.
+// Keyless, Key and KMS. Keyless names the Identity and Issuer its certificate
+// carries, so Pacto can tell its own signature from anyone else's.
 type PublishSign struct {
-	Keyless bool   `yaml:"keyless,omitempty" json:"keyless,omitempty"`
-	Key     string `yaml:"key,omitempty" json:"key,omitempty"`
-	KMS     string `yaml:"kms,omitempty" json:"kms,omitempty"`
+	Keyless bool `yaml:"keyless,omitempty" json:"keyless,omitempty"`
+	// Identity is the certificate identity keyless signing produces.
+	Identity string `yaml:"identity,omitempty" json:"identity,omitempty"`
+	// Issuer is the OIDC issuer of that identity.
+	Issuer string `yaml:"issuer,omitempty" json:"issuer,omitempty"`
+	Key    string `yaml:"key,omitempty" json:"key,omitempty"`
+	KMS    string `yaml:"kms,omitempty" json:"kms,omitempty"`
 	// TransparencyLog is nil for the default (upload).
 	TransparencyLog *bool `yaml:"transparencyLog,omitempty" json:"transparencyLog,omitempty"`
 }

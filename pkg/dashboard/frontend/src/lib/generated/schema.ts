@@ -684,6 +684,8 @@ export interface components {
             dockerfile?: components["schemas"]["Contract.DockerfileBuild"];
         };
         "Contract.PublishSign": {
+            identity?: string;
+            issuer?: string;
             key?: string;
             keyless?: boolean;
             kms?: string;

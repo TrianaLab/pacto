@@ -764,7 +764,9 @@
           "oneOf": [
             {
               "required": [
-                "keyless"
+                "keyless",
+                "identity",
+                "issuer"
               ]
             },
             {
@@ -782,7 +784,17 @@
             "keyless": {
               "type": "boolean",
               "const": true,
-              "description": "Sign keyless with the ambient OIDC identity (Fulcio)."
+              "description": "Sign keyless with the ambient OIDC identity (Fulcio). Needs identity and issuer."
+            },
+            "identity": {
+              "type": "string",
+              "minLength": 1,
+              "description": "With keyless: the certificate identity the signature must carry, such as https://github.com/acme/payments/.github/workflows/release.yml@refs/heads/main. Pacto keeps or adopts only what this identity signed."
+            },
+            "issuer": {
+              "type": "string",
+              "minLength": 1,
+              "description": "With keyless: the OIDC issuer of that identity, such as https://token.actions.githubusercontent.com."
             },
             "key": {
               "type": "string",

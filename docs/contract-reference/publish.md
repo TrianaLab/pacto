@@ -45,6 +45,7 @@ publish:
 | `artifacts[].build.command` | A command run in the contract directory that writes the artifact to `$PACTO_OUT`: an OCI image layout for an image, one `.tgz` for a chart, files for manifests |
 | `artifacts[].sbom` | Attach an SBOM made by `syft` to the image. Images only |
 | `sign` | Exactly one of `keyless: true`, `key` (a cosign key file) or `kms` (a cosign KMS URI). `transparencyLog: false` keeps signatures out of the public log. Publishing refuses without it |
+| `sign.identity`, `sign.issuer` | Required with `keyless: true`: the certificate identity the signature carries and its OIDC issuer. Pacto keeps or adopts only what this identity signed |
 
 Builders never push. Pacto pushes every artifact itself, never over an existing
 tag, signs each digest with `cosign` and stamps `org.opencontainers.image.version`

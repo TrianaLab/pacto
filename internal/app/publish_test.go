@@ -186,6 +186,24 @@ func TestPublishRefusals(t *testing.T) {
 	}
 }
 
+// TestExecToolsVerify: Verify passes only for a digest signed by the
+// configured identity, and fails when the public key cannot be read.
+func TestExecToolsVerify(t *testing.T) {
+	ctx := context.Background()
+	f := &fakeRun{signed: map[string]bool{"ghcr.io/a@sha256:1": true}}
+	tools := execTools{dir: t.TempDir(), run: f.run}
+	if err := tools.Verify(ctx, contract.PublishSign{Key: "/abs/k"}, "ghcr.io/a@sha256:1"); err != nil {
+		t.Fatalf("verify of a signed digest: %v", err)
+	}
+	if err := tools.Verify(ctx, contract.PublishSign{KMS: "awskms:///a"}, "ghcr.io/a@sha256:2"); err == nil {
+		t.Fatal("verify of an unsigned digest passed")
+	}
+	noKey := execTools{dir: t.TempDir(), run: (&fakeRun{signed: map[string]bool{}, fail: "cosign public-key"}).run}
+	if err := noKey.Verify(ctx, contract.PublishSign{Key: "k"}, "ghcr.io/a@sha256:1"); err == nil {
+		t.Error("verify without the public key must fail")
+	}
+}
+
 func TestExecTools(t *testing.T) {
 	ctx := context.Background()
 	f := &fakeRun{signed: map[string]bool{}}
@@ -196,7 +214,8 @@ func TestExecTools(t *testing.T) {
 		want string
 	}{
 		{contract.PublishSign{KMS: "awskms:///a"}, "cosign sign --yes --key awskms:///a ghcr.io/a@sha256:1"},
-		{contract.PublishSign{Keyless: true}, "cosign verify --certificate-identity-regexp .* --certificate-oidc-issuer-regexp .* ghcr.io/a@sha256:1"},
+		{contract.PublishSign{Keyless: true, Identity: "ci@acme", Issuer: "https://issuer"},
+			"cosign verify --certificate-identity ci@acme --certificate-oidc-issuer https://issuer ghcr.io/a@sha256:1"},
 		{contract.PublishSign{Key: "/abs/k", TransparencyLog: &off}, "cosign sign --yes --tlog-upload=false --use-signing-config=false --key /abs/k ghcr.io/a@sha256:1"},
 	}
 	for _, c := range cases {
@@ -217,6 +236,7 @@ func TestExecTools(t *testing.T) {
 			t.Errorf("%s failing must surface", fail)
 		}
 	}
+
 	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
 	if _, err := tools.Sign(ctx, contract.PublishSign{Key: "k"}, "ghcr.io/a@sha256:1"); err == nil {
 		t.Fatal("no temporary file for the public key")

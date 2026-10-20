@@ -2288,13 +2288,41 @@ fields:
     evidence: 'none: pacto publish reads it; nothing at runtime does'
     rule: 'schema: true only'
     outcomes: SCHEMA_VIOLATION
-    limitations: any valid keyless signature counts when re-checking
+    limitations: needs identity and issuer, so Pacto can tell its own signature from anyone else's
     tests:
       unit:
       - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.keyless/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.keyless/invalid
+      e2e: []
+  publish.sign.identity:
+    meaning: The certificate identity keyless signing produces.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: non-empty string, required with keyless'
+    outcomes: SCHEMA_VIOLATION
+    limitations: matched exactly by cosign verify; Flux needs its own matchOIDCIdentity
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.identity/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.identity/invalid
+      e2e: []
+  publish.sign.issuer:
+    meaning: The OIDC issuer of the keyless identity.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: non-empty string, required with keyless'
+    outcomes: SCHEMA_VIOLATION
+    limitations: matched exactly by cosign verify
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.issuer/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.issuer/invalid
       e2e: []
   publish.sign.key:
     meaning: A cosign private key file.

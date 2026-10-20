@@ -21,7 +21,9 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/layout"
+	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/random"
+	"github.com/google/go-containerregistry/pkg/v1/types"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -75,6 +77,13 @@ func (f *fakeTools) Build(_ context.Context, a contract.PublishArtifact, out str
 		}
 	}
 	return os.WriteFile(filepath.Join(out, "deployment.yaml"), []byte(strings.Join(digests, "\n")), 0o644)
+}
+
+func (f *fakeTools) Verify(_ context.Context, _ contract.PublishSign, ref string) error {
+	if !f.signed[ref] {
+		return errTest
+	}
+	return nil
 }
 
 func (f *fakeTools) Sign(_ context.Context, _ contract.PublishSign, ref string) (bool, error) {
@@ -384,7 +393,7 @@ func TestPlanChecks(t *testing.T) {
 	expect(t, failedCheck(p) == "sign", "no sign: %+v", p.Checks)
 	p = MakePlan(ctx, reg, Input{Bundle: b})
 	expect(t, failedCheck(p) == "revision", "no revision: %+v", p.Checks)
-	for _, s := range []contract.PublishSign{{KMS: "awskms:///a"}, {Keyless: true}} {
+	for _, s := range []contract.PublishSign{{KMS: "awskms:///a"}, {Keyless: true, Identity: "ci@acme", Issuer: "https://issuer"}} {
 		c := signCheck(&contract.Publish{Sign: &s})
 		expect(t, c.Passed, "sign %+v: %+v", s, c)
 	}
@@ -596,4 +605,53 @@ func TestDecide(t *testing.T) {
 	if s, _ := Decide(&Remote{Digest: "d"}, nil, "", "1", ""); s != Conflict {
 		t.Fatalf("no revision: %s", s)
 	}
+}
+
+// TestApplyNeverSignsForeignContent: a tag whose unsigned provenance claims
+// this version and revision is not adopted, and an SBOM someone else attached
+// is never reused or signed.
+func TestApplyNeverSignsForeignContent(t *testing.T) {
+	host, reg := newRegistry(t)
+	ctx := context.Background()
+	img, _ := random.Image(64, 1)
+	forged := mutate.Annotations(img, map[string]string{AnnotationVersion: "1.0.0", AnnotationRevision: "abc123"}).(v1.Image)
+	d, _ := reg.Write(ctx, host+"/payments", forged)
+	expect(t, reg.Tag(ctx, host+"/payments", d, "1.0.0") == nil, "tag")
+	tools := newTools()
+	res, err := Apply(ctx, reg, tools, Input{Bundle: bundleOf(host, "1.0.0", workloadService), Revision: "abc123"})
+	expect(t, errors.Is(err, ErrNotReady) && res.Plan.Items[0].State == Conflict && len(tools.signed) == 0,
+		"a forged tag was adopted: %v %s signed %v", err, states(res.Plan), tools.signed)
+
+	head, _ := reg.Head(ctx, host+"/payments@"+d)
+	h, _ := v1.NewHash(d)
+	subject := v1.Descriptor{MediaType: types.MediaType(head.MediaType), Size: head.Size, Digest: h}
+	foreign, err := reg.Write(ctx, host+"/payments", sbomArtifact([]byte(`{"forged":true}`), subject, nil))
+	expect(t, err == nil, "foreign SBOM: %v", err)
+	ours, err := attachSBOM(ctx, reg, tools, contract.PublishSign{Key: "k"}, host+"/payments", d, "1.0.0", "abc123", &Result{})
+	expect(t, err == nil && ours != foreign, "the foreign SBOM was reused: %s %v", ours, err)
+	tools.signed[host+"/payments@"+ours] = true
+	again, err := attachSBOM(ctx, reg, tools, contract.PublishSign{Key: "k"}, host+"/payments", d, "1.0.0", "abc123", &Result{})
+	expect(t, err == nil && again == ours, "our signed SBOM is reused: %s %v", again, err)
+}
+
+// TestTagReadsAgain: a tag is read just before it is written, so a publish
+// racing this one is refused instead of overwritten.
+func TestTagReadsAgain(t *testing.T) {
+	host, client := newRegistry(t)
+	ctx := context.Background()
+	a, _ := random.Image(64, 1)
+	b, _ := random.Image(64, 1)
+	da, _ := client.Write(ctx, host+"/x", a)
+	db, _ := client.Write(ctx, host+"/x", b)
+	tag := func(reg Registry) func() error {
+		r := &applier{ctx: ctx, reg: reg, res: &Result{Plan: Plan{Version: "1.0.0"}}}
+		r.owe(false, host+"/x", da)
+		return r.tags[0]
+	}
+	expect(t, tag(brokenRegistry{client, "head"})() != nil, "an unreadable tag is not written")
+	expect(t, tag(client)() == nil, "an absent tag is written")
+	expect(t, tag(client)() == nil, "a tag already holding the digest is left alone")
+	expect(t, client.Tag(ctx, host+"/x", db, "1.0.0") == nil, "race")
+	err := tag(client)()
+	expect(t, err != nil && strings.Contains(err.Error(), "never overwritten"), "a racing tag was overwritten: %v", err)
 }

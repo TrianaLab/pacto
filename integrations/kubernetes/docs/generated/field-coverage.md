@@ -18,7 +18,7 @@ The page is generated from `pkg/validation/schema/field-coverage.yaml`. `pkg/val
 | --- | --- | --- |
 | `verified` | A runtime fact can both satisfy and contradict the declaration. | 4 |
 | `partial` | A runtime fact exists, but some values or environments stay unverified. | 15 |
-| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 63 |
+| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 65 |
 | `not-applicable` | Identity, container or open object with nothing to verify. | 13 |
 
 A runtime check never turns "could not look" into a violation. A check with no usable fact is listed in `status.evaluationCoverage.unverified` and leaves the contract status unchanged.
@@ -117,6 +117,8 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `publish.artifacts[].sbom` | `static-only` | - | - | - | PUBLISH_SBOM_NOT_IMAGE |
 | `publish.sign` | `static-only` | - | - | - | SCHEMA_VIOLATION; pacto publish refuses when omitted |
 | `publish.sign.keyless` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.sign.identity` | `static-only` | - | - | - | SCHEMA_VIOLATION |
+| `publish.sign.issuer` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `publish.sign.key` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `publish.sign.kms` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `publish.sign.transparencyLog` | `static-only` | - | - | - | PARSE_ERROR when not a boolean |
@@ -1430,8 +1432,32 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Evidence | none: pacto publish reads it; nothing at runtime does |
 | Rule | schema: true only |
 | Outcomes | SCHEMA_VIOLATION |
-| Limitations | any valid keyless signature counts when re-checking |
+| Limitations | needs identity and issuer, so Pacto can tell its own signature from anyone else's |
 | Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.keyless/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.keyless/invalid` |
+
+### `publish.sign.identity`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The certificate identity keyless signing produces. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: non-empty string, required with keyless |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | matched exactly by cosign verify; Flux needs its own matchOIDCIdentity |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.identity/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.identity/invalid` |
+
+### `publish.sign.issuer`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The OIDC issuer of the keyless identity. |
+| Runtime | `static-only` |
+| Evidence | none: pacto publish reads it; nothing at runtime does |
+| Rule | schema: non-empty string, required with keyless |
+| Outcomes | SCHEMA_VIOLATION |
+| Limitations | matched exactly by cosign verify |
+| Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.issuer/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.issuer/invalid` |
 
 ### `publish.sign.key`
 

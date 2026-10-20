@@ -152,11 +152,10 @@ func insecureHost(ref string) bool {
 	return name == "localhost" || name == "127.0.0.1" || slices.Contains(oci.EnvInsecureRegistries(), host)
 }
 
-// Sign implements publish.Tools: a valid signature by the configured identity
-// is kept, otherwise cosign signs.
-func (t execTools) Sign(ctx context.Context, sign contract.PublishSign, ref string) (bool, error) {
-	verify := []string{"verify"}
-	signArgs := []string{"sign", "--yes"}
+// cosignArgs are the verify and sign arguments for ref and the configured
+// identity; done removes the temporary public key.
+func (t execTools) cosignArgs(ctx context.Context, sign contract.PublishSign, ref string) (verify, signArgs []string, done func(), err error) {
+	verify, signArgs, done = []string{"verify"}, []string{"sign", "--yes"}, func() {}
 	if insecureHost(ref) {
 		verify = append(verify, "--allow-http-registry")
 		signArgs = append(signArgs, "--allow-http-registry")
@@ -173,23 +172,44 @@ func (t execTools) Sign(ctx context.Context, sign contract.PublishSign, ref stri
 		}
 		pub, err := t.publicKey(ctx, key)
 		if err != nil {
-			return false, err
+			return nil, nil, done, err
 		}
-		defer func() { _ = os.Remove(pub) }()
+		done = func() { _ = os.Remove(pub) }
 		verify = append(verify, "--key", pub)
 		signArgs = append(signArgs, "--key", key)
 	case sign.KMS != "":
 		verify = append(verify, "--key", sign.KMS)
 		signArgs = append(signArgs, "--key", sign.KMS)
 	default:
-		// ponytail: keyless declares no identity, so any valid keyless signature
-		// counts as already signed; declare the identity if that is too loose.
-		verify = append(verify, "--certificate-identity-regexp", ".*", "--certificate-oidc-issuer-regexp", ".*")
+		verify = append(verify, "--certificate-identity", sign.Identity, "--certificate-oidc-issuer", sign.Issuer)
 	}
-	if _, err := t.run(ctx, t.dir, nil, "cosign", append(verify, ref)...); err == nil {
+	return append(verify, ref), append(signArgs, ref), done, nil
+}
+
+// Verify implements publish.Tools: cosign verify with the configured key, KMS
+// key or keyless identity and issuer.
+func (t execTools) Verify(ctx context.Context, sign contract.PublishSign, ref string) error {
+	verify, _, done, err := t.cosignArgs(ctx, sign, ref)
+	defer done()
+	if err != nil {
+		return err
+	}
+	_, err = t.run(ctx, t.dir, nil, "cosign", verify...)
+	return err
+}
+
+// Sign implements publish.Tools: a valid signature by the configured identity
+// is kept, otherwise cosign signs.
+func (t execTools) Sign(ctx context.Context, sign contract.PublishSign, ref string) (bool, error) {
+	verify, signArgs, done, err := t.cosignArgs(ctx, sign, ref)
+	defer done()
+	if err != nil {
+		return false, err
+	}
+	if _, err := t.run(ctx, t.dir, nil, "cosign", verify...); err == nil {
 		return false, nil
 	}
-	if _, err := t.run(ctx, t.dir, nil, "cosign", append(signArgs, ref)...); err != nil {
+	if _, err := t.run(ctx, t.dir, nil, "cosign", signArgs...); err != nil {
 		return false, err
 	}
 	return true, nil

@@ -26,8 +26,10 @@ const (
 	Absent State = "absent"
 	// Identical: the tag holds exactly the digest Pacto computed.
 	Identical State = "identical"
-	// Adopt: the tag holds what an earlier publish of this version from this
-	// revision pushed; its digest is reused.
+	// Adopt: the tag's provenance says this version from this revision, so an
+	// earlier publish pushed it. Apply reuses its digest only when it is
+	// signed by the configured identity, and refuses it as a conflict
+	// otherwise: provenance annotations are not signed.
 	Adopt State = "adopt"
 	// Conflict: the tag holds something else. Nothing is overwritten.
 	Conflict State = "conflict"
@@ -104,7 +106,7 @@ func Decide(remote *Remote, err error, digest, version, revision string) (State,
 	case digest != "" && remote.Digest == digest:
 		return Identical, ""
 	case revision != "" && remote.Annotations[AnnotationRevision] == revision && remote.Annotations[AnnotationVersion] == version:
-		return Adopt, "an earlier publish of this version from this revision pushed it"
+		return Adopt, "its provenance says an earlier publish of this version from this revision pushed it"
 	}
 	return Conflict, fmt.Sprintf("the tag holds %s, which this publish did not compute (version %q, revision %q); it is never overwritten",
 		remote.Digest, remote.Annotations[AnnotationVersion], remote.Annotations[AnnotationRevision])
@@ -175,7 +177,7 @@ func signMethod(s *contract.PublishSign) string {
 	case s.KMS != "":
 		return "kms " + s.KMS
 	}
-	return "keyless"
+	return "keyless as " + s.Identity
 }
 
 func revisionCheck(rev string) Check {

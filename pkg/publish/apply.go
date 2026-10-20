@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/types"
@@ -21,8 +22,11 @@ type Tools interface {
 	// PACTO_OUT, PACTO_VERSION, PACTO_REVISION and PACTO_DIGEST_<NAME> /
 	// PACTO_REF_<NAME> for every artifact already built.
 	Build(ctx context.Context, a contract.PublishArtifact, out string, env []string) error
-	// Sign signs ref (repo@digest) unless a valid signature by the configured
-	// identity is already there; signed says whether it wrote one.
+	// Verify returns nil when ref (repo@digest) carries a valid signature by
+	// the configured identity.
+	Verify(ctx context.Context, sign contract.PublishSign, ref string) error
+	// Sign signs ref (repo@digest) unless Verify passes; signed says whether
+	// it wrote one.
 	Sign(ctx context.Context, sign contract.PublishSign, ref string) (signed bool, err error)
 	// SBOM makes the SPDX JSON SBOM of the image at ref (repo@digest).
 	SBOM(ctx context.Context, ref string) ([]byte, error)
@@ -52,6 +56,9 @@ type Result struct {
 // everything it points at exists and is signed.
 func Apply(ctx context.Context, reg Registry, tools Tools, in Input) (*Result, error) {
 	p := MakePlan(ctx, reg, in)
+	if p.Ready {
+		adoptOnlySigned(ctx, tools, in.Bundle.Contract.Publish, &p)
+	}
 	res := &Result{Plan: p, Actions: []string{}, Digests: map[string]string{}, SBOMs: map[string]string{}}
 	if !p.Ready {
 		return res, fmt.Errorf("%w: %s", ErrNotReady, refusal(p))
@@ -80,6 +87,23 @@ func Apply(ctx context.Context, reg Registry, tools Tools, in Input) (*Result, e
 		res.Actions = append(res.Actions, fmt.Sprintf("tagged %d artifacts %s", len(tags), p.Version))
 	}
 	return res, nil
+}
+
+// adoptOnlySigned turns an adopted tag that carries no signature by the
+// configured identity into a conflict. Provenance annotations are unsigned:
+// anyone who can push can write them, and a tag Pacto wrote was signed before
+// it was tagged. Signing such a tag would sign someone else's content.
+func adoptOnlySigned(ctx context.Context, tools Tools, pub *contract.Publish, p *Plan) {
+	for i, it := range p.Items {
+		if it.State != Adopt {
+			continue
+		}
+		if err := tools.Verify(ctx, *pub.Sign, strings.TrimSuffix(it.Ref, ":"+p.Version)+"@"+it.Digest); err != nil {
+			p.Items[i].State, p.Ready = Conflict, false
+			p.Items[i].Reason = "the tag holds " + it.Digest + " with this version's provenance, but no signature by the configured identity, " +
+				"so Pacto did not publish it; it is never signed or overwritten (" + err.Error() + ")"
+		}
+	}
 }
 
 // applier carries one publish: what it pushed and the tags it still owes.
@@ -122,7 +146,7 @@ func (r *applier) artifacts() error {
 		if !a.SBOM {
 			continue
 		}
-		sbom, err := attachSBOM(r.ctx, r.reg, r.tools, repo, digest, version, r.in.Revision, r.res)
+		sbom, err := attachSBOM(r.ctx, r.reg, r.tools, *r.pub.Sign, repo, digest, version, r.in.Revision, r.res)
 		if err != nil {
 			return fmt.Errorf("SBOM of %s: %w", a.Name, err)
 		}
@@ -131,9 +155,23 @@ func (r *applier) artifacts() error {
 	return nil
 }
 
-// owe records a tag to write once everything is signed.
+// owe records a tag to write once everything is signed. The tag is read again
+// just before it is written, so a publish racing this one is refused in the
+// moment between the read and the write, not over the whole build.
 func (r *applier) owe(deploy bool, repo, digest string) {
-	tag := func() error { return r.reg.Tag(r.ctx, repo, digest, r.res.Plan.Version) }
+	tag := func() error {
+		ref := repo + ":" + r.res.Plan.Version
+		now, err := r.reg.Head(r.ctx, ref)
+		switch {
+		case err != nil:
+			return err
+		case now == nil:
+			return r.reg.Tag(r.ctx, repo, digest, r.res.Plan.Version)
+		case now.Digest != digest:
+			return fmt.Errorf("%s now holds %s, written while this publish ran; it is never overwritten", ref, now.Digest)
+		}
+		return nil
+	}
 	if deploy {
 		r.deployTag = tag
 		return
@@ -206,15 +244,18 @@ func buildAndPush(ctx context.Context, reg Registry, tools Tools, a contract.Pub
 	return d, nil
 }
 
-// attachSBOM attaches an SBOM to repo@digest unless one is there already, and
-// returns the SBOM's digest.
-func attachSBOM(ctx context.Context, reg Registry, tools Tools, repo, digest, version, revision string, res *Result) (string, error) {
+// attachSBOM attaches an SBOM to repo@digest unless one signed by the
+// configured identity is there already, and returns the SBOM's digest. An
+// SBOM anyone else attached is left alone and never signed.
+func attachSBOM(ctx context.Context, reg Registry, tools Tools, sign contract.PublishSign, repo, digest, version, revision string, res *Result) (string, error) {
 	have, err := reg.Referrers(ctx, repo, digest, SBOMType)
 	if err != nil {
 		return "", err
 	}
-	if len(have) > 0 {
-		return have[0], nil
+	for _, h := range have {
+		if tools.Verify(ctx, sign, repo+"@"+h) == nil {
+			return h, nil
+		}
 	}
 	head, err := reg.Head(ctx, repo+"@"+digest)
 	if err != nil || head == nil {

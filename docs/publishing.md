@@ -19,7 +19,9 @@ Pacto runs no tests. It refuses to publish when one of its own checks fails:
 - there is no source revision (run it in a git checkout, or pass `--revision`);
 - the version is too small for the change.
 
-The version rule compares the contract with the highest version already
+A release candidate's fixes ship as the version it was a candidate for: after
+`2.0.0-rc.1`, `2.0.0-rc.2` and `2.0.0` are accepted whatever changed. The version
+rule compares the contract with the highest version already
 published below it, using the same classification as [`pacto diff`](contract-reference/diff.md):
 
 | Change since the last version | Smallest version allowed |
@@ -38,12 +40,16 @@ For every artifact the plan says what the registry holds for its tag:
 |---|---|---|
 | `absent` | The tag does not exist | builds, pushes and tags it |
 | `identical` | The tag holds exactly what Pacto computed (the bundle) | nothing |
-| `adopt` | An earlier publish of this version from this revision pushed it | nothing; reuses it |
+| `adopt` | Its version and revision annotations match this publish | reuses it if it is signed by the configured identity; refuses otherwise |
 | `conflict` | The tag holds something else | refuses; nothing is overwritten |
 | `unreadable` | The registry could not be read | refuses; unreadable is never absent |
 
-Publishing again finishes what is missing and changes nothing else, so a run
-that stopped halfway is simply repeated. The deploy artifact is tagged last:
+Annotations are not signed, so anyone who can push can write them. Pacto
+therefore never signs what it adopts: a tag it wrote was signed before it was
+tagged, and one without that signature is someone else's. Each tag is read
+again just before it is written, so two runs racing on one version cannot
+overwrite each other. Publishing again finishes what is missing and changes
+nothing else, so a run that stopped halfway is simply repeated. The deploy artifact is tagged last:
 once its tag exists, everything it points at exists and is signed.
 
 ## What gets published
@@ -56,9 +62,10 @@ manifests build can pin the image it deploys by digest. Pacto then:
    `org.opencontainers.image.revision` on its manifest;
 2. packages the deploy artifact as a Flux artifact whose `pacto.dev/contract`
    annotation names the digest-pinned contract bundle;
-3. attaches an SBOM made by `syft` to each image that asks for one;
-4. signs every digest with `cosign`, unless a valid signature by the same key
-   is already there;
+3. attaches an SBOM made by `syft` to each image that asks for one, unless one
+   signed by the configured identity is already there;
+4. signs every digest with `cosign`, unless a valid signature by the configured
+   key, KMS key or keyless identity is already there;
 5. pushes the bundle and writes the tags.
 
 It needs `docker buildx` with a builder that can write an OCI layout (the
@@ -79,4 +86,7 @@ whose candidate `OCIRepository` follows the deploy artifact's repository sees
 each new version without an extra step, and `--propose <namespace>/<stage>`
 proposes it on a Stage that does not promote by itself. A Stage promotes only
 versions published this way: Flux checks the signature and the promoter checks
-the contract annotation.
+the contract annotation. So `--propose` first waits until the Stage records the
+version as published, which happens once Flux polls the new tag and verifies
+its signature. It waits up to `--propose-timeout` (10 minutes by default), then
+gives up and says so.

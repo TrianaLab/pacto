@@ -9,7 +9,9 @@ it states, and contract format 2.1, which declares it.
 contract bundle, the artifacts the service publishes (an image, a chart or
 manifests) with where each goes and how it is built (`docker buildx` into an
 OCI layout, or a command that writes to `$PACTO_OUT`), the deploy artifact Flux
-applies and how everything is signed. A 2.0 contract keeps working unchanged,
+applies and how everything is signed. Keyless signing names the certificate
+`identity` and `issuer` it produces, so Pacto can tell its own signature from
+anyone else's. A 2.0 contract keeps working unchanged,
 and `publish` in a 2.0 contract fails validation. Pacto versions older than
 this one reject a 2.1 contract.
 
@@ -19,14 +21,18 @@ the publish, and writes nothing. `pacto publish` builds what is absent, pushes
 it by digest with its version and source revision on the manifest, attaches
 SBOMs made by `syft`, signs every digest with `cosign`, pushes the bundle and
 writes the tags with the deploy artifact last; the deploy artifact names its
-digest-pinned contract in `pacto.dev/contract`. It never overwrites a tag, a
-second run changes nothing and a run that stopped halfway finishes when run
-again. It refuses an invalid contract, local references, a broken lock, a
+digest-pinned contract in `pacto.dev/contract`. It never overwrites a tag: each tag is read again
+just before it is written. A second run changes nothing and a run that stopped
+halfway finishes when run again. A tag whose provenance annotations match is
+reused only when it carries a signature by the configured identity, and an SBOM
+only when it does too: Pacto never signs content it did not publish. After a
+release candidate, its fixes ship as the version it was a candidate for. It refuses an invalid contract, local references, a broken lock, a
 missing signing configuration, a signing key inside the bundle, a missing
 source revision and a version too small for the change: a breaking change
 needs a major version (a minor before 1.0) and a change Pacto cannot classify
 at least a minor. `--propose <namespace>/<stage>` hands the deploy artifact to
-Pacto delivery. `pacto mcp --publish` adds `pacto_publish_plan` and
+Pacto delivery once the Stage recorded it as published, waiting up to
+`--propose-timeout` for Flux to verify it. `pacto mcp --publish` adds `pacto_publish_plan` and
 `pacto_publish` for agents, over stdio only.
 
 `pacto diff` reports `requiredBump`, the same rule. `pacto push` succeeds
@@ -37,5 +43,6 @@ refuses different content under an existing reference instead of only warning
 Pacto delivery promotes only versions `pacto publish` published: the
 `pacto.published` pre-gate admits a promote only for a digest Flux verified the
 signature of on the Stage's candidate source, whose artifact names its
-contract, or a digest the upstream Stage verified. Anything else is refused as
-`NotPublished` before any other gate runs.
+contract, or a digest the upstream Stage published and verified. Anything else,
+including a candidate from an upstream Stage that does not exist or cannot be
+read, is refused as `NotPublished` before any other gate runs.

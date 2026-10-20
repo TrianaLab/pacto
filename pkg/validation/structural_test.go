@@ -519,22 +519,27 @@ func TestValidateStructural_V21Publish(t *testing.T) {
 	if r := ValidateStructuralRaw([]byte(fmt.Sprintf(head, "2.1") + full)); !r.IsValid() {
 		t.Fatalf("2.1 with publish: %+v", r.Errors)
 	}
+	keyless := "publish: {bundle: \"oci://r.io/a\", sign: {keyless: true, identity: ci@acme.com, issuer: \"https://i\"}}\n"
+	if r := ValidateStructuralRaw([]byte(fmt.Sprintf(head, "2.1") + keyless)); !r.IsValid() {
+		t.Fatalf("keyless with its identity: %+v", r.Errors)
+	}
 	if r := ValidateStructuralRaw([]byte(fmt.Sprintf(head, "2.0") + full)); r.IsValid() {
 		t.Fatal("publish under 2.0 must be refused")
 	}
 	bad := map[string]string{
-		"tagged bundle":   "publish: {bundle: \"oci://ghcr.io/acme/orders:1.0.0\"}\n",
-		"no oci scheme":   "publish: {bundle: ghcr.io/acme/orders}\n",
-		"two builders":    "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {command: [x], dockerfile: {context: .}}}]}\n",
-		"no builder":      "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {}}]}\n",
-		"bad type":        "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: binary, ref: \"oci://r.io/a\", build: {command: [x]}}]}\n",
-		"bad name":        "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: Api, type: image, ref: \"oci://r.io/a\", build: {command: [x]}}]}\n",
-		"bad platform":    "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {dockerfile: {context: ., platforms: [amd64]}}}]}\n",
-		"empty command":   "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {command: []}}]}\n",
-		"two sign ways":   "publish: {bundle: \"oci://r.io/a\", sign: {key: k, kms: \"awskms:///a\"}}\n",
-		"keyless false":   "publish: {bundle: \"oci://r.io/a\", sign: {keyless: false}}\n",
-		"empty sign":      "publish: {bundle: \"oci://r.io/a\", sign: {}}\n",
-		"missing context": "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {dockerfile: {file: D}}}]}\n",
+		"tagged bundle":       "publish: {bundle: \"oci://ghcr.io/acme/orders:1.0.0\"}\n",
+		"no oci scheme":       "publish: {bundle: ghcr.io/acme/orders}\n",
+		"two builders":        "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {command: [x], dockerfile: {context: .}}}]}\n",
+		"no builder":          "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {}}]}\n",
+		"bad type":            "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: binary, ref: \"oci://r.io/a\", build: {command: [x]}}]}\n",
+		"bad name":            "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: Api, type: image, ref: \"oci://r.io/a\", build: {command: [x]}}]}\n",
+		"bad platform":        "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {dockerfile: {context: ., platforms: [amd64]}}}]}\n",
+		"empty command":       "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {command: []}}]}\n",
+		"two sign ways":       "publish: {bundle: \"oci://r.io/a\", sign: {key: k, kms: \"awskms:///a\"}}\n",
+		"keyless false":       "publish: {bundle: \"oci://r.io/a\", sign: {keyless: false}}\n",
+		"keyless no identity": "publish: {bundle: \"oci://r.io/a\", sign: {keyless: true, issuer: \"https://i\"}}\n",
+		"empty sign":          "publish: {bundle: \"oci://r.io/a\", sign: {}}\n",
+		"missing context":     "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {dockerfile: {file: D}}}]}\n",
 	}
 	for name, doc := range bad {
 		if r := ValidateStructuralRaw([]byte(fmt.Sprintf(head, "2.1") + doc)); r.IsValid() {
