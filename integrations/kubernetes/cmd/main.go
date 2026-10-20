@@ -86,6 +86,9 @@ type options struct {
 	dashboardOCISecrets  string
 	dashboardResources   component.Resources
 	dashboardObservation []dashboard.ObservationSource
+	dashboardAuth        dashboard.AuthConfig
+	dashboardExtraScopes string
+	dashboardMiraURL     string
 
 	enableEvidence            bool
 	evidenceTrustSecret       string
@@ -149,6 +152,19 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			o.dashboardObservation = append(o.dashboardObservation, src)
 			return nil
 		})
+	fs.StringVar(&o.dashboardAuth.IssuerURL, "dashboard-oidc-issuer-url", "",
+		"OpenID Connect issuer people sign in to the dashboard with. Delivery actions then run with each person's own "+
+			"token; without it the dashboard serves no delivery data and no actions.")
+	fs.StringVar(&o.dashboardAuth.ClientID, "dashboard-oidc-client-id", "", "The dashboard's OpenID Connect client id.")
+	fs.StringVar(&o.dashboardAuth.RedirectURL, "dashboard-oidc-redirect-url", "",
+		"The dashboard's /auth/callback as browsers reach it; TLS must terminate in front of it.")
+	fs.StringVar(&o.dashboardExtraScopes, "dashboard-oidc-extra-scopes", "", "Comma-separated scopes beyond openid, profile and groups.")
+	fs.StringVar(&o.dashboardAuth.ClientSecretName, "dashboard-oidc-client-secret-name", "",
+		"Secret in the operator namespace holding the client secret, passed to the dashboard by secretKeyRef.")
+	fs.StringVar(&o.dashboardAuth.ClientSecretKey, "dashboard-oidc-client-secret-key", "client-secret", "Key of the client secret in that Secret.")
+	fs.StringVar(&o.dashboardAuth.TeamGroupPrefix, "dashboard-team-group-prefix", "",
+		"A contract owner team T is group T or this prefix plus T, as the delivery promoter is configured.")
+	fs.StringVar(&o.dashboardMiraURL, "dashboard-mira-url", "", "Mira's address, to link the dashboard's health-check citations.")
 	fs.BoolVar(&o.enableEvidence, "enable-evidence-server", false,
 		"Enable the managed Pacto Evidence Server deployment. Disabled by default.")
 	fs.Func("evidence-subject",
@@ -460,6 +476,11 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 		InsecureRegistries: insecureRegistries,
 		Observation:        o.dashboardObservation,
 		Resources:          o.dashboardResources,
+		Auth:               o.dashboardAuth,
+		MiraURL:            o.dashboardMiraURL,
+	}
+	if o.dashboardExtraScopes != "" {
+		dashCfg.Auth.ExtraScopes = strings.Split(o.dashboardExtraScopes, ",")
 	}
 	if err := dashCfg.Validate(); err != nil {
 		return fmt.Errorf("invalid dashboard configuration: %w", err)

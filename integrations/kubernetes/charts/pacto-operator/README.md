@@ -354,6 +354,13 @@ cosign verify \
 | controller.kernelEvidence.staleness | string | `""` | How old a node's heartbeat may be before its evidence reads stale. Empty uses three times the node agent's publish interval. Accepts a Go duration (e.g. "2m"). |
 | controller.stabilizationWindow | string | `""` | Stabilization window: how long a sustained NEGATIVE observation must persist before it converts to a confirmed violation (a transient blip reads Unknown meanwhile). Empty string uses the controller default (2m). Accepts a Go duration (e.g. "30s", "5m"). |
 | controller.watchNamespace | string | `""` | Restrict the controller's observation scope to a single namespace. Empty string (default) means cluster-wide: the controller watches all namespaces. The dashboard inherits this scope automatically. |
+| dashboard.auth.oidc.clientID | string | `""` | The dashboard's client id at the issuer |
+| dashboard.auth.oidc.clientSecretRef.key | string | `"client-secret"` | Key of the client secret in that Secret |
+| dashboard.auth.oidc.clientSecretRef.name | string | `""` | Secret in the operator namespace holding the client secret (passed by secretKeyRef) |
+| dashboard.auth.oidc.extraScopes | list | `[]` | Scopes asked for beyond openid, profile and groups (for example a cross-client audience scope) |
+| dashboard.auth.oidc.issuerURL | string | `""` | OpenID Connect issuer URL people sign in with (empty: no sign-in) |
+| dashboard.auth.oidc.redirectURL | string | `""` | The dashboard's `/auth/callback` URL as browsers reach it |
+| dashboard.auth.teamGroupPrefix | string | `""` | A contract owner team `T` is the group `T` or this prefix followed by `T`, as the delivery chart is configured |
 | dashboard.enabled | bool | `true` | Enable the operator-managed dashboard deployment. The dashboard image is controlled by the operator and derived from the bundled Pacto library version. It is not user-configurable. |
 | dashboard.httpRoute.enabled | bool | `false` | Enable Gateway API HTTPRoute for the dashboard |
 | dashboard.httpRoute.hostnames | list | `[]` | Hostnames for the HTTPRoute |
@@ -364,6 +371,7 @@ cosign verify \
 | dashboard.ingress.enabled | bool | `false` | Enable Ingress for the dashboard |
 | dashboard.ingress.hosts | list | `[{"host":"pacto-dashboard.local","paths":[{"path":"/","pathType":"Prefix"}]}]` | Ingress hosts |
 | dashboard.ingress.tls | list | `[]` | Ingress TLS configuration |
+| dashboard.miraURL | string | `""` | Mira's address, to link the health-check citations in delivery views |
 | dashboard.observation.sources | list | `[]` | Offline OTLP/JSON trace exports to mount read-only into the dashboard, so its Operational Graph can reconcile declared dependencies against observed ones. Each entry is one named data source: `name` is its stable Data Source identity (a DNS-1123 label) — reordering this list never renames a source, and it must not collide with any other data source the dashboard has (the live cluster, OCI, the disk cache, local bundles, an Evidence Server); `file` is the trace file's name directly inside that source's mount — a single path segment, so mount a claim whose export sits at the top of its own directory; and exactly one of `existingClaim` (an existing PVC, for real exports) or `configMap` (small static exports only, ~1 MiB cap) supplies it. Pacto reads exactly the declared files — through a root it cannot follow a symlink out of — never writes to them and never scans the mount. Whoever owns that storage owns producing and rotating the exports. This configures OFFLINE input only: Pacto ships no OTLP receiver and no trace collector (the optional node agent is an eBPF socket observer, not a trace pipeline). |
 | dashboard.ociSecrets | list | `[]` | List of Secret names for OCI registry credentials. Supports Opaque (keys: registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson secrets. When set, credentials from all secrets are merged; later secrets override earlier ones for the same registry. |
 | dashboard.resources.limits.memory | string | `"512Mi"` | Memory limit for the dashboard container. The earlier default of 128Mi was OOMKilled while monitoring several OCI repositories and CRs at once; raise it further if the dashboard tracks a large fleet. |

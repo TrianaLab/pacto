@@ -71,6 +71,32 @@ type Config struct {
 	// produced and rotated by whoever owns their storage. This configures OFFLINE
 	// input only — Pacto ships no OTLP receiver and no collector.
 	Observation []ObservationSource
+
+	// Auth is how people sign in to the dashboard. Without an issuer the
+	// shared dashboard identifies nobody, so it serves no delivery data and no
+	// actions; its fleet views are unchanged.
+	Auth AuthConfig
+
+	// MiraURL, when set, turns the dashboard's Mira citations into links.
+	MiraURL string
+}
+
+// AuthConfig is the dashboard's OpenID Connect client. Delivery actions then
+// run with the signed-in person's own token: the dashboard's ServiceAccount
+// gains no right for it.
+type AuthConfig struct {
+	IssuerURL   string
+	ClientID    string
+	RedirectURL string
+	ExtraScopes []string
+	// ClientSecretName and ClientSecretKey name the Secret, in the operator
+	// namespace, holding the client secret. It reaches the pod through
+	// secretKeyRef, never as a literal value.
+	ClientSecretName string
+	ClientSecretKey  string
+	// TeamGroupPrefix maps a contract owner team to a group, as the delivery
+	// promoter is configured.
+	TeamGroupPrefix string
 }
 
 // ResourcesConfig holds optional resource quantity overrides for the dashboard container.
@@ -106,6 +132,9 @@ func (c Config) Validate() error {
 	}
 	if err := c.Resources.Validate("dashboard"); err != nil {
 		return err
+	}
+	if a := c.Auth; a.IssuerURL != "" && (a.ClientID == "" || a.RedirectURL == "") {
+		return fmt.Errorf("dashboard sign-in needs a client id and a redirect URL beside the issuer %s", a.IssuerURL)
 	}
 	return c.validateObservation()
 }

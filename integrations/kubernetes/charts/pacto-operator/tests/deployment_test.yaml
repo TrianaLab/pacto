@@ -182,6 +182,59 @@ tests:
           path: spec.template.spec.containers[0].args
           content: "--dashboard-oci-secrets=ghcr-creds,ecr-creds"
 
+  - it: should pass no sign-in by default
+    set:
+      dashboard.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: "--dashboard-oidc|--dashboard-mira|--dashboard-team"
+
+  - it: should pass the dashboard sign-in, the client secret by reference only
+    set:
+      dashboard.enabled: true
+      dashboard.miraURL: http://mira.observability:4318
+      dashboard.auth.teamGroupPrefix: "acme:"
+      dashboard.auth.oidc:
+        issuerURL: https://idp.example
+        clientID: pacto-dashboard
+        redirectURL: https://dash.example/auth/callback
+        extraScopes: [audience:server:client_id:pacto-cli]
+        clientSecretRef: {name: dashboard-oidc}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-issuer-url=https://idp.example
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-client-id=pacto-dashboard
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-redirect-url=https://dash.example/auth/callback
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-extra-scopes=audience:server:client_id:pacto-cli
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-client-secret-name=dashboard-oidc
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-client-secret-key=client-secret
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-team-group-prefix=acme:"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-mira-url=http://mira.observability:4318
+
+  - it: should require a client id with an issuer
+    set:
+      dashboard.enabled: true
+      dashboard.auth.oidc.issuerURL: https://idp.example
+    asserts:
+      - failedTemplate:
+          errorPattern: "clientID is required"
+
   - it: should include no trace-source arg by default
     asserts:
       - notMatchRegex:

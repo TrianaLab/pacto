@@ -149,6 +149,30 @@ Controller arguments derived from values
 {{- end }}
 {{- end }}
 {{- end }}
+{{- with .Values.dashboard.auth }}
+{{- with .oidc }}
+{{- if .issuerURL }}
+- --dashboard-oidc-issuer-url={{ .issuerURL }}
+- --dashboard-oidc-client-id={{ required "dashboard.auth.oidc.clientID is required with an issuerURL" .clientID }}
+- --dashboard-oidc-redirect-url={{ required "dashboard.auth.oidc.redirectURL is required with an issuerURL" .redirectURL }}
+{{- with .extraScopes }}
+- --dashboard-oidc-extra-scopes={{ join "," . }}
+{{- end }}
+{{- with .clientSecretRef }}
+{{- if .name }}
+- --dashboard-oidc-client-secret-name={{ .name }}
+- --dashboard-oidc-client-secret-key={{ .key | default "client-secret" }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- with .teamGroupPrefix }}
+- {{ printf "--dashboard-team-group-prefix=%s" . | quote }}
+{{- end }}
+{{- end }}
+{{- with .Values.dashboard.miraURL }}
+- --dashboard-mira-url={{ . }}
+{{- end }}
 {{- with .Values.dashboard.observation }}
 {{- range .sources }}
 {{- $backing := "" }}

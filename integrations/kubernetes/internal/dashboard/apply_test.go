@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package dashboard
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
@@ -15,6 +16,7 @@ import (
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
+	rbacv1ac "k8s.io/client-go/applyconfigurations/rbac/v1"
 )
 
 func testOwnerRef() *metav1ac.OwnerReferenceApplyConfiguration {
@@ -80,15 +82,67 @@ func TestDeploymentAC_WithWatchNamespace(t *testing.T) {
 	container := deploy.Spec.Template.Spec.Containers[0]
 	var found bool
 	for _, env := range container.Env {
-		if *env.Name == "PACTO_WATCH_NAMESPACE" {
+		if *env.Name == "PACTO_DASHBOARD_NAMESPACE" {
 			found = true
 			if *env.Value != "production" {
-				t.Errorf("expected PACTO_WATCH_NAMESPACE=production, got %q", *env.Value)
+				t.Errorf("expected PACTO_DASHBOARD_NAMESPACE=production, got %q", *env.Value)
 			}
 		}
 	}
 	if !found {
-		t.Error("expected PACTO_WATCH_NAMESPACE env var")
+		t.Error("expected PACTO_DASHBOARD_NAMESPACE env var, the one the dashboard reads")
+	}
+}
+
+func TestDeploymentAC_Auth(t *testing.T) {
+	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "ns", MiraURL: "http://mira:4318",
+		Auth: AuthConfig{IssuerURL: "https://idp", ClientID: "pacto-dashboard", RedirectURL: "https://dash/auth/callback",
+			ExtraScopes: []string{"a", "b"}, ClientSecretName: "oidc", TeamGroupPrefix: "acme:"}}
+	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
+	env := map[string]corev1ac.EnvVarApplyConfiguration{}
+	for _, e := range deploy.Spec.Template.Spec.Containers[0].Env {
+		env[*e.Name] = e
+	}
+	for name, want := range map[string]string{"PACTO_DASHBOARD_OIDC_ISSUER_URL": "https://idp", "PACTO_DASHBOARD_OIDC_CLIENT_ID": "pacto-dashboard",
+		"PACTO_DASHBOARD_OIDC_REDIRECT_URL": "https://dash/auth/callback", "PACTO_DASHBOARD_OIDC_EXTRA_SCOPES": "a b",
+		"PACTO_DASHBOARD_TEAM_GROUP_PREFIX": "acme:", "PACTO_DASHBOARD_MIRA_URL": "http://mira:4318"} {
+		if e, ok := env[name]; !ok || *e.Value != want {
+			t.Errorf("%s: want %q, got %+v", name, want, e)
+		}
+	}
+	secret := env["PACTO_DASHBOARD_OIDC_CLIENT_SECRET"]
+	if secret.Value != nil || *secret.ValueFrom.SecretKeyRef.Name != "oidc" || *secret.ValueFrom.SecretKeyRef.Key != "client-secret" {
+		t.Fatalf("the client secret goes by secretKeyRef only: %+v", secret)
+	}
+	cfg.Auth.ClientSecretKey = "secret"
+	for _, e := range deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration).Spec.Template.Spec.Containers[0].Env {
+		if *e.Name == "PACTO_DASHBOARD_OIDC_CLIENT_SECRET" && *e.ValueFrom.SecretKeyRef.Key != "secret" {
+			t.Fatal("a custom key is used")
+		}
+	}
+	for _, e := range deploymentAC(Config{Image: "i", Namespace: "n"}).(*appsv1ac.DeploymentApplyConfiguration).Spec.Template.Spec.Containers[0].Env {
+		if strings.Contains(*e.Name, "OIDC") || strings.Contains(*e.Name, "MIRA") {
+			t.Errorf("no sign-in configured, no %s", *e.Name)
+		}
+	}
+}
+
+// TestDashboardRoleGrantsNoDeliveryRight: sign-in passes each person's token
+// through, so the dashboard's own role never grows: nothing in the delivery
+// group and no impersonation.
+func TestDashboardRoleGrantsNoDeliveryRight(t *testing.T) {
+	role := clusterRoleAC().(*rbacv1ac.ClusterRoleApplyConfiguration)
+	for _, r := range role.Rules {
+		for _, g := range r.APIGroups {
+			if g == "delivery.pacto.trianalab.io" || g == "*" {
+				t.Errorf("the dashboard role reaches %q", g)
+			}
+		}
+		for _, v := range r.Verbs {
+			if v == "impersonate" || v == "*" || v == "create" || v == "update" || v == "patch" || v == "delete" {
+				t.Errorf("the dashboard role may %s", v)
+			}
+		}
 	}
 }
 

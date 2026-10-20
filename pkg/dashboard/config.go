@@ -21,6 +21,13 @@ type DashboardConfig struct {
 	RegistryUsername string `json:"PACTO_REGISTRY_USERNAME,omitempty" doc:"Registry authentication username"`
 	RegistryPassword string `json:"PACTO_REGISTRY_PASSWORD,omitempty" doc:"Registry authentication password"`
 	RegistryToken    string `json:"PACTO_REGISTRY_TOKEN,omitempty" doc:"Registry authentication token"`
+	OIDCIssuerURL    string `json:"PACTO_DASHBOARD_OIDC_ISSUER_URL,omitempty" doc:"OpenID Connect issuer people sign in with; delivery then runs as the signed-in person"`
+	OIDCClientID     string `json:"PACTO_DASHBOARD_OIDC_CLIENT_ID,omitempty" doc:"OpenID Connect client id of the dashboard"`
+	OIDCClientSecret string `json:"PACTO_DASHBOARD_OIDC_CLIENT_SECRET,omitempty" doc:"OpenID Connect client secret of the dashboard"`
+	OIDCRedirectURL  string `json:"PACTO_DASHBOARD_OIDC_REDIRECT_URL,omitempty" doc:"The dashboard's /auth/callback as browsers reach it"`
+	OIDCExtraScopes  string `json:"PACTO_DASHBOARD_OIDC_EXTRA_SCOPES,omitempty" doc:"Space-separated scopes beyond openid, profile and groups"`
+	TeamGroupPrefix  string `json:"PACTO_DASHBOARD_TEAM_GROUP_PREFIX,omitempty" doc:"A contract owner team T is group T or this prefix plus T"`
+	MiraURL          string `json:"PACTO_DASHBOARD_MIRA_URL,omitempty" doc:"Mira's address, to link health-check citations"`
 }
 
 // ExportConfigSchema generates a JSON Schema for DashboardConfig using Huma's
