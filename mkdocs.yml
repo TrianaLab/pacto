@@ -181,6 +181,7 @@ nav:
       - Installation: installation.md
       - Quickstart: quickstart.md
       - Put it in your repo: ci.md
+      - Publish a version: publishing.md
       - Example contracts: examples/index.md
   - Guides:
       - For developers: developers.md

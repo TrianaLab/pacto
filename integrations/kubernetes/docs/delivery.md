@@ -35,8 +35,9 @@ flowchart LR
   S -->|re-check fails| F
 ```
 
-- **Before it moves**, `pacto.diff` compares the running contract with the new
-  one and `pacto.impact` projects the change onto every consumer that declares
+- **Before it moves**, `pacto.published` admits only a version
+  [`pacto publish`](../../publishing.md) published, `pacto.diff` compares the
+  running contract with the new one and `pacto.impact` projects the change onto every consumer that declares
   a compatibility range. A consumer the new version breaks holds the change and
   routes the question to that consumer's owners. Anything Pacto cannot see (an
   artifact with no contract, a Pacto it cannot read) holds it for a person to
@@ -100,17 +101,28 @@ Upgrading the operator never touches these CRDs; see
 
 ## Set up a Stage
 
-Each artifact you deploy is an OCI artifact of manifests whose
-`pacto.dev/contract` annotation names the digest-pinned contract it was built
-from. With ORAS:
+A Stage promotes only versions `pacto publish` published: the deploy artifact
+it signed, whose `pacto.dev/contract` annotation names the contract. The
+candidate `OCIRepository` follows the deploy artifact's repository and sets
+`spec.verify`, so Flux checks each signature. The Stage remembers every digest
+Flux verified there in `status.published`, and refuses anything else as
+`NotPublished`, a promote an agent proposes included. A Stage with no
+candidate source, or whose source has no `spec.verify`, promotes nothing.
 
-```bash
-oras push --annotation "pacto.dev/contract=oci://registry/pactos/payments@sha256:..." \
-  registry/apps/payments:candidate manifests.tgz:application/vnd.cncf.flux.content.v1.tar+gzip
+```yaml
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata: {name: payments-candidates, namespace: test}
+spec:
+  url: oci://registry/apps/payments
+  ref: {semver: ">=0.0.0"}
+  verify: {provider: cosign, secretRef: {name: cosign-pub}}
 ```
 
 Label the `OCIRepository` that applies the Stage, so admission keeps everyone
-but the promoter and break-glass off its digest, and create the Stage:
+but the promoter and break-glass off its digest, give it the same
+`spec.verify` and create the Stage. A downstream Stage takes the versions its
+upstream verified:
 
 ```yaml
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
@@ -180,3 +192,5 @@ a witnessed override, adopts it and freezes the Stage.
 - History reads the operations still in the cluster, so it is partial.
 - No remote MCP access yet.
 - One cluster, Flux only.
+- Flux checks the signatures, so a digest it never verified on the candidate
+  source cannot be promoted, even if `pacto publish` signed it.

@@ -106,6 +106,7 @@ What the assistant can reach depends on how you start the server:
 | Bundle mode | The live service |
 | `--fleet` | Clusters and registries |
 | `--root` | Contracts from a registry |
+| `--publish` | Your registry, to [publish a version](publishing.md) (stdio only) |
 
 ---
 

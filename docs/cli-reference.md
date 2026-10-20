@@ -1055,7 +1055,9 @@ With --fleet, the server instead exposes the read-only operational-graph query t
 
 With --delivery, the server instead exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, describe, plan and get, plus propose and cancel only when the apiserver says the caller is an agent (a service account or an --agent-groups member). There is no approve tool.
 
-A bundle reference, --root, --fleet and --delivery select different servers and cannot be combined.
+With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish a contract's version exactly as `pacto publish` does, with this process's registry credentials.
+
+A bundle reference, --root, --fleet, --delivery and --publish select different servers and cannot be combined.
 
 ```
 pacto mcp [bundle-ref] [flags]
@@ -1100,6 +1102,7 @@ pacto mcp [bundle-ref] [flags]
       --namespace string             namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray              registry reference to include as a published-baseline revision (repeatable)
       --port int                     port for HTTP transport (default 8585)
+      --publish                      expose pacto_publish_plan and pacto_publish beside the authoring tools
       --root stringArray             contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
       --target-state stringArray     offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
       --traces stringArray           OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
@@ -1217,6 +1220,40 @@ Files matched by `.pactoignore` are excluded from the archive — see [Packaging
 
 ---
 
+## `pacto publish`
+
+Publishes every artifact the contract's publish section declares (pactoVersion 2.1), the contract bundle and the deploy artifact Flux applies, all tagged with service.version. Docker or the declared command builds; Pacto pushes, never over an existing tag, signs every digest with cosign and attaches SBOMs made by syft. A breaking change since the last published version is refused below a major bump (a minor before 1.0).
+
+--plan shows what is missing and changes nothing. Running publish again finishes what is missing and changes nothing else. --propose hands the deploy artifact to Pacto delivery as a promote on a Stage.
+
+```
+pacto publish [flags]
+```
+
+**Examples:**
+
+```
+  # What would be published, and what refuses it
+  pacto publish --plan
+
+  # Publish, then propose the version on the test Stage
+  pacto publish --propose test/payments
+```
+
+**Flags:**
+
+```
+  -h, --help                 help for publish
+  -p, --path string          path to contract directory (default: current directory)
+      --plan                 show what is missing and what refuses it; change nothing
+      --propose string       after publishing, propose the deploy artifact on <namespace>/<stage> (needs the pacto-delivery chart)
+      --revision string      source revision stamped on every artifact (default: the git commit of --path)
+      --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
+      --values stringArray   values file to merge into the contract (can be repeated; last wins)
+```
+
+---
+
 ## `pacto pull`
 
 Pulls a contract bundle from the specified OCI reference and extracts it to a local directory.
@@ -1246,7 +1283,7 @@ pacto pull <ref> [flags]
 
 ## `pacto push`
 
-Validates the contract (including remote policy and config refs), builds an OCI artifact and pushes it to the specified registry reference.
+Validates the contract (including remote policy and config refs), builds an OCI artifact and pushes it to the specified registry reference. Pushing the same content again succeeds without writing anything; different content under an existing reference is refused unless --force.
 
 ```
 pacto push <ref> [flags]
