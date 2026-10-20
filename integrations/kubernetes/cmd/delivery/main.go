@@ -66,7 +66,8 @@ func runPromoter(args []string) error {
 		"Comma-separated groups that may override and edit the pointer.")
 	poll := fs.Duration("poll", 3*time.Second, "How often an operation waiting on Flux, Pacto or a person is looked at.")
 	gateProviders := fs.String("gate-providers", "",
-		`The health gate providers Stages may name, as JSON: [{"name":"mira","type":"mira","url":"http://mira:4318"}]. Types: mira, http.`)
+		`The health gate providers Stages may name, as JSON: `+
+			`[{"name":"mira","type":"mira","url":"http://mira:4318"}]. Types: mira, http.`)
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -121,7 +122,8 @@ func runPromoter(args []string) error {
 		return err
 	}
 	if err := (&delivery.StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
-		Policy: policy, ClusterID: string(kubeSystem.UID), Gates: gates, Now: time.Now, Poll: *poll}).SetupWithManager(mgr); err != nil {
+		Policy: policy, ClusterID: string(kubeSystem.UID), Gates: gates, Now: time.Now,
+		Poll: *poll}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

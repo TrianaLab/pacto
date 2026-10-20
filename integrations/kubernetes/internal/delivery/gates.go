@@ -9,6 +9,7 @@ package delivery
 
 import (
 	"context"
+	"maps"
 	"time"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -24,9 +25,7 @@ func NewGates(c Cluster, providers map[string]delivery.Gate) map[string]delivery
 		delivery.GateContract: clusterGate{c: c, judge: delivery.ContractVerdict},
 		delivery.GateRuntime:  clusterGate{c: c, judge: delivery.RuntimeVerdict},
 	}
-	for name, g := range providers {
-		gates[name] = g
-	}
+	maps.Copy(gates, providers)
 	return gates
 }
 

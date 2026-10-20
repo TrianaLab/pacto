@@ -46,12 +46,12 @@ func (d *Delivery) Explain(ctx context.Context, ns, name string) (*delivery.Expl
 func summarize(op *delivery.OperationObject) string {
 	s := op.Status
 	what := fmt.Sprintf("%s on Stage %s, %s -> %s", op.Spec.Type, op.Spec.Stage, orDash(op.Spec.Params.From), orDash(op.Spec.Params.To))
-	switch {
-	case s.Phase == delivery.PhaseConcluded:
+	switch s.Phase {
+	case delivery.PhaseConcluded:
 		return fmt.Sprintf("%s concluded %s: %s: %s", what, strings.TrimSuffix(string(s.Outcome)+"/"+string(s.Verification), "/"), s.Reason, s.Message)
-	case s.Phase == delivery.PhaseHeld:
+	case delivery.PhaseHeld:
 		return what + " waits for a person: " + s.Question
-	case s.Phase == "":
+	case "":
 		return what + " is not admitted yet"
 	}
 	return fmt.Sprintf("%s is %s: %s", what, s.Phase, cmp.Or(s.Message, "in progress"))
