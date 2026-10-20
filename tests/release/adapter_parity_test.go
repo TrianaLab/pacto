@@ -20,7 +20,7 @@ func TestOciPublishersUseSharedAdapter(t *testing.T) {
 	}
 	jobs := jobsOf(t, string(b))
 
-	for _, j := range []string{"dashboard-image", "operator-image", "dashboard-contract-bundle"} {
+	for _, j := range []string{"dashboard-image", "operator-image", "delivery-image", "dashboard-contract-bundle"} {
 		block, ok := jobs[j]
 		if !ok {
 			t.Errorf("release.yml has no %q job", j)

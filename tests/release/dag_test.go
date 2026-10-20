@@ -193,8 +193,8 @@ func TestReleaseDAGSelection(t *testing.T) {
 	dag, publisher := loadReleaseDAG(t)
 
 	core := []string{"core", "cli", "dashboard-image", "dashboard-contract-bundle", "demo-bundles", "demo-compose"}
-	k8s := []string{"k8s-module", "operator-image", "operator-chart", "k8s-docs"}
-	k8sPublishers := []string{"k8s-module", "operator-image", "operator-chart"}
+	k8s := []string{"k8s-module", "operator-image", "operator-chart", "delivery-image", "delivery-chart", "k8s-docs"}
+	k8sPublishers := []string{"k8s-module", "operator-image", "operator-chart", "delivery-image", "delivery-chart"}
 
 	// The invariant every scenario below is really testing: a release that fires for
 	// a set of units must run the publisher of each one. Two releases shipped nothing
@@ -273,7 +273,7 @@ func TestReleaseDAGSelection(t *testing.T) {
 		if cr, ok := dag["core-ready"]; !ok || !contains(cr.needs, "core-tag") {
 			t.Error("core-ready must depend on core-tag so core is tagged before the kubernetes line")
 		}
-		for _, p := range []string{"k8s-module", "operator-image"} {
+		for _, p := range []string{"k8s-module", "operator-image", "delivery-image"} {
 			if !contains(dag[p].needs, "core-ready") {
 				t.Errorf("%q must depend on core-ready (the barrier), not core-tag directly", p)
 			}
