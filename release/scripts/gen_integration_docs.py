@@ -1165,7 +1165,9 @@ def gen_chart_command(repo_root: str, verb: str) -> str:
 # day. Same drift class as the `--version` literal above, so same fix -- pin the
 # ref to the integration release tag the docs describe. The file list is read
 # from config/crd/bases, so a new CRD cannot be left out of the upgrade snippet
-# (`helm upgrade` never adds or updates CRDs).
+# (`helm upgrade` never adds or updates CRDs). Only the operator's own group: the
+# delivery.pacto.trianalab.io CRDs ship with the opt-in pacto-delivery chart, and
+# upgrading the observing operator must not install them.
 CRD_BASES = "integrations/kubernetes/config/crd/bases"
 RAW_BASE = "https://raw.githubusercontent.com/TrianaLab/pacto"
 
@@ -1174,7 +1176,7 @@ def gen_crd_apply(repo_root: str) -> str:
     manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
     tag = manifest["units"]["k8s-module"]["tag"]
     out = [banner("release/release-manifest.json"), "```bash"]
-    for path in sorted(glob.glob(os.path.join(repo_root, CRD_BASES, "*.yaml"))):
+    for path in sorted(glob.glob(os.path.join(repo_root, CRD_BASES, "pacto.trianalab.io_*.yaml"))):
         out.append("kubectl apply --server-side --force-conflicts \\")
         out.append(f"  -f {RAW_BASE}/{tag}/{CRD_BASES}/{os.path.basename(path)}")
     out.append("```")

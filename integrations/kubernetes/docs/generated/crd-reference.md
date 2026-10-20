@@ -9,6 +9,202 @@
 Custom Resource Definitions installed by the operator. Field lists below are generated from the authoritative OpenAPI v3 schema in `config/crd/bases/`.
 
 
+## Approval
+
+- **API group**: `delivery.pacto.trianalab.io`
+- **Version**: `v1alpha1`
+- **Kind**: `Approval`
+- **Plural**: `approvals`
+- **Scope**: Namespaced
+
+### Additional printer columns
+
+| Name | Type | JSONPath |
+| --- | --- | --- |
+| Operation | string | `.spec.operation` |
+| Decision | string | `.spec.decision` |
+| By | string | `.spec.by` |
+| Age | date | `.metadata.creationTimestamp` |
+
+### Fields
+
+| Field | Type | Required | Default | Enum | Description |
+| --- | --- | --- | --- | --- | --- |
+| `spec` | `object` | yes |  |  | ApprovalSpec is a human decision bound to one operation uid and intent digest. |
+| `spec.authTime` | `string` | no |  |  | AuthTime is the login time the apiserver reported for that user (userInfo.extra["pacto.dev/auth-time"], RFC 3339 or Unix seconds). |
+| `spec.by` | `string` | yes |  |  | By must equal the apiserver username of whoever created the Approval. |
+| `spec.decision` | `string` | yes |  |  | Decision is what a human approval says. |
+| `spec.intentDigest` | `string` | yes |  |  |  |
+| `spec.note` | `string` | no |  |  |  |
+| `spec.operation` | `string` | yes |  |  | Operation is the operation's name, for people. Matching uses the uid. |
+| `spec.operationUID` | `string` | yes |  |  |  |
+
+
+## Operation
+
+- **API group**: `delivery.pacto.trianalab.io`
+- **Version**: `v1alpha1`
+- **Kind**: `Operation`
+- **Plural**: `operations`
+- **Scope**: Namespaced
+
+### Additional printer columns
+
+| Name | Type | JSONPath |
+| --- | --- | --- |
+| Type | string | `.spec.type` |
+| Stage | string | `.spec.stage` |
+| Phase | string | `.status.phase` |
+| Outcome | string | `.status.outcome` |
+| Reason | string | `.status.reason` |
+| Age | date | `.metadata.creationTimestamp` |
+
+### Fields
+
+| Field | Type | Required | Default | Enum | Description |
+| --- | --- | --- | --- | --- | --- |
+| `spec` | `object` | yes |  |  | OperationSpec is the intent. It is frozen at admission. |
+| `spec.actor` | `object` | yes |  |  | Actor is the apiserver identity that created the operation. |
+| `spec.actor.groups` | `[]string` | no |  |  |  |
+| `spec.actor.user` | `string` | yes |  |  |  |
+| `spec.cause` | `object` | no |  |  | Cause is why an operation was raised. Exactly one field is set. |
+| `spec.cause.operation` | `string` | no |  |  | Operation is the uid of the operation that caused this one. |
+| `spec.cause.reason` | `string` | no |  |  |  |
+| `spec.cause.verdict` | `object` | no |  |  | Verdict is one gate's answer plus a citation that can be re-run. |
+| `spec.cause.verdict.citation` | `object` | no |  |  |  |
+| `spec.cause.verdict.gate` | `string` | yes |  |  |  |
+| `spec.cause.verdict.message` | `string` | no |  |  |  |
+| `spec.cause.verdict.phase` | `string` | yes |  | `pre`, `verify` |  |
+| `spec.cause.verdict.result` | `string` | yes |  | `Pass`, `Fail`, `Unknown` | Result is a gate verdict. |
+| `spec.correlationID` | `string` | no |  |  |  |
+| `spec.facet` | `string` | yes |  | `pointer`, `freeze` |  |
+| `spec.intentDigest` | `string` | no |  |  | IntentDigest is what plan() returned; the promoter recomputes it. |
+| `spec.onBehalfOf` | `object` | no |  |  | Principal is a person an agent says it acts for. It is asserted, never verified. |
+| `spec.onBehalfOf.user` | `string` | yes |  |  |  |
+| `spec.params` | `object` | no |  |  | Params are the Tier 0 operation parameters. Digests are OCI manifest digests. |
+| `spec.params.from` | `string` | no |  |  |  |
+| `spec.params.to` | `string` | no |  |  |  |
+| `spec.params.undoes` | `string` | no |  |  | Undoes is the uid of the operation a rollback undoes. |
+| `spec.reason` | `string` | no |  |  |  |
+| `spec.stage` | `string` | yes |  |  | Stage is the name of a Stage in the operation's namespace. |
+| `spec.type` | `string` | yes |  | `pacto.dev/promote`, `pacto.dev/rollback`, `pacto.dev/override`, `pacto.dev/unfreeze` |  |
+| `spec.witnessed` | `boolean` | no |  |  | Witnessed marks an override the promoter raised for an edit it saw but did not make. Only the promoter may set it. |
+| `status` | `object` | no |  |  | OperationStatus is written only by the promoter. |
+| `status.actorClass` | `string` | no |  |  | ActorClass is who raised an operation, as the promoter classifies the apiserver identity. It is derived, never asserted by the client. |
+| `status.applied` | `boolean` | no |  |  | Applied is true once the pointer moved for this operation. |
+| `status.approvals` | `[]object` | no |  |  |  |
+| `status.approvals[].authTime` | `string` | no |  |  |  |
+| `status.approvals[].by` | `string` | yes |  |  |  |
+| `status.approvals[].decision` | `string` | yes |  |  | Decision is what a human approval says. |
+| `status.approvals[].name` | `string` | yes |  |  |  |
+| `status.approvals[].note` | `string` | no |  |  |  |
+| `status.message` | `string` | no |  |  |  |
+| `status.outcome` | `string` | no |  |  | Outcome is how a concluded operation ended. |
+| `status.phase` | `string` | no |  |  | Phase is where an operation is in its lifecycle. |
+| `status.plan` | `object` | no |  |  | Plan is plan()'s answer. It binds to the intent digest. |
+| `status.plan.conflicts` | `[]string` | no |  |  |  |
+| `status.plan.floor` | `object` | no |  |  | Floor is the approval floor plan() computed: whether a human must decide, which decision is asked for and whose. |
+| `status.plan.floor.consumers` | `[]string` | no |  |  | Consumers are the services that made the floor. |
+| `status.plan.floor.decision` | `string` | no |  |  | Decision is what a human approval says. |
+| `status.plan.floor.human` | `boolean` | no |  |  |  |
+| `status.plan.floor.owners` | `[]string` | no |  |  | Owners are the teams the question is routed to (empty means anyone). |
+| `status.plan.from` | `string` | no |  |  |  |
+| `status.plan.impactDigest` | `string` | no |  |  | ImpactDigest is the sha256 of the pkg/impact answer the floor came from. |
+| `status.plan.intentDigest` | `string` | yes |  |  |  |
+| `status.plan.predicted` | `string` | yes |  |  | Prediction is what plan() expects the promoter to do. |
+| `status.plan.question` | `string` | no |  |  | Question is the one question a human would be asked. |
+| `status.plan.to` | `string` | no |  |  |  |
+| `status.plan.type` | `string` | yes |  |  |  |
+| `status.plan.verdicts` | `[]object` | no |  |  |  |
+| `status.plan.verdicts[].citation` | `object` | no |  |  |  |
+| `status.plan.verdicts[].gate` | `string` | yes |  |  |  |
+| `status.plan.verdicts[].message` | `string` | no |  |  |  |
+| `status.plan.verdicts[].phase` | `string` | yes |  | `pre`, `verify` |  |
+| `status.plan.verdicts[].result` | `string` | yes |  | `Pass`, `Fail`, `Unknown` | Result is a gate verdict. |
+| `status.pointer` | `object` | no |  |  | PointerChange is the pointer before and after an operation. |
+| `status.pointer.after` | `string` | no |  |  |  |
+| `status.pointer.before` | `string` | no |  |  |  |
+| `status.question` | `string` | no |  |  | Question is what a human is asked while the operation is Held. |
+| `status.reason` | `string` | no |  |  | Reason is the machine reason for the outcome or the hold (PlanStale, PointerMoved, NoStage, ...). |
+| `status.seq` | `integer` | no |  |  |  |
+| `status.times` | `object` | no |  |  | Times are RFC 3339 timestamps. |
+| `status.times.admitted` | `string` | no |  |  |  |
+| `status.times.applied` | `string` | no |  |  |  |
+| `status.times.approvalDeadline` | `string` | no |  |  |  |
+| `status.times.executionDeadline` | `string` | no |  |  |  |
+| `status.times.finished` | `string` | no |  |  |  |
+| `status.times.started` | `string` | no |  |  |  |
+| `status.times.verifyDeadline` | `string` | no |  |  |  |
+| `status.verdicts` | `[]object` | no |  |  |  |
+| `status.verdicts[].citation` | `object` | no |  |  |  |
+| `status.verdicts[].gate` | `string` | yes |  |  |  |
+| `status.verdicts[].message` | `string` | no |  |  |  |
+| `status.verdicts[].phase` | `string` | yes |  | `pre`, `verify` |  |
+| `status.verdicts[].result` | `string` | yes |  | `Pass`, `Fail`, `Unknown` | Result is a gate verdict. |
+| `status.verification` | `string` | no |  |  | Verification qualifies a Succeeded outcome. |
+
+
+## Stage
+
+- **API group**: `delivery.pacto.trianalab.io`
+- **Version**: `v1alpha1`
+- **Kind**: `Stage`
+- **Plural**: `stages`
+- **Scope**: Namespaced
+
+### Additional printer columns
+
+| Name | Type | JSONPath |
+| --- | --- | --- |
+| Service | string | `.spec.service.name` |
+| Env | string | `.spec.environment` |
+| Pointer | string | `.status.pointer` |
+| Frozen | boolean | `.status.frozen` |
+| Hold | boolean | `.status.autoHold` |
+| Age | date | `.metadata.creationTimestamp` |
+
+### Fields
+
+| Field | Type | Required | Default | Enum | Description |
+| --- | --- | --- | --- | --- | --- |
+| `spec` | `object` | yes |  |  | StageSpec is one service in one environment. |
+| `spec.applyRef` | `object` | yes |  |  | ApplyRef is the Flux OCIRepository the promoter owns. It only ever sets spec.ref.digest on it. |
+| `spec.applyRef.name` | `string` | yes |  |  |  |
+| `spec.approval` | `object` | no |  |  | ApprovalPolicy can only raise the approval floor, never lower it. |
+| `spec.approval.always` | `boolean` | no |  |  | Always holds every promote for a human, whatever the contracts say. |
+| `spec.auto` | `boolean` | no |  |  | Auto promotes the newest eligible candidate without anyone asking. |
+| `spec.candidates` | `object` | no |  |  | Candidates says where new versions come from. Exactly one is set. |
+| `spec.candidates.ociRepositoryRef` | `object` | no |  |  | OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the candidate is the @sha256: part of its status.artifact.revision. |
+| `spec.candidates.ociRepositoryRef.name` | `string` | yes |  |  |  |
+| `spec.candidates.upstreamStage` | `object` | no |  |  | UpstreamStage offers that Stage's verified digests minus its failed ones. |
+| `spec.candidates.upstreamStage.name` | `string` | yes |  |  |  |
+| `spec.candidates.upstreamStage.namespace` | `string` | no |  |  |  |
+| `spec.deadlines` | `object` | no |  |  | Deadlines override the operation type's defaults (Go durations). |
+| `spec.deadlines.approval` | `string` | no |  |  |  |
+| `spec.deadlines.execution` | `string` | no |  |  |  |
+| `spec.environment` | `string` | yes |  |  |  |
+| `spec.gates` | `object` | no |  |  | Gates configures the Stage's gates. The pre-gates are fixed by the operation type in M0; the Pacto contract gate is the verify gate. |
+| `spec.gates.verify` | `object` | no |  |  | VerifyGates configures what runs after a version is applied. |
+| `spec.gates.verify.window` | `string` | no |  |  | Window is how long the verify gates may stay Unknown before the operation is held for a human (a Go duration, default 5m). |
+| `spec.service` | `object` | yes |  |  | ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified service name its contracts declare. |
+| `spec.service.domain` | `string` | no |  |  | Domain is the registry and organisation scope (empty for the default). |
+| `spec.service.name` | `string` | yes |  |  | Name is the contract's service.name. |
+| `status` | `object` | no |  |  | StageStatus is written only by the promoter's operation reconciler. |
+| `status.autoHold` | `boolean` | no |  |  | AutoHold stops auto-promotion after a person chose an older version. |
+| `status.autoRollbacks` | `object` | no |  |  | AutoRollbacks counts the automatic rollbacks raised per cause. |
+| `status.candidate` | `string` | no |  |  | Candidate is the newest eligible candidate the stage reconciler saw. |
+| `status.failedDigests` | `[]string` | no |  |  | FailedDigests are never promoted again (cap 50). |
+| `status.frozen` | `boolean` | no |  |  |  |
+| `status.frozenReason` | `string` | no |  |  |  |
+| `status.lastOp` | `string` | no |  |  | LastOp is the uid of the operation that last moved the pointer. |
+| `status.locks` | `object` | no |  |  | Locks maps a facet to the uid of the operation holding it. |
+| `status.pointer` | `string` | no |  |  | Pointer is the digest the environment runs. |
+| `status.stream` | `object` | no |  |  | Stream numbers a Stage's concluded operations. |
+| `status.stream.id` | `string` | no |  |  | ID is &lt;clusterID&gt;/&lt;namespace&gt;/&lt;name&gt;; the cluster id is the kube-system namespace uid. |
+| `status.stream.seq` | `integer` | no |  |  |  |
+| `status.verified` | `[]string` | no |  |  | Verified holds the newest verified digests, oldest first (cap 10). |
+
+
 ## NodeRuntimeObservation
 
 - **API group**: `pacto.trianalab.io`
@@ -195,6 +391,13 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.dependencies[].name` | `string` | yes |  |  | Name is the dependency name (required, unique within contract). |
 | `status.dependencies[].ref` | `string` | yes |  |  | Ref is the dependency reference (OCI URI). |
 | `status.dependencies[].required` | `boolean` | yes |  |  | Required indicates whether this dependency is mandatory. |
+| `status.evaluatedRevision` | `object` | no |  |  | EvaluatedRevision ties this status to the exact contract and workload generation it was computed from, so a result for an old version is never read as the answer for a new one. A consumer acting on contractStatus (the opt-in Pacto delivery promoter) must check it first. |
+| `status.evaluatedRevision.contractDigest` | `string` | no |  |  | ContractDigest is the OCI manifest digest of the evaluated contract bundle. Empty for inline contracts. |
+| `status.evaluatedRevision.workload` | `object` | no |  |  | Workload is the workload object and generation the evaluation read. Absent for a reference-only contract or a workload that does not exist. |
+| `status.evaluatedRevision.workload.generation` | `integer` | yes |  |  |  |
+| `status.evaluatedRevision.workload.kind` | `string` | yes |  |  |  |
+| `status.evaluatedRevision.workload.name` | `string` | yes |  |  |  |
+| `status.evaluatedRevision.workload.uid` | `string` | yes |  |  |  |
 | `status.evaluationCoverage` | `object` | no |  |  | EvaluationCoverage reports how many required assertions were evaluated (metadata; never affects ContractStatus). |
 | `status.evaluationCoverage.evaluated` | `integer` | yes |  |  | Evaluated is the number of required assertions with a conclusive (Observed) observation. |
 | `status.evaluationCoverage.required` | `integer` | yes |  |  | Required is the total number of required assertions the contract declares. |
