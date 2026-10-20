@@ -174,18 +174,23 @@ func (r *StageReconciler) raise(ctx context.Context, stage *dv1.Stage, kind stri
 // the gates ran is dropped.
 func (r *StageReconciler) recheck(ctx context.Context, stage *dv1.Stage) error {
 	s, now := stage.Status, r.Now().UTC()
-	if s.Frozen || s.LastOp == "" || s.Locks[delivery.FacetPointer] != "" || slices.Contains(s.FailedDigests, s.Pointer) ||
-		s.LastCheck != nil && s.LastCheck.Operation == s.LastOp && now.Before(parseOr(s.LastCheck.At).Add(delivery.RecheckInterval(stage.Spec))) {
+	failed := slices.Contains(s.FailedDigests, s.Pointer)
+	if s.Frozen || s.LastOp == "" || s.Locks[delivery.FacetPointer] != "" ||
+		!failed && s.LastCheck != nil && s.LastCheck.Operation == s.LastOp && now.Before(parseOr(s.LastCheck.At).Add(delivery.RecheckInterval(stage.Spec))) {
 		return nil
 	}
 	var shipped *dv1.Operation
-	for _, o := range stageOps(ctx, r.Client, stage.Namespace, stage.Name) {
+	ops := stageOps(ctx, r.Client, stage.Namespace, stage.Name)
+	for _, o := range ops {
 		if o.Status.Phase != delivery.PhaseConcluded {
 			return nil // something is in flight; it owns the Stage
 		}
 		if string(o.UID) == s.LastOp {
 			shipped = &o
 		}
+	}
+	if failed {
+		return r.reraise(ctx, stage, shipped, ops)
 	}
 	if shipped == nil {
 		gone := &delivery.Recheck{Operation: s.LastOp, Digest: s.Pointer, At: ts(now), Verdicts: []delivery.Verdict{{
@@ -239,13 +244,12 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 	cause, before := string(shipped.UID), shipped.Status.Pointer.Before
 	chosen := shipped.Spec.Type != delivery.TypePromote || fresh.Status.AutoHold
 	rollback := !chosen && fresh.Status.AutoRollbacks[cause] == 0 && before != "" && !slices.Contains(fresh.Status.FailedDigests, before)
-	if rollback {
-		if err := raiseRollback(ctx, r.Client, r.Policy, shipped, stage, why, f); err != nil {
-			return err
-		}
-	}
-	return r.updateStatus(ctx, stage, func(st *dv1.Stage) {
-		if moved(check, st.Status) {
+	// The failure is recorded before the rollback is raised: raising takes the
+	// pointer lock, after which the Stage reads as moved and the record would be
+	// dropped. A rollback lost after the record is raised again by reraise.
+	wrote := false
+	if err := r.updateStatus(ctx, stage, func(st *dv1.Stage) {
+		if wrote = !moved(check, st.Status); !wrote {
 			return
 		}
 		st.Status.LastCheck = check
@@ -262,7 +266,28 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 			}
 			st.Status.AutoRollbacks[cause]++
 		}
-	})
+	}); err != nil || !wrote || !rollback {
+		return err
+	}
+	return raiseRollback(ctx, r.Client, r.Policy, shipped, stage, why, f)
+}
+
+// reraise raises again the rollback a failed re-check recorded but never
+// created, because raising it failed after the record was written. It acts only
+// when the recorded check is about the running version, its cause has its one
+// rollback counted and no rollback for that cause exists yet.
+// ponytail: a person deleting a concluded rollback gets it raised again; keep
+// a raised marker in status if that ever matters.
+func (r *StageReconciler) reraise(ctx context.Context, stage *dv1.Stage, shipped *dv1.Operation, ops []dv1.Operation) error {
+	s, lc := stage.Status, stage.Status.LastCheck
+	if shipped == nil || s.AutoRollbacks[s.LastOp] == 0 || lc == nil || lc.Operation != s.LastOp || lc.Digest != s.Pointer {
+		return nil
+	}
+	f := failing(lc.Verdicts)
+	if f == nil || slices.ContainsFunc(ops, func(o dv1.Operation) bool { return o.Name == shipped.Name+"-rollback" }) {
+		return nil
+	}
+	return raiseRollback(ctx, r.Client, r.Policy, shipped, stage, "RecheckFailed: "+f.Gate+": "+f.Message, f)
 }
 
 // parseOr parses an RFC 3339 time, zero when it does not parse.

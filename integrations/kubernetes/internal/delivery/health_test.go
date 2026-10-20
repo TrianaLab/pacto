@@ -9,6 +9,7 @@ package delivery
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -356,7 +357,11 @@ func TestRecheckNeverUndoesAChoice(t *testing.T) {
 	for name, c := range map[string]struct {
 		typ  string
 		hold bool
-	}{"human rollback": {delivery.TypeRollback, true}, "promote on auto-hold": {delivery.TypePromote, true}} {
+	}{
+		"human rollback":         {delivery.TypeRollback, true},
+		"rollback off auto-hold": {delivery.TypeRollback, false},
+		"promote on auto-hold":   {delivery.TypePromote, true},
+	} {
 		t.Run(name, func(t *testing.T) {
 			e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
 			e.shipB()
@@ -413,8 +418,8 @@ func TestRecheckDropsAStaleVerdict(t *testing.T) {
 	if err := e.reconcileStage("payments-prod"); err != nil {
 		t.Fatal(err)
 	}
-	if s := e.getStage(); s.Status.LastCheck != nil || s.Status.Frozen || len(s.Status.FailedDigests) != 0 || len(s.Status.AutoRollbacks) != 0 {
-		t.Fatalf("a stale verdict changed the Stage: %+v", s.Status)
+	if s := e.getStage(); s.Status.LastCheck != nil || s.Status.Frozen || len(s.Status.FailedDigests) != 0 || len(s.Status.AutoRollbacks) != 0 || len(e.ops()) != 1 {
+		t.Fatalf("a stale verdict changed the Stage: %+v ops=%d", s.Status, len(e.ops()))
 	}
 	// A Stage that cannot be read again is an error, retried.
 	e = healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
@@ -423,6 +428,37 @@ func TestRecheckDropsAStaleVerdict(t *testing.T) {
 	e.health.during = func() { e.fails["get/Stage"] = true }
 	if err := e.reconcileStage("payments-prod"); err == nil {
 		t.Fatal("want the read error")
+	}
+}
+
+// TestRecheckRecordsBeforeItRaises: a failed re-check marks the version
+// failed before it raises the rollback, so a write that fails never leaves a
+// rollback with the bad version still Verified; a rollback that could not be
+// created is raised on the next pass.
+func TestRecheckRecordsBeforeItRaises(t *testing.T) {
+	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.shipB()
+	e.health.result = delivery.Fail
+	e.fails["status/Stage"] = true
+	if err := e.reconcileStage("payments-prod"); err == nil || len(e.ops()) != 1 {
+		t.Fatalf("a failed record raises nothing and is retried: %v ops=%d", err, len(e.ops()))
+	}
+	e.fails["status/Stage"], e.fails["create/Operation"] = false, true
+	if err := e.reconcileStage("payments-prod"); err == nil {
+		t.Fatal("a rollback that cannot be created is an error, retried")
+	}
+	s := e.getStage()
+	if s.Status.FailedDigests[0] != dB || slices.Contains(s.Status.Verified, dB) || s.Status.AutoRollbacks["uid-p1"] != 1 || len(e.ops()) != 1 {
+		t.Fatalf("the failure is recorded before the rollback: %+v ops=%d", s.Status, len(e.ops()))
+	}
+	e.fails["create/Operation"] = false
+	for range 2 {
+		if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 2 {
+			t.Fatalf("the lost rollback is raised once: %v ops=%d", err, len(e.ops()))
+		}
+	}
+	if rb := e.getOp("p1-rollback"); rb.Spec.Params.To != dA || rb.Spec.Cause.Verdict.Gate != "health" || !strings.Contains(rb.Spec.Reason, "RecheckFailed") {
+		t.Fatalf("rollback: %+v", rb.Spec)
 	}
 }
 
