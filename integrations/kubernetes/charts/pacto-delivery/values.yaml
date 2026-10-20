@@ -30,6 +30,13 @@ promoter:
   # -- Elect one active promoter
   leaderElect: true
 
+gates:
+  # -- Health gate providers a Stage may name in `spec.gates.verify.checks[].provider`, each
+  # `{name, type, url}` with type `mira` (Mira's query API) or `http` (any tool behind the
+  # plug-in format). The URL is operator configuration: a Stage only names a provider and an
+  # agent names nothing. `pacto.contract` and `pacto.runtime` are built in.
+  providers: []
+
 identities:
   # -- Groups whose members are agents. Agents may propose, never approve or unfreeze.
   # Service accounts other than the promoter are always agents.

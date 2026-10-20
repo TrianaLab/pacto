@@ -67,7 +67,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.actor` | `object` | yes |  |  | Actor is the apiserver identity that created the operation. |
 | `spec.actor.groups` | `[]string` | no |  |  |  |
 | `spec.actor.user` | `string` | yes |  |  |  |
-| `spec.cause` | `object` | no |  |  | Cause is why an operation was raised. Exactly one field is set. |
+| `spec.cause` | `object` | no |  |  | Cause is why an operation was raised. A person or an agent sets one field; a verdict they cite is re-run when the operation is admitted. An automatic rollback names the failed operation and, when a gate failed it, the verdict. |
 | `spec.cause.operation` | `string` | no |  |  | Operation is the uid of the operation that caused this one. |
 | `spec.cause.reason` | `string` | no |  |  |  |
 | `spec.cause.verdict` | `object` | no |  |  | Verdict is one gate's answer plus a citation that can be re-run. |

@@ -19,6 +19,24 @@ tests:
             - --agent-groups=pacto:agents
             - --break-glass-groups=pacto:break-glass
 
+  - it: passes the gate providers as one JSON flag
+    template: templates/deployment.yaml
+    set:
+      gates.providers:
+        - {name: mira, type: mira, url: "http://mira.observability:4318"}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: '--gate-providers=[{"name":"mira","type":"mira","url":"http://mira.observability:4318"}]'
+
+  - it: refuses a provider that takes a built-in gate's name
+    template: templates/deployment.yaml
+    set:
+      gates.providers:
+        - {name: pacto.runtime, type: mira, url: "http://m"}
+    asserts:
+      - failedTemplate: {}
+
   - it: passes insecure registries through
     template: templates/deployment.yaml
     set:
