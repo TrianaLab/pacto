@@ -502,3 +502,43 @@ func minimalV20Contract() map[string]any {
 		},
 	}
 }
+
+// TestValidateStructural_V21Publish: publish is accepted at 2.1 only, and its
+// shape rules come from the 2.1 schema.
+func TestValidateStructural_V21Publish(t *testing.T) {
+	const head = "pactoVersion: \"%s\"\nservice: {name: orders, version: 1.0.0}\n"
+	full := `publish:
+  bundle: oci://registry.example.com:5000/acme/pacto/orders
+  deploy: manifests
+  artifacts:
+    - {name: api, type: image, ref: "oci://ghcr.io/acme/orders", sbom: true,
+       build: {dockerfile: {context: ., file: Dockerfile, platforms: [linux/amd64, linux/arm64/v8]}}}
+    - {name: manifests, type: manifests, ref: "oci://ghcr.io/acme/deploy/orders", build: {command: [./render.sh]}}
+  sign: {key: cosign.key, transparencyLog: false}
+`
+	if r := ValidateStructuralRaw([]byte(fmt.Sprintf(head, "2.1") + full)); !r.IsValid() {
+		t.Fatalf("2.1 with publish: %+v", r.Errors)
+	}
+	if r := ValidateStructuralRaw([]byte(fmt.Sprintf(head, "2.0") + full)); r.IsValid() {
+		t.Fatal("publish under 2.0 must be refused")
+	}
+	bad := map[string]string{
+		"tagged bundle":   "publish: {bundle: \"oci://ghcr.io/acme/orders:1.0.0\"}\n",
+		"no oci scheme":   "publish: {bundle: ghcr.io/acme/orders}\n",
+		"two builders":    "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {command: [x], dockerfile: {context: .}}}]}\n",
+		"no builder":      "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {}}]}\n",
+		"bad type":        "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: binary, ref: \"oci://r.io/a\", build: {command: [x]}}]}\n",
+		"bad name":        "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: Api, type: image, ref: \"oci://r.io/a\", build: {command: [x]}}]}\n",
+		"bad platform":    "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {dockerfile: {context: ., platforms: [amd64]}}}]}\n",
+		"empty command":   "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {command: []}}]}\n",
+		"two sign ways":   "publish: {bundle: \"oci://r.io/a\", sign: {key: k, kms: \"awskms:///a\"}}\n",
+		"keyless false":   "publish: {bundle: \"oci://r.io/a\", sign: {keyless: false}}\n",
+		"empty sign":      "publish: {bundle: \"oci://r.io/a\", sign: {}}\n",
+		"missing context": "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {dockerfile: {file: D}}}]}\n",
+	}
+	for name, doc := range bad {
+		if r := ValidateStructuralRaw([]byte(fmt.Sprintf(head, "2.1") + doc)); r.IsValid() {
+			t.Errorf("%s: must be refused", name)
+		}
+	}
+}

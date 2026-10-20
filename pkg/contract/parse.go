@@ -3,14 +3,20 @@ package contract
 import (
 	"fmt"
 	"io"
+	"slices"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
+// SupportedVersions are the pactoVersion values Parse accepts, oldest first.
+var SupportedVersions = []string{"2.0", "2.1"}
+
 // Parse deserializes a pacto.yaml from the given reader into a Contract.
 // It enforces syntactic correctness (field types, unknown-field rejection) and a
 // few required top-level fields (pactoVersion, service.name, service.version).
-// Only pactoVersion "2.0" is supported; other versions are rejected.
+// pactoVersion "2.0" and "2.1" are supported; other versions are rejected. 2.1
+// adds the publish section, which validation refuses in a 2.0 contract.
 // Deeper semantic validation is a separate concern handled by the validation engine.
 func Parse(r io.Reader) (*Contract, error) {
 	var c Contract
@@ -30,10 +36,10 @@ func Parse(r io.Reader) (*Contract, error) {
 		}
 	}
 
-	if c.PactoVersion != "2.0" {
+	if !slices.Contains(SupportedVersions, c.PactoVersion) {
 		return nil, &ParseError{
 			Path:    "pactoVersion",
-			Message: fmt.Sprintf("unsupported pactoVersion %q; only \"2.0\" is supported", c.PactoVersion),
+			Message: fmt.Sprintf("unsupported pactoVersion %q; supported: %s", c.PactoVersion, strings.Join(SupportedVersions, ", ")),
 		}
 	}
 

@@ -41,8 +41,36 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateConfigValues(c, bundleFS, &result)
 	validateStatePersistenceInvariants(c, &result)
 	validateReadiness(c, &result)
+	validatePublish(c, &result)
 
 	return result
+}
+
+// validatePublish enforces what the schema cannot say about publish: artifact
+// names are unique, deploy names a manifests artifact (a Kustomization applies
+// manifests, never a chart or an image), and the dockerfile builder and sbom
+// apply to images only.
+func validatePublish(c *contract.Contract, result *ValidationResult) {
+	if c.Publish == nil {
+		return
+	}
+	types := map[string]string{}
+	for i, a := range c.Publish.Artifacts {
+		path := fmt.Sprintf("publish.artifacts[%d]", i)
+		if _, dup := types[a.Name]; dup {
+			result.AddError(path+".name", "DUPLICATE_PUBLISH_ARTIFACT", fmt.Sprintf("artifact name %q is used more than once", a.Name))
+		}
+		types[a.Name] = a.Type
+		if a.SBOM && a.Type != contract.ArtifactImage {
+			result.AddError(path+".sbom", "PUBLISH_SBOM_NOT_IMAGE", fmt.Sprintf("%s is a %s; an SBOM is attached to images only", a.Name, a.Type))
+		}
+		if a.Build.Dockerfile != nil && a.Type != contract.ArtifactImage {
+			result.AddError(path+".build.dockerfile", "PUBLISH_DOCKERFILE_NOT_IMAGE", fmt.Sprintf("%s is a %s; the dockerfile builder builds images only, use command", a.Name, a.Type))
+		}
+	}
+	if d := c.Publish.Deploy; d != "" && types[d] != contract.ArtifactManifests {
+		result.AddError("publish.deploy", "PUBLISH_DEPLOY_NOT_MANIFESTS", fmt.Sprintf("deploy %q must name a manifests artifact: Flux applies it through a Kustomization", d))
+	}
 }
 
 // validateReadiness enforces the readiness rules that JSON Schema cannot express:

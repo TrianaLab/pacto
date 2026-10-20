@@ -86,7 +86,8 @@ const (
 var fieldCoverageCases = []fcCase{
 	valid("pactoVersion/valid"),
 	invalid("pactoVersion/invalid", parseError, set("pactoVersion", "1.0")),
-	valid("pactoVersion=2.0", set("pactoVersion", "2.0")),
+	valid("pactoVersion=2.1", set("pactoVersion", "2.1")),
+	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("publish")),
 
 	valid("service/valid"),
 	invalid("service/invalid", parseError, set("service", "orders")),
@@ -297,14 +298,66 @@ var fieldCoverageCases = []fcCase{
 	valid("readiness.claims[].description/valid", del("readiness.claims.0.description")),
 	invalid("readiness.claims[].description/invalid", "EMPTY_READINESS_DESCRIPTION", set("readiness.claims.0.description", "  ")),
 
+	valid("publish/valid"),
+	invalid("publish/invalid", parseError, set("publish", "ghcr.io")),
+	invalid("publish/invalid-2.0", schemaViolation, set("pactoVersion", "2.0")),
+	valid("publish.bundle/valid", set("publish.bundle", "oci://registry.example.com:5000/acme/pacto/orders")),
+	invalid("publish.bundle/invalid", schemaViolation, set("publish.bundle", "oci://ghcr.io/acme/pacto/orders:1.0.0")),
+	valid("publish.deploy/valid", del("publish.deploy")),
+	invalid("publish.deploy/invalid", "PUBLISH_DEPLOY_NOT_MANIFESTS", set("publish.deploy", "api")),
+	valid("publish.artifacts/valid", del("publish.deploy"), del("publish.artifacts")),
+	invalid("publish.artifacts/invalid", parseError, set("publish.artifacts", "api")),
+	valid("publish.artifacts[]/valid"),
+	invalid("publish.artifacts[]/invalid", "DUPLICATE_PUBLISH_ARTIFACT", set("publish.artifacts.3",
+		map[string]any{"name": "api", "type": "image", "ref": "oci://ghcr.io/acme/other", "build": map[string]any{"command": []any{"make"}}})),
+	valid("publish.artifacts[].name/valid", set("publish.artifacts.0.name", "api-v2")),
+	invalid("publish.artifacts[].name/invalid", schemaViolation, set("publish.artifacts.0.name", "Api")),
+	valid("publish.artifacts[].type/valid"),
+	invalid("publish.artifacts[].type/invalid", schemaViolation, set("publish.artifacts.1.type", "binary")),
+	valid("publish.artifacts[].type=image", set("publish.artifacts.0.type", "image")),
+	valid("publish.artifacts[].type=chart", set("publish.artifacts.1.type", "chart")),
+	valid("publish.artifacts[].type=manifests", set("publish.artifacts.2.type", "manifests")),
+	valid("publish.artifacts[].ref/valid", set("publish.artifacts.0.ref", "oci://ghcr.io/acme/orders-v2")),
+	invalid("publish.artifacts[].ref/invalid", schemaViolation, set("publish.artifacts.0.ref", "ghcr.io/acme/orders")),
+	valid("publish.artifacts[].build/valid"),
+	invalid("publish.artifacts[].build/invalid", schemaViolation, set("publish.artifacts.1.build", map[string]any{})),
+	valid("publish.artifacts[].build.dockerfile/valid"),
+	invalid("publish.artifacts[].build.dockerfile/invalid", "PUBLISH_DOCKERFILE_NOT_IMAGE",
+		set("publish.artifacts.1.build", map[string]any{"dockerfile": map[string]any{"context": "."}})),
+	valid("publish.artifacts[].build.dockerfile.context/valid", set("publish.artifacts.0.build.dockerfile.context", "./src")),
+	invalid("publish.artifacts[].build.dockerfile.context/invalid", schemaViolation, del("publish.artifacts.0.build.dockerfile.context")),
+	valid("publish.artifacts[].build.dockerfile.file/valid", del("publish.artifacts.0.build.dockerfile.file")),
+	invalid("publish.artifacts[].build.dockerfile.file/invalid", schemaViolation, set("publish.artifacts.0.build.dockerfile.file", "")),
+	valid("publish.artifacts[].build.dockerfile.platforms/valid", del("publish.artifacts.0.build.dockerfile.platforms")),
+	invalid("publish.artifacts[].build.dockerfile.platforms/invalid", parseError, set("publish.artifacts.0.build.dockerfile.platforms", "linux/amd64")),
+	valid("publish.artifacts[].build.dockerfile.platforms[]/valid", set("publish.artifacts.0.build.dockerfile.platforms.0", "linux/arm64/v8")),
+	invalid("publish.artifacts[].build.dockerfile.platforms[]/invalid", schemaViolation, set("publish.artifacts.0.build.dockerfile.platforms.0", "amd64")),
+	valid("publish.artifacts[].build.command/valid", set("publish.artifacts.1.build.command", []any{"make", "chart"})),
+	invalid("publish.artifacts[].build.command/invalid", schemaViolation, set("publish.artifacts.1.build.command", []any{})),
+	valid("publish.artifacts[].build.command[]/valid", set("publish.artifacts.1.build.command.0", "./package.sh")),
+	invalid("publish.artifacts[].build.command[]/invalid", schemaViolation, set("publish.artifacts.1.build.command.0", "")),
+	valid("publish.artifacts[].sbom/valid", del("publish.artifacts.0.sbom")),
+	invalid("publish.artifacts[].sbom/invalid", "PUBLISH_SBOM_NOT_IMAGE", set("publish.artifacts.1.sbom", true)),
+	valid("publish.sign/valid", del("publish.sign")),
+	invalid("publish.sign/invalid", schemaViolation, set("publish.sign", map[string]any{})),
+	valid("publish.sign.keyless/valid", set("publish.sign", map[string]any{"keyless": true})),
+	invalid("publish.sign.keyless/invalid", schemaViolation, set("publish.sign", map[string]any{"keyless": false})),
+	valid("publish.sign.key/valid", set("publish.sign.key", "keys/release.key")),
+	invalid("publish.sign.key/invalid", schemaViolation, set("publish.sign.kms", "awskms:///alias/release")),
+	valid("publish.sign.kms/valid", set("publish.sign", map[string]any{"kms": "awskms:///alias/release"})),
+	invalid("publish.sign.kms/invalid", schemaViolation, set("publish.sign", map[string]any{"kms": ""})),
+	valid("publish.sign.transparencyLog/valid", del("publish.sign.transparencyLog")),
+	invalid("publish.sign.transparencyLog/invalid", parseError, set("publish.sign.transparencyLog", 3)),
+
 	valid("metadata/valid", set("metadata.runbook", "https://example.com/runbook")),
 	invalid("metadata/invalid", parseError, set("metadata", "gold")),
 	valid("extensions/valid", set("extensions.acme", map[string]any{"nested": []any{1, "two"}})),
 	invalid("extensions/invalid", parseError, set("extensions", "acme")),
 }
 
-// fieldCoverageBase declares every field of the v2.0 schema at least once.
-const fieldCoverageBase = `pactoVersion: "2.0"
+// fieldCoverageBase declares every field of the v2.1 schema at least once
+// (publish.sign declares one of its three ways; the cases cover the others).
+const fieldCoverageBase = `pactoVersion: "2.1"
 service:
   name: orders
   version: 1.0.0
@@ -367,6 +420,32 @@ readiness:
       evidence: https://example.com/d
       weight: 50
       description: dashboards exist
+publish:
+  bundle: oci://ghcr.io/acme/pacto/orders
+  deploy: manifests
+  artifacts:
+    - name: api
+      type: image
+      ref: oci://ghcr.io/acme/orders
+      build:
+        dockerfile:
+          context: .
+          file: Dockerfile
+          platforms: [linux/amd64]
+      sbom: true
+    - name: chart
+      type: chart
+      ref: oci://ghcr.io/acme/charts/orders
+      build:
+        command: [./package-chart.sh]
+    - name: manifests
+      type: manifests
+      ref: oci://ghcr.io/acme/deploy/orders
+      build:
+        command: [./render.sh]
+  sign:
+    key: cosign.key
+    transparencyLog: false
 metadata:
   tier: gold
 extensions:

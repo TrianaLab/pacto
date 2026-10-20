@@ -1,4 +1,4 @@
-# Contract Reference (v2.0)
+# Contract Reference (v2.1)
 
 A Pacto contract is one YAML file, `pacto.yaml`, that says what a service is and
 what it needs to run: its interfaces, dependencies, configuration, capabilities
@@ -12,7 +12,7 @@ service:
   version: 1.0.0
 ```
 
-The fields are split across [contract sections](sections.md), [configuration and policy](configuration-and-policy.md), [dependencies and state](dependencies-and-state.md) and [readiness](readiness.md). The rules are in [validation layers](validation.md), [overrides](overrides.md) and [change classification](diff.md). This page covers the bundle layout all of them assume.
+The fields are split across [contract sections](sections.md), [configuration and policy](configuration-and-policy.md), [dependencies and state](dependencies-and-state.md), [readiness](readiness.md) and [publish](publish.md). The rules are in [validation layers](validation.md), [overrides](overrides.md) and [change classification](diff.md). This page covers the bundle layout all of them assume.
 
 Each `interfaces`, `configurations` and `policies` entry points at a schema you already have — an OpenAPI document, an AsyncAPI event definition, a gRPC service descriptor, a JSON Schema. Every referenced file must parse as JSON or YAML; see [interface types](sections.md#interface-types).
 
@@ -21,9 +21,11 @@ What the contract states, and what it deliberately leaves to the platform, is in
 
 ---
 
-The canonical JSON Schema is
-[`schema/pacto-v2.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.0.schema.json).
-It is the single tracked schema and applies to every contract, which must declare [`pactoVersion: "2.0"`](sections.md#pactoversion).
+The canonical JSON Schemas are
+[`pacto-v2.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.0.schema.json)
+and
+[`pacto-v2.1.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.1.schema.json),
+which adds `publish`. Every contract declares [`pactoVersion`](sections.md#pactoversion) and is validated against that version's schema.
 
 ---
 

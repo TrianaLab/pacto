@@ -15,7 +15,7 @@ is why one broken field can hide the rest.
 
 ## Layer 1: Structural (JSON Schema)
 
-Validates against the embedded `pacto-v2.0.schema.json`:
+Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json` or `pacto-v2.1.schema.json`:
 
 - Field types match
 - Required fields are present (including the mandatory `required` on `configurations[]` and `dependencies[]`)
@@ -27,7 +27,7 @@ Validates against the embedded `pacto-v2.0.schema.json`:
 Structural failures report `SCHEMA_VIOLATION`.
 
 A contract that cannot be **loaded** at all — malformed YAML, an unknown field or a
-`pactoVersion` other than `"2.0"` — fails before any layer runs and reports
+`pactoVersion` other than `"2.0"` or `"2.1"` — fails before any layer runs and reports
 `PARSE_ERROR` instead. Loading is the parse step that turns `pacto.yaml` into a
 contract; validation only starts once it succeeds.
 

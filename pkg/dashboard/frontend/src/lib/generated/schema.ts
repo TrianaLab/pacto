@@ -623,6 +623,7 @@ export interface components {
             };
             pactoVersion: string;
             policies?: components["schemas"]["Contract.Policy"][] | null;
+            publish?: components["schemas"]["Contract.Publish"];
             readiness?: components["schemas"]["Contract.Readiness"];
             service: components["schemas"]["Contract.Service"];
             state?: components["schemas"]["Contract.State"];
@@ -633,6 +634,11 @@ export interface components {
             name: string;
             ref: string;
             required: boolean;
+        };
+        "Contract.DockerfileBuild": {
+            context: string;
+            file?: string;
+            platforms?: string[] | null;
         };
         "Contract.Interface": {
             name: string;
@@ -659,6 +665,29 @@ export interface components {
             ref?: string;
             schema?: string;
             target?: string;
+        };
+        "Contract.Publish": {
+            artifacts?: components["schemas"]["Contract.PublishArtifact"][] | null;
+            bundle: string;
+            deploy?: string;
+            sign?: components["schemas"]["Contract.PublishSign"];
+        };
+        "Contract.PublishArtifact": {
+            build: components["schemas"]["Contract.PublishBuild"];
+            name: string;
+            ref: string;
+            sbom?: boolean;
+            type: string;
+        };
+        "Contract.PublishBuild": {
+            command?: string[] | null;
+            dockerfile?: components["schemas"]["Contract.DockerfileBuild"];
+        };
+        "Contract.PublishSign": {
+            key?: string;
+            keyless?: boolean;
+            kms?: string;
+            transparencyLog?: boolean;
         };
         "Contract.Readiness": {
             claims?: components["schemas"]["Contract.ReadinessClaim"][] | null;

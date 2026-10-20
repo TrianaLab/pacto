@@ -1,4 +1,4 @@
-# Field coverage inventory for the Pacto v2.0 contract schema.
+# Field coverage inventory for the Pacto v2.1 contract schema (2.0 plus publish).
 #
 # One entry per schema path (dotted, [] for array items) and, under values, one per
 # enum value. pkg/validation/fieldcoverage_test.go walks the schema and fails when a
@@ -29,9 +29,9 @@ fields:
     meaning: Contract format version; selects the JSON Schema the contract is validated against.
     runtime: not-applicable
     evidence: 'none: the field has no runtime counterpart'
-    rule: parse rejects anything but "2.0" before any other layer runs
+    rule: parse rejects anything but "2.0" and "2.1" before any other layer runs; the version selects the schema
     outcomes: PARSE_ERROR when unsupported
-    limitations: only 2.0 exists
+    limitations: 2.0 has its own schema without publish; this inventory walks 2.1, the superset
     tests:
       unit:
       - pkg/contract/parse_test.go:TestParse_UnsupportedVersion
@@ -41,12 +41,13 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid
       e2e: []
     values:
-      '2.0':
-        meaning: the Operational Contract format this release reads
+      '2.1':
+        meaning: the newest Operational Contract format, which adds publish; 2.0 contracts keep working unchanged
         runtime: static-only
         tests:
           unit: []
           integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.1
           - tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0
           e2e: []
   service:
@@ -2003,6 +2004,339 @@ fields:
       integration:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].description/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/readiness.claims[].description/invalid
+      e2e: []
+  publish:
+    meaning: What the service publishes, where each artifact goes and how it is built.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: object with bundle; pactoVersion 2.1 only'
+    outcomes: PARSE_ERROR when not a map; SCHEMA_VIOLATION under 2.0
+    limitations: read by pacto publish only
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish/invalid
+      e2e: []
+  publish.bundle:
+    meaning: The repository the contract bundle is published to.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: oci://host/path, no tag or digest'
+    outcomes: SCHEMA_VIOLATION
+    limitations: the tag is always service.version
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.bundle/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.bundle/invalid
+      e2e: []
+  publish.deploy:
+    meaning: The manifests artifact a Flux Kustomization applies; tagged last.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'cross-field: names a manifests artifact'
+    outcomes: PUBLISH_DEPLOY_NOT_MANIFESTS
+    limitations: charts are published, never deployed
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidatePublish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.deploy/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.deploy/invalid
+      e2e: []
+  publish.artifacts:
+    meaning: The artifacts published beside the contract, built in order.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: array'
+    outcomes: PARSE_ERROR when not a list
+    limitations: none
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts/invalid
+      e2e: []
+  publish.artifacts[]:
+    meaning: One artifact.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'cross-field: names unique'
+    outcomes: DUPLICATE_PUBLISH_ARTIFACT
+    limitations: none
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidatePublish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[]/invalid
+      e2e: []
+  publish.artifacts[].name:
+    meaning: The artifact name; later builds read its digest as PACTO_DIGEST_<NAME>.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: lower-case name'
+    outcomes: SCHEMA_VIOLATION
+    limitations: none
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].name/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].name/invalid
+      e2e: []
+  publish.artifacts[].type:
+    meaning: What the artifact is.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema enum'
+    outcomes: SCHEMA_VIOLATION
+    limitations: none
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].type/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].type/invalid
+      e2e: []
+    values:
+      image:
+        meaning: a container image, pushed from an OCI image layout
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].type=image
+          e2e: []
+      chart:
+        meaning: a Helm chart, published but never deployed
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].type=chart
+          e2e: []
+      manifests:
+        meaning: a directory of Kubernetes manifests, packaged as a Flux artifact
+        runtime: static-only
+        tests:
+          unit: []
+          integration:
+          - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].type=manifests
+          e2e: []
+  publish.artifacts[].ref:
+    meaning: The repository the artifact is published to.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: oci://host/path, no tag or digest'
+    outcomes: SCHEMA_VIOLATION
+    limitations: the tag is always service.version
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].ref/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].ref/invalid
+      e2e: []
+  publish.artifacts[].build:
+    meaning: 'How the artifact is built: exactly one builder.'
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: exactly one of dockerfile or command'
+    outcomes: SCHEMA_VIOLATION
+    limitations: builders never push
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build/invalid
+      e2e: []
+  publish.artifacts[].build.dockerfile:
+    meaning: Build an image with docker buildx into an OCI image layout.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'cross-field: images only'
+    outcomes: PUBLISH_DOCKERFILE_NOT_IMAGE
+    limitations: needs docker buildx on the publishing host
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidatePublish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile/invalid
+      e2e: []
+  publish.artifacts[].build.dockerfile.context:
+    meaning: The build context.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: non-empty string'
+    outcomes: SCHEMA_VIOLATION
+    limitations: relative to the contract directory
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile.context/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile.context/invalid
+      e2e: []
+  publish.artifacts[].build.dockerfile.file:
+    meaning: The Dockerfile.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: non-empty string'
+    outcomes: SCHEMA_VIOLATION
+    limitations: relative to the contract directory
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile.file/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile.file/invalid
+      e2e: []
+  publish.artifacts[].build.dockerfile.platforms:
+    meaning: The platforms to build.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: array'
+    outcomes: PARSE_ERROR when not a list
+    limitations: defaults to the builder platform
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile.platforms/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile.platforms/invalid
+      e2e: []
+  publish.artifacts[].build.dockerfile.platforms[]:
+    meaning: One platform, such as linux/amd64.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: os/arch[/variant]'
+    outcomes: SCHEMA_VIOLATION
+    limitations: none
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile.platforms[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.dockerfile.platforms[]/invalid
+      e2e: []
+  publish.artifacts[].build.command:
+    meaning: A command that writes the artifact to $PACTO_OUT.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: non-empty array'
+    outcomes: SCHEMA_VIOLATION
+    limitations: runs in the contract directory; Pacto never edits its output
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.command/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.command/invalid
+      e2e: []
+  publish.artifacts[].build.command[]:
+    meaning: One argument.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: non-empty string'
+    outcomes: SCHEMA_VIOLATION
+    limitations: not run through a shell
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.command[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.command[]/invalid
+      e2e: []
+  publish.artifacts[].sbom:
+    meaning: Attach an SBOM made by syft as a referrer.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'cross-field: images only'
+    outcomes: PUBLISH_SBOM_NOT_IMAGE
+    limitations: needs syft on the publishing host
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidatePublish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].sbom/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].sbom/invalid
+      e2e: []
+  publish.sign:
+    meaning: How each published digest is signed with cosign.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: exactly one of keyless, key and kms'
+    outcomes: SCHEMA_VIOLATION; pacto publish refuses when omitted
+    limitations: needs cosign on the publishing host
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign/invalid
+      e2e: []
+  publish.sign.keyless:
+    meaning: Sign with the ambient OIDC identity.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: true only'
+    outcomes: SCHEMA_VIOLATION
+    limitations: any valid keyless signature counts when re-checking
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.keyless/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.keyless/invalid
+      e2e: []
+  publish.sign.key:
+    meaning: A cosign private key file.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: non-empty string'
+    outcomes: SCHEMA_VIOLATION
+    limitations: relative to the contract directory; the password comes from COSIGN_PASSWORD
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.key/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.key/invalid
+      e2e: []
+  publish.sign.kms:
+    meaning: A cosign KMS key URI.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: non-empty string'
+    outcomes: SCHEMA_VIOLATION
+    limitations: the URI is passed to cosign as is
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.kms/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.kms/invalid
+      e2e: []
+  publish.sign.transparencyLog:
+    meaning: Upload signatures to the transparency log.
+    runtime: static-only
+    evidence: 'none: pacto publish reads it; nothing at runtime does'
+    rule: 'schema: boolean'
+    outcomes: PARSE_ERROR when not a boolean
+    limitations: false is for private registries
+    tests:
+      unit:
+      - pkg/validation/structural_test.go:TestValidateStructural_V21Publish
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.transparencyLog/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.transparencyLog/invalid
       e2e: []
   metadata:
     meaning: Free-form key/value annotations.

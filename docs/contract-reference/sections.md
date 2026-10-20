@@ -9,17 +9,21 @@ dependencies and state are in
 
 ## `pactoVersion`
 
-The contract specification version. The only supported value is `"2.0"`.
+The contract specification version: `"2.0"` or `"2.1"`. 2.1 adds
+[`publish`](publish.md) and nothing else, so a 2.0 contract keeps working
+unchanged.
 
 ```yaml
 pactoVersion: "2.0"
 ```
 
-Every contract is validated against the single tracked JSON Schema,
-[`pacto-v2.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.0.schema.json).
+The version picks the JSON Schema the contract is validated against:
+[`pacto-v2.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.0.schema.json)
+or
+[`pacto-v2.1.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.1.schema.json).
 Any other value is a hard error: the contract fails to load before validation
-runs and reports `PARSE_ERROR` (`unsupported pactoVersion "2.1"; only "2.0" is
-supported`). See [Validation layers](validation.md).
+runs and reports `PARSE_ERROR` (`unsupported pactoVersion "3.0"; supported: 2.0,
+2.1`). See [Validation layers](validation.md).
 
 ---
 

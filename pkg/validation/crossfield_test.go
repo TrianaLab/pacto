@@ -1073,3 +1073,41 @@ func TestValidateSingleConfigValues_NilBundleFS(t *testing.T) {
 		t.Errorf("expected no error when bundleFS is nil, got %v", result.Errors)
 	}
 }
+
+func TestValidatePublish(t *testing.T) {
+	codes := func(p *contract.Publish) []string {
+		c := validV20Contract()
+		c.PactoVersion, c.Publish = "2.1", p
+		var r ValidationResult
+		validatePublish(c, &r)
+		var out []string
+		for _, e := range r.Errors {
+			out = append(out, e.Code)
+		}
+		return out
+	}
+	if got := codes(nil); got != nil {
+		t.Fatalf("no publish: %v", got)
+	}
+	ok := &contract.Publish{Bundle: "oci://r/b", Deploy: "m", Artifacts: []contract.PublishArtifact{
+		{Name: "api", Type: "image", Build: contract.PublishBuild{Dockerfile: &contract.DockerfileBuild{Context: "."}}, SBOM: true},
+		{Name: "m", Type: "manifests", Build: contract.PublishBuild{Command: []string{"x"}}},
+	}}
+	if got := codes(ok); got != nil {
+		t.Fatalf("valid publish: %v", got)
+	}
+	bad := &contract.Publish{Bundle: "oci://r/b", Deploy: "missing", Artifacts: []contract.PublishArtifact{
+		{Name: "c", Type: "chart", Build: contract.PublishBuild{Dockerfile: &contract.DockerfileBuild{Context: "."}}, SBOM: true},
+		{Name: "c", Type: "manifests", Build: contract.PublishBuild{Command: []string{"x"}}},
+	}}
+	want := []string{"PUBLISH_SBOM_NOT_IMAGE", "PUBLISH_DOCKERFILE_NOT_IMAGE", "DUPLICATE_PUBLISH_ARTIFACT", "PUBLISH_DEPLOY_NOT_MANIFESTS"}
+	got := codes(bad)
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
