@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Kind acceptance for Pacto delivery, phase 1 ("the core"): the promoter, the
-# Pacto contract check and Flux, running end to end on a local cluster.
+# Kind acceptance for Pacto delivery: phase 1 ("the core"), the promoter, the
+# Pacto contract check and Flux, running end to end on a local cluster; then
+# phase 2 ("health"), described where it starts below. DELIVERY_SKIP_CORE=1
+# skips the phase 1 scenarios (the setup still runs).
 #
 # One service, payments, ships through two Stages: test (fed by a candidate tag
 # CI moves) and prod (fed by test's verified versions). A consumer, checkout,
@@ -58,7 +60,7 @@ dump_delivery() {
   done
 }
 # shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
-trap 'rc=$?; [ $rc -ne 0 ] && { dump_diag "$NS"; dump_delivery; }; pkill -f "kubectl.*port-forward" 2>/dev/null || true; exit $rc' EXIT
+trap 'rc=$?; [ $rc -ne 0 ] && { dump_diag "$NS"; dump_delivery; }; [ -n "${GEN_PID:-}" ] && kill "$GEN_PID" 2>/dev/null; pkill -f "kubectl.*port-forward" 2>/dev/null || true; exit $rc' EXIT
 
 command -v oras >/dev/null 2>&1 || fail "oras is required: it publishes the manifest artifacts Flux pulls"
 command -v jq >/dev/null 2>&1 || fail "jq is required to read operations"
@@ -69,8 +71,11 @@ OP_IMG="${OP_REPO}:${VER}"
 DL_REPO="localhost:5001/pacto-delivery"
 DL_IMG="${DL_REPO}:${VER}"
 
-echo "== build the operator and the pacto-delivery image (one Dockerfile, two entrypoints) =="
-docker build --load -f "$_PACTO_ROOT/integrations/kubernetes/Dockerfile" --build-arg VERSION="$VER" -t "$OP_IMG" "$_PACTO_ROOT"
+# The operator is coupled to the runtime image (the root Dockerfile): phase 2
+# runs its node agent, which is `pacto agent` in that image.
+DASH_IMG="localhost:5001/pacto-dashboard:$(release_version core)"
+build_operator_images "$OP_IMG" "$DASH_IMG" "$VER"
+echo "== build the pacto-delivery image (the operator Dockerfile, its second entrypoint) =="
 docker build --load -f "$_PACTO_ROOT/integrations/kubernetes/Dockerfile" --build-arg VERSION="$VER" \
   --build-arg CMD=cmd/delivery -t "$DL_IMG" "$_PACTO_ROOT"
 PACTO="$(build_pacto)"
@@ -78,7 +83,7 @@ OP_CHART="$(package_chart "$PACTO_CHART")"
 DL_CHART="$(package_chart "$_PACTO_ROOT/integrations/kubernetes/charts/pacto-delivery")"
 
 ensure_cluster
-load_images "$OP_IMG" "$DL_IMG"
+load_images "$OP_IMG" "$DL_IMG" "$DASH_IMG"
 for n in "$NS" "$DELIVERY_NS" test prod agents; do
   kubectl create namespace "$n" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 done
@@ -243,6 +248,30 @@ candidate() { oras tag --plain-http "127.0.0.1:${LOCAL_REG_PORT}/${APP_REPO}:$1"
 A="$(publish A "$C100")"; candidate A
 echo "  A = $A (payments 1.0.0)"
 
+# --- reading the cluster's state ---------------------------------------------
+reconciled() { [ -n "$(kubectl -n "$1" get pacto "$2" -o jsonpath='{.status.contract.serviceName}' 2>/dev/null)" ]; }
+pointer() { kubectl -n "$1" get stage payments -o jsonpath='{.status.pointer}'; }
+has_pointer() { [ "$(pointer "$1")" = "$2" ]; }
+ops() { kubectl -n "$1" get operations -o json; }
+# op_to NS DIGEST [TYPE] — the names of operations moving NS to DIGEST.
+op_to() { ops "$1" | jq -r --arg d "$2" --arg t "${3:-pacto.dev/promote}" \
+  '.items[] | select(.spec.params.to == $d and .spec.type == $t) | .metadata.name'; }
+field() { kubectl -n "$1" get operation "$2" -o jsonpath="{.status.$3}"; }
+concluded() { [ "$(field "$1" "$2" phase)" = Concluded ]; }
+outcome() { echo "$(field "$1" "$2" outcome)/$(field "$1" "$2" verification)"; }
+op_exists() { [ -n "$(op_to "$@")" ]; }
+wait_op() { # NS DIGEST [TYPE] — prints the one operation that appears
+  eventually 60 op_exists "$@" || fail "no ${3:-promote} to $2 appeared in $1"
+  op_to "$@" | head -1
+}
+wait_concluded() { # NS OP WANT_OUTCOME
+  eventually 80 concluded "$1" "$2" || fail "$1/$2 never concluded: phase=$(field "$1" "$2" phase) reason=$(field "$1" "$2" reason) message=$(field "$1" "$2" message)"
+  [ "$(outcome "$1" "$2")" = "$3" ] || fail "$1/$2 concluded $(outcome "$1" "$2"), want $3 ($(field "$1" "$2" reason): $(field "$1" "$2" message))"
+}
+held() { [ "$(field "$1" "$2" phase)" = Held ]; }
+
+# DELIVERY_SKIP_CORE=1 runs the setup and phase 2 only, for iterating on it.
+if [ -z "${DELIVERY_SKIP_CORE:-}" ]; then
 echo "== the consumers: checkout accepts ^1.0.0, ledger accepts >=1.0.0, in both environments =="
 consumer() { # NS NAME CONTRACT_REF
   kubectl -n "$1" apply -f - >/dev/null <<YAML
@@ -269,7 +298,6 @@ for env in test prod; do consumer "$env" checkout "$CHECKOUT"; consumer "$env" l
 
 # Every Pacto must be reconciled before the first plan: a Pacto with no contract
 # in its status is a consumer Pacto cannot rule out, and the plan would wait.
-reconciled() { [ -n "$(kubectl -n "$1" get pacto "$2" -o jsonpath='{.status.contract.serviceName}' 2>/dev/null)" ]; }
 for env in test prod; do
   for p in checkout ledger; do eventually 60 reconciled "$env" "$p" || fail "$env/$p was never reconciled"; done
 done
@@ -332,27 +360,6 @@ spec:
   auto: true
   gates: {verify: {window: 3m}}
 YAML
-
-# --- reading the promoter's state -------------------------------------------
-pointer() { kubectl -n "$1" get stage payments -o jsonpath='{.status.pointer}'; }
-has_pointer() { [ "$(pointer "$1")" = "$2" ]; }
-ops() { kubectl -n "$1" get operations -o json; }
-# op_to NS DIGEST [TYPE] — the names of operations moving NS to DIGEST.
-op_to() { ops "$1" | jq -r --arg d "$2" --arg t "${3:-pacto.dev/promote}" \
-  '.items[] | select(.spec.params.to == $d and .spec.type == $t) | .metadata.name'; }
-field() { kubectl -n "$1" get operation "$2" -o jsonpath="{.status.$3}"; }
-concluded() { [ "$(field "$1" "$2" phase)" = Concluded ]; }
-outcome() { echo "$(field "$1" "$2" outcome)/$(field "$1" "$2" verification)"; }
-op_exists() { [ -n "$(op_to "$@")" ]; }
-wait_op() { # NS DIGEST [TYPE] — prints the one operation that appears
-  eventually 60 op_exists "$@" || fail "no ${3:-promote} to $2 appeared in $1"
-  op_to "$@" | head -1
-}
-wait_concluded() { # NS OP WANT_OUTCOME
-  eventually 80 concluded "$1" "$2" || fail "$1/$2 never concluded: phase=$(field "$1" "$2" phase) reason=$(field "$1" "$2" reason) message=$(field "$1" "$2" message)"
-  [ "$(outcome "$1" "$2")" = "$3" ] || fail "$1/$2 concluded $(outcome "$1" "$2"), want $3 ($(field "$1" "$2" reason): $(field "$1" "$2" message))"
-}
-held() { [ "$(field "$1" "$2" phase)" = Held ]; }
 
 echo "== bootstrap: A reaches test, then prod, by itself =="
 OP="$(wait_op test "$A")"; wait_concluded test "$OP" Succeeded/Verified
@@ -545,6 +552,323 @@ PROMOTES="$(kubectl get operations -A -o json | jq '[.items[] | select(.spec.typ
 [ "$WITNESSED" = 1 ] || fail "$WITNESSED witnessed overrides, want exactly the one break-glass edit"
 pass "$PROMOTES promotes, 0 witnessed overrides of their own"
 
-kill "$REG_PF_PID" 2>/dev/null || true
 echo "DELIVERY CORE PASS"
+fi
+
+# --- phase 2: health ----------------------------------------------------------
+# Mira (OTLP in, the query API the health gate reads) and the operator's node
+# agent (kernel evidence the claim gate reads) join the cluster. One Stage,
+# health/payments, verifies with the Pacto contract check, a Mira error-ratio
+# check and the pacto.runtime claim check, and re-checks every 10s once a version
+# shipped. A generator on the host sends payments spans to Mira in the mode the
+# running version is set to (ok, errors or silent), which stands in for the
+# telemetry of a real workload. It proves:
+#   - a version whose error ratio exceeds the limit is rolled back, and the
+#     rollback cites the Mira query with absolute bounds;
+#   - too little telemetry holds the version as Unknown, never Pass and never a
+#     rollback, until a person decides;
+#   - a regression after a version was verified triggers exactly one rollback;
+#   - a version the node agent sees calling a service its contract never
+#     declares fails the claim gate, though Pacto's own status is only Warning.
+echo "== phase 2: Mira, the node agent and a Stage with health and claim checks =="
+H=health
+MIRA_IMG=ghcr.io/trianalab/mira:0.4.3
+AGNHOST=registry.k8s.io/e2e-test-images/agnhost:2.53
+MIRA_PORT=5603
+H_REPO=apps/payments-health
+# The operator restarts with the node agent first: the new manager takes over
+# the leader lease from the old one, which can take a few minutes on kind.
+AGENT_NS=pacto-node-agent
+helm upgrade pacto-operator "$OP_CHART" -n "$NS" --reuse-values \
+  --set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s --wait --timeout 240s >/dev/null
+for img in "$MIRA_IMG" "$AGNHOST"; do docker image inspect "$img" >/dev/null 2>&1 || docker pull -q "$img" >/dev/null; done
+load_images "$MIRA_IMG" "$AGNHOST"
+kubectl create namespace "$H" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl -n "$NS" apply -f - >/dev/null <<YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: mira}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: mira}}
+  template:
+    metadata: {labels: {app: mira}}
+    spec:
+      containers:
+      - name: mira
+        image: $MIRA_IMG
+        imagePullPolicy: Never
+        ports: [{containerPort: 4318}]
+        readinessProbe: {httpGet: {path: /readyz, port: 4318}, periodSeconds: 2}
+        volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: mira}
+spec: {selector: {app: mira}, ports: [{name: http, port: 4318, targetPort: 4318}]}
+YAML
+kubectl -n "$NS" rollout status deploy/mira --timeout=120s >/dev/null
+MIRA_PF_PID="$(pf "$MIRA_PORT" svc/mira 4318)"
+
+helm upgrade pacto-delivery "$DL_CHART" -n "$DELIVERY_NS" --reuse-values \
+  --set-json "gates.providers=[{\"name\":\"mira\",\"type\":\"mira\",\"url\":\"http://mira.${NS}.svc.cluster.local:4318\"}]" \
+  --wait --timeout 240s >/dev/null
+kubectl -n "$DELIVERY_NS" rollout status deploy/pacto-delivery --timeout=120s >/dev/null
+eventually 40 kubectl -n "$AGENT_NS" get ds pacto-node-agent >/dev/null 2>&1 || fail "the operator never created the node agent"
+kubectl -n "$AGENT_NS" rollout status ds/pacto-node-agent --timeout=180s >/dev/null
+agent_running() {
+  [ "$(kubectl -n "$AGENT_NS" get noderuntimeobservations.pacto.trianalab.io -o jsonpath='{.items[0].status.collection.state}' 2>/dev/null)" = Running ]
+}
+eventually 40 agent_running || fail "the node agent never reported Running collection: $(kubectl -n "$AGENT_NS" get noderuntimeobservations.pacto.trianalab.io -o yaml)"
+pass "Mira and the node agent run; the promoter knows the mira provider"
+
+echo "== the generator: payments spans in the mode the running version is set to =="
+GEN="$(mktemp -d)"
+gen_loop() {
+  local ver mode
+  while sleep 2; do
+    ver="$(kubectl -n "$H" get deploy payments -o jsonpath='{.spec.template.metadata.annotations.version}' 2>/dev/null)" || continue
+    mode="$(cat "$GEN/$ver" 2>/dev/null || echo ok)"
+    python3 - "$mode" <<'PY' | curl -s -o /dev/null -X POST "http://127.0.0.1:${MIRA_PORT}/v1/traces" \
+      -H 'content-type: application/json' --data-binary @- || true
+import json, os, sys, time
+mode, now = sys.argv[1], time.time_ns()
+errors = {"ok": 0, "errors": 5, "silent": 0}[mode]
+n = 0 if mode == "silent" else 10
+spans = [{"traceId": os.urandom(16).hex(), "spanId": os.urandom(8).hex(), "name": "POST /pay", "kind": 2,
+          "startTimeUnixNano": str(now - i * 1000), "endTimeUnixNano": str(now - i * 1000 + 2_000_000),
+          "status": {"code": 2 if i < errors else 1}} for i in range(n)]
+print(json.dumps({"resourceSpans": [{"resource": {"attributes": [{"key": "service.name", "value": {"stringValue": "payments"}}]},
+                                     "scopeSpans": [{"spans": spans}]}]}))
+PY
+  done
+}
+gen_loop &
+GEN_PID=$!
+mode() { echo "$2" > "$GEN/$1"; } # LABEL MODE
+
+echo "== the fraud service: Pacto-managed, and in no payments contract =="
+FRAUD="$(contract fraud 1.0.0 service)"
+kubectl -n "$H" apply -f - >/dev/null <<YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: fraud}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: fraud}}
+  template:
+    metadata: {labels: {app: fraud}}
+    spec:
+      containers:
+      - {name: server, image: $AGNHOST, imagePullPolicy: Never, args: [netexec, --http-port=8080], ports: [{containerPort: 8080}],
+         readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 2}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: fraud}
+spec: {selector: {app: fraud}, ports: [{name: http, port: 80, targetPort: 8080}]}
+---
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata: {name: fraud}
+spec:
+  checkIntervalSeconds: 30
+  contractRef: {oci: "$FRAUD"}
+  target: {serviceName: fraud}
+YAML
+kubectl -n "$H" rollout status deploy/fraud --timeout=120s >/dev/null
+eventually 60 reconciled "$H" fraud || fail "the fraud Pacto was never reconciled"
+
+# publish_health LABEL [CALLS] — a payments version for the health Stage: an
+# agnhost Deployment and its Pacto on payments 1.0.0 (no dependencies). With
+# CALLS, a second container connects to fraud every 2s.
+publish_health() {
+  local label="$1" tree tgz extra=""
+  tree="$(mktemp -d)"; tgz="$(mktemp -t payments-health.XXXXXX)"
+  [ -n "${2:-}" ] && extra="
+      - {name: caller, image: $AGNHOST, imagePullPolicy: Never, command: [sh, -c, 'while true; do nc -z -w 2 fraud 80; sleep 2; done']}"
+  cat > "$tree/kustomization.yaml" <<'YAML'
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources: [deployment.yaml, pacto.yaml]
+YAML
+  cat > "$tree/deployment.yaml" <<YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: payments}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: payments}}
+  template:
+    metadata: {labels: {app: payments}, annotations: {version: "$label"}}
+    spec:
+      terminationGracePeriodSeconds: 1
+      containers:
+      - {name: app, image: $AGNHOST, imagePullPolicy: Never, args: [pause]}$extra
+YAML
+  cat > "$tree/pacto.yaml" <<YAML
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata: {name: payments}
+spec:
+  checkIntervalSeconds: 30
+  contractRef: {oci: "$C100"}
+  target: {workloadRef: {name: payments, kind: Deployment}}
+YAML
+  tar -czf "$tgz" -C "$tree" .
+  oras push --plain-http --disable-path-validation --annotation "pacto.dev/contract=$C100" --format go-template='{{.digest}}' \
+    "127.0.0.1:${LOCAL_REG_PORT}/${H_REPO}:${label}" "${tgz}:${FLUX_LAYER_TYPE}"
+}
+H1="$(publish_health h1)"
+H2="$(publish_health h2)"; mode h2 errors
+Q="$(publish_health q)"; mode q silent
+H5="$(publish_health h5)"
+R="$(publish_health r calls)"
+
+kubectl -n "$H" apply -f - >/dev/null <<YAML
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: payments
+  labels: {delivery.pacto.trianalab.io/apply-ref: payments}
+spec: {interval: 30s, insecure: true, url: "oci://${REG_HOST}/${H_REPO}", ref: {digest: "$H1"}}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: payments}
+spec:
+  interval: 1m
+  sourceRef: {kind: OCIRepository, name: payments}
+  path: ./
+  prune: true
+  timeout: 2m
+  targetNamespace: $H
+  healthChecks: [{apiVersion: apps/v1, kind: Deployment, name: payments, namespace: $H}]
+---
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Stage
+metadata: {name: payments}
+spec:
+  service: {name: payments}
+  environment: health
+  applyRef: {name: payments}
+  gates:
+    verify:
+      window: 2m
+      recheck: 10s
+      checks:
+      - name: health
+        provider: mira
+        params: {minSpans: "20", maxErrorRatio: "0.2", soak: "20s"}
+      - name: claims
+        provider: pacto.runtime
+YAML
+eventually 60 reconciled "$H" payments || fail "health/payments was never reconciled"
+
+# ship LABEL DIGEST — agent-a proposes the version; prints the operation name.
+ship() {
+  as_agent "$AGENT_A" propose -n "$H" --stage payments --to "$2" --name "promote-$1" --reason "phase 2: $1" >/dev/null
+  echo "promote-$1"
+}
+verdict() { # OP GATE FIELD — one field of one verdict, as JSON
+  kubectl -n "$H" get operation "$1" -o json | jq -c --arg g "$2" ".status.verdicts[] | select(.gate == \$g) | $3"
+}
+rollbacks_of() { # OP — how many rollbacks undo OP
+  local uid; uid="$(kubectl -n "$H" get operation "$1" -o jsonpath='{.metadata.uid}')"
+  ops "$H" | jq --arg u "$uid" '[.items[] | select(.spec.type == "pacto.dev/rollback" and .spec.params.undoes == $u)] | length'
+}
+
+echo "== H1 ships: healthy spans, the contract check and the claim check all pass =="
+OP1="$(ship h1 "$H1")"
+wait_concluded "$H" "$OP1" Succeeded/Verified
+for g in pacto.contract health claims; do
+  [ "$(verdict "$OP1" "$g" .result)" = '"Pass"' ] || fail "$g did not pass for H1: $(verdict "$OP1" "$g" .)"
+done
+[ "$(verdict "$OP1" claims '.citation["payments.kernelCoverage"]')" = '"Complete"' ] || fail "the claim gate passed without complete kernel coverage"
+pass "H1 verified by the contract, Mira and the node agent"
+
+echo "== H2: its error ratio exceeds the limit, so it is rolled back, citing the Mira query =="
+OP2="$(ship h2 "$H2")"
+wait_concluded "$H" "$OP2" Failed/
+{ [ "$(field "$H" "$OP2" reason)" = VerifyFailed ] && grep -q "^health: " <<<"$(field "$H" "$OP2" message)"; } \
+  || fail "H2 failed for the wrong reason: $(field "$H" "$OP2" reason): $(field "$H" "$OP2" message)"
+RB2="${OP2}-rollback"
+Q2="$(kubectl -n "$H" get operation "$RB2" -o json | jq -r '.spec.cause.verdict.citation.query')"
+jq -e --arg from "$(kubectl -n "$H" get operation "$OP2" -o jsonpath='{.status.times.applied}')" \
+  '.signal == "traces" and (.from | type) == "number" and (.to | type) == "number" and .to > .from
+   and (.where | index({"attr": "service.name", "eq": "payments"}))' <<<"$Q2" >/dev/null \
+  || fail "the rollback does not cite the Mira query with absolute bounds: $Q2"
+# The citation re-runs: the same documents against Mira read the same window.
+# Spans Mira had not flushed yet when the gate read can only add to it, so the
+# re-run finds at least what was cited and the ratio is still over the limit.
+CITE="$(kubectl -n "$H" get operation "$RB2" -o json | jq -c '.spec.cause.verdict.citation')"
+SPANS="$(jq -r .spans <<<"$CITE")"
+count() { curl -s -X POST "http://127.0.0.1:${MIRA_PORT}/api/v1/query" -d "$1" | jq '.rows | length'; }
+RERUN="$(count "$Q2")"
+RERUN_ERRORS="$(count "$(jq -r .errorQuery <<<"$CITE")")"
+{ [ "$RERUN" -ge "$SPANS" ] && [ $((RERUN_ERRORS * 5)) -gt "$RERUN" ]; } \
+  || fail "re-running the cited queries counted $RERUN_ERRORS of $RERUN spans failed; the verdict counted $SPANS spans"
+wait_concluded "$H" "$RB2" Succeeded/Verified
+has_pointer "$H" "$H1" || fail "health is not back on H1"
+pass "H2 rolled back to H1; the rollback cites the Mira query, and re-running it finds $RERUN_ERRORS of $RERUN spans failed"
+
+echo "== Q: too little telemetry holds as Unknown, never Pass and never a rollback =="
+OPQ="$(ship q "$Q")"
+verifying_unknown() {
+  [ "$(field "$H" "$OPQ" phase)" = Verifying ] && [ "$(verdict "$OPQ" health .result)" = '"Unknown"' ]
+}
+eventually 60 verifying_unknown || fail "Q did not wait as Unknown: $(field "$H" "$OPQ" phase) $(field "$H" "$OPQ" message)"
+verdict "$OPQ" health .message | grep -q "spans in the window; at least 20" || fail "Q's Unknown does not say there were too few spans"
+eventually 60 held "$H" "$OPQ" || fail "Q was not held for a person at the window's end: $(field "$H" "$OPQ" phase)"
+[ "$(field "$H" "$OPQ" reason)" = VerifyUnknown ] || fail "Q held for the wrong reason: $(field "$H" "$OPQ" reason)"
+{ [ "$(rollbacks_of "$OPQ")" = 0 ] && has_pointer "$H" "$Q"; } || fail "Unknown rolled Q back"
+as_person alice approve -n "$H" "$OPQ" --decision reject --note "no telemetry, no trust" >/dev/null
+wait_concluded "$H" "$OPQ" Failed/
+wait_concluded "$H" "${OPQ}-rollback" Succeeded/Verified
+pass "Q held as Unknown with no rollback until alice rejected it"
+
+echo "== H5 ships, then regresses after it was verified: exactly one rollback =="
+OP5="$(ship h5 "$H5")"
+wait_concluded "$H" "$OP5" Succeeded/Verified
+mode h5 errors
+recheck_failed() { kubectl -n "$H" get stage payments -o json | jq -e --arg d "$H5" '.status.failedDigests | index($d)' >/dev/null; }
+eventually 40 recheck_failed || fail "the regression after release was never caught: $(kubectl -n "$H" get stage payments -o jsonpath='{.status.lastCheck}')"
+RB5="${OP5}-rollback"
+kubectl -n "$H" get operation "$RB5" -o json | jq -e '.spec.reason | test("RecheckFailed: health")' >/dev/null \
+  || fail "the rollback does not say a re-check failed"
+wait_concluded "$H" "$RB5" Succeeded/Verified
+one_rollback() { [ "$(rollbacks_of "$OP5")" = 1 ] && has_pointer "$H" "$H1"; }
+always 7 one_rollback || fail "a regression after release raised $(rollbacks_of "$OP5") rollbacks"
+pass "H5 regressed after release and was rolled back exactly once"
+
+echo "== R: the node agent sees it call fraud, which its contract never declares: the claim gate fails =="
+# The claim gate fails R while it verifies, or on the first re-check if the
+# node agent saw the first call only after the soak; either way the version is
+# marked failed and its one rollback cites the claim verdict. The gates run in
+# order (contract, health, claims) and the first Fail is the cause, so a cause
+# of claims also says Pacto's own check passed: an undeclared call is only a
+# warning there.
+OPR="$(ship r "$R")"
+r_failed() { kubectl -n "$H" get stage payments -o json | jq -e --arg d "$R" '.status.failedDigests | index($d)' >/dev/null; }
+eventually 80 r_failed || fail "R was never failed: $(field "$H" "$OPR" phase) $(field "$H" "$OPR" message)"
+CAUSE="$(kubectl -n "$H" get operation "${OPR}-rollback" -o json | jq -c '.spec.cause.verdict')"
+{ [ "$(jq -r .gate <<<"$CAUSE")" = claims ] && grep -q "DEPENDENCY_UNDECLARED dependency/fraud (ebpf" <<<"$(jq -r '.citation["payments.findings"]' <<<"$CAUSE")"; } \
+  || fail "R's rollback does not cite the claim verdict and its kernel evidence: $CAUSE"
+wait_concluded "$H" "${OPR}-rollback" Succeeded/Verified
+pass "R failed the claim gate on kernel evidence and was rolled back"
+
+echo "== explain and history read it back =="
+OUT="$(KUBECONFIG="$AGENT_A" "$PACTO" delivery explain -n "$H" "$RB2")"
+grep -q "re-run: POST query" <<<"$OUT" || fail "explain does not say how to re-run the Mira citation: $OUT"
+HIST="$(KUBECONFIG="$AGENT_A" "$PACTO" delivery history -n "$H" --stage payments --output-format json)"
+jq -e '.completeness == "partial" and ([.entries[] | select(.type == "pacto.dev/rollback")] | length) == 4' <<<"$HIST" >/dev/null \
+  || fail "history does not list the four rollbacks: $HIST"
+pass "explain cites how to re-run, history lists every rollback"
+
+kill "$GEN_PID" "$MIRA_PF_PID" 2>/dev/null || true
+echo "DELIVERY HEALTH PASS"
+
+kill "$REG_PF_PID" 2>/dev/null || true
+echo "DELIVERY PASS"
 keep_or_teardown "$NS" "$CLUSTER" delete_cluster

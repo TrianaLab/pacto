@@ -181,7 +181,10 @@ test-acceptance-kind-runtime-conformance:
 # version reaches prod alone, a broken one is rolled back once and never
 # retried, a breaking change asks only the broken consumer's team, Unknown
 # waits, two agents yield one winner, a person's rollback holds automation, a
-# stale check never verifies a new version) plus the admission policies.
+# stale check never verifies a new version) plus the admission policies. Phase 2
+# adds Mira and the node agent: an error ratio over the limit rolls back citing
+# the Mira query, too little telemetry holds as Unknown, a regression after
+# release rolls back exactly once and an undeclared call fails the claim gate.
 test-acceptance-kind-delivery:
 	bash tests/acceptance/kind/delivery.sh
 

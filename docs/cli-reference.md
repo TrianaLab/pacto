@@ -355,15 +355,15 @@ pacto delivery plan [flags]
 **Flags:**
 
 ```
-      --cause-verdict pacto delivery explain -o json   a verdict (JSON, as pacto delivery explain -o json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
-      --from string                                    the digest the Stage runs now (defaults to its pointer)
-  -h, --help                                           help for plan
-      --on-behalf-of string                            the person an agent acts for (asserted, not verified)
-      --reason string                                  why, for the record
-      --stage string                                   the Stage to change (required)
-      --to string                                      the artifact digest to move to (sha256:...)
-      --type string                                    operation type (default "pacto.dev/promote")
-      --undoes string                                  for a rollback: the name of the operation it undoes
+      --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
+      --from string                                                 the digest the Stage runs now (defaults to its pointer)
+  -h, --help                                                        help for plan
+      --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
+      --reason string                                               why, for the record
+      --stage string                                                the Stage to change (required)
+      --to string                                                   the artifact digest to move to (sha256:...)
+      --type string                                                 operation type (default "pacto.dev/promote")
+      --undoes string                                               for a rollback: the name of the operation it undoes
 ```
 
 ### `pacto delivery propose`
@@ -377,17 +377,17 @@ pacto delivery propose [flags]
 **Flags:**
 
 ```
-      --cause-verdict pacto delivery explain -o json   a verdict (JSON, as pacto delivery explain -o json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
-      --from string                                    the digest the Stage runs now (defaults to its pointer)
-  -h, --help                                           help for propose
-      --intent-digest string                           the intent digest from your plan; propose refuses if it no longer matches
-      --name string                                    the Operation name (generated when empty)
-      --on-behalf-of string                            the person an agent acts for (asserted, not verified)
-      --reason string                                  why, for the record
-      --stage string                                   the Stage to change (required)
-      --to string                                      the artifact digest to move to (sha256:...)
-      --type string                                    operation type (default "pacto.dev/promote")
-      --undoes string                                  for a rollback: the name of the operation it undoes
+      --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
+      --from string                                                 the digest the Stage runs now (defaults to its pointer)
+  -h, --help                                                        help for propose
+      --intent-digest string                                        the intent digest from your plan; propose refuses if it no longer matches
+      --name string                                                 the Operation name (generated when empty)
+      --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
+      --reason string                                               why, for the record
+      --stage string                                                the Stage to change (required)
+      --to string                                                   the artifact digest to move to (sha256:...)
+      --type string                                                 operation type (default "pacto.dev/promote")
+      --undoes string                                               for a rollback: the name of the operation it undoes
 ```
 
 ### `pacto delivery types`

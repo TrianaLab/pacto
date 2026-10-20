@@ -136,7 +136,7 @@ func addRequestFlags(cmd *cobra.Command) {
 	cmd.Flags().String("undoes", "", "for a rollback: the name of the operation it undoes")
 	cmd.Flags().String("reason", "", "why, for the record")
 	cmd.Flags().String("on-behalf-of", "", "the person an agent acts for (asserted, not verified)")
-	cmd.Flags().String("cause-verdict", "", "a verdict (JSON, as `pacto delivery explain -o json` prints it) you cite as the cause; "+
+	cmd.Flags().String("cause-verdict", "", "a verdict (JSON, as `pacto delivery explain --output-format json` prints it) you cite as the cause; "+
 		"the promoter runs it again and refuses a cause that does not hold")
 	_ = cmd.MarkFlagRequired("stage")
 }
