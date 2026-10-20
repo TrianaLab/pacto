@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -63,7 +62,7 @@ func deliveryDeps(user string, dynErr error) deps {
 				"status": map[string]any{"pointer": cliA, "verified": []any{cliA}}}),
 			u("source.toolkit.fluxcd.io/v1", "OCIRepository", "payments", map[string]any{"spec": map[string]any{"url": "oci://reg/apps/payments"}}),
 			u("delivery.pacto.trianalab.io/v1alpha1", "Operation", "held", map[string]any{
-				"spec":   map[string]any{"type": delivery.TypePromote, "stage": "payments-prod", "intentDigest": "sha256:i"},
+				"spec": map[string]any{"type": delivery.TypePromote, "stage": "payments-prod", "intentDigest": "sha256:i"},
 				"status": map[string]any{"phase": "Held", "question": "Approve?", "reason": "AwaitingHuman", "message": "m",
 					"verdicts": []any{map[string]any{"gate": "pacto.diff", "phase": "pre", "result": "Pass"}}}}),
 		)
@@ -94,80 +93,65 @@ func runDelivery(t *testing.T, d deps, format string, args ...string) (string, e
 	return out.String(), err
 }
 
-func TestDeliveryCommandReadVerbs(t *testing.T) {
-	d := deliveryDeps("alice", nil)
-	out, err := runDelivery(t, d, "text", "types")
-	if err != nil || !strings.Contains(out, "pacto.dev/promote") || !strings.Contains(out, "agent,human,controller") {
-		t.Fatalf("types: %v\n%s", err, out)
-	}
-	if out, err = runDelivery(t, d, "json", "types"); err != nil || !strings.HasPrefix(strings.TrimSpace(out), "[") {
-		t.Fatalf("types json: %v %s", err, out)
-	}
-	if out, err = runDelivery(t, d, "text", "describe", "rollback"); err != nil || !strings.Contains(out, "inverse:        pacto.dev/promote") {
-		t.Fatalf("describe: %v\n%s", err, out)
-	}
-	if out, err = runDelivery(t, d, "text", "describe", "pacto.dev/unfreeze"); err != nil || !strings.Contains(out, "inverse:        none") {
-		t.Fatalf("describe unfreeze: %v\n%s", err, out)
-	}
-	if _, err = runDelivery(t, d, "text", "describe", "scale"); err == nil {
-		t.Fatal("unknown type")
-	}
-	out, err = runDelivery(t, d, "text", "plan", "-n", "prod", "--stage", "payments-prod", "--to", cliB)
-	if err != nil || !strings.Contains(out, "predicted: Proceeds") || !strings.Contains(out, "pacto.impact") {
-		t.Fatalf("plan: %v\n%s", err, out)
-	}
-	if out, err = runDelivery(t, d, "text", "plan", "-n", "prod", "--stage", "payments-prod", "--to", "v2"); err == nil || !strings.Contains(err.Error(), cliB) {
-		t.Fatalf("a tag is refused naming its digest: %v %s", err, out)
-	}
-	if out, err = runDelivery(t, d, "text", "plan", "-n", "prod", "--stage", "payments-prod", "--to", cliB, "--from", cliB); err != nil ||
-		!strings.Contains(out, "conflict:  PointerMoved") {
-		t.Fatalf("plan conflict: %v\n%s", err, out)
-	}
-	if out, err = runDelivery(t, d, "text", "get", "-n", "prod", "held"); err != nil || !strings.Contains(out, "question:  Approve?") ||
-		!strings.Contains(out, "reason:    AwaitingHuman: m") || !strings.Contains(out, "pacto.diff") {
-		t.Fatalf("get: %v\n%s", err, out)
-	}
-	if _, err = runDelivery(t, d, "text", "get", "-n", "prod", "missing"); err == nil {
-		t.Fatal("get missing")
-	}
-	var plan delivery.Plan
-	out, _ = runDelivery(t, d, "json", "plan", "-n", "prod", "--stage", "payments-prod", "--to", cliB)
-	if err := json.Unmarshal([]byte(out), &plan); err != nil || plan.IntentDigest == "" {
-		t.Fatalf("plan json: %v %s", err, out)
+// deliveryRun is one invocation and what it must say: on stdout, or in the
+// error when it must fail.
+type deliveryRun struct {
+	format  string
+	args    []string
+	wantErr bool
+	want    []string
+}
+
+func checkDeliveryRuns(t *testing.T, d deps, runs []deliveryRun) {
+	t.Helper()
+	for _, r := range runs {
+		out, err := runDelivery(t, d, r.format, r.args...)
+		if (err != nil) != r.wantErr {
+			t.Fatalf("%v: err = %v, want error %v\n%s", r.args, err, r.wantErr, out)
+		}
+		if err != nil {
+			out = err.Error()
+		}
+		for _, w := range r.want {
+			if !strings.Contains(out, w) {
+				t.Fatalf("%v: output lacks %q:\n%s", r.args, w, out)
+			}
+		}
 	}
 }
 
+func TestDeliveryCommandReadVerbs(t *testing.T) {
+	plan := []string{"plan", "-n", "prod", "--stage", "payments-prod"}
+	checkDeliveryRuns(t, deliveryDeps("alice", nil), []deliveryRun{
+		{"text", []string{"types"}, false, []string{"pacto.dev/promote", "agent,human,controller"}},
+		{"json", []string{"types"}, false, []string{`"id": "pacto.dev/promote"`}},
+		{"text", []string{"describe", "rollback"}, false, []string{"inverse:        pacto.dev/promote"}},
+		{"text", []string{"describe", "pacto.dev/unfreeze"}, false, []string{"inverse:        none"}},
+		{"text", []string{"describe", "scale"}, true, []string{"unknown operation type"}},
+		{"text", append(plan, "--to", cliB), false, []string{"predicted: Proceeds", "pacto.impact"}},
+		{"json", append(plan, "--to", cliB), false, []string{`"intentDigest": "sha256:`}},
+		{"text", append(plan, "--to", "v2"), true, []string{cliB}},
+		{"text", append(plan, "--to", cliB, "--from", cliB), false, []string{"conflict:  PointerMoved"}},
+		{"text", []string{"get", "-n", "prod", "held"}, false, []string{"question:  Approve?", "reason:    AwaitingHuman: m", "pacto.diff"}},
+		{"text", []string{"get", "-n", "prod", "missing"}, true, nil},
+	})
+}
+
 func TestDeliveryCommandWriteVerbs(t *testing.T) {
-	d := deliveryDeps("system:serviceaccount:agents:bot", nil)
-	out, err := runDelivery(t, d, "text", "propose", "-n", "prod", "--stage", "payments-prod", "--to", cliB, "--name", "p1", "--type", "promote")
-	if err != nil || !strings.Contains(out, "proposed prod/p1") {
-		t.Fatalf("propose: %v\n%s", err, out)
-	}
-	if out, err = runDelivery(t, d, "json", "propose", "-n", "prod", "--stage", "payments-prod", "--to", cliB, "--name", "p2"); err != nil ||
-		!strings.Contains(out, `"operation"`) {
-		t.Fatalf("propose json: %v\n%s", err, out)
-	}
-	if _, err = runDelivery(t, d, "text", "propose", "-n", "prod", "--stage", "payments-prod", "--to", cliB, "--intent-digest", "sha256:old"); err == nil ||
-		!strings.Contains(err.Error(), "PlanStale") {
-		t.Fatalf("stale: %v", err)
-	}
-	if out, err = runDelivery(t, d, "text", "cancel", "-n", "prod", "held"); err != nil || !strings.Contains(out, "cancel requested for prod/held") {
-		t.Fatalf("cancel: %v %s", err, out)
-	}
-	if _, err = runDelivery(t, d, "text", "cancel", "-n", "prod", "gone"); err == nil {
-		t.Fatal("cancel missing")
-	}
-	if _, err = runDelivery(t, d, "text", "approve", "-n", "prod", "held"); err == nil || !strings.Contains(err.Error(), "agents may not approve") {
-		t.Fatalf("an agent cannot approve: %v", err)
-	}
-	human := deliveryDeps("alice", nil)
-	if out, err = runDelivery(t, human, "text", "approve", "-n", "prod", "held", "--decision", "accept-unknown", "--note", "ok"); err != nil ||
-		!strings.Contains(out, "recorded accept-unknown on prod/held as Approval held-1") {
-		t.Fatalf("approve: %v %s", err, out)
-	}
-	if _, err = runDelivery(t, human, "text", "approve", "-n", "prod", "held", "--decision", "maybe"); err == nil {
-		t.Fatal("unknown decision")
-	}
+	propose := []string{"propose", "-n", "prod", "--stage", "payments-prod", "--to", cliB}
+	checkDeliveryRuns(t, deliveryDeps("system:serviceaccount:agents:bot", nil), []deliveryRun{
+		{"text", append(propose, "--name", "p1", "--type", "promote"), false, []string{"proposed prod/p1"}},
+		{"json", append(propose, "--name", "p2"), false, []string{`"operation"`}},
+		{"text", append(propose, "--intent-digest", "sha256:old"), true, []string{"PlanStale"}},
+		{"text", []string{"cancel", "-n", "prod", "held"}, false, []string{"cancel requested for prod/held"}},
+		{"text", []string{"cancel", "-n", "prod", "gone"}, true, nil},
+		{"text", []string{"approve", "-n", "prod", "held"}, true, []string{"agents may not approve"}},
+	})
+	checkDeliveryRuns(t, deliveryDeps("alice", nil), []deliveryRun{
+		{"text", []string{"approve", "-n", "prod", "held", "--decision", "accept-unknown", "--note", "ok"}, false,
+			[]string{"recorded accept-unknown on prod/held as Approval held-1"}},
+		{"text", []string{"approve", "-n", "prod", "held", "--decision", "maybe"}, true, []string{"--decision must be one of"}},
+	})
 }
 
 func TestPrintPlanQuestion(t *testing.T) {

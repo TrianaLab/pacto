@@ -111,6 +111,11 @@ func TestDeliveryToolCalls(t *testing.T) {
 	if plan.Predicted != delivery.PredictHeld || api.req.OnBehalfOf != "alice" || api.req.Stage != "s" {
 		t.Fatalf("plan: %+v %+v", plan, api.req)
 	}
+}
+
+func TestDeliveryWriteToolCalls(t *testing.T) {
+	api := &stubDelivery{plan: delivery.Plan{IntentDigest: "sha256:i", Predicted: delivery.PredictHeld}}
+	server := NewDeliveryServer("v", api, true, nil)
 	api.op = &delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: "p1"}}
 	var proposed struct {
 		Operation delivery.OperationObject `json:"operation"`
@@ -129,7 +134,11 @@ func TestDeliveryToolCalls(t *testing.T) {
 	if api.cancels[0] != "prod/p1" {
 		t.Fatal("cancel")
 	}
+}
 
+func TestDeliveryToolErrors(t *testing.T) {
+	api := &stubDelivery{plan: delivery.Plan{IntentDigest: "sha256:i", Predicted: delivery.PredictHeld}}
+	server := NewDeliveryServer("v", api, true, nil)
 	api.op, api.err = nil, errors.New("PlanStale: moved")
 	res := callToolOn(t, server, "pacto_delivery_operation_propose", map[string]any{"namespace": "prod", "stage": "s"})
 	if !res.IsError || !strings.Contains(resultText(t, res), "PlanStale") || !strings.Contains(resultText(t, res), "sha256:i") {

@@ -18,7 +18,9 @@ func pactoAt(name, contractDigest, status string, gen int64) PactoView {
 }
 
 func live(uid string, gen, observed int64) func(string, string) *WorkloadState {
-	return func(string, string) *WorkloadState { return &WorkloadState{UID: uid, Generation: gen, ObservedGeneration: observed} }
+	return func(string, string) *WorkloadState {
+		return &WorkloadState{UID: uid, Generation: gen, ObservedGeneration: observed}
+	}
 }
 
 func TestContractVerdict(t *testing.T) {
@@ -94,7 +96,7 @@ func TestSnapshotAndViews(t *testing.T) {
 	}
 }
 
-func TestLifecycle(t *testing.T) {
+func TestAdmitRollback(t *testing.T) {
 	cited := &CitedOp{UID: "u1", Type: TypePromote, Applied: true, Pointer: PointerChange{Before: dA, After: dB}}
 	rb := OperationSpec{Type: TypeRollback, Params: Params{From: dB, To: dA, Undoes: "u1"}}
 	ok := StageStatus{Pointer: dB}
@@ -123,7 +125,10 @@ func TestLifecycle(t *testing.T) {
 			t.Errorf("%s: got %q, want %q", name, got, c.want)
 		}
 	}
+}
 
+func TestSetsAutoHoldAndDigestMemories(t *testing.T) {
+	rb := OperationSpec{Type: TypeRollback, Params: Params{From: dB, To: dA, Undoes: "u1"}}
 	st := StageStatus{Verified: []string{dA}}
 	if SetsAutoHold(rb, ClassController, st) || !SetsAutoHold(rb, ClassHuman, st) || !SetsAutoHold(rb, ClassAgent, st) ||
 		!SetsAutoHold(promote(dB, dA), ClassHuman, st) || SetsAutoHold(promote(dA, dB), ClassHuman, st) ||
@@ -141,7 +146,12 @@ func TestLifecycle(t *testing.T) {
 	if l = RemoveDigest(l, dA); strings.Join(l, ",") != dC {
 		t.Fatalf("RemoveDigest: %v", l)
 	}
+	if VerifyWindow(StageSpec{}) != 5*time.Minute || VerifyWindow(StageSpec{Gates: Gates{Verify: VerifyGates{Window: "30s"}}}) != 30*time.Second {
+		t.Fatal("VerifyWindow")
+	}
+}
 
+func TestNewestCandidate(t *testing.T) {
 	up := &StageStatus{Verified: []string{dA, dB, dC}, FailedDigests: []string{dC}}
 	if got := NewestCandidate(StageStatus{Pointer: dA}, "", up); got != dB {
 		t.Fatalf("upstream newest unfailed: %q", got)
@@ -149,7 +159,7 @@ func TestLifecycle(t *testing.T) {
 	if got := NewestCandidate(StageStatus{Pointer: dB}, "", up); got != "" {
 		t.Fatalf("already running: %q", got)
 	}
-	if got := NewestCandidate(StageStatus{Pointer: dA, FailedDigests: []string{dB}}, "", up); got != dA && got != "" {
+	if got := NewestCandidate(StageStatus{Pointer: dC, FailedDigests: []string{dB}}, "", up); got != dA {
 		t.Fatalf("own failures excluded: %q", got)
 	}
 	if got := NewestCandidate(StageStatus{}, "v2@"+dB, nil); got != dB {
@@ -160,8 +170,5 @@ func TestLifecycle(t *testing.T) {
 	}
 	if got := NewestCandidate(StageStatus{Pointer: dC, Verified: []string{dB, dC}}, "v1@"+dB, nil); got != "" {
 		t.Fatalf("a tag moved back to an old digest is not new: %q", got)
-	}
-	if VerifyWindow(StageSpec{}) != 5*time.Minute || VerifyWindow(StageSpec{Gates: Gates{Verify: VerifyGates{Window: "30s"}}}) != 30*time.Second {
-		t.Fatal("VerifyWindow")
 	}
 }

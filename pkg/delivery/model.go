@@ -326,7 +326,7 @@ type Plan struct {
 	// +optional
 	Question string `json:"question,omitempty"`
 	// +optional
-	Conflicts []string `json:"conflicts,omitempty"`
+	Conflicts []string   `json:"conflicts,omitempty"`
 	Predicted Prediction `json:"predicted"`
 	// ImpactDigest is the sha256 of the pkg/impact answer the floor came from.
 	// +optional

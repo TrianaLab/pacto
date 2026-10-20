@@ -84,6 +84,14 @@ func deliveryFixture(t *testing.T, user string, groups []string, extra map[strin
 	return d, c, reg
 }
 
+// wantErrContaining fails unless err says want.
+func wantErrContaining(t *testing.T, err error, want string) {
+	t.Helper()
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("want an error containing %q, got %v", want, err)
+	}
+}
+
 func TestDeliveryPlanAndPropose(t *testing.T) {
 	d, _, reg := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
 	ctx := context.Background()
@@ -100,6 +108,16 @@ func TestDeliveryPlanAndPropose(t *testing.T) {
 	var stale *PlanStaleError
 	if _, _, err := d.Propose(ctx, req); !errors.As(err, &stale) || stale.Plan.IntentDigest != plan.IntentDigest || !strings.Contains(err.Error(), "PlanStale") {
 		t.Fatalf("want PlanStale with the fresh plan, got %v", err)
+	}
+}
+
+func TestDeliveryProposeGetCancel(t *testing.T) {
+	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
+	ctx := context.Background()
+	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, Reason: "ship", OnBehalfOf: "alice"}
+	plan, _, err := d.Plan(ctx, req)
+	if err != nil {
+		t.Fatal(err)
 	}
 	req.IntentDigest, req.Name = plan.IntentDigest, "p1"
 	op, _, err := d.Propose(ctx, req)
@@ -152,7 +170,7 @@ func TestDeliveryProposeGeneratesNameAndRollback(t *testing.T) {
 }
 
 func TestDeliveryRefusals(t *testing.T) {
-	d, c, reg := deliveryFixture(t, "alice", nil, nil)
+	d, _, reg := deliveryFixture(t, "alice", nil, nil)
 	ctx := context.Background()
 	base := delivery.Request{Namespace: "prod", Stage: "payments-prod"}
 	if _, _, err := d.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "missing", To: dlB}); err == nil {
@@ -160,33 +178,33 @@ func TestDeliveryRefusals(t *testing.T) {
 	}
 	r := base
 	r.Type = "pacto.dev/scale"
-	if _, _, err := d.Plan(ctx, r); err == nil || !strings.Contains(err.Error(), "unknown operation type") {
-		t.Fatalf("unknown type: %v", err)
-	}
-	if _, _, err := d.Plan(ctx, base); err == nil || !strings.Contains(err.Error(), "--to is required") {
-		t.Fatalf("no to: %v", err)
-	}
+	_, _, err := d.Plan(ctx, r)
+	wantErrContaining(t, err, "unknown operation type")
+	_, _, err = d.Plan(ctx, base)
+	wantErrContaining(t, err, "--to is required")
 	r = base
 	r.To = "v2"
-	if _, _, err := d.Plan(ctx, r); err == nil || !strings.Contains(err.Error(), "currently resolves to "+dlB) {
-		t.Fatalf("a tag is refused naming its digest: %v", err)
-	}
+	_, _, err = d.Plan(ctx, r)
+	wantErrContaining(t, err, "currently resolves to "+dlB)
 	reg.resolveErr = errors.New("no such tag")
-	if _, _, err := d.Plan(ctx, r); err == nil || !strings.Contains(err.Error(), "no such tag") {
-		t.Fatalf("unresolvable tag: %v", err)
-	}
+	_, _, err = d.Plan(ctx, r)
+	wantErrContaining(t, err, "no such tag")
 	r.From, r.To = dlB, dlA
 	if p, spec, err := d.Plan(ctx, r); err != nil || spec.Params.From != dlB || p.Predicted != delivery.PredictRejected {
 		t.Fatalf("explicit from: %+v %v", p, err)
 	}
+}
+
+func TestDeliveryUnreadableClusterState(t *testing.T) {
+	d, c, _ := deliveryFixture(t, "alice", nil, nil)
+	ctx := context.Background()
 	c.PrependReactor("get", "ocirepositories", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("forbidden")
 	})
-	r = base
+	r := delivery.Request{Namespace: "prod", Stage: "payments-prod"}
 	r.To = "v2"
-	if _, _, err := d.Plan(ctx, r); err == nil || !strings.Contains(err.Error(), "forbidden") {
-		t.Fatalf("unreadable OCIRepository for a tag: %v", err)
-	}
+	_, _, err := d.Plan(ctx, r)
+	wantErrContaining(t, err, "forbidden")
 	r.To = dlB
 	if p, _, err := d.Plan(ctx, r); err != nil || p.Predicted != delivery.PredictHeld {
 		t.Fatalf("an unreadable OCIRepository holds: %+v %v", p, err)
@@ -200,9 +218,8 @@ func TestDeliveryRefusals(t *testing.T) {
 	c.PrependReactor("create", "operations", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("denied by admission")
 	})
-	if _, _, err := d.Propose(ctx, r); err == nil || !strings.Contains(err.Error(), "denied by admission") {
-		t.Fatalf("create failure: %v", err)
-	}
+	_, _, err = d.Propose(ctx, r)
+	wantErrContaining(t, err, "denied by admission")
 	cctx, cancel := context.WithCancel(ctx)
 	cancel()
 	if _, _, err := d.Plan(cctx, r); err == nil {
@@ -252,22 +269,25 @@ func TestDeliveryWhoAmIAndApprove(t *testing.T) {
 	if _, err := d.Approve(ctx, "prod", "gone", delivery.Approve, ""); err == nil {
 		t.Fatal("approving a missing operation")
 	}
+}
 
-	d, _, _ = deliveryFixture(t, "system:serviceaccount:agents:bot", nil, nil, op)
-	if _, err := d.Approve(ctx, "prod", "p1", delivery.Approve, ""); err == nil || !strings.Contains(err.Error(), "agents may not approve") {
-		t.Fatalf("agent: %v", err)
-	}
+func TestDeliveryApproveRefusals(t *testing.T) {
+	op := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p1", map[string]any{
+		"spec": map[string]any{"intentDigest": "sha256:i"},
+	})
+	ctx := context.Background()
+	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", nil, nil, op)
+	_, err := d.Approve(ctx, "prod", "p1", delivery.Approve, "")
+	wantErrContaining(t, err, "agents may not approve")
 	d, _, _ = deliveryFixture(t, "bob", nil, nil, op)
-	if _, err := d.Approve(ctx, "prod", "p1", delivery.Approve, ""); err == nil || !strings.Contains(err.Error(), "fresh interactive login") {
-		t.Fatalf("no auth time: %v", err)
-	}
-	d, c, _ = deliveryFixture(t, "bob", nil, map[string]any{authTimeExtra: []any{"1"}}, op)
+	_, err = d.Approve(ctx, "prod", "p1", delivery.Approve, "")
+	wantErrContaining(t, err, "fresh interactive login")
+	d, c, _ := deliveryFixture(t, "bob", nil, map[string]any{authTimeExtra: []any{"1"}}, op)
 	c.PrependReactor("create", "approvals", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("denied")
 	})
-	if _, err := d.Approve(ctx, "prod", "p1", delivery.Approve, ""); err == nil || !strings.Contains(err.Error(), "denied") {
-		t.Fatalf("create failure: %v", err)
-	}
+	_, err = d.Approve(ctx, "prod", "p1", delivery.Approve, "")
+	wantErrContaining(t, err, "denied")
 	c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("unauthorized")
 	})
