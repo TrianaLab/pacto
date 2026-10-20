@@ -93,7 +93,7 @@ func TestFailedVerifyRollsBackOnceAndNeverRetries(t *testing.T) {
 		t.Fatalf("rollback spec: %+v", rb.Spec)
 	}
 	// Raising again is a no-op: one rollback per cause.
-	if err := e.op.raiseRollback(context.Background(), o, s, "again"); err != nil {
+	if err := raiseRollback(context.Background(), e.c, e.op.Policy, o, s, "again", nil); err != nil {
 		t.Fatal(err)
 	}
 	rb = e.drive("p1-rollback")
@@ -487,24 +487,29 @@ func TestVerifyUnknownHoldsAfterApply(t *testing.T) {
 	})
 }
 
-// TestVerdictUnknownReasons covers the verify gate's own failure paths.
+// TestVerdictUnknownReasons covers the built-in gates' own failure paths.
 func TestVerdictUnknownReasons(t *testing.T) {
 	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
 	e.drive("p1")
 	e.apply(dB)
 	e.drive("p1")
-	op, stage := e.getOp("p1"), e.getStage()
+	in := gateInput(e.getOp("p1"), e.getStage(), e.now, e.now)
+	check := func() string { return e.op.Gates[delivery.GateContract].Check(context.Background(), in, nil).Message }
 	e.fails["list/Pacto"] = true
-	if v := e.op.verdict(context.Background(), op, stage); !strings.Contains(v.Message, "listing Pactos") {
-		t.Fatal(v.Message)
+	if m := check(); !strings.Contains(m, "listing Pactos") {
+		t.Fatal(m)
 	}
 	e.reg.annErr = errTest
-	if v := e.op.verdict(context.Background(), op, stage); !strings.Contains(v.Message, "reading the artifact") {
-		t.Fatal(v.Message)
+	if m := check(); !strings.Contains(m, "reading the artifact") {
+		t.Fatal(m)
 	}
 	e.fails["get/OCIRepository"] = true
-	if v := e.op.verdict(context.Background(), op, stage); !strings.Contains(v.Message, "reading the apply OCIRepository") {
-		t.Fatal(v.Message)
+	if m := check(); !strings.Contains(m, "reading the apply OCIRepository") {
+		t.Fatal(m)
+	}
+	e.fails["get/Stage"] = true
+	if m := check(); !strings.Contains(m, "reading the Stage") {
+		t.Fatal(m)
 	}
 }
 

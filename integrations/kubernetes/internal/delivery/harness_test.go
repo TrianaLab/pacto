@@ -86,13 +86,27 @@ func bundle(version string) *contract.Bundle {
 type fails map[string]bool
 
 type env struct {
-	t     *testing.T
-	c     client.WithWatch
-	op    *OperationReconciler
-	st    *StageReconciler
-	reg   *fakeRegistry
-	now   time.Time
-	fails fails
+	t      *testing.T
+	c      client.WithWatch
+	op     *OperationReconciler
+	st     *StageReconciler
+	reg    *fakeRegistry
+	now    time.Time
+	fails  fails
+	health *fakeHealth
+}
+
+// fakeHealth is a health provider whose answer the test sets; it records
+// every input it was asked about.
+type fakeHealth struct {
+	result delivery.Result
+	inputs []delivery.GateInput
+}
+
+func (f *fakeHealth) Check(_ context.Context, in delivery.GateInput, _ map[string]string) delivery.Verdict {
+	f.inputs = append(f.inputs, in)
+	return delivery.Verdict{Result: f.result, Message: "error ratio " + string(f.result),
+		Citation: map[string]string{"query": `{"signal":"traces"}`}}
 }
 
 func newScheme() *runtime.Scheme {
@@ -146,6 +160,9 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 				if err := fail("create", obj); err != nil {
 					return err
 				}
+				if obj.GetUID() == "" { // the apiserver assigns one; the fake client does not
+					obj.SetUID(types.UID("uid-" + obj.GetName()))
+				}
 				return c.Create(ctx, obj, opts...)
 			},
 			Update: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.UpdateOption) error {
@@ -173,8 +190,10 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 	}}
 	policy := delivery.ClassPolicy{ControllerUser: promoterSA, AgentGroups: []string{"pacto:agents"}, BreakGlassGroups: []string{"pacto:break-glass"}}
 	clock := func() time.Time { return e.now }
-	e.op = &OperationReconciler{Client: e.c, APIReader: e.c, Cluster: cluster, Policy: policy, Now: clock, Poll: time.Second}
-	e.st = &StageReconciler{Client: e.c, APIReader: e.c, Cluster: cluster, Policy: policy, ClusterID: "cid", Poll: time.Second}
+	e.health = &fakeHealth{result: delivery.Pass}
+	gates := NewGates(cluster, map[string]delivery.Gate{"mira": e.health})
+	e.op = &OperationReconciler{Client: e.c, APIReader: e.c, Cluster: cluster, Policy: policy, Gates: gates, Now: clock, Poll: time.Second}
+	e.st = &StageReconciler{Client: e.c, APIReader: e.c, Cluster: cluster, Policy: policy, ClusterID: "cid", Gates: gates, Now: clock, Poll: time.Second}
 	return e
 }
 

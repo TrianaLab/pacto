@@ -15,6 +15,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"slices"
 	"time"
@@ -64,6 +65,8 @@ func runPromoter(args []string) error {
 	breakGlassGroups := fs.String("break-glass-groups", "pacto:break-glass",
 		"Comma-separated groups that may override and edit the pointer.")
 	poll := fs.Duration("poll", 3*time.Second, "How often an operation waiting on Flux, Pacto or a person is looked at.")
+	gateProviders := fs.String("gate-providers", "",
+		`The health gate providers Stages may name, as JSON: [{"name":"mira","type":"mira","url":"http://mira:4318"}]. Types: mira, http.`)
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -101,15 +104,24 @@ func runPromoter(args []string) error {
 		Password: os.Getenv("PACTO_REGISTRY_PASSWORD"),
 	})
 	insecure := loader.InsecureClientOptions(os.Getenv(loader.InsecureRegistriesEnvVar))
+	providers, err := core.ParseProviders(*gateProviders)
+	if err != nil {
+		return err
+	}
+	configured, err := core.NewGates(providers, &http.Client{Timeout: 30 * time.Second})
+	if err != nil {
+		return err
+	}
 	cluster := delivery.Cluster{Client: mgr.GetClient(), Registry: func(hosts ...string) core.Registry {
 		return oci.NewClient(keychain, slices.Concat(insecure, []oci.ClientOption{oci.WithInsecureRegistries(hosts...)})...)
 	}}
+	gates := delivery.NewGates(cluster, configured)
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
-		Policy: policy, Now: time.Now, Poll: *poll}).SetupWithManager(mgr); err != nil {
+		Policy: policy, Gates: gates, Now: time.Now, Poll: *poll}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := (&delivery.StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
-		Policy: policy, ClusterID: string(kubeSystem.UID), Poll: *poll}).SetupWithManager(mgr); err != nil {
+		Policy: policy, ClusterID: string(kubeSystem.UID), Gates: gates, Now: time.Now, Poll: *poll}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

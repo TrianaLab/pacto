@@ -191,9 +191,9 @@ type collectRun struct {
 	workload *workloadView
 	// kernelCoverage is the node agent's coverage of the target's pods (kernelView.coverage).
 	kernelCoverage string
-	monitors map[string]*monitorList
-	failures []error
-	seen     map[string]bool
+	monitors       map[string]*monitorList
+	failures       []error
+	seen           map[string]bool
 }
 
 func newCollectRun() *collectRun {

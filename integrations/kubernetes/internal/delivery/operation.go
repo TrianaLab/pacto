@@ -52,7 +52,9 @@ type OperationReconciler struct {
 	APIReader client.Reader
 	Cluster   Cluster
 	Policy    delivery.ClassPolicy
-	Now       func() time.Time
+	// Gates are the gates a Stage may name (NewGates).
+	Gates map[string]delivery.Gate
+	Now   func() time.Time
 	// Poll is how often an operation waiting on the outside world is looked at.
 	Poll time.Duration
 }
@@ -63,6 +65,8 @@ type conclusion struct {
 	verification delivery.Verification
 	reason       string // "Code: message"
 	freeze       bool
+	// cause is the verdict that failed the operation, cited by its rollback.
+	cause *delivery.Verdict
 }
 
 // Reconcile implements reconcile.Reconciler.
@@ -155,6 +159,9 @@ func (r *OperationReconciler) refusal(ctx context.Context, op *dv1.Operation, st
 	case s.IntentDigest != delivery.IntentDigest(s, stage.Spec):
 		return "PlanStale: the intent digest does not match this Stage's policy; plan again"
 	}
+	if reason := r.causeRefusal(ctx, op, stage); reason != "" {
+		return reason
+	}
 	if s.Facet != delivery.FacetPointer {
 		return ""
 	}
@@ -171,6 +178,29 @@ func (r *OperationReconciler) refusal(ctx context.Context, op *dv1.Operation, st
 		return ""
 	}
 	return delivery.AdmitRollback(s, stage.Status, r.cited(ctx, op), op.Status.ActorClass)
+}
+
+// causeRefusal re-runs a verdict an actor cites as its cause, against this
+// Stage's own gates and the version the Stage runs now. An agent's word counts
+// for nothing until it is checked: a re-run that comes back Unknown (an empty
+// one included) or with another result is refused as a cause. The promoter's
+// own operations cite verdicts it has just computed.
+func (r *OperationReconciler) causeRefusal(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) string {
+	c := op.Spec.Cause
+	if c == nil || c.Verdict == nil || op.Status.ActorClass == delivery.ClassController {
+		return ""
+	}
+	now := r.now()
+	base := gateInput(op, stage, now.Add(-delivery.VerifyWindow(stage.Spec)), now)
+	base.Subjects = []string{stage.Status.Pointer}
+	v := delivery.Rerun(ctx, r.Gates, stage.Spec.Gates.Verify.Checks, base, *c.Verdict)
+	if v.Result == delivery.Unknown || v.Result != c.Verdict.Result {
+		return fmt.Sprintf("CauseUnconfirmed: the cited %s verdict says %s, re-running it now says %s: %s",
+			c.Verdict.Gate, c.Verdict.Result, v.Result, v.Message)
+	}
+	v.Phase, v.Message = "pre", "the cited cause re-ran: "+v.Message
+	op.Status.Verdicts = append(op.Status.Verdicts, v)
+	return ""
 }
 
 // cited finds the operation a rollback undoes, by uid, on the same Stage.
@@ -212,7 +242,7 @@ func (r *OperationReconciler) pending(ctx context.Context, op *dv1.Operation, st
 	if err != nil {
 		return reconcile.Result{}, err
 	}
-	op.Status.Plan, op.Status.Verdicts = &plan, plan.Verdicts
+	op.Status.Plan, op.Status.Verdicts = &plan, mergeVerdicts(op.Status.Verdicts, plan.Verdicts)
 	switch plan.Predicted {
 	case delivery.PredictRejected:
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Rejected, reason: planRefusal(plan)})
@@ -361,12 +391,12 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 			return r.finish(ctx, op, stage, conclusion{outcome: delivery.Rejected, reason: planRefusal(cur)})
 		}
 		if !stillPasses(*op.Status.Plan, cur) {
-			op.Status.Plan, op.Status.Verdicts = &cur, cur.Verdicts
+			op.Status.Plan, op.Status.Verdicts = &cur, mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
 			op.Status.Phase, op.Status.Question = delivery.PhaseHeld, cur.Question
 			op.Status.Reason, op.Status.Message = "RecheckChanged", "a gate no longer passes, so a person must decide again"
 			return r.save(ctx, op)
 		}
-		op.Status.Verdicts = cur.Verdicts
+		op.Status.Verdicts = mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
 	}
 	facet, uid := op.Spec.Facet, string(op.UID)
 	waiting := ""
@@ -539,31 +569,11 @@ func (r *OperationReconciler) running(ctx context.Context, op *dv1.Operation, st
 	return reconcile.Result{RequeueAfter: immediately}, nil
 }
 
-// verdict runs the pacto.contract verify gate against the applied version.
-func (r *OperationReconciler) verdict(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) delivery.Verdict {
-	to := op.Spec.Params.To
-	unknown := delivery.Verdict{Gate: delivery.GateContract, Phase: "verify", Result: delivery.Unknown}
-	a, err := r.Cluster.ociRepository(ctx, op.Namespace, stage.Spec.ApplyRef.Name)
-	if err != nil {
-		unknown.Message = "reading the apply OCIRepository: " + err.Error()
-		return unknown
-	}
-	ann, err := r.Cluster.registryFor(a).Annotations(ctx, a.repo+"@"+to)
-	if err != nil {
-		unknown.Message = "reading the artifact: " + err.Error()
-		return unknown
-	}
-	ok, _, _, _ := r.Cluster.applied(ctx, op.Namespace, a, to)
-	pactos, err := r.Cluster.pactos(ctx)
-	if err != nil {
-		unknown.Message = "listing Pactos: " + err.Error()
-		return unknown
-	}
-	return delivery.ContractVerdict(delivery.ContractCheck{
-		ContractRef: ann[delivery.ContractAnnotation], Applied: ok,
-		Pactos:   delivery.PactosFor(pactos, op.Namespace, stage.Spec.Service.Name),
-		Workload: r.Cluster.workload(ctx, op.Namespace),
-	})
+// verdicts runs the verify gates on the applied version, over the time since
+// Flux applied it.
+func (r *OperationReconciler) verdicts(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) []delivery.Verdict {
+	applied, _ := time.Parse(time.RFC3339, op.Status.Times.Applied)
+	return delivery.RunChecks(ctx, r.Gates, verifyChecks(stage), gateInput(op, stage, applied, r.now()))
 }
 
 // preempted reports whether a rollback or override took this operation's lock.
@@ -578,25 +588,52 @@ func (r *OperationReconciler) verifying(ctx context.Context, op *dv1.Operation, 
 	if preempted(op, stage) {
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified, reason: "Preempted: a rollback or override took the Stage"})
 	}
-	v := r.verdict(ctx, op, stage)
-	op.Status.Verdicts = append(slices.DeleteFunc(op.Status.Verdicts, func(x delivery.Verdict) bool { return x.Gate == v.Gate }), v)
+	vs := r.verdicts(ctx, op, stage)
+	op.Status.Verdicts = slices.DeleteFunc(op.Status.Verdicts, func(x delivery.Verdict) bool { return x.Phase == "verify" })
+	op.Status.Verdicts = append(op.Status.Verdicts, vs...)
+	msg := verdictMessages(vs, delivery.Pass)
+	switch delivery.Worst(vs) {
+	case delivery.Pass:
+		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Verified, reason: "Verified: " + msg})
+	case delivery.Fail:
+		f := failing(vs)
+		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Failed, reason: "VerifyFailed: " + f.Gate + ": " + f.Message, cause: f})
+	}
+	msg = verdictMessages(vs, delivery.Unknown)
 	switch {
-	case v.Result == delivery.Pass:
-		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Verified, reason: "Verified: " + v.Message})
-	case v.Result == delivery.Fail:
-		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Failed, reason: "VerifyFailed: " + v.Message})
 	case r.passed(op.Status.Times.VerifyDeadline):
 		t, _ := delivery.TypeByID(op.Spec.Type)
 		approval, _ := t.Deadlines(stage.Spec.Deadlines)
 		op.Status.Phase = delivery.PhaseHeld
 		op.Status.Times.ApprovalDeadline = ts(r.now().Add(approval))
-		op.Status.Reason, op.Status.Message = "VerifyUnknown", v.Message
-		op.Status.Question = "The Pacto contract check could not confirm " + op.Spec.Params.To + " in time: " + v.Message +
+		op.Status.Reason, op.Status.Message = "VerifyUnknown", msg
+		op.Status.Question = "The verify gates could not confirm " + op.Spec.Params.To + " in time: " + msg +
 			". Accept the unknown (the version stays), or reject it (it is rolled back)?"
 		return r.save(ctx, op)
 	}
-	op.Status.Message = v.Message
+	op.Status.Message = msg
 	return r.save(ctx, op)
+}
+
+// mergeVerdicts replaces the verdicts of the gates fresh answers for, phase by
+// phase, and keeps the rest (a re-run cause stays beside the plan's verdicts).
+func mergeVerdicts(old, fresh []delivery.Verdict) []delivery.Verdict {
+	out := slices.DeleteFunc(slices.Clone(old), func(o delivery.Verdict) bool {
+		return slices.ContainsFunc(fresh, func(f delivery.Verdict) bool { return f.Gate == o.Gate && f.Phase == o.Phase })
+	})
+	return append(out, fresh...)
+}
+
+// verdictMessages joins the messages of the verdicts with result r, each led
+// by its gate.
+func verdictMessages(vs []delivery.Verdict, r delivery.Result) string {
+	var msgs []string
+	for _, v := range vs {
+		if v.Result == r {
+			msgs = append(msgs, v.Gate+": "+v.Message)
+		}
+	}
+	return strings.Join(msgs, "; ")
 }
 
 // heldAfterApply waits for a person on a version that is already running. It
@@ -627,7 +664,7 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 	code, msg, _ := strings.Cut(c.reason, ": ")
 	if stage != nil {
 		if c.outcome == delivery.Failed && op.Spec.Type == delivery.TypePromote && op.Status.Pointer.Before != "" {
-			if err := r.raiseRollback(ctx, op, stage, code+": "+msg); err != nil {
+			if err := raiseRollback(ctx, r.Client, r.Policy, op, stage, code+": "+msg, c.cause); err != nil {
 				return reconcile.Result{}, err
 			}
 		}
@@ -691,10 +728,11 @@ func applyEffects(s *delivery.StageStatus, op *dv1.Operation, c conclusion) {
 	}
 }
 
-// raiseRollback creates the one rollback bound to a failed promote. Its name is
+// raiseRollback creates the one rollback bound to a failed promote, citing
+// the failed operation and, when a gate failed it, that verdict. Its name is
 // derived from the failed operation, so raising it twice is a no-op: at most
 // one automatic rollback per cause.
-func (r *OperationReconciler) raiseRollback(ctx context.Context, failed *dv1.Operation, stage *dv1.Stage, why string) error {
+func raiseRollback(ctx context.Context, c client.Client, policy delivery.ClassPolicy, failed *dv1.Operation, stage *dv1.Stage, why string, cause *delivery.Verdict) error {
 	rb := &dv1.Operation{}
 	rb.Namespace, rb.Name = failed.Namespace, failed.Name+"-rollback"
 	rb.Labels = map[string]string{StageLabel: stage.Name}
@@ -703,11 +741,11 @@ func (r *OperationReconciler) raiseRollback(ctx context.Context, failed *dv1.Ope
 		Type: delivery.TypeRollback, Stage: stage.Name, Facet: delivery.FacetPointer,
 		Params: delivery.Params{From: failed.Spec.Params.To, To: failed.Status.Pointer.Before, Undoes: string(failed.UID)},
 		Reason: "automatic rollback: " + failed.Name + " failed (" + why + ")",
-		Actor:  delivery.Actor{User: r.Policy.ControllerUser},
-		Cause:  &delivery.Cause{Operation: string(failed.UID)},
+		Actor:  delivery.Actor{User: policy.ControllerUser},
+		Cause:  &delivery.Cause{Operation: string(failed.UID), Verdict: cause},
 	}
 	rb.Spec.IntentDigest = delivery.IntentDigest(rb.Spec, stage.Spec)
-	if err := r.Create(ctx, rb); err != nil && !apierrors.IsAlreadyExists(err) {
+	if err := c.Create(ctx, rb); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 	return nil

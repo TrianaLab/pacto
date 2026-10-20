@@ -11,6 +11,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"slices"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -35,7 +36,10 @@ type StageReconciler struct {
 	Policy    delivery.ClassPolicy
 	// ClusterID is the kube-system namespace uid, the cluster half of a stream id.
 	ClusterID string
-	Poll      time.Duration
+	// Gates are the gates a Stage may name (NewGates).
+	Gates map[string]delivery.Gate
+	Now   func() time.Time
+	Poll  time.Duration
 }
 
 // Reconcile implements reconcile.Reconciler.
@@ -50,6 +54,9 @@ func (r *StageReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 		})
 	}
 	if err := r.witness(ctx, stage); err != nil {
+		return reconcile.Result{}, err
+	}
+	if err := r.recheck(ctx, stage); err != nil {
 		return reconcile.Result{}, err
 	}
 	if err := r.autoPromote(ctx, stage); err != nil {
@@ -155,4 +162,67 @@ func (r *StageReconciler) raise(ctx context.Context, stage *dv1.Stage, kind stri
 		return err
 	}
 	return nil
+}
+
+// recheck runs the verify gates again on the version the Stage runs, every
+// recheck interval, once the operation that shipped it succeeded. Checks keep
+// running after release: a confirmed Fail marks the version failed and raises
+// its one bound rollback, or freezes the Stage when that cause already had its
+// rollback or there is nothing to roll back to. Unknown never rolls back.
+func (r *StageReconciler) recheck(ctx context.Context, stage *dv1.Stage) error {
+	s, now := stage.Status, r.Now().UTC()
+	if s.Frozen || s.LastOp == "" || s.Locks[delivery.FacetPointer] != "" || slices.Contains(s.FailedDigests, s.Pointer) ||
+		s.LastCheck != nil && s.LastCheck.Operation == s.LastOp && now.Before(parseOr(s.LastCheck.At).Add(delivery.RecheckInterval(stage.Spec))) {
+		return nil
+	}
+	var shipped *dv1.Operation
+	for _, o := range stageOps(ctx, r.Client, stage.Namespace, stage.Name) {
+		if o.Status.Phase != delivery.PhaseConcluded {
+			return nil // something is in flight; it owns the Stage
+		}
+		if string(o.UID) == s.LastOp {
+			shipped = &o
+		}
+	}
+	if shipped == nil || shipped.Status.Outcome != delivery.Succeeded || shipped.Status.Verification == delivery.Unverified ||
+		shipped.Spec.Params.To != s.Pointer {
+		return nil
+	}
+	from := now.Add(-delivery.VerifyWindow(stage.Spec))
+	if applied := parseOr(shipped.Status.Times.Applied); applied.After(from) {
+		from = applied
+	}
+	vs := delivery.RunChecks(ctx, r.Gates, verifyChecks(stage), gateInput(shipped, stage, from, now))
+	check := &delivery.Recheck{Operation: s.LastOp, Digest: s.Pointer, At: ts(now), Verdicts: vs}
+	f := failing(vs)
+	if f == nil {
+		return r.updateStatus(ctx, stage, func(st *dv1.Stage) { st.Status.LastCheck = check })
+	}
+	why := "RecheckFailed: " + f.Gate + ": " + f.Message
+	cause, before := string(shipped.UID), shipped.Status.Pointer.Before
+	rollback := s.AutoRollbacks[cause] == 0 && before != "" && !slices.Contains(s.FailedDigests, before)
+	if rollback {
+		if err := raiseRollback(ctx, r.Client, r.Policy, shipped, stage, why, f); err != nil {
+			return err
+		}
+	}
+	return r.updateStatus(ctx, stage, func(st *dv1.Stage) {
+		st.Status.LastCheck = check
+		st.Status.FailedDigests = delivery.AddDigest(st.Status.FailedDigests, s.Pointer, delivery.MaxFailedDigests)
+		st.Status.Verified = delivery.RemoveDigest(st.Status.Verified, s.Pointer)
+		if !rollback {
+			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release and cannot be rolled back automatically: "+why
+			return
+		}
+		if st.Status.AutoRollbacks == nil {
+			st.Status.AutoRollbacks = map[string]int{}
+		}
+		st.Status.AutoRollbacks[cause]++
+	})
+}
+
+// parseOr parses an RFC 3339 time, zero when it does not parse.
+func parseOr(s string) time.Time {
+	t, _ := time.Parse(time.RFC3339, s)
+	return t
 }

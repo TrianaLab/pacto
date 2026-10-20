@@ -289,7 +289,9 @@ type Verdict struct {
 	Message string `json:"message,omitempty"`
 }
 
-// Cause is why an operation was raised. Exactly one field is set.
+// Cause is why an operation was raised. A person or an agent sets one field;
+// a verdict they cite is re-run when the operation is admitted. An automatic
+// rollback names the failed operation and, when a gate failed it, the verdict.
 type Cause struct {
 	// Operation is the uid of the operation that caused this one.
 	// +optional
