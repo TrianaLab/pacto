@@ -65,7 +65,8 @@ func runPromoter(args []string) error {
 	breakGlassGroups := fs.String("break-glass-groups", "pacto:break-glass",
 		"Comma-separated groups that may override and edit the pointer.")
 	teamGroupPrefix := fs.String("team-group-prefix", "",
-		"A contract owner team T is identity-provider group T, or this prefix plus T. Only members of the teams a question names may answer it.")
+		"A contract owner team T is identity-provider group T, or this prefix plus T. "+
+			"Only members of the teams a question names may answer it.")
 	poll := fs.Duration("poll", 3*time.Second, "How often an operation waiting on Flux, Pacto or a person is looked at.")
 	gateProviders := fs.String("gate-providers", "",
 		`The health gate providers Stages may name, as JSON: `+
