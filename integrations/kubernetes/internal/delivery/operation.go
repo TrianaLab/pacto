@@ -27,6 +27,12 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
+// immediately asks to run again right away: the next step needs no wait.
+const immediately = time.Millisecond
+
+// reasonWaiting marks an operation parked on the Stage: a lock, a freeze.
+const reasonWaiting = "Waiting"
+
 // authFreshness is how old a login may be when its owner approves.
 const authFreshness = 15 * time.Minute
 
@@ -134,7 +140,7 @@ func (r *OperationReconciler) admit(ctx context.Context, op *dv1.Operation, stag
 	if err := r.Status().Update(ctx, op); err != nil {
 		return reconcile.Result{}, err
 	}
-	return reconcile.Result{Requeue: true}, nil
+	return reconcile.Result{RequeueAfter: immediately}, nil
 }
 
 func (r *OperationReconciler) refusal(ctx context.Context, op *dv1.Operation, stage *dv1.Stage, t delivery.OperationType, known bool) string {
@@ -215,7 +221,7 @@ func (r *OperationReconciler) pending(ctx context.Context, op *dv1.Operation, st
 		op.Status.Reason, op.Status.Message = "AwaitingHuman", "a person must "+string(plan.Floor.Decision)
 		return r.save(ctx, op)
 	case delivery.PredictWaits:
-		op.Status.Reason, op.Status.Message = "Waiting", strings.Join(plan.Conflicts, "; ")
+		op.Status.Reason, op.Status.Message = reasonWaiting, strings.Join(plan.Conflicts, "; ")
 		return r.save(ctx, op)
 	}
 	return r.lock(ctx, op, stage, false)
@@ -384,7 +390,7 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 	})
 	switch {
 	case errors.Is(err, errWait):
-		op.Status.Reason, op.Status.Message = "Waiting", waiting
+		op.Status.Reason, op.Status.Message = reasonWaiting, waiting
 		return r.save(ctx, op)
 	case errors.Is(err, errPointerMoved):
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Rejected, reason: "PointerMoved: another operation moved the pointer first"})
@@ -399,7 +405,7 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 	if err := r.Status().Update(ctx, op); err != nil {
 		return reconcile.Result{}, err
 	}
-	return reconcile.Result{Requeue: true}, nil
+	return reconcile.Result{RequeueAfter: immediately}, nil
 }
 
 // stillPasses reports whether an approval given on prev still covers cur:
@@ -528,7 +534,7 @@ func (r *OperationReconciler) running(ctx context.Context, op *dv1.Operation, st
 	if err := r.Status().Update(ctx, op); err != nil {
 		return reconcile.Result{}, err
 	}
-	return reconcile.Result{Requeue: true}, nil
+	return reconcile.Result{RequeueAfter: immediately}, nil
 }
 
 // verdict runs the pacto.contract verify gate against the applied version.
@@ -638,7 +644,7 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 	if err := r.Status().Update(ctx, op); err != nil {
 		return reconcile.Result{}, err
 	}
-	return reconcile.Result{Requeue: true}, nil
+	return reconcile.Result{RequeueAfter: immediately}, nil
 }
 
 // applyEffects updates the Stage's memories for a concluded operation.

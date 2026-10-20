@@ -53,13 +53,16 @@ func main() {
 
 func runPromoter(args []string) error {
 	fs := flag.NewFlagSet("promoter", flag.ExitOnError)
-	metricsAddr := fs.String("metrics-bind-address", ":8080", "The address the metrics endpoint binds to, or 0 to disable it.")
+	metricsAddr := fs.String("metrics-bind-address", ":8080",
+		"The address the metrics endpoint binds to, or 0 to disable it.")
 	probeAddr := fs.String("health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	leaderElect := fs.Bool("leader-elect", true, "Elect one active promoter.")
 	controllerUser := fs.String("controller-user", "",
 		"The promoter's own apiserver username. Empty derives it from POD_NAMESPACE and SERVICE_ACCOUNT.")
-	agentGroups := fs.String("agent-groups", "pacto:agents", "Comma-separated groups whose members are agents, never humans.")
-	breakGlassGroups := fs.String("break-glass-groups", "pacto:break-glass", "Comma-separated groups that may override and edit the pointer.")
+	agentGroups := fs.String("agent-groups", "pacto:agents",
+		"Comma-separated groups whose members are agents, never humans.")
+	breakGlassGroups := fs.String("break-glass-groups", "pacto:break-glass",
+		"Comma-separated groups that may override and edit the pointer.")
 	poll := fs.Duration("poll", 3*time.Second, "How often an operation waiting on Flux, Pacto or a person is looked at.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
@@ -93,7 +96,9 @@ func runPromoter(args []string) error {
 	}
 
 	keychain := oci.NewKeychain(oci.CredentialOptions{
-		Token: os.Getenv("PACTO_REGISTRY_TOKEN"), Username: os.Getenv("PACTO_REGISTRY_USERNAME"), Password: os.Getenv("PACTO_REGISTRY_PASSWORD"),
+		Token:    os.Getenv("PACTO_REGISTRY_TOKEN"),
+		Username: os.Getenv("PACTO_REGISTRY_USERNAME"),
+		Password: os.Getenv("PACTO_REGISTRY_PASSWORD"),
 	})
 	insecure := loader.InsecureClientOptions(os.Getenv(loader.InsecureRegistriesEnvVar))
 	cluster := delivery.Cluster{Client: mgr.GetClient(), Registry: func(hosts ...string) core.Registry {

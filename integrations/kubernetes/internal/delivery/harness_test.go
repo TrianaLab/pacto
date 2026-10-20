@@ -34,16 +34,16 @@ import (
 )
 
 const (
-	ns   = "prod"
-	dA   = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	dB   = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	dC   = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-	c1   = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
-	c2   = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
-	c3   = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
-	repo = "reg.example/apps/payments"
+	ns         = "prod"
+	dA         = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	dB         = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	dC         = "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+	c1         = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	c2         = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	c3         = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+	repo       = "reg.example/apps/payments"
 	promoterSA = "system:serviceaccount:pacto-delivery:promoter"
-	bot  = "system:serviceaccount:agents:bot"
+	bot        = "system:serviceaccount:agents:bot"
 )
 
 var (
@@ -277,7 +277,7 @@ func (e *env) reconcileOpErr(name string) error {
 func (e *env) drive(name string) *dv1.Operation {
 	e.t.Helper()
 	for range 20 {
-		if res := e.reconcileOp(name); !res.Requeue {
+		if res := e.reconcileOp(name); res.RequeueAfter != immediately {
 			break
 		}
 	}

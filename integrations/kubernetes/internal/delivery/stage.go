@@ -45,7 +45,7 @@ func (r *StageReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 	if stage.Status.Stream.ID == "" {
-		return reconcile.Result{Requeue: true}, r.updateStatus(ctx, stage, func(s *dv1.Stage) {
+		return reconcile.Result{RequeueAfter: immediately}, r.updateStatus(ctx, stage, func(s *dv1.Stage) {
 			s.Status.Stream.ID = r.ClusterID + "/" + s.Namespace + "/" + s.Name
 		})
 	}
