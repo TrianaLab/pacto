@@ -283,6 +283,14 @@ spec:
               pointer:
                 description: Pointer is the digest the environment runs.
                 type: string
+              published:
+                description: |-
+                  Published holds the candidate digests Flux verified the signature of on
+                  the candidate OCIRepository (spec.verify), oldest first (cap 50). Only
+                  these are promoted from it.
+                items:
+                  type: string
+                type: array
               stream:
                 description: Stream numbers a Stage's concluded operations.
                 properties:

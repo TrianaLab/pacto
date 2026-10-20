@@ -205,8 +205,10 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 func stageObj(pointer string) *dv1.Stage {
 	s := &dv1.Stage{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "payments-prod"},
 		Spec: delivery.StageSpec{Service: delivery.ServiceRef{Name: "payments"}, Environment: "prod",
-			ApplyRef: delivery.LocalRef{Name: "payments"}, Gates: delivery.Gates{Verify: delivery.VerifyGates{Window: "1m"}}},
-		Status: delivery.StageStatus{Pointer: pointer, Stream: delivery.Stream{ID: "cid/prod/payments-prod"}}}
+			ApplyRef: delivery.LocalRef{Name: "payments"}, Gates: delivery.Gates{Verify: delivery.VerifyGates{Window: "1m"}},
+			Candidates: delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "payments-candidates"}}},
+		// Every version the tests ship was published: Flux verified its signature.
+		Status: delivery.StageStatus{Pointer: pointer, Stream: delivery.Stream{ID: "cid/prod/payments-prod"}, Published: []string{dA, dB, dC}}}
 	if pointer != "" {
 		s.Status.Verified = []string{pointer}
 	}
@@ -225,6 +227,16 @@ func ociRepo(name, digest, revision string, insecure bool) *unstructured.Unstruc
 		_ = unstructured.SetNestedField(u.Object, revision, "status", "artifact", "revision")
 	}
 	u.SetGroupVersionKind(gvkOCI)
+	return u
+}
+
+// verifiedRepo is a candidate OCIRepository with spec.verify whose current
+// revision Flux verified.
+func verifiedRepo(name, revision string) *unstructured.Unstructured {
+	u := ociRepo(name, "", revision, false)
+	_ = unstructured.SetNestedField(u.Object, "cosign", "spec", "verify", "provider")
+	_ = unstructured.SetNestedSlice(u.Object, []any{map[string]any{"type": "SourceVerified", "status": "True",
+		"message": "verified signature of revision " + revision}}, "status", "conditions")
 	return u
 }
 

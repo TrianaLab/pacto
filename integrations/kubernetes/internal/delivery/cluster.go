@@ -57,6 +57,9 @@ type applyRef struct {
 	insecure bool
 	digest   string // spec.ref.digest
 	revision string // status.artifact.revision
+	// verified is true when spec.verify is set and Flux reports SourceVerified
+	// for the current artifact revision.
+	verified bool
 }
 
 func (c Cluster) ociRepository(ctx context.Context, ns, name string) (*applyRef, error) {
@@ -69,7 +72,24 @@ func (c Cluster) ociRepository(ctx context.Context, ns, name string) (*applyRef,
 	insecure, _, _ := unstructured.NestedBool(u.Object, "spec", "insecure")
 	digest, _, _ := unstructured.NestedString(u.Object, "spec", "ref", "digest")
 	revision, _, _ := unstructured.NestedString(u.Object, "status", "artifact", "revision")
-	return &applyRef{obj: u, repo: delivery.RepoFromURL(url), insecure: insecure, digest: digest, revision: revision}, nil
+	provider, _, _ := unstructured.NestedString(u.Object, "spec", "verify", "provider")
+	return &applyRef{obj: u, repo: delivery.RepoFromURL(url), insecure: insecure, digest: digest, revision: revision,
+		verified: provider != "" && sourceVerified(u.Object, delivery.RevisionDigest(revision))}, nil
+}
+
+// sourceVerified reports whether Flux's SourceVerified condition is True for
+// digest: Flux names the revision it verified in the condition's message, and
+// a revision whose signature fails never becomes the artifact.
+func sourceVerified(obj map[string]any, digest string) bool {
+	conds, _, _ := unstructured.NestedSlice(obj, "status", "conditions")
+	for _, c := range conds {
+		m, _ := c.(map[string]any)
+		msg, _ := m["message"].(string)
+		if m["type"] == "SourceVerified" && m["status"] == "True" && digest != "" && strings.Contains(msg, digest) {
+			return true
+		}
+	}
+	return false
 }
 
 // host is the registry host of the apply repository.

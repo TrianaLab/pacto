@@ -9,6 +9,7 @@ package delivery
 
 import (
 	"context"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"strings"
 	"testing"
 
@@ -40,7 +41,8 @@ func TestAutoPromoteFromOCIRepository(t *testing.T) {
 	s.Status.Stream.ID = ""
 	s.Spec.Auto = true
 	s.Spec.Candidates.OCIRepositoryRef = &delivery.LocalRef{Name: "payments-candidates"}
-	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), ociRepo("payments-candidates", "", "latest@"+dB, false))
+	s.Status.Published = nil
+	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB))
 	if err := e.reconcileStage("payments-prod"); err != nil {
 		t.Fatal(err)
 	}
@@ -58,6 +60,9 @@ func TestAutoPromoteFromOCIRepository(t *testing.T) {
 		ops[0].Spec.IntentDigest != delivery.IntentDigest(ops[0].Spec, s.Spec) || ops[0].Labels[StageLabel] != "payments-prod" {
 		t.Fatalf("want one controller promote A->B, got %+v", ops)
 	}
+	if p := e.getStage().Status.Published; len(p) != 1 || p[0] != dB {
+		t.Fatalf("B is remembered as published: %v", p)
+	}
 	// An operation in flight blocks the next automatic one.
 	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 1 {
 		t.Fatalf("in flight: %v %d", err, len(e.ops()))
@@ -72,7 +77,7 @@ func TestAutoPromoteFromUpstreamAndHolds(t *testing.T) {
 	up.Status.Verified = []string{dA, dB}
 	s := stageObj(dA)
 	s.Spec.Auto = true
-	s.Spec.Candidates.UpstreamStage = &delivery.StageRef{Name: "payments-test", Namespace: ns}
+	s.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "payments-test", Namespace: ns}}
 	e := newEnv(t, up, s, ociRepo("payments", dA, "latest@"+dA, false))
 	for _, mut := range []func(*delivery.StageStatus){
 		func(st *delivery.StageStatus) { st.Frozen = true },
@@ -180,7 +185,7 @@ func TestStageReconcileErrors(t *testing.T) {
 	up.Name = "up"
 	up.Status.Verified = []string{dB}
 	s = stageObj(dA)
-	s.Spec.Auto, s.Spec.Candidates.UpstreamStage = true, &delivery.StageRef{Name: "up"}
+	s.Spec.Auto, s.Spec.Candidates = true, delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "up"}}
 	e = newEnv(t, s, up)
 	e.fails["create/Operation"] = true
 	if e.reconcileStage("payments-prod") == nil {
@@ -203,5 +208,42 @@ func TestSetupHelpers(t *testing.T) {
 	}
 	if ServiceAccountUser("a", "b") != "system:serviceaccount:a:b" || strings.Join(SplitList(" a, ,b "), "|") != "a|b" {
 		t.Fatal("helpers")
+	}
+}
+
+// TestNeverACandidateUnlessPublished: a candidate OCIRepository without
+// spec.verify, or whose newest revision Flux could not verify (an artifact
+// pushed by something other than pacto publish), offers nothing.
+func TestNeverACandidateUnlessPublished(t *testing.T) {
+	unsigned := verifiedRepo("payments-candidates", "latest@"+dB)
+	_ = unstructured.SetNestedSlice(unsigned.Object, []any{map[string]any{"type": "SourceVerified", "status": "False",
+		"message": "failed to verify the signature using provider 'cosign': no signatures found"}}, "status", "conditions")
+	noVerify := ociRepo("payments-candidates", "", "latest@"+dB, false)
+	_ = unstructured.SetNestedSlice(noVerify.Object, []any{map[string]any{"type": "SourceVerified", "status": "True",
+		"message": "verified signature of revision latest@" + dB}}, "status", "conditions")
+	for name, repo := range map[string]*unstructured.Unstructured{"unsigned": unsigned, "no spec.verify": noVerify} {
+		s := stageObj(dA)
+		s.Spec.Auto, s.Status.Published = true, nil
+		e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), repo)
+		for range 3 {
+			if err := e.reconcileStage("payments-prod"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if len(e.ops()) != 0 || len(e.getStage().Status.Published) != 0 {
+			t.Fatalf("%s: offered %+v, published %v", name, e.ops(), e.getStage().Status.Published)
+		}
+	}
+	// A failed read or write while remembering a published digest surfaces.
+	s := stageObj(dA)
+	s.Status.Published = nil
+	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB))
+	e.fails["status/Stage"] = true
+	if e.reconcileStage("payments-prod") == nil {
+		t.Fatal("a failed write of the published memory must surface")
+	}
+	e.fails = fails{"get/OCIRepository": true}
+	if e.st.recordPublished(context.Background(), e.getStage()) == nil {
+		t.Fatal("a failed read of the candidate OCIRepository must surface")
 	}
 }

@@ -60,7 +60,7 @@ func TestReconcileSurfacesEveryWriteFailure(t *testing.T) {
 		{"get op", "", "get/Operation", nil},
 		{"get stage", "", "get/Stage", nil},
 		{"admit write", "", "status/Operation", nil},
-		{"held save", delivery.PhasePending, "status/Operation", func(e *env) { delete(e.reg.contracts, dB) }},
+		{"held save", delivery.PhasePending, "status/Operation", func(e *env) { delete(e.reg.bundles, contractRef(c2)) }},
 		{"lock CAS read", delivery.PhasePending, "status/Stage", nil},
 		{"running CAS", delivery.PhaseRunning, "status/Stage", nil},
 		{"running applied write", delivery.PhaseRunning, "status/Operation", nil},

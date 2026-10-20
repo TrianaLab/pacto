@@ -59,6 +59,9 @@ func (r *StageReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 	if err := r.recheck(ctx, stage); err != nil {
 		return reconcile.Result{}, err
 	}
+	if err := r.recordPublished(ctx, stage); err != nil {
+		return reconcile.Result{}, err
+	}
 	if err := r.autoPromote(ctx, stage); err != nil {
 		return reconcile.Result{}, err
 	}
@@ -128,6 +131,32 @@ func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) err
 		Actor:  delivery.Actor{User: r.Policy.ControllerUser},
 	}
 	return r.raise(ctx, stage, "auto", spec)
+}
+
+// recordPublished remembers the candidate OCIRepository's current digest once
+// Flux verified its signature: a version pacto publish published. The
+// pacto.published gate admits only remembered digests, so a version Flux
+// verified earlier can still be proposed after the tag moved on.
+func (r *StageReconciler) recordPublished(ctx context.Context, stage *dv1.Stage) error {
+	ref := stage.Spec.Candidates.OCIRepositoryRef
+	if ref == nil {
+		return nil
+	}
+	a, err := r.Cluster.ociRepository(ctx, stage.Namespace, ref.Name)
+	if err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	d := delivery.RevisionDigest(a.revision)
+	if !a.verified || slices.Contains(stage.Status.Published, d) {
+		return nil
+	}
+	if err := r.updateStatus(ctx, stage, func(s *dv1.Stage) {
+		s.Status.Published = delivery.AddDigest(s.Status.Published, d, delivery.MaxPublished)
+	}); err != nil {
+		return err
+	}
+	stage.Status.Published = delivery.AddDigest(stage.Status.Published, d, delivery.MaxPublished)
+	return nil
 }
 
 func (r *StageReconciler) candidate(ctx context.Context, stage *dv1.Stage) (string, error) {

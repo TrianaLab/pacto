@@ -128,7 +128,12 @@ func predict(in PlanInput, p *Plan) Prediction {
 func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	pub := publishedGate(in)
 	p.Verdicts = append(p.Verdicts, pub)
-	if pub.Result == Fail {
+	switch pub.Result {
+	case Fail:
+		return
+	case Unknown:
+		p.Floor = Floor{Human: true, Decision: AcceptUnknown}
+		p.Question = "Pacto cannot tell whether pacto publish published " + short(p.To) + ": " + pub.Message + ". Accept the unknown?"
 		return
 	}
 	diffV := diffGate(ctx, in)

@@ -119,10 +119,10 @@ func TestPlanBreakingChangeAsksOnlyTheBrokenConsumersOwners(t *testing.T) {
 
 func TestPlanUnreadableContractWaitsForAPerson(t *testing.T) {
 	from := rev(dA, c1, bundle("payments", "1.0.0"))
-	to := Revision{Digest: dB, Err: "no annotation"}
+	to := Revision{Digest: dB, ContractRef: "oci://reg.example/pactos/payments@" + c2, Err: "pull failed"}
 	p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, from, to)
 	if p.Predicted != PredictHeld || p.Floor.Decision != AcceptUnknown || verdict(t, p, GateDiff).Result != Unknown ||
-		verdict(t, p, GateImpact).Result != Unknown || !strings.Contains(p.Question, "no annotation") {
+		verdict(t, p, GateImpact).Result != Unknown || !strings.Contains(p.Question, "pull failed") {
 		t.Fatalf("an unreadable contract must hold for accept-unknown: %+v", p)
 	}
 	from.Bundle, from.Err = nil, "gone"
@@ -273,6 +273,9 @@ func TestPublishedGate(t *testing.T) {
 		}
 		if c.result == Fail && (c.p.Predicted != PredictRejected || len(c.p.Verdicts) != 1) {
 			t.Errorf("%s: a version pacto publish did not publish goes no further: %+v", c.name, c.p)
+		}
+		if c.result == Unknown && (c.p.Predicted != PredictHeld || c.p.Floor.Decision != AcceptUnknown || !strings.Contains(c.p.Question, "cannot tell")) {
+			t.Errorf("%s: Unknown holds for a person: %+v", c.name, c.p)
 		}
 	}
 }

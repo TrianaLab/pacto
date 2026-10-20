@@ -174,7 +174,7 @@ func TestBreakingChangeWaitsForTheConsumersTeam(t *testing.T) {
 // change for accept-unknown; it never ships on its own.
 func TestUnknownWaits(t *testing.T) {
 	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
-	delete(e.reg.contracts, dB)
+	delete(e.reg.bundles, contractRef(c2))
 	o := e.drive("p1")
 	if o.Status.Phase != delivery.PhaseHeld || o.Status.Plan.Floor.Decision != delivery.AcceptUnknown {
 		t.Fatalf("want Held for accept-unknown: %s %+v", o.Status.Phase, o.Status.Plan)
@@ -332,7 +332,7 @@ func TestAdmissionRefusals(t *testing.T) {
 // expires at its deadline.
 func TestCancelAndExpire(t *testing.T) {
 	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
-	delete(e.reg.contracts, dB)
+	delete(e.reg.bundles, contractRef(c2))
 	e.drive("p1") // held
 	if err := e.c.Delete(context.Background(), e.getOp("p1")); err != nil {
 		t.Fatal(err)
@@ -517,5 +517,47 @@ func TestFresh(t *testing.T) {
 	at := time.Unix(1_000_000, 0)
 	if !fresh("999990", at) || fresh("990000", at) || fresh("nope", at) || !fresh(at.Format(time.RFC3339), at) || fresh(at.Add(time.Hour).Format(time.RFC3339), at) {
 		t.Fatal("fresh")
+	}
+}
+
+// TestNotPublishedIsRefused: a version pacto publish did not publish (no
+// contract annotation, or a digest Flux never verified on the candidate
+// source) is refused with NotPublished, before any other gate.
+func TestNotPublishedIsRefused(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	delete(e.reg.contracts, dB)
+	wantOutcome(t, e.drive("p1"), delivery.Rejected, "NotPublished")
+	e.setStage(func(s *delivery.StageStatus) { s.Published = []string{dA} })
+	e.create(opObj("p2", delivery.TypePromote, dA, dC, bot))
+	o := e.drive("p2")
+	wantOutcome(t, o, delivery.Rejected, "NotPublished")
+	if !strings.Contains(o.Status.Message, "Flux never verified a signature") || len(o.Status.Verdicts) != 1 {
+		t.Fatalf("message %q verdicts %+v", o.Status.Message, o.Status.Verdicts)
+	}
+}
+
+// TestPublishedFromUpstream: an upstream Stage's verified versions pass the
+// published gate; one it cannot read is Unknown and waits for a person.
+func TestPublishedFromUpstream(t *testing.T) {
+	up := stageObj(dB)
+	up.Name, up.Status.Verified = "payments-test", []string{dA, dB}
+	e := baseEnv(t, nil)
+	e.create(up)
+	s := e.getStage()
+	s.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "payments-test"}}
+	if err := e.c.Update(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	e.create(bind(opObj("p1", delivery.TypePromote, dA, dB, bot), e.getStage()))
+	if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning {
+		t.Fatalf("a version verified upstream ships: %s %s %+v", o.Status.Phase, o.Status.Reason, o.Status.Verdicts)
+	}
+	e2 := baseEnv(t, nil)
+	s2 := e2.getStage()
+	s2.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "missing", Namespace: ns}}
+	_ = e2.c.Update(context.Background(), s2)
+	e2.create(bind(opObj("p1", delivery.TypePromote, dA, dB, bot), e2.getStage()))
+	if o := e2.drive("p1"); o.Status.Phase != delivery.PhaseHeld {
+		t.Fatalf("an unreadable upstream holds: %s %s", o.Status.Phase, o.Status.Reason)
 	}
 }
