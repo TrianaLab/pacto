@@ -28,6 +28,9 @@ type fakeRun struct {
 	calls  []string
 	signed map[string]bool
 	fail   string // a call prefix that fails
+	// wrongIdentity: sign succeeds but writes a signature verify rejects, as
+	// a keyless sign under an unexpected CI identity does.
+	wrongIdentity bool
 }
 
 func (f *fakeRun) run(_ context.Context, _ string, env []string, name string, args ...string) ([]byte, error) {
@@ -63,7 +66,7 @@ func (f *fakeRun) cosign(args []string) ([]byte, error) {
 		}
 		return nil, nil
 	}
-	f.signed[ref] = true
+	f.signed[ref] = !f.wrongIdentity
 	return nil, nil
 }
 
@@ -235,6 +238,13 @@ func TestExecTools(t *testing.T) {
 		if _, err := bad.Sign(ctx, contract.PublishSign{Key: "k"}, "ghcr.io/a@sha256:1"); err == nil {
 			t.Errorf("%s failing must surface", fail)
 		}
+	}
+
+	// A keyless signature under another CI identity fails before any tag.
+	wrong := execTools{dir: t.TempDir(), run: (&fakeRun{signed: map[string]bool{}, wrongIdentity: true}).run}
+	if _, err := wrong.Sign(ctx, contract.PublishSign{Keyless: true, Identity: "ci@acme", Issuer: "https://issuer"}, "ghcr.io/a@sha256:1"); err == nil ||
+		!strings.Contains(err.Error(), `identity "ci@acme", issuer "https://issuer"`) {
+		t.Errorf("a signature by the wrong identity must fail: %v", err)
 	}
 
 	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))

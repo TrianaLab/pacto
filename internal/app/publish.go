@@ -199,7 +199,7 @@ func (t execTools) Verify(ctx context.Context, sign contract.PublishSign, ref st
 }
 
 // Sign implements publish.Tools: a valid signature by the configured identity
-// is kept, otherwise cosign signs.
+// is kept, otherwise cosign signs and the new signature must then verify.
 func (t execTools) Sign(ctx context.Context, sign contract.PublishSign, ref string) (bool, error) {
 	verify, signArgs, done, err := t.cosignArgs(ctx, sign, ref)
 	defer done()
@@ -211,6 +211,13 @@ func (t execTools) Sign(ctx context.Context, sign contract.PublishSign, ref stri
 	}
 	if _, err := t.run(ctx, t.dir, nil, "cosign", signArgs...); err != nil {
 		return false, err
+	}
+	// A keyless signature carries whatever identity the CI token had. One the
+	// pinned verify rejects would never reach a Stage, so it fails here, before
+	// any tag is written.
+	if _, err := t.run(ctx, t.dir, nil, "cosign", verify...); err != nil {
+		return false, fmt.Errorf("the signature cosign wrote for %s does not verify against the configured identity (identity %q, issuer %q); check that the CI identity matches publish.sign: %w",
+			ref, sign.Identity, sign.Issuer, err)
 	}
 	return true, nil
 }
