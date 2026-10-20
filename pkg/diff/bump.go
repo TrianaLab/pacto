@@ -47,6 +47,8 @@ func CheckBump(base, next string, need Bump) error {
 	}
 	// A release candidate's fixes ship as the version it was a candidate for:
 	// the same major.minor.patch, or a later prerelease of it, satisfies any bump.
+	// The caller still checks the change since the last final release, which
+	// the candidate line's own bump must satisfy.
 	if b.Prerelease() != "" && n.Major() == b.Major() && n.Minor() == b.Minor() && n.Patch() == b.Patch() && n.GreaterThan(b) {
 		return nil
 	}

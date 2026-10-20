@@ -20,7 +20,9 @@ Pacto runs no tests. It refuses to publish when one of its own checks fails:
 - the version is too small for the change.
 
 A release candidate's fixes ship as the version it was a candidate for: after
-`2.0.0-rc.1`, `2.0.0-rc.2` and `2.0.0` are accepted whatever changed. The version
+`2.0.0-rc.1`, `2.0.0-rc.2` and `2.0.0` are accepted whatever changed. The change
+since the last final release must still fit the version: after `1.0.0` and
+`1.1.0-rc.1`, a breaking change cannot ship as `1.1.0`. The version
 rule compares the contract with the highest version already
 published below it, using the same classification as [`pacto diff`](contract-reference/diff.md):
 

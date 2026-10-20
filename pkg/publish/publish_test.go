@@ -315,6 +315,35 @@ func TestVersionRule(t *testing.T) {
 	}
 }
 
+// TestVersionRuleCandidate: a release candidate is exempt only from the bump
+// its line already carries. A breaking change since 1.0.0 cannot ship as 1.1.0
+// after a non-breaking 1.1.0-rc.1.
+func TestVersionRuleCandidate(t *testing.T) {
+	ctx := context.Background()
+	hostRC, regRC := newRegistry(t)
+	rc := func(version, workload string) (Plan, error) {
+		res, err := Apply(ctx, regRC, newTools(), Input{Bundle: bundleOf(hostRC, version, workload), Revision: "r" + version})
+		return res.Plan, err
+	}
+	for _, v := range []string{"1.0.0", "1.1.0-rc.1"} {
+		if _, err := rc(v, workloadService); err != nil {
+			t.Fatalf("%s: %v", v, err)
+		}
+	}
+	for _, v := range []string{"1.1.0-rc.2", "1.1.0"} {
+		p, err := rc(v, "job")
+		if err == nil || !strings.Contains(err.Error(), "needs a major bump over 1.0.0: publish 2.0.0 or higher") ||
+			p.Baseline != "1.0.0" || p.RequiredBump != "major" {
+			t.Fatalf("breaking as %s after a minor candidate: %v %+v", v, err, p)
+		}
+	}
+	for _, v := range []string{"2.0.0-rc.1", "2.0.0-rc.2", "2.0.0"} {
+		if p, err := rc(v, "job"); err != nil || v != "2.0.0-rc.1" && p.Baseline == "1.0.0" {
+			t.Fatalf("breaking as %s: %v %+v", v, err, p)
+		}
+	}
+}
+
 // stubBaseline answers every pull with base.
 type stubBaseline struct {
 	*Client

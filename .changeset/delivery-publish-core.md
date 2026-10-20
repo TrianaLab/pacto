@@ -26,7 +26,8 @@ just before it is written. A second run changes nothing and a run that stopped
 halfway finishes when run again. A tag whose provenance annotations match is
 reused only when it carries a signature by the configured identity, and an SBOM
 only when it does too: Pacto never signs content it did not publish. After a
-release candidate, its fixes ship as the version it was a candidate for. It refuses an invalid contract, local references, a broken lock, a
+release candidate, its fixes ship as the version it was a candidate for, but
+the change since the last final release must still fit the version. It refuses an invalid contract, local references, a broken lock, a
 missing signing configuration, a signing key inside the bundle, a missing
 source revision and a version too small for the change: a breaking change
 needs a major version (a minor before 1.0) and a change Pacto cannot classify

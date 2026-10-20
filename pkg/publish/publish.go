@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strings"
 
+	mver "github.com/Masterminds/semver/v3"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -188,7 +189,10 @@ func revisionCheck(rev string) Check {
 }
 
 // versionCheck is the version rule: the change from the highest published
-// version below this one decides the smallest bump allowed.
+// version below this one decides the smallest bump allowed. When that version
+// is a release candidate, the change from the highest final release below this
+// one must satisfy the rule too: a candidate's fixes are exempt only from the
+// bump the candidate line itself already carries.
 func versionCheck(ctx context.Context, reg Registry, b *contract.Bundle, p *Plan) Check {
 	ch := Check{Name: "version"}
 	repo := Repo(b.Contract.Publish.Bundle)
@@ -197,32 +201,57 @@ func versionCheck(ctx context.Context, reg Registry, b *contract.Bundle, p *Plan
 		ch.Message = "the published versions could not be listed: " + err.Error()
 		return ch
 	}
+	var bases []string                      // the final release first, then the candidate
 	for _, t := range semver.Filter(tags) { // newest first
-		if semver.Compare(t, p.Version) < 0 {
-			p.Baseline = t
+		if semver.Compare(t, p.Version) >= 0 {
+			continue
+		}
+		if len(bases) == 0 || !prerelease(t) {
+			bases = append([]string{t}, bases...)
+		}
+		if !prerelease(t) {
 			break
 		}
 	}
-	if p.Baseline == "" {
+	if len(bases) == 0 {
 		ch.Passed, ch.Message = true, "no earlier version is published, so any version is accepted"
 		return ch
 	}
-	base, err := reg.Pull(ctx, repo+":"+p.Baseline)
+	for _, base := range bases {
+		if ch = bumpCheck(ctx, reg, b, p, repo, base); !ch.Passed {
+			return ch
+		}
+	}
+	return ch
+}
+
+// bumpCheck is the version rule against one published version, which it
+// records as the plan's baseline.
+func bumpCheck(ctx context.Context, reg Registry, b *contract.Bundle, p *Plan, repo, baseline string) Check {
+	ch := Check{Name: "version"}
+	p.Baseline = baseline
+	base, err := reg.Pull(ctx, repo+":"+baseline)
 	if err != nil {
-		ch.Message = "the published " + p.Baseline + " could not be read: " + err.Error()
+		ch.Message = "the published " + baseline + " could not be read: " + err.Error()
 		return ch
 	}
 	d := diff.Compare(ctx, base.Contract, b.Contract, base.FS, b.FS)
-	p.Classification, p.RequiredBump = d.Classification.String(), diff.RequiredBump(d.Classification, p.Baseline)
-	if err := diff.CheckBump(p.Baseline, p.Version, p.RequiredBump); err != nil {
-		ch.Message = d.Classification.String() + " since " + p.Baseline + ": " + err.Error()
+	p.Classification, p.RequiredBump = d.Classification.String(), diff.RequiredBump(d.Classification, baseline)
+	if err := diff.CheckBump(baseline, p.Version, p.RequiredBump); err != nil {
+		ch.Message = d.Classification.String() + " since " + baseline + ": " + err.Error()
 		return ch
 	}
-	ch.Passed, ch.Message = true, fmt.Sprintf("%s since %s needs a %s bump", d.Classification, p.Baseline, p.RequiredBump)
+	ch.Passed, ch.Message = true, fmt.Sprintf("%s since %s needs a %s bump", d.Classification, baseline, p.RequiredBump)
 	if d.Classification == diff.PotentialBreaking {
 		ch.Message += "; Pacto could not tell whether it breaks a consumer, so a minor is enough"
 	}
 	return ch
+}
+
+// prerelease reports whether the semver tag t is a release candidate.
+func prerelease(t string) bool {
+	v, err := mver.NewVersion(t)
+	return err == nil && v.Prerelease() != ""
 }
 
 // envName is the environment variable suffix of an artifact name.
