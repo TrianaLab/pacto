@@ -13,6 +13,10 @@
 #
 # Usage: verify-public.sh <units-dir>
 #   UNITS  JSON array of the transaction's changed units
+#   PACTO_VERIFY_PUBLIC_LIST_ONLY=1  print "<unit> <repository>" for each
+#          repository it would query and exit, offline. PR CI asserts this list
+#          (tests/release/verify_public_test.go) because the real run only
+#          happens inside a release.
 set -euo pipefail
 
 units_dir="${1:?usage: verify-public.sh <units-dir>}"
@@ -26,7 +30,16 @@ for pkg in "$units_dir"/*/package.json; do
   # ponytail: demo-bundles' coordinate is a namespace prefix, not one repository;
   # list its repositories here if they ever need the same check.
   [ "$unit" = demo-bundles ] && continue
+  if [ -z "$coord" ] || [ "$coord" = null ]; then
+    echo "::error::unit '$unit' ($pkg) has no .pacto.coordinate"
+    failed=1
+    continue
+  fi
   repo="${coord#ghcr.io/}"
+  if [ "${PACTO_VERIFY_PUBLIC_LIST_ONLY:-}" = 1 ]; then
+    echo "$unit $repo"
+    continue
+  fi
   # GHCR refuses the anonymous token itself (403) for a private repository.
   code="token-denied"
   if token="$(curl -fsS --retry 3 "https://ghcr.io/token?scope=repository:${repo}:pull" | jq -er .token)"; then
@@ -42,4 +55,5 @@ for pkg in "$units_dir"/*/package.json; do
 done
 
 [ "$failed" -eq 0 ] || exit 1
+[ "${PACTO_VERIFY_PUBLIC_LIST_ONLY:-}" = 1 ] && exit 0
 echo "every published package is anonymously readable"
