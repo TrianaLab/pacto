@@ -155,9 +155,13 @@ func TestSetsAutoHoldAndDigestMemories(t *testing.T) {
 }
 
 func TestNewestCandidate(t *testing.T) {
-	up := &StageStatus{Verified: []string{dA, dB, dC}, FailedDigests: []string{dC}}
+	up := &StageStatus{Verified: []string{dA, dB, dC}, Published: []string{dA, dB, dC}, FailedDigests: []string{dC}}
 	if got := NewestCandidate(StageStatus{Pointer: dA}, "", up); got != dB {
 		t.Fatalf("upstream newest unfailed: %q", got)
+	}
+	// Verified upstream before the published rule existed: never offered.
+	if got := NewestCandidate(StageStatus{Pointer: dA}, "", &StageStatus{Verified: []string{dA, dB}, Published: []string{dA}}); got != "" {
+		t.Fatalf("an unpublished upstream digest was offered: %q", got)
 	}
 	if got := NewestCandidate(StageStatus{Pointer: dB}, "", up); got != "" {
 		t.Fatalf("already running: %q", got)

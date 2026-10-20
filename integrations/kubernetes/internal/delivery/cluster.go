@@ -57,8 +57,8 @@ type applyRef struct {
 	insecure bool
 	digest   string // spec.ref.digest
 	revision string // status.artifact.revision
-	// verified is true when spec.verify is set and Flux reports SourceVerified
-	// for the current artifact revision.
+	// verified is true when spec.verify names the publisher's identity and
+	// Flux reports SourceVerified for the current artifact revision.
 	verified bool
 }
 
@@ -72,9 +72,19 @@ func (c Cluster) ociRepository(ctx context.Context, ns, name string) (*applyRef,
 	insecure, _, _ := unstructured.NestedBool(u.Object, "spec", "insecure")
 	digest, _, _ := unstructured.NestedString(u.Object, "spec", "ref", "digest")
 	revision, _, _ := unstructured.NestedString(u.Object, "status", "artifact", "revision")
-	provider, _, _ := unstructured.NestedString(u.Object, "spec", "verify", "provider")
 	return &applyRef{obj: u, repo: delivery.RepoFromURL(url), insecure: insecure, digest: digest, revision: revision,
-		verified: provider != "" && sourceVerified(u.Object, delivery.RevisionDigest(revision))}, nil
+		verified: pinsIdentity(u.Object) && sourceVerified(u.Object, delivery.RevisionDigest(revision))}, nil
+}
+
+// pinsIdentity reports whether spec.verify names whose signature counts: a
+// secretRef holding the publisher's public key, or a matchOIDCIdentity for
+// keyless signatures. Without either, Flux accepts a keyless signature from
+// any identity, so anyone who can push could sign their own artifact.
+func pinsIdentity(obj map[string]any) bool {
+	provider, _, _ := unstructured.NestedString(obj, "spec", "verify", "provider")
+	secret, _, _ := unstructured.NestedString(obj, "spec", "verify", "secretRef", "name")
+	ids, _, _ := unstructured.NestedSlice(obj, "spec", "verify", "matchOIDCIdentity")
+	return provider != "" && (secret != "" || len(ids) > 0)
 }
 
 // sourceVerified reports whether Flux's SourceVerified condition is True for

@@ -74,7 +74,7 @@ func TestAutoPromoteFromOCIRepository(t *testing.T) {
 func TestAutoPromoteFromUpstreamAndHolds(t *testing.T) {
 	up := stageObj(dB)
 	up.Name = "payments-test"
-	up.Status.Verified = []string{dA, dB}
+	up.Status.Verified, up.Status.Published = []string{dA, dB, dC}, []string{dA, dB}
 	s := stageObj(dA)
 	s.Spec.Auto = true
 	s.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "payments-test", Namespace: ns}}
@@ -221,7 +221,11 @@ func TestNeverACandidateUnlessPublished(t *testing.T) {
 	noVerify := ociRepo("payments-candidates", "", "latest@"+dB, false)
 	_ = unstructured.SetNestedSlice(noVerify.Object, []any{map[string]any{"type": "SourceVerified", "status": "True",
 		"message": "verified signature of revision latest@" + dB}}, "status", "conditions")
-	for name, repo := range map[string]*unstructured.Unstructured{"unsigned": unsigned, "no spec.verify": noVerify} {
+	// spec.verify with no key and no OIDC identity accepts anyone's keyless
+	// signature, so it proves nothing about the publisher.
+	anyone := verifiedRepo("payments-candidates", "latest@"+dB)
+	unstructured.RemoveNestedField(anyone.Object, "spec", "verify", "secretRef")
+	for name, repo := range map[string]*unstructured.Unstructured{"unsigned": unsigned, "no spec.verify": noVerify, "no identity": anyone} {
 		s := stageObj(dA)
 		s.Spec.Auto, s.Status.Published = true, nil
 		e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), repo)
@@ -233,6 +237,11 @@ func TestNeverACandidateUnlessPublished(t *testing.T) {
 		if len(e.ops()) != 0 || len(e.getStage().Status.Published) != 0 {
 			t.Fatalf("%s: offered %+v, published %v", name, e.ops(), e.getStage().Status.Published)
 		}
+	}
+	keyless := map[string]any{"spec": map[string]any{"verify": map[string]any{"provider": "cosign",
+		"matchOIDCIdentity": []any{map[string]any{"issuer": "^https://token.actions.githubusercontent.com$", "subject": "^https://github.com/acme/"}}}}}
+	if !pinsIdentity(keyless) {
+		t.Fatal("a keyless spec.verify with matchOIDCIdentity names the publisher")
 	}
 	// A failed read or write while remembering a published digest surfaces.
 	s := stageObj(dA)

@@ -344,7 +344,9 @@ func (r *OperationReconciler) plan(ctx context.Context, op *dv1.Operation, stage
 			in.From = delivery.ResolveRevision(ctx, reg, a.repo, op.Spec.Params.From)
 			in.To = delivery.ResolveRevision(ctx, reg, a.repo, op.Spec.Params.To)
 		}
-		in.Upstream = r.upstream(ctx, stage)
+		if in.Upstream, err = r.upstream(ctx, stage); err != nil {
+			return delivery.Plan{}, err
+		}
 		pactos, listErr := r.Cluster.pactos(ctx)
 		snap, err := delivery.Snapshot(ctx, pactos, listErr, []delivery.Revision{in.From, in.To}, r.now())
 		if err != nil {
@@ -355,13 +357,14 @@ func (r *OperationReconciler) plan(ctx context.Context, op *dv1.Operation, stage
 	return delivery.PlanFor(ctx, in), nil
 }
 
-// upstream reads the status of the Stage this one takes its candidates from;
-// nil when there is none or it cannot be read (the published gate says
-// Unknown).
-func (r *OperationReconciler) upstream(ctx context.Context, stage *dv1.Stage) *delivery.StageStatus {
+// upstream reads the status of the Stage this one takes its candidates from.
+// It is nil when there is none, or when it does not exist or the promoter may
+// not read it: the published gate then refuses, as nothing it offers is
+// known. Any other read error is returned, so the operation is planned again.
+func (r *OperationReconciler) upstream(ctx context.Context, stage *dv1.Stage) (*delivery.StageStatus, error) {
 	up := stage.Spec.Candidates.UpstreamStage
 	if up == nil {
-		return nil
+		return nil, nil
 	}
 	ns := up.Namespace
 	if ns == "" {
@@ -369,9 +372,12 @@ func (r *OperationReconciler) upstream(ctx context.Context, stage *dv1.Stage) *d
 	}
 	s := &dv1.Stage{}
 	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: up.Name}, s); err != nil {
-		return nil
+		if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
+			return nil, nil
+		}
+		return nil, err
 	}
-	return &s.Status
+	return &s.Status, nil
 }
 
 // held consumes approvals for an operation waiting before it moved anything.
@@ -770,6 +776,9 @@ func applyEffects(s *delivery.StageStatus, op *dv1.Operation, c conclusion) {
 	case delivery.Succeeded:
 		if c.verification == delivery.Verified {
 			s.Verified = delivery.AddDigest(s.Verified, to, delivery.MaxVerified)
+			if op.Spec.Type == delivery.TypePromote { // it passed pacto.published here
+				s.Published = delivery.AddDigest(s.Published, to, delivery.MaxPublished)
+			}
 		}
 		if op.Spec.Type == delivery.TypeUnfreeze {
 			s.Frozen, s.FrozenReason, s.AutoHold = false, "", false

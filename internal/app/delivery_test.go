@@ -64,9 +64,9 @@ func deliveryFixture(t *testing.T, user string, groups []string, extra map[strin
 			"candidates": map[string]any{"upstreamStage": map[string]any{"name": "payments-test", "namespace": "test"}}},
 		"status": map[string]any{"pointer": dlA, "verified": []any{dlA}},
 	})
-	// The upstream Stage verified B, so B passes the published gate here.
+	// The upstream Stage published and verified B, so B passes the published gate here.
 	upstream := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "test", "payments-test", map[string]any{
-		"status": map[string]any{"verified": []any{dlB}},
+		"status": map[string]any{"verified": []any{dlB}, "published": []any{dlB}},
 	})
 	repo := obj("source.toolkit.fluxcd.io/v1", "OCIRepository", "prod", "payments", map[string]any{
 		"spec": map[string]any{"url": "oci://reg.example/apps/payments", "insecure": true},
@@ -307,9 +307,9 @@ func TestDeliveryApproveRefusals(t *testing.T) {
 	}
 }
 
-// TestDeliveryUpstreamStage: the upstream Stage's verified versions are what
+// TestDeliveryUpstreamStage: the upstream Stage's published and verified versions are what
 // the published gate admits; one in the Stage's own namespace when it names no
-// namespace, and Unknown when it cannot be read.
+// namespace, and refused when it cannot be read.
 func TestDeliveryUpstreamStage(t *testing.T) {
 	d, c, _ := deliveryFixture(t, "alice", nil, nil)
 	ctx := context.Background()
@@ -335,7 +335,7 @@ func TestDeliveryUpstreamStage(t *testing.T) {
 		return false, nil, nil
 	})
 	p, _, err := d.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB})
-	if err != nil || p.Verdicts[0].Gate != delivery.GatePublished || p.Verdicts[0].Result != delivery.Unknown {
+	if err != nil || p.Verdicts[0].Gate != delivery.GatePublished || p.Verdicts[0].Result != delivery.Fail {
 		t.Fatalf("an unreadable upstream: %+v %v", p.Verdicts, err)
 	}
 }

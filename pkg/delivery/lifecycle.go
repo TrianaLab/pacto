@@ -84,13 +84,14 @@ func RemoveDigest(list []string, d string) []string {
 // Stage already verified it (a tag moved back to an old digest is not a new
 // version, and automation never ships an old one) or it is not in Published;
 // from an upstream Stage it is
-// the newest verified digest that failed neither there nor here. It returns ""
+// the newest digest published and verified there that failed neither there
+// nor here. It returns ""
 // when there is nothing new: the Stage already runs it or it failed here.
 func NewestCandidate(status StageStatus, ociRevision string, upstream *StageStatus) string {
 	cand := ""
 	if upstream != nil {
 		for _, d := range slices.Backward(upstream.Verified) {
-			if !slices.Contains(upstream.FailedDigests, d) && !slices.Contains(status.FailedDigests, d) {
+			if slices.Contains(upstream.Published, d) && !slices.Contains(upstream.FailedDigests, d) && !slices.Contains(status.FailedDigests, d) {
 				cand = d
 				break
 			}

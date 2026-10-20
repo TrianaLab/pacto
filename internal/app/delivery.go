@@ -161,7 +161,7 @@ func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.Pla
 
 // upstream reads the status of the Stage this one takes its candidates from;
 // nil when there is none or it cannot be read, which the published gate
-// treats as Unknown.
+// refuses.
 func (d *Delivery) upstream(ctx context.Context, stage *delivery.StageObject) *delivery.StageStatus {
 	up := stage.Spec.Candidates.UpstreamStage
 	if up == nil {

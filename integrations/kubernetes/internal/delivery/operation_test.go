@@ -536,28 +536,56 @@ func TestNotPublishedIsRefused(t *testing.T) {
 	}
 }
 
-// TestPublishedFromUpstream: an upstream Stage's verified versions pass the
-// published gate; one it cannot read is Unknown and waits for a person.
+// TestPublishedFromUpstream: an upstream Stage's published and verified
+// versions pass the published gate. A version it only verified (before the
+// published rule existed) and an upstream Stage that does not exist are
+// refused, never left for a person to accept; a failed read is planned again.
 func TestPublishedFromUpstream(t *testing.T) {
-	up := stageObj(dB)
-	up.Name, up.Status.Verified = "payments-test", []string{dA, dB}
-	e := baseEnv(t, nil)
-	e.create(up)
-	s := e.getStage()
-	s.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "payments-test"}}
-	if err := e.c.Update(context.Background(), s); err != nil {
-		t.Fatal(err)
+	withUpstream := func(name string) *env {
+		up := stageObj(dB)
+		up.Name, up.Status.Verified, up.Status.Published = "payments-test", []string{dA, dB, dC}, []string{dA, dB}
+		e := baseEnv(t, nil)
+		e.create(up)
+		s := e.getStage()
+		ref := &delivery.StageRef{Name: name} // the Stage's own namespace
+		if name == "missing" {
+			ref.Namespace = ns
+		}
+		s.Spec.Candidates = delivery.Candidates{UpstreamStage: ref}
+		if err := e.c.Update(context.Background(), s); err != nil {
+			t.Fatal(err)
+		}
+		return e
 	}
+	e := withUpstream("payments-test")
 	e.create(bind(opObj("p1", delivery.TypePromote, dA, dB, bot), e.getStage()))
 	if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning {
 		t.Fatalf("a version verified upstream ships: %s %s %+v", o.Status.Phase, o.Status.Reason, o.Status.Verdicts)
 	}
-	e2 := baseEnv(t, nil)
-	s2 := e2.getStage()
-	s2.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "missing", Namespace: ns}}
-	_ = e2.c.Update(context.Background(), s2)
-	e2.create(bind(opObj("p1", delivery.TypePromote, dA, dB, bot), e2.getStage()))
-	if o := e2.drive("p1"); o.Status.Phase != delivery.PhaseHeld {
-		t.Fatalf("an unreadable upstream holds: %s %s", o.Status.Phase, o.Status.Reason)
+	e = withUpstream("payments-test")
+	e.create(bind(opObj("p3", delivery.TypePromote, dA, dC, bot), e.getStage()))
+	wantOutcome(t, e.drive("p3"), delivery.Rejected, "NotPublished")
+	op, stage := opObj("p4", delivery.TypePromote, dA, dB, bot), e.getStage()
+	e.fails["get/Stage"] = true
+	if _, err := e.op.plan(context.Background(), op, stage); err == nil {
+		t.Fatal("a failed read of the upstream Stage must be planned again")
+	}
+	e = withUpstream("missing")
+	e.create(bind(opObj("p1", delivery.TypePromote, dA, dB, bot), e.getStage()))
+	o := e.drive("p1")
+	wantOutcome(t, o, delivery.Rejected, "NotPublished")
+	if !strings.Contains(o.Status.Message, "does not exist or cannot be read") {
+		t.Fatalf("message %q", o.Status.Message)
+	}
+}
+
+// TestVerifiedPromoteIsPublished: a promote verified here passed the published
+// gate here, so a downstream Stage may take it; nothing else is added.
+func TestVerifiedPromoteIsPublished(t *testing.T) {
+	s := delivery.StageStatus{}
+	applyEffects(&s, opObj("p", delivery.TypePromote, dA, dB, bot), conclusion{outcome: delivery.Succeeded, verification: delivery.Verified})
+	applyEffects(&s, opObj("o", delivery.TypeOverride, dB, dC, bot), conclusion{outcome: delivery.Succeeded, verification: delivery.Verified})
+	if len(s.Published) != 1 || s.Published[0] != dB {
+		t.Fatalf("published %v", s.Published)
 	}
 }

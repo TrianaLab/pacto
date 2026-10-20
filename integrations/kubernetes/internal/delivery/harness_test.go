@@ -235,6 +235,7 @@ func ociRepo(name, digest, revision string, insecure bool) *unstructured.Unstruc
 func verifiedRepo(name, revision string) *unstructured.Unstructured {
 	u := ociRepo(name, "", revision, false)
 	_ = unstructured.SetNestedField(u.Object, "cosign", "spec", "verify", "provider")
+	_ = unstructured.SetNestedField(u.Object, "cosign-pub", "spec", "verify", "secretRef", "name")
 	_ = unstructured.SetNestedSlice(u.Object, []any{map[string]any{"type": "SourceVerified", "status": "True",
 		"message": "verified signature of revision " + revision}}, "status", "conditions")
 	return u

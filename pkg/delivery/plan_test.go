@@ -261,9 +261,12 @@ func TestPublishedGate(t *testing.T) {
 		{"oci never verified", plan(oci, StageStatus{Pointer: dA}, to, nil), Fail, "Flux never verified a signature"},
 		{"oci no contract", plan(oci, published, Revision{Digest: dB, NoContract: true, Err: "no annotation"}, nil), Fail, "names no digest-pinned"},
 		{"oci unreadable", plan(oci, published, Revision{Digest: dB, Err: "registry down"}, nil), Unknown, "registry down"},
-		{"upstream verified", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}}), Pass, "verified on the upstream Stage"},
-		{"upstream not verified", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{}), Fail, "never verified on the upstream Stage test/payments"},
-		{"upstream unreadable", plan(up, StageStatus{Pointer: dA}, to, nil), Unknown, "could not be read"},
+		{"upstream published", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}, Published: []string{dB}}), Pass, "published and verified on the upstream Stage"},
+		{"upstream not verified", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Published: []string{dB}}), Fail, "never published and verified on the upstream Stage test/payments"},
+		// Verified before the published rule existed: never published there.
+		{"upstream only verified", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}}), Fail, "never published and verified"},
+		// Never an unknown a person could accept.
+		{"upstream unreadable", plan(up, StageStatus{Pointer: dA}, to, nil), Fail, "does not exist or cannot be read"},
 		{"no source", plan(none, published, to, nil), Fail, "names no candidate source"},
 	}
 	for _, c := range cases {

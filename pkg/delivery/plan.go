@@ -154,8 +154,10 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 // publishedGate admits only a version pacto publish published. From a
 // candidate OCIRepository that is a digest Flux verified the signature of
 // (Status.Published) whose artifact names its digest-pinned contract; from an
-// upstream Stage it is a digest that Stage verified, which passed this gate
-// there. A Stage with no candidate source promotes nothing.
+// upstream Stage it is a digest that Stage verified and recorded as published,
+// so it passed this gate there. An upstream Stage that cannot be read offers
+// nothing: the gate never asks a person to accept an unknown source. A Stage
+// with no candidate source promotes nothing.
 func publishedGate(in PlanInput) Verdict {
 	v := Verdict{Gate: GatePublished, Phase: "pre", Result: Fail, Citation: map[string]string{}}
 	to, c := in.Spec.Params.To, in.Stage.Candidates
@@ -164,18 +166,19 @@ func publishedGate(in PlanInput) Verdict {
 		v.Citation["upstream"] = c.UpstreamStage.Namespace + "/" + c.UpstreamStage.Name
 		switch {
 		case in.Upstream == nil:
-			v.Result, v.Message = Unknown, "the upstream Stage "+v.Citation["upstream"]+" could not be read"
-		case slices.Contains(in.Upstream.Verified, to):
-			v.Result, v.Message = Pass, short(to)+" was verified on the upstream Stage, which promotes only published versions"
+			v.Message = "the upstream Stage " + v.Citation["upstream"] + " does not exist or cannot be read, so it offers no candidate"
+		case slices.Contains(in.Upstream.Verified, to) && slices.Contains(in.Upstream.Published, to):
+			v.Result, v.Message = Pass, short(to)+" was published and verified on the upstream Stage"
 		default:
-			v.Message = short(to) + " was never verified on the upstream Stage " + v.Citation["upstream"] + ", so it is not a candidate here"
+			v.Message = short(to) + " was never published and verified on the upstream Stage " + v.Citation["upstream"] + ", so it is not a candidate here"
 		}
 	case c.OCIRepositoryRef != nil:
 		v.Citation["source"] = c.OCIRepositoryRef.Name
 		switch {
 		case !slices.Contains(in.Status.Published, to):
 			v.Message = "Flux never verified a signature of " + short(to) + " on the candidate OCIRepository " + c.OCIRepositoryRef.Name +
-				": only versions pacto publish published and signed are promoted, and the OCIRepository must set spec.verify"
+				": only versions pacto publish published and signed are promoted, and the OCIRepository must set spec.verify " +
+				"with a secretRef or matchOIDCIdentity naming the publisher"
 		case in.To.NoContract:
 			v.Message = short(to) + " names no digest-pinned " + ContractAnnotation + " annotation, so pacto publish did not publish it"
 		case in.To.ContractRef == "":

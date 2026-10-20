@@ -104,10 +104,12 @@ Upgrading the operator never touches these CRDs; see
 A Stage promotes only versions `pacto publish` published: the deploy artifact
 it signed, whose `pacto.dev/contract` annotation names the contract. The
 candidate `OCIRepository` follows the deploy artifact's repository and sets
-`spec.verify`, so Flux checks each signature. The Stage remembers every digest
-Flux verified there in `status.published`, and refuses anything else as
-`NotPublished`, a promote an agent proposes included. A Stage with no
-candidate source, or whose source has no `spec.verify`, promotes nothing.
+`spec.verify` with the publisher's identity, so Flux checks each signature
+against it. The Stage remembers every digest Flux verified there in
+`status.published`, and refuses anything else as `NotPublished`, a promote an
+agent proposes included. A Stage with no candidate source promotes nothing, and
+neither does one whose `spec.verify` names no identity: without a `secretRef`
+or a `matchOIDCIdentity`, Flux accepts a keyless signature from anyone.
 
 ```yaml
 apiVersion: source.toolkit.fluxcd.io/v1
@@ -119,10 +121,22 @@ spec:
   verify: {provider: cosign, secretRef: {name: cosign-pub}}
 ```
 
+For keyless signing, name the identity and issuer the contract's `publish.sign`
+declares:
+
+```yaml
+  verify:
+    provider: cosign
+    matchOIDCIdentity:
+      - issuer: "^https://token.actions.githubusercontent.com$"
+        subject: "^https://github.com/acme/payments/.github/workflows/release.yml@refs/heads/main$"
+```
+
 Label the `OCIRepository` that applies the Stage, so admission keeps everyone
 but the promoter and break-glass off its digest, give it the same
 `spec.verify` and create the Stage. A downstream Stage takes the versions its
-upstream verified:
+upstream published and verified. An upstream Stage that does not exist, or that
+the promoter may not read, offers nothing:
 
 ```yaml
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
