@@ -10,8 +10,8 @@ a separate chart (`pacto-delivery`) with its own image, CRDs, service account,
 RBAC and admission policies. The `pacto-operator` chart gains nothing.
 
 !!! warning "Alpha"
-    The API group is `delivery.pacto.trianalab.io/v1alpha1`. Signed records,
-    health checks from Mira and ordering across services come later.
+    The API group is `delivery.pacto.trianalab.io/v1alpha1`. Signed records
+    and ordering across services come later.
 
 ## How it works
 
@@ -32,6 +32,7 @@ flowchart LR
   R -->|Flux applied it| V[Verifying]
   V -->|Pass| S[Succeeded]
   V -->|Fail| F[Failed, rolled back]
+  S -->|re-check fails| F
 ```
 
 - **Before it moves**, `pacto.diff` compares the running contract with the new
@@ -45,6 +46,9 @@ flowchart LR
   digest in `status.evaluatedRevision` is the one the artifact names and the
   workload generation it read is current. `Compliant` and `Warning` pass,
   `NonCompliant` and `Invalid` fail, anything else is Unknown.
+- **Health checks and claim checks** can join the contract check, and the
+  checks keep running after release. See
+  [Health checks and claims](delivery-health.md).
 - **A failed version** is remembered on the Stage and never promoted again. The
   promoter raises one rollback per failure. If that rollback fails too, or the
   outcome cannot be established, the Stage freezes until a person unfreezes it.
@@ -142,9 +146,11 @@ the plan's intent digest refuses with `PlanStale` if anything moved since.
 the digest it resolves to.
 
 Agents get the same tools over MCP with `pacto mcp --delivery`:
-`pacto_delivery_operation_types`, `_describe`, `_plan` and `pacto_delivery_get`
-for anyone, plus `_propose` and `pacto_delivery_cancel` only when the
-apiserver says the caller is an agent. There is no approve tool.
+`pacto_delivery_operation_types`, `_describe`, `_plan`, `pacto_delivery_get`,
+`_explain` and `_history` for anyone, plus `_propose` and
+`pacto_delivery_cancel` only when the apiserver says the caller is an agent.
+There is no approve tool. The server runs over stdio only, beside the agent and
+under its own credentials: over HTTP every caller would act as the server.
 
 ## Who may do what
 
@@ -171,5 +177,6 @@ a witnessed override, adopts it and freezes the Stage.
 - No signed records yet. An operation keeps its record finalizer until it is
   deleted; the promoter then lets it go.
 - Stage approval policy is `approval.always`, not an expression.
-- Checks do not keep running after a version is verified.
+- History reads the operations still in the cluster, so it is partial.
+- No remote MCP access yet.
 - One cluster, Flux only.

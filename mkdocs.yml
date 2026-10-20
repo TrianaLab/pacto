@@ -228,6 +228,7 @@ nav:
           - Upgrade the operator: integrations/kubernetes/upgrade.md
           - GitOps promotion gates: integrations/kubernetes/gitops.md
           - Pacto delivery (opt-in): integrations/kubernetes/delivery.md
+          - "Delivery: health checks and claims": integrations/kubernetes/delivery-health.md
           - CRD reference: integrations/kubernetes/crd-reference.md
           - Helm reference: integrations/kubernetes/helm-reference.md
           - RBAC: integrations/kubernetes/rbac.md
