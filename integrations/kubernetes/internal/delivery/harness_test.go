@@ -101,10 +101,14 @@ type env struct {
 type fakeHealth struct {
 	result delivery.Result
 	inputs []delivery.GateInput
+	during func() // runs while the check is in progress, as another writer would
 }
 
 func (f *fakeHealth) Check(_ context.Context, in delivery.GateInput, _ map[string]string) delivery.Verdict {
 	f.inputs = append(f.inputs, in)
+	if f.during != nil {
+		f.during()
+	}
 	return delivery.Verdict{Result: f.result, Message: "error ratio " + string(f.result),
 		Citation: map[string]string{"query": `{"signal":"traces"}`}}
 }

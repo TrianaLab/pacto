@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
@@ -237,13 +239,22 @@ func TestRecheckSkips(t *testing.T) {
 	for _, mutate := range []func(*delivery.StageStatus){
 		func(s *delivery.StageStatus) { s.Frozen = true },
 		func(s *delivery.StageStatus) { s.Frozen, s.Locks = false, map[string]string{"pointer": "x"} },
-		func(s *delivery.StageStatus) { s.Locks, s.LastOp = nil, "uid-gone" },
 	} {
 		e.setStage(mutate)
 		if err := e.reconcileStage("payments-prod"); err != nil || e.getStage().Status.LastCheck != nil {
 			t.Fatalf("re-checked: %v %+v", err, e.getStage().Status.LastCheck)
 		}
 	}
+	// A shipping operation that is gone is said, not skipped in silence.
+	e.setStage(func(s *delivery.StageStatus) { s.Locks, s.LastOp = nil, "uid-gone" })
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if lc := e.getStage().Status.LastCheck; lc == nil || lc.Operation != "uid-gone" || lc.Verdicts[0].Result != delivery.Unknown ||
+		!strings.Contains(lc.Verdicts[0].Message, "is gone") {
+		t.Fatalf("a missing shipping operation is recorded: %+v", lc)
+	}
+	e.setStage(func(s *delivery.StageStatus) { s.LastCheck = nil })
 	e.setStage(func(s *delivery.StageStatus) { s.LastOp = "uid-p1" })
 	pending := opObj("p2", delivery.TypePromote, dB, dC, bot)
 	pending.Finalizers = nil
@@ -257,7 +268,20 @@ func TestRecheckSkips(t *testing.T) {
 	if err := e.reconcileStage("payments-prod"); err != nil {
 		t.Fatal(err)
 	}
+	p1 := e.getOp("p1")
+	p1.Status.Verification = delivery.Unverified
+	if err := e.c.Status().Update(context.Background(), p1); err != nil {
+		t.Fatal(err)
+	}
 	e.setStage(func(s *delivery.StageStatus) { s.LastCheck = nil })
+	if err := e.reconcileStage("payments-prod"); err != nil || e.getStage().Status.LastCheck != nil {
+		t.Fatal("an Unverified version is not re-checked")
+	}
+	p1 = e.getOp("p1")
+	p1.Status.Verification = delivery.Verified
+	if err := e.c.Status().Update(context.Background(), p1); err != nil {
+		t.Fatal(err)
+	}
 	e.health.result = delivery.Fail
 	e.fails["create/Operation"] = true
 	if err := e.reconcileStage("payments-prod"); err == nil {
@@ -322,5 +346,128 @@ func TestCitedCauseMustBeAboutTheRunningVersion(t *testing.T) {
 	wantOutcome(t, o, delivery.Rejected, "CauseUnconfirmed")
 	if !strings.Contains(o.Status.Message, "outside the time the version under check has run") {
 		t.Fatalf("message: %s", o.Status.Message)
+	}
+}
+
+// TestRecheckNeverUndoesAChoice: a version a person chose (a rollback, or a
+// promote while the Stage is on auto-hold) that fails after release is marked
+// failed and freezes the Stage; automation never rolls the choice back.
+func TestRecheckNeverUndoesAChoice(t *testing.T) {
+	for name, c := range map[string]struct {
+		typ  string
+		hold bool
+	}{"human rollback": {delivery.TypeRollback, true}, "promote on auto-hold": {delivery.TypePromote, true}} {
+		t.Run(name, func(t *testing.T) {
+			e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+			e.shipB()
+			o := e.getOp("p1")
+			o.Spec.Type = c.typ
+			if err := e.c.Update(context.Background(), o); err != nil {
+				t.Fatal(err)
+			}
+			e.setStage(func(s *delivery.StageStatus) { s.AutoHold = c.hold })
+			e.health.result = delivery.Fail
+			if err := e.reconcileStage("payments-prod"); err != nil {
+				t.Fatal(err)
+			}
+			s := e.getStage()
+			if !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "a person must decide") || s.Status.FailedDigests[0] != dB ||
+				len(s.Status.AutoRollbacks) != 0 || len(e.ops()) != 1 {
+				t.Fatalf("want frozen with no rollback: %+v ops=%d", s.Status, len(e.ops()))
+			}
+		})
+	}
+}
+
+// TestRecheckDropsAStaleVerdict: a verdict about a version the Stage no longer
+// runs, because the pointer moved or was locked while the gates ran, changes
+// nothing.
+func TestRecheckDropsAStaleVerdict(t *testing.T) {
+	for _, res := range []delivery.Result{delivery.Fail, delivery.Pass} {
+		for name, mutate := range map[string]func(*delivery.StageStatus){
+			"pointer moved": func(s *delivery.StageStatus) { s.Pointer, s.LastOp = dC, "uid-p2" },
+			"lock taken":    func(s *delivery.StageStatus) { s.Locks = map[string]string{"pointer": "uid-p2"} },
+		} {
+			t.Run(string(res)+" "+name, func(t *testing.T) {
+				e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+				e.shipB()
+				e.health.result = res
+				e.health.during = func() { e.setStage(mutate) }
+				if err := e.reconcileStage("payments-prod"); err != nil {
+					t.Fatal(err)
+				}
+				s := e.getStage()
+				if s.Status.LastCheck != nil || s.Status.Frozen || len(s.Status.FailedDigests) != 0 || len(s.Status.AutoRollbacks) != 0 || len(e.ops()) != 1 {
+					t.Fatalf("a stale verdict changed the Stage: %+v ops=%d", s.Status, len(e.ops()))
+				}
+			})
+		}
+	}
+	// The Stage moves after the fresh read, before the verdict is written.
+	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.shipB()
+	e.health.result = delivery.Fail
+	e.st.APIReader = &afterFirstGet{Reader: e.c, fn: func() {
+		e.setStage(func(s *delivery.StageStatus) { s.Pointer, s.LastOp = dC, "uid-p2" })
+	}}
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if s := e.getStage(); s.Status.LastCheck != nil || s.Status.Frozen || len(s.Status.FailedDigests) != 0 || len(s.Status.AutoRollbacks) != 0 {
+		t.Fatalf("a stale verdict changed the Stage: %+v", s.Status)
+	}
+	// A Stage that cannot be read again is an error, retried.
+	e = healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.shipB()
+	e.health.result = delivery.Fail
+	e.health.during = func() { e.fails["get/Stage"] = true }
+	if err := e.reconcileStage("payments-prod"); err == nil {
+		t.Fatal("want the read error")
+	}
+}
+
+// afterFirstGet runs fn once, right after its first Get returns.
+type afterFirstGet struct {
+	client.Reader
+	fn func()
+}
+
+func (a *afterFirstGet) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	err := a.Reader.Get(ctx, key, obj, opts...)
+	if a.fn != nil {
+		a.fn()
+		a.fn = nil
+	}
+	return err
+}
+
+// TestCitedCauseNeedsAnAppliedTime: when the running version has no applied
+// time (Flux never confirmed it, or its operation is gone) no cited window can
+// be about it, so the cause is refused.
+func TestCitedCauseNeedsAnAppliedTime(t *testing.T) {
+	for name, lastOp := range map[string]string{"never applied": "uid-p1", "operation gone": "uid-gone"} {
+		t.Run(name, func(t *testing.T) {
+			e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+			e.shipB()
+			p1 := e.getOp("p1")
+			p1.Status.Times.Applied = ""
+			if err := e.c.Status().Update(context.Background(), p1); err != nil {
+				t.Fatal(err)
+			}
+			e.setStage(func(s *delivery.StageStatus) { s.Frozen = true })
+			cited := delivery.RunChecks(context.Background(), map[string]delivery.Gate{"mira": &fakeHealth{result: delivery.Fail}},
+				healthChecks, gateInput(p1, e.getStage(), e.now.Add(-24*time.Hour), e.now))[0]
+			rb := opObj("rb", delivery.TypeRollback, dB, dA, bot)
+			rb.Spec.Params.Undoes = "uid-p1"
+			rb.Spec.Cause = &delivery.Cause{Verdict: &cited}
+			e.create(bind(rb, e.getStage()))
+			e.setStage(func(s *delivery.StageStatus) { s.LastOp = lastOp })
+			e.health.result = delivery.Fail
+			o := e.drive("rb")
+			wantOutcome(t, o, delivery.Rejected, "CauseUnconfirmed")
+			if !strings.Contains(o.Status.Message, "no applied time") {
+				t.Fatalf("message: %s", o.Status.Message)
+			}
+		})
 	}
 }

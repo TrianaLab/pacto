@@ -93,8 +93,12 @@ Once a version ships, the promoter runs the same checks again every
 `recheck` (default 1m) on the last `window` of time. A confirmed Fail marks the
 version failed and raises one rollback, which cites the failing check. If that
 cause already had its rollback, or there is nothing to roll back to, the Stage
-freezes and waits for a person. Unknown after release never rolls back. The
-newest result is in the Stage's `status.lastCheck`.
+freezes and waits for a person. It also freezes when a person or an agent
+chose the running version, with a rollback or a promote while the Stage is on
+auto-hold: automation never undoes that choice. Unknown after release never
+rolls back, and a result about a version the Stage stopped running while the
+checks ran is dropped. The newest result is in the Stage's `status.lastCheck`,
+which also says when the operation that shipped the running version is gone.
 
 ## Explain and history
 
@@ -112,4 +116,5 @@ A person or an agent can cite a verdict as the cause of an operation with
 The promoter runs it again on the Stage's own check when it admits the
 operation, over the cited window, which must fall in the time the running
 version has run. A cause that comes back Unknown or with another result is
-refused.
+refused, and so is any cause while the running version has no applied time
+(Flux never confirmed it, or its operation is gone).

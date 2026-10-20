@@ -190,10 +190,15 @@ func (r *OperationReconciler) causeRefusal(ctx context.Context, op *dv1.Operatio
 	if c == nil || c.Verdict == nil || op.Status.ActorClass == delivery.ClassController {
 		return ""
 	}
-	// The cited window must fall in the time the running version has run.
+	// The cited window must fall in the time the running version has run. With
+	// no applied time for it (its operation is gone, or Flux never confirmed it)
+	// no window can be about it, so nothing is confirmed.
 	now, from := r.now(), time.Time{}
 	if shipped := r.opByUID(ctx, op.Namespace, stage.Status.LastOp); shipped != nil {
 		from = parseOr(shipped.Status.Times.Applied)
+	}
+	if from.IsZero() {
+		return "CauseUnconfirmed: the running version has no applied time, so no cited " + c.Verdict.Gate + " window can be about it"
 	}
 	base := gateInput(op, stage, from, now)
 	base.Subjects = []string{stage.Status.Pointer}

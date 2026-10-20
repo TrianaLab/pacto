@@ -168,7 +168,10 @@ func (r *StageReconciler) raise(ctx context.Context, stage *dv1.Stage, kind stri
 // recheck interval, once the operation that shipped it succeeded. Checks keep
 // running after release: a confirmed Fail marks the version failed and raises
 // its one bound rollback, or freezes the Stage when that cause already had its
-// rollback or there is nothing to roll back to. Unknown never rolls back.
+// rollback, there is nothing to roll back to or a person or agent chose the
+// version (a rollback, or a promote on auto-hold): automation never undoes that
+// choice. Unknown never rolls back. A verdict about a Stage that moved on while
+// the gates ran is dropped.
 func (r *StageReconciler) recheck(ctx context.Context, stage *dv1.Stage) error {
 	s, now := stage.Status, r.Now().UTC()
 	if s.Frozen || s.LastOp == "" || s.Locks[delivery.FacetPointer] != "" || slices.Contains(s.FailedDigests, s.Pointer) ||
@@ -184,7 +187,18 @@ func (r *StageReconciler) recheck(ctx context.Context, stage *dv1.Stage) error {
 			shipped = &o
 		}
 	}
-	if shipped == nil || shipped.Status.Outcome != delivery.Succeeded || shipped.Status.Verification == delivery.Unverified ||
+	if shipped == nil {
+		gone := &delivery.Recheck{Operation: s.LastOp, Digest: s.Pointer, At: ts(now), Verdicts: []delivery.Verdict{{
+			Gate: "recheck", Phase: "verify", Result: delivery.Unknown,
+			Message: "the operation that shipped the running version is gone, so nothing is re-checked",
+		}}}
+		return r.updateStatus(ctx, stage, func(st *dv1.Stage) {
+			if !moved(gone, st.Status) {
+				st.Status.LastCheck = gone
+			}
+		})
+	}
+	if shipped.Status.Outcome != delivery.Succeeded || shipped.Status.Verification == delivery.Unverified ||
 		shipped.Spec.Params.To != s.Pointer {
 		return nil
 	}
@@ -196,28 +210,58 @@ func (r *StageReconciler) recheck(ctx context.Context, stage *dv1.Stage) error {
 	check := &delivery.Recheck{Operation: s.LastOp, Digest: s.Pointer, At: ts(now), Verdicts: vs}
 	f := failing(vs)
 	if f == nil {
-		return r.updateStatus(ctx, stage, func(st *dv1.Stage) { st.Status.LastCheck = check })
+		return r.updateStatus(ctx, stage, func(st *dv1.Stage) {
+			if !moved(check, st.Status) {
+				st.Status.LastCheck = check
+			}
+		})
+	}
+	return r.recheckFailed(ctx, stage, shipped, check, f)
+}
+
+// moved reports whether the Stage is no longer the one a check is about.
+func moved(check *delivery.Recheck, st delivery.StageStatus) bool {
+	return st.LastOp != check.Operation || st.Pointer != check.Digest || st.Locks[delivery.FacetPointer] != ""
+}
+
+// recheckFailed acts on a re-check's confirmed Fail f: it marks the version
+// failed and raises its one bound rollback, or freezes the Stage.
+func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, shipped *dv1.Operation, check *delivery.Recheck, f *delivery.Verdict) error {
+	// The gates can take minutes; drop the verdict if the Stage moved meanwhile.
+	fresh := &dv1.Stage{}
+	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(stage), fresh); err != nil {
+		return err
+	}
+	if moved(check, fresh.Status) {
+		return nil
 	}
 	why := "RecheckFailed: " + f.Gate + ": " + f.Message
 	cause, before := string(shipped.UID), shipped.Status.Pointer.Before
-	rollback := s.AutoRollbacks[cause] == 0 && before != "" && !slices.Contains(s.FailedDigests, before)
+	chosen := shipped.Spec.Type != delivery.TypePromote || fresh.Status.AutoHold
+	rollback := !chosen && fresh.Status.AutoRollbacks[cause] == 0 && before != "" && !slices.Contains(fresh.Status.FailedDigests, before)
 	if rollback {
 		if err := raiseRollback(ctx, r.Client, r.Policy, shipped, stage, why, f); err != nil {
 			return err
 		}
 	}
 	return r.updateStatus(ctx, stage, func(st *dv1.Stage) {
-		st.Status.LastCheck = check
-		st.Status.FailedDigests = delivery.AddDigest(st.Status.FailedDigests, s.Pointer, delivery.MaxFailedDigests)
-		st.Status.Verified = delivery.RemoveDigest(st.Status.Verified, s.Pointer)
-		if !rollback {
-			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release and cannot be rolled back automatically: "+why
+		if moved(check, st.Status) {
 			return
 		}
-		if st.Status.AutoRollbacks == nil {
-			st.Status.AutoRollbacks = map[string]int{}
+		st.Status.LastCheck = check
+		st.Status.FailedDigests = delivery.AddDigest(st.Status.FailedDigests, check.Digest, delivery.MaxFailedDigests)
+		st.Status.Verified = delivery.RemoveDigest(st.Status.Verified, check.Digest)
+		switch {
+		case chosen:
+			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release, and a person or agent chose this version, so a person must decide: "+why
+		case !rollback:
+			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release and cannot be rolled back automatically: "+why
+		default:
+			if st.Status.AutoRollbacks == nil {
+				st.Status.AutoRollbacks = map[string]int{}
+			}
+			st.Status.AutoRollbacks[cause]++
 		}
-		st.Status.AutoRollbacks[cause]++
 	})
 }
 
