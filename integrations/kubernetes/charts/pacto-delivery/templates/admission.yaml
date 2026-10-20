@@ -1,0 +1,194 @@
+{{- if and .Values.admissionPolicies.enabled (.Capabilities.APIVersions.Has "admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy") }}
+{{- $fullname := include "pacto-delivery.fullname" . }}
+{{- $controller := include "pacto-delivery.controllerUser" . }}
+{{- $agents := include "pacto-delivery.celList" .Values.identities.agentGroups }}
+{{- $breakGlass := include "pacto-delivery.celList" .Values.identities.breakGlassGroups }}
+# An operation states who asked, and admission holds it to that: the actor is
+# the requesting user, only the promoter may set witnessed, override and
+# unfreeze are limited to their raisers, and the record finalizer is required.
+# The promoter re-checks the raiser rules itself in case this policy is absent.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-operation
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [delivery.pacto.trianalab.io]
+        apiVersions: ["*"]
+        operations: [CREATE]
+        resources: [operations]
+  variables:
+    - name: groups
+      expression: "has(object.spec.actor.groups) ? object.spec.actor.groups : []"
+    - name: witnessed
+      expression: "has(object.spec.witnessed) && object.spec.witnessed"
+    - name: breakGlass
+      expression: "request.userInfo.groups.exists(g, g in {{ $breakGlass }})"
+    - name: agent
+      expression: >-
+        request.userInfo.username.startsWith('system:serviceaccount:') ||
+        request.userInfo.groups.exists(g, g in {{ $agents }})
+  validations:
+    - expression: "object.spec.actor.user == request.userInfo.username"
+      message: "spec.actor.user must be the user creating the operation"
+      reason: Forbidden
+    - expression: >-
+        request.userInfo.username == '{{ $controller }}' ||
+        (variables.groups.all(g, g in request.userInfo.groups) &&
+        request.userInfo.groups.all(g, g in variables.groups))
+      message: "spec.actor.groups must be the groups of the user creating the operation"
+      reason: Forbidden
+    - expression: >-
+        has(object.metadata.finalizers) &&
+        'delivery.pacto.trianalab.io/record' in object.metadata.finalizers
+      message: "an operation must carry the delivery.pacto.trianalab.io/record finalizer"
+    - expression: "!variables.witnessed || request.userInfo.username == '{{ $controller }}'"
+      message: "only the Pacto delivery promoter may raise a witnessed operation"
+      reason: Forbidden
+    - expression: >-
+        object.spec.type != 'pacto.dev/override' || variables.breakGlass ||
+        (variables.witnessed && request.userInfo.username == '{{ $controller }}')
+      message: "only break-glass may raise an override"
+      reason: Forbidden
+    - expression: >-
+        object.spec.type != 'pacto.dev/unfreeze' || variables.breakGlass ||
+        (!variables.agent && request.userInfo.username != '{{ $controller }}')
+      message: "only a person or break-glass may unfreeze a Stage; agents and the promoter may not"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-operation
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-operation
+  validationActions: [Deny]
+---
+# Cancelling is deleting, and it is refused once the pointer has moved: an
+# applied operation runs to its end, which may be a rollback.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-cancel
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [delivery.pacto.trianalab.io]
+        apiVersions: ["*"]
+        operations: [DELETE]
+        resources: [operations]
+  validations:
+    - expression: >-
+        !has(oldObject.status) || !has(oldObject.status.applied) || !oldObject.status.applied ||
+        (has(oldObject.status.phase) && oldObject.status.phase == 'Concluded')
+      message: "the pointer already moved for this operation, so it can no longer be cancelled; roll it back instead"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-cancel
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-cancel
+  validationActions: [Deny]
+---
+# Approvals come from people: not a service account, not an agent group, with
+# by equal to the requesting user and authTime equal to the login time the
+# apiserver reports (structured authentication maps the OIDC auth_time claim to
+# userInfo.extra["pacto.dev/auth-time"]). The promoter refuses a login older
+# than 15 minutes, which forces a fresh interactive login to approve. An agent
+# holding a person's credentials still cannot be told apart from that person.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-approval
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [delivery.pacto.trianalab.io]
+        apiVersions: ["*"]
+        operations: [CREATE]
+        resources: [approvals]
+  validations:
+    - expression: "object.spec.by == request.userInfo.username"
+      message: "spec.by must be the user creating the approval"
+      reason: Forbidden
+    - expression: >-
+        !request.userInfo.username.startsWith('system:serviceaccount:') &&
+        !request.userInfo.groups.exists(g, g in {{ $agents }})
+      message: "agents and service accounts may not approve"
+      reason: Forbidden
+    - expression: >-
+        'pacto.dev/auth-time' in request.userInfo.extra &&
+        has(object.spec.authTime) && object.spec.authTime == request.userInfo.extra['pacto.dev/auth-time'][0]
+      message: "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[pacto.dev/auth-time]"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-approval
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-approval
+  validationActions: [Deny]
+---
+# The pointer: on an OCIRepository a Stage applies through (label it
+# delivery.pacto.trianalab.io/apply-ref), spec.ref.digest changes only by the
+# promoter or break-glass. Every other field, and Flux's own writes, pass.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-pointer
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    objectSelector:
+      matchExpressions:
+        - key: delivery.pacto.trianalab.io/apply-ref
+          operator: Exists
+    resourceRules:
+      - apiGroups: [source.toolkit.fluxcd.io]
+        apiVersions: ["*"]
+        operations: [UPDATE]
+        resources: [ocirepositories]
+  variables:
+    - name: digest
+      expression: "has(object.spec.ref) && has(object.spec.ref.digest) ? object.spec.ref.digest : ''"
+    - name: oldDigest
+      expression: "has(oldObject.spec.ref) && has(oldObject.spec.ref.digest) ? oldObject.spec.ref.digest : ''"
+  validations:
+    - expression: >-
+        variables.digest == variables.oldDigest ||
+        request.userInfo.username == '{{ $controller }}' ||
+        request.userInfo.groups.exists(g, g in {{ $breakGlass }})
+      message: "spec.ref.digest is the Pacto delivery pointer: propose a promote, or use break-glass"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-pointer
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-pointer
+  validationActions: [Deny]
+{{- end }}

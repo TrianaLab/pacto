@@ -1,0 +1,11 @@
+The Pacto delivery promoter is installed in {{ .Release.Namespace }}.
+
+It moves a Stage's pointer only through Operations, and it only ever writes
+spec.ref.digest on the OCIRepository a Stage names. Label that OCIRepository
+delivery.pacto.trianalab.io/apply-ref=<stage> so admission protects the pointer.
+
+Bind {{ include "pacto-delivery.fullname" . }}-agent to your agents' own service
+accounts and {{ include "pacto-delivery.fullname" . }}-approver to the people who may
+approve. Then:
+
+  pacto delivery plan --namespace <ns> --stage <stage> --to sha256:<digest>

@@ -268,8 +268,9 @@ docs-generate: ## Regenerate this integration's reference docs from real sources
 	python3 ../../release/scripts/gen_integration_docs.py --integration-dir .
 
 .PHONY: helm-lint
-helm-lint: ## Lint the Helm chart.
+helm-lint: ## Lint the Helm charts.
 	helm lint charts/pacto-operator
+	helm lint charts/pacto-delivery
 
 HELM_RELEASE ?= pacto-operator
 HELM_NAMESPACE ?= pacto-operator-system

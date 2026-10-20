@@ -1,0 +1,25 @@
+apiVersion: v2
+name: pacto-delivery
+description: Opt-in Pacto delivery promoter that decides which version each environment runs
+type: application
+version: 6.0.1
+appVersion: "6.0.1"
+keywords:
+  - pacto
+  - delivery
+  - promotion
+  - flux
+  - kubernetes
+icon: https://raw.githubusercontent.com/TrianaLab/pacto/refs/heads/main/docs/assets/images/logo.png
+maintainers:
+  - name: edu-diaz
+    url: https://edudiaz.dev
+    email: edudiazasencio@gmail.com
+sources:
+  - https://github.com/TrianaLab/pacto/tree/main/integrations/kubernetes
+  - https://github.com/TrianaLab/pacto
+annotations:
+  artifacthub.io/license: MIT
+  artifacthub.io/links: |
+    - name: documentation
+      url: https://pacto.run/latest/integrations/kubernetes/delivery/

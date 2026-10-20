@@ -1,0 +1,83 @@
+suite: promoter tests
+templates:
+  - templates/deployment.yaml
+  - templates/rbac.yaml
+tests:
+  - it: runs the promoter subcommand with the derived controller identity
+    template: templates/deployment.yaml
+    release:
+      name: d
+      namespace: pacto-delivery
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - promoter
+            - --leader-elect=true
+            - --poll=3s
+            - --controller-user=system:serviceaccount:pacto-delivery:d-pacto-delivery
+            - --agent-groups=pacto:agents
+            - --break-glass-groups=pacto:break-glass
+
+  - it: passes insecure registries through
+    template: templates/deployment.yaml
+    set:
+      insecureRegistries: [reg:5000, other:5000]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PACTO_INSECURE_REGISTRIES
+            value: reg:5000,other:5000
+
+  - it: grants the promoter only the digest write on Flux sources, nothing on workloads
+    template: templates/rbac.yaml
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [source.toolkit.fluxcd.io]
+            resources: [ocirepositories]
+            verbs: [get, list, watch, patch]
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups: [apps]
+            resources: [deployments, statefulsets, replicasets, daemonsets]
+            verbs: [get]
+        documentIndex: 1
+
+  - it: never lets an agent create approvals
+    template: templates/rbac.yaml
+    documentIndex: 5
+    asserts:
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-pacto-delivery-agent
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [delivery.pacto.trianalab.io]
+            resources: [approvals]
+            verbs: [get, list, watch, create]
+      - contains:
+          path: rules
+          content:
+            apiGroups: [delivery.pacto.trianalab.io]
+            resources: [operations]
+            verbs: [get, list, watch, create, delete]
+
+  - it: skips the ServiceAccount when told to
+    template: templates/rbac.yaml
+    set:
+      serviceAccount.create: false
+      serviceAccount.name: existing
+    asserts:
+      - notContains:
+          path: subjects
+          content:
+            kind: ServiceAccount
+            name: RELEASE-NAME-pacto-delivery
+            namespace: NAMESPACE
+        documentIndex: 1

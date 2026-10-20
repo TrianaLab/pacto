@@ -1,0 +1,92 @@
+# -- Number of promoter replicas. Only the elected leader acts.
+replicaCount: 1
+
+image:
+  # -- Promoter image repository (the pacto-delivery image)
+  repository: ghcr.io/trianalab/pacto/delivery
+  # -- Image pull policy
+  pullPolicy: IfNotPresent
+  # -- Overrides the image tag (default is the chart appVersion)
+  tag: ""
+
+# -- Image pull secrets for private registries
+imagePullSecrets: []
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full release name
+fullnameOverride: ""
+
+serviceAccount:
+  # -- Create a ServiceAccount for the promoter
+  create: true
+  # -- Annotations to add to the ServiceAccount
+  annotations: {}
+  # -- Name override (defaults to fullname)
+  name: ""
+
+promoter:
+  # -- How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration)
+  poll: 3s
+  # -- Elect one active promoter
+  leaderElect: true
+
+identities:
+  # -- Groups whose members are agents. Agents may propose, never approve or unfreeze.
+  # Service accounts other than the promoter are always agents.
+  agentGroups:
+    - pacto:agents
+  # -- Groups that may raise an override and edit an OCIRepository's spec.ref.digest directly
+  breakGlassGroups:
+    - pacto:break-glass
+
+# -- Registry hosts (`host:port`) the promoter reaches over plain HTTP when it reads
+# contracts. An OCIRepository with `spec.insecure: true` is read over HTTP anyway.
+insecureRegistries: []
+
+# -- Install the ValidatingAdmissionPolicies (Kubernetes 1.30 or later): an operation's
+# actor is the requesting user, only the promoter may set witnessed, override and
+# unfreeze are limited to their raisers, cancel is refused once the pointer moved,
+# approvals come from people and spec.ref.digest is edited only by the promoter or
+# break-glass.
+admissionPolicies:
+  enabled: true
+
+podSecurityContext:
+  # -- Run pod as non-root
+  runAsNonRoot: true
+  seccompProfile:
+    # -- Seccomp profile type
+    type: RuntimeDefault
+
+securityContext:
+  # -- Disallow privilege escalation
+  allowPrivilegeEscalation: false
+  capabilities:
+    # -- Drop all capabilities
+    drop:
+      - ALL
+  # -- Read-only root filesystem
+  readOnlyRootFilesystem: true
+  # -- Run as non-root
+  runAsNonRoot: true
+  # -- Run as UID 65532 (nonroot in distroless)
+  runAsUser: 65532
+
+resources:
+  limits:
+    # -- CPU limit
+    cpu: 500m
+    # -- Memory limit
+    memory: 256Mi
+  requests:
+    # -- CPU request
+    cpu: 10m
+    # -- Memory request
+    memory: 64Mi
+
+# -- Node selector for the promoter pod
+nodeSelector: {}
+# -- Tolerations for the promoter pod
+tolerations: []
+# -- Affinity for the promoter pod
+affinity: {}

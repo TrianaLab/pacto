@@ -1,0 +1,73 @@
+suite: admission policy tests
+templates:
+  - templates/admission.yaml
+release:
+  name: d
+  namespace: pacto-delivery
+tests:
+  - it: installs four policies, each bound with Deny
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - hasDocuments:
+          count: 8
+      - equal:
+          path: spec.validationActions
+          value: [Deny]
+        documentIndex: 1
+
+  - it: holds the operation actor to the requesting user
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.validations[0].expression
+          value: object.spec.actor.user == request.userInfo.username
+
+  - it: lets only the promoter set witnessed
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    documentIndex: 0
+    asserts:
+      - equal:
+          path: spec.validations[3].expression
+          value: "!variables.witnessed || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
+
+  - it: refuses approvals from agents and service accounts
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    documentIndex: 4
+    asserts:
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "g in \\['pacto:agents'\\]"
+
+  - it: protects only labelled OCIRepositories
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    documentIndex: 6
+    asserts:
+      - equal:
+          path: spec.matchConstraints.objectSelector.matchExpressions[0].key
+          value: delivery.pacto.trianalab.io/apply-ref
+
+  - it: renders nothing when disabled
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      admissionPolicies.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders nothing on a cluster without ValidatingAdmissionPolicy
+    asserts:
+      - hasDocuments:
+          count: 0

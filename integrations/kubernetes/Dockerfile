@@ -14,6 +14,9 @@ ARG VERSION=dev
 ARG GIT_COMMIT=unknown
 ARG BUILD_DATE=unknown
 ARG DASHBOARD_IMAGE=
+# CMD picks the entrypoint package: cmd is the observing operator, cmd/delivery
+# the opt-in pacto-delivery promoter. One Dockerfile, two images.
+ARG CMD=cmd
 # RELEASE_BUILD=1 (set by the release publisher) builds the operator module
 # STANDALONE with GOWORK=off, so it resolves the engine core from the PUBLISHED
 # version pinned in integrations/kubernetes/go.mod — the same dependency graph an
@@ -72,12 +75,12 @@ RUN set -eu; \
       cd integrations/kubernetes; \
       retry env GOWORK=off GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org,direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' go mod download; \
       CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} GOWORK=off GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org,direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' \
-        go build -ldflags "${LDFLAGS}" -o /workspace/manager ./cmd; \
+        go build -ldflags "${LDFLAGS}" -o /workspace/manager "./${CMD}"; \
     else \
       echo "workspace build: go.work resolves the local core"; \
       retry go mod download all; \
       CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-        go build -ldflags "${LDFLAGS}" -o /workspace/manager ./integrations/kubernetes/cmd; \
+        go build -ldflags "${LDFLAGS}" -o /workspace/manager "./integrations/kubernetes/${CMD}"; \
     fi
 
 FROM gcr.io/distroless/static:nonroot
