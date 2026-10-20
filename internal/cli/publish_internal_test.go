@@ -5,9 +5,13 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/dynamic"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
+	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/publish"
@@ -93,7 +97,30 @@ func TestPublishCommandFailures(t *testing.T) {
 	out, err = runPublish(t, refused, "text", "--propose", "prod/payments-prod")
 	wantRun(t, out, err, true, "no cluster")
 	out, err = runPublish(t, publishDeps(done, nil, &got), "text", "--propose", "prod/missing")
-	wantRun(t, out, err, true, "published, but proposing it on prod/missing failed")
+	wantRun(t, out, err, true, "published, but not proposed on prod/missing")
+	noCreate := publishDeps(done, nil, &got)
+	inner := noCreate.newDynamic
+	noCreate.newDynamic = func() (dynamic.Interface, error) {
+		c, _ := inner()
+		c.(*dynamicfake.FakeDynamicClient).PrependReactor("create", "operations", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("forbidden")
+		})
+		return c, nil
+	}
+	out, err = runPublish(t, noCreate, "text", "--propose", "prod/payments-prod")
+	wantRun(t, out, err, true, "published, but proposing it on prod/payments-prod failed")
+	// The propose waits for the Stage to record the version as published.
+	publishPoll = time.Millisecond
+	unseen := &publish.Result{Plan: publishPlan(true), Digests: map[string]string{}, Deploy: "reg/deploy@" + cliA}
+	out, err = runPublish(t, publishDeps(unseen, nil, &got), "text", "--propose", "prod/payments-prod", "--propose-timeout", "5ms")
+	wantRun(t, out, err, true, "did not record "+cliA+" as published within 5ms")
+	// A refused publish never claims everything is published.
+	refusedRes := &publish.Result{Plan: publishPlan(false), Actions: []string{}, Digests: map[string]string{}}
+	out, err = runPublish(t, publishDeps(refusedRes, publish.ErrNotReady, &got), "text")
+	wantRun(t, out, err, true, "FAIL version")
+	if strings.Contains(out, "Nothing to publish") {
+		t.Fatalf("a refused publish claims nothing is left to publish:\n%s", out)
+	}
 }
 
 func TestPublishCommandOutputFailure(t *testing.T) {

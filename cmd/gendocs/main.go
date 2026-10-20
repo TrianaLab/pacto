@@ -70,7 +70,7 @@ All three are required **by the scaffolded contract**, because its ` + "`interfa
 
 	"lock": "See [Lockfile](lockfile.md) for the lock model and how `.pactoignore` keeps a `pacto.lock` out of a pushed bundle.",
 
-	"push": "If the artifact already exists in the registry, `pacto push` prints a warning and exits successfully without pushing. Use `--force` to overwrite.\n\n" +
+	"push": "If the tag already holds the same content, `pacto push` succeeds and writes nothing. If it holds different content, `pacto push` refuses with a non-zero exit and writes nothing. Use `--force` to overwrite.\n\n" +
 		"!!! note \"`--values` has no `-f` shorthand on push\"\n" +
 		"    On every other override-taking command `-f` is the shorthand for `--values`. On `pacto push`, `-f` is `--force`, so `--values` must be spelled out in full here.",
 

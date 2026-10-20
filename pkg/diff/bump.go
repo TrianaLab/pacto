@@ -45,19 +45,27 @@ func CheckBump(base, next string, need Bump) error {
 	if err != nil {
 		return fmt.Errorf("version %q is not semver", next)
 	}
-	var floor semver.Version
-	switch need {
-	case BumpMajor:
-		floor = b.IncMajor()
-	case BumpMinor:
-		floor = b.IncMinor()
-	default:
-		floor = b.IncPatch()
+	// A release candidate's fixes ship as the version it was a candidate for:
+	// the same major.minor.patch, or a later prerelease of it, satisfies any bump.
+	if b.Prerelease() != "" && n.Major() == b.Major() && n.Minor() == b.Minor() && n.Patch() == b.Patch() && n.GreaterThan(b) {
+		return nil
 	}
+	floor := floorOf(b, need)
 	// A prerelease of the floor (2.0.0-rc.1) is the same bump as the floor.
 	if n.Major() > floor.Major() || n.Major() == floor.Major() && (n.Minor() > floor.Minor() ||
 		n.Minor() == floor.Minor() && n.Patch() >= floor.Patch() && n.GreaterThan(b)) {
 		return nil
 	}
 	return fmt.Errorf("%s needs a %s bump over %s: publish %s or higher", next, need, base, floor.String())
+}
+
+// floorOf is the smallest version need allows above b.
+func floorOf(b *semver.Version, need Bump) semver.Version {
+	switch need {
+	case BumpMajor:
+		return b.IncMajor()
+	case BumpMinor:
+		return b.IncMinor()
+	}
+	return b.IncPatch()
 }

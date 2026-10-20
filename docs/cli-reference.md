@@ -1224,7 +1224,7 @@ Files matched by `.pactoignore` are excluded from the archive — see [Packaging
 
 Publishes every artifact the contract's publish section declares (pactoVersion 2.1), the contract bundle and the deploy artifact Flux applies, all tagged with service.version. Docker or the declared command builds; Pacto pushes, never over an existing tag, signs every digest with cosign and attaches SBOMs made by syft. A breaking change since the last published version is refused below a major bump (a minor before 1.0).
 
---plan shows what is missing and changes nothing. Running publish again finishes what is missing and changes nothing else. --propose hands the deploy artifact to Pacto delivery as a promote on a Stage.
+--plan shows what is missing and changes nothing. Running publish again finishes what is missing and changes nothing else. --propose hands the deploy artifact to Pacto delivery as a promote on a Stage, once the Stage recorded it as published: Flux polled the candidate OCIRepository and verified the signature. It waits up to --propose-timeout for that.
 
 ```
 pacto publish [flags]
@@ -1243,13 +1243,14 @@ pacto publish [flags]
 **Flags:**
 
 ```
-  -h, --help                 help for publish
-  -p, --path string          path to contract directory (default: current directory)
-      --plan                 show what is missing and what refuses it; change nothing
-      --propose string       after publishing, propose the deploy artifact on <namespace>/<stage> (needs the pacto-delivery chart)
-      --revision string      source revision stamped on every artifact (default: the git commit of --path)
-      --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
-      --values stringArray   values file to merge into the contract (can be repeated; last wins)
+  -h, --help                       help for publish
+  -p, --path string                path to contract directory (default: current directory)
+      --plan                       show what is missing and what refuses it; change nothing
+      --propose string             after publishing, propose the deploy artifact on <namespace>/<stage> (needs the pacto-delivery chart)
+      --propose-timeout duration   how long --propose waits for the Stage to record the version as published (default 10m0s)
+      --revision string            source revision stamped on every artifact (default: the git commit of --path)
+      --set stringArray            set a contract value (e.g. --set service.version=2.0.0)
+      --values stringArray         values file to merge into the contract (can be repeated; last wins)
 ```
 
 ---
@@ -1312,7 +1313,7 @@ pacto push <ref> [flags]
       --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
-If the artifact already exists in the registry, `pacto push` prints a warning and exits successfully without pushing. Use `--force` to overwrite.
+If the tag already holds the same content, `pacto push` succeeds and writes nothing. If it holds different content, `pacto push` refuses with a non-zero exit and writes nothing. Use `--force` to overwrite.
 
 !!! note "`--values` has no `-f` shorthand on push"
     On every other override-taking command `-f` is the shorthand for `--values`. On `pacto push`, `-f` is `--force`, so `--values` must be spelled out in full here.

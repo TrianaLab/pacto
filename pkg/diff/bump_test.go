@@ -37,6 +37,10 @@ func TestCheckBump(t *testing.T) {
 		{"2.4.0", "2.4.1", BumpPatch},
 		{"0.4.0", "0.5.0", BumpMinor},
 		{"2.4.1", "2.5.0", BumpPatch},
+		// A release candidate's fixes ship as its release, whatever they are.
+		{"2.0.0-rc.1", "2.0.0", BumpMajor},
+		{"2.0.0-rc.1", "2.0.0-rc.2", BumpMajor},
+		{"2.0.0-rc.1", "2.0.0", BumpMinor},
 	}
 	for _, c := range ok {
 		if err := CheckBump(c.base, c.next, c.need); err != nil {
@@ -52,6 +56,7 @@ func TestCheckBump(t *testing.T) {
 		{"2.4.0", "2.4.1", BumpMinor, "publish 2.5.0 or higher"},
 		{"2.4.0", "2.4.0", BumpPatch, "publish 2.4.1 or higher"},
 		{"2.4.0-rc.1", "2.4.0-rc.0", BumpPatch, "patch bump"},
+		{"2.0.0-rc.1", "2.0.1", BumpMajor, "publish 3.0.0 or higher"},
 		{"x", "1.0.0", BumpPatch, "published version"},
 		{"1.0.0", "x", BumpPatch, `version "x" is not semver`},
 	}
