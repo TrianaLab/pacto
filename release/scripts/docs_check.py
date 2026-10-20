@@ -560,8 +560,19 @@ def check_coordinates() -> None:
             problems.append(
                 f"{name}: hand-written --version {ver}; include "
                 f"generated/_install-command.md, _upgrade-command.md or "
-                f"_delivery-install-command.md instead"
+                "_delivery-{install,upgrade}-command.md instead"
             )
+    # Each CRD-apply snippet must name exactly the CRDs its chart ships in crds/,
+    # the directory `helm upgrade` never updates. A delivery CRD in the operator
+    # snippet would install delivery on an operator upgrade; a missing one would
+    # leave a chart's schema stale.
+    for snippet, chart in (("_crd-apply.md", "pacto-operator"),
+                           ("_delivery-crd-apply.md", "pacto-delivery")):
+        named = sorted(re.findall(r"/config/crd/bases/(\S+\.yaml)",
+                                  read(os.path.join(K8S, "docs", "generated", snippet))))
+        shipped = sorted(os.listdir(os.path.join(K8S, "charts", chart, "crds")))
+        if named != shipped:
+            problems.append(f"{snippet} applies {named}, chart {chart} ships {shipped}")
     # Every pinned image coordinate anywhere on the site, not only the chart's.
     # `ghcr.io/trianalab/pacto/demo:3.2.1` sat in the Compose demo page against a
     # 3.2.7 release unit with nothing comparing them, so the page's one

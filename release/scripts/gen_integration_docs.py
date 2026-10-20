@@ -20,7 +20,9 @@ Source-of-truth map (page -> inputs):
   _install-command.md      <- release/release-manifest.json (operator-chart version)
   _upgrade-command.md      <- release/release-manifest.json (operator-chart version)
   _delivery-install-command.md <- release/release-manifest.json (delivery-chart version)
+  _delivery-upgrade-command.md <- release/release-manifest.json (delivery-chart version)
   _crd-apply.md            <- release/release-manifest.json (k8s-module release tag)
+  _delivery-crd-apply.md   <- release/release-manifest.json (k8s-module release tag)
 
 Usage:
   python3 release/scripts/gen_integration_docs.py [--repo-root DIR] [--integration-dir DIR]
@@ -1164,10 +1166,10 @@ def gen_chart_command(repo_root: str, verb: str) -> str:
     )
 
 
-def gen_delivery_install_command(repo_root: str) -> str:
+def gen_delivery_chart_command(repo_root: str, verb: str) -> str:
     manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
     return banner("release/release-manifest.json") + chart_command(
-        manifest["units"]["delivery-chart"], "install", "pacto-delivery", "pacto-delivery"
+        manifest["units"]["delivery-chart"], verb, "pacto-delivery", "pacto-delivery"
     )
 
 
@@ -1184,11 +1186,17 @@ CRD_BASES = "integrations/kubernetes/config/crd/bases"
 RAW_BASE = "https://raw.githubusercontent.com/TrianaLab/pacto"
 
 
-def gen_crd_apply(repo_root: str) -> str:
+# The delivery chart has the same Helm gap, so it gets its own snippet over its
+# own group. One glob per snippet keeps the two upgrades apart: neither ever
+# installs the other's CRDs.
+def gen_crd_apply(repo_root: str, group: str = "pacto.trianalab.io") -> str:
     manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
     tag = manifest["units"]["k8s-module"]["tag"]
+    paths = sorted(glob.glob(os.path.join(repo_root, CRD_BASES, f"{group}_*.yaml")))
+    if not paths:
+        raise SystemExit(f"no {group} CRDs in {CRD_BASES}")
     out = [banner("release/release-manifest.json"), "```bash"]
-    for path in sorted(glob.glob(os.path.join(repo_root, CRD_BASES, "pacto.trianalab.io_*.yaml"))):
+    for path in paths:
         out.append("kubectl apply --server-side --force-conflicts \\")
         out.append(f"  -f {RAW_BASE}/{tag}/{CRD_BASES}/{os.path.basename(path)}")
     out.append("```")
@@ -1311,8 +1319,10 @@ def main() -> int:
         "_compatibility.md": gen_compatibility(repo_root, k8s),
         "_install-command.md": gen_chart_command(repo_root, "install"),
         "_upgrade-command.md": gen_chart_command(repo_root, "upgrade"),
-        "_delivery-install-command.md": gen_delivery_install_command(repo_root),
+        "_delivery-install-command.md": gen_delivery_chart_command(repo_root, "install"),
+        "_delivery-upgrade-command.md": gen_delivery_chart_command(repo_root, "upgrade"),
         "_crd-apply.md": gen_crd_apply(repo_root),
+        "_delivery-crd-apply.md": gen_crd_apply(repo_root, "delivery.pacto.trianalab.io"),
     }
     for name, content in pages.items():
         path = os.path.join(out_dir, name)

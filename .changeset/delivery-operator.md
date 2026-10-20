@@ -42,4 +42,7 @@ The delivery image (`ghcr.io/trianalab/pacto/delivery`) and chart
 and versioned with the operator on every release, so install the delivery
 chart at your operator's version. The operator `Dockerfile` takes
 `CMD=cmd/delivery` to build the delivery image.
-`make sync-crds` now copies each API group into its own chart.
+`make sync-crds` now copies each API group into its own chart. Helm never
+updates a chart's CRDs, so the delivery page shows how to apply the delivery
+CRDs before `helm upgrade pacto-delivery`; the operator upgrade still applies
+only its own.

@@ -79,6 +79,21 @@ helm install pacto-delivery integrations/kubernetes/charts/pacto-delivery \
 Then bind `pacto-delivery-agent` to your agents' own service accounts and
 `pacto-delivery-approver` to the people who may approve.
 
+## Upgrading
+
+Helm installs the delivery CRDs on the first `helm install` and never updates
+them, so apply the new ones before you upgrade the chart. The URLs are pinned
+to the release these docs describe:
+
+--8<-- "integrations/kubernetes/docs/generated/_delivery-crd-apply.md"
+
+Then upgrade the release:
+
+--8<-- "integrations/kubernetes/docs/generated/_delivery-upgrade-command.md"
+
+Upgrading the operator never touches these CRDs; see
+[Upgrade the Kubernetes operator](upgrade.md) for its own steps.
+
 ## Set up a Stage
 
 Each artifact you deploy is an OCI artifact of manifests whose
