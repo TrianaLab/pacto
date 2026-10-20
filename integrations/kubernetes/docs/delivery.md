@@ -183,23 +183,25 @@ Agents get the same tools over MCP with `pacto mcp --delivery`:
 `pacto_delivery_operation_types`, `_describe`, `_plan`, `pacto_delivery_get`,
 `_explain` and `_history` for anyone, plus `_propose` and
 `pacto_delivery_cancel` only when the apiserver says the caller is an agent.
-There is no approve tool. The server runs over stdio only, beside the agent and
-under its own credentials: over HTTP every caller would act as the server.
+There is no approve tool. Over stdio the server runs beside the agent, under
+its own credentials. Over HTTP each request acts as its own caller; see
+[sign-in, approvals and agents](delivery-identity.md).
 
 ## Who may do what
 
 | Identity | May | May not |
 |---|---|---|
 | Agent (its own service account or the `pacto:agents` group) | propose, read and cancel operations | approve, unfreeze, write status, edit the pointer |
-| Person | the above, plus approve and unfreeze | write status |
+| Person | the above, plus approve (a question their team is asked) and unfreeze | write status |
 | Break-glass (`pacto:break-glass`) | override and edit `spec.ref.digest` | |
 | Promoter | write status and raise its own operations | sign or push |
 
 An approval is bound to the operation's uid and intent digest. Admission
-requires `spec.by` to be the requesting user and `spec.authTime` to be the
-login time in `userInfo.extra["pacto.dev/auth-time"]`, which structured
-authentication maps from the OIDC `auth_time` claim. The promoter refuses a
-login older than 15 minutes and an approval from the operation's own actor.
+requires `spec.by` and `spec.groups` to be the requesting user's and
+`spec.authTime` to be the login time in `userInfo.extra["pacto.dev/auth-time"]`,
+which structured authentication maps from the OIDC `auth_time` claim. The
+promoter refuses a login older than 15 minutes, an approval from the
+operation's own actor and one from outside the teams the question names.
 An agent holding a person's credentials cannot be told apart from that person;
 this raises the bar, it does not close the gap.
 
@@ -212,7 +214,6 @@ a witnessed override, adopts it and freezes the Stage.
   deleted; the promoter then lets it go.
 - Stage approval policy is `approval.always`, not an expression.
 - History reads the operations still in the cluster, so it is partial.
-- No remote MCP access yet.
 - One cluster, Flux only.
 - Flux checks the signatures, so a digest it never verified on the candidate
   source cannot be promoted, even if `pacto publish` signed it.

@@ -223,13 +223,21 @@ pacto dashboard [sources...] [flags]
 **Flags:**
 
 ```
-      --cors-origin string         explicit cross-origin allowed to call the API (default: same-origin only)
-  -h, --help                       help for dashboard
-      --host string                bind address for the dashboard server (default "127.0.0.1")
-      --namespace string           Kubernetes namespace (empty = all namespaces)
-      --port int                   port for the dashboard server (default 3000)
-      --trace-source stringArray   named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)
-      --traces stringArray         OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
+      --agent-groups strings         groups whose members are agents, as the delivery promoter is configured (default [pacto:agents])
+      --break-glass-groups strings   groups that may override, as the delivery promoter is configured (default [pacto:break-glass])
+      --cors-origin string           explicit cross-origin allowed to call the API (default: same-origin only)
+  -h, --help                         help for dashboard
+      --host string                  bind address for the dashboard server (default "127.0.0.1")
+      --mira-url string              Mira's address, to link the health-check citations of delivery verdicts
+      --namespace string             Kubernetes namespace (empty = all namespaces)
+      --oidc-client-id string        OpenID Connect client id of the dashboard
+      --oidc-extra-scopes strings    scopes to ask for beyond openid, profile and groups
+      --oidc-issuer-url string       OpenID Connect issuer people sign in with; delivery views and actions then run as the signed-in person (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)
+      --oidc-redirect-url string     the dashboard's /auth/callback as browsers reach it (https)
+      --port int                     port for the dashboard server (default 3000)
+      --team-group-prefix string     a contract owner team T is group T or this prefix plus T, as the delivery promoter is configured
+      --trace-source stringArray     named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)
+      --traces stringArray           OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
 ```
 
 It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached).
@@ -1055,6 +1063,8 @@ With --fleet, the server instead exposes the read-only operational-graph query t
 
 With --delivery, the server instead exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, describe, plan and get, plus propose and cancel only when the apiserver says the caller is an agent (a service account or an --agent-groups member). There is no approve tool.
 
+Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies (issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback needs them. With --delivery the server then exchanges each caller's token for one the apiserver accepts (RFC 8693, --exchange-client-id) and builds the tools for that caller on every request, so an agent proposes as itself and a person gets the read-only tools.
+
 With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish a contract's version exactly as `pacto publish` does, with this process's registry credentials.
 
 A bundle reference, --root, --fleet, --delivery and --publish select different servers and cannot be combined.
@@ -1088,21 +1098,27 @@ pacto mcp [bundle-ref] [flags]
 ```
       --agent-groups strings         in --delivery mode: groups whose members are agents (default [pacto:agents])
       --allow-writes                 expose mutating operations (POST/PUT/PATCH/DELETE) as tools
+      --audience string              with --auth-issuer: the audience incoming tokens must carry (default --resource)
       --auth stringArray             credential for a security scheme as name=value (repeatable)
+      --auth-issuer string           OpenID issuer whose bearer tokens every HTTP request must carry
       --base-url string              base URL for live invocation (overrides the OpenAPI servers[] URL)
       --break-glass-groups strings   in --delivery mode: groups that may override (default [pacto:break-glass])
       --cache                        include every bundle in the local OCI cache as an offline baseline revision
       --delivery                     expose the Pacto delivery tools over the ambient cluster
       --evidence-url stringArray     base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --exchange-audience string     with --delivery over HTTP: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
+      --exchange-client-id string    with --delivery over HTTP: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
       --fleet                        expose read-only operational-graph (fleet) query tools
       --freshness duration           mark target evidence older than this as stale (0 disables)
   -h, --help                         help for mcp
+      --host string                  bind address for HTTP transport; beyond loopback it needs --auth-issuer (default "127.0.0.1")
       --k8s                          include live Pacto CRs from the current Kubernetes cluster as targets
       --local stringArray            local bundle root(s) to scan (repeatable) (default [.])
       --namespace string             namespace to read Pacto CRs from with --k8s (empty = all namespaces)
       --oci stringArray              registry reference to include as a published-baseline revision (repeatable)
       --port int                     port for HTTP transport (default 8585)
       --publish                      expose pacto_publish_plan and pacto_publish beside the authoring tools
+      --resource string              with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)
       --root stringArray             contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
       --target-state stringArray     offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
       --traces stringArray           OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)

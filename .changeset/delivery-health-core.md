@@ -25,5 +25,4 @@ citation and how to run it again. `pacto delivery history` lists a Stage's
 operations from the cluster and says the answer is partial until signed
 records exist. `plan` and `propose` take `--cause-verdict`. The MCP server adds
 `pacto_delivery_explain`, `pacto_delivery_history` and a `cause_verdict`
-argument. `pacto mcp --delivery` now refuses the HTTP transport, because every
-remote caller would act as the server's own identity.
+argument.
