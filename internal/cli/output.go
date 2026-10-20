@@ -91,7 +91,11 @@ func printPackResult(cmd *cobra.Command, result *app.PackResult, format string) 
 func printPushResult(cmd *cobra.Command, result *app.PushResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
 		w := cmd.OutOrStdout()
-		_, _ = fmt.Fprintf(w, "%sPushed %s@%s -> %s\n", okGlyph(w), result.Name, result.Version, result.Ref)
+		verb := "Pushed"
+		if result.Unchanged {
+			verb = "Already published"
+		}
+		_, _ = fmt.Fprintf(w, "%s%s %s@%s -> %s\n", okGlyph(w), verb, result.Name, result.Version, result.Ref)
 		_, _ = fmt.Fprintf(w, "Digest: %s\n", result.Digest)
 		return nil
 	}, nil)

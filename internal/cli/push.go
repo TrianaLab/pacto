@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"errors"
-	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -14,7 +12,8 @@ func newPushCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "push <ref>",
 		Short: "Push a contract bundle to an OCI registry",
-		Long:  "Validates the contract (including remote policy and config refs), builds an OCI artifact and pushes it to the specified registry reference.",
+		Long: "Validates the contract (including remote policy and config refs), builds an OCI artifact and pushes it to the specified registry reference. " +
+			"Pushing the same content again succeeds without writing anything; different content under an existing reference is refused unless --force.",
 		Example: `  # Push with auto-tag (uses contract version)
   pacto push oci://ghcr.io/acme/my-service-pacto -p my-service
 
@@ -40,10 +39,6 @@ func newPushCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 			})
 			if err != nil {
 				sp.Stop()
-				if errors.Is(err, app.ErrArtifactAlreadyExists) {
-					_, _ = fmt.Fprintf(cmd.OutOrStderr(), "Warning: %s\n", err)
-					return nil
-				}
 				return err
 			}
 			sp.StopOK("Pushed", start)

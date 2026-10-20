@@ -18,8 +18,8 @@ import (
 // running docker buildx, the declared command, cosign and syft.
 type Tools interface {
 	// Build runs a's builder, which writes the artifact to out. env holds
-	// PACTO_OUT, PACTO_VERSION and PACTO_DIGEST_<NAME> / PACTO_REF_<NAME> for
-	// every artifact already built.
+	// PACTO_OUT, PACTO_VERSION, PACTO_REVISION and PACTO_DIGEST_<NAME> /
+	// PACTO_REF_<NAME> for every artifact already built.
 	Build(ctx context.Context, a contract.PublishArtifact, out string, env []string) error
 	// Sign signs ref (repo@digest) unless a valid signature by the configured
 	// identity is already there; signed says whether it wrote one.
@@ -60,7 +60,7 @@ func Apply(ctx context.Context, reg Registry, tools Tools, in Input) (*Result, e
 	bundleItem := p.Items[len(p.Items)-1]
 	bundleDigest := bundleItem.Digest
 	bundleRepo := Repo(pub.Bundle)
-	env := []string{"PACTO_VERSION=" + version}
+	env := []string{"PACTO_VERSION=" + version, "PACTO_REVISION=" + in.Revision}
 	var tags []func() error
 	var deployTag func() error
 	for i, a := range pub.Artifacts {

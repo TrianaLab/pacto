@@ -179,15 +179,42 @@ func TestPushCommand_AlreadyExists(t *testing.T) {
 	root.SetOut(&out)
 	root.SetErr(&out)
 
-	if err := root.Execute(); err != nil {
-		t.Fatalf("expected no error (warning only), got: %v", err)
+	// Different content under an existing tag is refused, never overwritten.
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("expected a refusal, got: %v", err)
 	}
+}
 
-	if !strings.Contains(out.String(), "Warning:") {
-		t.Errorf("expected warning in output, got %q", out.String())
+// TestPushCommand_Identical: pushing the same content again succeeds and
+// writes nothing.
+func TestPushCommand_Identical(t *testing.T) {
+	bundleDir := testutil.WriteTestBundle(t)
+	var local string
+	store := &testutil.MockBundleStore{
+		ResolveFn: func(_ context.Context, _ string) (string, error) { return local, nil },
+		PushFn: func(context.Context, string, *contract.Bundle) (string, error) {
+			t.Fatal("an identical push must write nothing")
+			return "", nil
+		},
 	}
-	if !strings.Contains(out.String(), "already exists") {
-		t.Errorf("expected 'already exists' in output, got %q", out.String())
+	svc := app.NewService(store, nil)
+	b, err := svc.ResolveBundle(context.Background(), bundleDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local, err = oci.BundleDigest(b); err != nil {
+		t.Fatal(err)
+	}
+	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
+	root.SetArgs([]string{"push", "oci://ghcr.io/acme/svc:1.0.0", "--path", bundleDir})
+	var out bytes.Buffer
+	root.SetOut(&out)
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Already published test-svc@1.0.0") {
+		t.Errorf("output %q", out.String())
 	}
 }
 

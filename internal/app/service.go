@@ -15,6 +15,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
 // Service is the application service container. It holds injected dependencies
@@ -48,6 +49,10 @@ type sysDeps struct {
 	readinessTimeout time.Duration
 	// httpClient posts evidence envelopes.
 	httpClient *http.Client
+	// run runs the programs publish hands work to (git, docker, cosign, syft).
+	run runner
+	// publishRegistry is the registry publish reads and writes.
+	publishRegistry func() publish.Registry
 }
 
 // env is sys with every unset field at its production default.
@@ -85,6 +90,12 @@ func (s *Service) env() sysDeps {
 	}
 	if d.httpClient == nil {
 		d.httpClient = evidenceClient
+	}
+	if d.run == nil {
+		d.run = execRun
+	}
+	if d.publishRegistry == nil {
+		d.publishRegistry = defaultPublishRegistry
 	}
 	return d
 }
