@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/catalog"
@@ -67,7 +68,16 @@ type ContractCheck struct {
 // generation of that very object. Anything else is Unknown, so a result for an
 // old version is never read as the answer for a new one.
 func ContractVerdict(in ContractCheck) Verdict {
-	v := Verdict{Gate: GateContract, Phase: "verify", Result: Unknown, Citation: map[string]string{"contract": in.ContractRef}}
+	return eachPacto(in, GateContract, func(p PactoView) (Result, string) {
+		return MapContractStatus(p.Status.ContractStatus), p.Status.ContractStatus
+	}, nil)
+}
+
+// eachPacto runs judge on every Pacto that provably evaluated the applied
+// version and folds the answers into one verdict, worst first. A Pacto that
+// did not is Unknown, so a result for an old version never counts.
+func eachPacto(in ContractCheck, gate string, judge func(PactoView) (Result, string), cite func(PactoView, map[string]string)) Verdict {
+	v := Verdict{Gate: gate, Phase: "verify", Result: Unknown, Citation: map[string]string{"contract": in.ContractRef}}
 	want := ContractDigest(in.ContractRef)
 	switch {
 	case want == "":
@@ -83,7 +93,13 @@ func ContractVerdict(in ContractCheck) Verdict {
 	worst := Pass
 	var msgs []string
 	for _, p := range in.Pactos {
-		r, msg := pactoVerdict(p, want, in.Workload)
+		r, msg := Unknown, staleness(p, want, in.Workload)
+		if msg == "" {
+			r, msg = judge(p)
+			if cite != nil {
+				cite(p, v.Citation)
+			}
+		}
 		msgs = append(msgs, p.Metadata.Name+": "+msg)
 		worst = worse(worst, r)
 	}
@@ -92,29 +108,84 @@ func ContractVerdict(in ContractCheck) Verdict {
 	return v
 }
 
-func pactoVerdict(p PactoView, want string, workload func(kind, name string) *WorkloadState) (Result, string) {
+// staleness says why a Pacto's result is not about the applied version, or ""
+// when it is: the evaluated contract digest is the applied one and the
+// evaluated workload generation is current.
+func staleness(p PactoView, want string, workload func(kind, name string) *WorkloadState) string {
 	e := p.Status.EvaluatedRevision
 	if e == nil || e.ContractDigest != want {
 		got := ""
 		if e != nil {
 			got = e.ContractDigest
 		}
-		return Unknown, fmt.Sprintf("last evaluated contract %s, not %s", short(got), short(want))
+		return fmt.Sprintf("last evaluated contract %s, not %s", short(got), short(want))
 	}
-	if e.Workload.Name != "" {
-		w := workload(e.Workload.Kind, e.Workload.Name)
-		switch {
-		case w == nil:
-			return Unknown, "the evaluated workload " + e.Workload.Kind + "/" + e.Workload.Name + " is gone"
-		case w.UID != e.Workload.UID:
-			return Unknown, "the workload was replaced after it was evaluated"
-		case w.ObservedGeneration != w.Generation:
-			return Unknown, fmt.Sprintf("the workload controller has not observed generation %d yet", w.Generation)
-		case e.Workload.Generation < w.Generation:
-			return Unknown, fmt.Sprintf("Pacto evaluated generation %d, the workload is at %d", e.Workload.Generation, w.Generation)
+	if e.Workload.Name == "" {
+		return ""
+	}
+	switch w := workload(e.Workload.Kind, e.Workload.Name); {
+	case w == nil:
+		return "the evaluated workload " + e.Workload.Kind + "/" + e.Workload.Name + " is gone"
+	case w.UID != e.Workload.UID:
+		return "the workload was replaced after it was evaluated"
+	case w.ObservedGeneration != w.Generation:
+		return fmt.Sprintf("the workload controller has not observed generation %d yet", w.Generation)
+	case e.Workload.Generation < w.Generation:
+		return fmt.Sprintf("Pacto evaluated generation %d, the workload is at %d", e.Workload.Generation, w.Generation)
+	}
+	return ""
+}
+
+// claimCodes are the findings that contradict what a version declares about
+// its calls and ports. They count as claims only when the node agent's kernel
+// evidence backs them: an undeclared call (a Pacto-managed service the
+// contract never names) or a declared port nothing listens on.
+var claimCodes = []string{"DEPENDENCY_UNDECLARED", "INTERFACE_ABSENT"}
+
+// RuntimeVerdict is the pacto.runtime claim gate: what the running version
+// does against what its contract declares, as the node agent saw it, read
+// from the Pacto evaluation of exactly this version. A contradiction the
+// kernel saw is Fail even when coverage is partial, because it was seen. With
+// no contradiction it passes only under complete kernel coverage: anything
+// less cannot rule a contradiction out, so it is Unknown.
+func RuntimeVerdict(in ContractCheck) Verdict {
+	return eachPacto(in, GateRuntime, func(p PactoView) (Result, string) {
+		if seen := contradictions(p); len(seen) > 0 {
+			return Fail, "calls or listens contrary to its contract: " + strings.Join(seen, "; ")
+		}
+		switch cov := p.Status.EvaluatedRevision.KernelCoverage; cov {
+		case "Complete":
+			return Pass, "the node agent saw nothing the contract does not declare"
+		case "":
+			return Unknown, "the node agent is not observing this workload (kernel evidence is off)"
+		default:
+			return Unknown, "kernel coverage is " + cov + ", so a contradiction cannot be ruled out"
+		}
+	}, func(p PactoView, c map[string]string) {
+		c[p.Metadata.Name+".evaluatedContract"] = p.Status.EvaluatedRevision.ContractDigest
+		c[p.Metadata.Name+".kernelCoverage"] = p.Status.EvaluatedRevision.KernelCoverage
+		c[p.Metadata.Name+".evaluatedAt"] = p.Status.LastReconciledAt
+		if seen := contradictions(p); len(seen) > 0 {
+			c[p.Metadata.Name+".findings"] = strings.Join(seen, "; ")
+		}
+	})
+}
+
+// contradictions lists the claim findings the kernel backs, with the evidence.
+func contradictions(p PactoView) []string {
+	var out []string
+	for _, f := range p.Status.Findings {
+		if !slices.Contains(claimCodes, f.Code) {
+			continue
+		}
+		for _, e := range f.EvidenceRefs {
+			if e.Collector == "ebpf" || strings.HasSuffix(e.Collector, "+ebpf") {
+				out = append(out, fmt.Sprintf("%s %s (%s at %s)", f.Code, f.Subject, e.Collector, e.DetectedAt))
+				break
+			}
 		}
 	}
-	return MapContractStatus(p.Status.ContractStatus), p.Status.ContractStatus
+	return out
 }
 
 // MapContractStatus is the closed mapping from Pacto's contract status to a

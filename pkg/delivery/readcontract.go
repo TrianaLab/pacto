@@ -33,6 +33,23 @@ type PactoStatusView struct {
 	Contract           *ContractInfoView `json:"contract"`
 	Dependencies       []DependencyView  `json:"dependencies"`
 	EvaluatedRevision  *EvaluatedView    `json:"evaluatedRevision"`
+	Findings           []FindingView     `json:"findings"`
+}
+
+// FindingView is one Pacto.status.findings entry.
+type FindingView struct {
+	Code         string            `json:"code"`
+	Severity     string            `json:"severity"`
+	Subject      string            `json:"subject"`
+	Message      string            `json:"message"`
+	EvidenceRefs []EvidenceRefView `json:"evidenceRefs"`
+}
+
+// EvidenceRefView is the part of a finding's evidence reference delivery
+// cites: which collector saw it and when.
+type EvidenceRefView struct {
+	Collector  string `json:"collector"`
+	DetectedAt string `json:"detectedAt"`
 }
 
 // ContractInfoView is Pacto.status.contract.
@@ -56,6 +73,10 @@ type DependencyView struct {
 type EvaluatedView struct {
 	ContractDigest string       `json:"contractDigest"`
 	Workload       WorkloadView `json:"workload"`
+	// KernelCoverage is how far the node agent's view of the workload could be
+	// trusted in that evaluation: Complete, Partial, Failed or Stale, empty
+	// when kernel evidence is off.
+	KernelCoverage string `json:"kernelCoverage"`
 }
 
 // WorkloadView identifies one generation of one workload object.

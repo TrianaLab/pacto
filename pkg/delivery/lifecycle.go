@@ -106,3 +106,9 @@ func NewestCandidate(status StageStatus, ociRevision string, upstream *StageStat
 func VerifyWindow(spec StageSpec) time.Duration {
 	return durationOr(spec.Gates.Verify.Window, DefaultVerifyWindow)
 }
+
+// RecheckInterval is how often the Stage's verify gates run again on a shipped
+// version, defaulting to DefaultRecheck.
+func RecheckInterval(spec StageSpec) time.Duration {
+	return durationOr(spec.Gates.Verify.Recheck, DefaultRecheck)
+}

@@ -76,6 +76,8 @@ const (
 	defaultExecutionDeadline = "15m"
 	// DefaultVerifyWindow applies when a Stage does not set one.
 	DefaultVerifyWindow = "5m"
+	// DefaultRecheck is how often a shipped version is checked again.
+	DefaultRecheck = "1m"
 )
 
 var tier0 = []OperationType{

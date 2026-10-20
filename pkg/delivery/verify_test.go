@@ -149,6 +149,9 @@ func TestSetsAutoHoldAndDigestMemories(t *testing.T) {
 	if VerifyWindow(StageSpec{}) != 5*time.Minute || VerifyWindow(StageSpec{Gates: Gates{Verify: VerifyGates{Window: "30s"}}}) != 30*time.Second {
 		t.Fatal("VerifyWindow")
 	}
+	if RecheckInterval(StageSpec{}) != time.Minute || RecheckInterval(StageSpec{Gates: Gates{Verify: VerifyGates{Recheck: "10s"}}}) != 10*time.Second {
+		t.Fatal("RecheckInterval")
+	}
 }
 
 func TestNewestCandidate(t *testing.T) {
@@ -170,5 +173,65 @@ func TestNewestCandidate(t *testing.T) {
 	}
 	if got := NewestCandidate(StageStatus{Pointer: dC, Verified: []string{dB, dC}}, "v1@"+dB, nil); got != "" {
 		t.Fatalf("a tag moved back to an old digest is not new: %q", got)
+	}
+}
+
+// observed is a Pacto that evaluated contract c2 at generation 2 with the given
+// kernel coverage and findings.
+func observed(coverage string, findings ...FindingView) PactoView {
+	p := pactoAt("p", c2, "Warning", 2)
+	p.Status.EvaluatedRevision.KernelCoverage = coverage
+	p.Status.Findings = findings
+	return p
+}
+
+func kernelFinding(code, subject, collector string) FindingView {
+	return FindingView{Code: code, Severity: "warning", Subject: subject, Message: subject + " seen",
+		EvidenceRefs: []EvidenceRefView{{Collector: collector, DetectedAt: "2026-10-20T10:01:00Z"}}}
+}
+
+func TestRuntimeVerdict(t *testing.T) {
+	ref := "oci://r/pactos/payments@" + c2
+	check := func(applied bool, p ...PactoView) Verdict {
+		return RuntimeVerdict(ContractCheck{ContractRef: ref, Applied: applied, Pactos: p, Workload: live("w1", 2, 2)})
+	}
+	undeclared := kernelFinding("DEPENDENCY_UNDECLARED", "dependency/fraud", "ebpf")
+	cases := []struct {
+		name string
+		v    Verdict
+		want Result
+		msg  string
+	}{
+		{"observed and clean", check(true, observed("Complete")), Pass, "the node agent saw nothing the contract does not declare"},
+		{"undeclared call", check(true, observed("Complete", undeclared)), Fail, "calls or listens contrary to its contract: DEPENDENCY_UNDECLARED dependency/fraud"},
+		{"contradiction under partial coverage", check(true, observed("Partial", undeclared)), Fail, "dependency/fraud"},
+		{"port not listening", check(true, observed("Complete", kernelFinding("INTERFACE_ABSENT", "interface/api", "k8s-observer+ebpf"))), Fail, "INTERFACE_ABSENT"},
+		{"api-only absence is not a claim", check(true, observed("Complete", kernelFinding("INTERFACE_ABSENT", "interface/api", "k8s-observer"))), Pass, "saw nothing"},
+		{"other findings are not claims", check(true, observed("Complete", kernelFinding("DEPENDENCY_VERSION_MISMATCH", "dependency/x", "ebpf"))), Pass, "saw nothing"},
+		{"kernel evidence off", check(true, observed("")), Unknown, "not observing"},
+		{"partial coverage", check(true, observed("Partial")), Unknown, "coverage is Partial"},
+		{"stale result", check(true, func() PactoView {
+			p := observed("Complete", undeclared)
+			p.Status.EvaluatedRevision.ContractDigest = c1
+			return p
+		}()), Unknown, "last evaluated contract"},
+		{"not applied", check(false, observed("Complete")), Unknown, "Flux"},
+		{"no pacto", check(true), Unknown, "no Pacto"},
+	}
+	for _, c := range cases {
+		if c.v.Result != c.want || !strings.Contains(c.v.Message, c.msg) || c.v.Gate != GateRuntime || c.v.Phase != "verify" {
+			t.Errorf("%s: got %+v, want %s containing %q", c.name, c.v, c.want, c.msg)
+		}
+	}
+	v := check(true, observed("Complete", undeclared))
+	if v.Citation["p.findings"] != "DEPENDENCY_UNDECLARED dependency/fraud (ebpf at 2026-10-20T10:01:00Z)" || v.Citation["p.kernelCoverage"] != "Complete" ||
+		v.Citation["contract"] != ref {
+		t.Errorf("citation: %v", v.Citation)
+	}
+	if v := check(true, observed("Complete")); v.Citation["p.kernelCoverage"] != "Complete" || v.Citation["p.evaluatedContract"] != c2 {
+		t.Errorf("a Pass cites what was observed: %v", v.Citation)
+	}
+	if v := RuntimeVerdict(ContractCheck{ContractRef: "oci://r/p:1", Applied: true}); v.Result != Unknown {
+		t.Errorf("tag: %+v", v)
 	}
 }

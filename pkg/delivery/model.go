@@ -118,13 +118,40 @@ type StageRef struct {
 // VerifyGates configures what runs after a version is applied.
 type VerifyGates struct {
 	// Window is how long the verify gates may stay Unknown before the
-	// operation is held for a human (a Go duration, default 5m).
+	// operation is held for a human (a Go duration, default 5m). Re-checks
+	// after release judge the same length of time.
 	// +optional
 	Window string `json:"window,omitempty"`
+	// Checks are this Stage's own verify gates, run beside the Pacto contract
+	// check: a health provider the delivery chart configures, or the built-in
+	// pacto.runtime claim gate.
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	Checks []GateCheck `json:"checks,omitempty"`
+	// Recheck is how often the verify gates run again on the version the
+	// Stage runs once it shipped (a Go duration, default 1m). A confirmed Fail
+	// rolls it back; Unknown never does.
+	// +optional
+	Recheck string `json:"recheck,omitempty"`
+}
+
+// GateCheck is one verify gate a Stage runs.
+type GateCheck struct {
+	// Name is the gate id its verdicts carry, unique on the Stage.
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+	// Provider is a gate provider configured in the delivery chart, or
+	// pacto.runtime. A Stage cannot name a URL: providers are operator
+	// configuration.
+	// +kubebuilder:validation:MinLength=1
+	Provider string `json:"provider"`
+	// Params are the provider's settings (thresholds, filters).
+	// +optional
+	Params map[string]string `json:"params,omitempty"`
 }
 
 // Gates configures the Stage's gates. The pre-gates are fixed by the operation
-// type in M0; the Pacto contract gate is the verify gate.
+// type; the Pacto contract check always verifies, beside the Stage's checks.
 type Gates struct {
 	// +optional
 	Verify VerifyGates `json:"verify,omitzero"`
@@ -210,6 +237,19 @@ type StageStatus struct {
 	// Candidate is the newest eligible candidate the stage reconciler saw.
 	// +optional
 	Candidate string `json:"candidate,omitempty"`
+	// LastCheck is the newest re-check of the running version after it shipped.
+	// +optional
+	LastCheck *Recheck `json:"lastCheck,omitempty"`
+}
+
+// Recheck is one run of the verify gates on a version that already shipped.
+type Recheck struct {
+	// Operation is the uid of the operation that shipped the version.
+	Operation string `json:"operation"`
+	Digest    string `json:"digest"`
+	// At is when the gates ran (RFC 3339).
+	At       string    `json:"at"`
+	Verdicts []Verdict `json:"verdicts,omitempty"`
 }
 
 // Params are the Tier 0 operation parameters. Digests are OCI manifest digests.
