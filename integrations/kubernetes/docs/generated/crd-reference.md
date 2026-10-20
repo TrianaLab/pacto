@@ -214,6 +214,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.lastOp` | `string` | no |  |  | LastOp is the uid of the operation that last moved the pointer. |
 | `status.locks` | `object` | no |  |  | Locks maps a facet to the uid of the operation holding it. |
 | `status.pointer` | `string` | no |  |  | Pointer is the digest the environment runs. |
+| `status.published` | `[]string` | no |  |  | Published holds the candidate digests Flux verified the signature of on the candidate OCIRepository (spec.verify), oldest first (cap 50). Only these are promoted from it. |
 | `status.stream` | `object` | no |  |  | Stream numbers a Stage's concluded operations. |
 | `status.stream.id` | `string` | no |  |  | ID is &lt;clusterID&gt;/&lt;namespace&gt;/&lt;name&gt;; the cluster id is the kube-system namespace uid. |
 | `status.stream.seq` | `integer` | no |  |  |  |
