@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 # Kind acceptance for Pacto delivery: phase 1 ("the core"), the promoter, the
 # Pacto contract check and Flux, running end to end on a local cluster; then
-# phase 2 ("health"), described where it starts below. DELIVERY_SKIP_CORE=1
-# skips the phase 1 scenarios (the setup still runs).
+# phase 2 ("health") and phase 3 ("publishing"), described where each starts
+# below. DELIVERY_SKIP_CORE=1 and DELIVERY_SKIP_HEALTH=1 skip those scenarios
+# (the setup still runs).
+#
+# A Stage promotes only versions `pacto publish` published: signed (Flux
+# verifies the signature through spec.verify on the candidate OCIRepository)
+# and naming their contract. Every phase 1 and 2 version is therefore signed
+# with the run's cosign key as it is pushed, the way CI would publish it.
 #
 # One service, payments, ships through two Stages: test (fed by a candidate tag
 # CI moves) and prod (fed by test's verified versions). A consumer, checkout,
@@ -63,6 +69,7 @@ dump_delivery() {
 trap 'rc=$?; [ $rc -ne 0 ] && { dump_diag "$NS"; dump_delivery; }; [ -z "${GEN_PID:-}" ] || kill "$GEN_PID" 2>/dev/null || true; pkill -f "kubectl.*port-forward" 2>/dev/null || true; exit $rc' EXIT
 
 command -v oras >/dev/null 2>&1 || fail "oras is required: it publishes the manifest artifacts Flux pulls"
+command -v cosign >/dev/null 2>&1 || fail "cosign is required: every version a Stage promotes is signed"
 command -v jq >/dev/null 2>&1 || fail "jq is required to read operations"
 
 VER="$(release_version kubernetes)"
@@ -98,6 +105,21 @@ kubectl apply --server-side -f "https://github.com/fluxcd/flux2/releases/downloa
 kubectl -n flux-system scale deploy helm-controller --replicas=0 >/dev/null 2>&1 || true
 kubectl -n flux-system rollout status deploy/source-controller --timeout=240s
 kubectl -n flux-system rollout status deploy/kustomize-controller --timeout=240s
+
+echo "== the signing key: a cosign key pair, its public half in a Secret Flux verifies with =="
+KEYDIR="$(mktemp -d)"
+(cd "$KEYDIR" && COSIGN_PASSWORD="" cosign generate-key-pair >/dev/null 2>&1) || fail "cosign could not generate a key pair"
+for n in test prod; do
+  kubectl -n "$n" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+done
+# sign_digest REPO DIGEST — sign an artifact in the run's registry, as a
+# publisher would. The signature lives beside the digest, so it is found under
+# the in-cluster name too.
+sign_digest() {
+  COSIGN_PASSWORD="" cosign sign --yes --key "$KEYDIR/cosign.key" --tlog-upload=false --use-signing-config=false \
+    --allow-http-registry "127.0.0.1:${LOCAL_REG_PORT}/$1@$2" >/dev/null 2>&1 || fail "signing $1@$2 failed"
+}
+VERIFY='verify: {provider: cosign, secretRef: {name: cosign-pub}}'
 
 echo "== the opt-in delivery chart =="
 helm install pacto-delivery "$DL_CHART" -n "$DELIVERY_NS" \
@@ -204,8 +226,8 @@ CHECKOUT="$(consumer_contract checkout "^1.0.0")"
 LEDGER="$(consumer_contract ledger ">=1.0.0")"
 
 # publish LABEL CONTRACT_REF — one version: a Deployment and its Pacto, as the
-# artifact Flux pulls, annotated with its contract and tagged with its label so
-# the registry keeps it. Prints the digest.
+# artifact Flux pulls, annotated with its contract, signed and tagged with its
+# label so the registry keeps it. Prints the digest.
 publish() {
   local label="$1" ref="$2" tag="$1" tree tgz digest
   tree="$(mktemp -d)"; tgz="$(mktemp -t payments.XXXXXX)"
@@ -240,6 +262,7 @@ YAML
   [ -n "$ref" ] && ann=(--annotation "pacto.dev/contract=$ref")
   digest="$(oras push --plain-http --disable-path-validation ${ann[@]+"${ann[@]}"} --format go-template='{{.digest}}' \
     "127.0.0.1:${LOCAL_REG_PORT}/${APP_REPO}:${tag}" "${tgz}:${FLUX_LAYER_TYPE}")"
+  sign_digest "$APP_REPO" "$digest"
   echo "$digest"
 }
 # candidate LABEL — what CI does when a version is ready: move the candidate tag.
@@ -269,6 +292,9 @@ wait_concluded() { # NS OP WANT_OUTCOME
   [ "$(outcome "$1" "$2")" = "$3" ] || fail "$1/$2 concluded $(outcome "$1" "$2"), want $3 ($(field "$1" "$2" reason): $(field "$1" "$2" message))"
 }
 held() { [ "$(field "$1" "$2" phase)" = Held ]; }
+# published_in NS DIGEST — the Stage remembers DIGEST as published: Flux
+# verified its signature on the candidate OCIRepository.
+published_in() { kubectl -n "$1" get stage "${3:-payments}" -o json | jq -e --arg d "$2" '.status.published // [] | index($d)' >/dev/null; }
 
 # DELIVERY_SKIP_CORE=1 runs the setup and phase 2 only, for iterating on it.
 if [ -z "${DELIVERY_SKIP_CORE:-}" ]; then
@@ -310,7 +336,7 @@ kind: OCIRepository
 metadata:
   name: payments
   labels: {delivery.pacto.trianalab.io/apply-ref: payments}
-spec: {interval: 30s, insecure: true, url: "oci://${REG_HOST}/${APP_REPO}", ref: {digest: "$A"}}
+spec: {interval: 30s, insecure: true, url: "oci://${REG_HOST}/${APP_REPO}", ref: {digest: "$A"}, $VERIFY}
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -335,7 +361,7 @@ kubectl -n test apply -f - >/dev/null <<YAML
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata: {name: payments-candidates}
-spec: {interval: 10s, insecure: true, url: "oci://${REG_HOST}/${APP_REPO}", ref: {tag: candidate}}
+spec: {interval: 10s, insecure: true, url: "oci://${REG_HOST}/${APP_REPO}", ref: {tag: candidate}, $VERIFY}
 ---
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Stage
@@ -416,8 +442,9 @@ never_retried() { [ "$(op_to test "$C" | wc -l | tr -d ' ')" = 1 ] && [ -z "$(op
 always 10 never_retried || fail "C was retried in test or reached prod"
 pass "item 2: C rolled back by one bound rollback, absent from prod, not retried"
 
-echo "== item 5: an artifact naming no contract waits for a person instead of shipping =="
-E="$(publish E "")"; candidate E
+echo "== item 5: a published artifact whose contract cannot be read waits for a person instead of shipping =="
+# E is signed and names a digest-pinned contract that is not in the registry.
+E="$(publish E "oci://${REG_HOST}/demo/payments@sha256:$(printf '0%.0s' $(seq 64))")"; candidate E
 OPE="$(wait_op test "$E")"
 eventually 30 held test "$OPE" || fail "E was not held: $(field test "$OPE" phase) $(field test "$OPE" reason)"
 field test "$OPE" question | grep -q "cannot see enough" || fail "E's question does not say Pacto cannot see enough: $(field test "$OPE" question)"
@@ -441,6 +468,14 @@ pass "item 5: E held for accept-unknown and cancelled by the agent; nothing move
 echo "== item 6: two agents propose at once; exactly one wins =="
 G="$(publish G "$C130")"
 H="$(publish H "$C140")"
+# Both must be published before an agent may propose them: Flux verifies each
+# on the candidate OCIRepository. Auto-promotion is paused meanwhile, so the
+# race is between the two agents and nothing else.
+kubectl -n test patch stage payments --type merge -p '{"spec":{"auto":false}}' >/dev/null
+for v in G H; do
+  candidate "$v"
+  eventually 60 published_in test "${!v}" || fail "$v was never verified as published: $(kubectl -n test get ocirepository payments-candidates -o jsonpath='{.status.conditions}')"
+done
 as_agent "$AGENT_A" propose -n test --stage payments --to "$G" --name race-g --reason "agent a" >/dev/null &
 PA=$!
 as_agent "$AGENT_B" propose -n test --stage payments --to "$H" --name race-h --reason "agent b" >/dev/null &
@@ -460,6 +495,13 @@ done
 WINNER="$G"; [ "$(outcome test race-h)" = Succeeded/Verified ] && WINNER="$H"
 has_pointer test "$WINNER" || fail "test does not run the winner"
 pass "item 6: race-g $(outcome test race-g), race-h $(outcome test race-h); one winner"
+# The candidate tag goes to the winner (already verified, so nothing new) and
+# auto-promotion resumes.
+WLABEL=G; [ "$WINNER" = "$H" ] && WLABEL=H
+candidate "$WLABEL"
+candidate_is_winner() { [ "$(kubectl -n test get ocirepository payments-candidates -o jsonpath='{.status.artifact.revision}')" = "candidate@$WINNER" ]; }
+eventually 30 candidate_is_winner || fail "the candidate OCIRepository never saw the tag move to the winner"
+kubectl -n test patch stage payments --type merge -p '{"spec":{"auto":true}}' >/dev/null
 OPW="$(wait_op prod "$WINNER")"; wait_concluded prod "$OPW" Succeeded/Verified
 
 echo "== item 4: F (payments 2.0.0) breaks checkout; it waits, and only checkout's team is asked =="
@@ -555,6 +597,8 @@ pass "$PROMOTES promotes, 0 witnessed overrides of their own"
 echo "DELIVERY CORE PASS"
 fi
 
+# DELIVERY_SKIP_HEALTH=1 runs the setup and phase 3 only, for iterating on it.
+if [ -z "${DELIVERY_SKIP_HEALTH:-}" ]; then
 # --- phase 2: health ----------------------------------------------------------
 # Mira (OTLP in, the query API the health gate reads) and the operator's node
 # agent (kernel evidence the claim gate reads) join the cluster. One Stage,
@@ -584,6 +628,7 @@ helm upgrade pacto-operator "$OP_CHART" -n "$NS" --reuse-values \
 for img in "$MIRA_IMG" "$AGNHOST"; do docker image inspect "$img" >/dev/null 2>&1 || docker pull -q "$img" >/dev/null; done
 load_images "$MIRA_IMG" "$AGNHOST"
 kubectl create namespace "$H" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl -n "$H" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl -n "$NS" apply -f - >/dev/null <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -717,8 +762,11 @@ spec:
   target: {workloadRef: {name: payments, kind: Deployment}}
 YAML
   tar -czf "$tgz" -C "$tree" .
-  oras push --plain-http --disable-path-validation --annotation "pacto.dev/contract=$C100" --format go-template='{{.digest}}' \
-    "127.0.0.1:${LOCAL_REG_PORT}/${H_REPO}:${label}" "${tgz}:${FLUX_LAYER_TYPE}"
+  local digest
+  digest="$(oras push --plain-http --disable-path-validation --annotation "pacto.dev/contract=$C100" --format go-template='{{.digest}}' \
+    "127.0.0.1:${LOCAL_REG_PORT}/${H_REPO}:${label}" "${tgz}:${FLUX_LAYER_TYPE}")"
+  sign_digest "$H_REPO" "$digest"
+  echo "$digest"
 }
 H1="$(publish_health h1)"
 H2="$(publish_health h2)"; mode h2 errors
@@ -732,7 +780,12 @@ kind: OCIRepository
 metadata:
   name: payments
   labels: {delivery.pacto.trianalab.io/apply-ref: payments}
-spec: {interval: 30s, insecure: true, url: "oci://${REG_HOST}/${H_REPO}", ref: {digest: "$H1"}}
+spec: {interval: 30s, insecure: true, url: "oci://${REG_HOST}/${H_REPO}", ref: {digest: "$H1"}, $VERIFY}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata: {name: payments-candidates}
+spec: {interval: 5s, insecure: true, url: "oci://${REG_HOST}/${H_REPO}", ref: {tag: candidate}, $VERIFY}
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -753,6 +806,7 @@ spec:
   service: {name: payments}
   environment: health
   applyRef: {name: payments}
+  candidates: {ociRepositoryRef: {name: payments-candidates}}
   gates:
     verify:
       window: 2m
@@ -766,8 +820,11 @@ spec:
 YAML
 eventually 60 reconciled "$H" payments || fail "health/payments was never reconciled"
 
-# ship LABEL DIGEST — agent-a proposes the version; prints the operation name.
+# ship LABEL DIGEST — CI moves the candidate tag to the version, Flux verifies
+# its signature, and agent-a proposes it; prints the operation name.
 ship() {
+  oras tag --plain-http "127.0.0.1:${LOCAL_REG_PORT}/${H_REPO}:$1" candidate >/dev/null
+  eventually 60 published_in "$H" "$2" || fail "$1 was never verified as published"
   as_agent "$AGENT_A" propose -n "$H" --stage payments --to "$2" --name "promote-$1" --reason "phase 2: $1" >/dev/null
   echo "promote-$1"
 }
@@ -868,6 +925,195 @@ pass "explain cites how to re-run, history lists every rollback"
 
 kill "$GEN_PID" "$MIRA_PF_PID" 2>/dev/null || true
 echo "DELIVERY HEALTH PASS"
+fi
+
+# --- phase 3: publishing -------------------------------------------------------
+# billing is published by the real `pacto publish` from a contract that declares
+# what it publishes: its bundle and one manifests artifact, the deploy artifact a
+# Flux Kustomization applies, built by a command and signed with the run's key.
+# It proves the vision's step-3 list against the registry and the cluster:
+#   - --plan lists exactly what is missing and writes nothing;
+#   - publishing writes the version signed, the deploy artifact naming its
+#     digest-pinned contract, and the same publish again writes nothing;
+#   - a breaking change published as a minor is refused and writes nothing;
+#   - delivery promotes the published version with no extra step;
+#   - an artifact pushed another way, unsigned though it names a valid
+#     contract, is never a candidate and a promote of it is refused.
+# `pacto publish` runs on the host, where the in-cluster registry name does not
+# resolve. HTTP_PROXY points plain-HTTP registry traffic at the port-forward, so
+# the contract's refs are the in-cluster names Flux and the promoter read.
+echo "== phase 3: pacto publish, and a Stage that promotes only what it published =="
+P=publish
+kubectl create namespace "$P" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl -n "$P" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+PUB="$(mktemp -d)"
+cp "$KEYDIR/cosign.key" "$PUB/cosign.key"
+cat > "$PUB/render.sh" <<'SH'
+#!/bin/sh
+# The manifests build: a Deployment and its Pacto, for the version publish passes.
+set -e
+cat > "$PACTO_OUT/kustomization.yaml" <<YAML
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources: [deployment.yaml, pacto.yaml]
+YAML
+cat > "$PACTO_OUT/deployment.yaml" <<YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: billing}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: billing}}
+  template:
+    metadata: {labels: {app: billing}, annotations: {version: "$PACTO_VERSION"}}
+    spec: {containers: [{name: app, image: registry.k8s.io/pause:3.9}]}
+YAML
+cat > "$PACTO_OUT/pacto.yaml" <<YAML
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata: {name: billing}
+spec:
+  checkIntervalSeconds: 30
+  contractRef: {oci: "oci://$BILLING_BUNDLE:$PACTO_VERSION"}
+  target: {workloadRef: {name: billing, kind: Deployment}}
+YAML
+SH
+chmod +x "$PUB/render.sh"
+billing_contract() { # VERSION WORKLOAD
+  cat > "$PUB/pacto.yaml" <<YAML
+pactoVersion: "2.1"
+service:
+  name: billing
+  version: $1
+  owner: {team: team-billing, dri: d, contacts: [{type: email, value: a@e.com, purpose: escalation}]}
+workload: $2
+state: {type: stateless, persistence: {scope: local, durability: ephemeral}, dataCriticality: low}
+publish:
+  bundle: oci://${REG_HOST}/demo/billing
+  deploy: manifests
+  artifacts:
+    - name: manifests
+      type: manifests
+      ref: oci://${REG_HOST}/apps/billing
+      build: {command: [./render.sh]}
+  sign: {key: cosign.key, transparencyLog: false}
+YAML
+}
+billing_contract 1.0.0 service
+printf 'cosign.key\nrender.sh\n' > "$PUB/.pactoignore"
+git -C "$PUB" init -q && git -C "$PUB" add -A && git -C "$PUB" -c user.email=ci@e.com -c user.name=ci commit -qm billing
+pub() {
+  (cd "$PUB" && HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" PACTO_INSECURE_REGISTRIES="$REG_HOST" COSIGN_PASSWORD="" \
+    BILLING_BUNDLE="${REG_HOST}/demo/billing" "$PACTO" publish "$@")
+}
+tags() { oras repo tags --plain-http "127.0.0.1:${LOCAL_REG_PORT}/$1" 2>/dev/null | sort | tr '\n' ' ' || true; }
+referrers() { oras discover --plain-http --format json "127.0.0.1:${LOCAL_REG_PORT}/$1" 2>/dev/null | jq '[.. | .digest? // empty] | length'; }
+
+kubectl -n "$P" apply -f - >/dev/null <<YAML
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata: {name: billing-candidates}
+spec: {interval: 5s, insecure: true, url: "oci://${REG_HOST}/apps/billing", ref: {semver: ">=0.0.0"}, $VERIFY}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: billing
+  labels: {delivery.pacto.trianalab.io/apply-ref: billing}
+spec: {interval: 30s, insecure: true, url: "oci://${REG_HOST}/apps/billing", ref: {}, $VERIFY}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: billing}
+spec:
+  interval: 1m
+  sourceRef: {kind: OCIRepository, name: billing}
+  path: ./
+  prune: true
+  timeout: 2m
+  targetNamespace: $P
+  healthChecks: [{apiVersion: apps/v1, kind: Deployment, name: billing, namespace: $P}]
+---
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Stage
+metadata: {name: billing}
+spec:
+  service: {name: billing}
+  environment: publish
+  applyRef: {name: billing}
+  candidates: {ociRepositoryRef: {name: billing-candidates}}
+  auto: true
+  gates: {verify: {window: 3m}}
+YAML
+
+echo "== --plan lists what is missing and writes nothing =="
+OUT="$(pub --plan)" || fail "the plan of a publishable version failed: $OUT"
+{ grep -q "manifests  manifests  absent" <<<"$OUT" && grep -q "bundle     bundle     absent" <<<"$OUT" \
+  && grep -q "2 to publish; nothing was changed" <<<"$OUT"; } || fail "the plan does not list the two missing artifacts: $OUT"
+[ -z "$(tags apps/billing)$(tags demo/billing)" ] || fail "--plan wrote to the registry: $(tags apps/billing) $(tags demo/billing)"
+pass "--plan lists the manifests and the bundle as absent and writes nothing"
+
+echo "== publish: signed, the deploy artifact naming its contract =="
+OUT="$(pub)" || fail "publish failed: $OUT"
+D1="$(grep -oE "^Deploy: ${REG_HOST}/apps/billing@sha256:[0-9a-f]{64}" <<<"$OUT" | sed 's/.*@//')"
+[ -n "$D1" ] || fail "publish named no deploy artifact: $OUT"
+CONTRACT="$(oras manifest fetch --plain-http "127.0.0.1:${LOCAL_REG_PORT}/apps/billing@$D1" | jq -r '.annotations["pacto.dev/contract"]')"
+[[ "$CONTRACT" == "oci://${REG_HOST}/demo/billing@sha256:"* ]] || fail "the deploy artifact names no digest-pinned contract: $CONTRACT"
+for ref in "apps/billing@$D1" "demo/billing@${CONTRACT##*@}"; do
+  cosign verify --key "$KEYDIR/cosign.pub" --insecure-ignore-tlog --allow-http-registry "127.0.0.1:${LOCAL_REG_PORT}/$ref" >/dev/null 2>&1 \
+    || fail "$ref is not signed with the publisher's key"
+done
+pass "publish wrote billing 1.0.0: $D1, signed, naming ${CONTRACT##*/}"
+
+echo "== the same publish again writes nothing =="
+BEFORE="$(tags apps/billing)|$(tags demo/billing)|$(referrers "apps/billing@$D1")"
+OUT="$(pub)" || fail "the second publish failed: $OUT"
+grep -q "Nothing to publish" <<<"$OUT" || fail "the second publish published something: $OUT"
+AFTER="$(tags apps/billing)|$(tags demo/billing)|$(referrers "apps/billing@$D1")"
+[ "$BEFORE" = "$AFTER" ] || fail "the second publish changed the registry: $BEFORE -> $AFTER"
+pass "a second publish wrote no tag, artifact or signature ($AFTER)"
+
+echo "== a breaking change published as a minor is refused =="
+billing_contract 1.1.0 job
+if OUT="$(pub --plan 2>&1)"; then fail "the plan of a breaking minor passed: $OUT"; fi
+grep -q "needs a major bump over 1.0.0: publish 2.0.0 or higher" <<<"$OUT" || fail "the plan does not say a major is needed: $OUT"
+if OUT="$(pub 2>&1)"; then fail "a breaking change was published as a minor: $OUT"; fi
+[ "$(tags apps/billing)|$(tags demo/billing)|$(referrers "apps/billing@$D1")" = "$AFTER" ] \
+  || fail "the refused publish wrote to the registry: $(tags apps/billing) $(tags demo/billing)"
+billing_contract 1.0.0 service
+pass "BREAKING since 1.0.0 is refused as 1.1.0, and nothing was written"
+
+echo "== delivery promotes the published version with no extra step =="
+OPP="$(wait_op "$P" "$D1")"
+wait_concluded "$P" "$OPP" Succeeded/Verified
+[ "$(kubectl -n "$P" get stage billing -o jsonpath='{.status.pointer}')" = "$D1" ] || fail "the Stage does not run the published version"
+[ "$(kubectl -n "$P" get deploy billing -o jsonpath='{.spec.template.metadata.annotations.version}')" = 1.0.0 ] \
+  || fail "the cluster does not run billing 1.0.0"
+published_in "$P" "$D1" billing || fail "the Stage does not remember $D1 as published"
+[ "$(field "$P" "$OPP" actorClass)" = controller ] || fail "the promote was not raised by the promoter"
+pass "the promoter promoted $D1 by itself and the contract check verified it"
+
+echo "== an artifact pushed another way is never a candidate =="
+FOREIGN_TREE="$(mktemp -d)"; FOREIGN_TGZ="$(mktemp -t foreign.XXXXXX)"
+(PACTO_OUT="$FOREIGN_TREE" PACTO_VERSION=9.9.9 BILLING_BUNDLE="${REG_HOST}/demo/billing" "$PUB/render.sh")
+tar -czf "$FOREIGN_TGZ" -C "$FOREIGN_TREE" .
+FOREIGN="$(oras push --plain-http --disable-path-validation --annotation "pacto.dev/contract=$CONTRACT" --format go-template='{{.digest}}' \
+  "127.0.0.1:${LOCAL_REG_PORT}/apps/billing:9.9.9" "${FOREIGN_TGZ}:${FLUX_LAYER_TYPE}")"
+unverified() {
+  kubectl -n "$P" get ocirepository billing-candidates -o json \
+    | jq -e '.status.conditions // [] | map(select(.type == "SourceVerified" and .status == "False")) | length > 0' >/dev/null
+}
+eventually 40 unverified || fail "Flux never refused the unsigned 9.9.9: $(kubectl -n "$P" get ocirepository billing-candidates -o jsonpath='{.status.conditions}')"
+never_candidate() {
+  [ -z "$(op_to "$P" "$FOREIGN")" ] && ! published_in "$P" "$FOREIGN" billing \
+    && [ "$(kubectl -n "$P" get stage billing -o jsonpath='{.status.pointer}')" = "$D1" ]
+}
+always 7 never_candidate || fail "the unsigned artifact became a candidate"
+as_agent "$AGENT_A" propose -n "$P" --stage billing --to "$FOREIGN" --name foreign --reason "pushed by hand" >/dev/null
+wait_concluded "$P" foreign Rejected/
+[ "$(field "$P" foreign reason)" = NotPublished ] || fail "the foreign promote was refused for the wrong reason: $(field "$P" foreign reason): $(field "$P" foreign message)"
+pass "the unsigned 9.9.9 ($FOREIGN) is never offered, and a promote of it is refused as NotPublished"
+echo "DELIVERY PUBLISH PASS"
 
 kill "$REG_PF_PID" 2>/dev/null || true
 echo "DELIVERY PASS"
