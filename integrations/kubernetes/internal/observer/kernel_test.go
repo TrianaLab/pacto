@@ -1080,3 +1080,36 @@ func TestKernelMerge_LeaseHeartbeat(t *testing.T) {
 		})
 	}
 }
+
+// TestKernelCoverage is what an evaluation reports about the node agent's view of the target's pods, so
+// a reader of the status (Pacto delivery's claim gate) can tell "observed and clean" from "not observed".
+func TestKernelCoverage(t *testing.T) {
+	cases := map[string]struct {
+		mutate func(f *kernelFixture)
+		kernel bool
+		want   string
+	}{
+		"complete":          {func(*kernelFixture) {}, true, "Complete"},
+		"stale":             {func(f *kernelFixture) { f.node.Status.LastPublished = kTime(5 * time.Minute) }, true, "Stale"},
+		"collection failed": {func(f *kernelFixture) { f.node.Status.Collection.State = pactoapi.CollectionFailed }, true, "Failed"},
+		"shared netns":      {func(f *kernelFixture) { f.entry().NetnsShared = true }, true, "Partial"},
+		"no pod":            {func(f *kernelFixture) { f.pod.Spec.NodeName = ""; f.pod.Status.Phase = corev1.PodPending }, true, "Partial"},
+		"pod list failed":   {func(f *kernelFixture) { f.funcs = interceptor.Funcs{List: failList[*corev1.PodList]()} }, true, "Failed"},
+		"kernel off":        {func(*kernelFixture) {}, false, ""},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newKernelFixture()
+			c.mutate(f)
+			cl := fake.NewClientBuilder().WithScheme(kernelScheme()).WithObjects(f.objects(true)...).WithInterceptorFuncs(f.funcs).Build()
+			o := New(cl)
+			if got := o.KernelCoverage(); got != "" {
+				t.Fatalf("before any Collect: %q", got)
+			}
+			_, _, _ = o.Collect(context.Background(), f.input(c.kernel))
+			if got := o.KernelCoverage(); got != c.want {
+				t.Fatalf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}

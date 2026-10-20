@@ -129,6 +129,24 @@ func (o *Observer) loadKernelView(ctx context.Context, input CollectInput, now t
 	return kv
 }
 
+// coverage is the worst coverage among the target's pods. A target with no running pod has nothing the
+// kernel could speak for, which is partial: it can never confirm a clean run.
+func (kv *kernelView) coverage() string {
+	switch {
+	case kv == nil:
+		return ""
+	case kv.failed:
+		return runtimefacts.CoverageFailed.String()
+	case len(kv.pods) == 0:
+		return runtimefacts.CoveragePartial.String()
+	}
+	worst := runtimefacts.CoverageComplete
+	for _, kp := range kv.pods {
+		worst = max(worst, kp.Coverage)
+	}
+	return worst.String()
+}
+
 // classify computes one pod's kernel coverage against the node objects this view read.
 func (kv *kernelView) classify(pod *corev1.Pod) kernelPod {
 	return kernelPod{pod: pod, Observed: runtimefacts.Classify(kv.nodes[pod.Spec.NodeName], string(pod.UID), podStart(pod), kv.now, kv.staleness)}

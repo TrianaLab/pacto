@@ -645,6 +645,14 @@ type EvaluatedRevision struct {
 	// Absent for a reference-only contract or a workload that does not exist.
 	// +optional
 	Workload *EvaluatedWorkload `json:"workload,omitempty"`
+
+	// KernelCoverage is how far the node agent's view of the workload's pods
+	// could be trusted in this evaluation, the worst pod first: Complete,
+	// Partial, Failed or Stale. Empty when kernel evidence is off. Complete
+	// is what lets a reader tell "observed and clean" from "not observed".
+	// +kubebuilder:validation:Enum=Complete;Partial;Failed;Stale
+	// +optional
+	KernelCoverage string `json:"kernelCoverage,omitempty"`
 }
 
 // EvaluatedWorkload is one generation of one workload object.

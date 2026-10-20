@@ -263,6 +263,9 @@ func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alp
 
 	// 10. Collect runtime evidence (spec section 9.1).
 	evidenceSet, windowUpdates, collectErr := obs.Collect(ctx, r.buildCollectInput(pacto, ec))
+	if e := pacto.Status.EvaluatedRevision; e != nil {
+		e.KernelCoverage = obs.KernelCoverage()
+	}
 
 	// Apply window updates (spec section 9.5): upsert by (Kind, Subject); nil resets the entry; windows for
 	// assertions no longer declared by the effective contract are pruned.

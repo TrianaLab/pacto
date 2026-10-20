@@ -79,6 +79,10 @@ func TestPactoStatusFillsTheDeliveryReadContract(t *testing.T) {
 	p.Status.Dependencies = []pactov1alpha1.DependencyInfo{{Name: "ledger", Ref: "oci://r/ledger", Required: true, Compatibility: "^1"}}
 	p.Status.Contract.Owner = &pactov1alpha1.OwnerInfo{Team: "team-pay"}
 	p.Generation = 2
+	p.Status.EvaluatedRevision.KernelCoverage = "Complete"
+	p.Status.Findings = append(p.Status.Findings, pactov1alpha1.FindingStatus{Code: "DEPENDENCY_UNDECLARED", Severity: "warning",
+		Category: "RuntimeDrift", Subject: "dependency/fraud", Message: "m",
+		EvidenceRefs: []pactov1alpha1.EvidenceRefStatus{{Source: "k8s", ObservedAt: "t", Collector: "ebpf", DetectedAt: "2026-10-20T10:00:00Z"}}})
 	data, _ := json.Marshal(p)
 	var v delivery.PactoView
 	if err := json.Unmarshal(data, &v); err != nil {
@@ -91,7 +95,18 @@ func TestPactoStatusFillsTheDeliveryReadContract(t *testing.T) {
 		s.Contract.Owner == nil || s.Contract.Owner.Team != "team-pay" ||
 		len(s.Dependencies) != 1 || s.Dependencies[0].Compatibility != "^1" || !s.Dependencies[0].Required ||
 		s.EvaluatedRevision == nil || s.EvaluatedRevision.ContractDigest != evaluatedDigest ||
-		s.EvaluatedRevision.Workload.UID != "w-1" || s.EvaluatedRevision.Workload.Generation != 3 {
+		s.EvaluatedRevision.Workload.UID != "w-1" || s.EvaluatedRevision.Workload.Generation != 3 ||
+		s.EvaluatedRevision.KernelCoverage != "Complete" || !hasKernelFinding(s.Findings) {
 		t.Fatalf("the delivery read contract lost a field: %+v", v)
 	}
+}
+
+func hasKernelFinding(fs []delivery.FindingView) bool {
+	for _, f := range fs {
+		if f.Code == "DEPENDENCY_UNDECLARED" && f.Subject == "dependency/fraud" && f.Severity == "warning" && f.Message == "m" &&
+			len(f.EvidenceRefs) == 1 && f.EvidenceRefs[0].Collector == "ebpf" && f.EvidenceRefs[0].DetectedAt != "" {
+			return true
+		}
+	}
+	return false
 }

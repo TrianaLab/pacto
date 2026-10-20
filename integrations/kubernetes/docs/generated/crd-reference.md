@@ -183,9 +183,14 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.deadlines.approval` | `string` | no |  |  |  |
 | `spec.deadlines.execution` | `string` | no |  |  |  |
 | `spec.environment` | `string` | yes |  |  |  |
-| `spec.gates` | `object` | no |  |  | Gates configures the Stage's gates. The pre-gates are fixed by the operation type in M0; the Pacto contract gate is the verify gate. |
+| `spec.gates` | `object` | no |  |  | Gates configures the Stage's gates. The pre-gates are fixed by the operation type; the Pacto contract check always verifies, beside the Stage's checks. |
 | `spec.gates.verify` | `object` | no |  |  | VerifyGates configures what runs after a version is applied. |
-| `spec.gates.verify.window` | `string` | no |  |  | Window is how long the verify gates may stay Unknown before the operation is held for a human (a Go duration, default 5m). |
+| `spec.gates.verify.checks` | `[]object` | no |  |  | Checks are this Stage's own verify gates, run beside the Pacto contract check: a health provider the delivery chart configures, or the built-in pacto.runtime claim gate. |
+| `spec.gates.verify.checks[].name` | `string` | yes |  |  | Name is the gate id its verdicts carry, unique on the Stage. |
+| `spec.gates.verify.checks[].params` | `object` | no |  |  | Params are the provider's settings (thresholds, filters). |
+| `spec.gates.verify.checks[].provider` | `string` | yes |  |  | Provider is a gate provider configured in the delivery chart, or pacto.runtime. A Stage cannot name a URL: providers are operator configuration. |
+| `spec.gates.verify.recheck` | `string` | no |  |  | Recheck is how often the verify gates run again on the version the Stage runs once it shipped (a Go duration, default 1m). A confirmed Fail rolls it back; Unknown never does. |
+| `spec.gates.verify.window` | `string` | no |  |  | Window is how long the verify gates may stay Unknown before the operation is held for a human (a Go duration, default 5m). Re-checks after release judge the same length of time. |
 | `spec.service` | `object` | yes |  |  | ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified service name its contracts declare. |
 | `spec.service.domain` | `string` | no |  |  | Domain is the registry and organisation scope (empty for the default). |
 | `spec.service.name` | `string` | yes |  |  | Name is the contract's service.name. |
@@ -196,6 +201,16 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.failedDigests` | `[]string` | no |  |  | FailedDigests are never promoted again (cap 50). |
 | `status.frozen` | `boolean` | no |  |  |  |
 | `status.frozenReason` | `string` | no |  |  |  |
+| `status.lastCheck` | `object` | no |  |  | LastCheck is the newest re-check of the running version after it shipped. |
+| `status.lastCheck.at` | `string` | yes |  |  | At is when the gates ran (RFC 3339). |
+| `status.lastCheck.digest` | `string` | yes |  |  |  |
+| `status.lastCheck.operation` | `string` | yes |  |  | Operation is the uid of the operation that shipped the version. |
+| `status.lastCheck.verdicts` | `[]object` | no |  |  |  |
+| `status.lastCheck.verdicts[].citation` | `object` | no |  |  |  |
+| `status.lastCheck.verdicts[].gate` | `string` | yes |  |  |  |
+| `status.lastCheck.verdicts[].message` | `string` | no |  |  |  |
+| `status.lastCheck.verdicts[].phase` | `string` | yes |  | `pre`, `verify` |  |
+| `status.lastCheck.verdicts[].result` | `string` | yes |  | `Pass`, `Fail`, `Unknown` | Result is a gate verdict. |
 | `status.lastOp` | `string` | no |  |  | LastOp is the uid of the operation that last moved the pointer. |
 | `status.locks` | `object` | no |  |  | Locks maps a facet to the uid of the operation holding it. |
 | `status.pointer` | `string` | no |  |  | Pointer is the digest the environment runs. |
@@ -393,6 +408,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.dependencies[].required` | `boolean` | yes |  |  | Required indicates whether this dependency is mandatory. |
 | `status.evaluatedRevision` | `object` | no |  |  | EvaluatedRevision ties this status to the exact contract and workload generation it was computed from, so a result for an old version is never read as the answer for a new one. A consumer acting on contractStatus (the opt-in Pacto delivery promoter) must check it first. |
 | `status.evaluatedRevision.contractDigest` | `string` | no |  |  | ContractDigest is the OCI manifest digest of the evaluated contract bundle. Empty for inline contracts. |
+| `status.evaluatedRevision.kernelCoverage` | `string` | no |  | `Complete`, `Partial`, `Failed`, `Stale` | KernelCoverage is how far the node agent's view of the workload's pods could be trusted in this evaluation, the worst pod first: Complete, Partial, Failed or Stale. Empty when kernel evidence is off. Complete is what lets a reader tell "observed and clean" from "not observed". |
 | `status.evaluatedRevision.workload` | `object` | no |  |  | Workload is the workload object and generation the evaluation read. Absent for a reference-only contract or a workload that does not exist. |
 | `status.evaluatedRevision.workload.generation` | `integer` | yes |  |  |  |
 | `status.evaluatedRevision.workload.kind` | `string` | yes |  |  |  |

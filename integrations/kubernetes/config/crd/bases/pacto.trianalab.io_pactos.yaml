@@ -496,6 +496,18 @@ spec:
                       ContractDigest is the OCI manifest digest of the evaluated contract
                       bundle. Empty for inline contracts.
                     type: string
+                  kernelCoverage:
+                    description: |-
+                      KernelCoverage is how far the node agent's view of the workload's pods
+                      could be trusted in this evaluation, the worst pod first: Complete,
+                      Partial, Failed or Stale. Empty when kernel evidence is off. Complete
+                      is what lets a reader tell "observed and clean" from "not observed".
+                    enum:
+                    - Complete
+                    - Partial
+                    - Failed
+                    - Stale
+                    type: string
                   workload:
                     description: |-
                       Workload is the workload object and generation the evaluation read.

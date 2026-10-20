@@ -123,16 +123,55 @@ spec:
               gates:
                 description: |-
                   Gates configures the Stage's gates. The pre-gates are fixed by the operation
-                  type in M0; the Pacto contract gate is the verify gate.
+                  type; the Pacto contract check always verifies, beside the Stage's checks.
                 properties:
                   verify:
                     description: VerifyGates configures what runs after a version
                       is applied.
                     properties:
+                      checks:
+                        description: |-
+                          Checks are this Stage's own verify gates, run beside the Pacto contract
+                          check: a health provider the delivery chart configures, or the built-in
+                          pacto.runtime claim gate.
+                        items:
+                          description: GateCheck is one verify gate a Stage runs.
+                          properties:
+                            name:
+                              description: Name is the gate id its verdicts carry,
+                                unique on the Stage.
+                              minLength: 1
+                              type: string
+                            params:
+                              additionalProperties:
+                                type: string
+                              description: Params are the provider's settings (thresholds,
+                                filters).
+                              type: object
+                            provider:
+                              description: |-
+                                Provider is a gate provider configured in the delivery chart, or
+                                pacto.runtime. A Stage cannot name a URL: providers are operator
+                                configuration.
+                              minLength: 1
+                              type: string
+                          required:
+                          - name
+                          - provider
+                          type: object
+                        maxItems: 16
+                        type: array
+                      recheck:
+                        description: |-
+                          Recheck is how often the verify gates run again on the version the
+                          Stage runs once it shipped (a Go duration, default 1m). A confirmed Fail
+                          rolls it back; Unknown never does.
+                        type: string
                       window:
                         description: |-
                           Window is how long the verify gates may stay Unknown before the
-                          operation is held for a human (a Go duration, default 5m).
+                          operation is held for a human (a Go duration, default 5m). Re-checks
+                          after release judge the same length of time.
                         type: string
                     type: object
                 type: object
@@ -182,6 +221,55 @@ spec:
                 type: boolean
               frozenReason:
                 type: string
+              lastCheck:
+                description: LastCheck is the newest re-check of the running version
+                  after it shipped.
+                properties:
+                  at:
+                    description: At is when the gates ran (RFC 3339).
+                    type: string
+                  digest:
+                    type: string
+                  operation:
+                    description: Operation is the uid of the operation that shipped
+                      the version.
+                    type: string
+                  verdicts:
+                    items:
+                      description: Verdict is one gate's answer plus a citation that
+                        can be re-run.
+                      properties:
+                        citation:
+                          additionalProperties:
+                            type: string
+                          type: object
+                        gate:
+                          type: string
+                        message:
+                          type: string
+                        phase:
+                          enum:
+                          - pre
+                          - verify
+                          type: string
+                        result:
+                          description: Result is a gate verdict.
+                          enum:
+                          - Pass
+                          - Fail
+                          - Unknown
+                          type: string
+                      required:
+                      - gate
+                      - phase
+                      - result
+                      type: object
+                    type: array
+                required:
+                - at
+                - digest
+                - operation
+                type: object
               lastOp:
                 description: LastOp is the uid of the operation that last moved the
                   pointer.
