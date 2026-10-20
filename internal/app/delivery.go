@@ -1,6 +1,7 @@
 package app
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -102,6 +103,43 @@ func getInto[T any](ctx context.Context, ri dynamic.ResourceInterface, name stri
 	}
 	b, _ := u.MarshalJSON()
 	return json.Unmarshal(b, into)
+}
+
+func listInto[T any](ctx context.Context, r dynamic.NamespaceableResourceInterface, ns, what string) ([]T, error) {
+	var ri dynamic.ResourceInterface = r
+	if ns != "" {
+		ri = r.Namespace(ns)
+	}
+	list, err := ri.List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("listing %s in %s: %w", what, cmp.Or(ns, "every namespace"), err)
+	}
+	var out struct {
+		Items []T `json:"items"`
+	}
+	b, _ := list.MarshalJSON()
+	_ = json.Unmarshal(b, &out)
+	return out.Items, nil
+}
+
+// Stages lists the Stages in a namespace, or in every namespace for "".
+func (d *Delivery) Stages(ctx context.Context, ns string) ([]delivery.StageObject, error) {
+	return listInto[delivery.StageObject](ctx, d.Dynamic.Resource(gvrStages), ns, "Stages")
+}
+
+// Operations lists the Operations in a namespace, or in every namespace for "".
+func (d *Delivery) Operations(ctx context.Context, ns string) ([]delivery.OperationObject, error) {
+	return listInto[delivery.OperationObject](ctx, d.Dynamic.Resource(gvrOperations), ns, "Operations")
+}
+
+// Describe reads what one of a Stage's artifact digests carries: the
+// contract it names and that contract. Failures are in Revision.Err.
+func (d *Delivery) Describe(ctx context.Context, stage *delivery.StageObject, digest string) delivery.Revision {
+	repo, reg, err := d.applyRegistry(ctx, stage)
+	if err != nil {
+		return delivery.Revision{Digest: digest, Err: err.Error()}
+	}
+	return delivery.ResolveRevision(ctx, reg, repo, digest)
 }
 
 // Stage reads one Stage.

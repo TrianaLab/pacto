@@ -25,7 +25,19 @@ type capabilitiesOutput struct {
 		// the impact provider, so a consumer can honestly enable an include-observed
 		// control instead of shipping a placebo.
 		Observed bool `json:"observed" doc:"An observation source backs impact analysis"`
+		// Delivery reports whether the delivery views apply: the cluster serves
+		// the delivery API group and the caller can be identified (local mode,
+		// or a dashboard people sign in to).
+		Delivery bool           `json:"delivery" doc:"The delivery views and actions are served"`
+		Auth     capabilityAuth `json:"auth" doc:"How callers are identified"`
+		MiraURL  string         `json:"miraURL,omitempty" doc:"Mira's address, to link health-check citations"`
 	}
+}
+
+type capabilityAuth struct {
+	Mode     string `json:"mode" enum:"local,shared,none" doc:"local: the kubeconfig user; shared: people sign in; none: no identity layer"`
+	Login    bool   `json:"login" doc:"People sign in with the identity provider"`
+	SignedIn bool   `json:"signedIn" doc:"This caller is signed in"`
 }
 
 // registerCapabilitiesOperation registers the always-on capabilities endpoint. It
@@ -55,6 +67,15 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 			out.Body.Observed = true
 		}
 	}
+	out.Body.Auth.Mode = "none"
+	if a := s.opts.Auth; a != nil {
+		out.Body.Auth = capabilityAuth{Mode: "shared", Login: a.Login, SignedIn: s.authState(ctx).SignedIn}
+		if a.Local {
+			out.Body.Auth.Mode = "local"
+		}
+		out.Body.Delivery = s.opts.Delivery != nil && (a.Local || a.Login) && s.deliveryInstalled(ctx)
+	}
+	out.Body.MiraURL = s.opts.MiraURL
 	return out, nil
 }
 

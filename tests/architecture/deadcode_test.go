@@ -50,6 +50,9 @@ var deadCodeAllowlist = map[string]string{
 		"code, and deleting the table to satisfy this gate would delete the coverage proof " +
 		"with it",
 
+	"pkg/dashboard.GetStatus": "huma's StatusError: huma reads the HTTP status of a refusal a handler returns " +
+		"through that interface, never by name",
+
 	"pkg/contract.PolicyTargetContract":     schemaVocabulary,
 	"pkg/contract.CategoryArchitecture":     schemaVocabulary,
 	"pkg/contract.CategoryBackupRecovery":   schemaVocabulary,

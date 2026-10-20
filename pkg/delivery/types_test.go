@@ -186,3 +186,15 @@ func TestResolveRevision(t *testing.T) {
 		t.Fatalf("resolved: %+v pulled %q", r, reg.pulled)
 	}
 }
+
+func TestParseAuthTime(t *testing.T) {
+	if got, ok := ParseAuthTime("1760954400"); !ok || got.Unix() != 1760954400 {
+		t.Fatal("unix seconds")
+	}
+	if got, ok := ParseAuthTime("2026-10-20T10:00:00Z"); !ok || !got.Equal(time.Date(2026, 10, 20, 10, 0, 0, 0, time.UTC)) {
+		t.Fatal("RFC 3339")
+	}
+	if _, ok := ParseAuthTime("yesterday"); ok {
+		t.Fatal("anything else is not a login time")
+	}
+}

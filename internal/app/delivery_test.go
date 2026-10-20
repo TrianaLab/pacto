@@ -342,3 +342,31 @@ func TestDeliveryUpstreamStage(t *testing.T) {
 		t.Fatalf("an unreadable upstream: %+v %v", p.Verdicts, err)
 	}
 }
+
+func TestDeliveryListsAndDescribe(t *testing.T) {
+	d, c, _ := deliveryFixture(t, "alice", nil, nil, obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "op1", nil))
+	ctx := context.Background()
+	all, err := d.Stages(ctx, "")
+	if err != nil || len(all) != 2 {
+		t.Fatalf("every namespace: %d %v", len(all), err)
+	}
+	prod, err := d.Stages(ctx, "prod")
+	if err != nil || len(prod) != 1 || prod[0].Spec.Service.Name != "payments" {
+		t.Fatalf("one namespace: %+v %v", prod, err)
+	}
+	if ops, err := d.Operations(ctx, "prod"); err != nil || len(ops) != 1 || ops[0].Metadata.Name != "op1" {
+		t.Fatalf("operations: %+v %v", ops, err)
+	}
+	if r := d.Describe(ctx, &prod[0], dlB); r.Bundle == nil || r.Bundle.Contract.Service.Version != "1.1.0" || r.ContractRef == "" {
+		t.Fatalf("describe: %+v", r)
+	}
+	gone := prod[0]
+	gone.Spec.ApplyRef.Name = "missing"
+	if r := d.Describe(ctx, &gone, dlB); r.Err == "" || r.Bundle != nil {
+		t.Fatalf("an unreadable OCIRepository: %+v", r)
+	}
+	c.PrependReactor("list", "operations", func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, errors.New("forbidden") })
+	if _, err := d.Operations(ctx, ""); err == nil || !strings.Contains(err.Error(), "every namespace") {
+		t.Fatalf("a list error names the scope: %v", err)
+	}
+}

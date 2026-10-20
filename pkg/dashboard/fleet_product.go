@@ -356,6 +356,7 @@ func (s *Server) stubProvidersForSchemaExport() {
 	s.opts.Impact = func(context.Context, string, string, bool) (*impact.Result, error) {
 		return nil, errors.New("schema export only")
 	}
+	s.opts.Delivery = func(*http.Request) (DeliveryAPI, error) { return nil, errors.New("schema export only") }
 }
 
 func parseViews(s string) []fleet.KnowledgeView {

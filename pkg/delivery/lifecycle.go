@@ -2,8 +2,28 @@ package delivery
 
 import (
 	"slices"
+	"strconv"
 	"time"
 )
+
+// Login freshness. The promoter ignores an approval given more than
+// AuthFreshness after its author's login; the dashboard asks for a new login
+// once one is older than DecisionFreshness, leaving a margin under it.
+const (
+	AuthFreshness     = 15 * time.Minute
+	DecisionFreshness = 10 * time.Minute
+)
+
+// ParseAuthTime reads a login time as the apiserver reports it in
+// userInfo.extra["pacto.dev/auth-time"]: Unix seconds (what structured
+// authentication maps from auth_time) or RFC 3339.
+func ParseAuthTime(v string) (time.Time, bool) {
+	if t, err := time.Parse(time.RFC3339, v); err == nil {
+		return t, true
+	}
+	secs, err := strconv.ParseInt(v, 10, 64)
+	return time.Unix(secs, 0), err == nil
+}
 
 // Caps on the Stage's digest memories.
 // ponytail: bounded caches, ceiling 10 verified and 50 failed digests per Stage;

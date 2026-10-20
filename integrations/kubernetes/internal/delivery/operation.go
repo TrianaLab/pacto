@@ -33,9 +33,6 @@ const immediately = time.Millisecond
 // reasonWaiting marks an operation parked on the Stage: a lock, a freeze.
 const reasonWaiting = "Waiting"
 
-// authFreshness is how old a login may be when its owner approves.
-const authFreshness = 15 * time.Minute
-
 var (
 	errWait         = errors.New("wait")
 	errPointerMoved = errors.New("pointer moved")
@@ -402,7 +399,7 @@ func (r *OperationReconciler) held(ctx context.Context, op *dv1.Operation, stage
 // approval consumes the first valid, not yet consumed Approval for op. A valid
 // one is bound to this uid and intent digest, comes from a person who is
 // neither the actor nor whoever the actor acts for, belongs to a team the
-// question was routed to (floor.owners) and was given within authFreshness of
+// question was routed to (floor.owners) and was given within delivery.AuthFreshness of
 // that person's login. The groups are the ones admission bound to the user.
 func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) *delivery.ApprovalRecord {
 	var owners []string
@@ -431,18 +428,11 @@ func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) *
 }
 
 // fresh reports whether a login at authTime (RFC 3339 or Unix seconds) was at
-// most authFreshness before at.
+// most delivery.AuthFreshness before at.
 func fresh(authTime string, at time.Time) bool {
-	t, err := time.Parse(time.RFC3339, authTime)
-	if err != nil {
-		secs, perr := strconv.ParseInt(authTime, 10, 64)
-		if perr != nil {
-			return false
-		}
-		t = time.Unix(secs, 0)
-	}
+	t, ok := delivery.ParseAuthTime(authTime)
 	age := at.Sub(t)
-	return age >= -time.Minute && age <= authFreshness
+	return ok && age >= -time.Minute && age <= delivery.AuthFreshness
 }
 
 // lock takes the Stage's facet lock with one compare-and-swap. An approved
