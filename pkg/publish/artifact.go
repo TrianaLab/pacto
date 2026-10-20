@@ -150,7 +150,7 @@ func chartMetadata(tgz []byte) ([]byte, error) {
 		}
 		var meta map[string]any
 		if err := yaml.NewDecoder(tr).Decode(&meta); err != nil {
-			return nil, fmt.Errorf("Chart.yaml: %w", err)
+			return nil, fmt.Errorf("reading the chart's Chart.yaml: %w", err)
 		}
 		return json.Marshal(meta)
 	}
