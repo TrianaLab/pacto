@@ -177,22 +177,32 @@ ${4:-}
 YAML
   echo "$d"
 }
-contract() { # VERSION WORKLOAD -> in-cluster digest-pinned ref
-  local digest; digest="$(push_bundle "$PACTO" "$LOCAL_REG_PORT" "$(contract_dir payments "$1" "$2")" "payments:$1")"
-  [ -n "$digest" ] || fail "pushing payments $1 resolved no digest"
-  echo "oci://${REG_HOST}/demo/payments@${digest}"
+# contract NAME VERSION WORKLOAD [DEPENDENCY_LINES] -> in-cluster digest-pinned ref.
+# Every contract lives in one registry organisation: the graph resolves a
+# dependency by name within the consumer's own domain, so the consumers must be
+# published beside payments to be counted as its consumers at all.
+contract() {
+  local digest; digest="$(push_bundle "$PACTO" "$LOCAL_REG_PORT" "$(contract_dir "$1" "$2" "$3" "${4:-}")" "$1:$2")"
+  [ -n "$digest" ] || fail "pushing $1 $2 resolved no digest"
+  echo "oci://${REG_HOST}/demo/$1@${digest}"
 }
-C100="$(contract 1.0.0 service)"
-C110="$(contract 1.1.0 service)"
-C120="$(contract 1.2.0 job)"      # contradicts the Deployment that ships: NonCompliant
-C130="$(contract 1.3.0 service)"
-C140="$(contract 1.4.0 service)"
-C200="$(contract 2.0.0 service)"  # checkout accepts ^1.0.0 only
+C100="$(contract payments 1.0.0 service)"
+C110="$(contract payments 1.1.0 service)"
+C120="$(contract payments 1.2.0 job)"      # contradicts the Deployment that ships: NonCompliant
+C130="$(contract payments 1.3.0 service)"
+C140="$(contract payments 1.4.0 service)"
+C200="$(contract payments 2.0.0 service)"  # checkout accepts ^1.0.0 only
+consumer_contract() { # NAME RANGE
+  contract "$1" 1.0.0 service "dependencies: [{name: payments, ref: \"oci://${REG_HOST}/demo/payments\", required: true, compatibility: \"$2\"}]"
+}
+CHECKOUT="$(consumer_contract checkout "^1.0.0")"
+LEDGER="$(consumer_contract ledger ">=1.0.0")"
 
-# publish TAG CONTRACT_REF LABEL — one version: a Deployment and its Pacto, as
-# the artifact Flux pulls, annotated with its contract. Prints the digest.
+# publish LABEL CONTRACT_REF — one version: a Deployment and its Pacto, as the
+# artifact Flux pulls, annotated with its contract and tagged with its label so
+# the registry keeps it. Prints the digest.
 publish() {
-  local tag="$1" ref="$2" label="$3" tree tgz digest
+  local label="$1" ref="$2" tag="$1" tree tgz digest
   tree="$(mktemp -d)"; tgz="$(mktemp -t payments.XXXXXX)"
   cat > "$tree/kustomization.yaml" <<'YAML'
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -223,16 +233,18 @@ YAML
   tar -czf "$tgz" -C "$tree" .
   local -a ann=()
   [ -n "$ref" ] && ann=(--annotation "pacto.dev/contract=$ref")
-  digest="$(oras push --plain-http --disable-path-validation "${ann[@]}" --format go-template='{{.digest}}' \
+  digest="$(oras push --plain-http --disable-path-validation ${ann[@]+"${ann[@]}"} --format go-template='{{.digest}}' \
     "127.0.0.1:${LOCAL_REG_PORT}/${APP_REPO}:${tag}" "${tgz}:${FLUX_LAYER_TYPE}")"
   echo "$digest"
 }
+# candidate LABEL — what CI does when a version is ready: move the candidate tag.
+candidate() { oras tag --plain-http "127.0.0.1:${LOCAL_REG_PORT}/${APP_REPO}:$1" candidate >/dev/null; }
 
-A="$(publish candidate "$C100" A)"
+A="$(publish A "$C100")"; candidate A
 echo "  A = $A (payments 1.0.0)"
 
 echo "== the consumers: checkout accepts ^1.0.0, ledger accepts >=1.0.0, in both environments =="
-consumer() { # NS NAME RANGE
+consumer() { # NS NAME CONTRACT_REF
   kubectl -n "$1" apply -f - >/dev/null <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -249,17 +261,11 @@ kind: Pacto
 metadata: {name: $2}
 spec:
   checkIntervalSeconds: 30
-  contractRef:
-    inline: |
-      pactoVersion: '2.0'
-      service: {name: $2, version: 1.0.0, owner: {team: team-$2, dri: d, contacts: [{type: email, value: a@e.com, purpose: escalation}]}}
-      workload: service
-      state: {type: stateless, persistence: {scope: local, durability: ephemeral}, dataCriticality: low}
-      dependencies: [{name: payments, ref: "oci://${REG_HOST}/demo/payments", required: true, compatibility: "$3"}]
+  contractRef: {oci: "$3"}
   target: {workloadRef: {name: $2, kind: Deployment}}
 YAML
 }
-for env in test prod; do consumer "$env" checkout "^1.0.0"; consumer "$env" ledger ">=1.0.0"; done
+for env in test prod; do consumer "$env" checkout "$CHECKOUT"; consumer "$env" ledger "$LEDGER"; done
 
 # Every Pacto must be reconciled before the first plan: a Pacto with no contract
 # in its status is a consumer Pacto cannot rule out, and the plan would wait.
@@ -358,7 +364,7 @@ echo "== items 1, 3 and 8: B (compatible) ships to production with no person, an
 # contract as Compliant when Flux applies B. That result must not verify B.
 kubectl -n "$NS" scale deploy pacto-operator --replicas=0 >/dev/null
 kubectl -n "$NS" rollout status deploy/pacto-operator --timeout=60s >/dev/null
-B="$(publish candidate "$C110" B)"
+B="$(publish B "$C110")"; candidate B
 OPB="$(wait_op test "$B")"
 verifying() { [ "$(field test "$OPB" phase)" = Verifying ]; }
 eventually 60 verifying || fail "B never reached Verifying: $(field test "$OPB" phase) $(field test "$OPB" message)"
@@ -367,10 +373,13 @@ stale_ignored() {
 }
 always 7 stale_ignored || fail "a Compliant result for A's contract was used for B: $(field test "$OPB" phase) $(field test "$OPB" message)"
 pass "item 8: with A's Compliant verdict still in the Pacto status, B stays unverified (Unknown)"
-if KUBECONFIG="$AGENT_A" kubectl -n test delete operation "$OPB" --wait=false 2>&1 | grep -q "can no longer be cancelled"; then
+# Each refusal is captured before it is grepped: under pipefail, `kubectl ... |
+# grep -q` reports kubectl's own non-zero exit even when grep matched.
+OUT="$(KUBECONFIG="$AGENT_A" kubectl -n test delete operation "$OPB" --wait=false 2>&1 || true)"
+if grep -q "can no longer be cancelled" <<<"$OUT"; then
   pass "cancel is refused once the pointer moved"
 else
-  fail "deleting an applied operation was not refused"
+  fail "deleting an applied operation was not refused: $OUT"
 fi
 kubectl -n "$NS" scale deploy pacto-operator --replicas=1 >/dev/null
 wait_concluded test "$OPB" Succeeded/Verified
@@ -387,7 +396,7 @@ done
 pass "items 1 and 3: B passed test and reached production with nobody involved"
 
 echo "== item 2: C (broken) fails in test, is rolled back once, never reaches prod and is never retried =="
-C="$(publish candidate "$C120" C)"
+C="$(publish C "$C120")"; candidate C
 OPC="$(wait_op test "$C")"
 wait_concluded test "$OPC" Failed/
 [ "$(field test "$OPC" reason)" = VerifyFailed ] || fail "C failed for the wrong reason: $(field test "$OPC" reason)"
@@ -401,23 +410,30 @@ always 10 never_retried || fail "C was retried in test or reached prod"
 pass "item 2: C rolled back by one bound rollback, absent from prod, not retried"
 
 echo "== item 5: an artifact naming no contract waits for a person instead of shipping =="
-E="$(publish candidate "" E)"
+E="$(publish E "")"; candidate E
 OPE="$(wait_op test "$E")"
 eventually 30 held test "$OPE" || fail "E was not held: $(field test "$OPE" phase) $(field test "$OPE" reason)"
 field test "$OPE" question | grep -q "cannot see enough" || fail "E's question does not say Pacto cannot see enough: $(field test "$OPE" question)"
 kubectl -n test get operation "$OPE" -o json | jq -e '.status.plan.floor.decision == "accept-unknown"' >/dev/null || fail "E's floor is not accept-unknown"
 stays_on_b() { has_pointer test "$B" && held test "$OPE"; }
 always 5 stays_on_b || fail "E moved while Pacto could not judge it"
+# Move the candidate tag back to B before cancelling: a tag pointing at a digest
+# test already verified is not a new version, so nothing raises E again once its
+# operation is gone.
+candidate B
+candidate_is_b() { [ "$(kubectl -n test get ocirepository payments-candidates -o jsonpath='{.status.artifact.revision}')" = "candidate@$B" ]; }
+eventually 30 candidate_is_b || fail "the candidate OCIRepository never saw the tag move back to B"
 as_agent "$AGENT_A" cancel -n test "$OPE" >/dev/null
-wait_concluded test "$OPE" Cancelled/
+# A cancelled operation that never moved anything concludes Cancelled and, with
+# no recorder in this phase, is let go at once.
+cancelled() { ! kubectl -n test get operation "$OPE" >/dev/null 2>&1 || [ "$(outcome test "$OPE")" = Cancelled/ ]; }
+eventually 20 cancelled || fail "E was not cancelled: $(field test "$OPE" phase) $(field test "$OPE" outcome)"
+always 5 has_pointer test "$B" || fail "cancelling E moved the pointer"
 pass "item 5: E held for accept-unknown and cancelled by the agent; nothing moved"
-# Move the candidate tag back to B: a tag pointing at a digest test already
-# verified is not a new version.
-oras tag --plain-http "127.0.0.1:${LOCAL_REG_PORT}/${APP_REPO}@${B}" candidate >/dev/null
 
 echo "== item 6: two agents propose at once; exactly one wins =="
-G="$(publish agent-g "$C130" G)"
-H="$(publish agent-h "$C140" H)"
+G="$(publish G "$C130")"
+H="$(publish H "$C140")"
 as_agent "$AGENT_A" propose -n test --stage payments --to "$G" --name race-g --reason "agent a" >/dev/null &
 PA=$!
 as_agent "$AGENT_B" propose -n test --stage payments --to "$H" --name race-h --reason "agent b" >/dev/null &
@@ -440,7 +456,7 @@ pass "item 6: race-g $(outcome test race-g), race-h $(outcome test race-h); one 
 OPW="$(wait_op prod "$WINNER")"; wait_concluded prod "$OPW" Succeeded/Verified
 
 echo "== item 4: F (payments 2.0.0) breaks checkout; it waits, and only checkout's team is asked =="
-F="$(publish candidate "$C200" F)"
+F="$(publish F "$C200")"; candidate F
 OPF="$(wait_op test "$F")"
 eventually 30 held test "$OPF" || fail "F was not held: $(field test "$OPF" phase) $(field test "$OPF" message)"
 Q="$(field test "$OPF" question)"
@@ -452,7 +468,8 @@ kubectl -n test get operation "$OPF" -o json | jq -e '.status.plan.floor.owners 
 waits_for_f() { has_pointer test "$WINNER" && held test "$OPF"; }
 always 5 waits_for_f || fail "F moved without a person"
 # No agent can approve: RBAC refuses the create, and the CLI refuses first.
-if as_agent "$AGENT_A" approve -n test "$OPF" 2>&1 | grep -q "agents may not approve"; then pass "the agent cannot approve"; else fail "an agent approved"; fi
+OUT="$(as_agent "$AGENT_A" approve -n test "$OPF" 2>&1 || true)"
+if grep -q "agents may not approve" <<<"$OUT"; then pass "the agent cannot approve"; else fail "an agent approved: $OUT"; fi
 if KUBECONFIG="$AGENT_A" kubectl -n test create -f - 2>/dev/null <<YAML
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Approval
@@ -487,27 +504,31 @@ always 10 held_back || fail "automation promoted F again after a person rolled i
 pass "item 7: prod stays on the version alice chose; auto-promotion is on hold"
 
 echo "== admission: the intent is immutable, and only break-glass edits the pointer =="
-if kubectl -n prod patch operation human-undo --type merge -p '{"spec":{"reason":"edited"}}' 2>&1 | grep -q "immutable"; then
+OUT="$(kubectl -n prod patch operation human-undo --type merge -p '{"spec":{"reason":"edited"}}' 2>&1 || true)"
+if grep -q "immutable" <<<"$OUT"; then
   pass "an operation's spec cannot be edited"
 else
-  fail "an operation's spec was edited"
+  fail "an operation's spec was edited: $OUT"
 fi
-if KUBECONFIG="$AGENT_A" kubectl -n prod create -f - 2>&1 <<YAML | grep -q "actor"; then
+OUT="$(KUBECONFIG="$AGENT_A" kubectl -n prod create -f - 2>&1 <<YAML || true
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Operation
 metadata: {name: forged, finalizers: [delivery.pacto.trianalab.io/record]}
 spec: {type: pacto.dev/promote, stage: payments, facet: pointer, params: {from: "$WINNER", to: "$F"}, actor: {user: alice}}
 YAML
+)"
+if grep -q "spec.actor.user must be the user" <<<"$OUT"; then
   pass "an agent cannot propose in a person's name"
 else
-  fail "an operation with a forged actor was admitted"
+  fail "an operation with a forged actor was admitted: $OUT"
 fi
 ORIG="$(kubectl -n prod get ocirepository payments -o jsonpath='{.spec.ref.digest}')"
-if kubectl --as mallory -n prod patch ocirepository payments --type merge \
-  -p "{\"spec\":{\"ref\":{\"digest\":\"$B\"}}}" 2>&1 | grep -q "the Pacto delivery pointer"; then
+OUT="$(kubectl --as mallory -n prod patch ocirepository payments --type merge \
+  -p "{\"spec\":{\"ref\":{\"digest\":\"$B\"}}}" 2>&1 || true)"
+if grep -q "the Pacto delivery pointer" <<<"$OUT"; then
   pass "a user with RBAC but no break-glass cannot edit the pointer"
 else
-  fail "the pointer admission policy let a non-break-glass edit through"
+  fail "the pointer admission policy let a non-break-glass edit through: $OUT"
 fi
 KUBECONFIG="$(person_kubeconfig ops pacto:break-glass)" kubectl -n prod patch ocirepository payments --type merge \
   -p "{\"spec\":{\"ref\":{\"digest\":\"$B\"}}}" >/dev/null

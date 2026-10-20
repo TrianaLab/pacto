@@ -57,10 +57,15 @@ automation does not undo it.
 ## Install
 
 The chart needs Flux (source and kustomize controllers) and the Pacto operator.
+The image and the chart are not published yet, so build the image from the
+repository root and install the chart from the checkout:
 
 ```bash
-helm install pacto-delivery oci://ghcr.io/trianalab/pacto/charts/pacto-delivery \
-  -n pacto-delivery --create-namespace
+docker build -f integrations/kubernetes/Dockerfile --build-arg CMD=cmd/delivery \
+  -t registry.example.com/pacto-delivery:dev .
+helm install pacto-delivery integrations/kubernetes/charts/pacto-delivery \
+  -n pacto-delivery --create-namespace \
+  --set image.repository=registry.example.com/pacto-delivery --set image.tag=dev
 ```
 
 Then bind `pacto-delivery-agent` to your agents' own service accounts and
