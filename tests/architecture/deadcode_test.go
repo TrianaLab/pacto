@@ -73,6 +73,10 @@ var deadCodeAllowlist = map[string]string{
 	"pkg/contract.EvidenceTypeTicket":       schemaVocabulary,
 	"pkg/contract.EvidenceTypeURL":          schemaVocabulary,
 
+	"pkg/delivery.DeepCopyInto": "the delivery CRDs embed the pkg/delivery wire types, and the only caller " +
+		"is the controller-gen deepcopy of integrations/kubernetes/api/delivery/v1alpha1, a generated file " +
+		"this gate does not read",
+
 	"integrations/kubernetes/api/v1alpha1.CollectionRunning":  crdVocabulary,
 	"integrations/kubernetes/api/v1alpha1.CollectionDegraded": crdVocabulary,
 	"integrations/kubernetes/api/v1alpha1.CollectionFailed":   crdVocabulary,

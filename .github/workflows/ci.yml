@@ -248,7 +248,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd, runtime-conformance]
+        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd, runtime-conformance, delivery]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -266,7 +266,8 @@ jobs:
       # The gitops scenarios need the same client for a different reason: they
       # publish the manifest artifact the delivery tool pulls the promotion from —
       # Flux's OCIRepository in one, Argo's OCI application source in the other.
-      - if: matrix.scenario == 'evidence' || startsWith(matrix.scenario, 'gitops-')
+      # Delivery publishes every version as a Flux artifact the same way.
+      - if: matrix.scenario == 'evidence' || startsWith(matrix.scenario, 'gitops-') || matrix.scenario == 'delivery'
         uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2
       - name: Install kind (checksum-verified via GOSUMDB)
         run: bash release/scripts/retry.sh go install sigs.k8s.io/kind@v0.30.0
