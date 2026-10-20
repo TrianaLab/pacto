@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -69,7 +70,7 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 		in.Revision = gitRevision(ctx, env.run, path)
 	}
 	in.Checks = append(in.Checks, checkOf("references", rejectLocalDeps(c), rejectLocalRefs(c)),
-		checkOf("lock", s.verifyLockIfPresent(ctx, path, b)))
+		checkOf("lock", s.verifyLockIfPresent(ctx, path, b)), checkOf("signing key", keyOutsideBundle(c, fsys)))
 	reg := env.publishRegistry()
 	if opts.Plan {
 		return &publish.Result{Plan: publish.MakePlan(ctx, reg, in)}, nil
@@ -83,6 +84,18 @@ func checkOf(name string, errs ...error) publish.Check {
 		return publish.Check{Name: name, Message: err.Error()}
 	}
 	return publish.Check{Name: name, Passed: true, Message: "ok"}
+}
+
+// keyOutsideBundle refuses a signing key file that would be packed into the
+// published bundle: a private key in a public artifact.
+func keyOutsideBundle(c *contract.Contract, fsys fs.FS) error {
+	if c.Publish == nil || c.Publish.Sign == nil || c.Publish.Sign.Key == "" || filepath.IsAbs(c.Publish.Sign.Key) {
+		return nil
+	}
+	if _, err := fs.Stat(fsys, filepath.ToSlash(filepath.Clean(c.Publish.Sign.Key))); err == nil {
+		return fmt.Errorf("the signing key %s would be published inside the bundle; add it to .pactoignore or keep it outside the contract directory", c.Publish.Sign.Key)
+	}
+	return nil
 }
 
 // gitRevision is the commit of the checkout dir is in, or "".

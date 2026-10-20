@@ -163,6 +163,15 @@ func TestPublishRefusals(t *testing.T) {
 	if res.Plan.Ready || !slices.ContainsFunc(res.Plan.Checks, func(c publish.Check) bool { return c.Name == "references" && !c.Passed }) {
 		t.Fatalf("a local reference is a failed check: %+v", res.Plan.Checks)
 	}
+	withKey := writePublishBundle(t, host, "")
+	_ = os.WriteFile(filepath.Join(withKey, "cosign.key"), []byte("secret"), 0o600)
+	res, _ = publishService(f, reg).Publish(ctx, PublishOptions{Path: withKey, Plan: true})
+	if res.Plan.Ready || !slices.ContainsFunc(res.Plan.Checks, func(c publish.Check) bool { return c.Name == "signing key" && !c.Passed }) {
+		t.Fatalf("a signing key inside the bundle is a failed check: %+v", res.Plan.Checks)
+	}
+	if err := keyOutsideBundle(&contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Key: "/abs/cosign.key"}}}, nil); err != nil {
+		t.Fatal(err)
+	}
 	nogit := &fakeRun{signed: map[string]bool{}, fail: "git"}
 	res, _ = publishService(nogit, reg).Publish(ctx, PublishOptions{Path: writePublishBundle(t, host, ""), Plan: true})
 	if res.Plan.Revision != "" || res.Plan.Ready {
