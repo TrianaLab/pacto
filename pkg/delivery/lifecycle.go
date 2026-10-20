@@ -7,7 +7,7 @@ import (
 
 // Caps on the Stage's digest memories.
 // ponytail: bounded caches, ceiling 10 verified and 50 failed digests per Stage;
-// derive both from history once records exist (M3).
+// derive both from history once records exist (M5).
 const (
 	MaxVerified      = 10
 	MaxFailedDigests = 50

@@ -142,13 +142,18 @@ func TestLockDirectly(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantOutcome(t, e.getOp("p1"), delivery.Rejected, "PointerMoved")
-	// A list failure reads as "no holder".
+	// A list failure never reads as "no holder": the lock stays taken and the
+	// reconcile retries.
 	e = at(t, delivery.PhasePending)
 	e.setStage(func(s *delivery.StageStatus) { s.Locks = map[string]string{"pointer": "ghost"} })
 	e.fails["list/Operation"] = true
-	if _, err := e.op.lock(context.Background(), e.getOp("p1"), e.getStage(), false); err != nil {
-		t.Fatal(err)
+	if _, err := e.op.lock(context.Background(), e.getOp("p1"), e.getStage(), false); err == nil {
+		t.Fatal("an unreadable lock holder must surface, not free the lock")
 	}
+	if s := e.getStage(); s.Status.Locks["pointer"] != "ghost" {
+		t.Fatalf("the lock moved on a failed read: %v", s.Status.Locks)
+	}
+	delete(e.fails, "list/Operation")
 	e.op.APIReader = failingReader{}
 	if _, err := e.op.lock(context.Background(), e.getOp("p1"), e.getStage(), false); err == nil {
 		t.Fatal("a failed CAS read must surface")
@@ -234,5 +239,43 @@ func TestSetupWithManager(t *testing.T) {
 	}
 	if err := (&StageReconciler{}).SetupWithManager(mgr); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestOperationListFailuresRetry: a failed Operation list is never read as
+// "no operations". It surfaces, so the reconcile retries, and the operation is
+// judged once the list reads again: a bound rollback is not refused as
+// unbound, and a promote is not let past a newer one it cannot see.
+func TestOperationListFailuresRetry(t *testing.T) {
+	cause := &delivery.Verdict{Gate: "health", Result: delivery.Fail}
+	for _, withCause := range []bool{false, true} {
+		e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+		e.shipB()
+		rb := opObj("rb", delivery.TypeRollback, dB, dA, bot)
+		rb.Spec.Params.Undoes = "uid-p1"
+		if withCause {
+			rb.Spec.Cause = &delivery.Cause{Verdict: cause}
+		}
+		e.create(bind(rb, e.getStage()))
+		e.fails["list/Operation"] = true
+		if err := e.reconcileOpErr("rb"); err == nil {
+			t.Fatalf("cause %v: a failed list must surface", withCause)
+		}
+		if o := e.getOp("rb"); o.Status.Phase != "" {
+			t.Fatalf("cause %v: judged on a failed list: %s %s", withCause, o.Status.Outcome, o.Status.Reason)
+		}
+		delete(e.fails, "list/Operation")
+		e.health.result = delivery.Fail
+		if o := e.drive("rb"); o.Status.Reason == "UnboundRollback" {
+			t.Fatalf("cause %v: a bound rollback was refused as unbound", withCause)
+		}
+	}
+	e := at(t, delivery.PhasePending)
+	e.fails["list/Operation"] = true
+	if err := e.reconcileOpErr("p1"); err == nil {
+		t.Fatal("a failed list in the supersede check must surface")
+	}
+	if o := e.getOp("p1"); o.Status.Phase != delivery.PhasePending {
+		t.Fatalf("moved on a failed list: %s", o.Status.Phase)
 	}
 }

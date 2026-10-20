@@ -198,7 +198,7 @@ func checkMCPTransport(transport string) error {
 // every caller would act as this process's own identity, so a person's or an
 // agent's request could not be told apart from the server's.
 // ponytail: remote access needs each caller's own token passed through to the
-// apiserver (design M1); until then delivery is stdio only.
+// apiserver (design M3); until then delivery is stdio only.
 var errDeliveryOverHTTP = errors.New("--delivery serves stdio only: over HTTP every caller would act as this process's " +
 	"identity; run `pacto mcp --delivery` beside the agent, under the agent's own credentials")
 

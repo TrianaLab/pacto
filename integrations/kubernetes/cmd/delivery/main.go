@@ -8,7 +8,7 @@ See LICENSE file in the project root for full license text.
 // Command delivery is the opt-in Pacto delivery image (pacto-delivery). Its one
 // subcommand in M0 is `promoter`: the leader-elected controller that decides
 // which version each Stage runs. It holds no signing keys and only reads the
-// registry. The recorder arrives in M3.
+// registry. The recorder arrives in M5.
 package main
 
 import (

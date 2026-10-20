@@ -137,7 +137,11 @@ func (r *OperationReconciler) admit(ctx context.Context, op *dv1.Operation, stag
 	t, known := delivery.TypeByID(op.Spec.Type)
 	approval, _ := t.Deadlines(stage.Spec.Deadlines)
 	op.Status.Times.ApprovalDeadline = ts(now.Add(approval))
-	if reason := r.refusal(ctx, op, stage, t, known); reason != "" {
+	reason, err := r.refusal(ctx, op, stage, t, known)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	if reason != "" {
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Rejected, reason: reason})
 	}
 	op.Status.Phase = delivery.PhasePending
@@ -147,37 +151,43 @@ func (r *OperationReconciler) admit(ctx context.Context, op *dv1.Operation, stag
 	return reconcile.Result{RequeueAfter: immediately}, nil
 }
 
-func (r *OperationReconciler) refusal(ctx context.Context, op *dv1.Operation, stage *dv1.Stage, t delivery.OperationType, known bool) string {
+// refusal returns why op is refused, or "". An error is a read that failed:
+// the reconcile retries rather than judge on missing operations.
+func (r *OperationReconciler) refusal(ctx context.Context, op *dv1.Operation, stage *dv1.Stage, t delivery.OperationType, known bool) (string, error) {
 	s := op.Spec
 	switch {
 	case !known:
-		return "UnknownType: " + s.Type + " is not an operation type"
+		return "UnknownType: " + s.Type + " is not an operation type", nil
 	case s.Facet != t.Facet:
-		return fmt.Sprintf("WrongFacet: %s changes the %s facet, not %s", s.Type, t.Facet, s.Facet)
+		return fmt.Sprintf("WrongFacet: %s changes the %s facet, not %s", s.Type, t.Facet, s.Facet), nil
 	case !delivery.MayRaise(s.Type, op.Status.ActorClass, s.Witnessed):
-		return fmt.Sprintf("NotPermitted: a %s actor may not raise %s", op.Status.ActorClass, s.Type)
+		return fmt.Sprintf("NotPermitted: a %s actor may not raise %s", op.Status.ActorClass, s.Type), nil
 	case s.IntentDigest != delivery.IntentDigest(s, stage.Spec):
-		return "PlanStale: the intent digest does not match this Stage's policy; plan again"
+		return "PlanStale: the intent digest does not match this Stage's policy; plan again", nil
 	}
-	if reason := r.causeRefusal(ctx, op, stage); reason != "" {
-		return reason
+	if reason, err := r.causeRefusal(ctx, op, stage); reason != "" || err != nil {
+		return reason, err
 	}
 	if s.Facet != delivery.FacetPointer {
-		return ""
+		return "", nil
 	}
 	if _, err := delivery.ParseDigest(s.Params.To); err != nil {
-		return "InvalidDigest: to must be an OCI manifest digest, not " + strconv.Quote(s.Params.To)
+		return "InvalidDigest: to must be an OCI manifest digest, not " + strconv.Quote(s.Params.To), nil
 	}
 	if _, err := delivery.ParseDigest(s.Params.From); s.Params.From != "" && err != nil {
-		return "InvalidDigest: from must be an OCI manifest digest, not " + strconv.Quote(s.Params.From)
+		return "InvalidDigest: from must be an OCI manifest digest, not " + strconv.Quote(s.Params.From), nil
 	}
 	if s.Params.From != stage.Status.Pointer {
-		return fmt.Sprintf("PointerMoved: from is %q but the Stage runs %q", s.Params.From, stage.Status.Pointer)
+		return fmt.Sprintf("PointerMoved: from is %q but the Stage runs %q", s.Params.From, stage.Status.Pointer), nil
 	}
 	if s.Type != delivery.TypeRollback {
-		return ""
+		return "", nil
 	}
-	return delivery.AdmitRollback(s, stage.Status, r.cited(ctx, op), op.Status.ActorClass)
+	cited, err := r.cited(ctx, op)
+	if err != nil {
+		return "", err
+	}
+	return delivery.AdmitRollback(s, stage.Status, cited, op.Status.ActorClass), nil
 }
 
 // causeRefusal re-runs a verdict an actor cites as its cause, against this
@@ -185,48 +195,51 @@ func (r *OperationReconciler) refusal(ctx context.Context, op *dv1.Operation, st
 // for nothing until it is checked: a re-run that comes back Unknown (an empty
 // one included) or with another result is refused as a cause. The promoter's
 // own operations cite verdicts it has just computed.
-func (r *OperationReconciler) causeRefusal(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) string {
+func (r *OperationReconciler) causeRefusal(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (string, error) {
 	c := op.Spec.Cause
 	if c == nil || c.Verdict == nil || op.Status.ActorClass == delivery.ClassController {
-		return ""
+		return "", nil
 	}
 	// The cited window must fall in the time the running version has run. With
 	// no applied time for it (its operation is gone, or Flux never confirmed it)
 	// no window can be about it, so nothing is confirmed.
 	now, from := r.now(), time.Time{}
-	if shipped := r.opByUID(ctx, op.Namespace, stage.Status.LastOp); shipped != nil {
+	shipped, err := r.opByUID(ctx, op.Namespace, stage.Status.LastOp)
+	if err != nil {
+		return "", err
+	}
+	if shipped != nil {
 		from = parseOr(shipped.Status.Times.Applied)
 	}
 	if from.IsZero() {
-		return "CauseUnconfirmed: the running version has no applied time, so no cited " + c.Verdict.Gate + " window can be about it"
+		return "CauseUnconfirmed: the running version has no applied time, so no cited " + c.Verdict.Gate + " window can be about it", nil
 	}
 	base := gateInput(op, stage, from, now)
 	base.Subjects = []string{stage.Status.Pointer}
 	v := delivery.Rerun(ctx, r.Gates, stage.Spec.Gates.Verify.Checks, base, *c.Verdict)
 	if v.Result == delivery.Unknown || v.Result != c.Verdict.Result {
 		return fmt.Sprintf("CauseUnconfirmed: the cited %s verdict says %s, re-running it now says %s: %s",
-			c.Verdict.Gate, c.Verdict.Result, v.Result, v.Message)
+			c.Verdict.Gate, c.Verdict.Result, v.Result, v.Message), nil
 	}
 	v.Phase, v.Message = "pre", "the cited cause re-ran: "+v.Message
 	op.Status.Verdicts = append(op.Status.Verdicts, v)
-	return ""
+	return "", nil
 }
 
 // cited finds the operation a rollback undoes, by uid, on the same Stage.
-func (r *OperationReconciler) cited(ctx context.Context, op *dv1.Operation) *delivery.CitedOp {
-	for _, o := range r.stageOps(ctx, op.Namespace, op.Spec.Stage) {
+// A failed list is an error, never "not found": that would reject a valid
+// rollback as unbound.
+func (r *OperationReconciler) cited(ctx context.Context, op *dv1.Operation) (*delivery.CitedOp, error) {
+	ops, err := stageOps(ctx, r.Client, op.Namespace, op.Spec.Stage)
+	if err != nil {
+		return nil, err
+	}
+	for _, o := range ops {
 		if string(o.UID) == op.Spec.Params.Undoes {
-			return &delivery.CitedOp{UID: string(o.UID), Type: o.Spec.Type, Applied: o.Status.Applied, Pointer: o.Status.Pointer}
+			return &delivery.CitedOp{UID: string(o.UID), Type: o.Spec.Type, Applied: o.Status.Applied, Pointer: o.Status.Pointer}, nil
 		}
 	}
-	return nil
-}
-
-// ponytail: a failed list reads as no operations here; return the error
-// through cited and newerPromote if a transient list failure ever matters.
-func (r *OperationReconciler) stageOps(ctx context.Context, ns, stage string) []dv1.Operation {
-	ops, _ := stageOps(ctx, r.Client, ns, stage)
-	return ops
+	return nil, nil
 }
 
 // stageOps lists the operations on a Stage.
@@ -244,7 +257,11 @@ func (r *OperationReconciler) pending(ctx context.Context, op *dv1.Operation, st
 		return res, err
 	}
 	if op.Spec.Type == delivery.TypePromote {
-		if newer := r.newerPromote(ctx, op); newer != "" {
+		newer, err := r.newerPromote(ctx, op)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		if newer != "" {
 			return r.finish(ctx, op, stage, conclusion{outcome: delivery.Superseded, reason: "Superseded: " + newer + " is a newer promote on this Stage"})
 		}
 	}
@@ -295,16 +312,20 @@ func planRefusal(p delivery.Plan) string {
 
 // newerPromote returns the name of a newer promote on the same Stage that has
 // not moved the pointer, ordered by (creationTimestamp, uid).
-func (r *OperationReconciler) newerPromote(ctx context.Context, op *dv1.Operation) string {
-	for _, o := range r.stageOps(ctx, op.Namespace, op.Spec.Stage) {
+func (r *OperationReconciler) newerPromote(ctx context.Context, op *dv1.Operation) (string, error) {
+	ops, err := stageOps(ctx, r.Client, op.Namespace, op.Spec.Stage)
+	if err != nil {
+		return "", err
+	}
+	for _, o := range ops {
 		if o.Spec.Type != delivery.TypePromote || o.Status.Applied || o.Status.Phase == delivery.PhaseConcluded || o.UID == op.UID {
 			continue
 		}
 		if c := o.CreationTimestamp.Compare(op.CreationTimestamp.Time); c > 0 || c == 0 && o.UID > op.UID {
-			return o.Name
+			return o.Name, nil
 		}
 	}
-	return ""
+	return "", nil
 }
 
 // plan gathers plan()'s inputs from the cluster and the registry and runs it.
@@ -415,7 +436,11 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 	waiting := ""
 	err := r.casStage(ctx, stage, func(s *dv1.Stage) error {
 		if holder := s.Status.Locks[facet]; holder != "" && holder != uid {
-			if !r.lockFree(ctx, op, holder) {
+			free, err := r.lockFree(ctx, op, holder)
+			if err != nil {
+				return err
+			}
+			if !free {
 				waiting = "waiting for operation " + holder + " to release the " + facet + " lock"
 				return errWait
 			}
@@ -471,27 +496,32 @@ func stillPasses(prev, cur delivery.Plan) bool {
 
 // lockFree reports whether op may take the lock holder has: holder is gone or
 // concluded, or op is a rollback or override and holder is verifying or held
-// after apply, which priority lets it preempt.
-func (r *OperationReconciler) lockFree(ctx context.Context, op *dv1.Operation, holder string) bool {
-	o := r.opByUID(ctx, op.Namespace, holder)
+// after apply, which priority lets it preempt. A failed read is an error, so
+// an unreadable holder never reads as a free lock.
+func (r *OperationReconciler) lockFree(ctx context.Context, op *dv1.Operation, holder string) (bool, error) {
+	o, err := r.opByUID(ctx, op.Namespace, holder)
+	if err != nil {
+		return false, err
+	}
 	if o == nil || o.Status.Phase == delivery.PhaseConcluded {
-		return true
+		return true, nil
 	}
 	preempts := op.Spec.Type == delivery.TypeRollback || op.Spec.Type == delivery.TypeOverride
-	return preempts && (o.Status.Phase == delivery.PhaseVerifying || o.Status.Phase == delivery.PhaseHeld && o.Status.Applied)
+	return preempts && (o.Status.Phase == delivery.PhaseVerifying || o.Status.Phase == delivery.PhaseHeld && o.Status.Applied), nil
 }
 
-func (r *OperationReconciler) opByUID(ctx context.Context, ns, uid string) *dv1.Operation {
+// opByUID finds an operation by uid; nil with no error means it is gone.
+func (r *OperationReconciler) opByUID(ctx context.Context, ns, uid string) (*dv1.Operation, error) {
 	list := &dv1.OperationList{}
 	if err := r.List(ctx, list, client.InNamespace(ns)); err != nil {
-		return nil
+		return nil, err
 	}
 	for i := range list.Items {
 		if string(list.Items[i].UID) == uid {
-			return &list.Items[i]
+			return &list.Items[i], nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // casStage applies fn to a fresh Stage and writes its status with optimistic
@@ -592,7 +622,7 @@ func (r *OperationReconciler) verdicts(ctx context.Context, op *dv1.Operation, s
 // preempted reports whether a rollback or override took this operation's lock.
 // ponytail: the preempted operation concludes itself on its next reconcile,
 // not inside the preempting compare-and-swap; seq order can differ from the
-// design's until records (M3) depend on it.
+// design's until records (M5) depend on it.
 func preempted(op *dv1.Operation, stage *dv1.Stage) bool {
 	return stage.Status.Locks[op.Spec.Facet] != string(op.UID)
 }
@@ -766,7 +796,7 @@ func raiseRollback(ctx context.Context, c client.Client, policy delivery.ClassPo
 
 // releaseFinalizer lets a concluded, deleted operation go. In M0 nothing writes
 // records yet, so the promoter is the one to remove the record finalizer.
-// ponytail: the M3 recorder takes this over once records exist.
+// ponytail: the M5 recorder takes this over once records exist.
 func (r *OperationReconciler) releaseFinalizer(ctx context.Context, op *dv1.Operation) error {
 	if op.DeletionTimestamp.IsZero() || !controllerutil.RemoveFinalizer(op, dv1.RecordFinalizer) {
 		return nil
