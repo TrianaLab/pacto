@@ -1,0 +1,275 @@
+package delivery
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/diff"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
+)
+
+// IntentDigest is the hash of what was asked. Plans, approvals and records bind
+// to it. The Stage spec is folded in as the policy snapshot, so a plan made
+// against one policy cannot be admitted under another.
+func IntentDigest(spec OperationSpec, stage StageSpec) string {
+	b, _ := json.Marshal(struct {
+		Type                string     `json:"type"`
+		Stage               string     `json:"stage"`
+		Facet               string     `json:"facet"`
+		Params              Params     `json:"params"`
+		Reason              string     `json:"reason"`
+		OnBehalfOf          *Principal `json:"onBehalfOf"`
+		StagePolicySnapshot StageSpec  `json:"stagePolicySnapshot"`
+	}{spec.Type, spec.Stage, spec.Facet, spec.Params, spec.Reason, spec.OnBehalfOf, stage})
+	return sha256Hex(b)
+}
+
+func sha256Hex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// Revision is one side of a pointer move: the artifact digest and, when it could
+// be read, the contract it carries.
+type Revision struct {
+	// Digest is the artifact manifest digest ("" for an empty Stage).
+	Digest string
+	// ContractRef is the digest-pinned contract reference the artifact names.
+	ContractRef string
+	// Bundle is the contract; nil when it could not be read.
+	Bundle *contract.Bundle
+	// Err says why Bundle is nil.
+	Err string
+}
+
+// PlanInput is everything plan() reads. Gathering it is the caller's job, so the
+// promoter and a client given the same cluster and registry state plan the same.
+type PlanInput struct {
+	Spec   OperationSpec
+	Stage  StageSpec
+	Status StageStatus
+	From   Revision
+	To     Revision
+	// Snapshot is the operational graph the impact pre-gate projects onto.
+	Snapshot *fleet.FleetSnapshot
+	// Class is the actor class of whoever raises the operation.
+	Class ActorClass
+}
+
+// PlanFor predicts what the promoter will do with an operation: its intent digest,
+// the pre-gate verdicts, the approval floor and the one question a human would
+// be asked. It is pure, and the promoter runs the same function when it admits
+// the operation and again before it moves the pointer.
+func PlanFor(ctx context.Context, in PlanInput) Plan {
+	p := Plan{
+		IntentDigest: IntentDigest(in.Spec, in.Stage),
+		Type:         in.Spec.Type,
+		From:         in.Spec.Params.From,
+		To:           in.Spec.Params.To,
+	}
+	rejected := ""
+	switch {
+	case !MayRaise(in.Spec.Type, in.Class, in.Spec.Witnessed):
+		rejected = fmt.Sprintf("NotPermitted: a %s actor may not raise %s", in.Class, in.Spec.Type)
+	case in.Spec.Facet == FacetPointer && in.Spec.Params.From != in.Status.Pointer:
+		rejected = fmt.Sprintf("PointerMoved: from is %q but the Stage runs %q", in.Spec.Params.From, in.Status.Pointer)
+	case in.Spec.Type == TypePromote && slices.Contains(in.Status.FailedDigests, in.Spec.Params.To):
+		rejected = "FailedDigest: " + in.Spec.Params.To + " already failed on this Stage and is never promoted again"
+	}
+	if rejected != "" {
+		p.Conflicts = append(p.Conflicts, rejected)
+		p.Predicted = PredictRejected
+		return p
+	}
+	if in.Spec.Type == TypePromote {
+		promoteGates(ctx, in, &p)
+		if in.Stage.Approval.Always && !p.Floor.Human {
+			p.Floor = Floor{Human: true, Decision: Approve}
+			p.Question = "This Stage asks a person to approve every promote. Approve " + short(p.To) + "?"
+		}
+	}
+	p.Predicted = predict(in, &p)
+	return p
+}
+
+// predict turns verdicts, floor and Stage state into the expected outcome.
+func predict(in PlanInput, p *Plan) Prediction {
+	for _, v := range p.Verdicts {
+		if v.Result == Fail {
+			return PredictRejected
+		}
+	}
+	if p.Floor.Human {
+		return PredictHeld
+	}
+	exempt := in.Spec.Type != TypePromote
+	if in.Status.Frozen && !exempt {
+		p.Conflicts = append(p.Conflicts, "StageFrozen: "+in.Status.FrozenReason)
+		return PredictWaits
+	}
+	return PredictProceeds
+}
+
+// promoteGates runs pacto.diff and pacto.impact and derives the approval floor.
+func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
+	diffV := diffGate(ctx, in)
+	p.Verdicts = append(p.Verdicts, diffV)
+	if diffV.Result != Pass {
+		// Without both contracts there is nothing to project onto the graph.
+		p.Verdicts = append(p.Verdicts, Verdict{Gate: GateImpact, Phase: "pre", Result: Unknown,
+			Message: "impact needs the contracts the diff could not read"})
+		if diffV.Result == Unknown {
+			p.Floor = Floor{Human: true, Decision: AcceptUnknown}
+			p.Question = "Pacto cannot see enough to judge " + short(p.To) + ": " + diffV.Message + ". Accept the unknown?"
+		}
+		return
+	}
+	impactGate(ctx, in, p)
+}
+
+func diffGate(ctx context.Context, in PlanInput) Verdict {
+	v := Verdict{Gate: GateDiff, Phase: "pre", Citation: map[string]string{}}
+	to := in.To
+	if to.Bundle == nil {
+		v.Result, v.Message = Unknown, "the contract of "+short(to.Digest)+" could not be read: "+to.Err
+		return v
+	}
+	v.Citation["to"] = to.ContractRef
+	if name := to.Bundle.Contract.Service.Name; name != in.Stage.Service.Name {
+		v.Result, v.Message = Fail, fmt.Sprintf("the contract of %s is service %q, but this Stage delivers %q", short(to.Digest), name, in.Stage.Service.Name)
+		return v
+	}
+	from := in.From
+	if from.Digest == "" {
+		v.Result, v.Message = Pass, "first version on this Stage"
+		v.Citation["classification"] = "INITIAL"
+		return v
+	}
+	if from.Bundle == nil {
+		v.Result, v.Message = Unknown, "the contract of the running version "+short(from.Digest)+" could not be read: "+from.Err
+		return v
+	}
+	v.Citation["from"] = from.ContractRef
+	d := diff.Compare(ctx, from.Bundle.Contract, to.Bundle.Contract, from.Bundle.FS, to.Bundle.FS)
+	v.Result = Pass
+	v.Citation["classification"] = d.Classification.String()
+	v.Message = fmt.Sprintf("%s: %d contract changes", d.Classification, len(d.Changes))
+	return v
+}
+
+// impactGate projects the change onto the graph. The floor follows the design:
+// an incompatible consumer asks that consumer's owners; anything Pacto cannot
+// see (partial graph, unknown confidence, an unknown range on a change that is
+// not plainly non-breaking, an unverified rollback target) asks a person to
+// accept the unknown; otherwise no person is needed.
+func impactGate(ctx context.Context, in PlanInput, p *Plan) {
+	old := in.From.Bundle
+	if old == nil { // first version: compare it with itself, so only ranges speak
+		old = in.To.Bundle
+	}
+	res := impact.Analyze(ctx, old.Contract, in.To.Bundle.Contract, old.FS, in.To.Bundle.FS, in.Snapshot,
+		impact.Options{Domain: contract.OCIDomain(in.To.ContractRef)})
+	resJSON, _ := json.Marshal(res)
+	p.ImpactDigest = sha256Hex(resJSON)
+	v := Verdict{Gate: GateImpact, Phase: "pre", Result: Pass, Citation: map[string]string{
+		"impact":         p.ImpactDigest,
+		"classification": res.Classification,
+		"completeness":   string(res.Completeness),
+		"snapshot":       res.SnapshotID,
+	}}
+
+	var incompatible, unknown []impact.AffectedConsumer
+	for _, c := range res.Consumers {
+		switch {
+		case c.CompatibilityVerdict == impact.CompatibilityIncompatible:
+			incompatible = append(incompatible, c)
+		case c.Confidence == impact.ConfidenceUnknown,
+			c.Direct && c.CompatibilityVerdict == impact.CompatibilityUnknown && res.Classification != diff.NonBreaking.String():
+			unknown = append(unknown, c)
+		}
+	}
+	var unseen []string
+	if res.Completeness == fleet.CompletenessPartial {
+		unseen = append(unseen, "the operational graph is partial ("+limitationCodes(res.Limitations)+")")
+	}
+	for _, c := range unknown {
+		unseen = append(unseen, c.Service+" has no usable compatibility range for this change")
+	}
+	if in.From.Digest != "" && !slices.Contains(in.Status.Verified, in.From.Digest) {
+		unseen = append(unseen, "the version a rollback would return to ("+short(in.From.Digest)+") was never verified here")
+	}
+
+	switch {
+	case len(incompatible) > 0:
+		names, owners := consumerNamesOwners(incompatible)
+		v.Message = "breaks " + strings.Join(names, ", ")
+		p.Floor = Floor{Human: true, Decision: Approve, Owners: owners, Consumers: names}
+		p.Question = fmt.Sprintf("%s %s is not accepted by %s. Approve shipping it anyway? Asked of: %s",
+			in.Stage.Service.Name, res.NewVersion, describeRanges(incompatible), ownersOrAnyone(owners))
+	case len(unseen) > 0:
+		v.Result = Unknown
+		v.Message = strings.Join(unseen, "; ")
+		p.Floor = Floor{Human: true, Decision: AcceptUnknown}
+		p.Question = "Pacto cannot see enough to clear " + in.Stage.Service.Name + " " + res.NewVersion + ": " + v.Message + ". Accept the unknown?"
+	default:
+		v.Message = fmt.Sprintf("%d consumers, none incompatible", len(res.Consumers))
+	}
+	p.Verdicts = append(p.Verdicts, v)
+}
+
+func consumerNamesOwners(cs []impact.AffectedConsumer) (names, owners []string) {
+	for _, c := range cs {
+		names = append(names, c.Service)
+		if c.Owner != "" && !slices.Contains(owners, c.Owner) {
+			owners = append(owners, c.Owner)
+		}
+	}
+	slices.Sort(owners)
+	return names, owners
+}
+
+func describeRanges(cs []impact.AffectedConsumer) string {
+	parts := make([]string, 0, len(cs))
+	for _, c := range cs {
+		parts = append(parts, fmt.Sprintf("%s (accepts %s)", c.Service, c.Compatibility))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func ownersOrAnyone(owners []string) string {
+	if len(owners) == 0 {
+		return "anyone (the consumers declare no owner)"
+	}
+	return strings.Join(owners, ", ")
+}
+
+func limitationCodes(ls []fleet.Limitation) string {
+	var codes []string
+	for _, l := range ls {
+		if !slices.Contains(codes, l.Code) {
+			codes = append(codes, l.Code)
+		}
+	}
+	if len(codes) == 0 {
+		return "a source is not available"
+	}
+	return strings.Join(codes, ", ")
+}
+
+// short trims a digest for messages.
+func short(d string) string {
+	if d == "" {
+		return "(none)"
+	}
+	if i := strings.IndexByte(d, ':'); i >= 0 && len(d) > i+13 {
+		return d[:i+13]
+	}
+	return d
+}

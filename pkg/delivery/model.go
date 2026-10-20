@@ -1,0 +1,443 @@
+// Package delivery is the pure core of Pacto delivery: the operation model, the
+// Tier 0 operation types, the intent digest and plan(), the one function the
+// promoter, the CLI and the MCP tools all call to decide whether a change may
+// move, whether a person must agree and who.
+//
+// It holds no Kubernetes, registry or clock dependency. The wire types below are
+// embedded verbatim by the delivery CRDs (delivery.pacto.trianalab.io/v1alpha1 in
+// integrations/kubernetes), so a client decoding a Stage or an Operation reads
+// exactly the struct the controller wrote, and the intent digest a client
+// computes is byte-for-byte the one the controller recomputes.
+package delivery
+
+import "encoding/json"
+
+// Facets an operation may change. Nothing else may reconcile a facet.
+const (
+	FacetPointer = "pointer"
+	FacetFreeze  = "freeze"
+)
+
+// Result is a gate verdict.
+type Result string
+
+const (
+	Pass    Result = "Pass"
+	Fail    Result = "Fail"
+	Unknown Result = "Unknown"
+)
+
+// Phase is where an operation is in its lifecycle.
+type Phase string
+
+const (
+	PhasePending   Phase = "Pending"
+	PhaseHeld      Phase = "Held"
+	PhaseRunning   Phase = "Running"
+	PhaseVerifying Phase = "Verifying"
+	PhaseConcluded Phase = "Concluded"
+)
+
+// Outcome is how a concluded operation ended.
+type Outcome string
+
+const (
+	Succeeded  Outcome = "Succeeded"
+	Failed     Outcome = "Failed"
+	Errored    Outcome = "Errored"
+	Cancelled  Outcome = "Cancelled"
+	Rejected   Outcome = "Rejected"
+	Expired    Outcome = "Expired"
+	Superseded Outcome = "Superseded"
+	Witnessed  Outcome = "Witnessed"
+)
+
+// Verification qualifies a Succeeded outcome.
+type Verification string
+
+const (
+	Verified        Verification = "Verified"
+	AcceptedUnknown Verification = "AcceptedUnknown"
+	Unverified      Verification = "Unverified"
+)
+
+// Decision is what a human approval says.
+type Decision string
+
+const (
+	Approve       Decision = "approve"
+	Reject        Decision = "reject"
+	AcceptUnknown Decision = "accept-unknown"
+)
+
+// ActorClass is who raised an operation, as the promoter classifies the
+// apiserver identity. It is derived, never asserted by the client.
+type ActorClass string
+
+const (
+	ClassController ActorClass = "controller"
+	ClassAgent      ActorClass = "agent"
+	ClassHuman      ActorClass = "human"
+	ClassBreakGlass ActorClass = "break-glass"
+)
+
+// ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified
+// service name its contracts declare.
+type ServiceRef struct {
+	// Domain is the registry and organisation scope (empty for the default).
+	// +optional
+	Domain string `json:"domain,omitempty"`
+	// Name is the contract's service.name.
+	Name string `json:"name"`
+}
+
+// LocalRef names an object in the Stage's own namespace.
+type LocalRef struct {
+	Name string `json:"name"`
+}
+
+// Candidates says where new versions come from. Exactly one is set.
+type Candidates struct {
+	// OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the
+	// candidate is the @sha256: part of its status.artifact.revision.
+	// +optional
+	OCIRepositoryRef *LocalRef `json:"ociRepositoryRef,omitempty"`
+	// UpstreamStage offers that Stage's verified digests minus its failed ones.
+	// +optional
+	UpstreamStage *LocalRef `json:"upstreamStage,omitempty"`
+}
+
+// VerifyGates configures what runs after a version is applied.
+type VerifyGates struct {
+	// Window is how long the verify gates may stay Unknown before the
+	// operation is held for a human (a Go duration, default 5m).
+	// +optional
+	Window string `json:"window,omitempty"`
+}
+
+// Gates configures the Stage's gates. The pre-gates are fixed by the operation
+// type in M0; the Pacto contract gate is the verify gate.
+type Gates struct {
+	// +optional
+	Verify VerifyGates `json:"verify,omitzero"`
+}
+
+// ApprovalPolicy can only raise the approval floor, never lower it.
+type ApprovalPolicy struct {
+	// Always holds every promote for a human, whatever the contracts say.
+	// +optional
+	Always bool `json:"always,omitempty"`
+}
+
+// Deadlines override the operation type's defaults (Go durations).
+type Deadlines struct {
+	// +optional
+	Approval string `json:"approval,omitempty"`
+	// +optional
+	Execution string `json:"execution,omitempty"`
+}
+
+// StageSpec is one service in one environment.
+type StageSpec struct {
+	Service     ServiceRef `json:"service"`
+	Environment string     `json:"environment"`
+	// ApplyRef is the Flux OCIRepository the promoter owns. It only ever sets
+	// spec.ref.digest on it.
+	ApplyRef LocalRef `json:"applyRef"`
+	// +optional
+	Candidates Candidates `json:"candidates,omitzero"`
+	// Auto promotes the newest eligible candidate without anyone asking.
+	// +optional
+	Auto bool `json:"auto,omitempty"`
+	// +optional
+	Gates Gates `json:"gates,omitzero"`
+	// +optional
+	Approval ApprovalPolicy `json:"approval,omitzero"`
+	// +optional
+	Deadlines Deadlines `json:"deadlines,omitzero"`
+}
+
+// Stream numbers a Stage's concluded operations.
+type Stream struct {
+	// ID is <clusterID>/<namespace>/<name>; the cluster id is the kube-system
+	// namespace uid.
+	// +optional
+	ID string `json:"id,omitempty"`
+	// +optional
+	Seq int64 `json:"seq,omitempty"`
+}
+
+// StageStatus is written only by the promoter's operation reconciler.
+type StageStatus struct {
+	// Pointer is the digest the environment runs.
+	// +optional
+	Pointer string `json:"pointer,omitempty"`
+	// LastOp is the uid of the operation that last moved the pointer.
+	// +optional
+	LastOp string `json:"lastOp,omitempty"`
+	// Locks maps a facet to the uid of the operation holding it.
+	// +optional
+	Locks map[string]string `json:"locks,omitempty"`
+	// Verified holds the newest verified digests, oldest first (cap 10).
+	// +optional
+	Verified []string `json:"verified,omitempty"`
+	// FailedDigests are never promoted again (cap 50).
+	// +optional
+	FailedDigests []string `json:"failedDigests,omitempty"`
+	// +optional
+	Frozen bool `json:"frozen,omitempty"`
+	// +optional
+	FrozenReason string `json:"frozenReason,omitempty"`
+	// AutoHold stops auto-promotion after a person chose an older version.
+	// +optional
+	AutoHold bool `json:"autoHold,omitempty"`
+	// AutoRollbacks counts the automatic rollbacks raised per cause.
+	// +optional
+	AutoRollbacks map[string]int `json:"autoRollbacks,omitempty"`
+	// +optional
+	Stream Stream `json:"stream,omitzero"`
+	// Candidate is the newest eligible candidate the stage reconciler saw.
+	// +optional
+	Candidate string `json:"candidate,omitempty"`
+}
+
+// Params are the Tier 0 operation parameters. Digests are OCI manifest digests.
+type Params struct {
+	// +optional
+	From string `json:"from,omitempty"`
+	// +optional
+	To string `json:"to,omitempty"`
+	// Undoes is the uid of the operation a rollback undoes.
+	// +optional
+	Undoes string `json:"undoes,omitempty"`
+}
+
+// Actor is the apiserver identity that created the operation.
+type Actor struct {
+	User string `json:"user"`
+	// +optional
+	Groups []string `json:"groups,omitempty"`
+}
+
+// Principal is a person an agent says it acts for. It is asserted, never
+// verified.
+type Principal struct {
+	User string `json:"user"`
+}
+
+// Verdict is one gate's answer plus a citation that can be re-run.
+type Verdict struct {
+	Gate string `json:"gate"`
+	// +kubebuilder:validation:Enum=pre;verify
+	Phase string `json:"phase"`
+	// +kubebuilder:validation:Enum=Pass;Fail;Unknown
+	Result Result `json:"result"`
+	// +optional
+	Citation map[string]string `json:"citation,omitempty"`
+	// +optional
+	Message string `json:"message,omitempty"`
+}
+
+// Cause is why an operation was raised. Exactly one field is set.
+type Cause struct {
+	// Operation is the uid of the operation that caused this one.
+	// +optional
+	Operation string `json:"operation,omitempty"`
+	// +optional
+	Verdict *Verdict `json:"verdict,omitempty"`
+	// +optional
+	Reason string `json:"reason,omitempty"`
+}
+
+// OperationSpec is the intent. It is frozen at admission.
+type OperationSpec struct {
+	// +kubebuilder:validation:Enum=pacto.dev/promote;pacto.dev/rollback;pacto.dev/override;pacto.dev/unfreeze
+	Type string `json:"type"`
+	// Stage is the name of a Stage in the operation's namespace.
+	Stage string `json:"stage"`
+	// +kubebuilder:validation:Enum=pointer;freeze
+	Facet string `json:"facet"`
+	// +optional
+	Params Params `json:"params,omitzero"`
+	// IntentDigest is what plan() returned; the promoter recomputes it.
+	// +optional
+	IntentDigest string `json:"intentDigest,omitempty"`
+	// +optional
+	Reason string `json:"reason,omitempty"`
+	// +optional
+	CorrelationID string `json:"correlationID,omitempty"`
+	Actor         Actor  `json:"actor"`
+	// +optional
+	OnBehalfOf *Principal `json:"onBehalfOf,omitempty"`
+	// +optional
+	Cause *Cause `json:"cause,omitempty"`
+	// Witnessed marks an override the promoter raised for an edit it saw but
+	// did not make. Only the promoter may set it.
+	// +optional
+	Witnessed bool `json:"witnessed,omitempty"`
+}
+
+// Floor is the approval floor plan() computed: whether a human must decide,
+// which decision is asked for and whose.
+type Floor struct {
+	// +optional
+	Human bool `json:"human,omitempty"`
+	// +optional
+	Decision Decision `json:"decision,omitempty"`
+	// Owners are the teams the question is routed to (empty means anyone).
+	// +optional
+	Owners []string `json:"owners,omitempty"`
+	// Consumers are the services that made the floor.
+	// +optional
+	Consumers []string `json:"consumers,omitempty"`
+}
+
+// Prediction is what plan() expects the promoter to do.
+type Prediction string
+
+const (
+	PredictProceeds Prediction = "Proceeds"
+	PredictHeld     Prediction = "Held"
+	PredictRejected Prediction = "Rejected"
+	PredictWaits    Prediction = "Waits"
+)
+
+// Plan is plan()'s answer. It binds to the intent digest.
+type Plan struct {
+	IntentDigest string `json:"intentDigest"`
+	Type         string `json:"type"`
+	// +optional
+	From string `json:"from,omitempty"`
+	// +optional
+	To string `json:"to,omitempty"`
+	// +optional
+	Verdicts []Verdict `json:"verdicts,omitempty"`
+	// +optional
+	Floor Floor `json:"floor,omitzero"`
+	// Question is the one question a human would be asked.
+	// +optional
+	Question string `json:"question,omitempty"`
+	// +optional
+	Conflicts []string `json:"conflicts,omitempty"`
+	Predicted Prediction `json:"predicted"`
+	// ImpactDigest is the sha256 of the pkg/impact answer the floor came from.
+	// +optional
+	ImpactDigest string `json:"impactDigest,omitempty"`
+}
+
+// ApprovalRecord is an approval the promoter consumed.
+type ApprovalRecord struct {
+	Name     string   `json:"name"`
+	By       string   `json:"by"`
+	Decision Decision `json:"decision"`
+	// +optional
+	Note string `json:"note,omitempty"`
+	// +optional
+	AuthTime string `json:"authTime,omitempty"`
+}
+
+// PointerChange is the pointer before and after an operation.
+type PointerChange struct {
+	// +optional
+	Before string `json:"before,omitempty"`
+	// +optional
+	After string `json:"after,omitempty"`
+}
+
+// Times are RFC 3339 timestamps.
+type Times struct {
+	// +optional
+	Admitted string `json:"admitted,omitempty"`
+	// +optional
+	Started string `json:"started,omitempty"`
+	// +optional
+	Applied string `json:"applied,omitempty"`
+	// +optional
+	Finished string `json:"finished,omitempty"`
+	// +optional
+	ApprovalDeadline string `json:"approvalDeadline,omitempty"`
+	// +optional
+	ExecutionDeadline string `json:"executionDeadline,omitempty"`
+	// +optional
+	VerifyDeadline string `json:"verifyDeadline,omitempty"`
+}
+
+// OperationStatus is written only by the promoter.
+type OperationStatus struct {
+	// +optional
+	Phase Phase `json:"phase,omitempty"`
+	// +optional
+	Outcome Outcome `json:"outcome,omitempty"`
+	// +optional
+	Verification Verification `json:"verification,omitempty"`
+	// Reason is the machine reason for the outcome or the hold (PlanStale,
+	// PointerMoved, NoStage, ...).
+	// +optional
+	Reason string `json:"reason,omitempty"`
+	// +optional
+	Message string `json:"message,omitempty"`
+	// Question is what a human is asked while the operation is Held.
+	// +optional
+	Question string `json:"question,omitempty"`
+	// +optional
+	ActorClass ActorClass `json:"actorClass,omitempty"`
+	// +optional
+	Plan *Plan `json:"plan,omitempty"`
+	// +optional
+	Verdicts []Verdict `json:"verdicts,omitempty"`
+	// +optional
+	Approvals []ApprovalRecord `json:"approvals,omitempty"`
+	// +optional
+	Pointer PointerChange `json:"pointer,omitzero"`
+	// Applied is true once the pointer moved for this operation.
+	// +optional
+	Applied bool `json:"applied,omitempty"`
+	// +optional
+	Times Times `json:"times,omitzero"`
+	// +optional
+	Seq int64 `json:"seq,omitempty"`
+}
+
+// ApprovalSpec is a human decision bound to one operation uid and intent digest.
+type ApprovalSpec struct {
+	// Operation is the operation's name, for people. Matching uses the uid.
+	Operation    string   `json:"operation"`
+	OperationUID string   `json:"operationUID"`
+	IntentDigest string   `json:"intentDigest"`
+	Decision     Decision `json:"decision"`
+	// +optional
+	Note string `json:"note,omitempty"`
+	// By must equal the apiserver username of whoever created the Approval.
+	By string `json:"by"`
+	// AuthTime is the login time the apiserver reported for that user
+	// (userInfo.extra["pacto.dev/auth-time"], RFC 3339 or Unix seconds).
+	// +optional
+	AuthTime string `json:"authTime,omitempty"`
+}
+
+// deepCopyJSON copies in into out through JSON. Every wire type here is plain
+// JSON data, so the round trip is exact, and it keeps the CRDs that embed these
+// types free of hand-maintained field-by-field copies.
+// ponytail: JSON round trip per copy; generate field copies if a profile ever
+// shows it.
+func deepCopyJSON[T any](in, out *T) {
+	b, _ := json.Marshal(in)
+	var fresh T
+	_ = json.Unmarshal(b, &fresh)
+	*out = fresh
+}
+
+// DeepCopyInto copies the receiver into out.
+func (in *StageSpec) DeepCopyInto(out *StageSpec) { deepCopyJSON(in, out) }
+
+// DeepCopyInto copies the receiver into out.
+func (in *StageStatus) DeepCopyInto(out *StageStatus) { deepCopyJSON(in, out) }
+
+// DeepCopyInto copies the receiver into out.
+func (in *OperationSpec) DeepCopyInto(out *OperationSpec) { deepCopyJSON(in, out) }
+
+// DeepCopyInto copies the receiver into out.
+func (in *OperationStatus) DeepCopyInto(out *OperationStatus) { deepCopyJSON(in, out) }
+
+// DeepCopyInto copies the receiver into out.
+func (in *ApprovalSpec) DeepCopyInto(out *ApprovalSpec) { deepCopyJSON(in, out) }
