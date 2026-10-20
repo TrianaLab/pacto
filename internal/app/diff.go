@@ -34,9 +34,12 @@ type DependencyDiff struct {
 
 // DiffResult holds the result of the diff command.
 type DiffResult struct {
-	OldPath         string           `json:"oldPath"`
-	NewPath         string           `json:"newPath"`
-	Classification  string           `json:"classification"`
+	OldPath        string `json:"oldPath"`
+	NewPath        string `json:"newPath"`
+	Classification string `json:"classification"`
+	// RequiredBump is the smallest version bump the root contract's change
+	// needs over the old version, as `pacto publish` enforces it.
+	RequiredBump    diff.Bump        `json:"requiredBump"`
 	Changes         []diff.Change    `json:"changes"`
 	DependencyDiffs []DependencyDiff `json:"dependencyDiffs,omitempty"`
 	GraphDiff       *graph.GraphDiff `json:"graphDiff,omitempty"`
@@ -111,6 +114,7 @@ func (s *Service) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, erro
 		OldPath:         opts.OldPath,
 		NewPath:         opts.NewPath,
 		Classification:  overall.String(),
+		RequiredBump:    diff.RequiredBump(result.Classification, oldBundle.Contract.Service.Version),
 		Changes:         result.Changes,
 		DependencyDiffs: depDiffs,
 		GraphDiff:       gd,

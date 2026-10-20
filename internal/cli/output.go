@@ -113,6 +113,7 @@ func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) 
 		hasDepSBOM := hasAnyDepSBOM(result.DependencyDiffs)
 
 		_, _ = fmt.Fprintf(w, "Classification: %s\n", colorClassification(w, result.Classification))
+		_, _ = fmt.Fprintf(w, "Required bump: %s\n", result.RequiredBump)
 
 		if len(result.Changes) == 0 && len(result.DependencyDiffs) == 0 && rendered == "" && !hasSBOM && !hasDepSBOM {
 			_, _ = fmt.Fprintln(w, "No changes detected.")
@@ -153,7 +154,7 @@ func printDiffResult(cmd *cobra.Command, result *app.DiffResult, format string) 
 
 func printDiffMarkdown(cmd *cobra.Command, result *app.DiffResult) error {
 	w := cmd.OutOrStdout()
-	_, _ = fmt.Fprintf(w, "## Contract Diff\n\n**Classification:** `%s`\n\n", result.Classification)
+	_, _ = fmt.Fprintf(w, "## Contract Diff\n\n**Classification:** `%s`\n\n**Required bump:** `%s`\n\n", result.Classification, result.RequiredBump)
 
 	hasChanges := len(result.Changes) > 0 || len(result.DependencyDiffs) > 0
 	rendered := graph.RenderDiffTree(result.GraphDiff)

@@ -127,6 +127,7 @@ From inside `my-service`, compare the original contract against `v2`:
 ```console
 $ pacto diff . ../v2
 Classification: BREAKING
+Required bump: major
 Changes (3):
   [NON_BREAKING] service.version (modified): service.version modified [1.0.0 -> 2.0.0]
   [BREAKING] openapi.paths[/orders/{id}].methods[GET].responses[200].content.application/json.schema.properties.total (removed): openapi.paths[/orders/{id}].methods[GET].responses[200].content.application/json.schema.properties.total removed [- map[type:number]]
@@ -136,7 +137,7 @@ $ echo $?
 1
 ```
 
-The classification is `BREAKING` and the exit code is 1. That is the CI gate: `pacto diff` exits non-zero when the change breaks consumers, so a branch-protection rule that requires passing checks blocks the merge.
+The classification is `BREAKING`, so the next published version must be a new major version, and the exit code is 1. That is the CI gate: `pacto diff` exits non-zero when the change breaks consumers, so a branch-protection rule that requires passing checks blocks the merge.
 
 ## 7. Find the affected consumers
 

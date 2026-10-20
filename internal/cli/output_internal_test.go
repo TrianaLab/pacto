@@ -140,11 +140,14 @@ func TestPrintPullResult_Text(t *testing.T) {
 
 func TestPrintDiffResult_NoChanges(t *testing.T) {
 	cmd, buf := testCmd()
-	result := &app.DiffResult{OldPath: "a.yaml", NewPath: "b.yaml", Classification: "NON_BREAKING"}
+	result := &app.DiffResult{OldPath: "a.yaml", NewPath: "b.yaml", Classification: "NON_BREAKING", RequiredBump: diff.BumpPatch}
 	if err := printDiffResult(cmd, result, "text"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := buf.String()
+	if !strings.Contains(out, "Required bump: patch") {
+		t.Errorf("expected the required bump, got %q", out)
+	}
 	if !strings.Contains(out, "NON_BREAKING") {
 		t.Errorf("expected classification, got %q", out)
 	}
