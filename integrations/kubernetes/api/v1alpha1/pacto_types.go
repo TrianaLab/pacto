@@ -634,6 +634,27 @@ type ObservationWindow struct {
 	FirstObservedNegativeAt metav1.Time `json:"firstObservedNegativeAt"`
 }
 
+// EvaluatedRevision identifies what one evaluation looked at.
+type EvaluatedRevision struct {
+	// ContractDigest is the OCI manifest digest of the evaluated contract
+	// bundle. Empty for inline contracts.
+	// +optional
+	ContractDigest string `json:"contractDigest,omitempty"`
+
+	// Workload is the workload object and generation the evaluation read.
+	// Absent for a reference-only contract or a workload that does not exist.
+	// +optional
+	Workload *EvaluatedWorkload `json:"workload,omitempty"`
+}
+
+// EvaluatedWorkload is one generation of one workload object.
+type EvaluatedWorkload struct {
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	UID        string `json:"uid"`
+	Generation int64  `json:"generation"`
+}
+
 // PactoStatus defines the observed state of Pacto.
 // All contract data is exposed as structured fields so external consumers
 // can read the CR status directly without parsing contracts themselves.
@@ -734,6 +755,13 @@ type PactoStatus struct {
 	// +listMapKey=type
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// EvaluatedRevision ties this status to the exact contract and workload
+	// generation it was computed from, so a result for an old version is never
+	// read as the answer for a new one. A consumer acting on contractStatus
+	// (the opt-in Pacto delivery promoter) must check it first.
+	// +optional
+	EvaluatedRevision *EvaluatedRevision `json:"evaluatedRevision,omitempty"`
 
 	// CurrentRevision is the name of the active PactoRevision.
 	// +optional

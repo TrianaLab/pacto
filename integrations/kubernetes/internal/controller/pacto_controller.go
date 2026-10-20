@@ -220,6 +220,8 @@ func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pact
 	if err != nil {
 		return nil, &loadFailure{msg: err.Error(), validation: invalidAt("", err), status: classifyLoadError(err)}
 	}
+	// Recorded before validation, so an Invalid verdict is tied to its contract too.
+	pacto.Status.EvaluatedRevision = &pactov1alpha1.EvaluatedRevision{ContractDigest: loadResult.ResolvedDigest}
 
 	// 4b. Apply configuration overrides (if specified)
 	effectiveLR, overriddenKeys, overrideErr := applyOverrides(loadResult, pacto.Spec.Overrides)
@@ -342,6 +344,11 @@ func (r *PactoReconciler) observeBackCompat(ctx context.Context, obs *observer.O
 	if snapshot == nil {
 		snapshot = &observer.RuntimeSnapshot{}
 	}
+	if snapshot.WorkloadExists && pacto.Status.EvaluatedRevision != nil {
+		pacto.Status.EvaluatedRevision.Workload = &pactov1alpha1.EvaluatedWorkload{
+			Kind: workloadKind, Name: workloadName, UID: snapshot.WorkloadUID, Generation: snapshot.WorkloadGeneration,
+		}
+	}
 	if snapshot.WorkloadExists {
 		pacto.Status.ObservedRuntime = &pactov1alpha1.ObservedRuntime{
 			WorkloadKind:                   snapshot.WorkloadKind,
@@ -408,6 +415,7 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	pacto.Status.Dependencies = nil
 	pacto.Status.Policies = nil
 	pacto.Status.ObservedRuntime = nil
+	pacto.Status.EvaluatedRevision = nil
 	pacto.Status.Readiness = nil
 	pacto.Status.Metadata = nil
 	// Conditions are intentionally NOT wiped: they are sticky observations managed

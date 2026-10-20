@@ -484,6 +484,39 @@ spec:
                   - required
                   type: object
                 type: array
+              evaluatedRevision:
+                description: |-
+                  EvaluatedRevision ties this status to the exact contract and workload
+                  generation it was computed from, so a result for an old version is never
+                  read as the answer for a new one. A consumer acting on contractStatus
+                  (the opt-in Pacto delivery promoter) must check it first.
+                properties:
+                  contractDigest:
+                    description: |-
+                      ContractDigest is the OCI manifest digest of the evaluated contract
+                      bundle. Empty for inline contracts.
+                    type: string
+                  workload:
+                    description: |-
+                      Workload is the workload object and generation the evaluation read.
+                      Absent for a reference-only contract or a workload that does not exist.
+                    properties:
+                      generation:
+                        format: int64
+                        type: integer
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                      uid:
+                        type: string
+                    required:
+                    - generation
+                    - kind
+                    - name
+                    - uid
+                    type: object
+                type: object
               evaluationCoverage:
                 description: |-
                   EvaluationCoverage reports how many required assertions were evaluated (metadata; never affects

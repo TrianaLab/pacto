@@ -120,7 +120,11 @@ type RuntimeSnapshot struct {
 	WorkloadExists bool
 	WorkloadKind   string
 	ServicePorts   []int32
-	Replicas       *int32
+	// WorkloadUID and WorkloadGeneration identify the exact object and
+	// generation read.
+	WorkloadUID        string
+	WorkloadGeneration int64
+	Replicas           *int32
 
 	DeploymentStrategy      string
 	PodManagementPolicy     string
