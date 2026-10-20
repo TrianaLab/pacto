@@ -108,7 +108,11 @@ func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) err
 	if !stage.Spec.Auto || stage.Status.Frozen || stage.Status.AutoHold {
 		return nil
 	}
-	for _, o := range stageOps(ctx, r.Client, stage.Namespace, stage.Name) {
+	ops, err := stageOps(ctx, r.Client, stage.Namespace, stage.Name)
+	if err != nil {
+		return err
+	}
+	for _, o := range ops {
 		if o.Status.Phase != delivery.PhaseConcluded {
 			return nil
 		}
@@ -168,10 +172,11 @@ func (r *StageReconciler) raise(ctx context.Context, stage *dv1.Stage, kind stri
 // recheck interval, once the operation that shipped it succeeded. Checks keep
 // running after release: a confirmed Fail marks the version failed and raises
 // its one bound rollback, or freezes the Stage when that cause already had its
-// rollback, there is nothing to roll back to or a person or agent chose the
-// version (a rollback, or a promote on auto-hold): automation never undoes that
-// choice. Unknown never rolls back. A verdict about a Stage that moved on while
-// the gates ran is dropped.
+// rollback, there is nothing to roll back to, a person or agent chose the
+// version (a rollback, or a promote on auto-hold) or it is the promoter's own
+// rollback: automation never undoes a choice or rolls back a rollback.
+// Unknown never rolls back. A verdict about a Stage that moved on while the
+// gates ran is dropped.
 func (r *StageReconciler) recheck(ctx context.Context, stage *dv1.Stage) error {
 	s, now := stage.Status, r.Now().UTC()
 	failed := slices.Contains(s.FailedDigests, s.Pointer)
@@ -179,8 +184,11 @@ func (r *StageReconciler) recheck(ctx context.Context, stage *dv1.Stage) error {
 		!failed && s.LastCheck != nil && s.LastCheck.Operation == s.LastOp && now.Before(parseOr(s.LastCheck.At).Add(delivery.RecheckInterval(stage.Spec))) {
 		return nil
 	}
+	ops, err := stageOps(ctx, r.Client, stage.Namespace, stage.Name)
+	if err != nil {
+		return err
+	}
 	var shipped *dv1.Operation
-	ops := stageOps(ctx, r.Client, stage.Namespace, stage.Name)
 	for _, o := range ops {
 		if o.Status.Phase != delivery.PhaseConcluded {
 			return nil // something is in flight; it owns the Stage
@@ -256,6 +264,8 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 		st.Status.FailedDigests = delivery.AddDigest(st.Status.FailedDigests, check.Digest, delivery.MaxFailedDigests)
 		st.Status.Verified = delivery.RemoveDigest(st.Status.Verified, check.Digest)
 		switch {
+		case shipped.Spec.Type == delivery.TypeRollback && shipped.Status.ActorClass == delivery.ClassController:
+			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release, and it is the promoter's own rollback, which is never undone automatically, so a person must decide: "+why
 		case chosen:
 			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release, and a person or agent chose this version, so a person must decide: "+why
 		case !rollback:

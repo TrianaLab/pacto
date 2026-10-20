@@ -222,16 +222,20 @@ func (r *OperationReconciler) cited(ctx context.Context, op *dv1.Operation) *del
 	return nil
 }
 
+// ponytail: a failed list reads as no operations here; return the error
+// through cited and newerPromote if a transient list failure ever matters.
 func (r *OperationReconciler) stageOps(ctx context.Context, ns, stage string) []dv1.Operation {
-	return stageOps(ctx, r.Client, ns, stage)
+	ops, _ := stageOps(ctx, r.Client, ns, stage)
+	return ops
 }
 
-func stageOps(ctx context.Context, c client.Reader, ns, stage string) []dv1.Operation {
+// stageOps lists the operations on a Stage.
+func stageOps(ctx context.Context, c client.Reader, ns, stage string) ([]dv1.Operation, error) {
 	list := &dv1.OperationList{}
 	if err := c.List(ctx, list, client.InNamespace(ns)); err != nil {
-		return nil
+		return nil, err
 	}
-	return slices.DeleteFunc(list.Items, func(o dv1.Operation) bool { return o.Spec.Stage != stage })
+	return slices.DeleteFunc(list.Items, func(o dv1.Operation) bool { return o.Spec.Stage != stage }), nil
 }
 
 // pending runs the pre-gates.

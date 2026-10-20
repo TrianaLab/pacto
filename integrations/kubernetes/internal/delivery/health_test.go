@@ -198,6 +198,17 @@ func TestRecheckAfterRelease(t *testing.T) {
 	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 2 || e.getStage().Status.LastCheck.Operation != "uid-p1-rollback" {
 		t.Fatalf("after the rollback the version it restored is re-checked: %v %+v", err, e.getStage().Status.LastCheck)
 	}
+	// The promoter's own rollback failing after release is never undone, and
+	// the freeze says so instead of blaming a person.
+	e.health.result = delivery.Fail
+	e.now = e.now.Add(time.Hour)
+	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 2 {
+		t.Fatalf("a failed rollback is not rolled back: %v ops=%d", err, len(e.ops()))
+	}
+	if s := e.getStage(); !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "the promoter's own rollback, which is never undone automatically") ||
+		strings.Contains(s.Status.FrozenReason, "person or agent") {
+		t.Fatalf("frozen reason: %+v", s.Status)
+	}
 }
 
 // TestRecheckFreezesWhenItCannotRollBack: a cause that already had its
@@ -380,6 +391,11 @@ func TestRecheckNeverUndoesAChoice(t *testing.T) {
 				len(s.Status.AutoRollbacks) != 0 || len(e.ops()) != 1 {
 				t.Fatalf("want frozen with no rollback: %+v ops=%d", s.Status, len(e.ops()))
 			}
+			// Unfrozen on the failed version, automation still leaves the choice alone.
+			e.setStage(func(s *delivery.StageStatus) { s.Frozen = false })
+			if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 1 {
+				t.Fatalf("a chosen version is rolled back after unfreeze: %v ops=%d", err, len(e.ops()))
+			}
 		})
 	}
 }
@@ -459,6 +475,50 @@ func TestRecheckRecordsBeforeItRaises(t *testing.T) {
 	}
 	if rb := e.getOp("p1-rollback"); rb.Spec.Params.To != dA || rb.Spec.Cause.Verdict.Gate != "health" || !strings.Contains(rb.Spec.Reason, "RecheckFailed") {
 		t.Fatalf("rollback: %+v", rb.Spec)
+	}
+}
+
+// TestRecheckRaisesNoSecondRollback: once the rollback for a cause has
+// concluded without moving the pointer, the failed version stays and no
+// rollback is raised again: not even a create is attempted.
+func TestRecheckRaisesNoSecondRollback(t *testing.T) {
+	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.shipB()
+	e.health.result = delivery.Fail
+	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 2 {
+		t.Fatalf("the failed re-check raises its rollback: %v ops=%d", err, len(e.ops()))
+	}
+	rb := e.getOp("p1-rollback")
+	rb.Status.Phase, rb.Status.Outcome = delivery.PhaseConcluded, delivery.Rejected
+	if err := e.c.Status().Update(context.Background(), rb); err != nil {
+		t.Fatal(err)
+	}
+	e.fails["create/Operation"] = true
+	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 2 {
+		t.Fatalf("a concluded rollback is raised again: %v ops=%d", err, len(e.ops()))
+	}
+}
+
+// TestRecheckOperationGone: a list that fails is retried, never read as the
+// shipping operation being gone, and a gone record is dropped when the Stage
+// moved before it was written.
+func TestRecheckOperationGone(t *testing.T) {
+	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.shipB()
+	e.setStage(func(s *delivery.StageStatus) { s.LastOp = "uid-gone" })
+	e.fails["list/Operation"] = true
+	if err := e.reconcileStage("payments-prod"); err == nil || e.getStage().Status.LastCheck != nil {
+		t.Fatalf("a failed list is an error, retried, and records nothing: %v %+v", err, e.getStage().Status.LastCheck)
+	}
+	delete(e.fails, "list/Operation")
+	e.st.APIReader = &afterFirstGet{Reader: e.c, fn: func() {
+		e.setStage(func(s *delivery.StageStatus) { s.Pointer, s.LastOp = dC, "uid-p2" })
+	}}
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if lc := e.getStage().Status.LastCheck; lc != nil {
+		t.Fatalf("a gone record about a Stage that moved is written: %+v", lc)
 	}
 }
 

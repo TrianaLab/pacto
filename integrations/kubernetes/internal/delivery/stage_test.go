@@ -187,8 +187,10 @@ func TestStageReconcileErrors(t *testing.T) {
 		t.Fatal("a failed promote create must surface")
 	}
 	e.fails = fails{"list/Operation": true}
-	if err := e.reconcileStage("payments-prod"); err != nil {
-		t.Fatal(err)
+	err := e.reconcileStage("payments-prod")
+	e.fails = fails{}
+	if err == nil || len(e.ops()) != 0 {
+		t.Fatalf("a failed list is an error and promotes nothing: %v", err)
 	}
 }
 

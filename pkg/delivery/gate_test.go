@@ -96,6 +96,23 @@ func TestRunChecks(t *testing.T) {
 	}
 }
 
+// TestCheckTimeout: a check that does not answer in time is Unknown, even when
+// the gate ignores its context and would have said Pass.
+func TestCheckTimeout(t *testing.T) {
+	defer func(d time.Duration) { CheckTimeout = d }(CheckTimeout)
+	CheckTimeout = 10 * time.Millisecond
+	release := make(chan struct{})
+	defer close(release)
+	slow := gateFunc(func(context.Context, GateInput, map[string]string) Verdict {
+		<-release
+		return Verdict{Result: Pass, Citation: map[string]string{"q": "x"}}
+	})
+	v := RunChecks(context.Background(), map[string]Gate{"slow": slow}, []GateCheck{{Name: "health", Provider: "slow"}}, gateIn())[0]
+	if v.Result != Unknown || !strings.Contains(v.Message, "did not answer within 10ms") || v.Citation["provider"] != "slow" {
+		t.Fatalf("a timed-out check: %+v", v)
+	}
+}
+
 func TestWorst(t *testing.T) {
 	vs := []Verdict{{Result: Pass}, {Result: Unknown}}
 	if Worst(vs) != Unknown || Worst(nil) != Pass || Worst([]Verdict{{Result: Pass}, {Result: Fail}}) != Fail {

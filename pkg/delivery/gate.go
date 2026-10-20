@@ -107,10 +107,29 @@ func RunChecks(ctx context.Context, gates map[string]Gate, checks []GateCheck, i
 	return out
 }
 
+// CheckTimeout bounds one gate check, so a slow provider cannot stall the
+// reconciles waiting on it. A check that runs out of time is Unknown, never Pass.
+var CheckTimeout = time.Minute
+
+// checkWithin runs one check, giving up on it after CheckTimeout even when the
+// gate ignores its context.
+func checkWithin(ctx context.Context, g Gate, in GateInput, params map[string]string) Verdict {
+	ctx, cancel := context.WithTimeout(ctx, CheckTimeout)
+	defer cancel()
+	done := make(chan Verdict, 1)
+	go func() { done <- g.Check(ctx, in, params) }()
+	select {
+	case v := <-done:
+		return v
+	case <-ctx.Done():
+		return Verdict{Result: Unknown, Message: fmt.Sprintf("the check did not answer within %s: %v", CheckTimeout, ctx.Err())}
+	}
+}
+
 func runCheck(ctx context.Context, gates map[string]Gate, c GateCheck, in GateInput) Verdict {
 	v := Verdict{Result: Unknown, Message: fmt.Sprintf("no gate provider named %q is configured", c.Provider)}
 	if g := gates[c.Provider]; g != nil {
-		v = g.Check(ctx, in, c.Params)
+		v = checkWithin(ctx, g, in, c.Params)
 		if v.Result == Pass && len(v.Citation) == 0 {
 			v.Result, v.Message = Unknown, "the gate passed but gave no citation to re-run: "+v.Message
 		}
