@@ -47,6 +47,16 @@ tests:
           path: spec.validations[1].expression
           pattern: "g in \\['pacto:agents'\\]"
 
+  - it: binds an approval's groups to the approving user's groups
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    documentIndex: 4
+    asserts:
+      - equal:
+          path: spec.validations[3].message
+          value: "spec.groups must be the groups of the user creating the approval"
+
   - it: protects only labelled OCIRepositories
     capabilities:
       apiVersions:

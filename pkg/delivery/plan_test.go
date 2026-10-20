@@ -117,6 +117,25 @@ func TestPlanBreakingChangeAsksOnlyTheBrokenConsumersOwners(t *testing.T) {
 	}
 }
 
+func TestPlanRoutesEveryOtherQuestionToTheServiceTeam(t *testing.T) {
+	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
+	p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, from, to, checkoutPacto("^1.0.0"))
+	if p.Floor.Human || strings.Join(p.Floor.Owners, ",") != "team-payments" || p.Question != "" {
+		t.Fatalf("with no question asked, a later verify hold still goes to the service's team: %+v", p)
+	}
+	unread := Revision{Digest: dB, ContractRef: "oci://reg.example/pactos/payments@" + c2, Err: "pull failed"}
+	p = planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, from, unread)
+	if strings.Join(p.Floor.Owners, ",") != "team-payments" || !strings.HasSuffix(p.Question, "Asked of: team-payments") {
+		t.Fatalf("an unknown asks the running version's team: %+v", p)
+	}
+	anon := bundle("payments", "1.1.0")
+	anon.Contract.Service.Owner = contract.Owner{}
+	p = planWith(t, promote("", dB), StageStatus{}, Revision{}, Revision{Digest: dB, ContractRef: "oci://reg.example/pactos/payments@" + c2, Bundle: anon})
+	if len(p.Floor.Owners) != 0 {
+		t.Fatalf("no team declared anywhere: %+v", p)
+	}
+}
+
 func TestPlanUnreadableContractWaitsForAPerson(t *testing.T) {
 	from := rev(dA, c1, bundle("payments", "1.0.0"))
 	to := Revision{Digest: dB, ContractRef: "oci://reg.example/pactos/payments@" + c2, Err: "pull failed"}

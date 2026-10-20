@@ -388,11 +388,18 @@ func (e *env) create(objs ...client.Object) {
 	}
 }
 
+// approve records a decision by a member of both teams the tests route
+// questions to.
 func (e *env) approve(op *dv1.Operation, name, by string, decision delivery.Decision) {
+	e.t.Helper()
+	e.approveAs(op, name, by, []string{"team-payments", "team-checkout"}, decision)
+}
+
+func (e *env) approveAs(op *dv1.Operation, name, by string, groups []string, decision delivery.Decision) {
 	e.t.Helper()
 	e.create(&dv1.Approval{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, CreationTimestamp: metav1.NewTime(e.now)},
 		Spec: delivery.ApprovalSpec{Operation: op.Name, OperationUID: string(op.UID), IntentDigest: op.Spec.IntentDigest,
-			Decision: decision, By: by, AuthTime: e.now.Add(-time.Minute).Format(time.RFC3339), Note: "ok"}})
+			Decision: decision, By: by, Groups: groups, AuthTime: e.now.Add(-time.Minute).Format(time.RFC3339), Note: "ok"}})
 }
 
 func wantOutcome(t *testing.T, o *dv1.Operation, outcome delivery.Outcome, reason string) {

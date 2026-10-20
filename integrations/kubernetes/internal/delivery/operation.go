@@ -401,11 +401,14 @@ func (r *OperationReconciler) held(ctx context.Context, op *dv1.Operation, stage
 
 // approval consumes the first valid, not yet consumed Approval for op. A valid
 // one is bound to this uid and intent digest, comes from a person who is
-// neither the actor nor whoever the actor acts for, and was given within
-// authFreshness of that person's login.
-// ponytail: the question is routed to the consumer's owners, but any person may
-// answer it; enforce membership once owners map to identity-provider groups.
+// neither the actor nor whoever the actor acts for, belongs to a team the
+// question was routed to (floor.owners) and was given within authFreshness of
+// that person's login. The groups are the ones admission bound to the user.
 func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) *delivery.ApprovalRecord {
+	var owners []string
+	if op.Status.Plan != nil {
+		owners = op.Status.Plan.Floor.Owners
+	}
 	list := &dv1.ApprovalList{}
 	if err := r.List(ctx, list, client.InNamespace(op.Namespace)); err != nil {
 		return nil
@@ -416,7 +419,8 @@ func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) *
 		consumed := slices.ContainsFunc(op.Status.Approvals, func(x delivery.ApprovalRecord) bool { return x.Name == a.Name })
 		if consumed || s.OperationUID != string(op.UID) || s.IntentDigest != op.Spec.IntentDigest ||
 			s.By == op.Spec.Actor.User || op.Spec.OnBehalfOf != nil && s.By == op.Spec.OnBehalfOf.User ||
-			!r.Policy.IsHuman(delivery.Identity{User: s.By}) || !fresh(s.AuthTime, a.CreationTimestamp.Time) {
+			!r.Policy.IsHuman(delivery.Identity{User: s.By, Groups: s.Groups}) || !r.Policy.InTeams(s.Groups, owners) ||
+			!fresh(s.AuthTime, a.CreationTimestamp.Time) {
 			continue
 		}
 		rec := delivery.ApprovalRecord{Name: a.Name, By: s.By, Decision: s.Decision, Note: s.Note, AuthTime: s.AuthTime}

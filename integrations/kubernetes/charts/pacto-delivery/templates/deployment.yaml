@@ -37,6 +37,9 @@ spec:
             - --controller-user={{ include "pacto-delivery.controllerUser" . }}
             - --agent-groups={{ join "," .Values.identities.agentGroups }}
             - --break-glass-groups={{ join "," .Values.identities.breakGlassGroups }}
+            {{- with .Values.identities.teamGroupPrefix }}
+            - {{ printf "--team-group-prefix=%s" . | quote }}
+            {{- end }}
             {{- with .Values.gates.providers }}
             - {{ printf "--gate-providers=%s" (toJson .) | quote }}
             {{- end }}

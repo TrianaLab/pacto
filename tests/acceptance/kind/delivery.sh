@@ -187,7 +187,8 @@ YAML
 AGENT_A="$(agent_kubeconfig agent-a)"
 AGENT_B="$(agent_kubeconfig agent-b)"
 as_agent() { local kc="$1"; shift; KUBECONFIG="$kc" "$PACTO" delivery "$@"; }
-as_person() { local u="$1"; shift; KUBECONFIG="$(person_kubeconfig "$u" humans)" "$PACTO" delivery "$@"; }
+# as_person USER TEAM ... — only members of the team a held question names may answer it.
+as_person() { local u="$1" g="$2"; shift 2; KUBECONFIG="$(person_kubeconfig "$u" "$g")" "$PACTO" delivery "$@"; }
 
 echo "== contracts =="
 contract_dir() { # NAME VERSION WORKLOAD [DEPENDENCY_LINES]
@@ -534,17 +535,20 @@ metadata: {name: no-login}
 spec: {operation: $OPF, operationUID: x, intentDigest: x, decision: approve, by: carol}
 YAML
 then fail "an approval without a fresh login was admitted"; fi
-as_person alice approve -n test "$OPF" --decision approve --note "checkout migrates next sprint" >/dev/null
+# Only checkout's team may answer: alice is ignored while in team-payments and counts once in team-checkout.
+as_person alice team-payments approve -n test "$OPF" --decision approve --note "not my team" >/dev/null
+always 3 waits_for_f || fail "an approval from outside team-checkout moved F"
+as_person alice team-checkout approve -n test "$OPF" --decision approve --note "checkout migrates next sprint" >/dev/null
 wait_concluded test "$OPF" Succeeded/Verified
-[ "$(kubectl -n test get operation "$OPF" -o jsonpath='{.status.approvals[0].by}')" = alice ] || fail "the approval is not recorded"
-pass "item 4: F held for team-checkout only, approved by alice, verified in test"
+[ "$(kubectl -n test get operation "$OPF" -o jsonpath='{.status.approvals[*].by}')" = alice ] || fail "the approval is not recorded, or the one from outside the team was"
+pass "item 4: F held for team-checkout only, answered only by a team-checkout member, verified in test"
 OPFP="$(wait_op prod "$F")"
 eventually 30 held prod "$OPFP" || fail "F was not held in prod"
-as_person carol approve -n prod "$OPFP" --decision approve >/dev/null
+as_person carol team-checkout approve -n prod "$OPFP" --decision approve >/dev/null
 wait_concluded prod "$OPFP" Succeeded/Verified
 
 echo "== item 7: a person's rollback in prod is not undone by automation =="
-as_person alice propose -n prod --stage payments --type rollback --undoes "$OPFP" --name human-undo --reason "checkout errors" >/dev/null
+as_person alice humans propose -n prod --stage payments --type rollback --undoes "$OPFP" --name human-undo --reason "checkout errors" >/dev/null
 wait_concluded prod human-undo Succeeded/Verified
 has_pointer prod "$WINNER" || fail "prod is not back on $WINNER"
 [ "$(kubectl -n prod get stage payments -o jsonpath='{.status.autoHold}')" = true ] || fail "no auto-hold after a person's rollback"
@@ -880,7 +884,7 @@ verdict "$OPQ" health .message | grep -q "spans in the window; at least 20" || f
 eventually 60 held "$H" "$OPQ" || fail "Q was not held for a person at the window's end: $(field "$H" "$OPQ" phase)"
 [ "$(field "$H" "$OPQ" reason)" = VerifyUnknown ] || fail "Q held for the wrong reason: $(field "$H" "$OPQ" reason)"
 { [ "$(rollbacks_of "$OPQ")" = 0 ] && has_pointer "$H" "$Q"; } || fail "Unknown rolled Q back"
-as_person alice approve -n "$H" "$OPQ" --decision reject --note "no telemetry, no trust" >/dev/null
+as_person alice team-payments approve -n "$H" "$OPQ" --decision reject --note "no telemetry, no trust" >/dev/null
 wait_concluded "$H" "$OPQ" Failed/
 wait_concluded "$H" "${OPQ}-rollback" Succeeded/Verified
 pass "Q held as Unknown with no rollback until alice rejected it"

@@ -370,7 +370,10 @@ type Floor struct {
 	Human bool `json:"human,omitempty"`
 	// +optional
 	Decision Decision `json:"decision,omitempty"`
-	// Owners are the teams the question is routed to (empty means anyone).
+	// Owners are the teams the question is routed to and the only ones whose
+	// members may answer it: the owners of the consumers that made the floor,
+	// or else the team of the Stage's own service. Empty means no team is
+	// declared, and any person may answer.
 	// +optional
 	Owners []string `json:"owners,omitempty"`
 	// Consumers are the services that made the floor.
@@ -499,6 +502,11 @@ type ApprovalSpec struct {
 	// (userInfo.extra["pacto.dev/auth-time"], RFC 3339 or Unix seconds).
 	// +optional
 	AuthTime string `json:"authTime,omitempty"`
+	// Groups must equal the groups of whoever created the Approval. The
+	// promoter accepts it only when one of them names a team the question
+	// was routed to.
+	// +optional
+	Groups []string `json:"groups,omitempty"`
 }
 
 // deepCopyJSON copies in into out through JSON. Every wire type here is plain

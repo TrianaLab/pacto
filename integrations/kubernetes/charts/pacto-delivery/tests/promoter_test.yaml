@@ -19,6 +19,15 @@ tests:
             - --agent-groups=pacto:agents
             - --break-glass-groups=pacto:break-glass
 
+  - it: passes the team group prefix only when set
+    template: templates/deployment.yaml
+    set:
+      identities.teamGroupPrefix: "acme:"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--team-group-prefix=acme:"
+
   - it: passes the gate providers as one JSON flag
     template: templates/deployment.yaml
     set:

@@ -67,6 +67,14 @@ spec:
               decision:
                 description: Decision is what a human approval says.
                 type: string
+              groups:
+                description: |-
+                  Groups must equal the groups of whoever created the Approval. The
+                  promoter accepts it only when one of them names a team the question
+                  was routed to.
+                items:
+                  type: string
+                type: array
               intentDigest:
                 type: string
               note:

@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -263,7 +264,8 @@ func TestDeliveryWhoAmIAndApprove(t *testing.T) {
 	c.PrependReactor("create", "approvals", func(a k8stesting.Action) (bool, runtime.Object, error) {
 		u := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured)
 		spec := u.Object["spec"].(map[string]any)
-		if spec["by"] != "alice" || spec["operationUID"] != "uid-p1" || spec["intentDigest"] != "sha256:i" || spec["authTime"] != "2026-10-20T10:00:00Z" {
+		if spec["by"] != "alice" || spec["operationUID"] != "uid-p1" || spec["intentDigest"] != "sha256:i" || spec["authTime"] != "2026-10-20T10:00:00Z" ||
+			fmt.Sprint(spec["groups"]) != "[devs]" {
 			t.Errorf("approval spec %+v", spec)
 		}
 		u.SetName("p1-x")

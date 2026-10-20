@@ -170,7 +170,13 @@ func TestBreakingChangeWaitsForTheConsumersTeam(t *testing.T) {
 	if o.Status.Phase != delivery.PhaseHeld || !strings.Contains(o.Status.Message, "needs an approval") {
 		t.Fatalf("none of those may move it: %s %s", o.Status.Phase, o.Status.Message)
 	}
-	e.approve(o, "ok", "bob", delivery.Approve)
+	// Nor may a person outside the named team, or one in an agent group.
+	e.approveAs(o, "notteam", "dave", []string{"team-payments"}, delivery.Approve)
+	e.approveAs(o, "agentgroup", "erin", []string{"team-checkout", "pacto:agents"}, delivery.Approve)
+	if o = e.drive("p1"); o.Status.Phase != delivery.PhaseHeld {
+		t.Fatalf("only team-checkout may answer: %s %+v", o.Status.Phase, o.Status.Approvals)
+	}
+	e.approveAs(o, "ok", "bob", []string{"team-checkout"}, delivery.Approve)
 	o = e.drive("p1")
 	if o.Status.Phase != delivery.PhaseRunning || len(o.Status.Approvals) != 2 || o.Status.Approvals[1].By != "bob" {
 		t.Fatalf("an owner's approval must move it: %s %+v", o.Status.Phase, o.Status.Approvals)

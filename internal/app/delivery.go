@@ -55,11 +55,7 @@ type Delivery struct {
 }
 
 // Caller is who the apiserver says is calling, and when they last logged in.
-type Caller struct {
-	delivery.Identity
-	Class    delivery.ActorClass `json:"class"`
-	AuthTime string              `json:"authTime,omitempty"`
-}
+type Caller = delivery.Caller
 
 // WhoAmI asks the apiserver who the caller is (a SelfSubjectReview), so an
 // operation's actor is exactly what admission will compare it with.
@@ -89,6 +85,14 @@ func (d *Delivery) WhoAmI(ctx context.Context) (Caller, error) {
 		c.AuthTime = v[0]
 	}
 	return c, nil
+}
+
+func anySlice(ss []string) []any {
+	out := make([]any, len(ss))
+	for i, s := range ss {
+		out[i] = s
+	}
+	return out
 }
 
 func getInto[T any](ctx context.Context, ri dynamic.ResourceInterface, name string, into *T) error {
@@ -329,7 +333,7 @@ func (d *Delivery) Approve(ctx context.Context, ns, name string, decision delive
 			"ownerReferences": []any{map[string]any{"apiVersion": "delivery.pacto.trianalab.io/v1alpha1", "kind": "Operation",
 				"name": name, "uid": op.Metadata.UID}}},
 		"spec": map[string]any{"operation": name, "operationUID": op.Metadata.UID, "intentDigest": op.Spec.IntentDigest,
-			"decision": string(decision), "note": note, "by": caller.User, "authTime": caller.AuthTime},
+			"decision": string(decision), "note": note, "by": caller.User, "authTime": caller.AuthTime, "groups": anySlice(caller.Groups)},
 	}}
 	created, err := d.Dynamic.Resource(gvrApprovals).Namespace(ns).Create(ctx, obj, metav1.CreateOptions{})
 	if err != nil {

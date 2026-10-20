@@ -64,6 +64,8 @@ func runPromoter(args []string) error {
 		"Comma-separated groups whose members are agents, never humans.")
 	breakGlassGroups := fs.String("break-glass-groups", "pacto:break-glass",
 		"Comma-separated groups that may override and edit the pointer.")
+	teamGroupPrefix := fs.String("team-group-prefix", "",
+		"A contract owner team T is identity-provider group T, or this prefix plus T. Only members of the teams a question names may answer it.")
 	poll := fs.Duration("poll", 3*time.Second, "How often an operation waiting on Flux, Pacto or a person is looked at.")
 	gateProviders := fs.String("gate-providers", "",
 		`The health gate providers Stages may name, as JSON: `+
@@ -91,7 +93,7 @@ func runPromoter(args []string) error {
 		user = delivery.ServiceAccountUser(os.Getenv("POD_NAMESPACE"), os.Getenv("SERVICE_ACCOUNT"))
 	}
 	policy := core.ClassPolicy{ControllerUser: user, AgentGroups: delivery.SplitList(*agentGroups),
-		BreakGlassGroups: delivery.SplitList(*breakGlassGroups)}
+		BreakGlassGroups: delivery.SplitList(*breakGlassGroups), TeamGroupPrefix: *teamGroupPrefix}
 
 	// The cluster half of every stream id: the kube-system namespace uid.
 	kubeSystem := &corev1.Namespace{}

@@ -85,6 +85,28 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+func TestInTeams(t *testing.T) {
+	pol := ClassPolicy{TeamGroupPrefix: "acme:"}
+	cases := []struct {
+		groups, teams []string
+		want          bool
+	}{
+		{nil, nil, true}, // no team named: any person
+		{[]string{"team-checkout"}, []string{"team-checkout"}, true},
+		{[]string{"acme:team-checkout"}, []string{"team-ledger", "team-checkout"}, true},
+		{[]string{"team-payments", "acme:team-payments"}, []string{"team-checkout"}, false},
+		{nil, []string{"team-checkout"}, false},
+	}
+	for _, c := range cases {
+		if got := pol.InTeams(c.groups, c.teams); got != c.want {
+			t.Errorf("InTeams(%v, %v) = %v", c.groups, c.teams, got)
+		}
+	}
+	if (ClassPolicy{}).InTeams([]string{"team-checkout"}, []string{"checkout"}) {
+		t.Error("with no prefix only the exact name counts")
+	}
+}
+
 func TestDeepCopyIsIndependent(t *testing.T) {
 	st := StageStatus{Locks: map[string]string{"pointer": "u1"}, Verified: []string{dA}}
 	var out StageStatus
@@ -102,10 +124,10 @@ func TestDeepCopyIsIndependent(t *testing.T) {
 	os := OperationStatus{Plan: &Plan{Verdicts: []Verdict{{Gate: GateDiff}}}}
 	var os2 OperationStatus
 	os.DeepCopyInto(&os2)
-	ap := ApprovalSpec{Operation: "o", Decision: Approve}
+	ap := ApprovalSpec{Operation: "o", Decision: Approve, Groups: []string{"team-a"}}
 	var ap2 ApprovalSpec
 	ap.DeepCopyInto(&ap2)
-	if !reflect.DeepEqual(spec, spec2) || !reflect.DeepEqual(op, op2) || !reflect.DeepEqual(os, os2) || ap != ap2 {
+	if !reflect.DeepEqual(spec, spec2) || !reflect.DeepEqual(op, op2) || !reflect.DeepEqual(os, os2) || !reflect.DeepEqual(ap, ap2) {
 		t.Fatal("copies differ")
 	}
 }

@@ -100,9 +100,32 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 			p.Floor = Floor{Human: true, Decision: Approve}
 			p.Question = "This Stage asks a person to approve every promote. Approve " + short(p.To) + "?"
 		}
+		routeToServiceTeam(in, &p)
 	}
 	p.Predicted = predict(in, &p)
 	return p
+}
+
+// routeToServiceTeam sends a question that names no consumer's owner to the
+// team of the Stage's own service, the one its contract declares. It is set
+// even when nothing is asked yet: a version that stays Unknown after it shipped
+// is held for that same team. Only the named teams may answer (the promoter
+// ignores anyone else); with no team declared anywhere, any person may.
+func routeToServiceTeam(in PlanInput, p *Plan) {
+	if len(p.Floor.Owners) > 0 {
+		return
+	}
+	for _, r := range []Revision{in.To, in.From} {
+		if r.Bundle != nil && r.Bundle.Contract != nil {
+			if team := r.Bundle.Contract.Service.Owner.DisplayString(); team != "" {
+				p.Floor.Owners = []string{team}
+				break
+			}
+		}
+	}
+	if p.Floor.Human && !strings.Contains(p.Question, "Asked of: ") {
+		p.Question += " Asked of: " + ownersOrAnyone(p.Floor.Owners)
+	}
 }
 
 // predict turns verdicts, floor and Stage state into the expected outcome.
@@ -324,7 +347,7 @@ func describeRanges(cs []impact.AffectedConsumer) string {
 
 func ownersOrAnyone(owners []string) string {
 	if len(owners) == 0 {
-		return "anyone (the consumers declare no owner)"
+		return "any person (no team is declared)"
 	}
 	return strings.Join(owners, ", ")
 }

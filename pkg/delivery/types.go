@@ -169,8 +169,8 @@ func MayRaise(id string, class ActorClass, witnessed bool) bool {
 // Identity is what the apiserver says about a user, and the groups that make it
 // an agent, a controller or break-glass.
 type Identity struct {
-	User   string
-	Groups []string
+	User   string   `json:"user"`
+	Groups []string `json:"groups,omitempty"`
 }
 
 // ClassPolicy names the identities the promoter treats specially.
@@ -181,6 +181,33 @@ type ClassPolicy struct {
 	AgentGroups []string
 	// BreakGlassGroups may override and edit the pointer directly.
 	BreakGlassGroups []string
+	// TeamGroupPrefix maps a contract owner team to an identity-provider group:
+	// a member of group TeamGroupPrefix+team belongs to the team. A group named
+	// exactly like the team always counts.
+	TeamGroupPrefix string
+}
+
+// Caller is who the apiserver says is calling (a SelfSubjectReview), the class
+// that makes them and when they last logged in interactively.
+type Caller struct {
+	Identity
+	Class    ActorClass `json:"class"`
+	AuthTime string     `json:"authTime,omitempty"`
+}
+
+// InTeams reports whether groups name one of the teams, by exact name or with
+// the TeamGroupPrefix. No teams means the question names nobody, so any
+// person may answer it.
+func (p ClassPolicy) InTeams(groups, teams []string) bool {
+	if len(teams) == 0 {
+		return true
+	}
+	for _, t := range teams {
+		if slices.Contains(groups, t) || p.TeamGroupPrefix != "" && slices.Contains(groups, p.TeamGroupPrefix+t) {
+			return true
+		}
+	}
+	return false
 }
 
 // Classify derives the actor class. Service accounts other than the promoter

@@ -45,6 +45,9 @@ identities:
   # -- Groups that may raise an override and edit an OCIRepository's spec.ref.digest directly
   breakGlassGroups:
     - pacto:break-glass
+  # -- Only members of the teams a held question names may answer it. A contract owner team `T`
+  # is the identity-provider group `T`, or this prefix followed by `T` (for example `acme:`).
+  teamGroupPrefix: ""
 
 # -- Registry hosts (`host:port`) the promoter reaches over plain HTTP when it reads
 # contracts. An OCIRepository with `spec.insecure: true` is read over HTTP anyway.

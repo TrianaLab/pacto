@@ -34,6 +34,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.authTime` | `string` | no |  |  | AuthTime is the login time the apiserver reported for that user (userInfo.extra["pacto.dev/auth-time"], RFC 3339 or Unix seconds). |
 | `spec.by` | `string` | yes |  |  | By must equal the apiserver username of whoever created the Approval. |
 | `spec.decision` | `string` | yes |  |  | Decision is what a human approval says. |
+| `spec.groups` | `[]string` | no |  |  | Groups must equal the groups of whoever created the Approval. The promoter accepts it only when one of them names a team the question was routed to. |
 | `spec.intentDigest` | `string` | yes |  |  |  |
 | `spec.note` | `string` | no |  |  |  |
 | `spec.operation` | `string` | yes |  |  | Operation is the operation's name, for people. Matching uses the uid. |
@@ -107,7 +108,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.plan.floor.consumers` | `[]string` | no |  |  | Consumers are the services that made the floor. |
 | `status.plan.floor.decision` | `string` | no |  |  | Decision is what a human approval says. |
 | `status.plan.floor.human` | `boolean` | no |  |  |  |
-| `status.plan.floor.owners` | `[]string` | no |  |  | Owners are the teams the question is routed to (empty means anyone). |
+| `status.plan.floor.owners` | `[]string` | no |  |  | Owners are the teams the question is routed to and the only ones whose members may answer it: the owners of the consumers that made the floor, or else the team of the Stage's own service. Empty means no team is declared, and any person may answer. |
 | `status.plan.from` | `string` | no |  |  |  |
 | `status.plan.impactDigest` | `string` | no |  |  | ImpactDigest is the sha256 of the pkg/impact answer the floor came from. |
 | `status.plan.intentDigest` | `string` | yes |  |  |  |
