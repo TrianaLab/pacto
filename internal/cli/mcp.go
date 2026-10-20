@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -9,7 +10,9 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
@@ -44,6 +47,11 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"ambient cluster: operation types, describe, plan and get, plus propose and cancel only when the " +
 			"apiserver says the caller is an agent (a service account or an --agent-groups member). There is " +
 			"no approve tool.\n\n" +
+			"Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies " +
+			"(issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback " +
+			"needs them. With --delivery the server then exchanges each caller's token for one the apiserver accepts " +
+			"(RFC 8693, --exchange-client-id) and builds the tools for that caller on every request, so an agent " +
+			"proposes as itself and a person gets the read-only tools.\n\n" +
 			"With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish " +
 			"a contract's version exactly as `pacto publish` does, with this process's registry credentials.\n\n" +
 			"A bundle reference, --root, --fleet, --delivery and --publish select different servers and cannot be combined.",
@@ -64,28 +72,46 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
   pacto mcp --root oci://ghcr.io/acme/platform:1.4.0 --root ./experimental-platform`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			transport, _ := cmd.Flags().GetString("transport")
-			if err := checkMCPTransport(transport); err != nil {
+			s := mcpServe{}
+			s.transport, _ = cmd.Flags().GetString("transport")
+			s.port, _ = cmd.Flags().GetInt("port")
+			if err := checkMCPTransport(s.transport); err != nil {
 				return err
 			}
-			if delivery, _ := cmd.Flags().GetBool("delivery"); delivery && transport != "stdio" {
-				return errDeliveryOverHTTP
-			}
-			if pub, _ := cmd.Flags().GetBool("publish"); pub && transport != "stdio" {
+			if pub, _ := cmd.Flags().GetBool("publish"); pub && s.transport != "stdio" {
 				return errPublishOverHTTP
 			}
-			port, _ := cmd.Flags().GetInt("port")
-			server, err := buildMCPServer(cmd, svc, version, args, d)
-			if err != nil {
+			if err := mcpRemote(cmd, d, &s); err != nil {
 				return err
 			}
-			return runMCPServer(cmd.Context(), server, transport, port, cmd.ErrOrStderr())
+			if dm, _ := cmd.Flags().GetBool("delivery"); dm && s.transport != "stdio" {
+				fleetMode, _ := cmd.Flags().GetBool("fleet")
+				if err := checkMCPMode(len(args) > 0, cmd.Flags().Changed("root"), fleetMode, true, false); err != nil {
+					return err
+				}
+				if err := remoteDeliveryFor(cmd, svc, version, d, &s); err != nil {
+					return err
+				}
+				return runMCPServer(cmd.Context(), s, cmd.ErrOrStderr())
+			}
+			var err error
+			if s.server, err = buildMCPServer(cmd, svc, version, args, d); err != nil {
+				return err
+			}
+			return runMCPServer(cmd.Context(), s, cmd.ErrOrStderr())
 		},
 	}
 
 	cmd.Flags().StringP("transport", "t", "stdio", "transport type: stdio or http")
 	_ = cmd.RegisterFlagCompletionFunc("transport", staticCompletions(mcpTransports...))
 	cmd.Flags().Int("port", 8585, "port for HTTP transport")
+	cmd.Flags().String("host", "127.0.0.1", "bind address for HTTP transport; beyond loopback it needs --auth-issuer")
+	cmd.Flags().String("auth-issuer", "", "OpenID issuer whose bearer tokens every HTTP request must carry")
+	cmd.Flags().String("resource", "", "with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)")
+	cmd.Flags().String("audience", "", "with --auth-issuer: the audience incoming tokens must carry (default --resource)")
+	cmd.Flags().String("exchange-client-id", "", "with --delivery over HTTP: the server's own OAuth client, which exchanges each caller's token for the cluster "+
+		"(RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET")
+	cmd.Flags().String("exchange-audience", "pacto-cli", "with --delivery over HTTP: the audience to exchange for, one the apiserver accepts")
 	cmd.Flags().String("base-url", "", "base URL for live invocation (overrides the OpenAPI servers[] URL)")
 	cmd.Flags().StringArray("auth", nil, "credential for a security scheme as name=value (repeatable)")
 	cmd.Flags().Bool("allow-writes", false, "expose mutating operations (POST/PUT/PATCH/DELETE) as tools")
@@ -207,13 +233,12 @@ func checkMCPTransport(transport string) error {
 	return fmt.Errorf("unsupported transport %q: only \"stdio\" and \"http\" are supported", transport)
 }
 
-// errDeliveryOverHTTP refuses to serve the delivery tools to remote callers:
-// every caller would act as this process's own identity, so a person's or an
-// agent's request could not be told apart from the server's.
-// ponytail: remote access needs each caller's own token passed through to the
-// apiserver (design M3); until then delivery is stdio only.
-var errDeliveryOverHTTP = errors.New("--delivery serves stdio only: over HTTP every caller would act as this process's " +
-	"identity; run `pacto mcp --delivery` beside the agent, under the agent's own credentials")
+// errDeliveryOverHTTP refuses to serve the delivery tools to unauthenticated
+// remote callers: every caller would act as this process's own identity, so a
+// person's or an agent's request could not be told apart from the server's.
+// With --auth-issuer and token exchange each request acts as its caller.
+var errDeliveryOverHTTP = errors.New("--delivery over HTTP needs --auth-issuer, --resource and token exchange, so every request " +
+	"acts as its own caller; without them run `pacto mcp --delivery` over stdio beside the agent, under the agent's own credentials")
 
 // errPublishOverHTTP refuses to serve the publish tools to remote callers:
 // every caller would publish with this process's registry credentials.
@@ -313,36 +338,25 @@ func parseAuthFlags(pairs []string) (capability.Credentials, error) {
 	return creds, nil
 }
 
-func runMCPServer(ctx context.Context, server *mcpsdk.Server, transport string, port int, stderr io.Writer) error {
-	switch transport {
+func runMCPServer(ctx context.Context, s mcpServe, stderr io.Writer) error {
+	switch s.transport {
 	case "http":
-		addr := fmt.Sprintf("127.0.0.1:%d", port)
+		addr := net.JoinHostPort(cmp.Or(s.host, "127.0.0.1"), strconv.Itoa(s.port))
 		listener, err := net.Listen("tcp", addr)
 		if err != nil {
 			return err
 		}
 		_, _ = fmt.Fprintf(stderr, "MCP server listening on http://%s/mcp\n", addr)
-		return serveHTTP(ctx, server, listener)
+		return serveHTTP(ctx, mcpHandler(s), listener)
 	case "stdio":
 		_, _ = fmt.Fprintln(stderr, "MCP server running on stdio")
-		return server.Run(ctx, &mcpsdk.StdioTransport{})
+		return s.server.Run(ctx, &mcpsdk.StdioTransport{})
 	}
-	return checkMCPTransport(transport)
+	return checkMCPTransport(s.transport)
 }
 
-func serveHTTP(ctx context.Context, server *mcpsdk.Server, listener net.Listener) error {
-	handler := mcpsdk.NewStreamableHTTPHandler(
-		func(_ *http.Request) *mcpsdk.Server { return server },
-		nil,
-	)
-
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/mcp" {
-			handler.ServeHTTP(w, r)
-			return
-		}
-		http.NotFound(w, r)
-	})}
+func serveHTTP(ctx context.Context, handler http.Handler, listener net.Listener) error {
+	srv := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(listener) }()

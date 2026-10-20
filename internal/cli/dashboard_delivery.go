@@ -64,7 +64,7 @@ type dashboardIdentity struct {
 // anywhere else.
 func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d deps) (*dashboardIdentity, error) {
 	id := &dashboardIdentity{cluster: cluster, registry: d.newDeliveryRegistry, now: time.Now, served: d.served, state: authn.StateFrom,
-		newClient: func(c *rest.Config) (dynamic.Interface, error) { return dynamic.NewForConfig(c) },
+		newClient: d.dynamicFor,
 		revisions: map[string]delivery.Revision{},
 		policy: delivery.ClassPolicy{AgentGroups: splitList(v.GetStringSlice("dashboard.agent-groups")),
 			BreakGlassGroups: splitList(v.GetStringSlice("dashboard.break-glass-groups")),

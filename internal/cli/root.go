@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/internal/runtimewatch"
 	"github.com/trianalab/pacto/v4/internal/runtimewatch/ebpf"
@@ -48,6 +49,9 @@ type deps struct {
 	// only); served asks discovery whether an API group version is installed.
 	clusterConfig func() (*rest.Config, error)
 	served        func(*rest.Config, string) bool
+	// dynamicFor builds a client from a caller's own config; newMCPAuth reads the remote MCP issuer.
+	dynamicFor func(*rest.Config) (dynamic.Interface, error)
+	newMCPAuth func(authn.MCPConfig) (mcpAuth, error)
 	// newDeliveryRegistry is the read-only registry `pacto delivery` resolves artifacts through.
 	newDeliveryRegistry func(insecureHosts ...string) app.DeliveryRegistry
 	runAgent            func(context.Context, runtimewatch.Config)
@@ -82,6 +86,8 @@ func defaultDeps() deps {
 		newDynamic:          k8sclient.NewDynamic,
 		clusterConfig:       k8sclient.Config,
 		served:              k8sclient.Served,
+		dynamicFor:          newDynamicForConfig,
+		newMCPAuth:          newMCPAuth,
 		newDeliveryRegistry: newDeliveryRegistry,
 		runAgent:            runtimewatch.Run,
 		newDocker:           evalsink.NewDocker,
