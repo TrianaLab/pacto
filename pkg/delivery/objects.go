@@ -38,9 +38,77 @@ type Request struct {
 	Undoes     string `json:"undoes,omitempty"`
 	Reason     string `json:"reason,omitempty"`
 	OnBehalfOf string `json:"onBehalfOf,omitempty"`
+	// Cause is why, when it is a verdict the caller cites: the promoter runs
+	// it again at admission and refuses a cause that does not hold.
+	Cause *Cause `json:"cause,omitempty"`
 	// IntentDigest, when set on propose, must still match: anything that moved
 	// since the plan fails with PlanStale and a fresh plan.
 	IntentDigest string `json:"intentDigest,omitempty"`
 	// Name of the Operation to create; empty generates one.
 	Name string `json:"name,omitempty"`
+}
+
+// Explanation is a live operation in plain terms: what was asked, where it
+// is, every verdict with its citation and how to run that citation again, and
+// the Stage as it stands now.
+type Explanation struct {
+	Operation string        `json:"operation"`
+	Summary   string        `json:"summary"`
+	Spec      OperationSpec `json:"spec"`
+	Status    struct {
+		Phase        Phase        `json:"phase"`
+		Outcome      Outcome      `json:"outcome,omitempty"`
+		Verification Verification `json:"verification,omitempty"`
+		Reason       string       `json:"reason,omitempty"`
+		Message      string       `json:"message,omitempty"`
+		Question     string       `json:"question,omitempty"`
+		ActorClass   ActorClass   `json:"actorClass,omitempty"`
+		Seq          int64        `json:"seq,omitempty"`
+	} `json:"status"`
+	Verdicts []ExplainedVerdict `json:"verdicts"`
+	Stage    StageNow           `json:"stage"`
+}
+
+// ExplainedVerdict is a verdict and how to run its citation again.
+type ExplainedVerdict struct {
+	Verdict
+	Rerun string `json:"rerun"`
+}
+
+// StageNow is the Stage an operation acts on, as it stands.
+type StageNow struct {
+	Name          string   `json:"name"`
+	Pointer       string   `json:"pointer,omitempty"`
+	Frozen        bool     `json:"frozen,omitempty"`
+	FrozenReason  string   `json:"frozenReason,omitempty"`
+	AutoHold      bool     `json:"autoHold,omitempty"`
+	Verified      []string `json:"verified,omitempty"`
+	FailedDigests []string `json:"failedDigests,omitempty"`
+	LastCheck     *Recheck `json:"lastCheck,omitempty"`
+}
+
+// HistoryEntry is one operation on a Stage.
+type HistoryEntry struct {
+	Seq          int64        `json:"seq,omitempty"`
+	Operation    string       `json:"operation"`
+	Type         string       `json:"type"`
+	From         string       `json:"from,omitempty"`
+	To           string       `json:"to,omitempty"`
+	Actor        string       `json:"actor"`
+	ActorClass   ActorClass   `json:"actorClass,omitempty"`
+	Phase        Phase        `json:"phase,omitempty"`
+	Outcome      Outcome      `json:"outcome,omitempty"`
+	Verification Verification `json:"verification,omitempty"`
+	Reason       string       `json:"reason,omitempty"`
+	Finished     string       `json:"finished,omitempty"`
+}
+
+// History is what happened on a Stage, read from the live Operation objects
+// until signed records exist. It is partial: a deleted operation is gone.
+type History struct {
+	Stage        StageNow       `json:"stage"`
+	AsOf         string         `json:"asOf"`
+	Completeness string         `json:"completeness"`
+	Note         string         `json:"note"`
+	Entries      []HistoryEntry `json:"entries"`
 }

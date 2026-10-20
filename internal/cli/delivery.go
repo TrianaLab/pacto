@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"cmp"
+	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -44,6 +47,8 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 		newDeliveryGetCommand(v, d),
 		newDeliveryCancelCommand(d),
 		newDeliveryApproveCommand(d),
+		newDeliveryExplainCommand(v, d),
+		newDeliveryHistoryCommand(v, d),
 	)
 	return cmd
 }
@@ -131,17 +136,27 @@ func addRequestFlags(cmd *cobra.Command) {
 	cmd.Flags().String("undoes", "", "for a rollback: the name of the operation it undoes")
 	cmd.Flags().String("reason", "", "why, for the record")
 	cmd.Flags().String("on-behalf-of", "", "the person an agent acts for (asserted, not verified)")
+	cmd.Flags().String("cause-verdict", "", "a verdict (JSON, as `pacto delivery explain -o json` prints it) you cite as the cause; "+
+		"the promoter runs it again and refuses a cause that does not hold")
 	_ = cmd.MarkFlagRequired("stage")
 }
 
-func requestFrom(cmd *cobra.Command, ns string) delivery.Request {
+func requestFrom(cmd *cobra.Command, ns string) (delivery.Request, error) {
 	get := func(name string) string { s, _ := cmd.Flags().GetString(name); return s }
 	typ := get("type")
 	if !strings.Contains(typ, "/") {
 		typ = "pacto.dev/" + typ
 	}
-	return delivery.Request{Namespace: ns, Stage: get("stage"), Type: typ, To: get("to"), From: get("from"),
+	req := delivery.Request{Namespace: ns, Stage: get("stage"), Type: typ, To: get("to"), From: get("from"),
 		Undoes: get("undoes"), Reason: get("reason"), OnBehalfOf: get("on-behalf-of")}
+	if raw := get("cause-verdict"); raw != "" {
+		var v delivery.Verdict
+		if err := json.Unmarshal([]byte(raw), &v); err != nil {
+			return req, fmt.Errorf("--cause-verdict is not a verdict: %w", err)
+		}
+		req.Cause = &delivery.Cause{Verdict: &v}
+	}
+	return req, nil
 }
 
 func newDeliveryPlanCommand(v *viper.Viper, d deps) *cobra.Command {
@@ -154,7 +169,11 @@ func newDeliveryPlanCommand(v *viper.Viper, d deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			plan, _, err := c.Plan(cmd.Context(), requestFrom(cmd, ns))
+			req, err := requestFrom(cmd, ns)
+			if err != nil {
+				return err
+			}
+			plan, _, err := c.Plan(cmd.Context(), req)
 			if err != nil {
 				return err
 			}
@@ -193,7 +212,10 @@ func newDeliveryProposeCommand(v *viper.Viper, d deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			req := requestFrom(cmd, ns)
+			req, err := requestFrom(cmd, ns)
+			if err != nil {
+				return err
+			}
 			req.IntentDigest, _ = cmd.Flags().GetString("intent-digest")
 			req.Name, _ = cmd.Flags().GetString("name")
 			op, plan, err := c.Propose(cmd.Context(), req)
@@ -297,5 +319,89 @@ func newDeliveryApproveCommand(d deps) *cobra.Command {
 	cmd.Flags().String("decision", string(delivery.Approve), "approve, reject or accept-unknown")
 	cmd.Flags().String("note", "", "why, for the record")
 	_ = cmd.RegisterFlagCompletionFunc("decision", staticCompletions(deliveryDecisions...))
+	return cmd
+}
+
+func newDeliveryExplainCommand(v *viper.Viper, d deps) *cobra.Command {
+	return &cobra.Command{
+		Use:   "explain <operation>",
+		Short: "Explain an operation: where it is, every verdict with its citation and how to run it again",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, ns, err := deliveryClient(cmd, d)
+			if err != nil {
+				return err
+			}
+			e, err := c.Explain(cmd.Context(), ns, args[0])
+			if err != nil {
+				return err
+			}
+			return formatResult(cmd, v.GetString(outputFormatKey), e, func() error {
+				w := cmd.OutOrStdout()
+				_, _ = fmt.Fprintf(w, "%s\n%s\n", e.Operation, e.Summary)
+				for _, x := range e.Verdicts {
+					_, _ = fmt.Fprintf(w, "  %-14s %-6s %-8s %s\n", x.Gate, x.Phase, x.Result, x.Message)
+					for _, k := range slices.Sorted(maps.Keys(x.Citation)) {
+						_, _ = fmt.Fprintf(w, "      %s: %s\n", k, x.Citation[k])
+					}
+					_, _ = fmt.Fprintf(w, "      re-run: %s\n", x.Rerun)
+				}
+				printStageNow(w, e.Stage)
+				return nil
+			}, nil)
+		},
+	}
+}
+
+func printStageNow(w io.Writer, s delivery.StageNow) {
+	_, _ = fmt.Fprintf(w, "stage %s runs %s", s.Name, orNone([]string{s.Pointer}))
+	if s.Frozen {
+		_, _ = fmt.Fprintf(w, ", frozen: %s", s.FrozenReason)
+	}
+	if s.AutoHold {
+		_, _ = fmt.Fprint(w, ", on auto-hold")
+	}
+	_, _ = fmt.Fprintln(w)
+	if lc := s.LastCheck; lc != nil {
+		_, _ = fmt.Fprintf(w, "last re-check %s of %s:\n", lc.At, lc.Digest)
+		for _, x := range lc.Verdicts {
+			_, _ = fmt.Fprintf(w, "  %-14s %-8s %s\n", x.Gate, x.Result, x.Message)
+		}
+	}
+}
+
+func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "history",
+		Short: "List what happened on a Stage, from the operations still in the cluster",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, ns, err := deliveryClient(cmd, d)
+			if err != nil {
+				return err
+			}
+			stage, _ := cmd.Flags().GetString("stage")
+			h, err := c.History(cmd.Context(), ns, stage)
+			if err != nil {
+				return err
+			}
+			return formatResult(cmd, v.GetString(outputFormatKey), h, func() error {
+				out := cmd.OutOrStdout()
+				printStageNow(out, h.Stage)
+				w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+				_, _ = fmt.Fprintln(w, "SEQ\tOPERATION\tTYPE\tTO\tACTOR\tRESULT\tREASON")
+				for _, e := range h.Entries {
+					result := strings.Trim(string(e.Outcome)+"/"+string(e.Verification), "/")
+					_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", e.Seq, e.Operation, strings.TrimPrefix(e.Type, "pacto.dev/"),
+						orNone([]string{e.To}), e.ActorClass, cmp.Or(result, string(e.Phase)), e.Reason)
+				}
+				_ = w.Flush()
+				_, _ = fmt.Fprintf(out, "as of %s, %s: %s\n", h.AsOf, h.Completeness, h.Note)
+				return nil
+			}, nil)
+		},
+	}
+	cmd.Flags().String("stage", "", "the Stage (required)")
+	_ = cmd.MarkFlagRequired("stage")
 	return cmd
 }

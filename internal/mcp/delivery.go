@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -16,6 +17,8 @@ type DeliveryAPI interface {
 	Propose(ctx context.Context, req delivery.Request) (*delivery.OperationObject, delivery.Plan, error)
 	Get(ctx context.Context, namespace, name string) (*delivery.OperationObject, error)
 	Cancel(ctx context.Context, namespace, name string) error
+	Explain(ctx context.Context, namespace, name string) (*delivery.Explanation, error)
+	History(ctx context.Context, namespace, stage string) (*delivery.History, error)
 }
 
 // noApprove is in every delivery tool description, so an agent never goes
@@ -26,7 +29,9 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 	"pacto_delivery_operation_types and pacto_delivery_operation_describe to learn what you may propose, " +
 	"pacto_delivery_operation_plan to see what the promoter will do (verdicts, whether a person is needed, " +
 	"the one question they are asked), then propose with the plan's intent digest and follow it with " +
-	"pacto_delivery_get. Unknown is never Pass: an operation Pacto cannot judge waits for a person." + noApprove
+	"pacto_delivery_get. pacto_delivery_explain shows every verdict with the citation behind it and how to run it " +
+	"again, and pacto_delivery_history what happened on a Stage. Unknown is never Pass: an operation Pacto cannot " +
+	"judge waits for a person. A verdict you cite as a cause is run again by the promoter and refused if it does not hold." + noApprove
 
 // NewDeliveryServer builds a server with the authoring tools and the delivery
 // tools. writes registers propose and cancel; the command layer passes true
@@ -65,7 +70,11 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Va
 			"verdicts of every gate, whether a person must decide and the one question they would be asked. Read-only." + noApprove,
 		InputSchema: requestSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a requestArgs) (*mcpsdk.CallToolResult, any, error) {
-		p, err := api.Plan(ctx, a.request())
+		req, err := a.request()
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		p, err := api.Plan(ctx, req)
 		return resultOrError(p, err)
 	})
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
@@ -75,6 +84,32 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Va
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a nameArgs) (*mcpsdk.CallToolResult, any, error) {
 		op, err := api.Get(ctx, a.Namespace, a.Name)
 		return resultOrError(op, err)
+	})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "pacto_delivery_explain",
+		Description: "Explain an operation: what was asked, where it is, every gate verdict with its citation (for a health " +
+			"check, the exact query with absolute time bounds) and how to run that citation again, plus the Stage as it is now " +
+			"and its last re-check. Read-only." + noApprove,
+		InputSchema: nameSchema(),
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a nameArgs) (*mcpsdk.CallToolResult, any, error) {
+		e, err := api.Explain(ctx, a.Namespace, a.Name)
+		return resultOrError(e, err)
+	})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "pacto_delivery_history",
+		Description: "List what happened on a Stage: every operation still in the cluster in stream order, then the ones in " +
+			"flight. The answer says asOf and completeness: it is partial, because a deleted operation is gone until signed " +
+			"records exist. Read-only." + noApprove,
+		InputSchema: inputSchema(map[string]property{
+			"namespace": {Type: "string", Description: "Namespace of the Stage"},
+			"stage":     {Type: "string", Description: "Stage name"},
+		}, []string{"namespace", "stage"}),
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a struct {
+		Namespace string `json:"namespace"`
+		Stage     string `json:"stage"`
+	}) (*mcpsdk.CallToolResult, any, error) {
+		h, err := api.History(ctx, a.Namespace, a.Stage)
+		return resultOrError(h, err)
 	})
 	if writes {
 		registerDeliveryWrites(server, api)
@@ -89,7 +124,11 @@ func registerDeliveryWrites(server *mcpsdk.Server, api DeliveryAPI) {
 			"with PlanStale and returns the fresh plan instead of proposing something you did not review." + noApprove,
 		InputSchema: requestSchema("intent_digest", "name"),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a requestArgs) (*mcpsdk.CallToolResult, any, error) {
-		op, plan, err := api.Propose(ctx, a.request())
+		req, err := a.request()
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		op, plan, err := api.Propose(ctx, req)
 		if err != nil && plan.IntentDigest != "" {
 			// PlanStale (or a refused create) after planning: hand back the fresh plan.
 			r, jerr := jsonResult(struct {
@@ -133,11 +172,21 @@ type requestArgs struct {
 	OnBehalfOf   string `json:"on_behalf_of"`
 	IntentDigest string `json:"intent_digest"`
 	Name         string `json:"name"`
+	// CauseVerdict is a verdict the caller cites as its cause, as JSON.
+	CauseVerdict string `json:"cause_verdict"`
 }
 
-func (a requestArgs) request() delivery.Request {
-	return delivery.Request{Namespace: a.Namespace, Stage: a.Stage, Type: a.Type, To: a.To, From: a.From, Undoes: a.Undoes,
+func (a requestArgs) request() (delivery.Request, error) {
+	req := delivery.Request{Namespace: a.Namespace, Stage: a.Stage, Type: a.Type, To: a.To, From: a.From, Undoes: a.Undoes,
 		Reason: a.Reason, OnBehalfOf: a.OnBehalfOf, IntentDigest: a.IntentDigest, Name: a.Name}
+	if a.CauseVerdict != "" {
+		var v delivery.Verdict
+		if err := json.Unmarshal([]byte(a.CauseVerdict), &v); err != nil {
+			return req, fmt.Errorf("cause_verdict is not a verdict: %w", err)
+		}
+		req.Cause = &delivery.Cause{Verdict: &v}
+	}
+	return req, nil
 }
 
 // requestSchema is the plan input, plus the extra propose-only fields.
@@ -151,6 +200,8 @@ func requestSchema(extra ...string) map[string]any {
 		"undoes":       {Type: "string", Description: "For a rollback: the name of the operation it undoes"},
 		"reason":       {Type: "string", Description: "Why, for the record"},
 		"on_behalf_of": {Type: "string", Description: "The person you act for (asserted, not verified)"},
+		"cause_verdict": {Type: "string", Description: "A verdict you cite as the cause, as JSON (a verdict from pacto_delivery_explain); " +
+			"the promoter runs it again and refuses a cause that does not hold"},
 	}
 	for _, e := range extra {
 		switch e {

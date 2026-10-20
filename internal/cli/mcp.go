@@ -65,6 +65,9 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			if err := checkMCPTransport(transport); err != nil {
 				return err
 			}
+			if delivery, _ := cmd.Flags().GetBool("delivery"); delivery && transport != "stdio" {
+				return errDeliveryOverHTTP
+			}
 			port, _ := cmd.Flags().GetInt("port")
 			server, err := buildMCPServer(cmd, svc, version, args, d)
 			if err != nil {
@@ -190,6 +193,14 @@ func checkMCPTransport(transport string) error {
 	}
 	return fmt.Errorf("unsupported transport %q: only \"stdio\" and \"http\" are supported", transport)
 }
+
+// errDeliveryOverHTTP refuses to serve the delivery tools to remote callers:
+// every caller would act as this process's own identity, so a person's or an
+// agent's request could not be told apart from the server's.
+// ponytail: remote access needs each caller's own token passed through to the
+// apiserver (design M1); until then delivery is stdio only.
+var errDeliveryOverHTTP = errors.New("--delivery serves stdio only: over HTTP every caller would act as this process's " +
+	"identity; run `pacto mcp --delivery` beside the agent, under the agent's own credentials")
 
 // errRootNeedsRef is returned when catalog mode was selected without a usable
 // reference. An empty root set fails closed: an empty catalog would otherwise

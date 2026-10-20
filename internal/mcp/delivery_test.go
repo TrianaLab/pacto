@@ -41,6 +41,20 @@ func (s *stubDelivery) Cancel(_ context.Context, ns, name string) error {
 	return s.err
 }
 
+func (s *stubDelivery) Explain(_ context.Context, ns, name string) (*delivery.Explanation, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &delivery.Explanation{Operation: ns + "/" + name, Summary: "concluded Failed"}, nil
+}
+
+func (s *stubDelivery) History(_ context.Context, _, stage string) (*delivery.History, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &delivery.History{Stage: delivery.StageNow{Name: stage}, Completeness: "partial"}, nil
+}
+
 func deliveryToolNames(t *testing.T, server *mcpsdk.Server) []string {
 	t.Helper()
 	ctx := context.Background()
@@ -84,6 +98,9 @@ func TestDeliveryToolsWritesOnlyForAgents(t *testing.T) {
 	if strings.Contains(read+write, "approve") {
 		t.Fatal("there must be no approve tool")
 	}
+	if !strings.Contains(read, "pacto_delivery_explain") || !strings.Contains(read, "pacto_delivery_history") {
+		t.Fatalf("explain and history are read tools: %s", read)
+	}
 }
 
 func TestDeliveryToolCalls(t *testing.T) {
@@ -110,6 +127,21 @@ func TestDeliveryToolCalls(t *testing.T) {
 		"namespace": "prod", "stage": "s", "to": "sha256:x", "on_behalf_of": "alice"}), &plan)
 	if plan.Predicted != delivery.PredictHeld || api.req.OnBehalfOf != "alice" || api.req.Stage != "s" {
 		t.Fatalf("plan: %+v %+v", plan, api.req)
+	}
+	decode(t, callToolOn(t, server, "pacto_delivery_operation_plan", map[string]any{
+		"namespace": "prod", "stage": "s", "cause_verdict": `{"gate":"health","phase":"verify","result":"Fail"}`}), &plan)
+	if api.req.Cause == nil || api.req.Cause.Verdict.Gate != "health" || api.req.Cause.Verdict.Result != delivery.Fail {
+		t.Fatalf("cause: %+v", api.req.Cause)
+	}
+	var e delivery.Explanation
+	decode(t, callToolOn(t, server, "pacto_delivery_explain", map[string]any{"namespace": "prod", "name": "p1"}), &e)
+	if e.Operation != "prod/p1" || e.Summary != "concluded Failed" {
+		t.Fatalf("explain: %+v", e)
+	}
+	var h delivery.History
+	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s"}), &h)
+	if h.Stage.Name != "s" || h.Completeness != "partial" {
+		t.Fatalf("history: %+v", h)
 	}
 }
 
@@ -150,7 +182,16 @@ func TestDeliveryToolErrors(t *testing.T) {
 			t.Fatalf("%s must surface the error", tool)
 		}
 	}
-	for _, tool := range []string{"pacto_delivery_get", "pacto_delivery_cancel"} {
+	for _, tool := range []string{"pacto_delivery_operation_plan", "pacto_delivery_operation_propose"} {
+		if res := callToolOn(t, server, tool, map[string]any{"namespace": "prod", "stage": "s", "cause_verdict": "{"}); !res.IsError ||
+			!strings.Contains(resultText(t, res), "cause_verdict is not a verdict") {
+			t.Fatalf("%s must refuse a malformed cause", tool)
+		}
+	}
+	if res := callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s"}); !res.IsError {
+		t.Fatal("history must surface the error")
+	}
+	for _, tool := range []string{"pacto_delivery_get", "pacto_delivery_cancel", "pacto_delivery_explain"} {
 		if res := callToolOn(t, server, tool, map[string]any{"namespace": "prod", "name": "p1"}); !res.IsError {
 			t.Fatalf("%s must surface the error", tool)
 		}

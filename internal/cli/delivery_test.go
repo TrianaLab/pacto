@@ -58,13 +58,15 @@ func deliveryDeps(user string, dynErr error) deps {
 		}
 		c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists,
 			u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "payments-prod", map[string]any{
-				"spec":   map[string]any{"service": map[string]any{"name": "payments"}, "applyRef": map[string]any{"name": "payments"}},
-				"status": map[string]any{"pointer": cliA, "verified": []any{cliA}}}),
+				"spec": map[string]any{"service": map[string]any{"name": "payments"}, "applyRef": map[string]any{"name": "payments"}},
+				"status": map[string]any{"pointer": cliA, "verified": []any{cliA}, "frozen": true, "frozenReason": "a rollback failed",
+					"autoHold": true, "lastCheck": map[string]any{"operation": "uid-x", "digest": cliA, "at": "2026-10-20T10:00:00Z",
+						"verdicts": []any{map[string]any{"gate": "health", "phase": "verify", "result": "Unknown", "message": "too few spans"}}}}}),
 			u("source.toolkit.fluxcd.io/v1", "OCIRepository", "payments", map[string]any{"spec": map[string]any{"url": "oci://reg/apps/payments"}}),
 			u("delivery.pacto.trianalab.io/v1alpha1", "Operation", "held", map[string]any{
 				"spec": map[string]any{"type": delivery.TypePromote, "stage": "payments-prod", "intentDigest": "sha256:i"},
 				"status": map[string]any{"phase": "Held", "question": "Approve?", "reason": "AwaitingHuman", "message": "m",
-					"verdicts": []any{map[string]any{"gate": "pacto.diff", "phase": "pre", "result": "Pass"}}}}),
+					"verdicts": []any{map[string]any{"gate": "pacto.diff", "phase": "pre", "result": "Pass", "citation": map[string]any{"query": "{}"}}}}}),
 		)
 		c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"userInfo": map[string]any{
@@ -128,12 +130,23 @@ func TestDeliveryCommandReadVerbs(t *testing.T) {
 		{"text", []string{"describe", "rollback"}, false, []string{"inverse:        pacto.dev/promote"}},
 		{"text", []string{"describe", "pacto.dev/unfreeze"}, false, []string{"inverse:        none"}},
 		{"text", []string{"describe", "scale"}, true, []string{"unknown operation type"}},
-		{"text", append(plan, "--to", cliB), false, []string{"predicted: Proceeds", "pacto.impact"}},
+		{"text", append(plan, "--to", cliB), false, []string{"predicted: Waits", "pacto.impact", "StageFrozen"}},
 		{"json", append(plan, "--to", cliB), false, []string{`"intentDigest": "sha256:`}},
 		{"text", append(plan, "--to", "v2"), true, []string{cliB}},
 		{"text", append(plan, "--to", cliB, "--from", cliB), false, []string{"conflict:  PointerMoved"}},
 		{"text", []string{"get", "-n", "prod", "held"}, false, []string{"question:  Approve?", "reason:    AwaitingHuman: m", "pacto.diff"}},
 		{"text", []string{"get", "-n", "prod", "missing"}, true, nil},
+		{"text", append(plan, "--to", cliB, "--cause-verdict", "{"), true, []string{"--cause-verdict is not a verdict"}},
+		{"text", append(plan, "--to", cliB, "--cause-verdict", `{"gate":"health","result":"Fail"}`), false, []string{"predicted: Waits"}},
+		{"text", []string{"explain", "-n", "prod", "held"}, false, []string{"prod/held", "waits for a person: Approve?",
+			"pacto.diff", "query: {}", "re-run: pacto delivery plan", "stage payments-prod runs " + cliA, "frozen: a rollback failed",
+			"on auto-hold", "last re-check 2026-10-20T10:00:00Z of " + cliA, "health         Unknown  too few spans"}},
+		{"json", []string{"explain", "-n", "prod", "held"}, false, []string{`"summary"`, `"rerun"`}},
+		{"text", []string{"explain", "-n", "prod", "missing"}, true, nil},
+		{"text", []string{"history", "-n", "prod", "--stage", "payments-prod"}, false, []string{"SEQ", "held", "promote", "Held",
+			"partial: read from the Operation objects"}},
+		{"json", []string{"history", "-n", "prod", "--stage", "payments-prod"}, false, []string{`"completeness": "partial"`}},
+		{"text", []string{"history", "-n", "prod", "--stage", "missing"}, true, nil},
 	})
 }
 
@@ -166,6 +179,7 @@ func TestDeliveryCommandClusterUnreachable(t *testing.T) {
 	d := deliveryDeps("alice", errors.New("no kubeconfig"))
 	for _, args := range [][]string{
 		{"plan", "--stage", "s", "--to", cliB}, {"propose", "--stage", "s", "--to", cliB}, {"get", "x"}, {"cancel", "x"}, {"approve", "x"},
+		{"explain", "x"}, {"history", "--stage", "s"},
 	} {
 		if _, err := runDelivery(t, d, "text", args...); err == nil || !strings.Contains(err.Error(), "no kubeconfig") {
 			t.Fatalf("%v: %v", args, err)
@@ -203,5 +217,12 @@ func TestMCPDeliveryMode(t *testing.T) {
 	}
 	if newDeliveryRegistry("h") == nil {
 		t.Fatal("registry")
+	}
+	over := newMCPCommand(app.NewService(nil, nil), "v", deliveryDeps("system:serviceaccount:agents:bot", nil))
+	over.SetArgs([]string{"--delivery", "-t", "http"})
+	over.SetOut(&strings.Builder{})
+	over.SetErr(&strings.Builder{})
+	if err := over.Execute(); !errors.Is(err, errDeliveryOverHTTP) {
+		t.Fatalf("delivery over HTTP must be refused: %v", err)
 	}
 }
