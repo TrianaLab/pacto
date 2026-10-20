@@ -72,7 +72,7 @@ func TestAutoPromoteFromUpstreamAndHolds(t *testing.T) {
 	up.Status.Verified = []string{dA, dB}
 	s := stageObj(dA)
 	s.Spec.Auto = true
-	s.Spec.Candidates.UpstreamStage = &delivery.LocalRef{Name: "payments-test"}
+	s.Spec.Candidates.UpstreamStage = &delivery.StageRef{Name: "payments-test", Namespace: ns}
 	e := newEnv(t, up, s, ociRepo("payments", dA, "latest@"+dA, false))
 	for _, mut := range []func(*delivery.StageStatus){
 		func(st *delivery.StageStatus) { st.Frozen = true },
@@ -94,7 +94,7 @@ func TestAutoPromoteFromUpstreamAndHolds(t *testing.T) {
 func TestAutoPromoteSourcesMissing(t *testing.T) {
 	for _, c := range []delivery.Candidates{
 		{OCIRepositoryRef: &delivery.LocalRef{Name: "gone"}},
-		{UpstreamStage: &delivery.LocalRef{Name: "gone"}},
+		{UpstreamStage: &delivery.StageRef{Name: "gone"}},
 		{},
 	} {
 		s := stageObj(dA)
@@ -180,7 +180,7 @@ func TestStageReconcileErrors(t *testing.T) {
 	up.Name = "up"
 	up.Status.Verified = []string{dB}
 	s = stageObj(dA)
-	s.Spec.Auto, s.Spec.Candidates.UpstreamStage = true, &delivery.LocalRef{Name: "up"}
+	s.Spec.Auto, s.Spec.Candidates.UpstreamStage = true, &delivery.StageRef{Name: "up"}
 	e = newEnv(t, s, up)
 	e.fails["create/Operation"] = true
 	if e.reconcileStage("payments-prod") == nil {

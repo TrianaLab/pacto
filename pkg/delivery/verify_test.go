@@ -158,6 +158,9 @@ func TestLifecycle(t *testing.T) {
 	if got := NewestCandidate(StageStatus{FailedDigests: []string{dB}}, "v2@"+dB, nil); got != "" {
 		t.Fatalf("failed oci candidate: %q", got)
 	}
+	if got := NewestCandidate(StageStatus{Pointer: dC, Verified: []string{dB, dC}}, "v1@"+dB, nil); got != "" {
+		t.Fatalf("a tag moved back to an old digest is not new: %q", got)
+	}
 	if VerifyWindow(StageSpec{}) != 5*time.Minute || VerifyWindow(StageSpec{Gates: Gates{Verify: VerifyGates{Window: "30s"}}}) != 30*time.Second {
 		t.Fatal("VerifyWindow")
 	}

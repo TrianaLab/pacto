@@ -129,8 +129,11 @@ func (r *StageReconciler) candidate(ctx context.Context, stage *dv1.Stage) (stri
 		}
 		return delivery.NewestCandidate(stage.Status, a.revision, nil), nil
 	case c.UpstreamStage != nil:
-		up := &dv1.Stage{}
-		if err := r.Get(ctx, types.NamespacedName{Namespace: stage.Namespace, Name: c.UpstreamStage.Name}, up); err != nil {
+		up, ns := &dv1.Stage{}, c.UpstreamStage.Namespace
+		if ns == "" {
+			ns = stage.Namespace
+		}
+		if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: c.UpstreamStage.Name}, up); err != nil {
 			return "", client.IgnoreNotFound(err)
 		}
 		return delivery.NewestCandidate(stage.Status, "", &up.Status), nil

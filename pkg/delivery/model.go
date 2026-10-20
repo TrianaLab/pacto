@@ -104,7 +104,15 @@ type Candidates struct {
 	OCIRepositoryRef *LocalRef `json:"ociRepositoryRef,omitempty"`
 	// UpstreamStage offers that Stage's verified digests minus its failed ones.
 	// +optional
-	UpstreamStage *LocalRef `json:"upstreamStage,omitempty"`
+	UpstreamStage *StageRef `json:"upstreamStage,omitempty"`
+}
+
+// StageRef names a Stage, in the referring Stage's namespace unless Namespace
+// says otherwise (environments usually live in namespaces of their own).
+type StageRef struct {
+	Name string `json:"name"`
+	// +optional
+	Namespace string `json:"namespace,omitempty"`
 }
 
 // VerifyGates configures what runs after a version is applied.

@@ -79,10 +79,11 @@ func RemoveDigest(list []string, d string) []string {
 }
 
 // NewestCandidate picks the version auto-promotion would ship. From an
-// OCIRepository it is the digest of its current artifact revision; from an
-// upstream Stage it is the newest verified digest that failed neither there nor
-// here. It returns "" when there is nothing new: the Stage already runs it or
-// it failed here.
+// OCIRepository it is the digest of its current artifact revision, unless this
+// Stage already verified it (a tag moved back to an old digest is not a new
+// version, and automation never ships an old one); from an upstream Stage it is
+// the newest verified digest that failed neither there nor here. It returns ""
+// when there is nothing new: the Stage already runs it or it failed here.
 func NewestCandidate(status StageStatus, ociRevision string, upstream *StageStatus) string {
 	cand := ""
 	if upstream != nil {
@@ -92,8 +93,8 @@ func NewestCandidate(status StageStatus, ociRevision string, upstream *StageStat
 				break
 			}
 		}
-	} else {
-		cand = RevisionDigest(ociRevision)
+	} else if cand = RevisionDigest(ociRevision); slices.Contains(status.Verified, cand) {
+		return ""
 	}
 	if cand == status.Pointer || slices.Contains(status.FailedDigests, cand) {
 		return ""

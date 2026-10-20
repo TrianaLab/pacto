@@ -93,7 +93,7 @@ func TestDeepCopyIsIndependent(t *testing.T) {
 	if st.Locks["pointer"] != "u1" || st.Verified[0] != dA {
 		t.Fatal("copy aliases the original")
 	}
-	spec := StageSpec{Service: ServiceRef{Name: "p"}, Candidates: Candidates{UpstreamStage: &LocalRef{Name: "t"}}}
+	spec := StageSpec{Service: ServiceRef{Name: "p"}, Candidates: Candidates{UpstreamStage: &StageRef{Name: "t"}}}
 	var spec2 StageSpec
 	spec.DeepCopyInto(&spec2)
 	op := OperationSpec{Type: TypePromote, Actor: Actor{User: "u", Groups: []string{"g"}}, Cause: &Cause{Operation: "x"}}
