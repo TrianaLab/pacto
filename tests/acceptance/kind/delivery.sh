@@ -60,7 +60,7 @@ dump_delivery() {
   done
 }
 # shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
-trap 'rc=$?; [ $rc -ne 0 ] && { dump_diag "$NS"; dump_delivery; }; [ -n "${GEN_PID:-}" ] && kill "$GEN_PID" 2>/dev/null; pkill -f "kubectl.*port-forward" 2>/dev/null || true; exit $rc' EXIT
+trap 'rc=$?; [ $rc -ne 0 ] && { dump_diag "$NS"; dump_delivery; }; [ -z "${GEN_PID:-}" ] || kill "$GEN_PID" 2>/dev/null || true; pkill -f "kubectl.*port-forward" 2>/dev/null || true; exit $rc' EXIT
 
 command -v oras >/dev/null 2>&1 || fail "oras is required: it publishes the manifest artifacts Flux pulls"
 command -v jq >/dev/null 2>&1 || fail "jq is required to read operations"
