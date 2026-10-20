@@ -50,6 +50,9 @@ func TestDeliveryExplain(t *testing.T) {
 	if _, err := d.Explain(context.Background(), "prod", "missing"); err == nil {
 		t.Fatal("missing operation")
 	}
+}
+
+func TestDeliverySummary(t *testing.T) {
 	for _, c := range []struct {
 		status map[string]any
 		want   string

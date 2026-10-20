@@ -94,6 +94,10 @@ func TestRunChecks(t *testing.T) {
 	if vs[2].Result != Unknown || !strings.Contains(vs[2].Message, `no gate provider named "absent"`) {
 		t.Errorf("unknown provider: %+v", vs[2])
 	}
+}
+
+func TestWorst(t *testing.T) {
+	vs := []Verdict{{Result: Pass}, {Result: Unknown}}
 	if Worst(vs) != Unknown || Worst(nil) != Pass || Worst([]Verdict{{Result: Pass}, {Result: Fail}}) != Fail {
 		t.Error("Worst")
 	}

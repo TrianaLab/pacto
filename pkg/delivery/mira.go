@@ -3,7 +3,9 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -57,45 +59,58 @@ type miraParams struct {
 	where                          []map[string]any
 }
 
-var miraParamNames = []string{"minSpans", "maxErrorRatio", "soak", "latencyThreshold", "maxLatencyRatio", "where"}
-
 func parseMiraParams(p map[string]string) (miraParams, error) {
 	out := miraParams{minSpans: 20, maxErrorRatio: 0.05, maxLatencyRatio: 0.05, soak: time.Minute}
-	for k := range p {
-		if !slices.Contains(miraParamNames, k) {
-			return out, fmt.Errorf("unknown param %q (known: %s)", k, strings.Join(miraParamNames, ", "))
-		}
-	}
-	var err error
-	ratio := func(key string, v *float64) {
-		if s, ok := p[key]; ok && err == nil {
-			if *v, err = strconv.ParseFloat(s, 64); err != nil || *v < 0 || *v > 1 {
-				err = fmt.Errorf("%s must be a ratio between 0 and 1, not %q", key, s)
+	ratio := func(v *float64) func(string) error {
+		return func(s string) error {
+			f, err := strconv.ParseFloat(s, 64)
+			if err != nil || f < 0 || f > 1 {
+				return errors.New("must be a ratio between 0 and 1")
 			}
+			*v = f
+			return nil
 		}
 	}
-	duration := func(key string, v *time.Duration) {
-		if s, ok := p[key]; ok && err == nil {
-			if *v, err = time.ParseDuration(s); err != nil || *v <= 0 {
-				err = fmt.Errorf("%s must be a positive Go duration, not %q", key, s)
+	duration := func(v *time.Duration) func(string) error {
+		return func(s string) error {
+			d, err := time.ParseDuration(s)
+			if err != nil || d <= 0 {
+				return errors.New("must be a positive Go duration")
 			}
+			*v = d
+			return nil
 		}
 	}
-	if s, ok := p["minSpans"]; ok {
-		if out.minSpans, err = strconv.Atoi(s); err != nil || out.minSpans < 1 {
-			err = fmt.Errorf("minSpans must be a positive integer, not %q", s)
+	setters := map[string]func(string) error{
+		"minSpans": func(s string) error {
+			n, err := strconv.Atoi(s)
+			if err != nil || n < 1 {
+				return errors.New("must be a positive integer")
+			}
+			out.minSpans = n
+			return nil
+		},
+		"maxErrorRatio":    ratio(&out.maxErrorRatio),
+		"maxLatencyRatio":  ratio(&out.maxLatencyRatio),
+		"soak":             duration(&out.soak),
+		"latencyThreshold": duration(&out.latencyThreshold),
+		"where": func(s string) error {
+			if err := json.Unmarshal([]byte(s), &out.where); err != nil {
+				return errors.New("must be a JSON list of Mira terms")
+			}
+			return nil
+		},
+	}
+	for _, k := range slices.Sorted(maps.Keys(p)) {
+		set, ok := setters[k]
+		if !ok {
+			return out, fmt.Errorf("unknown param %q (known: %s)", k, strings.Join(slices.Sorted(maps.Keys(setters)), ", "))
+		}
+		if err := set(p[k]); err != nil {
+			return out, fmt.Errorf("%s %w, not %q", k, err, p[k])
 		}
 	}
-	ratio("maxErrorRatio", &out.maxErrorRatio)
-	ratio("maxLatencyRatio", &out.maxLatencyRatio)
-	duration("soak", &out.soak)
-	duration("latencyThreshold", &out.latencyThreshold)
-	if s, ok := p["where"]; ok && err == nil {
-		if jerr := json.Unmarshal([]byte(s), &out.where); jerr != nil {
-			err = fmt.Errorf("where must be a JSON list of Mira terms: %w", jerr)
-		}
-	}
-	return out, err
+	return out, nil
 }
 
 // Check implements Gate. A read that fails or stops short is Unknown, never
