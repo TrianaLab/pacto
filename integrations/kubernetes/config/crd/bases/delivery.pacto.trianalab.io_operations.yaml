@@ -1,0 +1,379 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: operations.delivery.pacto.trianalab.io
+spec:
+  group: delivery.pacto.trianalab.io
+  names:
+    kind: Operation
+    listKind: OperationList
+    plural: operations
+    singular: operation
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.type
+      name: Type
+      type: string
+    - jsonPath: .spec.stage
+      name: Stage
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.outcome
+      name: Outcome
+      type: string
+    - jsonPath: .status.reason
+      name: Reason
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Operation is one decision to change one facet of one Stage. Its spec is the
+          intent and never changes after admission; to change your mind, cancel and
+          propose again.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: OperationSpec is the intent. It is frozen at admission.
+            properties:
+              actor:
+                description: Actor is the apiserver identity that created the operation.
+                properties:
+                  groups:
+                    items:
+                      type: string
+                    type: array
+                  user:
+                    type: string
+                required:
+                - user
+                type: object
+              cause:
+                description: Cause is why an operation was raised. Exactly one field
+                  is set.
+                properties:
+                  operation:
+                    description: Operation is the uid of the operation that caused
+                      this one.
+                    type: string
+                  reason:
+                    type: string
+                  verdict:
+                    description: Verdict is one gate's answer plus a citation that
+                      can be re-run.
+                    properties:
+                      citation:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      gate:
+                        type: string
+                      message:
+                        type: string
+                      phase:
+                        enum:
+                        - pre
+                        - verify
+                        type: string
+                      result:
+                        description: Result is a gate verdict.
+                        enum:
+                        - Pass
+                        - Fail
+                        - Unknown
+                        type: string
+                    required:
+                    - gate
+                    - phase
+                    - result
+                    type: object
+                type: object
+              correlationID:
+                type: string
+              facet:
+                enum:
+                - pointer
+                - freeze
+                type: string
+              intentDigest:
+                description: IntentDigest is what plan() returned; the promoter recomputes
+                  it.
+                type: string
+              onBehalfOf:
+                description: |-
+                  Principal is a person an agent says it acts for. It is asserted, never
+                  verified.
+                properties:
+                  user:
+                    type: string
+                required:
+                - user
+                type: object
+              params:
+                description: Params are the Tier 0 operation parameters. Digests are
+                  OCI manifest digests.
+                properties:
+                  from:
+                    type: string
+                  to:
+                    type: string
+                  undoes:
+                    description: Undoes is the uid of the operation a rollback undoes.
+                    type: string
+                type: object
+              reason:
+                type: string
+              stage:
+                description: Stage is the name of a Stage in the operation's namespace.
+                type: string
+              type:
+                enum:
+                - pacto.dev/promote
+                - pacto.dev/rollback
+                - pacto.dev/override
+                - pacto.dev/unfreeze
+                type: string
+              witnessed:
+                description: |-
+                  Witnessed marks an override the promoter raised for an edit it saw but
+                  did not make. Only the promoter may set it.
+                type: boolean
+            required:
+            - actor
+            - facet
+            - stage
+            - type
+            type: object
+            x-kubernetes-validations:
+            - message: 'an operation''s intent is immutable: cancel it and propose
+                again'
+              rule: self == oldSelf
+          status:
+            description: OperationStatus is written only by the promoter.
+            properties:
+              actorClass:
+                description: |-
+                  ActorClass is who raised an operation, as the promoter classifies the
+                  apiserver identity. It is derived, never asserted by the client.
+                type: string
+              applied:
+                description: Applied is true once the pointer moved for this operation.
+                type: boolean
+              approvals:
+                items:
+                  description: ApprovalRecord is an approval the promoter consumed.
+                  properties:
+                    authTime:
+                      type: string
+                    by:
+                      type: string
+                    decision:
+                      description: Decision is what a human approval says.
+                      type: string
+                    name:
+                      type: string
+                    note:
+                      type: string
+                  required:
+                  - by
+                  - decision
+                  - name
+                  type: object
+                type: array
+              message:
+                type: string
+              outcome:
+                description: Outcome is how a concluded operation ended.
+                type: string
+              phase:
+                description: Phase is where an operation is in its lifecycle.
+                type: string
+              plan:
+                description: Plan is plan()'s answer. It binds to the intent digest.
+                properties:
+                  conflicts:
+                    items:
+                      type: string
+                    type: array
+                  floor:
+                    description: |-
+                      Floor is the approval floor plan() computed: whether a human must decide,
+                      which decision is asked for and whose.
+                    properties:
+                      consumers:
+                        description: Consumers are the services that made the floor.
+                        items:
+                          type: string
+                        type: array
+                      decision:
+                        description: Decision is what a human approval says.
+                        type: string
+                      human:
+                        type: boolean
+                      owners:
+                        description: Owners are the teams the question is routed to
+                          (empty means anyone).
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  from:
+                    type: string
+                  impactDigest:
+                    description: ImpactDigest is the sha256 of the pkg/impact answer
+                      the floor came from.
+                    type: string
+                  intentDigest:
+                    type: string
+                  predicted:
+                    description: Prediction is what plan() expects the promoter to
+                      do.
+                    type: string
+                  question:
+                    description: Question is the one question a human would be asked.
+                    type: string
+                  to:
+                    type: string
+                  type:
+                    type: string
+                  verdicts:
+                    items:
+                      description: Verdict is one gate's answer plus a citation that
+                        can be re-run.
+                      properties:
+                        citation:
+                          additionalProperties:
+                            type: string
+                          type: object
+                        gate:
+                          type: string
+                        message:
+                          type: string
+                        phase:
+                          enum:
+                          - pre
+                          - verify
+                          type: string
+                        result:
+                          description: Result is a gate verdict.
+                          enum:
+                          - Pass
+                          - Fail
+                          - Unknown
+                          type: string
+                      required:
+                      - gate
+                      - phase
+                      - result
+                      type: object
+                    type: array
+                required:
+                - intentDigest
+                - predicted
+                - type
+                type: object
+              pointer:
+                description: PointerChange is the pointer before and after an operation.
+                properties:
+                  after:
+                    type: string
+                  before:
+                    type: string
+                type: object
+              question:
+                description: Question is what a human is asked while the operation
+                  is Held.
+                type: string
+              reason:
+                description: |-
+                  Reason is the machine reason for the outcome or the hold (PlanStale,
+                  PointerMoved, NoStage, ...).
+                type: string
+              seq:
+                format: int64
+                type: integer
+              times:
+                description: Times are RFC 3339 timestamps.
+                properties:
+                  admitted:
+                    type: string
+                  applied:
+                    type: string
+                  approvalDeadline:
+                    type: string
+                  executionDeadline:
+                    type: string
+                  finished:
+                    type: string
+                  started:
+                    type: string
+                  verifyDeadline:
+                    type: string
+                type: object
+              verdicts:
+                items:
+                  description: Verdict is one gate's answer plus a citation that can
+                    be re-run.
+                  properties:
+                    citation:
+                      additionalProperties:
+                        type: string
+                      type: object
+                    gate:
+                      type: string
+                    message:
+                      type: string
+                    phase:
+                      enum:
+                      - pre
+                      - verify
+                      type: string
+                    result:
+                      description: Result is a gate verdict.
+                      enum:
+                      - Pass
+                      - Fail
+                      - Unknown
+                      type: string
+                  required:
+                  - gate
+                  - phase
+                  - result
+                  type: object
+                type: array
+              verification:
+                description: Verification qualifies a Succeeded outcome.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

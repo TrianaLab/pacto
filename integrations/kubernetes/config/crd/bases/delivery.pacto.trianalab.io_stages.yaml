@@ -1,0 +1,221 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: stages.delivery.pacto.trianalab.io
+spec:
+  group: delivery.pacto.trianalab.io
+  names:
+    kind: Stage
+    listKind: StageList
+    plural: stages
+    singular: stage
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.service.name
+      name: Service
+      type: string
+    - jsonPath: .spec.environment
+      name: Env
+      type: string
+    - jsonPath: .status.pointer
+      name: Pointer
+      type: string
+    - jsonPath: .status.frozen
+      name: Frozen
+      type: boolean
+    - jsonPath: .status.autoHold
+      name: Hold
+      type: boolean
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Stage is one service in one environment: which version it runs and how new
+          versions reach it.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: StageSpec is one service in one environment.
+            properties:
+              applyRef:
+                description: |-
+                  ApplyRef is the Flux OCIRepository the promoter owns. It only ever sets
+                  spec.ref.digest on it.
+                properties:
+                  name:
+                    type: string
+                required:
+                - name
+                type: object
+              approval:
+                description: ApprovalPolicy can only raise the approval floor, never
+                  lower it.
+                properties:
+                  always:
+                    description: Always holds every promote for a human, whatever
+                      the contracts say.
+                    type: boolean
+                type: object
+              auto:
+                description: Auto promotes the newest eligible candidate without anyone
+                  asking.
+                type: boolean
+              candidates:
+                description: Candidates says where new versions come from. Exactly
+                  one is set.
+                properties:
+                  ociRepositoryRef:
+                    description: |-
+                      OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the
+                      candidate is the @sha256: part of its status.artifact.revision.
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  upstreamStage:
+                    description: UpstreamStage offers that Stage's verified digests
+                      minus its failed ones.
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                type: object
+              deadlines:
+                description: Deadlines override the operation type's defaults (Go
+                  durations).
+                properties:
+                  approval:
+                    type: string
+                  execution:
+                    type: string
+                type: object
+              environment:
+                type: string
+              gates:
+                description: |-
+                  Gates configures the Stage's gates. The pre-gates are fixed by the operation
+                  type in M0; the Pacto contract gate is the verify gate.
+                properties:
+                  verify:
+                    description: VerifyGates configures what runs after a version
+                      is applied.
+                    properties:
+                      window:
+                        description: |-
+                          Window is how long the verify gates may stay Unknown before the
+                          operation is held for a human (a Go duration, default 5m).
+                        type: string
+                    type: object
+                type: object
+              service:
+                description: |-
+                  ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified
+                  service name its contracts declare.
+                properties:
+                  domain:
+                    description: Domain is the registry and organisation scope (empty
+                      for the default).
+                    type: string
+                  name:
+                    description: Name is the contract's service.name.
+                    type: string
+                required:
+                - name
+                type: object
+            required:
+            - applyRef
+            - environment
+            - service
+            type: object
+          status:
+            description: StageStatus is written only by the promoter's operation reconciler.
+            properties:
+              autoHold:
+                description: AutoHold stops auto-promotion after a person chose an
+                  older version.
+                type: boolean
+              autoRollbacks:
+                additionalProperties:
+                  type: integer
+                description: AutoRollbacks counts the automatic rollbacks raised per
+                  cause.
+                type: object
+              candidate:
+                description: Candidate is the newest eligible candidate the stage
+                  reconciler saw.
+                type: string
+              failedDigests:
+                description: FailedDigests are never promoted again (cap 50).
+                items:
+                  type: string
+                type: array
+              frozen:
+                type: boolean
+              frozenReason:
+                type: string
+              lastOp:
+                description: LastOp is the uid of the operation that last moved the
+                  pointer.
+                type: string
+              locks:
+                additionalProperties:
+                  type: string
+                description: Locks maps a facet to the uid of the operation holding
+                  it.
+                type: object
+              pointer:
+                description: Pointer is the digest the environment runs.
+                type: string
+              stream:
+                description: Stream numbers a Stage's concluded operations.
+                properties:
+                  id:
+                    description: |-
+                      ID is <clusterID>/<namespace>/<name>; the cluster id is the kube-system
+                      namespace uid.
+                    type: string
+                  seq:
+                    format: int64
+                    type: integer
+                type: object
+              verified:
+                description: Verified holds the newest verified digests, oldest first
+                  (cap 10).
+                items:
+                  type: string
+                type: array
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

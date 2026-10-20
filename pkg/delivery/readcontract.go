@@ -88,8 +88,16 @@ const SnapshotSourceID = "delivery"
 // A Pacto the operator has not reconciled yet carries no contract in its status.
 // It is reported as a limitation, which makes the snapshot partial: a consumer
 // Pacto cannot read is a consumer it cannot rule out.
-func Snapshot(ctx context.Context, pactos []PactoView, sides []Revision, now time.Time) (*fleet.FleetSnapshot, error) {
+//
+// listErr is the error listing the Pactos, if any: Pacto cannot rule out a
+// consumer it could not list, so it makes the snapshot partial too.
+func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Revision, now time.Time) (*fleet.FleetSnapshot, error) {
 	col := &fleet.Collection{}
+	if listErr != nil {
+		col.Limitations = append(col.Limitations, fleet.Limitation{
+			Code: "PACTOS_UNREADABLE", Source: SnapshotSourceID, Message: "the Pacto objects could not be listed: " + listErr.Error(),
+		})
+	}
 	for _, side := range sides {
 		if side.Bundle == nil {
 			continue

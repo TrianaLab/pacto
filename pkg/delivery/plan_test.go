@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -54,7 +55,7 @@ func promote(from, to string) OperationSpec {
 
 func planWith(t *testing.T, spec OperationSpec, status StageStatus, from, to Revision, pactos ...PactoView) Plan {
 	t.Helper()
-	snap, err := Snapshot(context.Background(), pactos, []Revision{from, to}, now)
+	snap, err := Snapshot(context.Background(), pactos, nil, []Revision{from, to}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +192,7 @@ func TestPlanFrozenWaitsAndPolicyRaisesTheFloor(t *testing.T) {
 	if p.Predicted != PredictWaits || !strings.Contains(strings.Join(p.Conflicts, ""), "StageFrozen: Errored") {
 		t.Fatalf("frozen: %+v", p)
 	}
-	snap, _ := Snapshot(context.Background(), nil, []Revision{from, to}, now)
+	snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
 	st := stageSpec()
 	st.Approval.Always = true
 	p = PlanFor(context.Background(), PlanInput{Spec: promote(dA, dB), Stage: st, Status: StageStatus{Pointer: dA, Verified: []string{dA}},
@@ -211,5 +212,12 @@ func TestShortAndHelpers(t *testing.T) {
 	}
 	if ownersOrAnyone(nil) == "" || limitationCodes(nil) != "a source is not available" {
 		t.Fatal("helpers")
+	}
+}
+
+func TestSnapshotListErrorIsPartial(t *testing.T) {
+	snap, err := Snapshot(context.Background(), nil, errors.New("no Pacto CRD"), nil, now)
+	if err != nil || snap.Completeness != "partial" {
+		t.Fatalf("an unreadable Pacto list must make the graph partial: %v %s", err, snap.Completeness)
 	}
 }

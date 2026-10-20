@@ -74,7 +74,7 @@ func TestSnapshotAndViews(t *testing.T) {
 	if _, err := DecodePactos([]byte("{")); err == nil {
 		t.Fatal("bad JSON must fail")
 	}
-	snap, err := Snapshot(context.Background(), ps, []Revision{{Digest: dA}}, now)
+	snap, err := Snapshot(context.Background(), ps, nil, []Revision{{Digest: dA}}, now)
 	if err != nil || len(snap.Revisions) != 1 {
 		t.Fatalf("snapshot: %v %+v", err, snap)
 	}
