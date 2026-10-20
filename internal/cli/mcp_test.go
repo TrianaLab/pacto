@@ -142,9 +142,9 @@ func TestParseAuthFlags(t *testing.T) {
 }
 
 func TestBuildMCPServer_NoArg(t *testing.T) {
-	cmd := newMCPCommand(app.NewService(nil, nil), "v")
+	cmd := newMCPCommand(app.NewService(nil, nil), "v", defaultDeps())
 	cmd.SetContext(context.Background())
-	server, err := buildMCPServer(cmd, app.NewService(nil, nil), "v", nil)
+	server, err := buildMCPServer(cmd, app.NewService(nil, nil), "v", nil, defaultDeps())
 	if err != nil || server == nil {
 		t.Fatalf("no-arg build = %v,%v", server, err)
 	}
@@ -153,11 +153,11 @@ func TestBuildMCPServer_NoArg(t *testing.T) {
 func TestBuildMCPServer_WithBundle(t *testing.T) {
 	dir := writeCapabilityBundle(t)
 	svc := app.NewService(nil, nil)
-	cmd := newMCPCommand(svc, "v")
+	cmd := newMCPCommand(svc, "v", defaultDeps())
 	cmd.SetContext(context.Background())
 	_ = cmd.Flags().Set("base-url", "http://example.com")
 
-	server, err := buildMCPServer(cmd, svc, "v", []string{dir})
+	server, err := buildMCPServer(cmd, svc, "v", []string{dir}, defaultDeps())
 	if err != nil || server == nil {
 		t.Fatalf("with-bundle build = %v,%v", server, err)
 	}
@@ -166,11 +166,11 @@ func TestBuildMCPServer_WithBundle(t *testing.T) {
 func TestBuildMCPServer_AuthError(t *testing.T) {
 	dir := writeCapabilityBundle(t)
 	svc := app.NewService(nil, nil)
-	cmd := newMCPCommand(svc, "v")
+	cmd := newMCPCommand(svc, "v", defaultDeps())
 	cmd.SetContext(context.Background())
 	_ = cmd.Flags().Set("auth", "bogus")
 
-	if _, err := buildMCPServer(cmd, svc, "v", []string{dir}); err == nil {
+	if _, err := buildMCPServer(cmd, svc, "v", []string{dir}, defaultDeps()); err == nil {
 		t.Error("expected auth parse error")
 	}
 }
@@ -178,10 +178,10 @@ func TestBuildMCPServer_AuthError(t *testing.T) {
 func TestBuildMCPServer_RegisterError(t *testing.T) {
 	dir := writeCapabilityBundle(t)
 	svc := app.NewService(nil, nil)
-	cmd := newMCPCommand(svc, "v")
+	cmd := newMCPCommand(svc, "v", defaultDeps())
 	cmd.SetContext(context.Background())
 	// no base-url and the spec has no servers → RegisterCapabilities fails
-	if _, err := buildMCPServer(cmd, svc, "v", []string{dir}); err == nil {
+	if _, err := buildMCPServer(cmd, svc, "v", []string{dir}, defaultDeps()); err == nil {
 		t.Error("expected register error when no base URL is available")
 	}
 }

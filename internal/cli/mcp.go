@@ -17,10 +17,11 @@ import (
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/capability"
 	"github.com/trianalab/pacto/v4/pkg/catalog"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
-func newMCPCommand(svc *app.Service, version string) *cobra.Command {
+func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "mcp [bundle-ref]",
 		Short: "Start an MCP server",
@@ -38,7 +39,11 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 			"over one snapshot. The shared fleet source flags — --local, --target-state, " +
 			"--evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness — compose " +
 			"that snapshot and are read in --fleet mode only.\n\n" +
-			"A bundle reference, --root and --fleet select different servers and cannot be combined.",
+			"With --delivery, the server instead exposes the Pacto delivery tools (pacto_delivery_*) over the " +
+			"ambient cluster: operation types, describe, plan and get, plus propose and cancel only when the " +
+			"apiserver says the caller is an agent (a service account or an --agent-groups member). There is " +
+			"no approve tool.\n\n" +
+			"A bundle reference, --root, --fleet and --delivery select different servers and cannot be combined.",
 		Example: `  # Start MCP server over stdio (default)
   pacto mcp
 
@@ -61,7 +66,7 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 				return err
 			}
 			port, _ := cmd.Flags().GetInt("port")
-			server, err := buildMCPServer(cmd, svc, version, args)
+			server, err := buildMCPServer(cmd, svc, version, args, d)
 			if err != nil {
 				return err
 			}
@@ -76,6 +81,9 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 	cmd.Flags().StringArray("auth", nil, "credential for a security scheme as name=value (repeatable)")
 	cmd.Flags().Bool("allow-writes", false, "expose mutating operations (POST/PUT/PATCH/DELETE) as tools")
 	cmd.Flags().Bool("fleet", false, "expose read-only operational-graph (fleet) query tools")
+	cmd.Flags().Bool("delivery", false, "expose the Pacto delivery tools over the ambient cluster")
+	cmd.Flags().StringSlice("agent-groups", []string{"pacto:agents"}, "in --delivery mode: groups whose members are agents")
+	cmd.Flags().StringSlice("break-glass-groups", []string{"pacto:break-glass"}, "in --delivery mode: groups that may override")
 	// Declared before the shared set so this spelling wins: here --root selects a
 	// catalog to discover, not a closure to fold into a snapshot.
 	cmd.Flags().StringArray("root", nil, "contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)")
@@ -89,18 +97,21 @@ func newMCPCommand(svc *app.Service, version string) *cobra.Command {
 // buildMCPServer constructs the MCP server for the one mode the invocation
 // selected: catalog discovery from explicit roots, fleet queries, a bundle's
 // capability tools, or the authoring tools when nothing else is asked for.
-func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args []string) (*mcpsdk.Server, error) {
+func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args []string, d deps) (*mcpsdk.Server, error) {
 	roots, _ := cmd.Flags().GetStringArray("root")
 	fleetMode, _ := cmd.Flags().GetBool("fleet")
+	deliveryMode, _ := cmd.Flags().GetBool("delivery")
 	// The mode is selected by --root being present, not by the values surviving:
 	// pflag round-trips a repeated flag through CSV, so a lone `--root ""` comes
 	// back as no roots at all. That has to fail, not turn into a different server.
 	catalogMode := cmd.Flags().Changed("root")
-	if err := checkMCPMode(len(args) > 0, catalogMode, fleetMode); err != nil {
+	if err := checkMCPMode(len(args) > 0, catalogMode, fleetMode, deliveryMode); err != nil {
 		return nil, err
 	}
 
 	switch {
+	case deliveryMode:
+		return buildDeliveryServer(cmd, svc, version, d)
 	case catalogMode:
 		cat, err := buildCatalog(cmd, svc, roots)
 		if err != nil {
@@ -122,7 +133,7 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 // checkMCPMode rejects an invocation that selects more than one server. The
 // modes expose disjoint surfaces, so honouring one and dropping the rest would
 // hand a client a server it did not ask for; saying so is the only safe answer.
-func checkMCPMode(hasBundle, hasRoots, fleetMode bool) error {
+func checkMCPMode(hasBundle, hasRoots, fleetMode, deliveryMode bool) error {
 	var selected []string
 	if hasBundle {
 		selected = append(selected, "a bundle reference")
@@ -133,11 +144,37 @@ func checkMCPMode(hasBundle, hasRoots, fleetMode bool) error {
 	if fleetMode {
 		selected = append(selected, "--fleet")
 	}
+	if deliveryMode {
+		selected = append(selected, "--delivery")
+	}
 	if len(selected) > 1 {
 		return fmt.Errorf("%s cannot be combined: each selects a different MCP server, so pass only one",
 			strings.Join(selected, ", "))
 	}
 	return nil
+}
+
+// buildDeliveryServer exposes the delivery tools. Write tools register only when
+// the apiserver says the caller is an agent: an agent must run under its own
+// identity, and a person's credentials get the read-only surface.
+func buildDeliveryServer(cmd *cobra.Command, svc *app.Service, version string, d deps) (*mcpsdk.Server, error) {
+	c, _, err := deliveryClient(cmd, d)
+	if err != nil {
+		return nil, err
+	}
+	caller, err := c.WhoAmI(cmd.Context())
+	if err != nil {
+		return nil, err
+	}
+	return pactomcp.NewDeliveryServer(version, mcpDelivery{c}, caller.Class == delivery.ClassAgent, svc.ValidationReport), nil
+}
+
+// mcpDelivery adapts app.Delivery to the MCP tools' interface.
+type mcpDelivery struct{ *app.Delivery }
+
+func (m mcpDelivery) Plan(ctx context.Context, req delivery.Request) (delivery.Plan, error) {
+	p, _, err := m.Delivery.Plan(ctx, req)
+	return p, err
 }
 
 // mcpTransports is the closed --transport vocabulary. checkMCPTransport

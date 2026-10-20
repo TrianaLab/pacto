@@ -40,14 +40,16 @@ type deps struct {
 	buildStaticExport func(*dashboard.ServiceDetails, *dashboard.GlobalGraph) (map[string][]byte, error)
 	// The runtime commands: the collector and a session touch the kernel, the dynamic client a cluster,
 	// runAgent blocks until its context ends.
-	newCollector  func(ringbuf uint32) (runtimewatch.Collector, error)
-	newDynamic    func() (dynamic.Interface, error)
-	runAgent      func(context.Context, runtimewatch.Config)
-	newDocker     func(socket string) *evalsink.Docker
-	newSession    func(parent, name string) (ebpf.Session, error)
-	setSubreaper  func() error
-	notifySignals func(chan<- os.Signal, ...os.Signal)
-	resolveBundle func(svc *app.Service, ctx context.Context, ref string) (*contract.Bundle, error)
+	newCollector func(ringbuf uint32) (runtimewatch.Collector, error)
+	newDynamic   func() (dynamic.Interface, error)
+	// newDeliveryRegistry is the read-only registry `pacto delivery` resolves artifacts through.
+	newDeliveryRegistry func(insecureHosts ...string) app.DeliveryRegistry
+	runAgent            func(context.Context, runtimewatch.Config)
+	newDocker           func(socket string) *evalsink.Docker
+	newSession          func(parent, name string) (ebpf.Session, error)
+	setSubreaper        func() error
+	notifySignals       func(chan<- os.Signal, ...os.Signal)
+	resolveBundle       func(svc *app.Service, ctx context.Context, ref string) (*contract.Bundle, error)
 	// selfProc is this process's own /proc, read for its network namespace.
 	selfProc runtimewatch.ProcFS
 	// attachTimeout bounds the wait for `pacto run`'s eBPF program before the command starts.
@@ -63,23 +65,24 @@ type deps struct {
 // defaultDeps are the real dependencies.
 func defaultDeps() deps {
 	return deps{
-		checkForUpdate:    update.CheckForUpdate,
-		readPassword:      term.ReadPassword,
-		executable:        os.Executable,
-		runTUI:            tui.Run,
-		buildStaticExport: doc.BuildStaticExport,
-		newCollector:      ebpf.New,
-		newDynamic:        k8sclient.NewDynamic,
-		runAgent:          runtimewatch.Run,
-		newDocker:         evalsink.NewDocker,
-		newSession:        ebpf.NewSession,
-		setSubreaper:      ebpf.SetSubreaper,
-		notifySignals:     signal.Notify,
-		resolveBundle:     (*app.Service).ResolveBundle,
-		selfProc:          runtimewatch.OSProcFS{Root: "/proc"},
-		attachTimeout:     10 * time.Second,
-		pollInterval:      time.Second,
-		updateWait:        200 * time.Millisecond,
+		checkForUpdate:      update.CheckForUpdate,
+		readPassword:        term.ReadPassword,
+		executable:          os.Executable,
+		runTUI:              tui.Run,
+		buildStaticExport:   doc.BuildStaticExport,
+		newCollector:        ebpf.New,
+		newDynamic:          k8sclient.NewDynamic,
+		newDeliveryRegistry: newDeliveryRegistry,
+		runAgent:            runtimewatch.Run,
+		newDocker:           evalsink.NewDocker,
+		newSession:          ebpf.NewSession,
+		setSubreaper:        ebpf.SetSubreaper,
+		notifySignals:       signal.Notify,
+		resolveBundle:       (*app.Service).ResolveBundle,
+		selfProc:            runtimewatch.OSProcFS{Root: "/proc"},
+		attachTimeout:       10 * time.Second,
+		pollInterval:        time.Second,
+		updateWait:          200 * time.Millisecond,
 	}
 }
 
@@ -231,7 +234,8 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	root.AddCommand(newLogoutCommand())
 	root.AddCommand(newVersionCommand(info, v))
 	root.AddCommand(newUpdateCommand(info.Version, update.New()))
-	root.AddCommand(newMCPCommand(svc, info.Version))
+	root.AddCommand(newMCPCommand(svc, info.Version, d))
+	root.AddCommand(newDeliveryCommand(v, d))
 	root.AddCommand(newDashboardCommand(svc, v, info.Version))
 	root.AddCommand(newTUICommand(svc, v, d))
 

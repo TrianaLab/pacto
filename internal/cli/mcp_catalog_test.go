@@ -56,14 +56,14 @@ func catalogRootsFixture(t *testing.T) (parent, rootA, rootB string) {
 func buildCatalogMCPServer(t *testing.T, ctx context.Context, roots ...string) (*mcpsdk.Server, error) {
 	t.Helper()
 	svc := app.NewService(nil, nil)
-	cmd := newMCPCommand(svc, "v")
+	cmd := newMCPCommand(svc, "v", defaultDeps())
 	cmd.SetContext(ctx)
 	for _, r := range roots {
 		if err := cmd.Flags().Set("root", r); err != nil {
 			t.Fatalf("set --root %q: %v", r, err)
 		}
 	}
-	return buildMCPServer(cmd, svc, "v", nil)
+	return buildMCPServer(cmd, svc, "v", nil, defaultDeps())
 }
 
 // catalogOverviewFrom reads pacto://catalog off a built server over a real MCP
@@ -262,7 +262,7 @@ func TestMCPModesAreMutuallyExclusive(t *testing.T) {
 }
 
 func TestMCPCommand_RootFlagIsRepeatable(t *testing.T) {
-	cmd := newMCPCommand(app.NewService(nil, nil), "v")
+	cmd := newMCPCommand(app.NewService(nil, nil), "v", defaultDeps())
 	f := cmd.Flags().Lookup("root")
 	if f == nil {
 		t.Fatal("expected a --root flag")
@@ -279,20 +279,20 @@ func TestBuildMCPServer_ExistingModesStillBuild(t *testing.T) {
 	svc := app.NewService(nil, nil)
 
 	authoring := func() *mcpsdk.Server {
-		cmd := newMCPCommand(svc, "v")
+		cmd := newMCPCommand(svc, "v", defaultDeps())
 		cmd.SetContext(context.Background())
-		s, err := buildMCPServer(cmd, svc, "v", nil)
+		s, err := buildMCPServer(cmd, svc, "v", nil, defaultDeps())
 		if err != nil {
 			t.Fatalf("authoring build: %v", err)
 		}
 		return s
 	}()
 	fleet := func() *mcpsdk.Server {
-		cmd := newMCPCommand(svc, "v")
+		cmd := newMCPCommand(svc, "v", defaultDeps())
 		cmd.SetContext(context.Background())
 		_ = cmd.Flags().Set("fleet", "true")
 		_ = cmd.Flags().Set("local", t.TempDir())
-		s, err := buildMCPServer(cmd, svc, "v", nil)
+		s, err := buildMCPServer(cmd, svc, "v", nil, defaultDeps())
 		if err != nil {
 			t.Fatalf("fleet build: %v", err)
 		}

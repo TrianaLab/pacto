@@ -238,6 +238,143 @@ For a tour of what the dashboard surfaces, see [For platform engineers](platform
 
 ---
 
+## `pacto delivery`
+
+Pacto delivery decides which version each environment (a Stage) runs. Every change is an Operation: plan it to see what the promoter will do and who must agree, propose it, and a person approves only when the contracts say a consumer would break or Pacto cannot see enough.
+
+There is no approve tool for agents. `approve` is for people, with a fresh login.
+
+```
+pacto delivery [flags]
+```
+
+**Flags:**
+
+```
+      --agent-groups strings         groups whose members are agents (default [pacto:agents])
+      --break-glass-groups strings   groups that may override (default [pacto:break-glass])
+  -h, --help                         help for delivery
+  -n, --namespace string             namespace of the Stage and its Operations (default "default")
+```
+
+### `pacto delivery approve`
+
+Record your decision on a held operation (people only, with a fresh login)
+
+```
+pacto delivery approve <operation> [flags]
+```
+
+**Flags:**
+
+```
+      --decision string   approve, reject or accept-unknown (default "approve")
+  -h, --help              help for approve
+      --note string       why, for the record
+```
+
+### `pacto delivery cancel`
+
+Cancel an operation that has not moved the pointer yet
+
+```
+pacto delivery cancel <operation> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for cancel
+```
+
+### `pacto delivery describe`
+
+Show what an operation type checks, when a person is needed and how it is undone
+
+```
+pacto delivery describe <type> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for describe
+```
+
+### `pacto delivery get`
+
+Show an operation: phase, outcome, verdicts and the question a person is asked
+
+```
+pacto delivery get <operation> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for get
+```
+
+### `pacto delivery plan`
+
+Predict what the promoter will do: verdicts, the approval floor and the one question for a person
+
+```
+pacto delivery plan [flags]
+```
+
+**Flags:**
+
+```
+      --from string           the digest the Stage runs now (defaults to its pointer)
+  -h, --help                  help for plan
+      --on-behalf-of string   the person an agent acts for (asserted, not verified)
+      --reason string         why, for the record
+      --stage string          the Stage to change (required)
+      --to string             the artifact digest to move to (sha256:...)
+      --type string           operation type (default "pacto.dev/promote")
+      --undoes string         for a rollback: the name of the operation it undoes
+```
+
+### `pacto delivery propose`
+
+Propose an operation; with --intent-digest it fails with PlanStale if anything moved since the plan
+
+```
+pacto delivery propose [flags]
+```
+
+**Flags:**
+
+```
+      --from string            the digest the Stage runs now (defaults to its pointer)
+  -h, --help                   help for propose
+      --intent-digest string   the intent digest from your plan; propose refuses if it no longer matches
+      --name string            the Operation name (generated when empty)
+      --on-behalf-of string    the person an agent acts for (asserted, not verified)
+      --reason string          why, for the record
+      --stage string           the Stage to change (required)
+      --to string              the artifact digest to move to (sha256:...)
+      --type string            operation type (default "pacto.dev/promote")
+      --undoes string          for a rollback: the name of the operation it undoes
+```
+
+### `pacto delivery types`
+
+List the operation types you may propose
+
+```
+pacto delivery types [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for types
+```
+
+---
+
 ## `pacto diff`
 
 Compares two contracts (local paths or oci:// references) and produces a classified change set (BREAKING, POTENTIAL_BREAKING, NON_BREAKING).
@@ -885,7 +1022,9 @@ With --root, the server instead exposes a read-only contract catalog: the given 
 
 With --fleet, the server instead exposes the read-only operational-graph query tools over one snapshot. The shared fleet source flags — --local, --target-state, --evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness — compose that snapshot and are read in --fleet mode only.
 
-A bundle reference, --root and --fleet select different servers and cannot be combined.
+With --delivery, the server instead exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, describe, plan and get, plus propose and cancel only when the apiserver says the caller is an agent (a service account or an --agent-groups member). There is no approve tool.
+
+A bundle reference, --root, --fleet and --delivery select different servers and cannot be combined.
 
 ```
 pacto mcp [bundle-ref] [flags]
@@ -914,23 +1053,26 @@ pacto mcp [bundle-ref] [flags]
 **Flags:**
 
 ```
-      --allow-writes               expose mutating operations (POST/PUT/PATCH/DELETE) as tools
-      --auth stringArray           credential for a security scheme as name=value (repeatable)
-      --base-url string            base URL for live invocation (overrides the OpenAPI servers[] URL)
-      --cache                      include every bundle in the local OCI cache as an offline baseline revision
-      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --fleet                      expose read-only operational-graph (fleet) query tools
-      --freshness duration         mark target evidence older than this as stale (0 disables)
-  -h, --help                       help for mcp
-      --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
-      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
-      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
-      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
-      --port int                   port for HTTP transport (default 8585)
-      --root stringArray           contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
-      --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
-      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
-  -t, --transport string           transport type: stdio or http (default "stdio")
+      --agent-groups strings         in --delivery mode: groups whose members are agents (default [pacto:agents])
+      --allow-writes                 expose mutating operations (POST/PUT/PATCH/DELETE) as tools
+      --auth stringArray             credential for a security scheme as name=value (repeatable)
+      --base-url string              base URL for live invocation (overrides the OpenAPI servers[] URL)
+      --break-glass-groups strings   in --delivery mode: groups that may override (default [pacto:break-glass])
+      --cache                        include every bundle in the local OCI cache as an offline baseline revision
+      --delivery                     expose the Pacto delivery tools over the ambient cluster
+      --evidence-url stringArray     base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --fleet                        expose read-only operational-graph (fleet) query tools
+      --freshness duration           mark target evidence older than this as stale (0 disables)
+  -h, --help                         help for mcp
+      --k8s                          include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray            local bundle root(s) to scan (repeatable) (default [.])
+      --namespace string             namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --oci stringArray              registry reference to include as a published-baseline revision (repeatable)
+      --port int                     port for HTTP transport (default 8585)
+      --root stringArray             contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
+      --target-state stringArray     offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
+      --traces stringArray           OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+  -t, --transport string             transport type: stdio or http (default "stdio")
 ```
 
 The **default** server exposes the four authoring tools below. Three flags select a different server, each with its own tools -- see [Server modes](#server-modes) immediately after this table:

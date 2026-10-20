@@ -24,7 +24,7 @@ import (
 // bundle ref, fleet enabled, so a fleet-backed server is returned.
 func TestBuildMCPServer_WithFleet(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	cmd := newMCPCommand(svc, "v")
+	cmd := newMCPCommand(svc, "v", defaultDeps())
 	cmd.SetContext(context.Background())
 	if err := cmd.Flags().Set("fleet", "true"); err != nil {
 		t.Fatal(err)
@@ -32,7 +32,7 @@ func TestBuildMCPServer_WithFleet(t *testing.T) {
 	if err := cmd.Flags().Set("local", t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	server, err := buildMCPServer(cmd, svc, "v", nil)
+	server, err := buildMCPServer(cmd, svc, "v", nil, defaultDeps())
 	if err != nil {
 		t.Fatalf("buildMCPServer --fleet: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestBuildMCPServer_WithFleet(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	cmd.SetContext(ctx)
-	if _, err := buildMCPServer(cmd, svc, "v", nil); err == nil {
+	if _, err := buildMCPServer(cmd, svc, "v", nil, defaultDeps()); err == nil {
 		t.Fatal("buildMCPServer --fleet with a cancelled context: expected an error")
 	}
 }
@@ -55,7 +55,7 @@ func TestBuildMCPServer_WithFleet(t *testing.T) {
 // covers the closure body and its fleet-options capture.
 func TestMCPImpactProvider(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	cmd := newMCPCommand(svc, "v")
+	cmd := newMCPCommand(svc, "v", defaultDeps())
 	cmd.SetContext(context.Background())
 	provide := mcpImpactProvider(cmd, svc)
 	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", true, ""); err == nil {
