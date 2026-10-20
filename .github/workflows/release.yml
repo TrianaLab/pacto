@@ -1297,3 +1297,7 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
           UNITS: ${{ needs.detect.outputs.units_json }}
         run: bash release/orchestrator/verify-transaction.sh .github/workflows/release.yml
+      - name: Every published package must be public
+        env:
+          UNITS: ${{ needs.detect.outputs.units_json }}
+        run: bash release/orchestrator/verify-public.sh release/units

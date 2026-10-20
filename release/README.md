@@ -23,6 +23,12 @@ are recorded in
   - `verify-oci.sh` — absent / identical / adopt / conflict for an OCI ref.
   - `publish-oci-unit.sh` — the crash-safe two-phase publish adapter.
   - `publish-go-tag.sh`, `build-cli.sh`, `finalize-release.sh`, `verify-artifacthub.sh`.
+  - `verify-transaction.sh`, `verify-public.sh` — the terminal checks: every unit
+    published, and every published image and chart reads anonymously. GitHub creates
+    a new GHCR package as private, so the first release of a new unit (the delivery
+    image and chart in 6.1.0) fails here. Link each new package to `TrianaLab/pacto`,
+    make it public, then re-run the failed job. A new chart also needs its Artifact
+    Hub repository registered once.
   - `dry-run.sh` — `make release-dry-run`: the whole transaction against a disposable
     local registry, only coordinates/credentials differ from production.
 
