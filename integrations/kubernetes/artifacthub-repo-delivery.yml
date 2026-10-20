@@ -1,0 +1,7 @@
+# Artifact Hub repository metadata for the pacto-delivery chart, pushed to
+# ghcr.io/trianalab/pacto/charts/pacto-delivery:artifacthub.io by release.yml.
+# ponytail: owners only. Add the repositoryID once the delivery chart is
+# registered as its own Artifact Hub repository (that is what verifies it).
+owners:
+  - name: edudiazasencio
+    email: edudiazasencio@gmail.com

@@ -26,6 +26,18 @@ the `OCIRepository` a `Stage` names. Label that object
 
 See [Pacto delivery](https://pacto.run/latest/integrations/kubernetes/delivery/).
 
+## Installation
+
+```bash
+helm install pacto-delivery oci://ghcr.io/trianalab/pacto/charts/pacto-delivery \
+  --version 6.0.1 \
+  --namespace pacto-delivery --create-namespace
+```
+
+The chart version tracks the operator version, and the default image is
+`ghcr.io/trianalab/pacto/delivery` at the chart's `appVersion`. Install the
+same version as your Pacto operator.
+
 ## Values
 
 | Key | Type | Default | Description |

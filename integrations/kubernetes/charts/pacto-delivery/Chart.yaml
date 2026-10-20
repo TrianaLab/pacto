@@ -23,3 +23,6 @@ annotations:
   artifacthub.io/links: |
     - name: documentation
       url: https://pacto.run/latest/integrations/kubernetes/delivery/
+  artifacthub.io/images: |
+    - name: pacto-delivery
+      image: ghcr.io/trianalab/pacto/delivery:6.0.1

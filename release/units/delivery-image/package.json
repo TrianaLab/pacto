@@ -1,0 +1,10 @@
+{
+  "name": "@pacto/delivery-image",
+  "version": "6.0.1",
+  "private": true,
+  "pacto": {
+    "releaseUnit": "delivery-image",
+    "kind": "oci-image",
+    "coordinate": "ghcr.io/trianalab/pacto/delivery"
+  }
+}
