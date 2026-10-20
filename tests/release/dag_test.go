@@ -316,3 +316,51 @@ func contains(s []string, v string) bool {
 	}
 	return false
 }
+
+// GitHub shows a job only the results of its DIRECT needs, and a failure two hops up
+// arrives as a skip: the job in between is skipped, not failed. So a job that runs
+// under always() and guards on `!contains(needs.*.result, 'failure')` is blind to
+// any failure it does not need directly. That is how a failed delivery-image-build
+// would have let delivery-chart push a chart for an image that never published,
+// and the GitHub Release go out after it. Every ancestor of such a job must
+// therefore be one of its direct needs.
+func TestFailureGuardedJobsNeedEveryAncestor(t *testing.T) {
+	dag, _ := loadReleaseDAG(t)
+	src, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "release.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Jobs map[string]struct {
+			If string `yaml:"if"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(src, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for name, j := range doc.Jobs {
+		if !dag[name].always || !strings.Contains(j.If, "needs.*.result, 'failure'") {
+			continue
+		}
+		for _, a := range ancestors(dag, name) {
+			if !contains(dag[name].needs, a) {
+				t.Errorf("%s guards on its needs' failures but does not need its ancestor %q, so a failure there reaches it as a skip and it runs anyway", name, a)
+			}
+		}
+	}
+}
+
+func ancestors(dag map[string]relJob, job string) []string {
+	seen := map[string]bool{}
+	var walk func(string)
+	walk = func(j string) {
+		for _, d := range dag[j].needs {
+			if !seen[d] {
+				seen[d] = true
+				walk(d)
+			}
+		}
+	}
+	walk(job)
+	return names(seen)
+}

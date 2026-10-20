@@ -535,7 +535,7 @@ jobs:
   # this unit hands the adapter (PACTO_EXPECT_CONTENT): asserted after the push, and
   # the crash-window adoption rule.
   demo-compose:
-    needs: [detect, ledger-init, dashboard-image]
+    needs: [detect, core-tag, core-ready, ledger-init, dashboard-image-build, dashboard-image]
     if: >-
       always() && needs.detect.outputs.release == 'true' &&
       contains(fromJSON(needs.detect.outputs.units_json), 'demo-compose') &&
@@ -918,8 +918,11 @@ jobs:
   # the dispatch to `operator-chart` skips the image and the skip lands here. The
   # failure/cancelled guards keep the sequencing: a chart never publishes ahead of an
   # image that tried to publish and could not.
+  # Every ancestor is listed directly, not only operator-image: GitHub shows a job
+  # only its direct needs, so a failed operator-image-build would arrive here as a
+  # skip and pass the guards (TestFailureGuardedJobsNeedEveryAncestor).
   operator-chart:
-    needs: [detect, operator-image, ledger-init]
+    needs: [detect, core-tag, core-ready, ledger-init, operator-image-build, operator-image]
     if: >-
       always() && needs.detect.outputs.release == 'true' &&
       contains(fromJSON(needs.detect.outputs.units_json), 'operator-chart') &&
@@ -1031,7 +1034,7 @@ jobs:
   # revision-stamped for crash-window adoption, recorded before it is signed, and
   # with its own Artifact Hub metadata alias.
   delivery-chart:
-    needs: [detect, delivery-image, ledger-init]
+    needs: [detect, core-tag, core-ready, ledger-init, delivery-image-build, delivery-image]
     if: >-
       always() && needs.detect.outputs.release == 'true' &&
       contains(fromJSON(needs.detect.outputs.units_json), 'delivery-chart') &&
@@ -1143,7 +1146,7 @@ jobs:
   # integration docs change). The "Deploy docs" workflow no longer self-triggers on
   # release/workflow_run; this is the single docs publisher.
   docs:
-    needs: [detect, core-ready, k8s-module]
+    needs: [detect, core-tag, core-ready, k8s-module]
     if: >-
       always() && needs.detect.outputs.release == 'true' &&
       (contains(fromJSON(needs.detect.outputs.units_json), 'k8s-docs') || contains(fromJSON(needs.detect.outputs.units_json), 'core')) &&
@@ -1206,7 +1209,7 @@ jobs:
   # advertises missing assets. Binaries are reproducible: the build date is derived
   # from the source commit, so a re-run produces byte-identical artifacts.
   release:
-    needs: [detect, core-tag, dashboard-image, dashboard-contract-bundle, demo-bundles, demo-compose, k8s-module, operator-image, operator-chart, delivery-image, delivery-chart, docs]
+    needs: [detect, core-tag, core-ready, ledger-init, dashboard-image-build, dashboard-image, dashboard-contract-bundle, demo-bundles, demo-compose, k8s-module, operator-image-build, operator-image, operator-chart, delivery-image-build, delivery-image, delivery-chart, docs]
     if: >-
       always() && needs.detect.outputs.release == 'true' &&
       contains(fromJSON(needs.detect.outputs.units_json), 'cli') &&
