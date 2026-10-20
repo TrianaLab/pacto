@@ -110,4 +110,6 @@ still in the cluster, so it is partial until signed records arrive.
 A person or an agent can cite a verdict as the cause of an operation with
 `--cause-verdict '<verdict JSON>'`, for example to roll back a frozen Stage.
 The promoter runs it again on the Stage's own check when it admits the
-operation. A cause that comes back Unknown or with another result is refused.
+operation, over the cited window, which must fall in the time the running
+version has run. A cause that comes back Unknown or with another result is
+refused.

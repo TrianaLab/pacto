@@ -116,15 +116,27 @@ func TestRerun(t *testing.T) {
 
 	// The cited window is kept; service, subjects and params are this Stage's own.
 	base := gateIn()
-	base.Window, base.Subjects = Window{From: t1, To: t1.Add(time.Minute)}, []string{dB}
+	base.Window, base.Subjects = Window{From: t0.Add(-time.Minute), To: t1.Add(time.Minute)}, []string{dB}
 	cited.Citation["params"] = `{"maxErrorRatio":"0"}`
 	v := Rerun(context.Background(), gates, checks, base, cited)
 	if v.Result != Fail || v.Gate != "health" || !got.Window.From.Equal(t0) || got.Subjects[0] != dB || gotParams["maxErrorRatio"] != "0.05" {
 		t.Fatalf("rerun: %+v input=%+v params=%v", v, got, gotParams)
 	}
-	// A built-in gate needs no Stage check.
-	if v := Rerun(context.Background(), gates, nil, base, Verdict{Gate: GateRuntime}); v.Result != Fail || !got.Window.From.Equal(t1) {
+	// A built-in gate needs no Stage check, and with no cited window it judges the base one.
+	if v := Rerun(context.Background(), gates, nil, base, Verdict{Gate: GateRuntime}); v.Result != Fail || !got.Window.From.Equal(base.Window.From) {
 		t.Errorf("built-in: %+v", v)
+	}
+	// A window from before the version under check was applied says nothing
+	// about it, and neither does one that ends in the future.
+	for name, w := range map[string]Window{
+		"before": {From: t0.Add(time.Second), To: t1.Add(time.Minute)},
+		"after":  {From: t0.Add(-time.Minute), To: t1.Add(-time.Second)},
+	} {
+		b := base
+		b.Window = w
+		if v := Rerun(context.Background(), gates, checks, b, cited); v.Result != Unknown || !strings.Contains(v.Message, "outside") {
+			t.Errorf("%s: %+v", name, v)
+		}
 	}
 	for name, c := range map[string]Verdict{
 		"unknown gate": {Gate: "latency"},

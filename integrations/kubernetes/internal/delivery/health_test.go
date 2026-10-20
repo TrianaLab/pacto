@@ -276,9 +276,11 @@ func TestCitedCauseIsReRun(t *testing.T) {
 		t.Run(string(c.now), func(t *testing.T) {
 			e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
 			e.shipB()
+			applied := e.now
+			e.now = e.now.Add(5 * time.Minute)
 			e.setStage(func(s *delivery.StageStatus) { s.Frozen = true })
 			cited := delivery.RunChecks(context.Background(), map[string]delivery.Gate{"mira": &fakeHealth{result: delivery.Fail}},
-				healthChecks, gateInput(e.getOp("p1"), e.getStage(), e.now.Add(-time.Minute), e.now))[0]
+				healthChecks, gateInput(e.getOp("p1"), e.getStage(), applied, e.now))[0]
 			rb := opObj("rb", delivery.TypeRollback, dB, dA, bot)
 			rb.Spec.Params.Undoes = "uid-p1"
 			rb.Spec.Cause = &delivery.Cause{Verdict: &cited}
@@ -296,9 +298,29 @@ func TestCitedCauseIsReRun(t *testing.T) {
 				t.Fatalf("a confirmed cause admits the rollback: %+v", o.Status)
 			}
 			// The re-run judged the cited window over the version the Stage runs.
-			if in := e.health.inputs[len(e.health.inputs)-1]; in.Subjects[0] != dB || !in.Window.From.Equal(e.now.Add(-time.Minute)) {
+			if in := e.health.inputs[len(e.health.inputs)-1]; in.Subjects[0] != dB || !in.Window.From.Equal(applied) {
 				t.Fatalf("re-run input: %+v", in)
 			}
 		})
+	}
+}
+
+// TestCitedCauseMustBeAboutTheRunningVersion: a verdict from before the
+// running version was applied says nothing about it and is refused.
+func TestCitedCauseMustBeAboutTheRunningVersion(t *testing.T) {
+	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.shipB()
+	e.setStage(func(s *delivery.StageStatus) { s.Frozen = true })
+	cited := delivery.RunChecks(context.Background(), map[string]delivery.Gate{"mira": &fakeHealth{result: delivery.Fail}},
+		healthChecks, gateInput(e.getOp("p1"), e.getStage(), e.now.Add(-time.Hour), e.now))[0]
+	rb := opObj("rb", delivery.TypeRollback, dB, dA, bot)
+	rb.Spec.Params.Undoes = "uid-p1"
+	rb.Spec.Cause = &delivery.Cause{Verdict: &cited}
+	e.create(bind(rb, e.getStage()))
+	e.health.result = delivery.Fail
+	o := e.drive("rb")
+	wantOutcome(t, o, delivery.Rejected, "CauseUnconfirmed")
+	if !strings.Contains(o.Status.Message, "outside the time the version under check has run") {
+		t.Fatalf("message: %s", o.Status.Message)
 	}
 }

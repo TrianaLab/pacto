@@ -17,7 +17,8 @@ is the plug-in format for any other tool. `RuntimeVerdict` is the
 `pacto.runtime` claim gate: a version the node agent saw calling a service its
 contract never declares, or not listening on a port it declares, fails;
 without complete kernel coverage it is Unknown. `Rerun` runs a cited verdict
-again against the Stage's own gate, keeping only the cited window.
+again against the Stage's own gate, keeping only the cited window, which must
+fall in the time the version under check has run.
 
 `pacto delivery explain` shows a live operation with every verdict, its
 citation and how to run it again. `pacto delivery history` lists a Stage's

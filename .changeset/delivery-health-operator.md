@@ -20,5 +20,6 @@ Stage when that cause already had its rollback. Unknown after release never
 rolls back. `status.lastCheck` holds the newest re-check.
 
 A verdict a person or an agent cites as the cause of an operation is run again
-at admission against the Stage's own gate; a re-run that comes back Unknown or
-with another result is refused with `CauseUnconfirmed`.
+at admission against the Stage's own gate, over a window inside the time the
+running version has run; a re-run that comes back Unknown or with another
+result is refused with `CauseUnconfirmed`.

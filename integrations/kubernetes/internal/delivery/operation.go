@@ -190,8 +190,12 @@ func (r *OperationReconciler) causeRefusal(ctx context.Context, op *dv1.Operatio
 	if c == nil || c.Verdict == nil || op.Status.ActorClass == delivery.ClassController {
 		return ""
 	}
-	now := r.now()
-	base := gateInput(op, stage, now.Add(-delivery.VerifyWindow(stage.Spec)), now)
+	// The cited window must fall in the time the running version has run.
+	now, from := r.now(), time.Time{}
+	if shipped := r.opByUID(ctx, op.Namespace, stage.Status.LastOp); shipped != nil {
+		from = parseOr(shipped.Status.Times.Applied)
+	}
+	base := gateInput(op, stage, from, now)
 	base.Subjects = []string{stage.Status.Pointer}
 	v := delivery.Rerun(ctx, r.Gates, stage.Spec.Gates.Verify.Checks, base, *c.Verdict)
 	if v.Result == delivery.Unknown || v.Result != c.Verdict.Result {

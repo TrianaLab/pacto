@@ -135,11 +135,12 @@ func Worst(vs []Verdict) Result {
 }
 
 // Rerun runs a cited verdict again, the way the promoter re-checks a cause an
-// agent cites. Only the cited window is taken from the citation: the gate,
-// its params, the service and the versions under check are this Stage's own,
-// so a citation cannot loosen a threshold or point at another service. A
-// gate this Stage does not run, or a citation that does not decode, is
-// Unknown.
+// agent cites. Only the cited window is taken from the citation, and it must
+// lie inside base.Window (from when the version under check was applied until
+// now): the gate, its params, the service and the versions under check are
+// this Stage's own, so a citation cannot loosen a threshold, point at another
+// service or borrow an incident from before this version ran. A gate this
+// Stage does not run, or a citation that does not decode or fit, is Unknown.
 func Rerun(ctx context.Context, gates map[string]Gate, checks []GateCheck, base GateInput, cited Verdict) Verdict {
 	c := GateCheck{Name: cited.Gate, Provider: cited.Gate}
 	if i := slices.IndexFunc(checks, func(c GateCheck) bool { return c.Name == cited.Gate }); i >= 0 {
@@ -151,6 +152,11 @@ func Rerun(ctx context.Context, gates map[string]Gate, checks []GateCheck, base 
 		var in GateInput
 		if err := json.Unmarshal([]byte(raw), &in); err != nil {
 			return Verdict{Gate: cited.Gate, Phase: "verify", Result: Unknown, Message: "the cited input does not decode: " + err.Error()}
+		}
+		if in.Window.From.Before(base.Window.From) || in.Window.To.After(base.Window.To) {
+			return Verdict{Gate: cited.Gate, Phase: "verify", Result: Unknown, Message: fmt.Sprintf(
+				"the cited window %s to %s is outside the time the version under check has run (%s to %s)",
+				ts3339(in.Window.From), ts3339(in.Window.To), ts3339(base.Window.From), ts3339(base.Window.To))}
 		}
 		base.Window = in.Window
 	}
