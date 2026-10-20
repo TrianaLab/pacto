@@ -202,6 +202,7 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 	for _, c := range unknown {
 		unseen = append(unseen, c.Service+" has no usable compatibility range for this change")
 	}
+	unseen = append(unseen, unresolvedConsumers(in.Snapshot, in.Stage.Service.Name)...)
 	if in.From.Digest != "" && !slices.Contains(in.Status.Verified, in.From.Digest) {
 		unseen = append(unseen, "the version a rollback would return to ("+short(in.From.Digest)+") was never verified here")
 	}
@@ -222,6 +223,24 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 		v.Message = fmt.Sprintf("%d consumers, none incompatible", len(res.Consumers))
 	}
 	p.Verdicts = append(p.Verdicts, v)
+}
+
+// unresolvedConsumers names the services that declare a dependency on service
+// the graph could not resolve to it: the graph resolves a dependency by name
+// within the consumer's own domain, so a consumer published elsewhere (or
+// declared inline) never shows up as a consumer at all. A consumer Pacto cannot
+// place is a consumer it cannot rule out.
+func unresolvedConsumers(snap *fleet.FleetSnapshot, service string) []string {
+	var out []string
+	for _, r := range snap.Relationships {
+		msg := string(r.FromService) + " depends on " + service + " through " + r.RequestedRef +
+			", which does not resolve to this service in its domain"
+		if r.Type == fleet.RelationshipDependency && r.Provenance == fleet.ProvenanceDeclared && !r.Resolved &&
+			r.To == service && !slices.Contains(out, msg) {
+			out = append(out, msg)
+		}
+	}
+	return out
 }
 
 func consumerNamesOwners(cs []impact.AffectedConsumer) (names, owners []string) {

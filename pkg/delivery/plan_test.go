@@ -221,3 +221,16 @@ func TestSnapshotListErrorIsPartial(t *testing.T) {
 		t.Fatalf("an unreadable Pacto list must make the graph partial: %v %s", err, snap.Completeness)
 	}
 }
+
+func TestPlanConsumerOutsideTheDomainIsUnknown(t *testing.T) {
+	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
+	inline := checkoutPacto("^1.0.0")
+	inline.Status.Contract.ResolvedRef = ""
+	twin := inline
+	twin.Metadata.Namespace = "test"
+	p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, from, to, inline, twin)
+	v := verdict(t, p, GateImpact)
+	if v.Result != Unknown || strings.Count(v.Message, "checkout depends on payments") != 1 {
+		t.Fatalf("a consumer the graph cannot place must hold the change, once: %+v", v)
+	}
+}
