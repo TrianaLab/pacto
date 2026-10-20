@@ -12,6 +12,7 @@ const (
 	MaxVerified      = 10
 	MaxFailedDigests = 50
 	MaxPublished     = 50
+	MaxOffered       = 50
 )
 
 // CitedOp is what rollback admission needs to know about the operation a
@@ -84,14 +85,14 @@ func RemoveDigest(list []string, d string) []string {
 // Stage already verified it (a tag moved back to an old digest is not a new
 // version, and automation never ships an old one) or it is not in Published;
 // from an upstream Stage it is
-// the newest digest published and verified there that failed neither there
-// nor here. It returns ""
+// the newest digest that Stage offers (it passed pacto.published there and
+// verified) that failed neither there nor here. It returns ""
 // when there is nothing new: the Stage already runs it or it failed here.
 func NewestCandidate(status StageStatus, ociRevision string, upstream *StageStatus) string {
 	cand := ""
 	if upstream != nil {
 		for _, d := range slices.Backward(upstream.Verified) {
-			if slices.Contains(upstream.Published, d) && !slices.Contains(upstream.FailedDigests, d) && !slices.Contains(status.FailedDigests, d) {
+			if slices.Contains(upstream.Offered, d) && !slices.Contains(upstream.FailedDigests, d) && !slices.Contains(status.FailedDigests, d) {
 				cand = d
 				break
 			}

@@ -59,7 +59,11 @@ func (r *StageReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 	if err := r.recheck(ctx, stage); err != nil {
 		return reconcile.Result{}, err
 	}
-	if err := r.recordPublished(ctx, stage); err != nil {
+	cand, err := r.ready(ctx, stage)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	if err := r.recordPublished(ctx, stage, cand); err != nil {
 		return reconcile.Result{}, err
 	}
 	if err := r.autoPromote(ctx, stage); err != nil {
@@ -133,18 +137,54 @@ func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) err
 	return r.raise(ctx, stage, "auto", spec)
 }
 
+// ready sets the Ready condition and returns the candidate OCIRepository, if
+// the Stage names one that exists. Ready is False, naming what is missing,
+// when the Stage can never promote: nothing is published without a candidate
+// OCIRepository whose spec.verify names the publisher (design M2).
+func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRef, error) {
+	want := delivery.Condition{Type: "Ready", Status: "True", Reason: "Ready", Message: "the Stage can promote published versions"}
+	var cand *applyRef
+	c := stage.Spec.Candidates
+	switch {
+	case c.OCIRepositoryRef != nil:
+		a, err := r.Cluster.ociRepository(ctx, stage.Namespace, c.OCIRepositoryRef.Name)
+		switch {
+		case apierrors.IsNotFound(err):
+			want = notReady("CandidateNotFound", "the candidate OCIRepository "+c.OCIRepositoryRef.Name+" does not exist")
+		case err != nil:
+			return nil, err
+		case !pinsIdentity(a.obj.Object):
+			want = notReady("CandidateUnverified", "the candidate OCIRepository "+c.OCIRepositoryRef.Name+
+				" sets no spec.verify with a secretRef or matchOIDCIdentity naming the publisher, so no version is published and the Stage never promotes")
+		}
+		cand = a
+	case c.UpstreamStage == nil:
+		want = notReady("NoCandidateSource", "the Stage names no candidates.ociRepositoryRef or candidates.upstreamStage, so it never promotes")
+	}
+	if slices.Contains(stage.Status.Conditions, want) {
+		return cand, nil
+	}
+	set := func(s *dv1.Stage) {
+		s.Status.Conditions = append(slices.DeleteFunc(s.Status.Conditions, func(x delivery.Condition) bool { return x.Type == want.Type }), want)
+	}
+	if err := r.updateStatus(ctx, stage, set); err != nil {
+		return nil, err
+	}
+	set(stage)
+	return cand, nil
+}
+
+func notReady(reason, msg string) delivery.Condition {
+	return delivery.Condition{Type: "Ready", Status: "False", Reason: reason, Message: msg}
+}
+
 // recordPublished remembers the candidate OCIRepository's current digest once
 // Flux verified its signature: a version pacto publish published. The
 // pacto.published gate admits only remembered digests, so a version Flux
 // verified earlier can still be proposed after the tag moved on.
-func (r *StageReconciler) recordPublished(ctx context.Context, stage *dv1.Stage) error {
-	ref := stage.Spec.Candidates.OCIRepositoryRef
-	if ref == nil {
+func (r *StageReconciler) recordPublished(ctx context.Context, stage *dv1.Stage, a *applyRef) error {
+	if a == nil {
 		return nil
-	}
-	a, err := r.Cluster.ociRepository(ctx, stage.Namespace, ref.Name)
-	if err != nil {
-		return client.IgnoreNotFound(err)
 	}
 	d := delivery.RevisionDigest(a.revision)
 	if !a.verified || slices.Contains(stage.Status.Published, d) {

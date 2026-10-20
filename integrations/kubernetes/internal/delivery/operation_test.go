@@ -9,10 +9,17 @@ package delivery
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
@@ -536,14 +543,14 @@ func TestNotPublishedIsRefused(t *testing.T) {
 	}
 }
 
-// TestPublishedFromUpstream: an upstream Stage's published and verified
-// versions pass the published gate. A version it only verified (before the
+// TestPublishedFromUpstream: the versions an upstream Stage offers and
+// verified pass the published gate. A version it only verified (before the
 // published rule existed) and an upstream Stage that does not exist are
 // refused, never left for a person to accept; a failed read is planned again.
 func TestPublishedFromUpstream(t *testing.T) {
 	withUpstream := func(name string) *env {
 		up := stageObj(dB)
-		up.Name, up.Status.Verified, up.Status.Published = "payments-test", []string{dA, dB, dC}, []string{dA, dB}
+		up.Name, up.Status.Verified, up.Status.Offered = "payments-test", []string{dA, dB, dC}, []string{dA, dB}
 		e := baseEnv(t, nil)
 		e.create(up)
 		s := e.getStage()
@@ -577,15 +584,40 @@ func TestPublishedFromUpstream(t *testing.T) {
 	if !strings.Contains(o.Status.Message, "does not exist or cannot be read") {
 		t.Fatalf("message %q", o.Status.Message)
 	}
+	// An upstream Stage the promoter may not read is refused, not retried.
+	e = withUpstream("payments-test")
+	r := *e.op
+	r.Client = interceptor.NewClient(e.c, interceptor.Funcs{
+		Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+			if key.Name == "payments-test" {
+				return apierrors.NewForbidden(schema.GroupResource{Group: dv1.GroupVersion.Group, Resource: "stages"}, key.Name, errors.New("no RBAC"))
+			}
+			return c.Get(ctx, key, obj, opts...)
+		},
+	})
+	op = opObj("p5", delivery.TypePromote, dA, dB, bot)
+	op.Status.ActorClass = delivery.ClassAgent
+	p, err := r.plan(context.Background(), op, e.getStage())
+	if err != nil || p.Predicted != delivery.PredictRejected || !strings.Contains(planRefusal(p), "does not exist or cannot be read") {
+		t.Fatalf("a forbidden upstream Stage must be refused, not retried: %v %+v", err, p)
+	}
 }
 
-// TestVerifiedPromoteIsPublished: a promote verified here passed the published
-// gate here, so a downstream Stage may take it; nothing else is added.
-func TestVerifiedPromoteIsPublished(t *testing.T) {
+// TestVerifiedPromoteIsOffered: a promote that passed the published gate here
+// and verified is offered to a downstream Stage. One a person accepted on an
+// unknown published verdict is not, and nothing but a promote is.
+func TestVerifiedPromoteIsOffered(t *testing.T) {
+	published := func(name, to string, r delivery.Result) *dv1Op {
+		o := opObj(name, delivery.TypePromote, dA, to, bot)
+		o.Status.Verdicts = []delivery.Verdict{{Gate: delivery.GatePublished, Phase: "pre", Result: r}, {Gate: delivery.GateDiff, Phase: "pre", Result: delivery.Pass}}
+		return o
+	}
 	s := delivery.StageStatus{}
-	applyEffects(&s, opObj("p", delivery.TypePromote, dA, dB, bot), conclusion{outcome: delivery.Succeeded, verification: delivery.Verified})
-	applyEffects(&s, opObj("o", delivery.TypeOverride, dB, dC, bot), conclusion{outcome: delivery.Succeeded, verification: delivery.Verified})
-	if len(s.Published) != 1 || s.Published[0] != dB {
-		t.Fatalf("published %v", s.Published)
+	verified := conclusion{outcome: delivery.Succeeded, verification: delivery.Verified}
+	applyEffects(&s, published("p", dB, delivery.Pass), verified)
+	applyEffects(&s, published("u", dC, delivery.Unknown), verified)
+	applyEffects(&s, opObj("o", delivery.TypeOverride, dB, dC, bot), verified)
+	if len(s.Offered) != 1 || s.Offered[0] != dB || len(s.Published) != 0 {
+		t.Fatalf("offered %v published %v", s.Offered, s.Published)
 	}
 }

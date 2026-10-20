@@ -154,10 +154,10 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 // publishedGate admits only a version pacto publish published. From a
 // candidate OCIRepository that is a digest Flux verified the signature of
 // (Status.Published) whose artifact names its digest-pinned contract; from an
-// upstream Stage it is a digest that Stage verified and recorded as published,
-// so it passed this gate there. An upstream Stage that cannot be read offers
-// nothing: the gate never asks a person to accept an unknown source. A Stage
-// with no candidate source promotes nothing.
+// upstream Stage it is a digest that Stage offers: it passed this gate there,
+// with a pass rather than an accepted unknown, and verified. An upstream
+// Stage that cannot be read offers nothing: the gate never asks a person to
+// accept an unknown source. A Stage with no candidate source promotes nothing.
 func publishedGate(in PlanInput) Verdict {
 	v := Verdict{Gate: GatePublished, Phase: "pre", Result: Fail, Citation: map[string]string{}}
 	to, c := in.Spec.Params.To, in.Stage.Candidates
@@ -167,10 +167,11 @@ func publishedGate(in PlanInput) Verdict {
 		switch {
 		case in.Upstream == nil:
 			v.Message = "the upstream Stage " + v.Citation["upstream"] + " does not exist or cannot be read, so it offers no candidate"
-		case slices.Contains(in.Upstream.Verified, to) && slices.Contains(in.Upstream.Published, to):
-			v.Result, v.Message = Pass, short(to)+" was published and verified on the upstream Stage"
+		case slices.Contains(in.Upstream.Verified, to) && slices.Contains(in.Upstream.Offered, to):
+			v.Result, v.Message = Pass, short(to)+" passed pacto.published and verified on the upstream Stage"
 		default:
-			v.Message = short(to) + " was never published and verified on the upstream Stage " + v.Citation["upstream"] + ", so it is not a candidate here"
+			v.Message = short(to) + " is not offered by the upstream Stage " + v.Citation["upstream"] +
+				": it never passed pacto.published there or never verified, so it is not a candidate here"
 		}
 	case c.OCIRepositoryRef != nil:
 		v.Citation["source"] = c.OCIRepositoryRef.Name

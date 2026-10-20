@@ -234,19 +234,45 @@ type StageStatus struct {
 	AutoRollbacks map[string]int `json:"autoRollbacks,omitempty"`
 	// +optional
 	Stream Stream `json:"stream,omitzero"`
-	// Published holds the digests that passed pacto.published here, oldest
-	// first (cap 50): the candidate digests Flux verified the signature of on
+	// Published holds the candidate digests Flux verified the signature of on
 	// the candidate OCIRepository (spec.verify naming the publisher's
-	// identity), and every version promoted and verified here. Only these are
-	// promoted from the OCIRepository or offered to a downstream Stage.
+	// identity), oldest first (cap 50). Only these are promoted from the
+	// OCIRepository.
 	// +optional
 	Published []string `json:"published,omitempty"`
+	// Offered holds the digests a promote carried through pacto.published
+	// with a pass (not an accepted unknown) and that then verified here,
+	// oldest first (cap 50). Only these are offered to a downstream Stage.
+	// +optional
+	Offered []string `json:"offered,omitempty"`
+	// Conditions holds Ready. It is False, naming what is missing, when the
+	// Stage can never promote: its candidate OCIRepository does not exist or
+	// sets no spec.verify naming the publisher, or it names no candidate
+	// source at all.
+	// +optional
+	// +listType=map
+	// +listMapKey=type
+	Conditions []Condition `json:"conditions,omitempty"`
 	// Candidate is the newest eligible candidate the stage reconciler saw.
 	// +optional
 	Candidate string `json:"candidate,omitempty"`
 	// LastCheck is the newest re-check of the running version after it shipped.
 	// +optional
 	LastCheck *Recheck `json:"lastCheck,omitempty"`
+}
+
+// Condition is a Kubernetes status condition, so `kubectl wait
+// --for=condition=Ready` and status tooling read it.
+// ponytail: no lastTransitionTime; add it when a reader needs to know when
+// readiness changed.
+type Condition struct {
+	Type string `json:"type"`
+	// +kubebuilder:validation:Enum=True;False;Unknown
+	Status string `json:"status"`
+	// +optional
+	Reason string `json:"reason,omitempty"`
+	// +optional
+	Message string `json:"message,omitempty"`
 }
 
 // Recheck is one run of the verify gates on a version that already shipped.

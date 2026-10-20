@@ -14,6 +14,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
@@ -74,7 +75,7 @@ func TestAutoPromoteFromOCIRepository(t *testing.T) {
 func TestAutoPromoteFromUpstreamAndHolds(t *testing.T) {
 	up := stageObj(dB)
 	up.Name = "payments-test"
-	up.Status.Verified, up.Status.Published = []string{dA, dB, dC}, []string{dA, dB}
+	up.Status.Verified, up.Status.Offered = []string{dA, dB, dC}, []string{dA, dB}
 	s := stageObj(dA)
 	s.Spec.Auto = true
 	s.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "payments-test", Namespace: ns}}
@@ -183,7 +184,7 @@ func TestStageReconcileErrors(t *testing.T) {
 	}
 	up := stageObj(dB)
 	up.Name = "up"
-	up.Status.Verified = []string{dB}
+	up.Status.Verified, up.Status.Offered = []string{dB}, []string{dB}
 	s = stageObj(dA)
 	s.Spec.Auto, s.Spec.Candidates = true, delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "up"}}
 	e = newEnv(t, s, up)
@@ -246,13 +247,75 @@ func TestNeverACandidateUnlessPublished(t *testing.T) {
 	// A failed read or write while remembering a published digest surfaces.
 	s := stageObj(dA)
 	s.Status.Published = nil
+	s.Status.Conditions = []delivery.Condition{{Type: "Ready", Status: "True", Reason: "Ready", Message: "the Stage can promote published versions"}}
 	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB))
 	e.fails["status/Stage"] = true
 	if e.reconcileStage("payments-prod") == nil {
 		t.Fatal("a failed write of the published memory must surface")
 	}
+}
+
+// TestStageReady: a Stage that can never promote is not Ready, and Ready names
+// what is missing (design M2). The condition is written only when it changes.
+func TestStageReady(t *testing.T) {
+	noVerify := ociRepo("payments-candidates", "", "latest@"+dB, false)
+	cases := []struct {
+		name   string
+		cands  delivery.Candidates
+		objs   []client.Object
+		status string
+		reason string
+	}{
+		{"verified", delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "payments-candidates"}}, []client.Object{verifiedRepo("payments-candidates", "latest@"+dB)}, "True", "Ready"},
+		{"no spec.verify", delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "payments-candidates"}}, []client.Object{noVerify}, "False", "CandidateUnverified"},
+		{"missing", delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "payments-candidates"}}, nil, "False", "CandidateNotFound"},
+		{"upstream", delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "payments-test"}}, nil, "True", "Ready"},
+		{"none", delivery.Candidates{}, nil, "False", "NoCandidateSource"},
+	}
+	for _, c := range cases {
+		s := stageObj(dA)
+		s.Spec.Candidates = c.cands
+		e := newEnv(t, append(c.objs, s)...)
+		if err := e.reconcileStage("payments-prod"); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		conds := e.getStage().Status.Conditions
+		if len(conds) != 1 || conds[0].Type != "Ready" || conds[0].Status != c.status || conds[0].Reason != c.reason || conds[0].Message == "" {
+			t.Fatalf("%s: conditions %+v", c.name, conds)
+		}
+		// Unchanged, it is not written again.
+		e.fails["status/Stage"] = true
+		if err := e.reconcileStage("payments-prod"); err != nil {
+			t.Fatalf("%s: an unchanged Ready was written again: %v", c.name, err)
+		}
+	}
+	// A failed read of the candidate OCIRepository or a failed write surfaces.
+	e := newEnv(t, stageObj(dA))
+	e.fails["status/Stage"] = true
+	if e.reconcileStage("payments-prod") == nil {
+		t.Fatal("a failed write of Ready must surface")
+	}
 	e.fails = fails{"get/OCIRepository": true}
-	if e.st.recordPublished(context.Background(), e.getStage()) == nil {
+	if _, err := e.st.ready(context.Background(), e.getStage()); err == nil {
 		t.Fatal("a failed read of the candidate OCIRepository must surface")
+	}
+	// Ready follows the OCIRepository: dropping spec.verify flips it to False.
+	repo := verifiedRepo("payments-candidates", "latest@"+dB)
+	e = newEnv(t, stageObj(dA), repo)
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.c.Get(context.Background(), client.ObjectKeyFromObject(repo), repo); err != nil {
+		t.Fatal(err)
+	}
+	unstructured.RemoveNestedField(repo.Object, "spec", "verify")
+	if err := e.c.Update(context.Background(), repo); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if c := e.getStage().Status.Conditions; len(c) != 1 || c[0].Reason != "CandidateUnverified" {
+		t.Fatalf("Ready did not follow the OCIRepository: %+v", c)
 	}
 }

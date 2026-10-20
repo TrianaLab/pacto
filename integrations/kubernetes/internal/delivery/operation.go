@@ -761,6 +761,14 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 	return reconcile.Result{RequeueAfter: immediately}, nil
 }
 
+// passedPublished reports whether pacto.published passed: a version a person
+// accepted on an unknown published verdict is never offered downstream.
+func passedPublished(vs []delivery.Verdict) bool {
+	return slices.ContainsFunc(vs, func(v delivery.Verdict) bool {
+		return v.Gate == delivery.GatePublished && v.Result == delivery.Pass
+	})
+}
+
 // applyEffects updates the Stage's memories for a concluded operation.
 func applyEffects(s *delivery.StageStatus, op *dv1.Operation, c conclusion) {
 	to := op.Spec.Params.To
@@ -776,8 +784,8 @@ func applyEffects(s *delivery.StageStatus, op *dv1.Operation, c conclusion) {
 	case delivery.Succeeded:
 		if c.verification == delivery.Verified {
 			s.Verified = delivery.AddDigest(s.Verified, to, delivery.MaxVerified)
-			if op.Spec.Type == delivery.TypePromote { // it passed pacto.published here
-				s.Published = delivery.AddDigest(s.Published, to, delivery.MaxPublished)
+			if op.Spec.Type == delivery.TypePromote && passedPublished(op.Status.Verdicts) {
+				s.Offered = delivery.AddDigest(s.Offered, to, delivery.MaxOffered)
 			}
 		}
 		if op.Spec.Type == delivery.TypeUnfreeze {

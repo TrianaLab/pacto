@@ -19,7 +19,9 @@ this one reject a 2.1 contract.
 identical, adopt, conflict or unreadable and which of Pacto's checks refuse
 the publish, and writes nothing. `pacto publish` builds what is absent, pushes
 it by digest with its version and source revision on the manifest, attaches
-SBOMs made by `syft`, signs every digest with `cosign`, pushes the bundle and
+SBOMs made by `syft`, signs every digest with `cosign` and verifies each new
+signature against the configured identity (a keyless signature by the wrong CI
+identity fails before any tag is written), pushes the bundle and
 writes the tags with the deploy artifact last; the deploy artifact names its
 digest-pinned contract in `pacto.dev/contract`. It never overwrites a tag: each tag is read again
 just before it is written. A second run changes nothing and a run that stopped
@@ -44,6 +46,7 @@ refuses different content under an existing reference instead of only warning
 Pacto delivery promotes only versions `pacto publish` published: the
 `pacto.published` pre-gate admits a promote only for a digest Flux verified the
 signature of on the Stage's candidate source, whose artifact names its
-contract, or a digest the upstream Stage published and verified. Anything else,
+contract, or a digest the upstream Stage offers: one that passed this gate
+there, not on an accepted unknown, and verified. Anything else,
 including a candidate from an upstream Stage that does not exist or cannot be
 read, is refused as `NotPublished` before any other gate runs.

@@ -1168,6 +1168,33 @@ as_agent "$AGENT_A" propose -n "$P" --stage billing --to "$FOREIGN" --name forei
 wait_concluded "$P" foreign Rejected/
 [ "$(field "$P" foreign reason)" = NotPublished ] || fail "the foreign promote was refused for the wrong reason: $(field "$P" foreign reason): $(field "$P" foreign message)"
 pass "the unsigned 9.9.9 ($FOREIGN) is never offered, and a promote of it is refused as NotPublished"
+
+echo "== a Stage whose candidate sets no spec.verify is not Ready =="
+# ready_is NS STAGE STATUS/REASON — the Stage's Ready condition.
+ready_is() {
+  [ "$(kubectl -n "$1" get stage "$2" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}/{.status.conditions[?(@.type=="Ready")].reason}')" = "$3" ]
+}
+eventually 20 ready_is "$P" billing True/Ready || fail "the publishing Stage is not Ready: $(kubectl -n "$P" get stage billing -o jsonpath='{.status.conditions}')"
+kubectl -n "$M" apply -f - >/dev/null <<YAML
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata: {name: billing-anyone}
+spec: {interval: 5s, insecure: true, url: "oci://${REG_HOST}/apps/billing", ref: {semver: ">=0.0.0"}}
+---
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Stage
+metadata: {name: billing-anyone}
+spec:
+  service: {name: billing}
+  environment: publish-anyone
+  applyRef: {name: billing-anyone-apply}
+  candidates: {ociRepositoryRef: {name: billing-anyone}}
+  auto: true
+YAML
+eventually 20 ready_is "$M" billing-anyone False/CandidateUnverified \
+  || fail "a Stage whose candidate sets no spec.verify is not reported: $(kubectl -n "$M" get stage billing-anyone -o jsonpath='{.status.conditions}')"
+[ -z "$(kubectl -n "$M" get stage billing-anyone -o jsonpath='{.status.published}')" ] || fail "an unverified candidate was recorded as published"
+pass "a Stage whose candidate OCIRepository sets no spec.verify is Ready=False with CandidateUnverified and records nothing"
 echo "DELIVERY PUBLISH PASS"
 
 kill "$REG_PF_PID" 2>/dev/null || true

@@ -158,6 +158,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | --- | --- | --- |
 | Service | string | `.spec.service.name` |
 | Env | string | `.spec.environment` |
+| Ready | string | `.status.conditions[?(@.type=="Ready")].status` |
 | Pointer | string | `.status.pointer` |
 | Frozen | boolean | `.status.frozen` |
 | Hold | boolean | `.status.autoHold` |
@@ -198,6 +199,11 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.autoHold` | `boolean` | no |  |  | AutoHold stops auto-promotion after a person chose an older version. |
 | `status.autoRollbacks` | `object` | no |  |  | AutoRollbacks counts the automatic rollbacks raised per cause. |
 | `status.candidate` | `string` | no |  |  | Candidate is the newest eligible candidate the stage reconciler saw. |
+| `status.conditions` | `[]object` | no |  |  | Conditions holds Ready. It is False, naming what is missing, when the Stage can never promote: its candidate OCIRepository does not exist or sets no spec.verify naming the publisher, or it names no candidate source at all. |
+| `status.conditions[].message` | `string` | no |  |  |  |
+| `status.conditions[].reason` | `string` | no |  |  |  |
+| `status.conditions[].status` | `string` | yes |  | `True`, `False`, `Unknown` |  |
+| `status.conditions[].type` | `string` | yes |  |  |  |
 | `status.failedDigests` | `[]string` | no |  |  | FailedDigests are never promoted again (cap 50). |
 | `status.frozen` | `boolean` | no |  |  |  |
 | `status.frozenReason` | `string` | no |  |  |  |
@@ -213,8 +219,9 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.lastCheck.verdicts[].result` | `string` | yes |  | `Pass`, `Fail`, `Unknown` | Result is a gate verdict. |
 | `status.lastOp` | `string` | no |  |  | LastOp is the uid of the operation that last moved the pointer. |
 | `status.locks` | `object` | no |  |  | Locks maps a facet to the uid of the operation holding it. |
+| `status.offered` | `[]string` | no |  |  | Offered holds the digests a promote carried through pacto.published with a pass (not an accepted unknown) and that then verified here, oldest first (cap 50). Only these are offered to a downstream Stage. |
 | `status.pointer` | `string` | no |  |  | Pointer is the digest the environment runs. |
-| `status.published` | `[]string` | no |  |  | Published holds the digests that passed pacto.published here, oldest first (cap 50): the candidate digests Flux verified the signature of on the candidate OCIRepository (spec.verify naming the publisher's identity), and every version promoted and verified here. Only these are promoted from the OCIRepository or offered to a downstream Stage. |
+| `status.published` | `[]string` | no |  |  | Published holds the candidate digests Flux verified the signature of on the candidate OCIRepository (spec.verify naming the publisher's identity), oldest first (cap 50). Only these are promoted from the OCIRepository. |
 | `status.stream` | `object` | no |  |  | Stream numbers a Stage's concluded operations. |
 | `status.stream.id` | `string` | no |  |  | ID is &lt;clusterID&gt;/&lt;namespace&gt;/&lt;name&gt;; the cluster id is the kube-system namespace uid. |
 | `status.stream.seq` | `integer` | no |  |  |  |

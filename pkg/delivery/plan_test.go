@@ -261,10 +261,12 @@ func TestPublishedGate(t *testing.T) {
 		{"oci never verified", plan(oci, StageStatus{Pointer: dA}, to, nil), Fail, "Flux never verified a signature"},
 		{"oci no contract", plan(oci, published, Revision{Digest: dB, NoContract: true, Err: "no annotation"}, nil), Fail, "names no digest-pinned"},
 		{"oci unreadable", plan(oci, published, Revision{Digest: dB, Err: "registry down"}, nil), Unknown, "registry down"},
-		{"upstream published", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}, Published: []string{dB}}), Pass, "published and verified on the upstream Stage"},
-		{"upstream not verified", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Published: []string{dB}}), Fail, "never published and verified on the upstream Stage test/payments"},
-		// Verified before the published rule existed: never published there.
-		{"upstream only verified", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}}), Fail, "never published and verified"},
+		{"upstream offered", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}, Offered: []string{dB}}), Pass, "passed pacto.published and verified on the upstream Stage"},
+		{"upstream not verified", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Offered: []string{dB}}), Fail, "is not offered by the upstream Stage test/payments"},
+		// Verified there, but on an accepted unknown or before the published
+		// rule existed, or only signed there: never offered.
+		{"upstream only verified", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}}), Fail, "is not offered"},
+		{"upstream only signed", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}, Published: []string{dB}}), Fail, "is not offered"},
 		// Never an unknown a person could accept.
 		{"upstream unreadable", plan(up, StageStatus{Pointer: dA}, to, nil), Fail, "does not exist or cannot be read"},
 		{"no source", plan(none, published, to, nil), Fail, "names no candidate source"},

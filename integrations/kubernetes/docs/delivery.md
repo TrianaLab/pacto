@@ -111,6 +111,12 @@ agent proposes included. A Stage with no candidate source promotes nothing, and
 neither does one whose `spec.verify` names no identity: without a `secretRef`
 or a `matchOIDCIdentity`, Flux accepts a keyless signature from anyone.
 
+Such a Stage says so. Its `Ready` condition is `False` and its reason names
+what is missing: `CandidateUnverified` (no `spec.verify` naming the publisher),
+`CandidateNotFound` or `NoCandidateSource`. `kubectl get stage` shows it in the
+`READY` column, and `kubectl wait --for=condition=Ready stage/payments` waits
+until it is fixed.
+
 ```yaml
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
@@ -134,9 +140,11 @@ declares:
 
 Label the `OCIRepository` that applies the Stage, so admission keeps everyone
 but the promoter and break-glass off its digest, give it the same
-`spec.verify` and create the Stage. A downstream Stage takes the versions its
-upstream published and verified. An upstream Stage that does not exist, or that
-the promoter may not read, offers nothing:
+`spec.verify` and create the Stage. A downstream Stage takes only the versions
+its upstream lists in `status.offered`: each passed the published gate there
+and verified. A version a person let through by accepting an unknown published
+verdict runs there but is never offered on. An upstream Stage that does not
+exist, or that the promoter may not read, offers nothing:
 
 ```yaml
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
