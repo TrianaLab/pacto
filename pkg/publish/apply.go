@@ -56,58 +56,20 @@ func Apply(ctx context.Context, reg Registry, tools Tools, in Input) (*Result, e
 	if !p.Ready {
 		return res, fmt.Errorf("%w: %s", ErrNotReady, refusal(p))
 	}
-	pub, version := in.Bundle.Contract.Publish, p.Version
-	bundleItem := p.Items[len(p.Items)-1]
-	bundleDigest := bundleItem.Digest
-	bundleRepo := Repo(pub.Bundle)
-	env := []string{"PACTO_VERSION=" + version, "PACTO_REVISION=" + in.Revision}
-	var tags []func() error
-	var deployTag func() error
-	for i, a := range pub.Artifacts {
-		it, repo := p.Items[i], Repo(a.Ref)
-		digest := it.Digest
-		if it.State == Absent {
-			ann := map[string]string{AnnotationVersion: version, AnnotationRevision: in.Revision}
-			if a.Name == pub.Deploy {
-				ann[delivery.ContractAnnotation] = contractRef(bundleRepo, bundleDigest)
-			}
-			var err error
-			if digest, err = buildAndPush(ctx, reg, tools, a, env, ann); err != nil {
-				return res, fmt.Errorf("%s: %w", a.Name, err)
-			}
-			res.Actions = append(res.Actions, "pushed "+a.Name+" "+repo+"@"+digest)
-			tag := func() error { return reg.Tag(ctx, repo, digest, version) }
-			if a.Name == pub.Deploy {
-				deployTag = tag
-			} else {
-				tags = append(tags, tag)
-			}
-		}
-		res.Digests[a.Name] = digest
-		env = append(env, "PACTO_DIGEST_"+envName(a.Name)+"="+digest, "PACTO_REF_"+envName(a.Name)+"="+repo)
-		if a.SBOM {
-			sbom, err := attachSBOM(ctx, reg, tools, repo, digest, version, in.Revision, res)
-			if err != nil {
-				return res, fmt.Errorf("SBOM of %s: %w", a.Name, err)
-			}
-			res.SBOMs[a.Name] = sbom
-		}
-	}
-	if bundleItem.State == Absent {
-		img, _ := oci.BundleImage(in.Bundle) // packed once already by the plan
-		h, _ := v1.NewHash(bundleDigest)
-		if _, err := reg.Write(ctx, bundleRepo, streamed{img, h}); err != nil {
-			return res, fmt.Errorf("pushing the bundle: %w", err)
-		}
-		res.Actions = append(res.Actions, "pushed bundle "+bundleRepo+"@"+bundleDigest)
-		tags = append(tags, func() error { return reg.Tag(ctx, bundleRepo, bundleDigest, version) })
-	}
-	res.Digests[BundleItem] = bundleDigest
-	if err := signAll(ctx, tools, *pub.Sign, pub, bundleRepo, res); err != nil {
+	r := &applier{ctx: ctx, reg: reg, tools: tools, in: in, res: res, pub: in.Bundle.Contract.Publish}
+	if err := r.artifacts(); err != nil {
 		return res, err
 	}
-	if deployTag != nil {
-		tags = append(tags, deployTag)
+	if err := r.bundle(); err != nil {
+		return res, err
+	}
+	if err := signAll(ctx, tools, *r.pub.Sign, r.pub, Repo(r.pub.Bundle), res); err != nil {
+		return res, err
+	}
+	// The deploy artifact's tag goes last: it is the commit point.
+	tags := r.tags
+	if r.deployTag != nil {
+		tags = append(tags, r.deployTag)
 	}
 	for _, tag := range tags {
 		if err := tag(); err != nil {
@@ -115,16 +77,86 @@ func Apply(ctx context.Context, reg Registry, tools Tools, in Input) (*Result, e
 		}
 	}
 	if len(tags) > 0 {
-		res.Actions = append(res.Actions, fmt.Sprintf("tagged %d artifacts %s", len(tags), version))
-	}
-	if pub.Deploy != "" {
-		for _, a := range pub.Artifacts {
-			if a.Name == pub.Deploy {
-				res.Deploy = Repo(a.Ref) + "@" + res.Digests[a.Name]
-			}
-		}
+		res.Actions = append(res.Actions, fmt.Sprintf("tagged %d artifacts %s", len(tags), p.Version))
 	}
 	return res, nil
+}
+
+// applier carries one publish: what it pushed and the tags it still owes.
+type applier struct {
+	ctx       context.Context
+	reg       Registry
+	tools     Tools
+	in        Input
+	res       *Result
+	pub       *contract.Publish
+	tags      []func() error
+	deployTag func() error
+}
+
+// artifacts builds and pushes every absent artifact in declaration order,
+// reusing what is already there, and attaches the SBOMs.
+func (r *applier) artifacts() error {
+	p, version := r.res.Plan, r.res.Plan.Version
+	bundleRepo, bundleDigest := Repo(r.pub.Bundle), p.Items[len(p.Items)-1].Digest
+	env := []string{"PACTO_VERSION=" + version, "PACTO_REVISION=" + r.in.Revision}
+	for i, a := range r.pub.Artifacts {
+		repo, digest := Repo(a.Ref), p.Items[i].Digest
+		if p.Items[i].State == Absent {
+			ann := map[string]string{AnnotationVersion: version, AnnotationRevision: r.in.Revision}
+			if a.Name == r.pub.Deploy {
+				ann[delivery.ContractAnnotation] = contractRef(bundleRepo, bundleDigest)
+			}
+			var err error
+			if digest, err = buildAndPush(r.ctx, r.reg, r.tools, a, env, ann); err != nil {
+				return fmt.Errorf("%s: %w", a.Name, err)
+			}
+			r.res.Actions = append(r.res.Actions, "pushed "+a.Name+" "+repo+"@"+digest)
+			r.owe(a.Name == r.pub.Deploy, repo, digest)
+		}
+		r.res.Digests[a.Name] = digest
+		if a.Name == r.pub.Deploy {
+			r.res.Deploy = repo + "@" + digest
+		}
+		env = append(env, "PACTO_DIGEST_"+envName(a.Name)+"="+digest, "PACTO_REF_"+envName(a.Name)+"="+repo)
+		if !a.SBOM {
+			continue
+		}
+		sbom, err := attachSBOM(r.ctx, r.reg, r.tools, repo, digest, version, r.in.Revision, r.res)
+		if err != nil {
+			return fmt.Errorf("SBOM of %s: %w", a.Name, err)
+		}
+		r.res.SBOMs[a.Name] = sbom
+	}
+	return nil
+}
+
+// owe records a tag to write once everything is signed.
+func (r *applier) owe(deploy bool, repo, digest string) {
+	tag := func() error { return r.reg.Tag(r.ctx, repo, digest, r.res.Plan.Version) }
+	if deploy {
+		r.deployTag = tag
+		return
+	}
+	r.tags = append(r.tags, tag)
+}
+
+// bundle pushes the contract bundle by the digest the plan computed.
+func (r *applier) bundle() error {
+	it := r.res.Plan.Items[len(r.res.Plan.Items)-1]
+	repo := Repo(r.pub.Bundle)
+	r.res.Digests[BundleItem] = it.Digest
+	if it.State != Absent {
+		return nil
+	}
+	img, _ := oci.BundleImage(r.in.Bundle) // packed once already by the plan
+	h, _ := v1.NewHash(it.Digest)
+	if _, err := r.reg.Write(r.ctx, repo, streamed{img, h}); err != nil {
+		return fmt.Errorf("pushing the bundle: %w", err)
+	}
+	r.res.Actions = append(r.res.Actions, "pushed bundle "+repo+"@"+it.Digest)
+	r.owe(false, repo, it.Digest)
+	return nil
 }
 
 // streamed is the bundle image with the digest the plan computed: its layer

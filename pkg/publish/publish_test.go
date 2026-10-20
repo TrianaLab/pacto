@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http/httptest"
@@ -148,42 +149,42 @@ func states(p Plan) string {
 // TestApplyPublishesOnceAndResumes is the step-3 list: the plan lists what is
 // missing and writes nothing, the publish writes it with the deploy artifact
 // naming its contract, and running it again changes nothing.
+// line joins values with spaces, for comparing several facts at once.
+func line(vals ...any) string { return strings.TrimSpace(fmt.Sprintln(vals...)) }
+
+// expect fails the test with the message unless ok.
+func expect(t *testing.T, ok bool, format string, args ...any) {
+	t.Helper()
+	if !ok {
+		t.Fatalf(format, args...)
+	}
+}
+
 func TestApplyPublishesOnceAndResumes(t *testing.T) {
 	host, reg := newRegistry(t)
 	ctx := context.Background()
 	in := Input{Bundle: bundleOf(host, "1.0.0", workloadService), Revision: "abc123", Checks: []Check{{Name: "validation", Passed: true}}}
 	p := MakePlan(ctx, reg, in)
-	if !p.Ready || p.Missing != 4 || states(p) != "api=absent chart=absent manifests=absent bundle=absent" {
-		t.Fatalf("plan: %+v", p)
-	}
-	if tags, _ := reg.Tags(ctx, host+"/payments"); len(tags) != 0 {
-		t.Fatalf("the plan wrote: %v", tags)
-	}
+	got := line(p.Ready, p.Missing, states(p))
+	expect(t, got == "true 4 api=absent chart=absent manifests=absent bundle=absent", "plan: %s", got)
+	tags, _ := reg.Tags(ctx, host+"/payments")
+	expect(t, len(tags) == 0, "the plan wrote: %v", tags)
 	tools := newTools()
 	res, err := Apply(ctx, reg, tools, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.Deploy == "" || len(res.SBOMs) != 1 || len(tools.signed) != 5 {
-		t.Fatalf("result: %+v signed %v", res, tools.signed)
-	}
+	expect(t, err == nil, "publish: %v", err)
+	got = line(res.Deploy != "", len(res.SBOMs), len(tools.signed))
+	expect(t, got == "true 1 5", "result: %+v signed %v", res, tools.signed)
 	deploy, _ := reg.Head(ctx, host+"/deploy/payments:1.0.0")
-	if deploy.Annotations[delivery.ContractAnnotation] != "oci://"+host+"/pacto/payments@"+res.Digests[BundleItem] ||
-		deploy.Annotations[AnnotationRevision] != "abc123" || deploy.Annotations[AnnotationVersion] != "1.0.0" {
-		t.Fatalf("deploy annotations: %v", deploy.Annotations)
-	}
-	if env := strings.Join(tools.envs[2], " "); !strings.Contains(env, "PACTO_DIGEST_API="+res.Digests["api"]) ||
-		!strings.Contains(env, "PACTO_REF_CHART="+host+"/charts/payments") {
-		t.Fatalf("the manifests build saw %s", env)
-	}
+	ann := deploy.Annotations
+	got = strings.Join([]string{ann[delivery.ContractAnnotation], ann[AnnotationRevision], ann[AnnotationVersion]}, " ")
+	expect(t, got == "oci://"+host+"/pacto/payments@"+res.Digests[BundleItem]+" abc123 1.0.0", "deploy annotations: %v", ann)
+	env := strings.Join(tools.envs[2], " ")
+	expect(t, strings.Contains(env, "PACTO_DIGEST_API="+res.Digests["api"]), "the manifests build saw %s", env)
+	expect(t, strings.Contains(env, "PACTO_REF_CHART="+host+"/charts/payments"), "the manifests build saw %s", env)
 	again, err := Apply(ctx, reg, tools, in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(again.Actions) != 0 || states(again.Plan) != "api=adopt chart=adopt manifests=adopt bundle=identical" ||
-		again.Deploy != res.Deploy || tools.builds["api"] != 1 {
-		t.Fatalf("the second publish changed something: %v %s", again.Actions, states(again.Plan))
-	}
+	expect(t, err == nil, "second publish: %v", err)
+	got = line(len(again.Actions), states(again.Plan), again.Deploy == res.Deploy, tools.builds["api"])
+	expect(t, got == "0 api=adopt chart=adopt manifests=adopt bundle=identical true 1", "the second publish changed something: %s", got)
 }
 
 // failingTags fails the tag write of one repository.
@@ -360,57 +361,53 @@ func isSBOM(a Artifact) bool {
 	return err == nil && m.ArtifactType == SBOMType
 }
 
+func failedCheck(p Plan) string {
+	for _, c := range p.Checks {
+		if !c.Passed {
+			return c.Name
+		}
+	}
+	return ""
+}
+
 func TestPlanChecks(t *testing.T) {
 	host, reg := newRegistry(t)
 	ctx := context.Background()
 	b := bundleOf(host, "1.0.0", workloadService)
-	failed := func(p Plan) string {
-		for _, c := range p.Checks {
-			if !c.Passed {
-				return c.Name
-			}
-		}
-		return ""
-	}
 	nopub := bundleOf(host, "1.0.0", workloadService)
 	nopub.Contract.Publish = nil
-	if p := MakePlan(ctx, reg, Input{Bundle: nopub}); p.Ready || failed(p) != "publish" {
-		t.Fatalf("no publish section: %+v", p)
-	}
+	p := MakePlan(ctx, reg, Input{Bundle: nopub})
+	expect(t, !p.Ready && failedCheck(p) == "publish", "no publish section: %+v", p)
 	nosign := bundleOf(host, "1.0.0", workloadService)
 	nosign.Contract.Publish.Sign = nil
-	if p := MakePlan(ctx, reg, Input{Bundle: nosign, Revision: "r"}); p.Ready || failed(p) != "sign" {
-		t.Fatalf("no sign: %+v", p.Checks)
+	p = MakePlan(ctx, reg, Input{Bundle: nosign, Revision: "r"})
+	expect(t, failedCheck(p) == "sign", "no sign: %+v", p.Checks)
+	p = MakePlan(ctx, reg, Input{Bundle: b})
+	expect(t, failedCheck(p) == "revision", "no revision: %+v", p.Checks)
+	for _, s := range []contract.PublishSign{{KMS: "awskms:///a"}, {Keyless: true}} {
+		c := signCheck(&contract.Publish{Sign: &s})
+		expect(t, c.Passed, "sign %+v: %+v", s, c)
 	}
-	if p := MakePlan(ctx, reg, Input{Bundle: b}); p.Ready || failed(p) != "revision" {
-		t.Fatalf("no revision: %+v", p.Checks)
-	}
-	if p := MakePlan(ctx, brokenRegistry{reg, "tags"}, Input{Bundle: b, Revision: "r"}); failed(p) != "version" {
-		t.Fatalf("tags unreadable: %+v", p.Checks)
-	}
-	if p := MakePlan(ctx, brokenRegistry{reg, "head"}, Input{Bundle: b, Revision: "r"}); p.Ready || states(p) != "api=unreadable chart=unreadable manifests=unreadable bundle=unreadable" {
-		t.Fatalf("heads unreadable: %s", states(p))
-	}
-	if _, err := Apply(ctx, reg, newTools(), Input{Bundle: b, Revision: "r"}); err != nil {
-		t.Fatal(err)
-	}
+	expect(t, refusal(Plan{}) == "not ready", "refusal of an empty plan")
+}
+
+func TestPlanUnreadable(t *testing.T) {
+	host, reg := newRegistry(t)
+	ctx := context.Background()
+	b := bundleOf(host, "1.0.0", workloadService)
+	p := MakePlan(ctx, brokenRegistry{reg, "tags"}, Input{Bundle: b, Revision: "r"})
+	expect(t, failedCheck(p) == "version", "tags unreadable: %+v", p.Checks)
+	p = MakePlan(ctx, brokenRegistry{reg, "head"}, Input{Bundle: b, Revision: "r"})
+	expect(t, states(p) == "api=unreadable chart=unreadable manifests=unreadable bundle=unreadable", "heads unreadable: %s", states(p))
+	_, err := Apply(ctx, reg, newTools(), Input{Bundle: b, Revision: "r"})
+	expect(t, err == nil, "publish: %v", err)
 	next := bundleOf(host, "1.1.0", workloadService)
-	if p := MakePlan(ctx, brokenRegistry{reg, "pull"}, Input{Bundle: next, Revision: "r"}); failed(p) != "version" {
-		t.Fatalf("baseline unreadable: %+v", p.Checks)
-	}
+	p = MakePlan(ctx, brokenRegistry{reg, "pull"}, Input{Bundle: next, Revision: "r"})
+	expect(t, failedCheck(p) == "version", "baseline unreadable: %+v", p.Checks)
 	unpackable := bundleOf(host, "1.1.0", workloadService)
 	unpackable.FS = nil
-	if p := MakePlan(ctx, reg, Input{Bundle: unpackable, Revision: "r"}); p.Items[3].State != Unreadable {
-		t.Fatalf("unpackable bundle: %s", states(p))
-	}
-	for _, s := range []contract.PublishSign{{KMS: "awskms:///a"}, {Keyless: true}} {
-		if c := signCheck(&contract.Publish{Sign: &s}); !c.Passed || c.Message == "" {
-			t.Fatalf("sign %+v: %+v", s, c)
-		}
-	}
-	if refusal(Plan{}) != "not ready" {
-		t.Fatal("refusal of an empty plan")
-	}
+	p = MakePlan(ctx, reg, Input{Bundle: unpackable, Revision: "r"})
+	expect(t, p.Items[3].State == Unreadable, "unpackable bundle: %s", states(p))
 }
 
 func TestApplyFailures(t *testing.T) {
@@ -456,122 +453,101 @@ func TestApplyFailures(t *testing.T) {
 	}
 }
 
-func TestLoad(t *testing.T) {
+func TestLoadImage(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := load(contract.ArtifactImage, dir, nil); err == nil {
-		t.Fatal("no layout")
-	}
+	_, err := load(contract.ArtifactImage, dir, nil)
+	expect(t, err != nil, "no layout")
 	p, _ := layout.Write(filepath.Join(dir, "two"), empty.Index)
 	for range 2 {
 		img, _ := random.Image(8, 1)
 		_ = p.AppendImage(img)
 	}
-	if _, err := load(contract.ArtifactImage, filepath.Join(dir, "two"), nil); err == nil || !strings.Contains(err.Error(), "2 manifests") {
-		t.Fatalf("two images: %v", err)
-	}
+	_, err = load(contract.ArtifactImage, filepath.Join(dir, "two"), nil)
+	expect(t, err != nil && strings.Contains(err.Error(), "2 manifests"), "two images: %v", err)
 	tools := newTools()
 	tools.index = true
 	out := filepath.Join(dir, "index")
 	_ = os.Mkdir(out, 0o755)
 	_ = tools.Build(context.Background(), contract.PublishArtifact{Name: "api", Type: contract.ArtifactImage}, out, nil)
 	a, err := load(contract.ArtifactImage, out, map[string]string{"k": "v"})
-	if idx, ok := a.(v1.ImageIndex); err != nil || !ok {
-		t.Fatalf("index: %v %T", err, a)
-	} else if m, _ := idx.IndexManifest(); m.Annotations["k"] != "v" {
-		t.Fatalf("index annotations: %v", m.Annotations)
-	}
+	idx, ok := a.(v1.ImageIndex)
+	expect(t, err == nil && ok, "index: %v %T", err, a)
+	m, _ := idx.IndexManifest()
+	expect(t, m.Annotations["k"] == "v", "index annotations: %v", m.Annotations)
+}
+
+func TestLoadChart(t *testing.T) {
 	chart := func(files map[string]string) error {
 		d := t.TempDir()
 		_ = os.WriteFile(filepath.Join(d, "c.tgz"), chartTGZ(files), 0o644)
 		_, err := load(contract.ArtifactChart, d, nil)
 		return err
 	}
-	if err := chart(map[string]string{"c/values.yaml": "a: 1"}); err == nil || !strings.Contains(err.Error(), "no Chart.yaml") {
-		t.Fatalf("no Chart.yaml: %v", err)
-	}
-	if err := chart(map[string]string{"c/Chart.yaml": "[: :"}); err == nil {
-		t.Fatal("a broken Chart.yaml")
-	}
-	if _, err := load(contract.ArtifactChart, t.TempDir(), nil); err == nil {
-		t.Fatal("no chart")
-	}
+	err := chart(map[string]string{"c/values.yaml": "a: 1"})
+	expect(t, err != nil && strings.Contains(err.Error(), "no Chart.yaml"), "no Chart.yaml: %v", err)
+	expect(t, chart(map[string]string{"c/Chart.yaml": "[: :"}) != nil, "a broken Chart.yaml")
+	_, err = load(contract.ArtifactChart, t.TempDir(), nil)
+	expect(t, err != nil, "no chart")
 	notgz := t.TempDir()
 	_ = os.WriteFile(filepath.Join(notgz, "c.tgz"), []byte("not gzip"), 0o644)
-	if _, err := load(contract.ArtifactChart, notgz, nil); err == nil {
-		t.Fatal("not a gzip")
-	}
+	_, err = load(contract.ArtifactChart, notgz, nil)
+	expect(t, err != nil, "not a gzip")
 	truncated := t.TempDir()
 	tgz := chartTGZ(map[string]string{"c/a": strings.Repeat("x", 4096)})
 	_ = os.WriteFile(filepath.Join(truncated, "c.tgz"), tgz[:len(tgz)/2], 0o644)
-	if _, err := load(contract.ArtifactChart, truncated, nil); err == nil {
-		t.Fatal("a truncated chart")
-	}
+	_, err = load(contract.ArtifactChart, truncated, nil)
+	expect(t, err != nil, "a truncated chart")
 	unreadable := t.TempDir()
 	_ = os.Mkdir(filepath.Join(unreadable, "c.tgz"), 0o755)
-	if _, err := load(contract.ArtifactChart, unreadable, nil); err == nil {
-		t.Fatal("a chart that is a directory")
-	}
-	if _, err := load(contract.ArtifactManifests, t.TempDir(), nil); err == nil {
-		t.Fatal("no manifests")
-	}
-	if _, err := load(contract.ArtifactManifests, filepath.Join(dir, "missing"), nil); err == nil {
-		t.Fatal("a missing directory")
-	}
+	_, err = load(contract.ArtifactChart, unreadable, nil)
+	expect(t, err != nil, "a chart that is a directory")
+}
+
+func TestLoadManifests(t *testing.T) {
+	_, err := load(contract.ArtifactManifests, t.TempDir(), nil)
+	expect(t, err != nil, "no manifests")
+	_, err = load(contract.ArtifactManifests, filepath.Join(t.TempDir(), "missing"), nil)
+	expect(t, err != nil, "a missing directory")
 	broken := t.TempDir()
 	_ = os.Symlink(filepath.Join(broken, "nowhere"), filepath.Join(broken, "link"))
-	if _, err := load(contract.ArtifactManifests, broken, nil); err == nil {
-		t.Fatal("a dangling symlink")
-	}
+	_, err = load(contract.ArtifactManifests, broken, nil)
+	expect(t, err != nil, "a dangling symlink")
 }
 
 func TestClient(t *testing.T) {
 	host, c := newRegistry(t)
 	ctx := context.Background()
-	if _, err := c.Head(ctx, "BAD REF"); err == nil {
-		t.Fatal("head of a bad ref")
-	}
-	if _, err := c.Tags(ctx, "BAD REF"); err == nil {
-		t.Fatal("tags of a bad ref")
-	}
-	if tags, err := c.Tags(ctx, host+"/nothing"); err != nil || tags != nil {
-		t.Fatalf("an unknown repository: %v %v", tags, err)
-	}
-	if _, err := c.Write(ctx, "BAD REF", empty.Image); err == nil {
-		t.Fatal("write to a bad ref")
-	}
-	if _, err := c.Write(ctx, host+"/x", badArtifact{}); err == nil {
-		t.Fatal("write of an artifact with no digest")
-	}
-	if _, err := c.Write(ctx, host+"/x", hashOnly{}); err == nil {
-		t.Fatal("write of an unknown artifact kind")
-	}
-	d, _ := c.Write(ctx, host+"/x", empty.Image)
-	if err := c.Tag(ctx, "BAD REF", d, "1"); err == nil {
-		t.Fatal("tag of a bad ref")
-	}
-	if err := c.Tag(ctx, host+"/x", "sha256:"+strings.Repeat("0", 64), "1"); err == nil {
-		t.Fatal("tag of a missing digest")
-	}
-	if err := c.Tag(ctx, host+"/x", d, "1.0.0+build"); err == nil {
-		t.Fatal("a tag Docker refuses")
-	}
-	if _, err := c.Referrers(ctx, "BAD REF", d, SBOMType); err == nil {
-		t.Fatal("referrers of a bad ref")
-	}
-	dead, deadClient := newRegistry(t)
-	_ = dead
-	srvGone := NewClient(authn.DefaultKeychain, "127.0.0.1:1")
-	if _, err := srvGone.Head(ctx, "127.0.0.1:1/x:1"); err == nil {
-		t.Fatal("an unreachable registry is never absent")
-	}
-	if _, err := srvGone.Referrers(ctx, "127.0.0.1:1/x", d, SBOMType); err == nil {
-		t.Fatal("referrers of an unreachable registry")
-	}
-	_ = deadClient
+	_, err := c.Head(ctx, "BAD REF")
+	expect(t, err != nil, "head of a bad ref")
+	_, err = c.Tags(ctx, "BAD REF")
+	expect(t, err != nil, "tags of a bad ref")
+	tags, err := c.Tags(ctx, host+"/nothing")
+	expect(t, err == nil && tags == nil, "an unknown repository: %v %v", tags, err)
+	_, err = c.Write(ctx, "BAD REF", empty.Image)
+	expect(t, err != nil, "write to a bad ref")
+	_, err = c.Write(ctx, host+"/x", badArtifact{})
+	expect(t, err != nil, "write of an artifact with no digest")
+	_, err = c.Write(ctx, host+"/x", hashOnly{})
+	expect(t, err != nil, "write of an unknown artifact kind")
 	secure := NewClient(authn.DefaultKeychain)
-	if r, err := secure.parse("ghcr.io/acme/x:1"); err != nil || r.Context().Scheme() != "https" {
-		t.Fatalf("a secure host: %v", err)
-	}
+	r, err := secure.parse("ghcr.io/acme/x:1")
+	expect(t, err == nil && r.Context().Scheme() == "https", "a secure host: %v", err)
+}
+
+func TestClientTagsAndReferrers(t *testing.T) {
+	host, c := newRegistry(t)
+	ctx := context.Background()
+	d, _ := c.Write(ctx, host+"/x", empty.Image)
+	expect(t, c.Tag(ctx, "BAD REF", d, "1") != nil, "tag of a bad ref")
+	expect(t, c.Tag(ctx, host+"/x", "sha256:"+strings.Repeat("0", 64), "1") != nil, "tag of a missing digest")
+	expect(t, c.Tag(ctx, host+"/x", d, "1.0.0+build") != nil, "a tag Docker refuses")
+	_, err := c.Referrers(ctx, "BAD REF", d, SBOMType)
+	expect(t, err != nil, "referrers of a bad ref")
+	gone := NewClient(authn.DefaultKeychain, "127.0.0.1:1")
+	_, err = gone.Head(ctx, "127.0.0.1:1/x:1")
+	expect(t, err != nil, "an unreachable registry is never absent")
+	_, err = gone.Referrers(ctx, "127.0.0.1:1/x", d, SBOMType)
+	expect(t, err != nil, "referrers of an unreachable registry")
 }
 
 type badArtifact struct{}

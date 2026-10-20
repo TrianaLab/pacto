@@ -36,37 +36,44 @@ func (f *fakeRun) run(_ context.Context, _ string, env []string, name string, ar
 	if f.fail != "" && strings.HasPrefix(call, f.fail) {
 		return nil, errors.New("injected: " + call)
 	}
-	out := ""
-	for _, e := range env {
-		if v, ok := strings.CutPrefix(e, "PACTO_OUT="); ok {
-			out = v
-		}
-	}
-	ref := ""
-	if len(args) > 0 {
-		ref = args[len(args)-1]
-	}
-	switch {
-	case name == "git":
+	switch name {
+	case "git":
 		return []byte("abc123\n"), nil
-	case name == "docker":
-		p, _ := layout.Write(out, empty.Index)
+	case "docker":
+		p, _ := layout.Write(outOf(env), empty.Index)
 		img, _ := random.Image(32, 1)
 		return nil, p.AppendImage(img)
-	case name == "cosign" && args[0] == "public-key":
+	case "cosign":
+		return f.cosign(args)
+	case "syft":
+		return []byte(`{"spdxVersion":"SPDX-2.3"}`), nil
+	}
+	return nil, os.WriteFile(filepath.Join(outOf(env), "deployment.yaml"), []byte("kind: Deployment\n"), 0o644)
+}
+
+// cosign answers public-key, verify (only what it signed) and sign.
+func (f *fakeRun) cosign(args []string) ([]byte, error) {
+	ref := args[len(args)-1]
+	switch args[0] {
+	case "public-key":
 		return []byte("-----BEGIN PUBLIC KEY-----\n"), nil
-	case name == "cosign" && args[0] == "verify":
+	case "verify":
 		if !f.signed[ref] {
 			return nil, errors.New("no signatures found")
 		}
 		return nil, nil
-	case name == "cosign" && args[0] == "sign":
-		f.signed[ref] = true
-		return nil, nil
-	case name == "syft":
-		return []byte(`{"spdxVersion":"SPDX-2.3"}`), nil
 	}
-	return nil, os.WriteFile(filepath.Join(out, "deployment.yaml"), []byte("kind: Deployment\n"), 0o644)
+	f.signed[ref] = true
+	return nil, nil
+}
+
+func outOf(env []string) string {
+	for _, e := range env {
+		if v, ok := strings.CutPrefix(e, "PACTO_OUT="); ok {
+			return v
+		}
+	}
+	return ""
 }
 
 func publishRegistry(t *testing.T) (string, publish.Registry) {

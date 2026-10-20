@@ -42,48 +42,58 @@ func publishDeps(res *publish.Result, err error, got *app.PublishOptions) deps {
 	return d
 }
 
-func TestPublishCommand(t *testing.T) {
+// wantRun checks one invocation: its error and what stdout says.
+func wantRun(t *testing.T, out string, err error, wantErr bool, want ...string) {
+	t.Helper()
+	if (err != nil) != wantErr {
+		t.Fatalf("err = %v, want error %v\n%s", err, wantErr, out)
+	}
+	for _, w := range want {
+		if !strings.Contains(out, w) && (err == nil || !strings.Contains(err.Error(), w)) {
+			t.Fatalf("output lacks %q:\n%s %v", w, out, err)
+		}
+	}
+}
+
+func TestPublishCommandPlan(t *testing.T) {
 	var got app.PublishOptions
 	out, err := runPublish(t, publishDeps(&publish.Result{Plan: publishPlan(true)}, nil, &got), "text", "--plan", "--revision", "r", "-p", "svc")
-	if err != nil || !got.Plan || got.Revision != "r" || got.Path != "svc" || !strings.Contains(out, "1 to publish; nothing was changed") {
-		t.Fatalf("plan: %v %+v\n%s", err, got, out)
+	wantRun(t, out, err, false, "1 to publish; nothing was changed")
+	if !got.Plan || got.Revision != "r" || got.Path != "svc" {
+		t.Fatalf("options %+v", got)
 	}
 	out, err = runPublish(t, publishDeps(&publish.Result{Plan: publishPlan(false)}, nil, &got), "text", "--plan")
-	if !errors.Is(err, errPlanNotReady) || !strings.Contains(out, "FAIL version: needs a major bump") {
-		t.Fatalf("a refused plan fails: %v\n%s", err, out)
-	}
+	wantRun(t, out, err, true, "FAIL version: needs a major bump", errPlanNotReady.Error())
+}
+
+func TestPublishCommandPublish(t *testing.T) {
+	var got app.PublishOptions
 	done := &publish.Result{Plan: publishPlan(true), Actions: []string{"pushed manifests reg/deploy@" + cliB}, Digests: map[string]string{},
 		Deploy: "reg/deploy@" + cliB}
-	out, err = runPublish(t, publishDeps(done, nil, &got), "text", "--propose", "prod/payments-prod")
-	if err != nil || !strings.Contains(out, "pushed manifests") || !strings.Contains(out, "Deploy: reg/deploy@"+cliB) ||
-		!strings.Contains(out, "Proposed "+cliB+" on prod/payments-prod") {
-		t.Fatalf("publish and propose: %v\n%s", err, out)
-	}
+	out, err := runPublish(t, publishDeps(done, nil, &got), "text", "--propose", "prod/payments-prod")
+	wantRun(t, out, err, false, "pushed manifests", "Deploy: reg/deploy@"+cliB, "Proposed "+cliB+" on prod/payments-prod")
 	nothing := &publish.Result{Plan: publishPlan(true), Actions: []string{}, Digests: map[string]string{"manifests": cliB}}
-	if out, _ := runPublish(t, publishDeps(nothing, nil, &got), "json"); !strings.Contains(out, `"actions": []`) {
-		t.Fatalf("json: %s", out)
-	}
-	if out, _ := runPublish(t, publishDeps(nothing, nil, &got), "text"); !strings.Contains(out, "Nothing to publish") {
-		t.Fatalf("second run: %s", out)
-	}
-	if _, err := runPublish(t, publishDeps(nil, errors.New("contract validation failed"), &got), "text"); err == nil {
-		t.Fatal("a validation failure surfaces")
-	}
-	if _, err := runPublish(t, publishDeps(nil, nil, &got), "text", "--propose", "payments"); err == nil {
-		t.Fatal("--propose needs namespace/stage")
-	}
+	out, err = runPublish(t, publishDeps(nothing, nil, &got), "json")
+	wantRun(t, out, err, false, `"actions": []`)
+	out, err = runPublish(t, publishDeps(nothing, nil, &got), "text")
+	wantRun(t, out, err, false, "Nothing to publish")
+	out, err = runPublish(t, publishDeps(done, nil, &got), "bogus")
+	wantRun(t, out, err, false)
+}
+
+func TestPublishCommandFailures(t *testing.T) {
+	var got app.PublishOptions
+	done := &publish.Result{Plan: publishPlan(true), Digests: map[string]string{}, Deploy: "reg/deploy@" + cliB}
+	out, err := runPublish(t, publishDeps(nil, errors.New("contract validation failed"), &got), "text")
+	wantRun(t, out, err, true, "contract validation failed")
+	out, err = runPublish(t, publishDeps(nil, nil, &got), "text", "--propose", "payments")
+	wantRun(t, out, err, true, "--propose takes <namespace>/<stage>")
 	refused := publishDeps(done, nil, &got)
 	refused.newDynamic = func() (dynamic.Interface, error) { return nil, errors.New("no cluster") }
-	if _, err := runPublish(t, refused, "text", "--propose", "prod/payments-prod"); err == nil {
-		t.Fatal("no cluster to propose on")
-	}
-	if _, err := runPublish(t, publishDeps(done, nil, &got), "text", "--propose", "prod/missing"); err == nil ||
-		!strings.Contains(err.Error(), "published, but proposing it on prod/missing failed") {
-		t.Fatalf("a missing Stage: %v", err)
-	}
-	if _, err := runPublish(t, publishDeps(done, nil, &got), "bogus"); err != nil {
-		t.Fatal(err)
-	}
+	out, err = runPublish(t, refused, "text", "--propose", "prod/payments-prod")
+	wantRun(t, out, err, true, "no cluster")
+	out, err = runPublish(t, publishDeps(done, nil, &got), "text", "--propose", "prod/missing")
+	wantRun(t, out, err, true, "published, but proposing it on prod/missing failed")
 }
 
 func TestPublishCommandOutputFailure(t *testing.T) {
