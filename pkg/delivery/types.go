@@ -22,6 +22,10 @@ const (
 	GateDiff     = "pacto.diff"
 	GateImpact   = "pacto.impact"
 	GateContract = "pacto.contract"
+	// GatePublished admits a promote only of a version `pacto publish`
+	// published: signed (Flux verified it on the candidate source) and
+	// carrying its contract.
+	GatePublished = "pacto.published"
 )
 
 // OperationType is a type descriptor: what an operation of this type changes,
@@ -86,7 +90,7 @@ var tier0 = []OperationType{
 		Description:       "Move the Stage pointer to a new digest. The only way to ship a version.",
 		Params:            []string{"from", "to"},
 		Raisers:           []ActorClass{ClassAgent, ClassHuman, ClassController},
-		PreGates:          []string{GateDiff, GateImpact},
+		PreGates:          []string{GatePublished, GateDiff, GateImpact},
 		VerifyGates:       []string{GateContract},
 		ApprovalFloor:     "pkg/impact: no person when no consumer is incompatible or unknown, the analysis is complete and the version to roll back to is verified; an incompatible consumer asks its owners; anything Pacto cannot see asks a person to accept the unknown",
 		Inverse:           TypeRollback,

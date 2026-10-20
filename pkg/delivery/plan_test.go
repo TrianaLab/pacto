@@ -45,7 +45,8 @@ func checkoutPacto(rng string) PactoView {
 }
 
 func stageSpec() StageSpec {
-	return StageSpec{Service: ServiceRef{Name: "payments"}, Environment: "prod", ApplyRef: LocalRef{Name: "payments"}}
+	return StageSpec{Service: ServiceRef{Name: "payments"}, Environment: "prod", ApplyRef: LocalRef{Name: "payments"},
+		Candidates: Candidates{OCIRepositoryRef: &LocalRef{Name: "payments-candidates"}}}
 }
 
 func promote(from, to string) OperationSpec {
@@ -59,6 +60,8 @@ func planWith(t *testing.T, spec OperationSpec, status StageStatus, from, to Rev
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Every version these tests promote was published: Flux verified it.
+	status.Published = append(status.Published, to.Digest)
 	return PlanFor(context.Background(), PlanInput{Spec: spec, Stage: stageSpec(), Status: status, From: from, To: to,
 		Snapshot: snap, Class: ClassAgent})
 }
@@ -195,7 +198,7 @@ func TestPlanFrozenWaitsAndPolicyRaisesTheFloor(t *testing.T) {
 	snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
 	st := stageSpec()
 	st.Approval.Always = true
-	p = PlanFor(context.Background(), PlanInput{Spec: promote(dA, dB), Stage: st, Status: StageStatus{Pointer: dA, Verified: []string{dA}},
+	p = PlanFor(context.Background(), PlanInput{Spec: promote(dA, dB), Stage: st, Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
 		From: from, To: to, Snapshot: snap, Class: ClassAgent})
 	if p.Predicted != PredictHeld || p.Floor.Decision != Approve || !strings.Contains(p.Question, "every promote") {
 		t.Fatalf("approval.always: %+v", p)
@@ -232,5 +235,44 @@ func TestPlanConsumerOutsideTheDomainIsUnknown(t *testing.T) {
 	v := verdict(t, p, GateImpact)
 	if v.Result != Unknown || strings.Count(v.Message, "checkout depends on payments") != 1 {
 		t.Fatalf("a consumer the graph cannot place must hold the change, once: %+v", v)
+	}
+}
+
+// TestPublishedGate: a promote is admitted only for a version pacto publish
+// published. Anything else is refused before any other gate runs.
+func TestPublishedGate(t *testing.T) {
+	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
+	plan := func(stage StageSpec, status StageStatus, to Revision, upstream *StageStatus) Plan {
+		snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
+		return PlanFor(context.Background(), PlanInput{Spec: promote(dA, dB), Stage: stage, Status: status, From: from, To: to,
+			Snapshot: snap, Class: ClassAgent, Upstream: upstream})
+	}
+	oci, up, none := stageSpec(), stageSpec(), stageSpec()
+	up.Candidates = Candidates{UpstreamStage: &StageRef{Name: "payments", Namespace: "test"}}
+	none.Candidates = Candidates{}
+	published := StageStatus{Pointer: dA, Published: []string{dB}, Verified: []string{dA}}
+	cases := []struct {
+		name   string
+		p      Plan
+		result Result
+		msg    string
+	}{
+		{"oci published", plan(oci, published, to, nil), Pass, "is signed and names its contract"},
+		{"oci never verified", plan(oci, StageStatus{Pointer: dA}, to, nil), Fail, "Flux never verified a signature"},
+		{"oci no contract", plan(oci, published, Revision{Digest: dB, NoContract: true, Err: "no annotation"}, nil), Fail, "names no digest-pinned"},
+		{"oci unreadable", plan(oci, published, Revision{Digest: dB, Err: "registry down"}, nil), Unknown, "registry down"},
+		{"upstream verified", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}}), Pass, "verified on the upstream Stage"},
+		{"upstream not verified", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{}), Fail, "never verified on the upstream Stage test/payments"},
+		{"upstream unreadable", plan(up, StageStatus{Pointer: dA}, to, nil), Unknown, "could not be read"},
+		{"no source", plan(none, published, to, nil), Fail, "names no candidate source"},
+	}
+	for _, c := range cases {
+		v := verdict(t, c.p, GatePublished)
+		if v.Result != c.result || !strings.Contains(v.Message, c.msg) {
+			t.Errorf("%s: %s %q", c.name, v.Result, v.Message)
+		}
+		if c.result == Fail && (c.p.Predicted != PredictRejected || len(c.p.Verdicts) != 1) {
+			t.Errorf("%s: a version pacto publish did not publish goes no further: %+v", c.name, c.p)
+		}
 	}
 }

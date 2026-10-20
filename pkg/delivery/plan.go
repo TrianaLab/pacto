@@ -47,6 +47,9 @@ type Revision struct {
 	Bundle *contract.Bundle
 	// Err says why Bundle is nil.
 	Err string
+	// NoContract is true when the artifact was read and names no
+	// digest-pinned contract: it was not published by pacto publish.
+	NoContract bool
 }
 
 // PlanInput is everything plan() reads. Gathering it is the caller's job, so the
@@ -61,6 +64,9 @@ type PlanInput struct {
 	Snapshot *fleet.FleetSnapshot
 	// Class is the actor class of whoever raises the operation.
 	Class ActorClass
+	// Upstream is the upstream Stage's status when the Stage takes its
+	// candidates from one; nil when it could not be read.
+	Upstream *StageStatus
 }
 
 // PlanFor predicts what the promoter will do with an operation: its intent digest,
@@ -117,8 +123,14 @@ func predict(in PlanInput, p *Plan) Prediction {
 	return PredictProceeds
 }
 
-// promoteGates runs pacto.diff and pacto.impact and derives the approval floor.
+// promoteGates runs pacto.published, pacto.diff and pacto.impact and derives
+// the approval floor. A version pacto publish did not publish goes no further.
 func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
+	pub := publishedGate(in)
+	p.Verdicts = append(p.Verdicts, pub)
+	if pub.Result == Fail {
+		return
+	}
 	diffV := diffGate(ctx, in)
 	p.Verdicts = append(p.Verdicts, diffV)
 	if diffV.Result != Pass {
@@ -132,6 +144,45 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 		return
 	}
 	impactGate(ctx, in, p)
+}
+
+// publishedGate admits only a version pacto publish published. From a
+// candidate OCIRepository that is a digest Flux verified the signature of
+// (Status.Published) whose artifact names its digest-pinned contract; from an
+// upstream Stage it is a digest that Stage verified, which passed this gate
+// there. A Stage with no candidate source promotes nothing.
+func publishedGate(in PlanInput) Verdict {
+	v := Verdict{Gate: GatePublished, Phase: "pre", Result: Fail, Citation: map[string]string{}}
+	to, c := in.Spec.Params.To, in.Stage.Candidates
+	switch {
+	case c.UpstreamStage != nil:
+		v.Citation["upstream"] = c.UpstreamStage.Namespace + "/" + c.UpstreamStage.Name
+		switch {
+		case in.Upstream == nil:
+			v.Result, v.Message = Unknown, "the upstream Stage "+v.Citation["upstream"]+" could not be read"
+		case slices.Contains(in.Upstream.Verified, to):
+			v.Result, v.Message = Pass, short(to)+" was verified on the upstream Stage, which promotes only published versions"
+		default:
+			v.Message = short(to) + " was never verified on the upstream Stage " + v.Citation["upstream"] + ", so it is not a candidate here"
+		}
+	case c.OCIRepositoryRef != nil:
+		v.Citation["source"] = c.OCIRepositoryRef.Name
+		switch {
+		case !slices.Contains(in.Status.Published, to):
+			v.Message = "Flux never verified a signature of " + short(to) + " on the candidate OCIRepository " + c.OCIRepositoryRef.Name +
+				": only versions pacto publish published and signed are promoted, and the OCIRepository must set spec.verify"
+		case in.To.NoContract:
+			v.Message = short(to) + " names no digest-pinned " + ContractAnnotation + " annotation, so pacto publish did not publish it"
+		case in.To.ContractRef == "":
+			v.Result, v.Message = Unknown, "the artifact "+short(to)+" could not be read: "+in.To.Err
+		default:
+			v.Result, v.Message = Pass, short(to)+" is signed and names its contract"
+			v.Citation["contract"] = in.To.ContractRef
+		}
+	default:
+		v.Message = "this Stage names no candidate source, so nothing it could promote was verified as published by pacto publish"
+	}
+	return v
 }
 
 func diffGate(ctx context.Context, in PlanInput) Verdict {

@@ -58,8 +58,9 @@ func deliveryDeps(user string, dynErr error) deps {
 		}
 		c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists,
 			u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "payments-prod", map[string]any{
-				"spec": map[string]any{"service": map[string]any{"name": "payments"}, "applyRef": map[string]any{"name": "payments"}},
-				"status": map[string]any{"pointer": cliA, "verified": []any{cliA}, "frozen": true, "frozenReason": "a rollback failed",
+				"spec": map[string]any{"service": map[string]any{"name": "payments"}, "applyRef": map[string]any{"name": "payments"},
+					"candidates": map[string]any{"ociRepositoryRef": map[string]any{"name": "payments"}}},
+				"status": map[string]any{"pointer": cliA, "verified": []any{cliA}, "published": []any{cliB}, "frozen": true, "frozenReason": "a rollback failed",
 					"autoHold": true, "lastCheck": map[string]any{"operation": "uid-x", "digest": cliA, "at": "2026-10-20T10:00:00Z",
 						"verdicts": []any{map[string]any{"gate": "health", "phase": "verify", "result": "Unknown", "message": "too few spans"}}}}}),
 			u("source.toolkit.fluxcd.io/v1", "OCIRepository", "payments", map[string]any{"spec": map[string]any{"url": "oci://reg/apps/payments"}}),

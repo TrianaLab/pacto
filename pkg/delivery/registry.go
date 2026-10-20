@@ -34,6 +34,7 @@ func ResolveRevision(ctx context.Context, reg Registry, repo, digest string) Rev
 	ref := ann[ContractAnnotation]
 	if ContractDigest(ref) == "" {
 		r.Err = "the artifact has no digest-pinned " + ContractAnnotation + " annotation"
+		r.NoContract = true
 		return r
 	}
 	r.ContractRef = ref

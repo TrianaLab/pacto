@@ -11,6 +11,7 @@ import (
 const (
 	MaxVerified      = 10
 	MaxFailedDigests = 50
+	MaxPublished     = 50
 )
 
 // CitedOp is what rollback admission needs to know about the operation a
@@ -81,7 +82,8 @@ func RemoveDigest(list []string, d string) []string {
 // NewestCandidate picks the version auto-promotion would ship. From an
 // OCIRepository it is the digest of its current artifact revision, unless this
 // Stage already verified it (a tag moved back to an old digest is not a new
-// version, and automation never ships an old one); from an upstream Stage it is
+// version, and automation never ships an old one) or it is not in Published;
+// from an upstream Stage it is
 // the newest verified digest that failed neither there nor here. It returns ""
 // when there is nothing new: the Stage already runs it or it failed here.
 func NewestCandidate(status StageStatus, ociRevision string, upstream *StageStatus) string {
@@ -93,8 +95,8 @@ func NewestCandidate(status StageStatus, ociRevision string, upstream *StageStat
 				break
 			}
 		}
-	} else if cand = RevisionDigest(ociRevision); slices.Contains(status.Verified, cand) {
-		return ""
+	} else if cand = RevisionDigest(ociRevision); slices.Contains(status.Verified, cand) || !slices.Contains(status.Published, cand) {
+		return "" // already shipped, or never verified as published
 	}
 	if cand == status.Pointer || slices.Contains(status.FailedDigests, cand) {
 		return ""

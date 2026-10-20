@@ -60,13 +60,18 @@ func obj(apiVersion, kind, ns, name string, fields map[string]any) *unstructured
 func deliveryFixture(t *testing.T, user string, groups []string, extra map[string]any, objs ...runtime.Object) (*Delivery, *dynamicfake.FakeDynamicClient, *fakeDeliveryRegistry) {
 	t.Helper()
 	stage := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "prod", "payments-prod", map[string]any{
-		"spec":   map[string]any{"service": map[string]any{"name": "payments"}, "environment": "prod", "applyRef": map[string]any{"name": "payments"}},
+		"spec": map[string]any{"service": map[string]any{"name": "payments"}, "environment": "prod", "applyRef": map[string]any{"name": "payments"},
+			"candidates": map[string]any{"upstreamStage": map[string]any{"name": "payments-test", "namespace": "test"}}},
 		"status": map[string]any{"pointer": dlA, "verified": []any{dlA}},
+	})
+	// The upstream Stage verified B, so B passes the published gate here.
+	upstream := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "test", "payments-test", map[string]any{
+		"status": map[string]any{"verified": []any{dlB}},
 	})
 	repo := obj("source.toolkit.fluxcd.io/v1", "OCIRepository", "prod", "payments", map[string]any{
 		"spec": map[string]any{"url": "oci://reg.example/apps/payments", "insecure": true},
 	})
-	all := append([]runtime.Object{stage, repo}, objs...)
+	all := append([]runtime.Object{stage, upstream, repo}, objs...)
 	lists := map[schema.GroupVersionResource]string{gvrStages: "StageList", gvrOperations: "OperationList", gvrApprovals: "ApprovalList",
 		gvrPactos: "PactoList", gvrOCIRepository: "OCIRepositoryList"}
 	c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists, all...)
@@ -299,5 +304,38 @@ func TestDeliveryApproveRefusals(t *testing.T) {
 	}
 	if _, _, err := d.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB}); err == nil {
 		t.Fatal("plan surfaces whoami failure")
+	}
+}
+
+// TestDeliveryUpstreamStage: the upstream Stage's verified versions are what
+// the published gate admits; one in the Stage's own namespace when it names no
+// namespace, and Unknown when it cannot be read.
+func TestDeliveryUpstreamStage(t *testing.T) {
+	d, c, _ := deliveryFixture(t, "alice", nil, nil)
+	ctx := context.Background()
+	stage, err := d.Stage(ctx, "prod", "payments-prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if up := d.upstream(ctx, stage); up == nil || up.Verified[0] != dlB {
+		t.Fatalf("upstream: %+v", up)
+	}
+	stage.Spec.Candidates.UpstreamStage.Namespace = ""
+	if up := d.upstream(ctx, stage); up != nil {
+		t.Fatalf("an upstream in prod does not exist: %+v", up)
+	}
+	stage.Spec.Candidates = delivery.Candidates{}
+	if up := d.upstream(ctx, stage); up != nil {
+		t.Fatal("no upstream")
+	}
+	c.PrependReactor("get", "stages", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		if a.GetNamespace() == "test" {
+			return true, nil, errors.New("forbidden")
+		}
+		return false, nil, nil
+	})
+	p, _, err := d.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB})
+	if err != nil || p.Verdicts[0].Gate != delivery.GatePublished || p.Verdicts[0].Result != delivery.Unknown {
+		t.Fatalf("an unreadable upstream: %+v %v", p.Verdicts, err)
 	}
 }

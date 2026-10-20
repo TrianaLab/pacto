@@ -150,12 +150,32 @@ func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.Pla
 			in.From = delivery.ResolveRevision(ctx, reg, repo, spec.Params.From)
 			in.To = delivery.ResolveRevision(ctx, reg, repo, spec.Params.To)
 		}
+		in.Upstream = d.upstream(ctx, stage)
 		pactos, listErr := d.pactos(ctx)
 		if in.Snapshot, err = delivery.Snapshot(ctx, pactos, listErr, []delivery.Revision{in.From, in.To}, d.Now()); err != nil {
 			return delivery.Plan{}, delivery.OperationSpec{}, err
 		}
 	}
 	return delivery.PlanFor(ctx, in), spec, nil
+}
+
+// upstream reads the status of the Stage this one takes its candidates from;
+// nil when there is none or it cannot be read, which the published gate
+// treats as Unknown.
+func (d *Delivery) upstream(ctx context.Context, stage *delivery.StageObject) *delivery.StageStatus {
+	up := stage.Spec.Candidates.UpstreamStage
+	if up == nil {
+		return nil
+	}
+	ns := up.Namespace
+	if ns == "" {
+		ns = stage.Metadata.Namespace
+	}
+	s, err := d.Stage(ctx, ns, up.Name)
+	if err != nil {
+		return nil
+	}
+	return &s.Status
 }
 
 // spec turns a request into the intent the promoter will admit.

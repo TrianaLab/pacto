@@ -165,8 +165,11 @@ func TestNewestCandidate(t *testing.T) {
 	if got := NewestCandidate(StageStatus{Pointer: dC, FailedDigests: []string{dB}}, "", up); got != dA {
 		t.Fatalf("own failures excluded: %q", got)
 	}
-	if got := NewestCandidate(StageStatus{}, "v2@"+dB, nil); got != dB {
+	if got := NewestCandidate(StageStatus{Published: []string{dB}}, "v2@"+dB, nil); got != dB {
 		t.Fatalf("oci candidate: %q", got)
+	}
+	if got := NewestCandidate(StageStatus{}, "v2@"+dB, nil); got != "" {
+		t.Fatalf("a candidate Flux never verified is not offered: %q", got)
 	}
 	if got := NewestCandidate(StageStatus{FailedDigests: []string{dB}}, "v2@"+dB, nil); got != "" {
 		t.Fatalf("failed oci candidate: %q", got)

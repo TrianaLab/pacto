@@ -234,6 +234,11 @@ type StageStatus struct {
 	AutoRollbacks map[string]int `json:"autoRollbacks,omitempty"`
 	// +optional
 	Stream Stream `json:"stream,omitzero"`
+	// Published holds the candidate digests Flux verified the signature of on
+	// the candidate OCIRepository (spec.verify), oldest first (cap 50). Only
+	// these are promoted from it.
+	// +optional
+	Published []string `json:"published,omitempty"`
 	// Candidate is the newest eligible candidate the stage reconciler saw.
 	// +optional
 	Candidate string `json:"candidate,omitempty"`
