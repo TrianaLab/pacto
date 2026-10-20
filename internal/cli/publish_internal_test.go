@@ -114,6 +114,21 @@ func TestPublishCommandFailures(t *testing.T) {
 	unseen := &publish.Result{Plan: publishPlan(true), Digests: map[string]string{}, Deploy: "reg/deploy@" + cliA}
 	out, err = runPublish(t, publishDeps(unseen, nil, &got), "text", "--propose", "prod/payments-prod", "--propose-timeout", "5ms")
 	wantRun(t, out, err, true, "did not record "+cliA+" as published within 5ms")
+	// A Stage that takes its candidates from another Stage has nothing to wait
+	// for: the version is proposed at once.
+	fromUpstream := publishDeps(unseen, nil, &got)
+	cluster := fromUpstream.newDynamic
+	fromUpstream.newDynamic = func() (dynamic.Interface, error) {
+		c, err := cluster()
+		c.(*dynamicfake.FakeDynamicClient).PrependReactor("get", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "payments-prod", map[string]any{
+				"spec": map[string]any{"service": map[string]any{"name": "payments"}, "applyRef": map[string]any{"name": "payments"},
+					"candidates": map[string]any{"upstreamStage": map[string]any{"name": "payments-test"}}}}), nil
+		})
+		return c, err
+	}
+	out, err = runPublish(t, fromUpstream, "text", "--propose", "prod/payments-prod", "--propose-timeout", "5ms")
+	wantRun(t, out, err, false, "Proposed "+cliA+" on prod/payments-prod")
 	// A refused publish never claims everything is published.
 	refusedRes := &publish.Result{Plan: publishPlan(false), Actions: []string{}, Digests: map[string]string{}}
 	out, err = runPublish(t, publishDeps(refusedRes, publish.ErrNotReady, &got), "text")
