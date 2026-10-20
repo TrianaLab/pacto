@@ -37,5 +37,9 @@ login time, and `spec.ref.digest` on a labelled `OCIRepository` is edited only
 by the promoter or break-glass. The `pacto-operator` chart and image gain no
 permission.
 
-The operator `Dockerfile` takes `CMD=cmd/delivery` to build the delivery image.
+The delivery image (`ghcr.io/trianalab/pacto/delivery`) and chart
+(`oci://ghcr.io/trianalab/pacto/charts/pacto-delivery`) are published, signed
+and versioned with the operator on every release, so install the delivery
+chart at your operator's version. The operator `Dockerfile` takes
+`CMD=cmd/delivery` to build the delivery image.
 `make sync-crds` now copies each API group into its own chart.

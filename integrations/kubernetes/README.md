@@ -331,7 +331,7 @@ kubectl apply -f config/prometheus/alerts.yaml
 
 ## Artifact Verification
 
-All published artifacts (controller image and Helm chart) are signed with [Cosign](https://docs.sigstore.dev/cosign/signing/overview/) using keyless OIDC signing via GitHub Actions.
+All published artifacts (the controller image and Helm chart, and the opt-in delivery image and chart) are signed with [Cosign](https://docs.sigstore.dev/cosign/signing/overview/) using keyless OIDC signing via GitHub Actions.
 
 Verify the controller image:
 
@@ -406,6 +406,8 @@ See the repository-root [CONTRIBUTING.md](../../CONTRIBUTING.md) for the full de
 |----------|----------|
 | Controller image | `ghcr.io/trianalab/pacto/operator` |
 | Helm chart | `oci://ghcr.io/trianalab/pacto/charts/pacto-operator` |
+| Delivery image (opt-in) | `ghcr.io/trianalab/pacto/delivery` |
+| Delivery Helm chart (opt-in) | `oci://ghcr.io/trianalab/pacto/charts/pacto-delivery` |
 
 ## License
 

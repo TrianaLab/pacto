@@ -19,6 +19,7 @@ Source-of-truth map (page -> inputs):
   _compatibility.md        <- integration.yaml (compatibility) + release/release-manifest.json
   _install-command.md      <- release/release-manifest.json (operator-chart version)
   _upgrade-command.md      <- release/release-manifest.json (operator-chart version)
+  _delivery-install-command.md <- release/release-manifest.json (delivery-chart version)
   _crd-apply.md            <- release/release-manifest.json (k8s-module release tag)
 
 Usage:
@@ -1072,10 +1073,12 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
     out.append("## Artifact coordinates\n")
     out.append("| Artifact | Kind | Coordinate | Version |")
     out.append("| --- | --- | --- | --- |")
-    order = ["operator-image", "operator-chart", "k8s-module", "k8s-docs"]
+    order = ["operator-image", "operator-chart", "delivery-image", "delivery-chart", "k8s-module", "k8s-docs"]
     labels = {
         "operator-image": "Controller image",
         "operator-chart": "Helm chart",
+        "delivery-image": "Delivery image (opt-in)",
+        "delivery-chart": "Delivery Helm chart (opt-in)",
         "k8s-module": "Go module",
         "k8s-docs": "Documentation",
     }
@@ -1095,8 +1098,9 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
     if signed:
         out.append("## Verify a published artifact\n")
         out.append(
-            "The controller image and the Helm chart are signed keylessly by the release "
-            "workflow through GitHub's OIDC issuer. Verify either before installing it:\n"
+            "The controller image and the Helm chart, and the opt-in delivery image and "
+            "chart, are signed keylessly by the release workflow through GitHub's OIDC "
+            "issuer. Verify each one before installing it:\n"
         )
         out.append("```bash")
         out.append("cosign verify \\")
@@ -1139,15 +1143,16 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
 # installation.md and upgrade.md, so the literal can only ever be the published
 # one and `make docs-check` catches any drift.
 
-def chart_command(chart_unit: dict, verb: str) -> str:
+def chart_command(chart_unit: dict, verb: str, release: str = "pacto-operator",
+                  namespace: str = "pacto-operator-system") -> str:
     """Fenced `helm install|upgrade` block pinned to the published chart version."""
     extra = " --create-namespace" if verb == "install" else ""
     return (
         "```bash\n"
-        f"helm {verb} pacto-operator \\\n"
+        f"helm {verb} {release} \\\n"
         f"  oci://{chart_unit['coordinate']} \\\n"
         f"  --version {chart_unit['version']} \\\n"
-        f"  --namespace pacto-operator-system{extra}\n"
+        f"  --namespace {namespace}{extra}\n"
         "```\n"
     )
 
@@ -1156,6 +1161,13 @@ def gen_chart_command(repo_root: str, verb: str) -> str:
     manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
     return banner("release/release-manifest.json") + chart_command(
         manifest["units"]["operator-chart"], verb
+    )
+
+
+def gen_delivery_install_command(repo_root: str) -> str:
+    manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
+    return banner("release/release-manifest.json") + chart_command(
+        manifest["units"]["delivery-chart"], "install", "pacto-delivery", "pacto-delivery"
     )
 
 
@@ -1204,6 +1216,8 @@ def gen_compatibility(repo_root: str, k8s: str) -> str:
     out.append("| --- | --- | --- |")
     out.append(f"| Operator image | `{units['operator-image']['version']}` | `{pacto_core_req}` |")
     out.append(f"| Operator chart | `{units['operator-chart']['version']}` | `{pacto_core_req}` |")
+    out.append(f"| Delivery image | `{units['delivery-image']['version']}` | `{pacto_core_req}` |")
+    out.append(f"| Delivery chart | `{units['delivery-chart']['version']}` | `{pacto_core_req}` |")
     out.append(f"| Go module | `{units['k8s-module']['version']}` | `{pacto_core_req}` |")
     out.append(f"| Integration docs | `{units['k8s-docs']['version']}` | `{pacto_core_req}` |")
     out.append("")
@@ -1297,6 +1311,7 @@ def main() -> int:
         "_compatibility.md": gen_compatibility(repo_root, k8s),
         "_install-command.md": gen_chart_command(repo_root, "install"),
         "_upgrade-command.md": gen_chart_command(repo_root, "upgrade"),
+        "_delivery-install-command.md": gen_delivery_install_command(repo_root),
         "_crd-apply.md": gen_crd_apply(repo_root),
     }
     for name, content in pages.items():

@@ -57,8 +57,16 @@ automation does not undo it.
 ## Install
 
 The chart needs Flux (source and kustomize controllers) and the Pacto operator.
-The image and the chart are not published yet, so build the image from the
-repository root and install the chart from the checkout:
+Install the published chart at the same version as your operator:
+
+--8<-- "integrations/kubernetes/docs/generated/_delivery-install-command.md"
+
+The chart's default image is `ghcr.io/trianalab/pacto/delivery` at the chart's
+`appVersion`, signed by the release workflow like the operator image. See
+[Published artifacts](artifact-hub.md) to verify it.
+
+To run an unreleased change, build the image from the repository root and
+install the chart from the checkout:
 
 ```bash
 docker build -f integrations/kubernetes/Dockerfile --build-arg CMD=cmd/delivery \

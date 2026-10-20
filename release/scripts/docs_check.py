@@ -538,15 +538,16 @@ def check_coordinates() -> None:
     units = manifest["units"]
     ah = read(os.path.join(K8S, "docs", "generated", "artifact-hub.md"))
     problems = []
-    for uid in ("operator-image", "operator-chart", "k8s-module"):
+    for uid in ("operator-image", "operator-chart", "delivery-image", "delivery-chart", "k8s-module"):
         u = units[uid]
         if u["coordinate"] not in ah:
             problems.append(f"{uid} coordinate {u['coordinate']} absent from artifact-hub.md")
         if u["version"] not in ah:
             problems.append(f"{uid} version {u['version']} absent from artifact-hub.md")
     # Authored install snippets must use the manifest chart coordinate, not a stale one.
-    chart_coord = units["operator-chart"]["coordinate"]
-    for name in ("installation.md", "upgrade.md"):
+    for name, unit in (("installation.md", "operator-chart"), ("upgrade.md", "operator-chart"),
+                       ("delivery.md", "delivery-chart")):
+        chart_coord = units[unit]["coordinate"]
         text = read(os.path.join(K8S, "docs", name))
         for coord in re.findall(r"oci://(ghcr\.io/\S*charts/\S+)", text):
             if coord.rstrip("\\").strip() != chart_coord:
@@ -558,7 +559,8 @@ def check_coordinates() -> None:
         for ver in re.findall(r"--version\s+(\d\S*)", text):
             problems.append(
                 f"{name}: hand-written --version {ver}; include "
-                f"generated/_install-command.md or _upgrade-command.md instead"
+                f"generated/_install-command.md, _upgrade-command.md or "
+                f"_delivery-install-command.md instead"
             )
     # Every pinned image coordinate anywhere on the site, not only the chart's.
     # `ghcr.io/trianalab/pacto/demo:3.2.1` sat in the Compose demo page against a
