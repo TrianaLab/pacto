@@ -23,11 +23,21 @@ const launchCookie = "pacto-launch"
 // Shared: delivery needs an OIDC session, and every mutating request that
 // carries the session cookie must come with the session's CSRF header and a
 // same-origin Origin.
+//
+// Open: shared with no sign-in configured. Nobody is identified, so it serves
+// no delivery data and no actions.
 type Dashboard struct {
 	oidc       *OIDC
+	open       bool
 	launch     string
 	launchCSRF string
 }
+
+// NewOpen is a shared dashboard without sign-in.
+func NewOpen() *Dashboard { return &Dashboard{open: true} }
+
+// Login reports whether people sign in.
+func (d *Dashboard) Login() bool { return d.oidc != nil }
 
 // NewLocal is local mode with a fresh per-launch token.
 func NewLocal() *Dashboard { return &Dashboard{launch: random(32), launchCSRF: random(32)} }
@@ -36,7 +46,7 @@ func NewLocal() *Dashboard { return &Dashboard{launch: random(32), launchCSRF: r
 func NewShared(o *OIDC) *Dashboard { return &Dashboard{oidc: o} }
 
 // Local reports whether this is local mode.
-func (d *Dashboard) Local() bool { return d.oidc == nil }
+func (d *Dashboard) Local() bool { return d.oidc == nil && !d.open }
 
 // LaunchURL is the address to open in local mode: it hands the browser the
 // per-launch token once, and the dashboard moves it into a cookie.
@@ -45,7 +55,7 @@ func (d *Dashboard) LaunchURL(base string) string { return base + "/?token=" + d
 // Routes serves /auth/*: the OIDC endpoints in shared mode, nothing in local
 // mode.
 func (d *Dashboard) Routes() http.Handler {
-	if d.Local() {
+	if !d.Login() {
 		return http.NotFoundHandler()
 	}
 	return d.oidc.Routes()
@@ -102,11 +112,11 @@ func (d *Dashboard) Middleware(next http.Handler) http.Handler {
 		// The Approve button must not be clickjacked.
 		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
 		w.Header().Set("X-Frame-Options", "DENY")
-		var st State
-		var ok bool
-		if d.Local() {
+		st, ok := State{}, true
+		switch {
+		case d.Local():
 			st, ok = d.local(w, r)
-		} else {
+		case d.Login():
 			st, ok = d.shared(w, r)
 		}
 		if ok {

@@ -54,6 +54,7 @@ func deliveryDeps(user string, dynErr error) deps {
 	d.newDynamic = func() (dynamic.Interface, error) {
 		lists := map[schema.GroupVersionResource]string{
 			{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}: "OperationList",
+			{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}:     "StageList",
 			{Group: "pacto.trianalab.io", Version: "v1alpha1", Resource: "pactos"}:              "PactoList",
 		}
 		c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists,
@@ -138,6 +139,7 @@ func TestDeliveryCommandReadVerbs(t *testing.T) {
 		{"text", []string{"get", "-n", "prod", "held"}, false, []string{"question:  Approve?", "reason:    AwaitingHuman: m", "pacto.diff"}},
 		{"text", []string{"get", "-n", "prod", "missing"}, true, nil},
 		{"text", append(plan, "--to", cliB, "--cause-verdict", "{"), true, []string{"--cause-verdict is not a verdict"}},
+		{"text", []string{"propose", "-n", "prod", "--stage", "payments-prod", "--to", cliB, "--cause-verdict", "{"}, true, []string{"--cause-verdict is not a verdict"}},
 		{"text", append(plan, "--to", cliB, "--cause-verdict", `{"gate":"health","result":"Fail"}`), false, []string{"predicted: Waits"}},
 		{"text", []string{"explain", "-n", "prod", "held"}, false, []string{"prod/held", "waits for a person: Approve?",
 			"pacto.diff", "query: {}", "re-run: pacto delivery plan", "stage payments-prod runs " + cliA, "frozen: a rollback failed",

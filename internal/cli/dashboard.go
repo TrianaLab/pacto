@@ -26,7 +26,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 
-func newDashboardCommand(svc *app.Service, v *viper.Viper, version string) *cobra.Command {
+func newDashboardCommand(svc *app.Service, v *viper.Viper, version string, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "dashboard [sources...]",
 		Short: "Start a local web dashboard for exploring service contracts",
@@ -138,7 +138,14 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			}, fleet.ManagerOptions{})
 			go mgr.Start(cmd.Context(), fleetRefreshInterval)
 
-			server := dashboard.NewServer(dashboard.Options{
+			// The cluster config the callers' own clients are built from: its
+			// address and CA, never its credentials. No cluster, no delivery.
+			clusterCfg, _ := d.clusterConfig()
+			identity, err := newDashboardIdentity(v, host, clusterCfg, d)
+			if err != nil {
+				return err
+			}
+			opts := dashboard.Options{
 				UI:   dashboard.EmbeddedUI(),
 				Host: host,
 				Port: port,
@@ -151,12 +158,19 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				Fleet:      managerFleetProvider(mgr),
 				Impact:     impactProviderForFleet(svc, mgr),
 				Refresh:    mgr.Refresh,
-			})
+				MiraURL:    v.GetString("dashboard.mira-url"),
+			}
+			identity.options(&opts)
+			server := dashboard.NewServer(opts)
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 			defer stop()
 
 			addr := fmt.Sprintf("http://%s:%d", displayHost(host), port)
+			if identity.auth.Local() {
+				// The per-launch token: delivery actions in this browser need it.
+				addr = identity.auth.LaunchURL(addr)
+			}
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nPacto Dashboard running at %s\nSources: %s\nPress Ctrl+C to stop\n", addr, strings.Join(configured, ", "))
 
 			return server.Serve(ctx)
@@ -169,6 +183,14 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("cors-origin", "", "explicit cross-origin allowed to call the API (default: same-origin only)")
 	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")
 	cmd.Flags().StringArray("trace-source", nil, "named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)")
+	cmd.Flags().String("oidc-issuer-url", "", "OpenID Connect issuer people sign in with; delivery views and actions then run as the signed-in person (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)")
+	cmd.Flags().String("oidc-client-id", "", "OpenID Connect client id of the dashboard")
+	cmd.Flags().String("oidc-redirect-url", "", "the dashboard's /auth/callback as browsers reach it (https)")
+	cmd.Flags().StringSlice("oidc-extra-scopes", nil, "scopes to ask for beyond openid, profile and groups")
+	cmd.Flags().String("mira-url", "", "Mira's address, to link the health-check citations of delivery verdicts")
+	cmd.Flags().StringSlice("agent-groups", []string{"pacto:agents"}, "groups whose members are agents, as the delivery promoter is configured")
+	cmd.Flags().StringSlice("break-glass-groups", []string{"pacto:break-glass"}, "groups that may override, as the delivery promoter is configured")
+	cmd.Flags().String("team-group-prefix", "", "a contract owner team T is group T or this prefix plus T, as the delivery promoter is configured")
 
 	// Bind to viper so flags can be overridden via PACTO_DASHBOARD_* env vars.
 	_ = v.BindPFlag("dashboard.host", cmd.Flags().Lookup("host"))
@@ -177,6 +199,12 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.cors-origin", cmd.Flags().Lookup("cors-origin"))
 	_ = v.BindPFlag("dashboard.traces", cmd.Flags().Lookup("traces"))
 	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
+	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-extra-scopes", "mira-url",
+		"agent-groups", "break-glass-groups", "team-group-prefix"} {
+		_ = v.BindPFlag("dashboard."+f, cmd.Flags().Lookup(f))
+	}
+	// A secret never goes on a command line, where any process can read it.
+	_ = v.BindEnv("dashboard.oidc-client-secret", "PACTO_DASHBOARD_OIDC_CLIENT_SECRET")
 	// Env-only settings, bound by name so they read the same through any viper.
 	_ = v.BindEnv("dashboard.repo", "PACTO_DASHBOARD_REPO")
 	_ = v.BindEnv("evidence-source-url", "PACTO_EVIDENCE_SOURCE_URL")

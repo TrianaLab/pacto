@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/term"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
@@ -43,6 +44,10 @@ type deps struct {
 	// runAgent blocks until its context ends.
 	newCollector func(ringbuf uint32) (runtimewatch.Collector, error)
 	newDynamic   func() (dynamic.Interface, error)
+	// clusterConfig is the ambient cluster config the dashboard builds callers' clients from (address and CA
+	// only); served asks discovery whether an API group version is installed.
+	clusterConfig func() (*rest.Config, error)
+	served        func(*rest.Config, string) bool
 	// newDeliveryRegistry is the read-only registry `pacto delivery` resolves artifacts through.
 	newDeliveryRegistry func(insecureHosts ...string) app.DeliveryRegistry
 	runAgent            func(context.Context, runtimewatch.Config)
@@ -75,6 +80,8 @@ func defaultDeps() deps {
 		buildStaticExport:   doc.BuildStaticExport,
 		newCollector:        ebpf.New,
 		newDynamic:          k8sclient.NewDynamic,
+		clusterConfig:       k8sclient.Config,
+		served:              k8sclient.Served,
 		newDeliveryRegistry: newDeliveryRegistry,
 		runAgent:            runtimewatch.Run,
 		newDocker:           evalsink.NewDocker,
@@ -241,7 +248,7 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	root.AddCommand(newUpdateCommand(info.Version, update.New()))
 	root.AddCommand(newMCPCommand(svc, info.Version, d))
 	root.AddCommand(newDeliveryCommand(v, d))
-	root.AddCommand(newDashboardCommand(svc, v, info.Version))
+	root.AddCommand(newDashboardCommand(svc, v, info.Version, d))
 	root.AddCommand(newTUICommand(svc, v, d))
 
 	attachBanner(root)

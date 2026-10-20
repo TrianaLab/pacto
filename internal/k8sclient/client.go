@@ -245,3 +245,24 @@ func (b builders) newDynamic() (dynamic.Interface, error) {
 	}
 	return b.dynamic(config)
 }
+
+// Config is the cluster config from in-cluster config or the ambient
+// kubeconfig, with the process's own credentials.
+func Config() (*rest.Config, error) {
+	return defaultBuilders().config()
+}
+
+// Served reports whether the cluster serves the API group version gv,
+// asked with config's own credentials through discovery.
+func Served(config *rest.Config, gv string) bool {
+	return defaultBuilders().served(config, gv)
+}
+
+func (b builders) served(config *rest.Config, gv string) bool {
+	d, err := b.discovery(config)
+	if err != nil {
+		return false
+	}
+	_, err = d.ServerResourcesForGroupVersion(gv)
+	return err == nil
+}

@@ -706,4 +706,25 @@ users:
 	if c, err := NewDynamic(); err != nil || c == nil {
 		t.Fatalf("NewDynamic = %v, %v", c, err)
 	}
+	c, err := Config()
+	if err != nil || c.Host != "https://test:6443" {
+		t.Fatalf("Config = %v, %v", c, err)
+	}
+	if Served(&rest.Config{Host: "http://127.0.0.1:1"}, "delivery.pacto.trianalab.io/v1alpha1") {
+		t.Fatal("an unreachable cluster serves nothing")
+	}
+}
+
+func TestServed(t *testing.T) {
+	b := defaultBuilders()
+	fake := newFakeDiscovery()
+	fake.Resources = []*metav1.APIResourceList{{GroupVersion: "delivery.pacto.trianalab.io/v1alpha1"}}
+	b.discovery = func(*rest.Config) (discovery.DiscoveryInterface, error) { return fake, nil }
+	if !b.served(&rest.Config{}, "delivery.pacto.trianalab.io/v1alpha1") || b.served(&rest.Config{}, "other/v1") {
+		t.Fatal("served answers from discovery")
+	}
+	b.discovery = func(*rest.Config) (discovery.DiscoveryInterface, error) { return nil, fmt.Errorf("no") }
+	if b.served(&rest.Config{}, "x/v1") {
+		t.Fatal("no discovery client, nothing served")
+	}
 }

@@ -132,3 +132,15 @@ func TestSharedMode(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenMode(t *testing.T) {
+	d := NewOpen()
+	var got State
+	rec := serve(d.Middleware(echo(&got)), httptest.NewRequest(http.MethodPost, "http://dash.example/api/delivery/plan", nil))
+	if d.Local() || d.Login() || rec.Code != http.StatusTeapot || got.SignedIn || rec.Header().Get("X-Frame-Options") != "DENY" {
+		t.Fatalf("open mode identifies nobody and still refuses framing: %d %+v", rec.Code, got)
+	}
+	if serve(d.Routes(), httptest.NewRequest(http.MethodGet, "/auth/login", nil)).Code != http.StatusNotFound {
+		t.Fatal("open mode has no login")
+	}
+}
