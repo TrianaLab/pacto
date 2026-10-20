@@ -25,6 +25,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/doc"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
 const outputFormatKey = "output-format"
@@ -50,6 +51,8 @@ type deps struct {
 	setSubreaper        func() error
 	notifySignals       func(chan<- os.Signal, ...os.Signal)
 	resolveBundle       func(svc *app.Service, ctx context.Context, ref string) (*contract.Bundle, error)
+	// publish runs `pacto publish`: it builds, signs and writes to a registry.
+	publish func(svc *app.Service, ctx context.Context, opts app.PublishOptions) (*publish.Result, error)
 	// selfProc is this process's own /proc, read for its network namespace.
 	selfProc runtimewatch.ProcFS
 	// attachTimeout bounds the wait for `pacto run`'s eBPF program before the command starts.
@@ -79,6 +82,7 @@ func defaultDeps() deps {
 		setSubreaper:        ebpf.SetSubreaper,
 		notifySignals:       signal.Notify,
 		resolveBundle:       (*app.Service).ResolveBundle,
+		publish:             (*app.Service).Publish,
 		selfProc:            runtimewatch.OSProcFS{Root: "/proc"},
 		attachTimeout:       10 * time.Second,
 		pollInterval:        time.Second,
@@ -218,6 +222,7 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	root.AddCommand(newDiffCommand(svc, v))
 	root.AddCommand(newPackCommand(svc, v))
 	root.AddCommand(newPushCommand(svc, v))
+	root.AddCommand(newPublishCommand(svc, v, d))
 	root.AddCommand(newPullCommand(svc, v))
 	root.AddCommand(newGraphCommand(svc, v))
 	root.AddCommand(newFleetCommand(svc, v))

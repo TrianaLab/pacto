@@ -19,6 +19,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/catalog"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
 func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
@@ -43,7 +44,9 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"ambient cluster: operation types, describe, plan and get, plus propose and cancel only when the " +
 			"apiserver says the caller is an agent (a service account or an --agent-groups member). There is " +
 			"no approve tool.\n\n" +
-			"A bundle reference, --root, --fleet and --delivery select different servers and cannot be combined.",
+			"With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish " +
+			"a contract's version exactly as `pacto publish` does, with this process's registry credentials.\n\n" +
+			"A bundle reference, --root, --fleet, --delivery and --publish select different servers and cannot be combined.",
 		Example: `  # Start MCP server over stdio (default)
   pacto mcp
 
@@ -68,6 +71,9 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			if delivery, _ := cmd.Flags().GetBool("delivery"); delivery && transport != "stdio" {
 				return errDeliveryOverHTTP
 			}
+			if pub, _ := cmd.Flags().GetBool("publish"); pub && transport != "stdio" {
+				return errPublishOverHTTP
+			}
 			port, _ := cmd.Flags().GetInt("port")
 			server, err := buildMCPServer(cmd, svc, version, args, d)
 			if err != nil {
@@ -85,6 +91,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().Bool("allow-writes", false, "expose mutating operations (POST/PUT/PATCH/DELETE) as tools")
 	cmd.Flags().Bool("fleet", false, "expose read-only operational-graph (fleet) query tools")
 	cmd.Flags().Bool("delivery", false, "expose the Pacto delivery tools over the ambient cluster")
+	cmd.Flags().Bool("publish", false, "expose pacto_publish_plan and pacto_publish beside the authoring tools")
 	cmd.Flags().StringSlice("agent-groups", []string{"pacto:agents"}, "in --delivery mode: groups whose members are agents")
 	cmd.Flags().StringSlice("break-glass-groups", []string{"pacto:break-glass"}, "in --delivery mode: groups that may override")
 	// Declared before the shared set so this spelling wins: here --root selects a
@@ -104,15 +111,18 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 	roots, _ := cmd.Flags().GetStringArray("root")
 	fleetMode, _ := cmd.Flags().GetBool("fleet")
 	deliveryMode, _ := cmd.Flags().GetBool("delivery")
+	publishMode, _ := cmd.Flags().GetBool("publish")
 	// The mode is selected by --root being present, not by the values surviving:
 	// pflag round-trips a repeated flag through CSV, so a lone `--root ""` comes
 	// back as no roots at all. That has to fail, not turn into a different server.
 	catalogMode := cmd.Flags().Changed("root")
-	if err := checkMCPMode(len(args) > 0, catalogMode, fleetMode, deliveryMode); err != nil {
+	if err := checkMCPMode(len(args) > 0, catalogMode, fleetMode, deliveryMode, publishMode); err != nil {
 		return nil, err
 	}
 
 	switch {
+	case publishMode:
+		return pactomcp.NewPublishServer(version, mcpPublish(svc, d), svc.ValidationReport), nil
 	case deliveryMode:
 		return buildDeliveryServer(cmd, svc, version, d)
 	case catalogMode:
@@ -136,7 +146,7 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 // checkMCPMode rejects an invocation that selects more than one server. The
 // modes expose disjoint surfaces, so honouring one and dropping the rest would
 // hand a client a server it did not ask for; saying so is the only safe answer.
-func checkMCPMode(hasBundle, hasRoots, fleetMode, deliveryMode bool) error {
+func checkMCPMode(hasBundle, hasRoots, fleetMode, deliveryMode, publishMode bool) error {
 	var selected []string
 	if hasBundle {
 		selected = append(selected, "a bundle reference")
@@ -149,6 +159,9 @@ func checkMCPMode(hasBundle, hasRoots, fleetMode, deliveryMode bool) error {
 	}
 	if deliveryMode {
 		selected = append(selected, "--delivery")
+	}
+	if publishMode {
+		selected = append(selected, "--publish")
 	}
 	if len(selected) > 1 {
 		return fmt.Errorf("%s cannot be combined: each selects a different MCP server, so pass only one",
@@ -201,6 +214,18 @@ func checkMCPTransport(transport string) error {
 // apiserver (design M3); until then delivery is stdio only.
 var errDeliveryOverHTTP = errors.New("--delivery serves stdio only: over HTTP every caller would act as this process's " +
 	"identity; run `pacto mcp --delivery` beside the agent, under the agent's own credentials")
+
+// errPublishOverHTTP refuses to serve the publish tools to remote callers:
+// every caller would publish with this process's registry credentials.
+var errPublishOverHTTP = errors.New("--publish serves stdio only: over HTTP every caller would publish with this process's " +
+	"registry credentials; run `pacto mcp --publish` beside the agent, under the agent's own credentials")
+
+// mcpPublish adapts Service.Publish to the publish tools.
+func mcpPublish(svc *app.Service, d deps) pactomcp.PublishFunc {
+	return func(ctx context.Context, path, revision string, plan bool) (*publish.Result, error) {
+		return d.publish(svc, ctx, app.PublishOptions{Path: path, Revision: revision, Plan: plan})
+	}
+}
 
 // errRootNeedsRef is returned when catalog mode was selected without a usable
 // reference. An empty root set fails closed: an empty catalog would otherwise

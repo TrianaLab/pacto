@@ -42,6 +42,7 @@ var excludedFromTUI = map[string]string{
 	"evidence verify": "key material handling belongs at a shell prompt, not behind a keystroke",
 	"init":            "scaffolds a new bundle; there is no fleet entity to select yet",
 	"pack":            "a build step for pipelines, with no reading to do afterwards",
+	"publish":         "builds, signs and writes to a registry; a pipeline step, and the TUI never acts",
 	"otel observe":    "a long-running collector",
 	"fleet snapshot":  "writes a snapshot file; the TUI already holds the snapshot in memory",
 	"login":           "reads a secret from the terminal it does not own under an alt screen",

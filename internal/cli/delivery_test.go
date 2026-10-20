@@ -208,7 +208,7 @@ func TestMCPDeliveryMode(t *testing.T) {
 	if _, err := buildMCPServer(cmd, app.NewService(nil, nil), "v", nil, broken); err == nil {
 		t.Fatal("whoami failure must fail")
 	}
-	if err := checkMCPMode(false, false, true, true); err == nil || !strings.Contains(err.Error(), "--delivery") {
+	if err := checkMCPMode(false, false, true, true, false); err == nil || !strings.Contains(err.Error(), "--delivery") {
 		t.Fatalf("modes: %v", err)
 	}
 	c, _, _ := deliveryClient(cmd, deliveryDeps("alice", nil))
