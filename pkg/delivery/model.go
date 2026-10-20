@@ -130,6 +130,9 @@ type Gates struct {
 	Verify VerifyGates `json:"verify,omitzero"`
 }
 
+// ponytail: one switch, not the design's CEL predicate; add CEL when a team
+// needs a floor that depends on the change.
+
 // ApprovalPolicy can only raise the approval floor, never lower it.
 type ApprovalPolicy struct {
 	// Always holds every promote for a human, whatever the contracts say.

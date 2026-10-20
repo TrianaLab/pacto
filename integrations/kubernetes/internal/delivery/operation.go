@@ -310,6 +310,8 @@ func (r *OperationReconciler) held(ctx context.Context, op *dv1.Operation, stage
 // one is bound to this uid and intent digest, comes from a person who is
 // neither the actor nor whoever the actor acts for, and was given within
 // authFreshness of that person's login.
+// ponytail: the question is routed to the consumer's owners, but any person may
+// answer it; enforce membership once owners map to identity-provider groups.
 func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) *delivery.ApprovalRecord {
 	list := &dv1.ApprovalList{}
 	if err := r.List(ctx, list, client.InNamespace(op.Namespace)); err != nil {
@@ -565,6 +567,9 @@ func (r *OperationReconciler) verdict(ctx context.Context, op *dv1.Operation, st
 }
 
 // preempted reports whether a rollback or override took this operation's lock.
+// ponytail: the preempted operation concludes itself on its next reconcile,
+// not inside the preempting compare-and-swap; seq order can differ from the
+// design's until records (M3) depend on it.
 func preempted(op *dv1.Operation, stage *dv1.Stage) bool {
 	return stage.Status.Locks[op.Spec.Facet] != string(op.UID)
 }
