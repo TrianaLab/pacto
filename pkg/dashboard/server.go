@@ -176,7 +176,7 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 	mux := http.NewServeMux()
 
 	s.registerAPI(mux)
-	var handler http.Handler = withRequest(mux)
+	handler := withRequest(mux)
 	if a := s.opts.Auth; a != nil {
 		mux.Handle("/auth/", a.Routes)
 		handler = a.Middleware(handler)

@@ -21,29 +21,48 @@ func serve(h http.Handler, r *http.Request) *httptest.ResponseRecorder {
 	return rec
 }
 
-func TestLocalMode(t *testing.T) {
+// expect fails the test unless ok.
+func expect(t *testing.T, ok bool, format string, args ...any) {
+	t.Helper()
+	if !ok {
+		t.Fatalf(format, args...)
+	}
+}
+
+// launched is a local dashboard and the launch cookie its URL set.
+func launched(t *testing.T) (*Dashboard, *http.Cookie) {
+	t.Helper()
+	d := NewLocal()
+	rec := serve(d.Middleware(echo(&State{})), httptest.NewRequest(http.MethodGet, "http://127.0.0.1:3000/?token="+d.launch+"&x=1", nil))
+	return d, cookieNamed(t, rec, launchCookie)
+}
+
+func TestLocalLaunch(t *testing.T) {
 	d := NewLocal()
 	var got State
 	h := d.Middleware(echo(&got))
-	if !d.Local() || !strings.HasSuffix(d.LaunchURL("http://127.0.0.1:3000"), "/?token="+d.launch) {
-		t.Fatal("local launch URL")
-	}
+	expect(t, d.Local(), "local")
+	expect(t, strings.HasSuffix(d.LaunchURL("http://127.0.0.1:3000"), "/?token="+d.launch), "local launch URL")
 	// The launch URL moves the token into an HttpOnly cookie and drops it from the address.
 	rec := serve(h, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:3000/?token="+d.launch+"&x=1", nil))
 	c := cookieNamed(t, rec, launchCookie)
-	if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != "/?x=1" || !c.HttpOnly || c.SameSite != http.SameSiteStrictMode {
-		t.Fatalf("launch: %d %q %+v", rec.Code, rec.Header().Get("Location"), c)
-	}
-	if rec.Header().Get("X-Frame-Options") != "DENY" || rec.Header().Get("Content-Security-Policy") != "frame-ancestors 'none'" {
-		t.Fatal("every answer refuses framing")
-	}
-	if serve(h, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:3000/?token=wrong", nil)).Code != http.StatusForbidden {
-		t.Fatal("a wrong launch token is refused")
-	}
+	expect(t, rec.Code == http.StatusSeeOther, "launch status %d", rec.Code)
+	expect(t, rec.Header().Get("Location") == "/?x=1", "launch location %q", rec.Header().Get("Location"))
+	expect(t, c.HttpOnly && c.SameSite == http.SameSiteStrictMode, "launch cookie %+v", c)
+	expect(t, rec.Header().Get("X-Frame-Options") == "DENY", "every answer refuses framing")
+	expect(t, rec.Header().Get("Content-Security-Policy") == "frame-ancestors 'none'", "every answer refuses framing")
+	rec = serve(h, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:3000/?token=wrong", nil))
+	expect(t, rec.Code == http.StatusForbidden, "a wrong launch token is refused")
 	// Reads outside delivery pass without the cookie.
-	if serve(h, httptest.NewRequest(http.MethodGet, "http://evil.example/api/fleet/snapshot", nil)).Code != http.StatusTeapot || got.SignedIn {
-		t.Fatal("fleet reads are unchanged")
-	}
+	rec = serve(h, httptest.NewRequest(http.MethodGet, "http://evil.example/api/fleet/snapshot", nil))
+	expect(t, rec.Code == http.StatusTeapot && !got.SignedIn, "fleet reads are unchanged")
+	expect(t, serve(d.Routes(), httptest.NewRequest(http.MethodGet, "/auth/login", nil)).Code == http.StatusNotFound, "local mode has no login")
+}
+
+func TestLocalGuards(t *testing.T) {
+	d, c := launched(t)
+	var got State
+	h := d.Middleware(echo(&got))
 	req := func(method, host string, withCookie bool, csrf, origin string) *http.Request {
 		r := httptest.NewRequest(method, "http://"+host+"/api/delivery/operations", nil)
 		if withCookie {
@@ -70,17 +89,12 @@ func TestLocalMode(t *testing.T) {
 		{"action", req(http.MethodPost, "[::1]:3000", true, d.launchCSRF, "http://[::1]:3000"), http.StatusTeapot},
 	}
 	for _, tc := range cases {
-		if got := serve(h, tc.r).Code; got != tc.want {
-			t.Errorf("%s: %d, want %d", tc.name, got, tc.want)
-		}
+		code := serve(h, tc.r).Code
+		expect(t, code == tc.want, "%s: %d, want %d", tc.name, code, tc.want)
 	}
 	serve(h, req(http.MethodGet, "127.0.0.1", true, "", ""))
-	if !got.SignedIn || got.CSRF != d.launchCSRF || got.CSRF == d.launch || got.Token != "" {
-		t.Fatalf("local state %+v must never carry the launch token", got)
-	}
-	if d.Routes() == nil || serve(d.Routes(), httptest.NewRequest(http.MethodGet, "/auth/login", nil)).Code != http.StatusNotFound {
-		t.Fatal("local mode has no login")
-	}
+	expect(t, got.SignedIn && got.CSRF == d.launchCSRF, "local state %+v", got)
+	expect(t, got.CSRF != d.launch && got.Token == "", "local state %+v must never carry the launch token", got)
 }
 
 func TestSharedMode(t *testing.T) {

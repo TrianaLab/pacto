@@ -170,7 +170,7 @@ func remoteDeliveryFor(cmd *cobra.Command, svc *app.Service, version string, d d
 	agents, _ := cmd.Flags().GetStringSlice("agent-groups")
 	breakGlass, _ := cmd.Flags().GetStringSlice("break-glass-groups")
 	rd := remoteDelivery{auth: s.auth, cluster: cluster, registry: d.newDeliveryRegistry, newClient: d.dynamicFor,
-		policy:    delivery.ClassPolicy{AgentGroups: agents, BreakGlassGroups: breakGlass},
+		policy: delivery.ClassPolicy{AgentGroups: agents, BreakGlassGroups: breakGlass},
 		build: func(api pactomcp.DeliveryAPI, writes bool) *mcpsdk.Server {
 			return pactomcp.NewDeliveryServer(version, api, writes, svc.ValidationReport)
 		}}

@@ -536,7 +536,9 @@ func (s *Server) deliveryPublished(ctx context.Context, _ *struct{}) (*published
 		for _, v := range versions {
 			ps.Versions = append(ps.Versions, *v)
 		}
-		slices.SortFunc(ps.Versions, func(a, b PublishedVersion) int { return cmp.Or(cmp.Compare(b.Version, a.Version), cmp.Compare(a.Digest, b.Digest)) })
+		slices.SortFunc(ps.Versions, func(a, b PublishedVersion) int {
+			return cmp.Or(cmp.Compare(b.Version, a.Version), cmp.Compare(a.Digest, b.Digest))
+		})
 		out.Body.Services = append(out.Body.Services, ps)
 	}
 	slices.SortFunc(out.Body.Services, func(a, b PublishedService) int { return cmp.Compare(a.Service, b.Service) })

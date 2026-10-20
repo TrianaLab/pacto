@@ -99,37 +99,34 @@ func TestLoginAsksForWhatTheDesignNeeds(t *testing.T) {
 	}
 }
 
-func TestCallbackCreatesASessionAndRotatesOnFreshLogin(t *testing.T) {
+func TestCallbackCreatesASession(t *testing.T) {
 	f := newIdP(t)
 	o := newTestOIDC(t, f)
 	cb := login(t, o, f, "return=/x")
-	if cb.Code != http.StatusFound || cb.Header().Get("Location") != "/x" {
-		t.Fatalf("callback %d %s", cb.Code, cb.Body)
-	}
+	expect(t, cb.Code == http.StatusFound && cb.Header().Get("Location") == "/x", "callback %d %s", cb.Code, cb.Body)
 	c := cookieNamed(t, cb, SessionCookie)
-	if !c.Secure || !c.HttpOnly || c.SameSite != http.SameSiteLaxMode || c.Path != "/" || len(c.Value) != 64 {
-		t.Fatalf("session cookie %+v", c)
-	}
+	expect(t, c.Secure && c.HttpOnly && c.SameSite == http.SameSiteLaxMode, "session cookie %+v", c)
+	expect(t, c.Path == "/" && len(c.Value) == 64, "session cookie %+v", c)
 	s := o.Session(withCookie(c))
-	if s == nil || s.Fresh || s.IDToken() == "" || s.CSRF == "" {
-		t.Fatalf("session %+v", s)
-	}
+	expect(t, s != nil && !s.Fresh, "session %+v", s)
+	expect(t, s.IDToken() != "" && s.CSRF != "", "session %+v", s)
 	var buf bytes.Buffer
 	slog.New(slog.NewJSONHandler(&buf, nil)).Info("x", "session", s)
-	if strings.Contains(buf.String(), s.IDToken()) || strings.Contains(buf.String(), s.CSRF) || strings.Contains(buf.String(), c.Value) {
-		t.Fatalf("a session leaked a secret into a log: %s", buf.String())
+	for _, secret := range []string{s.IDToken(), s.CSRF, c.Value} {
+		expect(t, !strings.Contains(buf.String(), secret), "a session leaked a secret into a log: %s", buf.String())
 	}
-	fresh := login(t, o, f, "fresh=1", c)
-	nc := cookieNamed(t, fresh, SessionCookie)
-	if nc.Value == c.Value || o.Session(withCookie(c)) != nil {
-		t.Fatal("a fresh login must rotate the session id and invalidate the old one")
-	}
-	if s := o.Session(withCookie(nc)); s == nil || !s.Fresh {
-		t.Fatalf("the fresh session %+v", s)
-	}
-	if len(f.revoked) != 1 || f.revoked[0] == "" {
-		t.Fatalf("the old session's refresh token must be revoked: %v", f.revoked)
-	}
+}
+
+func TestFreshLoginRotatesTheSession(t *testing.T) {
+	f := newIdP(t)
+	o := newTestOIDC(t, f)
+	c := cookieNamed(t, login(t, o, f, ""), SessionCookie)
+	nc := cookieNamed(t, login(t, o, f, "fresh=1", c), SessionCookie)
+	expect(t, nc.Value != c.Value, "a fresh login must rotate the session id")
+	expect(t, o.Session(withCookie(c)) == nil, "the old session must be invalidated")
+	s := o.Session(withCookie(nc))
+	expect(t, s != nil && s.Fresh, "the fresh session %+v", s)
+	expect(t, len(f.revoked) == 1 && f.revoked[0] != "", "the old session's refresh token must be revoked: %v", f.revoked)
 }
 
 func TestCallbackRefusals(t *testing.T) {

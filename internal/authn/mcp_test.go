@@ -59,53 +59,46 @@ func TestMCPExchange(t *testing.T) {
 	tok := f.accessToken("pacto-mcp", time.Now().Add(time.Hour))
 	info, _ := m.Verify(context.Background(), tok, nil)
 	got, err := m.Exchange(context.Background(), info)
-	if err != nil || got != "exchanged-pacto-cli" {
-		t.Fatalf("exchange: %q %v", got, err)
-	}
+	expect(t, err == nil && got == "exchanged-pacto-cli", "exchange: %q %v", got, err)
 	ex := f.exchanges[0]
-	if ex.Get("grant_type") != "urn:ietf:params:oauth:grant-type:token-exchange" || ex.Get("subject_token") != tok ||
-		ex.Get("subject_token_type") != "urn:ietf:params:oauth:token-type:access_token" || ex.Get("audience") != "pacto-cli" {
-		t.Fatalf("exchange request %v", ex)
-	}
-	if _, _ = m.Exchange(context.Background(), info); len(f.exchanges) != 1 {
-		t.Fatal("a second call within the lifetime is cached")
-	}
+	expect(t, ex.Get("grant_type") == "urn:ietf:params:oauth:grant-type:token-exchange", "grant %v", ex)
+	expect(t, ex.Get("subject_token") == tok, "subject %v", ex)
+	expect(t, ex.Get("subject_token_type") == "urn:ietf:params:oauth:token-type:access_token", "type %v", ex)
+	expect(t, ex.Get("audience") == "pacto-cli", "audience %v", ex)
+	_, _ = m.Exchange(context.Background(), info)
+	expect(t, len(f.exchanges) == 1, "a second call within the lifetime is cached")
 	// The cache ends at the earlier expiry: here the exchanged token's 60s.
 	m.now = func() time.Time { return time.Now().Add(2 * time.Minute) }
-	if _, _ = m.Exchange(context.Background(), info); len(f.exchanges) != 2 || len(m.cache) != 1 {
-		t.Fatalf("an expired cache entry is dropped and exchanged again: %d %d", len(f.exchanges), len(m.cache))
-	}
+	_, _ = m.Exchange(context.Background(), info)
+	expect(t, len(f.exchanges) == 2 && len(m.cache) == 1, "an expired cache entry is dropped and exchanged again: %d %d", len(f.exchanges), len(m.cache))
 	m.now = time.Now
 	// An exchange with no expires_in is cached until the subject token expires.
 	f.exchangeOut = map[string]any{"access_token": "long"}
 	info2 := &auth.TokenInfo{Expiration: time.Now().Add(time.Minute), Extra: map[string]any{rawTokenKey: "other"}}
-	if got, _ := m.Exchange(context.Background(), info2); got != "long" || !m.cache[keyOf("other")].until.Equal(info2.Expiration) {
-		t.Fatal("no expires_in: cached until the subject expires")
+	got, _ = m.Exchange(context.Background(), info2)
+	expect(t, got == "long" && m.cache[keyOf("other")].until.Equal(info2.Expiration), "no expires_in: cached until the subject expires")
+}
+
+func TestMCPExchangeFailures(t *testing.T) {
+	f := newIdP(t)
+	m := newTestMCP(t, f, "pacto-mcp")
+	exchange := func(token string) error {
+		_, err := m.Exchange(context.Background(), &auth.TokenInfo{Extra: map[string]any{rawTokenKey: token}})
+		return err
 	}
 	f.exchangeOut = map[string]any{"token_type": "x"}
-	if _, err := m.Exchange(context.Background(), &auth.TokenInfo{Extra: map[string]any{rawTokenKey: "empty"}}); err == nil {
-		t.Fatal("an exchange answer with no token is an error")
-	}
+	expect(t, exchange("empty") != nil, "an exchange answer with no token is an error")
 	f.tokenStatus = http.StatusForbidden
-	if _, err := m.Exchange(context.Background(), &auth.TokenInfo{Extra: map[string]any{rawTokenKey: "refused"}}); err == nil ||
-		!strings.Contains(err.Error(), "invalid_grant nope") {
-		t.Fatalf("the IdP's refusal is passed on: %v", err)
-	}
+	err := exchange("refused")
+	expect(t, err != nil && strings.Contains(err.Error(), "invalid_grant nope"), "the IdP's refusal is passed on: %v", err)
 	m.tokenURL = "http://127.0.0.1:1/token"
-	if _, err := m.Exchange(context.Background(), &auth.TokenInfo{Extra: map[string]any{rawTokenKey: "down"}}); err == nil {
-		t.Fatal("an unreachable token endpoint is an error")
-	}
+	expect(t, exchange("down") != nil, "an unreachable token endpoint is an error")
 	m.tokenURL = "://bad"
-	if _, err := m.Exchange(context.Background(), &auth.TokenInfo{Extra: map[string]any{rawTokenKey: "bad"}}); err == nil {
-		t.Fatal("a malformed token endpoint is an error")
-	}
+	expect(t, exchange("bad") != nil, "a malformed token endpoint is an error")
 	none := newTestMCP(t, f, "")
-	if none.CanExchange() {
-		t.Fatal("no client, no exchange")
-	}
-	if _, err := none.Exchange(context.Background(), info); err == nil {
-		t.Fatal("exchange without a client is refused")
-	}
+	expect(t, !none.CanExchange(), "no client, no exchange")
+	_, err = none.Exchange(context.Background(), &auth.TokenInfo{})
+	expect(t, err != nil, "exchange without a client is refused")
 }
 
 func keyOf(s string) [32]byte { return sha256.Sum256([]byte(s)) }

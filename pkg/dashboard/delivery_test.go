@@ -213,55 +213,58 @@ func person(groups ...string) delivery.Caller {
 		AuthTime: strconv.FormatInt(time.Now().Add(-time.Minute).Unix(), 10)}
 }
 
-func TestCapabilitiesAndSession(t *testing.T) {
+// expect fails the test unless ok.
+func expect(t *testing.T, ok bool, format string, args ...any) {
+	t.Helper()
+	if !ok {
+		t.Fatalf(format, args...)
+	}
+}
+
+func TestCapabilitiesAndSessionSignedIn(t *testing.T) {
 	a := &authed{state: AuthState{SignedIn: true, Fresh: true, CSRF: "c"}}
 	f := &fakeDelivery{caller: person("team-payments")}
 	base := startDelivery(t, f, a.auth(false, true), true, nil)
 	_, caps := call(t, http.MethodGet, base+"/api/capabilities", nil)
 	auth, _ := caps["auth"].(map[string]any)
-	if caps["delivery"] != true || caps["miraURL"] != "http://mira" || auth["mode"] != "shared" || auth["login"] != true || auth["signedIn"] != true {
-		t.Fatalf("capabilities %v", caps)
-	}
+	expect(t, caps["delivery"] == true && caps["miraURL"] == "http://mira", "capabilities %v", caps)
+	expect(t, auth["mode"] == "shared" && auth["login"] == true && auth["signedIn"] == true, "capabilities %v", caps)
 	_, sess := call(t, http.MethodGet, base+"/api/session", nil)
 	caller, _ := sess["caller"].(map[string]any)
-	if sess["mode"] != "shared" || sess["fresh"] != true || sess["csrf"] != "c" || caller["user"] != "https://idp#carol" {
-		t.Fatalf("session %v", sess)
-	}
-	if code, _ := call(t, http.MethodGet, base+"/auth/login", nil); code != http.StatusTeapot {
-		t.Fatalf("/auth/* goes to the identity layer: %d", code)
-	}
+	expect(t, sess["mode"] == "shared" && sess["fresh"] == true, "session %v", sess)
+	expect(t, sess["csrf"] == "c" && caller["user"] == "https://idp#carol", "session %v", sess)
+	code, _ := call(t, http.MethodGet, base+"/auth/login", nil)
+	expect(t, code == http.StatusTeapot, "/auth/* goes to the identity layer: %d", code)
 	f.callerErr = errors.New("apiserver down")
-	if _, sess = call(t, http.MethodGet, base+"/api/session", nil); sess["callerError"] != "apiserver down" {
-		t.Fatalf("a WhoAmI failure is reported: %v", sess)
-	}
+	_, sess = call(t, http.MethodGet, base+"/api/session", nil)
+	expect(t, sess["callerError"] == "apiserver down", "a WhoAmI failure is reported: %v", sess)
+}
+
+func TestCapabilitiesAndSessionWithoutDelivery(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	f := &fakeDelivery{caller: person()}
 	// Shared without sign-in: no delivery.
-	base = startDelivery(t, f, a.auth(false, false), true, nil)
-	if _, caps = call(t, http.MethodGet, base+"/api/capabilities", nil); caps["delivery"] != false {
-		t.Fatalf("a shared dashboard without sign-in has no delivery: %v", caps)
-	}
-	// Local mode, signed in, a factory that refuses.
+	base := startDelivery(t, f, a.auth(false, false), true, nil)
+	_, caps := call(t, http.MethodGet, base+"/api/capabilities", nil)
+	expect(t, caps["delivery"] == false, "a shared dashboard without sign-in has no delivery: %v", caps)
+	// Local mode, delivery not installed.
 	base = startDelivery(t, f, a.auth(true, false), false, Refuse(http.StatusUnauthorized, "LoginRequired", "sign in"))
-	if _, caps = call(t, http.MethodGet, base+"/api/capabilities", nil); caps["delivery"] != false || caps["auth"].(map[string]any)["mode"] != "local" {
-		t.Fatalf("delivery not installed: %v", caps)
-	}
-	if _, sess = call(t, http.MethodGet, base+"/api/session", nil); sess["mode"] != "local" || sess["caller"] != nil {
-		t.Fatalf("no caller when delivery is not installed: %v", sess)
-	}
+	_, caps = call(t, http.MethodGet, base+"/api/capabilities", nil)
+	expect(t, caps["delivery"] == false && caps["auth"].(map[string]any)["mode"] == "local", "delivery not installed: %v", caps)
+	_, sess := call(t, http.MethodGet, base+"/api/session", nil)
+	expect(t, sess["mode"] == "local" && sess["caller"] == nil, "no caller when delivery is not installed: %v", sess)
+	// A factory that refuses is reported.
 	base = startDelivery(t, f, a.auth(true, false), true, Refuse(http.StatusUnauthorized, "LoginRequired", "sign in"))
-	if _, sess = call(t, http.MethodGet, base+"/api/session", nil); !strings.Contains(sess["callerError"].(string), "LoginRequired") {
-		t.Fatalf("a factory refusal is reported: %v", sess)
-	}
+	_, sess = call(t, http.MethodGet, base+"/api/session", nil)
+	expect(t, strings.Contains(sess["callerError"].(string), "LoginRequired"), "a factory refusal is reported: %v", sess)
 	// No identity layer at all.
 	srv := startServer(t, NewServer(Options{UI: testUI()}))
-	if _, sess = call(t, http.MethodGet, srv+"/api/session", nil); sess["mode"] != "none" {
-		t.Fatalf("no auth: %v", sess)
-	}
-	if _, caps = call(t, http.MethodGet, srv+"/api/capabilities", nil); caps["delivery"] != false || caps["auth"].(map[string]any)["mode"] != "none" {
-		t.Fatalf("no auth: %v", caps)
-	}
-	if code, _ := call(t, http.MethodGet, srv+"/api/delivery/inbox", nil); code != http.StatusNotFound {
-		t.Fatalf("no delivery provider registers no delivery route: %d", code)
-	}
+	_, sess = call(t, http.MethodGet, srv+"/api/session", nil)
+	expect(t, sess["mode"] == "none", "no auth: %v", sess)
+	_, caps = call(t, http.MethodGet, srv+"/api/capabilities", nil)
+	expect(t, caps["delivery"] == false && caps["auth"].(map[string]any)["mode"] == "none", "no auth: %v", caps)
+	code, _ := call(t, http.MethodGet, srv+"/api/delivery/inbox", nil)
+	expect(t, code == http.StatusNotFound, "no delivery provider registers no delivery route: %d", code)
 }
 
 func TestDeliveryNotInstalledAndRefusals(t *testing.T) {
@@ -286,9 +289,9 @@ func TestDeliveryNotInstalledAndRefusals(t *testing.T) {
 	}
 }
 
-func TestInboxEnvironmentsPublished(t *testing.T) {
-	a := &authed{state: AuthState{SignedIn: true}}
-	f := &fakeDelivery{caller: person("acme:team-checkout"),
+// sampleCluster is three Stages and the operations on them.
+func sampleCluster(groups ...string) *fakeDelivery {
+	return &fakeDelivery{caller: person(groups...),
 		stages: []delivery.StageObject{
 			stage("prod", "payments", "payments", delivery.StageStatus{Pointer: dRun, Verified: []string{dRun}, Published: []string{dRun, dNext},
 				Candidate: dNext, Frozen: true, FrozenReason: "Errored", Conditions: []delivery.Condition{{Type: "Ready", Status: "True"}}}),
@@ -303,56 +306,62 @@ func TestInboxEnvironmentsPublished(t *testing.T) {
 			operation("books", "broke", "ledger", delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Errored}),
 			operation("other", "broke-too", "orphan", delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Errored}),
 		}}
-	base := startDelivery(t, f, a.auth(false, true), true, nil)
+}
+
+func names(items any) string {
+	var out []string
+	for _, it := range items.([]any) {
+		m := it.(map[string]any)
+		out = append(out, m["name"].(string)+":"+m["decision"].(string))
+	}
+	return strings.Join(out, ",")
+}
+
+func TestInbox(t *testing.T) {
+	f := sampleCluster("acme:team-checkout")
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
 	_, inbox := call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
-	names := func(key string) string {
-		var out []string
-		for _, it := range inbox[key].([]any) {
-			m := it.(map[string]any)
-			out = append(out, m["name"].(string)+m["stage"].(string)+":"+strings.Trim(m["decision"].(string)+"", " "))
-		}
-		return strings.Join(out, ",")
-	}
-	if inbox["completeness"] != "complete" || names("held") != "for-checkoutpayments:approve,anyonepayments:accept-unknown" {
-		t.Fatalf("held: only what names my team (or nobody), as accept-unknown once it shipped: %v", inbox["held"])
-	}
-	frozen := inbox["frozen"].([]any)
-	if len(frozen) != 0 {
-		t.Fatalf("frozen Stages of other teams' services are not mine: %v", frozen)
-	}
-	if errored := inbox["errored"].([]any); len(errored) != 1 || errored[0].(map[string]any)["name"] != "broke-too" {
-		t.Fatalf("errored: only services I own or nobody is known to own: %v", errored)
-	}
+	expect(t, inbox["completeness"] == "complete", "inbox %v", inbox)
+	expect(t, names(inbox["held"]) == "for-checkout:approve,anyone:accept-unknown",
+		"held: only what names my team (or nobody), as accept-unknown once it shipped: %v", inbox["held"])
+	expect(t, len(inbox["frozen"].([]any)) == 0, "frozen Stages of other teams' services are not mine: %v", inbox["frozen"])
+	errored := inbox["errored"].([]any)
+	expect(t, len(errored) == 1 && errored[0].(map[string]any)["name"] == "broke-too",
+		"errored: only services I own or nobody is known to own: %v", errored)
 	f.caller = person("team-payments")
 	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
-	if fr := inbox["frozen"].([]any); len(fr) != 1 || fr[0].(map[string]any)["service"] != "payments" {
-		t.Fatalf("the frozen Stage of my service: %v", fr)
-	}
+	fr := inbox["frozen"].([]any)
+	expect(t, len(fr) == 1 && fr[0].(map[string]any)["service"] == "payments", "the frozen Stage of my service: %v", fr)
+}
+
+func TestEnvironments(t *testing.T) {
+	f := sampleCluster("team-payments")
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
 	_, envs := call(t, http.MethodGet, base+"/api/delivery/environments", nil)
 	rows := envs["environments"].([]any)
 	pay := rows[2].(map[string]any)
-	if len(rows) != 3 || pay["service"] != "payments" || pay["version"] != "1.0.0" || pay["verified"] != true || pay["held"] != float64(3) ||
-		pay["ready"] != "True" || strings.Join(toStrings(pay["actions"]), ",") != "promote,unfreeze" {
-		t.Fatalf("environments %v", rows)
-	}
-	if led := rows[0].(map[string]any); led["service"] != "ledger" || led["failed"] != false {
-		t.Fatalf("ledger row %v", led)
-	}
-	_, pub := call(t, http.MethodGet, base+"/api/delivery/published", nil)
-	svcs := pub["services"].([]any)
-	payments := svcs[2].(map[string]any)
-	versions := payments["versions"].([]any)
-	first := versions[0].(map[string]any)
-	if payments["service"] != "payments" || len(versions) != 2 || first["version"] != "1.0.0" || first["signed"] != true ||
-		first["contract"] != "oci://r/payments@sha256:c" || first["stages"].([]any)[0].(map[string]any)["running"] != true {
-		t.Fatalf("published %v", payments)
-	}
+	expect(t, len(rows) == 3 && pay["service"] == "payments" && pay["version"] == "1.0.0", "environments %v", rows)
+	expect(t, pay["verified"] == true && pay["held"] == float64(3) && pay["ready"] == "True", "environments %v", rows)
+	expect(t, strings.Join(toStrings(pay["actions"]), ",") == "promote,unfreeze", "actions %v", pay["actions"])
+	led := rows[0].(map[string]any)
+	expect(t, led["service"] == "ledger" && led["failed"] == false, "ledger row %v", led)
 	// An agent may promote but never unfreeze.
 	f.caller = delivery.Caller{Identity: delivery.Identity{User: "system:serviceaccount:a:b"}, Class: delivery.ClassAgent}
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
-	if strings.Join(toStrings(envs["environments"].([]any)[2].(map[string]any)["actions"]), ",") != "promote" {
-		t.Fatalf("agent actions %v", envs)
-	}
+	got := strings.Join(toStrings(envs["environments"].([]any)[2].(map[string]any)["actions"]), ",")
+	expect(t, got == "promote", "agent actions %v", got)
+}
+
+func TestPublished(t *testing.T) {
+	f := sampleCluster("team-payments")
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, pub := call(t, http.MethodGet, base+"/api/delivery/published", nil)
+	payments := pub["services"].([]any)[2].(map[string]any)
+	versions := payments["versions"].([]any)
+	first := versions[0].(map[string]any)
+	expect(t, payments["service"] == "payments" && len(versions) == 2, "published %v", payments)
+	expect(t, first["version"] == "1.0.0" && first["signed"] == true && first["contract"] == "oci://r/payments@sha256:c", "published %v", first)
+	expect(t, first["stages"].([]any)[0].(map[string]any)["running"] == true, "published %v", first)
 }
 
 func toStrings(v any) []string {
