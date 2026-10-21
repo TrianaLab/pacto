@@ -19,12 +19,13 @@ to accept the unknown. A plan judges only the consumers running in the Stage's
 environment. When one of them does not accept the new version, the plan's
 `order` says which consumer must move first, the version running there and the
 range it declares, its Stage in that environment and either the newest version
-its upstream Stage verified that accepts both the running provider version and
-the new one or why Pacto cannot tell. Compatibility comes from the declared
+its upstream Stage verified that is newer than the one running, accepts both
+the running provider version and the new one and accepts what its other
+dependencies run there, or why Pacto cannot tell. Compatibility comes from the declared
 ranges, not from which fields or endpoints a consumer uses. Pacto never moves
-the other service itself. Every registry read a plan makes gives up after 10
-seconds, so a registry that is down makes a contract unreadable instead of
-holding the plan. `pkg/impact` now judges a consumer that runs more than one
+the other service itself. A registry read a plan makes gives up after 10
+seconds, and all the reads for one plan's order share one 10 second limit, so a
+registry that is down makes a contract unreadable instead of holding the plan. `pkg/impact` now judges a consumer that runs more than one
 revision by the one that accepts the new version least. `ContractVerdict` maps
 the Pacto contract check onto Pass, Fail or Unknown only when the check
 evaluated exactly the applied version.
@@ -33,9 +34,10 @@ evaluated exactly the applied version.
 `approve` drive the promoter over the ambient cluster. A tag is refused, and
 the refusal names the digest it resolves to; `propose` with the plan's intent
 digest refuses with `PlanStale` if anything moved since. `plan` and `explain`
-print what must move first, and the dashboard's inbox and change page show it
-as "Update these first" with links to the consumer's Stage and to the Stage
-that verified the version that can go first. `approve` is for people with a
+print what must move first. The dashboard's inbox says which service to update
+first on each held change, and the change page lists them under "Update these
+first", with links to the consumer's Stage and to the Stage that verified the
+version that can go first. `approve` is for people with a
 fresh login.
 
 `pacto mcp --delivery` serves `pacto_delivery_operation_types`,

@@ -115,7 +115,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.plan.order` | `object` | no |  |  | Order says what must move first when a consumer running in this environment does not accept the new version. Pacto only says it: it never moves another service itself. |
 | `status.plan.order.moveFirst` | `[]object` | yes |  |  | MoveFirst names every consumer running in this environment whose declared range does not accept the new version. |
 | `status.plan.order.moveFirst[].accepts` | `string` | no |  |  | Accepts is the range that version declares on the provider. |
-| `status.plan.order.moveFirst[].candidate` | `object` | no |  |  | Candidate is the newest version of the consumer its upstream Stage offered and verified that accepts both the provider version running here and the new one, so it can move first without breaking anything Pacto can see. Absent when there is none or Pacto cannot tell. |
+| `status.plan.order.moveFirst[].candidate` | `object` | no |  |  | Candidate is the newest version of the consumer its upstream Stage offered and verified that is newer than the one running here, accepts both the provider version running here and the new one and accepts what its other dependencies run here, so it can move first without breaking a range Pacto can see. Absent when there is none or Pacto cannot tell. |
 | `status.plan.order.moveFirst[].candidate.accepts` | `string` | no |  |  | Accepts is the range it declares on the provider; empty when it no longer depends on it. |
 | `status.plan.order.moveFirst[].candidate.digest` | `string` | yes |  |  |  |
 | `status.plan.order.moveFirst[].candidate.verifiedOn` | `object` | yes |  |  | VerifiedOn is the upstream Stage that verified it. |

@@ -1243,8 +1243,10 @@ if [ -z "${DELIVERY_SKIP_ORDER:-}" ]; then
 #     as what must move first, with its Stage and orders 1.9.0, the version
 #     staging verified, as the one that can go first;
 #   - once orders 1.9.0 is promoted in live, pricing 2.0.0 ships with no person;
-#   - with a Pacto in live that Pacto cannot read, the graph is partial and the
-#     plan is Unknown, with no order guessed.
+#   - with a Pacto in live that Pacto cannot read and no consumer incompatible,
+#     the graph is partial and the plan holds as Unknown. (A partial graph
+#     next to an incompatible consumer, where the order says the list may be
+#     short, is proven by TestOrderOnAFirstVersionAndAPartialGraph.)
 # Compatibility is judged from the declared ranges only; nothing here claims
 # Pacto knows which fields or endpoints orders uses.
 echo "== phase 5: a provider whose consumer must move first =="
@@ -1348,7 +1350,7 @@ kubectl -n live get operation pricing-after -o json | jq -e '.status.plan.floor.
 stage_runs live pricing "$P2" || fail "live does not run pricing 2.0.0"
 pass "with orders 1.9.0 in live, pricing 2.0.0 shipped with nobody involved"
 
-echo "== a partial graph is Unknown, never a guessed order =="
+echo "== a partial graph holds as Unknown =="
 # shipping's contract is not in the registry, so its Pacto never carries one:
 # Pacto cannot rule it out as a consumer of pricing.
 kubectl -n live apply -f - >/dev/null <<YAML
@@ -1371,7 +1373,7 @@ jq -e '.order == null and .floor.decision == "accept-unknown" and
 always 5 stage_runs live pricing "$P2" || fail "pricing 2.1.0 moved while the graph was partial"
 as_agent "$AGENT_A" cancel -n live pricing-partial >/dev/null
 kubectl -n live delete pacto shipping --wait=false >/dev/null
-pass "with shipping unreadable the plan is Unknown (accept-unknown) and names no order"
+pass "with shipping unreadable the plan holds as Unknown (accept-unknown)"
 echo "DELIVERY ORDER PASS"
 fi
 

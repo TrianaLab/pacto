@@ -37,8 +37,12 @@ type fakeDeliveryRegistry struct {
 }
 
 func (f *fakeDeliveryRegistry) Annotations(_ context.Context, ref string) (map[string]string, error) {
-	_, d, _ := strings.Cut(ref, "@")
-	m := map[string]string{dlA: "oci://reg/pactos/payments@" + dlC, dlB: "oci://reg/pactos/payments@" + dlD, dlE: "oci://reg/pactos/orders@" + dlF}
+	repo, d, _ := strings.Cut(ref, "@")
+	m := map[string]string{dlA: "oci://reg/pactos/payments@" + dlC, dlB: "oci://reg/pactos/payments@" + dlD}
+	// orders' artifact lives only in its own apply repository.
+	if repo == "reg.example/apps/orders" {
+		m[dlE] = "oci://reg/pactos/orders@" + dlF
+	}
 	return map[string]string{delivery.ContractAnnotation: m[d]}, nil
 }
 

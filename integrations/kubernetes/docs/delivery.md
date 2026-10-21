@@ -212,18 +212,28 @@ Pacto works this out from the contracts and the Stages:
   whose contract accepts the provider version running now and the new one. A
   version that accepts only the new one would break the moment it ships, so it
   is not a candidate.
+- **The candidate must fit what else runs there.** Every other dependency the
+  candidate declares must accept the version running in that environment. A
+  required dependency Pacto sees nothing of there makes the answer unknown.
+- **The candidate must be newer.** A version older than the one running there,
+  or one that already ran on that Stage, would roll the consumer back, so it is
+  not a candidate.
 - **It says what it cannot see.** If the graph is partial, a range cannot be
   read, no Stage or more than one delivers the consumer there or a candidate's
-  contract cannot be read, the plan says so instead of guessing an order.
+  contract cannot be read, the plan says so instead of guessing an order. All
+  the registry reads for one plan's order share one 10 second limit, and what
+  it did not get to read is listed as unknown.
 
 `pacto delivery plan`, `pacto delivery explain`, the
 `pacto_delivery_operation_plan` MCP tool and the Operation's `status.plan`
-all carry it. In the dashboard, the inbox and the change page show it as
-**Update these first**, with a link to the consumer's Stage and, when there is
-one, to the Stage that verified the version that can go first. In JSON it is `order.moveFirst[]`: the consumer, the version
-running there and the range it declares, its `stage`, the `candidate` (digest,
-version, range and the Stage that verified it) or `unknown` (why Pacto cannot
-tell), and a plain `message`. `order.unknown` lists what kept Pacto from
+all carry it. In the dashboard, the inbox says which service to update first
+on each held change, and the change page lists them under **Update these
+first**. Both link to the consumer's Stage and, when there is one, to the Stage
+that verified the version that can go first. Once the change has shipped, the
+dashboard stops showing it. In JSON it is `order.moveFirst[]`: the consumer,
+the version running there and the range it declares, its `stage`, the
+`candidate` (digest, version, range and the Stage that verified it) or
+`unknown` (why Pacto cannot tell) and a plain `message`. `order.unknown` lists what kept Pacto from
 seeing every consumer.
 
 Pacto only says what moves first. It never promotes the other service itself:
@@ -259,6 +269,12 @@ a witnessed override, adopts it and freezes the Stage.
 - Compatibility comes from the version range each consumer declares. Pacto
   does not know which fields or endpoints a consumer uses, and the calls it
   observes say only which service calls which.
+- Pacto places a Pacto in an environment by namespace: it assumes the Stages
+  in a namespace deliver to the workloads in that namespace. Keep each
+  environment's workloads and Pactos in namespaces that hold only that
+  environment's Stages, or in namespaces with no Stage at all. A Pacto that
+  shares a namespace only with Stages of another environment is left out, so a
+  consumer it describes is not asked about the change.
 - History reads the operations still in the cluster, so it is partial.
 - One cluster, Flux only.
 - Flux checks the signatures, so a digest it never verified on the candidate

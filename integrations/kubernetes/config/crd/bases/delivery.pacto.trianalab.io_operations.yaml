@@ -276,9 +276,11 @@ spec:
                             candidate:
                               description: |-
                                 Candidate is the newest version of the consumer its upstream Stage
-                                offered and verified that accepts both the provider version running
-                                here and the new one, so it can move first without breaking anything
-                                Pacto can see. Absent when there is none or Pacto cannot tell.
+                                offered and verified that is newer than the one running here, accepts
+                                both the provider version running here and the new one and accepts
+                                what its other dependencies run here, so it can move first without
+                                breaking a range Pacto can see. Absent when there is none or Pacto
+                                cannot tell.
                               properties:
                                 accepts:
                                   description: |-

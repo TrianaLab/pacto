@@ -94,8 +94,8 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Va
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "pacto_delivery_explain",
 		Description: "Explain an operation: what was asked, where it is, every gate verdict with its citation (for a health " +
-			"check, the exact query with absolute time bounds) and how to run that citation again, plus the Stage as it is now " +
-			"and its last re-check, and what must move first when the plan found one. Read-only." + noApprove,
+			"check, the exact query with absolute time bounds) and how to run that citation again, plus the Stage as it is now, " +
+			"its last re-check and what must move first when the plan found one. Read-only." + noApprove,
 		InputSchema: nameSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a nameArgs) (*mcpsdk.CallToolResult, any, error) {
 		e, err := api.Explain(ctx, a.Namespace, a.Name)
