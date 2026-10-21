@@ -237,6 +237,9 @@ func TestSetupWithManager(t *testing.T) {
 	if err := (&OperationReconciler{}).SetupWithManager(mgr); err != nil {
 		t.Fatal(err)
 	}
+	if err := (&Recorder{}).SetupWithManager(mgr); err != nil {
+		t.Fatal(err)
+	}
 	if err := (&StageReconciler{}).SetupWithManager(mgr); err != nil {
 		t.Fatal(err)
 	}

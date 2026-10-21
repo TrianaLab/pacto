@@ -55,6 +55,9 @@ type OperationReconciler struct {
 	Now   func() time.Time
 	// Poll is how often an operation waiting on the outside world is looked at.
 	Poll time.Duration
+	// Records says the recorder runs and owns the record finalizer of every
+	// operation that got a seq.
+	Records bool
 }
 
 // conclusion is how an operation ends.
@@ -879,11 +882,12 @@ func raiseRollback(ctx context.Context, c client.Client, policy delivery.ClassPo
 	return nil
 }
 
-// releaseFinalizer lets a concluded, deleted operation go. In M0 nothing writes
-// records yet, so the promoter is the one to remove the record finalizer.
-// ponytail: the M5 recorder takes this over once records exist.
+// releaseFinalizer lets a concluded, deleted operation go when no record is
+// owed for it: records are off, or the operation never got a seq (no Stage,
+// so no stream). Otherwise the recorder removes the finalizer once the record
+// is in the registry.
 func (r *OperationReconciler) releaseFinalizer(ctx context.Context, op *dv1.Operation) error {
-	if op.DeletionTimestamp.IsZero() || !controllerutil.RemoveFinalizer(op, dv1.RecordFinalizer) {
+	if op.DeletionTimestamp.IsZero() || (r.Records && op.Status.Seq > 0) || !controllerutil.RemoveFinalizer(op, dv1.RecordFinalizer) {
 		return nil
 	}
 	return r.Update(ctx, op)

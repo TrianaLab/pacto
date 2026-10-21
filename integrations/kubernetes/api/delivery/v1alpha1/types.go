@@ -14,8 +14,9 @@ import (
 )
 
 // RecordFinalizer keeps a concluded Operation until its record is written. The
-// client sets it and admission requires it. In M0 there is no recorder yet, so
-// the promoter removes it itself once the operation is terminal.
+// client sets it and admission requires it. The recorder removes it once the
+// record is in the registry; without a recorder, the promoter removes it when
+// the concluded operation is deleted.
 const RecordFinalizer = "delivery.pacto.trianalab.io/record"
 
 // +kubebuilder:object:root=true
