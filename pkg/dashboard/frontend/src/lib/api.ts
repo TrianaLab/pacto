@@ -15,21 +15,32 @@
  */
 
 import type { operations, components, paths } from './generated/schema';
-import { client } from './transport';
+import { client, dashboardFetch } from './transport';
 
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** The stable refusal code a delivery answer carries (FreshLoginRequired,
+   *  NotYourTeam and so on); empty for any other error. */
+  code: string;
+  /** The fresh plan a PlanStale refusal carries. */
+  plan?: DeliveryPlan;
+  constructor(status: number, message: string, code = '', plan?: DeliveryPlan) {
     super(message);
     this.status = status;
     this.name = 'ApiError';
+    this.code = code;
+    this.plan = plan;
   }
 }
 
 // ── generated response types (never redeclared) ──────────────────────────────
 // Product responses are inline operation payloads; alias them from the generated
 // operations so the facade and UI consume the generated wire types.
-type JSON200<T extends keyof operations> =
+// Only operations that answer 200: a create answers 201 and has no 200 entry.
+type OpsWith200 = {
+  [K in keyof operations]: operations[K]['responses'] extends { 200: unknown } ? K : never;
+}[keyof operations];
+type JSON200<T extends OpsWith200> =
   operations[T]['responses'][200]['content']['application/json'];
 
 export type ProductOverview = JSON200<'fleet-overview'>;
@@ -50,6 +61,24 @@ type GetResponse<P extends keyof paths> =
   paths[P] extends { get: { responses: { 200: infer R } } } ? JSONBody<R> : never;
 type PostResponse<P extends keyof paths> =
   paths[P] extends { post: { responses: { 200: infer R } } } ? JSONBody<R> : never;
+type CreatedResponse<P extends keyof paths> =
+  paths[P] extends { post: { responses: { 201: infer R } } } ? JSONBody<R> : never;
+type DeleteResponse<P extends keyof paths> =
+  paths[P] extends { delete: { responses: { 200: infer R } } } ? JSONBody<R> : never;
+
+// ── delivery wire types ──────────────────────────────────────────────────────
+export type DeliverySession = GetResponse<'/api/session'>;
+export type DeliveryInbox = GetResponse<'/api/delivery/inbox'>;
+export type DeliveryEnvironments = GetResponse<'/api/delivery/environments'>;
+export type DeliveryPublished = GetResponse<'/api/delivery/published'>;
+export type DeliveryHistory = GetResponse<'/api/delivery/history'>;
+export type DeliveryOperation = GetResponse<'/api/delivery/operations/{namespace}/{name}'>;
+export type DeliveryPlan = components['schemas']['Delivery.Plan'];
+export type DeliveryRequest = components['schemas']['Delivery.Request'];
+export type DeliveryDecision = components['schemas']['DecideInputBody']['decision'];
+export type DeliveryVerdict = components['schemas']['Delivery.ExplainedVerdict'];
+export type InboxItem = components['schemas']['InboxItem'];
+export type EnvironmentRow = components['schemas']['EnvironmentRow'];
 
 // ── finite wire vocabularies (derived from generated enums, never hand-listed) ──
 /** One canonical entity reference as the backend emits it, href and all. */
@@ -225,6 +254,14 @@ interface FetchResult<T> {
   response: Response;
 }
 
+function errorCode(error: unknown): { code: string; plan?: DeliveryPlan } {
+  if (error && typeof error === 'object') {
+    const e = error as { code?: string; plan?: DeliveryPlan };
+    return { code: e.code ?? '', plan: e.plan };
+  }
+  return { code: '' };
+}
+
 function errorMessage(error: unknown, response: Response): string {
   if (error && typeof error === 'object') {
     const e = error as { detail?: string; title?: string };
@@ -239,7 +276,8 @@ function errorMessage(error: unknown, response: Response): string {
 async function unwrap<T>(p: Promise<FetchResult<T>>): Promise<T> {
   const { data, error, response } = await p;
   if (!response.ok || error !== undefined) {
-    throw new ApiError(response.status, errorMessage(error, response));
+    const { code, plan } = errorCode(error);
+    throw new ApiError(response.status, errorMessage(error, response), code, plan);
   }
   return (data ?? null) as T;
 }
@@ -249,6 +287,13 @@ async function productGet<T extends { meta?: ProductMeta }>(p: Promise<FetchResu
   const res = await unwrap<T>(p);
   checkProductSchema(res?.meta);
   return res;
+}
+
+// The CSRF token every mutating delivery request carries, read from the session.
+let csrf = '';
+async function csrfHeaders(): Promise<Record<string, string>> {
+  if (!csrf) csrf = (await api.session()).csrf ?? '';
+  return csrf ? { 'X-Pacto-CSRF': csrf } : {};
 }
 
 // ── the facade ───────────────────────────────────────────────────────────────
@@ -329,4 +374,46 @@ export const api = {
    *  the entity detail so a revision page stays bounded. */
   fleetRevisionDocument: (key: string, path: string): Promise<ProductRevisionDocument> =>
     productGet(client.GET('/api/fleet/revisions/document', { params: { query: { key, path } } })),
+
+  // ── Delivery. Every call runs as the caller: the signed-in person, or the
+  // kubeconfig user of a local dashboard. The apiserver decides. ──
+  session: async (): Promise<DeliverySession> => {
+    const s = await unwrap(client.GET('/api/session'));
+    csrf = s?.csrf ?? '';
+    return s;
+  },
+  /** Ends the session (POST /auth/logout, outside the API) and returns the identity
+   *  provider's logout page when it has one. */
+  signOut: async (): Promise<string> => {
+    const res = await dashboardFetch(new Request(new URL('/auth/logout', location.origin), {
+      method: 'POST', headers: await csrfHeaders(),
+    }));
+    if (!res.ok) throw new ApiError(res.status, (await res.text()) || res.statusText);
+    csrf = '';
+    const body = (await res.json().catch(() => ({}))) as { logoutURL?: string };
+    return body.logoutURL ?? '';
+  },
+  deliveryInbox: (): Promise<DeliveryInbox> => unwrap(client.GET('/api/delivery/inbox')),
+  deliveryEnvironments: (): Promise<DeliveryEnvironments> => unwrap(client.GET('/api/delivery/environments')),
+  deliveryPublished: (): Promise<DeliveryPublished> => unwrap(client.GET('/api/delivery/published')),
+  deliveryHistory: (namespace = '', stage = ''): Promise<DeliveryHistory> =>
+    unwrap(client.GET('/api/delivery/history', {
+      params: { query: { namespace: namespace || undefined, stage: stage || undefined } },
+    })),
+  deliveryOperation: (namespace: string, name: string): Promise<DeliveryOperation> =>
+    unwrap(client.GET('/api/delivery/operations/{namespace}/{name}', { params: { path: { namespace, name } } })),
+  deliveryPlan: async (body: DeliveryRequest): Promise<DeliveryPlan> =>
+    unwrap(client.POST('/api/delivery/plan', { body, headers: await csrfHeaders() })),
+  deliveryPropose: async (body: DeliveryRequest): Promise<CreatedResponse<'/api/delivery/operations'>> =>
+    unwrap(client.POST('/api/delivery/operations', { body, headers: await csrfHeaders() })),
+  deliveryDecide: async (
+    namespace: string, name: string, decision: DeliveryDecision, note = '',
+  ): Promise<CreatedResponse<'/api/delivery/operations/{namespace}/{name}/decision'>> =>
+    unwrap(client.POST('/api/delivery/operations/{namespace}/{name}/decision', {
+      params: { path: { namespace, name } }, body: { decision, note: note || undefined }, headers: await csrfHeaders(),
+    })),
+  deliveryCancel: async (namespace: string, name: string): Promise<DeleteResponse<'/api/delivery/operations/{namespace}/{name}'>> =>
+    unwrap(client.DELETE('/api/delivery/operations/{namespace}/{name}', {
+      params: { path: { namespace, name } }, headers: await csrfHeaders(),
+    })),
 };

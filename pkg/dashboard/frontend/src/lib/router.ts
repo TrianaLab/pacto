@@ -13,7 +13,13 @@ export interface Route {
     | 'fleet-sources'   // /fleet/sources    product source list
     | 'fleet-entity'    // /fleet/<plural>/:key   unified entity detail
     | 'fleet-entity-list'// /fleet/revisions|targets[?service=]  scoped inventory list
-    | 'fleet-attention';// /fleet/attention  attention list
+    | 'fleet-attention' // /fleet/attention  attention list
+    // Delivery (only where the delivery component is installed).
+    | 'delivery-inbox'        // /delivery[/inbox]
+    | 'delivery-environments' // /delivery/environments
+    | 'delivery-change'       // /delivery/changes/:namespace/:name
+    | 'delivery-history'      // /delivery/history[?namespace=&stage=]
+    | 'delivery-publish';     // /delivery/publish
   params: Record<string, string>;
 }
 
@@ -93,6 +99,10 @@ export function parseHash(hash: string | null | undefined): Route {
   // round-trip slash-, percent-, OCI- and domain-qualified identities.
   if (path === 'fleet' || path.startsWith('fleet/')) {
     return parseFleet(path, query);
+  }
+
+  if (path === 'delivery' || path.startsWith('delivery/')) {
+    return parseDelivery(path, query);
   }
 
   // #/impact?svc=&old=&new=&observed=1 — the superseded standalone impact deep link.
@@ -242,6 +252,26 @@ function parseFleet(path: string, query: string): Route {
 
   // Unknown /fleet/* falls back to the overview, never a broken screen.
   return { view: 'fleet-overview', params: {} };
+}
+
+function parseDelivery(path: string, query: string): Route {
+  const rest = path.slice('delivery'.length).replace(/^\//, '');
+  const change = rest.match(/^changes\/([^/]+)\/([^/]+)$/);
+  if (change) {
+    return { view: 'delivery-change', params: { namespace: decodeURIComponent(change[1]), name: decodeURIComponent(change[2]) } };
+  }
+  if (rest === 'environments') return { view: 'delivery-environments', params: {} };
+  if (rest === 'publish') return { view: 'delivery-publish', params: {} };
+  if (rest === 'history') {
+    const params: Record<string, string> = {};
+    const qs = new URLSearchParams(query);
+    for (const k of ['namespace', 'stage']) {
+      const v = qs.get(k);
+      if (v) params[k] = v;
+    }
+    return { view: 'delivery-history', params };
+  }
+  return { view: 'delivery-inbox', params: {} };
 }
 
 // replaceHash canonicalizes the current URL to `hash` WITHOUT pushing a history entry,
@@ -568,4 +598,29 @@ export function compareDiffUrl(opts: { fromName?: string; fromVer?: string; toNa
   if (opts.toVer) qs.set('to_ver', opts.toVer);
   const str = qs.toString();
   return str ? `#/diff?${str}` : '#/diff';
+}
+
+// ── delivery navigation ──────────────────────────────────────────────────────
+
+export function deliveryInboxUrl(): string {
+  return '#/delivery/inbox';
+}
+
+export function deliveryEnvironmentsUrl(): string {
+  return '#/delivery/environments';
+}
+
+export function deliveryPublishUrl(): string {
+  return '#/delivery/publish';
+}
+
+export function deliveryHistoryUrl(opts: { namespace?: string; stage?: string } = {}): string {
+  const qs = new URLSearchParams();
+  if (opts.namespace && opts.stage) { qs.set('namespace', opts.namespace); qs.set('stage', opts.stage); }
+  const str = qs.toString();
+  return str ? `#/delivery/history?${str}` : '#/delivery/history';
+}
+
+export function deliveryChangeUrl(namespace: string, name: string): string {
+  return `#/delivery/changes/${encodeURIComponent(namespace)}/${encodeURIComponent(name)}`;
 }
