@@ -174,13 +174,19 @@ func (d *Dashboard) local(w http.ResponseWriter, r *http.Request) (State, bool) 
 	return State{}, false
 }
 
+// alwaysOpen: the paths RequireLogin leaves open, for probes, the UI's
+// sign-in check and the sign-in itself.
+func alwaysOpen(path string) bool {
+	return path == "/health" || path == "/api/session" || strings.HasPrefix(path, "/auth/")
+}
+
 func (d *Dashboard) shared(w http.ResponseWriter, r *http.Request) (State, bool) {
 	_, hasCookie := r.Cookie(SessionCookie)
 	var st State
 	if s := d.oidc.Session(r); s != nil {
 		st = State{SignedIn: true, Fresh: s.Fresh, CSRF: s.CSRF, Token: s.IDToken()}
 	}
-	if d.required && !st.SignedIn && r.URL.Path != "/health" && r.URL.Path != "/api/session" && !strings.HasPrefix(r.URL.Path, "/auth/") {
+	if d.required && !st.SignedIn && !alwaysOpen(r.URL.Path) {
 		if r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/api/") {
 			http.Redirect(w, r, "/auth/login?return="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
 		} else {

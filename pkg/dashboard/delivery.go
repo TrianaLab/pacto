@@ -766,15 +766,8 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 	if err != nil {
 		return nil, err
 	}
-	at, ok := delivery.ParseAuthTime(caller.AuthTime)
-	switch {
-	case !s.opts.DeliveryPolicy.IsHuman(caller.Identity):
-		return nil, Refuse(http.StatusForbidden, "AgentsMayNotApprove", "the apiserver says "+caller.User+" is an agent; agents may not decide")
-	case caller.AuthTime == "":
-		return nil, Refuse(http.StatusForbidden, "AuthTimeUnavailable",
-			"this cluster does not map auth_time to userInfo.extra[pacto.dev/auth-time]; nobody can approve here")
-	case !ok || time.Since(at) > delivery.DecisionFreshness:
-		return nil, Refuse(http.StatusUnauthorized, "FreshLoginRequired", "your login is older than ten minutes: sign in again")
+	if err := s.mayDecide(caller); err != nil {
+		return nil, err
 	}
 	op, err := api.Get(ctx, in.Namespace, in.Name)
 	if err != nil {
@@ -793,6 +786,22 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 	out := &decideOutput{}
 	out.Body.Approval = name
 	return out, nil
+}
+
+// mayDecide refuses a caller the apiserver names an agent, or whose login is
+// unknown or older than DecisionFreshness.
+func (s *Server) mayDecide(caller delivery.Caller) error {
+	at, ok := delivery.ParseAuthTime(caller.AuthTime)
+	switch {
+	case !s.opts.DeliveryPolicy.IsHuman(caller.Identity):
+		return Refuse(http.StatusForbidden, "AgentsMayNotApprove", "the apiserver says "+caller.User+" is an agent; agents may not decide")
+	case caller.AuthTime == "":
+		return Refuse(http.StatusForbidden, "AuthTimeUnavailable",
+			"this cluster does not map auth_time to userInfo.extra[pacto.dev/auth-time]; nobody can approve here")
+	case !ok || time.Since(at) > delivery.DecisionFreshness:
+		return Refuse(http.StatusUnauthorized, "FreshLoginRequired", "your login is older than ten minutes: sign in again")
+	}
+	return nil
 }
 
 type cancelOutput struct {
