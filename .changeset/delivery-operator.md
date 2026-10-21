@@ -17,7 +17,9 @@ decision, with an immutable spec) and `Approval` (a person's decision bound to
 an operation's uid and intent digest). The promoter (`cmd/delivery`, image
 `pacto-delivery`, subcommand `promoter`) admits each operation, runs the
 `pacto.diff` and `pacto.impact` pre-gates, holds for a person when a consumer
-running in the Stage's environment would break or Pacto cannot see enough (and
+running in the Stage's environment would break or Pacto cannot see enough (a
+consumer counts unless its environment label or the namespace a Stage's
+Kustomization applies into places it elsewhere; and
 writes to `status.plan.order` which consumer must move first and, when one
 exists, the verified version of it to promote), takes the Stage lock with one
 compare-and-swap, sets `spec.ref.digest` on the Flux `OCIRepository` the Stage
