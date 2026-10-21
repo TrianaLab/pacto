@@ -45,7 +45,9 @@ function installDelivery(persona: Persona): void {
     verdicts: [{ gate: 'pacto.diff', phase: 'pre', result: 'Unknown', citation: { classification: 'BREAKING' } }],
     order: { moveFirst: [{ service: 'checkout', version: '3.0.0', accepts: '^1.4.0', stage: { namespace: 'prod', name: 'checkout-prod' },
       candidate: { digest: 'sha256:' + '3'.repeat(64), version: '3.1.0', accepts: '>=1.4.0 <3.0.0', verifiedOn: { namespace: 'test', name: 'checkout-test' } },
-      message: 'checkout 3.0.0 runs in prod and accepts payments ^1.4.0, not 2.0.0. Ship checkout first: promote it on Stage prod/checkout-prod.' }],
+      // What moveFirstMessage writes, full digest included, so the narrow check below covers it.
+      message: 'checkout 3.0.0 runs in prod and accepts payments ^1.4.0, not 2.0.0. checkout 3.1.0 (sha256:333333333333) accepts it (>=1.4.0 <3.0.0) ' +
+        'and verified on test/checkout-test. Ship checkout first: promote sha256:' + '3'.repeat(64) + ' on Stage prod/checkout-prod.' }],
     unknown: ['the operational graph is partial (unresolved-reference)'] } };
   const op = () => ({
     metadata: { name: 'op1', namespace: 'prod' },
@@ -168,7 +170,7 @@ test.describe('Delivery views', () => {
     await as(page, 'carol');
     await page.goto('/#/delivery/inbox');
     const inbox = page.getByTestId('inbox-move-first');
-    await expect(inbox).toContainText('Update checkout 3.0.0 first: it accepts only ^1.4.0', { timeout: T });
+    await expect(inbox).toContainText('Update checkout first: checkout 3.0.0 runs here and accepts only ^1.4.0', { timeout: T });
     await expect(inbox.getByRole('link', { name: 'Stage prod/checkout-prod' })).toHaveAttribute('href', '#/delivery/history?namespace=prod&stage=checkout-prod');
     await expect(inbox.getByRole('link', { name: 'checkout 3.1.0, verified on test/checkout-test' })).toHaveAttribute('href', '#/delivery/history?namespace=test&stage=checkout-test');
     await expect(page.getByTestId('inbox-move-first-unknown')).toContainText('This list may be incomplete');
@@ -180,6 +182,14 @@ test.describe('Delivery views', () => {
     await candidate.focus();
     await expect(candidate).toBeFocused();
     await audit(page, 'change detail with what moves first');
+
+    // The message carries a full digest: on a phone it wraps instead of scrolling the page sideways.
+    await page.setViewportSize({ width: 320, height: 800 });
+    for (const hash of ['#/delivery/inbox', '#/delivery/changes/prod/op1']) {
+      await page.goto('/' + hash);
+      await expect(page.getByText('Ship checkout first').first()).toBeVisible({ timeout: T });
+      expect(await page.evaluate(() => [document.documentElement, document.body].every((e) => e.scrollWidth <= e.clientWidth + 1)), hash).toBe(true);
+    }
   });
 
   test('a decision asks for a fresh sign-in, keeps the choice and sends it on a click', async ({ page }) => {

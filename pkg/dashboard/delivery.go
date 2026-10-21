@@ -345,7 +345,10 @@ func inboxItem(o delivery.OperationObject) InboxItem {
 		From: o.Spec.Params.From, To: o.Spec.Params.To, Phase: o.Status.Phase, Outcome: o.Status.Outcome, Reason: o.Status.Reason,
 		Question: o.Status.Question}
 	if p := o.Status.Plan; p != nil {
-		it.Decision, it.Owners, it.Consumers, it.Order = p.Floor.Decision, p.Floor.Owners, p.Floor.Consumers, p.Order
+		it.Decision, it.Owners, it.Consumers = p.Floor.Decision, p.Floor.Owners, p.Floor.Consumers
+		if !o.Status.Applied { // once it shipped, what had to move first is history
+			it.Order = p.Order
+		}
 	}
 	if it.Phase == delivery.PhaseHeld && (it.Decision == "" || o.Status.Applied) {
 		it.Decision = delivery.AcceptUnknown // held after it shipped: the verify gates stayed Unknown

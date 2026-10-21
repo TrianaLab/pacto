@@ -18,7 +18,7 @@
     <ul class="mf-list">
       {#each moveFirst as m (m.service + (m.domain ?? ''))}
         <li class="mf-item">
-          <p class="mf-who t-body"><strong>Update {m.service}{#if m.version}{' ' + m.version}{/if} first</strong>{#if m.accepts}<span class="t-body-2">: it accepts only {m.accepts}</span>{/if}</p>
+          <p class="mf-who t-body"><strong>Update {m.service} first</strong>{#if m.accepts}<span class="t-body-2">: {m.version ? `${m.service} ${m.version} runs here and accepts` : 'it accepts'} only {m.accepts}</span>{/if}</p>
           <p class="mf-msg t-body-2">{m.message}</p>
           {#if m.stage || m.candidate}
             <ul class="mf-links t-body-2">
@@ -47,6 +47,8 @@
   .mf-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .mf-item { background: var(--c-surface); border: 1px solid var(--c-border); border-left: 3px solid var(--c-warn); border-radius: var(--radius-sm); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); }
   .mf-who, .mf-msg, .mf-unknown p { margin: 0; }
+  /* Messages carry full digests, which never break on their own. */
+  .mf-msg, .mf-unknown li { overflow-wrap: anywhere; }
   .mf-links, .mf-unknown ul { margin: 0; padding-left: var(--sp-5); }
   .mf a { color: var(--c-accent); text-decoration: underline; }
 </style>

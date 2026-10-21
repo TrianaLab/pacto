@@ -324,7 +324,7 @@ func sampleCluster(groups ...string) *fakeDelivery {
 			operation("prod", "for-checkout", "payments", held("team-checkout")),
 			operation("prod", "for-ledger", "payments", held("team-ledger")),
 			operation("prod", "anyone", "payments", delivery.OperationStatus{Phase: delivery.PhaseHeld, Applied: true,
-				Plan: &delivery.Plan{Floor: delivery.Floor{Decision: delivery.Approve}}}),
+				Plan: &delivery.Plan{Floor: delivery.Floor{Decision: delivery.Approve}, Order: held().Plan.Order}}),
 			operation("books", "broke", "ledger", delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Errored}),
 			operation("other", "broke-too", "orphan", delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Errored}),
 			// Errored long ago on a Stage that was unpaused since, and on a
@@ -356,6 +356,8 @@ func TestInbox(t *testing.T) {
 		strings.Join(toStrings(first["owners"]), ",") == "team-checkout" &&
 		first["order"].(map[string]any)["moveFirst"].([]any)[0].(map[string]any)["service"] == "checkout",
 		"a held item carries its question, the services affected, the teams that may answer and what moves first: %v", first)
+	_, hasOrder := inbox["held"].([]any)[1].(map[string]any)["order"]
+	expect(t, !hasOrder, "a change that already shipped no longer says what moves first: %v", inbox["held"])
 	fr := inbox["frozen"].([]any)
 	expect(t, len(fr) == 1 && fr[0].(map[string]any)["service"] == "orphan",
 		"frozen Stages of other teams' services are not mine, unowned ones are: %v", fr)

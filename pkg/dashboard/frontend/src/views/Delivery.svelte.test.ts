@@ -94,10 +94,10 @@ describe('inbox', () => {
     const { target, destroy } = render(DeliveryInboxView);
     await settle();
     const mf = target.querySelector('[data-testid="inbox-move-first"]') as HTMLElement;
-    expect(text(mf)).toContain('Update orders 1.8.0 first: it accepts only ^2.0.0');
+    expect(text(mf)).toContain('Update orders first: orders 1.8.0 runs here and accepts only ^2.0.0');
     expect(linkTo(mf, '#/delivery/history?namespace=prod&stage=orders-prod')?.textContent).toBe('Stage prod/orders-prod');
     expect(linkTo(mf, '#/delivery/history?namespace=test&stage=orders-test')?.textContent).toBe('orders 1.9.0, verified on test/orders-test');
-    expect(text(mf)).toContain('Update billing first');
+    expect(text(mf)).toContain('Update billing first: it accepts only ^2.0.0');
     expect(text(mf)).toContain('Pacto cannot tell what would move it first');
     expect(text(mf.querySelector('[data-testid="inbox-move-first-unknown"]') as HTMLElement)).toContain('This list may be incomplete: the operational graph is partial');
     destroy();
@@ -239,7 +239,8 @@ describe('environments', () => {
 const ORDER = { moveFirst: [
   { service: 'orders', version: '1.8.0', accepts: '^2.0.0', stage: { namespace: 'prod', name: 'orders-prod' },
     candidate: { digest: 'sha256:' + '9'.repeat(64), version: '1.9.0', accepts: '>=2.0.0 <4.0.0', verifiedOn: { namespace: 'test', name: 'orders-test' } },
-    message: 'orders 1.8.0 runs in prod and accepts payments ^2.0.0, not 3.0.0. Ship orders first: promote it on Stage prod/orders-prod.' },
+    // What moveFirstMessage writes, full digest included.
+    message: 'orders 1.8.0 runs in prod and accepts payments ^2.0.0, not 3.0.0. orders 1.9.0 (sha256:999999999999) accepts it (>=2.0.0 <4.0.0) and verified on test/orders-test. Ship orders first: promote sha256:' + '9'.repeat(64) + ' on Stage prod/orders-prod.' },
   { service: 'billing', accepts: '^2.0.0', unknown: 'no Stage delivers billing in prod',
     message: 'billing runs in prod and accepts payments ^2.0.0, not 3.0.0. Pacto cannot tell what would move it first: no Stage delivers billing in prod.' },
 ], unknown: ['the operational graph is partial (unresolved-reference)'] };
@@ -296,6 +297,17 @@ describe('change detail', () => {
     fns.operation.mockResolvedValue(held);
     ({ target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' }));
     await settle();
+    expect(target.querySelector('[data-testid="move-first"]')).toBeNull();
+    destroy();
+
+    // Held again after it shipped (the verify window stayed Unknown): the
+    // provider already runs, so what had to move first is history.
+    held.explanation.status = { phase: 'Held' } as typeof held.explanation.status;
+    held.operation.status = { ...held.operation.status, applied: true } as typeof held.operation.status;
+    fns.operation.mockResolvedValue(held);
+    ({ target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' }));
+    await settle();
+    expect(target.querySelector('[data-testid="decision-panel"]')).not.toBeNull();
     expect(target.querySelector('[data-testid="move-first"]')).toBeNull();
     destroy();
   });
