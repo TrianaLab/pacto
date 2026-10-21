@@ -194,6 +194,11 @@ func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.Pla
 		}
 		in.Upstream = d.upstream(ctx, stage)
 		pactos, listErr := d.pactos(ctx)
+		in.Stages, in.StagesErr = d.Stages(ctx, "")
+		in.Candidates = func(ctx context.Context, s delivery.StageObject, digest string) delivery.Revision {
+			return d.Describe(ctx, &s, digest)
+		}
+		pactos = delivery.EnvironmentPactos(pactos, in.Stages, in.StagesErr, stage.Metadata.Namespace, stage.Spec.Environment)
 		if in.Snapshot, err = delivery.Snapshot(ctx, pactos, listErr, []delivery.Revision{in.From, in.To}, d.Now()); err != nil {
 			return delivery.Plan{}, delivery.OperationSpec{}, err
 		}

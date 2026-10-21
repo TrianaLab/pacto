@@ -192,3 +192,29 @@ func PactosFor(pactos []PactoView, namespace, service string) []PactoView {
 		return p.Metadata.Namespace != namespace || p.Status.Contract == nil || p.Status.Contract.ServiceName != service
 	})
 }
+
+// EnvironmentPactos keeps the Pactos running in environment, the one the
+// Stage in namespace delivers to. A provider version is eligible in an
+// environment only if every consumer running there accepts it, so a consumer
+// running only in another environment does not hold it.
+//
+// A Pacto runs in an environment when it lives in the Stage's own namespace or
+// in a namespace that holds a Stage of that environment. One in a namespace no
+// Stage lives in cannot be placed, so it counts in every environment, and with
+// the Stages unreadable (stagesErr) every Pacto counts.
+func EnvironmentPactos(pactos []PactoView, stages []StageObject, stagesErr error, namespace, environment string) []PactoView {
+	if stagesErr != nil {
+		return pactos
+	}
+	envs := map[string]map[string]bool{}
+	for _, s := range stages {
+		if envs[s.Metadata.Namespace] == nil {
+			envs[s.Metadata.Namespace] = map[string]bool{}
+		}
+		envs[s.Metadata.Namespace][s.Spec.Environment] = true
+	}
+	return slices.DeleteFunc(slices.Clone(pactos), func(p PactoView) bool {
+		ns := p.Metadata.Namespace
+		return ns != namespace && len(envs[ns]) > 0 && !envs[ns][environment]
+	})
+}

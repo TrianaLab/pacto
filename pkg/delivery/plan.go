@@ -67,12 +67,24 @@ type PlanInput struct {
 	// Upstream is the upstream Stage's status when the Stage takes its
 	// candidates from one; nil when it could not be read.
 	Upstream *StageStatus
+	// Stages are every Stage the caller could list, in every namespace, and
+	// StagesErr why they could not be listed. They place the consumers of a
+	// blocked change: which Stage delivers each in this environment and what
+	// its upstream Stage verified.
+	Stages    []StageObject
+	StagesErr error
+	// Candidates reads what a digest on a consumer's Stage carries. It is the
+	// one registry read planning makes beyond the two sides of the change,
+	// only for a blocked change, and it must be bounded (ResolveRevision is).
+	// Nil reads nothing: every candidate is unknown.
+	Candidates func(ctx context.Context, stage StageObject, digest string) Revision
 }
 
 // PlanFor predicts what the promoter will do with an operation: its intent digest,
-// the pre-gate verdicts, the approval floor and the one question a human would
-// be asked. It is pure, and the promoter runs the same function when it admits
-// the operation and again before it moves the pointer.
+// the pre-gate verdicts, the approval floor, the one question a human would
+// be asked and, for a change a consumer does not accept, what must move first.
+// It is pure apart from in.Candidates, and the promoter runs the same function
+// when it admits the operation and again before it moves the pointer.
 func PlanFor(ctx context.Context, in PlanInput) Plan {
 	p := Plan{
 		IntentDigest: IntentDigest(in.Spec, in.Stage),
@@ -278,14 +290,15 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 			unknown = append(unknown, c)
 		}
 	}
-	var unseen []string
+	var unseenConsumers []string
 	if res.Completeness == fleet.CompletenessPartial {
-		unseen = append(unseen, "the operational graph is partial ("+limitationCodes(res.Limitations)+")")
+		unseenConsumers = append(unseenConsumers, "the operational graph is partial ("+limitationCodes(res.Limitations)+")")
 	}
 	for _, c := range unknown {
-		unseen = append(unseen, c.Service+" has no usable compatibility range for this change")
+		unseenConsumers = append(unseenConsumers, c.Service+" has no usable compatibility range for this change")
 	}
-	unseen = append(unseen, unresolvedConsumers(in.Snapshot, in.Stage.Service.Name)...)
+	unseenConsumers = append(unseenConsumers, unresolvedConsumers(in.Snapshot, in.Stage.Service.Name)...)
+	unseen := slices.Clone(unseenConsumers)
 	if in.From.Digest != "" && !slices.Contains(in.Status.Verified, in.From.Digest) {
 		unseen = append(unseen, "the version a rollback would return to ("+short(in.From.Digest)+") was never verified here")
 	}
@@ -297,6 +310,10 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 		p.Floor = Floor{Human: true, Decision: Approve, Owners: owners, Consumers: names}
 		p.Question = fmt.Sprintf("%s %s is not accepted by %s. Approve shipping it anyway? Asked of: %s",
 			in.Stage.Service.Name, res.NewVersion, describeRanges(incompatible), ownersOrAnyone(owners))
+		p.Order = orderFor(ctx, in, res, incompatible, unseenConsumers)
+		if first := movableFirst(p.Order); len(first) > 0 {
+			p.Question += ". Or ship " + strings.Join(first, ", ") + " first: a version that accepts it already verified upstream (see the plan's order)"
+		}
 	case len(unseen) > 0:
 		v.Result = Unknown
 		v.Message = strings.Join(unseen, "; ")

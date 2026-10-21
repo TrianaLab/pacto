@@ -24,6 +24,8 @@ const (
 	dlB = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 	dlC = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
 	dlD = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	dlE = "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+	dlF = "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
 )
 
 type fakeDeliveryRegistry struct {
@@ -36,11 +38,15 @@ type fakeDeliveryRegistry struct {
 
 func (f *fakeDeliveryRegistry) Annotations(_ context.Context, ref string) (map[string]string, error) {
 	_, d, _ := strings.Cut(ref, "@")
-	m := map[string]string{dlA: "oci://reg/pactos/payments@" + dlC, dlB: "oci://reg/pactos/payments@" + dlD}
+	m := map[string]string{dlA: "oci://reg/pactos/payments@" + dlC, dlB: "oci://reg/pactos/payments@" + dlD, dlE: "oci://reg/pactos/orders@" + dlF}
 	return map[string]string{delivery.ContractAnnotation: m[d]}, nil
 }
 
 func (f *fakeDeliveryRegistry) Pull(_ context.Context, ref string) (*contract.Bundle, error) {
+	if strings.HasSuffix(ref, dlF) {
+		return &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "orders", Version: "1.9.0"},
+			Dependencies: []contract.Dependency{{Name: "payments", Ref: "oci://reg/pactos/payments", Compatibility: ">=1.0.0 <2.0.0"}}}}, nil
+	}
 	v := "1.0.0"
 	if strings.HasSuffix(ref, dlD) {
 		v = "1.1.0"
@@ -208,6 +214,40 @@ func TestDeliveryRefusals(t *testing.T) {
 	r.From, r.To = dlB, dlA
 	if p, spec, err := d.Plan(ctx, r); err != nil || spec.Params.From != dlB || p.Predicted != delivery.PredictRejected {
 		t.Fatalf("explicit from: %+v %v", p, err)
+	}
+}
+
+// A consumer running in prod that does not accept the new version holds it,
+// and the plan names the verified version of that consumer to ship first,
+// read through the consumer's own apply OCIRepository.
+func TestDeliveryPlanSaysWhatMovesFirst(t *testing.T) {
+	orders := obj("pacto.trianalab.io/v1alpha1", "Pacto", "prod", "orders", map[string]any{"status": map[string]any{
+		"contractStatus": "Compliant",
+		"contract":       map[string]any{"serviceName": "orders", "version": "1.8.0", "resolvedRef": "oci://reg/pactos/orders@" + dlC},
+		"dependencies":   []any{map[string]any{"name": "payments", "ref": "oci://reg/pactos/payments", "compatibility": "~1.0.0"}},
+	}})
+	ordersStage := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "prod", "orders", map[string]any{
+		"spec": map[string]any{"service": map[string]any{"name": "orders"}, "environment": "prod", "applyRef": map[string]any{"name": "orders"},
+			"candidates": map[string]any{"upstreamStage": map[string]any{"name": "orders", "namespace": "test"}}},
+	})
+	ordersTest := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "test", "orders", map[string]any{
+		"spec":   map[string]any{"service": map[string]any{"name": "orders"}, "environment": "test", "applyRef": map[string]any{"name": "orders"}},
+		"status": map[string]any{"verified": []any{dlE}, "offered": []any{dlE}},
+	})
+	ordersRepo := obj("source.toolkit.fluxcd.io/v1", "OCIRepository", "prod", "orders", map[string]any{
+		"spec": map[string]any{"url": "oci://reg.example/apps/orders"},
+	})
+	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", nil, nil, orders, ordersStage, ordersTest, ordersRepo)
+	p, _, err := d.Plan(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Predicted != delivery.PredictHeld || p.Order == nil || len(p.Order.MoveFirst) != 1 {
+		t.Fatalf("plan %+v", p)
+	}
+	if m := p.Order.MoveFirst[0]; m.Service != "orders" || m.Version != "1.8.0" || m.Candidate == nil || m.Candidate.Digest != dlE ||
+		m.Candidate.Version != "1.9.0" || m.Stage.Namespace != "prod" {
+		t.Fatalf("move first %+v", m)
 	}
 }
 

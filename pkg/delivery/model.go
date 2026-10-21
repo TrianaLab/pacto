@@ -412,6 +412,66 @@ type Plan struct {
 	// ImpactDigest is the sha256 of the pkg/impact answer the floor came from.
 	// +optional
 	ImpactDigest string `json:"impactDigest,omitempty"`
+	// Order says what must move first when a consumer running in this
+	// environment does not accept the new version. Pacto only says it: it
+	// never moves another service itself.
+	// +optional
+	Order *Order `json:"order,omitempty"`
+}
+
+// Order is what must move before a blocked promote can ship with no person
+// approving a break. Compatibility is judged per consumer from the version
+// range it declares, not from which fields or endpoints it uses.
+type Order struct {
+	// MoveFirst names every consumer running in this environment whose
+	// declared range does not accept the new version.
+	MoveFirst []MoveFirst `json:"moveFirst"`
+	// Unknown says why the list may be incomplete: a partial graph, a range
+	// Pacto cannot read or a consumer it cannot place. Empty means Pacto saw
+	// every consumer running here.
+	// +optional
+	Unknown []string `json:"unknown,omitempty"`
+}
+
+// MoveFirst is one consumer that must move before the provider can.
+type MoveFirst struct {
+	// Service is the consumer.
+	Service string `json:"service"`
+	// +optional
+	Domain string `json:"domain,omitempty"`
+	// Version is the consumer version running here that does not accept the
+	// new provider version.
+	// +optional
+	Version string `json:"version,omitempty"`
+	// Accepts is the range that version declares on the provider.
+	// +optional
+	Accepts string `json:"accepts,omitempty"`
+	// Stage is the consumer's Stage in this environment, the one to promote.
+	// +optional
+	Stage *StageRef `json:"stage,omitempty"`
+	// Candidate is the newest version of the consumer its upstream Stage
+	// offered and verified that accepts both the provider version running
+	// here and the new one, so it can move first without breaking anything
+	// Pacto can see. Absent when there is none or Pacto cannot tell.
+	// +optional
+	Candidate *Candidate `json:"candidate,omitempty"`
+	// Unknown says why Pacto cannot tell whether such a version exists.
+	// +optional
+	Unknown string `json:"unknown,omitempty"`
+	// Message says all of the above in plain words.
+	Message string `json:"message"`
+}
+
+// Candidate is a verified consumer version that can move first.
+type Candidate struct {
+	Digest  string `json:"digest"`
+	Version string `json:"version,omitempty"`
+	// Accepts is the range it declares on the provider; empty when it no
+	// longer depends on it.
+	// +optional
+	Accepts string `json:"accepts,omitempty"`
+	// VerifiedOn is the upstream Stage that verified it.
+	VerifiedOn StageRef `json:"verifiedOn"`
 }
 
 // ApprovalRecord is an approval the promoter consumed.
