@@ -296,11 +296,15 @@ identity_scenario() {
   local dashkc mcpkc
   dashkc="$(kubeconfig_for "$(kubectl -n "$NS" create token pacto-dashboard --duration 2h)")"
   mcpkc="$(kubeconfig_for "")"
-  in_node pacto-e2e-dashboard -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp \
+  # The node's own resolver does not know cluster names, and every lookup of
+  # the Stages' registry would wait out its 5s timeout, retried per pull.
+  local dns; dns="$(kubectl -n kube-system get svc kube-dns -o jsonpath='{.spec.clusterIP}')"
+  printf 'search svc.cluster.local cluster.local\nnameserver %s\noptions ndots:5\n' "$dns" > "$IDP_DIR/resolv.conf"
+  in_node pacto-e2e-dashboard -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \
     -e PACTO_DASHBOARD_OIDC_CLIENT_SECRET="$DASH_SECRET" -v "$dashkc:/kube/config:ro" -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" \
     "$DASH_IMG" dashboard --host 0.0.0.0 --port 3300 --oidc-issuer-url "$DEX_ISSUER" --oidc-client-id pacto-dashboard \
     --oidc-redirect-url "$DASH_URL/auth/callback" --oidc-extra-scopes audience:server:client_id:pacto-cli
-  in_node pacto-e2e-mcp -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp \
+  in_node pacto-e2e-mcp -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \
     -e PACTO_MCP_EXCHANGE_CLIENT_SECRET=mcp-secret -v "$mcpkc:/kube/config:ro" -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" \
     "$DASH_IMG" mcp --delivery -t http --host 0.0.0.0 --port 8585 --auth-issuer "$KC_ISSUER" \
     --resource "$MCP_URL/mcp" --audience pacto-mcp --exchange-client-id pacto-mcp
