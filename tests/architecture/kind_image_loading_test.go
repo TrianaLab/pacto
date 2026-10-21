@@ -60,6 +60,20 @@ func scenarios(t *testing.T) []string {
 	return out
 }
 
+// sourced reports whether another kind script sources path as a part of
+// itself (delivery.sh sources delivery-identity.sh), so it runs when that
+// script runs and needs no target of its own.
+func sourced(t *testing.T, path string) bool {
+	t.Helper()
+	line := `source "$(dirname "$0")/` + filepath.Base(path) + `"`
+	for _, other := range scenarios(t) {
+		if other != path && strings.Contains(code(t, other), line) {
+			return true
+		}
+	}
+	return false
+}
+
 // kindMatrixScenarios returns the scenario list the ci-e2e-kind job shards over.
 func kindMatrixScenarios(t *testing.T) []string {
 	t.Helper()
@@ -89,6 +103,9 @@ func TestEveryKindScenarioRuns(t *testing.T) {
 	matrix := kindMatrixScenarios(t)
 	const prefix = "test-acceptance-kind-"
 	for _, path := range scenarios(t) {
+		if sourced(t, path) {
+			continue // a part of a scenario, run when that scenario runs
+		}
 		script := "bash tests/acceptance/kind/" + filepath.Base(path)
 		before, _, ok := strings.Cut(mk, script)
 		if !ok {

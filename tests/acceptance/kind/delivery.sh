@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Kind acceptance for Pacto delivery: phase 1 ("the core"), the promoter, the
 # Pacto contract check and Flux, running end to end on a local cluster; then
-# phase 2 ("health") and phase 3 ("publishing"), described where each starts
-# below. DELIVERY_SKIP_CORE=1 and DELIVERY_SKIP_HEALTH=1 skip those scenarios
-# (the setup still runs).
+# phase 2 ("health"), phase 3 ("publishing") and phase 4 ("dashboard and
+# identity", in delivery-identity.sh), described where each starts below.
+# DELIVERY_SKIP_CORE=1, DELIVERY_SKIP_HEALTH=1 and DELIVERY_SKIP_IDENTITY=1 skip
+# those scenarios (the setup still runs); phase 4 needs phase 1.
 #
 # A Stage promotes only versions `pacto publish` published: signed (Flux
 # verifies the signature through spec.verify on the candidate OCIRepository)
@@ -52,6 +53,8 @@ FLUX_LAYER_TYPE=application/vnd.cncf.flux.content.v1.tar+gzip
 APP_REPO="apps/payments"
 # shellcheck source=tests/acceptance/kind/lib.sh
 source "$(dirname "$0")/lib.sh"
+# shellcheck source=tests/acceptance/kind/delivery-identity.sh
+source "$(dirname "$0")/delivery-identity.sh"
 
 dump_delivery() {
   echo "--- stages + operations + approvals ---"
@@ -66,7 +69,7 @@ dump_delivery() {
   done
 }
 # shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
-trap 'rc=$?; [ $rc -ne 0 ] && { dump_diag "$NS"; dump_delivery; }; [ -z "${GEN_PID:-}" ] || kill "$GEN_PID" 2>/dev/null || true; pkill -f "kubectl.*port-forward" 2>/dev/null || true; exit $rc' EXIT
+trap 'rc=$?; [ $rc -ne 0 ] && { dump_diag "$NS"; dump_delivery; dump_identity; }; [ -z "${GEN_PID:-}" ] || kill "$GEN_PID" 2>/dev/null || true; pkill -f "kubectl.*port-forward" 2>/dev/null || true; identity_cleanup; exit $rc' EXIT
 
 command -v oras >/dev/null 2>&1 || fail "oras is required: it publishes the manifest artifacts Flux pulls"
 command -v cosign >/dev/null 2>&1 || fail "cosign is required: every version a Stage promotes is signed"
@@ -89,7 +92,9 @@ PACTO="$(build_pacto)"
 OP_CHART="$(package_chart "$PACTO_CHART")"
 DL_CHART="$(package_chart "$_PACTO_ROOT/integrations/kubernetes/charts/pacto-delivery")"
 
-ensure_cluster
+# The cluster trusts the run's identity providers (phase 4): its apiserver is
+# created with their structured authentication and an audit log.
+ensure_cluster "$(identity_prepare)"
 load_images "$OP_IMG" "$DL_IMG" "$DASH_IMG"
 for n in "$NS" "$DELIVERY_NS" test prod agents; do
   kubectl create namespace "$n" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -98,13 +103,29 @@ done
 echo "== zot, the Pacto operator (observing only) and Flux =="
 install_registry
 REG_PF_PID="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
+# The operator-managed dashboard gets its sign-in from the chart (phase 4
+# checks the operator passes it on); its ServiceAccount is the read-only one
+# phase 4's own dashboard runs with.
+kubectl -n "$NS" create secret generic dashboard-oidc --from-literal=client-secret="$DASH_SECRET" \
+  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 helm install pacto-operator "$OP_CHART" -n "$NS" \
   --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
-  --set dashboard.enabled=false --set "insecureRegistries[0]=$REG_HOST" --wait --timeout 240s
+  --set dashboard.enabled=true --set dashboard.auth.oidc.issuerURL="$DEX_ISSUER" \
+  --set dashboard.auth.oidc.clientID=pacto-dashboard --set dashboard.auth.oidc.redirectURL="$DASH_URL/auth/callback" \
+  --set dashboard.auth.oidc.clientSecretRef.name=dashboard-oidc \
+  --set "insecureRegistries[0]=$REG_HOST" --wait --timeout 240s
 kubectl apply --server-side -f "https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/install.yaml" >/dev/null
 kubectl -n flux-system scale deploy helm-controller --replicas=0 >/dev/null 2>&1 || true
 kubectl -n flux-system rollout status deploy/source-controller --timeout=240s
 kubectl -n flux-system rollout status deploy/kustomize-controller --timeout=240s
+
+# DELIVERY_SKIP_IDENTITY=1 skips phase 4. It needs phase 1 (it ships F again).
+[ -n "${DELIVERY_SKIP_CORE:-}" ] && DELIVERY_SKIP_IDENTITY=1
+if [ -z "${DELIVERY_SKIP_IDENTITY:-}" ]; then
+  echo "== identity providers: Dex for people, Keycloak for agents over HTTP =="
+  identity_up
+  identity_login_stale
+fi
 
 echo "== the signing key: a cosign key pair, its public half in a Secret Flux verifies with =="
 KEYDIR="$(mktemp -d)"
@@ -1200,6 +1221,11 @@ eventually 20 ready_is "$M" billing-anyone False/CandidateUnverified \
 [ -z "$(kubectl -n "$M" get stage billing-anyone -o jsonpath='{.status.published}')" ] || fail "an unverified candidate was recorded as published"
 pass "a Stage whose candidate OCIRepository sets no spec.verify is Ready=False with CandidateUnverified and records nothing"
 echo "DELIVERY PUBLISH PASS"
+
+if [ -z "${DELIVERY_SKIP_IDENTITY:-}" ]; then
+  identity_scenario
+  echo "DELIVERY IDENTITY PASS"
+fi
 
 kill "$REG_PF_PID" 2>/dev/null || true
 echo "DELIVERY PASS"

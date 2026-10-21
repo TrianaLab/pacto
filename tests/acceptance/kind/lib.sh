@@ -21,7 +21,7 @@
 #
 #   pass MSG / fail MSG            report one claim; fail exits 1
 #   eventually ROUNDS CMD...       run CMD until it succeeds, 3s apart
-#   ensure_cluster                 create $CLUSTER if absent, point KUBECONFIG at it
+#   ensure_cluster [CONFIG]        create $CLUSTER if absent, point KUBECONFIG at it
 #   use_existing_cluster HINT      require an already-running $CLUSTER
 #   load_images IMG...             import images into $CLUSTER
 #   delete_cluster / down_cluster  quiet teardown / the chatty `down` subcommand
@@ -97,8 +97,8 @@ _kubeconfig_for_cluster() {
   kind get kubeconfig --name "$CLUSTER" > "$KUBECONFIG"
 }
 
-ensure_cluster() {
-  kind get clusters | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --wait 90s
+ensure_cluster() { # [KIND_CONFIG] — the config only applies when the cluster is created
+  kind get clusters | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --wait 90s ${1:+--config "$1"}
   _kubeconfig_for_cluster
 }
 

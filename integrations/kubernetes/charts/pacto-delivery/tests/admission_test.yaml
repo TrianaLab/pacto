@@ -56,6 +56,13 @@ tests:
       - equal:
           path: spec.validations[3].message
           value: "spec.groups must be the groups of the user creating the approval"
+      # Both directions: no group the user lacks, and none of theirs left out.
+      - matchRegex:
+          path: spec.validations[3].expression
+          pattern: "variables\\.groups\\.all\\(g, g in request\\.userInfo\\.groups\\) &&"
+      - matchRegex:
+          path: spec.validations[3].expression
+          pattern: "request\\.userInfo\\.groups\\.all\\(g, g in variables\\.groups\\)"
 
   - it: protects only labelled OCIRepositories
     capabilities:
