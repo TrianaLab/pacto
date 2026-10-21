@@ -276,10 +276,14 @@ identity_scenario() {
   kubectl create clusterrolebinding delivery-oidc-agents --clusterrole=pacto-delivery-agent \
     --group=pacto:agents --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   local DSA="system:serviceaccount:${NS}:pacto-dashboard"
-  for v in "create approvals.delivery.pacto.trianalab.io" "create operations.delivery.pacto.trianalab.io" \
-    "list stages.delivery.pacto.trianalab.io" "impersonate users" "impersonate userextras/pacto.dev/auth-time"; do
+  # Only a plain "no" passes: a kubectl error prints nothing on stdout. The
+  # auth-time extra is a subresource of userextras, as RBAC grants it.
+  local v ans
+  for v in "create approvals.delivery.pacto.trianalab.io -A" "create operations.delivery.pacto.trianalab.io -A" \
+    "list stages.delivery.pacto.trianalab.io -A" "impersonate users" "impersonate userextras --subresource=pacto.dev/auth-time"; do
     # shellcheck disable=SC2086
-    if kubectl auth can-i $v --as "$DSA" -A 2>/dev/null | grep -q yes; then fail "the dashboard's ServiceAccount may $v"; fi
+    ans="$(kubectl auth can-i $v --as "$DSA" 2>/dev/null || true)"
+    [[ "$ans" == no* ]] || fail "the dashboard's ServiceAccount may $v, or kubectl could not say: '$ans'"
   done
   pass "the dashboard's ServiceAccount can do nothing in delivery and cannot impersonate"
   kubectl -n "$NS" get deploy pacto-dashboard -o json | jq -e '.spec.template.spec.containers[0].env as $e |
@@ -365,7 +369,8 @@ identity_scenario() {
 
   # --- decisions ---
   out="$(dash "$carol" GET /api/delivery/inbox)"
-  jq -e '.held | map(.name) | index("idp-f")' <<<"${out#* }" >/dev/null || fail "carol's inbox does not show F: $out"
+  jq -e '.held | map(select(.name == "idp-f"))[0] | (.question | contains("team-checkout")) and (.consumers | index("checkout"))' \
+    <<<"${out#* }" >/dev/null || fail "carol's inbox does not show F with its question and the services it affects: $out"
   out="$(dash "$carol" GET /api/delivery/operations/prod/idp-f)"
   jq -e '.actions | index("approve")' <<<"${out#* }" >/dev/null || fail "carol is not offered the decision: $out"
   pass "carol (team-checkout) sees F in her inbox with the question and the decision"
@@ -452,7 +457,7 @@ YAML
   [ "$(kubectl -n prod get approval "$approval" -o jsonpath='{.spec.by}')" = "$CAROL" ] || fail "the Approval is not carol's"
   audited create approvals "$CAROL" || fail "the audit log does not show carol creating the Approval"
   wait_concluded prod idp-f Succeeded/Verified
-  [ "$(kubectl -n prod get operation idp-f -o jsonpath='{.status.approvals[*].by}')" = "$CAROL" ] \
+  [ "$(kubectl -n prod get operation idp-f -o jsonpath='{.status.approvals[*].name}')" = "$approval" ] \
     || fail "the promoter consumed an approval other than carol's fresh one"
   pass "carol approved from the dashboard after a fresh login; the audit log shows her, F shipped"
 

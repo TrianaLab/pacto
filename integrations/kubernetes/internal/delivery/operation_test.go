@@ -157,7 +157,7 @@ func TestBreakingChangeWaitsForTheConsumersTeam(t *testing.T) {
 	stale.Namespace, stale.Name = ns, "stale"
 	stale.CreationTimestamp = metaNow(e.now)
 	stale.Spec = delivery.ApprovalSpec{Operation: o.Name, OperationUID: string(o.UID), IntentDigest: o.Spec.IntentDigest,
-		Decision: delivery.Approve, By: "alice", AuthTime: e.now.Add(-time.Hour).Format(time.RFC3339)}
+		Decision: delivery.Approve, By: "alice", Groups: []string{"team-checkout"}, AuthTime: e.now.Add(-time.Hour).Format(time.RFC3339)}
 	e.create(stale)
 	e.approve(o, "wronguid", "alice", delivery.Approve)
 	wrong := e.getApproval("wronguid")

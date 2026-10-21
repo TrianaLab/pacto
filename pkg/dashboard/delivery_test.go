@@ -343,6 +343,10 @@ func TestInbox(t *testing.T) {
 	expect(t, inbox["completeness"] == "complete", "inbox %v", inbox)
 	expect(t, names(inbox["held"]) == "for-checkout:approve,anyone:accept-unknown",
 		"held: only what names my team (or nobody), as accept-unknown once it shipped: %v", inbox["held"])
+	first := inbox["held"].([]any)[0].(map[string]any)
+	expect(t, first["question"] == "Approve?" && strings.Join(toStrings(first["consumers"]), ",") == "checkout" &&
+		strings.Join(toStrings(first["owners"]), ",") == "team-checkout",
+		"a held item carries its question, the services affected and the teams that may answer: %v", first)
 	fr := inbox["frozen"].([]any)
 	expect(t, len(fr) == 1 && fr[0].(map[string]any)["service"] == "orphan",
 		"frozen Stages of other teams' services are not mine, unowned ones are: %v", fr)
