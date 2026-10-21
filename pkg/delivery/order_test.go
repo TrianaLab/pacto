@@ -394,6 +394,12 @@ func TestNewerThan(t *testing.T) {
 	if _, err := newerThan(bundle("orders", "x").Contract, "1.8.0"); err == nil || !strings.Contains(err.Error(), "its version cannot be read") {
 		t.Fatalf("candidate version unreadable: %v", err)
 	}
+	if why, err := newerThan(bundle("orders", "1.9.0-rc.1").Contract, "1.8.0"); why != "" || err != nil {
+		t.Fatalf("a pre-release of a later version is newer: %q %v", why, err)
+	}
+	if why, _ := newerThan(bundle("orders", "1.8.0-rc.1").Contract, "1.8.0"); why != "orders 1.8.0-rc.1 is not newer than the 1.8.0 running here" {
+		t.Fatalf("a pre-release of the running version is older: %q", why)
+	}
 }
 
 func TestOrderSharesOneRegistryBound(t *testing.T) {

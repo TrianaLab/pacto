@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
@@ -224,15 +225,17 @@ func newerThan(c *contract.Contract, running string) (string, error) {
 	if running == "" {
 		return "", nil
 	}
-	newer, err := contract.ParseRange("> " + running)
+	// Versions compared directly, not through a range: a range never lets a
+	// pre-release through, but 1.9.0-rc.1 is newer than 1.8.0.
+	cur, err := semver.NewVersion(running)
 	if err != nil {
 		return "", fmt.Errorf("the %s running here has no usable version: %w", c.Service.Name, err)
 	}
-	ok, err := newer.Check(c.Service.Version)
+	cand, err := semver.NewVersion(c.Service.Version)
 	switch {
 	case err != nil:
 		return "", fmt.Errorf("its version cannot be read: %w", err)
-	case !ok:
+	case !cand.GreaterThan(cur):
 		return fmt.Sprintf("%s %s is not newer than the %s running here", c.Service.Name, c.Service.Version, running), nil
 	}
 	return "", nil
