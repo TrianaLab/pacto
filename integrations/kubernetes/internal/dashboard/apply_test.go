@@ -95,7 +95,7 @@ func TestDeploymentAC_WithWatchNamespace(t *testing.T) {
 }
 
 func TestDeploymentAC_Auth(t *testing.T) {
-	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "ns", MiraURL: "http://mira:4318",
+	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "ns", MiraURL: "http://mira:8080",
 		Auth: AuthConfig{IssuerURL: "https://idp", ClientID: "pacto-dashboard", RedirectURL: "https://dash/auth/callback",
 			ExtraScopes: []string{"a", "b"}, ClientSecretName: "oidc", TeamGroupPrefix: "acme:"}}
 	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
@@ -105,7 +105,7 @@ func TestDeploymentAC_Auth(t *testing.T) {
 	}
 	for name, want := range map[string]string{"PACTO_DASHBOARD_OIDC_ISSUER_URL": "https://idp", "PACTO_DASHBOARD_OIDC_CLIENT_ID": "pacto-dashboard",
 		"PACTO_DASHBOARD_OIDC_REDIRECT_URL": "https://dash/auth/callback", "PACTO_DASHBOARD_OIDC_EXTRA_SCOPES": "a b",
-		"PACTO_DASHBOARD_TEAM_GROUP_PREFIX": "acme:", "PACTO_DASHBOARD_MIRA_URL": "http://mira:4318"} {
+		"PACTO_DASHBOARD_TEAM_GROUP_PREFIX": "acme:", "PACTO_DASHBOARD_MIRA_URL": "http://mira:8080"} {
 		if e, ok := env[name]; !ok || *e.Value != want {
 			t.Errorf("%s: want %q, got %+v", name, want, e)
 		}
