@@ -384,7 +384,7 @@ func TestEdgeEvidence(t *testing.T) {
 	// edgeEvidence only through observedEdges, which the caller gates on
 	// IncludeObserved. Skipping it must still not let it be mistaken for the
 	// declared edge, so the declared claim below is what comes back.
-	rel, declared, observed := edgeEvidence(snap, "a", "b", nil)
+	rel, declared, observed := edgeEvidence(snap, "a", "b", "1.2.0", nil)
 	if !declared || observed || !rel.Required || rel.Compatibility != "^1.0.0" {
 		t.Errorf("edgeEvidence = rel:%+v declared:%v observed:%v", rel, declared, observed)
 	}
@@ -394,9 +394,29 @@ func TestEdgeEvidence(t *testing.T) {
 		&fleet.FleetSnapshot{Relationships: []fleet.Relationship{
 			{Type: fleet.RelationshipDependency, FromService: "a", ToService: "b", Provenance: fleet.ProvenanceDeclared, Required: true},
 		}},
-		"a", "b", []resolvedObservedEdge{{consumer: "a", provider: "b"}, {consumer: "other", provider: "b"}})
+		"a", "b", "1.2.0", []resolvedObservedEdge{{consumer: "a", provider: "b"}, {consumer: "other", provider: "b"}})
 	if !declaredT || !observedT || !relT.Required {
 		t.Errorf("telemetry edge not counted: rel:%+v declared:%v observed:%v", relT, declaredT, observedT)
+	}
+}
+
+// One edge per running revision: the revision that accepts the new version
+// least speaks for the consumer, in either order.
+func TestEdgeEvidenceWorstRevisionSpeaks(t *testing.T) {
+	dep := func(rng string) fleet.Relationship {
+		return fleet.Relationship{Type: fleet.RelationshipDependency, FromService: "a", ToService: "b", Provenance: fleet.ProvenanceDeclared, Compatibility: rng}
+	}
+	for _, rels := range [][]fleet.Relationship{
+		{dep("^3.0.0"), dep("not a range"), dep("^2.0.0"), dep("^3.0.0")},
+		{dep("^2.0.0"), dep("^3.0.0"), dep("not a range")},
+	} {
+		if rel, _, _ := edgeEvidence(&fleet.FleetSnapshot{Relationships: rels}, "a", "b", "3.0.0", nil); rel.Compatibility != "^2.0.0" {
+			t.Errorf("edges %v: the consumer speaks through %q, want ^2.0.0", rels, rel.Compatibility)
+		}
+	}
+	rels := []fleet.Relationship{dep("^3.0.0"), dep("not a range")}
+	if rel, _, _ := edgeEvidence(&fleet.FleetSnapshot{Relationships: rels}, "a", "b", "3.0.0", nil); rel.Compatibility != "not a range" {
+		t.Errorf("an unreadable range outranks one that accepts, got %q", rel.Compatibility)
 	}
 }
 
