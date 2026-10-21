@@ -217,3 +217,9 @@ a witnessed override, adopts it and freezes the Stage.
 - One cluster, Flux only.
 - Flux checks the signatures, so a digest it never verified on the candidate
   source cannot be promoted, even if `pacto publish` signed it.
+- In the dashboard, a change's timeline shows only the times on the operation,
+  not Kubernetes events. The services it affects are links to their own pages
+  on the operational graph, not drawn on a graph inside the change.
+- The dashboard's published versions are the ones your Stages know about, from
+  their candidate sources and status. A version you published that no Stage
+  has seen yet is not listed.
