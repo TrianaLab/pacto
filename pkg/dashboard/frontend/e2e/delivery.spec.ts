@@ -47,7 +47,7 @@ function installDelivery(persona: Persona): void {
       candidate: { digest: 'sha256:' + '3'.repeat(64), version: '3.1.0', accepts: '>=1.4.0 <3.0.0', verifiedOn: { namespace: 'test', name: 'checkout-test' } },
       // What moveFirstMessage writes, full digest included, so the narrow check below covers it.
       message: 'checkout 3.0.0 runs in prod and accepts payments ^1.4.0, not 2.0.0. checkout 3.1.0 (sha256:333333333333) accepts it (>=1.4.0 <3.0.0) ' +
-        'and verified on test/checkout-test. Ship checkout first: promote sha256:' + '3'.repeat(64) + ' on Stage prod/checkout-prod.' }],
+        'and was verified on test/checkout-test. Ship checkout first: promote sha256:' + '3'.repeat(64) + ' on Stage prod/checkout-prod.' }],
     unknown: ['the operational graph is partial (unresolved-reference)'] } };
   const op = () => ({
     metadata: { name: 'op1', namespace: 'prod' },

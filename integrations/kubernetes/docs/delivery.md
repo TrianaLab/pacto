@@ -198,7 +198,7 @@ names what must move first:
 
 ```text
 move first: orders 1.8.0 runs in prod and accepts payments ^2.0.0, not 3.0.0. orders 1.9.0 (sha256:4f1c...)
-accepts it (>=2.0.0 <4.0.0) and verified on test/orders. Ship orders first: promote sha256:4f1c... on Stage prod/orders.
+accepts it (>=2.0.0 <4.0.0) and was verified on test/orders. Ship orders first: promote sha256:4f1c... on Stage prod/orders.
 ```
 
 Pacto works this out from the contracts and the Stages:

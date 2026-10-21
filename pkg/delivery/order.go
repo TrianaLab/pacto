@@ -320,8 +320,8 @@ func moveFirstMessage(m MoveFirst, stage StageSpec, newVersion, none string) str
 		if c.Accepts == "" {
 			accepts = "no longer depends on " + stage.Service.Name
 		}
-		return msg + fmt.Sprintf(" %s %s (%s) %s and verified on %s/%s. Ship %s first: promote %s on Stage %s/%s.",
-			m.Service, c.Version, short(c.Digest), accepts, c.VerifiedOn.Namespace, c.VerifiedOn.Name,
+		return msg + fmt.Sprintf(" %s (%s) %s and was verified on %s/%s. Ship %s first: promote %s on Stage %s/%s.",
+			strings.TrimSpace(m.Service+" "+c.Version), short(c.Digest), accepts, c.VerifiedOn.Namespace, c.VerifiedOn.Name,
 			m.Service, c.Digest, m.Stage.Namespace, m.Stage.Name)
 	case m.Unknown != "":
 		return msg + " Pacto cannot tell what would move it first: " + m.Unknown + "."

@@ -240,7 +240,7 @@ const ORDER = { moveFirst: [
   { service: 'orders', version: '1.8.0', accepts: '^2.0.0', stage: { namespace: 'prod', name: 'orders-prod' },
     candidate: { digest: 'sha256:' + '9'.repeat(64), version: '1.9.0', accepts: '>=2.0.0 <4.0.0', verifiedOn: { namespace: 'test', name: 'orders-test' } },
     // What moveFirstMessage writes, full digest included.
-    message: 'orders 1.8.0 runs in prod and accepts payments ^2.0.0, not 3.0.0. orders 1.9.0 (sha256:999999999999) accepts it (>=2.0.0 <4.0.0) and verified on test/orders-test. Ship orders first: promote sha256:' + '9'.repeat(64) + ' on Stage prod/orders-prod.' },
+    message: 'orders 1.8.0 runs in prod and accepts payments ^2.0.0, not 3.0.0. orders 1.9.0 (sha256:999999999999) accepts it (>=2.0.0 <4.0.0) and was verified on test/orders-test. Ship orders first: promote sha256:' + '9'.repeat(64) + ' on Stage prod/orders-prod.' },
   { service: 'billing', accepts: '^2.0.0', unknown: 'no Stage delivers billing in prod',
     message: 'billing runs in prod and accepts payments ^2.0.0, not 3.0.0. Pacto cannot tell what would move it first: no Stage delivers billing in prod.' },
 ], unknown: ['the operational graph is partial (unresolved-reference)'] };

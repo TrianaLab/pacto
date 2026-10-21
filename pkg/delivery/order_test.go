@@ -181,7 +181,7 @@ func TestOrderShipOrdersFirst(t *testing.T) {
 		t.Fatalf("candidate: %+v", m.Candidate)
 	}
 	msg := "orders 1.8.0 runs in prod and accepts payments ^2.0.0, not 3.0.0. orders 1.9.0 (sha256:020202020202) accepts it (>=2.0.0 <4.0.0) " +
-		"and verified on test/orders. Ship orders first: promote " + o2 + " on Stage orders-prod/orders."
+		"and was verified on test/orders. Ship orders first: promote " + o2 + " on Stage orders-prod/orders."
 	if m.Message != msg {
 		t.Fatalf("message:\n%s\nwant\n%s", m.Message, msg)
 	}
@@ -488,5 +488,18 @@ func TestOrderQuestion(t *testing.T) {
 		if got := orderQuestion(&tc.o); got != tc.want {
 			t.Errorf("%+v: got %q, want %q", tc.o, got, tc.want)
 		}
+	}
+}
+
+// A candidate whose contract names no version reads as one name, not two
+// spaces around a missing version.
+func TestMoveFirstMessageNoVersion(t *testing.T) {
+	m := MoveFirst{Service: "orders", Version: "1.8.0", Accepts: "^2.0.0", Stage: &StageRef{Namespace: "prod", Name: "orders"},
+		Candidate: &Candidate{Digest: o1, Accepts: ">=2.0.0 <4.0.0", VerifiedOn: StageRef{Namespace: "test", Name: "orders"}}}
+	got := moveFirstMessage(m, stageSpec(), "3.0.0", "")
+	want := "orders 1.8.0 runs in prod and accepts payments ^2.0.0, not 3.0.0. orders (sha256:010101010101) accepts it (>=2.0.0 <4.0.0) " +
+		"and was verified on test/orders. Ship orders first: promote " + o1 + " on Stage prod/orders."
+	if got != want {
+		t.Fatalf("got\n%s\nwant\n%s", got, want)
 	}
 }
