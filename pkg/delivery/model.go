@@ -203,6 +203,14 @@ type Stream struct {
 	ID string `json:"id,omitempty"`
 	// +optional
 	Seq int64 `json:"seq,omitempty"`
+	// RecordedSeq is the newest local seq the recorder wrote or adopted a
+	// record for. Only the recorder writes it.
+	// +optional
+	RecordedSeq int64 `json:"recordedSeq,omitempty"`
+	// Head is the digest of the newest record in the stream. Only the
+	// recorder writes it.
+	// +optional
+	Head string `json:"head,omitempty"`
 }
 
 // StageStatus is written only by the promoter's operation reconciler.
@@ -248,7 +256,9 @@ type StageStatus struct {
 	// Conditions holds Ready. It is False, naming what is missing, when the
 	// Stage can never promote: its candidate OCIRepository does not exist or
 	// sets no spec.verify naming the publisher, or it names no candidate
-	// source at all.
+	// source at all. The recorder adds RecordStoreReady: False when the
+	// registry has no Referrers API, cannot be reached or holds a stream it
+	// refuses to fork.
 	// +optional
 	// +listType=map
 	// +listMapKey=type
@@ -547,6 +557,23 @@ type OperationStatus struct {
 	Times Times `json:"times,omitzero"`
 	// +optional
 	Seq int64 `json:"seq,omitempty"`
+	// Record is the signed record of this operation, once the recorder wrote
+	// it. Only the recorder writes it.
+	// +optional
+	Record *RecordRef `json:"record,omitempty"`
+}
+
+// RecordRef names an operation's record.
+type RecordRef struct {
+	// Digest is the record id: the sha256 of its signed payload.
+	Digest string `json:"digest"`
+	// Seq is the record's place in the stream.
+	Seq int64 `json:"seq"`
+	// Kind is operation, or unrecordable when a pre-sign check refused it.
+	Kind string `json:"kind"`
+	// Refused names the check and why, for an unrecordable record.
+	// +optional
+	Refused string `json:"refused,omitempty"`
 }
 
 // ApprovalSpec is a human decision bound to one operation uid and intent digest.

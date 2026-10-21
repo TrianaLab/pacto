@@ -415,6 +415,32 @@ spec:
                   Reason is the machine reason for the outcome or the hold (PlanStale,
                   PointerMoved, NoStage, ...).
                 type: string
+              record:
+                description: |-
+                  Record is the signed record of this operation, once the recorder wrote
+                  it. Only the recorder writes it.
+                properties:
+                  digest:
+                    description: 'Digest is the record id: the sha256 of its signed
+                      payload.'
+                    type: string
+                  kind:
+                    description: Kind is operation, or unrecordable when a pre-sign
+                      check refused it.
+                    type: string
+                  refused:
+                    description: Refused names the check and why, for an unrecordable
+                      record.
+                    type: string
+                  seq:
+                    description: Seq is the record's place in the stream.
+                    format: int64
+                    type: integer
+                required:
+                - digest
+                - kind
+                - seq
+                type: object
               seq:
                 format: int64
                 type: integer

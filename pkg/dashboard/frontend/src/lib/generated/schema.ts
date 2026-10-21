@@ -1066,6 +1066,7 @@ export interface components {
             pointer?: components["schemas"]["Delivery.PointerChange"];
             question?: string;
             reason?: string;
+            record?: components["schemas"]["Delivery.RecordRef"];
             /** Format: int64 */
             seq?: number;
             times?: components["schemas"]["Delivery.Times"];
@@ -1106,6 +1107,13 @@ export interface components {
             digest: string;
             operation: string;
             verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
+        };
+        "Delivery.RecordRef": {
+            digest: string;
+            kind: string;
+            refused?: string;
+            /** Format: int64 */
+            seq: number;
         };
         "Delivery.Request": {
             cause?: components["schemas"]["Delivery.Cause"];

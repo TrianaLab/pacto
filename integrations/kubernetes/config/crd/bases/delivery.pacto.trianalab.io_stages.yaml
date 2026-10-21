@@ -220,7 +220,9 @@ spec:
                   Conditions holds Ready. It is False, naming what is missing, when the
                   Stage can never promote: its candidate OCIRepository does not exist or
                   sets no spec.verify naming the publisher, or it names no candidate
-                  source at all.
+                  source at all. The recorder adds RecordStoreReady: False when the
+                  registry has no Referrers API, cannot be reached or holds a stream it
+                  refuses to fork.
                 items:
                   description: |-
                     Condition is a Kubernetes status condition, so `kubectl wait
@@ -339,11 +341,22 @@ spec:
               stream:
                 description: Stream numbers a Stage's concluded operations.
                 properties:
+                  head:
+                    description: |-
+                      Head is the digest of the newest record in the stream. Only the
+                      recorder writes it.
+                    type: string
                   id:
                     description: |-
                       ID is <clusterID>/<namespace>/<name>; the cluster id is the kube-system
                       namespace uid.
                     type: string
+                  recordedSeq:
+                    description: |-
+                      RecordedSeq is the newest local seq the recorder wrote or adopted a
+                      record for. Only the recorder writes it.
+                    format: int64
+                    type: integer
                   seq:
                     format: int64
                     type: integer

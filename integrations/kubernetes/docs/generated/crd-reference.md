@@ -146,6 +146,11 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.pointer.before` | `string` | no |  |  |  |
 | `status.question` | `string` | no |  |  | Question is what a human is asked while the operation is Held. |
 | `status.reason` | `string` | no |  |  | Reason is the machine reason for the outcome or the hold (PlanStale, PointerMoved, NoStage, ...). |
+| `status.record` | `object` | no |  |  | Record is the signed record of this operation, once the recorder wrote it. Only the recorder writes it. |
+| `status.record.digest` | `string` | yes |  |  | Digest is the record id: the sha256 of its signed payload. |
+| `status.record.kind` | `string` | yes |  |  | Kind is operation, or unrecordable when a pre-sign check refused it. |
+| `status.record.refused` | `string` | no |  |  | Refused names the check and why, for an unrecordable record. |
+| `status.record.seq` | `integer` | yes |  |  | Seq is the record's place in the stream. |
 | `status.seq` | `integer` | no |  |  |  |
 | `status.times` | `object` | no |  |  | Times are RFC 3339 timestamps. |
 | `status.times.admitted` | `string` | no |  |  |  |
@@ -219,7 +224,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.autoHold` | `boolean` | no |  |  | AutoHold stops auto-promotion after a person chose an older version. |
 | `status.autoRollbacks` | `object` | no |  |  | AutoRollbacks counts the automatic rollbacks raised per cause. |
 | `status.candidate` | `string` | no |  |  | Candidate is the newest eligible candidate the stage reconciler saw. |
-| `status.conditions` | `[]object` | no |  |  | Conditions holds Ready. It is False, naming what is missing, when the Stage can never promote: its candidate OCIRepository does not exist or sets no spec.verify naming the publisher, or it names no candidate source at all. |
+| `status.conditions` | `[]object` | no |  |  | Conditions holds Ready. It is False, naming what is missing, when the Stage can never promote: its candidate OCIRepository does not exist or sets no spec.verify naming the publisher, or it names no candidate source at all. The recorder adds RecordStoreReady: False when the registry has no Referrers API, cannot be reached or holds a stream it refuses to fork. |
 | `status.conditions[].message` | `string` | no |  |  |  |
 | `status.conditions[].reason` | `string` | no |  |  |  |
 | `status.conditions[].status` | `string` | yes |  | `True`, `False`, `Unknown` |  |
@@ -243,7 +248,9 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.pointer` | `string` | no |  |  | Pointer is the digest the environment runs. |
 | `status.published` | `[]string` | no |  |  | Published holds the candidate digests Flux verified the signature of on the candidate OCIRepository (spec.verify naming the publisher's identity), oldest first (cap 50). Only these are promoted from the OCIRepository. |
 | `status.stream` | `object` | no |  |  | Stream numbers a Stage's concluded operations. |
+| `status.stream.head` | `string` | no |  |  | Head is the digest of the newest record in the stream. Only the recorder writes it. |
 | `status.stream.id` | `string` | no |  |  | ID is &lt;clusterID&gt;/&lt;namespace&gt;/&lt;name&gt;; the cluster id is the kube-system namespace uid. |
+| `status.stream.recordedSeq` | `integer` | no |  |  | RecordedSeq is the newest local seq the recorder wrote or adopted a record for. Only the recorder writes it. |
 | `status.stream.seq` | `integer` | no |  |  |  |
 | `status.verified` | `[]string` | no |  |  | Verified holds the newest verified digests, oldest first (cap 10). |
 
