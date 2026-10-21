@@ -157,26 +157,33 @@ func verifiedCandidate(ctx context.Context, in PlanInput, m *MoveFirst, stage St
 			continue
 		}
 		c := r.Bundle.Contract
-		rng, ok, err := acceptsBoth(c, in.Stage.Service.Name, newVersion, running)
-		if err == nil && ok {
-			var why string
-			if why, err = newerThan(c, m.Version); err == nil && why == "" {
-				why, err = acceptsWhatRunsHere(in.Snapshot, c, in.Stage.Service.Name)
-			}
-			if why != "" {
-				rejected = append(rejected, why)
-				continue
-			}
-		}
+		rng, ok, why, err := canMoveFirst(in, c, m.Version, newVersion, running)
 		switch {
 		case err != nil:
 			unreadable = append(unreadable, short(d)+": "+err.Error())
+		case why != "":
+			rejected = append(rejected, why)
 		case ok:
 			m.Candidate = &Candidate{Digest: d, Version: c.Service.Version, Accepts: rng, VerifiedOn: ref}
 			return unreadable, rejected
 		}
 	}
 	return unreadable, rejected
+}
+
+// canMoveFirst judges one readable version of the consumer: ok when it can
+// move first, why in plain words when it accepts both provider versions but
+// still cannot, and an error when Pacto cannot tell.
+func canMoveFirst(in PlanInput, c *contract.Contract, version, newVersion, running string) (rng string, ok bool, why string, err error) {
+	rng, ok, err = acceptsBoth(c, in.Stage.Service.Name, newVersion, running)
+	if err != nil || !ok {
+		return rng, false, "", err
+	}
+	if why, err = newerThan(c, version); err != nil || why != "" {
+		return rng, false, why, err
+	}
+	why, err = acceptsWhatRunsHere(in.Snapshot, c, in.Stage.Service.Name)
+	return rng, why == "" && err == nil, why, err
 }
 
 // newerThan says why a candidate is not newer than the consumer version
