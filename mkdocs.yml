@@ -233,6 +233,7 @@ nav:
           - "Delivery: health checks and claims": integrations/kubernetes/delivery-health.md
           - "Delivery: sign-in, approvals and agents": integrations/kubernetes/delivery-identity.md
           - "Delivery: signed records": integrations/kubernetes/delivery-records.md
+          - "Delivery: history, blame and verification": integrations/kubernetes/delivery-history.md
           - CRD reference: integrations/kubernetes/crd-reference.md
           - Helm reference: integrations/kubernetes/helm-reference.md
           - RBAC: integrations/kubernetes/rbac.md

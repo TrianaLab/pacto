@@ -25,8 +25,17 @@ registry has no Referrers API: records are unsupported there. The metric
 The `pacto-delivery` chart gains `recorder.*`, off by default: the streams
 repository, a Docker config Secret for push and one of an Ed25519 key Secret,
 a cosign KMS key URI or keyless signing. With the recorder on, the promoter
-gets `--records` and leaves the record finalizer to it. The promoter's role
-does not grow. The delivery image is now built with `--target delivery` and
+gets `--records` and leaves the record finalizer to it.
+
+The recorder names each stream's anchor in `status.stream.anchor`, verifies a
+stream against its own key plus the keys `recorder.trust` lists before it
+extends it, and can post a CDEvent for every record to `recorder.cdeventsSink`.
+A stream in conflict freezes its Stage until it is repaired and a person
+unfreezes it. With the recorder on, the promoter deletes a recorded operation
+after `recorder.operationTTL` (a week by default), never the one a Stage runs,
+and its role gains `delete` on operations for that. An admission policy keeps
+`status.record` and the stream's `recordedSeq`, `head` and `anchor` to the
+recorder, and keeps the recorder away from what runs. The delivery image is now built with `--target delivery` and
 carries cosign 2.6.5 for KMS and keyless signing. Apply the delivery CRDs
 before `helm upgrade pacto-delivery`: the Stage and Operation CRDs gain the
 record fields.

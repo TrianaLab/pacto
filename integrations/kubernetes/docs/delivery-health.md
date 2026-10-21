@@ -108,8 +108,8 @@ pacto delivery history -n prod --stage payments
 ```
 
 `explain` shows where an operation is, every verdict with its citation and how
-to run it again. `history` lists a Stage's operations in order, from the ones
-still in the cluster, so it is partial until signed records arrive.
+to run it again. `history` lists a Stage's operations in order, from its
+signed records when the recorder runs; see [reading records](delivery-history.md).
 
 A person or an agent can cite a verdict as the cause of an operation with
 `--cause-verdict '<verdict JSON>'`, for example to roll back a frozen Stage.

@@ -73,7 +73,7 @@ Each Stage gets a `RecordStoreReady` condition:
 | `ReferrersSupported` | Records are being written |
 | `ReferrersUnsupported` | The registry has no Referrers API |
 | `RegistryUnavailable` | The registry or the signer did not answer; the recorder tries again |
-| `StreamConflict` | The stream holds two records with one number, a record the recorder cannot verify, or the Stage names a newest record the registry does not hold. The recorder stops writing that stream until you fix it |
+| `StreamConflict` | The stream holds two records with one number, a record that does not chain from the one before, a record no trusted key signed, or the Stage names a newest record the registry does not hold. The recorder stops writing that stream and the promoter freezes the Stage |
 
 `status.stream.recordedSeq` and `status.stream.head` show how far the stream
 is recorded, and the metric `pacto_delivery_records_pending` shows how many
@@ -83,10 +83,57 @@ After an etcd restore the registry may be ahead of the cluster. The recorder
 reads the stream from the registry, adopts records it already wrote and
 continues from the newest one, so it never forks the stream.
 
+A `StreamConflict` is never resolved for you. Find the bad record with
+`pacto delivery record verify` (see [reading records](delivery-history.md)),
+delete its referrer manifest from the streams repository, wait for
+`RecordStoreReady` to turn `True` and then unfreeze the Stage. While the
+conflict lasts, the promoter freezes the Stage again after every unfreeze.
+
+## Trust and key rotation
+
+Every record names, by digest, the trust config the recorder checked the
+stream with. The recorder trusts its own key. To rotate keys, sign with the
+new key and list the old one in `recorder.trust`, so the old records still
+verify:
+
+```yaml
+recorder:
+  trust: |
+    keys:
+      - name: old-recorder
+        publicKey: |
+          -----BEGIN PUBLIC KEY-----
+          ...
+          -----END PUBLIC KEY-----
+        streams: ["*/prod/*"]
+```
+
+`streams` are patterns over stream ids (`<cluster>/<namespace>/<stage>`). A
+key is trusted only for the streams it lists, or for all of them when the list
+is empty, so a dev recorder's key cannot sign prod history. A keyless entry
+names `identity` and `issuer`, and `roots` (the Fulcio root and intermediate
+in PEM) to check the certificate's chain.
+
+## Recorded operations and the registry
+
+Once recorded, an operation is deleted after `recorder.operationTTL` (a week
+by default). The operation a Stage runs is kept, because a rollback must name
+it. Nothing in Pacto deletes a record. If your registry removes old manifests,
+it removes old records too, and history from then on is partial. Keep the
+streams repository and the referrers on your deploy and contract repositories
+out of any retention rule.
+
+With `recorder.cdeventsSink` set, the recorder posts a
+[CDEvent](https://cdevents.dev) for every record, best effort:
+`service.deployed`, `upgraded` or `rolledback` when Flux applied the new
+version, and `dev.cdeventsx.pacto-operation.concluded` for every operation.
+The event id is the record digest.
+
 ## Limitations
 
-- History, blame and `pacto delivery record verify` do not read records yet.
-- A record signed by a key the recorder does not hold stops the stream, so
-  rotating the key needs a new streams repository for now.
-- The recorder checks a keyless certificate's identity and issuer, not its
-  chain.
+- A keyless record is checked against its certificate's identity, issuer and,
+  with `roots`, its chain. With Rekor off there is no signed time, so the chain
+  is checked at the moment the certificate was issued.
+- The recorder detects that a record was tampered with or the chain broken
+  only when it next has an operation to record on that Stage.
+  `pacto delivery record verify` checks any time.

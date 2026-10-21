@@ -60,9 +60,11 @@ same version as your Pacto operator.
 | podSecurityContext.seccompProfile.type | string | `"RuntimeDefault"` | Seccomp profile type |
 | promoter.leaderElect | bool | `true` | Elect one active promoter |
 | promoter.poll | string | `"3s"` | How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration) |
+| recorder.cdeventsSink | string | `""` | A URL the recorder POSTs a CDEvent (CloudEvents, structured mode) to for every record, best effort. Empty sends none. |
 | recorder.enabled | bool | `false` | Run the recorder, which writes a signed record of every concluded operation to the registry as OCI referrers. Off by default. When on, the promoter leaves the record finalizer to it. The registry must support the OCI Referrers API natively (GHCR and released `distribution` do not). |
 | recorder.extraEnv | list | `[]` | Extra environment for the recorder (for example KMS or OIDC settings cosign reads) |
 | recorder.leaderElect | bool | `true` | Elect one active recorder |
+| recorder.operationTTL | string | `"168h"` | Keep a recorded operation this long after it concluded, then delete it: its record holds what happened. The operation a Stage runs is never deleted. `0s` keeps them all (a Go duration). |
 | recorder.poll | string | `"30s"` | How long a registry or signer failure backs off (a Go duration) |
 | recorder.registryCredentials.secretName | string | `""` | A `kubernetes.io/dockerconfigjson` Secret with push access to the streams, apply and contract repositories. Only the recorder mounts it. |
 | recorder.resources.limits.cpu | string | `"500m"` | CPU limit |
@@ -79,6 +81,7 @@ same version as your Pacto operator.
 | recorder.signing.keyless.issuer | string | `""` | The OIDC issuer keyless signing uses |
 | recorder.signing.kms | string | `""` | A cosign KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`) |
 | recorder.streamsRepository | string | `""` | Repository (`host/path`) that holds one anchor per Stage stream. Required when enabled. |
+| recorder.trust | string | `""` | Other keys whose records the recorder accepts, as a trust config in YAML (`keys: [{publicKey: <PEM>, streams: ["*/prod/*"]}]`): list the old key here while you rotate to a new one. The recorder's own key is always trusted. A record no listed key signed stops the stream. |
 | replicaCount | int | `1` | Number of promoter replicas. Only the elected leader acts. |
 | resources.limits.cpu | string | `"500m"` | CPU limit |
 | resources.limits.memory | string | `"256Mi"` | Memory limit |

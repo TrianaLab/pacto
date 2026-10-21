@@ -23,3 +23,27 @@ The new `pkg/ocireferrer` is the one way Pacto writes OCI referrers: it opens a
 repository with the native Referrers API required (no tag fallback), builds a
 deterministic one-layer referrer manifest, pushes it and confirms the
 Referrers API lists it. The Evidence Server stores evidence through it.
+
+Records are verified against a trust config that lists which keys may sign the
+records of which streams, so a dev recorder cannot sign prod history and an old
+key stays trusted while you rotate to a new one. A keyless entry can name the
+roots its certificate must chain to. Every record cites the trust config the
+recorder checked the stream with.
+
+History is read from the records. `pacto delivery history` reads a Stage's
+signed records when the recorder runs, plus the operations not recorded yet,
+and falls back to the operations in the cluster otherwise. Every answer says
+`asOf`, `source` and `completeness`, lists the problems the records show
+(missing numbers, forks, broken chains, gaps and changes nobody recorded) and
+what could not be read, and a missing record is never read as nothing having
+happened. `pacto delivery blame` says who put a version in place, on whose
+behalf, who approved and what every check said. `pacto delivery undo` returns
+the plan that would undo an operation and proposes nothing. `pacto delivery
+record verify` checks every record and the chain and prints the cosign
+command that checks one record without Pacto. A plan now lists the precedent:
+what the records attached to the version say happened to it on other Stages.
+The same answers are the MCP tools `pacto_delivery_blame`,
+`pacto_delivery_undo` and `pacto_delivery_record_verify`, and the dashboard's
+History view says whether each history comes from signed records or only from
+the cluster. Pass the trust config with `--trust`, `--delivery-trust` or
+`PACTO_DELIVERY_TRUST`.

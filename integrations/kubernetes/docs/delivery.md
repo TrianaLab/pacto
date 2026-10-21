@@ -184,7 +184,8 @@ the digest it resolves to.
 
 Agents get the same tools over MCP with `pacto mcp --delivery`:
 `pacto_delivery_operation_types`, `_describe`, `_plan`, `pacto_delivery_get`,
-`_explain` and `_history` for anyone, plus `_propose` and
+`_explain`, `_history`, `_blame`, `_undo` and `_record_verify` for anyone, plus
+`_propose` and
 `pacto_delivery_cancel` only when the apiserver says the caller is an agent.
 There is no approve tool. Over stdio the server runs beside the agent, under
 its own credentials. Over HTTP each request acts as its own caller; see
@@ -260,7 +261,7 @@ provider's again. A person can still approve shipping the provider anyway.
 | Person | the above, plus approve (a question their team is asked) and unfreeze | write status |
 | Break-glass (`pacto:break-glass`) | override and edit `spec.ref.digest` | |
 | Promoter | write status and raise its own operations | sign or push |
-| Recorder | write `status.record`, `status.stream.recordedSeq` and `head`, and the record finalizer; sign and push records | anything else |
+| Recorder | write `status.record`, `status.stream.recordedSeq`, `head` and `anchor`, and the record finalizer; sign and push records | anything else |
 
 An approval is bound to the operation's uid and intent digest. Admission
 requires `spec.by` and `spec.groups` to be the requesting user's and
@@ -289,7 +290,8 @@ a witnessed override, adopts it and freezes the Stage.
   with `delivery.pacto.trianalab.io/environment`. A Kustomization with no
   `targetNamespace` places nothing, so the Pactos it applies count in every
   environment.
-- History reads the operations still in the cluster, so it is partial.
+- Without the recorder, history reads the operations still in the cluster, so
+  it is partial.
 - One cluster, Flux only.
 - Flux checks the signatures, so a digest it never verified on the candidate
   source cannot be promoted, even if `pacto publish` signed it.

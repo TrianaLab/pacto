@@ -66,7 +66,7 @@ Every snippet above is the **authoring** server, and `pacto_create` and `pacto_e
 }
 ```
 
-`--fleet` is not the read-only choice, despite its tools being read-only: it adds the fleet family *beside* the authoring tools rather than instead of them.
+`--fleet` is not read-only either: it adds the read-only fleet tools *beside* the authoring tools.
 
 ### Example prompts
 
@@ -84,7 +84,7 @@ Claude: payments-api is valid. Suggestion: "No dependencies declared. If this
         service depends on others, declare them explicitly."
 ```
 
-Two things to notice. Pacto never guesses dependencies: naming PostgreSQL adds no `dependencies` section, so the second prompt adds one. And it is stateful only because the agent passed `stores_data` and `data_survives_restart`.
+Pacto never guesses dependencies: naming PostgreSQL adds none, so the second prompt adds one. The service is stateful only because the agent passed `stores_data` and `data_survives_restart`.
 
 ---
 
@@ -133,11 +133,9 @@ MCP surface, the catalog and the fleet apart.
     [`annotations`](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations)
     member on any tool — not `readOnlyHint`, `destructiveHint` or
     `idempotentHint` — including `pacto_create`, `pacto_edit` and a generated
-    tool such as `createRefund`, which moves money. A client therefore cannot
-    tell a read tool from a write tool, and will not warn before a write: this
-    boundary is yours to hold, not your client's, so build allow-lists by
-    hand. The only machine-usable signal is the
-    tool name. `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`,
+    tool such as `createRefund`, which moves money. A client cannot tell a read
+    tool from a write tool or warn before a write, so build allow-lists by hand
+    from the tool name. `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`,
     `pacto_impact` and `pacto_catalog_revision` are read-only; `pacto_create` and
     `pacto_edit` write contract files. Generated service tools carry no `pacto_`
     prefix and reach a live service, so treat every unprefixed tool as unsafe
@@ -150,7 +148,7 @@ MCP surface, the catalog and the fleet apart.
 - **Pacto does not determine authorization.** These tools expose knowledge; they never grant, scope or revoke a permission.
 - **Partial or stale results are incomplete knowledge.** Every answer carries an `asOf` time, a `completeness` value and structured `limitations`. Branch on those before trusting an answer.
 - **A missing result under partial coverage does not prove absence.** If a source was unavailable, "not found" means "not known here", not "does not exist".
-- **The snapshot is frozen for the session.** `pacto mcp --fleet` builds one snapshot at startup, and every `pacto_fleet_*` answer is served from it. A service deployed after the server started will not appear until you restart it. `pacto_impact` is the one exception — it rebuilds the snapshot on every call.
+- **The snapshot is frozen for the session.** A service deployed after the server started does not appear in `pacto_fleet_*` answers until you restart it.
 - **It reads; it does not reconcile and does not store.** Acting on a contract in a cluster is the [Kubernetes operator's](integrations/kubernetes/overview.md) job, and durable evidence lives in an [Evidence Server](evidence.md) someone else runs. Nothing survives the process.
 
 `--fleet` names its sources the same way `pacto fleet` does:
@@ -165,7 +163,7 @@ See [`pacto mcp` reference](cli-reference.md#pacto-mcp) for source flags and [Th
 
 ## The authoring tools
 
-These four are the default server, and every mode except `--root` carries them as well.
+Every mode except `--root` carries these four.
 
 | Tool | Description |
 |------|-------------|
