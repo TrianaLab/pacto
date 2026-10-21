@@ -472,7 +472,9 @@ YAML
   kubectl -n prod get approval "$approval" -o json | jq -e --arg u "$CAROL" '.spec.by == $u and .spec.decision == "reject"' >/dev/null \
     || fail "the rejection is not carol's"
   wait_concluded prod idp-f2 Rejected/
-  [[ "$(field prod idp-f2 reason)" == "RejectedByHuman: $CAROL"* ]] || fail "F2 was not rejected by carol: $(field prod idp-f2 reason)"
+  # The promoter splits "RejectedByHuman: <by>: <note>" into the reason code and the message.
+  { [ "$(field prod idp-f2 reason)" = RejectedByHuman ] && [[ "$(field prod idp-f2 message)" == "$CAROL: "* ]]; } \
+    || fail "F2 was not rejected by carol: $(field prod idp-f2 reason): $(field prod idp-f2 message)"
   has_pointer prod "$from" || fail "a rejected F moved prod"
   pass "carol rolled F back and rejected it again from the dashboard, each as herself"
 
