@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
@@ -625,5 +626,65 @@ func TestVerifiedPromoteIsOffered(t *testing.T) {
 	applyEffects(&s, opObj("o", delivery.TypeOverride, dB, dC, bot), verified)
 	if len(s.Offered) != 1 || s.Offered[0] != dB || len(s.Published) != 0 {
 		t.Fatalf("offered %v published %v", s.Offered, s.Published)
+	}
+}
+
+// TestBlockedPromoteSaysWhatMovesFirst is M4 at unit level: a promote that
+// checkout, running in prod, does not accept is held, and status.plan names
+// the verified version of checkout to ship first, read through checkout's own
+// apply OCIRepository. A checkout running only in test does not hold it.
+func TestBlockedPromoteSaysWhatMovesFirst(t *testing.T) {
+	const dX = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+	world := func(checkoutNS string) *env {
+		checkoutProd := stageObj("")
+		checkoutProd.Name, checkoutProd.Spec.Service.Name, checkoutProd.Spec.ApplyRef.Name = "checkout-prod", "checkout", "checkout"
+		checkoutProd.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "checkout-test", Namespace: "test"}}
+		checkoutTest := stageObj("")
+		checkoutTest.Namespace, checkoutTest.Name, checkoutTest.Spec.Service.Name, checkoutTest.Spec.Environment = "test", "checkout-test", "checkout", "test"
+		checkoutTest.Status = delivery.StageStatus{Offered: []string{dX}, Verified: []string{dX}}
+		checkout := pactoObj("checkout", "checkout", c3, "Compliant", 1,
+			map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "compatibility": "^1.0.0"})
+		checkout.SetNamespace(checkoutNS)
+		e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2),
+			pactoObj("payments", "payments", c1, "Compliant", 2), checkoutProd, checkoutTest, ociRepo("checkout", "", "", false), checkout,
+			opObj("p1", delivery.TypePromote, dA, dC, bot))
+		e.reg.contracts[dX] = "oci://reg.example/pactos/checkout@" + c2
+		b := bundle("1.1.0")
+		b.Contract.Service.Name = "checkout"
+		b.Contract.Dependencies = append(b.Contract.Dependencies, contract.Dependency{Name: "payments", Ref: "oci://reg.example/pactos/payments", Compatibility: ">=1.0.0 <3.0.0"})
+		e.reg.bundles["oci://reg.example/pactos/checkout@"+c2] = b
+		return e
+	}
+	if o := world("test").drive("p1"); o.Status.Phase != delivery.PhaseRunning {
+		t.Fatalf("checkout runs only in test, so prod does not wait for it: %s %q", o.Status.Phase, o.Status.Question)
+	}
+	e := world(ns)
+	o := e.drive("p1")
+	if o.Status.Phase != delivery.PhaseHeld || o.Status.Plan.Order == nil || len(o.Status.Plan.Order.MoveFirst) != 1 {
+		t.Fatalf("want Held with an order: %s %+v", o.Status.Phase, o.Status.Plan)
+	}
+	m := o.Status.Plan.Order.MoveFirst[0]
+	if m.Service != "checkout" || m.Version != "1.0.0" || m.Candidate == nil || m.Candidate.Digest != dX ||
+		*m.Stage != (delivery.StageRef{Name: "checkout-prod", Namespace: ns}) || !strings.Contains(o.Status.Question, "Or ship checkout first") {
+		t.Fatalf("move first: %+v question %q", m, o.Status.Question)
+	}
+
+	// checkout's apply OCIRepository gone, then the Stages unlistable: the
+	// order says it cannot tell, it never guesses.
+	_ = e.c.Delete(context.Background(), ociRepo("checkout", "", "", false))
+	plan, err := e.op.plan(context.Background(), o, e.getStage())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := plan.Order.MoveFirst[0]; m.Candidate != nil || !strings.Contains(m.Unknown, "the apply OCIRepository: ") {
+		t.Fatalf("unreadable candidate source: %+v", m)
+	}
+	e.fails["list/Stage"] = true
+	plan, err = e.op.plan(context.Background(), o, e.getStage())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := plan.Order.MoveFirst[0]; !strings.Contains(m.Unknown, "the Stages could not be listed") {
+		t.Fatalf("unlistable Stages: %+v", m)
 	}
 }

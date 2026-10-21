@@ -170,6 +170,16 @@ func readyCondition(obj map[string]any) (status, reason, message string) {
 	return status, reason, message
 }
 
+// describe reads what digest carries on a Stage's own apply repository. The
+// read is bounded by ResolveRevision.
+func (c Cluster) describe(ctx context.Context, stage delivery.StageObject, digest string) delivery.Revision {
+	a, err := c.ociRepository(ctx, stage.Metadata.Namespace, stage.Spec.ApplyRef.Name)
+	if err != nil {
+		return delivery.Revision{Digest: digest, Err: "the apply OCIRepository: " + err.Error()}
+	}
+	return delivery.ResolveRevision(ctx, c.registryFor(a), a.repo, digest)
+}
+
 // pactos lists every Pacto in the cluster through the stable read contract.
 func (c Cluster) pactos(ctx context.Context) ([]delivery.PactoView, error) {
 	list := &unstructured.UnstructuredList{}

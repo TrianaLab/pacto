@@ -112,6 +112,25 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.plan.from` | `string` | no |  |  |  |
 | `status.plan.impactDigest` | `string` | no |  |  | ImpactDigest is the sha256 of the pkg/impact answer the floor came from. |
 | `status.plan.intentDigest` | `string` | yes |  |  |  |
+| `status.plan.order` | `object` | no |  |  | Order says what must move first when a consumer running in this environment does not accept the new version. Pacto only says it: it never moves another service itself. |
+| `status.plan.order.moveFirst` | `[]object` | yes |  |  | MoveFirst names every consumer running in this environment whose declared range does not accept the new version. |
+| `status.plan.order.moveFirst[].accepts` | `string` | no |  |  | Accepts is the range that version declares on the provider. |
+| `status.plan.order.moveFirst[].candidate` | `object` | no |  |  | Candidate is the newest version of the consumer its upstream Stage offered and verified that accepts both the provider version running here and the new one, so it can move first without breaking anything Pacto can see. Absent when there is none or Pacto cannot tell. |
+| `status.plan.order.moveFirst[].candidate.accepts` | `string` | no |  |  | Accepts is the range it declares on the provider; empty when it no longer depends on it. |
+| `status.plan.order.moveFirst[].candidate.digest` | `string` | yes |  |  |  |
+| `status.plan.order.moveFirst[].candidate.verifiedOn` | `object` | yes |  |  | VerifiedOn is the upstream Stage that verified it. |
+| `status.plan.order.moveFirst[].candidate.verifiedOn.name` | `string` | yes |  |  |  |
+| `status.plan.order.moveFirst[].candidate.verifiedOn.namespace` | `string` | no |  |  |  |
+| `status.plan.order.moveFirst[].candidate.version` | `string` | no |  |  |  |
+| `status.plan.order.moveFirst[].domain` | `string` | no |  |  |  |
+| `status.plan.order.moveFirst[].message` | `string` | yes |  |  | Message says all of the above in plain words. |
+| `status.plan.order.moveFirst[].service` | `string` | yes |  |  | Service is the consumer. |
+| `status.plan.order.moveFirst[].stage` | `object` | no |  |  | Stage is the consumer's Stage in this environment, the one to promote. |
+| `status.plan.order.moveFirst[].stage.name` | `string` | yes |  |  |  |
+| `status.plan.order.moveFirst[].stage.namespace` | `string` | no |  |  |  |
+| `status.plan.order.moveFirst[].unknown` | `string` | no |  |  | Unknown says why Pacto cannot tell whether such a version exists. |
+| `status.plan.order.moveFirst[].version` | `string` | no |  |  | Version is the consumer version running here that does not accept the new provider version. |
+| `status.plan.order.unknown` | `[]string` | no |  |  | Unknown says why the list may be incomplete: a partial graph, a range Pacto cannot read or a consumer it cannot place. Empty means Pacto saw every consumer running here. |
 | `status.plan.predicted` | `string` | yes |  |  | Prediction is what plan() expects the promoter to do. |
 | `status.plan.question` | `string` | no |  |  | Question is the one question a human would be asked. |
 | `status.plan.to` | `string` | no |  |  |  |

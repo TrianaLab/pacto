@@ -345,6 +345,9 @@ func (r *OperationReconciler) plan(ctx context.Context, op *dv1.Operation, stage
 			return delivery.Plan{}, err
 		}
 		pactos, listErr := r.Cluster.pactos(ctx)
+		in.Stages, in.StagesErr = r.stages(ctx)
+		pactos = delivery.EnvironmentPactos(pactos, in.Stages, in.StagesErr, stage.Namespace, stage.Spec.Environment)
+		in.Candidates = r.Cluster.describe
 		snap, err := delivery.Snapshot(ctx, pactos, listErr, []delivery.Revision{in.From, in.To}, r.now())
 		if err != nil {
 			return delivery.Plan{}, err
@@ -352,6 +355,19 @@ func (r *OperationReconciler) plan(ctx context.Context, op *dv1.Operation, stage
 		in.Snapshot = snap
 	}
 	return delivery.PlanFor(ctx, in), nil
+}
+
+// stages lists every Stage, so a blocked plan can place its consumers.
+func (r *OperationReconciler) stages(ctx context.Context) ([]delivery.StageObject, error) {
+	list := &dv1.StageList{}
+	if err := r.List(ctx, list); err != nil {
+		return nil, err
+	}
+	out := make([]delivery.StageObject, 0, len(list.Items))
+	for _, s := range list.Items {
+		out = append(out, delivery.StageObject{Metadata: delivery.ObjectMeta{Name: s.Name, Namespace: s.Namespace}, Spec: s.Spec, Status: s.Status})
+	}
+	return out, nil
 }
 
 // upstream reads the status of the Stage this one takes its candidates from.

@@ -255,6 +255,100 @@ spec:
                     type: string
                   intentDigest:
                     type: string
+                  order:
+                    description: |-
+                      Order says what must move first when a consumer running in this
+                      environment does not accept the new version. Pacto only says it: it
+                      never moves another service itself.
+                    properties:
+                      moveFirst:
+                        description: |-
+                          MoveFirst names every consumer running in this environment whose
+                          declared range does not accept the new version.
+                        items:
+                          description: MoveFirst is one consumer that must move before
+                            the provider can.
+                          properties:
+                            accepts:
+                              description: Accepts is the range that version declares
+                                on the provider.
+                              type: string
+                            candidate:
+                              description: |-
+                                Candidate is the newest version of the consumer its upstream Stage
+                                offered and verified that accepts both the provider version running
+                                here and the new one, so it can move first without breaking anything
+                                Pacto can see. Absent when there is none or Pacto cannot tell.
+                              properties:
+                                accepts:
+                                  description: |-
+                                    Accepts is the range it declares on the provider; empty when it no
+                                    longer depends on it.
+                                  type: string
+                                digest:
+                                  type: string
+                                verifiedOn:
+                                  description: VerifiedOn is the upstream Stage that
+                                    verified it.
+                                  properties:
+                                    name:
+                                      type: string
+                                    namespace:
+                                      type: string
+                                  required:
+                                  - name
+                                  type: object
+                                version:
+                                  type: string
+                              required:
+                              - digest
+                              - verifiedOn
+                              type: object
+                            domain:
+                              type: string
+                            message:
+                              description: Message says all of the above in plain
+                                words.
+                              type: string
+                            service:
+                              description: Service is the consumer.
+                              type: string
+                            stage:
+                              description: Stage is the consumer's Stage in this environment,
+                                the one to promote.
+                              properties:
+                                name:
+                                  type: string
+                                namespace:
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                            unknown:
+                              description: Unknown says why Pacto cannot tell whether
+                                such a version exists.
+                              type: string
+                            version:
+                              description: |-
+                                Version is the consumer version running here that does not accept the
+                                new provider version.
+                              type: string
+                          required:
+                          - message
+                          - service
+                          type: object
+                        type: array
+                      unknown:
+                        description: |-
+                          Unknown says why the list may be incomplete: a partial graph, a range
+                          Pacto cannot read or a consumer it cannot place. Empty means Pacto saw
+                          every consumer running here.
+                        items:
+                          type: string
+                        type: array
+                    required:
+                    - moveFirst
+                    type: object
                   predicted:
                     description: Prediction is what plan() expects the promoter to
                       do.
