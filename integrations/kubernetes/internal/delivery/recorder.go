@@ -88,8 +88,14 @@ type item struct {
 	op  *dv1.Operation
 }
 
+// passTimeout bounds one pass over a Stage: a registry or signer that stops
+// answering must not hold the worker forever.
+const passTimeout = 5 * time.Minute
+
 // Reconcile implements reconcile.Reconciler.
 func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
+	ctx, cancel := context.WithTimeout(ctx, passTimeout)
+	defer cancel()
 	stage := &dv1.Stage{}
 	if err := r.APIReader.Get(ctx, req.NamespacedName, stage); err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
@@ -140,6 +146,8 @@ func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 // pending lists what this Stage still owes a record, in local seq order: every
 // concluded operation that keeps the record finalizer, and every seq after
 // recordedSeq that no operation holds.
+// ponytail: one uncached list of the namespace's operations per event; add a
+// field index on spec.stage if that ever shows on the apiserver.
 func (r *Recorder) pending(ctx context.Context, stage *dv1.Stage) ([]item, error) {
 	list := &dv1.OperationList{}
 	if err := r.APIReader.List(ctx, list, client.InNamespace(stage.Namespace)); err != nil {
