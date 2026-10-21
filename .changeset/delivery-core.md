@@ -33,7 +33,10 @@ evaluated exactly the applied version.
 `approve` drive the promoter over the ambient cluster. A tag is refused, and
 the refusal names the digest it resolves to; `propose` with the plan's intent
 digest refuses with `PlanStale` if anything moved since. `plan` and `explain`
-print what must move first. `approve` is for people with a fresh login.
+print what must move first, and the dashboard's inbox and change page show it
+as "Update these first" with links to the consumer's Stage and to the Stage
+that verified the version that can go first. `approve` is for people with a
+fresh login.
 
 `pacto mcp --delivery` serves `pacto_delivery_operation_types`,
 `pacto_delivery_operation_describe`, `pacto_delivery_operation_plan` and

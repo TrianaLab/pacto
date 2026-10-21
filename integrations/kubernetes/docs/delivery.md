@@ -218,7 +218,9 @@ Pacto works this out from the contracts and the Stages:
 
 `pacto delivery plan`, `pacto delivery explain`, the
 `pacto_delivery_operation_plan` MCP tool and the Operation's `status.plan`
-all carry it. In JSON it is `order.moveFirst[]`: the consumer, the version
+all carry it. In the dashboard, the inbox and the change page show it as
+**Update these first**, with a link to the consumer's Stage and, when there is
+one, to the Stage that verified the version that can go first. In JSON it is `order.moveFirst[]`: the consumer, the version
 running there and the range it declares, its `stage`, the `candidate` (digest,
 version, range and the Stage that verified it) or `unknown` (why Pacto cannot
 tell), and a plain `message`. `order.unknown` lists what kept Pacto from
