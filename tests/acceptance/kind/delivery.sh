@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Kind acceptance for Pacto delivery: phase 1 ("the core"), the promoter, the
 # Pacto contract check and Flux, running end to end on a local cluster; then
-# phase 2 ("health"), phase 3 ("publishing") and phase 4 ("dashboard and
-# identity", in delivery-identity.sh), described where each starts below.
-# DELIVERY_SKIP_CORE=1, DELIVERY_SKIP_HEALTH=1 and DELIVERY_SKIP_IDENTITY=1 skip
-# those scenarios (the setup still runs); phase 4 needs phase 1.
+# phase 2 ("health"), phase 3 ("publishing"), phase 5 ("ordering") and phase 4
+# ("dashboard and identity", in delivery-identity.sh), described where each
+# starts below. DELIVERY_SKIP_CORE=1, DELIVERY_SKIP_HEALTH=1,
+# DELIVERY_SKIP_ORDER=1 and DELIVERY_SKIP_IDENTITY=1 skip those scenarios (the
+# setup still runs); phase 4 needs phase 1.
 #
 # A Stage promotes only versions `pacto publish` published: signed (Flux
 # verifies the signature through spec.verify on the candidate OCIRepository)
@@ -250,12 +251,14 @@ consumer_contract() { # NAME RANGE
 CHECKOUT="$(consumer_contract checkout "^1.0.0")"
 LEDGER="$(consumer_contract ledger ">=1.0.0")"
 
-# publish LABEL CONTRACT_REF — one version: a Deployment and its Pacto, as the
-# artifact Flux pulls, annotated with its contract, signed and tagged with its
-# label so the registry keeps it. Prints the digest.
+# publish LABEL CONTRACT_REF [SERVICE] — one version of SERVICE (payments by
+# default): a Deployment and its Pacto, as the artifact Flux pulls from
+# apps/SERVICE, annotated with its contract, signed and tagged with its label so
+# the registry keeps it. Prints the digest.
 publish() {
-  local label="$1" ref="$2" tag="$1" tree tgz digest
-  tree="$(mktemp -d)"; tgz="$(mktemp -t payments.XXXXXX)"
+  local label="$1" ref="$2" tag="$1" svc="${3:-payments}" tree tgz digest
+  local repo="apps/$svc"
+  tree="$(mktemp -d)"; tgz="$(mktemp -t "$svc.XXXXXX")"
   cat > "$tree/kustomization.yaml" <<'YAML'
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -264,37 +267,66 @@ YAML
   cat > "$tree/deployment.yaml" <<YAML
 apiVersion: apps/v1
 kind: Deployment
-metadata: {name: payments}
+metadata: {name: $svc}
 spec:
   replicas: 1
-  selector: {matchLabels: {app: payments}}
+  selector: {matchLabels: {app: $svc}}
   template:
-    metadata: {labels: {app: payments}, annotations: {version: "$label"}}
+    metadata: {labels: {app: $svc}, annotations: {version: "$label"}}
     spec:
       containers: [{name: app, image: registry.k8s.io/pause:3.9}]
 YAML
   cat > "$tree/pacto.yaml" <<YAML
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
-metadata: {name: payments}
+metadata: {name: $svc}
 spec:
   checkIntervalSeconds: 30
   contractRef: {oci: "${ref:-$C100}"}
-  target: {workloadRef: {name: payments, kind: Deployment}}
+  target: {workloadRef: {name: $svc, kind: Deployment}}
 YAML
   tar -czf "$tgz" -C "$tree" .
   local -a ann=()
   [ -n "$ref" ] && ann=(--annotation "pacto.dev/contract=$ref")
   digest="$(oras push --plain-http --disable-path-validation ${ann[@]+"${ann[@]}"} --format go-template='{{.digest}}' \
-    "127.0.0.1:${LOCAL_REG_PORT}/${APP_REPO}:${tag}" "${tgz}:${FLUX_LAYER_TYPE}")"
-  sign_digest "$APP_REPO" "$digest"
+    "127.0.0.1:${LOCAL_REG_PORT}/${repo}:${tag}" "${tgz}:${FLUX_LAYER_TYPE}")"
+  sign_digest "$repo" "$digest"
   echo "$digest"
 }
-# candidate LABEL — what CI does when a version is ready: move the candidate tag.
-candidate() { oras tag --plain-http "127.0.0.1:${LOCAL_REG_PORT}/${APP_REPO}:$1" candidate >/dev/null; }
+# candidate LABEL [SERVICE] — what CI does when a version is ready: move the candidate tag.
+candidate() { oras tag --plain-http "127.0.0.1:${LOCAL_REG_PORT}/apps/${2:-payments}:$1" candidate >/dev/null; }
 
 A="$(publish A "$C100")"; candidate A
 echo "  A = $A (payments 1.0.0)"
+
+# apply_env NS [SERVICE DIGEST] — SERVICE's apply OCIRepository (pinned to
+# DIGEST, A by default) and the Kustomization that applies it in NS.
+apply_env() {
+  local svc="${2:-payments}" digest="${3:-$A}"
+  kubectl -n "$1" apply -f - >/dev/null <<YAML
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: $svc
+  labels: {delivery.pacto.trianalab.io/apply-ref: $svc}
+spec: {interval: 30s, insecure: true, url: "oci://${REG_HOST}/apps/$svc", ref: {digest: "$digest"}, $VERIFY}
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata: {name: $svc}
+spec:
+  interval: 1m
+  sourceRef: {kind: OCIRepository, name: $svc}
+  path: ./
+  prune: true
+  timeout: 2m
+  targetNamespace: $1
+  # The Deployment only. Waiting on every object would make Flux wait for the
+  # Pacto to observe its new generation, which hides the stale verdict item 8
+  # is about: the promoter, not Flux, must refuse a result for an old version.
+  healthChecks: [{apiVersion: apps/v1, kind: Deployment, name: $svc, namespace: $1}]
+YAML
+}
 
 # --- reading the cluster's state ---------------------------------------------
 reconciled() { [ -n "$(kubectl -n "$1" get pacto "$2" -o jsonpath='{.status.contract.serviceName}' 2>/dev/null)" ]; }
@@ -354,31 +386,6 @@ for env in test prod; do
 done
 
 echo "== Flux sources, Kustomizations and Stages =="
-apply_env() { # ENV
-  kubectl -n "$1" apply -f - >/dev/null <<YAML
-apiVersion: source.toolkit.fluxcd.io/v1
-kind: OCIRepository
-metadata:
-  name: payments
-  labels: {delivery.pacto.trianalab.io/apply-ref: payments}
-spec: {interval: 30s, insecure: true, url: "oci://${REG_HOST}/${APP_REPO}", ref: {digest: "$A"}, $VERIFY}
----
-apiVersion: kustomize.toolkit.fluxcd.io/v1
-kind: Kustomization
-metadata: {name: payments}
-spec:
-  interval: 1m
-  sourceRef: {kind: OCIRepository, name: payments}
-  path: ./
-  prune: true
-  timeout: 2m
-  targetNamespace: $1
-  # The Deployment only. Waiting on every object would make Flux wait for the
-  # Pacto to observe its new generation, which hides the stale verdict item 8
-  # is about: the promoter, not Flux, must refuse a result for an old version.
-  healthChecks: [{apiVersion: apps/v1, kind: Deployment, name: payments, namespace: $1}]
-YAML
-}
 apply_env test
 apply_env prod
 for env in test prod; do eventually 60 reconciled "$env" payments || fail "$env/payments was never reconciled"; done
@@ -1224,6 +1231,146 @@ eventually 20 ready_is "$M" billing-anyone False/CandidateUnverified \
 [ -z "$(kubectl -n "$M" get stage billing-anyone -o jsonpath='{.status.published}')" ] || fail "an unverified candidate was recorded as published"
 pass "a Stage whose candidate OCIRepository sets no spec.verify is Ready=False with CandidateUnverified and records nothing"
 echo "DELIVERY PUBLISH PASS"
+
+# DELIVERY_SKIP_ORDER=1 skips phase 5.
+if [ -z "${DELIVERY_SKIP_ORDER:-}" ]; then
+# --- phase 5: ordering ---------------------------------------------------------
+# pricing ships to live straight from its candidate tag. Its consumer, orders,
+# ships through staging (fed by a candidate tag) and live (fed by staging's
+# verified versions). orders 1.8.0 accepts pricing ^1.0.0; orders 1.9.0 accepts
+# >=1.0.0 <3.0.0. It proves the vision's ordering step against the cluster:
+#   - a breaking pricing 2.0.0 is held in live, and its plan names orders 1.8.0
+#     as what must move first, with its Stage and orders 1.9.0, the version
+#     staging verified, as the one that can go first;
+#   - once orders 1.9.0 is promoted in live, pricing 2.0.0 ships with no person;
+#   - with a Pacto in live that Pacto cannot read, the graph is partial and the
+#     plan is Unknown, with no order guessed.
+# Compatibility is judged from the declared ranges only; nothing here claims
+# Pacto knows which fields or endpoints orders uses.
+echo "== phase 5: a provider whose consumer must move first =="
+for n in staging live; do
+  kubectl create namespace "$n" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl -n "$n" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+done
+PR100="$(contract pricing 1.0.0 service)"
+PR200="$(contract pricing 2.0.0 service)"  # orders 1.8.0 accepts ^1.0.0 only
+PR210="$(contract pricing 2.1.0 service)"
+orders_contract() { # VERSION RANGE
+  contract orders "$1" service "dependencies: [{name: pricing, ref: \"oci://${REG_HOST}/demo/pricing\", required: true, compatibility: \"$2\"}]"
+}
+OR18="$(orders_contract 1.8.0 "^1.0.0")"
+OR19="$(orders_contract 1.9.0 ">=1.0.0 <3.0.0")"
+P1="$(publish P1 "$PR100" pricing)"; candidate P1 pricing
+O18="$(publish O18 "$OR18" orders)"; candidate O18 orders
+# stage_ptr NS STAGE — the digest a Stage runs.
+stage_ptr() { kubectl -n "$1" get stage "$2" -o jsonpath='{.status.pointer}'; }
+stage_runs() { [ "$(stage_ptr "$1" "$2")" = "$3" ]; }
+# stage_yaml NAME ENV CANDIDATES
+stage_yaml() {
+  cat <<YAML
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Stage
+metadata: {name: $1}
+spec:
+  service: {name: $1}
+  environment: $2
+  applyRef: {name: $1}
+  candidates: $3
+  auto: true
+  gates: {verify: {window: 3m}}
+YAML
+}
+candidates_yaml() { # SERVICE
+  cat <<YAML
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata: {name: $1-candidates}
+spec: {interval: 10s, insecure: true, url: "oci://${REG_HOST}/apps/$1", ref: {tag: candidate}, $VERIFY}
+YAML
+}
+
+echo "== bootstrap: orders 1.8.0 verified in staging and live, then pricing 1.0.0 in live =="
+apply_env staging orders "$O18"
+apply_env live orders "$O18"
+for n in staging live; do eventually 60 reconciled "$n" orders || fail "$n/orders was never reconciled"; done
+{ candidates_yaml orders; echo ---; stage_yaml orders staging "{ociRepositoryRef: {name: orders-candidates}}"; } | kubectl -n staging apply -f - >/dev/null
+stage_yaml orders live "{upstreamStage: {name: orders, namespace: staging}}" | kubectl -n live apply -f - >/dev/null
+OP="$(wait_op staging "$O18")"; wait_concluded staging "$OP" Succeeded/Verified
+OP="$(wait_op live "$O18")"; wait_concluded live "$OP" Succeeded/Verified
+apply_env live pricing "$P1"
+eventually 60 reconciled live pricing || fail "live/pricing was never reconciled"
+{ candidates_yaml pricing; echo ---; stage_yaml pricing live "{ociRepositoryRef: {name: pricing-candidates}}"; } | kubectl -n live apply -f - >/dev/null
+OP="$(wait_op live "$P1")"; wait_concluded live "$OP" Succeeded/Verified
+# From here agents and people move live, nothing else.
+for s in orders pricing; do kubectl -n live patch stage "$s" --type merge -p '{"spec":{"auto":false}}' >/dev/null; done
+pass "orders 1.8.0 runs in staging and live, pricing 1.0.0 in live, all verified"
+
+echo "== orders 1.9.0 (accepts pricing >=1.0.0 <3.0.0) passes staging, and live does not take it by itself =="
+O19="$(publish O19 "$OR19" orders)"; candidate O19 orders
+OP="$(wait_op staging "$O19")"; wait_concluded staging "$OP" Succeeded/Verified
+offered() { kubectl -n staging get stage orders -o json | jq -e --arg d "$O19" '.status.offered // [] | index($d)' >/dev/null; }
+eventually 30 offered || fail "staging never offered orders 1.9.0 downstream"
+always 5 stage_runs live orders "$O18" || fail "live took orders 1.9.0 with auto off"
+
+echo "== pricing 2.0.0 is held in live, and the plan says orders must move first =="
+P2="$(publish P2 "$PR200" pricing)"; candidate P2 pricing
+eventually 60 published_in live "$P2" pricing || fail "pricing 2.0.0 was never verified as published in live"
+as_agent "$AGENT_A" propose -n live --stage pricing --to "$P2" --name pricing-first --reason "phase 5" >/dev/null
+eventually 30 held live pricing-first || fail "pricing 2.0.0 was not held: $(field live pricing-first phase) $(field live pricing-first message)"
+PLAN="$(kubectl -n live get operation pricing-first -o jsonpath='{.status.plan}')"
+echo "  order: $(jq -c .order <<<"$PLAN")"
+jq -e --arg o19 "$O19" '.floor.consumers == ["orders"] and (.order.unknown // [] | length == 0) and (.order.moveFirst | length == 1) and
+  (.order.moveFirst[0] | .service == "orders" and .version == "1.8.0" and .accepts == "^1.0.0"
+    and .stage == {name: "orders", namespace: "live"}
+    and .candidate.digest == $o19 and .candidate.version == "1.9.0" and .candidate.accepts == ">=1.0.0 <3.0.0"
+    and .candidate.verifiedOn == {name: "orders", namespace: "staging"}
+    and (.message | contains("Ship orders first")))' <<<"$PLAN" >/dev/null \
+  || fail "the plan does not name orders 1.8.0, its Stage and orders 1.9.0 from staging: $PLAN"
+field live pricing-first question | grep -q "Or ship orders first" || fail "the question does not offer shipping orders first: $(field live pricing-first question)"
+OUT="$(as_agent "$AGENT_A" explain -n live pricing-first 2>&1)" || fail "explain failed: $OUT"
+grep -q "move first: orders 1.8.0 runs in live and accepts pricing ^1.0.0, not 2.0.0" <<<"$OUT" \
+  || fail "explain does not say orders must move first: $OUT"
+always 5 stage_runs live pricing "$P1" || fail "pricing 2.0.0 moved without a person"
+pass "pricing 2.0.0 waits; the plan names orders 1.8.0, Stage live/orders and orders 1.9.0 verified on staging/orders"
+
+echo "== orders 1.9.0 moves first, then pricing 2.0.0 ships with no person =="
+# Pacto only says what moves first: the agent moves orders, then plans again.
+as_agent "$AGENT_A" cancel -n live pricing-first >/dev/null
+as_agent "$AGENT_A" propose -n live --stage orders --to "$O19" --name orders-first --reason "phase 5: pricing 2.0.0 needs it" >/dev/null
+wait_concluded live orders-first Succeeded/Verified
+as_agent "$AGENT_A" propose -n live --stage pricing --to "$P2" --name pricing-after --reason "phase 5" >/dev/null
+wait_concluded live pricing-after Succeeded/Verified
+kubectl -n live get operation pricing-after -o json | jq -e '.status.plan.floor.human != true and .status.plan.order == null and (.status.approvals // [] | length == 0)' >/dev/null \
+  || fail "pricing 2.0.0 needed a person after orders moved: $(kubectl -n live get operation pricing-after -o jsonpath='{.status.plan}')"
+stage_runs live pricing "$P2" || fail "live does not run pricing 2.0.0"
+pass "with orders 1.9.0 in live, pricing 2.0.0 shipped with nobody involved"
+
+echo "== a partial graph is Unknown, never a guessed order =="
+# shipping's contract is not in the registry, so its Pacto never carries one:
+# Pacto cannot rule it out as a consumer of pricing.
+kubectl -n live apply -f - >/dev/null <<YAML
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata: {name: shipping}
+spec:
+  checkIntervalSeconds: 30
+  contractRef: {oci: "oci://${REG_HOST}/demo/shipping@sha256:$(printf '0%.0s' $(seq 64))"}
+  target: {workloadRef: {name: shipping, kind: Deployment}}
+YAML
+P3="$(publish P3 "$PR210" pricing)"; candidate P3 pricing
+eventually 60 published_in live "$P3" pricing || fail "pricing 2.1.0 was never verified as published in live"
+as_agent "$AGENT_A" propose -n live --stage pricing --to "$P3" --name pricing-partial --reason "phase 5" >/dev/null
+eventually 30 held live pricing-partial || fail "pricing 2.1.0 was not held: $(field live pricing-partial phase) $(field live pricing-partial message)"
+PLAN="$(kubectl -n live get operation pricing-partial -o jsonpath='{.status.plan}')"
+jq -e '.order == null and .floor.decision == "accept-unknown" and
+  (.verdicts[] | select(.gate == "pacto.impact") | .result == "Unknown" and (.message | contains("partial")))' <<<"$PLAN" >/dev/null \
+  || fail "a partial graph did not hold as Unknown with no order: $PLAN"
+always 5 stage_runs live pricing "$P2" || fail "pricing 2.1.0 moved while the graph was partial"
+as_agent "$AGENT_A" cancel -n live pricing-partial >/dev/null
+kubectl -n live delete pacto shipping --wait=false >/dev/null
+pass "with shipping unreadable the plan is Unknown (accept-unknown) and names no order"
+echo "DELIVERY ORDER PASS"
+fi
 
 if [ -z "${DELIVERY_SKIP_IDENTITY:-}" ]; then
   identity_scenario

@@ -373,8 +373,9 @@ identity_scenario() {
 
   # --- decisions ---
   out="$(dash "$carol" GET /api/delivery/inbox)"
-  jq -e '.held | map(select(.name == "idp-f"))[0] | (.question | contains("team-checkout")) and (.consumers | index("checkout"))' \
-    <<<"${out#* }" >/dev/null || fail "carol's inbox does not show F with its question and the services it affects: $out"
+  jq -e '.held | map(select(.name == "idp-f"))[0] | (.question | contains("team-checkout")) and (.consumers | index("checkout"))
+    and (.order.moveFirst | map(.service) == ["checkout"])' \
+    <<<"${out#* }" >/dev/null || fail "carol's inbox does not show F with its question, the services it affects and what moves first: $out"
   out="$(dash "$carol" GET /api/delivery/operations/prod/idp-f)"
   jq -e '.actions | index("approve")' <<<"${out#* }" >/dev/null || fail "carol is not offered the decision: $out"
   pass "carol (team-checkout) sees F in her inbox with the question and the decision"
