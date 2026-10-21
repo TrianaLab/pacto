@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 # Kind acceptance for Pacto delivery: phase 1 ("the core"), the promoter, the
 # Pacto contract check and Flux, running end to end on a local cluster; then
-# phase 2 ("health"), phase 3 ("publishing"), phase 5 ("ordering") and phase 4
-# ("dashboard and identity", in delivery-identity.sh), described where each
-# starts below. DELIVERY_SKIP_CORE=1, DELIVERY_SKIP_HEALTH=1,
-# DELIVERY_SKIP_ORDER=1 and DELIVERY_SKIP_IDENTITY=1 skip those scenarios (the
-# setup still runs); phase 4 needs phase 1.
+# phase 2 ("health"), phase 3 ("publishing"), phase 5 ("ordering"), phase 4
+# ("dashboard and identity", in delivery-identity.sh) and phase 6 ("records"),
+# described where each starts below. DELIVERY_SKIP_CORE=1,
+# DELIVERY_SKIP_HEALTH=1, DELIVERY_SKIP_ORDER=1, DELIVERY_SKIP_IDENTITY=1 and
+# DELIVERY_SKIP_RECORDS=1 skip those scenarios (the setup still runs); phases 4
+# and 6 need phase 1.
+#
+# The recorder runs for the whole run, so every operation of every phase ends
+# in a signed record in the registry; phase 6 checks them.
 #
 # A Stage promotes only versions `pacto publish` published: signed (Flux
 # verifies the signature through spec.verify on the candidate OCIRepository)
@@ -67,6 +71,8 @@ dump_delivery() {
   kubectl get ocirepositories,kustomizations -A -o wide || true
   echo "--- logs deploy/pacto-delivery ---"
   kubectl -n "$DELIVERY_NS" logs deploy/pacto-delivery --tail=300 || true
+  echo "--- logs deploy/pacto-delivery-recorder ---"
+  kubectl -n "$DELIVERY_NS" logs deploy/pacto-delivery-recorder --tail=200 || true
   for d in source-controller kustomize-controller; do
     echo "--- logs deploy/$d (flux-system) ---"
     kubectl -n flux-system logs "deploy/$d" --tail=100 || true
@@ -78,6 +84,7 @@ trap 'rc=$?; [ $rc -ne 0 ] && { dump_diag "$NS"; dump_delivery; dump_identity; }
 command -v oras >/dev/null 2>&1 || fail "oras is required: it publishes the manifest artifacts Flux pulls"
 command -v cosign >/dev/null 2>&1 || fail "cosign is required: every version a Stage promotes is signed"
 command -v jq >/dev/null 2>&1 || fail "jq is required to read operations"
+command -v openssl >/dev/null 2>&1 || fail "openssl is required: it makes the recorder's key and forges records phase 6 must refuse"
 
 VER="$(release_version kubernetes)"
 OP_REPO="localhost:5001/pacto-operator/pacto-controller"
@@ -146,10 +153,20 @@ sign_digest() {
 }
 VERIFY='verify: {provider: cosign, secretRef: {name: cosign-pub}}'
 
-echo "== the opt-in delivery chart =="
+echo "== the recorder's signing key: an Ed25519 key in a Secret only the recorder mounts =="
+RECORDER_KEY="$KEYDIR/recorder.pem"
+RECORDER_PUB="$KEYDIR/recorder.pub"
+openssl genpkey -algorithm ed25519 -out "$RECORDER_KEY" 2>/dev/null || fail "openssl could not generate the recorder's key"
+openssl pkey -in "$RECORDER_KEY" -pubout -out "$RECORDER_PUB"
+kubectl -n "$DELIVERY_NS" create secret generic recorder-key --from-file=key.pem="$RECORDER_KEY" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+STREAMS_REPO="pacto-delivery-streams"
+
+echo "== the opt-in delivery chart, with the recorder =="
 helm install pacto-delivery "$DL_CHART" -n "$DELIVERY_NS" \
   --set image.repository="$DL_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
-  --set "insecureRegistries[0]=$REG_HOST" --set promoter.poll=2s --wait --timeout 240s
+  --set "insecureRegistries[0]=$REG_HOST" --set promoter.poll=2s \
+  --set recorder.enabled=true --set recorder.streamsRepository="$REG_HOST/$STREAMS_REPO" --set recorder.poll=5s \
+  --set recorder.signing.ed25519.secretName=recorder-key --wait --timeout 240s
 if kubectl auth can-i patch ocirepositories.source.toolkit.fluxcd.io -A \
   --as "system:serviceaccount:${NS}:pacto-operator" | grep -q yes; then
   fail "the observing operator can edit the pointer; delivery must add no permission to it"
@@ -1044,7 +1061,12 @@ pub() {
     BILLING_BUNDLE="${REG_HOST}/demo/billing" "$PACTO" publish "$@")
 }
 tags() { oras repo tags --plain-http "127.0.0.1:${LOCAL_REG_PORT}/$1" 2>/dev/null | sort | tr '\n' ' ' || true; }
-referrers() { oras discover --plain-http --format json "127.0.0.1:${LOCAL_REG_PORT}/$1" 2>/dev/null | jq '[.. | .digest? // empty] | length'; }
+# The recorder attaches operation records as the Stages promote; publish must
+# write nothing, so its referrers are counted without them.
+referrers() {
+  oras discover --plain-http --format json "127.0.0.1:${LOCAL_REG_PORT}/$1" 2>/dev/null \
+    | jq '[.. | objects | select(has("digest") and ((.annotations // {})["dev.sigstore.bundle.predicateType"] != "pacto.dev/operation/v1"))] | length'
+}
 
 kubectl -n "$P" apply -f - >/dev/null <<YAML
 apiVersion: source.toolkit.fluxcd.io/v1
@@ -1380,6 +1402,15 @@ fi
 if [ -z "${DELIVERY_SKIP_IDENTITY:-}" ]; then
   identity_scenario
   echo "DELIVERY IDENTITY PASS"
+fi
+
+# DELIVERY_SKIP_RECORDS=1 skips phase 6. It needs phase 1 (it reads its operations).
+[ -n "${DELIVERY_SKIP_CORE:-}" ] && DELIVERY_SKIP_RECORDS=1
+if [ -z "${DELIVERY_SKIP_RECORDS:-}" ]; then
+  # shellcheck source=tests/acceptance/kind/delivery-records.sh
+  source "$(dirname "$0")/delivery-records.sh"
+  records_scenario
+  echo "DELIVERY RECORDS PASS"
 fi
 
 kill "$REG_PF_PID" 2>/dev/null || true
