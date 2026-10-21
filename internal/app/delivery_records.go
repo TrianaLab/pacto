@@ -33,6 +33,9 @@ type streamRead struct {
 // readStream reads a Stage's stream from its anchor. nil means the Stage has
 // no records to read: no recorder wrote its anchor, or this client reads no
 // registry. A registry that could not be read is an error, never no records.
+// ponytail: every read fetches every record of the stream, O(records) per
+// call; cache verified records by manifest digest (they never change) if
+// dashboard polling or long streams show on the registry.
 func (d *Delivery) readStream(ctx context.Context, stage *delivery.StageObject) (*streamRead, error) {
 	s := stage.Status.Stream
 	if d.Records == nil || s.Anchor == "" {
