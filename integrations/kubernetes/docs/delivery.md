@@ -237,8 +237,10 @@ Pacto works this out from the contracts and the Stages:
 all carry it. In the dashboard, the inbox says which service to update first
 on each held change, and the change page lists them under **Update these
 first**. Both link to the consumer's Stage and, when there is one, to the Stage
-that verified the version that can go first. Once the change has shipped, the
-dashboard stops showing it. In JSON it is `order.moveFirst[]`: the consumer,
+that verified the version that can go first. While a change waits, the
+promoter plans its order again, so a consumer that has moved drops out and a
+read that timed out is tried again. Once nothing holds the change, its question
+says so. Once the change has shipped, the dashboard stops showing it. In JSON it is `order.moveFirst[]`: the consumer,
 the version running there and the range it declares, its `stage`, the
 `candidate` (digest, version, range and the Stage that verified it) or
 `unknown` (why Pacto cannot tell) and a plain `message`. `order.unknown` lists what kept Pacto from

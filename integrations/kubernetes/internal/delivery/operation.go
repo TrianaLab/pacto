@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -401,7 +402,7 @@ func (r *OperationReconciler) held(ctx context.Context, op *dv1.Operation, stage
 	}
 	a := r.approval(ctx, op)
 	if a == nil {
-		return r.requeue()
+		return r.refreshOrder(ctx, op, stage)
 	}
 	switch {
 	case a.Decision == delivery.Reject:
@@ -411,6 +412,39 @@ func (r *OperationReconciler) held(ctx context.Context, op *dv1.Operation, stage
 		return r.save(ctx, op)
 	}
 	return r.lock(ctx, op, stage, true)
+}
+
+// refreshOrder plans a change held on its order again while it waits, so the
+// order and the question say what must move now, not what had to at admission:
+// a consumer that moved first drops out, and a read that timed out is tried
+// again. The floor stays the one admission set (approving re-checks the plan),
+// so the question is only refreshed while it asks the same people, or said
+// moot once nothing holds the change.
+// ponytail: re-plans every poll while a change waits on its order (registry
+// reads are bounded); throttle it if many changes wait at once.
+func (r *OperationReconciler) refreshOrder(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, error) {
+	prev := op.Status.Plan
+	if prev == nil || prev.Order == nil {
+		return r.requeue()
+	}
+	cur, err := r.plan(ctx, op, stage)
+	if err != nil {
+		return reconcile.Result{}, err
+	}
+	question := cur.Question
+	switch {
+	case cur.Predicted == delivery.PredictRejected:
+		return r.requeue() // approving rejects it, with the reason
+	case !cur.Floor.Human:
+		question = "Nothing Pacto sees holds this change any more: what it waited for has moved. Approve it to ship it, or cancel it and propose it again."
+	case cur.Floor.Decision != prev.Floor.Decision || !slices.Equal(cur.Floor.Owners, prev.Floor.Owners):
+		return r.requeue() // a different question: approving re-checks and asks it
+	}
+	if question == op.Status.Question && equality.Semantic.DeepEqual(cur.Order, prev.Order) {
+		return r.requeue()
+	}
+	op.Status.Plan.Order, op.Status.Plan.Question, op.Status.Question = cur.Order, question, question
+	return r.save(ctx, op)
 }
 
 // approval consumes the first valid, not yet consumed Approval for op. A valid

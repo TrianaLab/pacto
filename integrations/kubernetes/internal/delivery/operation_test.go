@@ -712,3 +712,66 @@ func TestBlockedPromoteSaysWhatMovesFirst(t *testing.T) {
 		t.Fatalf("unlistable Stages: %+v", m)
 	}
 }
+
+// TestHeldOrderIsRefreshed: while a change waits on its order, the order and
+// the question are planned again, so they never point at a consumer that has
+// already moved. A question for other people is left for approving to ask.
+func TestHeldOrderIsRefreshed(t *testing.T) {
+	checkout := func(rng string) *unstructured.Unstructured {
+		return pactoObj("checkout", "checkout", c3, "Compliant", 1,
+			map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "compatibility": rng})
+	}
+	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2),
+		pactoObj("payments", "payments", c1, "Compliant", 2), checkout("^1.0.0"), opObj("p1", delivery.TypePromote, dA, dC, bot))
+	ctx := context.Background()
+	o := e.drive("p1")
+	if o.Status.Phase != delivery.PhaseHeld || o.Status.Plan.Order == nil {
+		t.Fatalf("want Held with an order: %s %+v", o.Status.Phase, o.Status.Plan)
+	}
+	held := o.Status.Question
+	refresh := func(stage *dv1.Stage) *dv1.Operation {
+		t.Helper()
+		op := e.getOp("p1")
+		if _, err := e.op.refreshOrder(ctx, op, stage); err != nil {
+			t.Fatal(err)
+		}
+		return e.getOp("p1")
+	}
+	if o := refresh(e.getStage()); o.Status.Question != held {
+		t.Fatalf("nothing moved, nothing changes: %q", o.Status.Question)
+	}
+	// ledger breaks too: a question for other people waits for an approval to ask it.
+	ledger := pactoObj("ledger", "ledger", c2, "Compliant", 1,
+		map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "compatibility": "^1.0.0"})
+	if err := e.c.Create(ctx, ledger); err != nil {
+		t.Fatal(err)
+	}
+	if o := refresh(e.getStage()); o.Status.Question != held || len(o.Status.Plan.Order.MoveFirst) != 1 {
+		t.Fatalf("other owners: %q %+v", o.Status.Question, o.Status.Plan.Order)
+	}
+	_ = e.c.Delete(ctx, ledger)
+	// A plan that would now reject leaves the hold as it is: approving rejects it.
+	rejected := e.getStage()
+	rejected.Status.FailedDigests = []string{dC}
+	if o := refresh(rejected); o.Status.Question != held {
+		t.Fatalf("rejected: %q", o.Status.Question)
+	}
+	// An unreadable upstream Stage is an error, retried.
+	up := e.getStage()
+	up.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "payments-test"}}
+	e.fails["get/Stage"] = true
+	if _, err := e.op.refreshOrder(ctx, e.getOp("p1"), up); err == nil {
+		t.Fatal("want the plan error")
+	}
+	delete(e.fails, "get/Stage")
+	// checkout moved: the order empties and the question says nothing holds it.
+	_ = e.c.Delete(ctx, checkout("^1.0.0"))
+	if err := e.c.Create(ctx, checkout(">=1.0.0 <3.0.0")); err != nil {
+		t.Fatal(err)
+	}
+	o = e.drive("p1")
+	if o.Status.Phase != delivery.PhaseHeld || o.Status.Plan.Order != nil || o.Status.Plan.Question != o.Status.Question ||
+		!strings.HasPrefix(o.Status.Question, "Nothing Pacto sees holds this change any more") {
+		t.Fatalf("after checkout moved: %s %q %+v", o.Status.Phase, o.Status.Question, o.Status.Plan.Order)
+	}
+}
