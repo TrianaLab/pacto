@@ -53,6 +53,9 @@ FLUX_LAYER_TYPE=application/vnd.cncf.flux.content.v1.tar+gzip
 APP_REPO="apps/payments"
 # shellcheck source=tests/acceptance/kind/lib.sh
 source "$(dirname "$0")/lib.sh"
+# Every HTTP call here and in delivery-identity.sh is bounded: a server that
+# never answers is a FAIL, not a run that hangs.
+curl() { command curl --connect-timeout 5 --max-time 30 "$@"; }
 # shellcheck source=tests/acceptance/kind/delivery-identity.sh
 source "$(dirname "$0")/delivery-identity.sh"
 

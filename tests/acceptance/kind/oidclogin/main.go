@@ -31,6 +31,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // sessionCookie is the dashboard's session cookie.
@@ -104,7 +105,7 @@ func newBrowser(ca, user, password, jar string) (*browser, error) {
 		tr.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
 	}
 	b := &browser{user: user, password: password, jarPath: jar, cookies: map[string]map[string]string{},
-		client: &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
+		client: &http.Client{Timeout: 30 * time.Second, Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}
 	if jar != "" {
 		if raw, err := os.ReadFile(jar); err == nil {
 			_ = json.Unmarshal(raw, &b.cookies)
