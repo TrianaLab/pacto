@@ -143,7 +143,7 @@
     {#if e.status.phase === 'Held' && !st?.applied && st?.plan?.order?.moveFirst?.length}
       <section aria-labelledby="cd-move-first">
         <h2 id="cd-move-first" class="t-section-title">Update these first</h2>
-        <p class="t-body-2">These services run here and declare a version range that does not include the new version. Once each of them runs a version whose range includes the new one, Pacto no longer holds this change for them. Pacto never moves them for you.</p>
+        <p class="t-body-2">These services run here and declare a version range that does not include the new version. This list is from when the change was planned. Once each of them runs a version whose range includes the new one, plan and propose this change again: this one keeps waiting for a person. Pacto never moves them for you.</p>
         <MoveFirstList order={st.plan.order} />
       </section>
     {/if}

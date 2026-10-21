@@ -289,6 +289,10 @@ describe('change detail', () => {
     let { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     expect(target.querySelector('h2#cd-move-first')?.textContent).toBe('Update these first');
+    // A held change never re-plans itself: the page must not promise it frees itself once consumers move.
+    const intro = target.querySelector('h2#cd-move-first')?.nextElementSibling?.textContent ?? '';
+    expect(intro).toContain('plan and propose this change again: this one keeps waiting for a person');
+    expect(intro).not.toContain('no longer holds');
     const mf = target.querySelector('[data-testid="move-first"]') as HTMLElement;
     expect(linkTo(mf, '#/delivery/history?namespace=test&stage=orders-test')?.textContent).toBe('orders 999999999999, verified on test/orders-test');
     destroy();
