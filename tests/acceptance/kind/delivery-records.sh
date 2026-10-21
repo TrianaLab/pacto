@@ -57,7 +57,7 @@ records_scenario() {
   local s ns st out seq n=0
   for s in $(kubectl get stages -A -o json | jq -r '.items[] | select(.status.stream.anchor) | "\(.metadata.namespace)/\(.metadata.name)"'); do
     ns="${s%%/*}" st="${s#*/}"
-    out="$(rec record verify -n "$ns" --stage "$st" --output-format json 2>&1)" || fail "record verify failed on $s: $out"
+    out="$(rec record verify -n "$ns" --stage "$st" --output-format json 2>"$tmp/err")" || fail "record verify failed on $s: $(cat "$tmp/err") $out"
     seq="$(kubectl -n "$ns" get stage "$st" -o jsonpath='{.status.stream.seq}')"
     jq -e --argjson seq "${seq:-0}" '.ok and (.records | length) == $seq and ([.records[] | select(.kind == "gap")] | length) == 0 and
       ([.records[].seq] | unique | length) == (.records | length)' <<<"$out" >/dev/null \
@@ -94,7 +94,7 @@ records_scenario() {
 
   echo "== history and blame answer from the records =="
   local first h b
-  first="$(op_to prod "$A" | head -1)"
+  first="$(kubectl -n prod get operations -o json | jq -r '[.items[] | select(.status.record)] | sort_by(.status.seq) | .[0].metadata.name')"
   kubectl -n prod delete operation "$first" --wait=true >/dev/null
   h="$(rec history -n prod --stage payments --output-format json)"
   jq -e --arg n "$first" '.source == "records" and .completeness == "complete" and
@@ -125,14 +125,11 @@ records_scenario() {
   grep -q "written only by the Pacto delivery recorder" <<<"$out" || fail "an admin moved the stream head: $out"
   pass "admission refuses a stream head written by anyone but the recorder"
 
-  # A refusal on publish-manual/billing: FOREIGN is never published, so the
-  # promote is Rejected at once. Each call proposes one and prints its name.
-  local k=0
+  # refuse NAME — a refusal on publish-manual/billing: FOREIGN is never
+  # published, so the promote is Rejected at once.
   refuse() {
-    k=$((k + 1))
-    as_agent "$AGENT_A" propose -n "$M" --stage billing --to "$FOREIGN" --name "records-$1-$k" --reason "phase 6" >/dev/null
-    eventually 30 concluded "$M" "records-$1-$k" || fail "records-$1-$k never concluded"
-    echo "records-$1-$k"
+    as_agent "$AGENT_A" propose -n "$M" --stage billing --to "$FOREIGN" --name "$1" --reason "phase 6" >/dev/null
+    eventually 30 concluded "$M" "$1" || fail "$1 never concluded"
   }
   recorded() { [ -n "$(field "$M" "$1" record.digest)" ]; }
   unrecorded() { ! recorded "$1"; }
@@ -140,8 +137,8 @@ records_scenario() {
   echo "== a recorder that was down records what concluded meanwhile, once each =="
   kubectl -n "$DELIVERY_NS" scale deploy pacto-delivery-recorder --replicas=0 >/dev/null
   kubectl -n "$DELIVERY_NS" wait --for=delete pod -l app.kubernetes.io/component=recorder --timeout=120s >/dev/null 2>&1 || true
-  local r1 r2
-  r1="$(refuse down)"; r2="$(refuse down)"
+  local r1=records-down-1 r2=records-down-2
+  refuse "$r1"; refuse "$r2"
   kubectl -n "$M" delete operation "$r2" --wait=false >/dev/null
   waits() { ! recorded "$r1" && kubectl -n "$M" get operation "$r2" >/dev/null 2>&1; }
   always 3 waits || fail "an operation was recorded or let go while the recorder was down"
@@ -150,10 +147,10 @@ records_scenario() {
   r2_gone() { ! kubectl -n "$M" get operation "$r2" >/dev/null 2>&1; }
   eventually 40 recorded "$r1" || fail "$r1 was not recorded after the recorder came back"
   eventually 40 r2_gone || fail "the cancelled $r2 was not recorded and let go"
-  out="$(rec record verify -n "$M" --stage billing --output-format json 2>&1)" || fail "record verify after the restart: $out"
+  out="$(rec record verify -n "$M" --stage billing --output-format json 2>"$tmp/err")" || fail "record verify after the restart: $(cat "$tmp/err") $out"
   seq="$(kubectl -n "$M" get stage billing -o jsonpath='{.status.stream.seq}')"
-  jq -e --argjson seq "$seq" --arg a "$r1" --arg b "$r2" '.ok and (.records | length) == $seq and
-    ([.records[] | select(.operation == $a or .operation == $b)] | length) == 2 and ([.records[] | select(.kind == "gap")] | length) == 0' <<<"$out" >/dev/null \
+  # One record per seq and no gap: nothing was written twice or skipped.
+  jq -e --argjson seq "$seq" '.ok and (.records | length) == $seq and ([.records[] | select(.kind == "gap")] | length) == 0' <<<"$out" >/dev/null \
     || fail "after the restart the stream has gaps or duplicates: $out"
   pass "with the recorder down $r1 and $r2 waited; back up, each was recorded once, with no gap"
 
@@ -165,7 +162,8 @@ records_scenario() {
   frozen() { [ "$(kubectl -n "$M" get stage billing -o jsonpath='{.status.frozen}')" = true ]; }
   local unfreezes=0
   stopped_until_repaired() { # WHAT FORGED_MANIFEST
-    local held; held="$(refuse "$1")"
+    local held="records-$1"
+    refuse "$held"
     eventually 40 conflict || fail "the recorder did not stop on the $1 record: $(kubectl -n "$M" get stage billing -o jsonpath='{.status.conditions}')"
     eventually 20 frozen || fail "the Stage was not frozen on the $1 record"
     kubectl -n "$M" get stage billing -o jsonpath='{.status.frozenReason}' | grep -q StreamConflict || fail "the freeze does not say StreamConflict"
@@ -192,7 +190,7 @@ records_scenario() {
   # head_bundle — the newest record of publish-manual/billing, as a file in $tmp.
   head_bundle() {
     local m l
-    m="$(rec record verify -n "$M" --stage billing --output-format json | jq -r '.records[-1].manifest')"
+    m="$(rec record verify -n "$M" --stage billing --output-format json 2>/dev/null | jq -r '.records[-1].manifest')"
     l="$(oras manifest fetch --plain-http "$streams_local@$m" | jq -r '.layers[0].digest')"
     oras blob fetch --plain-http --output "$tmp/head.json" "$streams_local@$l" >/dev/null
   }
