@@ -70,8 +70,9 @@ The dashboard shows a **Delivery** tab only where the cluster serves the
 delivery API and the dashboard knows who you are. It has four views:
 
 - **Inbox:** the changes waiting for your teams, with the question asked and
-  the services it affects, then paused environments and changes that could not
-  finish.
+  the services it affects, then paused environments and the changes that could
+  not finish and paused them. Once someone unpauses an environment its failed
+  change leaves the inbox for History.
 - **Environments:** every service in every environment, the version it runs
   and whether that version is verified, failed, paused or waiting. Promote and
   unpause start here.
@@ -79,6 +80,10 @@ delivery API and the dashboard knows who you are. It has four views:
   this is never the whole story.
 - **Published:** the versions your environments know, whether their signature
   was checked and where each one runs.
+
+If you may not list delivery objects across the cluster, the views read only
+the namespaces Pacto knows of and say they may be incomplete. If the dashboard
+cannot reach the cluster, they say that too, rather than hiding the tab.
 
 A change has its own page: the plan, what Pacto predicted next to what
 happened, the proof behind each check (a link into Mira when the dashboard has
@@ -128,4 +133,7 @@ HTTP.
   person signed in again; it can take the person's other actions until it
   ends.
 - Sessions live in the dashboard's memory: a restart signs everyone out, and
-  the dashboard runs as one replica.
+  the dashboard runs as one replica. A session ends after an hour without use
+  or twelve hours in all, and the dashboard revokes its refresh token at the
+  provider within fifteen minutes of that, even if the browser never comes
+  back.
