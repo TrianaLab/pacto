@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -38,7 +39,11 @@ type fakeIdP struct {
 	tokenStatus int
 	authTime    time.Time
 	refreshID   string // overrides the refreshed id_token
-	exchangeOut map[string]any
+	// rotate makes each refresh token single-use, as Okta, Auth0 and
+	// Keycloak's revoke-on-use do; reuse is refused.
+	rotate       bool
+	refreshCalls int
+	exchangeOut  map[string]any
 }
 
 type grant struct {
@@ -126,13 +131,26 @@ func (f *fakeIdP) token(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "at", "token_type": "Bearer", "expires_in": 3600,
 			"refresh_token": rt, "id_token": f.idToken(clientID, g)})
 	case "refresh_token":
-		g := f.refreshes[r.PostForm.Get("refresh_token")]
+		f.refreshCalls++
+		old := r.PostForm.Get("refresh_token")
+		g, known := f.refreshes[old]
+		next := "rt-next"
+		if f.rotate {
+			if !known {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = w.Write([]byte(`{"error":"invalid_grant","error_description":"refresh token reused"}`))
+				return
+			}
+			delete(f.refreshes, old)
+			next = fmt.Sprintf("rt-%d", f.refreshCalls)
+			f.refreshes[next] = g
+		}
 		id := f.refreshID
 		if id == "" {
 			id = f.idToken(clientID, g)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"access_token": "at2", "token_type": "Bearer", "expires_in": 3600,
-			"refresh_token": "rt-next", "id_token": id})
+			"refresh_token": next, "id_token": id})
 	default:
 		f.exchanges = append(f.exchanges, r.PostForm)
 		out := f.exchangeOut

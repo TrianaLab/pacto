@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -286,6 +287,75 @@ func TestSessionRefreshFailures(t *testing.T) {
 	o2, _ := NewOIDC(Config{IssuerURL: "http://127.0.0.1:1", ClientID: "c", RedirectURL: "https://d/cb"})
 	if err := o2.refreshSession(httptest.NewRequest(http.MethodGet, "/", nil), &Session{refresh: "x"}); err == nil {
 		t.Fatal("a refresh with no provider fails")
+	}
+}
+
+func TestConcurrentRequestsRefreshOnce(t *testing.T) {
+	f := newIdP(t)
+	f.rotate = true
+	o := newTestOIDC(t, f)
+	c := cookieNamed(t, login(t, o, f, ""), SessionCookie)
+	o.mu.Lock()
+	o.sessions[c.Value].expiry = time.Now().Add(30 * time.Second)
+	o.mu.Unlock()
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if o.Session(withCookie(c)) == nil {
+				t.Error("a request lost the session")
+			}
+		}()
+	}
+	wg.Wait()
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if f.refreshCalls != 1 || o.sessions[c.Value].refresh != "rt-1" {
+		t.Fatalf("one refresh for all requests, keeping its token: %d calls, token %q", f.refreshCalls, o.sessions[c.Value].refresh)
+	}
+}
+
+func TestRenewSeesOtherRequests(t *testing.T) {
+	f := newIdP(t)
+	o := newTestOIDC(t, f)
+	c := cookieNamed(t, login(t, o, f, ""), SessionCookie)
+	s := o.sessions[c.Value]
+	r := withCookie(c)
+	// Another request refreshed it while this one waited: no second refresh.
+	if _, ok := o.renew(r, s, time.Now()); !ok || f.refreshCalls != 0 {
+		t.Fatal("an already refreshed session is not refreshed again")
+	}
+	// Another request ended it: gone, and nothing is refreshed or revoked.
+	o.end(r.Context(), c.Value)
+	n := len(f.revoked)
+	s.expiry = time.Now()
+	if _, ok := o.renew(r, s, time.Now()); ok || f.refreshCalls != 0 || len(f.revoked) != n {
+		t.Fatal("an ended session stays ended")
+	}
+}
+
+func TestSweeperEndsSessionsNobodyComesBackFor(t *testing.T) {
+	f := newIdP(t)
+	o := newTestOIDC(t, f)
+	o.sweepEvery = 10 * time.Millisecond
+	c := cookieNamed(t, login(t, o, f, ""), SessionCookie)
+	o.mu.Lock()
+	o.sessions[c.Value].seen = time.Now().Add(-2 * time.Hour)
+	o.mu.Unlock()
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		o.mu.Lock()
+		_, live := o.sessions[c.Value]
+		o.mu.Unlock()
+		f.mu.Lock()
+		revoked := len(f.revoked)
+		f.mu.Unlock()
+		if !live && revoked == 1 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("an idle session is ended and revoked without another login")
+		}
 	}
 }
 

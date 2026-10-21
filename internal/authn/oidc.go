@@ -74,6 +74,9 @@ type Session struct {
 	// provider made the person repeat (prompt=login). Only such a session may
 	// decide on an operation.
 	Fresh bool
+	// refreshing lets one request at a time refresh the session, so a
+	// provider that rotates refresh tokens never sees one used twice.
+	refreshing *sync.Mutex
 }
 
 // LogValue keeps every token out of logs: only whether the session is fresh.
@@ -101,6 +104,11 @@ type OIDC struct {
 	mu       sync.Mutex
 	prov     *provider
 	sessions map[string]*Session
+
+	// sweepEvery is how often expired sessions are ended, started with the
+	// first session.
+	sweepEvery time.Duration
+	sweeping   sync.Once
 }
 
 // NewOIDC builds the client. The identity provider is read on the first
@@ -113,7 +121,8 @@ func NewOIDC(cfg Config) (*OIDC, error) {
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
-	return &OIDC{cfg: cfg, client: client, now: time.Now, key: []byte(random(32)), sessions: map[string]*Session{}}, nil
+	return &OIDC{cfg: cfg, client: client, now: time.Now, key: []byte(random(32)), sessions: map[string]*Session{},
+		sweepEvery: idleTimeout / 4}, nil
 }
 
 func (o *OIDC) provider() (*provider, error) {
@@ -278,11 +287,12 @@ func (o *OIDC) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 	now := o.now()
 	s := &Session{id: random(32), idToken: raw, refresh: tok.RefreshToken, expiry: id.Expiry, created: now, seen: now,
-		CSRF: random(32), Fresh: st.Fresh}
+		CSRF: random(32), Fresh: st.Fresh, refreshing: &sync.Mutex{}}
 	o.mu.Lock()
 	o.sessions[s.id] = s
 	o.mu.Unlock()
 	o.sweep(r.Context())
+	o.sweeping.Do(func() { go o.sweeper() })
 	http.SetCookie(w, sessionCookie(s.id, int(absoluteTimeout.Seconds())))
 	http.Redirect(w, r, st.Return, http.StatusFound)
 }
@@ -333,6 +343,13 @@ func (o *OIDC) expired(s *Session, now time.Time) bool {
 	return now.Sub(s.created) > absoluteTimeout || now.Sub(s.seen) > idleTimeout
 }
 
+// sweeper runs sweep for the life of the process.
+func (o *OIDC) sweeper() {
+	for range time.Tick(o.sweepEvery) {
+		o.sweep(context.Background())
+	}
+}
+
 // sweep ends every expired session, so their refresh tokens are revoked even
 // when the browser never comes back.
 func (o *OIDC) sweep(ctx context.Context) {
@@ -373,19 +390,44 @@ func (o *OIDC) Session(r *http.Request) *Session {
 		o.end(r.Context(), cp.id)
 		return nil
 	case cp.expiry.Sub(now) < refreshMargin:
-		if err := o.refreshSession(r, &cp); err != nil {
-			if now.After(cp.expiry) {
-				o.end(r.Context(), cp.id)
-				return nil
-			}
-			slog.WarnContext(r.Context(), "refreshing a session failed", "error", err)
+		if cp, ok = o.renew(r, s, now); !ok {
+			return nil
 		}
 	}
 	o.mu.Lock()
-	defer o.mu.Unlock()
+	s.seen = now
+	o.mu.Unlock()
 	cp.seen = now
-	s.seen, s.idToken, s.refresh, s.expiry = now, cp.idToken, cp.refresh, cp.expiry
 	return &cp
+}
+
+// renew refreshes s once, however many requests ask at the same time: the
+// ones that waited find it refreshed. Only a refresh that worked writes its
+// tokens back. false means the session is gone.
+func (o *OIDC) renew(r *http.Request, s *Session, now time.Time) (Session, bool) {
+	s.refreshing.Lock()
+	defer s.refreshing.Unlock()
+	o.mu.Lock()
+	cp, live := *s, o.sessions[s.id] == s
+	o.mu.Unlock()
+	switch {
+	case !live:
+		return cp, false
+	case cp.expiry.Sub(now) >= refreshMargin:
+		return cp, true
+	}
+	if err := o.refreshSession(r, &cp); err != nil {
+		if now.After(cp.expiry) {
+			o.end(r.Context(), cp.id)
+			return cp, false
+		}
+		slog.WarnContext(r.Context(), "refreshing a session failed", "error", err)
+		return cp, true
+	}
+	o.mu.Lock()
+	s.idToken, s.refresh, s.expiry = cp.idToken, cp.refresh, cp.expiry
+	o.mu.Unlock()
+	return cp, true
 }
 
 // refreshSession renews s's ID token with its refresh token.
