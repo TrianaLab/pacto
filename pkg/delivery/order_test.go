@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 func pactoIn(ns, name string) PactoView {
@@ -376,5 +377,57 @@ func TestOrderSharesOneRegistryBound(t *testing.T) {
 	if !strings.Contains(m.Unknown, "sha256:020202020202: the registry did not answer within 50ms") ||
 		!strings.Contains(m.Unknown, "sha256:010101010101: not read, the registry did not answer within 50ms") {
 		t.Fatalf("the rest is said unread: %+v", m)
+	}
+}
+
+// dependentPacto is a Pacto running in ns that depends on orders with rng.
+func dependentPacto(ns, name, version, rng string) PactoView {
+	p := runningPacto(ns, name, version)
+	p.Status.Dependencies = []DependencyView{{Name: "orders", Ref: "oci://reg.example/pactos/orders", Required: true, Compatibility: rng}}
+	return p
+}
+
+func TestOrderCandidateMustKeepItsOwnConsumers(t *testing.T) {
+	// orders 2.0.0 accepts payments 2 and 3, but checkout 1.0.0 runs here and
+	// accepts orders ^1.0.0: moving 2.0.0 first would break checkout, so 1.9.0 moves.
+	in, pactos := ordersWorld(map[string]*contract.Bundle{
+		o2: bundle("orders", "2.0.0", paymentsDep(">=2.0.0 <4.0.0")),
+		o1: bundle("orders", "1.9.0", paymentsDep(">=2.0.0 <4.0.0")),
+	})
+	withCheckout := append(slices.Clone(pactos), dependentPacto("prod", "checkout", "1.0.0", "^1.0.0"))
+	if m := onlyMove(t, orderPlan(t, in, withCheckout, payments2, payments3)); m.Candidate == nil || m.Candidate.Digest != o1 {
+		t.Fatalf("1.9.0 keeps checkout working: %+v", m)
+	}
+	in.Stages[2].Status.Offered = []string{o2}
+	m := onlyMove(t, orderPlan(t, in, withCheckout, payments2, payments3))
+	if m.Candidate != nil || m.Unknown != "" || !strings.Contains(m.Message, "can move first yet (checkout 1.0.0 accepts orders ^1.0.0, not 2.0.0)") {
+		t.Fatalf("2.0.0 would break checkout: %+v", m)
+	}
+	// A range Pacto cannot read leaves it Unknown, never a candidate.
+	unreadable := append(slices.Clone(pactos), dependentPacto("prod", "checkout", "1.0.0", "whatever"))
+	m = onlyMove(t, orderPlan(t, in, unreadable, payments2, payments3))
+	if m.Candidate != nil || !strings.Contains(m.Unknown, `the range "whatever" checkout 1.0.0 holds on orders cannot be read`) {
+		t.Fatalf("unreadable range: %+v", m)
+	}
+}
+
+func TestAcceptedHere(t *testing.T) {
+	in, pactos := ordersWorld(nil)
+	pactos = append(pactos, dependentPacto("prod", "checkout", "1.0.0", "^1.0.0"))
+	s, err := Snapshot(context.Background(), EnvironmentPactos(pactos, in.Stages, nil, "prod", "prod"), nil, nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var orders fleet.ServiceKey
+	for _, r := range s.Revisions {
+		if r.Service == "orders" {
+			orders = r.ServiceKey
+		}
+	}
+	if _, err := acceptedHere(s, orders, bundle("orders", "not-a-version").Contract); err == nil || !strings.Contains(err.Error(), "its version cannot be read") {
+		t.Fatalf("unreadable candidate version: %v", err)
+	}
+	if why, err := acceptedHere(s, orders, bundle("orders", "1.9.0").Contract); why != "" || err != nil {
+		t.Fatalf("1.9.0 is accepted: %q %v", why, err)
 	}
 }

@@ -451,10 +451,10 @@ type MoveFirst struct {
 	Stage *StageRef `json:"stage,omitempty"`
 	// Candidate is the newest version of the consumer its upstream Stage
 	// offered and verified that is newer than the one running here, accepts
-	// both the provider version running here and the new one and accepts
-	// what its other dependencies run here, so it can move first without
-	// breaking a range Pacto can see. Absent when there is none or Pacto
-	// cannot tell.
+	// both the provider version running here and the new one, accepts what
+	// its other dependencies run here and is accepted by the range every
+	// Pacto here declares on it, so it can move first without breaking a
+	// range Pacto can see. Absent when there is none or Pacto cannot tell.
 	// +optional
 	Candidate *Candidate `json:"candidate,omitempty"`
 	// Unknown says why Pacto cannot tell whether such a version exists.

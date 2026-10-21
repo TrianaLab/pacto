@@ -127,8 +127,8 @@ func consumerStage(in PlanInput, m *MoveFirst, newVersion string) (StageObject, 
 
 // verifiedCandidate walks what the upstream Stage offered and verified, newest
 // first, and sets m.Candidate to the first version newer than the one running
-// here that accepts both provider versions and whose other dependencies accept
-// what runs in this environment. A version already verified on the consumer's
+// here that accepts both provider versions, whose other dependencies accept
+// what runs in this environment and that what runs here accepts. A version already verified on the consumer's
 // own Stage is skipped: promoting it again would be a rollback, which holds the
 // Stage. It returns the versions it could not read and, in plain words, why a
 // version it could read cannot move first.
@@ -157,7 +157,7 @@ func verifiedCandidate(ctx context.Context, in PlanInput, m *MoveFirst, stage St
 			continue
 		}
 		c := r.Bundle.Contract
-		rng, ok, why, err := canMoveFirst(in, c, m.Version, newVersion, running)
+		rng, ok, why, err := canMoveFirst(in, c, fleet.NewServiceKeyDomain(m.Domain, m.Service), m.Version, newVersion, running)
 		switch {
 		case err != nil:
 			unreadable = append(unreadable, short(d)+": "+err.Error())
@@ -174,7 +174,7 @@ func verifiedCandidate(ctx context.Context, in PlanInput, m *MoveFirst, stage St
 // canMoveFirst judges one readable version of the consumer: ok when it can
 // move first, why in plain words when it accepts both provider versions but
 // still cannot, and an error when Pacto cannot tell.
-func canMoveFirst(in PlanInput, c *contract.Contract, version, newVersion, running string) (rng string, ok bool, why string, err error) {
+func canMoveFirst(in PlanInput, c *contract.Contract, consumer fleet.ServiceKey, version, newVersion, running string) (rng string, ok bool, why string, err error) {
 	rng, ok, err = acceptsBoth(c, in.Stage.Service.Name, newVersion, running)
 	if err != nil || !ok {
 		return rng, false, "", err
@@ -182,8 +182,39 @@ func canMoveFirst(in PlanInput, c *contract.Contract, version, newVersion, runni
 	if why, err = newerThan(c, version); err != nil || why != "" {
 		return rng, false, why, err
 	}
-	why, err = acceptsWhatRunsHere(in.Snapshot, c, in.Stage.Service.Name)
+	if why, err = acceptsWhatRunsHere(in.Snapshot, c, in.Stage.Service.Name); err != nil || why != "" {
+		return rng, false, why, err
+	}
+	why, err = acceptedHere(in.Snapshot, consumer, c)
 	return rng, why == "" && err == nil, why, err
+}
+
+// acceptedHere checks the declared range every Pacto running here holds on the
+// consumer against a candidate version of it, so moving it first does not
+// break its own consumers. It says why one of them rejects the version, or
+// errors when Pacto cannot tell: a range or a version it cannot read. Observed
+// calls carry no range and are not judged here.
+func acceptedHere(snap *fleet.FleetSnapshot, consumer fleet.ServiceKey, c *contract.Contract) (string, error) {
+	for _, r := range snap.Relationships {
+		if r.Type != fleet.RelationshipDependency || r.Provenance != fleet.ProvenanceDeclared ||
+			r.ToService != consumer || r.FromService == consumer {
+			continue
+		}
+		from := snap.Revisions[r.FromRevision]
+		who := strings.TrimSpace(from.Service + " " + from.Version)
+		rng, err := contract.ParseRange(r.Compatibility)
+		if err != nil {
+			return "", fmt.Errorf("the range %q %s holds on %s cannot be read: %w", r.Compatibility, who, c.Service.Name, err)
+		}
+		ok, err := rng.Check(c.Service.Version)
+		if err != nil {
+			return "", fmt.Errorf("its version cannot be read: %w", err)
+		}
+		if !ok {
+			return fmt.Sprintf("%s accepts %s %s, not %s", who, c.Service.Name, r.Compatibility, c.Service.Version), nil
+		}
+	}
+	return "", nil
 }
 
 // newerThan says why a candidate is not newer than the consumer version

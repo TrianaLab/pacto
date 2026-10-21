@@ -215,6 +215,10 @@ Pacto works this out from the contracts and the Stages:
 - **The candidate must fit what else runs there.** Every other dependency the
   candidate declares must accept the version running in that environment. A
   required dependency Pacto sees nothing of there makes the answer unknown.
+- **The candidate must keep its own consumers.** Every Pacto running there that
+  declares a range on the consumer must accept the candidate's version, so
+  following the order never needs a person to approve a break of its own. A
+  range Pacto cannot read makes the answer unknown.
 - **The candidate must be newer.** A version older than the one running there,
   or one that already ran on that Stage, would roll the consumer back, so it is
   not a candidate.

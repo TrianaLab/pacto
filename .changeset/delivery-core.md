@@ -20,8 +20,9 @@ environment. When one of them does not accept the new version, the plan's
 `order` says which consumer must move first, the version running there and the
 range it declares, its Stage in that environment and either the newest version
 its upstream Stage verified that is newer than the one running, accepts both
-the running provider version and the new one and accepts what its other
-dependencies run there, or why Pacto cannot tell. Compatibility comes from the declared
+the running provider version and the new one, accepts what its other
+dependencies run there and is accepted by the range every Pacto there declares
+on it, or why Pacto cannot tell. Compatibility comes from the declared
 ranges, not from which fields or endpoints a consumer uses. Pacto never moves
 the other service itself. A registry read a plan makes gives up after 10
 seconds, and all the reads for one plan's order share one 10 second limit, so a
