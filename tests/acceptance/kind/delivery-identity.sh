@@ -431,9 +431,18 @@ YAML
   pass "admission refuses an Approval whose groups are not exactly the approver's, forged or left out"
 
   # A token without the interactive azp carries no auth-time: admission refuses.
-  if approval_as "$noazp" idp-noazp 2>/dev/null; then fail "an approval without auth-time was admitted"; fi
-  # An agent cannot approve: not with its exchanged token at the apiserver...
-  if approval_as "$agent" idp-agent 2>/dev/null; then fail "an agent created an Approval"; fi
+  refused="$(approval_as "$noazp" idp-noazp 2>&1 || true)"
+  grep -q "approving needs a fresh interactive login" <<<"$refused" || fail "an approval without auth-time was not refused for it: $refused"
+  # An agent cannot approve: not with its exchanged token at the apiserver,
+  # where its role grants no create...
+  refused="$(approval_as "$agent" idp-agent 2>&1 || true)"
+  grep -qE 'cannot create resource "approvals"|agents and service accounts may not approve' <<<"$refused" \
+    || fail "an agent's Approval was not refused as an agent's: $refused"
+  # ...nor with approver rights: robot is in team-checkout, so only the
+  # admission rule on agent groups stops it...
+  refused="$(approval_as "$(dex_token robot)" idp-robot 2>&1 || true)"
+  grep -q "agents and service accounts may not approve" <<<"$refused" || fail "admission let an agent with approver rights approve: $refused"
+  [ -z "$(kubectl -n prod get approval idp-noazp idp-agent idp-robot --ignore-not-found -o name)" ] || fail "a refused Approval exists"
   # ...nor through the dashboard, signed in as a person in an agent group.
   local robot; robot="$(login robot -fresh)" || fail "robot could not sign in"
   out="$(dash "$robot" POST /api/delivery/operations/prod/idp-f/decision '{"decision":"approve"}' "$(csrf_of "$robot")")"
