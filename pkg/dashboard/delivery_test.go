@@ -443,7 +443,8 @@ func TestHistoryAndOperation(t *testing.T) {
 			operation("prod", "unknown", "payments", delivery.OperationStatus{Phase: delivery.PhaseHeld, Applied: true})}}
 	base := startDelivery(t, f, a.auth(false, true), true, nil)
 	_, h := call(t, http.MethodGet, base+"/api/delivery/history", nil)
-	if hs := h["histories"].([]any); len(hs) != 1 || hs[0].(map[string]any)["stage"].(map[string]any)["name"] != "prod/payments" {
+	if hs := h["histories"].([]any); len(hs) != 1 || hs[0].(map[string]any)["stage"].(map[string]any)["name"] != "prod/payments" ||
+		hs[0].(map[string]any)["namespace"] != "prod" {
 		t.Fatalf("history of every Stage: %v", h)
 	}
 	if _, h = call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments", nil); len(h["histories"].([]any)) != 1 {

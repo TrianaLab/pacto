@@ -550,10 +550,17 @@ type historyInput struct {
 	Stage     string `query:"stage" doc:"One Stage's name"`
 }
 
+// StageHistory is one Stage's history and the namespace the Stage lives in,
+// which the history itself does not carry.
+type StageHistory struct {
+	Namespace string `json:"namespace"`
+	delivery.History
+}
+
 type historyOutput struct {
 	Body struct {
 		Listing
-		Histories []delivery.History `json:"histories"`
+		Histories []StageHistory `json:"histories"`
 	}
 }
 
@@ -575,13 +582,13 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 			targets = append(targets, [2]string{st.Metadata.Namespace, st.Metadata.Name})
 		}
 	}
-	out.Body.Histories = []delivery.History{}
+	out.Body.Histories = []StageHistory{}
 	for _, t := range targets {
 		h, err := api.History(ctx, t[0], t[1])
 		if err != nil {
 			return nil, err
 		}
-		out.Body.Histories = append(out.Body.Histories, *h)
+		out.Body.Histories = append(out.Body.Histories, StageHistory{Namespace: t[0], History: *h})
 	}
 	return out, nil
 }

@@ -995,13 +995,6 @@ export interface components {
             human?: boolean;
             owners?: string[] | null;
         };
-        "Delivery.History": {
-            asOf: string;
-            completeness: string;
-            entries: components["schemas"]["Delivery.HistoryEntry"][] | null;
-            note: string;
-            stage: components["schemas"]["Delivery.StageNow"];
-        };
         "Delivery.HistoryEntry": {
             actor: string;
             actorClass?: string;
@@ -2021,7 +2014,7 @@ export interface components {
             asOf: string;
             /** @enum {string} */
             completeness: "complete" | "partial";
-            histories: components["schemas"]["Delivery.History"][] | null;
+            histories: components["schemas"]["StageHistory"][] | null;
             /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
             unreadable?: string[] | null;
         };
@@ -2926,6 +2919,14 @@ export interface components {
             enabled: boolean;
             reason?: string;
             type: string;
+        };
+        StageHistory: {
+            asOf: string;
+            completeness: string;
+            entries: components["schemas"]["Delivery.HistoryEntry"][] | null;
+            namespace: string;
+            note: string;
+            stage: components["schemas"]["Delivery.StageNow"];
         };
         StateInfo: {
             dataCriticality?: string;
