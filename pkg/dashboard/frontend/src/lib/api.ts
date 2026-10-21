@@ -289,12 +289,23 @@ async function productGet<T extends { meta?: ProductMeta }>(p: Promise<FetchResu
   return res;
 }
 
-// The CSRF token every mutating delivery request carries, read from the session.
+// The CSRF token every mutating request carries, read from the session. A
+// signed-in browser holds a session cookie, and the server then asks for the
+// token on every POST, PUT, PATCH and DELETE, not only on delivery ones.
 let csrf = '';
 async function csrfHeaders(): Promise<Record<string, string>> {
-  if (!csrf) csrf = (await api.session()).csrf ?? '';
+  if (!csrf) csrf = (await api.session().catch(() => null))?.csrf ?? '';
   return csrf ? { 'X-Pacto-CSRF': csrf } : {};
 }
+
+client.use({
+  async onRequest({ request }) {
+    if (request.method !== 'GET' && request.method !== 'HEAD') {
+      for (const [k, v] of Object.entries(await csrfHeaders())) request.headers.set(k, v);
+    }
+    return request;
+  },
+});
 
 // ── the facade ───────────────────────────────────────────────────────────────
 // Legacy endpoints preserve their GENERATED response types (never `unknown`); the
@@ -402,18 +413,18 @@ export const api = {
     })),
   deliveryOperation: (namespace: string, name: string): Promise<DeliveryOperation> =>
     unwrap(client.GET('/api/delivery/operations/{namespace}/{name}', { params: { path: { namespace, name } } })),
-  deliveryPlan: async (body: DeliveryRequest): Promise<DeliveryPlan> =>
-    unwrap(client.POST('/api/delivery/plan', { body, headers: await csrfHeaders() })),
-  deliveryPropose: async (body: DeliveryRequest): Promise<CreatedResponse<'/api/delivery/operations'>> =>
-    unwrap(client.POST('/api/delivery/operations', { body, headers: await csrfHeaders() })),
-  deliveryDecide: async (
+  deliveryPlan: (body: DeliveryRequest): Promise<DeliveryPlan> =>
+    unwrap(client.POST('/api/delivery/plan', { body })),
+  deliveryPropose: (body: DeliveryRequest): Promise<CreatedResponse<'/api/delivery/operations'>> =>
+    unwrap(client.POST('/api/delivery/operations', { body })),
+  deliveryDecide: (
     namespace: string, name: string, decision: DeliveryDecision, note = '',
   ): Promise<CreatedResponse<'/api/delivery/operations/{namespace}/{name}/decision'>> =>
     unwrap(client.POST('/api/delivery/operations/{namespace}/{name}/decision', {
-      params: { path: { namespace, name } }, body: { decision, note: note || undefined }, headers: await csrfHeaders(),
+      params: { path: { namespace, name } }, body: { decision, note: note || undefined },
     })),
-  deliveryCancel: async (namespace: string, name: string): Promise<DeleteResponse<'/api/delivery/operations/{namespace}/{name}'>> =>
+  deliveryCancel: (namespace: string, name: string): Promise<DeleteResponse<'/api/delivery/operations/{namespace}/{name}'>> =>
     unwrap(client.DELETE('/api/delivery/operations/{namespace}/{name}', {
-      params: { path: { namespace, name } }, headers: await csrfHeaders(),
+      params: { path: { namespace, name } },
     })),
 };

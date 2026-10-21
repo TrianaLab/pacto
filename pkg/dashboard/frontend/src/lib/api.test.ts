@@ -29,6 +29,8 @@ function requestFor(call = 0): Request {
 function urlFor(call = 0): URL {
   return new URL(requestFor(call).url);
 }
+/** last is the index of the latest call: a mutating call reads the session first. */
+const last = () => mockFetch.mock.calls.length - 1;
 
 beforeEach(() => {
   mockFetch.mockReset();
@@ -78,9 +80,9 @@ describe('legacy endpoint serialization (generated client owns the URL)', () => 
   });
 
   it('POSTs fleet impact with a JSON body', async () => {
-    mockFetch.mockResolvedValue(jsonResponse({ meta: { schemaVersion: PRODUCT_SCHEMA_VERSION } }));
+    mockFetch.mockImplementation(() => Promise.resolve(jsonResponse({ meta: { schemaVersion: PRODUCT_SCHEMA_VERSION } })));
     await api.fleetImpactByIdentity({ snapshotId: 's1', fromRevisionKey: 'a', toRevisionKey: 'b' });
-    const req = requestFor();
+    const req = requestFor(last());
     expect(req.method).toBe('POST');
     expect(req.headers.get('content-type')).toContain('application/json');
     expect(await req.clone().json()).toEqual({ snapshotId: 's1', fromRevisionKey: 'a', toRevisionKey: 'b' });
@@ -90,10 +92,10 @@ describe('legacy endpoint serialization (generated client owns the URL)', () => 
     // The Huma refresh operation returns 200 with a JSON body {"status":"ok"}, and
     // the generated SDK types the response as { status: string }. Exercise the real
     // server/SDK contract, not a 204/null the endpoint never emits.
-    mockFetch.mockResolvedValue(jsonResponse({ status: 'ok' }));
+    mockFetch.mockImplementation(() => Promise.resolve(jsonResponse({ status: 'ok' })));
     expect(await api.refresh()).toEqual({ status: 'ok' });
-    expect(requestFor().method).toBe('POST');
-    expect(urlFor().pathname).toBe('/api/refresh');
+    expect(requestFor(last()).method).toBe('POST');
+    expect(urlFor(last()).pathname).toBe('/api/refresh');
   });
 });
 
@@ -205,10 +207,10 @@ describe('product endpoint serialization + schema validation', () => {
   });
 
   it('fleetImpactByIdentity POSTs canonical identities in the body', async () => {
-    mockFetch.mockResolvedValue(productResponse({ classification: 'BREAKING' }));
+    mockFetch.mockImplementation(() => Promise.resolve(productResponse({ classification: 'BREAKING' })));
     await api.fleetImpactByIdentity({ snapshotId: 'snap-1', fromRevisionKey: 'svc@a', toRevisionKey: 'svc@b', includeObserved: true });
-    const req = requestFor();
-    expect(urlFor().pathname).toBe('/api/fleet/impact');
+    const req = requestFor(last());
+    expect(urlFor(last()).pathname).toBe('/api/fleet/impact');
     expect(req.method).toBe('POST');
     expect(await req.clone().json()).toEqual({ snapshotId: 'snap-1', fromRevisionKey: 'svc@a', toRevisionKey: 'svc@b', includeObserved: true });
   });
@@ -400,15 +402,30 @@ describe('delivery endpoints', () => {
     await api.deliveryDecide('prod', 'op1', 'approve', 'ok');
     await api.deliveryDecide('prod', 'op1', 'reject');
     await api.deliveryCancel('prod', 'op1');
+    // The fleet's own mutating calls too: the server asks for the token on any
+    // POST that carries the session cookie.
+    await api.refresh();
+    await api.fleetImpactByIdentity({ snapshotId: 's1', fromRevisionKey: 'a', toRevisionKey: 'b' }).catch(() => {});
     const calls = mockFetch.mock.calls.map((c) => c[0] as Request);
     expect(calls.filter((r) => new URL(r.url).pathname === '/api/session')).toHaveLength(1);
     const mutating = calls.filter((r) => r.method !== 'GET');
-    expect(mutating.map((r) => r.headers.get('X-Pacto-CSRF'))).toEqual(['tok', 'tok', 'tok', 'tok', 'tok']);
+    expect(mutating.map((r) => r.headers.get('X-Pacto-CSRF'))).toEqual(['tok', 'tok', 'tok', 'tok', 'tok', 'tok', 'tok']);
     expect(mutating.map((r) => `${r.method} ${new URL(r.url).pathname}`)).toEqual([
       'POST /api/delivery/plan', 'POST /api/delivery/operations', 'POST /api/delivery/operations/prod/op1/decision',
-      'POST /api/delivery/operations/prod/op1/decision', 'DELETE /api/delivery/operations/prod/op1']);
+      'POST /api/delivery/operations/prod/op1/decision', 'DELETE /api/delivery/operations/prod/op1', 'POST /api/refresh',
+      'POST /api/fleet/impact']);
     expect(await mutating[2].json()).toEqual({ decision: 'approve', note: 'ok' });
     expect(await mutating[3].json()).toEqual({ decision: 'reject' });
+  });
+
+  it('sends a mutating call without the token when the session cannot be read', async () => {
+    mockFetch.mockImplementationOnce(() => Promise.resolve(jsonResponse({})));
+    await api.session(); // forget any token an earlier test left
+    mockFetch.mockReset();
+    mockFetch.mockImplementation((req: Request) => Promise.resolve(
+      new URL(req.url).pathname === '/api/session' ? new Response('', { status: 501 }) : jsonResponse({ status: 'ok' })));
+    expect(await api.refresh()).toEqual({ status: 'ok' });
+    expect(requestFor(last()).headers.get('X-Pacto-CSRF')).toBeNull();
   });
 
   it('carries the refusal code and the fresh plan of a PlanStale answer', async () => {

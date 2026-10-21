@@ -137,6 +137,11 @@ func TestSharedMode(t *testing.T) {
 		{"no csrf", act("/api/delivery/plan", true, "", "https://dash.example"), http.StatusForbidden},
 		{"wrong csrf on logout", act("/auth/logout", true, "x", "https://dash.example"), http.StatusForbidden},
 		{"ok", act("/api/delivery/plan", true, sess.CSRF, "https://dash.example"), http.StatusTeapot},
+		// The fleet's own POSTs carry the session cookie too, so the same check:
+		// the UI sends the token on every mutating request.
+		{"refresh without csrf", act("/api/refresh", true, "", "https://dash.example"), http.StatusForbidden},
+		{"refresh", act("/api/refresh", true, sess.CSRF, "https://dash.example"), http.StatusTeapot},
+		{"impact", act("/api/fleet/impact", true, sess.CSRF, "https://dash.example"), http.StatusTeapot},
 		{"no cookie carries no rights, so no check", act("/api/delivery/plan", false, "", ""), http.StatusTeapot},
 		{"non-api path", act("/somewhere", true, "", ""), http.StatusTeapot},
 	}
