@@ -7,6 +7,7 @@
 
   const HEADLINES = {
     NotYourTeam: 'Only the team the question names may answer it.',
+    OwnChange: 'Someone else must decide on a change you asked for.',
     AgentsMayNotApprove: 'Agents may not decide on held changes.',
     AuthTimeUnavailable: 'Nobody can approve on this cluster yet.',
     ApproveFromCLI: 'A dashboard on your own machine does not decide.',

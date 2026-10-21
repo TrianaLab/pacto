@@ -494,6 +494,17 @@ func TestHistoryAndOperation(t *testing.T) {
 	if got := actions("unknown"); got != "accept-unknown,reject" {
 		t.Fatalf("held after it shipped: %s", got)
 	}
+	// Whoever asked for a change, or is the one it acts for, is not offered
+	// its decision: the promoter would ignore it.
+	f.ops[0].Spec.Actor.User = f.caller.User
+	if got := actions("held"); got != "cancel" {
+		t.Fatalf("my own change: %s", got)
+	}
+	f.ops[0].Spec.Actor.User, f.ops[0].Spec.OnBehalfOf = "bot", &delivery.Principal{User: f.caller.User}
+	if got := actions("held"); got != "cancel" {
+		t.Fatalf("a change made on my behalf: %s", got)
+	}
+	f.ops[0].Spec.OnBehalfOf = nil
 	f.caller = person("team-ledger")
 	if got := actions("held"); got != "cancel" {
 		t.Fatalf("not my team: %s", got)
@@ -580,6 +591,15 @@ func TestDecide(t *testing.T) {
 			return base
 		}, http.StatusUnauthorized, "FreshLoginRequired"},
 		{"not my team", func() string { f.caller = person("team-payments"); return base }, http.StatusForbidden, "NotYourTeam"},
+		{"my own change", func() string {
+			f.caller = person("team-checkout")
+			f.ops[0].Spec.Actor.User = f.caller.User
+			return base
+		}, http.StatusForbidden, "OwnChange"},
+		{"on my behalf", func() string {
+			f.ops[0].Spec.Actor.User, f.ops[0].Spec.OnBehalfOf = "bot", &delivery.Principal{User: f.caller.User}
+			return base
+		}, http.StatusForbidden, "OwnChange"},
 	}
 	for _, tc := range cases {
 		code, out := decide(tc.setup())
@@ -587,6 +607,7 @@ func TestDecide(t *testing.T) {
 			t.Errorf("%s: %d %v, want %d %s", tc.name, code, out, tc.code, tc.want)
 		}
 	}
+	f.ops[0].Spec.OnBehalfOf = nil
 	f.caller = person("team-checkout")
 	f.getErr = errors.New("gone")
 	if code, _ := decide(base); code != http.StatusInternalServerError {

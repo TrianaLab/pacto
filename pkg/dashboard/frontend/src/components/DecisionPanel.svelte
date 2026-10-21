@@ -88,6 +88,8 @@
       <button type="button" class="btn btn-primary" class:dp-was={kept?.decision === asked} disabled={busy} onclick={() => decide(asked)}>{decisionLabel(asked)}</button>
       <button type="button" class="btn" class:dp-was={kept?.decision === 'reject'} disabled={busy} onclick={() => decide('reject')}>Reject</button>
     </div>
+  {:else if caller?.user && (caller.user === op.spec?.actor?.user || caller.user === op.spec?.onBehalfOf?.user)}
+    <p class="t-body-2" data-testid="decide-own">You asked for this change, so someone else must decide it.</p>
   {:else if caller?.class === 'agent' || caller?.class === 'controller'}
     <p class="t-body-2" data-testid="decide-agent">The cluster says you are an agent ({caller.user}), and agents may not decide.</p>
   {:else}

@@ -645,7 +645,7 @@ func (s *Server) actions(ctx context.Context, op *delivery.OperationObject, stag
 	acts := []string{}
 	st := op.Status
 	if st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && s.opts.DeliveryPolicy.IsHuman(caller.Identity) &&
-		s.opts.DeliveryPolicy.InTeams(caller.Groups, inboxItem(*op).Owners) {
+		!ownChange(op, caller.User) && s.opts.DeliveryPolicy.InTeams(caller.Groups, inboxItem(*op).Owners) {
 		if inboxItem(*op).Decision == delivery.Approve {
 			acts = append(acts, string(delivery.Approve))
 		} else {
@@ -661,6 +661,12 @@ func (s *Server) actions(ctx context.Context, op *delivery.OperationObject, stag
 		acts = append(acts, "rollback")
 	}
 	return acts
+}
+
+// ownChange: user asked for op, directly or as the one it acts for. The
+// promoter ignores their decision on it, so the dashboard does not take it.
+func ownChange(op *delivery.OperationObject, user string) bool {
+	return user == op.Spec.Actor.User || op.Spec.OnBehalfOf != nil && user == op.Spec.OnBehalfOf.User
 }
 
 // decisionsServed: decisions only in shared mode, from a signed-in browser.
@@ -773,6 +779,9 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 	op, err := api.Get(ctx, in.Namespace, in.Name)
 	if err != nil {
 		return nil, err
+	}
+	if ownChange(op, caller.User) {
+		return nil, Refuse(http.StatusForbidden, "OwnChange", "you asked for this change, so someone else must decide it")
 	}
 	if owners := inboxItem(*op).Owners; !s.opts.DeliveryPolicy.InTeams(caller.Groups, owners) {
 		return nil, Refuse(http.StatusForbidden, "NotYourTeam", fmt.Sprintf("only %v may answer this question", owners))

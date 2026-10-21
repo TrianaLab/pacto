@@ -326,6 +326,16 @@ describe('change detail', () => {
     expect(text(r.target.querySelector('[data-testid="decide-agent"]') as HTMLElement)).toContain('agents may not decide');
     r.destroy();
 
+    const own = heldOperation({ actions: ['cancel'] });
+    own.operation.spec = { ...own.operation.spec, actor: { user: 'agent-bot' }, onBehalfOf: { user: 'https://idp#carol' } } as typeof own.operation.spec;
+    fns.operation.mockResolvedValueOnce(own);
+    deliverySession.loaded = false;
+    fns.session.mockResolvedValue(shared({ caller: human(['team-checkout']) }));
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="decide-own"]') as HTMLElement)).toContain('someone else must decide it');
+    r.destroy();
+
     fns.session.mockResolvedValue({ mode: 'local', login: false, signedIn: true, fresh: false, caller: human([]) });
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
