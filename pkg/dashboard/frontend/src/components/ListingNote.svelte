@@ -3,14 +3,19 @@
   // they may not list is left out, not shown as empty.
   let { listing = null } = $props();
   const unreadable = $derived(listing?.unreadable ?? []);
+  // '*': the caller may not list across the cluster, so only the namespaces
+  // Pacto could guess were read.
+  const guessed = $derived(unreadable.includes('*'));
+  const refused = $derived(unreadable.filter((ns) => ns !== '*'));
 </script>
 
 {#if listing?.completeness === 'partial'}
   <p class="ln-partial t-body-2" role="status" data-testid="listing-partial">
-    {#if unreadable.includes('*')}
-      You may not list delivery objects across the cluster and the namespaces could not be known, so this may be incomplete.
-    {:else}
-      You may not read {unreadable.length === 1 ? 'the namespace' : 'the namespaces'} {unreadable.join(', ')}, so this may be incomplete.
+    {#if guessed}
+      You may not list delivery objects across the cluster, so this shows only the namespaces Pacto knows of and may be incomplete.
+    {/if}
+    {#if refused.length}
+      You may not read {refused.length === 1 ? 'the namespace' : 'the namespaces'} {refused.join(', ')}, so this may be incomplete.
     {/if}
   </p>
 {/if}

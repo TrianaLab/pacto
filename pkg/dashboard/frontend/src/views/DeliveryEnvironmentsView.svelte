@@ -27,9 +27,14 @@
   const cell = (svc, env) => rows.filter((r) => r.service === svc && r.environment === env);
 
   // The plan being looked at: one request at a time.
+  // Each request is a new object, so a second click re-plans in a new panel;
+  // closing it sends focus back to the button that opened it.
   let proposing = $state(null);
-  function promote(r) { proposing = { namespace: r.namespace, stage: r.stage, type: 'pacto.dev/promote', to: r.candidate, from: r.pointer || undefined }; }
-  function unpause(r) { proposing = { namespace: r.namespace, stage: r.stage, type: 'pacto.dev/unfreeze' }; }
+  let opener = null;
+  function open(e, req) { opener = e.currentTarget; proposing = req; }
+  function promote(r, e) { open(e, { namespace: r.namespace, stage: r.stage, type: 'pacto.dev/promote', to: r.candidate, from: r.pointer || undefined }); }
+  function unpause(r, e) { open(e, { namespace: r.namespace, stage: r.stage, type: 'pacto.dev/unfreeze' }); }
+  function closePlan() { proposing = null; opener?.focus(); }
 </script>
 
 <div class="product-page">
@@ -43,7 +48,9 @@
   <DeliveryNav current="delivery-environments" />
 
   {#if proposing}
-    <ProposePanel request={proposing} {miraURL} onClose={() => (proposing = null)} />
+    {#key proposing}
+      <ProposePanel request={proposing} {miraURL} onClose={closePlan} />
+    {/key}
   {/if}
 
   {#if !data && loader.loading}
@@ -86,10 +93,10 @@
                         {#if r.actions?.length}
                           <span class="ev-actions">
                             {#if r.actions.includes('promote')}
-                              <button type="button" class="btn btn-sm" onclick={() => promote(r)} aria-label={`Promote ${svc} in ${env} to ${shortDigest(r.candidate)}`}>Promote {shortDigest(r.candidate)}</button>
+                              <button type="button" class="btn btn-sm" onclick={(e) => promote(r, e)} aria-label={`Promote ${svc} in ${env} to ${shortDigest(r.candidate)}`}>Promote {shortDigest(r.candidate)}</button>
                             {/if}
                             {#if r.actions.includes('unfreeze')}
-                              <button type="button" class="btn btn-sm" onclick={() => unpause(r)} aria-label={`Unpause ${svc} in ${env}`}>Unpause</button>
+                              <button type="button" class="btn btn-sm" onclick={(e) => unpause(r, e)} aria-label={`Unpause ${svc} in ${env}`}>Unpause</button>
                             {/if}
                           </span>
                         {/if}

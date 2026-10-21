@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryInboxUrl, deliveryHistoryUrl, serviceUrl } from '../lib/router.ts';
@@ -44,6 +44,17 @@
   let confirmCancel = $state(false);
   let cancelRefusal = $state(null);
   let cancelled = $state(false);
+  // A cancelled change is deleted, so the next refresh answers 404: the page
+  // keeps how it last looked, says it is gone and offers nothing to do.
+  const gone = $derived(cancelled || (loader.error?.status === 404 && loader.error?.code !== 'DeliveryNotInstalled'));
+  let rollbackBtn = $state(null);
+  let cancelBtn = $state(null);
+  let keepBtn = $state(null);
+  async function askCancel(open) {
+    confirmCancel = open;
+    await tick();
+    (open ? keepBtn : cancelBtn)?.focus();
+  }
   async function cancel() {
     cancelRefusal = null;
     try { await api.deliveryCancel(namespace, name); cancelled = true; loader.refresh(); }
@@ -86,30 +97,37 @@
       {#if e.spec.reason}<dt>Why</dt><dd>{e.spec.reason}</dd>{/if}
     </dl>
 
-    {#if cancelled}<p class="t-body-2" role="status">Cancelled. Nothing changed.</p>{/if}
-    {#if actions.includes('cancel') || actions.includes('rollback')}
+    {#if cancelled}
+      <p class="t-body-2" role="status">Cancelled. Nothing changed.</p>
+    {:else if gone}
+      <p class="cd-stale t-body-2" role="alert" data-testid="change-gone">This change is gone: it was cancelled or cleaned up. This is how it last looked.</p>
+    {:else if loader.error}
+      <p class="cd-stale t-body-2" role="alert" data-testid="change-stale">The last refresh failed, so this may be out of date. <button type="button" class="btn btn-sm" onclick={() => loader.refresh()}>Retry</button></p>
+    {/if}
+    {#if !gone && (actions.includes('cancel') || actions.includes('rollback'))}
       <div class="cd-actions">
         {#if actions.includes('rollback')}
-          <button type="button" class="btn" onclick={() => (rollingBack = true)}>Roll back this change</button>
+          <button type="button" class="btn" bind:this={rollbackBtn} onclick={() => (rollingBack = true)}>Roll back this change</button>
         {/if}
         {#if actions.includes('cancel')}
           {#if confirmCancel}
             <span class="t-body-2">Cancel this change? Nothing has moved yet, and nothing will.</span>
             <button type="button" class="btn btn-sm" onclick={cancel}>Yes, cancel it</button>
-            <button type="button" class="btn btn-sm" onclick={() => (confirmCancel = false)}>Keep it</button>
+            <button type="button" class="btn btn-sm" bind:this={keepBtn} onclick={() => askCancel(false)}>Keep it</button>
           {:else}
-            <button type="button" class="btn" onclick={() => (confirmCancel = true)}>Cancel this change</button>
+            <button type="button" class="btn" bind:this={cancelBtn} onclick={() => askCancel(true)}>Cancel this change</button>
           {/if}
         {/if}
       </div>
     {/if}
     {#if cancelRefusal}<RefusalNotice error={cancelRefusal} />{/if}
-    {#if rollingBack}
-      <ProposePanel request={{ namespace, stage: e.spec.stage, type: 'pacto.dev/rollback', undoes: name }} {miraURL} onClose={() => (rollingBack = false)} />
+    {#if rollingBack && !gone}
+      <ProposePanel request={{ namespace, stage: e.spec.stage, type: 'pacto.dev/rollback', undoes: name }} {miraURL}
+        onClose={() => { rollingBack = false; rollbackBtn?.focus(); }} />
     {/if}
 
     {#if decided}<p class="cd-decided" role="status" data-testid="decision-recorded">{decided}</p>{/if}
-    {#if e.status.phase === 'Held'}
+    {#if e.status.phase === 'Held' && !gone}
       <DecisionPanel {op} {actions} onDecided={(msg) => { decided = msg; loader.refresh(); }} />
     {/if}
 
@@ -168,6 +186,7 @@
 </div>
 
 <style>
+  .cd-stale { color: var(--c-err); margin: 0; }
   .cd-decided { color: var(--c-ok); font-weight: 600; margin: 0; }
   .cd-status { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .cd-facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px var(--sp-3); margin: 0; }

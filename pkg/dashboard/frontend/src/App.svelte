@@ -81,7 +81,10 @@
       // legacy branch and issued a whole-fleet /api/services -- the most expensive
       // call this server serves, on the one host that never reads the result. One
       // extra round trip on first load buys that back.
-      if (capabilities === null) {
+      // Asked again on a refresh, and on every poll while a delivery URL is
+      // open without delivery, so a cluster that was briefly unreachable or
+      // got the chart later shows its Delivery tab without a reload.
+      if (capabilities === null || forceRefresh || (route.view.startsWith('delivery-') && capabilities.delivery !== true)) {
         const caps = await api.capabilities().catch(() => null);
         if (caps) capabilities = caps;
       }

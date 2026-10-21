@@ -47,6 +47,18 @@ describe('App — delivery gate', () => {
     destroy();
   });
 
+  it('asks again on a refresh, and mounts the inbox once delivery is served', async () => {
+    fns.capabilities.mockResolvedValueOnce({ fleet: true, impact: true, observed: false, delivery: false, auth: { mode: 'shared', login: true, signedIn: true } })
+      .mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: true, auth: { mode: 'shared', login: true, signedIn: true } });
+    const { target, destroy } = await renderAt('#/delivery/inbox');
+    expect(target.querySelector('[data-testid="delivery-unavailable"]')).not.toBeNull();
+    (target.querySelector('button[aria-label="Refresh"]') as HTMLButtonElement).click();
+    for (let i = 0; i < 12; i++) { await tick(); await Promise.resolve(); }
+    flushSync();
+    expect(fns.inbox).toHaveBeenCalled();
+    destroy();
+  });
+
   it('mounts the inbox where it does', async () => {
     fns.capabilities.mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: true, auth: { mode: 'shared', login: true, signedIn: true } });
     const { target, destroy } = await renderAt('#/delivery/inbox');

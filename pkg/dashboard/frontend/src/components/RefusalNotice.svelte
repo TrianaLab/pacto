@@ -15,6 +15,7 @@
     FreshLoginRequired: 'Deciding needs a fresh sign-in.',
     OverrideFromCLI: 'An override is break-glass and stays on the command line.',
     DeliveryNotInstalled: 'Delivery is not installed on this cluster.',
+    ClusterUnreachable: 'The dashboard cannot reach the cluster right now.',
     PlanStale: 'Something changed since the plan.',
   };
 

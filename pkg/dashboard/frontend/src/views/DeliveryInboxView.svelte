@@ -98,7 +98,7 @@
             {#each errored as it (it.namespace + '/' + it.name)}
               <li class="pl-row dl-row">
                 <a class="dl-title" href={deliveryChangeUrl(it.namespace, it.name)}>{typeLabel(it.type)} on {it.namespace}/{it.stage}</a>
-                <p class="t-body-2">{it.reason || 'Pacto could not tell how it ended'}, so the environment was paused.</p>
+                <p class="t-body-2">{it.reason || 'Pacto could not tell how it ended'}. The environment is still paused.</p>
               </li>
             {/each}
           </ul>

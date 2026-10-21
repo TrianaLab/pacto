@@ -95,6 +95,17 @@ describe('inbox', () => {
     destroy();
   });
 
+  it('says a list read only from guessed namespaces may be incomplete', async () => {
+    fns.inbox.mockResolvedValue({ asOf: listing.asOf, completeness: 'partial', unreadable: ['*', 'a', 'b'], held: [], frozen: [], errored: [] });
+    const { target, destroy } = render(DeliveryInboxView);
+    await settle();
+    const note = text(target.querySelector('[data-testid="listing-partial"]') as HTMLElement);
+    expect(note).toContain('only the namespaces Pacto knows of');
+    expect(note).toContain('the namespaces a, b');
+    expect(note).not.toContain('*');
+    destroy();
+  });
+
   it('asks to sign in on a 401, and tells a failure apart from an empty inbox', async () => {
     fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: false, fresh: false });
     fns.inbox.mockRejectedValue(new ApiError(401, 'sign in to see delivery', 'LoginRequired'));
@@ -167,6 +178,34 @@ describe('environments', () => {
     (target.querySelector('[data-testid="propose-panel"] button') as HTMLButtonElement).click();
     await settle();
     expect(target.querySelector('[data-testid="propose-panel"]')).toBeNull();
+    destroy();
+  });
+
+  it('plans again when another row is clicked, and gives focus back when the plan closes', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environments: [row, { ...row, service: 'ledger', stage: 'led', candidate: D1, pointer: D2 }] });
+    fns.plan.mockImplementation(async (req: { stage: string }) => ({ intentDigest: 'sha256:' + req.stage, type: 'pacto.dev/promote', predicted: 'Proceeds' }));
+    fns.propose.mockResolvedValue({ operation: { metadata: { name: 'n', namespace: 'prod' } } });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    (target.querySelector('button[aria-label^="Promote payments in prod"]') as HTMLButtonElement).click();
+    await settle();
+    const unpauseLedger = target.querySelector('button[aria-label="Unpause ledger in prod"]') as HTMLButtonElement;
+    unpauseLedger.click();
+    await settle();
+    expect(fns.plan).toHaveBeenLastCalledWith({ namespace: 'prod', stage: 'led', type: 'pacto.dev/unfreeze' });
+    const panel = target.querySelector('[data-testid="propose-panel"]') as HTMLElement;
+    expect(text(panel)).toContain('prod/led');
+    expect(document.activeElement?.id).toBe('pp-title');
+    (panel.querySelector('form') as HTMLFormElement).requestSubmit();
+    await settle();
+    expect(fns.propose).toHaveBeenLastCalledWith(expect.objectContaining({ stage: 'led', intentDigest: 'sha256:led' }));
+    location.hash = '#/delivery';
+    unpauseLedger.click();
+    await settle();
+    (target.querySelector('[data-testid="propose-panel"]') as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle();
+    expect(target.querySelector('[data-testid="propose-panel"]')).toBeNull();
+    expect(document.activeElement).toBe(unpauseLedger);
     destroy();
   });
 
@@ -259,6 +298,19 @@ describe('change detail', () => {
     destroy();
   });
 
+  it('accepts an unknown on a change held after it shipped', async () => {
+    const op = heldOperation({ actions: ['accept-unknown', 'reject'] });
+    op.operation.status = { ...op.operation.status, applied: true } as typeof op.operation.status;
+    fns.operation.mockResolvedValue(op);
+    fns.decide.mockResolvedValue({ approval: 'op1-acc' });
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    [...target.querySelectorAll<HTMLButtonElement>('[data-testid="decision-panel"] button')].find((b) => b.textContent === 'Accept the unknown')!.click();
+    await settle();
+    expect(fns.decide).toHaveBeenCalledWith('prod', 'op1', 'accept-unknown', '');
+    destroy();
+  });
+
   it('shows refusals: not your team, an agent, a local dashboard, a signed-out person and a server refusal', async () => {
     fns.operation.mockResolvedValue(heldOperation({ actions: ['cancel'] }));
     fns.session.mockResolvedValue(shared({ caller: human(['team-payments']) }));
@@ -315,8 +367,49 @@ describe('change detail', () => {
     btn('Cancel this change').click(); await settle();
     btn('Yes, cancel it').click(); await settle();
     expect(text(target)).toContain('Cancelled. Nothing changed.');
+    // Gone: nothing left to do on it.
+    expect(btn('Cancel this change')).toBeUndefined();
+    expect(btn('Roll back this change')).toBeUndefined();
+    expect(target.querySelector('[data-testid="decision-panel"]')).toBeNull();
+    destroy();
+  });
+
+  it('moves focus into the confirmation and back, and rolls back through a plan', async () => {
+    fns.operation.mockResolvedValue(heldOperation({ actions: ['cancel', 'rollback'] }));
+    fns.plan.mockResolvedValue({ intentDigest: 'sha256:r', type: 'pacto.dev/rollback', predicted: 'Proceeds' });
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    const btn = (label: string) => [...target.querySelectorAll('button')].find((b) => b.textContent === label)!;
+    btn('Cancel this change').click(); await settle();
+    expect(document.activeElement).toBe(btn('Keep it'));
+    btn('Keep it').click(); await settle();
+    expect(document.activeElement).toBe(btn('Cancel this change'));
     btn('Roll back this change').click(); await settle();
     expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'pacto.dev/rollback', undoes: 'op1' });
+    [...target.querySelectorAll<HTMLButtonElement>('[data-testid="propose-panel"] button')].find((b) => b.textContent === 'Cancel')!.click();
+    await settle();
+    expect(target.querySelector('[data-testid="propose-panel"]')).toBeNull();
+    expect(document.activeElement).toBe(btn('Roll back this change'));
+    destroy();
+  });
+
+  it('says when a change it shows is gone or could not be refreshed', async () => {
+    fns.operation.mockResolvedValueOnce(heldOperation()).mockRejectedValueOnce(new ApiError(500, 'boom'))
+      .mockRejectedValueOnce(new ApiError(404, 'operations "op1" not found'));
+    const props = $state({ namespace: 'prod', name: 'op1', refreshTick: 0 });
+    const { target, destroy } = render(DeliveryChangeView, props);
+    await settle();
+    expect(target.querySelector('[data-testid="decision-panel"]')).not.toBeNull();
+    props.refreshTick = 1;
+    await settle();
+    expect(text(target.querySelector('[data-testid="change-stale"]') as HTMLElement)).toContain('may be out of date');
+    expect(target.querySelector('[data-testid="decision-panel"]')).not.toBeNull();
+    (target.querySelector('[data-testid="change-stale"] button') as HTMLButtonElement).click();
+    await settle();
+    expect(text(target.querySelector('[data-testid="change-gone"]') as HTMLElement)).toContain('This change is gone');
+    expect(text(target)).toContain('Promote on prod/pay');
+    expect(target.querySelector('[data-testid="decision-panel"]')).toBeNull();
+    expect([...target.querySelectorAll('button')].find((b) => b.textContent === 'Cancel this change')).toBeUndefined();
     destroy();
   });
 
