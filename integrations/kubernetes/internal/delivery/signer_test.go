@@ -70,7 +70,7 @@ func TestNewSignerEd25519(t *testing.T) {
 		"keyless bare":  {Keyless: true},
 		"kms cosign no": {KMSKey: "awskms:///k", Cosign: filepath.Join(t.TempDir(), "no-cosign")},
 	} {
-		if _, _, err := NewSigner(ctx, cfg, execRun); err == nil {
+		if _, _, err := NewSigner(ctx, cfg, nil); err == nil {
 			t.Errorf("%s: built a signer", name)
 		}
 	}

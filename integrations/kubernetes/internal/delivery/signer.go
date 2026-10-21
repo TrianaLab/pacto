@@ -61,7 +61,7 @@ func execRun(ctx context.Context, stdin []byte, name string, args ...string) ([]
 }
 
 // NewSigner builds the recorder's signer and the verifier for the records it
-// writes.
+// writes. A nil run executes cosign.
 func NewSigner(ctx context.Context, cfg SigningConfig, run runFunc) (delivery.Signer, delivery.Verifier, error) {
 	set := 0
 	for _, on := range []bool{cfg.Ed25519KeyFile != "", cfg.KMSKey != "", cfg.Keyless} {
@@ -71,6 +71,9 @@ func NewSigner(ctx context.Context, cfg SigningConfig, run runFunc) (delivery.Si
 	}
 	if set != 1 {
 		return nil, nil, errors.New("configure exactly one of an Ed25519 key file, a KMS key or keyless signing")
+	}
+	if run == nil {
+		run = execRun
 	}
 	cosign := cosignSigner{path: cfg.Cosign, key: cfg.KMSKey, run: run}
 	if cosign.path == "" {
