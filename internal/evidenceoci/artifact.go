@@ -7,12 +7,12 @@ import (
 	"fmt"
 
 	"github.com/opencontainers/go-digest"
-	"github.com/opencontainers/image-spec/specs-go"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/strictjson"
 )
 
@@ -37,10 +37,8 @@ const (
 	maxPayloadBytes = 8 << 20
 
 	// manifestSchemaVersion is the only OCI image-manifest schema version Pacto
-	// writes and the only one it reads. image-spec exports no constant for it, so it
-	// is declared once here and shared by the writer and the reader rather than
-	// spelled twice.
-	manifestSchemaVersion = 2
+	// writes and the only one it reads, shared with the writer.
+	manifestSchemaVersion = ocireferrer.ManifestSchemaVersion
 )
 
 // ErrInvalidArtifact reports an evidence artifact that is not exactly one
@@ -67,14 +65,7 @@ func descriptorJSON(d ocispec.Descriptor) []byte {
 // to the contract subject. Every field is a deterministic function of the record
 // and the subject, so republishing an accepted record yields the same digest
 // instead of a second copy.
-type Artifact struct {
-	Payload      []byte
-	PayloadDesc  ocispec.Descriptor
-	Config       []byte
-	ConfigDesc   ocispec.Descriptor
-	Manifest     []byte
-	ManifestDesc ocispec.Descriptor
-}
+type Artifact = ocireferrer.Artifact
 
 // payloadDoc is the wire shape of the payload layer.
 type payloadDoc struct {
@@ -100,39 +91,7 @@ func BuildArtifact(rec evidenceingest.Record, subj Subject, subjectDesc ocispec.
 			ErrInvalidArtifact, len(payload), maxPayloadBytes)
 	}
 
-	payloadDesc := blobDescriptor(PayloadMediaType, payload)
-	// The canonical OCI empty-JSON descriptor, taken from image-spec rather than
-	// rebuilt, so the writer and [ValidateManifest] cannot drift apart. Both the
-	// blob and the descriptor's inline copy of it are cloned: the struct copy above
-	// would otherwise leave Data aliasing image-spec's package-level slice, so a
-	// caller writing through the returned Artifact could corrupt every later build.
-	configDesc := ocispec.DescriptorEmptyJSON
-	configDesc.Data = bytes.Clone(configDesc.Data)
-	config := bytes.Clone(configDesc.Data)
-
-	// Built by hand rather than with oras.PackManifest: that helper stamps an
-	// org.opencontainers.image.created annotation, which would give the same record
-	// a different digest on every publish.
-	manifest := ocispec.Manifest{
-		Versioned:    specs.Versioned{SchemaVersion: manifestSchemaVersion},
-		MediaType:    ocispec.MediaTypeImageManifest,
-		ArtifactType: ArtifactType,
-		Config:       configDesc,
-		Layers:       []ocispec.Descriptor{payloadDesc},
-		Subject:      &subjectDesc,
-	}
-	manifestBytes, _ := json.Marshal(manifest) // descriptors and strings; marshalling cannot fail
-	manifestDesc := blobDescriptor(ocispec.MediaTypeImageManifest, manifestBytes)
-	manifestDesc.ArtifactType = ArtifactType
-
-	return Artifact{
-		Payload:      payload,
-		PayloadDesc:  payloadDesc,
-		Config:       config,
-		ConfigDesc:   configDesc,
-		Manifest:     manifestBytes,
-		ManifestDesc: manifestDesc,
-	}, nil
+	return ocireferrer.Build(ArtifactType, PayloadMediaType, payload, &subjectDesc, nil), nil
 }
 
 // ValidateManifest checks a fetched manifest is a well-formed Pacto evidence
@@ -309,13 +268,4 @@ func inlineDataAgrees(d ocispec.Descriptor) bool {
 		return true
 	}
 	return int64(len(d.Data)) == d.Size && digest.FromBytes(d.Data) == d.Digest
-}
-
-// blobDescriptor is the content-addressed descriptor of exactly these bytes.
-func blobDescriptor(mediaType string, data []byte) ocispec.Descriptor {
-	return ocispec.Descriptor{
-		MediaType: mediaType,
-		Digest:    digest.FromBytes(data),
-		Size:      int64(len(data)),
-	}
 }
