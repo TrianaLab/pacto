@@ -966,10 +966,15 @@
     } else {
       bodyPromise = Promise.resolve(null);
     }
+    // The request headers (names lowercased) ride along as a fourth argument.
+    // The engine ignores them; a test that wraps __pactoServe reads them.
+    var headers = {};
+    new Headers(isRequest ? input.headers : undefined).forEach(function (v, k) { headers[k] = v; });
+    new Headers(init.headers || {}).forEach(function (v, k) { headers[k] = v; });
     return window.__pactoReady
       .then(function () { return bodyPromise; })
       .then(function (body) {
-        var res = window.__pactoServe(method, u.pathname + u.search, body && body.length ? body : null);
+        var res = window.__pactoServe(method, u.pathname + u.search, body && body.length ? body : null, headers);
         return new Response(res.body, {
           status: res.status,
           headers: { "Content-Type": res.contentType || "application/json" },

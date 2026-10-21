@@ -294,6 +294,8 @@ describe('change detail', () => {
     await settle();
     expect(fns.decide).toHaveBeenCalledWith('prod', 'op1', 'approve', 'kept note');
     expect(text(target.querySelector('[data-testid="decision-recorded"]') as HTMLElement)).toContain('recorded as op1-abc');
+    // The pressed button is gone: focus lands on what happened.
+    expect(document.activeElement).toBe(target.querySelector('[data-testid="decision-recorded"]'));
     expect(sessionStorage.getItem('pacto.delivery.pending')).toBeNull();
     destroy();
   });
@@ -377,6 +379,7 @@ describe('change detail', () => {
     btn('Cancel this change').click(); await settle();
     btn('Yes, cancel it').click(); await settle();
     expect(text(target)).toContain('Cancelled. Nothing changed.');
+    expect(document.activeElement?.textContent).toBe('Cancelled. Nothing changed.');
     // Gone: nothing left to do on it.
     expect(btn('Cancel this change')).toBeUndefined();
     expect(btn('Roll back this change')).toBeUndefined();
@@ -480,5 +483,31 @@ describe('history and published', () => {
     await settle();
     expect(text(r.target)).toContain('Nothing published yet');
     r.destroy();
+  });
+});
+
+describe('a list whose refresh fails', () => {
+  it.each([
+    ['inbox', DeliveryInboxView, fns.inbox, { held: [], frozen: [], errored: [] }],
+    ['environments', DeliveryEnvironmentsView, fns.environments, { environments: [] }],
+    ['history', DeliveryHistoryView, fns.history, { histories: [] }],
+    ['published', DeliveryPublishView, fns.published, { services: [] }],
+  ])('%s keeps what it showed and says it may be out of date', async (_name, View, fn, body) => {
+    fn.mockResolvedValueOnce({ ...listing, ...body }).mockRejectedValueOnce(new ApiError(503, 'cluster unreachable'))
+      .mockResolvedValue({ ...listing, ...body });
+    const props = $state({ refreshTick: 0 });
+    const { target, destroy } = render(View, props);
+    await settle();
+    expect(target.querySelector('[data-testid="listing-stale"]')).toBeNull();
+    props.refreshTick = 1;
+    await settle();
+    const stale = target.querySelector('[data-testid="listing-stale"]') as HTMLElement;
+    expect(text(stale)).toContain('may be out of date');
+    expect(stale.getAttribute('role')).toBe('alert');
+    (stale.querySelector('button') as HTMLButtonElement).click();
+    await settle();
+    expect(fn).toHaveBeenCalledTimes(3);
+    expect(target.querySelector('[data-testid="listing-stale"]')).toBeNull();
+    destroy();
   });
 });

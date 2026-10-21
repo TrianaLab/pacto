@@ -55,11 +55,19 @@
     await tick();
     (open ? keepBtn : cancelBtn)?.focus();
   }
+  // The button pressed goes away with what it did, so focus moves to the
+  // message that says what happened, not to the top of the page.
+  let doneMsg = $state(null);
+  async function settleFocus() {
+    await tick();
+    doneMsg?.focus();
+  }
   async function cancel() {
     cancelRefusal = null;
     try { await api.deliveryCancel(namespace, name); cancelled = true; loader.refresh(); }
     catch (err) { cancelRefusal = err; }
     confirmCancel = false;
+    if (cancelled) await settleFocus();
   }
 </script>
 
@@ -98,7 +106,7 @@
     </dl>
 
     {#if cancelled}
-      <p class="t-body-2" role="status">Cancelled. Nothing changed.</p>
+      <p class="t-body-2" role="status" tabindex="-1" bind:this={doneMsg}>Cancelled. Nothing changed.</p>
     {:else if gone}
       <p class="cd-stale t-body-2" role="alert" data-testid="change-gone">This change is gone: it was cancelled or cleaned up. This is how it last looked.</p>
     {:else if loader.error}
@@ -126,9 +134,9 @@
         onClose={() => { rollingBack = false; rollbackBtn?.focus(); }} />
     {/if}
 
-    {#if decided}<p class="cd-decided" role="status" data-testid="decision-recorded">{decided}</p>{/if}
+    {#if decided}<p class="cd-decided" role="status" tabindex="-1" data-testid="decision-recorded" bind:this={doneMsg}>{decided}</p>{/if}
     {#if e.status.phase === 'Held' && !gone}
-      <DecisionPanel {op} {actions} onDecided={(msg) => { decided = msg; loader.refresh(); }} />
+      <DecisionPanel {op} {actions} onDecided={(msg) => { decided = msg; loader.refresh(); settleFocus(); }} />
     {/if}
 
     <section aria-labelledby="cd-affected">

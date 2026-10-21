@@ -40,10 +40,7 @@
   {:else if !inbox && loader.error}
     <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
   {:else if inbox}
-    {#if loader.error}
-      <p class="dl-stale t-body-2" role="alert">The last refresh failed, so this may be out of date. <button type="button" class="btn btn-sm" onclick={() => loader.refresh()}>Retry</button></p>
-    {/if}
-    <ListingNote listing={inbox} />
+    <ListingNote listing={inbox} error={loader.error} onRetry={() => loader.refresh()} />
 
     {#if nothing}
       <div class="state-box" data-testid="inbox-empty">
@@ -117,7 +114,6 @@
   .dl-facts dd { margin: 0; }
   .dl-facts a { text-decoration: underline; }
   .dl-none { color: var(--c-text-3); }
-  .dl-stale { color: var(--c-err); margin: 0; }
   .state-box { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8) var(--sp-4); text-align: center; color: var(--c-text-3); }
   .state-box h2 { color: var(--c-text-2); }
 </style>

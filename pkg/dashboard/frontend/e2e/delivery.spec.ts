@@ -7,9 +7,10 @@ import AxeBuilder from '@axe-core/playwright';
 // first test proves the views stay out of sight there. Every other test wraps the
 // engine's serve function (the one seam every API call passes, see swr.spec.ts) with a
 // small delivery backend that behaves like the dashboard's: who the caller is comes from
-// a persona, a decision needs a fresh sign-in and only the named team may decide. The
-// sign-in itself is a stand-in identity provider at /auth/login that marks the next
-// session fresh and sends the browser back, exactly like the real redirect does.
+// a persona, a decision needs a fresh sign-in and only the named team may decide. A
+// mutating call without the session's X-Pacto-CSRF token is refused, as the real guard
+// does. The sign-in itself is a stand-in identity provider at /auth/login that marks the
+// next session fresh and sends the browser back, exactly like the real redirect does.
 
 const T = 30_000;
 
@@ -21,7 +22,7 @@ type Persona = 'carol' | 'alice' | 'robot' | 'local' | 'signed-out';
 
 function installDelivery(persona: Persona): void {
   interface ServeResult { status: number; body: string; contentType: string }
-  type Serve = (method: string, path: string, body: string | null) => ServeResult;
+  type Serve = (method: string, path: string, body: string | null, headers?: Record<string, string>) => ServeResult;
   let real: Serve | null = null;
   const json = (status: number, v: unknown): ServeResult => ({ status, body: JSON.stringify(v), contentType: 'application/json' });
   const S = sessionStorage;
@@ -85,8 +86,13 @@ function installDelivery(persona: Persona): void {
     return json(404, { status: 404, code: 'NotFound', detail: `no mock for ${method} ${route}` });
   };
 
-  const wrapped: Serve = (method, path, body) => {
+  const wrapped: Serve = (method, path, body, headers = {}) => {
     const route = path.split('?')[0];
+    // Like the dashboard's guard: a signed-in session's mutating call carries
+    // the session's CSRF token, or it is refused.
+    if (route.startsWith('/api/delivery/') && method !== 'GET' && persona !== 'signed-out' && headers['x-pacto-csrf'] !== 't') {
+      return json(403, { status: 403, code: 'Forbidden', detail: 'missing or wrong X-Pacto-CSRF header' });
+    }
     if (route === '/api/capabilities') {
       const doc = JSON.parse((real as Serve)(method, path, body).body);
       return json(200, { ...doc, delivery: true, miraURL: 'https://mira.example',

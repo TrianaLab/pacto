@@ -90,7 +90,8 @@ func main() {
 }
 
 // serve answers a single API request in memory. JS calls it as
-// __pactoServe(method, path, body?) and receives { status, body, contentType }.
+// __pactoServe(method, path, body?, headers?) and receives { status, body,
+// contentType }. The headers are not read here: the demo has no sign-in.
 func serve(_ js.Value, args []js.Value) any {
 	method := args[0].String()
 	path := args[1].String()

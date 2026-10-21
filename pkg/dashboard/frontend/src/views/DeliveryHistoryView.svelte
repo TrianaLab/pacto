@@ -38,7 +38,7 @@
   {:else if !data && loader.error}
     <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
   {:else if data}
-    <ListingNote listing={data} />
+    <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
     {#if histories.length === 0}
       <div class="state-box"><h2>No history yet</h2><p>No environment you can see has a change on record.</p></div>
     {:else}

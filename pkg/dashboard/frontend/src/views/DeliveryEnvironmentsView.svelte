@@ -58,7 +58,7 @@
   {:else if !data && loader.error}
     <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
   {:else if data}
-    <ListingNote listing={data} />
+    <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
     {#if rows.length === 0}
       <div class="state-box" data-testid="environments-empty">
         <h2>No environments yet</h2>
