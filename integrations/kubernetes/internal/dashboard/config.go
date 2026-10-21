@@ -97,6 +97,10 @@ type AuthConfig struct {
 	// TeamGroupPrefix maps a contract owner team to a group, as the delivery
 	// promoter is configured.
 	TeamGroupPrefix string
+	// AgentGroups and BreakGlassGroups are the promoter's identity groups;
+	// empty keeps the dashboard's defaults, which are the delivery chart's.
+	AgentGroups      []string
+	BreakGlassGroups []string
 }
 
 // ResourcesConfig holds optional resource quantity overrides for the dashboard container.

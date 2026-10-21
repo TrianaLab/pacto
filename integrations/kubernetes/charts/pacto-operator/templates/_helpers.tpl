@@ -169,6 +169,12 @@ Controller arguments derived from values
 {{- with .teamGroupPrefix }}
 - {{ printf "--dashboard-team-group-prefix=%s" . | quote }}
 {{- end }}
+{{- with .agentGroups }}
+- {{ printf "--dashboard-agent-groups=%s" (join "," .) | quote }}
+{{- end }}
+{{- with .breakGlassGroups }}
+- {{ printf "--dashboard-break-glass-groups=%s" (join "," .) | quote }}
+{{- end }}
 {{- end }}
 {{- with .Values.dashboard.miraURL }}
 - --dashboard-mira-url={{ . }}

@@ -51,6 +51,8 @@ dashboard:
       redirectURL: https://pacto.example.com/auth/callback
       extraScopes: [audience:server:client_id:pacto-cli]
     teamGroupPrefix: ""        # the same value as the delivery chart's identities.teamGroupPrefix
+    agentGroups: []            # the same as identities.agentGroups; empty means pacto:agents
+    breakGlassGroups: []       # the same as identities.breakGlassGroups; empty means pacto:break-glass
   miraURL: http://mira.observability:4318
 ```
 

@@ -188,13 +188,15 @@ tests:
     asserts:
       - notMatchRegex:
           path: spec.template.spec.containers[0].args[*]
-          pattern: "--dashboard-oidc|--dashboard-mira|--dashboard-team"
+          pattern: "--dashboard-oidc|--dashboard-mira|--dashboard-team|--dashboard-agent|--dashboard-break"
 
   - it: should pass the dashboard sign-in, the client secret by reference only
     set:
       dashboard.enabled: true
       dashboard.miraURL: http://mira.observability:4318
       dashboard.auth.teamGroupPrefix: "acme:"
+      dashboard.auth.agentGroups: ["acme:bots", "acme:ci"]
+      dashboard.auth.breakGlassGroups: ["acme:sre"]
       dashboard.auth.oidc:
         issuerURL: https://idp.example
         clientID: pacto-dashboard
@@ -223,6 +225,12 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: "--dashboard-team-group-prefix=acme:"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-agent-groups=acme:bots,acme:ci"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-break-glass-groups=acme:sre"
       - contains:
           path: spec.template.spec.containers[0].args
           content: --dashboard-mira-url=http://mira.observability:4318

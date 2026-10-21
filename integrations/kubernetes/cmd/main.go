@@ -88,6 +88,8 @@ type options struct {
 	dashboardObservation []dashboard.ObservationSource
 	dashboardAuth        dashboard.AuthConfig
 	dashboardExtraScopes string
+	dashboardAgentGroups string
+	dashboardBreakGlass  string
 	dashboardMiraURL     string
 
 	enableEvidence            bool
@@ -166,6 +168,10 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"Key of the client secret in that Secret.")
 	fs.StringVar(&o.dashboardAuth.TeamGroupPrefix, "dashboard-team-group-prefix", "",
 		"A contract owner team T is group T or this prefix plus T, as the delivery promoter is configured.")
+	fs.StringVar(&o.dashboardAgentGroups, "dashboard-agent-groups", "",
+		"Comma-separated groups whose members are agents, as the delivery promoter is configured; empty keeps pacto:agents.")
+	fs.StringVar(&o.dashboardBreakGlass, "dashboard-break-glass-groups", "",
+		"Comma-separated groups that may override, as the delivery promoter is configured; empty keeps pacto:break-glass.")
 	fs.StringVar(&o.dashboardMiraURL, "dashboard-mira-url", "",
 		"Mira's address, to link the dashboard's health-check citations.")
 	fs.BoolVar(&o.enableEvidence, "enable-evidence-server", false,
@@ -484,6 +490,12 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string) error {
 	}
 	if o.dashboardExtraScopes != "" {
 		dashCfg.Auth.ExtraScopes = strings.Split(o.dashboardExtraScopes, ",")
+	}
+	if o.dashboardAgentGroups != "" {
+		dashCfg.Auth.AgentGroups = strings.Split(o.dashboardAgentGroups, ",")
+	}
+	if o.dashboardBreakGlass != "" {
+		dashCfg.Auth.BreakGlassGroups = strings.Split(o.dashboardBreakGlass, ",")
 	}
 	if err := dashCfg.Validate(); err != nil {
 		return fmt.Errorf("invalid dashboard configuration: %w", err)

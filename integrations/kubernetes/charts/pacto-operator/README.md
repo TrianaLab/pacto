@@ -354,6 +354,8 @@ cosign verify \
 | controller.kernelEvidence.staleness | string | `""` | How old a node's heartbeat may be before its evidence reads stale. Empty uses three times the node agent's publish interval. Accepts a Go duration (e.g. "2m"). |
 | controller.stabilizationWindow | string | `""` | Stabilization window: how long a sustained NEGATIVE observation must persist before it converts to a confirmed violation (a transient blip reads Unknown meanwhile). Empty string uses the controller default (2m). Accepts a Go duration (e.g. "30s", "5m"). |
 | controller.watchNamespace | string | `""` | Restrict the controller's observation scope to a single namespace. Empty string (default) means cluster-wide: the controller watches all namespaces. The dashboard inherits this scope automatically. |
+| dashboard.auth.agentGroups | list | `[]` | Groups whose members are agents, as the delivery chart's `identities.agentGroups` (empty: `pacto:agents`) |
+| dashboard.auth.breakGlassGroups | list | `[]` | Groups that may override, as the delivery chart's `identities.breakGlassGroups` (empty: `pacto:break-glass`) |
 | dashboard.auth.oidc.clientID | string | `""` | The dashboard's client id at the issuer |
 | dashboard.auth.oidc.clientSecretRef.key | string | `"client-secret"` | Key of the client secret in that Secret |
 | dashboard.auth.oidc.clientSecretRef.name | string | `""` | Secret in the operator namespace holding the client secret (passed by secretKeyRef) |

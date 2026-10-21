@@ -262,7 +262,9 @@
                 "extraScopes": { "type": "array", "items": { "type": "string", "minLength": 1 } }
               }
             },
-            "teamGroupPrefix": { "type": "string" }
+            "teamGroupPrefix": { "type": "string" },
+            "agentGroups": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "breakGlassGroups": { "type": "array", "items": { "type": "string", "minLength": 1 } }
           }
         },
         "miraURL": { "type": "string" },

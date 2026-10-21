@@ -195,6 +195,10 @@ dashboard:
       extraScopes: []
     # -- A contract owner team `T` is the group `T` or this prefix followed by `T`, as the delivery chart is configured
     teamGroupPrefix: ""
+    # -- Groups whose members are agents, as the delivery chart's `identities.agentGroups` (empty: `pacto:agents`)
+    agentGroups: []
+    # -- Groups that may override, as the delivery chart's `identities.breakGlassGroups` (empty: `pacto:break-glass`)
+    breakGlassGroups: []
   # -- Mira's address, to link the health-check citations in delivery views
   miraURL: ""
   service:
