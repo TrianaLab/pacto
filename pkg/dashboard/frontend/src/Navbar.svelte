@@ -1,5 +1,5 @@
 <script>
-  import { ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, fleetChangesUrl, compareDiffUrl } from './lib/router.ts';
+  import { ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, fleetChangesUrl, compareDiffUrl, deliveryInboxUrl } from './lib/router.ts';
   import { sourceTooltip } from './lib/format.ts';
   import { prefersReducedMotion } from './lib/motion.ts';
   import SourceDot from './components/SourceDot.svelte';
@@ -62,11 +62,21 @@
       // of destination and made the tab read as a different name from its own page.
       { label: 'Operational graph', href: fleetUrl(), views: ['fleet', 'graph'], cap: 'fleet' },
       { label: 'Change analysis', href: fleetChangesUrl(), views: ['changes'], cap: 'fleet' },
+      // Delivery is opt-in: shown only once the host CONFIRMS it, never while the
+      // probe is pending, so a cluster without it never flashes a dead tab.
+      {
+        label: 'Delivery',
+        href: deliveryInboxUrl(),
+        views: ['delivery-inbox', 'delivery-environments', 'delivery-change', 'delivery-history', 'delivery-publish'],
+        cap: 'delivery',
+        confirmed: true,
+      },
       { label: 'Owners', href: ownersUrl(), views: ['owners', 'owner-detail'], legacyOnly: true },
       { label: 'Readiness', href: readinessUrl(), views: ['readiness'], legacyOnly: true },
       { label: 'Compare', href: compareDiffUrl(), views: ['diff'], legacyOnly: true },
     ].filter((item) => (item.legacyOnly
       ? capabilities?.fleet === false
+      : item.confirmed ? capabilities?.[item.cap] === true
       : !item.cap || capabilities === null || capabilities[item.cap])),
   );
   const isActive = (item) => (view === 'fleet-entity' ? (item.kinds || []).includes(entityKind) : item.views.includes(view));

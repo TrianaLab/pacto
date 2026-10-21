@@ -27,6 +27,11 @@
   import FleetAttentionView from './views/FleetAttentionView.svelte';
   import ChangeAnalysisView from './views/ChangeAnalysisView.svelte';
   import LegacyEntityRedirect from './views/LegacyEntityRedirect.svelte';
+  import DeliveryInboxView from './views/DeliveryInboxView.svelte';
+  import DeliveryEnvironmentsView from './views/DeliveryEnvironmentsView.svelte';
+  import DeliveryChangeView from './views/DeliveryChangeView.svelte';
+  import DeliveryHistoryView from './views/DeliveryHistoryView.svelte';
+  import DeliveryPublishView from './views/DeliveryPublishView.svelte';
 
   let route = $state(parseHash(location.hash));
   let services = $state([]);
@@ -370,6 +375,31 @@
     <GraphView params={route.params} {refreshTick} />
   {:else if route.view === 'changes'}
     <ChangeAnalysisView params={route.params} />
+  {:else if route.view.startsWith('delivery-')}
+    <!-- Delivery: only where the cluster serves the delivery API and the dashboard
+         knows who the caller is. Anywhere else the views say why they are absent. -->
+    {#if capabilities?.delivery === true}
+      {#if route.view === 'delivery-inbox'}
+        <DeliveryInboxView {refreshTick} />
+      {:else if route.view === 'delivery-environments'}
+        <DeliveryEnvironmentsView {refreshTick} miraURL={capabilities.miraURL || ''} />
+      {:else if route.view === 'delivery-change'}
+        {#key route.params.namespace + '/' + route.params.name}
+          <DeliveryChangeView namespace={route.params.namespace} name={route.params.name} {refreshTick} miraURL={capabilities.miraURL || ''} />
+        {/key}
+      {:else if route.view === 'delivery-history'}
+        <DeliveryHistoryView namespace={route.params.namespace || ''} stage={route.params.stage || ''} {refreshTick} />
+      {:else}
+        <DeliveryPublishView {refreshTick} />
+      {/if}
+    {:else if capabilities}
+      <div class="product-page" data-testid="delivery-unavailable">
+        <h1 class="t-page-title">Delivery is not available here</h1>
+        <p class="t-body">Delivery views appear where the pacto-delivery chart is installed and the dashboard knows who you are: <code>pacto dashboard</code> on your own machine, or a shared dashboard people sign in to.</p>
+      </div>
+    {:else}
+      {@render migrating()}
+    {/if}
   {:else if route.view === 'owners'}
     <!-- Owners: product owners on a Fleet host (redirected via the effect); legacy list
          only on a non-Fleet host. -->
