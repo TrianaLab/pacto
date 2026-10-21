@@ -51,6 +51,11 @@ type Options struct {
 	// Fleet enables the read-only operational-graph endpoints. When nil, none of
 	// the /api/fleet/* endpoints are registered.
 	Fleet func(ctx context.Context) (*fleet.Query, error)
+	// Published returns the snapshot already published, or nil, without
+	// building one. Capabilities, the nav and delivery read it, so a slow
+	// first build never holds them up. Nil falls back to Fleet, for hosts
+	// whose snapshot is always at hand, like the WASM demo.
+	Published func() *fleet.Query
 	// Impact enables the read-only /api/fleet/impact endpoint. When nil, the
 	// endpoint is not registered.
 	Impact func(ctx context.Context, old, new string, includeObserved bool) (*impact.Result, error)
@@ -339,6 +344,9 @@ func (s *Server) health(_ context.Context, _ *struct{}) (*healthOutput, error) {
 func (s *Server) publishedQuery(ctx context.Context) *fleet.Query {
 	if s.opts.Fleet == nil {
 		return nil
+	}
+	if s.opts.Published != nil {
+		return s.opts.Published()
 	}
 	q, err := s.opts.Fleet(ctx)
 	if err != nil {

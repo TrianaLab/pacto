@@ -60,12 +60,10 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 	out.Body.Impact = s.opts.Impact != nil
 	// Observed availability is DERIVED from the currently published snapshot (does
 	// it carry any observed relationship?), never a hardcoded flag — so the
-	// capability is honest on every host, including the WASM demo. If the snapshot
-	// cannot be read, observed is reported false (we cannot confirm it).
-	if s.opts.Fleet != nil {
-		if q, err := s.opts.Fleet(ctx); err == nil && q.HasObserved() {
-			out.Body.Observed = true
-		}
+	// capability is honest on every host, including the WASM demo. Until a snapshot
+	// is published, observed is reported false (we cannot confirm it).
+	if q := s.publishedQuery(ctx); q != nil && q.HasObserved() {
+		out.Body.Observed = true
 	}
 	out.Body.Auth.Mode = "none"
 	if a := s.opts.Auth; a != nil {

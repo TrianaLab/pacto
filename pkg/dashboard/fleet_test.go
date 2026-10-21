@@ -153,6 +153,26 @@ func TestFleetEndpoints_Serve(t *testing.T) {
 	}
 }
 
+// TestPublishedOnlyEndpointsNeverWaitForABuild: capabilities and sources
+// read only what is published. A first fleet build that hangs (an unreachable
+// registry, in the kind run) once held both until it finished, and the UI waits on capabilities before
+// it renders anything.
+func TestPublishedOnlyEndpointsNeverWaitForABuild(t *testing.T) {
+	building := func(ctx context.Context) (*fleet.Query, error) { <-ctx.Done(); return nil, ctx.Err() }
+	base := startServer(t, NewServer(Options{UI: testUI(), Fleet: building, Published: func() *fleet.Query { return nil }}))
+	client := &http.Client{Timeout: 3 * time.Second}
+	for _, path := range []string{"/api/capabilities", "/api/sources"} {
+		resp, err := client.Get(base + path)
+		if err != nil {
+			t.Fatalf("%s waited on the snapshot build: %v", path, err)
+		}
+		_ = resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("%s: status %d", path, resp.StatusCode)
+		}
+	}
+}
+
 func TestCapabilitiesEndpoint(t *testing.T) {
 	// With both providers set, capabilities reports them enabled. Observed stays
 	// off unless a host explicitly declares an observation source.

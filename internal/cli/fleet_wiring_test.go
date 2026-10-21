@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 
@@ -694,5 +695,35 @@ func TestFleetSearch_StatusFlagNamesEveryStatus(t *testing.T) {
 	slices.Sort(got)
 	if want := fleet.CanonicalStatuses(); !slices.Equal(got, want) {
 		t.Errorf("--status help advertises %v, want the canonical vocabulary %v", got, want)
+	}
+}
+
+// TestManagerPublishedNeverBuilds: the published-only provider answers nil
+// at once while the first build is still running, and the snapshot after.
+func TestManagerPublishedNeverBuilds(t *testing.T) {
+	release := make(chan struct{})
+	mgr := fleet.NewManager(func(context.Context) (*fleet.FleetSnapshot, error) {
+		<-release
+		return &fleet.FleetSnapshot{}, nil
+	}, fleet.ManagerOptions{})
+	go func() { _ = mgr.Refresh(context.Background()) }()
+	published := managerPublished(mgr)
+	done := make(chan *fleet.Query, 1)
+	go func() { done <- published() }()
+	select {
+	case q := <-done:
+		if q != nil {
+			t.Fatalf("nothing is published yet, got %v", q)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the published-only provider waited on the build")
+	}
+	close(release)
+	deadline := time.Now().Add(3 * time.Second)
+	for published() == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("the finished build was never served")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

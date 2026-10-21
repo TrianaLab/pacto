@@ -156,6 +156,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				Version:    version,
 				CORSOrigin: corsOrigin,
 				Fleet:      managerFleetProvider(mgr),
+				Published:  managerPublished(mgr),
 				Impact:     impactProviderForFleet(svc, mgr),
 				Refresh:    mgr.Refresh,
 				MiraURL:    v.GetString("dashboard.mira-url"),
@@ -361,6 +362,11 @@ func currentQuery(ctx context.Context, mgr *fleet.Manager) (*fleet.Query, error)
 // managerFleetProvider serves the fleet query from a shared snapshot Manager.
 func managerFleetProvider(mgr *fleet.Manager) func(context.Context) (*fleet.Query, error) {
 	return func(ctx context.Context) (*fleet.Query, error) { return currentQuery(ctx, mgr) }
+}
+
+// managerPublished serves the published snapshot and never starts a build.
+func managerPublished(mgr *fleet.Manager) func() *fleet.Query {
+	return func() *fleet.Query { q, _ := mgr.Query(); return q }
 }
 
 // impactProviderForFleet returns an impact provider backing /api/fleet/impact.
