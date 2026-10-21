@@ -22,6 +22,10 @@ framing, and a signed-in request that changes something needs the CSRF header
 and the dashboard's own origin. `/api/capabilities` gains `delivery` and
 `auth`.
 
+`--auth-required` (`PACTO_DASHBOARD_AUTH_REQUIRED`) puts the fleet views and
+the whole API behind sign-in too. `/health`, `/api/session` and `/auth/*` stay
+open, and a signed-out page goes to the login and back.
+
 The dashboard gains a Delivery tab where the cluster serves delivery: an inbox
 of what waits on your teams, an environments board, a page per change (the
 plan, predicted next to actual verdicts with their proof and Mira links, who

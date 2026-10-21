@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,6 +56,17 @@ func TestDashboardIdentityModes(t *testing.T) {
 	if shared := identityFor(t, v, "127.0.0.1", nil); !shared.auth.Login() {
 		t.Fatal("an issuer makes it shared, even on loopback")
 	}
+	v.Set("dashboard.auth-required", true)
+	required := identityFor(t, v, "0.0.0.0", nil)
+	rec := httptest.NewRecorder()
+	required.auth.Middleware(http.NotFoundHandler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "https://dash.example/api/fleet/status", nil))
+	expect(t, rec.Code == http.StatusUnauthorized, "--auth-required gates the fleet API: %d", rec.Code)
+	v.Set("dashboard.oidc-issuer-url", "")
+	if _, err := newDashboardIdentity(v, "0.0.0.0", nil, defaultDeps()); err == nil || !strings.Contains(err.Error(), "auth-required") {
+		t.Fatalf("--auth-required without sign-in fails at start: %v", err)
+	}
+	v.Set("dashboard.auth-required", false)
+	v.Set("dashboard.oidc-issuer-url", "https://idp.example")
 	v.Set("dashboard.oidc-client-id", "")
 	if _, err := newDashboardIdentity(v, "0.0.0.0", nil, defaultDeps()); err == nil {
 		t.Fatal("an incomplete OIDC configuration fails at start")

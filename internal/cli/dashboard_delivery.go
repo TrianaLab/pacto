@@ -78,6 +78,11 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 			return nil, err
 		}
 		id.auth = authn.NewShared(o)
+		if v.GetBool("dashboard.auth-required") {
+			id.auth.RequireLogin()
+		}
+	case v.GetBool("dashboard.auth-required"):
+		return nil, errors.New("--auth-required needs sign-in: set --oidc-issuer-url")
 	case isLoopback(host):
 		id.auth = authn.NewLocal()
 	default:

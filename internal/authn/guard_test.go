@@ -158,3 +158,36 @@ func TestOpenMode(t *testing.T) {
 		t.Fatal("open mode has no login")
 	}
 }
+
+func TestSharedModeRequired(t *testing.T) {
+	f := newIdP(t)
+	o := newTestOIDC(t, f)
+	d := NewShared(o).RequireLogin()
+	h := d.Middleware(echo(&State{}))
+	c := cookieNamed(t, login(t, o, f, ""), SessionCookie)
+	get := func(path string, cookie bool) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, "https://dash.example"+path, nil)
+		if cookie {
+			r.AddCookie(c)
+		}
+		return serve(h, r)
+	}
+	for path, want := range map[string]int{
+		"/api/fleet/status": http.StatusUnauthorized, "/api/refresh": http.StatusUnauthorized, "/api/delivery/stages": http.StatusUnauthorized,
+		"/health": http.StatusTeapot, "/api/session": http.StatusTeapot, "/auth/login": http.StatusTeapot,
+	} {
+		if got := get(path, false).Code; got != want {
+			t.Errorf("signed out %s: %d, want %d", path, got, want)
+		}
+		if got := get(path, true).Code; got != http.StatusTeapot {
+			t.Errorf("signed in %s: %d, want through", path, got)
+		}
+	}
+	rec := get("/services?q=a", false)
+	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/auth/login?return=%2Fservices%3Fq%3Da" {
+		t.Fatalf("a signed-out page goes to the login and back: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if got := serve(NewShared(o).Middleware(echo(&State{})), httptest.NewRequest(http.MethodGet, "https://dash.example/api/fleet/status", nil)).Code; got != http.StatusTeapot {
+		t.Fatalf("without RequireLogin the fleet stays open: %d", got)
+	}
+}

@@ -187,6 +187,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("oidc-client-id", "", "OpenID Connect client id of the dashboard")
 	cmd.Flags().String("oidc-redirect-url", "", "the dashboard's /auth/callback as browsers reach it (https)")
 	cmd.Flags().StringSlice("oidc-extra-scopes", nil, "scopes to ask for beyond openid, profile and groups")
+	cmd.Flags().Bool("auth-required", false, "with OIDC sign-in, gate the fleet views and the whole API behind it too, not only delivery (also PACTO_DASHBOARD_AUTH_REQUIRED)")
 	cmd.Flags().String("mira-url", "", "Mira's address, to link the health-check citations of delivery verdicts")
 	cmd.Flags().StringSlice("agent-groups", []string{"pacto:agents"}, "groups whose members are agents, as the delivery promoter is configured")
 	cmd.Flags().StringSlice("break-glass-groups", []string{"pacto:break-glass"}, "groups that may override, as the delivery promoter is configured")
@@ -199,7 +200,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.cors-origin", cmd.Flags().Lookup("cors-origin"))
 	_ = v.BindPFlag("dashboard.traces", cmd.Flags().Lookup("traces"))
 	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
-	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-extra-scopes", "mira-url",
+	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-extra-scopes", "auth-required", "mira-url",
 		"agent-groups", "break-glass-groups", "team-group-prefix"} {
 		_ = v.BindPFlag("dashboard."+f, cmd.Flags().Lookup(f))
 	}

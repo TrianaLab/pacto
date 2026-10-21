@@ -22,12 +22,14 @@ const launchCookie = "pacto-launch"
 //
 // Shared: delivery needs an OIDC session, and every mutating request that
 // carries the session cookie must come with the session's CSRF header and a
-// same-origin Origin.
+// same-origin Origin. With RequireLogin, everything else needs the session
+// too: the fleet views, the API and the UI.
 //
 // Open: shared with no sign-in configured. Nobody is identified, so it serves
 // no delivery data and no actions.
 type Dashboard struct {
 	oidc       *OIDC
+	required   bool
 	open       bool
 	launch     string
 	launchCSRF string
@@ -44,6 +46,11 @@ func NewLocal() *Dashboard { return &Dashboard{launch: random(32), launchCSRF: r
 
 // NewShared is shared mode, signing people in through o.
 func NewShared(o *OIDC) *Dashboard { return &Dashboard{oidc: o} }
+
+// RequireLogin makes shared mode gate every page and API behind sign-in, not
+// only delivery. /health, /api/session and /auth/* stay open: probes, the UI's
+// sign-in check and the sign-in itself.
+func (d *Dashboard) RequireLogin() *Dashboard { d.required = true; return d }
 
 // Local reports whether this is local mode.
 func (d *Dashboard) Local() bool { return d.oidc == nil && !d.open }
@@ -172,6 +179,14 @@ func (d *Dashboard) shared(w http.ResponseWriter, r *http.Request) (State, bool)
 	var st State
 	if s := d.oidc.Session(r); s != nil {
 		st = State{SignedIn: true, Fresh: s.Fresh, CSRF: s.CSRF, Token: s.IDToken()}
+	}
+	if d.required && !st.SignedIn && r.URL.Path != "/health" && r.URL.Path != "/api/session" && !strings.HasPrefix(r.URL.Path, "/auth/") {
+		if r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/api/") {
+			http.Redirect(w, r, "/auth/login?return="+url.QueryEscape(r.URL.RequestURI()), http.StatusFound)
+		} else {
+			http.Error(w, "sign in to use this dashboard", http.StatusUnauthorized)
+		}
+		return State{}, false
 	}
 	// With a session cookie the browser holds rights: a mutating request must
 	// prove it comes from this dashboard's own page.

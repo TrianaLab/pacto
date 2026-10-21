@@ -224,6 +224,7 @@ pacto dashboard [sources...] [flags]
 
 ```
       --agent-groups strings         groups whose members are agents, as the delivery promoter is configured (default [pacto:agents])
+      --auth-required                with OIDC sign-in, gate the fleet views and the whole API behind it too, not only delivery (also PACTO_DASHBOARD_AUTH_REQUIRED)
       --break-glass-groups strings   groups that may override, as the delivery promoter is configured (default [pacto:break-glass])
       --cors-origin string           explicit cross-origin allowed to call the API (default: same-origin only)
   -h, --help                         help for dashboard

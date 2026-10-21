@@ -26,6 +26,7 @@ type DashboardConfig struct {
 	OIDCClientSecret string `json:"PACTO_DASHBOARD_OIDC_CLIENT_SECRET,omitempty" doc:"OpenID Connect client secret of the dashboard"`
 	OIDCRedirectURL  string `json:"PACTO_DASHBOARD_OIDC_REDIRECT_URL,omitempty" doc:"The dashboard's /auth/callback as browsers reach it"`
 	OIDCExtraScopes  string `json:"PACTO_DASHBOARD_OIDC_EXTRA_SCOPES,omitempty" doc:"Space-separated scopes beyond openid, profile and groups"`
+	AuthRequired     bool   `json:"PACTO_DASHBOARD_AUTH_REQUIRED,omitempty" default:"false" doc:"With OIDC sign-in, gate the fleet views and the whole API behind it too"`
 	TeamGroupPrefix  string `json:"PACTO_DASHBOARD_TEAM_GROUP_PREFIX,omitempty" doc:"A contract owner team T is group T or this prefix plus T"`
 	MiraURL          string `json:"PACTO_DASHBOARD_MIRA_URL,omitempty" doc:"Mira's address, to link health-check citations"`
 }

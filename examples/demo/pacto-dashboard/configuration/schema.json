@@ -5,6 +5,11 @@
       "description": "OCI bundle cache directory (default: ~/.cache/pacto/oci)",
       "type": "string"
     },
+    "PACTO_DASHBOARD_AUTH_REQUIRED": {
+      "default": false,
+      "description": "With OIDC sign-in, gate the fleet views and the whole API behind it too",
+      "type": "boolean"
+    },
     "PACTO_DASHBOARD_HOST": {
       "default": "127.0.0.1",
       "description": "Bind address for the server",
