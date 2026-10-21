@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
@@ -253,16 +254,23 @@ func Config() (*rest.Config, error) {
 }
 
 // Served reports whether the cluster serves the API group version gv,
-// asked with config's own credentials through discovery.
-func Served(config *rest.Config, gv string) bool {
+// asked with config's own credentials through discovery. Only a NotFound
+// means not served; any other failure is an error, so an unreachable
+// cluster is never mistaken for one without the API.
+func Served(config *rest.Config, gv string) (bool, error) {
 	return defaultBuilders().served(config, gv)
 }
 
-func (b builders) served(config *rest.Config, gv string) bool {
+func (b builders) served(config *rest.Config, gv string) (bool, error) {
 	d, err := b.discovery(config)
 	if err != nil {
-		return false
+		return false, err
 	}
-	_, err = d.ServerResourcesForGroupVersion(gv)
-	return err == nil
+	switch _, err = d.ServerResourcesForGroupVersion(gv); {
+	case apierrors.IsNotFound(err):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return true, nil
 }

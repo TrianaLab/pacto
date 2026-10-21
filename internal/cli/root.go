@@ -48,7 +48,7 @@ type deps struct {
 	// clusterConfig is the ambient cluster config the dashboard builds callers' clients from (address and CA
 	// only); served asks discovery whether an API group version is installed.
 	clusterConfig func() (*rest.Config, error)
-	served        func(*rest.Config, string) bool
+	served        func(*rest.Config, string) (bool, error)
 	// dynamicFor builds a client from a caller's own config; newMCPAuth reads the remote MCP issuer.
 	dynamicFor func(*rest.Config) (dynamic.Interface, error)
 	newMCPAuth func(authn.MCPConfig) (mcpAuth, error)

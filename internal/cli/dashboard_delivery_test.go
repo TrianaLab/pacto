@@ -23,7 +23,7 @@ import (
 func identityFor(t *testing.T, v *viper.Viper, host string, cluster *rest.Config) *dashboardIdentity {
 	t.Helper()
 	d := deliveryDeps("alice", nil)
-	d.served = func(*rest.Config, string) bool { return true }
+	d.served = func(*rest.Config, string) (bool, error) { return true, nil }
 	id, err := newDashboardIdentity(v, host, cluster, d)
 	if err != nil {
 		t.Fatal(err)
@@ -86,13 +86,23 @@ func TestDashboardIdentityOptions(t *testing.T) {
 	expect(t, err == nil && c.User == "alice", "local mode acts as the kubeconfig user: %+v %v", c, err)
 	// Installed is asked once a minute.
 	calls := 0
-	id.served = func(*rest.Config, string) bool { calls++; return true }
+	var servedErr error
+	id.served = func(*rest.Config, string) (bool, error) { calls++; return servedErr == nil, servedErr }
 	base := time.Now()
 	id.now = func() time.Time { return base }
-	id.deliveryInstalled(context.Background())
-	id.deliveryInstalled(context.Background())
+	_, _ = id.deliveryInstalled(context.Background())
+	_, _ = id.deliveryInstalled(context.Background())
 	id.now = func() time.Time { return base.Add(2 * time.Minute) }
-	expect(t, id.deliveryInstalled(context.Background()) && calls == 2, "discovery calls %d", calls)
+	ok, err := id.deliveryInstalled(context.Background())
+	expect(t, ok && err == nil && calls == 2, "discovery calls %d", calls)
+	// A failed call is returned and never kept: the next request asks again.
+	servedErr = errors.New("connection refused")
+	id.now = func() time.Time { return base.Add(4 * time.Minute) }
+	_, err = id.deliveryInstalled(context.Background())
+	expect(t, err != nil, "a discovery failure is an error")
+	servedErr = nil
+	ok, err = id.deliveryInstalled(context.Background())
+	expect(t, ok && err == nil && calls == 4, "a failure is not cached: %d calls", calls)
 	// No cluster: no delivery routes.
 	var none dashboard.Options
 	identityFor(t, v, "127.0.0.1", nil).options(&none)

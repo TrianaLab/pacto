@@ -49,7 +49,7 @@ type dashboardIdentity struct {
 	policy    delivery.ClassPolicy
 	registry  func(...string) app.DeliveryRegistry
 	newClient func(*rest.Config) (dynamic.Interface, error)
-	served    func(*rest.Config, string) bool
+	served    func(*rest.Config, string) (bool, error)
 	now       func() time.Time
 	state     func(context.Context) authn.State
 
@@ -102,14 +102,19 @@ func (id *dashboardIdentity) options(o *dashboard.Options) {
 
 // deliveryInstalled asks discovery, with the dashboard's own credentials,
 // whether the delivery API group is served; the answer is kept a minute, so
-// installing the chart later needs no restart.
-func (id *dashboardIdentity) deliveryInstalled(context.Context) bool {
+// installing the chart later needs no restart. A failed call is not an
+// answer: it is returned and asked again next time.
+func (id *dashboardIdentity) deliveryInstalled(context.Context) (bool, error) {
 	id.mu.Lock()
 	defer id.mu.Unlock()
 	if now := id.now(); now.Sub(id.checked) > time.Minute {
-		id.installed, id.checked = id.served(id.cluster, deliveryGroupVersion), now
+		installed, err := id.served(id.cluster, deliveryGroupVersion)
+		if err != nil {
+			return false, err
+		}
+		id.installed, id.checked = installed, now
 	}
-	return id.installed
+	return id.installed, nil
 }
 
 // delivery is the caller's delivery API: the kubeconfig user in local mode,

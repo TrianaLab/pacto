@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -180,7 +182,7 @@ func startDelivery(t *testing.T, f *fakeDelivery, auth *Auth, installed bool, fa
 	t.Helper()
 	return startServer(t, NewServer(Options{UI: testUI(), Fleet: ownedFleet(t), Auth: auth, MiraURL: "http://mira",
 		DeliveryPolicy:    delivery.ClassPolicy{AgentGroups: []string{"pacto:agents"}, TeamGroupPrefix: "acme:"},
-		DeliveryInstalled: func(context.Context) bool { return installed },
+		DeliveryInstalled: func(context.Context) (bool, error) { return installed, nil },
 		Delivery: func(r *http.Request) (DeliveryAPI, error) {
 			if r == nil {
 				return nil, errors.New("no request on the context")
@@ -275,6 +277,18 @@ func TestDeliveryNotInstalledAndRefusals(t *testing.T) {
 	if code != http.StatusNotFound || body["code"] != "DeliveryNotInstalled" {
 		t.Fatalf("not installed: %d %v", code, body)
 	}
+	// A cluster that cannot be asked is not a cluster without delivery: the
+	// reads say so, the tab stays and the session names the failure.
+	down := startServer(t, NewServer(Options{UI: testUI(), Auth: a.auth(false, true),
+		DeliveryInstalled: func(context.Context) (bool, error) { return false, errors.New("connection refused") },
+		Delivery:          func(*http.Request) (DeliveryAPI, error) { return f, nil }}))
+	if code, body = call(t, http.MethodGet, down+"/api/delivery/environments", nil); code != http.StatusServiceUnavailable || body["code"] != "ClusterUnreachable" {
+		t.Fatalf("unreachable: %d %v", code, body)
+	}
+	_, caps := call(t, http.MethodGet, down+"/api/capabilities", nil)
+	expect(t, caps["delivery"] == true, "an unreachable cluster keeps the delivery tab: %v", caps)
+	_, sess := call(t, http.MethodGet, down+"/api/session", nil)
+	expect(t, strings.Contains(fmt.Sprint(sess["callerError"]), "ClusterUnreachable"), "the session names the failure: %v", sess)
 	base = startDelivery(t, f, a.auth(false, true), true, Refuse(http.StatusUnauthorized, "LoginRequired", "sign in"))
 	for _, p := range []string{"inbox", "environments", "published", "history", "operations/prod/op"} {
 		if code, body = call(t, http.MethodGet, base+"/api/delivery/"+p, nil); code != http.StatusUnauthorized || body["code"] != "LoginRequired" {
@@ -296,7 +310,7 @@ func sampleCluster(groups ...string) *fakeDelivery {
 			stage("prod", "payments", "payments", delivery.StageStatus{Pointer: dRun, Verified: []string{dRun}, Published: []string{dRun, dNext},
 				Candidate: dNext, Frozen: true, FrozenReason: "Errored", Conditions: []delivery.Condition{{Type: "Ready", Status: "True"}}}),
 			stage("books", "ledger", "ledger", delivery.StageStatus{Frozen: true, FailedDigests: []string{dNext}}),
-			stage("other", "orphan", "orphan", delivery.StageStatus{AutoHold: true}),
+			stage("other", "orphan", "orphan", delivery.StageStatus{AutoHold: true, Frozen: true}),
 		},
 		ops: []delivery.OperationObject{
 			operation("prod", "for-checkout", "payments", held("team-checkout")),
@@ -305,6 +319,10 @@ func sampleCluster(groups ...string) *fakeDelivery {
 				Plan: &delivery.Plan{Floor: delivery.Floor{Decision: delivery.Approve}}}),
 			operation("books", "broke", "ledger", delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Errored}),
 			operation("other", "broke-too", "orphan", delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Errored}),
+			// Errored long ago on a Stage that was unpaused since, and on a
+			// Stage that is gone: history, not the inbox.
+			operation("other", "broke-before", "unpaused", delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Errored}),
+			operation("other", "no-stage", "gone", delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Errored}),
 		}}
 }
 
@@ -319,19 +337,22 @@ func names(items any) string {
 
 func TestInbox(t *testing.T) {
 	f := sampleCluster("acme:team-checkout")
+	f.stages = append(f.stages, stage("other", "unpaused", "orphan", delivery.StageStatus{}))
 	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
 	_, inbox := call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
 	expect(t, inbox["completeness"] == "complete", "inbox %v", inbox)
 	expect(t, names(inbox["held"]) == "for-checkout:approve,anyone:accept-unknown",
 		"held: only what names my team (or nobody), as accept-unknown once it shipped: %v", inbox["held"])
-	expect(t, len(inbox["frozen"].([]any)) == 0, "frozen Stages of other teams' services are not mine: %v", inbox["frozen"])
+	fr := inbox["frozen"].([]any)
+	expect(t, len(fr) == 1 && fr[0].(map[string]any)["service"] == "orphan",
+		"frozen Stages of other teams' services are not mine, unowned ones are: %v", fr)
 	errored := inbox["errored"].([]any)
 	expect(t, len(errored) == 1 && errored[0].(map[string]any)["name"] == "broke-too",
-		"errored: only services I own or nobody is known to own: %v", errored)
+		"errored: only on my (or unowned) Stages that are still frozen: %v", errored)
 	f.caller = person("team-payments")
 	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
-	fr := inbox["frozen"].([]any)
-	expect(t, len(fr) == 1 && fr[0].(map[string]any)["service"] == "payments", "the frozen Stage of my service: %v", fr)
+	fr = inbox["frozen"].([]any)
+	expect(t, len(fr) == 2 && fr[0].(map[string]any)["service"] == "payments", "the frozen Stage of my service: %v", fr)
 }
 
 func TestEnvironments(t *testing.T) {
@@ -378,12 +399,14 @@ func TestListsDropNamespacesTheCallerCannotRead(t *testing.T) {
 		stages: []delivery.StageObject{stage("prod", "payments", "payments", delivery.StageStatus{}), stage("books", "ledger", "ledger", delivery.StageStatus{})}}
 	base := startDelivery(t, f, a.auth(false, true), true, nil)
 	_, envs := call(t, http.MethodGet, base+"/api/delivery/environments", nil)
-	if envs["completeness"] != "partial" || strings.Join(toStrings(envs["unreadable"]), ",") != "books" || len(envs["environments"].([]any)) != 1 {
+	if envs["completeness"] != "partial" || strings.Join(toStrings(envs["unreadable"]), ",") != "*,books" || len(envs["environments"].([]any)) != 1 {
 		t.Fatalf("a refused namespace is dropped and named: %v", envs)
 	}
+	// Every namespace the snapshot knows answered, but Stages may live in
+	// others: still partial.
 	f.forbid = nil
-	if _, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil); envs["completeness"] != "complete" {
-		t.Fatalf("every namespace read is complete: %v", envs)
+	if _, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil); fmt.Sprint(envs["completeness"], toStrings(envs["unreadable"])) != "partial[*]" {
+		t.Fatalf("namespaces guessed from the snapshot are never complete: %v", envs)
 	}
 	f.forbid = map[string]bool{"prod": false}
 	f.listErr = nil
@@ -582,5 +605,13 @@ func TestDeliveryErrorAndRequestContext(t *testing.T) {
 	srv := &Server{}
 	if srv.authState(context.Background()) != (AuthState{}) {
 		t.Fatal("no auth, no state")
+	}
+}
+
+func TestCompareVersions(t *testing.T) {
+	vs := []string{"", "1.9.0", "not-a-version", "1.10.0", "1.10.0-rc.1"}
+	slices.SortFunc(vs, func(a, b string) int { return compareVersions(b, a) })
+	if got := strings.Join(vs, ","); got != "1.10.0,1.10.0-rc.1,1.9.0,not-a-version," {
+		t.Fatalf("newest first, as versions: %s", got)
 	}
 }

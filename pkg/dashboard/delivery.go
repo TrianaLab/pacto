@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -98,14 +99,21 @@ func withRequest(next http.Handler) http.Handler {
 	})
 }
 
-func (s *Server) deliveryInstalled(ctx context.Context) bool {
-	return s.opts.DeliveryInstalled == nil || s.opts.DeliveryInstalled(ctx)
+func (s *Server) deliveryInstalled(ctx context.Context) (bool, error) {
+	if s.opts.DeliveryInstalled == nil {
+		return true, nil
+	}
+	return s.opts.DeliveryInstalled(ctx)
 }
 
 // deliveryFor is the caller's delivery API, or the refusal that says why
 // there is none.
 func (s *Server) deliveryFor(ctx context.Context) (DeliveryAPI, error) {
-	if !s.deliveryInstalled(ctx) {
+	switch installed, err := s.deliveryInstalled(ctx); {
+	case err != nil:
+		return nil, Refuse(http.StatusServiceUnavailable, "ClusterUnreachable",
+			"cannot reach the cluster to tell whether it serves delivery: "+err.Error())
+	case !installed:
 		return nil, Refuse(http.StatusNotFound, "DeliveryNotInstalled",
 			"this cluster does not serve delivery.pacto.trianalab.io/v1alpha1; install the pacto-delivery chart")
 	}
@@ -146,10 +154,13 @@ func (s *Server) session(ctx context.Context, _ *struct{}) (*sessionOutput, erro
 	}
 	st := s.authState(ctx)
 	out.Body.SignedIn, out.Body.Fresh, out.Body.CSRF = st.SignedIn, st.Fresh, st.CSRF
-	if !st.SignedIn || s.opts.Delivery == nil || !s.deliveryInstalled(ctx) {
+	if !st.SignedIn || s.opts.Delivery == nil {
 		return out, nil
 	}
-	api, err := s.opts.Delivery(requestFrom(ctx))
+	api, err := s.deliveryFor(ctx)
+	if de := (*DeliveryError)(nil); errors.As(err, &de) && de.Code == "DeliveryNotInstalled" {
+		return out, nil
+	}
 	if err == nil {
 		var c delivery.Caller
 		if c, err = api.WhoAmI(ctx); err == nil {
@@ -181,7 +192,7 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-inbox", Method: http.MethodGet, Path: "/api/delivery/inbox",
 		Summary: "What waits on me",
 		Description: "Held operations whose question names one of the caller's teams, with the decision asked and the affected services; " +
-			"frozen Stages and Errored operations of the caller's services."}), s.deliveryInbox)
+			"frozen Stages of the caller's services and the Errored operations on them."}), s.deliveryInbox)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-environments", Method: http.MethodGet, Path: "/api/delivery/environments",
 		Summary:     "Every Stage",
 		Description: "Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold."}), s.deliveryEnvironments)
@@ -222,8 +233,8 @@ func forbidden(err error) bool {
 }
 
 // lists reads every Stage and Operation the caller can see: cluster-wide when
-// allowed, else per namespace of the fleet snapshot, dropping (and naming) a
-// namespace that refuses.
+// allowed, else, partially, per namespace of the fleet snapshot, dropping
+// (and naming) a namespace that refuses.
 // ponytail: a list per request with the caller's token, polled by the UI;
 // add a per-session informer if list load shows on the apiserver.
 func (s *Server) lists(ctx context.Context, api DeliveryAPI) ([]delivery.StageObject, []delivery.OperationObject, Listing, error) {
@@ -238,12 +249,11 @@ func (s *Server) lists(ctx context.Context, api DeliveryAPI) ([]delivery.StageOb
 	if !forbidden(err) {
 		return nil, nil, l, err
 	}
-	stages, ops, l.Completeness = nil, nil, "partial"
-	namespaces := s.namespaces(ctx)
-	if namespaces == nil {
-		l.Unreadable = []string{"*"}
-	}
-	for _, ns := range namespaces {
+	// The namespaces asked are a guess (where the fleet's workloads run, not
+	// necessarily where Stages live), so the answer is never complete: "*"
+	// says namespaces outside the guess were not read.
+	stages, ops, l.Completeness, l.Unreadable = nil, nil, "partial", []string{"*"}
+	for _, ns := range s.namespaces(ctx) {
 		st, err := api.Stages(ctx, ns)
 		var os []delivery.OperationObject
 		if err == nil {
@@ -257,9 +267,6 @@ func (s *Server) lists(ctx context.Context, api DeliveryAPI) ([]delivery.StageOb
 		default:
 			stages, ops = append(stages, st...), append(ops, os...)
 		}
-	}
-	if len(l.Unreadable) == 0 {
-		l.Completeness = "complete"
 	}
 	return stages, ops, l, nil
 }
@@ -330,7 +337,7 @@ type inboxOutput struct {
 		Listing
 		Held    []InboxItem      `json:"held" doc:"Held operations whose question names one of the caller's teams"`
 		Frozen  []EnvironmentRow `json:"frozen" doc:"Frozen Stages of the caller's services"`
-		Errored []InboxItem      `json:"errored" doc:"Errored operations of the caller's services"`
+		Errored []InboxItem      `json:"errored" doc:"Errored operations of the caller's services whose Stage is still frozen"`
 	}
 }
 
@@ -354,12 +361,15 @@ func (s *Server) deliveryInbox(ctx context.Context, _ *struct{}) (*inboxOutput, 
 		o, known := owners[service]
 		return !known || s.opts.DeliveryPolicy.InTeams(caller.Groups, []string{o})
 	}
-	service := map[string]string{}
+	// frozen holds the caller's Stages that are paused now. Concluded
+	// operations are never deleted, so an Errored one waits on someone only
+	// while the pause it caused lasts; after that it is history.
+	frozen := map[string]bool{}
 	out := &inboxOutput{}
 	out.Body.Listing, out.Body.Held, out.Body.Frozen, out.Body.Errored = l, []InboxItem{}, []EnvironmentRow{}, []InboxItem{}
 	for _, st := range stages {
-		service[st.Metadata.Namespace+"/"+st.Metadata.Name] = st.Spec.Service.Name
 		if st.Status.Frozen && mine(st.Spec.Service.Name) {
+			frozen[st.Metadata.Namespace+"/"+st.Metadata.Name] = true
 			out.Body.Frozen = append(out.Body.Frozen, s.environmentRow(ctx, api, st, nil, caller))
 		}
 	}
@@ -368,7 +378,7 @@ func (s *Server) deliveryInbox(ctx context.Context, _ *struct{}) (*inboxOutput, 
 		switch {
 		case it.Phase == delivery.PhaseHeld && s.opts.DeliveryPolicy.InTeams(caller.Groups, it.Owners):
 			out.Body.Held = append(out.Body.Held, it)
-		case it.Outcome == delivery.Errored && mine(service[it.Namespace+"/"+it.Stage]):
+		case it.Outcome == delivery.Errored && frozen[it.Namespace+"/"+it.Stage]:
 			out.Body.Errored = append(out.Body.Errored, it)
 		}
 	}
@@ -537,7 +547,7 @@ func (s *Server) deliveryPublished(ctx context.Context, _ *struct{}) (*published
 			ps.Versions = append(ps.Versions, *v)
 		}
 		slices.SortFunc(ps.Versions, func(a, b PublishedVersion) int {
-			return cmp.Or(cmp.Compare(b.Version, a.Version), cmp.Compare(a.Digest, b.Digest))
+			return cmp.Or(compareVersions(b.Version, a.Version), cmp.Compare(a.Digest, b.Digest))
 		})
 		out.Body.Services = append(out.Body.Services, ps)
 	}
@@ -793,4 +803,21 @@ func (s *Server) deliveryCancel(ctx context.Context, in *operationInput) (*cance
 	out := &cancelOutput{}
 	out.Body.Cancelled = in.Namespace + "/" + in.Name
 	return out, nil
+}
+
+// compareVersions orders semantic versions as versions (1.10.0 after 1.9.0).
+// A version that does not parse sorts before every one that does, then by
+// text, so in a newest-first list it comes last.
+func compareVersions(a, b string) int {
+	va, ea := semver.NewVersion(a)
+	vb, eb := semver.NewVersion(b)
+	switch {
+	case ea == nil && eb == nil:
+		return va.Compare(vb)
+	case ea == nil:
+		return 1
+	case eb == nil:
+		return -1
+	}
+	return cmp.Compare(a, b)
 }

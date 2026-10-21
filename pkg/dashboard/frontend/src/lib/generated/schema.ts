@@ -73,7 +73,7 @@ export interface paths {
         };
         /**
          * What waits on me
-         * @description Held operations whose question names one of the caller's teams, with the decision asked and the affected services; frozen Stages and Errored operations of the caller's services.
+         * @description Held operations whose question names one of the caller's teams, with the decision asked and the affected services; frozen Stages of the caller's services and the Errored operations on them.
          */
         get: operations["delivery-inbox"];
         put?: never;
@@ -2124,7 +2124,7 @@ export interface components {
             asOf: string;
             /** @enum {string} */
             completeness: "complete" | "partial";
-            /** @description Errored operations of the caller's services */
+            /** @description Errored operations of the caller's services whose Stage is still frozen */
             errored: components["schemas"]["InboxItem"][] | null;
             /** @description Frozen Stages of the caller's services */
             frozen: components["schemas"]["EnvironmentRow"][] | null;

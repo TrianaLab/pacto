@@ -62,8 +62,8 @@ type Options struct {
 	// there is none. Nil on hosts without a cluster: no delivery routes.
 	Delivery func(*http.Request) (DeliveryAPI, error)
 	// DeliveryInstalled reports whether the cluster serves the delivery API
-	// group. Nil means it does.
-	DeliveryInstalled func(context.Context) bool
+	// group; an error means the cluster could not be asked. Nil means it does.
+	DeliveryInstalled func(context.Context) (bool, error)
 	// DeliveryPolicy classifies callers and maps owner teams to groups, the
 	// way the promoter does.
 	DeliveryPolicy delivery.ClassPolicy

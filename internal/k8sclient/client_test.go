@@ -710,8 +710,8 @@ users:
 	if err != nil || c.Host != "https://test:6443" {
 		t.Fatalf("Config = %v, %v", c, err)
 	}
-	if Served(&rest.Config{Host: "http://127.0.0.1:1"}, "delivery.pacto.trianalab.io/v1alpha1") {
-		t.Fatal("an unreachable cluster serves nothing")
+	if ok, err := Served(&rest.Config{Host: "http://127.0.0.1:1"}, "delivery.pacto.trianalab.io/v1alpha1"); ok || err == nil {
+		t.Fatal("an unreachable cluster is an error, not a cluster without the API")
 	}
 }
 
@@ -720,11 +720,21 @@ func TestServed(t *testing.T) {
 	fake := newFakeDiscovery()
 	fake.Resources = []*metav1.APIResourceList{{GroupVersion: "delivery.pacto.trianalab.io/v1alpha1"}}
 	b.discovery = func(*rest.Config) (discovery.DiscoveryInterface, error) { return fake, nil }
-	if !b.served(&rest.Config{}, "delivery.pacto.trianalab.io/v1alpha1") || b.served(&rest.Config{}, "other/v1") {
-		t.Fatal("served answers from discovery")
+	if ok, err := b.served(&rest.Config{}, "delivery.pacto.trianalab.io/v1alpha1"); !ok || err != nil {
+		t.Fatalf("served answers from discovery: %v", err)
+	}
+	if ok, err := b.served(&rest.Config{}, "other/v1"); ok || err != nil {
+		t.Fatalf("a NotFound is not served, and no error: %v", err)
+	}
+	// Discovery failing for any other reason is an error, never "not served".
+	fake.PrependReactor("get", "resource", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, fmt.Errorf("connection refused")
+	})
+	if ok, err := b.served(&rest.Config{}, "delivery.pacto.trianalab.io/v1alpha1"); ok || err == nil {
+		t.Fatal("a failed discovery call is an error")
 	}
 	b.discovery = func(*rest.Config) (discovery.DiscoveryInterface, error) { return nil, fmt.Errorf("no") }
-	if b.served(&rest.Config{}, "x/v1") {
-		t.Fatal("no discovery client, nothing served")
+	if ok, err := b.served(&rest.Config{}, "x/v1"); ok || err == nil {
+		t.Fatal("no discovery client is an error")
 	}
 }
