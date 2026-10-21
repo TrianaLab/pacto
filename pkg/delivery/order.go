@@ -3,7 +3,9 @@ package delivery
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -18,7 +20,12 @@ import (
 // accepts both the provider version running here and the new one. unseen is
 // what kept Pacto from seeing every consumer; it is carried so a short list
 // never reads as the whole list.
+//
+// Every registry read the order makes shares one bound, however many versions
+// it walks: a registry that does not answer costs one bound, not one per read.
 func orderFor(ctx context.Context, in PlanInput, res *impact.Result, blocked []impact.AffectedConsumer, unseen []string) *Order {
+	ctx, cancel := WithRegistryTimeout(ctx)
+	defer cancel()
 	o := &Order{MoveFirst: []MoveFirst{}, Unknown: unseen}
 	provider := fleet.NewServiceKeyDomain(contract.OCIDomain(in.To.ContractRef), in.Stage.Service.Name)
 	running := ""
@@ -71,7 +78,7 @@ func placeCandidate(ctx context.Context, in PlanInput, m *MoveFirst, newVersion,
 		m.Unknown = "its upstream Stage " + ref.Namespace + "/" + ref.Name + " does not exist or cannot be read"
 		return ""
 	}
-	unreadable := verifiedCandidate(ctx, in, m, stage, in.Stages[i].Status, ref, newVersion, running)
+	unreadable, rejected := verifiedCandidate(ctx, in, m, stage, in.Stages[i].Status, ref, newVersion, running)
 	switch {
 	case m.Candidate != nil:
 		return ""
@@ -82,6 +89,10 @@ func placeCandidate(ctx context.Context, in PlanInput, m *MoveFirst, newVersion,
 	both := newVersion
 	if running != "" {
 		both = "both " + newVersion + " and the " + running + " running here"
+	}
+	if len(rejected) > 0 {
+		return "No version of " + m.Service + " that " + ref.Namespace + "/" + ref.Name + " verified can move first yet (" +
+			strings.Join(rejected, "; ") + "). Ship a newer one that accepts " + both + " and what else runs here first"
 	}
 	return "No version of " + m.Service + " that " + ref.Namespace + "/" + ref.Name + " verified accepts " + both + " yet. Ship one that does first"
 }
@@ -115,40 +126,125 @@ func consumerStage(in PlanInput, m *MoveFirst, newVersion string) (StageObject, 
 }
 
 // verifiedCandidate walks what the upstream Stage offered and verified, newest
-// first, and sets m.Candidate to the first version that accepts both provider
-// versions. It returns the versions it could not read.
-func verifiedCandidate(ctx context.Context, in PlanInput, m *MoveFirst, stage StageObject, upstream StageStatus, ref StageRef, newVersion, running string) []string {
+// first, and sets m.Candidate to the first version newer than the one running
+// here that accepts both provider versions and whose other dependencies accept
+// what runs in this environment. A version already verified on the consumer's
+// own Stage is skipped: promoting it again would be a rollback, which holds the
+// Stage. It returns the versions it could not read and, in plain words, why a
+// version it could read cannot move first.
+func verifiedCandidate(ctx context.Context, in PlanInput, m *MoveFirst, stage StageObject, upstream StageStatus, ref StageRef, newVersion, running string) (unreadable, rejected []string) {
 	read := in.Candidates
 	if read == nil {
 		read = func(_ context.Context, _ StageObject, d string) Revision {
 			return Revision{Digest: d, Err: "no registry access was given to read it"}
 		}
 	}
-	var unreadable []string
+	outOfTime := func() bool { return errors.Is(ctx.Err(), context.DeadlineExceeded) }
 	for _, d := range slices.Backward(upstream.Offered) {
-		if !slices.Contains(upstream.Verified, d) || slices.Contains(stage.Status.FailedDigests, d) || d == stage.Status.Pointer {
+		if !slices.Contains(upstream.Verified, d) || slices.Contains(stage.Status.FailedDigests, d) || slices.Contains(stage.Status.Verified, d) || d == stage.Status.Pointer {
+			continue
+		}
+		if outOfTime() { // the shared bound is spent: say so instead of waiting again
+			unreadable = append(unreadable, short(d)+": not read, the registry did not answer within "+registryTimeout.String())
 			continue
 		}
 		r := read(ctx, stage, d)
 		if r.Bundle == nil {
+			if outOfTime() {
+				r.Err = "the registry did not answer within " + registryTimeout.String()
+			}
 			unreadable = append(unreadable, short(d)+": "+r.Err)
 			continue
 		}
-		rng, ok, err := acceptsBoth(r.Bundle.Contract, in.Stage.Service.Name, newVersion, running)
+		c := r.Bundle.Contract
+		rng, ok, err := acceptsBoth(c, in.Stage.Service.Name, newVersion, running)
+		if err == nil && ok {
+			var why string
+			if why, err = newerThan(c, m.Version); err == nil && why == "" {
+				why, err = acceptsWhatRunsHere(in.Snapshot, c, in.Stage.Service.Name)
+			}
+			if why != "" {
+				rejected = append(rejected, why)
+				continue
+			}
+		}
 		switch {
 		case err != nil:
 			unreadable = append(unreadable, short(d)+": "+err.Error())
 		case ok:
-			m.Candidate = &Candidate{Digest: d, Version: r.Bundle.Contract.Service.Version, Accepts: rng, VerifiedOn: ref}
-			return unreadable
+			m.Candidate = &Candidate{Digest: d, Version: c.Service.Version, Accepts: rng, VerifiedOn: ref}
+			return unreadable, rejected
 		}
 	}
-	return unreadable
+	return unreadable, rejected
 }
 
-// acceptsBoth reports whether a consumer contract accepts the new provider
-// version and the one running now, so moving it first breaks nothing it
-// declares. A contract that no longer depends on the provider accepts both.
+// newerThan says why a candidate is not newer than the consumer version
+// running here: moving it first would roll that version back. With no running
+// version known there is nothing to roll back.
+func newerThan(c *contract.Contract, running string) (string, error) {
+	if running == "" {
+		return "", nil
+	}
+	newer, err := contract.ParseRange("> " + running)
+	if err != nil {
+		return "", fmt.Errorf("the %s running here has no usable version: %w", c.Service.Name, err)
+	}
+	ok, err := newer.Check(c.Service.Version)
+	switch {
+	case err != nil:
+		return "", fmt.Errorf("its version cannot be read: %w", err)
+	case !ok:
+		return fmt.Sprintf("%s %s is not newer than the %s running here", c.Service.Name, c.Service.Version, running), nil
+	}
+	return "", nil
+}
+
+// acceptsWhatRunsHere checks every other dependency of a candidate against the
+// versions running in this environment (snap is scoped to it). It says why the
+// candidate would break against one of them, or errors when Pacto cannot tell:
+// a range it cannot read, a running version it cannot read, or a required
+// dependency it sees nothing of here.
+// ponytail: dependencies are matched on service name, not domain, like
+// consumerStage; match the domain too when one environment runs same-named
+// services from two.
+func acceptsWhatRunsHere(snap *fleet.FleetSnapshot, c *contract.Contract, provider string) (string, error) {
+	for _, dep := range c.Dependencies {
+		if dep.Name == provider {
+			continue
+		}
+		rng, err := contract.ParseRange(dep.Compatibility)
+		if err != nil {
+			return "", fmt.Errorf("its range %q on %s cannot be read: %w", dep.Compatibility, dep.Name, err)
+		}
+		seen := false
+		// Every revision of the delivery snapshot but the provider's two sides
+		// is a Pacto running here, so revisions are what runs.
+		for _, k := range slices.Sorted(maps.Keys(snap.Revisions)) {
+			v := snap.Revisions[k].Version
+			if snap.Revisions[k].Service != dep.Name {
+				continue
+			}
+			seen = true
+			ok, err := rng.Check(v)
+			if err != nil {
+				return "", fmt.Errorf("the %s running here has no usable version: %w", dep.Name, err)
+			}
+			if !ok {
+				return fmt.Sprintf("%s %s accepts %s %s, but %s %s runs here", c.Service.Name, c.Service.Version, dep.Name, dep.Compatibility, dep.Name, v), nil
+			}
+		}
+		if !seen && dep.Required {
+			return "", fmt.Errorf("it needs %s %s and Pacto sees no %s running here", dep.Name, dep.Compatibility, dep.Name)
+		}
+	}
+	return "", nil
+}
+
+// acceptsBoth reports whether a consumer contract's range on the provider
+// accepts the new provider version and the one running now. It looks at that
+// one range only; acceptsWhatRunsHere checks the rest. A contract that no
+// longer depends on the provider accepts both.
 func acceptsBoth(c *contract.Contract, provider, newVersion, running string) (string, bool, error) {
 	for _, dep := range c.Dependencies {
 		if dep.Name != provider {

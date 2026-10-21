@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
@@ -129,7 +130,7 @@ var (
 func TestOrderShipOrdersFirst(t *testing.T) {
 	in, pactos := ordersWorld(map[string]*contract.Bundle{
 		o2: bundle("orders", "1.9.0", paymentsDep(">=2.0.0 <4.0.0")),
-		o1: bundle("orders", "1.8.5", paymentsDep("^2.0.0")),
+		o1: bundle("orders", "1.8.5", paymentsDep(">=2.0.0 <4.0.0")), // also accepts both: the newer one wins
 	})
 	p := orderPlan(t, in, pactos, payments2, payments3)
 	if p.Predicted != PredictHeld || p.Floor.Owners[0] != "team-orders" {
@@ -259,5 +260,121 @@ func TestAcceptsBoth(t *testing.T) {
 	}
 	if rng, ok, err := acceptsBoth(c, "payments", "2.5.0", "2.4.0"); !ok || err != nil || rng != "^2.0.0" {
 		t.Fatal("accepts both")
+	}
+}
+
+func shippingDep(rng string, required bool) contract.Dependency {
+	return contract.Dependency{Name: "shipping", Ref: "oci://reg.example/pactos/shipping", Compatibility: rng, Required: required}
+}
+
+// runningPacto is a Pacto of a service with no dependencies running in ns.
+func runningPacto(ns, name, version string) PactoView {
+	p := consumerPacto(ns, name, version, "")
+	p.Status.Dependencies = nil
+	return p
+}
+
+func TestOrderCandidateMustAcceptWhatElseRunsHere(t *testing.T) {
+	// orders 1.9.0 accepts payments 2 and 3 but needs shipping ^2.0.0, and prod
+	// runs shipping 1.4.0: moving it first would break it, so 1.8.5 moves.
+	in, pactos := ordersWorld(map[string]*contract.Bundle{
+		o2: bundle("orders", "1.9.0", paymentsDep(">=2.0.0 <4.0.0"), shippingDep("^2.0.0", true)),
+		o1: bundle("orders", "1.8.5", paymentsDep(">=2.0.0 <4.0.0"), shippingDep("^1.0.0", true)),
+	})
+	pactos = append(pactos, runningPacto("orders-prod", "shipping", "1.4.0"), runningPacto("test", "shipping", "2.0.0"))
+	if m := onlyMove(t, orderPlan(t, in, pactos, payments2, payments3)); m.Candidate == nil || m.Candidate.Digest != o1 {
+		t.Fatalf("1.8.5 accepts the shipping running here: %+v", m)
+	}
+	in.Stages[2].Status.Offered = []string{o2}
+	m := onlyMove(t, orderPlan(t, in, pactos, payments2, payments3))
+	if m.Candidate != nil || m.Unknown != "" || !strings.HasSuffix(m.Message, "No version of orders that test/orders verified can move first yet "+
+		"(orders 1.9.0 accepts shipping ^2.0.0, but shipping 1.4.0 runs here). Ship a newer one that accepts both 3.0.0 and the 2.4.0 running here and what else runs here first.") {
+		t.Fatalf("1.9.0 would break against shipping 1.4.0: %+v", m)
+	}
+	// Without shipping running here Pacto cannot tell: Unknown, not a candidate.
+	m = onlyMove(t, orderPlan(t, in, pactos[:len(pactos)-2], payments2, payments3))
+	if m.Candidate != nil || !strings.Contains(m.Unknown, "it needs shipping ^2.0.0 and Pacto sees no shipping running here") {
+		t.Fatalf("no shipping here: %+v", m)
+	}
+}
+
+func TestAcceptsWhatRunsHere(t *testing.T) {
+	in, pactos := ordersWorld(nil)
+	pactos = append(pactos, runningPacto("orders-prod", "shipping", "1.4.0"))
+	s, err := Snapshot(context.Background(), EnvironmentPactos(pactos, in.Stages, nil, "prod", "prod"), nil, nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		dep       contract.Dependency
+		why, fail string
+	}{
+		{shippingDep("^1.0.0", true), "", ""},
+		{shippingDep("whatever", true), "", `its range "whatever" on shipping cannot be read`},
+		{contract.Dependency{Name: "stock", Compatibility: "^1.0.0"}, "", ""},
+		{contract.Dependency{Name: "stock", Compatibility: "^1.0.0", Required: true}, "", "Pacto sees no stock running here"},
+	}
+	for _, c := range cases {
+		why, err := acceptsWhatRunsHere(s, bundle("orders", "1.9.0", c.dep).Contract, "payments")
+		if why != c.why || (c.fail == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.fail)) {
+			t.Errorf("%+v: %q %v", c.dep, why, err)
+		}
+	}
+	for _, r := range s.Revisions {
+		if r.Service == "shipping" {
+			r.Version = "not-a-version"
+		}
+	}
+	if _, err := acceptsWhatRunsHere(s, bundle("orders", "1.9.0", shippingDep("^1.0.0", true)).Contract, "payments"); err == nil ||
+		!strings.Contains(err.Error(), "the shipping running here has no usable version") {
+		t.Fatalf("unreadable running version: %v", err)
+	}
+}
+
+func TestOrderNeverMovesTheConsumerBack(t *testing.T) {
+	// orders 1.7.0 never depended on payments, but prod runs 1.8.0: moving
+	// 1.7.0 "first" would roll orders back, so it is no candidate.
+	in, pactos := ordersWorld(map[string]*contract.Bundle{
+		o2: bundle("orders", "1.7.0"),
+		o1: bundle("orders", "1.9.0", paymentsDep(">=2.0.0 <4.0.0")),
+	})
+	in.Stages[1].Status.Verified = []string{o1} // 1.9.0 ran here once: promoting it again is a rollback
+	m := onlyMove(t, orderPlan(t, in, pactos, payments2, payments3))
+	if m.Candidate != nil || m.Unknown != "" || !strings.Contains(m.Message, "can move first yet (orders 1.7.0 is not newer than the 1.8.0 running here)") {
+		t.Fatalf("an older version is no candidate: %+v", m)
+	}
+}
+
+func TestNewerThan(t *testing.T) {
+	c := bundle("orders", "1.9.0").Contract
+	if why, err := newerThan(c, ""); why != "" || err != nil {
+		t.Fatal("nothing runs: nothing to roll back")
+	}
+	if _, err := newerThan(c, "garbage"); err == nil || !strings.Contains(err.Error(), "the orders running here has no usable version") {
+		t.Fatalf("running version unreadable: %v", err)
+	}
+	if _, err := newerThan(bundle("orders", "x").Contract, "1.8.0"); err == nil || !strings.Contains(err.Error(), "its version cannot be read") {
+		t.Fatalf("candidate version unreadable: %v", err)
+	}
+}
+
+func TestOrderSharesOneRegistryBound(t *testing.T) {
+	defer func(d time.Duration) { registryTimeout = d }(registryTimeout)
+	registryTimeout = 50 * time.Millisecond
+	in, pactos := ordersWorld(nil)
+	reads := 0
+	in.Candidates = func(ctx context.Context, _ StageObject, d string) Revision {
+		reads++
+		<-ctx.Done() // a registry that never answers
+		return Revision{Digest: d, Err: ctx.Err().Error()}
+	}
+	start := time.Now()
+	m := onlyMove(t, orderPlan(t, in, pactos, payments2, payments3))
+	if took := time.Since(start); took > 10*registryTimeout || reads != 1 {
+		t.Fatalf("one bound for the whole order: took %s, %d reads", took, reads)
+	}
+	if !strings.Contains(m.Unknown, "sha256:020202020202: the registry did not answer within 50ms") ||
+		!strings.Contains(m.Unknown, "sha256:010101010101: not read, the registry did not answer within 50ms") {
+		t.Fatalf("the rest is said unread: %+v", m)
 	}
 }
