@@ -99,7 +99,11 @@ func TestDashboardIdentityOptions(t *testing.T) {
 	// Installed is asked once a minute.
 	calls := 0
 	var servedErr error
-	id.served = func(*rest.Config, string) (bool, error) { calls++; return servedErr == nil, servedErr }
+	id.served = func(cfg *rest.Config, _ string) (bool, error) {
+		calls++
+		expect(t, cfg.Timeout == discoveryTimeout && id.cluster.Timeout == 0, "discovery gives up after %v, on a copy", cfg.Timeout)
+		return servedErr == nil, servedErr
+	}
 	base := time.Now()
 	id.now = func() time.Time { return base }
 	_, _ = id.deliveryInstalled(context.Background())
@@ -107,14 +111,18 @@ func TestDashboardIdentityOptions(t *testing.T) {
 	id.now = func() time.Time { return base.Add(2 * time.Minute) }
 	ok, err := id.deliveryInstalled(context.Background())
 	expect(t, ok && err == nil && calls == 2, "discovery calls %d", calls)
-	// A failed call is returned and never kept: the next request asks again.
+	// A failed call is returned and kept only a few seconds: a cluster that is
+	// down is not asked on every request, and is asked again soon.
 	servedErr = errors.New("connection refused")
 	id.now = func() time.Time { return base.Add(4 * time.Minute) }
 	_, err = id.deliveryInstalled(context.Background())
 	expect(t, err != nil, "a discovery failure is an error")
 	servedErr = nil
 	ok, err = id.deliveryInstalled(context.Background())
-	expect(t, ok && err == nil && calls == 4, "a failure is not cached: %d calls", calls)
+	expect(t, !ok && err != nil && calls == 3, "a failure is kept briefly: %d calls", calls)
+	id.now = func() time.Time { return base.Add(4*time.Minute + failureTTL + time.Second) }
+	ok, err = id.deliveryInstalled(context.Background())
+	expect(t, ok && err == nil && calls == 4, "then asked again: %d calls", calls)
 	// No cluster: no delivery routes.
 	var none dashboard.Options
 	identityFor(t, v, "127.0.0.1", nil).options(&none)

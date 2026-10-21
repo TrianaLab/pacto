@@ -289,6 +289,13 @@ func TestDeliveryNotInstalledAndRefusals(t *testing.T) {
 	expect(t, caps["delivery"] == true, "an unreachable cluster keeps the delivery tab: %v", caps)
 	_, sess := call(t, http.MethodGet, down+"/api/session", nil)
 	expect(t, strings.Contains(fmt.Sprint(sess["callerError"]), "ClusterUnreachable"), "the session names the failure: %v", sess)
+	// Where delivery is never served, capabilities do not ask the cluster.
+	asked := false
+	open := startServer(t, NewServer(Options{UI: testUI(), Auth: a.auth(false, false),
+		DeliveryInstalled: func(context.Context) (bool, error) { asked = true; return false, errors.New("slow") },
+		Delivery:          func(*http.Request) (DeliveryAPI, error) { return f, nil }}))
+	_, caps = call(t, http.MethodGet, open+"/api/capabilities", nil)
+	expect(t, caps["delivery"] == false && !asked, "an open dashboard does not ask the cluster: %v %v", caps, asked)
 	base = startDelivery(t, f, a.auth(false, true), true, Refuse(http.StatusUnauthorized, "LoginRequired", "sign in"))
 	for _, p := range []string{"inbox", "environments", "published", "history", "operations/prod/op"} {
 		if code, body = call(t, http.MethodGet, base+"/api/delivery/"+p, nil); code != http.StatusUnauthorized || body["code"] != "LoginRequired" {

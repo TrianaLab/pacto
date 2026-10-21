@@ -53,11 +53,24 @@ type dashboardIdentity struct {
 	now       func() time.Time
 	state     func(context.Context) authn.State
 
-	mu        sync.Mutex
+	// probe guards the discovery answer; mu guards revisions. A slow cluster
+	// never holds up describe.
+	probe     sync.Mutex
 	checked   time.Time
 	installed bool
+	probeErr  error
+
+	mu        sync.Mutex
 	revisions map[string]delivery.Revision
 }
+
+// Discovery: an answer is kept a minute, a failure a few seconds, and no call
+// waits more than discoveryTimeout on a cluster that does not answer.
+const (
+	installedTTL     = time.Minute
+	failureTTL       = 10 * time.Second
+	discoveryTimeout = 5 * time.Second
+)
 
 // newDashboardIdentity picks the mode: shared with OIDC when an issuer is
 // configured, local on a loopback bind without one, and open (no delivery)
@@ -107,19 +120,23 @@ func (id *dashboardIdentity) options(o *dashboard.Options) {
 
 // deliveryInstalled asks discovery, with the dashboard's own credentials,
 // whether the delivery API group is served; the answer is kept a minute, so
-// installing the chart later needs no restart. A failed call is not an
-// answer: it is returned and asked again next time.
+// installing the chart later needs no restart. A failed call is returned and
+// kept only briefly, so a cluster that is down is not asked on every request.
 func (id *dashboardIdentity) deliveryInstalled(context.Context) (bool, error) {
-	id.mu.Lock()
-	defer id.mu.Unlock()
-	if now := id.now(); now.Sub(id.checked) > time.Minute {
-		installed, err := id.served(id.cluster, deliveryGroupVersion)
-		if err != nil {
-			return false, err
-		}
-		id.installed, id.checked = installed, now
+	id.probe.Lock()
+	defer id.probe.Unlock()
+	now := id.now()
+	ttl := installedTTL
+	if id.probeErr != nil {
+		ttl = failureTTL
 	}
-	return id.installed, nil
+	if now.Sub(id.checked) > ttl {
+		cfg := rest.CopyConfig(id.cluster)
+		cfg.Timeout = discoveryTimeout
+		id.installed, id.probeErr = id.served(cfg, deliveryGroupVersion)
+		id.checked = now
+	}
+	return id.installed && id.probeErr == nil, id.probeErr
 }
 
 // delivery is the caller's delivery API: the kubeconfig user in local mode,
