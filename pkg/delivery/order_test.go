@@ -360,6 +360,13 @@ func TestAcceptsWhatRunsHere(t *testing.T) {
 		!strings.Contains(err.Error(), "the shipping running here has no usable version") {
 		t.Fatalf("unreadable running version: %v", err)
 	}
+	// On a partial graph an optional dependency Pacto sees nothing of may run
+	// here unread: Unknown, not a pass.
+	s.Completeness = fleet.CompletenessPartial
+	if _, err := acceptsWhatRunsHere(s, bundle("orders", "1.9.0", contract.Dependency{Name: "stock", Compatibility: "^1.0.0"}).Contract, "payments"); err == nil ||
+		!strings.Contains(err.Error(), "the operational graph is partial") {
+		t.Fatalf("optional and unseen on a partial graph: %v", err)
+	}
 }
 
 func TestOrderNeverMovesTheConsumerBack(t *testing.T) {

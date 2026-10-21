@@ -241,8 +241,9 @@ func newerThan(c *contract.Contract, running string) (string, error) {
 // acceptsWhatRunsHere checks every other dependency of a candidate against the
 // versions running in this environment (snap is scoped to it). It says why the
 // candidate would break against one of them, or errors when Pacto cannot tell:
-// a range it cannot read, a running version it cannot read, or a required
-// dependency it sees nothing of here.
+// a range it cannot read, a running version it cannot read, a required
+// dependency it sees nothing of here, or any dependency it sees nothing of when
+// the graph is partial.
 // ponytail: dependencies are matched on service name, not domain, like
 // consumerStage; match the domain too when one environment runs same-named
 // services from two.
@@ -272,8 +273,13 @@ func acceptsWhatRunsHere(snap *fleet.FleetSnapshot, c *contract.Contract, provid
 				return fmt.Sprintf("%s %s accepts %s %s, but %s %s runs here", c.Service.Name, c.Service.Version, dep.Name, dep.Compatibility, dep.Name, v), nil
 			}
 		}
-		if !seen && dep.Required {
+		switch {
+		case seen:
+		case dep.Required:
 			return "", fmt.Errorf("it needs %s %s and Pacto sees no %s running here", dep.Name, dep.Compatibility, dep.Name)
+		case snap.Completeness == fleet.CompletenessPartial:
+			// An optional dependency it sees nothing of may still run here, unread.
+			return "", fmt.Errorf("it uses %s %s when it runs and the operational graph is partial, so Pacto cannot tell whether a %s it would break runs here", dep.Name, dep.Compatibility, dep.Name)
 		}
 	}
 	return "", nil

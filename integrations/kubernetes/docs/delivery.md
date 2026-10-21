@@ -218,7 +218,8 @@ Pacto works this out from the contracts and the Stages:
   is not a candidate.
 - **The candidate must fit what else runs there.** Every other dependency the
   candidate declares must accept the version running in that environment. A
-  required dependency Pacto sees nothing of there makes the answer unknown.
+  required dependency Pacto sees nothing of there makes the answer unknown,
+  and so does an optional one while the graph is partial.
 - **The candidate must keep its own consumers.** Every Pacto running there that
   declares a range on the consumer must accept the candidate's version, so
   following the order never needs a person to approve a break of its own. A
