@@ -40,6 +40,9 @@ spec:
             {{- with .Values.identities.teamGroupPrefix }}
             - {{ printf "--team-group-prefix=%s" . | quote }}
             {{- end }}
+            {{- if .Values.recorder.enabled }}
+            - --records
+            {{- end }}
             {{- with .Values.gates.providers }}
             - {{ printf "--gate-providers=%s" (toJson .) | quote }}
             {{- end }}

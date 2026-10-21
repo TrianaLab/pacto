@@ -830,7 +830,7 @@ jobs:
         run: |
           docker buildx build --platform ${{ matrix.platform }} \
             --file integrations/kubernetes/Dockerfile \
-            --build-arg CMD=cmd/delivery \
+            --target delivery --build-arg CMD=cmd/delivery \
             --build-arg "VERSION=v$VER" --build-arg "GIT_COMMIT=$SRC" \
             --build-arg RELEASE_BUILD=1 \
             --label org.opencontainers.image.title=pacto-delivery \

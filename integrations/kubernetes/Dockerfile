@@ -15,7 +15,8 @@ ARG GIT_COMMIT=unknown
 ARG BUILD_DATE=unknown
 ARG DASHBOARD_IMAGE=
 # CMD picks the entrypoint package: cmd is the observing operator, cmd/delivery
-# the opt-in pacto-delivery promoter. One Dockerfile, two images.
+# the opt-in pacto-delivery image (built with --target delivery). One
+# Dockerfile, two images.
 ARG CMD=cmd
 # RELEASE_BUILD=1 (set by the release publisher) builds the operator module
 # STANDALONE with GOWORK=off, so it resolves the engine core from the PUBLISHED
@@ -83,8 +84,20 @@ RUN set -eu; \
         go build -ldflags "${LDFLAGS}" -o /workspace/manager "./integrations/kubernetes/${CMD}"; \
     fi
 
-FROM gcr.io/distroless/static:nonroot
+FROM gcr.io/distroless/static:nonroot AS operator
 WORKDIR /
 COPY --from=builder /workspace/manager .
 USER 65532:65532
 ENTRYPOINT ["/manager"]
+
+# The delivery image (`--target delivery`, with CMD=cmd/delivery) also carries
+# cosign: the recorder signs records with it when it uses a KMS key or keyless
+# signing. cosign 2.x, because the recorder relies on sign-blob writing a raw
+# signature and certificate (--b64=false, --output-signature,
+# --output-certificate) with Rekor upload off. BuildKit builds only the target
+# it is asked for, so the operator image never pulls this.
+FROM operator AS delivery
+COPY --from=ghcr.io/sigstore/cosign/cosign:v2.6.5@sha256:ad281047f85c5e1fc6ffbc30c2b55be3b07b4032bef715a12122ce5829619aca /ko-app/cosign /usr/local/bin/cosign
+
+# The default target stays the operator image.
+FROM operator

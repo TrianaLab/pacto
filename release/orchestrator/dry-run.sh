@@ -97,7 +97,7 @@ echo "   operator image digest: $OPDIGEST"
 
 echo "== build + push the delivery image (same Dockerfile, CMD=cmd/delivery) =="
 DLIMG="$REG/pacto/delivery:$DV"
-docker build -f "$ROOT/integrations/kubernetes/Dockerfile" --build-arg CMD=cmd/delivery --build-arg VERSION="$DV" -t "$DLIMG" "$ROOT"
+docker build -f "$ROOT/integrations/kubernetes/Dockerfile" --target delivery --build-arg CMD=cmd/delivery --build-arg VERSION="$DV" -t "$DLIMG" "$ROOT"
 docker push "$DLIMG" >/dev/null
 echo "   delivery image digest: $(digest "$DLIMG")"
 

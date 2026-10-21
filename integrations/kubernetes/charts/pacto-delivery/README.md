@@ -53,13 +53,32 @@ same version as your Pacto operator.
 | image.repository | string | `"ghcr.io/trianalab/pacto/delivery"` | Promoter image repository (the pacto-delivery image) |
 | image.tag | string | `""` | Overrides the image tag (default is the chart appVersion) |
 | imagePullSecrets | list | `[]` | Image pull secrets for private registries |
-| insecureRegistries | list | `[]` | Registry hosts (`host:port`) the promoter reaches over plain HTTP when it reads contracts. An OCIRepository with `spec.insecure: true` is read over HTTP anyway. |
+| insecureRegistries | list | `[]` | Registry hosts (`host:port`) the promoter and the recorder reach over plain HTTP. An OCIRepository with `spec.insecure: true` is read over HTTP anyway. |
 | nameOverride | string | `""` | Override the chart name |
 | nodeSelector | object | `{}` | Node selector for the promoter pod |
 | podSecurityContext.runAsNonRoot | bool | `true` | Run pod as non-root |
 | podSecurityContext.seccompProfile.type | string | `"RuntimeDefault"` | Seccomp profile type |
 | promoter.leaderElect | bool | `true` | Elect one active promoter |
 | promoter.poll | string | `"3s"` | How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration) |
+| recorder.enabled | bool | `false` | Run the recorder, which writes a signed record of every concluded operation to the registry as OCI referrers. Off by default. When on, the promoter leaves the record finalizer to it. The registry must support the OCI Referrers API natively (GHCR and released `distribution` do not). |
+| recorder.extraEnv | list | `[]` | Extra environment for the recorder (for example KMS or OIDC settings cosign reads) |
+| recorder.leaderElect | bool | `true` | Elect one active recorder |
+| recorder.poll | string | `"30s"` | How long a registry or signer failure backs off (a Go duration) |
+| recorder.registryCredentials.secretName | string | `""` | A `kubernetes.io/dockerconfigjson` Secret with push access to the streams, apply and contract repositories. Only the recorder mounts it. |
+| recorder.resources.limits.cpu | string | `"500m"` | CPU limit |
+| recorder.resources.limits.memory | string | `"256Mi"` | Memory limit |
+| recorder.resources.requests.cpu | string | `"10m"` | CPU request |
+| recorder.resources.requests.memory | string | `"64Mi"` | Memory request |
+| recorder.serviceAccount.annotations | object | `{}` | Annotations to add to the recorder's ServiceAccount (workload identity for KMS or keyless) |
+| recorder.serviceAccount.create | bool | `true` | Create a ServiceAccount for the recorder |
+| recorder.serviceAccount.name | string | `""` | Name override (defaults to fullname-recorder) |
+| recorder.signing.ed25519.key | string | `"key.pem"` | The key in that Secret |
+| recorder.signing.ed25519.secretName | string | `""` | A Secret holding a PKCS#8 PEM Ed25519 private key (for kind and tests) |
+| recorder.signing.keyless.enabled | bool | `false` | Sign keyless with a Fulcio certificate for the recorder's workload identity. Rekor upload is off. |
+| recorder.signing.keyless.identity | string | `""` | The certificate identity keyless signing produces |
+| recorder.signing.keyless.issuer | string | `""` | The OIDC issuer keyless signing uses |
+| recorder.signing.kms | string | `""` | A cosign KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`) |
+| recorder.streamsRepository | string | `""` | Repository (`host/path`) that holds one anchor per Stage stream. Required when enabled. |
 | replicaCount | int | `1` | Number of promoter replicas. Only the elected leader acts. |
 | resources.limits.cpu | string | `"500m"` | CPU limit |
 | resources.limits.memory | string | `"256Mi"` | Memory limit |

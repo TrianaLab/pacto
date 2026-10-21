@@ -33,6 +33,53 @@
         "leaderElect": { "type": "boolean" }
       }
     },
+    "recorder": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "streamsRepository": { "type": "string" },
+        "poll": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$" },
+        "leaderElect": { "type": "boolean" },
+        "serviceAccount": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "create": { "type": "boolean" },
+            "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
+            "name": { "type": "string" }
+          }
+        },
+        "registryCredentials": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "secretName": { "type": "string" } }
+        },
+        "signing": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "ed25519": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "secretName": { "type": "string" }, "key": { "type": "string", "minLength": 1 } }
+            },
+            "kms": { "type": "string" },
+            "keyless": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "identity": { "type": "string" },
+                "issuer": { "type": "string" }
+              }
+            }
+          }
+        },
+        "extraEnv": { "type": "array" },
+        "resources": { "type": "object" }
+      }
+    },
     "gates": {
       "type": "object",
       "additionalProperties": false,

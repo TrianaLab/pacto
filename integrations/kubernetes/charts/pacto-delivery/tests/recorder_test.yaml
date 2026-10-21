@@ -1,0 +1,155 @@
+suite: recorder tests
+templates:
+  - templates/recorder.yaml
+  - templates/deployment.yaml
+release:
+  name: d
+  namespace: pacto-delivery
+tests:
+  - it: is off by default and leaves the promoter alone
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/recorder.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --records
+        template: templates/deployment.yaml
+
+  - it: runs the recorder with an Ed25519 key and hands the finalizer over
+    set:
+      recorder.enabled: true
+      recorder.streamsRepository: registry.example/pacto/streams
+      recorder.signing.ed25519.secretName: recorder-key
+      recorder.registryCredentials.secretName: recorder-push
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --records
+        template: templates/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - recorder
+            - --leader-elect=true
+            - --poll=30s
+            - --streams-repository=registry.example/pacto/streams
+            - --signing-key-file=/etc/pacto/signing/key.pem
+        template: templates/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+        template: templates/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - equal:
+          path: spec.template.spec.serviceAccountName
+          value: d-pacto-delivery-recorder
+        template: templates/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: DOCKER_CONFIG, value: /etc/pacto/registry}
+        template: templates/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: registry
+            secret:
+              secretName: recorder-push
+              items: [{key: .dockerconfigjson, path: config.json}]
+        template: templates/recorder.yaml
+        documentSelector: {path: kind, value: Deployment}
+
+  - it: never gives the promoter the key or the push credentials
+    set:
+      recorder.enabled: true
+      recorder.streamsRepository: r/s
+      recorder.signing.ed25519.secretName: recorder-key
+      recorder.registryCredentials.secretName: recorder-push
+    template: templates/deployment.yaml
+    asserts:
+      - notExists:
+          path: spec.template.spec.volumes
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: DOCKER_CONFIG, value: /etc/pacto/registry}
+
+  - it: grants the recorder no write on what runs
+    set:
+      recorder.enabled: true
+      recorder.streamsRepository: r/s
+      recorder.signing.kms: awskms:///alias/pacto
+    template: templates/recorder.yaml
+    documentSelector: {path: kind, value: ClusterRole}
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [source.toolkit.fluxcd.io], resources: [ocirepositories], verbs: [get]}
+      - contains:
+          path: rules
+          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [stages/status, operations/status], verbs: [get, update]}
+
+  - it: signs with a KMS key or keyless
+    set:
+      recorder.enabled: true
+      recorder.streamsRepository: r/s
+      recorder.signing.keyless.enabled: true
+      recorder.signing.keyless.identity: https://kubernetes.io/namespaces/pacto-delivery/serviceaccounts/d-pacto-delivery-recorder
+      recorder.signing.keyless.issuer: https://issuer.example
+    template: templates/recorder.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --keyless
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --keyless-issuer=https://issuer.example
+
+  - it: passes the KMS key
+    set:
+      recorder.enabled: true
+      recorder.streamsRepository: r/s
+      recorder.signing.kms: awskms:///alias/pacto
+      insecureRegistries: [reg:5000]
+    template: templates/recorder.yaml
+    documentSelector: {path: kind, value: Deployment}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --kms-key=awskms:///alias/pacto
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: PACTO_INSECURE_REGISTRIES, value: "reg:5000"}
+
+  - it: refuses no streams repository
+    set:
+      recorder.enabled: true
+      recorder.signing.kms: k
+    template: templates/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: streamsRepository is required
+
+  - it: refuses no signer or two
+    set:
+      recorder.enabled: true
+      recorder.streamsRepository: r/s
+      recorder.signing.kms: k
+      recorder.signing.ed25519.secretName: s
+    template: templates/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: exactly one
+
+  - it: refuses keyless without identity and issuer
+    set:
+      recorder.enabled: true
+      recorder.streamsRepository: r/s
+      recorder.signing.keyless.enabled: true
+    template: templates/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: identity and issuer

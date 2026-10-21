@@ -66,3 +66,14 @@ A CEL list literal of the given strings.
 {{- define "pacto-delivery.celList" -}}
 [{{- range $i, $g := . }}{{ if $i }}, {{ end }}{{ $g | squote }}{{ end }}]
 {{- end }}
+
+{{/*
+The recorder's ServiceAccount name.
+*/}}
+{{- define "pacto-delivery.recorderServiceAccountName" -}}
+{{- if .Values.recorder.serviceAccount.create }}
+{{- default (printf "%s-recorder" (include "pacto-delivery.fullname" .)) .Values.recorder.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.recorder.serviceAccount.name }}
+{{- end }}
+{{- end }}

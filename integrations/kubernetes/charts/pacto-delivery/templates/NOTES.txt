@@ -9,3 +9,11 @@ accounts and {{ include "pacto-delivery.fullname" . }}-approver to the people wh
 approve. Then:
 
   pacto delivery plan --namespace <ns> --stage <stage> --to sha256:<digest>
+{{- if .Values.recorder.enabled }}
+
+The recorder writes a signed record of every concluded operation to
+{{ .Values.recorder.streamsRepository }} and to the versions it touched. Check that
+records are being written:
+
+  kubectl get stages -A -o custom-columns=NAME:.metadata.name,RECORDS:.status.conditions[?(@.type=="RecordStoreReady")].reason
+{{- end }}

@@ -91,7 +91,7 @@ DASH_IMG="localhost:5001/pacto-dashboard:$(release_version core)"
 build_operator_images "$OP_IMG" "$DASH_IMG" "$VER"
 echo "== build the pacto-delivery image (the operator Dockerfile, its second entrypoint) =="
 docker build --load -f "$_PACTO_ROOT/integrations/kubernetes/Dockerfile" --build-arg VERSION="$VER" \
-  --build-arg CMD=cmd/delivery -t "$DL_IMG" "$_PACTO_ROOT"
+  --target delivery --build-arg CMD=cmd/delivery -t "$DL_IMG" "$_PACTO_ROOT"
 PACTO="$(build_pacto)"
 OP_CHART="$(package_chart "$PACTO_CHART")"
 DL_CHART="$(package_chart "$_PACTO_ROOT/integrations/kubernetes/charts/pacto-delivery")"
