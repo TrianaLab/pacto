@@ -1255,8 +1255,11 @@ done
 PR100="$(contract pricing 1.0.0 service)"
 PR200="$(contract pricing 2.0.0 service)"  # orders 1.8.0 accepts ^1.0.0 only
 PR210="$(contract pricing 2.1.0 service)"
+# Not required: staging runs no pricing, and a required dependency the operator
+# cannot observe there would keep orders' contract check Unknown. Impact judges
+# the declared range either way.
 orders_contract() { # VERSION RANGE
-  contract orders "$1" service "dependencies: [{name: pricing, ref: \"oci://${REG_HOST}/demo/pricing\", required: true, compatibility: \"$2\"}]"
+  contract orders "$1" service "dependencies: [{name: pricing, ref: \"oci://${REG_HOST}/demo/pricing\", required: false, compatibility: \"$2\"}]"
 }
 OR18="$(orders_contract 1.8.0 "^1.0.0")"
 OR19="$(orders_contract 1.9.0 ">=1.0.0 <3.0.0")"
