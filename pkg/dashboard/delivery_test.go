@@ -547,6 +547,11 @@ func TestDecide(t *testing.T) {
 	if code, out := decide(base); code != http.StatusCreated || out["approval"] != "held-x" || f.approved[0] != "prod/held=approve" {
 		t.Fatalf("a fresh member of the named team decides: %d %v", code, out)
 	}
+	// accept-unknown takes the same path to an Approval as approve and reject.
+	if code, out := call(t, http.MethodPost, base+"/api/delivery/operations/prod/held/decision", map[string]string{"decision": "accept-unknown"}); code != http.StatusCreated ||
+		f.approved[1] != "prod/held=accept-unknown" {
+		t.Fatalf("accept-unknown reaches the Approval as the person's decision: %d %v %v", code, out, f.approved)
+	}
 	cases := []struct {
 		name  string
 		setup func() string
