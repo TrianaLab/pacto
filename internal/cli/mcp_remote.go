@@ -100,6 +100,8 @@ type remoteDelivery struct {
 	cluster   *rest.Config
 	newClient func(*rest.Config) (dynamic.Interface, error)
 	registry  func(...string) app.DeliveryRegistry
+	records   app.RecordRepo
+	trust     *delivery.TrustConfig
 	policy    delivery.ClassPolicy
 	build     func(api pactomcp.DeliveryAPI, writes bool) *mcpsdk.Server
 }
@@ -116,7 +118,7 @@ func (rd remoteDelivery) middleware(next http.Handler) http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		c := &app.Delivery{Dynamic: dyn, Registry: rd.registry, Policy: rd.policy, Now: time.Now}
+		c := &app.Delivery{Dynamic: dyn, Registry: rd.registry, Records: rd.records, Trust: rd.trust, Policy: rd.policy, Now: time.Now}
 		caller, err := c.WhoAmI(r.Context())
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusForbidden)
@@ -180,7 +182,13 @@ func remoteDeliveryFor(cmd *cobra.Command, svc *app.Service, version string, d d
 	}
 	agents, _ := cmd.Flags().GetStringSlice("agent-groups")
 	breakGlass, _ := cmd.Flags().GetStringSlice("break-glass-groups")
+	path, _ := cmd.Flags().GetString("delivery-trust")
+	trust, err := deliveryTrust(path)
+	if err != nil {
+		return err
+	}
 	rd := remoteDelivery{auth: s.auth, cluster: cluster, registry: d.newDeliveryRegistry, newClient: d.dynamicFor,
+		records: d.newRecordRepo, trust: trust,
 		policy: delivery.ClassPolicy{AgentGroups: agents, BreakGlassGroups: breakGlass},
 		build: func(api pactomcp.DeliveryAPI, writes bool) *mcpsdk.Server {
 			return pactomcp.NewDeliveryServer(version, api, writes, svc.ValidationReport)

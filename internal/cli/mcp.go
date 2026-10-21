@@ -120,6 +120,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().Bool("publish", false, "expose pacto_publish_plan and pacto_publish beside the authoring tools")
 	cmd.Flags().StringSlice("agent-groups", []string{"pacto:agents"}, "in --delivery mode: groups whose members are agents")
 	cmd.Flags().StringSlice("break-glass-groups", []string{"pacto:break-glass"}, "in --delivery mode: groups that may override")
+	cmd.Flags().String("delivery-trust", "", "in --delivery mode: the trust config delivery records are verified with "+
+		"(the recorder's PEM public key or a YAML trust config; default $"+trustEnv+")")
 	// Declared before the shared set so this spelling wins: here --root selects a
 	// catalog to discover, not a closure to fold into a snapshot.
 	cmd.Flags().StringArray("root", nil, "contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)")

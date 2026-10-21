@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -248,4 +249,12 @@ func TestDashDeliveryDescribeCache(t *testing.T) {
 	}
 	api.Describe(ctx, &stages[0], cliA)
 	expect(t, len(id.revisions) == 1, "a full cache resets: %d", len(id.revisions))
+}
+
+func TestDashboardIdentityRefusesABadTrustConfig(t *testing.T) {
+	v := viper.New()
+	v.Set("dashboard.delivery-trust", filepath.Join(t.TempDir(), "absent"))
+	if _, err := newDashboardIdentity(v, "127.0.0.1", nil, defaultDeps()); err == nil || !strings.Contains(err.Error(), "trust config") {
+		t.Fatalf("a missing trust config must fail at start: %v", err)
+	}
 }

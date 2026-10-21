@@ -54,12 +54,14 @@ type deps struct {
 	newMCPAuth func(authn.MCPConfig) (mcpAuth, error)
 	// newDeliveryRegistry is the read-only registry `pacto delivery` resolves artifacts through.
 	newDeliveryRegistry func(insecureHosts ...string) app.DeliveryRegistry
-	runAgent            func(context.Context, runtimewatch.Config)
-	newDocker           func(socket string) *evalsink.Docker
-	newSession          func(parent, name string) (ebpf.Session, error)
-	setSubreaper        func() error
-	notifySignals       func(chan<- os.Signal, ...os.Signal)
-	resolveBundle       func(svc *app.Service, ctx context.Context, ref string) (*contract.Bundle, error)
+	// newRecordRepo opens a repository delivery records are read from.
+	newRecordRepo app.RecordRepo
+	runAgent      func(context.Context, runtimewatch.Config)
+	newDocker     func(socket string) *evalsink.Docker
+	newSession    func(parent, name string) (ebpf.Session, error)
+	setSubreaper  func() error
+	notifySignals func(chan<- os.Signal, ...os.Signal)
+	resolveBundle func(svc *app.Service, ctx context.Context, ref string) (*contract.Bundle, error)
 	// publish runs `pacto publish`: it builds, signs and writes to a registry.
 	publish func(svc *app.Service, ctx context.Context, opts app.PublishOptions) (*publish.Result, error)
 	// selfProc is this process's own /proc, read for its network namespace.
@@ -89,6 +91,7 @@ func defaultDeps() deps {
 		dynamicFor:          newDynamicForConfig,
 		newMCPAuth:          newMCPAuth,
 		newDeliveryRegistry: newDeliveryRegistry,
+		newRecordRepo:       newRecordRepo,
 		runAgent:            runtimewatch.Run,
 		newDocker:           evalsink.NewDocker,
 		newSession:          ebpf.NewSession,

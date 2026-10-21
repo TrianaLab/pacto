@@ -19,6 +19,9 @@ type DeliveryAPI interface {
 	Cancel(ctx context.Context, namespace, name string) error
 	Explain(ctx context.Context, namespace, name string) (*delivery.Explanation, error)
 	History(ctx context.Context, namespace, stage string) (*delivery.History, error)
+	Blame(ctx context.Context, namespace, stage, digest string) (*delivery.Blame, error)
+	Undo(ctx context.Context, namespace, name, stage string) (*delivery.Undo, error)
+	VerifyRecords(ctx context.Context, namespace, stage string) (*delivery.StreamVerification, error)
 }
 
 // noApprove is in every delivery tool description, so an agent never goes
@@ -30,7 +33,11 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 	"pacto_delivery_operation_plan to see what the promoter will do (verdicts, whether a person is needed, " +
 	"the one question they are asked), then propose with the plan's intent digest and follow it with " +
 	"pacto_delivery_get. pacto_delivery_explain shows every verdict with the citation behind it and how to run it " +
-	"again, and pacto_delivery_history what happened on a Stage. Unknown is never Pass: an operation Pacto cannot " +
+	"again, and pacto_delivery_history what happened on a Stage, read from its signed records when the recorder runs. " +
+	"pacto_delivery_blame says who put a version in place, pacto_delivery_undo returns the plan that would undo an operation " +
+	"(it proposes nothing) and pacto_delivery_record_verify checks every record's signature and the chain. Every history answer " +
+	"carries asOf and completeness: when it is partial, a change missing from it may still have happened. A plan's precedent " +
+	"says what the records attached to the version say happened to it on other Stages. Unknown is never Pass: an operation Pacto cannot " +
 	"judge waits for a person. A verdict you cite as a cause is run again by the promoter and refused if it does not hold. " +
 	"When a consumer running in the environment does not accept the new version, the plan's order.moveFirst names that " +
 	"consumer, its Stage there and, as candidate, a version of it its upstream Stage verified that accepts both versions: " +
@@ -103,19 +110,52 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Va
 	})
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "pacto_delivery_history",
-		Description: "List what happened on a Stage: every operation still in the cluster in stream order, then the ones in " +
-			"flight. The answer says asOf and completeness: it is partial, because a deleted operation is gone until signed " +
-			"records exist. Read-only." + noApprove,
-		InputSchema: inputSchema(map[string]property{
-			"namespace": {Type: "string", Description: "Namespace of the Stage"},
-			"stage":     {Type: "string", Description: "Stage name"},
-		}, []string{"namespace", "stage"}),
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a struct {
-		Namespace string `json:"namespace"`
-		Stage     string `json:"stage"`
-	}) (*mcpsdk.CallToolResult, any, error) {
+		Description: "List what happened on a Stage. With the recorder installed it is read from the Stage's signed records in the " +
+			"registry (source records), plus the operations not recorded yet; otherwise from the operations still in the cluster " +
+			"(source status, always partial). The answer says asOf, completeness, problems (missing seqs, forks, hidden changes) " +
+			"and what was unreadable: when completeness is partial, a change missing from it may still have happened. Read-only." + noApprove,
+		InputSchema: stageSchema(),
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a stageArgs) (*mcpsdk.CallToolResult, any, error) {
 		h, err := api.History(ctx, a.Namespace, a.Stage)
 		return resultOrError(h, err)
+	})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "pacto_delivery_blame",
+		Description: "Say who put a version in place on a Stage (by default the one it runs): the newest change that moved the " +
+			"Stage to it, who asked, on whose behalf (asserted), why, who approved and what every gate said, from the records. " +
+			"No change with completeness partial means unknown, never nobody. Read-only." + noApprove,
+		InputSchema: stageSchema("digest"),
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a stageArgs) (*mcpsdk.CallToolResult, any, error) {
+		b, err := api.Blame(ctx, a.Namespace, a.Stage, a.Digest)
+		return resultOrError(b, err)
+	})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "pacto_delivery_undo",
+		Description: "Plan how to undo an operation and propose nothing: a rollback bound to it when it is the change the Stage " +
+			"runs now, a promote back to the version it replaced when something changed since (every gate runs), or nothing " +
+			"when it moved nothing. To act, review the plan and propose it yourself with its intent digest. Read-only." + noApprove,
+		InputSchema: inputSchema(map[string]property{
+			"namespace": {Type: "string", Description: "Namespace of the operation"},
+			"name":      {Type: "string", Description: "Operation name"},
+			"stage":     {Type: "string", Description: "Its Stage, needed only when the Operation was deleted and must be found in the records"},
+		}, []string{"namespace", "name"}),
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a struct {
+		Namespace string `json:"namespace"`
+		Name      string `json:"name"`
+		Stage     string `json:"stage"`
+	}) (*mcpsdk.CallToolResult, any, error) {
+		u, err := api.Undo(ctx, a.Namespace, a.Name, a.Stage)
+		return resultOrError(u, err)
+	})
+	mcpsdk.AddTool(server, &mcpsdk.Tool{
+		Name: "pacto_delivery_record_verify",
+		Description: "Verify every signed record of a Stage's stream against the trust config this server was started with and " +
+			"check the chain from seq 1 to the head the Stage names: ok, the records, problems and what did not verify, plus the " +
+			"cosign command that checks one record without Pacto. Read-only." + noApprove,
+		InputSchema: stageSchema(),
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a stageArgs) (*mcpsdk.CallToolResult, any, error) {
+		v, err := api.VerifyRecords(ctx, a.Namespace, a.Stage)
+		return resultOrError(v, err)
 	})
 	if writes {
 		registerDeliveryWrites(server, api)
@@ -216,6 +256,24 @@ func requestSchema(extra ...string) map[string]any {
 		case "name":
 			props[e] = property{Type: "string", Description: "Operation name (generated when empty)"}
 		}
+	}
+	return inputSchema(props, []string{"namespace", "stage"})
+}
+
+type stageArgs struct {
+	Namespace string `json:"namespace"`
+	Stage     string `json:"stage"`
+	Digest    string `json:"digest"`
+}
+
+// stageSchema is a Stage input, with digest for blame.
+func stageSchema(extra ...string) map[string]any {
+	props := map[string]property{
+		"namespace": {Type: "string", Description: "Namespace of the Stage"},
+		"stage":     {Type: "string", Description: "Stage name"},
+	}
+	if len(extra) > 0 {
+		props["digest"] = property{Type: "string", Description: "The version (sha256:...) to blame; defaults to the one the Stage runs"}
 	}
 	return inputSchema(props, []string{"namespace", "stage"})
 }

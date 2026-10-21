@@ -227,6 +227,7 @@ pacto dashboard [sources...] [flags]
       --auth-required                with OIDC sign-in, gate the fleet views and the whole API behind it too, not only delivery (also PACTO_DASHBOARD_AUTH_REQUIRED)
       --break-glass-groups strings   groups that may override, as the delivery promoter is configured (default [pacto:break-glass])
       --cors-origin string           explicit cross-origin allowed to call the API (default: same-origin only)
+      --delivery-trust string        the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
   -h, --help                         help for dashboard
       --host string                  bind address for the dashboard server (default "127.0.0.1")
       --mira-url string              Mira's address, to link the health-check citations of delivery verdicts
@@ -264,6 +265,7 @@ pacto delivery [flags]
       --break-glass-groups strings   groups that may override (default [pacto:break-glass])
   -h, --help                         help for delivery
   -n, --namespace string             namespace of the Stage and its Operations (default "default")
+      --trust string                 the trust config delivery records are verified with: the recorder's PEM public key, or a YAML file of keys and the streams each may sign (default $PACTO_DELIVERY_TRUST)
 ```
 
 ### `pacto delivery approve`
@@ -280,6 +282,22 @@ pacto delivery approve <operation> [flags]
       --decision string   approve, reject or accept-unknown (default "approve")
   -h, --help              help for approve
       --note string       why, for the record
+```
+
+### `pacto delivery blame`
+
+Say who put a version in place on a Stage: who asked, for whom, who approved and what every gate said
+
+```
+pacto delivery blame [flags]
+```
+
+**Flags:**
+
+```
+      --digest string   the version to blame (defaults to the one the Stage runs)
+  -h, --help            help for blame
+      --stage string    the Stage (required)
 ```
 
 ### `pacto delivery cancel`
@@ -340,7 +358,7 @@ pacto delivery get <operation> [flags]
 
 ### `pacto delivery history`
 
-List what happened on a Stage, from the operations still in the cluster
+List what happened on a Stage, from its signed records when the recorder runs, otherwise from the cluster
 
 ```
 pacto delivery history [flags]
@@ -399,6 +417,35 @@ pacto delivery propose [flags]
       --undoes string                                               for a rollback: the name of the operation it undoes
 ```
 
+### `pacto delivery record`
+
+Work with the signed records of operations
+
+```
+pacto delivery record [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for record
+```
+
+#### `pacto delivery record verify`
+
+Verify every record of a Stage's stream against the trust config and check the chain
+
+```
+pacto delivery record verify [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help           help for verify
+      --stage string   the Stage (required)
+```
+
 ### `pacto delivery types`
 
 List the operation types you may propose
@@ -411,6 +458,21 @@ pacto delivery types [flags]
 
 ```
   -h, --help   help for types
+```
+
+### `pacto delivery undo`
+
+Plan how to undo an operation; it proposes nothing and prints the command that would
+
+```
+pacto delivery undo <operation> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help           help for undo
+      --stage string   the operation's Stage, needed only when the Operation was deleted and must be found in the records
 ```
 
 ---
@@ -1106,6 +1168,7 @@ pacto mcp [bundle-ref] [flags]
       --break-glass-groups strings   in --delivery mode: groups that may override (default [pacto:break-glass])
       --cache                        include every bundle in the local OCI cache as an offline baseline revision
       --delivery                     expose the Pacto delivery tools over the ambient cluster
+      --delivery-trust string        in --delivery mode: the trust config delivery records are verified with (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
       --evidence-url stringArray     base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --exchange-audience string     with --delivery over HTTP: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
       --exchange-client-id string    with --delivery over HTTP: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET

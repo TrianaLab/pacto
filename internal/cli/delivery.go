@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -13,10 +14,12 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 )
 
 // newDeliveryRegistry is the production registry for the delivery verbs: the
@@ -25,6 +28,36 @@ import (
 func newDeliveryRegistry(hosts ...string) app.DeliveryRegistry {
 	return oci.NewClient(oci.NewKeychain(oci.EnvCredentialOptions()),
 		oci.WithInsecureRegistries(append(oci.EnvInsecureRegistries(), hosts...)...))
+}
+
+// newRecordRepo opens a repository to read delivery records from, with the
+// CLI's own credentials and plain-HTTP hosts, plus the hosts an OCIRepository
+// marks insecure.
+func newRecordRepo(path string, hosts ...string) (*remote.Repository, error) {
+	return ocireferrer.Open(path, ocireferrer.Options{Keychain: oci.NewKeychain(oci.EnvCredentialOptions()),
+		Insecure: append(oci.EnvInsecureRegistries(), hosts...)})
+}
+
+// trustEnv names the trust config file when no flag does.
+const trustEnv = "PACTO_DELIVERY_TRUST"
+
+// deliveryTrust reads the trust config delivery records are verified with:
+// the file the flag names, or $PACTO_DELIVERY_TRUST. None is nil: records are
+// read unverified, and every answer says so.
+func deliveryTrust(path string) (*delivery.TrustConfig, error) {
+	path = cmp.Or(path, os.Getenv(trustEnv))
+	if path == "" {
+		return nil, nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading the delivery trust config: %w", err)
+	}
+	t, err := delivery.ParseTrust(raw)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	return &t, nil
 }
 
 func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
@@ -39,6 +72,8 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd.PersistentFlags().StringP("namespace", "n", "default", "namespace of the Stage and its Operations")
 	cmd.PersistentFlags().StringSlice("agent-groups", []string{"pacto:agents"}, "groups whose members are agents")
 	cmd.PersistentFlags().StringSlice("break-glass-groups", []string{"pacto:break-glass"}, "groups that may override")
+	cmd.PersistentFlags().String("trust", "", "the trust config delivery records are verified with: the recorder's PEM public key, "+
+		"or a YAML file of keys and the streams each may sign (default $"+trustEnv+")")
 	cmd.AddCommand(
 		newDeliveryTypesCommand(v),
 		newDeliveryDescribeCommand(v),
@@ -49,6 +84,9 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 		newDeliveryApproveCommand(d),
 		newDeliveryExplainCommand(v, d),
 		newDeliveryHistoryCommand(v, d),
+		newDeliveryBlameCommand(v, d),
+		newDeliveryUndoCommand(v, d),
+		newDeliveryRecordCommand(v, d),
 	)
 	return cmd
 }
@@ -62,7 +100,15 @@ func deliveryClient(cmd *cobra.Command, d deps) (*app.Delivery, string, error) {
 	ns, _ := cmd.Flags().GetString("namespace")
 	agents, _ := cmd.Flags().GetStringSlice("agent-groups")
 	breakGlass, _ := cmd.Flags().GetStringSlice("break-glass-groups")
-	return &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry,
+	path, _ := cmd.Flags().GetString("trust")
+	if path == "" {
+		path, _ = cmd.Flags().GetString("delivery-trust")
+	}
+	trust, err := deliveryTrust(path)
+	if err != nil {
+		return nil, "", err
+	}
+	return &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry, Records: d.newRecordRepo, Trust: trust,
 		Policy: delivery.ClassPolicy{AgentGroups: agents, BreakGlassGroups: breakGlass}, Now: time.Now}, ns, nil
 }
 
@@ -201,6 +247,20 @@ func printPlan(w io.Writer, p delivery.Plan) {
 		_, _ = fmt.Fprintf(w, "conflict:  %s\n", c)
 	}
 	printOrder(w, p.Order)
+	printPrecedent(w, p.Precedent)
+}
+
+// printPrecedent says what the records attached to the version say happened
+// to it before.
+func printPrecedent(w io.Writer, p *delivery.Precedent) {
+	if p == nil {
+		return
+	}
+	for _, e := range p.Entries {
+		result := strings.Trim(string(e.Outcome)+"/"+string(e.Verification), "/")
+		_, _ = fmt.Fprintf(w, "precedent: %s seq %d %s %s %s\n", e.Stream, e.Seq, strings.TrimPrefix(e.Type, "pacto.dev/"), result, e.Reason)
+	}
+	_, _ = fmt.Fprintf(w, "precedent: %s: %s\n", p.Completeness, p.Note)
 }
 
 // printOrder says what must move first, and what Pacto could not see.
@@ -388,7 +448,7 @@ func printStageNow(w io.Writer, s delivery.StageNow) {
 func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "history",
-		Short: "List what happened on a Stage, from the operations still in the cluster",
+		Short: "List what happened on a Stage, from its signed records when the recorder runs, otherwise from the cluster",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, ns, err := deliveryClient(cmd, d)
@@ -404,19 +464,154 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 				out := cmd.OutOrStdout()
 				printStageNow(out, h.Stage)
 				w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-				_, _ = fmt.Fprintln(w, "SEQ\tOPERATION\tTYPE\tTO\tACTOR\tRESULT\tREASON")
+				_, _ = fmt.Fprintln(w, "SEQ\tOPERATION\tTYPE\tTO\tACTOR\tRESULT\tREASON\tRECORD")
 				for _, e := range h.Entries {
 					result := strings.Trim(string(e.Outcome)+"/"+string(e.Verification), "/")
-					_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", e.Seq, e.Operation, strings.TrimPrefix(e.Type, "pacto.dev/"),
-						orNone([]string{e.To}), e.ActorClass, cmp.Or(result, string(e.Phase)), e.Reason)
+					_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", e.Seq, cmp.Or(e.Operation, "-"), cmp.Or(strings.TrimPrefix(e.Type, "pacto.dev/"), e.Kind),
+						orNone([]string{e.To}), e.ActorClass, cmp.Or(result, string(e.Phase)), e.Reason, shortRecord(e.Record))
 				}
 				_ = w.Flush()
-				_, _ = fmt.Fprintf(out, "as of %s, %s: %s\n", h.AsOf, h.Completeness, h.Note)
+				printAnswerNotes(out, h.Problems, h.Unreadable)
+				_, _ = fmt.Fprintf(out, "as of %s, from %s, %s: %s\n", h.AsOf, h.Source, h.Completeness, h.Note)
 				return nil
 			}, nil)
 		},
 	}
 	cmd.Flags().String("stage", "", "the Stage (required)")
 	_ = cmd.MarkFlagRequired("stage")
+	return cmd
+}
+
+// shortRecord is a record id short enough for a table; "-" is a line read
+// from an Operation's status.
+func shortRecord(id string) string {
+	if id == "" {
+		return "-"
+	}
+	return id[:min(len(id), 19)]
+}
+
+func printAnswerNotes(w io.Writer, problems, unreadable []string) {
+	for _, p := range problems {
+		_, _ = fmt.Fprintf(w, "problem: %s\n", p)
+	}
+	for _, u := range unreadable {
+		_, _ = fmt.Fprintf(w, "unreadable: %s\n", u)
+	}
+}
+
+func newDeliveryBlameCommand(v *viper.Viper, d deps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "blame",
+		Short: "Say who put a version in place on a Stage: who asked, for whom, who approved and what every gate said",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, ns, err := deliveryClient(cmd, d)
+			if err != nil {
+				return err
+			}
+			stage, _ := cmd.Flags().GetString("stage")
+			digest, _ := cmd.Flags().GetString("digest")
+			b, err := c.Blame(cmd.Context(), ns, stage, digest)
+			if err != nil {
+				return err
+			}
+			return formatResult(cmd, v.GetString(outputFormatKey), b, func() error {
+				w := cmd.OutOrStdout()
+				_, _ = fmt.Fprintf(w, "version:   %s\n", orNone([]string{b.Digest}))
+				if e := b.Change; e != nil {
+					_, _ = fmt.Fprintf(w, "change:    seq %d %s (%s) %s\n", e.Seq, e.Operation, strings.TrimPrefix(e.Type, "pacto.dev/"), shortRecord(e.Record))
+					_, _ = fmt.Fprintf(w, "asked by:  %s (%s)\n", e.Actor, e.ActorClass)
+					if b.OnBehalfOf != "" {
+						_, _ = fmt.Fprintf(w, "for:       %s (asserted)\n", b.OnBehalfOf)
+					}
+					_, _ = fmt.Fprintf(w, "why:       %s\n", orNone([]string{b.IntentReason}))
+					for _, a := range b.Approvals {
+						_, _ = fmt.Fprintf(w, "decided:   %s %s %s\n", a.By, a.Decision, a.Note)
+					}
+					for _, x := range b.Verdicts {
+						_, _ = fmt.Fprintf(w, "  %-14s %-8s %s\n", x.Gate, x.Result, x.Message)
+					}
+				}
+				printAnswerNotes(w, nil, b.Unreadable)
+				_, _ = fmt.Fprintf(w, "as of %s, from %s, %s: %s\n", b.AsOf, b.Source, b.Completeness, b.Note)
+				return nil
+			}, nil)
+		},
+	}
+	cmd.Flags().String("stage", "", "the Stage (required)")
+	cmd.Flags().String("digest", "", "the version to blame (defaults to the one the Stage runs)")
+	_ = cmd.MarkFlagRequired("stage")
+	return cmd
+}
+
+func newDeliveryUndoCommand(v *viper.Viper, d deps) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "undo <operation>",
+		Short: "Plan how to undo an operation; it proposes nothing and prints the command that would",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, ns, err := deliveryClient(cmd, d)
+			if err != nil {
+				return err
+			}
+			stage, _ := cmd.Flags().GetString("stage")
+			u, err := c.Undo(cmd.Context(), ns, args[0], stage)
+			if err != nil {
+				return err
+			}
+			return formatResult(cmd, v.GetString(outputFormatKey), u, func() error {
+				w := cmd.OutOrStdout()
+				_, _ = fmt.Fprintf(w, "undo %s: %s: %s\n", u.Operation, u.Kind, u.Note)
+				if u.Plan != nil {
+					printPlan(w, *u.Plan)
+					_, _ = fmt.Fprintf(w, "nothing was proposed; to propose it:\n  %s\n", u.Command)
+				}
+				return nil
+			}, nil)
+		},
+	}
+	cmd.Flags().String("stage", "", "the operation's Stage, needed only when the Operation was deleted and must be found in the records")
+	return cmd
+}
+
+func newDeliveryRecordCommand(v *viper.Viper, d deps) *cobra.Command {
+	cmd := &cobra.Command{Use: "record", Short: "Work with the signed records of operations"}
+	verify := &cobra.Command{
+		Use:   "verify",
+		Short: "Verify every record of a Stage's stream against the trust config and check the chain",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			c, ns, err := deliveryClient(cmd, d)
+			if err != nil {
+				return err
+			}
+			stage, _ := cmd.Flags().GetString("stage")
+			res, err := c.VerifyRecords(cmd.Context(), ns, stage)
+			if err != nil {
+				return err
+			}
+			err = formatResult(cmd, v.GetString(outputFormatKey), res, func() error {
+				w := cmd.OutOrStdout()
+				_, _ = fmt.Fprintf(w, "stream %s at %s, trust config %s\n", res.Stream, res.Anchor, res.Trust)
+				for _, r := range res.Records {
+					_, _ = fmt.Fprintf(w, "  seq %-4d %-13s %s %s\n", r.Seq, r.Kind, r.Record, r.Operation)
+				}
+				printAnswerNotes(w, res.Problems, res.Unreadable)
+				_, _ = fmt.Fprintf(w, "check one record without Pacto:\n  %s\n", res.Cosign)
+				return nil
+			}, nil)
+			if err == nil && !res.OK {
+				err = fmt.Errorf("the records of %s do not verify: the problems and the records that did not verify are listed above", res.Stage)
+			}
+			if err == nil {
+				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%d records verified, chain intact to %s\n", len(res.Records), res.Head)
+			}
+			return err
+		},
+	}
+	verify.Flags().String("stage", "", "the Stage (required)")
+	_ = verify.MarkFlagRequired("stage")
+	cmd.AddCommand(verify)
 	return cmd
 }

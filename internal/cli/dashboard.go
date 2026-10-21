@@ -195,6 +195,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().StringSlice("agent-groups", []string{"pacto:agents"}, "groups whose members are agents, as the delivery promoter is configured")
 	cmd.Flags().StringSlice("break-glass-groups", []string{"pacto:break-glass"}, "groups that may override, as the delivery promoter is configured")
 	cmd.Flags().String("team-group-prefix", "", "a contract owner team T is group T or this prefix plus T, as the delivery promoter is configured")
+	cmd.Flags().String("delivery-trust", "", "the trust config delivery records are verified with, so History reads signed records "+
+		"(the recorder's PEM public key or a YAML trust config; default $"+trustEnv+")")
 
 	// Bind to viper so flags can be overridden via PACTO_DASHBOARD_* env vars.
 	_ = v.BindPFlag("dashboard.host", cmd.Flags().Lookup("host"))
@@ -204,7 +206,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.traces", cmd.Flags().Lookup("traces"))
 	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-extra-scopes", "auth-required", "mira-url",
-		"agent-groups", "break-glass-groups", "team-group-prefix"} {
+		"agent-groups", "break-glass-groups", "team-group-prefix", "delivery-trust"} {
 		_ = v.BindPFlag("dashboard."+f, cmd.Flags().Lookup(f))
 	}
 	// A secret never goes on a command line, where any process can read it.

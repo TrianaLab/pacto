@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -200,4 +201,15 @@ func TestRemoteMCPFailuresSayWhy(t *testing.T) {
 	w.clientErr, w.whoAmIFails = nil, true
 	rec = post(t, w.h, "good", listTools)
 	expect(t, rec.Code == http.StatusForbidden && strings.Contains(rec.Body.String(), "token rejected"), "whoami refused: %d %s", rec.Code, rec.Body)
+}
+
+func TestRemoteDeliveryRefusesABadTrustConfig(t *testing.T) {
+	d := deliveryDeps("system:serviceaccount:agents:bot", nil)
+	d.clusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://k"}, nil }
+	cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
+	_ = cmd.Flags().Set("delivery-trust", filepath.Join(t.TempDir(), "absent"))
+	s := mcpServe{auth: &fakeMCPAuth{exchange: true}}
+	if err := remoteDeliveryFor(cmd, app.NewService(nil, nil), "v", d, &s); err == nil || !strings.Contains(err.Error(), "trust config") {
+		t.Fatalf("a missing trust config must fail: %v", err)
+	}
 }

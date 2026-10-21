@@ -186,7 +186,7 @@ func TestDeliveryCommandClusterUnreachable(t *testing.T) {
 	d := deliveryDeps("alice", errors.New("no kubeconfig"))
 	for _, args := range [][]string{
 		{"plan", "--stage", "s", "--to", cliB}, {"propose", "--stage", "s", "--to", cliB}, {"get", "x"}, {"cancel", "x"}, {"approve", "x"},
-		{"explain", "x"}, {"history", "--stage", "s"},
+		{"explain", "x"}, {"history", "--stage", "s"}, {"blame", "--stage", "s"}, {"undo", "x"}, {"record", "verify", "--stage", "s"},
 	} {
 		if _, err := runDelivery(t, d, "text", args...); err == nil || !strings.Contains(err.Error(), "no kubeconfig") {
 			t.Fatalf("%v: %v", args, err)

@@ -48,6 +48,8 @@ type dashboardIdentity struct {
 	cluster   *rest.Config // nil: no cluster, so no delivery
 	policy    delivery.ClassPolicy
 	registry  func(...string) app.DeliveryRegistry
+	records   app.RecordRepo
+	trust     *delivery.TrustConfig
 	newClient func(*rest.Config) (dynamic.Interface, error)
 	served    func(*rest.Config, string) (bool, error)
 	now       func() time.Time
@@ -76,8 +78,12 @@ const (
 // configured, local on a loopback bind without one, and open (no delivery)
 // anywhere else.
 func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d deps) (*dashboardIdentity, error) {
+	trust, err := deliveryTrust(v.GetString("dashboard.delivery-trust"))
+	if err != nil {
+		return nil, err
+	}
 	id := &dashboardIdentity{cluster: cluster, registry: d.newDeliveryRegistry, now: time.Now, served: d.served, state: authn.StateFrom,
-		newClient: d.dynamicFor,
+		newClient: d.dynamicFor, records: d.newRecordRepo, trust: trust,
 		revisions: map[string]delivery.Revision{},
 		policy: delivery.ClassPolicy{AgentGroups: splitList(v.GetStringSlice("dashboard.agent-groups")),
 			BreakGlassGroups: splitList(v.GetStringSlice("dashboard.break-glass-groups")),
@@ -160,7 +166,8 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 	if err != nil {
 		return nil, err
 	}
-	return dashDelivery{d: &app.Delivery{Dynamic: dyn, Registry: id.registry, Policy: id.policy, Now: id.now}, id: id}, nil
+	return dashDelivery{d: &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
+		Policy: id.policy, Now: id.now}, id: id}, nil
 }
 
 // describe caches what a digest carries: a digest never changes.

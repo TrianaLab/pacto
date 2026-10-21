@@ -55,6 +55,27 @@ func (s *stubDelivery) History(_ context.Context, _, stage string) (*delivery.Hi
 	return &delivery.History{Stage: delivery.StageNow{Name: stage}, Completeness: "partial"}, nil
 }
 
+func (s *stubDelivery) Blame(_ context.Context, _, stage, digest string) (*delivery.Blame, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &delivery.Blame{Stage: delivery.StageNow{Name: stage}, Digest: digest, Completeness: "complete"}, nil
+}
+
+func (s *stubDelivery) Undo(_ context.Context, ns, name, stage string) (*delivery.Undo, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &delivery.Undo{Operation: ns + "/" + name, Kind: "rollback", Note: stage}, nil
+}
+
+func (s *stubDelivery) VerifyRecords(_ context.Context, ns, stage string) (*delivery.StreamVerification, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &delivery.StreamVerification{Stage: ns + "/" + stage, OK: true}, nil
+}
+
 func deliveryToolNames(t *testing.T, server *mcpsdk.Server) []string {
 	t.Helper()
 	ctx := context.Background()
@@ -98,8 +119,10 @@ func TestDeliveryToolsWritesOnlyForAgents(t *testing.T) {
 	if strings.Contains(read+write, "approve") {
 		t.Fatal("there must be no approve tool")
 	}
-	if !strings.Contains(read, "pacto_delivery_explain") || !strings.Contains(read, "pacto_delivery_history") {
-		t.Fatalf("explain and history are read tools: %s", read)
+	for _, tool := range []string{"pacto_delivery_explain", "pacto_delivery_history", "pacto_delivery_blame", "pacto_delivery_undo", "pacto_delivery_record_verify"} {
+		if !strings.Contains(read, tool) {
+			t.Fatalf("%s is a read tool: %s", tool, read)
+		}
 	}
 }
 
@@ -142,6 +165,21 @@ func TestDeliveryToolCalls(t *testing.T) {
 	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s"}), &h)
 	if h.Stage.Name != "s" || h.Completeness != "partial" {
 		t.Fatalf("history: %+v", h)
+	}
+	var b delivery.Blame
+	decode(t, callToolOn(t, server, "pacto_delivery_blame", map[string]any{"namespace": "prod", "stage": "s", "digest": "sha256:d"}), &b)
+	if b.Stage.Name != "s" || b.Digest != "sha256:d" {
+		t.Fatalf("blame: %+v", b)
+	}
+	var u delivery.Undo
+	decode(t, callToolOn(t, server, "pacto_delivery_undo", map[string]any{"namespace": "prod", "name": "p1", "stage": "s"}), &u)
+	if u.Operation != "prod/p1" || u.Note != "s" {
+		t.Fatalf("undo: %+v", u)
+	}
+	var v delivery.StreamVerification
+	decode(t, callToolOn(t, server, "pacto_delivery_record_verify", map[string]any{"namespace": "prod", "stage": "s"}), &v)
+	if !v.OK || v.Stage != "prod/s" {
+		t.Fatalf("verify: %+v", v)
 	}
 }
 
@@ -188,8 +226,13 @@ func TestDeliveryToolErrors(t *testing.T) {
 			t.Fatalf("%s must refuse a malformed cause", tool)
 		}
 	}
-	if res := callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod", "stage": "s"}); !res.IsError {
-		t.Fatal("history must surface the error")
+	for _, tool := range []string{"pacto_delivery_history", "pacto_delivery_blame", "pacto_delivery_record_verify"} {
+		if res := callToolOn(t, server, tool, map[string]any{"namespace": "prod", "stage": "s"}); !res.IsError {
+			t.Fatalf("%s must surface the error", tool)
+		}
+	}
+	if res := callToolOn(t, server, "pacto_delivery_undo", map[string]any{"namespace": "prod", "name": "p1"}); !res.IsError {
+		t.Fatal("undo must surface the error")
 	}
 	for _, tool := range []string{"pacto_delivery_get", "pacto_delivery_cancel", "pacto_delivery_explain"} {
 		if res := callToolOn(t, server, tool, map[string]any{"namespace": "prod", "name": "p1"}); !res.IsError {
