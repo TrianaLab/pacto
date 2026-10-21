@@ -212,7 +212,7 @@
   .cd-facts a, .cd-consumers a { color: var(--c-accent); text-decoration: underline; }
   .cd-actions { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .cd-consumers { display: flex; gap: var(--sp-3); flex-wrap: wrap; list-style: none; padding: 0; margin: var(--sp-2) 0 0; }
-  .cd-compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: var(--sp-4); }
+  .cd-compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: var(--sp-4); }
   .cd-compare section { display: flex; flex-direction: column; gap: var(--sp-2); }
   .cd-approvals, .cd-timeline { margin: var(--sp-2) 0 0; padding-left: var(--sp-5); }
 </style>
