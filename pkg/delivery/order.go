@@ -323,13 +323,26 @@ func moveFirstMessage(m MoveFirst, stage StageSpec, newVersion, none string) str
 	return msg + " " + none + "."
 }
 
-// movableFirst names the consumers a verified version can move first.
-func movableFirst(o *Order) []string {
-	var out []string
+// orderQuestion offers shipping the consumers first only when that would
+// clear the change: a verified version of every one can move first and Pacto
+// saw every consumer. Otherwise it says which can and what still stands.
+func orderQuestion(o *Order) string {
+	var can, cannot []string
 	for _, m := range o.MoveFirst {
 		if m.Candidate != nil {
-			out = append(out, m.Service)
+			can = append(can, m.Service)
+		} else {
+			cannot = append(cannot, m.Service)
 		}
 	}
-	return out
+	first := strings.Join(can, ", ")
+	switch {
+	case len(can) == 0:
+		return ""
+	case len(cannot) > 0:
+		return ". " + first + " can move first, but no version of " + strings.Join(cannot, ", ") + " can yet, so that alone does not clear it (see the plan's order)"
+	case len(o.Unknown) > 0:
+		return ". " + first + " can move first, but Pacto cannot see every consumer, so that alone may not clear it (see the plan's order)"
+	}
+	return ". Or ship " + first + " first: a version that accepts it already verified upstream (see the plan's order)"
 }

@@ -311,9 +311,7 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 		p.Question = fmt.Sprintf("%s %s is not accepted by %s. Approve shipping it anyway? Asked of: %s",
 			in.Stage.Service.Name, res.NewVersion, describeRanges(incompatible), ownersOrAnyone(owners))
 		p.Order = orderFor(ctx, in, res, incompatible, unseenConsumers)
-		if first := movableFirst(p.Order); len(first) > 0 {
-			p.Question += ". Or ship " + strings.Join(first, ", ") + " first: a version that accepts it already verified upstream (see the plan's order)"
-		}
+		p.Question += orderQuestion(p.Order)
 	case len(unseen) > 0:
 		v.Result = Unknown
 		v.Message = strings.Join(unseen, "; ")

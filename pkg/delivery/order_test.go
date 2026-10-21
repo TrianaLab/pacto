@@ -461,3 +461,25 @@ func TestAcceptedHere(t *testing.T) {
 		t.Fatalf("1.9.0 is accepted: %q %v", why, err)
 	}
 }
+
+// Shipping a consumer first is offered as a way out only when it clears the
+// change: every blocked consumer can move and Pacto saw every consumer.
+func TestOrderQuestion(t *testing.T) {
+	c := &Candidate{Digest: o1}
+	orders, inventory := MoveFirst{Service: "orders", Candidate: c}, MoveFirst{Service: "inventory"}
+	cases := []struct {
+		o    Order
+		want string
+	}{
+		{Order{MoveFirst: []MoveFirst{inventory}}, ""},
+		{Order{MoveFirst: []MoveFirst{orders}}, ". Or ship orders first: a version that accepts it already verified upstream (see the plan's order)"},
+		{Order{MoveFirst: []MoveFirst{orders, inventory}}, ". orders can move first, but no version of inventory can yet, so that alone does not clear it (see the plan's order)"},
+		{Order{MoveFirst: []MoveFirst{orders}, Unknown: []string{"the operational graph is partial"}},
+			". orders can move first, but Pacto cannot see every consumer, so that alone may not clear it (see the plan's order)"},
+	}
+	for _, tc := range cases {
+		if got := orderQuestion(&tc.o); got != tc.want {
+			t.Errorf("%+v: got %q, want %q", tc.o, got, tc.want)
+		}
+	}
+}
