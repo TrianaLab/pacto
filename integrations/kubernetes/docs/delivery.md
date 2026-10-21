@@ -11,7 +11,7 @@ RBAC and admission policies. The `pacto-operator` chart gains nothing.
 
 !!! warning "Alpha"
     The API group is `delivery.pacto.trianalab.io/v1alpha1`. Signed records
-    and ordering across services come later.
+    come later.
 
 ## How it works
 
@@ -37,11 +37,13 @@ flowchart LR
 
 - **Before it moves**, `pacto.published` admits only a version
   [`pacto publish`](../../publishing.md) published, `pacto.diff` compares the
-  running contract with the new one and `pacto.impact` projects the change onto every consumer that declares
-  a compatibility range. A consumer the new version breaks holds the change and
-  routes the question to that consumer's owners. Anything Pacto cannot see (an
-  artifact with no contract, a Pacto it cannot read) holds it for a person to
-  accept the unknown. Unknown never passes.
+  running contract with the new one and `pacto.impact` projects the change onto every consumer running in
+  the Stage's environment that declares a compatibility range. A consumer the new version breaks holds the
+  change, routes the question to that consumer's owners and the plan says
+  [which service must move first](#when-another-service-must-move-first).
+  Anything Pacto cannot see (an artifact with no contract, a Pacto it cannot
+  read, a registry that does not answer within 10 seconds) holds it for a
+  person to accept the unknown. Unknown never passes.
 - **After Flux applies it**, the Pacto contract check is the verify gate. It
   counts only when the Pacto evaluated exactly this version: the contract
   digest in `status.evaluatedRevision` is the one the artifact names and the
@@ -187,6 +189,45 @@ There is no approve tool. Over stdio the server runs beside the agent, under
 its own credentials. Over HTTP each request acts as its own caller; see
 [sign-in, approvals and agents](delivery-identity.md).
 
+## When another service must move first
+
+A new version can break a service that uses it. Say `payments` 3.0.0 is a
+breaking change and `orders` 1.8.0 runs in prod, declaring that it accepts
+`payments` `^2.0.0`. The promote of `payments` to prod waits, and its plan
+names what must move first:
+
+```text
+move first: orders 1.8.0 runs in prod and accepts payments ^2.0.0, not 3.0.0. orders 1.9.0 (sha256:4f1c...)
+accepts it (>=2.0.0 <4.0.0) and verified on test/orders. Ship orders first: promote sha256:4f1c... on Stage prod/orders.
+```
+
+Pacto works this out from the contracts and the Stages:
+
+- **Only consumers in that environment count.** A Pacto counts when it lives
+  in the Stage's namespace or in a namespace that holds a Stage of the same
+  environment. A Pacto in a namespace with no Stage counts everywhere, as Pacto
+  cannot place it.
+- **The candidate must accept both versions.** Pacto looks at the versions the
+  consumer's upstream Stage offered and verified, newest first, and picks one
+  whose contract accepts the provider version running now and the new one. A
+  version that accepts only the new one would break the moment it ships, so it
+  is not a candidate.
+- **It says what it cannot see.** If the graph is partial, a range cannot be
+  read, no Stage or more than one delivers the consumer there or a candidate's
+  contract cannot be read, the plan says so instead of guessing an order.
+
+`pacto delivery plan`, `pacto delivery explain`, the
+`pacto_delivery_operation_plan` MCP tool and the Operation's `status.plan`
+all carry it. In JSON it is `order.moveFirst[]`: the consumer, the version
+running there and the range it declares, its `stage`, the `candidate` (digest,
+version, range and the Stage that verified it) or `unknown` (why Pacto cannot
+tell), and a plain `message`. `order.unknown` lists what kept Pacto from
+seeing every consumer.
+
+Pacto only says what moves first. It never promotes the other service itself:
+an agent or a person proposes the consumer's promote, then plans the
+provider's again. A person can still approve shipping the provider anyway.
+
 ## Who may do what
 
 | Identity | May | May not |
@@ -213,6 +254,9 @@ a witnessed override, adopts it and freezes the Stage.
 - No signed records yet. An operation keeps its record finalizer until it is
   deleted; the promoter then lets it go.
 - Stage approval policy is `approval.always`, not an expression.
+- Compatibility comes from the version range each consumer declares. Pacto
+  does not know which fields or endpoints a consumer uses, and the calls it
+  observes say only which service calls which.
 - History reads the operations still in the cluster, so it is partial.
 - One cluster, Flux only.
 - Flux checks the signatures, so a digest it never verified on the candidate
