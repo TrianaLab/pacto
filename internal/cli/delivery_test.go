@@ -56,6 +56,7 @@ func deliveryDeps(user string, dynErr error) deps {
 			{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}: "OperationList",
 			{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}:     "StageList",
 			{Group: "pacto.trianalab.io", Version: "v1alpha1", Resource: "pactos"}:              "PactoList",
+			{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}:   "KustomizationList",
 		}
 		c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists,
 			u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "payments-prod", map[string]any{
