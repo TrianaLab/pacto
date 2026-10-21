@@ -53,6 +53,9 @@ func (r *StageReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 			s.Status.Stream.ID = r.ClusterID + "/" + s.Namespace + "/" + s.Name
 		})
 	}
+	if err := r.streamConflict(ctx, stage); err != nil {
+		return reconcile.Result{}, err
+	}
 	if err := r.witness(ctx, stage); err != nil {
 		return reconcile.Result{}, err
 	}
@@ -81,6 +84,22 @@ func (r *StageReconciler) updateStatus(ctx context.Context, stage *dv1.Stage, fn
 		fn(fresh)
 		return r.Status().Update(ctx, fresh)
 	})
+}
+
+// streamConflict freezes a Stage whose records the recorder refuses to
+// extend: a stream that forked or broke, or holds a record no trusted key
+// signed. A person unfreezes it once the stream is repaired; while the
+// conflict lasts, it freezes again.
+func (r *StageReconciler) streamConflict(ctx context.Context, stage *dv1.Stage) error {
+	i := slices.IndexFunc(stage.Status.Conditions, func(c delivery.Condition) bool {
+		return c.Type == ConditionRecordStoreReady && c.Status == "False" && c.Reason == ReasonStreamConflict
+	})
+	if i < 0 || stage.Status.Frozen {
+		return nil
+	}
+	why := ReasonStreamConflict + ": the recorder will not extend this Stage's records (" + stage.Status.Conditions[i].Message +
+		"); repair the stream, then unfreeze"
+	return r.updateStatus(ctx, stage, func(s *dv1.Stage) { s.Status.Frozen, s.Status.FrozenReason = true, why })
 }
 
 // witness raises a witnessed override when the OCIRepository's digest differs

@@ -39,6 +39,41 @@ func writePEM(t *testing.T, typ string, der []byte) string {
 	return p
 }
 
+// verifierOf is the verifier of a trust config holding only k.
+func verifierOf(t *testing.T, k delivery.TrustedKey) delivery.Verifier {
+	t.Helper()
+	v, err := delivery.TrustConfig{Keys: []delivery.TrustedKey{k}}.Verifier()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func TestRecorderTrust(t *testing.T) {
+	own := delivery.TrustedKey{Name: "recorder", Identity: "id", Issuer: "iss"}
+	if tr, err := RecorderTrust(own, ""); err != nil || len(tr.Keys) != 1 {
+		t.Fatalf("own key only: %+v %v", tr, err)
+	}
+	old, _, _ := ed25519.GenerateKey(rand.Reader)
+	pemKey, _ := delivery.PublicKeyPEM(old)
+	file := filepath.Join(t.TempDir(), "trust.pem")
+	_ = os.WriteFile(file, []byte(pemKey), 0o600)
+	tr, err := RecorderTrust(own, file)
+	if err != nil || len(tr.Keys) != 2 || tr.Keys[1].PublicKey != pemKey {
+		t.Fatalf("with an old key: %+v %v", tr, err)
+	}
+	if _, err := RecorderTrust(own, filepath.Join(t.TempDir(), "absent")); err == nil {
+		t.Fatal("read a missing trust config")
+	}
+	_ = os.WriteFile(file, []byte("keys: ["), 0o600)
+	if _, err := RecorderTrust(own, file); err == nil {
+		t.Fatal("read a broken trust config")
+	}
+	if _, err := RecorderTrust(delivery.TrustedKey{}, ""); err == nil {
+		t.Fatal("trusted an empty key")
+	}
+}
+
 func TestNewSignerEd25519(t *testing.T) {
 	ctx := context.Background()
 	_, key, _ := ed25519.GenerateKey(rand.Reader)
@@ -52,7 +87,7 @@ func TestNewSignerEd25519(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := delivery.OpenRecord(b, v); err != nil {
+	if _, _, err := delivery.OpenRecord(b, verifierOf(t, v)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -126,7 +161,7 @@ func TestCosignKMS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := delivery.OpenRecord(b, v); err != nil {
+	if _, _, err := delivery.OpenRecord(b, verifierOf(t, v)); err != nil {
 		t.Fatal(err)
 	}
 	if got := f.calls[1]; !slices.Contains(got, "--tlog-upload=false") || !slices.Contains(got, "awskms:///alias/pacto") {
@@ -171,7 +206,7 @@ func TestCosignKeyless(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := delivery.OpenRecord(b, v); err != nil {
+	if _, _, err := delivery.OpenRecord(b, verifierOf(t, v)); err != nil {
 		t.Fatal(err)
 	}
 	for _, edit := range []func(*fakeCosign){

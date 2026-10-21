@@ -77,3 +77,24 @@ The recorder's ServiceAccount name.
 {{- default "default" .Values.recorder.serviceAccount.name }}
 {{- end }}
 {{- end }}
+
+{{/*
+A CEL expression for one field of an object, or a default when any part of the
+path is absent: celField (list "object" "status.stream.head" "''").
+*/}}
+{{- define "pacto-delivery.celField" -}}
+{{- $acc := index . 0 }}
+{{- $checks := list }}
+{{- range splitList "." (index . 1) }}
+{{- $acc = printf "%s.%s" $acc . }}
+{{- $checks = append $checks (printf "has(%s)" $acc) }}
+{{- end }}
+{{- printf "(%s ? %s : %s)" (join " && " $checks) $acc (index . 2) }}
+{{- end }}
+
+{{/*
+A CEL expression that is true when a field is the same in object and oldObject.
+*/}}
+{{- define "pacto-delivery.celSame" -}}
+{{- printf "%s == %s" (include "pacto-delivery.celField" (list "object" (index . 0) (index . 1))) (include "pacto-delivery.celField" (list "oldObject" (index . 0) (index . 1))) }}
+{{- end }}

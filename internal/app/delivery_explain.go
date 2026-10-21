@@ -3,13 +3,8 @@ package app
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"fmt"
-	"slices"
 	"strings"
-	"time"
-
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
@@ -91,34 +86,11 @@ func inFlight(o delivery.OperationObject) int {
 const historyNote = "read from the Operation objects that still exist; an operation deleted from the cluster is missing " +
 	"until signed records arrive"
 
-// History lists the operations on a Stage: concluded ones in stream order,
-// then the ones in flight, oldest first.
+// History lists what happened on a Stage: from its signed records when the
+// recorder writes them, plus the operations not recorded yet; otherwise from
+// the operations still in the cluster, concluded ones in stream order, then
+// the ones in flight.
 func (d *Delivery) History(ctx context.Context, ns, stage string) (*delivery.History, error) {
-	st, err := d.Stage(ctx, ns, stage)
-	if err != nil {
-		return nil, err
-	}
-	list, err := d.Dynamic.Resource(gvrOperations).Namespace(ns).List(ctx, metav1.ListOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("listing Operations in %s: %w", ns, err)
-	}
-	var ops struct {
-		Items []delivery.OperationObject `json:"items"`
-	}
-	b, _ := list.MarshalJSON()
-	_ = json.Unmarshal(b, &ops)
-	ops.Items = slices.DeleteFunc(ops.Items, func(o delivery.OperationObject) bool { return o.Spec.Stage != stage })
-	slices.SortStableFunc(ops.Items, func(a, b delivery.OperationObject) int {
-		return cmp.Or(cmp.Compare(inFlight(a), inFlight(b)), cmp.Compare(a.Status.Seq, b.Status.Seq),
-			cmp.Compare(a.Metadata.CreationTimestamp, b.Metadata.CreationTimestamp))
-	})
-	h := &delivery.History{Stage: stageNow(st), AsOf: d.Now().UTC().Format(time.RFC3339), Completeness: "partial", Note: historyNote,
-		Entries: []delivery.HistoryEntry{}}
-	for _, o := range ops.Items {
-		s := o.Status
-		h.Entries = append(h.Entries, delivery.HistoryEntry{Seq: s.Seq, Operation: o.Metadata.Name, Type: o.Spec.Type, From: o.Spec.Params.From,
-			To: o.Spec.Params.To, Actor: o.Spec.Actor.User, ActorClass: s.ActorClass, Phase: s.Phase, Outcome: s.Outcome,
-			Verification: s.Verification, Reason: s.Reason, Finished: s.Times.Finished})
-	}
-	return h, nil
+	h, _, _, err := d.history(ctx, ns, stage)
+	return h, err
 }

@@ -75,6 +75,9 @@ func runPromoter(args []string) error {
 	poll := fs.Duration("poll", 3*time.Second, "How often an operation waiting on Flux, Pacto or a person is looked at.")
 	records := fs.Bool("records", false,
 		"The recorder runs: leave the record finalizer of every operation that got a seq to it.")
+	recordedTTL := fs.Duration("recorded-ttl", 0,
+		"Delete a recorded operation this long after it concluded (its record keeps what happened); 0 keeps them all. "+
+			"The operation a Stage runs is never deleted.")
 	gateProviders := fs.String("gate-providers", "",
 		`The health gate providers Stages may name, as JSON: `+
 			`[{"name":"mira","type":"mira","url":"http://mira:4318"}]. Types: mira, http.`)
@@ -113,7 +116,7 @@ func runPromoter(args []string) error {
 	}}
 	gates := delivery.NewGates(cluster, configured)
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
-		Policy: policy, Gates: gates, Now: time.Now, Poll: *poll, Records: *records}).SetupWithManager(mgr); err != nil {
+		Policy: policy, Gates: gates, Now: time.Now, Poll: *poll, Records: *records, RecordedTTL: *recordedTTL}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := (&delivery.StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
@@ -147,6 +150,9 @@ func runRecorder(args []string) error {
 	identity := fs.String("keyless-identity", "", "The certificate identity keyless signing produces.")
 	issuer := fs.String("keyless-issuer", "", "The OIDC issuer keyless signing uses.")
 	cosign := fs.String("cosign", "cosign", "The cosign binary, for KMS and keyless signing.")
+	trustFile := fs.String("trust-config", "",
+		"A trust config (YAML) of other keys whose records the recorder accepts, per stream glob, such as the old key during a rotation.")
+	sink := fs.String("cdevents-sink", "", "A URL to POST a CDEvent to for every record written, best effort.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -156,11 +162,16 @@ func runRecorder(args []string) error {
 	}
 
 	ctx := context.Background()
-	signer, verify, err := delivery.NewSigner(ctx, delivery.SigningConfig{Ed25519KeyFile: *keyFile, KMSKey: *kmsKey,
+	signer, own, err := delivery.NewSigner(ctx, delivery.SigningConfig{Ed25519KeyFile: *keyFile, KMSKey: *kmsKey,
 		Keyless: *keyless, Identity: *identity, Issuer: *issuer, Cosign: *cosign}, nil)
 	if err != nil {
 		return err
 	}
+	trust, err := delivery.RecorderTrust(own, *trustFile)
+	if err != nil {
+		return err
+	}
+	verify, _ := trust.Verifier() // RecorderTrust checked it
 	mgr, err := newManager(*metricsAddr, *probeAddr, *leaderElect, "pacto-delivery-recorder")
 	if err != nil {
 		return err
@@ -175,7 +186,10 @@ func runRecorder(args []string) error {
 		Options: ocireferrer.Options{Keychain: keychain, Insecure: insecure}}
 	cluster := delivery.Cluster{Client: mgr.GetClient()}
 	recorder := &delivery.Recorder{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster, Store: store,
-		Signer: signer, ClusterID: clusterID, Now: time.Now, Poll: *poll, GapGrace: time.Minute}
+		Signer: signer, Trust: trust.Digest(), ClusterID: clusterID, Now: time.Now, Poll: *poll, GapGrace: time.Minute}
+	if *sink != "" {
+		recorder.Events = &delivery.Events{Sink: *sink, Source: "/pacto-delivery/" + clusterID}
+	}
 	if err := recorder.SetupWithManager(mgr); err != nil {
 		return err
 	}

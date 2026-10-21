@@ -92,6 +92,21 @@ subjects:
     name: {{ include "pacto-delivery.recorderServiceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 ---
+{{- if $r.trust }}
+# Other keys whose records the recorder accepts, per stream glob: the old key
+# while a rotation runs. Public keys only.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-trust
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: recorder
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+data:
+  trust.yaml: {{ $r.trust | quote }}
+---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -141,6 +156,12 @@ spec:
             - {{ printf "--keyless-identity=%s" $r.signing.keyless.identity | quote }}
             - {{ printf "--keyless-issuer=%s" $r.signing.keyless.issuer | quote }}
             {{- end }}
+            {{- if $r.trust }}
+            - --trust-config=/etc/pacto/trust/trust.yaml
+            {{- end }}
+            {{- with $r.cdeventsSink }}
+            - {{ printf "--cdevents-sink=%s" . | quote }}
+            {{- end }}
           env:
             - name: HOME
               value: /tmp
@@ -189,6 +210,11 @@ spec:
               mountPath: /etc/pacto/registry
               readOnly: true
             {{- end }}
+            {{- if $r.trust }}
+            - name: trust
+              mountPath: /etc/pacto/trust
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
@@ -199,6 +225,11 @@ spec:
             items:
               - key: {{ $r.signing.ed25519.key }}
                 path: {{ $r.signing.ed25519.key }}
+        {{- end }}
+        {{- if $r.trust }}
+        - name: trust
+          configMap:
+            name: {{ $name }}-trust
         {{- end }}
         {{- if $r.registryCredentials.secretName }}
         - name: registry

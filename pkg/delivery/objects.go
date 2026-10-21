@@ -103,14 +103,96 @@ type HistoryEntry struct {
 	Verification Verification `json:"verification,omitempty"`
 	Reason       string       `json:"reason,omitempty"`
 	Finished     string       `json:"finished,omitempty"`
+	// Kind is the record's kind (operation, unrecordable or gap); Record is
+	// its id. Both are empty for a line read from an Operation's status.
+	Kind   string `json:"kind,omitempty"`
+	Record string `json:"record,omitempty"`
+	// Pointer is the move this operation made, when it moved the Stage.
+	Pointer *PointerChange `json:"pointer,omitempty"`
 }
 
-// History is what happened on a Stage, read from the live Operation objects
-// until signed records exist. It is partial: a deleted operation is gone.
+// History sources.
+const (
+	SourceRecords = "records"
+	SourceStatus  = "status"
+)
+
+// History is what happened on a Stage. With records it is read from the
+// signed records in the registry, plus the operations not recorded yet; with
+// no records it is read from the Operation objects still in the cluster, and
+// is partial. A missing line is never proof that nothing happened unless
+// completeness is complete.
 type History struct {
-	Stage        StageNow       `json:"stage"`
-	AsOf         string         `json:"asOf"`
-	Completeness string         `json:"completeness"`
-	Note         string         `json:"note"`
-	Entries      []HistoryEntry `json:"entries"`
+	Stage        StageNow `json:"stage"`
+	AsOf         string   `json:"asOf"`
+	Completeness string   `json:"completeness"`
+	Note         string   `json:"note"`
+	// Source is records or status.
+	Source string `json:"source"`
+	// Head is the newest record's id.
+	Head string `json:"head,omitempty"`
+	// Problems are gaps, forks and hidden changes the records show.
+	Problems []string `json:"problems,omitempty"`
+	// Unreadable names what could not be read or verified, and why.
+	Unreadable []string       `json:"unreadable,omitempty"`
+	Entries    []HistoryEntry `json:"entries"`
+}
+
+// Blame says who put a version in place on a Stage: the change that moved the
+// Stage to it most recently, who asked, on whose behalf, who approved and
+// what every gate said. An empty Change with a partial completeness means
+// unknown, never nobody.
+type Blame struct {
+	Stage        StageNow         `json:"stage"`
+	Digest       string           `json:"digest"`
+	AsOf         string           `json:"asOf"`
+	Completeness string           `json:"completeness"`
+	Source       string           `json:"source"`
+	Note         string           `json:"note"`
+	Change       *HistoryEntry    `json:"change,omitempty"`
+	OnBehalfOf   string           `json:"onBehalfOf,omitempty"`
+	IntentReason string           `json:"intentReason,omitempty"`
+	Approvals    []RecordApproval `json:"approvals,omitempty"`
+	Verdicts     []Verdict        `json:"verdicts,omitempty"`
+	Unreadable   []string         `json:"unreadable,omitempty"`
+}
+
+// Undo is how to undo one operation, as a plan nobody has proposed: a
+// rollback when it is the change the Stage runs now, a promote back to the
+// version it replaced when something changed since, or nothing when it moved
+// nothing. Pacto never proposes it.
+type Undo struct {
+	Operation string `json:"operation"`
+	// Kind is rollback, promote or none.
+	Kind    string `json:"kind"`
+	Note    string `json:"note"`
+	Plan    *Plan  `json:"plan,omitempty"`
+	Command string `json:"command,omitempty"`
+}
+
+// RecordCheck is one record a verification read.
+type RecordCheck struct {
+	Seq       int64  `json:"seq"`
+	Record    string `json:"record"`
+	Manifest  string `json:"manifest"`
+	Kind      string `json:"kind"`
+	Operation string `json:"operation,omitempty"`
+}
+
+// StreamVerification is `record verify`'s answer: every record of a Stage's
+// stream verified against the trust config and the chain checked from seq 1
+// to the head the Stage names.
+type StreamVerification struct {
+	Stage      string        `json:"stage"`
+	Stream     string        `json:"stream"`
+	Anchor     string        `json:"anchor"`
+	AsOf       string        `json:"asOf"`
+	OK         bool          `json:"ok"`
+	Head       string        `json:"head,omitempty"`
+	Trust      string        `json:"trust"`
+	Records    []RecordCheck `json:"records"`
+	Problems   []string      `json:"problems,omitempty"`
+	Unreadable []string      `json:"unreadable,omitempty"`
+	// Cosign is how to check one record with standard tools, without Pacto.
+	Cosign string `json:"cosign"`
 }

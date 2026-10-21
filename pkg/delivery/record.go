@@ -53,6 +53,9 @@ type RecordPredicate struct {
 	Time         RecordTime       `json:"time"`
 	Unrecordable *Refusal         `json:"unrecordable,omitempty"`
 	Gap          *Gap             `json:"gap,omitempty"`
+	// Trust is the digest of the trust config the recorder verified the
+	// stream with before it extended it.
+	Trust string `json:"trust,omitempty"`
 }
 
 // RecordType cites the operation type by digest.
@@ -159,6 +162,8 @@ type RecordInput struct {
 	Approvals map[string]ApprovalSpec
 	Subjects  RecordSubjects
 	Chain     Chain
+	// Trust is the digest of the recorder's trust config.
+	Trust string
 }
 
 // NewOperationRecord builds the record of one concluded operation.
@@ -174,6 +179,7 @@ func NewOperationRecord(in RecordInput) Statement {
 			Message: st.Message, Pointer: st.Pointer},
 		Chain: in.Chain,
 		Time:  RecordTime{Finished: st.Times.Finished},
+		Trust: in.Trust,
 	}
 	params := spec.Params
 	p.Intent.Params, p.Intent.Reason, p.Intent.CorrelationID = &params, spec.Reason, spec.CorrelationID
@@ -203,6 +209,7 @@ func NewUnrecordable(in RecordInput, check, message string) Statement {
 		Chain:        Chain{Stream: in.Chain.Stream, Seq: in.Chain.Seq, Parent: in.Chain.Parent},
 		Time:         RecordTime{Finished: in.Operation.Status.Times.Finished},
 		Unrecordable: &Refusal{Check: check, Message: message},
+		Trust:        in.Trust,
 	}
 	return statement(RecordSubjects{Anchor: in.Subjects.Anchor}, p)
 }

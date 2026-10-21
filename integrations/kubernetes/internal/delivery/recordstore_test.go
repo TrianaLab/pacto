@@ -21,6 +21,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 )
 
@@ -130,14 +131,8 @@ func TestRecordStoreList(t *testing.T) {
 		}
 	}
 	reg.fault = nil
-	// Too large to be a record: skipped without a fetch.
-	maxRecordBytes = 10
-	if recs, err := s.list(ctx, a); err != nil || len(recs) != 0 {
-		t.Fatalf("oversized: %v %v", recs, err)
-	}
-	maxRecordBytes = 4 << 20
 	// A record manifest with two layers cannot be accounted for.
-	pushOnAnchor(t, a, map[string]string{annPredicateType: delivery.PredicateOperation}, bundle, []byte("y"))
+	pushOnAnchor(t, a, map[string]string{deliveryrecord.AnnPredicateType: delivery.PredicateOperation}, bundle, []byte("y"))
 	if _, err := s.list(ctx, a); !errors.Is(err, errUnverifiable) {
 		t.Fatalf("two layers: %v", err)
 	}

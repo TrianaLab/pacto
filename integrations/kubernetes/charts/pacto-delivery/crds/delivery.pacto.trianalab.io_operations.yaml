@@ -351,6 +351,52 @@ spec:
                     required:
                     - moveFirst
                     type: object
+                  precedent:
+                    description: |-
+                      Precedent is what happened the last times this version was the target
+                      of a recorded operation, on any Stage. Clients fill it from records;
+                      the promoter leaves it empty.
+                    properties:
+                      completeness:
+                        type: string
+                      entries:
+                        items:
+                          description: |-
+                            PrecedentEntry is one recorded operation that moved, or tried to move, a
+                            Stage to the version.
+                          properties:
+                            finished:
+                              type: string
+                            outcome:
+                              description: Outcome is how a concluded operation ended.
+                              type: string
+                            reason:
+                              type: string
+                            record:
+                              type: string
+                            seq:
+                              format: int64
+                              type: integer
+                            stream:
+                              type: string
+                            type:
+                              type: string
+                            verification:
+                              description: Verification qualifies a Succeeded outcome.
+                              type: string
+                          required:
+                          - outcome
+                          - record
+                          - seq
+                          - stream
+                          - type
+                          type: object
+                        type: array
+                      note:
+                        type: string
+                    required:
+                    - completeness
+                    type: object
                   predicted:
                     description: Prediction is what plan() expects the promoter to
                       do.

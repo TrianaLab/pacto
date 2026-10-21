@@ -67,8 +67,9 @@ type Signer interface {
 	Sign(ctx context.Context, pae []byte) (sig []byte, material VerificationMaterial, err error)
 }
 
-// Verifier checks a signature over pae against the bundle's material.
-type Verifier func(pae, sig []byte, m VerificationMaterial) error
+// Verifier checks a signature over pae against the bundle's material, for a
+// record of stream: a trust config trusts each key for some streams only.
+type Verifier func(stream string, pae, sig []byte, m VerificationMaterial) error
 
 // PAE is DSSE's pre-authentication encoding of a payload.
 func PAE(payloadType string, payload []byte) []byte {
@@ -91,6 +92,9 @@ func SignRecord(ctx context.Context, s Signer, st Statement) (bundle []byte, id 
 
 // OpenRecord verifies a bundle and returns its statement and record id. A
 // bundle that is not one signed pacto.dev/operation/v1 statement is an error.
+// The payload is decoded before the signature is checked, because the stream
+// it names decides which keys may have signed it; nothing it says is trusted
+// until the signature verifies.
 func OpenRecord(bundle []byte, verify Verifier) (Statement, string, error) {
 	var b Bundle
 	if err := json.Unmarshal(bundle, &b); err != nil {
@@ -105,15 +109,15 @@ func OpenRecord(bundle []byte, verify Verifier) (Statement, string, error) {
 	case len(env.Signatures) != 1:
 		return Statement{}, "", fmt.Errorf("%d signatures, want 1", len(env.Signatures))
 	}
-	if err := verify(PAE(env.PayloadType, env.Payload), env.Signatures[0].Sig, b.VerificationMaterial); err != nil {
-		return Statement{}, "", fmt.Errorf("signature: %w", err)
-	}
 	var st Statement
 	if err := strictjson.Unmarshal(env.Payload, &st); err != nil {
 		return Statement{}, "", fmt.Errorf("statement: %w", err)
 	}
 	if st.Type != StatementType || st.PredicateType != PredicateOperation {
 		return Statement{}, "", fmt.Errorf("statement %q with predicate %q", st.Type, st.PredicateType)
+	}
+	if err := verify(st.Predicate.Chain.Stream, PAE(env.PayloadType, env.Payload), env.Signatures[0].Sig, b.VerificationMaterial); err != nil {
+		return Statement{}, "", fmt.Errorf("signature: %w", err)
 	}
 	return st, sha256Hex(env.Payload), nil
 }
@@ -144,13 +148,13 @@ func (s ed25519Signer) Sign(_ context.Context, pae []byte) ([]byte, Verification
 }
 
 // PublicKeyVerifier verifies signatures by one Ed25519, ECDSA or RSA key, the
-// key types cosign and KMS produce. ECDSA and RSA sign the sha256 of the
-// pre-authentication bytes.
+// key types cosign and KMS produce, for any stream. ECDSA and RSA sign the
+// sha256 of the pre-authentication bytes.
 func PublicKeyVerifier(pub crypto.PublicKey) Verifier {
 	hint := KeyHintOf(pub)
-	return func(pae, sig []byte, m VerificationMaterial) error {
+	return func(_ string, pae, sig []byte, m VerificationMaterial) error {
 		if m.PublicKey == nil || m.PublicKey.Hint != hint {
-			return errors.New("signed by a key the recorder does not hold")
+			return errors.New("signed by a key that is not trusted here")
 		}
 		return verifyWith(pub, pae, sig)
 	}
@@ -181,20 +185,28 @@ var (
 	oidIssuerV2 = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 8}
 )
 
-// CertificateVerifier verifies keyless signatures: the bundle's certificate
-// must name identity (a SAN URI or email) and issuer, and the signature must
-// verify under its key.
-// ponytail: no chain or transparency check; registry write access is the trust
-// boundary here, and `record verify` (part B) checks the chain against a trust
-// root.
-func CertificateVerifier(identity, issuer string) Verifier {
-	return func(pae, sig []byte, m VerificationMaterial) error {
+// CertificateVerifier verifies keyless signatures, for any stream: the
+// bundle's certificate must name identity (a SAN URI or email) and issuer, and
+// the signature must verify under its key. With roots, the certificate must
+// also chain to them for code signing, checked at its NotBefore: a bundle
+// written with Rekor off carries no signed time, and Fulcio certificates live
+// ten minutes.
+// ponytail: no transparency log check; registry write access plus the root is
+// the trust boundary. Add a signed timestamp if records must outlive a root.
+func CertificateVerifier(identity, issuer string, roots *x509.CertPool) Verifier {
+	return func(_ string, pae, sig []byte, m VerificationMaterial) error {
 		if m.Certificate == nil {
 			return errors.New("the bundle carries no certificate")
 		}
 		cert, err := x509.ParseCertificate(m.Certificate.RawBytes)
 		if err != nil {
 			return err
+		}
+		if roots != nil {
+			if _, err := cert.Verify(x509.VerifyOptions{Roots: roots, CurrentTime: cert.NotBefore,
+				KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning}}); err != nil {
+				return fmt.Errorf("the certificate does not chain to the trusted roots: %w", err)
+			}
 		}
 		ids := slices.Clone(cert.EmailAddresses)
 		for _, u := range cert.URIs {

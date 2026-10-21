@@ -199,4 +199,60 @@ metadata:
 spec:
   policyName: {{ $fullname }}-pointer
   validationActions: [Deny]
+{{- if .Values.recorder.enabled }}
+{{- $recorder := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "pacto-delivery.recorderServiceAccountName" .) }}
+---
+# The record fields belong to the recorder: status.record on an Operation and
+# status.stream.{recordedSeq,head,anchor} on a Stage change only when the
+# recorder writes them, and the recorder changes nothing that decides what
+# runs. RBAC cannot scope a status write to fields; this policy does.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-records
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [delivery.pacto.trianalab.io]
+        apiVersions: ["*"]
+        operations: [UPDATE]
+        resources: [stages/status, operations/status]
+  variables:
+    - name: recorder
+      expression: "request.userInfo.username == '{{ $recorder }}'"
+  validations:
+    - expression: >-
+        variables.recorder || (
+        {{ include "pacto-delivery.celSame" (list "status.record.digest" "''") }} &&
+        {{ include "pacto-delivery.celSame" (list "status.record.refused" "''") }} &&
+        {{ include "pacto-delivery.celSame" (list "status.stream.head" "''") }} &&
+        {{ include "pacto-delivery.celSame" (list "status.stream.recordedSeq" "0") }} &&
+        {{ include "pacto-delivery.celSame" (list "status.stream.anchor" "''") }})
+      message: "status.record and status.stream.{recordedSeq,head,anchor} are written only by the Pacto delivery recorder"
+      reason: Forbidden
+    - expression: >-
+        !variables.recorder || (
+        {{ include "pacto-delivery.celSame" (list "status.pointer" "''") }} &&
+        {{ include "pacto-delivery.celSame" (list "status.frozen" "false") }} &&
+        {{ include "pacto-delivery.celSame" (list "status.lastOp" "''") }} &&
+        {{ include "pacto-delivery.celSame" (list "status.stream.seq" "0") }} &&
+        {{ include "pacto-delivery.celSame" (list "status.phase" "''") }} &&
+        {{ include "pacto-delivery.celSame" (list "status.outcome" "''") }} &&
+        {{ include "pacto-delivery.celSame" (list "status.seq" "0") }})
+      message: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-records
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-records
+  validationActions: [Deny]
+{{- end }}
 {{- end }}

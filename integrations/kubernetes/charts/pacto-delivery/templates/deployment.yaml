@@ -42,6 +42,7 @@ spec:
             {{- end }}
             {{- if .Values.recorder.enabled }}
             - --records
+            - --recorded-ttl={{ .Values.recorder.operationTTL }}
             {{- end }}
             {{- with .Values.gates.providers }}
             - {{ printf "--gate-providers=%s" (toJson .) | quote }}

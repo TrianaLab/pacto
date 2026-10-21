@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
@@ -24,23 +25,9 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 )
-
-// Referrer annotations on every record manifest. The predicate type is what
-// readers filter on, because the artifact type matches every sigstore bundle;
-// the dev.pacto ones are unsigned conveniences.
-const (
-	annBundleContent = "dev.sigstore.bundle.content"
-	annPredicateType = "dev.sigstore.bundle.predicateType"
-	annUID           = "dev.pacto.uid"
-	annStream        = "dev.pacto.stream"
-	annSeq           = "dev.pacto.seq"
-	anchorType       = "application/vnd.pacto.delivery.stream.v1+json"
-)
-
-// maxRecordBytes bounds one manifest or bundle the recorder reads back.
-var maxRecordBytes int64 = 4 << 20
 
 // Errors the recorder tells apart.
 var (
@@ -83,10 +70,7 @@ func (l locations) subjects() delivery.RecordSubjects {
 }
 
 // stored is one verified record read back from a stream.
-type stored struct {
-	ID        string
-	Statement delivery.Statement
-}
+type stored = delivery.StoredRecord
 
 func (s *RecordStore) open(path string, insecureHosts ...string) (*remote.Repository, error) {
 	opts := s.Options
@@ -108,8 +92,7 @@ func (s *RecordStore) anchor(ctx context.Context, stream string) (*place, error)
 	if err != nil {
 		return nil, err
 	}
-	payload, _ := json.Marshal(map[string]string{"stream": stream}) // a string map; marshalling cannot fail
-	art := ocireferrer.Build(anchorType, anchorType, payload, nil, nil)
+	art := deliveryrecord.Anchor(stream)
 	tag := AnchorTag(stream)
 	if got, err := repo.Resolve(ctx, tag); err != nil || got.Digest != art.ManifestDesc.Digest {
 		if err := ocireferrer.Push(ctx, repo, art); err != nil {
@@ -142,40 +125,14 @@ func (s *RecordStore) Probe(ctx context.Context) error {
 // skipped; a record that will not verify fails the read, because a stream with
 // a record the recorder cannot account for is one it must not extend.
 func (s *RecordStore) list(ctx context.Context, anchor *place) ([]stored, error) {
-	var descs []ocispec.Descriptor
-	if err := anchor.repo.Referrers(ctx, anchor.desc, "", func(page []ocispec.Descriptor) error {
-		descs = append(descs, page...)
-		return nil
-	}); err != nil {
+	l, err := deliveryrecord.List(ctx, anchor.repo, anchor.desc, s.Verify)
+	if err != nil {
 		return nil, classify(err)
 	}
-	var out []stored
-	for _, d := range descs {
-		if d.Size > maxRecordBytes {
-			continue // too large to be a record manifest
-		}
-		raw, err := content.FetchAll(ctx, anchor.repo, d)
-		if err != nil {
-			return nil, err
-		}
-		var m ocispec.Manifest
-		if json.Unmarshal(raw, &m) != nil || m.Annotations[annPredicateType] != delivery.PredicateOperation {
-			continue // another tool's referrer
-		}
-		if len(m.Layers) != 1 || m.Layers[0].Size > maxRecordBytes {
-			return nil, fmt.Errorf("%w: %s is not one bundle layer", errUnverifiable, d.Digest)
-		}
-		bundle, err := content.FetchAll(ctx, anchor.repo, m.Layers[0])
-		if err != nil {
-			return nil, err
-		}
-		st, id, err := delivery.OpenRecord(bundle, s.Verify)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %s: %w", errUnverifiable, d.Digest, err)
-		}
-		out = append(out, stored{ID: id, Statement: st})
+	if len(l.Unreadable) > 0 {
+		return nil, fmt.Errorf("%w: %s", errUnverifiable, strings.Join(l.Unreadable, "; "))
 	}
-	return out, nil
+	return l.Records, nil
 }
 
 // locate finds where a record of a move from→to goes: to and from in the
@@ -242,11 +199,11 @@ func resolve(ctx context.Context, repo *remote.Repository, digest string) (*plac
 // placement exists.
 func (s *RecordStore) write(ctx context.Context, bundle []byte, st delivery.Statement, l locations) error {
 	ann := map[string]string{
-		annBundleContent: "dsse-envelope",
-		annPredicateType: delivery.PredicateOperation,
-		annUID:           st.Predicate.Intent.UID,
-		annStream:        st.Predicate.Chain.Stream,
-		annSeq:           strconv.FormatInt(st.Predicate.Chain.Seq, 10),
+		deliveryrecord.AnnBundleContent: "dsse-envelope",
+		deliveryrecord.AnnPredicateType: delivery.PredicateOperation,
+		deliveryrecord.AnnUID:           st.Predicate.Intent.UID,
+		deliveryrecord.AnnStream:        st.Predicate.Chain.Stream,
+		deliveryrecord.AnnSeq:           strconv.FormatInt(st.Predicate.Chain.Seq, 10),
 	}
 	for _, p := range []*place{l.to, l.from, l.contract, l.anchor} {
 		if p == nil {

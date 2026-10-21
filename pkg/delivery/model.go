@@ -211,6 +211,10 @@ type Stream struct {
 	// recorder writes it.
 	// +optional
 	Head string `json:"head,omitempty"`
+	// Anchor is where the stream's records are listed:
+	// <repository>@<anchor digest>. Only the recorder writes it.
+	// +optional
+	Anchor string `json:"anchor,omitempty"`
 }
 
 // StageStatus is written only by the promoter's operation reconciler.
@@ -427,6 +431,37 @@ type Plan struct {
 	// never moves another service itself.
 	// +optional
 	Order *Order `json:"order,omitempty"`
+	// Precedent is what happened the last times this version was the target
+	// of a recorded operation, on any Stage. Clients fill it from records;
+	// the promoter leaves it empty.
+	// +optional
+	Precedent *Precedent `json:"precedent,omitempty"`
+}
+
+// Precedent is what the records attached to a version say happened to it.
+// With completeness partial, no entry for a Stage proves nothing.
+type Precedent struct {
+	Completeness string `json:"completeness"`
+	// +optional
+	Note string `json:"note,omitempty"`
+	// +optional
+	Entries []PrecedentEntry `json:"entries,omitempty"`
+}
+
+// PrecedentEntry is one recorded operation that moved, or tried to move, a
+// Stage to the version.
+type PrecedentEntry struct {
+	Stream  string  `json:"stream"`
+	Seq     int64   `json:"seq"`
+	Type    string  `json:"type"`
+	Outcome Outcome `json:"outcome"`
+	// +optional
+	Verification Verification `json:"verification,omitempty"`
+	// +optional
+	Reason string `json:"reason,omitempty"`
+	// +optional
+	Finished string `json:"finished,omitempty"`
+	Record   string `json:"record"`
 }
 
 // Order is what must move before a blocked promote can ship with no person

@@ -88,3 +88,25 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  - it: keeps the record fields to the recorder, and the recorder away from what runs
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      recorder.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 10
+      - equal:
+          path: spec.variables[0].expression
+          value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery-recorder'"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[0].expression
+          pattern: "has\\(object.status.stream.head\\) \\? object.status.stream.head : ''\\) == \\(has\\(oldObject.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "^!variables.recorder \\|\\|"
+        documentIndex: 8

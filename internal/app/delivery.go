@@ -54,6 +54,11 @@ type Delivery struct {
 	// Policy classifies the caller; ControllerUser is unused on the client.
 	Policy delivery.ClassPolicy
 	Now    func() time.Time
+	// Records opens repositories to read operation records from; nil reads
+	// none, and history comes from the cluster only.
+	Records RecordRepo
+	// Trust verifies records; nil lists them unverified and says so.
+	Trust *delivery.TrustConfig
 }
 
 // Caller is who the apiserver says is calling, and when they last logged in.
@@ -205,7 +210,11 @@ func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.Pla
 			return delivery.Plan{}, delivery.OperationSpec{}, err
 		}
 	}
-	return delivery.PlanFor(ctx, in), spec, nil
+	plan := delivery.PlanFor(ctx, in)
+	if spec.Facet == delivery.FacetPointer && spec.Params.To != "" {
+		plan.Precedent = d.precedent(ctx, stage, spec.Params.To)
+	}
+	return plan, spec, nil
 }
 
 // upstream reads the status of the Stage this one takes its candidates from;
@@ -288,6 +297,16 @@ func (d *Delivery) digest(ctx context.Context, stage *delivery.StageObject, to s
 // applyRegistry reads the Stage's OCIRepository: its repository and a registry
 // client that honours spec.insecure.
 func (d *Delivery) applyRegistry(ctx context.Context, stage *delivery.StageObject) (string, DeliveryRegistry, error) {
+	repo, insecure, err := d.applyRepo(ctx, stage)
+	if err != nil {
+		return "", nil, err
+	}
+	return repo, d.Registry(insecure...), nil
+}
+
+// applyRepo reads the Stage's OCIRepository: its repository, and its host
+// when spec.insecure says to reach it over plain HTTP.
+func (d *Delivery) applyRepo(ctx context.Context, stage *delivery.StageObject) (string, []string, error) {
 	u, err := d.Dynamic.Resource(gvrOCIRepository).Namespace(stage.Metadata.Namespace).Get(ctx, stage.Spec.ApplyRef.Name, metav1.GetOptions{})
 	if err != nil {
 		return "", nil, fmt.Errorf("reading the apply OCIRepository %s: %w", stage.Spec.ApplyRef.Name, err)
@@ -297,9 +316,9 @@ func (d *Delivery) applyRegistry(ctx context.Context, stage *delivery.StageObjec
 	repo := delivery.RepoFromURL(url)
 	if insecure {
 		host, _, _ := strings.Cut(repo, "/")
-		return repo, d.Registry(host), nil
+		return repo, []string{host}, nil
 	}
-	return repo, d.Registry(), nil
+	return repo, nil, nil
 }
 
 func (d *Delivery) pactos(ctx context.Context) ([]delivery.PactoView, error) {

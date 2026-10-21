@@ -227,13 +227,13 @@ func TestPublicKeyVerifierKeyTypes(t *testing.T) {
 	}{"ecdsa": {&ec.PublicKey, ecSig}, "rsa": {&rk.PublicKey, rsaSig}} {
 		v := PublicKeyVerifier(c.pub)
 		m := VerificationMaterial{PublicKey: &KeyHint{Hint: KeyHintOf(c.pub)}}
-		if err := v(pae, c.sig, m); err != nil {
+		if err := v("", pae, c.sig, m); err != nil {
 			t.Errorf("%s: %v", name, err)
 		}
-		if err := v(pae, []byte("bad"), m); err == nil {
+		if err := v("", pae, []byte("bad"), m); err == nil {
 			t.Errorf("%s: a bad signature verified", name)
 		}
-		if err := v(pae, c.sig, VerificationMaterial{}); err == nil {
+		if err := v("", pae, c.sig, VerificationMaterial{}); err == nil {
 			t.Errorf("%s: verified with no key named", name)
 		}
 	}
@@ -266,19 +266,19 @@ func TestCertificateVerifier(t *testing.T) {
 	digest := sha256.Sum256(pae)
 	sig, _ := ecdsa.SignASN1(rand.Reader, key, digest[:])
 	m := VerificationMaterial{Certificate: &Certificate{RawBytes: der}}
-	if err := CertificateVerifier(id, iss)(pae, sig, m); err != nil {
+	if err := CertificateVerifier(id, iss, nil)("", pae, sig, m); err != nil {
 		t.Fatal(err)
 	}
-	if err := CertificateVerifier("ops@acme.example", iss)(pae, sig, m); err != nil {
+	if err := CertificateVerifier("ops@acme.example", iss, nil)("", pae, sig, m); err != nil {
 		t.Fatalf("email identity: %v", err)
 	}
-	if err := CertificateVerifier("someone-else", iss)(pae, sig, m); err == nil {
+	if err := CertificateVerifier("someone-else", iss, nil)("", pae, sig, m); err == nil {
 		t.Fatal("verified another identity")
 	}
-	if err := CertificateVerifier(id, iss)(pae, sig, VerificationMaterial{}); err == nil {
+	if err := CertificateVerifier(id, iss, nil)("", pae, sig, VerificationMaterial{}); err == nil {
 		t.Fatal("verified with no certificate")
 	}
-	if err := CertificateVerifier(id, iss)(pae, sig, VerificationMaterial{Certificate: &Certificate{RawBytes: []byte("x")}}); err == nil {
+	if err := CertificateVerifier(id, iss, nil)("", pae, sig, VerificationMaterial{Certificate: &Certificate{RawBytes: []byte("x")}}); err == nil {
 		t.Fatal("verified with a broken certificate")
 	}
 	_, v1der := selfSigned(t, id, []pkix.Extension{{Id: oidIssuerV1, Value: []byte(iss)}})

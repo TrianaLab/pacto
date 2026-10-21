@@ -131,6 +131,18 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.plan.order.moveFirst[].unknown` | `string` | no |  |  | Unknown says why Pacto cannot tell whether such a version exists. |
 | `status.plan.order.moveFirst[].version` | `string` | no |  |  | Version is the consumer version running here that does not accept the new provider version. |
 | `status.plan.order.unknown` | `[]string` | no |  |  | Unknown says why the list may be incomplete: a partial graph, a range Pacto cannot read or a consumer it cannot place. Empty means Pacto saw every consumer running here. |
+| `status.plan.precedent` | `object` | no |  |  | Precedent is what happened the last times this version was the target of a recorded operation, on any Stage. Clients fill it from records; the promoter leaves it empty. |
+| `status.plan.precedent.completeness` | `string` | yes |  |  |  |
+| `status.plan.precedent.entries` | `[]object` | no |  |  |  |
+| `status.plan.precedent.entries[].finished` | `string` | no |  |  |  |
+| `status.plan.precedent.entries[].outcome` | `string` | yes |  |  | Outcome is how a concluded operation ended. |
+| `status.plan.precedent.entries[].reason` | `string` | no |  |  |  |
+| `status.plan.precedent.entries[].record` | `string` | yes |  |  |  |
+| `status.plan.precedent.entries[].seq` | `integer` | yes |  |  |  |
+| `status.plan.precedent.entries[].stream` | `string` | yes |  |  |  |
+| `status.plan.precedent.entries[].type` | `string` | yes |  |  |  |
+| `status.plan.precedent.entries[].verification` | `string` | no |  |  | Verification qualifies a Succeeded outcome. |
+| `status.plan.precedent.note` | `string` | no |  |  |  |
 | `status.plan.predicted` | `string` | yes |  |  | Prediction is what plan() expects the promoter to do. |
 | `status.plan.question` | `string` | no |  |  | Question is the one question a human would be asked. |
 | `status.plan.to` | `string` | no |  |  |  |
@@ -248,6 +260,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.pointer` | `string` | no |  |  | Pointer is the digest the environment runs. |
 | `status.published` | `[]string` | no |  |  | Published holds the candidate digests Flux verified the signature of on the candidate OCIRepository (spec.verify naming the publisher's identity), oldest first (cap 50). Only these are promoted from the OCIRepository. |
 | `status.stream` | `object` | no |  |  | Stream numbers a Stage's concluded operations. |
+| `status.stream.anchor` | `string` | no |  |  | Anchor is where the stream's records are listed: &lt;repository&gt;@<anchor digest>. Only the recorder writes it. |
 | `status.stream.head` | `string` | no |  |  | Head is the digest of the newest record in the stream. Only the recorder writes it. |
 | `status.stream.id` | `string` | no |  |  | ID is &lt;clusterID&gt;/&lt;namespace&gt;/&lt;name&gt;; the cluster id is the kube-system namespace uid. |
 | `status.stream.recordedSeq` | `integer` | no |  |  | RecordedSeq is the newest local seq the recorder wrote or adopted a record for. Only the recorder writes it. |

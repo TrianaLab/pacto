@@ -108,3 +108,27 @@ tests:
             name: RELEASE-NAME-pacto-delivery
             namespace: NAMESPACE
         documentIndex: 1
+
+  - it: lets the promoter delete operations only when the recorder keeps their records
+    template: templates/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [delivery.pacto.trianalab.io]
+            resources: [operations]
+            verbs: [get, list, watch, create, update, patch]
+
+  - it: grants the delete with the recorder on
+    template: templates/rbac.yaml
+    documentIndex: 1
+    set:
+      recorder.enabled: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [delivery.pacto.trianalab.io]
+            resources: [operations]
+            verbs: [get, list, watch, create, update, patch, delete]

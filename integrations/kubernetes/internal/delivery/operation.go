@@ -58,6 +58,9 @@ type OperationReconciler struct {
 	// Records says the recorder runs and owns the record finalizer of every
 	// operation that got a seq.
 	Records bool
+	// RecordedTTL deletes a recorded operation this long after it concluded;
+	// zero keeps every operation.
+	RecordedTTL time.Duration
 }
 
 // conclusion is how an operation ends.
@@ -77,7 +80,10 @@ func (r *OperationReconciler) Reconcile(ctx context.Context, req reconcile.Reque
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 	if op.Status.Phase == delivery.PhaseConcluded {
-		return reconcile.Result{}, r.releaseFinalizer(ctx, op)
+		if err := r.releaseFinalizer(ctx, op); err != nil {
+			return reconcile.Result{}, err
+		}
+		return r.expire(ctx, op)
 	}
 	stage := &dv1.Stage{}
 	if err := r.Get(ctx, types.NamespacedName{Namespace: op.Namespace, Name: op.Spec.Stage}, stage); err != nil {
@@ -891,6 +897,30 @@ func (r *OperationReconciler) releaseFinalizer(ctx context.Context, op *dv1.Oper
 		return nil
 	}
 	return r.Update(ctx, op)
+}
+
+// expire deletes a recorded operation once RecordedTTL has passed since it
+// concluded: its record holds what happened, and history reads the record.
+// The operation the Stage runs is kept, because a rollback must cite it.
+func (r *OperationReconciler) expire(ctx context.Context, op *dv1.Operation) (reconcile.Result, error) {
+	if r.RecordedTTL <= 0 || op.Status.Record == nil || !op.DeletionTimestamp.IsZero() {
+		return reconcile.Result{}, nil
+	}
+	finished, err := time.Parse(time.RFC3339, op.Status.Times.Finished)
+	if err != nil {
+		return reconcile.Result{}, nil
+	}
+	if wait := finished.Add(r.RecordedTTL).Sub(r.now()); wait > 0 {
+		return reconcile.Result{RequeueAfter: wait}, nil
+	}
+	stage := &dv1.Stage{}
+	switch err := r.Get(ctx, types.NamespacedName{Namespace: op.Namespace, Name: op.Spec.Stage}, stage); {
+	case err == nil && stage.Status.LastOp == string(op.UID):
+		return reconcile.Result{}, nil
+	case err != nil && !apierrors.IsNotFound(err):
+		return reconcile.Result{}, err
+	}
+	return reconcile.Result{}, client.IgnoreNotFound(r.Delete(ctx, op))
 }
 
 // StageLabel names the Stage an operation acts on, for selection.

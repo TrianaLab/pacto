@@ -60,9 +60,10 @@ func execRun(ctx context.Context, stdin []byte, name string, args ...string) ([]
 	return out, nil
 }
 
-// NewSigner builds the recorder's signer and the verifier for the records it
-// writes. A nil run executes cosign.
-func NewSigner(ctx context.Context, cfg SigningConfig, run runFunc) (delivery.Signer, delivery.Verifier, error) {
+// NewSigner builds the recorder's signer and the trust config entry for the
+// records it writes. A nil run executes cosign.
+func NewSigner(ctx context.Context, cfg SigningConfig, run runFunc) (delivery.Signer, delivery.TrustedKey, error) {
+	own := delivery.TrustedKey{Name: "recorder"}
 	set := 0
 	for _, on := range []bool{cfg.Ed25519KeyFile != "", cfg.KMSKey != "", cfg.Keyless} {
 		if on {
@@ -70,7 +71,7 @@ func NewSigner(ctx context.Context, cfg SigningConfig, run runFunc) (delivery.Si
 		}
 	}
 	if set != 1 {
-		return nil, nil, errors.New("configure exactly one of an Ed25519 key file, a KMS key or keyless signing")
+		return nil, own, errors.New("configure exactly one of an Ed25519 key file, a KMS key or keyless signing")
 	}
 	if run == nil {
 		run = execRun
@@ -83,21 +84,45 @@ func NewSigner(ctx context.Context, cfg SigningConfig, run runFunc) (delivery.Si
 	case cfg.Ed25519KeyFile != "":
 		key, err := readEd25519(cfg.Ed25519KeyFile)
 		if err != nil {
-			return nil, nil, err
+			return nil, own, err
 		}
-		return delivery.Ed25519Signer(key), delivery.PublicKeyVerifier(key.Public()), nil
+		own.PublicKey, _ = delivery.PublicKeyPEM(key.Public()) // an Ed25519 key always marshals
+		return delivery.Ed25519Signer(key), own, nil
 	case cfg.Keyless:
 		if cfg.Identity == "" || cfg.Issuer == "" {
-			return nil, nil, errors.New("keyless signing needs the certificate identity and issuer")
+			return nil, own, errors.New("keyless signing needs the certificate identity and issuer")
 		}
-		return cosign, delivery.CertificateVerifier(cfg.Identity, cfg.Issuer), nil
+		own.Identity, own.Issuer = cfg.Identity, cfg.Issuer
+		return cosign, own, nil
 	}
 	pub, err := cosign.publicKey(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, own, err
 	}
 	cosign.hint = delivery.KeyHintOf(pub)
-	return cosign, delivery.PublicKeyVerifier(pub), nil
+	own.PublicKey, _ = delivery.PublicKeyPEM(pub) // a key x509 parsed always marshals back
+	return cosign, own, nil
+}
+
+// RecorderTrust is the trust config the recorder verifies a stream with before
+// it extends it: its own key for every stream, plus the keys file lists for
+// the streams it names, such as the old key during a rotation. A record
+// signed by any other key stops the stream.
+func RecorderTrust(own delivery.TrustedKey, file string) (delivery.TrustConfig, error) {
+	t := delivery.TrustConfig{Keys: []delivery.TrustedKey{own}}
+	if file != "" {
+		raw, err := os.ReadFile(file)
+		if err != nil {
+			return t, err
+		}
+		extra, err := delivery.ParseTrust(raw)
+		if err != nil {
+			return t, err
+		}
+		t.Keys = append(t.Keys, extra.Keys...)
+	}
+	_, err := t.Verifier()
+	return t, err
 }
 
 func readEd25519(path string) (ed25519.PrivateKey, error) {

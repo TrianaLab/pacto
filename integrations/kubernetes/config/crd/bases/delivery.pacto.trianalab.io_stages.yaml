@@ -341,6 +341,11 @@ spec:
               stream:
                 description: Stream numbers a Stage's concluded operations.
                 properties:
+                  anchor:
+                    description: |-
+                      Anchor is where the stream's records are listed:
+                      <repository>@<anchor digest>. Only the recorder writes it.
+                    type: string
                   head:
                     description: |-
                       Head is the digest of the newest record in the stream. Only the

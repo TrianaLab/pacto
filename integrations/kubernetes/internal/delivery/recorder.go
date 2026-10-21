@@ -28,6 +28,7 @@ import (
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 )
 
 // ConditionRecordStoreReady is the recorder's Stage condition.
@@ -62,6 +63,11 @@ type Recorder struct {
 	Cluster   Cluster
 	Store     *RecordStore
 	Signer    delivery.Signer
+	// Trust is the digest of the trust config Store verifies with; every
+	// record cites it.
+	Trust string
+	// Events, when set, receives a CDEvent for every record written.
+	Events    *Events
 	ClusterID string
 	Now       func() time.Time
 	// Poll is how long a transient failure backs off.
@@ -126,8 +132,7 @@ func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 	if msg := conflict(recs, stream.Head); msg != "" {
 		return r.notReady(ctx, stage, ReasonStreamConflict, errors.New(msg))
 	}
-	if err := r.setCondition(ctx, stage, delivery.Condition{Type: ConditionRecordStoreReady, Status: "True",
-		Reason: "ReferrersSupported", Message: "records are written to " + r.Store.Streams}); err != nil {
+	if err := r.ready(ctx, stage); err != nil {
 		return reconcile.Result{}, err
 	}
 	w := &writer{Recorder: r, stage: stage, anchor: anchor, recs: recs}
@@ -221,6 +226,20 @@ func (r *Recorder) notReady(ctx context.Context, stage *dv1.Stage, reason string
 
 func hasCondition(stage *dv1.Stage, typ, status string) bool {
 	return slices.ContainsFunc(stage.Status.Conditions, func(c delivery.Condition) bool { return c.Type == typ && c.Status == status })
+}
+
+// ready marks the stream writable and names where its records are listed.
+func (r *Recorder) ready(ctx context.Context, stage *dv1.Stage) error {
+	want := delivery.Condition{Type: ConditionRecordStoreReady, Status: "True",
+		Reason: "ReferrersSupported", Message: "records are written to " + r.Store.Streams}
+	ref := deliveryrecord.AnchorRef(r.Store.Streams, stage.Status.Stream.ID)
+	if slices.Contains(stage.Status.Conditions, want) && stage.Status.Stream.Anchor == ref {
+		return nil
+	}
+	return r.casStage(ctx, stage, func(s *dv1.Stage) {
+		s.Status.Stream.Anchor = ref
+		s.Status.Conditions = append(slices.DeleteFunc(s.Status.Conditions, func(x delivery.Condition) bool { return x.Type == want.Type }), want)
+	})
 }
 
 // setCondition writes the recorder's condition when it changed.
@@ -332,7 +351,11 @@ func (w *writer) write(ctx context.Context, op *dv1.Operation) (*stored, error) 
 	if check, msg := delivery.CheckRecord(in, st); check != "" {
 		st, l = delivery.NewUnrecordable(in, check, msg), locations{anchor: w.anchor}
 	}
-	return w.sign(ctx, st, l)
+	rec, err := w.sign(ctx, st, l)
+	if err == nil {
+		w.Events.emit(ctx, w.stage, st, rec.ID, op.Status.Applied)
+	}
+	return rec, err
 }
 
 func (w *writer) sign(ctx context.Context, st delivery.Statement, l locations) (*stored, error) {
@@ -357,6 +380,7 @@ func (w *writer) input(ctx context.Context, op *dv1.Operation) (delivery.RecordI
 		Operation: delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: op.Name, Namespace: op.Namespace,
 			UID: string(op.UID)}, Spec: op.Spec, Status: op.Status},
 		Approvals: map[string]delivery.ApprovalSpec{},
+		Trust:     w.Trust,
 		Chain: delivery.Chain{Stream: w.stage.Status.Stream.ID, Seq: h.Statement.Predicate.Chain.Seq + 1, Parent: h.ID,
 			Undoes: w.recordOf(op.Spec.Params.Undoes)},
 	}
@@ -398,6 +422,7 @@ func (w *writer) gap(ctx context.Context, seq int64) (time.Duration, error) {
 		meta := delivery.ObjectMeta{Name: w.stage.Name, Namespace: w.stage.Namespace, UID: string(w.stage.UID)}
 		chain := delivery.Chain{Stream: w.stage.Status.Stream.ID, Seq: h.Statement.Predicate.Chain.Seq + 1, Parent: h.ID}
 		st := delivery.NewGap(w.ClusterID, meta, seq, chain, w.anchor.desc.Digest.String(), w.Now().UTC().Format(time.RFC3339))
+		st.Predicate.Trust = w.Trust
 		if _, err := w.sign(ctx, st, locations{anchor: w.anchor}); err != nil {
 			return 0, err
 		}

@@ -1,0 +1,113 @@
+// Package deliveryrecord is where delivery records live in a registry: the
+// stream anchor every record of a Stage is attached to, the annotations on a
+// record's referrer manifest, and reading a subject's records back verified.
+// The recorder writes through it and every reader (CLI, MCP, dashboard) reads
+// through it, so both agree on the layout.
+package deliveryrecord
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	"oras.land/oras-go/v2/content"
+	"oras.land/oras-go/v2/registry/remote"
+
+	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+)
+
+// Referrer annotations on every record manifest. The predicate type is what
+// readers filter on, because the artifact type matches every sigstore bundle;
+// the dev.pacto ones are unsigned conveniences.
+const (
+	AnnBundleContent = "dev.sigstore.bundle.content"
+	AnnPredicateType = "dev.sigstore.bundle.predicateType"
+	AnnUID           = "dev.pacto.uid"
+	AnnStream        = "dev.pacto.stream"
+	AnnSeq           = "dev.pacto.seq"
+	// AnchorType is the artifact and layer type of a stream anchor.
+	AnchorType = "application/vnd.pacto.delivery.stream.v1+json"
+)
+
+// MaxBytes bounds one record manifest or bundle a reader fetches.
+var MaxBytes int64 = 4 << 20
+
+// Anchor is a stream's anchor: a deterministic manifest whose one layer names
+// the stream, so anyone who knows the stream id knows its digest.
+func Anchor(stream string) ocireferrer.Artifact {
+	payload, _ := json.Marshal(map[string]string{"stream": stream}) // a string map; marshalling cannot fail
+	return ocireferrer.Build(AnchorType, AnchorType, payload, nil, nil)
+}
+
+// AnchorRef is where a stream's anchor lives: "<repository>@<digest>".
+func AnchorRef(repository, stream string) string {
+	return repository + "@" + Anchor(stream).ManifestDesc.Digest.String()
+}
+
+// ParseAnchorRef splits an anchor reference and checks it is the anchor of
+// stream, so a reference pointing at another stream's records is refused.
+func ParseAnchorRef(ref, stream string) (repository string, desc ocispec.Descriptor, err error) {
+	repository, digest, ok := strings.Cut(ref, "@")
+	want := Anchor(stream).ManifestDesc
+	if !ok || repository == "" || digest != want.Digest.String() {
+		return "", ocispec.Descriptor{}, fmt.Errorf("%q is not the anchor of stream %q (want <repository>@%s)", ref, stream, want.Digest)
+	}
+	return repository, want, nil
+}
+
+// Listing is what a subject's records read back as. Unreadable names every
+// record referrer that could not be verified, with why: a reader reports
+// them, and the recorder refuses to extend a stream that has any.
+type Listing struct {
+	Records    []delivery.StoredRecord
+	Unreadable []string
+}
+
+// List reads every record attached to subject in repo and verifies each.
+// Referrers that are not records are skipped. A listing or fetch failure is an
+// error: the registry could not be read, which is never the same as no record.
+func List(ctx context.Context, repo *remote.Repository, subject ocispec.Descriptor, verify delivery.Verifier) (Listing, error) {
+	var descs []ocispec.Descriptor
+	if err := repo.Referrers(ctx, subject, "", func(page []ocispec.Descriptor) error {
+		descs = append(descs, page...)
+		return nil
+	}); err != nil {
+		return Listing{}, err
+	}
+	var out Listing
+	for _, d := range descs {
+		if d.Size > MaxBytes {
+			continue // too large to be a record manifest
+		}
+		raw, err := content.FetchAll(ctx, repo, d)
+		if err != nil {
+			return Listing{}, err
+		}
+		var m ocispec.Manifest
+		if json.Unmarshal(raw, &m) != nil || m.Annotations[AnnPredicateType] != delivery.PredicateOperation {
+			continue // another tool's referrer
+		}
+		if len(m.Layers) != 1 || m.Layers[0].Size > MaxBytes {
+			out.Unreadable = append(out.Unreadable, d.Digest.String()+": not one bundle layer")
+			continue
+		}
+		bundle, err := content.FetchAll(ctx, repo, m.Layers[0])
+		if err != nil {
+			return Listing{}, err
+		}
+		st, id, err := delivery.OpenRecord(bundle, verify)
+		if err != nil {
+			out.Unreadable = append(out.Unreadable, d.Digest.String()+": "+err.Error())
+			continue
+		}
+		out.Records = append(out.Records, delivery.StoredRecord{ID: id, Manifest: d.Digest.String(), Statement: st})
+	}
+	return out, nil
+}
+
+// Unchecked is a Verifier that accepts every signature: a reader with no trust
+// config still lists records, and says they are unverified.
+func Unchecked(string, []byte, []byte, delivery.VerificationMaterial) error { return nil }

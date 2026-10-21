@@ -153,3 +153,41 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: identity and issuer
+
+  - it: hands the promoter the operation TTL and the delete it needs
+    set:
+      recorder.enabled: true
+      recorder.streamsRepository: r/s
+      recorder.signing.kms: awskms:///alias/pacto
+      recorder.operationTTL: 24h
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --recorded-ttl=24h
+        template: templates/deployment.yaml
+
+  - it: mounts the trust config and passes the CDEvents sink
+    set:
+      recorder.enabled: true
+      recorder.streamsRepository: r/s
+      recorder.signing.kms: awskms:///alias/pacto
+      recorder.trust: "keys: []"
+      recorder.cdeventsSink: http://events.example/cdevents
+    template: templates/recorder.yaml
+    asserts:
+      - equal:
+          path: data["trust.yaml"]
+          value: "keys: []"
+        documentSelector: {path: kind, value: ConfigMap}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --trust-config=/etc/pacto/trust/trust.yaml
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --cdevents-sink=http://events.example/cdevents
+        documentSelector: {path: kind, value: Deployment}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: trust, configMap: {name: d-pacto-delivery-recorder-trust}}
+        documentSelector: {path: kind, value: Deployment}
