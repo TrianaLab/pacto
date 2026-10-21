@@ -301,7 +301,8 @@ func TestLogout(t *testing.T) {
 		LogoutURL string `json:"logoutURL"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
-	if !strings.HasPrefix(out.LogoutURL, f.srv.URL+"/logout?") || !strings.Contains(out.LogoutURL, "id_token_hint=") ||
+	if !strings.HasPrefix(out.LogoutURL, f.srv.URL+"/logout?") || strings.Contains(out.LogoutURL, "id_token_hint") ||
+		!strings.Contains(out.LogoutURL, "client_id=") ||
 		cookieNamed(t, rec, SessionCookie).MaxAge != -1 || o.Session(withCookie(c)) != nil || len(f.revoked) != 1 {
 		t.Fatalf("logout %s revoked %v", rec.Body, f.revoked)
 	}

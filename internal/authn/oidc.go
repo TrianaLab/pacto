@@ -293,14 +293,16 @@ func sessionCookie(value string, maxAge int) *http.Cookie {
 
 // Logout ends the session: POST /auth/logout. The refresh token is revoked
 // and, when the identity provider supports it, the answer names its logout
-// page for the browser to visit.
+// page for the browser to visit. The page is named by client_id only: an
+// id_token_hint would hand browser JavaScript an ID token that stays a
+// cluster credential until it expires.
 func (o *OIDC) Logout(w http.ResponseWriter, r *http.Request) {
 	out := struct {
 		LogoutURL string `json:"logoutURL,omitempty"`
 	}{}
 	if c, err := r.Cookie(SessionCookie); err == nil {
 		if s, p := o.end(r.Context(), c.Value); s != nil && p.ends.EndSession != "" {
-			out.LogoutURL = p.ends.EndSession + "?" + url.Values{"id_token_hint": {s.idToken}, "client_id": {o.cfg.ClientID}}.Encode()
+			out.LogoutURL = p.ends.EndSession + "?" + url.Values{"client_id": {o.cfg.ClientID}}.Encode()
 		}
 	}
 	http.SetCookie(w, sessionCookie("", -1))
