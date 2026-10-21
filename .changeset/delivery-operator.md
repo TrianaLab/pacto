@@ -19,9 +19,10 @@ an operation's uid and intent digest). The promoter (`cmd/delivery`, image
 `pacto.diff` and `pacto.impact` pre-gates, holds for a person when a consumer
 running in the Stage's environment would break or Pacto cannot see enough (a
 consumer counts unless its environment label or the namespace a Stage's
-Kustomization applies into places it elsewhere; and
-writes to `status.plan.order` which consumer must move first and, when one
-exists, the verified version of it to promote), takes the Stage lock with one
+Kustomization applies into places it elsewhere; and writes to
+`status.plan.order` which consumer must move first and, when one exists, the
+verified version of it to promote, planned again while the change waits so it
+never names a consumer that has already moved), takes the Stage lock with one
 compare-and-swap, sets `spec.ref.digest` on the Flux `OCIRepository` the Stage
 names, waits for Flux and runs the Pacto contract check as the verify gate.
 Unknown never passes. A failed version is never promoted again and is rolled

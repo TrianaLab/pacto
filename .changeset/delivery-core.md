@@ -10,29 +10,31 @@ environment runs. This release adds the pure core and the client side.
 and `PlanFor`, the one function the promoter, the CLI and the MCP tools all
 call. A promote runs two pre-gates: `pacto.diff` compares the running contract
 with the new one, and `pacto.impact` projects the change onto every consumer
-that declares a compatibility range. A consumer the new version breaks holds
-the change and routes the question to that consumer's owners. Anything Pacto
-cannot see (an artifact with no `pacto.dev/contract` annotation, a Pacto it
-cannot read, a range it cannot evaluate on a change that is not plainly
-non-breaking, a rollback target that was never verified) holds it for a person
-to accept the unknown. A plan judges only the consumers running in the Stage's
-environment. Pacto places a consumer from where it runs: its
+that declares a compatibility range. A consumer the new version breaks holds the
+change and routes the question to that consumer's owners. Anything Pacto cannot
+see (an artifact with no `pacto.dev/contract` annotation, a Pacto it cannot
+read, a range it cannot evaluate on a change that is not plainly non-breaking, a
+rollback target that was never verified) holds it for a person to accept the
+unknown. A plan judges only the consumers running in the Stage's environment.
+Pacto places a consumer from where it runs: its
 `delivery.pacto.trianalab.io/environment` label, or the namespace a Stage of
 that environment applies into (its Kustomization's `targetNamespace`). A
-consumer Pacto cannot place counts in every environment. When one of them does not accept the new version, the plan's
-`order` says which consumer must move first, the version running there and the
-range it declares, its Stage in that environment and either the newest version
-its upstream Stage verified that is newer than the one running, accepts both
-the running provider version and the new one, accepts what its other
-dependencies run there and is accepted by the range every Pacto there declares
-on it, or why Pacto cannot tell. Compatibility comes from the declared
-ranges, not from which fields or endpoints a consumer uses. Pacto never moves
-the other service itself. A registry read a plan makes gives up after 10
-seconds, and all the reads for one plan's order share one 10 second limit, so a
-registry that is down makes a contract unreadable instead of holding the plan. `pkg/impact` now judges a consumer that runs more than one
-revision by the one that accepts the new version least. `ContractVerdict` maps
-the Pacto contract check onto Pass, Fail or Unknown only when the check
-evaluated exactly the applied version.
+consumer Pacto cannot place counts in every environment, so it is never left
+out. When one of them does not accept the new version, the plan's `order` says
+which consumer must move first, the version running there and the range it
+declares, its Stage in that environment and either the newest version its
+upstream Stage verified that is newer than the one running, accepts both the
+running provider version and the new one, accepts what its other dependencies
+run there and is accepted by the range every Pacto there declares on it, or why
+Pacto cannot tell. Compatibility comes from the declared ranges, not from which
+fields or endpoints a consumer uses. Pacto never moves the other service itself.
+A registry read a plan makes gives up after 10 seconds, and all the reads for
+one plan's order share one 10 second limit, so a registry that is down makes the
+plan say the contract is unreadable within 10 seconds instead of hanging. The
+change then waits for a person to accept the unknown. `pkg/impact` now judges a
+consumer that runs more than one revision by the one that accepts the new
+version least. `ContractVerdict` maps the Pacto contract check onto Pass, Fail
+or Unknown only when the check evaluated exactly the applied version.
 
 `pacto delivery types`, `describe`, `plan`, `propose`, `get`, `cancel` and
 `approve` drive the promoter over the ambient cluster. A tag is refused, and
