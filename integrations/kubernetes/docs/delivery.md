@@ -203,10 +203,14 @@ accepts it (>=2.0.0 <4.0.0) and verified on test/orders. Ship orders first: prom
 
 Pacto works this out from the contracts and the Stages:
 
-- **Only consumers in that environment count.** A Pacto counts when it lives
-  in the Stage's namespace or in a namespace that holds a Stage of the same
-  environment. A Pacto in a namespace with no Stage counts everywhere, as Pacto
-  cannot place it.
+- **Only consumers in that environment count.** Pacto places a Pacto from
+  where it runs. A `delivery.pacto.trianalab.io/environment` label on the Pacto
+  names its environment. Without one, a Pacto runs in an environment when a
+  Stage of that environment applies into its namespace: the Flux Kustomization
+  that applies the Stage's `applyRef` sets `targetNamespace` to it. Where a
+  Stage object lives places nothing. A Pacto that cannot be placed counts in every
+  environment, and so does every Pacto when the Stages or the Kustomizations
+  cannot be listed. Pacto never leaves out a consumer it cannot place.
 - **The candidate must accept both versions.** Pacto looks at the versions the
   consumer's upstream Stage offered and verified, newest first, and picks one
   whose contract accepts the provider version running now and the new one. A
@@ -273,12 +277,13 @@ a witnessed override, adopts it and freezes the Stage.
 - Compatibility comes from the version range each consumer declares. Pacto
   does not know which fields or endpoints a consumer uses, and the calls it
   observes say only which service calls which.
-- Pacto places a Pacto in an environment by namespace: it assumes the Stages
-  in a namespace deliver to the workloads in that namespace. Keep each
-  environment's workloads and Pactos in namespaces that hold only that
-  environment's Stages, or in namespaces with no Stage at all. A Pacto that
-  shares a namespace only with Stages of another environment is left out, so a
-  consumer it describes is not asked about the change.
+- Pacto places a Pacto in an environment by its label or by the namespace a
+  Stage's Kustomization applies into. A Pacto in a namespace that a Stage of
+  one environment applies into is placed there, even if you deployed it into
+  that namespace for another environment by other means. Label such a Pacto
+  with `delivery.pacto.trianalab.io/environment`. A Kustomization with no
+  `targetNamespace` places nothing, so the Pactos it applies count in every
+  environment.
 - History reads the operations still in the cluster, so it is partial.
 - One cluster, Flux only.
 - Flux checks the signatures, so a digest it never verified on the candidate

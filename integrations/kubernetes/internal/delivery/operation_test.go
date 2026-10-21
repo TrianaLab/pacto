@@ -15,6 +15,7 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -632,7 +633,8 @@ func TestVerifiedPromoteIsOffered(t *testing.T) {
 // TestBlockedPromoteSaysWhatMovesFirst is M4 at unit level: a promote that
 // checkout, running in prod, does not accept is held, and status.plan names
 // the verified version of checkout to ship first, read through checkout's own
-// apply OCIRepository. A checkout running only in test does not hold it.
+// apply OCIRepository. A checkout Pacto can place in test, where the test
+// Stage's Kustomization applies, does not hold it; one it cannot place does.
 func TestBlockedPromoteSaysWhatMovesFirst(t *testing.T) {
 	const dX = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
 	world := func(checkoutNS string) *env {
@@ -655,10 +657,32 @@ func TestBlockedPromoteSaysWhatMovesFirst(t *testing.T) {
 		e.reg.bundles["oci://reg.example/pactos/checkout@"+c2] = b
 		return e
 	}
-	if o := world("test").drive("p1"); o.Status.Phase != delivery.PhaseRunning {
+	// The test Stage's version runs in namespace test: Flux applies it there.
+	placed := kustomization("payments", "payments", "True", "ReconciliationSucceeded", "", "")
+	placed.SetNamespace("test")
+	_ = unstructured.SetNestedField(placed.Object, "test", "spec", "targetNamespace")
+	e := world("test")
+	if err := e.c.Create(context.Background(), placed); err != nil {
+		t.Fatal(err)
+	}
+	if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning {
 		t.Fatalf("checkout runs only in test, so prod does not wait for it: %s %q", o.Status.Phase, o.Status.Question)
 	}
-	e := world(ns)
+	// Nothing says where a checkout in a namespace no Stage applies into runs,
+	// and with the Kustomizations unlistable nothing says where any runs: it
+	// counts, so prod waits.
+	if o := world("checkout-team").drive("p1"); o.Status.Phase != delivery.PhaseHeld {
+		t.Fatalf("a checkout Pacto cannot place holds prod: %s %q", o.Status.Phase, o.Status.Question)
+	}
+	e = world("test")
+	_ = e.c.Create(context.Background(), placed)
+	e.fails["list/Kustomization"] = true
+	op := opObj("p1", delivery.TypePromote, dA, dC, bot)
+	op.Status.ActorClass = delivery.ClassAgent
+	if p, err := e.op.plan(context.Background(), op, e.getStage()); err != nil || p.Predicted != delivery.PredictHeld {
+		t.Fatalf("with the Kustomizations unlistable checkout counts: %v %+v", err, p)
+	}
+	e = world(ns)
 	o := e.drive("p1")
 	if o.Status.Phase != delivery.PhaseHeld || o.Status.Plan.Order == nil || len(o.Status.Plan.Order.MoveFirst) != 1 {
 		t.Fatalf("want Held with an order: %s %+v", o.Status.Phase, o.Status.Plan)

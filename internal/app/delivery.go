@@ -24,6 +24,7 @@ var (
 	gvrApprovals     = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "approvals"}
 	gvrPactos        = schema.GroupVersionResource{Group: "pacto.trianalab.io", Version: "v1alpha1", Resource: "pactos"}
 	gvrOCIRepository = schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "ocirepositories"}
+	gvrKustomization = schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}
 	gvrSelfReview    = schema.GroupVersionResource{Group: "authentication.k8s.io", Version: "v1", Resource: "selfsubjectreviews"}
 )
 
@@ -198,7 +199,8 @@ func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.Pla
 		in.Candidates = func(ctx context.Context, s delivery.StageObject, digest string) delivery.Revision {
 			return d.Describe(ctx, &s, digest)
 		}
-		pactos = delivery.EnvironmentPactos(pactos, in.Stages, in.StagesErr, stage.Metadata.Namespace, stage.Spec.Environment)
+		ks, ksErr := d.kustomizations(ctx)
+		pactos = delivery.EnvironmentPactos(pactos, in.Stages, ks, errors.Join(in.StagesErr, ksErr), stage.Spec.Environment)
 		if in.Snapshot, err = delivery.Snapshot(ctx, pactos, listErr, []delivery.Revision{in.From, in.To}, d.Now()); err != nil {
 			return delivery.Plan{}, delivery.OperationSpec{}, err
 		}
@@ -307,6 +309,17 @@ func (d *Delivery) pactos(ctx context.Context) ([]delivery.PactoView, error) {
 	}
 	b, _ := list.MarshalJSON()
 	return delivery.DecodePactos(b)
+}
+
+// kustomizations lists every Flux Kustomization, which places the consumers:
+// where each Stage's version runs.
+func (d *Delivery) kustomizations(ctx context.Context) ([]delivery.KustomizationView, error) {
+	list, err := d.Dynamic.Resource(gvrKustomization).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	b, _ := list.MarshalJSON()
+	return delivery.DecodeKustomizations(b)
 }
 
 // Propose plans the request and creates the Operation. With an intent digest

@@ -16,7 +16,10 @@ cannot see (an artifact with no `pacto.dev/contract` annotation, a Pacto it
 cannot read, a range it cannot evaluate on a change that is not plainly
 non-breaking, a rollback target that was never verified) holds it for a person
 to accept the unknown. A plan judges only the consumers running in the Stage's
-environment. When one of them does not accept the new version, the plan's
+environment. Pacto places a consumer from where it runs: its
+`delivery.pacto.trianalab.io/environment` label, or the namespace a Stage of
+that environment applies into (its Kustomization's `targetNamespace`). A
+consumer Pacto cannot place counts in every environment. When one of them does not accept the new version, the plan's
 `order` says which consumer must move first, the version running there and the
 range it declares, its Stage in that environment and either the newest version
 its upstream Stage verified that is newer than the one running, accepts both

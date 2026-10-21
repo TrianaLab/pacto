@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"slices"
@@ -18,9 +19,10 @@ import (
 // here, so a rename there fails a test instead of silently starving delivery.
 type PactoView struct {
 	Metadata struct {
-		Namespace  string `json:"namespace"`
-		Name       string `json:"name"`
-		Generation int64  `json:"generation"`
+		Namespace  string            `json:"namespace"`
+		Name       string            `json:"name"`
+		Generation int64             `json:"generation"`
+		Labels     map[string]string `json:"labels"`
 	} `json:"metadata"`
 	Status PactoStatusView `json:"status"`
 }
@@ -193,28 +195,73 @@ func PactosFor(pactos []PactoView, namespace, service string) []PactoView {
 	})
 }
 
-// EnvironmentPactos keeps the Pactos running in environment, the one the
-// Stage in namespace delivers to. A provider version is eligible in an
-// environment only if every consumer running there accepts it, so a consumer
-// running only in another environment does not hold it.
+// EnvironmentLabel on a Pacto names the environment its workload runs in. It
+// places the Pacto when the namespace it runs in does not.
+const EnvironmentLabel = "delivery.pacto.trianalab.io/environment"
+
+// KustomizationView is the part of a Flux Kustomization the promoter reads to
+// learn where a Stage's version runs: the namespace it applies into.
+type KustomizationView struct {
+	Metadata struct {
+		Namespace string `json:"namespace"`
+		Name      string `json:"name"`
+	} `json:"metadata"`
+	Spec struct {
+		TargetNamespace string `json:"targetNamespace"`
+		SourceRef       struct {
+			Kind      string `json:"kind"`
+			Name      string `json:"name"`
+			Namespace string `json:"namespace"`
+		} `json:"sourceRef"`
+	} `json:"spec"`
+}
+
+// DecodeKustomizations decodes a JSON list of Kustomizations ({"items": [...]}).
+func DecodeKustomizations(data []byte) ([]KustomizationView, error) {
+	var list struct {
+		Items []KustomizationView `json:"items"`
+	}
+	if err := json.Unmarshal(data, &list); err != nil {
+		return nil, err
+	}
+	return list.Items, nil
+}
+
+// EnvironmentPactos keeps the Pactos that may run in environment. A provider
+// version is eligible in an environment only if every consumer running there
+// accepts it, so a consumer Pacto can place in another environment does not
+// hold it.
 //
-// A Pacto runs in an environment when it lives in the Stage's own namespace or
-// in a namespace that holds a Stage of that environment. One in a namespace no
-// Stage lives in cannot be placed, so it counts in every environment, and with
-// the Stages unreadable (stagesErr) every Pacto counts.
-func EnvironmentPactos(pactos []PactoView, stages []StageObject, stagesErr error, namespace, environment string) []PactoView {
-	if stagesErr != nil {
+// Pacto places a Pacto from where it runs, never from where a Stage object
+// lives: by its EnvironmentLabel, else by its namespace when a Stage's version
+// runs there (the targetNamespace of the Kustomization that applies the
+// Stage's apply OCIRepository). A Pacto it cannot place counts in every
+// environment, and with the Stages or the Kustomizations unreadable (placeErr)
+// every Pacto counts: a consumer Pacto cannot place is one it cannot rule out.
+func EnvironmentPactos(pactos []PactoView, stages []StageObject, kustomizations []KustomizationView, placeErr error, environment string) []PactoView {
+	if placeErr != nil {
 		return pactos
 	}
-	envs := map[string]map[string]bool{}
-	for _, s := range stages {
-		if envs[s.Metadata.Namespace] == nil {
-			envs[s.Metadata.Namespace] = map[string]bool{}
+	envs := map[string]map[string]bool{} // namespace -> the environments Stages apply into it
+	for _, k := range kustomizations {
+		src, target := k.Spec.SourceRef, k.Spec.TargetNamespace
+		if src.Kind != "OCIRepository" || target == "" {
+			continue
 		}
-		envs[s.Metadata.Namespace][s.Spec.Environment] = true
+		for _, s := range stages {
+			if s.Spec.ApplyRef.Name == src.Name && s.Metadata.Namespace == cmp.Or(src.Namespace, k.Metadata.Namespace) {
+				if envs[target] == nil {
+					envs[target] = map[string]bool{}
+				}
+				envs[target][s.Spec.Environment] = true
+			}
+		}
 	}
 	return slices.DeleteFunc(slices.Clone(pactos), func(p PactoView) bool {
-		ns := p.Metadata.Namespace
-		return ns != namespace && len(envs[ns]) > 0 && !envs[ns][environment]
+		if env := p.Metadata.Labels[EnvironmentLabel]; env != "" {
+			return env != environment
+		}
+		placed := envs[p.Metadata.Namespace]
+		return len(placed) > 0 && !placed[environment]
 	})
 }

@@ -243,3 +243,13 @@ func TestRuntimeVerdict(t *testing.T) {
 		t.Errorf("tag: %+v", v)
 	}
 }
+
+func TestDecodeKustomizations(t *testing.T) {
+	ks, err := DecodeKustomizations([]byte(`{"items":[{"metadata":{"namespace":"test","name":"payments"},"spec":{"targetNamespace":"apps","sourceRef":{"kind":"OCIRepository","name":"payments","namespace":"flux"}}}]}`))
+	if err != nil || len(ks) != 1 || ks[0].Spec.TargetNamespace != "apps" || ks[0].Spec.SourceRef.Namespace != "flux" {
+		t.Fatalf("%+v %v", ks, err)
+	}
+	if _, err := DecodeKustomizations([]byte("{")); err == nil {
+		t.Fatal("want a decode error")
+	}
+}

@@ -91,7 +91,7 @@ func deliveryFixture(t *testing.T, user string, groups []string, extra map[strin
 	})
 	all := append([]runtime.Object{stage, upstream, repo}, objs...)
 	lists := map[schema.GroupVersionResource]string{gvrStages: "StageList", gvrOperations: "OperationList", gvrApprovals: "ApprovalList",
-		gvrPactos: "PactoList", gvrOCIRepository: "OCIRepositoryList"}
+		gvrPactos: "PactoList", gvrOCIRepository: "OCIRepositoryList", gvrKustomization: "KustomizationList"}
 	c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists, all...)
 	c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 		gs := make([]any, 0, len(groups))
@@ -252,6 +252,44 @@ func TestDeliveryPlanSaysWhatMovesFirst(t *testing.T) {
 	if m := p.Order.MoveFirst[0]; m.Service != "orders" || m.Version != "1.8.0" || m.Candidate == nil || m.Candidate.Digest != dlE ||
 		m.Candidate.Version != "1.9.0" || m.Stage.Namespace != "prod" {
 		t.Fatalf("move first %+v", m)
+	}
+}
+
+// A consumer counts unless Pacto can place it in another environment from
+// where it runs: a Kustomization applying a test Stage's version into its
+// namespace. With the Kustomizations unreadable it counts again.
+func TestDeliveryPlanPlacesConsumersByWhereTheyRun(t *testing.T) {
+	orders := obj("pacto.trianalab.io/v1alpha1", "Pacto", "orders-test", "orders", map[string]any{"status": map[string]any{
+		"contractStatus": "Compliant",
+		"contract":       map[string]any{"serviceName": "orders", "version": "1.8.0", "resolvedRef": "oci://reg/pactos/orders@" + dlC},
+		"dependencies":   []any{map[string]any{"name": "payments", "ref": "oci://reg/pactos/payments", "compatibility": "~1.0.0"}},
+	}})
+	d, c, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", nil, nil, orders)
+	ctx := context.Background()
+	r := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB}
+	if p, _, err := d.Plan(ctx, r); err != nil || p.Predicted != delivery.PredictHeld {
+		t.Fatalf("a consumer Pacto cannot place holds: %+v %v", p, err)
+	}
+	k := obj("kustomize.toolkit.fluxcd.io/v1", "Kustomization", "test", "payments", map[string]any{
+		"spec": map[string]any{"targetNamespace": "orders-test", "sourceRef": map[string]any{"kind": "OCIRepository", "name": "payments"}},
+	})
+	if _, err := c.Resource(gvrKustomization).Namespace("test").Create(ctx, k, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	test := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "test", "payments-t", map[string]any{
+		"spec": map[string]any{"service": map[string]any{"name": "payments"}, "environment": "test", "applyRef": map[string]any{"name": "payments"}},
+	})
+	if _, err := c.Resource(gvrStages).Namespace("test").Create(ctx, test, metav1.CreateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if p, _, err := d.Plan(ctx, r); err != nil || p.Predicted != delivery.PredictProceeds {
+		t.Fatalf("a consumer running in test does not hold prod: %+v %v", p, err)
+	}
+	c.PrependReactor("list", "kustomizations", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("forbidden")
+	})
+	if p, _, err := d.Plan(ctx, r); err != nil || p.Predicted != delivery.PredictHeld {
+		t.Fatalf("with the Kustomizations unreadable every consumer counts: %+v %v", p, err)
 	}
 }
 

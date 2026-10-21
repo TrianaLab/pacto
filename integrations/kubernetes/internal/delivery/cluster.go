@@ -191,6 +191,18 @@ func (c Cluster) pactos(ctx context.Context) ([]delivery.PactoView, error) {
 	return delivery.DecodePactos(b)
 }
 
+// kustomizations lists every Flux Kustomization, which places the consumers:
+// where each Stage's version runs.
+func (c Cluster) kustomizations(ctx context.Context) ([]delivery.KustomizationView, error) {
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(gvkKustomization)
+	if err := c.Client.List(ctx, list); err != nil {
+		return nil, err
+	}
+	b, _ := list.MarshalJSON()
+	return delivery.DecodeKustomizations(b)
+}
+
 // workload reads the live state of a workload a Pacto evaluated.
 func (c Cluster) workload(ctx context.Context, ns string) func(kind, name string) *delivery.WorkloadState {
 	return func(kind, name string) *delivery.WorkloadState {
