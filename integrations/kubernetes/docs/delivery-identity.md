@@ -64,6 +64,30 @@ offers no actions. On loopback it acts as your kubeconfig user, like
 It never decides: any process on your machine could do it as you, so it shows
 the `pacto delivery approve` command instead.
 
+## Follow delivery in the dashboard
+
+The dashboard shows a **Delivery** tab only where the cluster serves the
+delivery API and the dashboard knows who you are. It has four views:
+
+- **Inbox:** the changes waiting for your teams, with the question asked and
+  the services it affects, then paused environments and changes that could not
+  finish.
+- **Environments:** every service in every environment, the version it runs
+  and whether that version is verified, failed, paused or waiting. Promote and
+  unpause start here.
+- **History:** past changes still kept in the cluster. Older ones are gone, so
+  this is never the whole story.
+- **Published:** the versions your environments know, whether their signature
+  was checked and where each one runs.
+
+A change has its own page: the plan, what Pacto predicted next to what
+happened, the proof behind each check (a link into Mira when the dashboard has
+`--mira-url`, otherwise the query to copy), who decided, the affected services
+and a timeline. Roll back, cancel and the decision start there. Promote, roll
+back and unpause first show the plan, and if anything moved since, you get the
+fresh plan instead of a stale change. When the cluster refuses, the page shows its reason
+as it gave it.
+
 ## Approve from the dashboard
 
 A held change asks one question of the teams that own the affected services,

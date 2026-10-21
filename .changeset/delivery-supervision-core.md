@@ -22,6 +22,14 @@ framing, and a signed-in request that changes something needs the CSRF header
 and the dashboard's own origin. `/api/capabilities` gains `delivery` and
 `auth`.
 
+The dashboard gains a Delivery tab where the cluster serves delivery: an inbox
+of what waits on your teams, an environments board, a page per change (the
+plan, predicted next to actual verdicts with their proof and Mira links, who
+decided, the affected services and a timeline), history and published
+versions. Promote, roll back, unpause, cancel and the decisions run from there.
+A decision that needs a fresh login keeps your choice while you sign in again
+and shows it back to you; it is never sent on its own.
+
 `pacto mcp -t http` gains `--host`, `--auth-issuer`, `--resource` and
 `--audience`: every request then carries a bearer token the server verifies,
 and the server publishes protected-resource metadata. Binding beyond loopback
