@@ -53,7 +53,7 @@ export interface paths {
         };
         /**
          * What happened
-         * @description The operations still in the cluster, per Stage, in stream order. Partial until signed records exist.
+         * @description What happened on each Stage: read from its signed records when the recorder runs (source records), plus the operations not recorded yet, otherwise from the operations still in the cluster (source status, always partial). Each history carries its own completeness, problems and what could not be read.
          */
         get: operations["delivery-history"];
         put?: never;
@@ -1007,10 +1007,13 @@ export interface components {
             actorClass?: string;
             finished?: string;
             from?: string;
+            kind?: string;
             operation: string;
             outcome?: string;
             phase?: string;
+            pointer?: components["schemas"]["Delivery.PointerChange"];
             reason?: string;
+            record?: string;
             /** Format: int64 */
             seq?: number;
             to?: string;
@@ -1089,6 +1092,7 @@ export interface components {
             impactDigest?: string;
             intentDigest: string;
             order?: components["schemas"]["Delivery.Order"];
+            precedent?: components["schemas"]["Delivery.Precedent"];
             predicted: string;
             question?: string;
             to?: string;
@@ -1098,6 +1102,22 @@ export interface components {
         "Delivery.PointerChange": {
             after?: string;
             before?: string;
+        };
+        "Delivery.Precedent": {
+            completeness: string;
+            entries?: components["schemas"]["Delivery.PrecedentEntry"][] | null;
+            note?: string;
+        };
+        "Delivery.PrecedentEntry": {
+            finished?: string;
+            outcome: string;
+            reason?: string;
+            record: string;
+            /** Format: int64 */
+            seq: number;
+            stream: string;
+            type: string;
+            verification?: string;
         };
         "Delivery.Principal": {
             user: string;
@@ -2960,9 +2980,13 @@ export interface components {
             asOf: string;
             completeness: string;
             entries: components["schemas"]["Delivery.HistoryEntry"][] | null;
+            head?: string;
             namespace: string;
             note: string;
+            problems?: string[] | null;
+            source: string;
             stage: components["schemas"]["Delivery.StageNow"];
+            unreadable?: string[] | null;
         };
         StateInfo: {
             dataCriticality?: string;

@@ -10,8 +10,9 @@
   import ListingNote from '../components/ListingNote.svelte';
   import EmptyState from '../components/EmptyState.svelte';
 
-  // What happened on each environment, from the changes still in the cluster.
-  // It is partial until signed records exist, and says so.
+  // What happened on each environment: from its signed records where the
+  // recorder runs, otherwise from the changes still in the cluster. Every
+  // history says where it came from and whether it is the whole story.
   let { namespace = '', stage = '', refreshTick = 0 } = $props();
 
   const loader = createProductLoader(() => api.deliveryHistory(namespace, stage));
@@ -21,12 +22,25 @@
 
   const data = $derived(loader.dataTag === question ? loader.data : null);
   const histories = $derived(data?.histories ?? []);
+
+  /** Where a history came from, in words. */
+  function sourceLabel(h) {
+    const from = h.source === 'records' ? 'From signed records' : 'From status';
+    return `${from}, ${h.completeness === 'complete' ? 'complete' : 'partial'}`;
+  }
+
+  /** What a line is: a change, or a record that stands for one. */
+  function changeLabel(en) {
+    if (en.kind === 'gap') return 'Gap';
+    if (en.kind === 'unrecordable') return 'Unrecordable';
+    return typeLabel(en.type);
+  }
 </script>
 
 <div class="product-page">
   <PageHeader
     title={stage ? `History of ${namespace}/${stage}` : 'History'}
-    subtitle="Past changes still kept in the cluster. Older ones are gone until signed records arrive, so this is never the whole story."
+    subtitle="What happened on each environment. Where the recorder runs it is read from signed records; elsewhere from the changes still in the cluster, which is never the whole story."
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
   />
@@ -45,22 +59,38 @@
       {#each histories as h (h.namespace + '/' + h.stage.name)}
         <section class="hv-stage" aria-label={`History of ${h.namespace}/${h.stage.name}`}>
           <h2 class="t-section-title">{h.namespace}/{h.stage.name}</h2>
-          <p class="t-body-2">Runs <code title={h.stage.pointer}>{shortDigest(h.stage.pointer) || 'nothing yet'}</code>{#if h.stage.frozen}, paused{/if}. {h.note}</p>
+          <p class="t-body-2">
+            <span class="hv-source" class:hv-partial={h.completeness !== 'complete'} data-testid="history-source">{sourceLabel(h)}</span>
+            Runs <code title={h.stage.pointer}>{shortDigest(h.stage.pointer) || 'nothing yet'}</code>{#if h.stage.frozen}, paused{/if}. {h.note}
+          </p>
+          {#if (h.problems ?? []).length}
+            <div class="hv-notes" data-testid="history-problems">
+              <h3 class="t-body-2">What the records show is wrong</h3>
+              <ul>{#each h.problems as p (p)}<li>{p}</li>{/each}</ul>
+            </div>
+          {/if}
+          {#if (h.unreadable ?? []).length}
+            <div class="hv-notes" data-testid="history-unreadable">
+              <h3 class="t-body-2">What could not be read or verified</h3>
+              <ul>{#each h.unreadable as u (u)}<li>{u}</li>{/each}</ul>
+            </div>
+          {/if}
           {#if (h.entries ?? []).length === 0}
             <p class="t-body-2 hv-none">No change kept for this environment.</p>
           {:else}
             <div class="hv-scroll">
               <table class="hv-table">
-                <thead><tr><th scope="col">#</th><th scope="col">Change</th><th scope="col">Version</th><th scope="col">By</th><th scope="col">How it ended</th><th scope="col">When</th></tr></thead>
+                <thead><tr><th scope="col">#</th><th scope="col">Change</th><th scope="col">Version</th><th scope="col">By</th><th scope="col">How it ended</th><th scope="col">When</th><th scope="col">Record</th></tr></thead>
                 <tbody>
-                  {#each h.entries as en (en.operation)}
+                  {#each h.entries as en (`${en.seq ?? ''}/${en.record ?? ''}/${en.operation}`)}
                     <tr>
                       <td>{en.seq ?? ''}</td>
-                      <td><a href={deliveryChangeUrl(h.namespace, en.operation)}>{typeLabel(en.type)}</a></td>
+                      <td>{#if en.operation}<a href={deliveryChangeUrl(h.namespace, en.operation)}>{changeLabel(en)}</a>{:else}{changeLabel(en)}{/if}</td>
                       <td><code>{shortDigest(en.from) || '–'} → {shortDigest(en.to) || '–'}</code></td>
-                      <td>{en.actor}{#if en.actorClass} ({en.actorClass}){/if}</td>
+                      <td>{en.actor || '–'}{#if en.actorClass} ({en.actorClass}){/if}</td>
                       <td>{en.outcome || en.phase}{#if en.verification}, {en.verification}{/if}{#if en.reason}: {en.reason}{/if}</td>
                       <td>{#if en.finished}<time datetime={en.finished}>{en.finished}</time>{/if}</td>
+                      <td>{#if en.record}<code title={en.record}>{shortDigest(en.record)}</code>{:else if h.source === 'records'}Not recorded yet{:else}–{/if}</td>
                     </tr>
                   {/each}
                 </tbody>
@@ -77,6 +107,10 @@
   .hv-link { color: var(--c-accent); text-decoration: underline; }
   .hv-stage { display: flex; flex-direction: column; gap: var(--sp-2); }
   .hv-stage p { margin: 0; }
+  .hv-source { font-weight: 600; color: var(--c-text-2); margin-right: var(--sp-2); }
+  .hv-source.hv-partial { color: var(--c-text-3); }
+  .hv-notes h3 { margin: 0; font-weight: 600; }
+  .hv-notes ul { margin: var(--sp-1) 0 0; padding-left: var(--sp-5); overflow-wrap: anywhere; }
   .hv-scroll { overflow-x: auto; }
   .hv-table { border-collapse: collapse; width: 100%; font-size: var(--text-sm); }
   .hv-table th, .hv-table td { border-bottom: 1px solid var(--c-border); padding: var(--sp-2) var(--sp-3); text-align: left; vertical-align: top; }

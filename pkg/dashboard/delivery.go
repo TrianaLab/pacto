@@ -201,7 +201,9 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 		Description: "Per service the caller can see Stages of: the versions its Stages know, whether Flux verified their signature and which Stages run or verified each."}), s.deliveryPublished)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-history", Method: http.MethodGet, Path: "/api/delivery/history",
 		Summary:     "What happened",
-		Description: "The operations still in the cluster, per Stage, in stream order. Partial until signed records exist."}), s.deliveryHistory)
+		Description: "What happened on each Stage: read from its signed records when the recorder runs (source records), plus the operations not " +
+			"recorded yet, otherwise from the operations still in the cluster (source status, always partial). Each history carries its own " +
+			"completeness, problems and what could not be read."}), s.deliveryHistory)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-operation", Method: http.MethodGet, Path: "/api/delivery/operations/{namespace}/{name}",
 		Summary:     "One change",
 		Description: "The explained operation (summary, verdicts with how to re-run each), the operation itself (plan, approvals, times) and the actions the caller may take."}), s.deliveryOperation)

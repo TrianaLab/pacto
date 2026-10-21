@@ -81,6 +81,28 @@ function installDelivery(persona: Persona): void {
         status: { phase: o.status.phase, reason: o.status.reason, actorClass: 'agent' }, verdicts: plan.verdicts.map((v) => ({ ...v, rerun: 'pacto delivery explain -n prod op1' })),
         stage: { name: 'payments-prod', pointer: D1 } }, operation: o, actions });
     }
+    if (route === '/api/delivery/history') {
+      const rec = (c: string) => 'sha256:' + c.repeat(64);
+      return json(200, { ...listing, histories: [
+        { namespace: 'prod', stage: { name: 'payments-prod', pointer: D2 }, asOf: listing.asOf, completeness: 'partial', source: 'records',
+          note: 'read from the signed records in the registry, which show problems', head: rec('c'),
+          problems: ['seq 3 moved the Stage from ' + D1 + ', but the change before it left ' + D2 + ': something moved it with no record'],
+          unreadable: [rec('d') + ': signature: signed by a key that is not trusted here'],
+          entries: [
+            { seq: 1, operation: 'op0', type: 'pacto.dev/promote', from: '', to: D1, actor: 'system:serviceaccount:pacto-delivery:promoter', actorClass: 'controller',
+              phase: 'Concluded', outcome: 'Succeeded', verification: 'Verified', finished: '2026-10-20T09:00:00Z', kind: 'operation', record: rec('a') },
+            { seq: 2, operation: '', type: '', actor: '', phase: 'Concluded', kind: 'gap', reason: 'Gap: the operation with local seq 2 was gone before it was recorded',
+              finished: '2026-10-20T10:00:00Z', record: rec('b') },
+            { seq: 3, operation: 'op1', type: 'pacto.dev/promote', from: D1, to: D2, actor: 'https://idp#carol', actorClass: 'human', phase: 'Concluded',
+              outcome: 'Succeeded', verification: 'Verified', finished: '2026-10-21T10:00:00Z', kind: 'operation', record: rec('c') },
+            { operation: 'op2', type: 'pacto.dev/promote', from: D2, to: D1, actor: 'system:serviceaccount:agents:release-bot', phase: 'Verifying' },
+          ] },
+        { namespace: 'test', stage: { name: 'payments-test', pointer: D2 }, asOf: listing.asOf, completeness: 'partial', source: 'status',
+          note: 'read from the Operation objects that still exist; an operation deleted from the cluster is missing',
+          entries: [{ seq: 4, operation: 'op5', type: 'pacto.dev/rollback', from: D2, to: D1, actor: 'https://idp#alice', actorClass: 'human',
+            phase: 'Concluded', outcome: 'Succeeded', verification: 'Verified', finished: '2026-10-21T09:00:00Z' }] },
+      ] });
+    }
     if (route === '/api/delivery/plan' && method === 'POST') return json(200, plan);
     if (route === '/api/delivery/operations/prod/op1/decision' && method === 'POST') {
       if (persona === 'local') return json(403, { status: 403, code: 'ApproveFromCLI', detail: 'a local dashboard never decides' });
@@ -246,6 +268,28 @@ test.describe('Delivery views', () => {
     await audit(page, 'signed out');
   });
 
+  test('history says when it comes from signed records and when it is only partial', async ({ page }) => {
+    await as(page, 'carol');
+    await page.goto('/#/delivery/history');
+    const prod = page.getByRole('region', { name: 'History of prod/payments-prod' });
+    const test_ = page.getByRole('region', { name: 'History of test/payments-test' });
+    await expect(prod.getByTestId('history-source')).toHaveText('From signed records, partial', { timeout: T });
+    await expect(test_.getByTestId('history-source')).toHaveText('From status, partial');
+    await expect(prod.getByTestId('history-problems')).toContainText('something moved it with no record');
+    await expect(prod.getByTestId('history-unreadable')).toContainText('not trusted here');
+    await expect(prod.getByRole('row', { name: /^2 Gap/ })).toBeVisible();
+    await expect(prod.getByRole('row', { name: /op2|Verifying/ }).last()).toContainText('Not recorded yet');
+    await expect(prod.getByRole('cell', { name: 'cccccccccccc' })).toBeVisible();
+    await expect(test_.getByRole('link', { name: 'Roll back' })).toHaveAttribute('href', '#/delivery/changes/test/op5');
+    await audit(page, 'history');
+
+    // Problems name full digests: on a phone they wrap instead of scrolling the page sideways.
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.goto('/#/delivery/history');
+    await expect(prod.getByTestId('history-problems')).toBeVisible({ timeout: T });
+    expect(await page.evaluate(() => [document.documentElement, document.body].every((e) => e.scrollWidth <= e.clientWidth + 1))).toBe(true);
+  });
+
   test('the environments board plans a promote before proposing it', async ({ page }) => {
     await as(page, 'carol');
     await page.goto('/#/delivery/environments');
@@ -273,5 +317,8 @@ test.describe('Delivery views in the dark theme', () => {
     await page.goto('/#/delivery/environments');
     await expect(page.getByTestId('environments-board')).toBeVisible({ timeout: T });
     await audit(page, 'environments, dark');
+    await page.goto('/#/delivery/history');
+    await expect(page.getByTestId('history-problems')).toBeVisible({ timeout: T });
+    await audit(page, 'history, dark');
   });
 });

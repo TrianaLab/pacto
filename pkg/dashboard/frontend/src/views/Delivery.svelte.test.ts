@@ -521,6 +521,34 @@ describe('history and published', () => {
     destroy();
   });
 
+  it('says a history read from signed records, what is wrong with them and what was not recorded yet', async () => {
+    fns.history.mockResolvedValue({ ...listing, histories: [
+      { namespace: 'prod', asOf: listing.asOf, completeness: 'partial', source: 'records', note: 'Read from the signed records.', stage: { name: 'pay', pointer: D1 },
+        problems: ['seq 2 is a gap: the operation with local seq 2 was gone before it was recorded'],
+        unreadable: ['sha256:bad: signature: signed by a key that is not trusted here'],
+        entries: [
+          { seq: 1, operation: 'op1', type: 'pacto.dev/promote', to: D1, actor: 'bot', actorClass: 'agent', outcome: 'Succeeded', kind: 'operation', record: 'sha256:' + 'a'.repeat(64) },
+          { seq: 2, operation: '', type: '', actor: '', kind: 'gap', reason: 'Gap: gone', record: 'sha256:' + 'b'.repeat(64) },
+          { seq: 3, operation: 'op3', type: '', actor: 'bot', kind: 'unrecordable', reason: 'Unrecordable: sensitive-value', record: 'sha256:' + 'c'.repeat(64) },
+          { operation: 'op4', type: 'pacto.dev/promote', actor: 'bot', phase: 'Verifying' },
+        ] },
+      { namespace: 'test', asOf: listing.asOf, completeness: 'complete', source: 'records', note: '', stage: { name: 'pay' }, entries: [] },
+      { namespace: 'dev', asOf: listing.asOf, completeness: 'partial', source: 'status', note: '', stage: { name: 'pay' },
+        entries: [{ seq: 1, operation: 'op9', type: 'pacto.dev/promote', actor: 'bot', outcome: 'Succeeded' }] },
+    ] });
+    const { target, destroy } = render(DeliveryHistoryView);
+    await settle();
+    const sources = [...target.querySelectorAll('[data-testid="history-source"]')].map((e) => e.textContent);
+    expect(sources).toEqual(['From signed records, partial', 'From signed records, complete', 'From status, partial']);
+    expect(target.querySelector('[data-testid="history-problems"]')?.textContent).toContain('seq 2 is a gap');
+    expect(target.querySelector('[data-testid="history-unreadable"]')?.textContent).toContain('not trusted here');
+    expect(text(target)).toContain('aaaaaaaaaaaa');
+    expect(text(target)).toContain('Gap');
+    expect(target.querySelector('a[href="#/delivery/changes/prod/op3"]')?.textContent).toBe('Unrecordable');
+    expect(text(target)).toContain('Not recorded yet');
+    destroy();
+  });
+
   it('says when there is no history', async () => {
     fns.history.mockResolvedValue({ ...listing, histories: [] });
     const { target, destroy } = render(DeliveryHistoryView);
