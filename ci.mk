@@ -185,6 +185,9 @@ test-acceptance-kind-runtime-conformance:
 # adds Mira and the node agent: an error ratio over the limit rolls back citing
 # the Mira query, too little telemetry holds as Unknown, a regression after
 # release rolls back exactly once and an undeclared call fails the claim gate.
+# The recorder runs throughout, and phase 6 proves every operation has a signed
+# record on its subjects, that record verify and cosign accept them, and that a
+# changed or chain-breaking record stops the stream and freezes its Stage.
 test-acceptance-kind-delivery:
 	bash tests/acceptance/kind/delivery.sh
 
