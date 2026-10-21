@@ -316,7 +316,6 @@ func (w *writer) write(ctx context.Context, op *dv1.Operation) (*stored, error) 
 	if err != nil {
 		return nil, err
 	}
-	l := locations{anchor: w.anchor}
 	apply, err := w.Cluster.ociRepository(ctx, w.stage.Namespace, w.stage.Spec.ApplyRef.Name)
 	switch {
 	case apierrors.IsNotFound(err):
@@ -324,7 +323,8 @@ func (w *writer) write(ctx context.Context, op *dv1.Operation) (*stored, error) 
 	case err != nil:
 		return nil, err
 	}
-	if l, err = w.Store.locate(ctx, w.anchor, apply, op.Spec.Params.From, op.Spec.Params.To); err != nil {
+	l, err := w.Store.locate(ctx, w.anchor, apply, op.Spec.Params.From, op.Spec.Params.To)
+	if err != nil {
 		return nil, err
 	}
 	in.Subjects = l.subjects()

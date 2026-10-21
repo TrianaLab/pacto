@@ -62,11 +62,20 @@ func TestNewOperationRecord(t *testing.T) {
 	}
 	p := st.Predicate
 	pt, _ := TypeByID(TypePromote)
-	if p.Kind != RecordOperation || p.Type.Digest != pt.Digest() || p.Intent.Stage.Cluster != "6c0d" ||
-		p.Intent.Params.To != rTo || !p.Actor.OnBehalfOf.Asserted || p.Approvals[0].IntentDigest != "sha256:aa" ||
-		p.Approvals[0].Operation != "3b1e" || p.Outcome.Pointer.After != rTo || p.Time.Finished != "2026-10-19T10:12:40Z" ||
-		p.Policy.Environment != "prod" {
-		t.Fatalf("predicate = %+v", p)
+	for field, ok := range map[string]bool{
+		"kind":       p.Kind == RecordOperation,
+		"type":       p.Type.Digest == pt.Digest(),
+		"cluster":    p.Intent.Stage.Cluster == "6c0d",
+		"params":     p.Intent.Params.To == rTo,
+		"onBehalfOf": p.Actor.OnBehalfOf.Asserted,
+		"approval":   p.Approvals[0].IntentDigest == "sha256:aa" && p.Approvals[0].Operation == "3b1e",
+		"outcome":    p.Outcome.Pointer.After == rTo,
+		"time":       p.Time.Finished == "2026-10-19T10:12:40Z",
+		"policy":     p.Policy.Environment == "prod",
+	} {
+		if !ok {
+			t.Errorf("predicate %s is wrong: %+v", field, p)
+		}
 	}
 	if c, m := CheckRecord(in, st); c != "" {
 		t.Fatalf("a clean record failed %s: %s", c, m)
@@ -81,8 +90,11 @@ func TestNewOperationRecord(t *testing.T) {
 	in.Operation.Spec.Type, in.Operation.Spec.OnBehalfOf = "pacto.dev/scale", nil
 	in.Subjects = RecordSubjects{Anchor: rAnc}
 	st = NewOperationRecord(in)
-	if st.Predicate.Type.ID != "pacto.dev/scale" || st.Predicate.Type.Digest != "" || st.Predicate.Actor.OnBehalfOf != nil || len(st.Subject) != 1 {
+	if got := st.Predicate; got.Type.ID != "pacto.dev/scale" || got.Type.Digest != "" || got.Actor.OnBehalfOf != nil {
 		t.Fatalf("unknown type record = %+v", st)
+	}
+	if len(st.Subject) != 1 {
+		t.Fatalf("subjects = %+v", st.Subject)
 	}
 }
 
@@ -111,7 +123,9 @@ func TestCheckRecord(t *testing.T) {
 		{"no finished time", func(in *RecordInput) { in.Operation.Status.Times.Finished = "" }, CheckSchema},
 		{"no outcome", func(in *RecordInput) { in.Operation.Status.Outcome = "" }, CheckSchema},
 		{"approval gone", func(in *RecordInput) { in.Approvals = nil }, CheckApproval},
-		{"approval of another intent", func(in *RecordInput) { in.Approvals["ok"] = ApprovalSpec{OperationUID: "3b1e", IntentDigest: "sha256:bb"} }, CheckApproval},
+		{"approval of another intent", func(in *RecordInput) {
+			in.Approvals["ok"] = ApprovalSpec{OperationUID: "3b1e", IntentDigest: "sha256:bb"}
+		}, CheckApproval},
 		{"private key", func(in *RecordInput) { in.Operation.Spec.Reason = "-----BEGIN OPENSSH PRIVATE KEY-----" }, CheckSensitive},
 		{"bearer", func(in *RecordInput) { in.Operation.Spec.Reason = "Bearer abcdefghijklmnopqrstuvwxyz" }, CheckSensitive},
 		{"jwt", func(in *RecordInput) { in.Operation.Spec.Reason = "eyJhbGciOiJI.eyJzdWIiOiIx.c2lnbmF0dXJl" }, CheckSensitive},

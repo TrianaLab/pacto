@@ -141,7 +141,8 @@ func runRecorder(args []string) error {
 	streams := fs.String("streams-repository", "",
 		"The repository (host/path) that holds one anchor per stream. Required.")
 	keyFile := fs.String("signing-key-file", "", "A PKCS#8 PEM Ed25519 private key to sign with.")
-	kmsKey := fs.String("kms-key", "", "A cosign KMS key URI to sign with (awskms://, gcpkms://, azurekms://, hashivault://).")
+	kmsKey := fs.String("kms-key", "",
+		"A cosign KMS key URI to sign with (awskms://, gcpkms://, azurekms://, hashivault://).")
 	keyless := fs.Bool("keyless", false, "Sign keyless with a Fulcio certificate for the pod's identity.")
 	identity := fs.String("keyless-identity", "", "The certificate identity keyless signing produces.")
 	issuer := fs.String("keyless-issuer", "", "The OIDC issuer keyless signing uses.")
@@ -173,8 +174,9 @@ func runRecorder(args []string) error {
 	store := &delivery.RecordStore{Streams: *streams, Verify: verify,
 		Options: ocireferrer.Options{Keychain: keychain, Insecure: insecure}}
 	cluster := delivery.Cluster{Client: mgr.GetClient()}
-	if err := (&delivery.Recorder{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster, Store: store,
-		Signer: signer, ClusterID: clusterID, Now: time.Now, Poll: *poll, GapGrace: time.Minute}).SetupWithManager(mgr); err != nil {
+	recorder := &delivery.Recorder{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster, Store: store,
+		Signer: signer, ClusterID: clusterID, Now: time.Now, Poll: *poll, GapGrace: time.Minute}
+	if err := recorder.SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
