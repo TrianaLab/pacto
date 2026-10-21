@@ -122,15 +122,15 @@ func TestRecorderEmitsCDEvents(t *testing.T) {
 	}
 	re.reconcile()
 	id := re.records()[0].ID
-	types := map[string]map[string]any{}
+	byType := map[string]map[string]any{}
 	for range 2 {
 		ev := receive(t, got)
-		types[ev["type"].(string)] = ev
+		byType[ev["type"].(string)] = ev
 	}
-	up, concluded := types[eventUpgraded], types[eventConcluded]
+	up, concluded := byType[eventUpgraded], byType[eventConcluded]
 	if up == nil || concluded == nil || up["id"] != id || concluded["id"] != id || up["source"] == concluded["source"] ||
 		up["badContentType"] != nil {
-		t.Fatalf("events = %v", types)
+		t.Fatalf("events = %v", byType)
 	}
 	subject := up["data"].(map[string]any)["subject"].(map[string]any)
 	if subject["id"] != "payments" || !strings.HasSuffix(subject["content"].(map[string]any)["artifactId"].(string), re.reg.to) {

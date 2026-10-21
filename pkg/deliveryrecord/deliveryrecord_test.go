@@ -63,7 +63,8 @@ func attach(t *testing.T, path string, subject ocispec.Descriptor, layerType str
 }
 
 func TestAnchorRef(t *testing.T) {
-	if Anchor(stream).ManifestDesc.Digest != Anchor(stream).ManifestDesc.Digest || Anchor(stream).ManifestDesc.Digest == Anchor("other").ManifestDesc.Digest {
+	first, again := Anchor(stream), Anchor(stream)
+	if first.ManifestDesc.Digest != again.ManifestDesc.Digest || first.ManifestDesc.Digest == Anchor("other").ManifestDesc.Digest {
 		t.Fatal("the anchor is not a function of the stream")
 	}
 	ref := AnchorRef("reg/streams", stream)

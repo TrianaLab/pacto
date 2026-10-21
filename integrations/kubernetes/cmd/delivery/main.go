@@ -116,7 +116,8 @@ func runPromoter(args []string) error {
 	}}
 	gates := delivery.NewGates(cluster, configured)
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
-		Policy: policy, Gates: gates, Now: time.Now, Poll: *poll, Records: *records, RecordedTTL: *recordedTTL}).SetupWithManager(mgr); err != nil {
+		Policy: policy, Gates: gates, Now: time.Now, Poll: *poll, Records: *records,
+		RecordedTTL: *recordedTTL}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := (&delivery.StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
@@ -151,7 +152,8 @@ func runRecorder(args []string) error {
 	issuer := fs.String("keyless-issuer", "", "The OIDC issuer keyless signing uses.")
 	cosign := fs.String("cosign", "cosign", "The cosign binary, for KMS and keyless signing.")
 	trustFile := fs.String("trust-config", "",
-		"A trust config (YAML) of other keys whose records the recorder accepts, per stream glob, such as the old key during a rotation.")
+		"A trust config (YAML) of other keys whose records the recorder accepts, per stream glob, "+
+			"such as the old key during a rotation.")
 	sink := fs.String("cdevents-sink", "", "A URL to POST a CDEvent to for every record written, best effort.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
