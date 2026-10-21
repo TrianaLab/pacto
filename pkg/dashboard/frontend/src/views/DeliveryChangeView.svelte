@@ -13,6 +13,7 @@
   import DecisionPanel from '../components/DecisionPanel.svelte';
   import ProposePanel from '../components/ProposePanel.svelte';
   import RefusalNotice from '../components/RefusalNotice.svelte';
+  import MoveFirstList from '../components/MoveFirstList.svelte';
 
   // One change: the plan, what Pacto predicted next to what happened with the
   // proof behind each check, who decided, the affected services, a timeline and
@@ -137,6 +138,14 @@
     {#if decided}<p class="cd-decided" role="status" tabindex="-1" data-testid="decision-recorded" bind:this={doneMsg}>{decided}</p>{/if}
     {#if e.status.phase === 'Held' && !gone}
       <DecisionPanel {op} {actions} onDecided={(msg) => { decided = msg; loader.refresh(); settleFocus(); }} />
+    {/if}
+
+    {#if e.status.phase === 'Held' && st?.plan?.order?.moveFirst?.length}
+      <section aria-labelledby="cd-move-first">
+        <h2 id="cd-move-first" class="t-section-title">Update these first</h2>
+        <p class="t-body-2">These services run here and declare a version range that does not include the new version. Once each of them runs a version whose range includes the new one, this change no longer breaks them. Pacto never moves them for you.</p>
+        <MoveFirstList order={st.plan.order} />
+      </section>
     {/if}
 
     <section aria-labelledby="cd-affected">

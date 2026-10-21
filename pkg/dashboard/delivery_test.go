@@ -145,7 +145,8 @@ func operation(ns, name, stg string, st delivery.OperationStatus) delivery.Opera
 
 func held(owners ...string) delivery.OperationStatus {
 	return delivery.OperationStatus{Phase: delivery.PhaseHeld, Question: "Approve?",
-		Plan: &delivery.Plan{Floor: delivery.Floor{Human: true, Decision: delivery.Approve, Owners: owners, Consumers: []string{"checkout"}}}}
+		Plan: &delivery.Plan{Floor: delivery.Floor{Human: true, Decision: delivery.Approve, Owners: owners, Consumers: []string{"checkout"}},
+			Order: &delivery.Order{MoveFirst: []delivery.MoveFirst{{Service: "checkout", Message: "Ship checkout first."}}}}}
 }
 
 // ownedFleet is a snapshot with payments (team-payments, in prod) and ledger
@@ -352,8 +353,9 @@ func TestInbox(t *testing.T) {
 		"held: only what names my team (or nobody), as accept-unknown once it shipped: %v", inbox["held"])
 	first := inbox["held"].([]any)[0].(map[string]any)
 	expect(t, first["question"] == "Approve?" && strings.Join(toStrings(first["consumers"]), ",") == "checkout" &&
-		strings.Join(toStrings(first["owners"]), ",") == "team-checkout",
-		"a held item carries its question, the services affected and the teams that may answer: %v", first)
+		strings.Join(toStrings(first["owners"]), ",") == "team-checkout" &&
+		first["order"].(map[string]any)["moveFirst"].([]any)[0].(map[string]any)["service"] == "checkout",
+		"a held item carries its question, the services affected, the teams that may answer and what moves first: %v", first)
 	fr := inbox["frozen"].([]any)
 	expect(t, len(fr) == 1 && fr[0].(map[string]any)["service"] == "orphan",
 		"frozen Stages of other teams' services are not mine, unowned ones are: %v", fr)

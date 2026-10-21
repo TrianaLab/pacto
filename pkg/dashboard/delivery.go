@@ -337,6 +337,7 @@ type InboxItem struct {
 	Decision  delivery.Decision `json:"decision,omitempty" doc:"The decision asked for: approve, or accept-unknown"`
 	Owners    []string          `json:"owners,omitempty" doc:"The teams that may answer; empty means any person"`
 	Consumers []string          `json:"consumers,omitempty" doc:"The services that made a person necessary"`
+	Order     *delivery.Order   `json:"order,omitempty" doc:"What must move first: the consumers whose declared range does not accept the new version, their Stages and any verified version upstream that can go first"`
 }
 
 func inboxItem(o delivery.OperationObject) InboxItem {
@@ -344,7 +345,7 @@ func inboxItem(o delivery.OperationObject) InboxItem {
 		From: o.Spec.Params.From, To: o.Spec.Params.To, Phase: o.Status.Phase, Outcome: o.Status.Outcome, Reason: o.Status.Reason,
 		Question: o.Status.Question}
 	if p := o.Status.Plan; p != nil {
-		it.Decision, it.Owners, it.Consumers = p.Floor.Decision, p.Floor.Owners, p.Floor.Consumers
+		it.Decision, it.Owners, it.Consumers, it.Order = p.Floor.Decision, p.Floor.Owners, p.Floor.Consumers, p.Order
 	}
 	if it.Phase == delivery.PhaseHeld && (it.Decision == "" || o.Status.Applied) {
 		it.Decision = delivery.AcceptUnknown // held after it shipped: the verify gates stayed Unknown

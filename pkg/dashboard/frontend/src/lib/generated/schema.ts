@@ -2136,6 +2136,8 @@ export interface components {
             from?: string;
             name: string;
             namespace: string;
+            /** @description What must move first: the consumers whose declared range does not accept the new version, their Stages and any verified version upstream that can go first */
+            order?: components["schemas"]["Delivery.Order"];
             outcome?: string;
             /** @description The teams that may answer; empty means any person */
             owners?: string[] | null;

@@ -57,6 +57,8 @@ function render(C: any, props: Record<string, unknown> = {}) {
   return { target, destroy: () => { unmount(c); target.remove(); } };
 }
 
+// jsdom's selector engine misreads an `&` inside an attribute value.
+const linkTo = (t: HTMLElement, href: string) => [...t.querySelectorAll('a')].find((a) => a.getAttribute('href') === href);
 const text = (t: HTMLElement) => t.textContent?.replace(/\s+/g, ' ') ?? '';
 
 beforeEach(() => {
@@ -83,6 +85,21 @@ describe('inbox', () => {
     expect(text(target)).toContain('Paused: Errored');
     expect(text(target.querySelector('[data-testid="inbox-errored"]') as HTMLElement)).toContain('Pacto could not tell how it ended');
     expect(text(target)).toContain('Signed in as https://idp#carol, in team-checkout');
+    destroy();
+  });
+
+  it('says which service to update first, with links to its Stage and its verified version', async () => {
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
+      held: [{ namespace: 'prod', name: 'op1', stage: 'payments-prod', type: 'pacto.dev/promote', to: D2, phase: 'Held', question: 'ship?', decision: 'approve', owners: ['team-checkout'], consumers: ['orders', 'billing'], order: ORDER }] });
+    const { target, destroy } = render(DeliveryInboxView);
+    await settle();
+    const mf = target.querySelector('[data-testid="inbox-move-first"]') as HTMLElement;
+    expect(text(mf)).toContain('Update orders 1.8.0 first: it accepts only ^2.0.0');
+    expect(linkTo(mf, '#/delivery/history?namespace=prod&stage=orders-prod')?.textContent).toBe('Stage prod/orders-prod');
+    expect(linkTo(mf, '#/delivery/history?namespace=test&stage=orders-test')?.textContent).toBe('orders 1.9.0, verified on test/orders-test');
+    expect(text(mf)).toContain('Update billing first');
+    expect(text(mf)).toContain('Pacto cannot tell what would move it first');
+    expect(text(mf.querySelector('[data-testid="inbox-move-first-unknown"]') as HTMLElement)).toContain('This list may be incomplete: the operational graph is partial');
     destroy();
   });
 
@@ -218,6 +235,15 @@ describe('environments', () => {
   });
 });
 
+// What must move first, as the promoter writes it into status.plan.order.
+const ORDER = { moveFirst: [
+  { service: 'orders', version: '1.8.0', accepts: '^2.0.0', stage: { namespace: 'prod', name: 'orders-prod' },
+    candidate: { digest: 'sha256:' + '9'.repeat(64), version: '1.9.0', accepts: '>=2.0.0 <4.0.0', verifiedOn: { namespace: 'test', name: 'orders-test' } },
+    message: 'orders 1.8.0 runs in prod and accepts payments ^2.0.0, not 3.0.0. Ship orders first: promote it on Stage prod/orders-prod.' },
+  { service: 'billing', accepts: '^2.0.0', unknown: 'no Stage delivers billing in prod',
+    message: 'billing runs in prod and accepts payments ^2.0.0, not 3.0.0. Pacto cannot tell what would move it first: no Stage delivers billing in prod.' },
+], unknown: ['the operational graph is partial (unresolved-reference)'] };
+
 function heldOperation(over: Record<string, unknown> = {}) {
   const status = { phase: 'Held', question: 'checkout accepts only 1.x: ship?', reason: 'ApprovalRequired',
     plan: { intentDigest: 'sha256:i', type: 'pacto.dev/promote', predicted: 'Held', floor: { decision: 'approve', owners: ['team-checkout'], consumers: ['checkout'] },
@@ -249,6 +275,28 @@ describe('change detail', () => {
     expect(text(target)).toContain('Reject by https://idp#dave');
     expect(text(target)).toContain('Decision due by');
     expect(target.querySelector('[data-testid="affected-services"] a[href="#/services/checkout"]')).not.toBeNull();
+    destroy();
+  });
+
+  it('says what to update first while held, and stops saying it once the change moved on', async () => {
+    // A candidate whose contract names no version is named by its digest.
+    const order = structuredClone(ORDER);
+    delete (order.moveFirst[0].candidate as { version?: string }).version;
+    const held = heldOperation();
+    held.operation.status.plan = { ...held.operation.status.plan, order } as typeof held.operation.status.plan;
+    fns.operation.mockResolvedValue(held);
+    let { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(target.querySelector('h2#cd-move-first')?.textContent).toBe('Update these first');
+    const mf = target.querySelector('[data-testid="move-first"]') as HTMLElement;
+    expect(linkTo(mf, '#/delivery/history?namespace=test&stage=orders-test')?.textContent).toBe('orders 999999999999, verified on test/orders-test');
+    destroy();
+
+    held.explanation.status = { phase: 'Running' } as typeof held.explanation.status;
+    fns.operation.mockResolvedValue(held);
+    ({ target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' }));
+    await settle();
+    expect(target.querySelector('[data-testid="move-first"]')).toBeNull();
     destroy();
   });
 

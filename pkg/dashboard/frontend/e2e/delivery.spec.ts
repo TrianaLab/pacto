@@ -42,7 +42,11 @@ function installDelivery(persona: Persona): void {
   const plan = { intentDigest: 'sha256:intent', type: 'pacto.dev/promote', from: D1, to: D2, predicted: 'Held',
     question: 'payments 2.0.0 removes a field checkout reads. Ship it?',
     floor: { human: true, decision: 'approve', owners: ['team-checkout'], consumers: ['checkout'] },
-    verdicts: [{ gate: 'pacto.diff', phase: 'pre', result: 'Unknown', citation: { classification: 'BREAKING' } }] };
+    verdicts: [{ gate: 'pacto.diff', phase: 'pre', result: 'Unknown', citation: { classification: 'BREAKING' } }],
+    order: { moveFirst: [{ service: 'checkout', version: '3.0.0', accepts: '^1.4.0', stage: { namespace: 'prod', name: 'checkout-prod' },
+      candidate: { digest: 'sha256:' + '3'.repeat(64), version: '3.1.0', accepts: '>=1.4.0 <3.0.0', verifiedOn: { namespace: 'test', name: 'checkout-test' } },
+      message: 'checkout 3.0.0 runs in prod and accepts payments ^1.4.0, not 2.0.0. Ship checkout first: promote it on Stage prod/checkout-prod.' }],
+    unknown: ['the operational graph is partial (unresolved-reference)'] } };
   const op = () => ({
     metadata: { name: 'op1', namespace: 'prod' },
     spec: { type: 'pacto.dev/promote', stage: 'payments-prod', facet: 'pointer', actor: { user: 'system:serviceaccount:agents:release-bot' }, params: { from: D1, to: D2 } },
@@ -61,7 +65,7 @@ function installDelivery(persona: Persona): void {
     if (route === '/api/delivery/inbox') {
       return json(200, { ...listing, held: decided() || !caller?.groups.includes('team-checkout') ? [] : [{
         namespace: 'prod', name: 'op1', stage: 'payments-prod', type: 'pacto.dev/promote', from: D1, to: D2, phase: 'Held',
-        question: plan.question, decision: 'approve', owners: ['team-checkout'], consumers: ['checkout'] }], frozen: [], errored: [] });
+        question: plan.question, decision: 'approve', owners: ['team-checkout'], consumers: ['checkout'], order: plan.order }], frozen: [], errored: [] });
     }
     if (route === '/api/delivery/environments') {
       return json(200, { ...listing, environments: [{ namespace: 'prod', stage: 'payments-prod', service: 'payments', environment: 'prod',
@@ -158,6 +162,24 @@ test.describe('Delivery views', () => {
     await expect(page.getByTestId('decision-panel')).toContainText('Ship it?', { timeout: T });
     await expect(page.getByTestId('actual-verdicts')).toContainText('pacto delivery explain -n prod op1');
     await audit(page, 'change detail');
+  });
+
+  test('a held change says which service to update first and links to it', async ({ page }) => {
+    await as(page, 'carol');
+    await page.goto('/#/delivery/inbox');
+    const inbox = page.getByTestId('inbox-move-first');
+    await expect(inbox).toContainText('Update checkout 3.0.0 first: it accepts only ^1.4.0', { timeout: T });
+    await expect(inbox.getByRole('link', { name: 'Stage prod/checkout-prod' })).toHaveAttribute('href', '#/delivery/history?namespace=prod&stage=checkout-prod');
+    await expect(inbox.getByRole('link', { name: 'checkout 3.1.0, verified on test/checkout-test' })).toHaveAttribute('href', '#/delivery/history?namespace=test&stage=checkout-test');
+    await expect(page.getByTestId('inbox-move-first-unknown')).toContainText('This list may be incomplete');
+
+    await page.goto('/#/delivery/changes/prod/op1');
+    const section = page.getByRole('region', { name: 'Update these first' });
+    await expect(section).toContainText('Pacto never moves them for you.', { timeout: T });
+    const candidate = section.getByRole('link', { name: 'checkout 3.1.0, verified on test/checkout-test' });
+    await candidate.focus();
+    await expect(candidate).toBeFocused();
+    await audit(page, 'change detail with what moves first');
   });
 
   test('a decision asks for a fresh sign-in, keeps the choice and sends it on a click', async ({ page }) => {

@@ -9,6 +9,7 @@
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
   import ListingNote from '../components/ListingNote.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import MoveFirstList from '../components/MoveFirstList.svelte';
 
   // What waits on me or my team: held changes whose question names one of my
   // teams, then paused environments and changes that could not finish.
@@ -60,6 +61,7 @@
                   {typeLabel(it.type)} on {it.namespace}/{it.stage}{#if it.to}: {shortDigest(it.to)}{/if}
                 </a>
                 {#if it.question}<p class="dl-question t-body">{it.question}</p>{/if}
+                <MoveFirstList order={it.order} testid="inbox-move-first" />
                 <dl class="dl-facts t-body-2">
                   <dt>Decision asked</dt><dd>{decisionLabel(it.decision) || 'A decision'}</dd>
                   <dt>Who may answer</dt><dd>{it.owners?.length ? it.owners.join(', ') : 'Any person'}</dd>
