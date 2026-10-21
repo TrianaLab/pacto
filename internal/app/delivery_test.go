@@ -29,6 +29,9 @@ const (
 type fakeDeliveryRegistry struct {
 	hosts      []string
 	resolveErr error
+	// unbounded is set when a tag lookup came with no deadline: against a
+	// registry that is down it would wait as long as the transport retries.
+	unbounded bool
 }
 
 func (f *fakeDeliveryRegistry) Annotations(_ context.Context, ref string) (map[string]string, error) {
@@ -45,7 +48,10 @@ func (f *fakeDeliveryRegistry) Pull(_ context.Context, ref string) (*contract.Bu
 	return &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "payments", Version: v}}}, nil
 }
 
-func (f *fakeDeliveryRegistry) Resolve(context.Context, string) (string, error) {
+func (f *fakeDeliveryRegistry) Resolve(ctx context.Context, _ string) (string, error) {
+	if _, ok := ctx.Deadline(); !ok {
+		f.unbounded = true
+	}
 	return dlB, f.resolveErr
 }
 
@@ -193,6 +199,9 @@ func TestDeliveryRefusals(t *testing.T) {
 	r.To = "v2"
 	_, _, err = d.Plan(ctx, r)
 	wantErrContaining(t, err, "currently resolves to "+dlB)
+	if reg.unbounded {
+		t.Fatal("the tag lookup has no time limit")
+	}
 	reg.resolveErr = errors.New("no such tag")
 	_, _, err = d.Plan(ctx, r)
 	wantErrContaining(t, err, "no such tag")

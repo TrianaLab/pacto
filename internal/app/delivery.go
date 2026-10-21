@@ -269,7 +269,9 @@ func (d *Delivery) digest(ctx context.Context, stage *delivery.StageObject, to s
 	if err != nil {
 		return "", fmt.Errorf("%q is not a digest, and the tag could not be resolved: %w", to, err)
 	}
-	resolved, err := reg.Resolve(ctx, repo+":"+strings.TrimPrefix(to, ":"))
+	bounded, cancel := delivery.WithRegistryTimeout(ctx)
+	defer cancel()
+	resolved, err := reg.Resolve(bounded, repo+":"+strings.TrimPrefix(to, ":"))
 	if err != nil {
 		return "", fmt.Errorf("%q is not a digest, and the tag could not be resolved: %w", to, err)
 	}

@@ -198,3 +198,42 @@ func TestParseAuthTime(t *testing.T) {
 		t.Fatal("anything else is not a login time")
 	}
 }
+
+// hangingRegistry answers nothing until its caller gives up, like a registry
+// whose host drops packets.
+type hangingRegistry struct{ hangPull bool }
+
+func (h hangingRegistry) Annotations(ctx context.Context, _ string) (map[string]string, error) {
+	if h.hangPull {
+		return map[string]string{ContractAnnotation: "oci://r/p@" + c1}, nil
+	}
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func (hangingRegistry) Pull(ctx context.Context, _ string) (*contract.Bundle, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
+func TestResolveRevisionGivesUpOnARegistryThatNeverAnswers(t *testing.T) {
+	defer func(d time.Duration) { registryTimeout = d }(registryTimeout)
+	registryTimeout = 20 * time.Millisecond
+	for _, h := range []hangingRegistry{{}, {hangPull: true}} {
+		r := ResolveRevision(context.Background(), h, "r/a", dA)
+		if r.Bundle != nil || r.Err != "the registry did not answer within 20ms" {
+			t.Fatalf("hung lookup: %+v", r)
+		}
+	}
+	// A caller that gives up first says so in its own words.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if r := ResolveRevision(ctx, hangingRegistry{}, "r/a", dA); r.Err != context.Canceled.Error() {
+		t.Fatalf("cancelled lookup: %+v", r)
+	}
+	ctx, done := WithRegistryTimeout(context.Background())
+	defer done()
+	if dl, ok := ctx.Deadline(); !ok || time.Until(dl) > registryTimeout {
+		t.Fatalf("WithRegistryTimeout sets no bound: %v %v", dl, ok)
+	}
+}
