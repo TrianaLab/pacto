@@ -355,7 +355,7 @@ pacto delivery history [flags]
 
 ### `pacto delivery plan`
 
-Predict what the promoter will do: verdicts, the approval floor and the one question for a person
+Predict what the promoter will do: verdicts, the approval floor, the one question for a person and what must move first
 
 ```
 pacto delivery plan [flags]

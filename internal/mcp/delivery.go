@@ -31,7 +31,11 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 	"the one question they are asked), then propose with the plan's intent digest and follow it with " +
 	"pacto_delivery_get. pacto_delivery_explain shows every verdict with the citation behind it and how to run it " +
 	"again, and pacto_delivery_history what happened on a Stage. Unknown is never Pass: an operation Pacto cannot " +
-	"judge waits for a person. A verdict you cite as a cause is run again by the promoter and refused if it does not hold." + noApprove
+	"judge waits for a person. A verdict you cite as a cause is run again by the promoter and refused if it does not hold. " +
+	"When a consumer running in the environment does not accept the new version, the plan's order.moveFirst names that " +
+	"consumer, its Stage there and, as candidate, a version of it its upstream Stage verified that accepts both versions: " +
+	"plan and propose that promote on the consumer's Stage first, then plan this one again. Pacto never moves the other " +
+	"service for you, and order.unknown says what it could not see." + noApprove
 
 // NewDeliveryServer builds a server with the authoring tools and the delivery
 // tools. writes registers propose and cancel; the command layer passes true
@@ -67,7 +71,9 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Va
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
 		Name: "pacto_delivery_operation_plan",
 		Description: "Plan an operation without doing it: the intent digest, the running version, the predicted " +
-			"verdicts of every gate, whether a person must decide and the one question they would be asked. Read-only." + noApprove,
+			"verdicts of every gate, whether a person must decide, the one question they would be asked and, when a consumer " +
+			"running there does not accept the new version, the order: which consumer must move first and the verified " +
+			"version of it to promote. Read-only." + noApprove,
 		InputSchema: requestSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a requestArgs) (*mcpsdk.CallToolResult, any, error) {
 		req, err := a.request()
@@ -89,7 +95,7 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Va
 		Name: "pacto_delivery_explain",
 		Description: "Explain an operation: what was asked, where it is, every gate verdict with its citation (for a health " +
 			"check, the exact query with absolute time bounds) and how to run that citation again, plus the Stage as it is now " +
-			"and its last re-check. Read-only." + noApprove,
+			"and its last re-check, and what must move first when the plan found one. Read-only." + noApprove,
 		InputSchema: nameSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a nameArgs) (*mcpsdk.CallToolResult, any, error) {
 		e, err := api.Explain(ctx, a.Namespace, a.Name)

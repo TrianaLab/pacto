@@ -34,6 +34,9 @@ func (d *Delivery) Explain(ctx context.Context, ns, name string) (*delivery.Expl
 	for _, v := range s.Verdicts {
 		e.Verdicts = append(e.Verdicts, delivery.ExplainedVerdict{Verdict: v, Rerun: rerunHint(v)})
 	}
+	if s.Plan != nil {
+		e.Order = s.Plan.Order
+	}
 	if stage, err := d.Stage(ctx, ns, op.Spec.Stage); err == nil {
 		e.Stage = stageNow(stage)
 	} else {

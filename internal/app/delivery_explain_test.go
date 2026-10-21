@@ -28,7 +28,8 @@ func TestDeliveryExplain(t *testing.T) {
 				map[string]any{"gate": "x", "phase": "verify", "result": "Unknown"},
 			}})
 	held := opFixture("h1", map[string]any{"type": delivery.TypePromote, "stage": "gone"},
-		map[string]any{"phase": "Held", "question": "Accept the unknown?"})
+		map[string]any{"phase": "Held", "question": "Accept the unknown?", "plan": map[string]any{"intentDigest": "sha256:i", "type": delivery.TypePromote,
+			"predicted": "Held", "order": map[string]any{"moveFirst": []any{map[string]any{"service": "orders", "message": "Ship orders first."}}}}})
 	d, _, _ := deliveryFixture(t, "alice", nil, nil, failed, held)
 	e, err := d.Explain(context.Background(), "prod", "p1")
 	if err != nil {
@@ -44,7 +45,8 @@ func TestDeliveryExplain(t *testing.T) {
 		}
 	}
 	e, err = d.Explain(context.Background(), "prod", "h1")
-	if err != nil || e.Stage.Name != "gone" || e.Stage.Pointer != "" || !strings.Contains(e.Summary, "waits for a person: Accept the unknown?") {
+	if err != nil || e.Stage.Name != "gone" || e.Stage.Pointer != "" || !strings.Contains(e.Summary, "waits for a person: Accept the unknown?") ||
+		e.Order == nil || e.Order.MoveFirst[0].Service != "orders" {
 		t.Fatalf("held, Stage gone: %+v %v", e, err)
 	}
 	if _, err := d.Explain(context.Background(), "prod", "missing"); err == nil {

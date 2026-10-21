@@ -162,7 +162,7 @@ func requestFrom(cmd *cobra.Command, ns string) (delivery.Request, error) {
 func newDeliveryPlanCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "plan",
-		Short: "Predict what the promoter will do: verdicts, the approval floor and the one question for a person",
+		Short: "Predict what the promoter will do: verdicts, the approval floor, the one question for a person and what must move first",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			c, ns, err := deliveryClient(cmd, d)
@@ -199,6 +199,20 @@ func printPlan(w io.Writer, p delivery.Plan) {
 	}
 	for _, c := range p.Conflicts {
 		_, _ = fmt.Fprintf(w, "conflict:  %s\n", c)
+	}
+	printOrder(w, p.Order)
+}
+
+// printOrder says what must move first, and what Pacto could not see.
+func printOrder(w io.Writer, o *delivery.Order) {
+	if o == nil {
+		return
+	}
+	for _, m := range o.MoveFirst {
+		_, _ = fmt.Fprintf(w, "move first: %s\n", m.Message)
+	}
+	for _, u := range o.Unknown {
+		_, _ = fmt.Fprintf(w, "  may be incomplete: %s\n", u)
 	}
 }
 
@@ -346,6 +360,7 @@ func newDeliveryExplainCommand(v *viper.Viper, d deps) *cobra.Command {
 					}
 					_, _ = fmt.Fprintf(w, "      re-run: %s\n", x.Rerun)
 				}
+				printOrder(w, e.Order)
 				printStageNow(w, e.Stage)
 				return nil
 			}, nil)

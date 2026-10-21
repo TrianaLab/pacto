@@ -966,6 +966,12 @@ export interface components {
             groups?: string[] | null;
             user: string;
         };
+        "Delivery.Candidate": {
+            accepts?: string;
+            digest: string;
+            verifiedOn: components["schemas"]["Delivery.StageRef"];
+            version?: string;
+        };
         "Delivery.Cause": {
             operation?: string;
             reason?: string;
@@ -983,6 +989,7 @@ export interface components {
         };
         "Delivery.Explanation": {
             operation: string;
+            order?: components["schemas"]["Delivery.Order"];
             spec: components["schemas"]["Delivery.OperationSpec"];
             stage: components["schemas"]["Delivery.StageNow"];
             status: components["schemas"]["ExplanationStatusStruct"];
@@ -1009,6 +1016,16 @@ export interface components {
             to?: string;
             type: string;
             verification?: string;
+        };
+        "Delivery.MoveFirst": {
+            accepts?: string;
+            candidate?: components["schemas"]["Delivery.Candidate"];
+            domain?: string;
+            message: string;
+            service: string;
+            stage?: components["schemas"]["Delivery.StageRef"];
+            unknown?: string;
+            version?: string;
         };
         "Delivery.ObjectMeta": {
             creationTimestamp?: string;
@@ -1055,6 +1072,10 @@ export interface components {
             verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
             verification?: string;
         };
+        "Delivery.Order": {
+            moveFirst: components["schemas"]["Delivery.MoveFirst"][] | null;
+            unknown?: string[] | null;
+        };
         "Delivery.Params": {
             from?: string;
             to?: string;
@@ -1066,6 +1087,7 @@ export interface components {
             from?: string;
             impactDigest?: string;
             intentDigest: string;
+            order?: components["schemas"]["Delivery.Order"];
             predicted: string;
             question?: string;
             to?: string;
@@ -1107,6 +1129,10 @@ export interface components {
             name: string;
             pointer?: string;
             verified?: string[] | null;
+        };
+        "Delivery.StageRef": {
+            name: string;
+            namespace?: string;
         };
         "Delivery.Times": {
             admitted?: string;

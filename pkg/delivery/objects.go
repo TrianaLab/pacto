@@ -66,7 +66,9 @@ type Explanation struct {
 		Seq          int64        `json:"seq,omitempty"`
 	} `json:"status"`
 	Verdicts []ExplainedVerdict `json:"verdicts"`
-	Stage    StageNow           `json:"stage"`
+	// Order is what must move first, from the plan the promoter admitted.
+	Order *Order   `json:"order,omitempty"`
+	Stage StageNow `json:"stage"`
 }
 
 // ExplainedVerdict is a verdict and how to run its citation again.
