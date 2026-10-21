@@ -5,6 +5,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -196,16 +197,23 @@ func TestBlame(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.Digest != dlA || b.Change == nil || b.Change.Operation != "ship" || b.OnBehalfOf != "carol" || b.IntentReason != "ship ship" ||
-		len(b.Approvals) != 1 || b.Approvals[0].By != "alice" || len(b.Verdicts) != 1 || b.Source != delivery.SourceRecords {
-		t.Fatalf("blame = %+v", b)
+	got := fmt.Sprint(b.Digest, b.Change.Operation, b.OnBehalfOf, b.IntentReason, b.Approvals, len(b.Verdicts), b.Source)
+	if want := fmt.Sprint(dlA, "ship", "carol", "ship ship", []delivery.RecordApproval{{By: "alice", Decision: delivery.Approve}}, 1,
+		delivery.SourceRecords); got != want {
+		t.Fatalf("blame = %s, want %s", got, want)
 	}
 	// B was put in place by an operation not recorded yet: read from its status.
 	b, _ = e.d.Blame(ctx, "prod", "payments-prod", dlB)
 	if b.Change == nil || b.Change.Operation != "live" || b.Change.Record != "" || len(b.Approvals) != 1 || b.Approvals[0].By != "dave" {
 		t.Fatalf("blame of an unrecorded change = %+v", b)
 	}
-	b, _ = e.d.Blame(ctx, "prod", "payments-prod", dlE)
+}
+
+func TestBlameOfAVersionNeverMovedTo(t *testing.T) {
+	e := newRecordEnv(t)
+	e.twoRecords()
+	ctx := context.Background()
+	b, _ := e.d.Blame(ctx, "prod", "payments-prod", dlE)
 	if b.Change != nil || !strings.Contains(b.Note, "no change in the stream") {
 		t.Fatalf("blame of a version never moved to = %+v", b)
 	}
@@ -263,8 +271,15 @@ func TestUndo(t *testing.T) {
 			t.Errorf("undo of %s = %+v %v", name, u, err)
 		}
 	}
+}
+
+func TestUndoRefusals(t *testing.T) {
+	applied := map[string]any{"phase": "Concluded", "outcome": "Succeeded", "pointer": map[string]any{"before": dlC, "after": dlB}}
+	e := newRecordEnv(t, opFixture("older", shipSpec(dlC), applied))
+	e.twoRecords()
+	ctx := context.Background()
 	// boot is gone from the cluster; its record says what it did.
-	u, err = e.d.Undo(ctx, "prod", "boot", "payments-prod")
+	u, err := e.d.Undo(ctx, "prod", "boot", "payments-prod")
 	if err != nil || u.Kind != "none" || !strings.Contains(u.Note, "first version") {
 		t.Fatalf("undo of a recorded, deleted operation = %+v %v", u, err)
 	}
@@ -275,7 +290,7 @@ func TestUndo(t *testing.T) {
 	_, err = e.d.Undo(ctx, "prod", "nowhere", "missing")
 	wantErrContaining(t, err, "missing")
 
-	gone := opFixture("orphan", map[string]any{"type": delivery.TypePromote, "stage": "missing"}, applied(dlA, dlB))
+	gone := opFixture("orphan", map[string]any{"type": delivery.TypePromote, "stage": "missing"}, applied)
 	_, _ = e.c.Resource(gvrOperations).Namespace("prod").Create(ctx, gone.(*unstructured.Unstructured), metav1.CreateOptions{})
 	_, err = e.d.Undo(ctx, "prod", "orphan", "")
 	wantErrContaining(t, err, "missing")
@@ -316,7 +331,10 @@ func TestVerifyRecords(t *testing.T) {
 	wantErrContaining(t, err, "needs a trust config")
 }
 
-func TestPlanPrecedent(t *testing.T) {
+// precedentEnv is a recordEnv whose apply repository holds one version, with
+// six records of other Stages moving to it and one moving away from it.
+func precedentEnv(t *testing.T) (*recordEnv, string) {
+	t.Helper()
 	e := newRecordEnv(t)
 	e.twoRecords()
 	ctx := context.Background()
@@ -338,7 +356,12 @@ func TestPlanPrecedent(t *testing.T) {
 	}
 	from := move(9, "", "f", to, dlB) // names the version as from, not to: not precedent
 	e.attach("apps/payments", version.ManifestDesc, from)
+	return e, to
+}
 
+func TestPlanPrecedent(t *testing.T) {
+	e, to := precedentEnv(t)
+	ctx := context.Background()
 	plan, _, err := e.d.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: to})
 	if err != nil {
 		t.Fatal(err)
@@ -362,8 +385,14 @@ func TestPlanPrecedent(t *testing.T) {
 	if plan.Precedent.Completeness != "partial" || !strings.Contains(plan.Precedent.Note, "could not be verified") {
 		t.Fatalf("precedent under another key = %+v", plan.Precedent)
 	}
+}
+
+func TestPlanPrecedentUnreadable(t *testing.T) {
+	e, _ := precedentEnv(t)
+	ctx := context.Background()
+	ri := e.c.Resource(gvrOCIRepository).Namespace("prod")
 	// A version the registry does not hold.
-	plan, _, _ = e.d.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlE})
+	plan, _, _ := e.d.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlE})
 	if !strings.Contains(plan.Precedent.Note, "could not be read") {
 		t.Fatalf("precedent of a missing version = %+v", plan.Precedent)
 	}

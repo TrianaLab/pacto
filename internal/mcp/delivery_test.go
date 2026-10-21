@@ -166,6 +166,10 @@ func TestDeliveryToolCalls(t *testing.T) {
 	if h.Stage.Name != "s" || h.Completeness != "partial" {
 		t.Fatalf("history: %+v", h)
 	}
+}
+
+func TestDeliveryRecordToolCalls(t *testing.T) {
+	server := NewDeliveryServer("v", &stubDelivery{}, false, nil)
 	var b delivery.Blame
 	decode(t, callToolOn(t, server, "pacto_delivery_blame", map[string]any{"namespace": "prod", "stage": "s", "digest": "sha256:d"}), &b)
 	if b.Stage.Name != "s" || b.Digest != "sha256:d" {
