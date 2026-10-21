@@ -10,8 +10,7 @@ a separate chart (`pacto-delivery`) with its own image, CRDs, service account,
 RBAC and admission policies. The `pacto-operator` chart gains nothing.
 
 !!! warning "Alpha"
-    The API group is `delivery.pacto.trianalab.io/v1alpha1`. Signed records
-    come later.
+    The API group is `delivery.pacto.trianalab.io/v1alpha1`.
 
 ## How it works
 
@@ -52,6 +51,8 @@ flowchart LR
 - **Health checks and claim checks** can join the contract check, and the
   checks keep running after release. See
   [Health checks and claims](delivery-health.md).
+- **Every operation that ends** gets a signed record in the registry when
+  the recorder is on. See [Signed records](delivery-records.md).
 - **A failed version** is remembered on the Stage and never promoted again. The
   promoter raises one rollback per failure. If that rollback fails too, or the
   outcome cannot be established, the Stage freezes until a person unfreezes it.
@@ -259,6 +260,7 @@ provider's again. A person can still approve shipping the provider anyway.
 | Person | the above, plus approve (a question their team is asked) and unfreeze | write status |
 | Break-glass (`pacto:break-glass`) | override and edit `spec.ref.digest` | |
 | Promoter | write status and raise its own operations | sign or push |
+| Recorder | write `status.record`, `status.stream.recordedSeq` and `head`, and the record finalizer; sign and push records | anything else |
 
 An approval is bound to the operation's uid and intent digest. Admission
 requires `spec.by` and `spec.groups` to be the requesting user's and
@@ -274,7 +276,7 @@ a witnessed override, adopts it and freezes the Stage.
 
 ## Limitations
 
-- No signed records yet. An operation keeps its record finalizer until it is
+- Without the recorder, an operation keeps its record finalizer until it is
   deleted; the promoter then lets it go.
 - Stage approval policy is `approval.always`, not an expression.
 - Compatibility comes from the version range each consumer declares. Pacto

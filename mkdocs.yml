@@ -232,6 +232,7 @@ nav:
           - Pacto delivery (opt-in): integrations/kubernetes/delivery.md
           - "Delivery: health checks and claims": integrations/kubernetes/delivery-health.md
           - "Delivery: sign-in, approvals and agents": integrations/kubernetes/delivery-identity.md
+          - "Delivery: signed records": integrations/kubernetes/delivery-records.md
           - CRD reference: integrations/kubernetes/crd-reference.md
           - Helm reference: integrations/kubernetes/helm-reference.md
           - RBAC: integrations/kubernetes/rbac.md
