@@ -49,7 +49,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"no approve tool.\n\n" +
 			"Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies " +
 			"(issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback " +
-			"needs them. With --delivery the server then exchanges each caller's token for one the apiserver accepts " +
+			"needs them and refuses --auth and --allow-writes, which would lend this process's service credential to every caller. With --delivery the server then exchanges each caller's token for one the apiserver accepts " +
 			"(RFC 8693, --exchange-client-id) and builds the tools for that caller on every request, so an agent " +
 			"proposes as itself and a person gets the read-only tools.\n\n" +
 			"With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish " +

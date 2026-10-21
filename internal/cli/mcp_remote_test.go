@@ -68,6 +68,11 @@ func TestMCPRemoteFlags(t *testing.T) {
 	t.Setenv("PACTO_MCP_EXCHANGE_CLIENT_SECRET", "s3cret")
 	err := remoteCmd(t, d, "-t", "http", "--host", "0.0.0.0", "--port", "0")
 	expect(t, errors.Is(err, errAuthBeyondLoopback), "beyond loopback without auth: %v", err)
+	for _, f := range [][]string{{"--auth", "bearerAuth=t"}, {"--allow-writes"}} {
+		err = remoteCmd(t, d, append([]string{"-t", "http", "--host", "0.0.0.0", "--port", "0", "--auth-issuer", "https://idp",
+			"--resource", "https://mcp.example/mcp"}, f...)...)
+		expect(t, errors.Is(err, errServiceCredsBeyondLoopback), "%v beyond loopback, even with auth: %v", f, err)
+	}
 	wantErr(t, remoteCmd(t, d, "-t", "http", "--auth-issuer", "https://idp"), "--resource")
 	err = remoteCmd(t, d, "--delivery", "-t", "http", "--host", "0.0.0.0", "--port", "0", "--auth-issuer", "https://idp",
 		"--resource", "https://mcp.example/mcp", "--exchange-client-id", "pacto-mcp")

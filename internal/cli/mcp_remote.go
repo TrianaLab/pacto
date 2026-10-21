@@ -48,6 +48,12 @@ type mcpServe struct {
 	resource   string
 }
 
+// errServiceCredsBeyondLoopback refuses to lend this process's service
+// credential, or its write tools, to remote callers: every caller would act
+// as the server, and the service could not tell them apart.
+var errServiceCredsBeyondLoopback = errors.New("--auth and --allow-writes serve loopback only: beyond it every caller would " +
+	"call the service with this process's credential; run `pacto mcp` beside the agent, under the agent's own credentials")
+
 var errAuthBeyondLoopback = errors.New("binding the MCP server beyond loopback needs --auth-issuer and --resource: " +
 	"every request must carry a token the server verifies")
 
@@ -129,6 +135,11 @@ func mcpRemote(cmd *cobra.Command, d deps, s *mcpServe) error {
 	s.resource, _ = cmd.Flags().GetString("resource")
 	if s.transport != "http" {
 		return nil
+	}
+	creds, _ := cmd.Flags().GetStringArray("auth")
+	writes, _ := cmd.Flags().GetBool("allow-writes")
+	if !isLoopback(s.host) && (len(creds) > 0 || writes) {
+		return errServiceCredsBeyondLoopback
 	}
 	if s.issuer == "" {
 		if !isLoopback(s.host) {

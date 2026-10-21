@@ -262,7 +262,7 @@ That is the whole surface. Catalog mode registers no authoring tools: a server s
 | **stdio** (default) | `pacto mcp` | Direct integration with CLI-based AI tools (Claude Code, Cursor) |
 | **HTTP** | `pacto mcp -t http` | Local HTTP endpoint for tools that speak HTTP rather than stdio |
 
-The HTTP transport serves the [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) protocol at the `/mcp` endpoint. It binds to loopback by default; beyond it, `--auth-issuer` and `--resource` require a bearer token on every request ([sign-in for agents](integrations/kubernetes/delivery-identity.md#agents-over-the-network)).
+The HTTP transport serves the [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) protocol at the `/mcp` endpoint. It binds to loopback by default; beyond it, `--auth-issuer` and `--resource` require a bearer token on every request ([sign-in for agents](integrations/kubernetes/delivery-identity.md#agents-over-the-network)). Beyond loopback the server also refuses `--auth` and `--allow-writes`: every caller would reach the service with this process's credential, and the service could not tell them apart. Run a server that holds a service credential beside its agent instead.
 
 ```bash
 # Default port (8585)
