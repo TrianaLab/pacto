@@ -160,6 +160,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				Impact:     impactProviderForFleet(svc, mgr),
 				Refresh:    mgr.Refresh,
 				MiraURL:    v.GetString("dashboard.mira-url"),
+
+				DeliveryNamespace: namespace,
 			}
 			identity.options(&opts)
 			server := dashboard.NewServer(opts)

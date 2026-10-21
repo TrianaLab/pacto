@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,8 +13,12 @@ import (
 
 	"github.com/spf13/viper"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
+	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/rest"
 
 	"github.com/trianalab/pacto/v4/internal/app"
@@ -162,6 +168,30 @@ func localAPI(t *testing.T) (*dashboardIdentity, dashboard.DeliveryAPI) {
 	return id, api
 }
 
+// An accept-unknown from the dashboard is an Approval that says accept-unknown,
+// bound to the held operation and signed by the caller: what the promoter
+// matches against an Unknown hold.
+func TestDashDeliveryAcceptUnknownApproval(t *testing.T) {
+	id, _ := localAPI(t)
+	var spec map[string]any
+	next := id.newClient
+	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
+		c, err := next(cfg)
+		c.(*dynamicfake.FakeDynamicClient).PrependReactor("create", "approvals", func(a k8stesting.Action) (bool, runtime.Object, error) {
+			spec = a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).Object["spec"].(map[string]any)
+			return false, nil, nil
+		})
+		return c, err
+	}
+	api, err := id.delivery(httptest.NewRequest(http.MethodPost, "/", nil))
+	expect(t, err == nil, "delivery: %v", err)
+	n, err := api.Approve(context.Background(), "prod", "held", delivery.AcceptUnknown, "gates stay Unknown, ship it")
+	expect(t, err == nil && n == "held-1", "accept-unknown %q %v", n, err)
+	expect(t, spec["decision"] == "accept-unknown" && spec["operation"] == "held" && spec["intentDigest"] == "sha256:i" &&
+		spec["by"] == "alice" && spec["authTime"] == "1800000000" && spec["note"] == "gates stay Unknown, ship it",
+		"the Approval the promoter reads: %v", spec)
+}
+
 func TestDashDeliveryAdapterReads(t *testing.T) {
 	_, api := localAPI(t)
 	ctx := context.Background()
@@ -188,7 +218,15 @@ func TestDashDeliveryAdapterActions(t *testing.T) {
 	expect(t, err == nil && n == "held-1", "approve %q %v", n, err)
 	err = api.Cancel(ctx, "prod", "missing")
 	expect(t, isRefusal(err, http.StatusNotFound), "the apiserver's 404 keeps its status: %v", err)
-	expect(t, refusal(nil) == nil && refusal(errors.New("x")).Error() == "x", "refusal passes anything else through")
+	expect(t, refusal(nil) == nil, "no error, no refusal")
+	err = refusal(errors.New("--to is required"))
+	expect(t, isRefusal(err, http.StatusUnprocessableEntity) && err.(*dashboard.DeliveryError).Detail == "--to is required",
+		"a plain refusal keeps its reason: %v", err)
+	err = refusal(fmt.Errorf("asking the apiserver who you are: %w", &net.OpError{Op: "dial", Err: errors.New("connection refused")}))
+	expect(t, isRefusal(err, http.StatusServiceUnavailable) && strings.Contains(err.(*dashboard.DeliveryError).Detail, "connection refused"),
+		"a transport failure says the cluster is unreachable, and why: %v", err)
+	err = refusal(fmt.Errorf("listing: %w", context.DeadlineExceeded))
+	expect(t, isRefusal(err, http.StatusServiceUnavailable), "a timeout says the cluster is unreachable: %v", err)
 	err = refusal(apierrors.NewForbidden(schema.GroupResource{Resource: "approvals"}, "", errors.New("spec.groups must be the groups of the user")))
 	expect(t, isRefusal(err, http.StatusForbidden) && err.(*dashboard.DeliveryError).Code == "Forbidden", "a VAP refusal keeps its status and message: %v", err)
 	var _ app.DeliveryRegistry = cliRegistry{}

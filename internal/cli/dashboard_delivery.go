@@ -189,7 +189,8 @@ func (id *dashboardIdentity) describe(ctx context.Context, d *app.Delivery, stag
 }
 
 // dashDelivery adapts app.Delivery to the dashboard: apiserver refusals keep
-// their status and message, and a stale plan carries the fresh one.
+// their status and message, a stale plan carries the fresh one, and every
+// other error keeps its reason as a refusal.
 type dashDelivery struct {
 	d  *app.Delivery
 	id *dashboardIdentity
@@ -205,7 +206,15 @@ func refusal(err error) error {
 		st := api.Status()
 		return dashboard.Refuse(int(st.Code), string(st.Reason), st.Message)
 	}
-	return err
+	var netErr net.Error
+	switch {
+	case err == nil:
+		return nil
+	case errors.As(err, &netErr) || errors.Is(err, context.DeadlineExceeded):
+		return dashboard.Refuse(http.StatusServiceUnavailable, "ClusterUnreachable", err.Error())
+	}
+	// Everything else is delivery saying no to the request itself.
+	return dashboard.Refuse(http.StatusUnprocessableEntity, "Refused", err.Error())
 }
 
 func (a dashDelivery) WhoAmI(ctx context.Context) (delivery.Caller, error) {

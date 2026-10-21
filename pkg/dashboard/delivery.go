@@ -232,28 +232,39 @@ func forbidden(err error) bool {
 	return errors.As(err, &de) && de.Status == http.StatusForbidden
 }
 
-// lists reads every Stage and Operation the caller can see: cluster-wide when
-// allowed, else, partially, per namespace of the fleet snapshot, dropping
-// (and naming) a namespace that refuses.
+// lists reads every Stage and Operation the caller can see: in the
+// dashboard's namespace when it has one; else cluster-wide when allowed, else,
+// partially, per namespace of the fleet snapshot. A namespace that refuses is
+// dropped and named.
 // ponytail: a list per request with the caller's token, polled by the UI;
 // add a per-session informer if list load shows on the apiserver.
 func (s *Server) lists(ctx context.Context, api DeliveryAPI) ([]delivery.StageObject, []delivery.OperationObject, Listing, error) {
 	l := Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete"}
-	stages, err := api.Stages(ctx, "")
-	var ops []delivery.OperationObject
-	if err == nil {
-		if ops, err = api.Operations(ctx, ""); err == nil {
-			return stages, ops, l, nil
+	namespaces := []string{s.opts.DeliveryNamespace}
+	if namespaces[0] == "" {
+		stages, err := api.Stages(ctx, "")
+		var ops []delivery.OperationObject
+		if err == nil {
+			if ops, err = api.Operations(ctx, ""); err == nil {
+				return stages, ops, l, nil
+			}
 		}
+		if !forbidden(err) {
+			return nil, nil, l, err
+		}
+		// The namespaces asked are a guess (where the fleet's workloads run,
+		// not necessarily where Stages live), so the answer is never
+		// complete: "*" says namespaces outside the guess were not read.
+		l.Completeness, l.Unreadable, namespaces = "partial", []string{"*"}, s.namespaces(ctx)
 	}
-	if !forbidden(err) {
-		return nil, nil, l, err
-	}
-	// The namespaces asked are a guess (where the fleet's workloads run, not
-	// necessarily where Stages live), so the answer is never complete: "*"
-	// says namespaces outside the guess were not read.
-	stages, ops, l.Completeness, l.Unreadable = nil, nil, "partial", []string{"*"}
-	for _, ns := range s.namespaces(ctx) {
+	return listEach(ctx, api, namespaces, l)
+}
+
+// listEach lists each namespace, dropping (and naming) one that refuses.
+func listEach(ctx context.Context, api DeliveryAPI, namespaces []string, l Listing) ([]delivery.StageObject, []delivery.OperationObject, Listing, error) {
+	var stages []delivery.StageObject
+	var ops []delivery.OperationObject
+	for _, ns := range namespaces {
 		st, err := api.Stages(ctx, ns)
 		var os []delivery.OperationObject
 		if err == nil {
@@ -261,7 +272,7 @@ func (s *Server) lists(ctx context.Context, api DeliveryAPI) ([]delivery.StageOb
 		}
 		switch {
 		case forbidden(err):
-			l.Unreadable = append(l.Unreadable, ns)
+			l.Completeness, l.Unreadable = "partial", append(l.Unreadable, ns)
 		case err != nil:
 			return nil, nil, l, err
 		default:
@@ -269,6 +280,15 @@ func (s *Server) lists(ctx context.Context, api DeliveryAPI) ([]delivery.StageOb
 		}
 	}
 	return stages, ops, l, nil
+}
+
+// inScope refuses a namespace outside the dashboard's own, as if it were
+// not there.
+func (s *Server) inScope(ns string) error {
+	if s.opts.DeliveryNamespace != "" && ns != s.opts.DeliveryNamespace {
+		return Refuse(http.StatusNotFound, "OutOfScope", "this dashboard shows only namespace "+s.opts.DeliveryNamespace)
+	}
+	return nil
 }
 
 // namespaces are the scopes of the fleet snapshot's targets; nil when there
@@ -373,10 +393,13 @@ func (s *Server) deliveryInbox(ctx context.Context, _ *struct{}) (*inboxOutput, 
 			out.Body.Frozen = append(out.Body.Frozen, s.environmentRow(ctx, api, st, nil, caller))
 		}
 	}
+	// Held waits on a person who may answer: not an agent, never its asker.
+	decider := s.opts.DeliveryPolicy.IsHuman(caller.Identity)
 	for _, o := range ops {
 		it := inboxItem(o)
 		switch {
-		case it.Phase == delivery.PhaseHeld && s.opts.DeliveryPolicy.InTeams(caller.Groups, it.Owners):
+		case it.Phase == delivery.PhaseHeld && decider && !ownChange(&o, caller.User) &&
+			s.opts.DeliveryPolicy.InTeams(caller.Groups, it.Owners):
 			out.Body.Held = append(out.Body.Held, it)
 		case it.Outcome == delivery.Errored && frozen[it.Namespace+"/"+it.Stage]:
 			out.Body.Errored = append(out.Body.Errored, it)
@@ -582,7 +605,11 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	out := &historyOutput{}
 	out.Body.Listing = Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete"}
 	targets := [][2]string{{in.Namespace, in.Stage}}
-	if in.Namespace == "" || in.Stage == "" {
+	if in.Namespace != "" && in.Stage != "" {
+		if err := s.inScope(in.Namespace); err != nil {
+			return nil, err
+		}
+	} else {
 		stages, _, l, err := s.lists(ctx, api)
 		if err != nil {
 			return nil, err
@@ -617,6 +644,9 @@ type operationOutput struct {
 }
 
 func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*operationOutput, error) {
+	if err := s.inScope(in.Namespace); err != nil {
+		return nil, err
+	}
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
 		return nil, err
@@ -686,6 +716,9 @@ type planOutput struct {
 }
 
 func (s *Server) deliveryPlan(ctx context.Context, in *planInput) (*planOutput, error) {
+	if err := s.inScope(in.Body.Namespace); err != nil {
+		return nil, err
+	}
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
 		return nil, err
@@ -707,6 +740,9 @@ type proposeOutput struct {
 func (s *Server) deliveryPropose(ctx context.Context, in *planInput) (*proposeOutput, error) {
 	if in.Body.Type == delivery.TypeOverride {
 		return nil, Refuse(http.StatusBadRequest, "OverrideFromCLI", "an override is break-glass: raise it with `pacto delivery propose --type override`")
+	}
+	if err := s.inScope(in.Body.Namespace); err != nil {
+		return nil, err
 	}
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
@@ -757,6 +793,9 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 		return nil, Refuse(http.StatusUnauthorized, "LoginRequired", "sign in to decide")
 	case !st.Fresh:
 		return nil, Refuse(http.StatusUnauthorized, "FreshLoginRequired", "deciding needs a fresh login: sign in again")
+	}
+	if err := s.inScope(in.Namespace); err != nil {
+		return nil, err
 	}
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
@@ -811,6 +850,9 @@ type cancelOutput struct {
 }
 
 func (s *Server) deliveryCancel(ctx context.Context, in *operationInput) (*cancelOutput, error) {
+	if err := s.inScope(in.Namespace); err != nil {
+		return nil, err
+	}
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
 		return nil, err

@@ -364,6 +364,14 @@ func TestInbox(t *testing.T) {
 	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
 	fr = inbox["frozen"].([]any)
 	expect(t, len(fr) == 2 && fr[0].(map[string]any)["service"] == "payments", "the frozen Stage of my service: %v", fr)
+	// My own held change waits on someone else, and an agent decides nothing.
+	f.caller = person("acme:team-checkout")
+	f.ops[0].Spec.Actor.User = f.caller.User
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	expect(t, names(inbox["held"]) == "anyone:accept-unknown", "my own change is not mine to decide: %v", inbox["held"])
+	f.caller = delivery.Caller{Identity: delivery.Identity{User: "bot", Groups: []string{"acme:team-checkout", "pacto:agents"}}, Class: delivery.ClassAgent}
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	expect(t, len(inbox["held"].([]any)) == 0, "an agent is asked nothing: %v", inbox["held"])
 }
 
 func TestEnvironments(t *testing.T) {
@@ -651,4 +659,39 @@ func TestCompareVersions(t *testing.T) {
 	if got := strings.Join(vs, ","); got != "1.10.0,1.10.0-rc.1,1.9.0,not-a-version," {
 		t.Fatalf("newest first, as versions: %s", got)
 	}
+}
+
+func TestDeliveryNamespaceScope(t *testing.T) {
+	f := sampleCluster("acme:team-checkout")
+	a := &authed{state: AuthState{SignedIn: true, Fresh: true}}
+	base := startServer(t, NewServer(Options{UI: testUI(), Fleet: ownedFleet(t), Auth: a.auth(false, true), DeliveryNamespace: "prod",
+		Delivery: func(*http.Request) (DeliveryAPI, error) { return f, nil }}))
+	_, envs := call(t, http.MethodGet, base+"/api/delivery/environments", nil)
+	rows := envs["environments"].([]any)
+	expect(t, envs["completeness"] == "complete" && len(rows) == 1 && rows[0].(map[string]any)["namespace"] == "prod",
+		"only the dashboard's namespace, though the caller may list them all: %v", envs)
+	_, inbox := call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	expect(t, len(inbox["frozen"].([]any)) == 0 && len(inbox["errored"].([]any)) == 0 && names(inbox["held"]) == "anyone:accept-unknown",
+		"the unowned frozen Stage and its Errored operation in namespace other are out of scope: %v", inbox)
+	f.forbid = map[string]bool{"prod": true}
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
+	expect(t, envs["completeness"] == "partial" && strings.Join(toStrings(envs["unreadable"]), ",") == "prod", "refused: %v", envs)
+	f.forbid = nil
+	for _, c := range []struct {
+		method, path string
+		body         any
+	}{
+		{http.MethodGet, "/api/delivery/operations/books/broke", nil},
+		{http.MethodGet, "/api/delivery/history?namespace=books&stage=ledger", nil},
+		{http.MethodPost, "/api/delivery/operations/books/broke/decision", map[string]string{"decision": "approve"}},
+		{http.MethodDelete, "/api/delivery/operations/books/broke", nil},
+		{http.MethodPost, "/api/delivery/plan", delivery.Request{Namespace: "books", Stage: "ledger"}},
+		{http.MethodPost, "/api/delivery/operations", delivery.Request{Namespace: "books", Stage: "ledger"}},
+	} {
+		code, out := call(t, c.method, base+c.path, c.body)
+		expect(t, code == http.StatusNotFound && out["code"] == "OutOfScope", "%s %s: %d %v", c.method, c.path, code, out)
+	}
+	expect(t, len(f.approved)+len(f.cancelled)+len(f.proposed) == 0, "nothing acted outside the scope")
+	code, _ := call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments", nil)
+	expect(t, code == http.StatusOK, "history in scope: %d", code)
 }

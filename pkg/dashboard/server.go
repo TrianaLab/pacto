@@ -72,6 +72,9 @@ type Options struct {
 	// DeliveryPolicy classifies callers and maps owner teams to groups, the
 	// way the promoter does.
 	DeliveryPolicy delivery.ClassPolicy
+	// DeliveryNamespace, when set, is the only namespace delivery reads and
+	// acts in, as the fleet views are scoped to it.
+	DeliveryNamespace string
 	// Auth is the identity layer: sign-in, sessions and request guards.
 	Auth *Auth
 	// MiraURL, when set, turns Mira citations into links.
