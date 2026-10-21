@@ -544,7 +544,7 @@ def parse_flags(help_text: str) -> list[dict]:
 
 def chart_arg_flags(helper: str) -> dict[str, str]:
     """Map flag name -> how the chart renders it, for every controller arg the
-    chart can emit.
+    chart can emit, as a literal `- --flag` or a quoted `- {{ printf "--flag=...` line.
 
     The Deployment's args come from one helper template and there is no
     `extraArgs` value, so a flag the helper never emits is unreachable on the
@@ -563,7 +563,7 @@ def chart_arg_flags(helper: str) -> dict[str, str]:
     out: dict[str, str] = {}
     guards: list[str] = []
     for line in (body if nxt < 0 else body[:nxt]).splitlines():
-        m = re.match(r"^\s*-\s+--([a-z0-9-]+)", line)
+        m = re.match(r'^\s*-\s+(?:\{\{\s*printf\s+")?--([a-z0-9-]+)', line)
         if m:
             controlled = ".Values" in line or any(".Values" in g for g in guards)
             out[m.group(1)] = "chart value" if controlled else "always on"
