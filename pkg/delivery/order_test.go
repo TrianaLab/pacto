@@ -137,19 +137,21 @@ func TestOrderShipOrdersFirst(t *testing.T) {
 	}
 	m := onlyMove(t, p)
 	// Prod runs 1.8.0; the 1.9.0 Pacto in test does not count here.
-	if m.Service != "orders" || m.Version != "1.8.0" || m.Accepts != "^2.0.0" || m.Unknown != "" ||
-		*m.Stage != (StageRef{Name: "orders", Namespace: "orders-prod"}) {
+	if m.Service != "orders" || m.Version != "1.8.0" || m.Accepts != "^2.0.0" || m.Unknown != "" {
 		t.Fatalf("move first: %+v", m)
 	}
+	if *m.Stage != (StageRef{Name: "orders", Namespace: "orders-prod"}) {
+		t.Fatalf("stage: %+v", m.Stage)
+	}
 	// o5 runs, o4 failed here, o3 is not verified: o2 is the newest that can move.
-	if c := m.Candidate; c == nil || c.Digest != o2 || c.Version != "1.9.0" || c.Accepts != ">=2.0.0 <4.0.0" ||
-		c.VerifiedOn != (StageRef{Name: "orders", Namespace: "test"}) {
+	want := &Candidate{Digest: o2, Version: "1.9.0", Accepts: ">=2.0.0 <4.0.0", VerifiedOn: StageRef{Name: "orders", Namespace: "test"}}
+	if m.Candidate == nil || *m.Candidate != *want {
 		t.Fatalf("candidate: %+v", m.Candidate)
 	}
-	want := "orders 1.8.0 runs in prod and accepts payments ^2.0.0, not 3.0.0. orders 1.9.0 (sha256:020202020202) accepts it (>=2.0.0 <4.0.0) " +
+	msg := "orders 1.8.0 runs in prod and accepts payments ^2.0.0, not 3.0.0. orders 1.9.0 (sha256:020202020202) accepts it (>=2.0.0 <4.0.0) " +
 		"and verified on test/orders. Ship orders first: promote " + o2 + " on Stage orders-prod/orders."
-	if m.Message != want {
-		t.Fatalf("message:\n%s\nwant\n%s", m.Message, want)
+	if m.Message != msg {
+		t.Fatalf("message:\n%s\nwant\n%s", m.Message, msg)
 	}
 	if len(p.Order.Unknown) != 0 || !strings.Contains(p.Question, "Or ship orders first") {
 		t.Fatalf("order unknown %v, question %q", p.Order.Unknown, p.Question)

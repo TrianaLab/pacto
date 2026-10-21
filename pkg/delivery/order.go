@@ -52,33 +52,11 @@ func runningVersion(snap *fleet.FleetSnapshot, consumer, provider fleet.ServiceK
 // its upstream Stage, a verified version that can move first. Anything it
 // cannot read is said in m.Unknown, never guessed. With neither a candidate nor
 // an unknown, none says in plain words why there is no candidate.
-// ponytail: Stages are matched on service name and environment, not domain;
-// match the domain too when one cluster delivers same-named services from two.
 func placeCandidate(ctx context.Context, in PlanInput, m *MoveFirst, newVersion, running string) (none string) {
-	if in.StagesErr != nil {
-		m.Unknown = "the Stages could not be listed (" + in.StagesErr.Error() + "), so Pacto cannot tell what would move " + m.Service
+	stage, ok := consumerStage(in, m, newVersion)
+	if !ok {
 		return ""
 	}
-	var stages []StageObject
-	for _, s := range in.Stages {
-		if s.Spec.Service.Name == m.Service && s.Spec.Environment == in.Stage.Environment {
-			stages = append(stages, s)
-		}
-	}
-	switch len(stages) {
-	case 0:
-		m.Unknown = "no Stage delivers " + m.Service + " in " + in.Stage.Environment + ", so Pacto cannot tell whether a version of it that accepts " + newVersion + " exists"
-		return ""
-	case 1:
-	default:
-		refs := make([]string, 0, len(stages))
-		for _, s := range stages {
-			refs = append(refs, s.Metadata.Namespace+"/"+s.Metadata.Name)
-		}
-		m.Unknown = fmt.Sprintf("%d Stages deliver %s in %s (%s), so Pacto cannot tell which one must move", len(stages), m.Service, in.Stage.Environment, strings.Join(refs, " and "))
-		return ""
-	}
-	stage := stages[0]
 	m.Stage = &StageRef{Name: stage.Metadata.Name, Namespace: stage.Metadata.Namespace}
 	up := stage.Spec.Candidates.UpstreamStage
 	if up == nil {
@@ -93,33 +71,11 @@ func placeCandidate(ctx context.Context, in PlanInput, m *MoveFirst, newVersion,
 		m.Unknown = "its upstream Stage " + ref.Namespace + "/" + ref.Name + " does not exist or cannot be read"
 		return ""
 	}
-	upstream := in.Stages[i].Status
-	var unreadable []string
-	for _, d := range slices.Backward(upstream.Offered) {
-		if !slices.Contains(upstream.Verified, d) || slices.Contains(stage.Status.FailedDigests, d) || d == stage.Status.Pointer {
-			continue
-		}
-		var r Revision
-		if in.Candidates != nil {
-			r = in.Candidates(ctx, stage, d)
-		} else {
-			r = Revision{Digest: d, Err: "no registry access was given to read it"}
-		}
-		if r.Bundle == nil {
-			unreadable = append(unreadable, short(d)+": "+r.Err)
-			continue
-		}
-		rng, ok, err := acceptsBoth(r.Bundle.Contract, in.Stage.Service.Name, newVersion, running)
-		if err != nil {
-			unreadable = append(unreadable, short(d)+": "+err.Error())
-			continue
-		}
-		if ok {
-			m.Candidate = &Candidate{Digest: d, Version: r.Bundle.Contract.Service.Version, Accepts: rng, VerifiedOn: ref}
-			return ""
-		}
-	}
-	if len(unreadable) > 0 {
+	unreadable := verifiedCandidate(ctx, in, m, stage, in.Stages[i].Status, ref, newVersion, running)
+	switch {
+	case m.Candidate != nil:
+		return ""
+	case len(unreadable) > 0:
 		m.Unknown = "Pacto could not read every version " + ref.Namespace + "/" + ref.Name + " verified (" + strings.Join(unreadable, "; ") + ")"
 		return ""
 	}
@@ -128,6 +84,66 @@ func placeCandidate(ctx context.Context, in PlanInput, m *MoveFirst, newVersion,
 		both = "both " + newVersion + " and the " + running + " running here"
 	}
 	return "No version of " + m.Service + " that " + ref.Namespace + "/" + ref.Name + " verified accepts " + both + " yet. Ship one that does first"
+}
+
+// consumerStage is the one Stage that delivers the consumer in this
+// environment; anything else is said in m.Unknown.
+// ponytail: Stages are matched on service name and environment, not domain;
+// match the domain too when one cluster delivers same-named services from two.
+func consumerStage(in PlanInput, m *MoveFirst, newVersion string) (StageObject, bool) {
+	if in.StagesErr != nil {
+		m.Unknown = "the Stages could not be listed (" + in.StagesErr.Error() + "), so Pacto cannot tell what would move " + m.Service
+		return StageObject{}, false
+	}
+	var stages []StageObject
+	var refs []string
+	for _, s := range in.Stages {
+		if s.Spec.Service.Name == m.Service && s.Spec.Environment == in.Stage.Environment {
+			stages = append(stages, s)
+			refs = append(refs, s.Metadata.Namespace+"/"+s.Metadata.Name)
+		}
+	}
+	switch len(stages) {
+	case 1:
+		return stages[0], true
+	case 0:
+		m.Unknown = "no Stage delivers " + m.Service + " in " + in.Stage.Environment + ", so Pacto cannot tell whether a version of it that accepts " + newVersion + " exists"
+	default:
+		m.Unknown = fmt.Sprintf("%d Stages deliver %s in %s (%s), so Pacto cannot tell which one must move", len(stages), m.Service, in.Stage.Environment, strings.Join(refs, " and "))
+	}
+	return StageObject{}, false
+}
+
+// verifiedCandidate walks what the upstream Stage offered and verified, newest
+// first, and sets m.Candidate to the first version that accepts both provider
+// versions. It returns the versions it could not read.
+func verifiedCandidate(ctx context.Context, in PlanInput, m *MoveFirst, stage StageObject, upstream StageStatus, ref StageRef, newVersion, running string) []string {
+	read := in.Candidates
+	if read == nil {
+		read = func(_ context.Context, _ StageObject, d string) Revision {
+			return Revision{Digest: d, Err: "no registry access was given to read it"}
+		}
+	}
+	var unreadable []string
+	for _, d := range slices.Backward(upstream.Offered) {
+		if !slices.Contains(upstream.Verified, d) || slices.Contains(stage.Status.FailedDigests, d) || d == stage.Status.Pointer {
+			continue
+		}
+		r := read(ctx, stage, d)
+		if r.Bundle == nil {
+			unreadable = append(unreadable, short(d)+": "+r.Err)
+			continue
+		}
+		rng, ok, err := acceptsBoth(r.Bundle.Contract, in.Stage.Service.Name, newVersion, running)
+		switch {
+		case err != nil:
+			unreadable = append(unreadable, short(d)+": "+err.Error())
+		case ok:
+			m.Candidate = &Candidate{Digest: d, Version: r.Bundle.Contract.Service.Version, Accepts: rng, VerifiedOn: ref}
+			return unreadable
+		}
+	}
+	return unreadable
 }
 
 // acceptsBoth reports whether a consumer contract accepts the new provider

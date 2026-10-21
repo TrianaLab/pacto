@@ -45,12 +45,20 @@ func TestDeliveryExplain(t *testing.T) {
 		}
 	}
 	e, err = d.Explain(context.Background(), "prod", "h1")
-	if err != nil || e.Stage.Name != "gone" || e.Stage.Pointer != "" || !strings.Contains(e.Summary, "waits for a person: Accept the unknown?") ||
-		e.Order == nil || e.Order.MoveFirst[0].Service != "orders" {
+	if err != nil || e.Stage.Name != "gone" || e.Stage.Pointer != "" || !strings.Contains(e.Summary, "waits for a person: Accept the unknown?") {
 		t.Fatalf("held, Stage gone: %+v %v", e, err)
 	}
+	wantOrderFrom(t, e)
 	if _, err := d.Explain(context.Background(), "prod", "missing"); err == nil {
 		t.Fatal("missing operation")
+	}
+}
+
+// wantOrderFrom checks explain carries the order of the admitted plan.
+func wantOrderFrom(t *testing.T, e *delivery.Explanation) {
+	t.Helper()
+	if e.Order == nil || e.Order.MoveFirst[0].Service != "orders" {
+		t.Fatalf("explain lost the order: %+v", e.Order)
 	}
 }
 
