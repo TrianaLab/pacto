@@ -5,8 +5,8 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -164,7 +164,6 @@ func TestVerifyDigestReadsPastBadReferrers(t *testing.T) {
 		t.Fatalf("checked other than %d signatures: %v", maxSignatures, err)
 	}
 }
-
 
 // TestVerifyDigestSkipsAttestations: a bundle with another predicate is an
 // attestation, not a signature.
