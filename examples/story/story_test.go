@@ -76,6 +76,33 @@ func TestPlainFraudIsNotPactified(t *testing.T) {
 	}
 }
 
+// TestFraudPublishesFromPlainFraud: contracts/fraud/1.0.0 is plain/fraud's
+// pacto.yaml once pactified; the build inputs it names live in plain/fraud.
+func TestFraudPublishesFromPlainFraud(t *testing.T) {
+	b, err := Bundle("fraud", "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range b.Contract.Publish.Artifacts {
+		switch {
+		case a.Build.Dockerfile != nil:
+			file := a.Build.Dockerfile.File
+			if file == "" {
+				file = "Dockerfile"
+			}
+			if _, err := fs.Stat(Files, path.Join("plain/fraud", a.Build.Dockerfile.Context, file)); err != nil {
+				t.Errorf("%s: %v", a.Name, err)
+			}
+		case strings.Contains(strings.Join(a.Build.Command, " "), "k8s/*.yaml"):
+			if m, _ := fs.Glob(Files, "plain/fraud/k8s/*.yaml"); len(m) == 0 {
+				t.Errorf("%s: plain/fraud has no k8s/*.yaml", a.Name)
+			}
+		default:
+			t.Errorf("%s: unchecked build input", a.Name)
+		}
+	}
+}
+
 func TestGuidedPathIsFiveMoments(t *testing.T) {
 	var moments []int
 	for _, b := range Beats {
@@ -264,6 +291,21 @@ func TestB3FailedVersionIsNeverRetried(t *testing.T) {
 	retry.Failed = true
 	if p := plan(t, retry); p.Predicted != delivery.PredictRejected || refusal(p) != "FailedDigest" {
 		t.Fatalf("2.4.2 must never be promoted again: %+v", p)
+	}
+}
+
+// TestB3FailedVersionNeverReachesProd: prod takes only what its test Stage
+// offers, and test never offers a version that failed there.
+func TestB3FailedVersionNeverReachesProd(t *testing.T) {
+	b := Beat{ID: "B3-prod", Service: "payments", Environment: Prod, Actor: PayAgent, From: "2.4.0", To: "2.4.2", Running: before3}
+	in, err := b.PlanInput(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ran := []string{ArtifactDigest("payments", "2.4.0")}
+	in.Upstream = &delivery.StageStatus{Verified: ran, Offered: ran}
+	if p := delivery.PlanFor(context.Background(), in); p.Predicted != delivery.PredictRejected || refusal(p) != delivery.GatePublished {
+		t.Fatalf("2.4.2 must never reach prod: %+v", p)
 	}
 }
 

@@ -162,6 +162,11 @@ var Beats = []Beat{
 		Service: "payments", Environment: Prod, Actor: PayAgent, From: "2.3.0", To: "2.4.0", Running: before3,
 		Expect: Outcome{Classification: "NON_BREAKING", RequiredBump: diff.BumpPatch, Predicted: delivery.PredictProceeds},
 	},
+	// B2: the story proves the rollback is bound to the promote it undoes and
+	// that a digest already in FailedDigests is refused (the test sets Failed
+	// by hand). That a failed health check puts 2.4.0 there and raises the
+	// rollback is proven by the operator (TestRecheckAfterRelease and
+	// TestFailedVerifyRollsBackOnceAndNeverRetries).
 	{
 		ID: "B2", Moment: 4,
 		Says:    "The prod error ratio rises after 2.4.0, the health check fails and payments rolls back to 2.3.0 on its own.",
@@ -169,6 +174,11 @@ var Beats = []Beat{
 		Service: "payments", Environment: Prod, Type: delivery.TypeRollback, Actor: Promoter, From: "2.4.0", To: "2.3.0",
 		Expect: Outcome{Predicted: delivery.PredictProceeds, Verify: delivery.Fail},
 	},
+	// B3: the story proves that a failed 2.4.2 is refused on test again and
+	// that prod refuses a version its test Stage never offered. That the
+	// claim gate fails 2.4.2 and records it as failed is proven by the
+	// operator (TestRuntimeClaimGate and
+	// TestFailedVerifyRollsBackOnceAndNeverRetries).
 	{
 		ID:      "B3",
 		Says:    "payments 2.4.2 calls fraud, which its contract never declares, so it fails in test and never reaches prod.",
@@ -205,6 +215,9 @@ var Beats = []Beat{
 		Expect: Outcome{Classification: "BREAKING", RequiredBump: diff.BumpMajor, Predicted: delivery.PredictHeld,
 			Decision: delivery.Approve, Asked: []string{"orders"}},
 	},
+	// B7: the story proves only who may decide. That carol's approval counts
+	// only with a fresh sign-in is proven by the operator
+	// (TestBreakingChangeWaitsForTheConsumersTeam, its stale-login approval).
 	{
 		ID:      "B7",
 		Says:    "pay-agent cannot approve, alice cannot either, and carol signs in again and approves 3.0.0.",
