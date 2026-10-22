@@ -96,10 +96,12 @@ func kindMatrixScenarios(t *testing.T) []string {
 // TestEveryKindScenarioRuns is the tripwire for a scenario that exists and never
 // executes. A script is only a gate if something invokes it: ci.mk needs a target
 // whose recipe runs it, and that target's name has to appear in the ci-e2e-kind
-// matrix. Miss either half and the pipeline stays green with one fewer thing
+// matrix (or a job of its own has to run `make test-acceptance-kind-<target>`,
+// as the sharded delivery job does). Miss either half and the pipeline stays green with one fewer thing
 // proved — and nothing in the repository looks wrong, which is the whole problem.
 func TestEveryKindScenarioRuns(t *testing.T) {
 	mk := readFile(t, filepath.Join(repoDir(t), "ci.mk"))
+	wf := readFile(t, filepath.Join(repoDir(t), ".github", "workflows", "ci.yml"))
 	matrix := kindMatrixScenarios(t)
 	const prefix = "test-acceptance-kind-"
 	for _, path := range scenarios(t) {
@@ -123,8 +125,8 @@ func TestEveryKindScenarioRuns(t *testing.T) {
 			t.Errorf("%s is run by a ci.mk recipe with no %s* target above it", filepath.Base(path), prefix)
 			continue
 		}
-		if !slices.Contains(matrix, target) {
-			t.Errorf("%s runs under `make %s%s`, which the ci-e2e-kind matrix does not list, "+
+		if !slices.Contains(matrix, target) && !strings.Contains(wf, "make "+prefix+target+"\n") {
+			t.Errorf("%s runs under `make %s%s`, which neither the ci-e2e-kind matrix lists nor a ci.yml job runs, "+
 				"so CI never runs it (matrix: %v)", filepath.Base(path), prefix, target, matrix)
 		}
 	}

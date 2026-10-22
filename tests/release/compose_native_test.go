@@ -46,7 +46,8 @@ type wfStep struct {
 }
 
 type wfJob struct {
-	Steps []wfStep `yaml:"steps"`
+	TimeoutMinutes any      `yaml:"timeout-minutes"`
+	Steps          []wfStep `yaml:"steps"`
 }
 
 // runs is every shell body the job executes, joined.
