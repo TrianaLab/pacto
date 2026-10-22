@@ -132,9 +132,12 @@ DL_IMG="${DL_REPO}:${VER}"
 # runs its node agent, which is `pacto agent` in that image.
 DASH_IMG="localhost:5001/pacto-dashboard:$(release_version core)"
 
-# Third-party images, pinned by digest and preloaded, so no node pulls from the
-# internet mid-run. Flux's install manifest is pinned by its checksum, and the
-# two controllers the run waits on are preloaded from it.
+# Third-party images the run waits on, pinned and preloaded, so no rollout the
+# run waits on pulls from the internet. Flux's install manifest is pinned by its
+# checksum; only the two controllers the run waits on are preloaded from it. Its
+# other controllers (helm, notification, image-reflector, image-automation,
+# source-watcher) are still pulled by the nodes mid-run, and nothing waits on
+# them. zot is pulled by tag (lib.sh install_registry).
 MIRA_IMG=ghcr.io/trianalab/mira:0.4.3@sha256:2fc95e0d4c8ffa38aa2de1a2389c98eb83e020ab7a1719ca27db90a62794fbcc
 AGNHOST=registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85
 PAUSE_IMG=registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097
