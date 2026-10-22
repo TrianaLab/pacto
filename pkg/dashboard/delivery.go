@@ -431,25 +431,37 @@ func (s *Server) deliveryInbox(ctx context.Context, _ *struct{}) (*inboxOutput, 
 	}
 	// Held waits on a person who may answer: not an agent, never its asker.
 	decider := s.opts.DeliveryPolicy.IsHuman(caller.Identity)
-	byStage := map[string]*delivery.StageObject{}
-	for i := range stages {
-		byStage[stages[i].Metadata.Namespace+"/"+stages[i].Metadata.Name] = &stages[i]
-	}
+	byStage := stagesByName(stages)
 	for _, o := range ops {
 		it := inboxItem(o)
 		switch {
 		case it.Phase == delivery.PhaseHeld && decider && !ownChange(&o, caller.User) &&
 			s.opts.DeliveryPolicy.InTeams(caller.Groups, it.Owners):
-			if st := byStage[it.Namespace+"/"+it.Stage]; st != nil {
-				v := versions(ctx, api, st, nil, it.From, it.To)
-				it.FromVersion, it.ToVersion = v[it.From], v[it.To]
-			}
-			out.Body.Held = append(out.Body.Held, it)
+			out.Body.Held = append(out.Body.Held, withVersions(ctx, api, byStage[it.Namespace+"/"+it.Stage], it))
 		case it.Outcome == delivery.Errored && frozen[it.Namespace+"/"+it.Stage]:
 			out.Body.Errored = append(out.Body.Errored, it)
 		}
 	}
 	return out, nil
+}
+
+// stagesByName indexes Stages by namespace/name.
+func stagesByName(stages []delivery.StageObject) map[string]*delivery.StageObject {
+	out := map[string]*delivery.StageObject{}
+	for i := range stages {
+		out[stages[i].Metadata.Namespace+"/"+stages[i].Metadata.Name] = &stages[i]
+	}
+	return out
+}
+
+// withVersions names the versions an item moves between, read from its
+// Stage's artifacts; nil when the caller cannot see the Stage.
+func withVersions(ctx context.Context, api DeliveryAPI, st *delivery.StageObject, it InboxItem) InboxItem {
+	if st != nil {
+		v := versions(ctx, api, st, nil, it.From, it.To)
+		it.FromVersion, it.ToVersion = v[it.From], v[it.To]
+	}
+	return it
 }
 
 // EnvironmentRow is one Stage: one service in one environment.
