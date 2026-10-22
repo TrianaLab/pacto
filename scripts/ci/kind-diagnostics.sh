@@ -20,7 +20,7 @@ for cluster in $(kind get clusters 2>/dev/null); do
   t kind export logs "$d/kind-logs" --name "$cluster" >/dev/null 2>&1
   kc="$(mktemp)"
   kind get kubeconfig --name "$cluster" > "$kc" 2>/dev/null || continue
-  k() { t kubectl --kubeconfig "$kc" "$@"; }
+  k() { t kubectl --request-timeout=20s --kubeconfig "$kc" "$@"; }
   k get events -A --sort-by=.lastTimestamp > "$d/events.txt" 2>&1
   k describe pods -A > "$d/describe-pods.txt" 2>&1
   k describe deployments,daemonsets -A > "$d/describe-workloads.txt" 2>&1
