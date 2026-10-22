@@ -111,4 +111,3 @@ For a keyless recorder the command uses these flags instead of
 `oras discover` on a version lists the records attached to it. The record
 itself is a DSSE envelope: `jq -r .dsseEnvelope.payload record.json | base64 -d`
 prints the statement.
-
