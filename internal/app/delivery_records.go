@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -460,9 +461,10 @@ func (d *Delivery) subjectRecords(ctx context.Context, stage *delivery.StageObje
 	return deliveryrecord.List(bounded, repo, desc, d.verifier())
 }
 
-// A fleet audit walks every Stage in the caller's scope. One walk reads at
-// most auditLimit Stages, auditParallel at once, and gives up on what is
-// left after auditTimeout; what it did not read makes the answer partial.
+// A fleet audit walks every Stage in the caller's scope. One walk, the
+// namespace listing included, reads at most auditLimit Stages, auditParallel
+// at once, and gives up on what is left after auditTimeout; what it did not
+// read makes the answer partial.
 const (
 	auditLimit    = 500
 	auditParallel = 8
@@ -499,6 +501,8 @@ func audit[T any](ctx context.Context, stages []delivery.StageObject, read func(
 // HistoryAll reads the history of every Stage in namespace, or in every
 // namespace the caller can list for "".
 func (d *Delivery) HistoryAll(ctx context.Context, namespace string) (*delivery.Histories, error) {
+	ctx, cancel := context.WithTimeout(ctx, auditTimeout) // the walk counts against the audit's time
+	defer cancel()
 	stages, forbidden, err := d.auditStages(ctx, namespace)
 	if err != nil {
 		return nil, err
@@ -527,15 +531,38 @@ func (d *Delivery) auditStages(ctx context.Context, namespace string) (stages []
 	if nerr != nil {
 		return nil, nil, fmt.Errorf("%w; walking the namespaces one by one instead: %w; name one with -n", err, nerr)
 	}
-	for _, ns := range nss {
-		s, err := d.Stages(ctx, ns.Metadata.Name)
+	per, errs := make([][]delivery.StageObject, len(nss)), make([]error, len(nss))
+	var read atomic.Int64
+	var g errgroup.Group
+	g.SetLimit(auditParallel)
+	for i, ns := range nss {
+		g.Go(func() error {
+			per[i], errs[i] = d.namespaceStages(ctx, ns.Metadata.Name, &read)
+			return nil
+		})
+	}
+	_ = g.Wait()
+	for i, err := range errs {
 		if err != nil {
 			forbidden = append(forbidden, err.Error()) // it names the namespace
-			continue
 		}
-		stages = append(stages, s...)
+		stages = append(stages, per[i]...)
 	}
 	return stages, forbidden, nil
+}
+
+// namespaceStages lists one namespace's Stages for the walk, unless the walk
+// already read auditLimit Stages or ran out of time; read counts them.
+func (d *Delivery) namespaceStages(ctx context.Context, ns string, read *atomic.Int64) ([]delivery.StageObject, error) {
+	switch {
+	case read.Load() >= auditLimit:
+		return nil, fmt.Errorf("namespace %s was not read: one walk reads at most %d Stages", ns, auditLimit)
+	case ctx.Err() != nil:
+		return nil, fmt.Errorf("namespace %s was not read: %w", ns, ctx.Err())
+	}
+	s, err := d.Stages(ctx, ns)
+	read.Add(int64(len(s)))
+	return s, err
 }
 
 // Histories reads the history of each of stages.
@@ -569,6 +596,8 @@ func (d *Delivery) VerifyAll(ctx context.Context, namespace string) (*delivery.S
 	if d.Trust == nil {
 		return nil, errNoTrust
 	}
+	ctx, cancel := context.WithTimeout(ctx, auditTimeout)
+	defer cancel()
 	stages, forbidden, err := d.auditStages(ctx, namespace)
 	if err != nil {
 		return nil, err

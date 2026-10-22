@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -624,6 +626,40 @@ func TestFleetAuditPerNamespace(t *testing.T) {
 	}
 	if _, err := e.d.HistoryAll(ctx, "test"); !apierrors.IsForbidden(err) {
 		t.Fatalf("a namespace named with -n is not walked around: %v", err)
+	}
+}
+
+// TestFleetAuditWalkIsBounded: the per-namespace walk stops at the audit's
+// deadline and after auditLimit Stages, naming what it did not read.
+func TestFleetAuditWalkIsBounded(t *testing.T) {
+	var nss []runtime.Object
+	for i := range 20 {
+		nss = append(nss, obj("v1", "Namespace", "", fmt.Sprint("ns", i), nil))
+	}
+	e := newRecordEnv(t, nss...)
+	var lists atomic.Int64
+	e.c.PrependReactor("list", "stages", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		lists.Add(1)
+		if a.GetNamespace() == "" {
+			return true, nil, apierrors.NewForbidden(gvrStages.GroupResource(), "", errors.New("no"))
+		}
+		l := &unstructured.UnstructuredList{}
+		for i := range auditLimit {
+			l.Items = append(l.Items, *obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", a.GetNamespace(), fmt.Sprint("s", i), nil))
+		}
+		return true, l, nil
+	})
+	gone, cancel := context.WithDeadline(context.Background(), time.Unix(0, 0))
+	defer cancel()
+	hs, err := e.d.HistoryAll(gone, "")
+	if err != nil || hs.Completeness != "partial" || len(hs.Unreadable) != 20 || !strings.Contains(hs.Unreadable[0], "namespace ns0 was not read: context deadline exceeded") {
+		t.Fatalf("a walk past its deadline = %+v %v", hs, err)
+	}
+	lists.Store(0)
+	stages, forbidden, err := e.d.auditStages(context.Background(), "")
+	if err != nil || lists.Load() > auditParallel+1 || len(stages) > auditParallel*auditLimit ||
+		len(forbidden) < 20-auditParallel || !strings.Contains(forbidden[len(forbidden)-1], "one walk reads at most 500 Stages") {
+		t.Fatalf("a walk past %d Stages: %d lists, %d Stages, unread %v, %v", auditLimit, lists.Load(), len(stages), forbidden, err)
 	}
 }
 
