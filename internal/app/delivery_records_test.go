@@ -420,6 +420,24 @@ func TestUndoRefusals(t *testing.T) {
 	wantErrContaining(t, err, "who knows")
 }
 
+// TestVerifyRecordsKeylessCommand: a keyless recorder has no key file, so
+// the cosign command pins its identity under its trusted root.
+func TestVerifyRecordsKeylessCommand(t *testing.T) {
+	e := newRecordEnv(t)
+	e.twoRecords()
+	other, _, _ := ed25519.GenerateKey(rand.Reader)
+	pemKey, _ := delivery.PublicKeyPEM(other)
+	e.d.Trust = &delivery.TrustConfig{Keys: []delivery.TrustedKey{
+		{PublicKey: pemKey, Streams: []string{"*/dev/*"}},
+		{Identity: "https://recorder.example", Issuer: "https://issuer.example", TrustedRoot: string(sigtest.New(t).RootJSON)},
+	}}
+	v, err := e.d.VerifyRecords(context.Background(), "prod", "payments-prod")
+	if err != nil || strings.Contains(v.Cosign, "--key") || !strings.Contains(v.Cosign,
+		"--trusted-root trusted_root.json --certificate-identity 'https://recorder.example' --certificate-oidc-issuer 'https://issuer.example' --use-signed-timestamps") {
+		t.Fatalf("keyless command = %+v %v", v, err)
+	}
+}
+
 func TestVerifyRecords(t *testing.T) {
 	e := newRecordEnv(t)
 	ctx := context.Background()
@@ -440,16 +458,6 @@ func TestVerifyRecords(t *testing.T) {
 	if v.OK || len(v.Unreadable) != 2 || len(v.Records) != 0 || !strings.Contains(v.Cosign, "<record manifest>") ||
 		!strings.Contains(v.Cosign, "--key recorder.pub") {
 		t.Fatalf("verification under another key = %+v", v)
-	}
-	// A keyless recorder has no key file: the command pins its identity.
-	e.d.Trust = &delivery.TrustConfig{Keys: []delivery.TrustedKey{
-		{PublicKey: pemKey, Streams: []string{"*/dev/*"}},
-		{Identity: "https://recorder.example", Issuer: "https://issuer.example", TrustedRoot: string(sigtest.New(t).RootJSON)},
-	}}
-	v, _ = e.d.VerifyRecords(ctx, "prod", "payments-prod")
-	if strings.Contains(v.Cosign, "--key") || !strings.Contains(v.Cosign,
-		"--trusted-root trusted_root.json --certificate-identity 'https://recorder.example' --certificate-oidc-issuer 'https://issuer.example' --use-signed-timestamps") {
-		t.Fatalf("keyless command = %s", v.Cosign)
 	}
 	e.srv.Close()
 	_, err = e.d.VerifyRecords(ctx, "prod", "payments-prod")
