@@ -1,0 +1,26 @@
+pactoVersion: "2.1"
+service:
+  name: orders
+  version: 1.4.0
+  owner:
+    team: orders
+workload: service
+dependencies:
+  - name: payments
+    ref: oci://registry.example/story/payments
+    required: true
+    compatibility: "^2"
+publish:
+  bundle: oci://registry.example/story/orders
+  deploy: manifests
+  artifacts:
+    - name: manifests
+      type: manifests
+      ref: oci://registry.example/story/deploy/orders
+      build:
+        command: [sh, -c, 'cp deploy/*.yaml "$PACTO_OUT"/']
+  sign:
+    key: cosign.key
+    transparencyLog: false
+metadata:
+  summary: "Keeps orders. Accepts payments 2 only."
