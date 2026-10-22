@@ -10,8 +10,8 @@
 {{- if ne (int $signers) 1 }}
 {{- fail "configure exactly one of recorder.signing.ed25519.secretName, recorder.signing.kms or recorder.signing.keyless" }}
 {{- end }}
-{{- if and $r.signing.keyless.enabled (or (not $r.signing.keyless.identity) (not $r.signing.keyless.issuer)) }}
-{{- fail "recorder.signing.keyless needs identity and issuer" }}
+{{- if and $r.signing.keyless.enabled (or (not $r.signing.keyless.identity) (not $r.signing.keyless.issuer) (not $r.signing.keyless.roots)) }}
+{{- fail "recorder.signing.keyless needs identity, issuer and roots" }}
 {{- end }}
 {{- $name := printf "%s-recorder" (include "pacto-delivery.fullname" .) }}
 {{- if $r.serviceAccount.create }}
@@ -107,6 +107,21 @@ data:
   trust.yaml: {{ $r.trust | quote }}
 ---
 {{- end }}
+{{- if $r.signing.keyless.enabled }}
+# The certificates a keyless record's certificate must chain to. Without them
+# a self-signed certificate could name the recorder's identity.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $name }}-keyless-roots
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: recorder
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+data:
+  roots.pem: {{ $r.signing.keyless.roots | quote }}
+---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -155,6 +170,7 @@ spec:
             - --keyless
             - {{ printf "--keyless-identity=%s" $r.signing.keyless.identity | quote }}
             - {{ printf "--keyless-issuer=%s" $r.signing.keyless.issuer | quote }}
+            - --keyless-roots=/etc/pacto/keyless/roots.pem
             {{- end }}
             {{- if $r.trust }}
             - --trust-config=/etc/pacto/trust/trust.yaml
@@ -215,6 +231,11 @@ spec:
               mountPath: /etc/pacto/trust
               readOnly: true
             {{- end }}
+            {{- if $r.signing.keyless.enabled }}
+            - name: keyless-roots
+              mountPath: /etc/pacto/keyless
+              readOnly: true
+            {{- end }}
       volumes:
         - name: tmp
           emptyDir: {}
@@ -230,6 +251,11 @@ spec:
         - name: trust
           configMap:
             name: {{ $name }}-trust
+        {{- end }}
+        {{- if $r.signing.keyless.enabled }}
+        - name: keyless-roots
+          configMap:
+            name: {{ $name }}-keyless-roots
         {{- end }}
         {{- if $r.registryCredentials.secretName }}
         - name: registry

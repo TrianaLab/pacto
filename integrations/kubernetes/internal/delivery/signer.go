@@ -36,6 +36,10 @@ type SigningConfig struct {
 	// Identity and Issuer are the certificate identity and OIDC issuer keyless
 	// signing produces, so the recorder can tell its own records apart.
 	Identity, Issuer string
+	// RootsFile holds the PEM certificates (the Fulcio root and intermediate)
+	// a keyless certificate must chain to. Keyless signing needs it: without
+	// roots a self-signed certificate could name the recorder's identity.
+	RootsFile string
 	// Cosign is the cosign binary. Empty means "cosign" on PATH.
 	Cosign string
 }
@@ -89,10 +93,14 @@ func NewSigner(ctx context.Context, cfg SigningConfig, run runFunc) (delivery.Si
 		own.PublicKey, _ = delivery.PublicKeyPEM(key.Public()) // an Ed25519 key always marshals
 		return delivery.Ed25519Signer(key), own, nil
 	case cfg.Keyless:
-		if cfg.Identity == "" || cfg.Issuer == "" {
-			return nil, own, errors.New("keyless signing needs the certificate identity and issuer")
+		if cfg.Identity == "" || cfg.Issuer == "" || cfg.RootsFile == "" {
+			return nil, own, errors.New("keyless signing needs the certificate identity, issuer and roots")
 		}
-		own.Identity, own.Issuer = cfg.Identity, cfg.Issuer
+		roots, err := os.ReadFile(cfg.RootsFile)
+		if err != nil {
+			return nil, own, err
+		}
+		own.Identity, own.Issuer, own.Roots = cfg.Identity, cfg.Issuer, string(roots)
 		return cosign, own, nil
 	}
 	pub, err := cosign.publicKey(ctx)

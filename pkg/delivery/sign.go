@@ -186,11 +186,12 @@ var (
 )
 
 // CertificateVerifier verifies keyless signatures, for any stream: the
-// bundle's certificate must name identity (a SAN URI or email) and issuer, and
-// the signature must verify under its key. With roots, the certificate must
-// also chain to them for code signing, checked at its NotBefore: a bundle
-// written with Rekor off carries no signed time, and Fulcio certificates live
-// ten minutes.
+// bundle's certificate must chain to roots for code signing, checked at its
+// NotBefore (a bundle written with Rekor off carries no signed time, and
+// Fulcio certificates live ten minutes), name identity (a SAN URI or email)
+// and issuer, and the signature must verify under its key. Without roots it
+// verifies nothing: anyone can mint a self-signed certificate naming any
+// identity and issuer.
 // ponytail: no transparency log check; registry write access plus the root is
 // the trust boundary. Add a signed timestamp if records must outlive a root.
 func CertificateVerifier(identity, issuer string, roots *x509.CertPool) Verifier {
@@ -202,11 +203,12 @@ func CertificateVerifier(identity, issuer string, roots *x509.CertPool) Verifier
 		if err != nil {
 			return err
 		}
-		if roots != nil {
-			if _, err := cert.Verify(x509.VerifyOptions{Roots: roots, CurrentTime: cert.NotBefore,
-				KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning}}); err != nil {
-				return fmt.Errorf("the certificate does not chain to the trusted roots: %w", err)
-			}
+		if roots == nil {
+			return errors.New("no trusted roots: a certificate that chains to nothing proves no identity")
+		}
+		if _, err := cert.Verify(x509.VerifyOptions{Roots: roots, CurrentTime: cert.NotBefore,
+			KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning}}); err != nil {
+			return fmt.Errorf("the certificate does not chain to the trusted roots: %w", err)
 		}
 		ids := slices.Clone(cert.EmailAddresses)
 		for _, u := range cert.URIs {

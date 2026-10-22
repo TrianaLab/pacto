@@ -86,6 +86,9 @@ recorder:
       identity: ""
       # -- The OIDC issuer keyless signing uses
       issuer: ""
+      # -- PEM certificates (the Fulcio root and intermediate) a keyless certificate must chain to.
+      # Required with keyless: without them a self-signed certificate could name the recorder's identity.
+      roots: ""
   # -- Keep a recorded operation this long after it concluded, then delete it: its record holds what
   # happened. The operation a Stage runs is never deleted. `0s` keeps them all (a Go duration).
   operationTTL: 168h

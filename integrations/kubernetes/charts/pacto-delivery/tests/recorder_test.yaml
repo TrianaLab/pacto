@@ -98,6 +98,7 @@ tests:
       recorder.signing.keyless.enabled: true
       recorder.signing.keyless.identity: https://kubernetes.io/namespaces/pacto-delivery/serviceaccounts/d-pacto-delivery-recorder
       recorder.signing.keyless.issuer: https://issuer.example
+      recorder.signing.keyless.roots: "-----BEGIN CERTIFICATE-----"
     template: templates/recorder.yaml
     documentSelector: {path: kind, value: Deployment}
     asserts:
@@ -107,6 +108,27 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --keyless-issuer=https://issuer.example
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --keyless-roots=/etc/pacto/keyless/roots.pem
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: keyless-roots, configMap: {name: d-pacto-delivery-recorder-keyless-roots}}
+
+  - it: hands the keyless roots over in a ConfigMap
+    set:
+      recorder.enabled: true
+      recorder.streamsRepository: r/s
+      recorder.signing.keyless.enabled: true
+      recorder.signing.keyless.identity: id
+      recorder.signing.keyless.issuer: iss
+      recorder.signing.keyless.roots: "-----BEGIN CERTIFICATE-----"
+    template: templates/recorder.yaml
+    documentSelector: {path: metadata.name, value: d-pacto-delivery-recorder-keyless-roots}
+    asserts:
+      - equal:
+          path: data["roots.pem"]
+          value: "-----BEGIN CERTIFICATE-----"
 
   - it: passes the KMS key
     set:
@@ -152,7 +174,19 @@ tests:
     template: templates/recorder.yaml
     asserts:
       - failedTemplate:
-          errorPattern: identity and issuer
+          errorPattern: identity, issuer and roots
+
+  - it: refuses keyless without roots
+    set:
+      recorder.enabled: true
+      recorder.streamsRepository: r/s
+      recorder.signing.keyless.enabled: true
+      recorder.signing.keyless.identity: id
+      recorder.signing.keyless.issuer: iss
+    template: templates/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: identity, issuer and roots
 
   - it: hands the promoter the operation TTL and the delete it needs
     set:

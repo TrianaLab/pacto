@@ -50,7 +50,7 @@ func verifierOf(t *testing.T, k delivery.TrustedKey) delivery.Verifier {
 }
 
 func TestRecorderTrust(t *testing.T) {
-	own := delivery.TrustedKey{Name: "recorder", Identity: "id", Issuer: "iss"}
+	own := delivery.TrustedKey{Name: "recorder", Identity: "id", Issuer: "iss", Roots: selfSignedPEM(t)}
 	if tr, err := RecorderTrust(own, ""); err != nil || len(tr.Keys) != 1 {
 		t.Fatalf("own key only: %+v %v", tr, err)
 	}
@@ -197,7 +197,17 @@ func TestCosignKeyless(t *testing.T) {
 		ExtraExtensions: []pkix.Extension{{Id: asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 8}, Value: v2}}}
 	der, _ := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
 	f := &fakeCosign{key: key, certDER: der}
-	s, v, err := NewSigner(ctx, SigningConfig{Keyless: true, Identity: id, Issuer: iss, Cosign: "/usr/local/bin/cosign"}, f.run)
+	rootsFile := filepath.Join(t.TempDir(), "roots.pem")
+	_ = os.WriteFile(rootsFile, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600)
+	for name, cfg := range map[string]SigningConfig{
+		"no roots":     {Keyless: true, Identity: id, Issuer: iss},
+		"absent roots": {Keyless: true, Identity: id, Issuer: iss, RootsFile: filepath.Join(t.TempDir(), "absent")},
+	} {
+		if _, _, err := NewSigner(ctx, cfg, f.run); err == nil {
+			t.Errorf("%s: built a keyless signer", name)
+		}
+	}
+	s, v, err := NewSigner(ctx, SigningConfig{Keyless: true, Identity: id, Issuer: iss, RootsFile: rootsFile, Cosign: "/usr/local/bin/cosign"}, f.run)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,7 +225,7 @@ func TestCosignKeyless(t *testing.T) {
 	} {
 		g := &fakeCosign{key: key, certDER: der}
 		edit(g)
-		gs, _, _ := NewSigner(ctx, SigningConfig{Keyless: true, Identity: id, Issuer: iss}, g.run)
+		gs, _, _ := NewSigner(ctx, SigningConfig{Keyless: true, Identity: id, Issuer: iss, RootsFile: rootsFile}, g.run)
 		if _, _, err := delivery.SignRecord(ctx, gs, st); err == nil {
 			t.Error("signed without a certificate")
 		}
@@ -235,4 +245,16 @@ func TestExecRun(t *testing.T) {
 	if _, err := execRun(ctx, nil, "sh", "-c", "echo boom >&2; exit 3"); err == nil {
 		t.Fatal("a failing program succeeded")
 	}
+}
+
+// selfSignedPEM is a throwaway certificate, as keyless roots.
+func selfSignedPEM(t *testing.T) string {
+	t.Helper()
+	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour)}
+	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }

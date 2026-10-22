@@ -89,6 +89,7 @@ func TestParseTrustRefuses(t *testing.T) {
 		"not pem":             "keys: [{publicKey: nope}]",
 		"bad key":             "keys: [{publicKey: \"-----BEGIN PUBLIC KEY-----\\nAAAA\\n-----END PUBLIC KEY-----\\n\"}]",
 		"bad roots":           "keys: [{identity: a, issuer: b, roots: nope}]",
+		"keyless, no roots":   "keys: [{identity: a, issuer: b}]",
 		"bare garbage pem":    "-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----\n",
 	} {
 		if _, err := ParseTrust([]byte(raw)); err == nil {

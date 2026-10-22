@@ -31,7 +31,8 @@ type TrustedKey struct {
 	Identity string `json:"identity,omitempty" yaml:"identity,omitempty"`
 	Issuer   string `json:"issuer,omitempty" yaml:"issuer,omitempty"`
 	// Roots are PEM certificates (the Fulcio root and intermediate) a keyless
-	// certificate must chain to. Empty checks identity and issuer only.
+	// certificate must chain to. A keyless entry needs them: without roots a
+	// self-signed certificate could name any identity and issuer.
 	Roots string `json:"roots,omitempty" yaml:"roots,omitempty"`
 	// Streams are path.Match patterns over stream ids
 	// (<cluster>/<namespace>/<stage>), such as "*/prod/*". Empty means every
@@ -125,16 +126,13 @@ func (k TrustedKey) verifier() (Verifier, error) {
 		}
 		return PublicKeyVerifier(pub), nil
 	case k.PublicKey == "" && k.Identity != "" && k.Issuer != "":
-		var roots *x509.CertPool
-		if k.Roots != "" {
-			roots = x509.NewCertPool()
-			if !roots.AppendCertsFromPEM([]byte(k.Roots)) {
-				return nil, errors.New("roots holds no PEM certificate")
-			}
+		roots := x509.NewCertPool()
+		if !roots.AppendCertsFromPEM([]byte(k.Roots)) {
+			return nil, errors.New("a keyless entry needs roots, the PEM certificates its certificate must chain to")
 		}
 		return CertificateVerifier(k.Identity, k.Issuer, roots), nil
 	}
-	return nil, errors.New("set publicKey, or identity and issuer (with optional roots), not both")
+	return nil, errors.New("set publicKey, or identity, issuer and roots, not both")
 }
 
 // PublicKeyPEM is pub as a PEM public key, for a trust config.

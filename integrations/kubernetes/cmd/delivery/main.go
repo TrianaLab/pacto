@@ -150,6 +150,8 @@ func runRecorder(args []string) error {
 	keyless := fs.Bool("keyless", false, "Sign keyless with a Fulcio certificate for the pod's identity.")
 	identity := fs.String("keyless-identity", "", "The certificate identity keyless signing produces.")
 	issuer := fs.String("keyless-issuer", "", "The OIDC issuer keyless signing uses.")
+	roots := fs.String("keyless-roots", "",
+		"A PEM file of the certificates (the Fulcio root and intermediate) a keyless certificate must chain to.")
 	cosign := fs.String("cosign", "cosign", "The cosign binary, for KMS and keyless signing.")
 	trustFile := fs.String("trust-config", "",
 		"A trust config (YAML) of other keys whose records the recorder accepts, per stream glob, "+
@@ -165,7 +167,7 @@ func runRecorder(args []string) error {
 
 	ctx := context.Background()
 	signer, own, err := delivery.NewSigner(ctx, delivery.SigningConfig{Ed25519KeyFile: *keyFile, KMSKey: *kmsKey,
-		Keyless: *keyless, Identity: *identity, Issuer: *issuer, Cosign: *cosign}, nil)
+		Keyless: *keyless, Identity: *identity, Issuer: *issuer, RootsFile: *roots, Cosign: *cosign}, nil)
 	if err != nil {
 		return err
 	}

@@ -59,7 +59,8 @@ your Stages apply from and the contract repositories. On kind, create the key
 with `openssl genpkey -algorithm ed25519 -out key.pem` and store it with
 `kubectl create secret generic recorder-key --from-file=key.pem`. In production, sign
 with a KMS key (`signing.kms: awskms:///alias/pacto`) or keyless
-(`signing.keyless` with the certificate `identity` and `issuer`). Both run
+(`signing.keyless` with the certificate `identity`, `issuer` and `roots`,
+the Fulcio root and intermediate in PEM). Both run
 cosign, which the delivery image carries, and neither uploads to a public
 transparency log. Give the recorder's service account the workload identity
 your KMS or OIDC provider expects through `recorder.serviceAccount.annotations`.
@@ -73,7 +74,7 @@ Each Stage gets a `RecordStoreReady` condition:
 | `ReferrersSupported` | Records are being written |
 | `ReferrersUnsupported` | The registry has no Referrers API |
 | `RegistryUnavailable` | The registry or the signer did not answer; the recorder tries again |
-| `StreamConflict` | The stream holds two records with one number, a record that does not chain from the one before, a record no trusted key signed, or the Stage names a newest record the registry does not hold. The recorder stops writing that stream and the promoter freezes the Stage |
+| `StreamConflict` | The stream holds two records with one number, a record that does not chain from the one before, a record no trusted key signed or the Stage names a newest record the registry does not hold. The recorder stops writing that stream and the promoter freezes the Stage |
 
 `status.stream.recordedSeq` and `status.stream.head` show how far the stream
 is recorded, and the metric `pacto_delivery_records_pending` shows how many
@@ -111,8 +112,13 @@ recorder:
 `streams` are patterns over stream ids (`<cluster>/<namespace>/<stage>`). A
 key is trusted only for the streams it lists, or for all of them when the list
 is empty, so a dev recorder's key cannot sign prod history. A keyless entry
-names `identity` and `issuer`, and `roots` (the Fulcio root and intermediate
-in PEM) to check the certificate's chain.
+names `identity`, `issuer` and `roots` (the Fulcio root and intermediate in
+PEM). The roots are required: without them anyone could mint a self-signed
+certificate that names the right identity and issuer.
+
+A record is trusted only on the anchor of the stream it names. A validly
+signed record of another stream attached to this one's anchor reads as one
+that could not be verified.
 
 ## Recorded operations and the registry
 
@@ -131,9 +137,9 @@ The event id is the record digest.
 
 ## Limitations
 
-- A keyless record is checked against its certificate's identity, issuer and,
-  with `roots`, its chain. With Rekor off there is no signed time, so the chain
-  is checked at the moment the certificate was issued.
+- A keyless record is checked against its certificate's identity, issuer and
+  chain. With Rekor off there is no signed time, so the chain is checked at the
+  moment the certificate was issued.
 - The recorder detects that a record was tampered with or the chain broken
   only when it next has an operation to record on that Stage.
   `pacto delivery record verify` checks any time.

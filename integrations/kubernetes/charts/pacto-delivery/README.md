@@ -79,6 +79,7 @@ same version as your Pacto operator.
 | recorder.signing.keyless.enabled | bool | `false` | Sign keyless with a Fulcio certificate for the recorder's workload identity. Rekor upload is off. |
 | recorder.signing.keyless.identity | string | `""` | The certificate identity keyless signing produces |
 | recorder.signing.keyless.issuer | string | `""` | The OIDC issuer keyless signing uses |
+| recorder.signing.keyless.roots | string | `""` | PEM certificates (the Fulcio root and intermediate) a keyless certificate must chain to. Required with keyless: without them a self-signed certificate could name the recorder's identity. |
 | recorder.signing.kms | string | `""` | A cosign KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`) |
 | recorder.streamsRepository | string | `""` | Repository (`host/path`) that holds one anchor per Stage stream. Required when enabled. |
 | recorder.trust | string | `""` | Other keys whose records the recorder accepts, as a trust config in YAML (`keys: [{publicKey: <PEM>, streams: ["*/prod/*"]}]`): list the old key here while you rotate to a new one. The recorder's own key is always trusted. A record no listed key signed stops the stream. |

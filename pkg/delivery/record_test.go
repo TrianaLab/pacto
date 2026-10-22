@@ -266,19 +266,27 @@ func TestCertificateVerifier(t *testing.T) {
 	digest := sha256.Sum256(pae)
 	sig, _ := ecdsa.SignASN1(rand.Reader, key, digest[:])
 	m := VerificationMaterial{Certificate: &Certificate{RawBytes: der}}
-	if err := CertificateVerifier(id, iss, nil)("", pae, sig, m); err != nil {
+	// Without roots a self-signed certificate naming the right identity and
+	// issuer proves nothing, so it does not verify.
+	if err := CertificateVerifier(id, iss, nil)("", pae, sig, m); err == nil || !strings.Contains(err.Error(), "no trusted roots") {
+		t.Fatalf("verified a certificate with no roots: %v", err)
+	}
+	cert, _ := x509.ParseCertificate(der)
+	roots := x509.NewCertPool()
+	roots.AddCert(cert)
+	if err := CertificateVerifier(id, iss, roots)("", pae, sig, m); err != nil {
 		t.Fatal(err)
 	}
-	if err := CertificateVerifier("ops@acme.example", iss, nil)("", pae, sig, m); err != nil {
+	if err := CertificateVerifier("ops@acme.example", iss, roots)("", pae, sig, m); err != nil {
 		t.Fatalf("email identity: %v", err)
 	}
-	if err := CertificateVerifier("someone-else", iss, nil)("", pae, sig, m); err == nil {
+	if err := CertificateVerifier("someone-else", iss, roots)("", pae, sig, m); err == nil {
 		t.Fatal("verified another identity")
 	}
-	if err := CertificateVerifier(id, iss, nil)("", pae, sig, VerificationMaterial{}); err == nil {
+	if err := CertificateVerifier(id, iss, roots)("", pae, sig, VerificationMaterial{}); err == nil {
 		t.Fatal("verified with no certificate")
 	}
-	if err := CertificateVerifier(id, iss, nil)("", pae, sig, VerificationMaterial{Certificate: &Certificate{RawBytes: []byte("x")}}); err == nil {
+	if err := CertificateVerifier(id, iss, roots)("", pae, sig, VerificationMaterial{Certificate: &Certificate{RawBytes: []byte("x")}}); err == nil {
 		t.Fatal("verified with a broken certificate")
 	}
 	_, v1der := selfSigned(t, id, []pkix.Extension{{Id: oidIssuerV1, Value: []byte(iss)}})

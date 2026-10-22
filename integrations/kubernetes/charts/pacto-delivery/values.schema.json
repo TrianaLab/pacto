@@ -71,7 +71,8 @@
               "properties": {
                 "enabled": { "type": "boolean" },
                 "identity": { "type": "string" },
-                "issuer": { "type": "string" }
+                "issuer": { "type": "string" },
+                "roots": { "type": "string" }
               }
             }
           }
