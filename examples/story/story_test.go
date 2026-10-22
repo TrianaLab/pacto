@@ -79,7 +79,7 @@ func TestPlainFraudIsNotPactified(t *testing.T) {
 func TestGuidedPathIsFiveMoments(t *testing.T) {
 	var moments []int
 	for _, b := range Beats {
-		if b.Says == "" || b.Why == "" || strings.Count(b.Says, ". ") > 0 {
+		if b.Says == "" || b.Why == "" || strings.Count(b.Says, ". ") > 0 || strings.Count(b.Why, ". ") > 0 {
 			t.Errorf("%s: one sentence each for what it says and why", b.ID)
 		}
 		if b.Moment > 0 {
@@ -135,22 +135,34 @@ func bumpRule(t *testing.T, b Beat, got *Outcome) {
 	if b.Type != "" || base == "" || b.To == "" {
 		return
 	}
-	old, err := Bundle(b.Service, base)
+	c, bump := classify(t, b.Service, base, b.To)
+	got.Classification, got.RequiredBump = c, bump
+	if err := diff.CheckBump(base, b.To, bump); err != nil {
+		t.Errorf("%s itself breaks the version rule: %v", b.To, err)
+	}
+	if b.Tried == "" {
+		return
+	}
+	// Tried is judged by its own contract, not by To's.
+	if _, triedBump := classify(t, b.Service, base, b.Tried); diff.CheckBump(base, b.Tried, triedBump) != nil {
+		got.Refused = b.Tried
+	}
+}
+
+// classify diffs service at version against base and gives the
+// classification and the smallest bump it needs.
+func classify(t *testing.T, service, base, version string) (string, diff.Bump) {
+	t.Helper()
+	old, err := Bundle(service, base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	nu, err := Bundle(b.Service, b.To)
+	nu, err := Bundle(service, version)
 	if err != nil {
 		t.Fatal(err)
 	}
 	c := diff.Compare(context.Background(), old.Contract, nu.Contract, old.FS, nu.FS).Classification
-	got.Classification, got.RequiredBump = c.String(), diff.RequiredBump(c, base)
-	if err := diff.CheckBump(base, b.To, got.RequiredBump); err != nil {
-		t.Errorf("%s itself breaks the version rule: %v", b.To, err)
-	}
-	if b.Tried != "" && diff.CheckBump(base, b.Tried, got.RequiredBump) != nil {
-		got.Refused = b.Tried
-	}
+	return c.String(), diff.RequiredBump(c, base)
 }
 
 // refusal is the conflict code or the failing gate that rejected a plan.

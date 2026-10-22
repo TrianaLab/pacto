@@ -145,10 +145,13 @@ var (
 
 // Beats is the story, in the order every demo plays it.
 var Beats = []Beat{
+	// The pactify input, contracts/fraud/1.0.0, is hand-written: pacto init
+	// does not read a Dockerfile or manifests yet (ledger B). The beat claims
+	// only what the test proves, that a first version ships with nobody.
 	{
 		ID: "pactify", Moment: 1,
 		Says:    "fraud gets a contract, and its first version ships to test with nobody involved.",
-		Why:     "Pactifying reads the Dockerfile and manifests that are already there; a first version breaks no one.",
+		Why:     "Nothing depends on fraud yet, so its first version breaks no one.",
 		Service: "fraud", Environment: Test, Actor: PayAgent, To: "1.0.0",
 		Expect: Outcome{Predicted: delivery.PredictProceeds},
 	},
@@ -210,6 +213,10 @@ var Beats = []Beat{
 		Expect: Outcome{Classification: "BREAKING", RequiredBump: diff.BumpMajor, Predicted: delivery.PredictHeld,
 			Decision: delivery.Approve, Asked: []string{"orders"}},
 	},
+	// B8: the story proves only that Mira says Unknown on too little
+	// telemetry. That the Stage waits and an accepted unknown is recorded as
+	// accepted is proven by the operator (TestVerifyUnknownHoldsAfterApply)
+	// and pkg/delivery's record tests.
 	{
 		ID:      "B8",
 		Says:    "Too little telemetry arrives in the verify window, so the check says Unknown and the Stage waits until carol accepts the unknown.",
@@ -224,6 +231,10 @@ var Beats = []Beat{
 		Service: "payments", Environment: Prod, Type: delivery.TypeRollback, Actor: Carol, From: "3.0.0", To: "2.3.0",
 		Expect: Outcome{Predicted: delivery.PredictProceeds},
 	},
+	// B10: the story starts from a Stage already frozen and proves that an
+	// agent cannot unfreeze it, a person can and a frozen Stage ships nothing.
+	// That a record which does not verify freezes the Stage is proven by the
+	// operator (TestStreamConflictFreezesTheStage) and the Kubernetes demo.
 	{
 		ID:      "B10",
 		Says:    "A tampered record freezes payments in prod until alice unfreezes it.",

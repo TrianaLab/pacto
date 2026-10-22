@@ -1,7 +1,7 @@
-# What pactifying plain/fraud gives: the service, its owner and how it is
-# published. It sits next to the Dockerfile and k8s/ folder of plain/fraud once
-# pactified; the copy here is what the story reads. It declares no
-# dependencies, because fraud calls nobody.
+# The contract for plain/fraud: the service, its owner and how it is
+# published. It is hand-written, because pacto init does not read a Dockerfile
+# or manifests yet (ledger B); no test derives it from plain/fraud. It declares
+# no dependencies, because fraud calls nobody.
 pactoVersion: "2.1"
 service:
   name: fraud
