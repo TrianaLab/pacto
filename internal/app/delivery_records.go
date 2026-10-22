@@ -199,11 +199,19 @@ func (d *Delivery) Blame(ctx context.Context, ns, stage, digest string) (*delive
 		}
 		return b, nil
 	}
-	unknown := slices.ContainsFunc(h.Entries, func(e delivery.HistoryEntry) bool {
+	noChange(b, h.Entries)
+	return b, nil
+}
+
+// noChange says why no change in entries moved the Stage to b's digest, and
+// how sure that is. An unrecordable record whose move is unknown may be the
+// change, so it makes the answer partial.
+func noChange(b *delivery.Blame, entries []delivery.HistoryEntry) {
+	hidden := slices.ContainsFunc(entries, func(e delivery.HistoryEntry) bool {
 		return e.Kind == delivery.RecordUnrecordable && e.Pointer == nil
 	})
 	switch {
-	case b.Completeness == "complete" && unknown:
+	case b.Completeness == "complete" && hidden:
 		b.Completeness = "partial"
 		b.Note = "no readable change moved the Stage to " + b.Digest + ", but an unrecordable record hides what its " +
 			"change moved, and that change may have"
@@ -213,7 +221,6 @@ func (d *Delivery) Blame(ctx context.Context, ns, stage, digest string) (*delive
 		b.Note = "no change Pacto could read moved the Stage to " + b.Digest + ", and the history is partial, " +
 			"so who did it is unknown, not nobody"
 	}
-	return b, nil
 }
 
 func recordByID(r *streamRead, id string) delivery.StoredRecord {

@@ -139,7 +139,7 @@ func TestHistoryFromRecords(t *testing.T) {
 	for _, en := range h.Entries {
 		lines = append(lines, en.Operation+":"+en.Record)
 	}
-	if h.Source != delivery.SourceRecords || !h.Verified || h.Completeness != "complete" || h.Head != r2 || len(h.Problems) != 0 ||
+	if h.Source != delivery.SourceRecords || h.Completeness != "complete" || h.Head != r2 || len(h.Problems) != 0 ||
 		len(lines) != 3 || lines[1] != "ship:"+r2 || lines[2] != "next:" || !strings.Contains(h.Note, "verified with trust config") {
 		t.Fatalf("history = %+v (%v)", h, lines)
 	}
@@ -147,7 +147,7 @@ func TestHistoryFromRecords(t *testing.T) {
 	// With no trust config the records are listed and the answer is partial.
 	e.d.Trust = nil
 	h, _ = e.d.History(context.Background(), "prod", "payments-prod")
-	if h.Completeness != "partial" || h.Verified || !strings.Contains(h.Note, "no signature was checked") || len(h.Entries) != 3 {
+	if h.Completeness != "partial" || !strings.Contains(h.Note, "no signature was checked") || len(h.Entries) != 3 {
 		t.Fatalf("unverified history = %+v", h)
 	}
 }
@@ -230,7 +230,7 @@ func TestBlameOfAVersionNeverMovedTo(t *testing.T) {
 func TestBlameOfAnUnrecordableMove(t *testing.T) {
 	e := newRecordEnv(t,
 		opFixture("live", shipSpec(dlB), map[string]any{"phase": "Concluded", "outcome": "Succeeded", "seq": int64(3),
-			"pointer": map[string]any{"before": dlA, "after": dlB},
+			"pointer":   map[string]any{"before": dlA, "after": dlB},
 			"approvals": []any{map[string]any{"name": "a1", "by": "dave", "decision": "approve"}}}))
 	_, r2 := e.twoRecords()
 	// The approval was gone before the recorder ran: the record of live says
@@ -258,6 +258,18 @@ func TestBlameOfAnUnrecordableMove(t *testing.T) {
 	b, _ = e.d.Blame(ctx, "prod", "payments-prod", "")
 	if b.Change != nil || b.Completeness != "partial" || !strings.Contains(b.Note, "unrecordable record hides") {
 		t.Fatalf("blame with the Operation gone = %+v", b)
+	}
+}
+
+func TestHistorySaysWhetherItWasVerified(t *testing.T) {
+	e := newRecordEnv(t)
+	e.twoRecords()
+	if h, _ := e.d.History(context.Background(), "prod", "payments-prod"); !h.Verified {
+		t.Fatal("a history read with a trust config is not marked verified")
+	}
+	e.d.Trust = nil
+	if h, _ := e.d.History(context.Background(), "prod", "payments-prod"); h.Verified {
+		t.Fatal("a history read with no trust config is marked verified")
 	}
 }
 

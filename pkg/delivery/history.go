@@ -52,19 +52,31 @@ func FoldStream(recs []StoredRecord) Fold {
 		if p.Gap != nil {
 			f.Problems = append(f.Problems, fmt.Sprintf("seq %d is a gap: the operation with local seq %d was gone before it was recorded", seq, p.Gap.Seq))
 		}
-		if p.Unrecordable != nil {
-			lastAfter = "" // what it moved is not signed, so the next move cannot be checked against it
-		}
-		if o := p.Outcome; o != nil && o.Pointer.After != "" {
-			if lastAfter != "" && o.Pointer.Before != lastAfter {
-				f.Problems = append(f.Problems, fmt.Sprintf("seq %d moved the Stage from %s, but the change before it left %s: "+
-					"something moved it with no record", seq, o.Pointer.Before, lastAfter))
-			}
-			lastAfter = o.Pointer.After
+		var hidden string
+		if lastAfter, hidden = checkMove(p, lastAfter); hidden != "" {
+			f.Problems = append(f.Problems, hidden)
 		}
 		prev, lastSeq, f.Head = r, seq, r.ID
 	}
 	return f
+}
+
+// checkMove checks the move p records against the version the change
+// before it left, lastAfter, and returns the version p leaves and the problem,
+// if any. An unrecordable record leaves the version unknown: what it moved is
+// not signed, so the next move cannot be checked against it.
+func checkMove(p RecordPredicate, lastAfter string) (after, problem string) {
+	o := p.Outcome
+	switch {
+	case p.Unrecordable != nil:
+		return "", ""
+	case o == nil || o.Pointer.After == "":
+		return lastAfter, ""
+	case lastAfter != "" && o.Pointer.Before != lastAfter:
+		problem = fmt.Sprintf("seq %d moved the Stage from %s, but the change before it left %s: "+
+			"something moved it with no record", p.Chain.Seq, o.Pointer.Before, lastAfter)
+	}
+	return o.Pointer.After, problem
 }
 
 func seqRange(from, to int64) string {

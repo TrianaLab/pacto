@@ -953,6 +953,9 @@ export interface components {
             groups?: string[] | null;
             user: string;
         };
+        "Delivery.ApprovalPolicy": {
+            always?: boolean;
+        };
         "Delivery.ApprovalRecord": {
             authTime?: string;
             by: string;
@@ -972,10 +975,18 @@ export interface components {
             verifiedOn: components["schemas"]["Delivery.StageRef"];
             version?: string;
         };
+        "Delivery.Candidates": {
+            ociRepositoryRef?: components["schemas"]["Delivery.LocalRef"];
+            upstreamStage?: components["schemas"]["Delivery.StageRef"];
+        };
         "Delivery.Cause": {
             operation?: string;
             reason?: string;
             verdict?: components["schemas"]["Delivery.Verdict"];
+        };
+        "Delivery.Deadlines": {
+            approval?: string;
+            execution?: string;
         };
         "Delivery.ExplainedVerdict": {
             citation?: {
@@ -1002,6 +1013,16 @@ export interface components {
             human?: boolean;
             owners?: string[] | null;
         };
+        "Delivery.GateCheck": {
+            name: string;
+            params?: {
+                [key: string]: string;
+            };
+            provider: string;
+        };
+        "Delivery.Gates": {
+            verify?: components["schemas"]["Delivery.VerifyGates"];
+        };
         "Delivery.HistoryEntry": {
             actor: string;
             actorClass?: string;
@@ -1019,6 +1040,9 @@ export interface components {
             to?: string;
             type: string;
             verification?: string;
+        };
+        "Delivery.LocalRef": {
+            name: string;
         };
         "Delivery.MoveFirst": {
             accepts?: string;
@@ -1067,6 +1091,7 @@ export interface components {
             phase?: string;
             plan?: components["schemas"]["Delivery.Plan"];
             pointer?: components["schemas"]["Delivery.PointerChange"];
+            policy?: components["schemas"]["Delivery.StageSpec"];
             question?: string;
             reason?: string;
             record?: components["schemas"]["Delivery.RecordRef"];
@@ -1148,6 +1173,10 @@ export interface components {
             type?: string;
             undoes?: string;
         };
+        "Delivery.ServiceRef": {
+            domain?: string;
+            name: string;
+        };
         "Delivery.StageNow": {
             autoHold?: boolean;
             failedDigests?: string[] | null;
@@ -1161,6 +1190,16 @@ export interface components {
         "Delivery.StageRef": {
             name: string;
             namespace?: string;
+        };
+        "Delivery.StageSpec": {
+            applyRef: components["schemas"]["Delivery.LocalRef"];
+            approval?: components["schemas"]["Delivery.ApprovalPolicy"];
+            auto?: boolean;
+            candidates?: components["schemas"]["Delivery.Candidates"];
+            deadlines?: components["schemas"]["Delivery.Deadlines"];
+            environment: string;
+            gates?: components["schemas"]["Delivery.Gates"];
+            service: components["schemas"]["Delivery.ServiceRef"];
         };
         "Delivery.Times": {
             admitted?: string;
@@ -1179,6 +1218,11 @@ export interface components {
             message?: string;
             phase: string;
             result: string;
+        };
+        "Delivery.VerifyGates": {
+            checks?: components["schemas"]["Delivery.GateCheck"][] | null;
+            recheck?: string;
+            window?: string;
         };
         DependencyInfo: {
             compatibility?: string;
