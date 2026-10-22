@@ -53,6 +53,8 @@ jobs:
               # the fixtures and the host that serve it are inputs to this leg. A
               # demo-only PR used to skip it entirely and land untested.
               - 'examples/demo/**'
+              # The payments story the demos play (examples/story).
+              - 'examples/story/**'
               # The leg also builds an offline `pacto doc --format html` export and
               # audits the retained non-Fleet views on it -- that export is their
               # only host. So the exporter and its CLI wiring are inputs too.
@@ -86,6 +88,8 @@ jobs:
               - 'go.mod'
               - '**/Dockerfile'
               - 'examples/demo/**'
+              # The payments story the demos play (examples/story).
+              - 'examples/story/**'
               # The acceptance tree holds the canonical scenario every vertical
               # projects — the kind fixture AND the distributed Compose artifact —
               # plus the shared harness. A change there changes what they prove.
