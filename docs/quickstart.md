@@ -198,6 +198,7 @@ For a real registry like GHCR, you need `pacto login` with a personal access tok
 | Goal | Guide |
 |------|-------|
 | Put it in your repository | [CI integration](ci.md) |
+| Let Pacto check every release of a real service | [Pactify a service](pactify.md) |
 | Understand every contract field | [Contract Reference](contract-reference/index.md) |
 | See contracts for real services | [Examples](examples/index.md) |
 | Explore contracts visually | Run `pacto dashboard` or [`pacto tui`](fleet-tools.md#the-terminal-ui) |

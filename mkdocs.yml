@@ -180,8 +180,8 @@ nav:
   - Get started:
       - Installation: installation.md
       - Quickstart: quickstart.md
+      - Pactify a service: pactify.md
       - Put it in your repo: ci.md
-      - Publish a version: publishing.md
       - Example contracts: examples/index.md
   - Guides:
       - For developers: developers.md
@@ -197,6 +197,16 @@ nav:
       - Operational graph: operational-graph.md
       - Impact analysis: impact.md
       - Fleet tools: fleet-tools.md
+  - Delivery:
+      - How delivery works: integrations/kubernetes/delivery.md
+      - Delivery reference:
+          - Setup and gates: integrations/kubernetes/delivery-setup.md
+          - Health checks and claims: integrations/kubernetes/delivery-health.md
+          - Sign-in, approvals and agents: integrations/kubernetes/delivery-identity.md
+          - Signed records and key rotation: integrations/kubernetes/delivery-records.md
+          - History, blame and verification: integrations/kubernetes/delivery-history.md
+          - What delivery does not do: integrations/kubernetes/delivery-limitations.md
+          - Publish a version: publishing.md
   - Reference:
       - Contract reference:
           - contract-reference/index.md
@@ -229,11 +239,6 @@ nav:
           - Evidence Server: integrations/kubernetes/evidence-server.md
           - Upgrade the operator: integrations/kubernetes/upgrade.md
           - GitOps promotion gates: integrations/kubernetes/gitops.md
-          - Pacto delivery (opt-in): integrations/kubernetes/delivery.md
-          - "Delivery: health checks and claims": integrations/kubernetes/delivery-health.md
-          - "Delivery: sign-in, approvals and agents": integrations/kubernetes/delivery-identity.md
-          - "Delivery: signed records": integrations/kubernetes/delivery-records.md
-          - "Delivery: history, blame and verification": integrations/kubernetes/delivery-history.md
           - CRD reference: integrations/kubernetes/crd-reference.md
           - Helm reference: integrations/kubernetes/helm-reference.md
           - RBAC: integrations/kubernetes/rbac.md
