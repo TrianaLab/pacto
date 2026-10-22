@@ -76,7 +76,7 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	if opts.Plan {
 		return &publish.Result{Plan: publish.MakePlan(ctx, reg, in)}, nil
 	}
-	return publish.Apply(ctx, reg, execTools{dir: path, run: env.run, reg: reg}, in)
+	return publish.Apply(ctx, reg, newExecTools(path, env.run, reg), in)
 }
 
 // checkOf is a passed check, or a failed one carrying the first error.
@@ -121,6 +121,19 @@ type execTools struct {
 	dir string
 	run runner
 	reg publish.Registry
+	// signers holds each sign config's loaded signer, so a run loads a key,
+	// signs a KMS probe or fetches the trusted root once, not per reference.
+	signers map[contract.PublishSign]loadedSigner
+}
+
+type loadedSigner struct {
+	s   signing.Signer
+	p   signing.Policy
+	err error
+}
+
+func newExecTools(dir string, run runner, reg publish.Registry) execTools {
+	return execTools{dir: dir, run: run, reg: reg, signers: map[contract.PublishSign]loadedSigner{}}
 }
 
 // Build implements publish.Tools.
@@ -165,6 +178,16 @@ var (
 // signing is how publish signs, and the policy a signature must verify
 // under: the configured key file, KMS key or keyless identity and issuer.
 func (t execTools) signing(ctx context.Context, sign contract.PublishSign) (signing.Signer, signing.Policy, error) {
+	l, ok := t.signers[sign]
+	if !ok {
+		l.s, l.p, l.err = t.load(ctx, sign)
+		t.signers[sign] = l
+	}
+	return l.s, l.p, l.err
+}
+
+// load builds what signing caches.
+func (t execTools) load(ctx context.Context, sign contract.PublishSign) (signing.Signer, signing.Policy, error) {
 	tlog := sign.TransparencyLog == nil || *sign.TransparencyLog
 	var (
 		kp  *signing.Keypair

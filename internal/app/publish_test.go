@@ -269,7 +269,7 @@ func TestExecToolsSignKeyed(t *testing.T) {
 	host, reg := publishRegistry(t)
 	dir := t.TempDir()
 	pub := signingKey(t, dir)
-	tools := execTools{dir: dir, reg: reg}
+	tools := newExecTools(dir, nil, reg)
 	off := false
 	key := contract.PublishSign{Key: "cosign.key", TransparencyLog: &off}
 	ref := pushImage(t, reg, host+"/app")
@@ -295,17 +295,28 @@ func TestExecToolsSignKeyed(t *testing.T) {
 func TestExecToolsSignKMS(t *testing.T) {
 	ctx := t.Context()
 	host, reg := publishRegistry(t)
-	tools := execTools{dir: t.TempDir(), reg: reg}
+	tools := newExecTools(t.TempDir(), nil, reg)
 	off := false
 	ref := pushImage(t, reg, host+"/app")
 	kmsKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	sv, _ := signature.LoadSignerVerifier(kmsKey, crypto.SHA256)
+	loads := 0
 	kms.AddProvider("apptestkms://", func(context.Context, string, crypto.Hash, ...signature.RPCOption) (kms.SignerVerifier, error) {
+		loads++
 		return testKMS{sv}, nil
 	})
 	viaKMS := contract.PublishSign{KMS: "apptestkms://k", TransparencyLog: &off}
 	if signed, err := tools.Sign(ctx, viaKMS, ref); err != nil || !signed {
 		t.Fatalf("KMS sign: %v %v", signed, err)
+	}
+	if err := tools.Verify(ctx, viaKMS, ref); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tools.Sign(ctx, viaKMS, pushImage(t, reg, host+"/bpp")); err != nil {
+		t.Fatal(err)
+	}
+	if loads != 1 {
+		t.Fatalf("one run loaded the KMS key %d times, not once", loads)
 	}
 	repo, digest, _ := strings.Cut(ref, "@")
 	if err := publish.VerifyDigest(ctx, reg, keyPolicy(kmsKey.Public()), repo, digest); err != nil {
@@ -318,7 +329,7 @@ func TestExecToolsSignFailures(t *testing.T) {
 	host, reg := publishRegistry(t)
 	dir := t.TempDir()
 	signingKey(t, dir)
-	tools := execTools{dir: dir, reg: reg}
+	tools := newExecTools(dir, nil, reg)
 	off := false
 	key := contract.PublishSign{Key: "cosign.key", TransparencyLog: &off}
 	ref := pushImage(t, reg, host+"/app")
@@ -369,7 +380,7 @@ func TestExecToolsSignKeyless(t *testing.T) {
 	publicGoodRoot = func(string) (root.TrustedMaterial, error) { return ss.Root, nil }
 	fulcioURL, rekorURL, tsaURL = ss.Fulcio, "", ss.TSA
 	t.Setenv("SIGSTORE_ID_TOKEN", sigtest.Token("ci@acme.example", "https://token.actions.githubusercontent.com"))
-	tools := execTools{dir: t.TempDir(), reg: reg}
+	tools := newExecTools(t.TempDir(), nil, reg)
 	ci := contract.PublishSign{Keyless: true, Identity: "ci@acme.example", Issuer: "https://token.actions.githubusercontent.com"}
 	ref := pushImage(t, reg, host+"/app")
 	if signed, err := tools.Sign(ctx, ci, ref); err != nil || !signed {
@@ -396,10 +407,12 @@ func TestExecToolsSignKeyless(t *testing.T) {
 	// A root from another Sigstore does not trust this one's certificates.
 	other := sigtest.New(t)
 	publicGoodRoot = func(string) (root.TrustedMaterial, error) { return other.Root, nil }
+	tools = newExecTools(t.TempDir(), nil, reg) // a run caches the root it loaded
 	if err := tools.Verify(ctx, ci, ref); err == nil {
 		t.Error("verified under an untrusted root")
 	}
 	publicGoodRoot = func(string) (root.TrustedMaterial, error) { return nil, errors.New("tuf down") }
+	tools = newExecTools(t.TempDir(), nil, reg)
 	if err := tools.Verify(ctx, ci, ref); err == nil || !strings.Contains(err.Error(), "trusted root") {
 		t.Errorf("no trusted root: %v", err)
 	}
@@ -407,7 +420,7 @@ func TestExecToolsSignKeyless(t *testing.T) {
 
 func TestExecToolsHelpers(t *testing.T) {
 	ctx := context.Background()
-	tools := execTools{dir: t.TempDir(), run: (&fakeRun{}).run}
+	tools := newExecTools(t.TempDir(), (&fakeRun{}).run, nil)
 	t.Setenv("PACTO_INSECURE_REGISTRIES", "zot.local:5000")
 	for ref, want := range map[string]bool{"localhost:5000/a": true, "127.0.0.1/a": true, "zot.local:5000/a": true, "ghcr.io/a": false} {
 		if insecureHost(ref) != want {
