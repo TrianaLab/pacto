@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -68,7 +67,9 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	env := s.env()
 	in := publish.Input{Bundle: b, Revision: opts.Revision, Checks: []publish.Check{{Name: "validation", Passed: true, Message: "the contract is valid"}}}
 	if in.Revision == "" {
-		in.Revision = gitRevision(ctx, env.run, path)
+		if abs, err := env.absPath(path); err == nil {
+			in.Revision = gitRevision(abs)
+		}
 	}
 	in.Checks = append(in.Checks, checkOf("references", rejectLocalDeps(c), rejectLocalRefs(c)),
 		checkOf("lock", s.verifyLockIfPresent(ctx, path, b)), checkOf("signing key", keyOutsideBundle(c, fsys)))
@@ -99,23 +100,14 @@ func keyOutsideBundle(c *contract.Contract, fsys fs.FS) error {
 	return nil
 }
 
-// gitRevision is the commit of the checkout dir is in, or "".
-func gitRevision(ctx context.Context, run runner, dir string) string {
-	out, err := run(ctx, dir, nil, "git", "rev-parse", "HEAD")
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(out))
-}
-
 // defaultPublishRegistry is the registry publish writes through: the CLI's
 // credentials and plain-HTTP hosts.
 func defaultPublishRegistry() publish.Registry {
 	return publish.NewClient(oci.NewKeychain(oci.EnvCredentialOptions()), oci.EnvInsecureRegistries()...)
 }
 
-// execTools implements publish.Tools with docker buildx, the declared command
-// and syft, which fail closed when their program is missing, and signs with
+// execTools implements publish.Tools with docker buildx or the declared
+// command, which fail closed when their program is missing, and signs with
 // sigstore-go through reg.
 type execTools struct {
 	dir string
@@ -159,13 +151,6 @@ func (t execTools) Build(ctx context.Context, a contract.PublishArtifact, out st
 	}
 	_, err := t.run(ctx, t.dir, env, a.Build.Command[0], a.Build.Command[1:]...)
 	return err
-}
-
-// insecureHost reports whether ref's registry is reached over plain HTTP.
-func insecureHost(ref string) bool {
-	host, _, _ := strings.Cut(ref, "/")
-	name, _, _ := strings.Cut(host, ":")
-	return name == "localhost" || name == "127.0.0.1" || slices.Contains(oci.EnvInsecureRegistries(), host)
 }
 
 // Public-good Sigstore, which keyless publishing signs with and a key's
@@ -273,10 +258,9 @@ func (t execTools) Sign(ctx context.Context, sign contract.PublishSign, ref stri
 }
 
 // SBOM implements publish.Tools.
-func (t execTools) SBOM(ctx context.Context, ref string) ([]byte, error) {
-	var env []string
-	if insecureHost(ref) {
-		env = append(env, "SYFT_REGISTRY_INSECURE_USE_HTTP=true")
+func (t execTools) SBOM(path string) ([]byte, error) {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(t.dir, path)
 	}
-	return t.run(ctx, t.dir, env, "syft", "scan", "registry:"+ref, "-o", "spdx-json", "-q")
+	return os.ReadFile(path)
 }

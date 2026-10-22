@@ -18,8 +18,11 @@ this one reject a 2.1 contract.
 `pacto publish --plan` shows, for every artifact, whether its tag is absent,
 identical, adopt, conflict or unreadable and which of Pacto's checks refuse
 the publish, and writes nothing. `pacto publish` builds what is absent, pushes
-it by digest with its version and source revision on the manifest, attaches
-SBOMs made by `syft`, signs every digest and verifies each new signature
+it by digest with its version and source revision on the manifest (the git
+commit, read from `.git` without running git, unless `--revision` gives one),
+attaches the SBOM file each image declares (`sbom`, an SPDX or CycloneDX JSON
+file the build writes; Pacto never makes one and refuses a missing file or one
+that is not the format its name says), signs every digest and verifies each new signature
 against the configured identity (a keyless signature by the wrong CI identity
 fails before any tag is written), pushes the bundle and
 writes the tags with the deploy artifact last; the deploy artifact names its

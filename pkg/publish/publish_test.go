@@ -32,15 +32,17 @@ import (
 
 var errTest = errors.New("injected")
 
-// fakeTools builds, signs and makes SBOMs in memory, counting each.
+// fakeTools builds, signs and reads SBOMs in memory, counting each.
 type fakeTools struct {
 	builds    map[string]int
 	signed    map[string]bool
 	failBuild string
 	failSign  bool
 	failSBOM  bool
-	nothing   bool // write nothing
-	index     bool // build images as multi-platform indexes
+	sbom      []byte       // the SBOM file's content; nil is a valid SPDX one
+	dirty     fstest.MapFS // a contract directory every build writes into
+	nothing   bool         // write nothing
+	index     bool         // build images as multi-platform indexes
 	envs      [][]string
 }
 
@@ -49,6 +51,9 @@ func newTools() *fakeTools { return &fakeTools{builds: map[string]int{}, signed:
 func (f *fakeTools) Build(_ context.Context, a contract.PublishArtifact, out string, env []string) error {
 	f.builds[a.Name]++
 	f.envs = append(f.envs, env)
+	if f.dirty != nil {
+		f.dirty["sbom.spdx.json"] = &fstest.MapFile{Data: []byte(a.Name)}
+	}
 	if a.Name == f.failBuild {
 		return errTest
 	}
@@ -95,9 +100,12 @@ func (f *fakeTools) Sign(_ context.Context, _ contract.PublishSign, ref string) 
 	return !was, nil
 }
 
-func (f *fakeTools) SBOM(context.Context, string) ([]byte, error) {
+func (f *fakeTools) SBOM(string) ([]byte, error) {
 	if f.failSBOM {
 		return nil, errTest
+	}
+	if f.sbom != nil {
+		return f.sbom, nil
 	}
 	return []byte(`{"spdxVersion":"SPDX-2.3"}`), nil
 }
@@ -135,7 +143,7 @@ publish:
   bundle: oci://` + host + `/pacto/payments
   deploy: manifests
   artifacts:
-    - {name: api, type: image, ref: "oci://` + host + `/payments", sbom: true, build: {command: [x]}}
+    - {name: api, type: image, ref: "oci://` + host + `/payments", sbom: sbom/api.spdx.json, build: {command: [x]}}
     - {name: chart, type: chart, ref: "oci://` + host + `/charts/payments", build: {command: [x]}}
     - {name: manifests, type: manifests, ref: "oci://` + host + `/deploy/payments", build: {command: [x]}}
   sign: {key: cosign.key}
@@ -403,7 +411,7 @@ func isSBOM(a Artifact) bool {
 		return false
 	}
 	m, err := img.Manifest()
-	return err == nil && m.ArtifactType == SBOMType
+	return err == nil && m.ArtifactType == SPDXType
 }
 
 func failedCheck(p Plan) string {
@@ -468,6 +476,8 @@ func TestApplyFailures(t *testing.T) {
 		{"build", nil, func(f *fakeTools) { f.failBuild = "api" }},
 		{"sign", nil, func(f *fakeTools) { f.failSign = true }},
 		{"sbom", nil, func(f *fakeTools) { f.failSBOM = true }},
+		{"not an sbom", nil, func(f *fakeTools) { f.sbom = []byte(`{"bomFormat":"CycloneDX"}`) }},
+		{"contract changed", nil, nil},
 		{"wrote nothing", nil, func(f *fakeTools) { f.nothing = true }},
 		{"write", func(c *Client) Registry { return brokenRegistry{c, "write"} }, nil},
 		{"write bundle", func(c *Client) Registry { return brokenRegistry{c, "write-bundle"} }, nil},
@@ -494,8 +504,19 @@ func TestApplyFailures(t *testing.T) {
 			if c.tools != nil {
 				c.tools(tools)
 			}
-			if _, err := Apply(ctx, reg, tools, Input{Bundle: bundleOf(host, "1.0.0", workloadService), Revision: "r"}); err == nil {
+			b := bundleOf(host, "1.0.0", workloadService)
+			if c.name == "contract changed" {
+				tools.dirty = b.FS.(fstest.MapFS)
+			}
+			_, err := Apply(ctx, reg, tools, Input{Bundle: b, Revision: "r"})
+			if err == nil {
 				t.Fatal("the failure must surface")
+			}
+			if c.name == "contract changed" && !strings.Contains(err.Error(), "changed while publishing") {
+				t.Fatalf("contract changed: %v", err)
+			}
+			if c.name == "not an sbom" && !strings.Contains(err.Error(), "is not an SBOM of type application/spdx+json") {
+				t.Fatalf("not an sbom: %v", err)
 			}
 		})
 	}
@@ -589,12 +610,12 @@ func TestClientTagsAndReferrers(t *testing.T) {
 	expect(t, c.Tag(ctx, "BAD REF", d, "1") != nil, "tag of a bad ref")
 	expect(t, c.Tag(ctx, host+"/x", "sha256:"+strings.Repeat("0", 64), "1") != nil, "tag of a missing digest")
 	expect(t, c.Tag(ctx, host+"/x", d, "1.0.0+build") != nil, "a tag Docker refuses")
-	_, err := c.Referrers(ctx, "BAD REF", d, SBOMType)
+	_, err := c.Referrers(ctx, "BAD REF", d, SPDXType)
 	expect(t, err != nil, "referrers of a bad ref")
 	gone := NewClient(authn.DefaultKeychain, "127.0.0.1:1")
 	_, err = gone.Head(ctx, "127.0.0.1:1/x:1")
 	expect(t, err != nil, "an unreachable registry is never absent")
-	_, err = gone.Referrers(ctx, "127.0.0.1:1/x", d, SBOMType)
+	_, err = gone.Referrers(ctx, "127.0.0.1:1/x", d, SPDXType)
 	expect(t, err != nil, "referrers of an unreachable registry")
 }
 
@@ -664,12 +685,12 @@ func TestApplyNeverSignsForeignContent(t *testing.T) {
 	head, _ := reg.Head(ctx, host+"/payments@"+d)
 	h, _ := v1.NewHash(d)
 	subject := v1.Descriptor{MediaType: types.MediaType(head.MediaType), Size: head.Size, Digest: h}
-	foreign, err := reg.Write(ctx, host+"/payments", sbomArtifact([]byte(`{"forged":true}`), subject, nil))
+	foreign, err := reg.Write(ctx, host+"/payments", sbomArtifact(SPDXType, []byte(`{"forged":true}`), subject, nil))
 	expect(t, err == nil, "foreign SBOM: %v", err)
-	ours, err := attachSBOM(ctx, reg, tools, contract.PublishSign{Key: "k"}, host+"/payments", d, "1.0.0", "abc123", &Result{})
+	ours, err := attachSBOM(ctx, reg, tools, contract.PublishSign{Key: "k"}, "sbom/api.spdx.json", host+"/payments", d, "1.0.0", "abc123", &Result{})
 	expect(t, err == nil && ours != foreign, "the foreign SBOM was reused: %s %v", ours, err)
 	tools.signed[host+"/payments@"+ours] = true
-	again, err := attachSBOM(ctx, reg, tools, contract.PublishSign{Key: "k"}, host+"/payments", d, "1.0.0", "abc123", &Result{})
+	again, err := attachSBOM(ctx, reg, tools, contract.PublishSign{Key: "k"}, "sbom/api.spdx.json", host+"/payments", d, "1.0.0", "abc123", &Result{})
 	expect(t, err == nil && again == ours, "our signed SBOM is reused: %s %v", again, err)
 }
 
@@ -693,4 +714,15 @@ func TestTagReadsAgain(t *testing.T) {
 	expect(t, client.Tag(ctx, host+"/x", db, "1.0.0") == nil, "race")
 	err := tag(client)()
 	expect(t, err != nil && strings.Contains(err.Error(), "never overwritten"), "a racing tag was overwritten: %v", err)
+}
+
+// TestSBOMFormat: the file's name picks the referrer type and its content
+// must be that format.
+func TestSBOMFormat(t *testing.T) {
+	expect(t, sbomType("a.cdx.json") == CycloneDXType && sbomType("a.spdx.json") == SPDXType, "types")
+	expect(t, checkSBOM("a.cdx.json", CycloneDXType, []byte(`{"bomFormat":"CycloneDX"}`)) == nil, "cyclonedx")
+	expect(t, checkSBOM("a.spdx.json", SPDXType, []byte(`{"spdxVersion":"SPDX-2.3"}`)) == nil, "spdx")
+	for _, b := range []string{`{"spdxVersion":"SPDX-2.3"}`, `nope`, `{}`} {
+		expect(t, checkSBOM("a.cdx.json", CycloneDXType, []byte(b)) != nil, "accepted %s as CycloneDX", b)
+	}
 }

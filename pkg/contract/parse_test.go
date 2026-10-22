@@ -434,7 +434,7 @@ publish:
   bundle: oci://ghcr.io/acme/pacto/my-svc
   deploy: m
   artifacts:
-    - {name: api, type: image, ref: "oci://ghcr.io/acme/my-svc", sbom: true, build: {dockerfile: {context: ., platforms: [linux/amd64]}}}
+    - {name: api, type: image, ref: "oci://ghcr.io/acme/my-svc", sbom: sbom/api.spdx.json, build: {dockerfile: {context: ., platforms: [linux/amd64]}}}
     - {name: m, type: manifests, ref: "oci://ghcr.io/acme/deploy/my-svc", build: {command: [./render.sh]}}
   sign: {key: cosign.key, transparencyLog: false}
 `))
@@ -443,7 +443,7 @@ publish:
 	}
 	p := c.Publish
 	if p.Deploy != "m" || len(p.Artifacts) != 2 || p.Artifacts[0].Build.Dockerfile.Platforms[0] != "linux/amd64" ||
-		p.Artifacts[1].Build.Command[0] != "./render.sh" || p.Sign.Key != "cosign.key" || *p.Sign.TransparencyLog {
+		p.Artifacts[1].Build.Command[0] != "./render.sh" || p.Sign.Key != "cosign.key" || *p.Sign.TransparencyLog || p.Artifacts[0].SBOM != "sbom/api.spdx.json" {
 		t.Fatalf("publish: %+v", p)
 	}
 }

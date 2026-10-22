@@ -30,9 +30,35 @@ const (
 	FluxLayerType  types.MediaType = "application/vnd.cncf.flux.content.v1.tar+gzip"
 	HelmConfigType types.MediaType = "application/vnd.cncf.helm.config.v1+json"
 	HelmLayerType  types.MediaType = "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
-	// SBOMType is the artifactType of the SBOM referrer publish attaches.
-	SBOMType = "application/spdx+json"
+	// SPDXType and CycloneDXType are the artifactTypes of the SBOM referrers
+	// publish attaches: an SPDX JSON (.spdx.json) or CycloneDX JSON (.cdx.json)
+	// file the build wrote.
+	SPDXType      = "application/spdx+json"
+	CycloneDXType = "application/vnd.cyclonedx+json"
 )
+
+// sbomType is the referrer type of the SBOM file at path. The schema allows
+// only the two extensions.
+func sbomType(path string) string {
+	if strings.HasSuffix(path, ".cdx.json") {
+		return CycloneDXType
+	}
+	return SPDXType
+}
+
+// checkSBOM refuses a file that is not the SBOM format its name says, so a
+// wrong path is never attached and signed as an SBOM.
+func checkSBOM(path, mt string, b []byte) error {
+	var d struct {
+		SPDXVersion string `json:"spdxVersion"`
+		BOMFormat   string `json:"bomFormat"`
+	}
+	if json.Unmarshal(b, &d) != nil || (mt == SPDXType && !strings.HasPrefix(d.SPDXVersion, "SPDX-")) ||
+		(mt == CycloneDXType && d.BOMFormat != "CycloneDX") {
+		return fmt.Errorf("%s is not an SBOM of type %s", path, mt)
+	}
+	return nil
+}
 
 // rawImage is an OCI image manifest Pacto writes byte by byte: one config, one
 // layer, annotations and an optional subject. Flux artifacts, Helm charts and
@@ -68,8 +94,8 @@ func newArtifact(artifactType string, configType types.MediaType, config []byte,
 // sbomArtifact is an SBOM as a referrer of subject. The config media type is
 // the artifact type too, so a registry that reports a referrer's type from its
 // config (older ones do) lists it the same way.
-func sbomArtifact(sbom []byte, subject v1.Descriptor, annotations map[string]string) v1.Image {
-	return newArtifact(SBOMType, SBOMType, []byte("{}"), SBOMType, sbom, annotations, &subject)
+func sbomArtifact(mt string, sbom []byte, subject v1.Descriptor, annotations map[string]string) v1.Image {
+	return newArtifact(mt, types.MediaType(mt), []byte("{}"), types.MediaType(mt), sbom, annotations, &subject)
 }
 
 // load turns what a builder wrote to dir into the artifact Pacto pushes, with

@@ -511,7 +511,7 @@ func TestValidateStructural_V21Publish(t *testing.T) {
   bundle: oci://registry.example.com:5000/acme/pacto/orders
   deploy: manifests
   artifacts:
-    - {name: api, type: image, ref: "oci://ghcr.io/acme/orders", sbom: true,
+    - {name: api, type: image, ref: "oci://ghcr.io/acme/orders", sbom: sbom/api.spdx.json,
        build: {dockerfile: {context: ., file: Dockerfile, platforms: [linux/amd64, linux/arm64/v8]}}}
     - {name: manifests, type: manifests, ref: "oci://ghcr.io/acme/deploy/orders", build: {command: [./render.sh]}}
   sign: {key: cosign.key, transparencyLog: false}
@@ -539,6 +539,8 @@ func TestValidateStructural_V21Publish(t *testing.T) {
 		"keyless false":       "publish: {bundle: \"oci://r.io/a\", sign: {keyless: false}}\n",
 		"keyless no identity": "publish: {bundle: \"oci://r.io/a\", sign: {keyless: true, issuer: \"https://i\"}}\n",
 		"empty sign":          "publish: {bundle: \"oci://r.io/a\", sign: {}}\n",
+		"sbom not json":       "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", sbom: sbom.txt, build: {command: [x]}}]}\n",
+		"sbom as a flag":      "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", sbom: true, build: {command: [x]}}]}\n",
 		"missing context":     "publish: {bundle: \"oci://r.io/a\", artifacts: [{name: a, type: image, ref: \"oci://r.io/a\", build: {dockerfile: {file: D}}}]}\n",
 	}
 	for name, doc := range bad {

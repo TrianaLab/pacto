@@ -27,7 +27,7 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command 
 		Long: "Publishes every artifact the contract's publish section declares (pactoVersion 2.1), the contract " +
 			"bundle and the deploy artifact Flux applies, all tagged with service.version. Docker or the declared " +
 			"command builds; Pacto pushes, never over an existing tag, signs every digest with Sigstore (no cosign needed) and attaches " +
-			"SBOMs made by syft. A breaking change since the last published version is refused below a major bump " +
+			"the SBOM files the build wrote. A breaking change since the last published version is refused below a major bump " +
 			"(a minor before 1.0).\n\n" +
 			"--plan shows what is missing and changes nothing. Running publish again finishes what is missing and " +
 			"changes nothing else. --propose hands the deploy artifact to Pacto delivery as a promote on a Stage, " +
@@ -76,7 +76,7 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command 
 	}
 	cmd.Flags().StringP("path", "p", "", "path to contract directory (default: current directory)")
 	cmd.Flags().Bool("plan", false, "show what is missing and what refuses it; change nothing")
-	cmd.Flags().String("revision", "", "source revision stamped on every artifact (default: the git commit of --path)")
+	cmd.Flags().String("revision", "", "source revision stamped on every artifact (default: the git commit of --path, read from .git)")
 	cmd.Flags().String("propose", "", "after publishing, propose the deploy artifact on <namespace>/<stage> (needs the pacto-delivery chart)")
 	cmd.Flags().Duration("propose-timeout", 10*time.Minute, "how long --propose waits for the Stage to record the version as published")
 	addOverrideFlagsNoShorthand(cmd)

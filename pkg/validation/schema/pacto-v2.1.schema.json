@@ -751,8 +751,9 @@
                 }
               },
               "sbom": {
-                "type": "boolean",
-                "description": "Attach an SBOM made by syft to the image as an OCI referrer. Images only."
+                "type": "string",
+                "pattern": "\\.(spdx|cdx)\\.json$",
+                "description": "The SBOM file the build writes, relative to the contract directory: SPDX JSON (.spdx.json) or CycloneDX JSON (.cdx.json). Pacto attaches it to the image as an OCI referrer and signs it; it never makes one. Images only."
               }
             }
           }
@@ -804,7 +805,7 @@
             "kms": {
               "type": "string",
               "minLength": 1,
-              "description": "A cosign KMS key URI, such as awskms:///alias/release."
+              "description": "A cosign KMS key URI, such as awskms:///alias/release. Needs a pacto build with -tags kms (or one provider's tag); the released binaries leave cloud KMS out."
             },
             "transparencyLog": {
               "type": "boolean",

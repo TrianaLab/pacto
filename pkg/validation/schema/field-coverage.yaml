@@ -2255,12 +2255,12 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].build.command[]/invalid
       e2e: []
   publish.artifacts[].sbom:
-    meaning: Attach an SBOM made by syft as a referrer.
+    meaning: The SPDX or CycloneDX JSON file the build writes; Pacto attaches it as a referrer and signs it.
     runtime: static-only
     evidence: 'none: pacto publish reads it; nothing at runtime does'
-    rule: 'cross-field: images only'
+    rule: 'schema: a .spdx.json or .cdx.json path; cross-field: images only'
     outcomes: PUBLISH_SBOM_NOT_IMAGE
-    limitations: needs syft on the publishing host
+    limitations: Pacto never makes the SBOM; publish refuses a missing file or one that is not the format its name says
     tests:
       unit:
       - pkg/validation/crossfield_test.go:TestValidatePublish

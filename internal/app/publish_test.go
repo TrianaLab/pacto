@@ -41,7 +41,7 @@ import (
 	sigtest "github.com/trianalab/pacto/v4/pkg/signing/testutil"
 )
 
-// fakeRun stands in for git, docker, syft and the declared command. Every
+// fakeRun stands in for docker and the declared command. Every
 // call is recorded as "name arg...".
 type fakeRun struct {
 	calls []string
@@ -55,14 +55,10 @@ func (f *fakeRun) run(_ context.Context, _ string, env []string, name string, ar
 		return nil, errors.New("injected: " + call)
 	}
 	switch name {
-	case "git":
-		return []byte("abc123\n"), nil
 	case "docker":
 		p, _ := layout.Write(outOf(env), empty.Index)
 		img, _ := random.Image(32, 1)
 		return nil, p.AppendImage(img)
-	case "syft":
-		return []byte(`{"spdxVersion":"SPDX-2.3"}`), nil
 	}
 	return nil, os.WriteFile(filepath.Join(outOf(env), "deployment.yaml"), []byte("kind: Deployment\n"), 0o644)
 }
@@ -93,13 +89,16 @@ service: {name: payments, version: 1.0.0}
   bundle: oci://` + host + `/pacto/payments
   deploy: manifests
   artifacts:
-    - {name: api, type: image, ref: "oci://` + host + `/payments", sbom: true, build: {dockerfile: {context: ., file: Dockerfile, platforms: [linux/amd64]}}}
+    - {name: api, type: image, ref: "oci://` + host + `/payments", sbom: sbom/api.spdx.json, build: {dockerfile: {context: ., file: Dockerfile, platforms: [linux/amd64]}}}
     - {name: manifests, type: manifests, ref: "oci://` + host + `/deploy/payments", build: {command: [./render.sh, --flag]}}
   sign: {key: cosign.key, transparencyLog: false}
 `
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(y), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The build's SBOM, written before publishing.
+	_ = os.Mkdir(filepath.Join(dir, "sbom"), 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "sbom", "api.spdx.json"), []byte(`{"spdxVersion":"SPDX-2.3"}`), 0o644)
 	return dir
 }
 
@@ -107,15 +106,18 @@ func publishService(f *fakeRun, reg publish.Registry) *Service {
 	return &Service{sys: sysDeps{run: f.run, publishRegistry: func() publish.Registry { return reg }}}
 }
 
-// TestPublishPlan: --plan lists what is missing and runs nothing but git.
+// TestPublishPlan: --plan lists what is missing, reads the revision from .git
+// and runs nothing.
 func TestPublishPlan(t *testing.T) {
 	host, reg := publishRegistry(t)
 	f := &fakeRun{}
-	res, err := publishService(f, reg).Publish(context.Background(), PublishOptions{Path: writePublishBundle(t, host, ""), Plan: true})
+	dir := writePublishBundle(t, host, "")
+	writeGit(t, dir, map[string]string{"HEAD": "ref: refs/heads/main\n", "refs/heads/main": commitA + "\n"})
+	res, err := publishService(f, reg).Publish(context.Background(), PublishOptions{Path: dir, Plan: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Plan.Ready || res.Plan.Missing != 3 || res.Plan.Revision != "abc123" || len(f.calls) != 1 {
+	if !res.Plan.Ready || res.Plan.Missing != 3 || res.Plan.Revision != commitA || len(f.calls) != 0 {
 		t.Fatalf("plan: %+v calls %v", res.Plan, f.calls)
 	}
 }
@@ -137,7 +139,7 @@ func signingKey(t *testing.T, dir string) crypto.PublicKey {
 }
 
 // TestPublishRunsTheTools: publish builds with docker buildx and the declared
-// command, makes an SBOM with syft and signs every digest with sigstore-go,
+// command, attaches the build's SBOM and signs every digest with sigstore-go,
 // so each verifies under the public key, then a second run signs nothing.
 func TestPublishRunsTheTools(t *testing.T) {
 	host, reg := publishRegistry(t)
@@ -163,7 +165,6 @@ func TestPublishRunsTheTools(t *testing.T) {
 		"docker buildx build --output type=oci,dest=",
 		"--label org.opencontainers.image.version=1.0.0 --label org.opencontainers.image.revision=r1 --file Dockerfile --platform linux/amd64 .",
 		"./render.sh --flag",
-		"syft scan registry:" + host + "/payments@",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("no call with %q in:\n%s", want, joined)
@@ -244,10 +245,16 @@ func TestPublishRefusals(t *testing.T) {
 	if err := keyOutsideBundle(&contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Key: "/abs/cosign.key"}}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	nogit := &fakeRun{fail: "git"}
-	res, _ = publishService(nogit, reg).Publish(ctx, PublishOptions{Path: writePublishBundle(t, host, ""), Plan: true})
+	res, _ = publishService(f, reg).Publish(ctx, PublishOptions{Path: writePublishBundle(t, host, ""), Plan: true})
 	if res.Plan.Revision != "" || res.Plan.Ready {
 		t.Fatalf("no git revision: %+v", res.Plan)
+	}
+	noAbs := publishService(f, reg)
+	noAbs.sys.absPath = func(string) (string, error) { return "", errors.New("no cwd") }
+	dir := writePublishBundle(t, host, "")
+	writeGit(t, dir, map[string]string{"HEAD": commitA})
+	if res, _ = noAbs.Publish(ctx, PublishOptions{Path: dir, Plan: true}); res.Plan.Revision != "" {
+		t.Fatalf("an unresolvable path has no revision: %+v", res.Plan)
 	}
 }
 
@@ -419,16 +426,14 @@ func TestExecToolsSignKeyless(t *testing.T) {
 }
 
 func TestExecToolsHelpers(t *testing.T) {
-	ctx := context.Background()
 	tools := newExecTools(t.TempDir(), (&fakeRun{}).run, nil)
-	t.Setenv("PACTO_INSECURE_REGISTRIES", "zot.local:5000")
-	for ref, want := range map[string]bool{"localhost:5000/a": true, "127.0.0.1/a": true, "zot.local:5000/a": true, "ghcr.io/a": false} {
-		if insecureHost(ref) != want {
-			t.Errorf("insecureHost(%s) != %v", ref, want)
-		}
+	if _, err := tools.SBOM("missing.spdx.json"); err == nil {
+		t.Fatal("a missing SBOM file must fail")
 	}
-	if _, err := tools.SBOM(ctx, "ghcr.io/a@sha256:1"); err != nil {
-		t.Fatal(err)
+	abs := filepath.Join(t.TempDir(), "a.spdx.json")
+	_ = os.WriteFile(abs, []byte("{}"), 0o644)
+	if b, err := tools.SBOM(abs); err != nil || string(b) != "{}" {
+		t.Fatalf("an absolute SBOM path: %q %v", b, err)
 	}
 }
 

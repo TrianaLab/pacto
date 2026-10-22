@@ -1403,12 +1403,12 @@ A runtime check never turns "could not look" into a violation. A check with no u
 
 | Key | Value |
 | --- | --- |
-| Meaning | Attach an SBOM made by syft as a referrer. |
+| Meaning | The SPDX or CycloneDX JSON file the build writes; Pacto attaches it as a referrer and signs it. |
 | Runtime | `static-only` |
 | Evidence | none: pacto publish reads it; nothing at runtime does |
-| Rule | cross-field: images only |
+| Rule | schema: a .spdx.json or .cdx.json path; cross-field: images only |
 | Outcomes | PUBLISH_SBOM_NOT_IMAGE |
-| Limitations | needs syft on the publishing host |
+| Limitations | Pacto never makes the SBOM; publish refuses a missing file or one that is not the format its name says |
 | Tests | unit: `pkg/validation/crossfield_test.go:TestValidatePublish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].sbom/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.artifacts[].sbom/invalid` |
 
 ### `publish.sign`

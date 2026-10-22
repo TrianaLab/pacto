@@ -1090,14 +1090,14 @@ func TestValidatePublish(t *testing.T) {
 		t.Fatalf("no publish: %v", got)
 	}
 	ok := &contract.Publish{Bundle: "oci://r/b", Deploy: "m", Artifacts: []contract.PublishArtifact{
-		{Name: "api", Type: "image", Build: contract.PublishBuild{Dockerfile: &contract.DockerfileBuild{Context: "."}}, SBOM: true},
+		{Name: "api", Type: "image", Build: contract.PublishBuild{Dockerfile: &contract.DockerfileBuild{Context: "."}}, SBOM: "sbom.spdx.json"},
 		{Name: "m", Type: "manifests", Build: contract.PublishBuild{Command: []string{"x"}}},
 	}}
 	if got := codes(ok); got != nil {
 		t.Fatalf("valid publish: %v", got)
 	}
 	bad := &contract.Publish{Bundle: "oci://r/b", Deploy: "missing", Artifacts: []contract.PublishArtifact{
-		{Name: "c", Type: "chart", Build: contract.PublishBuild{Dockerfile: &contract.DockerfileBuild{Context: "."}}, SBOM: true},
+		{Name: "c", Type: "chart", Build: contract.PublishBuild{Dockerfile: &contract.DockerfileBuild{Context: "."}}, SBOM: "sbom.spdx.json"},
 		{Name: "c", Type: "manifests", Build: contract.PublishBuild{Command: []string{"x"}}},
 	}}
 	want := []string{"PUBLISH_SBOM_NOT_IMAGE", "PUBLISH_DOCKERFILE_NOT_IMAGE", "DUPLICATE_PUBLISH_ARTIFACT", "PUBLISH_DEPLOY_NOT_MANIFESTS"}
