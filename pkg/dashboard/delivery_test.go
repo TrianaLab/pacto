@@ -740,8 +740,6 @@ func TestDeliveryNamespaceScope(t *testing.T) {
 	expect(t, code == http.StatusOK, "history in scope: %d", code)
 }
 
-const dCand = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
-
 func TestPeopleAndVersionLabels(t *testing.T) {
 	a := &authed{state: AuthState{SignedIn: true, Name: "Carol Diaz"}}
 	f := sampleCluster("acme:team-checkout")
