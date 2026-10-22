@@ -481,8 +481,16 @@ pf() {
 # caller's own cleanup function; if omitted a generic helm-uninstall +
 # delete-namespace is used. NS/CLUSTER are arguments (they differ per script:
 # pacto-system, pacto-modes, pacto-upgrade) — nothing is hardcoded here.
+#
+# A failed run in CI (CI set, and the EXIT trap's rc non-zero) is also kept: the
+# runner is thrown away anyway, and scripts/ci/kind-diagnostics.sh runs after
+# the scenario exits, so it must find the failed state, not a torn-down one.
 keep_or_teardown() {
   local ns="${1:-}" cluster="${2:-}" fn="${3:-}"
+  if [ -n "${CI:-}" ] && [ "${rc:-0}" -ne 0 ]; then
+    echo "== failed in CI — leaving namespace '$ns' in kind cluster '$cluster' for the diagnostics step =="
+    return 0
+  fi
   if [ -n "${KEEP_E2E_CLUSTER:-}" ]; then
     echo "== KEEP_E2E_CLUSTER set — leaving namespace '$ns' in kind cluster '$cluster' for inspection (KUBECONFIG=${KUBECONFIG:-unset}) =="
     return 0

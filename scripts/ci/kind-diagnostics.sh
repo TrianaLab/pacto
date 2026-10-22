@@ -3,7 +3,8 @@
 # the artifact upload: for every kind cluster, `kind export logs` (every
 # container's log, controllers included, and the node's journal), events,
 # `kubectl describe` of pods and Deployments, and every resource; plus the
-# containers a scenario ran beside the cluster (identity providers). Best effort
+# containers a scenario ran beside the cluster (identity providers; the harness
+# keeps them, and the failed cluster state, when a run fails in CI). Best effort
 # and bounded: a step that hangs or fails is skipped, never fatal.
 set -uo pipefail
 out="$1"
@@ -24,6 +25,11 @@ for cluster in $(kind get clusters 2>/dev/null); do
   k describe pods -A > "$d/describe-pods.txt" 2>&1
   k describe deployments,daemonsets -A > "$d/describe-workloads.txt" 2>&1
   k get all -A -o wide > "$d/all.txt" 2>&1
-  k get pactos,stages,operations,approvals,ocirepositories,kustomizations -A -o yaml > "$d/custom-resources.yaml" 2>&1
+  # One call per type: a combined `get` fails whole on a cluster without one of
+  # the CRDs (most scenarios install neither delivery nor Flux).
+  : > "$d/custom-resources.yaml"
+  for r in pactos pactorevisions noderuntimeobservations stages operations approvals ocirepositories kustomizations; do
+    out_r="$(k get "$r" -A -o yaml 2>/dev/null)" && printf -- '---\n# %s\n%s\n' "$r" "$out_r" >> "$d/custom-resources.yaml"
+  done
 done
 exit 0
