@@ -13,9 +13,11 @@ newest one there, attaches it to the version the Stage moved to, the version
 it moved from, the contract of the new version and the anchor, and confirms
 the Referrers API lists it. Only then does it advance
 `status.stream.recordedSeq` and `head`, set `status.record` on the operation
-and remove the record finalizer. A record can be late, never skipped. An
-operation that already has a record is not written twice, so an etcd restore
-continues the stream instead of forking it, and the recorder stops writing a
+and remove the record finalizer. A record can be late, never skipped. The
+recorder adopts a record it already wrote for the same conclusion, so an etcd
+restore continues the stream instead of forking it. An operation that
+concludes again after a restore gets a second record. The recorder stops
+writing a
 stream with two records under one number, a record it cannot verify or a head
 the registry does not hold. Each Stage's `RecordStoreReady` condition says
 whether records are being written, and `ReferrersUnsupported` means the
