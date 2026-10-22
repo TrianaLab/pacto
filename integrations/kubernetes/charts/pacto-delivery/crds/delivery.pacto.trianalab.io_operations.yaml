@@ -452,6 +452,147 @@ spec:
                   before:
                     type: string
                 type: object
+              policy:
+                description: |-
+                  Policy is the Stage spec the operation concluded under, taken when it
+                  concluded, so its record says what governed it however late it is
+                  written.
+                properties:
+                  applyRef:
+                    description: |-
+                      ApplyRef is the Flux OCIRepository the promoter owns. It only ever sets
+                      spec.ref.digest on it.
+                    properties:
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  approval:
+                    description: ApprovalPolicy can only raise the approval floor,
+                      never lower it.
+                    properties:
+                      always:
+                        description: Always holds every promote for a human, whatever
+                          the contracts say.
+                        type: boolean
+                    type: object
+                  auto:
+                    description: Auto promotes the newest eligible candidate without
+                      anyone asking.
+                    type: boolean
+                  candidates:
+                    description: Candidates says where new versions come from. Exactly
+                      one is set.
+                    properties:
+                      ociRepositoryRef:
+                        description: |-
+                          OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the
+                          candidate is the @sha256: part of its status.artifact.revision.
+                        properties:
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      upstreamStage:
+                        description: UpstreamStage offers that Stage's verified digests
+                          minus its failed ones.
+                        properties:
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                    type: object
+                  deadlines:
+                    description: Deadlines override the operation type's defaults
+                      (Go durations).
+                    properties:
+                      approval:
+                        type: string
+                      execution:
+                        type: string
+                    type: object
+                  environment:
+                    type: string
+                  gates:
+                    description: |-
+                      Gates configures the Stage's gates. The pre-gates are fixed by the operation
+                      type; the Pacto contract check always verifies, beside the Stage's checks.
+                    properties:
+                      verify:
+                        description: VerifyGates configures what runs after a version
+                          is applied.
+                        properties:
+                          checks:
+                            description: |-
+                              Checks are this Stage's own verify gates, run beside the Pacto contract
+                              check: a health provider the delivery chart configures, or the built-in
+                              pacto.runtime claim gate.
+                            items:
+                              description: GateCheck is one verify gate a Stage runs.
+                              properties:
+                                name:
+                                  description: Name is the gate id its verdicts carry,
+                                    unique on the Stage.
+                                  minLength: 1
+                                  type: string
+                                params:
+                                  additionalProperties:
+                                    type: string
+                                  description: Params are the provider's settings
+                                    (thresholds, filters).
+                                  type: object
+                                provider:
+                                  description: |-
+                                    Provider is a gate provider configured in the delivery chart, or
+                                    pacto.runtime. A Stage cannot name a URL: providers are operator
+                                    configuration.
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - name
+                              - provider
+                              type: object
+                            maxItems: 16
+                            type: array
+                          recheck:
+                            description: |-
+                              Recheck is how often the verify gates run again on the version the
+                              Stage runs once it shipped (a Go duration, default 1m). A confirmed Fail
+                              rolls it back; Unknown never does.
+                            type: string
+                          window:
+                            description: |-
+                              Window is how long the verify gates may stay Unknown before the
+                              operation is held for a human (a Go duration, default 5m). Re-checks
+                              after release judge the same length of time.
+                            type: string
+                        type: object
+                    type: object
+                  service:
+                    description: |-
+                      ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified
+                      service name its contracts declare.
+                    properties:
+                      domain:
+                        description: Domain is the registry and organisation scope
+                          (empty for the default).
+                        type: string
+                      name:
+                        description: Name is the contract's service.name.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                required:
+                - applyRef
+                - environment
+                - service
+                type: object
               question:
                 description: Question is what a human is asked while the operation
                   is Held.

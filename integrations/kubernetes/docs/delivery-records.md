@@ -140,6 +140,9 @@ The event id is the record digest.
 - A keyless record is checked against its certificate's identity, issuer and
   chain. With Rekor off there is no signed time, so the chain is checked at the
   moment the certificate was issued.
+- Deleting a Stage while one of its changes is running ends that change
+  `Errored` with no stream number, so it gets no record even though it moved
+  the Stage. Wait for a Stage's changes to conclude before you delete it.
 - The recorder detects that a record was tampered with or the chain broken
   only when it next has an operation to record on that Stage.
   `pacto delivery record verify` checks any time.

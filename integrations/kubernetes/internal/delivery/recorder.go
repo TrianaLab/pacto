@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package delivery
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -315,7 +316,13 @@ func (w *writer) record(ctx context.Context, it item) (time.Duration, error) {
 		return w.gap(ctx, it.seq)
 	}
 	op := it.op
-	rec := w.find(func(p delivery.RecordPredicate) bool { return p.Intent.UID == string(op.UID) })
+	// Adopt only the record of this conclusion: after an etcd restore the
+	// same operation can conclude again, differently, and that is recorded.
+	// The finished time stands in for the payload digest, which a record
+	// written at another stream head could never match.
+	rec := w.find(func(p delivery.RecordPredicate) bool {
+		return p.Intent.UID == string(op.UID) && p.Time.Finished == op.Status.Times.Finished
+	})
 	if rec == nil {
 		written, err := w.write(ctx, op)
 		if err != nil {
@@ -376,7 +383,7 @@ func (w *writer) input(ctx context.Context, op *dv1.Operation) (delivery.RecordI
 	in := delivery.RecordInput{
 		ClusterID: w.ClusterID,
 		Stage: delivery.StageObject{Metadata: delivery.ObjectMeta{Name: w.stage.Name, Namespace: w.stage.Namespace,
-			UID: string(w.stage.UID)}, Spec: w.stage.Spec},
+			UID: string(w.stage.UID)}, Spec: *cmp.Or(op.Status.Policy, &w.stage.Spec)},
 		Operation: delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: op.Name, Namespace: op.Namespace,
 			UID: string(op.UID)}, Spec: op.Spec, Status: op.Status},
 		Approvals: map[string]delivery.ApprovalSpec{},
@@ -417,7 +424,11 @@ func (w *writer) gap(ctx context.Context, seq int64) (time.Duration, error) {
 	if wait := w.GapGrace - w.Now().Sub(first); wait > 0 {
 		return wait, nil
 	}
-	if w.find(func(p delivery.RecordPredicate) bool { return p.Gap != nil && p.Gap.Seq == seq }) == nil {
+	// A Stage recreated with the same name reuses the stream and starts its
+	// seqs over, so only this Stage's gap record of seq counts.
+	if w.find(func(p delivery.RecordPredicate) bool {
+		return p.Gap != nil && p.Gap.Seq == seq && p.Intent.Stage.UID == string(w.stage.UID)
+	}) == nil {
 		h := w.head()
 		meta := delivery.ObjectMeta{Name: w.stage.Name, Namespace: w.stage.Namespace, UID: string(w.stage.UID)}
 		chain := delivery.Chain{Stream: w.stage.Status.Stream.ID, Seq: h.Statement.Predicate.Chain.Seq + 1, Parent: h.ID}

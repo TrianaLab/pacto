@@ -156,6 +156,33 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.pointer` | `object` | no |  |  | PointerChange is the pointer before and after an operation. |
 | `status.pointer.after` | `string` | no |  |  |  |
 | `status.pointer.before` | `string` | no |  |  |  |
+| `status.policy` | `object` | no |  |  | Policy is the Stage spec the operation concluded under, taken when it concluded, so its record says what governed it however late it is written. |
+| `status.policy.applyRef` | `object` | yes |  |  | ApplyRef is the Flux OCIRepository the promoter owns. It only ever sets spec.ref.digest on it. |
+| `status.policy.applyRef.name` | `string` | yes |  |  |  |
+| `status.policy.approval` | `object` | no |  |  | ApprovalPolicy can only raise the approval floor, never lower it. |
+| `status.policy.approval.always` | `boolean` | no |  |  | Always holds every promote for a human, whatever the contracts say. |
+| `status.policy.auto` | `boolean` | no |  |  | Auto promotes the newest eligible candidate without anyone asking. |
+| `status.policy.candidates` | `object` | no |  |  | Candidates says where new versions come from. Exactly one is set. |
+| `status.policy.candidates.ociRepositoryRef` | `object` | no |  |  | OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the candidate is the @sha256: part of its status.artifact.revision. |
+| `status.policy.candidates.ociRepositoryRef.name` | `string` | yes |  |  |  |
+| `status.policy.candidates.upstreamStage` | `object` | no |  |  | UpstreamStage offers that Stage's verified digests minus its failed ones. |
+| `status.policy.candidates.upstreamStage.name` | `string` | yes |  |  |  |
+| `status.policy.candidates.upstreamStage.namespace` | `string` | no |  |  |  |
+| `status.policy.deadlines` | `object` | no |  |  | Deadlines override the operation type's defaults (Go durations). |
+| `status.policy.deadlines.approval` | `string` | no |  |  |  |
+| `status.policy.deadlines.execution` | `string` | no |  |  |  |
+| `status.policy.environment` | `string` | yes |  |  |  |
+| `status.policy.gates` | `object` | no |  |  | Gates configures the Stage's gates. The pre-gates are fixed by the operation type; the Pacto contract check always verifies, beside the Stage's checks. |
+| `status.policy.gates.verify` | `object` | no |  |  | VerifyGates configures what runs after a version is applied. |
+| `status.policy.gates.verify.checks` | `[]object` | no |  |  | Checks are this Stage's own verify gates, run beside the Pacto contract check: a health provider the delivery chart configures, or the built-in pacto.runtime claim gate. |
+| `status.policy.gates.verify.checks[].name` | `string` | yes |  |  | Name is the gate id its verdicts carry, unique on the Stage. |
+| `status.policy.gates.verify.checks[].params` | `object` | no |  |  | Params are the provider's settings (thresholds, filters). |
+| `status.policy.gates.verify.checks[].provider` | `string` | yes |  |  | Provider is a gate provider configured in the delivery chart, or pacto.runtime. A Stage cannot name a URL: providers are operator configuration. |
+| `status.policy.gates.verify.recheck` | `string` | no |  |  | Recheck is how often the verify gates run again on the version the Stage runs once it shipped (a Go duration, default 1m). A confirmed Fail rolls it back; Unknown never does. |
+| `status.policy.gates.verify.window` | `string` | no |  |  | Window is how long the verify gates may stay Unknown before the operation is held for a human (a Go duration, default 5m). Re-checks after release judge the same length of time. |
+| `status.policy.service` | `object` | yes |  |  | ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified service name its contracts declare. |
+| `status.policy.service.domain` | `string` | no |  |  | Domain is the registry and organisation scope (empty for the default). |
+| `status.policy.service.name` | `string` | yes |  |  | Name is the contract's service.name. |
 | `status.question` | `string` | no |  |  | Question is what a human is asked while the operation is Held. |
 | `status.reason` | `string` | no |  |  | Reason is the machine reason for the outcome or the hold (PlanStale, PointerMoved, NoStage, ...). |
 | `status.record` | `object` | no |  |  | Record is the signed record of this operation, once the recorder wrote it. Only the recorder writes it. |
@@ -261,6 +288,12 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.published` | `[]string` | no |  |  | Published holds the candidate digests Flux verified the signature of on the candidate OCIRepository (spec.verify naming the publisher's identity), oldest first (cap 50). Only these are promoted from the OCIRepository. |
 | `status.stream` | `object` | no |  |  | Stream numbers a Stage's concluded operations. |
 | `status.stream.anchor` | `string` | no |  |  | Anchor is where the stream's records are listed: &lt;repository&gt;@<anchor digest>. Only the recorder writes it. |
+| `status.stream.concluded` | `[]object` | no |  |  | Concluded are the newest operations given a seq, each with how it concluded, written in the compare-and-swap that took the seq. An operation whose own status write then failed concludes again from here: the same seq and outcome, never a second seq. |
+| `status.stream.concluded[].outcome` | `string` | no |  |  | Outcome is how a concluded operation ended. |
+| `status.stream.concluded[].reason` | `string` | no |  |  | Reason is "Code: message". |
+| `status.stream.concluded[].seq` | `integer` | yes |  |  |  |
+| `status.stream.concluded[].uid` | `string` | yes |  |  |  |
+| `status.stream.concluded[].verification` | `string` | no |  |  | Verification qualifies a Succeeded outcome. |
 | `status.stream.head` | `string` | no |  |  | Head is the digest of the newest record in the stream. Only the recorder writes it. |
 | `status.stream.id` | `string` | no |  |  | ID is &lt;clusterID&gt;/&lt;namespace&gt;/&lt;name&gt;; the cluster id is the kube-system namespace uid. |
 | `status.stream.recordedSeq` | `integer` | no |  |  | RecordedSeq is the newest local seq the recorder wrote or adopted a record for. Only the recorder writes it. |

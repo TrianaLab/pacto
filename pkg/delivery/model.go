@@ -215,6 +215,25 @@ type Stream struct {
 	// <repository>@<anchor digest>. Only the recorder writes it.
 	// +optional
 	Anchor string `json:"anchor,omitempty"`
+	// Concluded are the newest operations given a seq, each with how it
+	// concluded, written in the compare-and-swap that took the seq. An
+	// operation whose own status write then failed concludes again from
+	// here: the same seq and outcome, never a second seq.
+	// +optional
+	Concluded []Concluded `json:"concluded,omitempty"`
+}
+
+// Concluded is one operation's seq and conclusion, as the Stage holds it.
+type Concluded struct {
+	UID string `json:"uid"`
+	Seq int64  `json:"seq"`
+	// +optional
+	Outcome Outcome `json:"outcome,omitempty"`
+	// +optional
+	Verification Verification `json:"verification,omitempty"`
+	// Reason is "Code: message".
+	// +optional
+	Reason string `json:"reason,omitempty"`
 }
 
 // StageStatus is written only by the promoter's operation reconciler.
@@ -592,6 +611,11 @@ type OperationStatus struct {
 	Times Times `json:"times,omitzero"`
 	// +optional
 	Seq int64 `json:"seq,omitempty"`
+	// Policy is the Stage spec the operation concluded under, taken when it
+	// concluded, so its record says what governed it however late it is
+	// written.
+	// +optional
+	Policy *StageSpec `json:"policy,omitempty"`
 	// Record is the signed record of this operation, once the recorder wrote
 	// it. Only the recorder writes it.
 	// +optional

@@ -38,6 +38,7 @@ var (
 	errWait         = errors.New("wait")
 	errPointerMoved = errors.New("pointer moved")
 	errLockLost     = errors.New("lock lost")
+	errConcluded    = errors.New("concluded")
 )
 
 // OperationReconciler carries one Operation through its lifecycle: admit,
@@ -90,11 +91,17 @@ func (r *OperationReconciler) Reconcile(ctx context.Context, req reconcile.Reque
 		if !apierrors.IsNotFound(err) {
 			return reconcile.Result{}, err
 		}
+		// ponytail: an applied operation whose Stage is gone concludes with no
+		// seq, so no record; a Stage finalizer held until its changes are
+		// recorded closes that, if deleting a Stage mid-change matters.
 		c := conclusion{outcome: delivery.Rejected, reason: "NoStage: there is no Stage named " + op.Spec.Stage}
 		if op.Status.Applied {
 			c.outcome = delivery.Errored
 		}
 		return r.finish(ctx, op, nil, c)
+	}
+	if concludedOn(stage.Status, op.UID) != nil {
+		return r.finish(ctx, op, stage, conclusion{}) // concluded, but its status write failed
 	}
 	switch {
 	case op.Status.Phase == "":
@@ -518,6 +525,9 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 	facet, uid := op.Spec.Facet, string(op.UID)
 	waiting := ""
 	err := r.casStage(ctx, stage, func(s *dv1.Stage) error {
+		if concludedOn(s.Status, op.UID) != nil {
+			return errConcluded // a stale read: this operation concluded already
+		}
 		if holder := s.Status.Locks[facet]; holder != "" && holder != uid {
 			free, err := r.lockFree(ctx, op, holder)
 			if err != nil {
@@ -542,6 +552,8 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 		return nil
 	})
 	switch {
+	case errors.Is(err, errConcluded):
+		return r.finish(ctx, op, stage, conclusion{})
 	case errors.Is(err, errWait):
 		op.Status.Reason, op.Status.Message = reasonWaiting, waiting
 		return r.save(ctx, op)
@@ -800,21 +812,43 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 	}
 	if stage != nil {
 		if c.outcome == delivery.Failed && op.Spec.Type == delivery.TypePromote && op.Status.Pointer.Before != "" {
-			if err := raiseRollback(ctx, r.Client, r.Policy, op, stage, code+": "+msg, c.cause); err != nil {
+			// Never on a stale decision: an operation the Stage already
+			// concluded, maybe as a success, raises no rollback.
+			cur := &dv1.Stage{}
+			if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(stage), cur); err != nil {
 				return reconcile.Result{}, err
+			}
+			if concludedOn(cur.Status, op.UID) == nil {
+				if err := raiseRollback(ctx, r.Client, r.Policy, op, stage, code+": "+msg, c.cause); err != nil {
+					return reconcile.Result{}, err
+				}
 			}
 		}
 		if err := r.casStage(ctx, stage, func(s *dv1.Stage) error {
 			if s.Status.Locks[op.Spec.Facet] == string(op.UID) {
 				delete(s.Status.Locks, op.Spec.Facet)
 			}
+			// ponytail: a re-conclusion snapshots the policy again, so a Stage
+			// edit inside the seconds between a failed write and its retry
+			// lands in the record; store the spec in Concluded if that matters.
+			spec := s.Spec
+			op.Status.Policy = &spec
+			if done := concludedOn(s.Status, op.UID); done != nil {
+				// This operation took its seq and its status write failed.
+				op.Status.Seq, c = done.Seq, conclusion{outcome: done.Outcome, verification: done.Verification, reason: done.Reason}
+				return nil
+			}
 			s.Status.Stream.Seq++
 			op.Status.Seq = s.Status.Stream.Seq
+			done := delivery.Concluded{UID: string(op.UID), Seq: op.Status.Seq, Outcome: c.outcome, Verification: c.verification, Reason: c.reason}
+			s.Status.Stream.Concluded = append(s.Status.Stream.Concluded, done)
+			s.Status.Stream.Concluded = s.Status.Stream.Concluded[max(0, len(s.Status.Stream.Concluded)-delivery.MaxConcluded):]
 			applyEffects(&s.Status, op, c)
 			return nil
 		}); err != nil {
 			return reconcile.Result{}, err
 		}
+		code, msg, _ = strings.Cut(c.reason, ": ")
 	}
 	op.Status.Phase, op.Status.Outcome, op.Status.Verification = delivery.PhaseConcluded, c.outcome, c.verification
 	op.Status.Reason, op.Status.Message, op.Status.Question = code, msg, ""
@@ -823,6 +857,15 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 		return reconcile.Result{}, err
 	}
 	return reconcile.Result{RequeueAfter: immediately}, nil
+}
+
+// concludedOn is the seq and conclusion the Stage gave uid, or nil.
+func concludedOn(s delivery.StageStatus, uid types.UID) *delivery.Concluded {
+	i := slices.IndexFunc(s.Stream.Concluded, func(c delivery.Concluded) bool { return c.UID == string(uid) })
+	if i < 0 {
+		return nil
+	}
+	return &s.Stream.Concluded[i]
 }
 
 // writeConcluded writes op's conclusion, retrying a conflict on a fresh read:

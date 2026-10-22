@@ -19,6 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -824,6 +825,91 @@ func TestConclusionConflictTakesOneSeq(t *testing.T) {
 	}
 	if err == nil || !strings.Contains(err.Error(), "injected read failure") {
 		t.Fatalf("a failed re-read after a conflict must surface: %v", err)
+	}
+}
+
+// TestConclusionWriteFailureTakesOneSeq: the Stage took the seq, then the
+// operation's status write failed for a reason that is not a conflict. The
+// next reconcile finds the lock released, but the operation concludes from
+// what the Stage holds: the same seq and outcome, one failed digest and one
+// rollback, never a second seq that would leave the first a gap.
+func TestConclusionWriteFailureTakesOneSeq(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.drive("p1")
+	e.apply(dB)
+	e.drive("p1")
+	e.evaluate(c2, "NonCompliant")
+	failed := false
+	r := *e.op
+	r.Client = interceptor.NewClient(e.c, interceptor.Funcs{
+		SubResourceUpdate: func(ctx context.Context, c client.Client, sub string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+			if o, ok := obj.(*dv1.Operation); ok && o.Status.Phase == delivery.PhaseConcluded && !failed {
+				failed = true
+				return apierrors.NewInternalError(errors.New("etcd timeout"))
+			}
+			return c.Status().Update(ctx, obj, opts...)
+		},
+	})
+	e.op = &r
+	if err := e.reconcileOpErr("p1"); err == nil || !failed {
+		t.Fatalf("the injected write failure did not surface: %v", err)
+	}
+	o := e.drive("p1")
+	wantOutcome(t, o, delivery.Failed, "VerifyFailed")
+	s := e.getStage()
+	if o.Status.Seq != 1 || s.Status.Stream.Seq != 1 || len(s.Status.FailedDigests) != 1 || s.Status.AutoRollbacks["uid-p1"] != 1 ||
+		o.Status.Policy == nil || o.Status.Policy.Environment != "prod" {
+		t.Fatalf("one conclusion must take one seq: op %+v stage %+v", o.Status, s.Status)
+	}
+
+	// Decided again on a stale read, even as a failure, it raises no
+	// rollback: the Stage already concluded it.
+	rb := e.getOp("p1-rollback")
+	controllerutil.RemoveFinalizer(rb, dv1.RecordFinalizer)
+	if err := e.c.Update(context.Background(), rb); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.c.Delete(context.Background(), rb); err != nil {
+		t.Fatal(err)
+	}
+	stale := e.getOp("p1")
+	stale.Status.Phase = delivery.PhaseVerifying
+	if err := e.c.Status().Update(context.Background(), stale); err != nil {
+		t.Fatal(err)
+	}
+	stale = e.getOp("p1")
+	c := conclusion{outcome: delivery.Failed, reason: "VerifyFailed: again"}
+	if _, err := e.op.finish(context.Background(), stale, e.getStage(), c); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.c.Get(context.Background(), keyOf("p1-rollback"), rb); err == nil {
+		t.Fatal("a stale failure raised a second rollback")
+	}
+	if o := e.getOp("p1"); o.Status.Seq != 1 || o.Status.Reason != "VerifyFailed" || e.getStage().Status.Stream.Seq != 1 {
+		t.Fatalf("re-concluded as %+v", o.Status)
+	}
+	e.fails["get/Stage"] = true
+	if _, err := e.op.finish(context.Background(), e.getOp("p1"), s, c); err == nil {
+		t.Fatal("a failed Stage read before a rollback must surface")
+	}
+}
+
+// TestLockRefusesAConcludedOperation: a stale read shows an operation the
+// Stage already concluded as still pending; it must not take the lock.
+func TestLockRefusesAConcludedOperation(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.setStage(func(s *delivery.StageStatus) {
+		s.Stream.Seq = 4
+		s.Stream.Concluded = []delivery.Concluded{{UID: "uid-p1", Seq: 4, Outcome: delivery.Rejected, Reason: "PointerMoved: another operation moved the pointer first"}}
+	})
+	o := e.getOp("p1")
+	if _, err := e.op.lock(context.Background(), o, stageObj(dA), false); err != nil {
+		t.Fatal(err)
+	}
+	o = e.getOp("p1")
+	wantOutcome(t, o, delivery.Rejected, "PointerMoved")
+	if s := e.getStage(); o.Status.Seq != 4 || s.Status.Stream.Seq != 4 || s.Status.Locks["pointer"] != "" {
+		t.Fatalf("op %+v stage %+v", o.Status, s.Status)
 	}
 }
 

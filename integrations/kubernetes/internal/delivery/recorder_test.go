@@ -321,6 +321,78 @@ func TestRecorderAdoptsAndFastForwards(t *testing.T) {
 	}
 }
 
+// TestRecorderRecordsAReconclusion: after an etcd restore an operation that
+// was recorded concludes again, differently. Its old record is not adopted for
+// the new conclusion, which gets its own.
+func TestRecorderRecordsAReconclusion(t *testing.T) {
+	re := newRecEnv(t)
+	re.stage(1)
+	re.concluded("ship", 1, delivery.Succeeded)
+	re.reconcile()
+	old := re.getOp("ship").Status.Record.Digest
+
+	re.setStage(func(s *delivery.StageStatus) { s.Stream.RecordedSeq, s.Stream.Head = 0, "" })
+	o := re.getOp("ship")
+	controllerutil.AddFinalizer(o, dv1.RecordFinalizer)
+	if err := re.c.Update(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	o.Status.Outcome, o.Status.Times.Finished, o.Status.Record = delivery.Failed, "2026-10-20T11:00:00Z", nil
+	if err := re.c.Status().Update(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	re.reconcile()
+	if recs := re.records(); len(recs) != 2 {
+		t.Fatalf("records = %d, want the old and the new conclusion", len(recs))
+	}
+	got := re.getOp("ship").Status.Record
+	if got == nil || got.Digest == old || got.Seq != 2 {
+		t.Fatalf("record = %+v, want a new one at seq 2 (old %s)", got, old)
+	}
+}
+
+// TestRecorderGapOfARecreatedStage: a Stage deleted and recreated with the
+// same name reuses the stream, and its seqs start over. The old Stage's gap
+// record of a seq is not this Stage's.
+func TestRecorderGapOfARecreatedStage(t *testing.T) {
+	re := newRecEnv(t)
+	re.stage(2)
+	ctx := context.Background()
+	a, _ := re.rec.Store.anchor(ctx, "cid/prod/payments-prod")
+	st := delivery.NewGap("cid", delivery.ObjectMeta{Name: "payments-prod", Namespace: ns, UID: "old-stage"}, 1,
+		delivery.Chain{Stream: "cid/prod/payments-prod", Seq: 1}, a.desc.Digest.String(), "t")
+	bundle, _, _ := delivery.SignRecord(ctx, re.rec.Signer, st)
+	if err := re.rec.Store.write(ctx, bundle, st, locations{anchor: a}); err != nil {
+		t.Fatal(err)
+	}
+	re.concluded("ship", 2, delivery.Succeeded)
+	re.reconcile()
+	re.now = re.now.Add(2 * time.Minute)
+	re.reconcile()
+	if recs := re.records(); len(recs) != 3 {
+		t.Fatalf("records = %d, want the old gap, a new gap and the operation", len(recs))
+	}
+}
+
+// TestRecorderUsesThePolicyOfTheConclusion: the record embeds the Stage spec
+// the operation concluded under, not the one the Stage has when the record
+// is written.
+func TestRecorderUsesThePolicyOfTheConclusion(t *testing.T) {
+	re := newRecEnv(t)
+	re.stage(1)
+	o := re.concluded("ship", 1, delivery.Succeeded)
+	policy := stageObj("").Spec
+	policy.Environment = "prod-then"
+	o.Status.Policy = &policy
+	if err := re.c.Status().Update(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	re.reconcile()
+	if p := re.records()[0].Statement.Predicate.Policy; p == nil || p.Environment != "prod-then" {
+		t.Fatalf("policy = %+v", p)
+	}
+}
+
 func TestRecorderRefusesToFork(t *testing.T) {
 	t.Run("head not in the registry", func(t *testing.T) {
 		re := newRecEnv(t)

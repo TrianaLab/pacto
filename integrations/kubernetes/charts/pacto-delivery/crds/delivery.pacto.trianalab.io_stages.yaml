@@ -346,6 +346,35 @@ spec:
                       Anchor is where the stream's records are listed:
                       <repository>@<anchor digest>. Only the recorder writes it.
                     type: string
+                  concluded:
+                    description: |-
+                      Concluded are the newest operations given a seq, each with how it
+                      concluded, written in the compare-and-swap that took the seq. An
+                      operation whose own status write then failed concludes again from
+                      here: the same seq and outcome, never a second seq.
+                    items:
+                      description: Concluded is one operation's seq and conclusion,
+                        as the Stage holds it.
+                      properties:
+                        outcome:
+                          description: Outcome is how a concluded operation ended.
+                          type: string
+                        reason:
+                          description: 'Reason is "Code: message".'
+                          type: string
+                        seq:
+                          format: int64
+                          type: integer
+                        uid:
+                          type: string
+                        verification:
+                          description: Verification qualifies a Succeeded outcome.
+                          type: string
+                      required:
+                      - seq
+                      - uid
+                      type: object
+                    type: array
                   head:
                     description: |-
                       Head is the digest of the newest record in the stream. Only the
