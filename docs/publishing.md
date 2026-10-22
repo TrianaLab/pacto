@@ -87,7 +87,7 @@ cosign 3 writes one, so `cosign verify` and Flux's `spec.verify` both check it.
 | `sign` | What signs | Notes |
 |---|---|---|
 | `key: cosign.key` | A PEM private key file | A cosign key is decrypted with `COSIGN_PASSWORD` |
-| `kms: awskms:///alias/ci` | A KMS key | `awskms://`, `gcpkms://`, `azurekms://` or `hashivault://`, with that cloud's usual credentials |
+| `kms: awskms:///alias/ci` | A KMS key | `awskms://`, `gcpkms://`, `azurekms://` or `hashivault://`, with that cloud's usual credentials. The key must be ECDSA P-256, Ed25519 or RSA PKCS#1 v1.5 with SHA-256: Pacto refuses RSA-PSS and SHA-384 or SHA-512 keys |
 | `keyless: true` | A short-lived certificate from public-good Fulcio | The OIDC token comes from `SIGSTORE_ID_TOKEN` or GitHub Actions (`id-token: write`) |
 
 A signature goes to the public transparency log unless `transparencyLog:

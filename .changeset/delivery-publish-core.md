@@ -42,7 +42,11 @@ Pacto signs with sigstore-go and needs no `cosign` binary. A signature is a
 Sigstore bundle referrer, as cosign 3 writes it, so `cosign verify` and Flux's
 `spec.verify` check it. A key file (a cosign key, decrypted with
 `COSIGN_PASSWORD`, or a plain PEM key) and a KMS key (`awskms://`, `gcpkms://`,
-`azurekms://`, `hashivault://`) sign with or without the transparency log.
+`azurekms://`, `hashivault://`) sign with or without the transparency log. A
+KMS key must be ECDSA P-256, Ed25519 or RSA PKCS#1 v1.5 with SHA-256: Pacto
+signs a probe when it loads the key and refuses RSA-PSS and SHA-384 or SHA-512
+keys. Only a referrer whose signed statement is a cosign signature counts as
+one, and an unreadable referrer does not hide the others.
 Keyless signing uses public-good Fulcio and Rekor with the OIDC token in
 `SIGSTORE_ID_TOKEN` or from GitHub Actions, verifies under the trusted root
 Sigstore publishes through TUF and needs the transparency log: a short-lived

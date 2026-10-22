@@ -46,6 +46,8 @@ conclusions a Stage keeps and the verdicts, approvals, policy, plan and actor
 class of an operation. Missing numbers all wait one grace period together. An operation
 left over from a deleted Stage is recorded under that Stage, never the one
 recreated with its name. The delivery image is now built with `--target delivery`. The
-recorder signs with sigstore-go, so the image carries no cosign. Apply the delivery CRDs
+recorder signs with sigstore-go, so the image carries no cosign. It checks a probe record at
+startup, and every record before it writes it, against its own key or keyless
+identity. Apply the delivery CRDs
 before `helm upgrade pacto-delivery`: the Stage and Operation CRDs gain the
 record fields.

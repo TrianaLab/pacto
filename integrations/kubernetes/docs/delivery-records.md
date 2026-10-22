@@ -63,7 +63,12 @@ The push Secret needs write access to the streams repository, the repositories
 your Stages apply from and the contract repositories. On kind, create the key
 with `openssl genpkey -algorithm ed25519 -out key.pem` and store it with
 `kubectl create secret generic recorder-key --from-file=key.pem`. In production, sign
-with a KMS key (`signing.kms: awskms:///alias/pacto`) or keyless. The
+with a KMS key (`signing.kms: awskms:///alias/pacto`) or keyless. A KMS key
+must be ECDSA P-256, Ed25519 or RSA PKCS#1 v1.5 with SHA-256; RSA-PSS and
+SHA-384 or SHA-512 keys are refused. At startup the recorder signs one probe
+record and checks it against its own key or keyless identity, and it checks
+every record the same way before it writes it, so a wrong identity or key
+stops the recorder and never lands in a stream. The
 recorder signs with the Sigstore library, with no cosign binary, and never
 uploads to a public transparency log. Keyless signing (`signing.keyless`)
 needs the certificate `identity` and `issuer`, a Fulcio (`fulcioURL`), a
