@@ -416,11 +416,19 @@ func (r *OperationReconciler) held(ctx context.Context, op *dv1.Operation, stage
 	if res, done, err := r.preApplyExits(ctx, op, stage); done {
 		return res, err
 	}
-	a := r.approval(ctx, op)
-	if a == nil {
-		return r.refreshOrder(ctx, op, stage)
+	// The order is refreshed before any approval is read, so an approval is
+	// judged against the teams the change still breaks, not the ones it broke
+	// when it was admitted.
+	refreshed, err := r.refreshOrder(ctx, op, stage)
+	if err != nil {
+		return reconcile.Result{}, err
 	}
+	a := r.approval(ctx, op)
 	switch {
+	case a == nil && refreshed:
+		return r.save(ctx, op)
+	case a == nil:
+		return r.requeue()
 	case a.Decision == delivery.Reject:
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Rejected, reason: "RejectedByHuman: " + a.By + ": " + a.Note})
 	case a.Decision == delivery.AcceptUnknown && op.Status.Plan != nil && op.Status.Plan.Floor.Decision == delivery.Approve:
@@ -431,36 +439,46 @@ func (r *OperationReconciler) held(ctx context.Context, op *dv1.Operation, stage
 }
 
 // refreshOrder plans a change held on its order again while it waits, so the
-// order and the question say what must move now, not what had to at admission:
-// a consumer that moved first drops out, and a read that timed out is tried
-// again. The floor stays the one admission set (approving re-checks the plan),
-// so the question is only refreshed while it asks the same people, or said
-// moot once nothing holds the change.
+// order, the question and who is asked say what must move now, not what had
+// to at admission. A consumer that moved first drops out and its team is no
+// longer asked: once checkout runs a version that accepts the change, only
+// the teams it still breaks may approve it. A consumer moves out of the
+// snapshot because each Pacto adds the one contract its status holds, and the
+// operator updates that status when Flux applies the consumer's new version.
+// A team the change now breaks is asked too. A read that timed out is tried
+// again. It reports whether it changed op's plan; the caller saves it.
+//
+// A re-plan that rejects, or that holds on something Pacto cannot see rather
+// than on a consumer, changes nothing: approving re-checks the plan and
+// rejects or asks that. One with nothing left to hold the change keeps the
+// people already asked and says the question is moot.
 // ponytail: re-plans every poll while a change waits on its order (registry
 // reads are bounded); throttle it if many changes wait at once.
-func (r *OperationReconciler) refreshOrder(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, error) {
+func (r *OperationReconciler) refreshOrder(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (bool, error) {
 	prev := op.Status.Plan
 	if prev == nil || prev.Order == nil {
-		return r.requeue()
+		return false, nil
 	}
 	cur, err := r.plan(ctx, op, stage)
 	if err != nil {
-		return reconcile.Result{}, err
+		return false, err
 	}
-	question := cur.Question
+	next := cur
 	switch {
 	case cur.Predicted == delivery.PredictRejected:
-		return r.requeue() // approving rejects it, with the reason
+		return false, nil
 	case !cur.Floor.Human:
-		question = "Nothing Pacto sees holds this change any more: what it waited for has moved. Approve it to ship it, or cancel it and propose it again."
-	case cur.Floor.Decision != prev.Floor.Decision || !slices.Equal(cur.Floor.Owners, prev.Floor.Owners):
-		return r.requeue() // a different question: approving re-checks and asks it
+		next = *prev
+		next.Order, next.Question = nil, "Nothing Pacto sees holds this change any more: what it waited for has moved. Approve it to ship it, or cancel it and propose it again."
+	case cur.Order == nil:
+		return false, nil
 	}
-	if question == op.Status.Question && equality.Semantic.DeepEqual(cur.Order, prev.Order) {
-		return r.requeue()
+	if next.Question == op.Status.Question && equality.Semantic.DeepEqual(next.Order, prev.Order) && equality.Semantic.DeepEqual(next.Floor, prev.Floor) {
+		return false, nil
 	}
-	op.Status.Plan.Order, op.Status.Plan.Question, op.Status.Question = cur.Order, question, question
-	return r.save(ctx, op)
+	op.Status.Plan, op.Status.Question = &next, next.Question
+	op.Status.Verdicts = mergeVerdicts(op.Status.Verdicts, next.Verdicts)
+	return true, nil
 }
 
 // approval consumes the first valid, not yet consumed Approval for op. A valid
