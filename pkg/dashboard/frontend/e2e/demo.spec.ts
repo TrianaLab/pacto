@@ -447,10 +447,11 @@ test.describe('WASM dashboard demo — workflows', () => {
   // content, at any width. It used to float over the foot of the page, which on a short
   // window is where the content was. A reader who has read it can still put it away.
   test('demo strip: it never covers the page, and the reader can dismiss it', async ({ page }) => {
-    await page.setViewportSize({ width: 360, height: 640 });
     await appReady(page);
     const strip = page.getByTestId('demo-strip');
     await expect(strip).toBeVisible({ timeout: 20_000 });
+    // A phone, where the strip wraps to several lines.
+    await page.setViewportSize({ width: 360, height: 640 });
     const layout = await strip.evaluate((el) => {
       const app = el.nextElementSibling as HTMLElement;
       return { position: getComputedStyle(el).position, stripBottom: el.getBoundingClientRect().bottom, appTop: app.getBoundingClientRect().top };
