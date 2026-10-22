@@ -124,10 +124,19 @@ records_scenario() {
   out="$(kubectl -n test patch stage payments --subresource=status --type merge -p '{"status":{"stream":{"head":"sha256:forged"}}}' 2>&1 || true)"
   grep -q "written only by the Pacto delivery recorder" <<<"$out" || fail "an admin moved the stream head: $out"
   pass "admission refuses a stream head written by anyone but the recorder"
-  out="$(kubectl -n test get stage payments -o json | jq '.status.locks = {"pointer": "forged"} | .status.stream.concluded = []' |
-    kubectl --as "system:serviceaccount:$DELIVERY_NS:pacto-delivery-recorder" replace --subresource=status -f - 2>&1 || true)"
-  grep -q "the Pacto delivery recorder writes records, never what runs" <<<"$out" || fail "the recorder rewrote the locks and conclusions: $out"
-  pass "admission refuses the recorder a write to the locks or the conclusions a Stage keeps"
+  # One change per request, so each pin is proven on its own.
+  local kind name edit
+  while IFS=$'\t' read -r kind name edit; do
+    out="$(kubectl -n test get "$kind" "$name" -o json | jq "$edit" |
+      kubectl --as "system:serviceaccount:$DELIVERY_NS:pacto-delivery-recorder" replace --subresource=status -f - 2>&1 || true)"
+    grep -q "the Pacto delivery recorder writes records, never what runs" <<<"$out" || fail "the recorder wrote $edit on $kind/$name: $out"
+  done <<EOF
+stage	payments	.status.locks = {"pointer": "forged"}
+stage	payments	.status.stream.concluded += [{"seq": 999999, "uid": "forged"}]
+operation	$OPF	.status.plan.floor.owners = ["team-mallory"]
+operation	$OPF	.status.actorClass = (if .status.actorClass == "controller" then "human" else "controller" end)
+EOF
+  pass "admission refuses the recorder a write to a Stage's locks or conclusions, or to an operation's plan or actor class"
 
   # refuse NAME — a refusal on publish-manual/billing: FOREIGN is never
   # published, so the promote is Rejected at once.

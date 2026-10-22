@@ -206,7 +206,7 @@ spec:
 # status.stream.{recordedSeq,head,anchor} on a Stage change only when the
 # recorder writes them, and the recorder changes nothing that decides what
 # runs: not the locks, seqs or conclusions a Stage keeps, nor the verdicts,
-# approvals or policy of an operation. RBAC cannot scope a status write to
+# approvals, policy, plan or actor class of an operation. RBAC cannot scope a status write to
 # fields; this policy does.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
@@ -263,7 +263,11 @@ spec:
         {{ include "pacto-delivery.celSame" (list "status.reason" "''") }} &&
         {{ include "pacto-delivery.celSame" (list "status.times" "{}") }} &&
         {{ include "pacto-delivery.celSame" (list "status.applied" "false") }} &&
-        {{ include "pacto-delivery.celSame" (list "status.stageUID" "''") }})
+        {{ include "pacto-delivery.celSame" (list "status.stageUID" "''") }} &&
+        {{ include "pacto-delivery.celSame" (list "status.plan" "{}") }} &&
+        {{ include "pacto-delivery.celSame" (list "status.actorClass" "''") }} &&
+        {{ include "pacto-delivery.celSame" (list "status.question" "''") }} &&
+        {{ include "pacto-delivery.celSame" (list "status.message" "''") }})
       message: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       reason: Forbidden
 ---

@@ -112,5 +112,125 @@ tests:
         documentIndex: 8
       - matchRegex:
           path: spec.validations[1].expression
-          pattern: "object.status.locks : \\{\\}\\) == .*object.status.frozenReason.*object.status.stream.concluded : \\[\\]\\) == .*object.status.stageUID"
+          pattern: "has\\(object\\.status\\.pointer\\) \\? object\\.status\\.pointer : ''\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.frozen\\) \\? object\\.status\\.frozen : false\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.lastOp\\) \\? object\\.status\\.lastOp : ''\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.stream\\.seq\\) \\? object\\.status\\.stream\\.seq : 0\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.phase\\) \\? object\\.status\\.phase : ''\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.outcome\\) \\? object\\.status\\.outcome : ''\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.seq\\) \\? object\\.status\\.seq : 0\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.locks\\) \\? object\\.status\\.locks : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.verified\\) \\? object\\.status\\.verified : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.failedDigests\\) \\? object\\.status\\.failedDigests : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.frozenReason\\) \\? object\\.status\\.frozenReason : ''\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.autoHold\\) \\? object\\.status\\.autoHold : false\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.autoRollbacks\\) \\? object\\.status\\.autoRollbacks : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.stream\\.id\\) \\? object\\.status\\.stream\\.id : ''\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.stream\\.concluded\\) \\? object\\.status\\.stream\\.concluded : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.published\\) \\? object\\.status\\.published : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.offered\\) \\? object\\.status\\.offered : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.candidate\\) \\? object\\.status\\.candidate : ''\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.lastCheck\\) \\? object\\.status\\.lastCheck : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.verdicts\\) \\? object\\.status\\.verdicts : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.approvals\\) \\? object\\.status\\.approvals : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.policy\\) \\? object\\.status\\.policy : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.verification\\) \\? object\\.status\\.verification : ''\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.reason\\) \\? object\\.status\\.reason : ''\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.times\\) \\? object\\.status\\.times : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.applied\\) \\? object\\.status\\.applied : false\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.stageUID\\) \\? object\\.status\\.stageUID : ''\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.plan\\) \\? object\\.status\\.plan : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.actorClass\\) \\? object\\.status\\.actorClass : ''\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.question\\) \\? object\\.status\\.question : ''\\) == \\(has\\(oldObject\\.status\\)"
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "has\\(object\\.status\\.message\\) \\? object\\.status\\.message : ''\\) == \\(has\\(oldObject\\.status\\)"
         documentIndex: 8
