@@ -228,6 +228,21 @@ func DecodeKustomizations(data []byte) ([]KustomizationView, error) {
 	return list.Items, nil
 }
 
+// misplacedLabels returns the environments the Stages declare and names every
+// Pacto whose environment label is not one of them.
+func misplacedLabels(pactos []PactoView, stages []StageObject) (known map[string]bool, misplaced []string) {
+	known = map[string]bool{}
+	for _, s := range stages {
+		known[s.Spec.Environment] = true
+	}
+	for _, p := range pactos {
+		if env := p.Metadata.Labels[EnvironmentLabel]; env != "" && !known[env] {
+			misplaced = append(misplaced, fmt.Sprintf("Pacto %s/%s is labelled for environment %q, which no Stage declares", p.Metadata.Namespace, p.Metadata.Name, env))
+		}
+	}
+	return known, misplaced
+}
+
 // EnvironmentPactos keeps the Pactos that may run in environment. A provider
 // version is eligible in an environment only if every consumer running there
 // accepts it, so a consumer Pacto can place in another environment does not
@@ -242,19 +257,11 @@ func DecodeKustomizations(data []byte) ([]KustomizationView, error) {
 // A label naming an environment no Stage declares places nothing either: that
 // Pacto counts everywhere, and misplaced names it so the plan can say why it
 // cannot see which consumers run here.
-func EnvironmentPactos(pactos []PactoView, stages []StageObject, kustomizations []KustomizationView, placeErr error, environment string) (kept []PactoView, misplaced []string) {
+func EnvironmentPactos(pactos []PactoView, stages []StageObject, kustomizations []KustomizationView, placeErr error, environment string) ([]PactoView, []string) {
 	if placeErr != nil {
 		return pactos, nil
 	}
-	known := map[string]bool{}
-	for _, s := range stages {
-		known[s.Spec.Environment] = true
-	}
-	for _, p := range pactos {
-		if env := p.Metadata.Labels[EnvironmentLabel]; env != "" && !known[env] {
-			misplaced = append(misplaced, fmt.Sprintf("Pacto %s/%s is labelled for environment %q, which no Stage declares", p.Metadata.Namespace, p.Metadata.Name, env))
-		}
-	}
+	known, misplaced := misplacedLabels(pactos, stages)
 	envs := map[string]map[string]bool{} // namespace -> the environments Stages apply into it
 	for _, k := range kustomizations {
 		src, target := k.Spec.SourceRef, k.Spec.TargetNamespace

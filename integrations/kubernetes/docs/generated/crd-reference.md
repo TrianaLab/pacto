@@ -191,6 +191,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.record.refused` | `string` | no |  |  | Refused names the check and why, for an unrecordable record. |
 | `status.record.seq` | `integer` | yes |  |  | Seq is the record's place in the stream. |
 | `status.seq` | `integer` | no |  |  |  |
+| `status.stageUID` | `string` | no |  |  | StageUID is the uid of the Stage that gave the operation its seq. A Stage deleted and recreated with the same name starts its seqs over, and an operation left over from the old one is not part of the new one. |
 | `status.times` | `object` | no |  |  | Times are RFC 3339 timestamps. |
 | `status.times.admitted` | `string` | no |  |  |  |
 | `status.times.applied` | `string` | no |  |  |  |

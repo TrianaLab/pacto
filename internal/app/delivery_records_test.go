@@ -164,7 +164,7 @@ func TestHistoryNamesASeqNothingHolds(t *testing.T) {
 		opFixture("old", shipSpec(dlB), map[string]any{"phase": "Concluded", "seq": int64(6), "stageUID": "an-earlier-stage"}))
 	_, r2 := e.twoRecords()
 	e.setStream(map[string]any{"stream": map[string]any{"id": recStream, "seq": int64(6), "recordedSeq": int64(2), "head": r2,
-		"anchor": deliveryrecord.AnchorRef(e.host+"/delivery/streams", recStream),
+		"anchor":    deliveryrecord.AnchorRef(e.host+"/delivery/streams", recStream),
 		"concluded": []any{map[string]any{"uid": "uid-late", "seq": int64(4)}, map[string]any{"uid": "uid-gone", "seq": int64(3)}}}})
 	h, _ := e.d.History(context.Background(), "prod", "payments-prod")
 	want := []string{"local seq 3 concluded, but neither its record nor its Operation can be read",
@@ -265,7 +265,11 @@ func TestBlameOfAVersionNeverMovedTo(t *testing.T) {
 	}
 }
 
-func TestBlameOfAnUnrecordableMove(t *testing.T) {
+// unrecordableEnv: live moved the Stage to B, but its approval was gone
+// before the recorder ran, so its record says only that it could not be
+// recorded. It returns that record's id.
+func unrecordableEnv(t *testing.T) (*recordEnv, string) {
+	t.Helper()
 	e := newRecordEnv(t,
 		opFixture("live", shipSpec(dlB), map[string]any{"phase": "Concluded", "outcome": "Succeeded", "seq": int64(3),
 			"pointer":   map[string]any{"before": dlA, "after": dlB},
@@ -278,6 +282,11 @@ func TestBlameOfAnUnrecordableMove(t *testing.T) {
 		Unrecordable: &delivery.Refusal{Check: delivery.CheckApproval, Message: "approval a1 is gone"}})
 	e.setStream(map[string]any{"pointer": dlB, "stream": map[string]any{"id": recStream, "seq": int64(3), "recordedSeq": int64(3),
 		"head": r3, "anchor": deliveryrecord.AnchorRef(e.host+"/delivery/streams", recStream)}})
+	return e, r3
+}
+
+func TestBlameOfAnUnrecordableMove(t *testing.T) {
+	e, r3 := unrecordableEnv(t)
 	ctx := context.Background()
 	h, _ := e.d.History(ctx, "prod", "payments-prod")
 	last := h.Entries[len(h.Entries)-1]
@@ -285,20 +294,23 @@ func TestBlameOfAnUnrecordableMove(t *testing.T) {
 		t.Fatalf("history = %+v", h.Entries)
 	}
 	b, _ := e.d.Blame(ctx, "prod", "payments-prod", "")
-	if b.Change == nil || b.Change.Operation != "live" || len(b.Approvals) != 1 || b.Approvals[0].By != "dave" {
-		t.Fatalf("blame = %+v", b)
-	}
 	// The record refused to vouch for the move: what blame read from the
 	// Operation is labelled unsigned, and the answer is not complete.
-	if b.Completeness != "partial" || len(b.Unsigned) == 0 || !strings.Contains(b.Note, "could not vouch for it") {
-		t.Fatalf("blame from an unrecordable record's Operation claims too much: %+v", b)
+	if b.Change == nil || b.Change.Operation != "live" || len(b.Approvals) != 1 || b.Approvals[0].By != "dave" ||
+		b.Completeness != "partial" || len(b.Unsigned) == 0 || !strings.Contains(b.Note, "could not vouch for it") {
+		t.Fatalf("blame = %+v", b)
 	}
-	// With the Operation gone, what the unrecordable change moved is unknown,
-	// never nobody.
+}
+
+// TestBlameOfAnUnrecordableMoveWithItsOperationGone: what the unrecordable
+// change moved is unknown, never nobody.
+func TestBlameOfAnUnrecordableMoveWithItsOperationGone(t *testing.T) {
+	e, _ := unrecordableEnv(t)
+	ctx := context.Background()
 	if err := e.c.Resource(gvrOperations).Namespace("prod").Delete(ctx, "live", metav1.DeleteOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	b, _ = e.d.Blame(ctx, "prod", "payments-prod", "")
+	b, _ := e.d.Blame(ctx, "prod", "payments-prod", "")
 	if b.Change != nil || b.Completeness != "partial" || !strings.Contains(b.Note, "unrecordable record hides") {
 		t.Fatalf("blame with the Operation gone = %+v", b)
 	}
@@ -526,6 +538,12 @@ func TestFleetAudit(t *testing.T) {
 	if hs, _ = e.d.HistoryAll(ctx, "prod"); len(hs.Histories) != 1 || hs.Histories[0].Namespace != "prod" || hs.Completeness != "complete" {
 		t.Fatalf("history of every Stage in prod = %+v", hs)
 	}
+}
+
+func TestFleetVerify(t *testing.T) {
+	e := newRecordEnv(t)
+	e.twoRecords()
+	ctx := context.Background()
 	vs, err := e.d.VerifyAll(ctx, "prod")
 	if err != nil || !vs.OK || len(vs.Streams) != 1 || vs.Completeness != "complete" || vs.Trust != e.d.Trust.Digest() {
 		t.Fatalf("verify of every Stage in prod = %+v %v", vs, err)
@@ -535,17 +553,22 @@ func TestFleetAudit(t *testing.T) {
 		!strings.Contains(vs.Unreadable[0], "test/payments-test: ") || !strings.Contains(vs.Unreadable[0], "has no records") {
 		t.Fatalf("a Stage with no records does not verify: %+v", vs)
 	}
+}
+
+func TestFleetAuditUnreadable(t *testing.T) {
+	e := newRecordEnv(t)
+	ctx := context.Background()
 	e.c.PrependReactor("get", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("gone")
 	})
-	if hs, _ = e.d.HistoryAll(ctx, ""); len(hs.Histories) != 0 || len(hs.Unreadable) != 2 || hs.Completeness != "partial" ||
+	if hs, _ := e.d.HistoryAll(ctx, ""); len(hs.Histories) != 0 || len(hs.Unreadable) != 2 || hs.Completeness != "partial" ||
 		!strings.Contains(hs.Note, "may still have happened") {
 		t.Fatalf("unreadable Stages = %+v", hs)
 	}
 	e.c.PrependReactor("list", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("forbidden")
 	})
-	_, err = e.d.HistoryAll(ctx, "")
+	_, err := e.d.HistoryAll(ctx, "")
 	wantErrContaining(t, err, "forbidden")
 	_, err = e.d.VerifyAll(ctx, "")
 	wantErrContaining(t, err, "forbidden")

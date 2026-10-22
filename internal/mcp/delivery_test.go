@@ -260,17 +260,21 @@ func TestDeliveryToolErrors(t *testing.T) {
 			t.Fatalf("%s must surface the error", tool)
 		}
 	}
-	for _, tool := range []string{"pacto_delivery_history", "pacto_delivery_record_verify"} {
-		if res := callToolOn(t, server, tool, map[string]any{"namespace": "prod"}); !res.IsError {
-			t.Fatalf("%s of every Stage must surface the error", tool)
-		}
-	}
 	if res := callToolOn(t, server, "pacto_delivery_undo", map[string]any{"namespace": "prod", "name": "p1"}); !res.IsError {
 		t.Fatal("undo must surface the error")
 	}
 	for _, tool := range []string{"pacto_delivery_get", "pacto_delivery_cancel", "pacto_delivery_explain"} {
 		if res := callToolOn(t, server, tool, map[string]any{"namespace": "prod", "name": "p1"}); !res.IsError {
 			t.Fatalf("%s must surface the error", tool)
+		}
+	}
+}
+
+func TestDeliveryFleetToolErrors(t *testing.T) {
+	server := NewDeliveryServer("v", &stubDelivery{err: errors.New("forbidden")}, false, nil)
+	for _, tool := range []string{"pacto_delivery_history", "pacto_delivery_record_verify"} {
+		if res := callToolOn(t, server, tool, map[string]any{"namespace": "prod"}); !res.IsError {
+			t.Fatalf("%s of every Stage must surface the error", tool)
 		}
 	}
 }
