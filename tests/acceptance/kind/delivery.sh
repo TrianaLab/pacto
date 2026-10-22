@@ -192,12 +192,14 @@ REG_PF_PID="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
 # phase 4's own dashboard runs with.
 kubectl -n "$NS" create secret generic dashboard-oidc --from-literal=client-secret="$DASH_SECRET" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-infra "install the pacto-operator chart" helm upgrade --install pacto-operator "$OP_CHART" -n "$NS" \
+# The Pacto chart installs and rollouts below are the product under test, not
+# infrastructure: they run once and a failure is a FAIL, never a retry.
+helm upgrade --install pacto-operator "$OP_CHART" -n "$NS" \
   --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
   --set dashboard.enabled=true --set dashboard.auth.oidc.issuerURL="$DEX_ISSUER" \
   --set dashboard.auth.oidc.clientID=pacto-dashboard --set dashboard.auth.oidc.redirectURL="$DASH_URL/auth/callback" \
   --set dashboard.auth.oidc.clientSecretRef.name=dashboard-oidc \
-  --set "insecureRegistries[0]=$REG_HOST" --wait --timeout 240s
+  --set "insecureRegistries[0]=$REG_HOST" --wait --timeout 240s || fail "the pacto-operator chart did not roll out"
 infra "install Flux" kubectl apply --server-side -f "$FLUX_INSTALL" >/dev/null
 kubectl -n flux-system scale deploy helm-controller --replicas=0 >/dev/null 2>&1 || true
 infra "roll out Flux's source-controller" kubectl -n flux-system rollout status deploy/source-controller --timeout=240s
@@ -234,11 +236,11 @@ kubectl -n "$DELIVERY_NS" create secret generic recorder-key --from-file=key.pem
 STREAMS_REPO="pacto-delivery-streams"
 
 echo "== the opt-in delivery chart, with the recorder =="
-infra "install the pacto-delivery chart" helm upgrade --install pacto-delivery "$DL_CHART" -n "$DELIVERY_NS" \
+helm upgrade --install pacto-delivery "$DL_CHART" -n "$DELIVERY_NS" \
   --set image.repository="$DL_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
   --set "insecureRegistries[0]=$REG_HOST" --set promoter.poll=2s \
   --set recorder.enabled=true --set recorder.streamsRepository="$REG_HOST/$STREAMS_REPO" --set recorder.poll=5s \
-  --set recorder.signing.ed25519.secretName=recorder-key --wait --timeout 240s
+  --set recorder.signing.ed25519.secretName=recorder-key --wait --timeout 240s || fail "the pacto-delivery chart did not roll out"
 if kubectl auth can-i patch ocirepositories.source.toolkit.fluxcd.io -A \
   --as "system:serviceaccount:${NS}:pacto-operator" | grep -q yes; then
   fail "the observing operator can edit the pointer; delivery must add no permission to it"
@@ -745,8 +747,9 @@ H_REPO=apps/payments-health
 # The operator restarts with the node agent first: the new manager takes over
 # the leader lease from the old one, which can take a few minutes on kind.
 AGENT_NS=pacto-node-agent
-infra "upgrade the pacto-operator chart with the node agent" helm upgrade pacto-operator "$OP_CHART" -n "$NS" --reuse-values \
-  --set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s --wait --timeout 240s >/dev/null
+helm upgrade pacto-operator "$OP_CHART" -n "$NS" --reuse-values \
+  --set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s --wait --timeout 240s >/dev/null \
+  || fail "the pacto-operator chart with the node agent did not roll out"
 infra "load Mira and agnhost into the cluster" load_images "$MIRA_IMG" "$AGNHOST"
 kubectl create namespace "$H" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl -n "$H" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -777,12 +780,12 @@ YAML
 infra "roll out Mira" kubectl -n "$NS" rollout status deploy/mira --timeout=120s >/dev/null
 MIRA_PF_PID="$(pf "$MIRA_PORT" svc/mira 4318)"
 
-infra "upgrade the pacto-delivery chart with Mira" helm upgrade pacto-delivery "$DL_CHART" -n "$DELIVERY_NS" --reuse-values \
+helm upgrade pacto-delivery "$DL_CHART" -n "$DELIVERY_NS" --reuse-values \
   --set-json "gates.providers=[{\"name\":\"mira\",\"type\":\"mira\",\"url\":\"http://mira.${NS}.svc.cluster.local:4318\"}]" \
-  --wait --timeout 240s >/dev/null
-infra "roll out pacto-delivery" kubectl -n "$DELIVERY_NS" rollout status deploy/pacto-delivery --timeout=120s >/dev/null
+  --wait --timeout 240s >/dev/null || fail "the pacto-delivery chart with Mira did not roll out"
+kubectl -n "$DELIVERY_NS" rollout status deploy/pacto-delivery --timeout=120s >/dev/null || fail "pacto-delivery did not roll out"
 eventually 40 kubectl -n "$AGENT_NS" get ds pacto-node-agent >/dev/null 2>&1 || fail "the operator never created the node agent"
-infra "roll out the node agent" kubectl -n "$AGENT_NS" rollout status ds/pacto-node-agent --timeout=180s >/dev/null
+kubectl -n "$AGENT_NS" rollout status ds/pacto-node-agent --timeout=180s >/dev/null || fail "the node agent did not roll out"
 agent_running() {
   [ "$(kubectl -n "$AGENT_NS" get noderuntimeobservations.pacto.trianalab.io -o jsonpath='{.items[0].status.collection.state}' 2>/dev/null)" = Running ]
 }

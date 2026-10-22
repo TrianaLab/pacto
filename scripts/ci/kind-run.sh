@@ -4,8 +4,8 @@
 # was:
 #
 #   infrastructure failed  the harness's infra helper (tests/acceptance/kind/lib.sh)
-#                          gave up on cluster creation, an image pull or load, a
-#                          chart install or a rollout wait. Re-run the job.
+#                          gave up on cluster creation, an image pull or load, or
+#                          a third-party install or rollout. Re-run the job.
 #   a check failed         anything else: a claim the scenario makes did not hold.
 #
 # It reads the INFRASTRUCTURE FAILED line rather than the exit status, because

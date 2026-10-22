@@ -91,12 +91,14 @@ always() {
 }
 
 # infra DESC CMD... — run an INFRASTRUCTURE step: cluster creation, an image
-# pull or load, a chart install, a rollout wait. Three attempts, 10s then 20s
-# apart. A runner that cannot reach a registry or start a cluster is not a
+# pull or load, a third-party install or rollout (Flux, Mira). Three attempts,
+# 10s then 20s apart. A runner that cannot reach a registry or start a cluster is not a
 # product failure, and one retry is usually all it needs.
 #
-# Never wrap a check in it. A check that passes on the second try hides exactly
-# the flake it exists to catch.
+# Never wrap a check in it, and never a Pacto chart install or rollout: those
+# run images built from the tree under test, so their failure is a FAIL. A
+# check that passes on the second try hides exactly the flake it exists to
+# catch.
 #
 # When the attempts run out it prints INFRASTRUCTURE FAILED and exits 75
 # (EX_TEMPFAIL), never 1, so CI can tell "the environment broke" from "a check
