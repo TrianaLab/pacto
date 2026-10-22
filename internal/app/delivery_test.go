@@ -91,7 +91,7 @@ func deliveryFixture(t *testing.T, user string, groups []string, extra map[strin
 	})
 	all := append([]runtime.Object{stage, upstream, repo}, objs...)
 	lists := map[schema.GroupVersionResource]string{gvrStages: "StageList", gvrOperations: "OperationList", gvrApprovals: "ApprovalList",
-		gvrPactos: "PactoList", gvrOCIRepository: "OCIRepositoryList", gvrKustomization: "KustomizationList"}
+		gvrPactos: "PactoList", gvrOCIRepository: "OCIRepositoryList", gvrKustomization: "KustomizationList", gvrNamespaces: "NamespaceList"}
 	c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists, all...)
 	c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 		gs := make([]any, 0, len(groups))

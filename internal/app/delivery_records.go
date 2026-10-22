@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"golang.org/x/sync/errgroup"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -485,11 +486,43 @@ func audit[T any](ctx context.Context, stages []delivery.StageObject, read func(
 // HistoryAll reads the history of every Stage in namespace, or in every
 // namespace the caller can list for "".
 func (d *Delivery) HistoryAll(ctx context.Context, namespace string) (*delivery.Histories, error) {
-	stages, err := d.Stages(ctx, namespace)
+	stages, forbidden, err := d.auditStages(ctx, namespace)
 	if err != nil {
 		return nil, err
 	}
-	return d.Histories(ctx, stages), nil
+	out := d.Histories(ctx, stages)
+	if len(forbidden) > 0 {
+		out.Unreadable, out.Completeness = append(forbidden, out.Unreadable...), "partial"
+		out.Note += "; the namespaces listed as unreadable were not read, so a change in them may still have happened"
+	}
+	return out, nil
+}
+
+// auditStages lists the Stages a fleet audit walks: those in namespace, or in
+// every namespace for "". A caller who may not list Stages cluster-wide gets
+// the Stages of each namespace it can read, and every namespace it cannot is
+// named in forbidden.
+func (d *Delivery) auditStages(ctx context.Context, namespace string) (stages []delivery.StageObject, forbidden []string, err error) {
+	stages, err = d.Stages(ctx, namespace)
+	if namespace != "" || !apierrors.IsForbidden(err) {
+		return stages, nil, err
+	}
+	type named struct {
+		Metadata delivery.ObjectMeta `json:"metadata"`
+	}
+	nss, nerr := listInto[named](ctx, d.Dynamic.Resource(gvrNamespaces), "", "namespaces")
+	if nerr != nil {
+		return nil, nil, fmt.Errorf("%w; walking the namespaces one by one instead: %w; name one with -n", err, nerr)
+	}
+	for _, ns := range nss {
+		s, err := d.Stages(ctx, ns.Metadata.Name)
+		if err != nil {
+			forbidden = append(forbidden, err.Error()) // it names the namespace
+			continue
+		}
+		stages = append(stages, s...)
+	}
+	return stages, forbidden, nil
 }
 
 // Histories reads the history of each of stages.
@@ -523,13 +556,14 @@ func (d *Delivery) VerifyAll(ctx context.Context, namespace string) (*delivery.S
 	if d.Trust == nil {
 		return nil, errNoTrust
 	}
-	stages, err := d.Stages(ctx, namespace)
+	stages, forbidden, err := d.auditStages(ctx, namespace)
 	if err != nil {
 		return nil, err
 	}
 	vs, unreadable := audit(ctx, stages, func(ctx context.Context, s delivery.StageObject) (*delivery.StreamVerification, error) {
 		return d.VerifyRecords(ctx, s.Metadata.Namespace, s.Metadata.Name)
 	})
+	unreadable = append(forbidden, unreadable...)
 	out := &delivery.StreamVerifications{AsOf: d.Now().UTC().Format(time.RFC3339), Completeness: "complete", Trust: d.Trust.Digest(),
 		OK: len(unreadable) == 0, Unreadable: unreadable, Streams: []delivery.StreamVerification{}}
 	if len(unreadable) > 0 {

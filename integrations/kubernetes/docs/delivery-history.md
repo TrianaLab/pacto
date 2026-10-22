@@ -51,7 +51,10 @@ pacto delivery record verify --all --trust recorder.pub
 ```
 
 `--all` walks every Stage in every namespace you can list, or only those in
-the namespace you pass with `-n`. It reads up to 500 Stages, eight at a time,
+the namespace you pass with `-n`. If you may not list Stages in every
+namespace at once, it lists the namespaces, reads the Stages in each one you
+can and lists the others under `unreadable`, so the answer is `partial`. If
+you may not list namespaces either, pass `-n`. It reads up to 500 Stages, eight at a time,
 for at most two minutes. The answer has one `asOf` and is `complete` only
 when every Stage was read and every history is complete. A Stage it could not
 read is listed under `unreadable`. `record verify --all` fails unless every

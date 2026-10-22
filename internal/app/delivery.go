@@ -26,6 +26,7 @@ var (
 	gvrOCIRepository = schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "ocirepositories"}
 	gvrKustomization = schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}
 	gvrSelfReview    = schema.GroupVersionResource{Group: "authentication.k8s.io", Version: "v1", Resource: "selfsubjectreviews"}
+	gvrNamespaces    = schema.GroupVersionResource{Version: "v1", Resource: "namespaces"}
 )
 
 // recordFinalizer is the finalizer admission requires on every Operation.

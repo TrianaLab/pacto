@@ -53,6 +53,8 @@ what the records attached to the version say happened to it on other Stages.
 `pacto delivery history --all` and `record verify --all` walk every Stage you
 can list, up to 500 Stages, eight at a time and for at most two minutes, with
 one `asOf` and a completeness that is complete only when every Stage was read.
+Without the right to list Stages in every namespace they walk each namespace
+you can read and list the others as unreadable.
 The same answers are the MCP tools `pacto_delivery_blame`,
 `pacto_delivery_undo` and `pacto_delivery_record_verify` (`pacto_delivery_history`
 and `pacto_delivery_record_verify` walk every Stage when `stage` is empty), and the dashboard's

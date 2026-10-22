@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -583,6 +584,38 @@ func TestFleetAuditUnreadable(t *testing.T) {
 	e.d.Trust = nil
 	_, err = e.d.VerifyAll(ctx, "")
 	wantErrContaining(t, err, "needs a trust config")
+}
+
+// TestFleetAuditPerNamespace: a caller who may not list Stages cluster-wide
+// gets every namespace it can read, and the answer names the others and is
+// partial.
+func TestFleetAuditPerNamespace(t *testing.T) {
+	ctx := context.Background()
+	e := newRecordEnv(t, obj("v1", "Namespace", "", "prod", nil), obj("v1", "Namespace", "", "test", nil))
+	e.twoRecords()
+	e.c.PrependReactor("list", "stages", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		if ns := a.GetNamespace(); ns == "" || ns == "test" {
+			return true, nil, apierrors.NewForbidden(gvrStages.GroupResource(), "", errors.New("no"))
+		}
+		return false, nil, nil
+	})
+	hs, err := e.d.HistoryAll(ctx, "")
+	if err != nil || len(hs.Histories) != 1 || hs.Histories[0].Namespace != "prod" || hs.Completeness != "partial" ||
+		len(hs.Unreadable) != 1 || !strings.Contains(hs.Unreadable[0], "in test") || !strings.Contains(hs.Note, "namespaces listed as unreadable") {
+		t.Fatalf("history with Stages listable per namespace only = %+v %v", hs, err)
+	}
+	vs, err := e.d.VerifyAll(ctx, "")
+	if err != nil || vs.OK || len(vs.Streams) != 1 || vs.Completeness != "partial" || len(vs.Unreadable) != 1 {
+		t.Fatalf("verify with Stages listable per namespace only = %+v %v", vs, err)
+	}
+	if _, err := e.d.HistoryAll(ctx, "test"); !apierrors.IsForbidden(err) {
+		t.Fatalf("a namespace named with -n is not walked around: %v", err)
+	}
+	e.c.PrependReactor("list", "namespaces", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(gvrNamespaces.GroupResource(), "", errors.New("no"))
+	})
+	_, err = e.d.HistoryAll(ctx, "")
+	wantErrContaining(t, err, "name one with -n")
 }
 
 func TestAuditIsBounded(t *testing.T) {
