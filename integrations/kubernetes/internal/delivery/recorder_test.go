@@ -117,8 +117,8 @@ func newRecEnv(t *testing.T, objs ...any) *recEnv {
 	e.create(u)
 	re := &recEnv{env: e, reg: reg, key: key}
 	re.rec = &Recorder{Client: e.c, APIReader: e.c, Cluster: e.op.Cluster, ClusterID: "cid",
-		Store:  &RecordStore{Streams: reg.host + "/delivery/streams", Verify: delivery.PublicKeyVerifier(key.Public())},
-		Signer: delivery.Ed25519Signer(key), Now: func() time.Time { return e.now }, Poll: time.Second, GapGrace: time.Minute}
+		Store:  &RecordStore{Streams: reg.host + "/delivery/streams", Verify: edVerifier(key.Public())},
+		Signer: edSigner(key), Now: func() time.Time { return e.now }, Poll: time.Second, GapGrace: time.Minute}
 	return re
 }
 
@@ -410,8 +410,8 @@ func TestRecorderRefusesToFork(t *testing.T) {
 		re.concluded("ship", 1, delivery.Succeeded)
 		re.reconcile()
 		_, other, _ := ed25519.GenerateKey(rand.Reader)
-		re.rec.Store.Verify = delivery.PublicKeyVerifier(other.Public())
-		re.rec.Signer = delivery.Ed25519Signer(other)
+		re.rec.Store.Verify = edVerifier(other.Public())
+		re.rec.Signer = edSigner(other)
 		re.setStage(func(s *delivery.StageStatus) { s.Stream.Seq = 2 })
 		re.concluded("next", 2, delivery.Succeeded)
 		re.reconcile()
@@ -505,8 +505,8 @@ func TestRecorderStoreFailures(t *testing.T) {
 
 type failingSigner struct{}
 
-func (failingSigner) Sign(context.Context, []byte) ([]byte, delivery.VerificationMaterial, error) {
-	return nil, delivery.VerificationMaterial{}, errors.New("kms down")
+func (failingSigner) Sign(context.Context, string, []byte) ([]byte, error) {
+	return nil, errors.New("kms down")
 }
 
 func TestRecorderClusterReads(t *testing.T) {

@@ -10,8 +10,9 @@
 {{- if ne (int $signers) 1 }}
 {{- fail "configure exactly one of recorder.signing.ed25519.secretName, recorder.signing.kms or recorder.signing.keyless" }}
 {{- end }}
-{{- if and $r.signing.keyless.enabled (or (not $r.signing.keyless.identity) (not $r.signing.keyless.issuer) (not $r.signing.keyless.roots)) }}
-{{- fail "recorder.signing.keyless needs identity, issuer and roots" }}
+{{- $k := $r.signing.keyless }}
+{{- if and $k.enabled (or (not $k.identity) (not $k.issuer) (not $k.fulcioURL) (not $k.timestampURL) (not $k.trustedRoot)) }}
+{{- fail "recorder.signing.keyless needs identity, issuer, fulcioURL, timestampURL and trustedRoot" }}
 {{- end }}
 {{- $name := printf "%s-recorder" (include "pacto-delivery.fullname" .) }}
 {{- if $r.serviceAccount.create }}
@@ -108,18 +109,18 @@ data:
 ---
 {{- end }}
 {{- if $r.signing.keyless.enabled }}
-# The certificates a keyless record's certificate must chain to. Without them
-# a self-signed certificate could name the recorder's identity.
+# The Sigstore trusted root a keyless record must verify under. Without it a
+# self-signed certificate could name the recorder's identity.
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ $name }}-keyless-roots
+  name: {{ $name }}-keyless
   namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/component: recorder
     {{- include "pacto-delivery.labels" . | nindent 4 }}
 data:
-  roots.pem: {{ $r.signing.keyless.roots | quote }}
+  trusted_root.json: {{ $r.signing.keyless.trustedRoot | quote }}
 ---
 {{- end }}
 apiVersion: apps/v1
@@ -170,7 +171,10 @@ spec:
             - --keyless
             - {{ printf "--keyless-identity=%s" $r.signing.keyless.identity | quote }}
             - {{ printf "--keyless-issuer=%s" $r.signing.keyless.issuer | quote }}
-            - --keyless-roots=/etc/pacto/keyless/roots.pem
+            - {{ printf "--keyless-fulcio-url=%s" $r.signing.keyless.fulcioURL | quote }}
+            - {{ printf "--keyless-timestamp-url=%s" $r.signing.keyless.timestampURL | quote }}
+            - --keyless-token-file=/var/run/sigstore/token/token
+            - --keyless-trusted-root=/etc/pacto/keyless/trusted_root.json
             {{- end }}
             {{- if $r.trust }}
             - --trust-config=/etc/pacto/trust/trust.yaml
@@ -232,8 +236,11 @@ spec:
               readOnly: true
             {{- end }}
             {{- if $r.signing.keyless.enabled }}
-            - name: keyless-roots
+            - name: keyless
               mountPath: /etc/pacto/keyless
+              readOnly: true
+            - name: sigstore-token
+              mountPath: /var/run/sigstore/token
               readOnly: true
             {{- end }}
       volumes:
@@ -253,9 +260,17 @@ spec:
             name: {{ $name }}-trust
         {{- end }}
         {{- if $r.signing.keyless.enabled }}
-        - name: keyless-roots
+        - name: keyless
           configMap:
-            name: {{ $name }}-keyless-roots
+            name: {{ $name }}-keyless
+        # The OIDC token Fulcio checks: short-lived, for the sigstore audience.
+        - name: sigstore-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: sigstore
+                  expirationSeconds: 600
+                  path: token
         {{- end }}
         {{- if $r.registryCredentials.secretName }}
         - name: registry

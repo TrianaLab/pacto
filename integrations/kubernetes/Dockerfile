@@ -90,14 +90,9 @@ COPY --from=builder /workspace/manager .
 USER 65532:65532
 ENTRYPOINT ["/manager"]
 
-# The delivery image (`--target delivery`, with CMD=cmd/delivery) also carries
-# cosign: the recorder signs records with it when it uses a KMS key or keyless
-# signing. cosign 2.x, because the recorder relies on sign-blob writing a raw
-# signature and certificate (--b64=false, --output-signature,
-# --output-certificate) with Rekor upload off. BuildKit builds only the target
-# it is asked for, so the operator image never pulls this.
+# The delivery image (`--target delivery`, with CMD=cmd/delivery) is the same
+# single binary: the recorder signs with sigstore-go, so it needs no cosign.
 FROM operator AS delivery
-COPY --from=ghcr.io/sigstore/cosign/cosign:v2.6.5@sha256:ad281047f85c5e1fc6ffbc30c2b55be3b07b4032bef715a12122ce5829619aca /ko-app/cosign /usr/local/bin/cosign
 
 # The default target stays the operator image.
 FROM operator

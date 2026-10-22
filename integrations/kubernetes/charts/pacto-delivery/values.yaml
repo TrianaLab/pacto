@@ -77,18 +77,24 @@ recorder:
       secretName: ""
       # -- The key in that Secret
       key: key.pem
-    # -- A cosign KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`)
+    # -- A KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`)
     kms: ""
     keyless:
-      # -- Sign keyless with a Fulcio certificate for the recorder's workload identity. Rekor upload is off.
+      # -- Sign keyless with a Fulcio certificate for the recorder's workload identity, presented as a
+      # projected service account token for the `sigstore` audience. Rekor upload is off; a timestamp
+      # authority dates each signature.
       enabled: false
       # -- The certificate identity keyless signing produces
       identity: ""
       # -- The OIDC issuer keyless signing uses
       issuer: ""
-      # -- PEM certificates (the Fulcio root and intermediate) a keyless certificate must chain to.
-      # Required with keyless: without them a self-signed certificate could name the recorder's identity.
-      roots: ""
+      # -- The Fulcio that issues the certificate
+      fulcioURL: ""
+      # -- The timestamp authority whose signed time a short-lived certificate verifies at
+      timestampURL: ""
+      # -- The Sigstore trusted root (`trusted_root.json`) naming that Fulcio and timestamp authority.
+      # Required with keyless: without it a self-signed certificate could name the recorder's identity.
+      trustedRoot: ""
   # -- Keep a recorded operation this long after it concluded, then delete it: its record holds what
   # happened. The operation a Stage runs is never deleted. `0s` keeps them all (a Go duration).
   operationTTL: 168h
@@ -99,7 +105,7 @@ recorder:
   # -- A URL the recorder POSTs a CDEvent (CloudEvents, structured mode) to for every record, best
   # effort. Empty sends none.
   cdeventsSink: ""
-  # -- Extra environment for the recorder (for example KMS or OIDC settings cosign reads)
+  # -- Extra environment for the recorder (for example the credentials a KMS client reads)
   extraEnv: []
   resources:
     limits:

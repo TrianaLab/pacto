@@ -72,7 +72,9 @@
                 "enabled": { "type": "boolean" },
                 "identity": { "type": "string" },
                 "issuer": { "type": "string" },
-                "roots": { "type": "string" }
+                "fulcioURL": { "type": "string" },
+                "timestampURL": { "type": "string" },
+                "trustedRoot": { "type": "string" }
               }
             }
           }

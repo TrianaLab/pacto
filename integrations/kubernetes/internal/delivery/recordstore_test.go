@@ -42,7 +42,7 @@ func testStore(t *testing.T) (*RecordStore, *testRegistry, ed25519.PrivateKey) {
 	t.Helper()
 	reg := newTestRegistry(t)
 	_, key, _ := ed25519.GenerateKey(rand.Reader)
-	return &RecordStore{Streams: reg.host + "/delivery/streams", Verify: delivery.PublicKeyVerifier(key.Public())}, reg, key
+	return &RecordStore{Streams: reg.host + "/delivery/streams", Verify: edVerifier(key.Public())}, reg, key
 }
 
 func TestRecordStoreAnchorFailures(t *testing.T) {
@@ -113,7 +113,7 @@ func TestRecordStoreList(t *testing.T) {
 	}
 	// A real record reads back.
 	st := delivery.NewGap("cid", delivery.ObjectMeta{Name: "st"}, 1, delivery.Chain{Stream: "s", Seq: 1}, a.desc.Digest.String(), "t")
-	bundle, id, _ := delivery.SignRecord(ctx, delivery.Ed25519Signer(key), st)
+	bundle, id, _ := delivery.SignRecord(ctx, edSigner(key), st)
 	if err := s.write(ctx, bundle, st, locations{anchor: a}); err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestRecordStoreWriteFailures(t *testing.T) {
 	s, reg, key := testStore(t)
 	a, _ := s.anchor(ctx, "s")
 	st := delivery.NewGap("cid", delivery.ObjectMeta{Name: "st"}, 1, delivery.Chain{Stream: "s", Seq: 1}, a.desc.Digest.String(), "t")
-	bundle, _, _ := delivery.SignRecord(ctx, delivery.Ed25519Signer(key), st)
+	bundle, _, _ := delivery.SignRecord(ctx, edSigner(key), st)
 	for name, fault := range map[string]func(*http.Request) bool{
 		"push":    from(1, http.MethodPut, "/manifests/"),
 		"confirm": from(1, http.MethodGet, "/referrers/"),

@@ -62,7 +62,7 @@ same version as your Pacto operator.
 | promoter.poll | string | `"3s"` | How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration) |
 | recorder.cdeventsSink | string | `""` | A URL the recorder POSTs a CDEvent (CloudEvents, structured mode) to for every record, best effort. Empty sends none. |
 | recorder.enabled | bool | `false` | Run the recorder, which writes a signed record of every concluded operation to the registry as OCI referrers. Off by default. When on, the promoter leaves the record finalizer to it. The registry must support the OCI Referrers API natively (GHCR and released `distribution` do not). |
-| recorder.extraEnv | list | `[]` | Extra environment for the recorder (for example KMS or OIDC settings cosign reads) |
+| recorder.extraEnv | list | `[]` | Extra environment for the recorder (for example the credentials a KMS client reads) |
 | recorder.leaderElect | bool | `true` | Elect one active recorder |
 | recorder.operationTTL | string | `"168h"` | Keep a recorded operation this long after it concluded, then delete it: its record holds what happened. The operation a Stage runs is never deleted. `0s` keeps them all (a Go duration). |
 | recorder.poll | string | `"30s"` | How long a registry or signer failure backs off (a Go duration) |
@@ -76,11 +76,13 @@ same version as your Pacto operator.
 | recorder.serviceAccount.name | string | `""` | Name override (defaults to fullname-recorder) |
 | recorder.signing.ed25519.key | string | `"key.pem"` | The key in that Secret |
 | recorder.signing.ed25519.secretName | string | `""` | A Secret holding a PKCS#8 PEM Ed25519 private key (for kind and tests) |
-| recorder.signing.keyless.enabled | bool | `false` | Sign keyless with a Fulcio certificate for the recorder's workload identity. Rekor upload is off. |
+| recorder.signing.keyless.enabled | bool | `false` | Sign keyless with a Fulcio certificate for the recorder's workload identity, presented as a projected service account token for the `sigstore` audience. Rekor upload is off; a timestamp authority dates each signature. |
+| recorder.signing.keyless.fulcioURL | string | `""` | The Fulcio that issues the certificate |
 | recorder.signing.keyless.identity | string | `""` | The certificate identity keyless signing produces |
 | recorder.signing.keyless.issuer | string | `""` | The OIDC issuer keyless signing uses |
-| recorder.signing.keyless.roots | string | `""` | PEM certificates (the Fulcio root and intermediate) a keyless certificate must chain to. Required with keyless: without them a self-signed certificate could name the recorder's identity. |
-| recorder.signing.kms | string | `""` | A cosign KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`) |
+| recorder.signing.keyless.timestampURL | string | `""` | The timestamp authority whose signed time a short-lived certificate verifies at |
+| recorder.signing.keyless.trustedRoot | string | `""` | The Sigstore trusted root (`trusted_root.json`) naming that Fulcio and timestamp authority. Required with keyless: without it a self-signed certificate could name the recorder's identity. |
+| recorder.signing.kms | string | `""` | A KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`) |
 | recorder.streamsRepository | string | `""` | Repository (`host/path`) that holds one anchor per Stage stream. Required when enabled. |
 | recorder.trust | string | `""` | Other keys whose records the recorder accepts, as a trust config in YAML (`keys: [{publicKey: <PEM>, streams: ["*/prod/*"]}]`): list the old key here while you rotate to a new one. The recorder's own key is always trusted. A record no listed key signed stops the stream. |
 | replicaCount | int | `1` | Number of promoter replicas. Only the elected leader acts. |

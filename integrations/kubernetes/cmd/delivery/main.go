@@ -41,6 +41,7 @@ import (
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
 var version = "dev"
@@ -144,15 +145,19 @@ func runRecorder(args []string) error {
 	poll := fs.Duration("poll", 30*time.Second, "How long a registry or signer failure backs off.")
 	streams := fs.String("streams-repository", "",
 		"The repository (host/path) that holds one anchor per stream. Required.")
-	keyFile := fs.String("signing-key-file", "", "A PKCS#8 PEM Ed25519 private key to sign with.")
+	keyFile := fs.String("signing-key-file", "", "A PEM private key to sign with (Ed25519, ECDSA P-256 or RSA).")
 	kmsKey := fs.String("kms-key", "",
-		"A cosign KMS key URI to sign with (awskms://, gcpkms://, azurekms://, hashivault://).")
+		"A KMS key URI to sign with (awskms://, gcpkms://, azurekms://, hashivault://).")
 	keyless := fs.Bool("keyless", false, "Sign keyless with a Fulcio certificate for the pod's identity.")
 	identity := fs.String("keyless-identity", "", "The certificate identity keyless signing produces.")
 	issuer := fs.String("keyless-issuer", "", "The OIDC issuer keyless signing uses.")
-	roots := fs.String("keyless-roots", "",
-		"A PEM file of the certificates (the Fulcio root and intermediate) a keyless certificate must chain to.")
-	cosign := fs.String("cosign", "cosign", "The cosign binary, for KMS and keyless signing.")
+	fulcio := fs.String("keyless-fulcio-url", "", "The Fulcio that issues the keyless certificate.")
+	tsa := fs.String("keyless-timestamp-url", "",
+		"The timestamp authority whose signed time a keyless certificate verifies at.")
+	token := fs.String("keyless-token-file", "",
+		"The OIDC token Fulcio checks: a projected service account token for the sigstore audience.")
+	trustedRoot := fs.String("keyless-trusted-root", "",
+		"The Sigstore trusted root (trusted_root.json) naming that Fulcio and timestamp authority.")
 	trustFile := fs.String("trust-config", "",
 		"A trust config (YAML) of other keys whose records the recorder accepts, per stream glob, "+
 			"such as the old key during a rotation.")
@@ -166,8 +171,9 @@ func runRecorder(args []string) error {
 	}
 
 	ctx := context.Background()
-	signer, own, err := delivery.NewSigner(ctx, delivery.SigningConfig{Ed25519KeyFile: *keyFile, KMSKey: *kmsKey,
-		Keyless: *keyless, Identity: *identity, Issuer: *issuer, RootsFile: *roots, Cosign: *cosign}, nil)
+	signer, own, err := delivery.NewSigner(ctx, delivery.SigningConfig{KeyFile: *keyFile, KMSKey: *kmsKey,
+		Keyless: *keyless, Identity: *identity, Issuer: *issuer, FulcioURL: *fulcio, TimestampURL: *tsa,
+		TokenFile: *token, TrustedRootFile: *trustedRoot})
 	if err != nil {
 		return err
 	}
@@ -175,7 +181,7 @@ func runRecorder(args []string) error {
 	if err != nil {
 		return err
 	}
-	verify, _ := trust.Verifier() // RecorderTrust checked it
+	verify, _ := signing.TrustVerifier(trust) // RecorderTrust checked it
 	mgr, err := newManager(*metricsAddr, *probeAddr, *leaderElect, "pacto-delivery-recorder")
 	if err != nil {
 		return err

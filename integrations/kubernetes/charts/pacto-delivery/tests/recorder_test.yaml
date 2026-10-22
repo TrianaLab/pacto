@@ -98,7 +98,9 @@ tests:
       recorder.signing.keyless.enabled: true
       recorder.signing.keyless.identity: https://kubernetes.io/namespaces/pacto-delivery/serviceaccounts/d-pacto-delivery-recorder
       recorder.signing.keyless.issuer: https://issuer.example
-      recorder.signing.keyless.roots: "-----BEGIN CERTIFICATE-----"
+      recorder.signing.keyless.fulcioURL: https://fulcio.example
+      recorder.signing.keyless.timestampURL: https://tsa.example/api/v1/timestamp
+      recorder.signing.keyless.trustedRoot: "{}"
     template: templates/recorder.yaml
     documentSelector: {path: kind, value: Deployment}
     asserts:
@@ -110,25 +112,53 @@ tests:
           content: --keyless-issuer=https://issuer.example
       - contains:
           path: spec.template.spec.containers[0].args
-          content: --keyless-roots=/etc/pacto/keyless/roots.pem
+          content: --keyless-fulcio-url=https://fulcio.example
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --keyless-timestamp-url=https://tsa.example/api/v1/timestamp
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --keyless-token-file=/var/run/sigstore/token/token
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --keyless-trusted-root=/etc/pacto/keyless/trusted_root.json
       - contains:
           path: spec.template.spec.volumes
-          content: {name: keyless-roots, configMap: {name: d-pacto-delivery-recorder-keyless-roots}}
+          content: {name: keyless, configMap: {name: d-pacto-delivery-recorder-keyless}}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: sigstore-token, projected: {sources: [{serviceAccountToken: {audience: sigstore, expirationSeconds: 600, path: token}}]}}
 
-  - it: hands the keyless roots over in a ConfigMap
+  - it: hands the keyless trusted root over in a ConfigMap
     set:
       recorder.enabled: true
       recorder.streamsRepository: r/s
       recorder.signing.keyless.enabled: true
       recorder.signing.keyless.identity: id
       recorder.signing.keyless.issuer: iss
-      recorder.signing.keyless.roots: "-----BEGIN CERTIFICATE-----"
+      recorder.signing.keyless.fulcioURL: https://fulcio.example
+      recorder.signing.keyless.timestampURL: https://tsa.example
+      recorder.signing.keyless.trustedRoot: '{"mediaType":"x"}'
     template: templates/recorder.yaml
-    documentSelector: {path: metadata.name, value: d-pacto-delivery-recorder-keyless-roots}
+    documentSelector: {path: metadata.name, value: d-pacto-delivery-recorder-keyless}
     asserts:
       - equal:
-          path: data["roots.pem"]
-          value: "-----BEGIN CERTIFICATE-----"
+          path: data["trusted_root.json"]
+          value: '{"mediaType":"x"}'
+
+  - it: refuses keyless without a timestamp authority
+    set:
+      recorder.enabled: true
+      recorder.streamsRepository: r/s
+      recorder.signing.keyless.enabled: true
+      recorder.signing.keyless.identity: id
+      recorder.signing.keyless.issuer: iss
+      recorder.signing.keyless.fulcioURL: https://fulcio.example
+      recorder.signing.keyless.trustedRoot: "{}"
+    template: templates/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorMessage: recorder.signing.keyless needs identity, issuer, fulcioURL, timestampURL and trustedRoot
 
   - it: passes the KMS key
     set:
@@ -174,19 +204,21 @@ tests:
     template: templates/recorder.yaml
     asserts:
       - failedTemplate:
-          errorPattern: identity, issuer and roots
+          errorPattern: identity, issuer, fulcioURL, timestampURL and trustedRoot
 
-  - it: refuses keyless without roots
+  - it: refuses keyless without a trusted root
     set:
       recorder.enabled: true
       recorder.streamsRepository: r/s
       recorder.signing.keyless.enabled: true
       recorder.signing.keyless.identity: id
       recorder.signing.keyless.issuer: iss
+      recorder.signing.keyless.fulcioURL: https://fulcio.example
+      recorder.signing.keyless.timestampURL: https://tsa.example
     template: templates/recorder.yaml
     asserts:
       - failedTemplate:
-          errorPattern: identity, issuer and roots
+          errorPattern: identity, issuer, fulcioURL, timestampURL and trustedRoot
 
   - it: hands the promoter the operation TTL and the delete it needs
     set:
