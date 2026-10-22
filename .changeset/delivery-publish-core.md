@@ -44,9 +44,10 @@ Sigstore bundle referrer, as cosign 3 writes it, so `cosign verify` and Flux's
 `COSIGN_PASSWORD`, or a plain PEM key) and a KMS key (`awskms://`, `gcpkms://`,
 `azurekms://`, `hashivault://`) sign with or without the transparency log. A
 KMS key must be ECDSA P-256, Ed25519 or RSA PKCS#1 v1.5 with SHA-256: Pacto
-signs a probe when it loads the key and refuses RSA-PSS and SHA-384 or SHA-512
+loads the key once per run, signs a probe then and refuses RSA-PSS and SHA-384 or SHA-512
 keys. Only a referrer whose signed statement is a cosign signature counts as
-one, and an unreadable referrer does not hide the others.
+one, and an unreadable referrer does not hide the others. One check reads at
+most 256 referrers and 32 signatures and says how many it left unread.
 Keyless signing uses public-good Fulcio and Rekor with the OIDC token in
 `SIGSTORE_ID_TOKEN` or from GitHub Actions, verifies under the trusted root
 Sigstore publishes through TUF and needs the transparency log: a short-lived

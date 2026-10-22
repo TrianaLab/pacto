@@ -48,13 +48,14 @@ place, on whose behalf, who approved and what every check said, and names the
 parts read from an Operation's unsigned status, which make the answer partial. `pacto delivery undo` returns
 the plan that would undo an operation and proposes nothing. `pacto delivery
 record verify` checks every record and the chain and prints the cosign
-command that checks one record without Pacto. A plan now lists the precedent:
+command that checks one record without Pacto, with the trusted root and
+identity in place of the key file for a keyless recorder. A plan now lists the precedent:
 what the records attached to the version say happened to it on other Stages.
 `pacto delivery history --all` and `record verify --all` walk every Stage you
 can list, up to 500 Stages, eight at a time and for at most two minutes, with
 one `asOf` and a completeness that is complete only when every Stage was read.
 Without the right to list Stages in every namespace they walk each namespace
-you can read and list the others as unreadable.
+you can read, within the same bounds, and list the others as unreadable.
 The same answers are the MCP tools `pacto_delivery_blame`,
 `pacto_delivery_undo` and `pacto_delivery_record_verify` (`pacto_delivery_history`
 and `pacto_delivery_record_verify` walk every Stage when `stage` is empty), and the dashboard's
