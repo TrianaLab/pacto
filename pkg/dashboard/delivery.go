@@ -27,6 +27,7 @@ type DeliveryAPI interface {
 	Stages(ctx context.Context, namespace string) ([]delivery.StageObject, error)
 	Operations(ctx context.Context, namespace string) ([]delivery.OperationObject, error)
 	Get(ctx context.Context, namespace, name string) (*delivery.OperationObject, error)
+	Stage(ctx context.Context, namespace, name string) (*delivery.StageObject, error)
 	Explain(ctx context.Context, namespace, name string) (*delivery.Explanation, error)
 	History(ctx context.Context, namespace, stage string) (*delivery.History, error)
 	Plan(ctx context.Context, req delivery.Request) (delivery.Plan, error)
@@ -36,6 +37,15 @@ type DeliveryAPI interface {
 	// Describe reads what a Stage's artifact digest carries: its contract and
 	// version. A digest never changes, so a host may cache the answer.
 	Describe(ctx context.Context, stage *delivery.StageObject, digest string) delivery.Revision
+	// Blame says who put digest (by default the one running) in place on a
+	// Stage; Undo plans how to undo an operation and proposes nothing. stage
+	// finds an operation that is gone from the cluster in the records.
+	Blame(ctx context.Context, namespace, stage, digest string) (*delivery.Blame, error)
+	Undo(ctx context.Context, namespace, name, stage string) (*delivery.Undo, error)
+	// PublishRefusals are the publishes Pacto refused for services with Stages
+	// in namespace ("" for all). Nil with no error means this host keeps no
+	// record of refused publishes.
+	PublishRefusals(ctx context.Context, namespace string) (*PublishRefusals, error)
 }
 
 // Auth is a live host's identity layer. Nil means no sign-in and no delivery
@@ -61,6 +71,8 @@ type AuthState struct {
 	// Fresh: the session came from a login the person had to repeat.
 	Fresh bool
 	CSRF  string
+	// Name is the person's name from their ID token (name, else email).
+	Name string
 }
 
 // DeliveryError is a delivery answer that says no: the HTTP status, a stable
@@ -135,6 +147,7 @@ type sessionOutput struct {
 		Login    bool   `json:"login" doc:"People sign in with the identity provider"`
 		SignedIn bool   `json:"signedIn" doc:"The caller has a live session (shared) or the launch cookie (local)"`
 		Fresh    bool   `json:"fresh" doc:"The session came from a login the person had to repeat; decisions need one"`
+		Name     string `json:"name,omitempty" doc:"The signed-in person's name from their ID token (name, else email)"`
 		CSRF     string `json:"csrf,omitempty" doc:"Send it in the X-Pacto-CSRF header of every mutating request"`
 		// Caller is who the apiserver says the caller is, when delivery is
 		// installed and the caller is signed in.
@@ -153,7 +166,7 @@ func (s *Server) session(ctx context.Context, _ *struct{}) (*sessionOutput, erro
 		}
 	}
 	st := s.authState(ctx)
-	out.Body.SignedIn, out.Body.Fresh, out.Body.CSRF = st.SignedIn, st.Fresh, st.CSRF
+	out.Body.SignedIn, out.Body.Fresh, out.Body.CSRF, out.Body.Name = st.SignedIn, st.Fresh, st.CSRF, st.Name
 	if !st.SignedIn || s.opts.Delivery == nil {
 		return out, nil
 	}
@@ -165,6 +178,7 @@ func (s *Server) session(ctx context.Context, _ *struct{}) (*sessionOutput, erro
 		var c delivery.Caller
 		if c, err = api.WhoAmI(ctx); err == nil {
 			out.Body.Caller = &c
+			s.remember(c.User, st.Name)
 		}
 	}
 	if err != nil {
@@ -204,6 +218,18 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 		Description: "What happened on each Stage: read from its signed records when the recorder runs (source records), plus the operations not " +
 			"recorded yet, otherwise from the operations still in the cluster (source status, always partial). Each history carries its own " +
 			"completeness, problems and what could not be read."}), s.deliveryHistory)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-blame", Method: http.MethodGet, Path: "/api/delivery/blame",
+		Summary: "Who put this version here",
+		Description: "The newest change that moved a Stage to a digest (by default the one it runs): who asked, for whom, who approved and what " +
+			"every check said, read from its signed record when there is one. No change with a partial completeness means unknown, never nobody."}), s.deliveryBlame)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-undo", Method: http.MethodGet, Path: "/api/delivery/undo",
+		Summary: "How to undo a change",
+		Description: "A plan nobody has proposed: a rollback bound to the change when the Stage still runs it, a promote back to the version it " +
+			"replaced when something changed since, or nothing. It never acts; propose the plan to carry it out."}), s.deliveryUndo)
+	huma.Register(api, reg(huma.Operation{OperationID: "delivery-refusals", Method: http.MethodGet, Path: "/api/delivery/refusals",
+		Summary: "Publishes Pacto refused",
+		Description: "Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. " +
+			"recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing."}), s.deliveryRefusals)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-operation", Method: http.MethodGet, Path: "/api/delivery/operations/{namespace}/{name}",
 		Summary:     "One change",
 		Description: "The explained operation (summary, verdicts with how to re-run each), the operation itself (plan, approvals, times) and the actions the caller may take."}), s.deliveryOperation)
@@ -326,20 +352,24 @@ func (s *Server) serviceOwners(ctx context.Context) map[string]string {
 
 // InboxItem is one operation waiting on someone.
 type InboxItem struct {
-	Namespace string            `json:"namespace"`
-	Name      string            `json:"name"`
-	Stage     string            `json:"stage"`
-	Type      string            `json:"type"`
-	From      string            `json:"from,omitempty"`
-	To        string            `json:"to,omitempty"`
-	Phase     delivery.Phase    `json:"phase"`
-	Outcome   delivery.Outcome  `json:"outcome,omitempty"`
-	Reason    string            `json:"reason,omitempty"`
-	Question  string            `json:"question,omitempty"`
-	Decision  delivery.Decision `json:"decision,omitempty" doc:"The decision asked for: approve, or accept-unknown"`
-	Owners    []string          `json:"owners,omitempty" doc:"The teams that may answer; empty means any person"`
-	Consumers []string          `json:"consumers,omitempty" doc:"The services that made a person necessary"`
-	Order     *delivery.Order   `json:"order,omitempty" doc:"What must move first: the consumers whose declared range does not accept the new version, their Stages and any verified version upstream that can go first"`
+	Namespace string `json:"namespace"`
+	Name      string `json:"name"`
+	Stage     string `json:"stage"`
+	Type      string `json:"type"`
+	From      string `json:"from,omitempty"`
+	To        string `json:"to,omitempty"`
+	// FromVersion and ToVersion are the versions the digests carry, when
+	// their artifacts could be read.
+	FromVersion string            `json:"fromVersion,omitempty"`
+	ToVersion   string            `json:"toVersion,omitempty"`
+	Phase       delivery.Phase    `json:"phase"`
+	Outcome     delivery.Outcome  `json:"outcome,omitempty"`
+	Reason      string            `json:"reason,omitempty"`
+	Question    string            `json:"question,omitempty"`
+	Decision    delivery.Decision `json:"decision,omitempty" doc:"The decision asked for: approve, or accept-unknown"`
+	Owners      []string          `json:"owners,omitempty" doc:"The teams that may answer; empty means any person"`
+	Consumers   []string          `json:"consumers,omitempty" doc:"The services that made a person necessary"`
+	Order       *delivery.Order   `json:"order,omitempty" doc:"What must move first: the consumers whose declared range does not accept the new version, their Stages and any verified version upstream that can go first"`
 }
 
 func inboxItem(o delivery.OperationObject) InboxItem {
@@ -401,11 +431,19 @@ func (s *Server) deliveryInbox(ctx context.Context, _ *struct{}) (*inboxOutput, 
 	}
 	// Held waits on a person who may answer: not an agent, never its asker.
 	decider := s.opts.DeliveryPolicy.IsHuman(caller.Identity)
+	byStage := map[string]*delivery.StageObject{}
+	for i := range stages {
+		byStage[stages[i].Metadata.Namespace+"/"+stages[i].Metadata.Name] = &stages[i]
+	}
 	for _, o := range ops {
 		it := inboxItem(o)
 		switch {
 		case it.Phase == delivery.PhaseHeld && decider && !ownChange(&o, caller.User) &&
 			s.opts.DeliveryPolicy.InTeams(caller.Groups, it.Owners):
+			if st := byStage[it.Namespace+"/"+it.Stage]; st != nil {
+				v := versions(ctx, api, st, nil, it.From, it.To)
+				it.FromVersion, it.ToVersion = v[it.From], v[it.To]
+			}
 			out.Body.Held = append(out.Body.Held, it)
 		case it.Outcome == delivery.Errored && frozen[it.Namespace+"/"+it.Stage]:
 			out.Body.Errored = append(out.Body.Errored, it)
@@ -416,21 +454,22 @@ func (s *Server) deliveryInbox(ctx context.Context, _ *struct{}) (*inboxOutput, 
 
 // EnvironmentRow is one Stage: one service in one environment.
 type EnvironmentRow struct {
-	Namespace    string   `json:"namespace"`
-	Stage        string   `json:"stage"`
-	Service      string   `json:"service"`
-	Environment  string   `json:"environment"`
-	Pointer      string   `json:"pointer,omitempty" doc:"The digest the environment runs"`
-	Version      string   `json:"version,omitempty" doc:"The version its contract declares, when the artifact could be read"`
-	Verified     bool     `json:"verified" doc:"The running digest passed its verify gates here"`
-	Failed       bool     `json:"failed" doc:"The running digest failed here"`
-	Frozen       bool     `json:"frozen"`
-	FrozenReason string   `json:"frozenReason,omitempty"`
-	AutoHold     bool     `json:"autoHold"`
-	Held         int      `json:"held" doc:"Operations on this Stage waiting for a person"`
-	Candidate    string   `json:"candidate,omitempty" doc:"The newest eligible candidate"`
-	Ready        string   `json:"ready,omitempty" doc:"The Ready condition: True, or False with the reason the Stage cannot promote"`
-	Actions      []string `json:"actions" doc:"What the caller's class may ask for here: promote, unfreeze"`
+	Namespace        string   `json:"namespace"`
+	Stage            string   `json:"stage"`
+	Service          string   `json:"service"`
+	Environment      string   `json:"environment"`
+	Pointer          string   `json:"pointer,omitempty" doc:"The digest the environment runs"`
+	Version          string   `json:"version,omitempty" doc:"The version its contract declares, when the artifact could be read"`
+	Verified         bool     `json:"verified" doc:"The running digest passed its verify gates here"`
+	Failed           bool     `json:"failed" doc:"The running digest failed here"`
+	Frozen           bool     `json:"frozen"`
+	FrozenReason     string   `json:"frozenReason,omitempty"`
+	AutoHold         bool     `json:"autoHold"`
+	Held             int      `json:"held" doc:"Operations on this Stage waiting for a person"`
+	Candidate        string   `json:"candidate,omitempty" doc:"The newest eligible candidate"`
+	CandidateVersion string   `json:"candidateVersion,omitempty" doc:"The version the candidate's contract declares, when the artifact could be read"`
+	Ready            string   `json:"ready,omitempty" doc:"The Ready condition: True, or False with the reason the Stage cannot promote"`
+	Actions          []string `json:"actions" doc:"What the caller's class may ask for here: promote, unfreeze"`
 }
 
 func (s *Server) environmentRow(ctx context.Context, api DeliveryAPI, st delivery.StageObject, ops []delivery.OperationObject, caller delivery.Caller) EnvironmentRow {
@@ -443,11 +482,8 @@ func (s *Server) environmentRow(ctx context.Context, api DeliveryAPI, st deliver
 			row.Ready = strings.TrimSuffix(c.Status+": "+c.Reason, ": ")
 		}
 	}
-	if ss.Pointer != "" {
-		if c := api.Describe(ctx, &st, ss.Pointer).Bundle; c != nil {
-			row.Version = c.Contract.Service.Version
-		}
-	}
+	v := versions(ctx, api, &st, nil, ss.Pointer, ss.Candidate)
+	row.Version, row.CandidateVersion = v[ss.Pointer], v[ss.Candidate]
 	for _, o := range ops {
 		if o.Metadata.Namespace == row.Namespace && o.Spec.Stage == row.Stage && o.Status.Phase == delivery.PhaseHeld {
 			row.Held++
@@ -600,7 +636,14 @@ type historyOutput struct {
 	Body struct {
 		Listing
 		Histories []StageHistory `json:"histories"`
+		Labels
 	}
+}
+
+// Labels say in words what the identifiers in an answer stand for.
+type Labels struct {
+	Versions map[string]string `json:"versions,omitempty" doc:"The version each digest named here carries, when its artifact could be read"`
+	People   map[string]string `json:"people,omitempty" doc:"The names of the people named here who signed in to this dashboard, by username"`
 }
 
 func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*historyOutput, error) {
@@ -610,30 +653,96 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	}
 	out := &historyOutput{}
 	out.Body.Listing = Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete"}
-	targets := [][2]string{{in.Namespace, in.Stage}}
+	var targets []delivery.StageObject
+	// describe: the Stages were read, so their artifacts can be asked for
+	// versions. A Stage that cannot be read still has a history to ask for.
+	describe := true
 	if in.Namespace != "" && in.Stage != "" {
 		if err := s.inScope(in.Namespace); err != nil {
 			return nil, err
 		}
+		st, err := api.Stage(ctx, in.Namespace, in.Stage)
+		if err != nil {
+			st, describe = &delivery.StageObject{Metadata: delivery.ObjectMeta{Namespace: in.Namespace, Name: in.Stage}}, false
+		}
+		targets = []delivery.StageObject{*st}
 	} else {
 		stages, _, l, err := s.lists(ctx, api)
 		if err != nil {
 			return nil, err
 		}
-		out.Body.Listing, targets = l, nil
-		for _, st := range stages {
-			targets = append(targets, [2]string{st.Metadata.Namespace, st.Metadata.Name})
-		}
+		out.Body.Listing, targets = l, stages
 	}
 	out.Body.Histories = []StageHistory{}
+	out.Body.Versions = map[string]string{}
+	var actors []string
 	for _, t := range targets {
-		h, err := api.History(ctx, t[0], t[1])
+		h, err := api.History(ctx, t.Metadata.Namespace, t.Metadata.Name)
 		if err != nil {
 			return nil, err
 		}
-		out.Body.Histories = append(out.Body.Histories, StageHistory{Namespace: t[0], History: *h})
+		digests := []string{h.Stage.Pointer}
+		for _, e := range h.Entries {
+			digests, actors = append(digests, e.From, e.To), append(actors, e.Actor)
+		}
+		if describe {
+			versions(ctx, api, &t, out.Body.Versions, digests...)
+		}
+		out.Body.Histories = append(out.Body.Histories, StageHistory{Namespace: t.Metadata.Namespace, History: *h})
 	}
+	out.Body.People = s.named(actors...)
 	return out, nil
+}
+
+// versions adds to into (a new map when nil) the version each digest's
+// contract declares, leaving out what cannot be read.
+// ponytail: a digest that cannot be read is asked again each time it is
+// named; the host caches only what it read.
+func versions(ctx context.Context, api DeliveryAPI, stage *delivery.StageObject, into map[string]string, digests ...string) map[string]string {
+	if into == nil {
+		into = map[string]string{}
+	}
+	for _, d := range digests {
+		if _, known := into[d]; known || d == "" {
+			continue
+		}
+		if b := api.Describe(ctx, stage, d).Bundle; b != nil {
+			into[d] = b.Contract.Service.Version
+		}
+	}
+	return into
+}
+
+// maxPeople bounds the names a dashboard remembers.
+// ponytail: the names of the people who signed in to this process, forgotten
+// when full or on restart; ask the identity provider's directory if teams
+// need the names of people who never opened the dashboard.
+const maxPeople = 1024
+
+// remember keeps the name of a person who signed in.
+func (s *Server) remember(user, name string) {
+	if user == "" || name == "" {
+		return
+	}
+	s.peopleMu.Lock()
+	defer s.peopleMu.Unlock()
+	if s.people == nil || len(s.people) >= maxPeople {
+		s.people = map[string]string{}
+	}
+	s.people[user] = name
+}
+
+// named are the names this dashboard knows of users.
+func (s *Server) named(users ...string) map[string]string {
+	s.peopleMu.Lock()
+	defer s.peopleMu.Unlock()
+	out := map[string]string{}
+	for _, u := range users {
+		if n, ok := s.people[u]; ok {
+			out[u] = n
+		}
+	}
+	return out
 }
 
 type operationInput struct {
@@ -646,6 +755,7 @@ type operationOutput struct {
 		Explanation *delivery.Explanation     `json:"explanation"`
 		Operation   *delivery.OperationObject `json:"operation"`
 		Actions     []string                  `json:"actions" doc:"What the caller may ask for: approve, reject, accept-unknown, cancel, rollback"`
+		Labels
 	}
 }
 
@@ -672,6 +782,159 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 	out := &operationOutput{}
 	out.Body.Explanation, out.Body.Operation = e, op
 	out.Body.Actions = s.actions(ctx, op, e.Stage, caller)
+	if st, err := api.Stage(ctx, in.Namespace, op.Spec.Stage); err == nil {
+		out.Body.Versions = versions(ctx, api, st, nil, op.Spec.Params.From, op.Spec.Params.To, op.Status.Pointer.Before,
+			op.Status.Pointer.After, e.Stage.Pointer)
+	}
+	people := []string{op.Spec.Actor.User}
+	if op.Spec.OnBehalfOf != nil {
+		people = append(people, op.Spec.OnBehalfOf.User)
+	}
+	for _, a := range op.Status.Approvals {
+		people = append(people, a.By)
+	}
+	out.Body.People = s.named(people...)
+	return out, nil
+}
+
+// ── blame, undo and refused publishes ──────────────────────────────────
+
+type blameInput struct {
+	Namespace string `query:"namespace" required:"true" doc:"The Stage's namespace"`
+	Stage     string `query:"stage" required:"true" doc:"The Stage's name"`
+	Digest    string `query:"digest" doc:"The digest to blame; empty means the one the Stage runs"`
+}
+
+type blameOutput struct {
+	Body struct {
+		delivery.Blame
+		Labels
+	}
+}
+
+func (s *Server) deliveryBlame(ctx context.Context, in *blameInput) (*blameOutput, error) {
+	if err := s.inScope(in.Namespace); err != nil {
+		return nil, err
+	}
+	api, err := s.deliveryFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	b, err := api.Blame(ctx, in.Namespace, in.Stage, in.Digest)
+	if err != nil {
+		return nil, err
+	}
+	out := &blameOutput{}
+	out.Body.Blame = *b
+	digests, people := []string{b.Digest, b.Stage.Pointer}, []string{b.OnBehalfOf}
+	if c := b.Change; c != nil {
+		digests, people = append(digests, c.From, c.To), append(people, c.Actor)
+	}
+	for _, a := range b.Approvals {
+		people = append(people, a.By)
+	}
+	if st, err := api.Stage(ctx, in.Namespace, in.Stage); err == nil {
+		out.Body.Versions = versions(ctx, api, st, nil, digests...)
+	}
+	out.Body.People = s.named(people...)
+	return out, nil
+}
+
+type undoInput struct {
+	Namespace string `query:"namespace" required:"true" doc:"The operation's namespace"`
+	Name      string `query:"name" required:"true" doc:"The operation to undo"`
+	Stage     string `query:"stage" doc:"Its Stage, to find it in the records when it is gone from the cluster"`
+}
+
+type undoOutput struct {
+	Body struct {
+		delivery.Undo
+		Labels
+	}
+}
+
+func (s *Server) deliveryUndo(ctx context.Context, in *undoInput) (*undoOutput, error) {
+	if err := s.inScope(in.Namespace); err != nil {
+		return nil, err
+	}
+	api, err := s.deliveryFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	u, err := api.Undo(ctx, in.Namespace, in.Name, in.Stage)
+	if err != nil {
+		return nil, err
+	}
+	out := &undoOutput{}
+	out.Body.Undo = *u
+	if p := u.Plan; p != nil && in.Stage != "" {
+		if st, err := api.Stage(ctx, in.Namespace, in.Stage); err == nil {
+			out.Body.Versions = versions(ctx, api, st, nil, p.From, p.To)
+		}
+	}
+	return out, nil
+}
+
+// PublishRefusal is one publish Pacto refused.
+type PublishRefusal struct {
+	Service string `json:"service"`
+	Version string `json:"version" doc:"The version the publish asked for"`
+	// Check is the check that refused it: version (the version rule), sign,
+	// lock, validation or conflict.
+	Check  string `json:"check" doc:"The check that refused it: version, sign, lock, validation or conflict"`
+	Reason string `json:"reason" doc:"Why, in one sentence"`
+	// Baseline and RequiredBump are set when the version rule refused it.
+	Baseline     string `json:"baseline,omitempty" doc:"The highest published version below it, the one the change was compared with"`
+	RequiredBump string `json:"requiredBump,omitempty" enum:"major,minor,patch" doc:"The smallest bump the change needs"`
+	Actor        string `json:"actor,omitempty" doc:"Who ran the publish, as the cluster or the record names them"`
+	At           string `json:"at" doc:"When it was refused (RFC 3339)"`
+	// Verified: a signed record of the refusal was checked against the trust
+	// config.
+	Verified bool `json:"verified" doc:"A signed record of the refusal was verified"`
+}
+
+// PublishRefusals is what a host knows of refused publishes.
+type PublishRefusals struct {
+	Completeness string           `json:"completeness" enum:"complete,partial"`
+	Note         string           `json:"note,omitempty" doc:"Where the refusals were read and what may be missing"`
+	Unreadable   []string         `json:"unreadable,omitempty" doc:"What could not be read, and why"`
+	Refusals     []PublishRefusal `json:"refusals"`
+}
+
+type refusalsOutput struct {
+	Body struct {
+		AsOf string `json:"asOf"`
+		// Recorded: this host keeps a record of refused publishes.
+		Recorded bool `json:"recorded" doc:"This cluster keeps a record of refused publishes; false means an empty list proves nothing"`
+		PublishRefusals
+	}
+}
+
+// recentRefusals is how many refusals the dashboard shows.
+const recentRefusals = 20
+
+func (s *Server) deliveryRefusals(ctx context.Context, _ *struct{}) (*refusalsOutput, error) {
+	api, err := s.deliveryFor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	r, err := api.PublishRefusals(ctx, s.opts.DeliveryNamespace)
+	if err != nil {
+		return nil, err
+	}
+	out := &refusalsOutput{}
+	out.Body.AsOf = time.Now().UTC().Format(time.RFC3339)
+	if r == nil {
+		out.Body.Completeness, out.Body.Refusals = "partial", []PublishRefusal{}
+		out.Body.Note = "this cluster keeps no record of refused publishes: a refusal is shown only to whoever ran pacto publish"
+		return out, nil
+	}
+	out.Body.Recorded, out.Body.PublishRefusals = true, *r
+	slices.SortFunc(out.Body.Refusals, func(a, b PublishRefusal) int { return cmp.Compare(b.At, a.At) })
+	out.Body.Refusals = out.Body.Refusals[:min(len(out.Body.Refusals), recentRefusals)]
+	if out.Body.Refusals == nil {
+		out.Body.Refusals = []PublishRefusal{}
+	}
 	return out, nil
 }
 

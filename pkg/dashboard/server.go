@@ -20,6 +20,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -85,6 +86,10 @@ type Options struct {
 type Server struct {
 	opts       Options
 	listenAddr string // server URL for the OpenAPI spec, empty when no port is set
+
+	// people are the names of the people who signed in, by username.
+	peopleMu sync.Mutex
+	people   map[string]string
 }
 
 // APIConfig returns the Huma configuration for the dashboard API.

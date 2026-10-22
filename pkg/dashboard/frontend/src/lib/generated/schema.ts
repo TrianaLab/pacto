@@ -24,6 +24,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/delivery/blame": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who put this version here
+         * @description The newest change that moved a Stage to a digest (by default the one it runs): who asked, for whom, who approved and what every check said, read from its signed record when there is one. No change with a partial completeness means unknown, never nobody.
+         */
+        get: operations["delivery-blame"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/delivery/environments": {
         parameters: {
             query?: never;
@@ -180,6 +200,46 @@ export interface paths {
          * @description Per service the caller can see Stages of: the versions its Stages know, whether Flux verified their signature and which Stages run or verified each.
          */
         get: operations["delivery-published"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/refusals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Publishes Pacto refused
+         * @description Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing.
+         */
+        get: operations["delivery-refusals"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/delivery/undo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How to undo a change
+         * @description A plan nobody has proposed: a rollback bound to the change when the Stage still runs it, a promote back to the version it replaced when something changed since, or nothing. It never acts; propose the plan to carry it out.
+         */
+        get: operations["delivery-undo"];
         put?: never;
         post?: never;
         delete?: never;
@@ -741,6 +801,29 @@ export interface components {
             name: string;
             sources: components["schemas"]["ServiceSourceData"][] | null;
         };
+        BlameOutputBody: {
+            approvals?: components["schemas"]["Delivery.RecordApproval"][] | null;
+            asOf: string;
+            change?: components["schemas"]["Delivery.HistoryEntry"];
+            completeness: string;
+            digest: string;
+            intentReason?: string;
+            note: string;
+            onBehalfOf?: string;
+            /** @description The names of the people named here who signed in to this dashboard, by username */
+            people?: {
+                [key: string]: string;
+            };
+            source: string;
+            stage: components["schemas"]["Delivery.StageNow"];
+            unreadable?: string[] | null;
+            unsigned?: string[] | null;
+            verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
+            /** @description The version each digest named here carries, when its artifact could be read */
+            versions?: {
+                [key: string]: string;
+            };
+        };
         CancelOutputBody: {
             cancelled: string;
         };
@@ -1155,6 +1238,14 @@ export interface components {
             operation: string;
             verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
         };
+        "Delivery.RecordApproval": {
+            authTime?: string;
+            by: string;
+            decision: string;
+            intentDigest: string;
+            note?: string;
+            operation: string;
+        };
         "Delivery.RecordRef": {
             digest: string;
             kind: string;
@@ -1278,6 +1369,8 @@ export interface components {
             autoHold: boolean;
             /** @description The newest eligible candidate */
             candidate?: string;
+            /** @description The version the candidate's contract declares, when the artifact could be read */
+            candidateVersion?: string;
             environment: string;
             /** @description The running digest failed here */
             failed: boolean;
@@ -2115,8 +2208,16 @@ export interface components {
             /** @enum {string} */
             completeness: "complete" | "partial";
             histories: components["schemas"]["StageHistory"][] | null;
+            /** @description The names of the people named here who signed in to this dashboard, by username */
+            people?: {
+                [key: string]: string;
+            };
             /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
             unreadable?: string[] | null;
+            /** @description The version each digest named here carries, when its artifact could be read */
+            versions?: {
+                [key: string]: string;
+            };
         };
         "Impact.AffectedConsumer": {
             compatibility?: string;
@@ -2208,6 +2309,7 @@ export interface components {
             /** @description The decision asked for: approve, or accept-unknown */
             decision?: string;
             from?: string;
+            fromVersion?: string;
             name: string;
             namespace: string;
             /** @description What must move first: the consumers whose declared range does not accept the new version, their Stages and any verified version upstream that can go first */
@@ -2220,6 +2322,7 @@ export interface components {
             reason?: string;
             stage: string;
             to?: string;
+            toVersion?: string;
             type: string;
         };
         InboxOutputBody: {
@@ -2346,6 +2449,14 @@ export interface components {
             actions: string[] | null;
             explanation: components["schemas"]["Delivery.Explanation"];
             operation: components["schemas"]["Delivery.OperationObject"];
+            /** @description The names of the people named here who signed in to this dashboard, by username */
+            people?: {
+                [key: string]: string;
+            };
+            /** @description The version each digest named here carries, when its artifact could be read */
+            versions?: {
+                [key: string]: string;
+            };
         };
         PolicyInfo: {
             content?: string;
@@ -2778,6 +2889,28 @@ export interface components {
             operation: components["schemas"]["Delivery.OperationObject"];
             plan: components["schemas"]["Delivery.Plan"];
         };
+        PublishRefusal: {
+            /** @description Who ran the publish, as the cluster or the record names them */
+            actor?: string;
+            /** @description When it was refused (RFC 3339) */
+            at: string;
+            /** @description The highest published version below it, the one the change was compared with */
+            baseline?: string;
+            /** @description The check that refused it: version, sign, lock, validation or conflict */
+            check: string;
+            /** @description Why, in one sentence */
+            reason: string;
+            /**
+             * @description The smallest bump the change needs
+             * @enum {string}
+             */
+            requiredBump?: "major" | "minor" | "patch";
+            service: string;
+            /** @description A signed record of the refusal was verified */
+            verified: boolean;
+            /** @description The version the publish asked for */
+            version: string;
+        };
         PublishedOnStages: {
             environment: string;
             failed: boolean;
@@ -2904,6 +3037,18 @@ export interface components {
              */
             status: string;
         };
+        RefusalsOutputBody: {
+            asOf: string;
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            /** @description Where the refusals were read and what may be missing */
+            note?: string;
+            /** @description This cluster keeps a record of refused publishes; false means an empty list proves nothing */
+            recorded: boolean;
+            refusals: components["schemas"]["PublishRefusal"][] | null;
+            /** @description What could not be read, and why */
+            unreadable?: string[] | null;
+        };
         RuntimeDiffRow: {
             contractPath?: string;
             declaredValue: string;
@@ -3010,6 +3155,8 @@ export interface components {
              * @enum {string}
              */
             mode: "local" | "shared" | "none";
+            /** @description The signed-in person's name from their ID token (name, else email) */
+            name?: string;
             /** @description The caller has a live session (shared) or the launch cookie (local) */
             signedIn: boolean;
         };
@@ -3040,6 +3187,21 @@ export interface components {
             persistenceDurability?: string;
             persistenceScope?: string;
             type: string;
+        };
+        UndoOutputBody: {
+            command?: string;
+            kind: string;
+            note: string;
+            operation: string;
+            /** @description The names of the people named here who signed in to this dashboard, by username */
+            people?: {
+                [key: string]: string;
+            };
+            plan?: components["schemas"]["Delivery.Plan"];
+            /** @description The version each digest named here carries, when its artifact could be read */
+            versions?: {
+                [key: string]: string;
+            };
         };
         "V2.ErrorDetail": {
             /** @description Where the error occurred, e.g. 'body.items[3].tags' or 'path.thing-id' */
@@ -3131,6 +3293,87 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-blame": {
+        parameters: {
+            query: {
+                /** @description The Stage's namespace */
+                namespace: string;
+                /** @description The Stage's name */
+                stage: string;
+                /** @description The digest to blame; empty means the one the Stage runs */
+                digest?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BlameOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3787,6 +4030,152 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-refusals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RefusalsOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-undo": {
+        parameters: {
+            query: {
+                /** @description The operation's namespace */
+                namespace: string;
+                /** @description The operation to undo */
+                name: string;
+                /** @description Its Stage, to find it in the records when it is gone from the cluster */
+                stage?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UndoOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
