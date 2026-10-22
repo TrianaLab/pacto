@@ -74,7 +74,12 @@ func VerifyDigest(ctx context.Context, reg Registry, verify BundleVerifier, repo
 	// ponytail: attestations cost a fetch each before their annotation says
 	// so; maxReferrers bounds that work, maxSignatures the signatures checked.
 	seen := 0
-	for _, r := range refs[:min(len(refs), maxReferrers)] {
+	for i, r := range refs {
+		if i == maxReferrers || seen == maxSignatures {
+			why = append(why, fmt.Sprintf("%d referrers were not read: one check reads at most %d referrers and %d signatures",
+				len(refs)-i, maxReferrers, maxSignatures))
+			break
+		}
 		bundle, ann, err := reg.Layer(ctx, repo, r)
 		if err != nil {
 			why = append(why, r+": "+err.Error()) // one unreadable referrer hides no other
@@ -83,9 +88,7 @@ func VerifyDigest(ctx context.Context, reg Registry, verify BundleVerifier, repo
 		if ann[AnnBundlePredicate] != SignPredicate {
 			continue // an attestation, not a signature
 		}
-		if seen++; seen > maxSignatures {
-			break
-		}
+		seen++
 		// The annotation is unsigned: only the predicate the signature covers
 		// says that this bundle signs the digest rather than attests to it.
 		pt, err := verify(bundle, sum)

@@ -112,7 +112,8 @@ func TestVerifyDigestChecksTheSignedPredicate(t *testing.T) {
 // referrer with no bundle fails to read.
 type memReferrers struct {
 	*Client
-	refs []memRef
+	refs  []memRef
+	reads *int // counts Layer calls when set
 }
 
 type memRef struct {
@@ -129,6 +130,9 @@ func (m memReferrers) Referrers(context.Context, string, string, string) ([]stri
 }
 
 func (m memReferrers) Layer(_ context.Context, _, digest string) ([]byte, map[string]string, error) {
+	if m.reads != nil {
+		*m.reads++
+	}
 	var i int
 	_, _ = fmt.Sscan(digest, &i)
 	if m.refs[i].bundle == nil {
@@ -160,8 +164,21 @@ func TestVerifyDigestReadsPastBadReferrers(t *testing.T) {
 		reg.refs = append(reg.refs, memRef{SignPredicate, fmt.Appendf(nil, "forged %d", i)})
 	}
 	reg.refs = append(reg.refs, memRef{SignPredicate, statementOver(d, SignPredicate)})
-	if err := VerifyDigest(t.Context(), reg, names, "r", d); err == nil || strings.Count(err.Error(), "not a signature") != maxSignatures {
-		t.Fatalf("checked other than %d signatures: %v", maxSignatures, err)
+	if err := VerifyDigest(t.Context(), reg, names, "r", d); err == nil || strings.Count(err.Error(), "not a signature") != maxSignatures ||
+		!strings.Contains(err.Error(), "2 referrers were not read") {
+		t.Fatalf("checked other than %d signatures, or did not say what it skipped: %v", maxSignatures, err)
+	}
+	reads := 0
+	reg = memReferrers{reads: &reads}
+	for range maxReferrers {
+		reg.refs = append(reg.refs, memRef{slsa, statementOver(d, slsa)})
+	}
+	reg.refs = append(reg.refs, memRef{SignPredicate, statementOver(d, SignPredicate)})
+	if err := VerifyDigest(t.Context(), reg, names, "r", d); err == nil || !strings.Contains(err.Error(), "1 referrers were not read") {
+		t.Fatalf("read past %d referrers, or said no signature exists: %v", maxReferrers, err)
+	}
+	if reads > maxReferrers {
+		t.Fatalf("read %d referrers, more than %d", reads, maxReferrers)
 	}
 }
 
