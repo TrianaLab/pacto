@@ -1415,12 +1415,12 @@ A runtime check never turns "could not look" into a violation. A check with no u
 
 | Key | Value |
 | --- | --- |
-| Meaning | How each published digest is signed with cosign. |
+| Meaning | How each published digest is signed, with sigstore-go. |
 | Runtime | `static-only` |
 | Evidence | none: pacto publish reads it; nothing at runtime does |
 | Rule | schema: exactly one of keyless, key and kms |
 | Outcomes | SCHEMA_VIOLATION; pacto publish refuses when omitted |
-| Limitations | needs cosign on the publishing host |
+| Limitations | the signature is a Sigstore bundle referrer that cosign verify and Flux check |
 | Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign/invalid` |
 
 ### `publish.sign.keyless`
@@ -1444,7 +1444,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Evidence | none: pacto publish reads it; nothing at runtime does |
 | Rule | schema: non-empty string, required with keyless |
 | Outcomes | SCHEMA_VIOLATION |
-| Limitations | matched exactly by cosign verify; Flux needs its own matchOIDCIdentity |
+| Limitations | matched exactly when Pacto verifies; Flux needs its own matchOIDCIdentity |
 | Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.identity/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.identity/invalid` |
 
 ### `publish.sign.issuer`
@@ -1456,14 +1456,14 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Evidence | none: pacto publish reads it; nothing at runtime does |
 | Rule | schema: non-empty string, required with keyless |
 | Outcomes | SCHEMA_VIOLATION |
-| Limitations | matched exactly by cosign verify |
+| Limitations | matched exactly when Pacto verifies |
 | Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.issuer/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.issuer/invalid` |
 
 ### `publish.sign.key`
 
 | Key | Value |
 | --- | --- |
-| Meaning | A cosign private key file. |
+| Meaning | A PEM private key file, such as a cosign key. |
 | Runtime | `static-only` |
 | Evidence | none: pacto publish reads it; nothing at runtime does |
 | Rule | schema: non-empty string |
@@ -1475,12 +1475,12 @@ A runtime check never turns "could not look" into a violation. A check with no u
 
 | Key | Value |
 | --- | --- |
-| Meaning | A cosign KMS key URI. |
+| Meaning | A KMS key URI. |
 | Runtime | `static-only` |
 | Evidence | none: pacto publish reads it; nothing at runtime does |
 | Rule | schema: non-empty string |
 | Outcomes | SCHEMA_VIOLATION |
-| Limitations | the URI is passed to cosign as is |
+| Limitations | awskms://, gcpkms://, azurekms:// or hashivault:// |
 | Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.kms/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.kms/invalid` |
 
 ### `publish.sign.transparencyLog`
@@ -1492,7 +1492,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Evidence | none: pacto publish reads it; nothing at runtime does |
 | Rule | schema: boolean |
 | Outcomes | PARSE_ERROR when not a boolean |
-| Limitations | false is for private registries |
+| Limitations | false is for private registries; keyless signing needs the log |
 | Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.transparencyLog/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.transparencyLog/invalid` |
 
 ### `metadata`

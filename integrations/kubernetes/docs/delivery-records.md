@@ -61,11 +61,15 @@ The push Secret needs write access to the streams repository, the repositories
 your Stages apply from and the contract repositories. On kind, create the key
 with `openssl genpkey -algorithm ed25519 -out key.pem` and store it with
 `kubectl create secret generic recorder-key --from-file=key.pem`. In production, sign
-with a KMS key (`signing.kms: awskms:///alias/pacto`) or keyless
-(`signing.keyless` with the certificate `identity`, `issuer` and `roots`,
-the Fulcio root and intermediate in PEM). Both run
-cosign, which the delivery image carries, and neither uploads to a public
-transparency log. Give the recorder's service account the workload identity
+with a KMS key (`signing.kms: awskms:///alias/pacto`) or keyless. The
+recorder signs with the Sigstore library, with no cosign binary, and never
+uploads to a public transparency log. Keyless signing (`signing.keyless`)
+needs the certificate `identity` and `issuer`, a Fulcio (`fulcioURL`), a
+timestamp authority (`timestampURL`) and `trustedRoot`, the Sigstore
+`trusted_root.json` that names both. The recorder presents a projected
+service account token for the `sigstore` audience to Fulcio. The timestamp
+authority is required: a keyless certificate lives minutes, so a record
+verifies only at the time the authority saw it signed. Give the recorder's service account the workload identity
 your KMS or OIDC provider expects through `recorder.serviceAccount.annotations`.
 
 ## Check it works
@@ -115,9 +119,10 @@ recorder:
 `streams` are patterns over stream ids (`<cluster>/<namespace>/<stage>`). A
 key is trusted only for the streams it lists, or for all of them when the list
 is empty, so a dev recorder's key cannot sign prod history. A keyless entry
-names `identity`, `issuer` and `roots` (the Fulcio root and intermediate in
-PEM). The roots are required: without them anyone could mint a self-signed
-certificate that names the right identity and issuer.
+names `identity`, `issuer` and `trustedRoot` (the Sigstore `trusted_root.json`
+of its Fulcio and timestamp authority). The trusted root is required: without
+it anyone could mint a self-signed certificate that names the right identity
+and issuer.
 
 A record is trusted only on the anchor of the stream it names. A validly
 signed record of another stream attached to this one's anchor reads as one

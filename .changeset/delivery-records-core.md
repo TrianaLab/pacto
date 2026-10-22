@@ -13,11 +13,13 @@ by `seq` and `parent`. An operation that fails a check before signing (a
 missing field, an approval no longer bound to the operation or a value that
 looks like a secret) becomes an `unrecordable` record that names the check and
 the intent digest and leaves the rest out, and a seq no operation holds becomes
-a `gap` record. `SignRecord` signs a statement as a DSSE envelope in a sigstore
+a `gap` record. `SignRecord` signs a statement as a DSSE envelope in a Sigstore
 bundle v0.3 and returns its id, the sha256 of the payload; `OpenRecord`
-verifies one. Ed25519 signing is built in, and the verifiers accept Ed25519,
-ECDSA and RSA keys and keyless certificates by identity and issuer. Operation
-status gains `record` and the Stage stream `recordedSeq` and `head`.
+verifies one. The new `pkg/signing` signs and verifies with sigstore-go: with
+an Ed25519, ECDSA P-256 or RSA key, a KMS key or keyless with a Fulcio
+certificate. Every record verifies with standard Sigstore tooling, with no
+Pacto involved. Operation status gains `record` and the Stage stream
+`recordedSeq` and `head`.
 
 The new `pkg/ocireferrer` is the one way Pacto writes OCI referrers: it opens a
 repository with the native Referrers API required (no tag fallback), builds a
@@ -26,8 +28,11 @@ Referrers API lists it. The Evidence Server stores evidence through it.
 
 Records are verified against a trust config that lists which keys may sign the
 records of which streams, so a dev recorder cannot sign prod history and an old
-key stays trusted while you rotate to a new one. A keyless entry can name the
-roots its certificate must chain to. Every record cites the trust config the
+key stays trusted while you rotate to a new one. A keyless entry names the
+identity, the issuer and the Sigstore trusted root (`trustedRoot`, a
+`trusted_root.json`) its certificate must chain to; without one it is refused.
+A keyless record verifies only at the time a timestamp authority or the
+transparency log saw it signed. Every record cites the trust config the
 recorder checked the stream with.
 
 History is read from the records. `pacto delivery history` reads a Stage's

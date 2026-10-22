@@ -19,9 +19,9 @@ this one reject a 2.1 contract.
 identical, adopt, conflict or unreadable and which of Pacto's checks refuse
 the publish, and writes nothing. `pacto publish` builds what is absent, pushes
 it by digest with its version and source revision on the manifest, attaches
-SBOMs made by `syft`, signs every digest with `cosign` and verifies each new
-signature against the configured identity (a keyless signature by the wrong CI
-identity fails before any tag is written), pushes the bundle and
+SBOMs made by `syft`, signs every digest and verifies each new signature
+against the configured identity (a keyless signature by the wrong CI identity
+fails before any tag is written), pushes the bundle and
 writes the tags with the deploy artifact last; the deploy artifact names its
 digest-pinned contract in `pacto.dev/contract`. It never overwrites a tag: each tag is read again
 just before it is written. A second run changes nothing and a run that stopped
@@ -37,6 +37,17 @@ at least a minor. `--propose <namespace>/<stage>` hands the deploy artifact to
 Pacto delivery once the Stage recorded it as published, waiting up to
 `--propose-timeout` for Flux to verify it. `pacto mcp --publish` adds `pacto_publish_plan` and
 `pacto_publish` for agents, over stdio only.
+
+Pacto signs with sigstore-go and needs no `cosign` binary. A signature is a
+Sigstore bundle referrer, as cosign 3 writes it, so `cosign verify` and Flux's
+`spec.verify` check it. A key file (a cosign key, decrypted with
+`COSIGN_PASSWORD`, or a plain PEM key) and a KMS key (`awskms://`, `gcpkms://`,
+`azurekms://`, `hashivault://`) sign with or without the transparency log.
+Keyless signing uses public-good Fulcio and Rekor with the OIDC token in
+`SIGSTORE_ID_TOKEN` or from GitHub Actions, verifies under the trusted root
+Sigstore publishes through TUF and needs the transparency log: a short-lived
+certificate verifies only at the time the log saw it, so `transparencyLog:
+false` with keyless is refused.
 
 `pacto diff` reports `requiredBump`, the same rule. `pacto push` succeeds
 without writing when the registry already holds the same bundle, and now

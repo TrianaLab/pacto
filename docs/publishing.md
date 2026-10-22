@@ -66,7 +66,7 @@ manifests build can pin the image it deploys by digest. Pacto then:
    annotation names the digest-pinned contract bundle;
 3. attaches an SBOM made by `syft` to each image that asks for one, unless one
    signed by the configured identity is already there;
-4. signs every digest with `cosign`, unless a valid signature by the configured
+4. signs every digest, unless a valid signature by the configured
    key, KMS key or keyless identity is already there, then verifies the new
    signature against that identity. A keyless signature carries whatever
    identity the CI token had, so a mismatch fails here, before any tag is
@@ -74,9 +74,28 @@ manifests build can pin the image it deploys by digest. Pacto then:
 5. pushes the bundle and writes the tags.
 
 It needs `docker buildx` with a builder that can write an OCI layout (the
-`docker-container` driver can) for `dockerfile` builds, `cosign` to sign and
-`syft` for SBOMs. Registry credentials and plain-HTTP registries come from the
-same settings as `pacto push`.
+`docker-container` driver can) for `dockerfile` builds and `syft` for SBOMs.
+Registry credentials and plain-HTTP registries come from the same settings as
+`pacto push`.
+
+## Signing
+
+Pacto signs with the Sigstore library and needs no `cosign` binary. Each
+signature is a Sigstore bundle attached to the digest as a referrer, the way
+cosign 3 writes one, so `cosign verify` and Flux's `spec.verify` both check it.
+
+| `sign` | What signs | Notes |
+|---|---|---|
+| `key: cosign.key` | A PEM private key file | A cosign key is decrypted with `COSIGN_PASSWORD` |
+| `kms: awskms:///alias/ci` | A KMS key | `awskms://`, `gcpkms://`, `azurekms://` or `hashivault://`, with that cloud's usual credentials |
+| `keyless: true` | A short-lived certificate from public-good Fulcio | The OIDC token comes from `SIGSTORE_ID_TOKEN` or GitHub Actions (`id-token: write`) |
+
+A signature goes to the public transparency log unless `transparencyLog:
+false`. Keyless signing needs the log: its certificate lives ten minutes, so
+it verifies only at the time the log saw it, and Pacto refuses keyless with
+`transparencyLog: false`. Pacto verifies a keyless signature against the
+`identity` and `issuer` you configure, under the trusted root Sigstore
+publishes through TUF.
 
 ## In CI and from agents
 

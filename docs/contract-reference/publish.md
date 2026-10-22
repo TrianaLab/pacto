@@ -44,11 +44,11 @@ publish:
 | `artifacts[].build.dockerfile` | `context`, optional `file` and `platforms`. Runs `docker buildx` into an OCI image layout. Images only |
 | `artifacts[].build.command` | A command run in the contract directory that writes the artifact to `$PACTO_OUT`: an OCI image layout for an image, one `.tgz` for a chart, files for manifests |
 | `artifacts[].sbom` | Attach an SBOM made by `syft` to the image. Images only |
-| `sign` | Exactly one of `keyless: true`, `key` (a cosign key file) or `kms` (a cosign KMS URI). `transparencyLog: false` keeps signatures out of the public log. Publishing refuses without it |
+| `sign` | Exactly one of `keyless: true`, `key` (a PEM key file, such as a cosign key) or `kms` (a KMS key URI). `transparencyLog: false` keeps signatures out of the public log; keyless signing refuses it. Publishing refuses without `sign` |
 | `sign.identity`, `sign.issuer` | Required with `keyless: true`: the certificate identity the signature carries and its OIDC issuer. Pacto keeps or adopts only what this identity signed |
 
 Builders never push. Pacto pushes every artifact itself, never over an existing
-tag, signs each digest with `cosign` and stamps `org.opencontainers.image.version`
+tag, signs each digest with Sigstore and stamps `org.opencontainers.image.version`
 and `org.opencontainers.image.revision` on each manifest it pushes. A chart is
 published but cannot be the deploy artifact: the promoter confirms a release only
 through Kustomizations.

@@ -24,7 +24,11 @@ registry has no Referrers API: records are unsupported there. The metric
 
 The `pacto-delivery` chart gains `recorder.*`, off by default: the streams
 repository, a Docker config Secret for push and one of an Ed25519 key Secret,
-a cosign KMS key URI or keyless signing. With the recorder on, the promoter
+a KMS key URI or keyless signing. Keyless signing presents a projected service
+account token for the `sigstore` audience to the Fulcio in
+`recorder.signing.keyless.fulcioURL`, dates each signature with the timestamp
+authority in `timestampURL` and needs `trustedRoot`, the Sigstore trusted root
+naming both, which the recorder also publishes as its own trust entry. With the recorder on, the promoter
 gets `--records` and leaves the record finalizer to it.
 
 The recorder names each stream's anchor in `status.stream.anchor`, verifies a
@@ -35,7 +39,7 @@ unfreezes it. With the recorder on, the promoter deletes a recorded operation
 after `recorder.operationTTL` (a week by default), never the one a Stage runs,
 and its role gains `delete` on operations for that. An admission policy keeps
 `status.record` and the stream's `recordedSeq`, `head` and `anchor` to the
-recorder, and keeps the recorder away from what runs. The delivery image is now built with `--target delivery` and
-carries cosign 2.6.5 for KMS and keyless signing. Apply the delivery CRDs
+recorder, and keeps the recorder away from what runs. The delivery image is now built with `--target delivery`. The
+recorder signs with sigstore-go, so the image carries no cosign. Apply the delivery CRDs
 before `helm upgrade pacto-delivery`: the Stage and Operation CRDs gain the
 record fields.
