@@ -101,7 +101,8 @@ func kindMatrixScenarios(t *testing.T) []string {
 // proved — and nothing in the repository looks wrong, which is the whole problem.
 func TestEveryKindScenarioRuns(t *testing.T) {
 	mk := readFile(t, filepath.Join(repoDir(t), "ci.mk"))
-	wf := readFile(t, filepath.Join(repoDir(t), ".github", "workflows", "ci.yml"))
+	// Comment lines dropped: a commented-out `make` line runs nothing.
+	wf := code(t, filepath.Join(repoDir(t), ".github", "workflows", "ci.yml"))
 	matrix := kindMatrixScenarios(t)
 	const prefix = "test-acceptance-kind-"
 	for _, path := range scenarios(t) {
@@ -129,6 +130,42 @@ func TestEveryKindScenarioRuns(t *testing.T) {
 			t.Errorf("%s runs under `make %s%s`, which neither the ci-e2e-kind matrix lists nor a ci.yml job runs, "+
 				"so CI never runs it (matrix: %v)", filepath.Base(path), prefix, target, matrix)
 		}
+	}
+}
+
+// TestEveryDeliveryPhaseHasAShard ties the ci-e2e-kind-delivery matrix to the
+// phases delivery.sh defines. Each shard runs one phase (DELIVERY_PHASES), so a
+// phase missing from the matrix silently stops running in CI, and a matrix leg
+// naming no phase fails every run.
+func TestEveryDeliveryPhaseHasAShard(t *testing.T) {
+	sh := code(t, filepath.Join(kindDir(t), "delivery.sh"))
+	_, after, ok := strings.Cut(sh, "\nPHASES=\"")
+	if !ok {
+		t.Fatal(`no PHASES="..." in delivery.sh; the phases are defined some other way now`)
+	}
+	list, _, _ := strings.Cut(after, "\"")
+	phases := strings.Fields(list)
+
+	wf := code(t, filepath.Join(repoDir(t), ".github", "workflows", "ci.yml"))
+	_, job, ok := strings.Cut(wf, "\n  ci-e2e-kind-delivery:\n")
+	if !ok {
+		t.Fatal("no ci-e2e-kind-delivery job in .github/workflows/ci.yml")
+	}
+	_, after, ok = strings.Cut(job, "phase: [")
+	if !ok {
+		t.Fatal("ci-e2e-kind-delivery has no `phase: [...]` matrix")
+	}
+	list, _, _ = strings.Cut(after, "]")
+	var matrix []string
+	for name := range strings.SplitSeq(list, ",") {
+		matrix = append(matrix, strings.TrimSpace(name))
+	}
+
+	slices.Sort(phases)
+	slices.Sort(matrix)
+	if !slices.Equal(phases, matrix) {
+		t.Errorf("delivery.sh PHASES %v and the ci-e2e-kind-delivery matrix %v differ; every phase needs exactly one shard",
+			phases, matrix)
 	}
 }
 
