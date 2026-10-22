@@ -218,6 +218,10 @@ func TestKMS(t *testing.T) {
 			t.Errorf("%s loaded", uri)
 		}
 	}
+	// A key no linked provider serves names the build to use.
+	if _, err := KMS(t.Context(), "nokms://key"); err == nil || !strings.Contains(err.Error(), "-tags kms") {
+		t.Errorf("no build named: %v", err)
+	}
 }
 
 // TestKeylessRoundTrip: a keyless bundle verifies for the pinned identity

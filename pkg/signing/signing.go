@@ -141,14 +141,25 @@ func LoadKey(path string) (*Keypair, error) {
 	return FromPrivateKey(key)
 }
 
+// noKMSHint names the build to use when a KMS key meets a build without its
+// provider.
+const noKMSHint = "this build has no provider for that key: the default pacto build leaves cloud KMS out; " +
+	"use a build with -tags kms (go install -tags kms github.com/trianalab/pacto/v4/cmd/pacto@<version>) " +
+	"or with -tags kms_aws, kms_gcp, kms_azure or kms_hashivault for one provider"
+
 // KMS is the keypair of a KMS key URI (awskms://, gcpkms://, azurekms://,
-// hashivault://). The binary must link that provider. The key must sign with
+// hashivault://). The binary must link that provider: the default build links
+// none, a build with -tags kms links all four and -tags kms_aws, kms_gcp,
+// kms_azure or kms_hashivault links one. The key must sign with
 // the default scheme of its public key: ECDSA P-256, Ed25519 or RSA PKCS#1
 // v1.5, all with SHA-256. RSA-PSS and SHA-384/512 keys are refused.
 func KMS(ctx context.Context, uri string) (*Keypair, error) {
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
 	sv, err := kms.Get(ctx, uri, crypto.SHA256)
+	if pnf := (*kms.ProviderNotFoundError)(nil); errors.As(err, &pnf) {
+		return nil, fmt.Errorf("%w: %s", err, noKMSHint)
+	}
 	if err != nil {
 		return nil, err
 	}
