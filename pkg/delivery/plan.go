@@ -73,11 +73,12 @@ type PlanInput struct {
 	// its upstream Stage verified.
 	Stages    []StageObject
 	StagesErr error
-	// Misplaced names the consumer Pactos whose environment label no Stage
-	// declares (EnvironmentPactos): they count everywhere, and the impact
-	// gate cannot clear the change until the label is fixed or a person
-	// accepts the unknown.
-	Misplaced []string
+	// Misplaced are the Pactos whose environment label no Stage declares
+	// (EnvironmentPactos): they count everywhere, and while one of them is a
+	// consumer of the service the impact gate cannot clear the change until
+	// the label is fixed or a person accepts the unknown. One that does not
+	// depend on the service holds nothing.
+	Misplaced []Misplaced
 	// Candidates reads what a digest on a consumer's Stage carries. It is the
 	// one registry read planning makes beyond the two sides of the change,
 	// only for a blocked change, and it must be bounded (ResolveRevision is).
@@ -303,7 +304,20 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 		unseenConsumers = append(unseenConsumers, c.Service+" has no usable compatibility range for this change")
 	}
 	unseenConsumers = append(unseenConsumers, unresolvedConsumers(in.Snapshot, in.Stage.Service.Name)...)
-	unseenConsumers = append(unseenConsumers, in.Misplaced...)
+	consumers := map[string]bool{}
+	for _, c := range res.Consumers {
+		consumers[c.Service] = true
+	}
+	for _, r := range in.Snapshot.Relationships {
+		if unresolvedTo(r, in.Stage.Service.Name) {
+			consumers[string(r.FromService)] = true
+		}
+	}
+	for _, m := range in.Misplaced {
+		if m.Service == "" || consumers[m.Service] { // a Pacto with no contract cannot be ruled out
+			unseenConsumers = append(unseenConsumers, m.Note)
+		}
+	}
 	unseen := slices.Clone(unseenConsumers)
 	if in.From.Digest != "" && !slices.Contains(in.Status.Verified, in.From.Digest) {
 		unseen = append(unseen, "the version a rollback would return to ("+short(in.From.Digest)+") was never verified here")
@@ -339,12 +353,17 @@ func unresolvedConsumers(snap *fleet.FleetSnapshot, service string) []string {
 	for _, r := range snap.Relationships {
 		msg := string(r.FromService) + " depends on " + service + " through " + r.RequestedRef +
 			", which does not resolve to this service in its domain"
-		if r.Type == fleet.RelationshipDependency && r.Provenance == fleet.ProvenanceDeclared && !r.Resolved &&
-			r.To == service && !slices.Contains(out, msg) {
+		if unresolvedTo(r, service) && !slices.Contains(out, msg) {
 			out = append(out, msg)
 		}
 	}
 	return out
+}
+
+// unresolvedTo reports whether r is a declared dependency on service the
+// graph could not resolve.
+func unresolvedTo(r fleet.Relationship, service string) bool {
+	return r.Type == fleet.RelationshipDependency && r.Provenance == fleet.ProvenanceDeclared && !r.Resolved && r.To == service
 }
 
 func consumerNamesOwners(cs []impact.AffectedConsumer) (names, owners []string) {

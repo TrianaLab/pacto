@@ -88,15 +88,20 @@ func TestEnvironmentPactos(t *testing.T) {
 	// counts in every environment and is named, never silently dropped.
 	typo := pactoIn("prod", "h")
 	typo.Metadata.Labels = map[string]string{EnvironmentLabel: "production"}
+	named := typo
+	named.Status.Contract = &ContractInfoView{ServiceName: "checkout"}
+	if _, m := EnvironmentPactos([]PactoView{named}, stages, ks, nil, "prod"); len(m) != 1 || m[0].Service != "checkout" {
+		t.Fatalf("a misplaced Pacto names its service, so the plan can tell a consumer: %+v", m)
+	}
 	for _, env := range []string{"prod", "test"} {
 		got, misplaced := EnvironmentPactos([]PactoView{typo}, stages, ks, nil, env)
-		if !slices.Equal(names(got), []string{"prod/h"}) || !slices.Equal(misplaced, []string{`Pacto prod/h is labelled for environment "production", which no Stage declares`}) {
+		if !slices.Equal(names(got), []string{"prod/h"}) || !slices.Equal(misplaced, []Misplaced{{Note: `Pacto prod/h is labelled for environment "production", which no Stage declares`}}) {
 			t.Fatalf("%s: an unknown label must count and be named: %v %v", env, names(got), misplaced)
 		}
 	}
 }
 
-func keep(p []PactoView, _ []string) []PactoView { return p }
+func keep(p []PactoView, _ []Misplaced) []PactoView { return p }
 
 func consumerPacto(ns, name, version, rng string) PactoView {
 	p := checkoutPacto(rng)

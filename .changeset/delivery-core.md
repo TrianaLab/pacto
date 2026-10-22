@@ -20,8 +20,9 @@ Pacto places a consumer from where it runs: its
 `delivery.pacto.trianalab.io/environment` label, or the namespace a Stage of
 that environment applies into (its Kustomization's `targetNamespace`). A
 consumer Pacto cannot place counts in every environment, so it is never left
-out, and so does one whose label names an environment no Stage declares: the
-plan names that label and asks a person to accept the unknown. When one of them does not accept the new version, the plan's `order` says
+out, and so does one whose label names an environment no Stage declares: when
+that Pacto is a consumer of the service, the plan names the label and asks a
+person to accept the unknown. When one of them does not accept the new version, the plan's `order` says
 which consumer must move first, the version running there and the range it
 declares, its Stage in that environment and either the newest version its
 upstream Stage verified that is newer than the one running, accepts both the

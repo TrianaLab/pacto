@@ -91,17 +91,37 @@ func TestPlanCompatibleChangeShipsWithNoPerson(t *testing.T) {
 	}
 }
 
+// TestPlanMisplacedConsumerAsksToAcceptTheUnknown: a Pacto labelled for an
+// environment no Stage declares holds the change only while it may be a
+// consumer of the service; a misplaced Pacto with nothing to do with it holds
+// nothing.
 func TestPlanMisplacedConsumerAsksToAcceptTheUnknown(t *testing.T) {
 	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
-	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
-	if err != nil {
-		t.Fatal(err)
-	}
-	p := PlanFor(context.Background(), PlanInput{Spec: promote(dA, dB), Stage: stageSpec(),
-		Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}}, From: from, To: to,
-		Snapshot: snap, Class: ClassAgent, Misplaced: []string{`Pacto prod/h is labelled for environment "production", which no Stage declares`}})
-	if v := verdict(t, p, GateImpact); v.Result != Unknown || p.Floor.Decision != AcceptUnknown || !strings.Contains(p.Question, `"production"`) {
-		t.Fatalf("a label no Stage declares must surface and hold the change: %+v", p)
+	inline := checkoutPacto("^1.0.0")
+	inline.Status.Contract.ResolvedRef = ""
+	const note = `Pacto prod/h is labelled for environment "production", which no Stage declares`
+	for _, c := range []struct {
+		name, service string
+		pacto         PactoView
+		holds         bool
+	}{
+		{"a resolved consumer", "checkout", checkoutPacto("^1.0.0"), true},
+		{"a consumer the graph cannot resolve", "checkout", inline, true},
+		{"a Pacto with no contract", "", checkoutPacto("^1.0.0"), true},
+		{"a Pacto that does not depend on the service", "sandbox-app", checkoutPacto("^1.0.0"), false},
+	} {
+		snap, err := Snapshot(context.Background(), []PactoView{c.pacto}, nil, []Revision{from, to}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := PlanFor(context.Background(), PlanInput{Spec: promote(dA, dB), Stage: stageSpec(),
+			Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}}, From: from, To: to,
+			Snapshot: snap, Class: ClassAgent, Misplaced: []Misplaced{{Service: c.service, Note: note}}})
+		v := verdict(t, p, GateImpact)
+		if held := strings.Contains(p.Question, `"production"`); held != c.holds || c.holds && (v.Result != Unknown || p.Floor.Decision != AcceptUnknown) ||
+			!c.holds && v.Result != Pass {
+			t.Fatalf("%s: holds=%v, got %+v", c.name, c.holds, p)
+		}
 	}
 }
 

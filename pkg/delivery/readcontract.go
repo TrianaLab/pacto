@@ -228,16 +228,26 @@ func DecodeKustomizations(data []byte) ([]KustomizationView, error) {
 	return list.Items, nil
 }
 
-// misplacedLabels returns the environments the Stages declare and names every
-// Pacto whose environment label is not one of them.
-func misplacedLabels(pactos []PactoView, stages []StageObject) (known map[string]bool, misplaced []string) {
+// Misplaced is a Pacto whose environment label no Stage declares: Service is
+// its contract's service ("" when it has none) and Note says why it counts.
+type Misplaced struct {
+	Service, Note string
+}
+
+// misplacedLabels returns the environments the Stages declare and every Pacto
+// whose environment label is not one of them.
+func misplacedLabels(pactos []PactoView, stages []StageObject) (known map[string]bool, misplaced []Misplaced) {
 	known = map[string]bool{}
 	for _, s := range stages {
 		known[s.Spec.Environment] = true
 	}
 	for _, p := range pactos {
 		if env := p.Metadata.Labels[EnvironmentLabel]; env != "" && !known[env] {
-			misplaced = append(misplaced, fmt.Sprintf("Pacto %s/%s is labelled for environment %q, which no Stage declares", p.Metadata.Namespace, p.Metadata.Name, env))
+			m := Misplaced{Note: fmt.Sprintf("Pacto %s/%s is labelled for environment %q, which no Stage declares", p.Metadata.Namespace, p.Metadata.Name, env)}
+			if p.Status.Contract != nil {
+				m.Service = p.Status.Contract.ServiceName
+			}
+			misplaced = append(misplaced, m)
 		}
 	}
 	return known, misplaced
@@ -257,7 +267,7 @@ func misplacedLabels(pactos []PactoView, stages []StageObject) (known map[string
 // A label naming an environment no Stage declares places nothing either: that
 // Pacto counts everywhere, and misplaced names it so the plan can say why it
 // cannot see which consumers run here.
-func EnvironmentPactos(pactos []PactoView, stages []StageObject, kustomizations []KustomizationView, placeErr error, environment string) ([]PactoView, []string) {
+func EnvironmentPactos(pactos []PactoView, stages []StageObject, kustomizations []KustomizationView, placeErr error, environment string) ([]PactoView, []Misplaced) {
 	if placeErr != nil {
 		return pactos, nil
 	}
