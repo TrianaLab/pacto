@@ -96,10 +96,13 @@ func kindMatrixScenarios(t *testing.T) []string {
 // TestEveryKindScenarioRuns is the tripwire for a scenario that exists and never
 // executes. A script is only a gate if something invokes it: ci.mk needs a target
 // whose recipe runs it, and that target's name has to appear in the ci-e2e-kind
-// matrix. Miss either half and the pipeline stays green with one fewer thing
+// matrix (or a job of its own has to run `make test-acceptance-kind-<target>`,
+// as the sharded delivery job does). Miss either half and the pipeline stays green with one fewer thing
 // proved — and nothing in the repository looks wrong, which is the whole problem.
 func TestEveryKindScenarioRuns(t *testing.T) {
 	mk := readFile(t, filepath.Join(repoDir(t), "ci.mk"))
+	// Comment lines dropped: a commented-out `make` line runs nothing.
+	wf := code(t, filepath.Join(repoDir(t), ".github", "workflows", "ci.yml"))
 	matrix := kindMatrixScenarios(t)
 	const prefix = "test-acceptance-kind-"
 	for _, path := range scenarios(t) {
@@ -123,10 +126,46 @@ func TestEveryKindScenarioRuns(t *testing.T) {
 			t.Errorf("%s is run by a ci.mk recipe with no %s* target above it", filepath.Base(path), prefix)
 			continue
 		}
-		if !slices.Contains(matrix, target) {
-			t.Errorf("%s runs under `make %s%s`, which the ci-e2e-kind matrix does not list, "+
+		if !slices.Contains(matrix, target) && !strings.Contains(wf, "make "+prefix+target+"\n") {
+			t.Errorf("%s runs under `make %s%s`, which neither the ci-e2e-kind matrix lists nor a ci.yml job runs, "+
 				"so CI never runs it (matrix: %v)", filepath.Base(path), prefix, target, matrix)
 		}
+	}
+}
+
+// TestEveryDeliveryPhaseHasAShard ties the ci-e2e-kind-delivery matrix to the
+// phases delivery.sh defines. Each shard runs one phase (DELIVERY_PHASES), so a
+// phase missing from the matrix silently stops running in CI, and a matrix leg
+// naming no phase fails every run.
+func TestEveryDeliveryPhaseHasAShard(t *testing.T) {
+	sh := code(t, filepath.Join(kindDir(t), "delivery.sh"))
+	_, after, ok := strings.Cut(sh, "\nPHASES=\"")
+	if !ok {
+		t.Fatal(`no PHASES="..." in delivery.sh; the phases are defined some other way now`)
+	}
+	list, _, _ := strings.Cut(after, "\"")
+	phases := strings.Fields(list)
+
+	wf := code(t, filepath.Join(repoDir(t), ".github", "workflows", "ci.yml"))
+	_, job, ok := strings.Cut(wf, "\n  ci-e2e-kind-delivery:\n")
+	if !ok {
+		t.Fatal("no ci-e2e-kind-delivery job in .github/workflows/ci.yml")
+	}
+	_, after, ok = strings.Cut(job, "phase: [")
+	if !ok {
+		t.Fatal("ci-e2e-kind-delivery has no `phase: [...]` matrix")
+	}
+	list, _, _ = strings.Cut(after, "]")
+	var matrix []string
+	for name := range strings.SplitSeq(list, ",") {
+		matrix = append(matrix, strings.TrimSpace(name))
+	}
+
+	slices.Sort(phases)
+	slices.Sort(matrix)
+	if !slices.Equal(phases, matrix) {
+		t.Errorf("delivery.sh PHASES %v and the ci-e2e-kind-delivery matrix %v differ; every phase needs exactly one shard",
+			phases, matrix)
 	}
 }
 

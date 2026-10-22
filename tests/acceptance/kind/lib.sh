@@ -21,7 +21,10 @@
 #
 #   pass MSG / fail MSG            report one claim; fail exits 1
 #   eventually ROUNDS CMD...       run CMD until it succeeds, 3s apart
+#   infra DESC CMD...              retry an infrastructure step; exit 75 when it never works
+#   cluster_start_bg [CONFIG]      start creating $CLUSTER in the background
 #   ensure_cluster [CONFIG]        create $CLUSTER if absent, point KUBECONFIG at it
+#   pull_pinned REF@DIGEST         pull exactly that digest and tag it REF
 #   use_existing_cluster HINT      require an already-running $CLUSTER
 #   load_images IMG...             import images into $CLUSTER
 #   delete_cluster / down_cluster  quiet teardown / the chatty `down` subcommand
@@ -87,6 +90,41 @@ always() {
   return 0
 }
 
+# infra DESC CMD... — run an INFRASTRUCTURE step: cluster creation, an image
+# pull or load, a third-party install or rollout (Flux, Mira). Three attempts,
+# 10s then 20s apart. A runner that cannot reach a registry or start a cluster is not a
+# product failure, and one retry is usually all it needs.
+#
+# Never wrap a check in it, and never a Pacto chart install or rollout: those
+# run images built from the tree under test, so their failure is a FAIL. A
+# check that passes on the second try hides exactly the flake it exists to
+# catch.
+#
+# When the attempts run out it prints INFRASTRUCTURE FAILED and exits 75
+# (EX_TEMPFAIL), never 1, so CI can tell "the environment broke" from "a check
+# failed" (scripts/ci/kind-run.sh reads the line).
+infra() {
+  local desc="$1" i
+  shift
+  for i in 1 2 3; do
+    "$@" && return 0
+    [ "$i" = 3 ] && break
+    echo "  infra: $desc failed (attempt $i of 3); retrying in $((i * 10))s" >&2
+    sleep $((i * 10))
+  done
+  echo "  INFRASTRUCTURE FAILED: $desc (3 attempts)" >&2
+  exit 75
+}
+
+# pull_pinned REPO:TAG@DIGEST — pull exactly that digest and tag it REPO:TAG, the
+# name the manifests and load_images use. A tag moved upstream can no longer
+# change what a run tests.
+pull_pinned() {
+  local ref="${1%@*}" digest="${1#*@}"
+  infra "pull $1" docker pull -q "${ref%:*}@${digest}" >/dev/null
+  docker tag "${ref%:*}@${digest}" "$ref"
+}
+
 # --- cluster lifecycle ------------------------------------------------------
 
 # Every scenario runs against its own KUBECONFIG copy rather than the caller's
@@ -97,8 +135,27 @@ _kubeconfig_for_cluster() {
   kind get kubeconfig --name "$CLUSTER" > "$KUBECONFIG"
 }
 
+# A half-created cluster is deleted, so the next attempt starts clean.
+_create_cluster() { # [KIND_CONFIG]
+  kind create cluster --name "$CLUSTER" --wait 90s ${1:+--config "$1"} || { delete_cluster; return 1; }
+}
+
+# cluster_start_bg [KIND_CONFIG] — start creating $CLUSTER in the background, so
+# the image builds and pulls that follow overlap it. ensure_cluster waits for it.
+_CLUSTER_BG_PID=
+cluster_start_bg() {
+  kind get clusters 2>/dev/null | grep -qx "$CLUSTER" && return 0
+  _CLUSTER_BG_LOG="$(mktemp)"
+  _create_cluster "${1:-}" >"$_CLUSTER_BG_LOG" 2>&1 &
+  _CLUSTER_BG_PID=$!
+}
+
 ensure_cluster() { # [KIND_CONFIG] — the config only applies when the cluster is created
-  kind get clusters | grep -qx "$CLUSTER" || kind create cluster --name "$CLUSTER" --wait 90s ${1:+--config "$1"}
+  if [ -n "$_CLUSTER_BG_PID" ]; then
+    wait "$_CLUSTER_BG_PID" || { cat "$_CLUSTER_BG_LOG" >&2; echo "  infra: background cluster creation failed; trying again" >&2; }
+    _CLUSTER_BG_PID=
+  fi
+  kind get clusters | grep -qx "$CLUSTER" || infra "create kind cluster $CLUSTER" _create_cluster "${1:-}"
   _kubeconfig_for_cluster
 }
 
@@ -424,8 +481,16 @@ pf() {
 # caller's own cleanup function; if omitted a generic helm-uninstall +
 # delete-namespace is used. NS/CLUSTER are arguments (they differ per script:
 # pacto-system, pacto-modes, pacto-upgrade) — nothing is hardcoded here.
+#
+# A failed run in CI (CI set, and the EXIT trap's rc non-zero) is also kept: the
+# runner is thrown away anyway, and scripts/ci/kind-diagnostics.sh runs after
+# the scenario exits, so it must find the failed state, not a torn-down one.
 keep_or_teardown() {
   local ns="${1:-}" cluster="${2:-}" fn="${3:-}"
+  if [ -n "${CI:-}" ] && [ "${rc:-0}" -ne 0 ]; then
+    echo "== failed in CI — leaving namespace '$ns' in kind cluster '$cluster' for the diagnostics step =="
+    return 0
+  fi
   if [ -n "${KEEP_E2E_CLUSTER:-}" ]; then
     echo "== KEEP_E2E_CLUSTER set — leaving namespace '$ns' in kind cluster '$cluster' for inspection (KUBECONFIG=${KUBECONFIG:-unset}) =="
     return 0

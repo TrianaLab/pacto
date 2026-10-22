@@ -38,15 +38,17 @@ func composeFloor(t *testing.T) *semver.Version {
 }
 
 type wfStep struct {
-	Name string         `yaml:"name"`
-	Uses string         `yaml:"uses"`
-	With map[string]any `yaml:"with"`
-	Env  map[string]any `yaml:"env"`
-	Run  string         `yaml:"run"`
+	Name           string         `yaml:"name"`
+	Uses           string         `yaml:"uses"`
+	With           map[string]any `yaml:"with"`
+	Env            map[string]any `yaml:"env"`
+	Run            string         `yaml:"run"`
+	TimeoutMinutes int            `yaml:"timeout-minutes"`
 }
 
 type wfJob struct {
-	Steps []wfStep `yaml:"steps"`
+	TimeoutMinutes any      `yaml:"timeout-minutes"`
+	Steps          []wfStep `yaml:"steps"`
 }
 
 // runs is every shell body the job executes, joined.

@@ -188,6 +188,8 @@ test-acceptance-kind-runtime-conformance:
 # The recorder runs throughout, and phase 6 proves every operation has a signed
 # record on its subjects, that record verify and cosign accept them, and that a
 # changed or chain-breaking record stops the stream and freezes its Stage.
+# CI shards it by phase (DELIVERY_PHASES=core|health|publish|ordering|identity|
+# records, see the script's header) over images built once; locally it runs all.
 test-acceptance-kind-delivery:
 	bash tests/acceptance/kind/delivery.sh
 
