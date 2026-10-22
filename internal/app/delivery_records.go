@@ -278,15 +278,9 @@ func opByName(ops []delivery.OperationObject, name string) delivery.OperationObj
 // records.
 func (d *Delivery) Undo(ctx context.Context, ns, name, stage string) (*delivery.Undo, error) {
 	u := &delivery.Undo{Operation: ns + "/" + name, Kind: "none"}
-	op, err := d.Get(ctx, ns, name)
-	gone := err != nil
-	if gone {
-		if stage == "" {
-			return nil, fmt.Errorf("%w; if it was deleted after it was recorded, name its Stage to find it in the records", err)
-		}
-		if op, err = d.recordedOperation(ctx, ns, stage, name); err != nil {
-			return nil, err
-		}
+	op, gone, err := d.undoTarget(ctx, ns, name, stage)
+	if err != nil {
+		return nil, err
 	}
 	ptr := op.Status.Pointer
 	if ptr.After == "" {
@@ -330,6 +324,20 @@ func (d *Delivery) Undo(ctx context.Context, ns, name, stage string) (*delivery.
 	}
 	u.Command += fmt.Sprintf(" --reason %q --intent-digest %s", req.Reason, plan.IntentDigest)
 	return u, nil
+}
+
+// undoTarget is the operation undo works on: from the cluster, or, when it is
+// gone, rebuilt from the records of stage.
+func (d *Delivery) undoTarget(ctx context.Context, ns, name, stage string) (*delivery.OperationObject, bool, error) {
+	op, err := d.Get(ctx, ns, name)
+	if err == nil {
+		return op, false, nil
+	}
+	if stage == "" {
+		return nil, true, fmt.Errorf("%w; if it was deleted after it was recorded, name its Stage to find it in the records", err)
+	}
+	op, err = d.recordedOperation(ctx, ns, stage, name)
+	return op, true, err
 }
 
 // recordedOperation rebuilds what undo needs of an operation from its record.

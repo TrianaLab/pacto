@@ -296,28 +296,7 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 			unknown = append(unknown, c)
 		}
 	}
-	var unseenConsumers []string
-	if res.Completeness == fleet.CompletenessPartial {
-		unseenConsumers = append(unseenConsumers, "the operational graph is partial ("+limitationCodes(res.Limitations)+")")
-	}
-	for _, c := range unknown {
-		unseenConsumers = append(unseenConsumers, c.Service+" has no usable compatibility range for this change")
-	}
-	unseenConsumers = append(unseenConsumers, unresolvedConsumers(in.Snapshot, in.Stage.Service.Name)...)
-	consumers := map[string]bool{}
-	for _, c := range res.Consumers {
-		consumers[c.Service] = true
-	}
-	for _, r := range in.Snapshot.Relationships {
-		if unresolvedTo(r, in.Stage.Service.Name) {
-			consumers[string(r.FromService)] = true
-		}
-	}
-	for _, m := range in.Misplaced {
-		if m.Service == "" || consumers[m.Service] { // a Pacto with no contract cannot be ruled out
-			unseenConsumers = append(unseenConsumers, m.Note)
-		}
-	}
+	unseenConsumers := unseenConsumersOf(in, res, unknown)
 	unseen := slices.Clone(unseenConsumers)
 	if in.From.Digest != "" && !slices.Contains(in.Status.Verified, in.From.Digest) {
 		unseen = append(unseen, "the version a rollback would return to ("+short(in.From.Digest)+") was never verified here")
@@ -341,6 +320,35 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 		v.Message = fmt.Sprintf("%d consumers, none incompatible", len(res.Consumers))
 	}
 	p.Verdicts = append(p.Verdicts, v)
+}
+
+// unseenConsumersOf says which consumers the impact gate cannot see: a
+// partial graph, consumers with no usable range, dependencies the graph could
+// not resolve and misplaced Pactos that are consumers of the service.
+func unseenConsumersOf(in PlanInput, res *impact.Result, unknown []impact.AffectedConsumer) []string {
+	var out []string
+	if res.Completeness == fleet.CompletenessPartial {
+		out = append(out, "the operational graph is partial ("+limitationCodes(res.Limitations)+")")
+	}
+	for _, c := range unknown {
+		out = append(out, c.Service+" has no usable compatibility range for this change")
+	}
+	out = append(out, unresolvedConsumers(in.Snapshot, in.Stage.Service.Name)...)
+	consumers := map[string]bool{}
+	for _, c := range res.Consumers {
+		consumers[c.Service] = true
+	}
+	for _, r := range in.Snapshot.Relationships {
+		if unresolvedTo(r, in.Stage.Service.Name) {
+			consumers[string(r.FromService)] = true
+		}
+	}
+	for _, m := range in.Misplaced {
+		if m.Service == "" || consumers[m.Service] { // a Pacto with no contract cannot be ruled out
+			out = append(out, m.Note)
+		}
+	}
+	return out
 }
 
 // unresolvedConsumers names the services that declare a dependency on service

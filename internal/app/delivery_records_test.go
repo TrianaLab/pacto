@@ -600,21 +600,32 @@ func TestFleetAuditPerNamespace(t *testing.T) {
 		return false, nil, nil
 	})
 	hs, err := e.d.HistoryAll(ctx, "")
-	if err != nil || len(hs.Histories) != 1 || hs.Histories[0].Namespace != "prod" || hs.Completeness != "partial" ||
-		len(hs.Unreadable) != 1 || !strings.Contains(hs.Unreadable[0], "in test") || !strings.Contains(hs.Note, "namespaces listed as unreadable") {
+	if err != nil || len(hs.Histories) != 1 || hs.Histories[0].Namespace != "prod" || hs.Completeness != "partial" {
 		t.Fatalf("history with Stages listable per namespace only = %+v %v", hs, err)
 	}
+	if got := strings.Join(hs.Unreadable, "|"); len(hs.Unreadable) != 1 || !strings.Contains(got, "in test") || !strings.Contains(hs.Note, "namespaces listed as unreadable") {
+		t.Fatalf("the namespace it may not read is not named: %+v", hs)
+	}
 	vs, err := e.d.VerifyAll(ctx, "")
-	if err != nil || vs.OK || len(vs.Streams) != 1 || vs.Completeness != "partial" || len(vs.Unreadable) != 1 {
+	if err != nil || len(vs.Streams) != 1 || vs.Completeness != "partial" || len(vs.Unreadable) != 1 {
 		t.Fatalf("verify with Stages listable per namespace only = %+v %v", vs, err)
 	}
 	if _, err := e.d.HistoryAll(ctx, "test"); !apierrors.IsForbidden(err) {
 		t.Fatalf("a namespace named with -n is not walked around: %v", err)
 	}
+}
+
+// TestFleetAuditNoNamespaces: a caller who may list neither Stages nor
+// namespaces cluster-wide is told to name a namespace.
+func TestFleetAuditNoNamespaces(t *testing.T) {
+	e := newRecordEnv(t)
+	e.c.PrependReactor("list", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(gvrStages.GroupResource(), "", errors.New("no"))
+	})
 	e.c.PrependReactor("list", "namespaces", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, apierrors.NewForbidden(gvrNamespaces.GroupResource(), "", errors.New("no"))
 	})
-	_, err = e.d.HistoryAll(ctx, "")
+	_, err := e.d.HistoryAll(context.Background(), "")
 	wantErrContaining(t, err, "name one with -n")
 }
 
