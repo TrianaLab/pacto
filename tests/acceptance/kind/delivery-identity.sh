@@ -40,7 +40,12 @@ DASH_SECRET="dashboard-secret"
 IDP_FIXTURES="$(dirname "${BASH_SOURCE[0]}")/fixtures/identity"
 IDP_CONTAINERS=(pacto-e2e-dex pacto-e2e-keycloak pacto-e2e-dashboard pacto-e2e-mcp)
 
-identity_cleanup() { docker rm -f "${IDP_CONTAINERS[@]}" >/dev/null 2>&1 || true; }
+# A failed run in CI keeps the containers: scripts/ci/kind-diagnostics.sh runs
+# after the scenario exits and saves their full logs (rc is the EXIT trap's).
+identity_cleanup() {
+  if [ -n "${CI:-}" ] && [ "${rc:-0}" -ne 0 ]; then return 0; fi
+  docker rm -f "${IDP_CONTAINERS[@]}" >/dev/null 2>&1 || true
+}
 
 dump_identity() {
   local c
