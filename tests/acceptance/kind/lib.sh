@@ -117,7 +117,7 @@ _timed_wait() {
   [ -n "${KIND_TIMING:-}" ] && [ "$took" -ge 1 ] || return 0
   local at="${BASH_SOURCE[2]##*/}:${BASH_LINENO[1]}" what
   # A wait inside a helper (wait_op, wait_concluded) also names the helper's caller.
-  [ "${#BASH_LINENO[@]}" -gt 3 ] && [ "${FUNCNAME[3]:-main}" != source ] && at+=" <- ${BASH_LINENO[2]}"
+  case "${FUNCNAME[2]:-main}" in main | source | phase_* | *_scenario) ;; *) at+=" <- ${BASH_LINENO[2]}" ;; esac
   what="$(printf '%s' "$*" | tr '\n\t' '  ' | cut -c1-80)"
   echo "  wait: ${took}s $kind $what ($at)" >&2
   _timing_line "$kind" "$took" "$what ($at)"

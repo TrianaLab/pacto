@@ -138,21 +138,22 @@ dump_delivery() {
 # one cluster; DELIVERY_SEQUENTIAL=1 runs them one at a time, in PHASES order,
 # straight to the terminal, for debugging. The dependencies:
 #   - identity runs after core: it ships core's F again on prod;
-#   - records runs after every other phase: it checks every operation of the
-#     run and stops the recorder for a while;
+#   - records runs after core and publish, whose operations it reads, and its
+#     audit of every operation and Stage of the run after every phase;
 #   - health, publish and ordering start once core has its operator back
 #     (item 8 stops the operator, which every phase's contract check needs).
 # What a later phase reads from an earlier one is handed over with `share`.
 STATE="$(mktemp -d)"
 share() { local v; for v in "$@"; do printf '%s=%q\n' "$v" "${!v}"; done >> "$STATE/shared.env"; }
 signal() { touch "$STATE/signal-$1"; }
-await() { eventually 200 test -e "$STATE/signal-$1" || fail "waited ten minutes for $1"; }
+signalled() { [ -e "$STATE/signal-$1" ]; }
+await() { eventually 200 signalled "$1" || fail "waited ten minutes for $1"; }
 phase_runs() { local sw; sw="$(skip_var "$1")"; [ -z "${!sw:-}" ]; }
 # phase_deps PHASE — the phases that must have finished before PHASE starts.
 phase_deps() {
   case "$1" in
     identity) echo core ;;
-    records) echo core health publish ordering identity ;;
+    records) echo core publish ;;
   esac
 }
 # phase_body PHASE — the phase itself, in its subshell. PHASE_PIDS are the
@@ -1631,17 +1632,24 @@ phase_identity() {
   echo "DELIVERY IDENTITY PASS"
 }
 
-# Phase 6 needs phases 1 and 3 (it reads their operations) and runs last: it
-# checks every operation of the run and stops the recorder for a while.
+# Phase 6 needs phases 1 and 3 (it reads their operations). Its first part
+# runs beside the other phases; its audit of every operation and every Stage of
+# the run runs once they all finished.
+# shellcheck source=tests/acceptance/kind/delivery-records.sh
+source "$(dirname "$0")/delivery-records.sh"
 phase_records() {
-  # shellcheck source=tests/acceptance/kind/delivery-records.sh
-  source "$(dirname "$0")/delivery-records.sh"
-  records_scenario
+  section "phase 6: the recorder catches up, and a forged record stops the stream"
+  records_store
+}
+phase_audit() {
+  records_audit
   echo "DELIVERY RECORDS PASS"
 }
 
+timing_end
 run_phases
-timing_end; TIMING_PHASE=teardown
+if phase_runs records; then ( phase_body audit ); fi
+TIMING_PHASE=teardown
 kill "$REG_PF_PID" 2>/dev/null || true
 echo "DELIVERY PASS"
 keep_or_teardown "$NS" "$CLUSTER" delete_cluster
