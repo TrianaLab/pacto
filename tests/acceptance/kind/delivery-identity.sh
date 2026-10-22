@@ -254,7 +254,7 @@ audited() { # VERB RESOURCE USER — the apiserver's audit log saw USER do it
 }
 
 identity_scenario() {
-  echo "== phase 4: the dashboard and identity =="
+  section "phase 4: the dashboard and identity"
   # --- structured authentication ---
   local alice; alice="$(dex_token alice)"
   local who; who="$(whoami_json "$alice")"
@@ -457,7 +457,10 @@ YAML
 
   # A stale login: carol's first login, now over 15 minutes old.
   local wait=$((STALE_AT + 16 * 60 - $(date +%s)))
-  if [ "$wait" -gt 0 ]; then echo "  waiting ${wait}s for carol's first login to pass 15 minutes"; sleep "$wait"; fi
+  if [ "$wait" -gt 0 ]; then
+    echo "  waiting ${wait}s for carol's first login to pass 15 minutes"
+    local slept=$SECONDS; sleep "$wait"; _timed_wait sleep "$slept" "carol's first login goes stale"
+  fi
   approval_as "$STALE_TOKEN" idp-stale >/dev/null || fail "carol's stale Approval was refused by admission (its auth-time matches)"
   always 5 still_held || fail "the promoter took an approval whose login is over 15 minutes old"
   # Single sign-on gives carol a new session but keeps that old login: still no decision.

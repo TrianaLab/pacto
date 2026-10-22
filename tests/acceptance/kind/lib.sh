@@ -64,14 +64,20 @@ fail() { echo "  FAIL: $*" >&2; exit 1; }
 # takes. Every scenario grew its own `for _ in $(seq 1 N)` around that; they
 # differ only in the condition and in how long they are willing to wait, so
 # those are the two arguments.
+#
+# The deadline is ROUNDS x 3s whatever the poll interval: KIND_POLL (seconds,
+# default 3) only changes how often CMD is tried, so a faster poll never
+# shortens how long a scenario is willing to wait.
 eventually() {
   local rounds="$1"; shift
-  local i
-  for ((i = 0; i < rounds; i++)); do
-    "$@" && return 0
-    sleep 3
+  local start=$SECONDS deadline=$((SECONDS + rounds * 3)) rc=1
+  while :; do
+    "$@" && { rc=0; break; }
+    [ "$SECONDS" -ge "$deadline" ] && break
+    sleep "${KIND_POLL:-3}"
   done
-  return 1
+  _timed_wait eventually "$start" "$@"
+  return $rc
 }
 
 # always ROUNDS CMD... — the mirror of eventually: run CMD every 3s and fail on
@@ -82,12 +88,74 @@ eventually() {
 # exists to prevent.
 always() {
   local rounds="$1"; shift
-  local i
+  local i start=$SECONDS
   for ((i = 0; i < rounds; i++)); do
-    "$@" || return 1
+    "$@" || { _timed_wait always "$start" "$@"; return 1; }
     sleep 3
   done
+  _timed_wait always "$start" "$@"
   return 0
+}
+
+# --- timing -----------------------------------------------------------------
+#
+# KIND_TIMING=FILE turns timing on: every section start and every wait that
+# took a second or more is appended to FILE (a file, so waits inside command
+# substitutions and concurrent phases are counted too) and printed to stderr.
+# timing_summary prints where the time went. TIMING_PHASE names the phase a
+# line belongs to.
+
+_timing_line() { # KIND SECONDS LABEL
+  [ -n "${KIND_TIMING:-}" ] || return 0
+  printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "${TIMING_PHASE:-setup}" "$1" "$2" "$3" >> "$KIND_TIMING"
+}
+
+# _timed_wait KIND START CMD... — log a wait that took a second or more, with
+# the line that waited.
+_timed_wait() {
+  local kind="$1" took=$((SECONDS - $2)); shift 2
+  [ -n "${KIND_TIMING:-}" ] && [ "$took" -ge 1 ] || return 0
+  local at="${BASH_SOURCE[2]##*/}:${BASH_LINENO[1]}" what
+  # A wait inside a helper (wait_op, wait_concluded) also names the helper's caller.
+  [ "${#BASH_LINENO[@]}" -gt 3 ] && [ "${FUNCNAME[3]:-main}" != source ] && at+=" <- ${BASH_LINENO[2]}"
+  what="$(printf '%s' "$*" | tr '\n\t' '  ' | cut -c1-80)"
+  echo "  wait: ${took}s $kind $what ($at)" >&2
+  _timing_line "$kind" "$took" "$what ($at)"
+}
+
+# section TITLE — a section header, timed: its duration runs to the next
+# section (or timing_end) of the same phase.
+section() {
+  _timing_line section 0 "$*"
+  echo "== $* =="
+}
+
+# timing_end — close the current phase's last section.
+timing_end() { _timing_line end 0 "${TIMING_PHASE:-setup}"; }
+
+# timed LABEL CMD... — run one setup step as a section of its own.
+timed() { local label="$1"; shift; section "$label"; "$@"; }
+
+# timing_summary FILE — the phases, the slowest sections and the waits.
+timing_summary() {
+  [ -s "${1:-}" ] || return 0
+  echo "== timing =="
+  sort -n -k1,1 "$1" | awk -F'\t' '
+    $3 == "section" || $3 == "end" {
+      if ($2 in open) { d = $1 - at[$2]; sec[++n] = sprintf("%6ds  %-9s %s", d, $2, open[$2]) }
+      if ($3 == "end") { delete open[$2]; last[$2] = $1 } else { open[$2] = $5; at[$2] = $1 }
+      if (!($2 in first)) first[$2] = $1
+      next
+    }
+    { w[++m] = sprintf("%6ds  %-9s %-10s %s", $4, $2, $3, $5); tot[$3] += $4; ph[$2 "/" $3] += $4 }
+    END {
+      print "-- phases (wall clock, first section to end) --"
+      for (p in first) if (p in last) printf "%6ds  %s\n", last[p] - first[p], p
+      print "-- sections --"; for (i = 1; i <= n; i++) print sec[i]
+      print "-- waits by kind --"; for (k in tot) printf "%6ds  %s\n", tot[k], k
+      print "-- waits by phase --"; for (k in ph) printf "%6ds  %s\n", ph[k], k
+      print "-- waits of 10s or more --"; for (i = 1; i <= m; i++) { split(w[i], a, " "); if (a[1] + 0 >= 10) print w[i] }
+    }'
 }
 
 # infra DESC CMD... — run an INFRASTRUCTURE step: cluster creation, an image
@@ -104,10 +172,10 @@ always() {
 # (EX_TEMPFAIL), never 1, so CI can tell "the environment broke" from "a check
 # failed" (scripts/ci/kind-run.sh reads the line).
 infra() {
-  local desc="$1" i
+  local desc="$1" i start=$SECONDS
   shift
   for i in 1 2 3; do
-    "$@" && return 0
+    "$@" && { _timed_wait infra "$start" "$desc"; return 0; }
     [ "$i" = 3 ] && break
     echo "  infra: $desc failed (attempt $i of 3); retrying in $((i * 10))s" >&2
     sleep $((i * 10))
@@ -223,9 +291,9 @@ release_version() {
 # lives only in buildkit's cache and `kind load docker-image` fails with
 # "content digest not found").
 build_operator_images() {
-  echo "== build the dashboard image (root Dockerfile) =="
+  section "build the dashboard image (root Dockerfile)"
   docker build --load -f "$_PACTO_ROOT/Dockerfile" -t "$2" "$_PACTO_ROOT"
-  echo "== build the operator image (production root context) coupled to that dashboard =="
+  section "build the operator image (production root context) coupled to that dashboard"
   docker build --load -f "$_PACTO_ROOT/integrations/kubernetes/Dockerfile" \
     --build-arg VERSION="$3" --build-arg DASHBOARD_IMAGE="$2" -t "$1" "$_PACTO_ROOT"
 }

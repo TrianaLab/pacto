@@ -21,7 +21,7 @@
 # the port-forward, so the in-cluster names the recorder wrote resolve.
 
 records_scenario() {
-  echo "== phase 6: every operation of the run has a signed record =="
+  section "phase 6: every operation of the run has a signed record"
   local streams_local="127.0.0.1:${LOCAL_REG_PORT}/${STREAMS_REPO}" tmp
   tmp="$(mktemp -d)"
   rec() {
@@ -53,7 +53,7 @@ records_scenario() {
     || fail "test's cancelled operation has no record"
   pass "every concluded operation has a record and lost its finalizer; recorded outcomes: $outcomes, Cancelled"
 
-  echo "== record verify passes on every Stage, with no gap and no seq recorded twice =="
+  section "record verify passes on every Stage, with no gap and no seq recorded twice"
   local s ns st out seq n=0
   for s in $(kubectl get stages -A -o json | jq -r '.items[] | select(.status.stream.anchor) | "\(.metadata.namespace)/\(.metadata.name)"'); do
     ns="${s%%/*}" st="${s#*/}"
@@ -67,7 +67,7 @@ records_scenario() {
   [ "$n" -ge 4 ] || fail "only $n Stages have a stream anchor"
   pass "record verify passes on all $n Stages, one record per seq"
 
-  echo "== a record is attached to the version, the one it replaced, the contract and the anchor =="
+  section "a record is attached to the version, the one it replaced, the contract and the anchor"
   local opc_uid ctr
   opc_uid="$(uid_of test "$OPC")"
   ctr="${C120##*@}"
@@ -78,7 +78,7 @@ records_scenario() {
   [ "$(records_on apps/billing "$FOREIGN" "$(uid_of "$P" foreign)")" = 1 ] || fail "the refused promote of the unsigned artifact is not recorded on it"
   pass "the failed promote of C is on C, B, its contract and the anchor; the refusal of 9.9.9 is on 9.9.9"
 
-  echo "== cosign verifies a record with the recorder's public key, no Pacto involved =="
+  section "cosign verifies a record with the recorder's public key, no Pacto involved"
   local ad manifest layer
   ad="$(anchor_of test payments)"
   manifest="$(oras discover --plain-http --format json "$streams_local@$ad" \
@@ -92,7 +92,7 @@ records_scenario() {
     || fail "C's record does not say the promoter's promote of C failed"
   pass "cosign verify-blob-attestation verifies C's record, which says the promote of C failed"
 
-  echo "== history and blame answer from the records =="
+  section "history and blame answer from the records"
   local first h b
   first="$(kubectl -n prod get operations -o json | jq -r '[.items[] | select(.status.record)] | sort_by(.status.seq) | .[0].metadata.name')"
   kubectl -n prod delete operation "$first" --wait=true >/dev/null
@@ -106,7 +106,7 @@ records_scenario() {
     || fail "blame does not name alice's approval of F in test: $b"
   pass "history reads the deleted $first from its record; blame names $OPF and alice's approval"
 
-  echo "== undo returns a plan and proposes nothing; a plan cites the records of its version =="
+  section "undo returns a plan and proposes nothing; a plan cites the records of its version"
   local before after u p
   before="$(ops test | jq '.items | length')"
   u="$(rec undo -n test "$OPF" --output-format json)"
@@ -120,7 +120,7 @@ records_scenario() {
     || fail "a plan of C in prod does not cite C's failure in test: $(jq -c .precedent <<<"$p")"
   pass "undo plans a rollback of $OPF and proposes nothing; planning C in prod cites its failure in test"
 
-  echo "== only the recorder moves the stream head =="
+  section "only the recorder moves the stream head"
   out="$(kubectl -n test patch stage payments --subresource=status --type merge -p '{"status":{"stream":{"head":"sha256:forged"}}}' 2>&1 || true)"
   grep -q "written only by the Pacto delivery recorder" <<<"$out" || fail "an admin moved the stream head: $out"
   pass "admission refuses a stream head written by anyone but the recorder"
@@ -147,7 +147,7 @@ EOF
   recorded() { [ -n "$(field "$M" "$1" record.digest)" ]; }
   unrecorded() { ! recorded "$1"; }
 
-  echo "== a recorder that was down records what concluded meanwhile, once each =="
+  section "a recorder that was down records what concluded meanwhile, once each"
   kubectl -n "$DELIVERY_NS" scale deploy pacto-delivery-recorder --replicas=0 >/dev/null
   kubectl -n "$DELIVERY_NS" wait --for=delete pod -l app.kubernetes.io/component=recorder --timeout=120s >/dev/null 2>&1 || true
   local r1=records-down-1 r2=records-down-2
@@ -208,7 +208,7 @@ EOF
     oras blob fetch --plain-http --output "$tmp/head.json" "$streams_local@$l" >/dev/null
   }
 
-  echo "== a record whose payload was changed is refused =="
+  section "a record whose payload was changed is refused"
   head_bundle
   jq --arg p "$(jq -r .dsseEnvelope.payload "$tmp/head.json" | base64 -d | jq -cj '.predicate.time.finished = "2000-01-01T00:00:00Z"' | base64 | tr -d '\n')" \
     '.dsseEnvelope.payload = $p' "$tmp/head.json" > "$tmp/tampered.json"
@@ -219,7 +219,7 @@ EOF
   stopped_until_repaired tampered "$forged"
   pass "the changed record failed its signature; the recorder stopped and the Stage froze until it was removed and alice unfroze it"
 
-  echo "== a validly signed record that breaks the chain is refused =="
+  section "a validly signed record that breaks the chain is refused"
   head_bundle
   jq -r .dsseEnvelope.payload "$tmp/head.json" | base64 -d \
     | jq '.predicate.chain.seq += 1 | .predicate.chain.parent = "sha256:" + ("0" * 64) | .predicate.intent.uid = "forged"' > "$tmp/fork.st.json"

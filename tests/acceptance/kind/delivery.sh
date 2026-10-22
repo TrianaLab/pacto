@@ -67,6 +67,9 @@ FLUX_LAYER_TYPE=application/vnd.cncf.flux.content.v1.tar+gzip
 APP_REPO="apps/payments"
 # shellcheck source=tests/acceptance/kind/lib.sh
 source "$(dirname "$0")/lib.sh"
+# Every section and every wait is timed; the summary prints when the run ends.
+KIND_TIMING="${KIND_TIMING:-$(mktemp)}"
+export KIND_TIMING
 
 PHASES="core health publish ordering identity records"
 if [ -n "${DELIVERY_PHASES:-}" ]; then
@@ -113,7 +116,7 @@ dump_delivery() {
   done
 }
 # shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
-trap 'rc=$?; [ -z "${_CLUSTER_BG_PID:-}" ] || wait "$_CLUSTER_BG_PID" 2>/dev/null || true; [ $rc -ne 0 ] && { dump_diag "$NS"; dump_delivery; dump_identity; }; [ -z "${GEN_PID:-}" ] || kill "$GEN_PID" 2>/dev/null || true; pkill -f "kubectl.*port-forward" 2>/dev/null || true; identity_cleanup; exit $rc' EXIT
+trap 'rc=$?; timing_end; timing_summary "$KIND_TIMING"; [ -z "${_CLUSTER_BG_PID:-}" ] || wait "$_CLUSTER_BG_PID" 2>/dev/null || true; [ $rc -ne 0 ] && { dump_diag "$NS"; dump_delivery; dump_identity; }; [ -z "${GEN_PID:-}" ] || kill "$GEN_PID" 2>/dev/null || true; pkill -f "kubectl.*port-forward" 2>/dev/null || true; identity_cleanup; exit $rc' EXIT
 
 if [ -z "${DELIVERY_SAVE_IMAGES:-}" ]; then
   command -v oras >/dev/null 2>&1 || fail "oras is required: it publishes the manifest artifacts Flux pulls"
@@ -145,14 +148,14 @@ FLUX_INSTALL_SHA256=cc3dcd743af16215838b6937e1fce83745bf24c0dcc6c59737c59df15429
 FLUX_IMAGES=(ghcr.io/fluxcd/source-controller:v1.9.5 ghcr.io/fluxcd/kustomize-controller:v1.9.5)
 
 if [ -n "${DELIVERY_LOAD_IMAGES:-}" ]; then
-  echo "== load the prebuilt Pacto images =="
+  section "load the prebuilt Pacto images"
   docker load -i "$DELIVERY_LOAD_IMAGES" >/dev/null
   for img in "$OP_IMG" "$DL_IMG" "$DASH_IMG"; do
     docker image inspect "$img" >/dev/null 2>&1 || fail "$DELIVERY_LOAD_IMAGES has no $img: it was built from another tree"
   done
 else
   build_operator_images "$OP_IMG" "$DASH_IMG" "$VER"
-  echo "== build the pacto-delivery image (the operator Dockerfile, its second entrypoint) =="
+  section "build the pacto-delivery image (the operator Dockerfile, its second entrypoint)"
   docker build --load -f "$_PACTO_ROOT/integrations/kubernetes/Dockerfile" --build-arg VERSION="$VER" \
     --target delivery --build-arg CMD=cmd/delivery -t "$DL_IMG" "$_PACTO_ROOT"
 fi
@@ -165,6 +168,7 @@ fi
 # The cluster trusts the run's identity providers (phase 4): its apiserver is
 # created with their structured authentication and an audit log. It is created
 # in the background while the pulls and builds below run.
+section "pull and build what the cluster runs, while it is created"
 KIND_CONFIG="$(identity_prepare)"
 cluster_start_bg "$KIND_CONFIG"
 FLUX_INSTALL="$(mktemp)"
@@ -181,13 +185,14 @@ PACTO="$(build_pacto)"
 OP_CHART="$(package_chart "$PACTO_CHART")"
 DL_CHART="$(package_chart "$_PACTO_ROOT/integrations/kubernetes/charts/pacto-delivery")"
 
-ensure_cluster "$KIND_CONFIG"
+timed "wait for the cluster" ensure_cluster "$KIND_CONFIG"
+section "load the images into the cluster"
 infra "load the images into the cluster" load_images "$OP_IMG" "$DL_IMG" "$DASH_IMG" "${FLUX_IMAGES[@]}" "$PAUSE_IMG"
 for n in "$NS" "$DELIVERY_NS" test prod agents; do
   kubectl create namespace "$n" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 done
 
-echo "== zot, the Pacto operator (observing only) and Flux =="
+section "zot, the Pacto operator (observing only) and Flux"
 install_registry
 REG_PF_PID="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
 # The operator-managed dashboard gets its sign-in from the chart (phase 4
@@ -210,12 +215,12 @@ infra "roll out Flux's kustomize-controller" kubectl -n flux-system rollout stat
 
 # DELIVERY_SKIP_IDENTITY=1 skips phase 4. It needs phase 1 (it ships F again).
 if [ -z "${DELIVERY_SKIP_IDENTITY:-}" ]; then
-  echo "== identity providers: Dex for people, Keycloak for agents over HTTP =="
+  section "identity providers: Dex for people, Keycloak for agents over HTTP"
   identity_up
   identity_login_stale
 fi
 
-echo "== the signing key: a cosign key pair, its public half in a Secret Flux verifies with =="
+section "the signing key: a cosign key pair, its public half in a Secret Flux verifies with"
 KEYDIR="$(mktemp -d)"
 (cd "$KEYDIR" && COSIGN_PASSWORD="" cosign generate-key-pair >/dev/null 2>&1) || fail "cosign could not generate a key pair"
 for n in test prod; do
@@ -230,7 +235,7 @@ sign_digest() {
 }
 VERIFY='verify: {provider: cosign, secretRef: {name: cosign-pub}}'
 
-echo "== the recorder's signing key: an Ed25519 key in a Secret only the recorder mounts =="
+section "the recorder's signing key: an Ed25519 key in a Secret only the recorder mounts"
 RECORDER_KEY="$KEYDIR/recorder.pem"
 RECORDER_PUB="$KEYDIR/recorder.pub"
 openssl genpkey -algorithm ed25519 -out "$RECORDER_KEY" 2>/dev/null || fail "openssl could not generate the recorder's key"
@@ -238,7 +243,7 @@ openssl pkey -in "$RECORDER_KEY" -pubout -out "$RECORDER_PUB"
 kubectl -n "$DELIVERY_NS" create secret generic recorder-key --from-file=key.pem="$RECORDER_KEY" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 STREAMS_REPO="pacto-delivery-streams"
 
-echo "== the opt-in delivery chart, with the recorder =="
+section "the opt-in delivery chart, with the recorder"
 helm upgrade --install pacto-delivery "$DL_CHART" -n "$DELIVERY_NS" \
   --set image.repository="$DL_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
   --set "insecureRegistries[0]=$REG_HOST" --set promoter.poll=2s \
@@ -250,7 +255,7 @@ if kubectl auth can-i patch ocirepositories.source.toolkit.fluxcd.io -A \
 fi
 pass "delivery installed; the operator's service account still cannot change what runs"
 
-echo "== identities: two agents, two people, break-glass =="
+section "identities: two agents, two people, break-glass"
 for a in agent-a agent-b; do kubectl -n agents create serviceaccount "$a" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; done
 kubectl create clusterrolebinding delivery-agents --clusterrole=pacto-delivery-agent \
   --serviceaccount=agents:agent-a --serviceaccount=agents:agent-b --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -309,7 +314,7 @@ as_agent() { local kc="$1"; shift; KUBECONFIG="$kc" "$PACTO" delivery "$@"; }
 # as_person USER TEAM ... — only members of the team a held question names may answer it.
 as_person() { local u="$1" g="$2"; shift 2; KUBECONFIG="$(person_kubeconfig "$u" "$g")" "$PACTO" delivery "$@"; }
 
-echo "== contracts =="
+section "contracts"
 contract_dir() { # NAME VERSION WORKLOAD [DEPENDENCY_LINES]
   local d; d="$(mktemp -d)"
   cat > "$d/pacto.yaml" <<YAML
@@ -449,7 +454,8 @@ published_in() { kubectl -n "$1" get stage "${3:-payments}" -o json | jq -e --ar
 
 # Phase 1, the core. DELIVERY_SKIP_CORE=1 skips it; DELIVERY_PHASES=health runs the setup and phase 2 only.
 if [ -z "${DELIVERY_SKIP_CORE:-}" ]; then
-echo "== the consumers: checkout accepts ^1.0.0, ledger accepts >=1.0.0, in both environments =="
+timing_end; TIMING_PHASE=core
+section "the consumers: checkout accepts ^1.0.0, ledger accepts >=1.0.0, in both environments"
 consumer() { # NS NAME CONTRACT_REF
   kubectl -n "$1" apply -f - >/dev/null <<YAML
 apiVersion: apps/v1
@@ -479,7 +485,7 @@ for env in test prod; do
   for p in checkout ledger; do eventually 60 reconciled "$env" "$p" || fail "$env/$p was never reconciled"; done
 done
 
-echo "== Flux sources, Kustomizations and Stages =="
+section "Flux sources, Kustomizations and Stages"
 apply_env test
 apply_env prod
 for env in test prod; do eventually 60 reconciled "$env" payments || fail "$env/payments was never reconciled"; done
@@ -513,12 +519,12 @@ spec:
   gates: {verify: {window: 3m}}
 YAML
 
-echo "== bootstrap: A reaches test, then prod, by itself =="
+section "bootstrap: A reaches test, then prod, by itself"
 OP="$(wait_op test "$A")"; wait_concluded test "$OP" Succeeded/Verified
 OP="$(wait_op prod "$A")"; wait_concluded prod "$OP" Succeeded/Verified
 pass "A verified in test and in prod"
 
-echo "== items 1, 3 and 8: B (compatible) ships to production with no person, and a stale check never counts =="
+section "items 1, 3 and 8: B (compatible) ships to production with no person, and a stale check never counts"
 # The operator is stopped before B ships, so the Pacto status still reports A's
 # contract as Compliant when Flux applies B. That result must not verify B.
 kubectl -n "$NS" scale deploy pacto-operator --replicas=0 >/dev/null
@@ -554,7 +560,7 @@ for pair in "test:$OPB" "prod:$OPBP"; do
 done
 pass "items 1 and 3: B passed test and reached production with nobody involved"
 
-echo "== item 2: C (broken) fails in test, is rolled back once, never reaches prod and is never retried =="
+section "item 2: C (broken) fails in test, is rolled back once, never reaches prod and is never retried"
 C="$(publish C "$C120")"; candidate C
 OPC="$(wait_op test "$C")"
 wait_concluded test "$OPC" Failed/
@@ -568,7 +574,7 @@ never_retried() { [ "$(op_to test "$C" | wc -l | tr -d ' ')" = 1 ] && [ -z "$(op
 always 10 never_retried || fail "C was retried in test or reached prod"
 pass "item 2: C rolled back by one bound rollback, absent from prod, not retried"
 
-echo "== item 5: a published artifact whose contract cannot be read waits for a person instead of shipping =="
+section "item 5: a published artifact whose contract cannot be read waits for a person instead of shipping"
 # E is signed and names a digest-pinned contract that is not in the registry.
 E="$(publish E "oci://${REG_HOST}/demo/payments@sha256:$(printf '0%.0s' $(seq 64))")"; candidate E
 OPE="$(wait_op test "$E")"
@@ -591,7 +597,7 @@ eventually 20 cancelled || fail "E was not cancelled: $(field test "$OPE" phase)
 always 5 has_pointer test "$B" || fail "cancelling E moved the pointer"
 pass "item 5: E held for accept-unknown and cancelled by the agent; nothing moved"
 
-echo "== item 6: two agents propose at once; exactly one wins =="
+section "item 6: two agents propose at once; exactly one wins"
 G="$(publish G "$C130")"
 H="$(publish H "$C140")"
 # Both must be published before an agent may propose them: Flux verifies each
@@ -630,7 +636,7 @@ eventually 30 candidate_is_winner || fail "the candidate OCIRepository never saw
 kubectl -n test patch stage payments --type merge -p '{"spec":{"auto":true}}' >/dev/null
 OPW="$(wait_op prod "$WINNER")"; wait_concluded prod "$OPW" Succeeded/Verified
 
-echo "== item 4: F (payments 2.0.0) breaks checkout; it waits, and only checkout's team is asked =="
+section "item 4: F (payments 2.0.0) breaks checkout; it waits, and only checkout's team is asked"
 F="$(publish F "$C200")"; candidate F
 OPF="$(wait_op test "$F")"
 eventually 30 held test "$OPF" || fail "F was not held: $(field test "$OPF" phase) $(field test "$OPF" message)"
@@ -672,7 +678,7 @@ eventually 30 held prod "$OPFP" || fail "F was not held in prod"
 as_person carol team-checkout approve -n prod "$OPFP" --decision approve >/dev/null
 wait_concluded prod "$OPFP" Succeeded/Verified
 
-echo "== item 7: a person's rollback in prod is not undone by automation =="
+section "item 7: a person's rollback in prod is not undone by automation"
 as_person alice humans propose -n prod --stage payments --type rollback --undoes "$OPFP" --name human-undo --reason "checkout errors" >/dev/null
 wait_concluded prod human-undo Succeeded/Verified
 has_pointer prod "$WINNER" || fail "prod is not back on $WINNER"
@@ -681,7 +687,7 @@ held_back() { has_pointer prod "$WINNER" && [ "$(op_to prod "$F" | wc -l | tr -d
 always 10 held_back || fail "automation promoted F again after a person rolled it back"
 pass "item 7: prod stays on the version alice chose; auto-promotion is on hold"
 
-echo "== admission: the intent is immutable, and only break-glass edits the pointer =="
+section "admission: the intent is immutable, and only break-glass edits the pointer"
 OUT="$(kubectl -n prod patch operation human-undo --type merge -p '{"spec":{"reason":"edited"}}' 2>&1 || true)"
 if grep -q "immutable" <<<"$OUT"; then
   pass "an operation's spec cannot be edited"
@@ -717,7 +723,7 @@ has_pointer prod "$B" || fail "the witnessed edit was not adopted"
 [ "$ORIG" = "$WINNER" ] || fail "the pointer before the edit was $ORIG"
 pass "break-glass edit witnessed, adopted and frozen"
 
-echo "== no promote in the run produced a witnessed override =="
+section "no promote in the run produced a witnessed override"
 WITNESSED="$(kubectl get operations -A -o json | jq '[.items[] | select(.spec.witnessed == true)] | length')"
 PROMOTES="$(kubectl get operations -A -o json | jq '[.items[] | select(.spec.type == "pacto.dev/promote")] | length')"
 [ "$WITNESSED" = 1 ] || fail "$WITNESSED witnessed overrides, want exactly the one break-glass edit"
@@ -728,6 +734,7 @@ fi
 
 # Phase 2, health. DELIVERY_SKIP_HEALTH=1 skips it; DELIVERY_PHASES=publish runs the setup and phase 3 only.
 if [ -z "${DELIVERY_SKIP_HEALTH:-}" ]; then
+timing_end; TIMING_PHASE=health
 # --- phase 2: health ----------------------------------------------------------
 # Mira (OTLP in, the query API the health gate reads) and the operator's node
 # agent (kernel evidence the claim gate reads) join the cluster. One Stage,
@@ -743,7 +750,7 @@ if [ -z "${DELIVERY_SKIP_HEALTH:-}" ]; then
 #   - a regression after a version was verified triggers exactly one rollback;
 #   - a version the node agent sees calling a service its contract never
 #     declares fails the claim gate, though Pacto's own status is only Warning.
-echo "== phase 2: Mira, the node agent and a Stage with health and claim checks =="
+section "phase 2: Mira, the node agent and a Stage with health and claim checks"
 H=health
 MIRA_PORT=5603
 H_REPO=apps/payments-health
@@ -795,7 +802,7 @@ agent_running() {
 eventually 40 agent_running || fail "the node agent never reported Running collection: $(kubectl -n "$AGENT_NS" get noderuntimeobservations.pacto.trianalab.io -o yaml)"
 pass "Mira and the node agent run; the promoter knows the mira provider"
 
-echo "== the generator: payments spans in the mode the running version is set to =="
+section "the generator: payments spans in the mode the running version is set to"
 GEN="$(mktemp -d)"
 gen_loop() {
   local ver mode
@@ -820,7 +827,7 @@ gen_loop &
 GEN_PID=$!
 mode() { echo "$2" > "$GEN/$1"; } # LABEL MODE
 
-echo "== the fraud service: Pacto-managed, and in no payments contract =="
+section "the fraud service: Pacto-managed, and in no payments contract"
 FRAUD="$(contract fraud 1.0.0 service)"
 kubectl -n "$H" apply -f - >/dev/null <<YAML
 apiVersion: apps/v1
@@ -963,7 +970,7 @@ rollbacks_of() { # OP — how many rollbacks undo OP
   ops "$H" | jq --arg u "$uid" '[.items[] | select(.spec.type == "pacto.dev/rollback" and .spec.params.undoes == $u)] | length'
 }
 
-echo "== H1 ships: healthy spans, the contract check and the claim check all pass =="
+section "H1 ships: healthy spans, the contract check and the claim check all pass"
 OP1="$(ship h1 "$H1")"
 wait_concluded "$H" "$OP1" Succeeded/Verified
 for g in pacto.contract health claims; do
@@ -972,7 +979,7 @@ done
 [ "$(verdict "$OP1" claims '.citation["payments.kernelCoverage"]')" = '"Complete"' ] || fail "the claim gate passed without complete kernel coverage"
 pass "H1 verified by the contract, Mira and the node agent"
 
-echo "== H2: its error ratio exceeds the limit, so it is rolled back, citing the Mira query =="
+section "H2: its error ratio exceeds the limit, so it is rolled back, citing the Mira query"
 OP2="$(ship h2 "$H2")"
 wait_concluded "$H" "$OP2" Failed/
 { [ "$(field "$H" "$OP2" reason)" = VerifyFailed ] && grep -q "^health: " <<<"$(field "$H" "$OP2" message)"; } \
@@ -997,7 +1004,7 @@ wait_concluded "$H" "$RB2" Succeeded/Verified
 has_pointer "$H" "$H1" || fail "health is not back on H1"
 pass "H2 rolled back to H1; the rollback cites the Mira query, and re-running it finds $RERUN_ERRORS of $RERUN spans failed"
 
-echo "== Q: too little telemetry holds as Unknown, never Pass and never a rollback =="
+section "Q: too little telemetry holds as Unknown, never Pass and never a rollback"
 OPQ="$(ship q "$Q")"
 verifying_unknown() {
   [ "$(field "$H" "$OPQ" phase)" = Verifying ] && [ "$(verdict "$OPQ" health .result)" = '"Unknown"' ]
@@ -1012,7 +1019,7 @@ wait_concluded "$H" "$OPQ" Failed/
 wait_concluded "$H" "${OPQ}-rollback" Succeeded/Verified
 pass "Q held as Unknown with no rollback until alice rejected it"
 
-echo "== H5 ships, then regresses after it was verified: exactly one rollback =="
+section "H5 ships, then regresses after it was verified: exactly one rollback"
 OP5="$(ship h5 "$H5")"
 wait_concluded "$H" "$OP5" Succeeded/Verified
 mode h5 errors
@@ -1026,7 +1033,7 @@ one_rollback() { [ "$(rollbacks_of "$OP5")" = 1 ] && has_pointer "$H" "$H1"; }
 always 7 one_rollback || fail "a regression after release raised $(rollbacks_of "$OP5") rollbacks"
 pass "H5 regressed after release and was rolled back exactly once"
 
-echo "== R: the node agent sees it call fraud, which its contract never declares: the claim gate fails =="
+section "R: the node agent sees it call fraud, which its contract never declares: the claim gate fails"
 # The claim gate fails R while it verifies, or on the first re-check if the
 # node agent saw the first call only after the soak; either way the version is
 # marked failed and its one rollback cites the claim verdict. The gates run in
@@ -1042,7 +1049,7 @@ CAUSE="$(kubectl -n "$H" get operation "${OPR}-rollback" -o json | jq -c '.spec.
 wait_concluded "$H" "${OPR}-rollback" Succeeded/Verified
 pass "R failed the claim gate on kernel evidence and was rolled back"
 
-echo "== explain and history read it back =="
+section "explain and history read it back"
 OUT="$(KUBECONFIG="$AGENT_A" "$PACTO" delivery explain -n "$H" "$RB2")"
 grep -q "re-run: POST query" <<<"$OUT" || fail "explain does not say how to re-run the Mira citation: $OUT"
 HIST="$(KUBECONFIG="$AGENT_A" "$PACTO" delivery history -n "$H" --stage payments --output-format json)"
@@ -1056,6 +1063,7 @@ fi
 
 # DELIVERY_SKIP_PUBLISH=1 skips phase 3 (and phase 6, which reads it).
 if [ -z "${DELIVERY_SKIP_PUBLISH:-}" ]; then
+timing_end; TIMING_PHASE=publish
 # --- phase 3: publishing -------------------------------------------------------
 # billing is published by the real `pacto publish` from a contract that declares
 # what it publishes: its bundle and one manifests artifact, the deploy artifact a
@@ -1073,7 +1081,7 @@ if [ -z "${DELIVERY_SKIP_PUBLISH:-}" ]; then
 # `pacto publish` runs on the host, where the in-cluster registry name does not
 # resolve. HTTP_PROXY points plain-HTTP registry traffic at the port-forward, so
 # the contract's refs are the in-cluster names Flux and the promoter read.
-echo "== phase 3: pacto publish, and a Stage that promotes only what it published =="
+section "phase 3: pacto publish, and a Stage that promotes only what it published"
 P=publish
 kubectl create namespace "$P" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl -n "$P" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -1182,14 +1190,14 @@ spec:
   gates: {verify: {window: 3m}}
 YAML
 
-echo "== --plan lists what is missing and writes nothing =="
+section "--plan lists what is missing and writes nothing"
 OUT="$(pub --plan)" || fail "the plan of a publishable version failed: $OUT"
 { grep -q "manifests  manifests  absent" <<<"$OUT" && grep -q "bundle     bundle     absent" <<<"$OUT" \
   && grep -q "2 to publish; nothing was changed" <<<"$OUT"; } || fail "the plan does not list the two missing artifacts: $OUT"
 [ -z "$(tags apps/billing)$(tags demo/billing)" ] || fail "--plan wrote to the registry: $(tags apps/billing) $(tags demo/billing)"
 pass "--plan lists the manifests and the bundle as absent and writes nothing"
 
-echo "== publish: signed, the deploy artifact naming its contract =="
+section "publish: signed, the deploy artifact naming its contract"
 OUT="$(pub)" || fail "publish failed: $OUT"
 D1="$(grep -oE "^Deploy: ${REG_HOST}/apps/billing@sha256:[0-9a-f]{64}" <<<"$OUT" | sed 's/.*@//')"
 [ -n "$D1" ] || fail "publish named no deploy artifact: $OUT"
@@ -1201,7 +1209,7 @@ for ref in "apps/billing@$D1" "demo/billing@${CONTRACT##*@}"; do
 done
 pass "publish wrote billing 1.0.0: $D1, signed, naming ${CONTRACT##*/}"
 
-echo "== the same publish again writes nothing =="
+section "the same publish again writes nothing"
 BEFORE="$(tags apps/billing)|$(tags demo/billing)|$(referrers "apps/billing@$D1")"
 OUT="$(pub)" || fail "the second publish failed: $OUT"
 grep -q "Nothing to publish" <<<"$OUT" || fail "the second publish published something: $OUT"
@@ -1209,7 +1217,7 @@ AFTER="$(tags apps/billing)|$(tags demo/billing)|$(referrers "apps/billing@$D1")
 [ "$BEFORE" = "$AFTER" ] || fail "the second publish changed the registry: $BEFORE -> $AFTER"
 pass "a second publish wrote no tag, artifact or signature ($AFTER)"
 
-echo "== a breaking change published as a minor is refused =="
+section "a breaking change published as a minor is refused"
 billing_contract 1.1.0 job
 if OUT="$(pub --plan 2>&1)"; then fail "the plan of a breaking minor passed: $OUT"; fi
 grep -q "needs a major bump over 1.0.0: publish 2.0.0 or higher" <<<"$OUT" || fail "the plan does not say a major is needed: $OUT"
@@ -1219,7 +1227,7 @@ if OUT="$(pub 2>&1)"; then fail "a breaking change was published as a minor: $OU
 billing_contract 1.0.0 service
 pass "BREAKING since 1.0.0 is refused as 1.1.0, and nothing was written"
 
-echo "== delivery promotes the published version with no extra step =="
+section "delivery promotes the published version with no extra step"
 OPP="$(wait_op "$P" "$D1")"
 wait_concluded "$P" "$OPP" Succeeded/Verified
 [ "$(kubectl -n "$P" get stage billing -o jsonpath='{.status.pointer}')" = "$D1" ] || fail "the Stage does not run the published version"
@@ -1229,7 +1237,7 @@ published_in "$P" "$D1" billing || fail "the Stage does not remember $D1 as publ
 [ "$(field "$P" "$OPP" actorClass)" = controller ] || fail "the promote was not raised by the promoter"
 pass "the promoter promoted $D1 by itself and the contract check verified it"
 
-echo "== publish --propose waits for Flux, then proposes on a Stage that does not promote by itself =="
+section "publish --propose waits for Flux, then proposes on a Stage that does not promote by itself"
 M=publish-manual
 kubectl create namespace "$M" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl -n "$M" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -1282,7 +1290,7 @@ pass "publish --propose waited for Flux to verify $D2, and the promote it raised
 OPP2="$(wait_op "$P" "$D2")"
 wait_concluded "$P" "$OPP2" Succeeded/Verified
 
-echo "== an artifact pushed another way is never a candidate =="
+section "an artifact pushed another way is never a candidate"
 FOREIGN_TREE="$(mktemp -d)"; FOREIGN_TGZ="$(mktemp -t foreign.XXXXXX)"
 (PACTO_OUT="$FOREIGN_TREE" PACTO_VERSION=9.9.9 BILLING_BUNDLE="${REG_HOST}/demo/billing" "$PUB/render.sh")
 tar -czf "$FOREIGN_TGZ" -C "$FOREIGN_TREE" .
@@ -1303,7 +1311,7 @@ wait_concluded "$P" foreign Rejected/
 [ "$(field "$P" foreign reason)" = NotPublished ] || fail "the foreign promote was refused for the wrong reason: $(field "$P" foreign reason): $(field "$P" foreign message)"
 pass "the unsigned 9.9.9 ($FOREIGN) is never offered, and a promote of it is refused as NotPublished"
 
-echo "== a Stage whose candidate sets no spec.verify is not Ready =="
+section "a Stage whose candidate sets no spec.verify is not Ready"
 # ready_is NS STAGE STATUS/REASON — the Stage's Ready condition.
 ready_is() {
   [ "$(kubectl -n "$1" get stage "$2" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}/{.status.conditions[?(@.type=="Ready")].reason}')" = "$3" ]
@@ -1334,6 +1342,7 @@ fi
 
 # DELIVERY_SKIP_ORDER=1 skips phase 5.
 if [ -z "${DELIVERY_SKIP_ORDER:-}" ]; then
+timing_end; TIMING_PHASE=ordering
 # --- phase 5: ordering ---------------------------------------------------------
 # pricing ships to live straight from its candidate tag. Its consumer, orders,
 # ships through staging (fed by a candidate tag) and live (fed by staging's
@@ -1349,7 +1358,7 @@ if [ -z "${DELIVERY_SKIP_ORDER:-}" ]; then
 #     short, is proven by TestOrderOnAFirstVersionAndAPartialGraph.)
 # Compatibility is judged from the declared ranges only; nothing here claims
 # Pacto knows which fields or endpoints orders uses.
-echo "== phase 5: a provider whose consumer must move first =="
+section "phase 5: a provider whose consumer must move first"
 for n in staging live; do
   kubectl create namespace "$n" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl -n "$n" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -1394,7 +1403,7 @@ spec: {interval: 10s, insecure: true, url: "oci://${REG_HOST}/apps/$1", ref: {ta
 YAML
 }
 
-echo "== bootstrap: orders 1.8.0 verified in staging and live, then pricing 1.0.0 in live =="
+section "bootstrap: orders 1.8.0 verified in staging and live, then pricing 1.0.0 in live"
 apply_env staging orders "$O18"
 apply_env live orders "$O18"
 for n in staging live; do eventually 60 reconciled "$n" orders || fail "$n/orders was never reconciled"; done
@@ -1410,14 +1419,14 @@ OP="$(wait_op live "$P1")"; wait_concluded live "$OP" Succeeded/Verified
 for s in orders pricing; do kubectl -n live patch stage "$s" --type merge -p '{"spec":{"auto":false}}' >/dev/null; done
 pass "orders 1.8.0 runs in staging and live, pricing 1.0.0 in live, all verified"
 
-echo "== orders 1.9.0 (accepts pricing >=1.0.0 <3.0.0) passes staging, and live does not take it by itself =="
+section "orders 1.9.0 (accepts pricing >=1.0.0 <3.0.0) passes staging, and live does not take it by itself"
 O19="$(publish O19 "$OR19" orders)"; candidate O19 orders
 OP="$(wait_op staging "$O19")"; wait_concluded staging "$OP" Succeeded/Verified
 offered() { kubectl -n staging get stage orders -o json | jq -e --arg d "$O19" '.status.offered // [] | index($d)' >/dev/null; }
 eventually 30 offered || fail "staging never offered orders 1.9.0 downstream"
 always 5 stage_runs live orders "$O18" || fail "live took orders 1.9.0 with auto off"
 
-echo "== pricing 2.0.0 is held in live, and the plan says orders must move first =="
+section "pricing 2.0.0 is held in live, and the plan says orders must move first"
 P2="$(publish P2 "$PR200" pricing)"; candidate P2 pricing
 eventually 60 published_in live "$P2" pricing || fail "pricing 2.0.0 was never verified as published in live"
 as_agent "$AGENT_A" propose -n live --stage pricing --to "$P2" --name pricing-first --reason "phase 5" >/dev/null
@@ -1438,7 +1447,7 @@ grep -q "move first: orders 1.8.0 runs in live and accepts pricing ^1.0.0, not 2
 always 5 stage_runs live pricing "$P1" || fail "pricing 2.0.0 moved without a person"
 pass "pricing 2.0.0 waits; the plan names orders 1.8.0, Stage live/orders and orders 1.9.0 verified on staging/orders"
 
-echo "== orders 1.9.0 moves first, then pricing 2.0.0 ships with no person =="
+section "orders 1.9.0 moves first, then pricing 2.0.0 ships with no person"
 # Pacto only says what moves first: the agent moves orders, then plans again.
 as_agent "$AGENT_A" cancel -n live pricing-first >/dev/null
 as_agent "$AGENT_A" propose -n live --stage orders --to "$O19" --name orders-first --reason "phase 5: pricing 2.0.0 needs it" >/dev/null
@@ -1450,7 +1459,7 @@ kubectl -n live get operation pricing-after -o json | jq -e '.status.plan.floor.
 stage_runs live pricing "$P2" || fail "live does not run pricing 2.0.0"
 pass "with orders 1.9.0 in live, pricing 2.0.0 shipped with nobody involved"
 
-echo "== a partial graph holds as Unknown =="
+section "a partial graph holds as Unknown"
 # shipping's contract is not in the registry, so its Pacto never carries one:
 # Pacto cannot rule it out as a consumer of pricing.
 kubectl -n live apply -f - >/dev/null <<YAML
@@ -1478,18 +1487,21 @@ echo "DELIVERY ORDER PASS"
 fi
 
 if [ -z "${DELIVERY_SKIP_IDENTITY:-}" ]; then
+timing_end; TIMING_PHASE=identity
   identity_scenario
   echo "DELIVERY IDENTITY PASS"
 fi
 
 # DELIVERY_SKIP_RECORDS=1 skips phase 6. It needs phases 1 and 3 (it reads their operations).
 if [ -z "${DELIVERY_SKIP_RECORDS:-}" ]; then
+timing_end; TIMING_PHASE=records
   # shellcheck source=tests/acceptance/kind/delivery-records.sh
   source "$(dirname "$0")/delivery-records.sh"
   records_scenario
   echo "DELIVERY RECORDS PASS"
 fi
 
+timing_end; TIMING_PHASE=teardown
 kill "$REG_PF_PID" 2>/dev/null || true
 echo "DELIVERY PASS"
 keep_or_teardown "$NS" "$CLUSTER" delete_cluster
