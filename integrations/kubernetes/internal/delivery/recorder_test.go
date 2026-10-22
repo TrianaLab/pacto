@@ -347,6 +347,28 @@ func TestRecorderRefusesToFork(t *testing.T) {
 			t.Fatalf("condition %+v", c)
 		}
 	})
+	t.Run("a record of another stream on the anchor", func(t *testing.T) {
+		re := newRecEnv(t)
+		re.stage(1)
+		re.concluded("ship", 1, delivery.Succeeded)
+		re.reconcile()
+		// Validly signed, chained from this stream's head, but naming
+		// another stream: a key trusted only there must not extend this one.
+		ctx := context.Background()
+		a, _ := re.rec.Store.anchor(ctx, "cid/prod/payments-prod")
+		head := re.getStage().Status.Stream.Head
+		st := delivery.NewGap("cid", delivery.ObjectMeta{Name: "x"}, 9, delivery.Chain{Stream: "cid/dev/x", Seq: 2, Parent: head}, a.desc.Digest.String(), "t")
+		bundle, _, _ := delivery.SignRecord(ctx, re.rec.Signer, st)
+		if err := re.rec.Store.write(ctx, bundle, st, locations{anchor: a}); err != nil {
+			t.Fatal(err)
+		}
+		re.setStage(func(s *delivery.StageStatus) { s.Stream.Seq = 2 })
+		re.concluded("next", 2, delivery.Succeeded)
+		re.reconcile()
+		if c := condition(re.getStage()); c.Reason != ReasonStreamConflict || !strings.Contains(c.Message, `names stream "cid/dev/x"`) {
+			t.Fatalf("condition %+v", c)
+		}
+	})
 }
 
 func TestConflict(t *testing.T) {

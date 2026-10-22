@@ -160,3 +160,38 @@ func TestListRefusesOddRecords(t *testing.T) {
 		t.Fatal("listed records on a registry without the Referrers API")
 	}
 }
+
+func TestListStreamBindsRecordsToTheAnchor(t *testing.T) {
+	_, path := setup(t, testutil.ReferrersOptions{})
+	repo, _ := ocireferrer.Open(path, ocireferrer.Options{})
+	anchor := Anchor(stream)
+	_ = ocireferrer.Push(t.Context(), repo, anchor)
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	ann := map[string]string{AnnPredicateType: delivery.PredicateOperation}
+	good := signed(t, key, 1)
+	attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, good, ann)
+	// The same record in a second manifest, as a re-signed retry leaves it.
+	attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, good,
+		map[string]string{AnnPredicateType: delivery.PredicateOperation, AnnSeq: "1"})
+	// A record validly signed for another stream, attached to this anchor.
+	st := delivery.Statement{Type: delivery.StatementType, PredicateType: delivery.PredicateOperation,
+		Predicate: delivery.RecordPredicate{Kind: delivery.RecordOperation, Chain: delivery.Chain{Stream: "c/dev/x", Seq: 2}}}
+	foreign, _, _ := delivery.SignRecord(t.Context(), delivery.Ed25519Signer(key), st)
+	attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, foreign, ann)
+
+	l, err := ListStream(t.Context(), repo, stream, delivery.PublicKeyVerifier(pub))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(l.Records) != 1 || l.Records[0].Statement.Predicate.Chain.Stream != stream {
+		t.Fatalf("records = %+v", l.Records)
+	}
+	if len(l.Unreadable) != 1 || !strings.Contains(l.Unreadable[0], `names stream "c/dev/x"`) {
+		t.Fatalf("unreadable = %v", l.Unreadable)
+	}
+	_, path = setup(t, testutil.ReferrersOptions{Unsupported: true})
+	repo, _ = ocireferrer.Open(path, ocireferrer.Options{})
+	if _, err := ListStream(t.Context(), repo, stream, Unchecked); err == nil {
+		t.Fatal("listed a stream on a registry without the Referrers API")
+	}
+}

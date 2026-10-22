@@ -66,9 +66,29 @@ type Listing struct {
 	Unreadable []string
 }
 
+// ListStream reads the records on stream's anchor. A record the anchor holds
+// that names another stream is unreadable, however validly it is signed: keys
+// are trusted per stream by the stream a record names, so without this check a
+// key trusted only for dev could sign a record and attach it to prod.
+func ListStream(ctx context.Context, repo *remote.Repository, stream string, verify delivery.Verifier) (Listing, error) {
+	l, err := List(ctx, repo, Anchor(stream).ManifestDesc, verify)
+	ours := l.Records[:0]
+	for _, r := range l.Records {
+		if got := r.Statement.Predicate.Chain.Stream; got != stream {
+			l.Unreadable = append(l.Unreadable, fmt.Sprintf("%s: names stream %q, read from the anchor of %q", r.Manifest, got, stream))
+			continue
+		}
+		ours = append(ours, r)
+	}
+	l.Records = ours
+	return l, err
+}
+
 // List reads every record attached to subject in repo and verifies each.
-// Referrers that are not records are skipped. A listing or fetch failure is an
-// error: the registry could not be read, which is never the same as no record.
+// Referrers that are not records are skipped, and so is a second manifest
+// carrying a record already listed (a re-signed retry: same payload, new
+// signature). A listing or fetch failure is an error: the registry could not
+// be read, which is never the same as no record.
 func List(ctx context.Context, repo *remote.Repository, subject ocispec.Descriptor, verify delivery.Verifier) (Listing, error) {
 	var descs []ocispec.Descriptor
 	if err := repo.Referrers(ctx, subject, "", func(page []ocispec.Descriptor) error {
@@ -78,6 +98,7 @@ func List(ctx context.Context, repo *remote.Repository, subject ocispec.Descript
 		return Listing{}, err
 	}
 	var out Listing
+	seen := map[string]bool{}
 	for _, d := range descs {
 		if d.Size > MaxBytes {
 			continue // too large to be a record manifest
@@ -103,6 +124,10 @@ func List(ctx context.Context, repo *remote.Repository, subject ocispec.Descript
 			out.Unreadable = append(out.Unreadable, d.Digest.String()+": "+err.Error())
 			continue
 		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
 		out.Records = append(out.Records, delivery.StoredRecord{ID: id, Manifest: d.Digest.String(), Statement: st})
 	}
 	return out, nil

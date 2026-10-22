@@ -41,7 +41,7 @@ func (d *Delivery) readStream(ctx context.Context, stage *delivery.StageObject) 
 	if d.Records == nil || s.Anchor == "" {
 		return nil, nil
 	}
-	path, desc, err := deliveryrecord.ParseAnchorRef(s.Anchor, s.ID)
+	path, _, err := deliveryrecord.ParseAnchorRef(s.Anchor, s.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +51,7 @@ func (d *Delivery) readStream(ctx context.Context, stage *delivery.StageObject) 
 	}
 	bounded, cancel := delivery.WithRegistryTimeout(ctx)
 	defer cancel()
-	l, err := deliveryrecord.List(bounded, repo, desc, d.verifier())
+	l, err := deliveryrecord.ListStream(bounded, repo, s.ID, d.verifier())
 	if err != nil {
 		return nil, fmt.Errorf("reading the records of %s: %w", s.Anchor, err)
 	}

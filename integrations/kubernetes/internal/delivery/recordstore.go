@@ -51,6 +51,8 @@ type RecordStore struct {
 type place struct {
 	repo *remote.Repository
 	desc ocispec.Descriptor
+	// stream is set on an anchor: the stream whose records it holds.
+	stream string
 }
 
 // locations are where one record goes. Anchor is always set; the others are
@@ -105,7 +107,7 @@ func (s *RecordStore) anchor(ctx context.Context, stream string) (*place, error)
 	if err := ocireferrer.Enumerate(ctx, repo, art.ManifestDesc); err != nil {
 		return nil, classify(err)
 	}
-	return &place{repo: repo, desc: art.ManifestDesc}, nil
+	return &place{repo: repo, desc: art.ManifestDesc, stream: stream}, nil
 }
 
 func classify(err error) error {
@@ -125,7 +127,7 @@ func (s *RecordStore) Probe(ctx context.Context) error {
 // skipped; a record that will not verify fails the read, because a stream with
 // a record the recorder cannot account for is one it must not extend.
 func (s *RecordStore) list(ctx context.Context, anchor *place) ([]stored, error) {
-	l, err := deliveryrecord.List(ctx, anchor.repo, anchor.desc, s.Verify)
+	l, err := deliveryrecord.ListStream(ctx, anchor.repo, anchor.stream, s.Verify)
 	if err != nil {
 		return nil, classify(err)
 	}
