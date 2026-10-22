@@ -391,9 +391,14 @@ func (d *Delivery) VerifyRecords(ctx context.Context, ns, stage string) (*delive
 	if len(v.Records) > 0 {
 		manifest = v.Records[0].Manifest
 	}
+	signer := "--key recorder.pub"
+	if k, ok := d.Trust.For(v.Stream); ok && k.Identity != "" {
+		signer = fmt.Sprintf("--trusted-root trusted_root.json --certificate-identity '%s' --certificate-oidc-issuer '%s' --use-signed-timestamps",
+			k.Identity, k.Issuer)
+	}
 	v.Cosign = fmt.Sprintf("oras blob fetch --output record.json %[1]s@$(oras manifest fetch %[1]s@%[2]s | jq -r '.layers[0].digest') && "+
-		"cosign verify-blob-attestation --bundle record.json --key recorder.pub --type %[3]s --insecure-ignore-tlog "+
-		"--digest %[4]s --digestAlg sha256", repo, manifest, delivery.PredicateOperation, strings.TrimPrefix(anchor, "sha256:"))
+		"cosign verify-blob-attestation --bundle record.json %[5]s --type %[3]s --insecure-ignore-tlog "+
+		"--digest %[4]s --digestAlg sha256", repo, manifest, delivery.PredicateOperation, strings.TrimPrefix(anchor, "sha256:"), signer)
 	return v, nil
 }
 

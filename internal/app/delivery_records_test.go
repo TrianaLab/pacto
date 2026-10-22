@@ -24,6 +24,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/signing"
+	sigtest "github.com/trianalab/pacto/v4/pkg/signing/testutil"
 )
 
 const recStream = "c/prod/payments-prod"
@@ -434,8 +435,19 @@ func TestVerifyRecords(t *testing.T) {
 	trust, _ := delivery.ParseTrust([]byte(pemKey))
 	e.d.Trust = &trust
 	v, _ = e.d.VerifyRecords(ctx, "prod", "payments-prod")
-	if v.OK || len(v.Unreadable) != 2 || len(v.Records) != 0 || !strings.Contains(v.Cosign, "<record manifest>") {
+	if v.OK || len(v.Unreadable) != 2 || len(v.Records) != 0 || !strings.Contains(v.Cosign, "<record manifest>") ||
+		!strings.Contains(v.Cosign, "--key recorder.pub") {
 		t.Fatalf("verification under another key = %+v", v)
+	}
+	// A keyless recorder has no key file: the command pins its identity.
+	e.d.Trust = &delivery.TrustConfig{Keys: []delivery.TrustedKey{
+		{PublicKey: pemKey, Streams: []string{"*/dev/*"}},
+		{Identity: "https://recorder.example", Issuer: "https://issuer.example", TrustedRoot: string(sigtest.New(t).RootJSON)},
+	}}
+	v, _ = e.d.VerifyRecords(ctx, "prod", "payments-prod")
+	if strings.Contains(v.Cosign, "--key") || !strings.Contains(v.Cosign,
+		"--trusted-root trusted_root.json --certificate-identity 'https://recorder.example' --certificate-oidc-issuer 'https://issuer.example' --use-signed-timestamps") {
+		t.Fatalf("keyless command = %s", v.Cosign)
 	}
 	e.srv.Close()
 	_, err = e.d.VerifyRecords(ctx, "prod", "payments-prod")

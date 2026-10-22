@@ -111,6 +111,12 @@ cosign verify-blob-attestation --bundle record.json --key recorder.pub \
   --digest <anchor digest without sha256:> --digestAlg sha256
 ```
 
+A keyless recorder has no key file. For a stream it signs, the command puts
+`--trusted-root trusted_root.json --certificate-identity <identity>
+--certificate-oidc-issuer <issuer> --use-signed-timestamps` in place of
+`--key recorder.pub`. Save the `trustedRoot` of its trust config entry as
+`trusted_root.json`.
+
 `oras discover` on a version lists the records attached to it. The record
 itself is a DSSE envelope: `jq -r .dsseEnvelope.payload record.json | base64 -d`
 prints the statement.

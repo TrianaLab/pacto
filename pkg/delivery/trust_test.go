@@ -57,6 +57,12 @@ func TestTrustScopesKeysToStreams(t *testing.T) {
 			t.Errorf("%s: err = %v", c.name, err)
 		}
 	}
+	if k, ok := trust.For("c/ci/payments"); !ok || k.Name != "ci" {
+		t.Errorf("For(ci) = %v %v", k, ok)
+	}
+	if _, ok := trust.For("c/test/payments"); ok {
+		t.Error("For found a key for a stream no key covers")
+	}
 	if trust.Digest() == (TrustConfig{}).Digest() || !strings.HasPrefix(trust.Digest(), "sha256:") {
 		t.Fatalf("digest = %s", trust.Digest())
 	}

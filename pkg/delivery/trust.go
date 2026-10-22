@@ -102,6 +102,16 @@ func (t TrustConfig) Verifier(open func(TrustedKey) (func(bundle []byte) error, 
 	}, nil
 }
 
+// For is the first key trusted to sign records of stream.
+func (t TrustConfig) For(stream string) (TrustedKey, bool) {
+	for _, k := range t.Keys {
+		if covers(k.Streams, stream) {
+			return k, true
+		}
+	}
+	return TrustedKey{}, false
+}
+
 func covers(patterns []string, stream string) bool {
 	if len(patterns) == 0 {
 		return true
