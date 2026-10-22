@@ -90,6 +90,9 @@ jobs:
               # projects — the kind fixture AND the distributed Compose artifact —
               # plus the shared harness. A change there changes what they prove.
               - 'tests/acceptance/**'
+              # Every kind step runs through these wrappers (exit handling,
+              # failure classification, diagnostics).
+              - 'scripts/ci/**'
               # The runtime collector, its evaluation and its two front-ends: the
               # runtime image the kind runtime-conformance shard and the local
               # runtime acceptances run is built from them.
