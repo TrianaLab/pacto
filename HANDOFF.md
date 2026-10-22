@@ -13,7 +13,9 @@
 - `integrations/kubernetes/charts/pacto-delivery/values.yaml`: a value
   **`promoter.authFreshness`** (written exactly as `  authFreshness: 15m` under
   `promoter:`, two spaces of indent), rendered as `--auth-freshness` in the
-  promoter Deployment; regenerate the chart README with the repo target.
+  promoter Deployment, and allowed in `values.schema.json` (a Go duration
+  string, like `promoter.poll`; without it helm refuses the value); regenerate
+  the chart README with the repo target.
 - Optional, same change: the dashboard's `DecisionFreshness` (10m) stays a
   margin under it, so a smaller setting does not let the dashboard offer a
   decision the promoter then ignores.
