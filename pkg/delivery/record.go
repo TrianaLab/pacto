@@ -8,7 +8,7 @@ import (
 )
 
 // Record format: an in-toto Statement v1 whose predicate is one concluded
-// operation, a refusal to record one, or a seq with no operation behind it.
+// operation, a refusal to record one or a seq with no operation behind it.
 const (
 	StatementType      = "https://in-toto.io/Statement/v1"
 	PredicateOperation = "pacto.dev/operation/v1"

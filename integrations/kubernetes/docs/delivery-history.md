@@ -33,7 +33,7 @@ and whether it is the whole story (`completeness`):
 With records, the operations that ended but are not recorded yet are listed
 too, marked as not recorded. `problems` lists what the records show is wrong:
 missing numbers, two records with one number, a record that does not chain
-from the one before, a gap record, or a change that started from a version
+from the one before, a gap record or a change that started from a version
 the previous record did not leave. Pacto reports them and resolves none.
 `unreadable` lists what could not be read or verified.
 
