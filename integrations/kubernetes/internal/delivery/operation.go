@@ -809,10 +809,29 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 	op.Status.Phase, op.Status.Outcome, op.Status.Verification = delivery.PhaseConcluded, c.outcome, c.verification
 	op.Status.Reason, op.Status.Message, op.Status.Question = code, msg, ""
 	op.Status.Times.Finished = ts(r.now())
-	if err := r.Status().Update(ctx, op); err != nil {
+	if err := r.writeConcluded(ctx, op); err != nil {
 		return reconcile.Result{}, err
 	}
 	return reconcile.Result{RequeueAfter: immediately}, nil
+}
+
+// writeConcluded writes op's conclusion, retrying a conflict on a fresh read:
+// the seq is already taken on the Stage, so running finish again would take
+// another and leave a gap in the stream. Only this reconciler writes the
+// status of an operation that has not concluded, so ours is the one to keep.
+func (r *OperationReconciler) writeConcluded(ctx context.Context, op *dv1.Operation) error {
+	status := op.Status
+	return retry.RetryOnConflict(retry.DefaultRetry, func() error {
+		err := r.Status().Update(ctx, op)
+		if !apierrors.IsConflict(err) {
+			return err
+		}
+		if gerr := r.APIReader.Get(ctx, client.ObjectKeyFromObject(op), op); gerr != nil {
+			return gerr
+		}
+		op.Status = status
+		return err
+	})
 }
 
 // passedPublished reports whether pacto.published passed: a version a person

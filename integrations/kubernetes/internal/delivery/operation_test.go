@@ -775,3 +775,54 @@ func TestHeldOrderIsRefreshed(t *testing.T) {
 		t.Fatalf("after checkout moved: %s %q %+v", o.Status.Phase, o.Status.Question, o.Status.Plan.Order)
 	}
 }
+
+// TestConclusionConflictTakesOneSeq: a conflict writing the conclusion is
+// retried on a fresh read, not by concluding again, which would take a second
+// seq and leave the first a gap the recorder has to sign. A failed re-read
+// surfaces.
+func TestConclusionConflictTakesOneSeq(t *testing.T) {
+	conflictOnce := func(e *env, getErr error) {
+		conflicted := false
+		r := *e.op
+		r.Client = interceptor.NewClient(e.c, interceptor.Funcs{
+			SubResourceUpdate: func(ctx context.Context, c client.Client, sub string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
+				if o, ok := obj.(*dv1.Operation); ok && o.Status.Phase == delivery.PhaseConcluded && !conflicted {
+					conflicted = true
+					return apierrors.NewConflict(schema.GroupResource{Group: dv1.GroupVersion.Group, Resource: "operations"}, o.Name, errors.New("modified"))
+				}
+				return c.Status().Update(ctx, obj, opts...)
+			},
+		})
+		if getErr != nil {
+			r.APIReader = interceptor.NewClient(e.c, interceptor.Funcs{
+				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, ok := obj.(*dv1.Operation); ok {
+						return getErr
+					}
+					return c.Get(ctx, key, obj, opts...)
+				},
+			})
+		}
+		e.op = &r
+	}
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	delete(e.reg.contracts, dB)
+	conflictOnce(e, nil)
+	o := e.drive("p1")
+	wantOutcome(t, o, delivery.Rejected, "NotPublished")
+	if o.Status.Seq != 1 || e.getStage().Status.Stream.Seq != 1 {
+		t.Fatalf("one conclusion must take one seq: op %d, stage %d", o.Status.Seq, e.getStage().Status.Stream.Seq)
+	}
+	e = baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	delete(e.reg.contracts, dB)
+	conflictOnce(e, errors.New("injected read failure"))
+	var err error
+	for range 5 {
+		if err = e.reconcileOpErr("p1"); err != nil {
+			break
+		}
+	}
+	if err == nil || !strings.Contains(err.Error(), "injected read failure") {
+		t.Fatalf("a failed re-read after a conflict must surface: %v", err)
+	}
+}
