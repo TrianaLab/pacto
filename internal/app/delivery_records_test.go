@@ -390,6 +390,14 @@ func TestUndoRefusals(t *testing.T) {
 	if err != nil || u.Kind != "promote" || !strings.Contains(u.Note, "still runs this change") || !strings.Contains(u.Command, "--to "+dlC) {
 		t.Fatalf("undo of the running change whose Operation is gone = %+v %v", u, err)
 	}
+	// A later rollback put the same version back: the Stage runs that
+	// change, not ship's, so the note must not say it still runs ship.
+	e.setStream(map[string]any{"lastOp": "uid-rollback"})
+	u, err = e.d.Undo(ctx, "prod", "ship", "payments-prod")
+	if err != nil || u.Kind != "promote" || strings.Contains(u.Note, "still runs this change") || !strings.Contains(u.Note, "changed since") {
+		t.Fatalf("undo of a deleted change a later one replaced with the same version = %+v %v", u, err)
+	}
+	e.setStream(map[string]any{"lastOp": "uid-ship"})
 	_, err = e.d.Undo(ctx, "prod", "boot", "")
 	wantErrContaining(t, err, "name its Stage")
 	_, err = e.d.Undo(ctx, "prod", "nowhere", "payments-prod")

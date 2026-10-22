@@ -304,7 +304,7 @@ func (d *Delivery) Undo(ctx context.Context, ns, name, stage string) (*delivery.
 	case ptr.Before == "":
 		u.Note = "it brought the Stage its first version; there is no earlier version to go back to"
 		return u, nil
-	case gone && st.Status.Pointer == ptr.After:
+	case gone && st.Status.LastOp == op.Metadata.UID && st.Status.Pointer == ptr.After:
 		u.Kind, req.Type, req.To = "promote", delivery.TypePromote, ptr.Before
 		u.Note = "the Stage still runs this change, but its Operation is gone, so a rollback cannot name it; going back to " +
 			ptr.Before + " is a promote, and every gate runs"
