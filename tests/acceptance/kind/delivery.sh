@@ -754,8 +754,8 @@ candidate B
 candidate_is_b() { [ "$(kubectl -n test get ocirepository payments-candidates -o jsonpath='{.status.artifact.revision}')" = "candidate@$B" ]; }
 eventually 30 candidate_is_b || fail "the candidate OCIRepository never saw the tag move back to B"
 as_agent "$AGENT_A" cancel -n test "$OPE" >/dev/null
-# A cancelled operation that never moved anything concludes Cancelled and, with
-# no recorder in this phase, is let go at once.
+# A cancelled operation that never moved anything concludes Cancelled and is
+# let go once the recorder has recorded it.
 cancelled() { ! kubectl -n test get operation "$OPE" >/dev/null 2>&1 || [ "$(outcome test "$OPE")" = Cancelled/ ]; }
 eventually 20 cancelled || fail "E was not cancelled: $(field test "$OPE" phase) $(field test "$OPE" outcome)"
 always 5 has_pointer test "$B" || fail "cancelling E moved the pointer"
@@ -901,11 +901,12 @@ echo "DELIVERY CORE PASS"
 phase_health() {
 # --- phase 2: health ----------------------------------------------------------
 # Mira (OTLP in, the query API the health gate reads) and the operator's node
-# agent (kernel evidence the claim gate reads) join the cluster. One Stage,
-# health/payments, verifies with the Pacto contract check, a Mira error-ratio
-# check and the pacto.runtime claim check, and re-checks every 5s once a version
-# shipped. A clean version passes after a 10s soak; one that never has enough
-# spans is held for a person when the 1m window ends. A generator on the host sends payments spans to Mira in the mode the
+# agent (kernel evidence the claim gate reads), both installed with the setup,
+# serve one Stage, health/payments, which verifies with the Pacto contract
+# check, a Mira error-ratio check and the pacto.runtime claim check, and
+# re-checks every 5s once a version shipped. A clean version passes after a 10s
+# soak; one that never has enough spans is held for a person when the 1m window
+# ends. A generator on the host sends payments spans to Mira in the mode the
 # running version is set to (ok, errors or silent), which stands in for the
 # telemetry of a real workload. It proves:
 #   - a version whose error ratio exceeds the limit is rolled back, and the

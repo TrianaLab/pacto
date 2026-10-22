@@ -20,7 +20,10 @@
 # explicit argument.
 #
 #   pass MSG / fail MSG            report one claim; fail exits 1
-#   eventually ROUNDS CMD...       run CMD until it succeeds, 3s apart
+#   eventually ROUNDS CMD...       run CMD until it succeeds, for ROUNDS x 3s
+#   always ROUNDS CMD...           CMD holds every 3s for ROUNDS rounds
+#   section TITLE / timed TITLE CMD  a section header, timed when KIND_TIMING=FILE
+#   timing_end / timing_summary FILE close a phase's last section / where the time went
 #   infra DESC CMD...              retry an infrastructure step; exit 75 when it never works
 #   cluster_start_bg [CONFIG]      start creating $CLUSTER in the background
 #   ensure_cluster [CONFIG]        create $CLUSTER if absent, point KUBECONFIG at it
