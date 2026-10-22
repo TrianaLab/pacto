@@ -84,7 +84,7 @@ function installDelivery(persona: Persona): void {
     if (route === '/api/delivery/history') {
       const rec = (c: string) => 'sha256:' + c.repeat(64);
       return json(200, { ...listing, histories: [
-        { namespace: 'prod', stage: { name: 'payments-prod', pointer: D2 }, asOf: listing.asOf, completeness: 'partial', source: 'records',
+        { namespace: 'prod', stage: { name: 'payments-prod', pointer: D2 }, asOf: listing.asOf, completeness: 'partial', source: 'records', verified: true,
           note: 'read from the signed records in the registry, which show problems', head: rec('c'),
           problems: ['seq 3 moved the Stage from ' + D1 + ', but the change before it left ' + D2 + ': something moved it with no record'],
           unreadable: [rec('d') + ': signature: signed by a key that is not trusted here'],

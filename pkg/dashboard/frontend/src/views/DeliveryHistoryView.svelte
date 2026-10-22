@@ -25,7 +25,7 @@
 
   /** Where a history came from, in words. */
   function sourceLabel(h) {
-    const from = h.source === 'records' ? 'From signed records' : 'From status';
+    const from = h.source !== 'records' ? 'From status' : h.verified ? 'From signed records' : 'From records, not verified';
     return `${from}, ${h.completeness === 'complete' ? 'complete' : 'partial'}`;
   }
 

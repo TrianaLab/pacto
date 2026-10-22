@@ -2987,6 +2987,7 @@ export interface components {
             source: string;
             stage: components["schemas"]["Delivery.StageNow"];
             unreadable?: string[] | null;
+            verified?: boolean;
         };
         StateInfo: {
             dataCriticality?: string;

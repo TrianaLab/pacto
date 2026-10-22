@@ -129,6 +129,9 @@ type History struct {
 	Note         string   `json:"note"`
 	// Source is records or status.
 	Source string `json:"source"`
+	// Verified says the records' signatures were checked against a trust
+	// config. Records read with none are listed, but nothing vouches for them.
+	Verified bool `json:"verified,omitempty"`
 	// Head is the newest record's id.
 	Head string `json:"head,omitempty"`
 	// Problems are gaps, forks and hidden changes the records show.

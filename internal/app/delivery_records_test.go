@@ -139,7 +139,7 @@ func TestHistoryFromRecords(t *testing.T) {
 	for _, en := range h.Entries {
 		lines = append(lines, en.Operation+":"+en.Record)
 	}
-	if h.Source != delivery.SourceRecords || h.Completeness != "complete" || h.Head != r2 || len(h.Problems) != 0 ||
+	if h.Source != delivery.SourceRecords || !h.Verified || h.Completeness != "complete" || h.Head != r2 || len(h.Problems) != 0 ||
 		len(lines) != 3 || lines[1] != "ship:"+r2 || lines[2] != "next:" || !strings.Contains(h.Note, "verified with trust config") {
 		t.Fatalf("history = %+v (%v)", h, lines)
 	}
@@ -147,7 +147,7 @@ func TestHistoryFromRecords(t *testing.T) {
 	// With no trust config the records are listed and the answer is partial.
 	e.d.Trust = nil
 	h, _ = e.d.History(context.Background(), "prod", "payments-prod")
-	if h.Completeness != "partial" || !strings.Contains(h.Note, "no signature was checked") || len(h.Entries) != 3 {
+	if h.Completeness != "partial" || h.Verified || !strings.Contains(h.Note, "no signature was checked") || len(h.Entries) != 3 {
 		t.Fatalf("unverified history = %+v", h)
 	}
 }

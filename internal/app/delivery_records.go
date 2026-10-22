@@ -131,7 +131,7 @@ func (d *Delivery) history(ctx context.Context, ns, stage string) (*delivery.His
 	recorded := map[string]bool{}
 	if r != nil {
 		h.Source, h.Head, h.Problems, h.Unreadable = delivery.SourceRecords, r.fold.Head, r.fold.Problems, r.unreadable
-		h.Completeness, h.Note = d.complete(r), d.recordsNote(r)
+		h.Completeness, h.Note, h.Verified = d.complete(r), d.recordsNote(r), d.Trust != nil
 		for _, rec := range r.fold.Records {
 			uid := rec.Statement.Predicate.Intent.UID
 			recorded[uid] = true
