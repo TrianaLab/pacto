@@ -1,0 +1,30 @@
+# The workload is a stand-in (podinfo): the story is about the contract, not the code.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments
+  labels: {app: payments}
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: payments}
+  template:
+    metadata:
+      labels: {app: payments, app.kubernetes.io/version: "2.4.2"}
+    spec:
+      containers:
+        - name: payments
+          image: ghcr.io/stefanprodan/podinfo:6.7.1
+          args: [--port=8080]
+          ports:
+            - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payments
+spec:
+  selector: {app: payments}
+  ports:
+    - port: 8080
+      targetPort: 8080

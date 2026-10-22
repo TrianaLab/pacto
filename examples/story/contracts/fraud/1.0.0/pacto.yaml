@@ -1,0 +1,31 @@
+# What pactifying plain/fraud gives: the service, its owner and how it is
+# published. It sits next to the Dockerfile and k8s/ folder of plain/fraud once
+# pactified; the copy here is what the story reads. It declares no
+# dependencies, because fraud calls nobody.
+pactoVersion: "2.1"
+service:
+  name: fraud
+  version: 1.0.0
+  owner:
+    team: risk
+workload: service
+publish:
+  bundle: oci://registry.example/story/fraud
+  deploy: manifests
+  artifacts:
+    - name: api
+      type: image
+      ref: oci://registry.example/story/images/fraud
+      build:
+        dockerfile:
+          context: .
+    - name: manifests
+      type: manifests
+      ref: oci://registry.example/story/deploy/fraud
+      build:
+        command: [sh, -c, 'cp k8s/*.yaml "$PACTO_OUT"/']
+  sign:
+    key: cosign.key
+    transparencyLog: false
+metadata:
+  summary: "Scores a payment for fraud."
