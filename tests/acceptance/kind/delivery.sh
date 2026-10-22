@@ -113,7 +113,7 @@ dump_delivery() {
   done
 }
 # shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
-trap 'rc=$?; [ $rc -ne 0 ] && { dump_diag "$NS"; dump_delivery; dump_identity; }; [ -z "${GEN_PID:-}" ] || kill "$GEN_PID" 2>/dev/null || true; pkill -f "kubectl.*port-forward" 2>/dev/null || true; identity_cleanup; exit $rc' EXIT
+trap 'rc=$?; [ -z "${_CLUSTER_BG_PID:-}" ] || wait "$_CLUSTER_BG_PID" 2>/dev/null || true; [ $rc -ne 0 ] && { dump_diag "$NS"; dump_delivery; dump_identity; }; [ -z "${GEN_PID:-}" ] || kill "$GEN_PID" 2>/dev/null || true; pkill -f "kubectl.*port-forward" 2>/dev/null || true; identity_cleanup; exit $rc' EXIT
 
 if [ -z "${DELIVERY_SAVE_IMAGES:-}" ]; then
   command -v oras >/dev/null 2>&1 || fail "oras is required: it publishes the manifest artifacts Flux pulls"
@@ -447,7 +447,7 @@ held() { [ "$(field "$1" "$2" phase)" = Held ]; }
 # verified its signature on the candidate OCIRepository.
 published_in() { kubectl -n "$1" get stage "${3:-payments}" -o json | jq -e --arg d "$2" '.status.published // [] | index($d)' >/dev/null; }
 
-# DELIVERY_SKIP_CORE=1 runs the setup and phase 2 only, for iterating on it.
+# Phase 1, the core. DELIVERY_SKIP_CORE=1 skips it; DELIVERY_PHASES=health runs the setup and phase 2 only.
 if [ -z "${DELIVERY_SKIP_CORE:-}" ]; then
 echo "== the consumers: checkout accepts ^1.0.0, ledger accepts >=1.0.0, in both environments =="
 consumer() { # NS NAME CONTRACT_REF
@@ -726,7 +726,7 @@ pass "$PROMOTES promotes, 0 witnessed overrides of their own"
 echo "DELIVERY CORE PASS"
 fi
 
-# DELIVERY_SKIP_HEALTH=1 runs the setup and phase 3 only, for iterating on it.
+# Phase 2, health. DELIVERY_SKIP_HEALTH=1 skips it; DELIVERY_PHASES=publish runs the setup and phase 3 only.
 if [ -z "${DELIVERY_SKIP_HEALTH:-}" ]; then
 # --- phase 2: health ----------------------------------------------------------
 # Mira (OTLP in, the query API the health gate reads) and the operator's node
