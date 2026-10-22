@@ -979,22 +979,43 @@ pacto impact <old> <new> [flags]
 
 ## `pacto init`
 
-Creates a new directory with pacto.yaml and the bundle directory structure (interfaces/, configuration/).
+Writes the contract for the service in dir (default: the current folder).
+
+An empty or new folder gets a blank contract with the bundle structure
+(interfaces/, configuration/). A folder that already holds a service gets a
+contract read from its Dockerfile and Kubernetes manifests, publish section
+included, and a list of what Pacto found and what it could not tell
+(Unknown). --delivery also writes the cluster pieces: the Pacto resource that
+checks the running service, and per environment a Stage with the Flux
+OCIRepository and Kustomization it applies through.
+
+It only adds: a file that is already there is yours and is left as it is, so
+running it twice is safe. --plan shows exactly what would be added and
+changes nothing.
 
 ```
-pacto init <name> [flags]
+pacto init [dir] [flags]
 ```
 
 **Examples:**
 
 ```
   pacto init my-service
+  pacto init --plan
+  pacto init --delivery --owner payments --fleet ../contracts
 ```
 
 **Flags:**
 
 ```
-  -h, --help   help for init
+      --delivery          also write the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization
+      --env strings       environments for --delivery, in promotion order (default [test,prod])
+      --fleet strings     folders of other services' contracts to find the services that use this one
+  -h, --help              help for init
+      --name string       service name (default: the workload's name, then the folder's)
+      --owner string      the team that owns the service (default: the workload's team label)
+      --plan              show what would be added and change nothing
+      --registry string   where to publish, as host/path (default: read from the workload's image)
 ```
 
 Scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml` and a configuration JSON Schema at `configuration/schema.json`.

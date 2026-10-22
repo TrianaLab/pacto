@@ -46,7 +46,13 @@ func formatResult(cmd *cobra.Command, format string, result any, textFn, markdow
 
 func printInitResult(cmd *cobra.Command, result *app.InitResult, format string) error {
 	return formatResult(cmd, format, result, func() error {
-		revealInit(cmd, cmd.OutOrStdout(), initLines(result))
+		w := cmd.OutOrStdout()
+		if !result.Applied {
+			printInitPlan(w, result)
+			return nil
+		}
+		revealInit(cmd, w, initLines(result))
+		printInitFindings(w, result)
 		return nil
 	}, nil)
 }
