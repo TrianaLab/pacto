@@ -197,7 +197,7 @@
   }
   .contact-type {
     font-weight: 600; text-transform: uppercase;
-    color: var(--c-text-3); font-size: 10px; letter-spacing: 0.03em;
+    color: var(--c-text-3); font-size: var(--text-xs); letter-spacing: 0.03em;
   }
   .contact-value { color: var(--c-text); }
   .contact-purpose {

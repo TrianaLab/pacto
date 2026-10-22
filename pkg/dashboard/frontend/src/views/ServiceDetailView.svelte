@@ -487,8 +487,8 @@
               <tr class:version-current={ver.version === detail.version}>
                 <td>
                   <a href={ver.isCurrent ? serviceUrl(name) : serviceVersionUrl(name, ver.version)}><code>{ver.version}</code></a>
-                  {#if ver.isCurrent}<span class="badge badge-neutral" style="margin-left:6px;font-size:10px">current</span>{/if}
-                  {#if ver.version === detail.version && !ver.isCurrent}<span class="badge badge-viewing" style="margin-left:6px;font-size:10px">viewing</span>{/if}
+                  {#if ver.isCurrent}<span class="badge badge-neutral" style="margin-left:6px;font-size: var(--text-xs)">current</span>{/if}
+                  {#if ver.version === detail.version && !ver.isCurrent}<span class="badge badge-viewing" style="margin-left:6px;font-size: var(--text-xs)">viewing</span>{/if}
                 </td>
                 <td>
                   {#if ver.classification === 'BREAKING'}<span class="badge badge-err">Breaking</span>

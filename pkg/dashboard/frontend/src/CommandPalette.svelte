@@ -148,7 +148,7 @@
   .cp-results { max-height: 52vh; overflow-y: auto; padding: var(--sp-2); }
   .cp-empty { padding: var(--sp-4); color: var(--c-text-3); font-size: var(--text-sm); }
   .cp-group-label {
-    padding: 8px var(--sp-3) 4px; font-size: 10px; font-weight: 600;
+    padding: 8px var(--sp-3) 4px; font-size: var(--text-xs); font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.05em; color: var(--c-text-3);
   }
   .cp-item {
@@ -161,7 +161,7 @@
   .cp-item-label { font-weight: 500; }
   .cp-item-hint { color: var(--c-text-3); font-size: var(--text-xs); }
   .cp-item-kind {
-    margin-left: auto; font-size: 10px; text-transform: uppercase;
+    margin-left: auto; font-size: var(--text-xs); text-transform: uppercase;
     letter-spacing: 0.04em; color: var(--c-text-3);
   }
   @keyframes cp-fade { from { opacity: 0; } to { opacity: 1; } }
