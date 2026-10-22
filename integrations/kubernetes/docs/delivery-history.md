@@ -35,10 +35,30 @@ too, marked as not recorded. `problems` lists what the records show is wrong:
 missing numbers, two records with one number, a record that does not chain
 from the one before, a gap record or a change that started from a version
 the previous record did not leave. Pacto reports them and resolves none.
-`unreadable` lists what could not be read or verified.
+A number the Stage gave out that has neither a record yet nor an
+Operation left in the cluster is a problem too. An Operation whose record
+exists but did not verify is marked "recorded, not verified", never "not
+recorded yet". `unreadable` lists what could not be read or verified.
 
 When completeness is `partial`, a change missing from the answer may still
 have happened. Never read it as proof that nothing happened.
+
+### Every Stage at once
+
+```bash
+pacto delivery history --all --trust recorder.pub
+pacto delivery record verify --all --trust recorder.pub
+```
+
+`--all` walks every Stage in every namespace you can list, or only those in
+the namespace you pass with `-n`. It reads up to 500 Stages, eight at a time,
+for at most two minutes. The answer has one `asOf` and is `complete` only
+when every Stage was read and every history is complete. A Stage it could not
+read is listed under `unreadable`. `record verify --all` fails unless every
+stream verifies, and a Stage with no records does not. The MCP tools
+`pacto_delivery_history` and `pacto_delivery_record_verify` do the same when
+you leave `stage` empty. The dashboard's History view lists every Stage you
+can see.
 
 ## Blame and undo
 
@@ -50,12 +70,17 @@ pacto delivery undo -n prod <operation>
 `blame` names the newest change that moved the Stage to the version it runs
 (or to `--digest`): who asked, for whom, why, who approved and what every
 check said. No change on a partial history means unknown, never nobody.
+When the change comes from an Operation's status rather than a signed record,
+because it is not recorded yet or its record could not vouch for it, `unsigned`
+names the parts nothing signed vouches for and the answer is `partial`.
 
 `undo` proposes nothing. It returns the plan that would undo an operation and
 the command that would propose it: a rollback when the Stage still runs that
 change, a promote back to the version it replaced when something changed
 since (every check runs again), or nothing when the operation moved nothing.
-For an Operation already deleted, add `--stage`.
+For an Operation already deleted, add `--stage`. A deleted Operation cannot be
+rolled back even when the Stage still runs its change: undo then plans a
+promote back to the version it replaced.
 
 ## Precedent
 

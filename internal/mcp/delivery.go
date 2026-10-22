@@ -22,6 +22,10 @@ type DeliveryAPI interface {
 	Blame(ctx context.Context, namespace, stage, digest string) (*delivery.Blame, error)
 	Undo(ctx context.Context, namespace, name, stage string) (*delivery.Undo, error)
 	VerifyRecords(ctx context.Context, namespace, stage string) (*delivery.StreamVerification, error)
+	// HistoryAll and VerifyAll walk every Stage in namespace, or in every
+	// namespace the caller can list for "".
+	HistoryAll(ctx context.Context, namespace string) (*delivery.Histories, error)
+	VerifyAll(ctx context.Context, namespace string) (*delivery.StreamVerifications, error)
 }
 
 // noApprove is in every delivery tool description, so an agent never goes
@@ -113,9 +117,14 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Va
 		Description: "List what happened on a Stage. With the recorder installed it is read from the Stage's signed records in the " +
 			"registry (source records), plus the operations not recorded yet; otherwise from the operations still in the cluster " +
 			"(source status, always partial). The answer says asOf, completeness, problems (missing seqs, forks, hidden changes) " +
-			"and what was unreadable: when completeness is partial, a change missing from it may still have happened. Read-only." + noApprove,
-		InputSchema: stageSchema(),
+			"and what was unreadable: when completeness is partial, a change missing from it may still have happened. Leave stage " +
+			"empty to walk every Stage in the namespace (or, with no namespace, every Stage you can list) for a fleet audit; that " +
+			"answer is complete only when every Stage was read and every history is complete. Read-only." + noApprove,
+		InputSchema: auditSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a stageArgs) (*mcpsdk.CallToolResult, any, error) {
+		if a.Stage == "" {
+			return resultOrError(api.HistoryAll(ctx, a.Namespace))
+		}
 		h, err := api.History(ctx, a.Namespace, a.Stage)
 		return resultOrError(h, err)
 	})
@@ -151,9 +160,13 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Va
 		Name: "pacto_delivery_record_verify",
 		Description: "Verify every signed record of a Stage's stream against the trust config this server was started with and " +
 			"check the chain from seq 1 to the head the Stage names: ok, the records, problems and what did not verify, plus the " +
-			"cosign command that checks one record without Pacto. Read-only." + noApprove,
-		InputSchema: stageSchema(),
+			"cosign command that checks one record without Pacto. Leave stage empty to verify every Stage's stream in the " +
+			"namespace (or, with no namespace, every Stage you can list); a Stage with no records does not verify. Read-only." + noApprove,
+		InputSchema: auditSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a stageArgs) (*mcpsdk.CallToolResult, any, error) {
+		if a.Stage == "" {
+			return resultOrError(api.VerifyAll(ctx, a.Namespace))
+		}
 		v, err := api.VerifyRecords(ctx, a.Namespace, a.Stage)
 		return resultOrError(v, err)
 	})
@@ -276,6 +289,15 @@ func stageSchema(extra ...string) map[string]any {
 		props["digest"] = property{Type: "string", Description: "The version (sha256:...) to blame; defaults to the one the Stage runs"}
 	}
 	return inputSchema(props, []string{"namespace", "stage"})
+}
+
+// auditSchema is one Stage, or with stage empty every Stage in the
+// namespace, or with both empty every Stage the caller can list.
+func auditSchema() map[string]any {
+	return inputSchema(map[string]property{
+		"namespace": {Type: "string", Description: "Namespace of the Stage; empty with no stage walks every namespace you can list"},
+		"stage":     {Type: "string", Description: "Stage name; empty walks every Stage"},
+	}, nil)
 }
 
 type nameArgs struct {

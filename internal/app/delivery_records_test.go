@@ -153,6 +153,39 @@ func TestHistoryFromRecords(t *testing.T) {
 	}
 }
 
+// TestHistoryNamesASeqNothingHolds: a seq the Stage concluded that has
+// neither a record nor an Operation is a hole, never nothing having happened.
+// A seq whose conclusion is still being written, or held by a live Operation,
+// is not.
+func TestHistoryNamesASeqNothingHolds(t *testing.T) {
+	e := newRecordEnv(t,
+		opFixture("late", shipSpec(dlB), map[string]any{"phase": "Verifying"}),
+		opFixture("live", shipSpec(dlB), map[string]any{"phase": "Concluded", "seq": int64(5)}),
+		opFixture("old", shipSpec(dlB), map[string]any{"phase": "Concluded", "seq": int64(6), "stageUID": "an-earlier-stage"}))
+	_, r2 := e.twoRecords()
+	e.setStream(map[string]any{"stream": map[string]any{"id": recStream, "seq": int64(6), "recordedSeq": int64(2), "head": r2,
+		"anchor": deliveryrecord.AnchorRef(e.host+"/delivery/streams", recStream),
+		"concluded": []any{map[string]any{"uid": "uid-late", "seq": int64(4)}, map[string]any{"uid": "uid-gone", "seq": int64(3)}}}})
+	h, _ := e.d.History(context.Background(), "prod", "payments-prod")
+	want := []string{"local seq 3 concluded, but neither its record nor its Operation can be read",
+		"local seq 6 concluded, but neither its record nor its Operation can be read"}
+	if h.Completeness != "partial" || fmt.Sprint(h.Problems) != fmt.Sprint(want) {
+		t.Fatalf("history = %s %v", h.Completeness, h.Problems)
+	}
+}
+
+// TestHistoryNamesARecordThatDidNotVerify: an Operation whose record exists
+// but could not be verified says so, never that it is not recorded yet.
+func TestHistoryNamesARecordThatDidNotVerify(t *testing.T) {
+	e := newRecordEnv(t, opFixture("live", shipSpec(dlB), map[string]any{"phase": "Concluded", "seq": int64(3),
+		"record": map[string]any{"digest": "sha256:unverified", "seq": int64(3)}}))
+	e.twoRecords()
+	h, _ := e.d.History(context.Background(), "prod", "payments-prod")
+	if last := h.Entries[len(h.Entries)-1]; last.Operation != "live" || last.Record != "" || last.UnverifiedRecord != "sha256:unverified" {
+		t.Fatalf("history = %+v", h.Entries)
+	}
+}
+
 func TestHistoryRecordsProblems(t *testing.T) {
 	e := newRecordEnv(t)
 	e.twoRecords()
@@ -205,8 +238,12 @@ func TestBlame(t *testing.T) {
 	}
 	// B was put in place by an operation not recorded yet: read from its status.
 	b, _ = e.d.Blame(ctx, "prod", "payments-prod", dlB)
-	if b.Change == nil || b.Change.Operation != "live" || b.Change.Record != "" || len(b.Approvals) != 1 || b.Approvals[0].By != "dave" {
+	if b.Change == nil || b.Change.Operation != "live" || b.Change.Record != "" || len(b.Approvals) != 1 || b.Approvals[0].By != "dave" ||
+		b.Completeness != "partial" || len(b.Unsigned) == 0 || !strings.Contains(b.Note, "unsigned status") {
 		t.Fatalf("blame of an unrecorded change = %+v", b)
+	}
+	if b, _ := e.d.Blame(ctx, "prod", "payments-prod", ""); b.Completeness != "complete" || len(b.Unsigned) != 0 {
+		t.Fatalf("blame from a signed record = %+v", b)
 	}
 }
 
@@ -250,6 +287,11 @@ func TestBlameOfAnUnrecordableMove(t *testing.T) {
 	b, _ := e.d.Blame(ctx, "prod", "payments-prod", "")
 	if b.Change == nil || b.Change.Operation != "live" || len(b.Approvals) != 1 || b.Approvals[0].By != "dave" {
 		t.Fatalf("blame = %+v", b)
+	}
+	// The record refused to vouch for the move: what blame read from the
+	// Operation is labelled unsigned, and the answer is not complete.
+	if b.Completeness != "partial" || len(b.Unsigned) == 0 || !strings.Contains(b.Note, "could not vouch for it") {
+		t.Fatalf("blame from an unrecordable record's Operation claims too much: %+v", b)
 	}
 	// With the Operation gone, what the unrecordable change moved is unknown,
 	// never nobody.
@@ -329,6 +371,12 @@ func TestUndoRefusals(t *testing.T) {
 	u, err := e.d.Undo(ctx, "prod", "boot", "payments-prod")
 	if err != nil || u.Kind != "none" || !strings.Contains(u.Note, "first version") {
 		t.Fatalf("undo of a recorded, deleted operation = %+v %v", u, err)
+	}
+	// ship is the change the Stage runs, and its Operation is gone: going
+	// back is a promote, and the note says the Stage did not change.
+	u, err = e.d.Undo(ctx, "prod", "ship", "payments-prod")
+	if err != nil || u.Kind != "promote" || !strings.Contains(u.Note, "still runs this change") || !strings.Contains(u.Command, "--to "+dlC) {
+		t.Fatalf("undo of the running change whose Operation is gone = %+v %v", u, err)
 	}
 	_, err = e.d.Undo(ctx, "prod", "boot", "")
 	wantErrContaining(t, err, "name its Stage")
@@ -463,4 +511,58 @@ func TestPlanPrecedentUnreadable(t *testing.T) {
 func edSigner(key ed25519.PrivateKey) delivery.Signer {
 	kp, _ := signing.FromPrivateKey(key)
 	return signing.Keyed(kp, "")
+}
+
+// TestFleetAudit walks every Stage: complete only when every Stage was read
+// and every answer is complete.
+func TestFleetAudit(t *testing.T) {
+	e := newRecordEnv(t)
+	e.twoRecords()
+	ctx := context.Background()
+	hs, err := e.d.HistoryAll(ctx, "")
+	if err != nil || len(hs.Histories) != 2 || hs.Completeness != "partial" || len(hs.Unreadable) != 0 {
+		t.Fatalf("history of every Stage (payments-test has no records) = %+v %v", hs, err)
+	}
+	if hs, _ = e.d.HistoryAll(ctx, "prod"); len(hs.Histories) != 1 || hs.Histories[0].Namespace != "prod" || hs.Completeness != "complete" {
+		t.Fatalf("history of every Stage in prod = %+v", hs)
+	}
+	vs, err := e.d.VerifyAll(ctx, "prod")
+	if err != nil || !vs.OK || len(vs.Streams) != 1 || vs.Completeness != "complete" || vs.Trust != e.d.Trust.Digest() {
+		t.Fatalf("verify of every Stage in prod = %+v %v", vs, err)
+	}
+	vs, _ = e.d.VerifyAll(ctx, "")
+	if vs.OK || len(vs.Streams) != 1 || vs.Completeness != "partial" || len(vs.Unreadable) != 1 ||
+		!strings.Contains(vs.Unreadable[0], "test/payments-test: ") || !strings.Contains(vs.Unreadable[0], "has no records") {
+		t.Fatalf("a Stage with no records does not verify: %+v", vs)
+	}
+	e.c.PrependReactor("get", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("gone")
+	})
+	if hs, _ = e.d.HistoryAll(ctx, ""); len(hs.Histories) != 0 || len(hs.Unreadable) != 2 || hs.Completeness != "partial" ||
+		!strings.Contains(hs.Note, "may still have happened") {
+		t.Fatalf("unreadable Stages = %+v", hs)
+	}
+	e.c.PrependReactor("list", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("forbidden")
+	})
+	_, err = e.d.HistoryAll(ctx, "")
+	wantErrContaining(t, err, "forbidden")
+	_, err = e.d.VerifyAll(ctx, "")
+	wantErrContaining(t, err, "forbidden")
+	e.d.Trust = nil
+	_, err = e.d.VerifyAll(ctx, "")
+	wantErrContaining(t, err, "needs a trust config")
+}
+
+func TestAuditIsBounded(t *testing.T) {
+	stages := make([]delivery.StageObject, auditLimit+1)
+	out, unreadable := audit(context.Background(), stages, func(ctx context.Context, _ delivery.StageObject) (*int, error) {
+		if _, ok := ctx.Deadline(); !ok {
+			return nil, errors.New("no time limit")
+		}
+		return new(int), nil
+	})
+	if len(out) != auditLimit || len(unreadable) != 1 || !strings.Contains(unreadable[0], "1 Stages were not read") {
+		t.Fatalf("out = %d, unreadable = %v", len(out), unreadable)
+	}
 }

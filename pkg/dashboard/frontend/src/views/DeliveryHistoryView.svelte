@@ -90,7 +90,7 @@
                       <td>{en.actor || '–'}{#if en.actorClass} ({en.actorClass}){/if}</td>
                       <td>{en.outcome || en.phase}{#if en.verification}, {en.verification}{/if}{#if en.reason}: {en.reason}{/if}</td>
                       <td>{#if en.finished}<time datetime={en.finished}>{en.finished}</time>{/if}</td>
-                      <td>{#if en.record}<code title={en.record}>{shortDigest(en.record)}</code>{:else if h.source === 'records'}Not recorded yet{:else}–{/if}</td>
+                      <td>{#if en.record}<code title={en.record}>{shortDigest(en.record)}</code>{:else if en.unverifiedRecord}<span title={en.unverifiedRecord}>Recorded, not verified</span>{:else if h.source === 'records'}Not recorded yet{:else}–{/if}</td>
                     </tr>
                   {/each}
                 </tbody>

@@ -18,8 +18,8 @@ bundle v0.3 and returns its id, the sha256 of the payload; `OpenRecord`
 verifies one. The new `pkg/signing` signs and verifies with sigstore-go: with
 an Ed25519, ECDSA P-256 or RSA key, a KMS key or keyless with a Fulcio
 certificate. Every record verifies with standard Sigstore tooling, with no
-Pacto involved. Operation status gains `record` and the Stage stream
-`recordedSeq` and `head`.
+Pacto involved. Operation status gains `record` and `stageUID`, the Stage that
+gave it its number, and the Stage stream `recordedSeq` and `head`.
 
 The new `pkg/ocireferrer` is the one way Pacto writes OCI referrers: it opens a
 repository with the native Referrers API required (no tag fallback), builds a
@@ -41,14 +41,21 @@ and falls back to the operations in the cluster otherwise. Every answer says
 `asOf`, `source` and `completeness`, lists the problems the records show
 (missing numbers, forks, broken chains, gaps and changes nobody recorded) and
 what could not be read, and a missing record is never read as nothing having
-happened. `pacto delivery blame` says who put a version in place, on whose
-behalf, who approved and what every check said. `pacto delivery undo` returns
+happened. A number the Stage gave out with neither a record nor an Operation
+left is a problem too, and an Operation whose record did not verify is marked
+recorded but not verified. `pacto delivery blame` says who put a version in
+place, on whose behalf, who approved and what every check said, and names the
+parts read from an Operation's unsigned status, which make the answer partial. `pacto delivery undo` returns
 the plan that would undo an operation and proposes nothing. `pacto delivery
 record verify` checks every record and the chain and prints the cosign
 command that checks one record without Pacto. A plan now lists the precedent:
 what the records attached to the version say happened to it on other Stages.
+`pacto delivery history --all` and `record verify --all` walk every Stage you
+can list, up to 500 Stages, eight at a time and for at most two minutes, with
+one `asOf` and a completeness that is complete only when every Stage was read.
 The same answers are the MCP tools `pacto_delivery_blame`,
-`pacto_delivery_undo` and `pacto_delivery_record_verify`, and the dashboard's
+`pacto_delivery_undo` and `pacto_delivery_record_verify` (`pacto_delivery_history`
+and `pacto_delivery_record_verify` walk every Stage when `stage` is empty), and the dashboard's
 History view says whether each history comes from signed records or only from
 the cluster. Pass the trust config with `--trust`, `--delivery-trust` or
 `PACTO_DELIVERY_TRUST`.

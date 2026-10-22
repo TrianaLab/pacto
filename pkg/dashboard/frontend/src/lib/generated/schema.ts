@@ -1039,6 +1039,7 @@ export interface components {
             seq?: number;
             to?: string;
             type: string;
+            unverifiedRecord?: string;
             verification?: string;
         };
         "Delivery.LocalRef": {
@@ -1097,6 +1098,7 @@ export interface components {
             record?: components["schemas"]["Delivery.RecordRef"];
             /** Format: int64 */
             seq?: number;
+            stageUID?: string;
             times?: components["schemas"]["Delivery.Times"];
             verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
             verification?: string;

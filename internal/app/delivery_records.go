@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -20,6 +21,8 @@ import (
 // over plain HTTP. ocireferrer.Open with the caller's keychain is the
 // production one.
 type RecordRepo func(path string, insecureHosts ...string) (*remote.Repository, error)
+
+var errNoTrust = errors.New("record verify needs a trust config: pass --trust with the recorder's public key or a trust config file")
 
 // precedentLimit is how many recorded operations a plan's precedent lists.
 const precedentLimit = 5
@@ -104,7 +107,34 @@ func statusEntry(o delivery.OperationObject) delivery.HistoryEntry {
 		ptr := s.Pointer
 		e.Pointer = &ptr
 	}
+	if s.Record != nil {
+		e.UnverifiedRecord = s.Record.Digest
+	}
 	return e
+}
+
+// missingSeqs names the local seqs the Stage concluded after the recorder's
+// last that neither a listed Operation nor a conclusion still being written
+// holds: their record is not written yet and their Operation is gone, so what
+// they did cannot be read at all. An Operation an earlier Stage of the same
+// name numbered holds nothing here.
+func missingSeqs(st *delivery.StageObject, ops []delivery.OperationObject) []string {
+	held, live := map[int64]bool{}, map[string]bool{}
+	for _, o := range ops {
+		if o.Status.StageUID == "" || o.Status.StageUID == st.Metadata.UID {
+			live[o.Metadata.UID], held[o.Status.Seq] = true, true
+		}
+	}
+	for _, c := range st.Status.Stream.Concluded {
+		held[c.Seq] = held[c.Seq] || live[c.UID]
+	}
+	var out []string
+	for seq := st.Status.Stream.RecordedSeq + 1; seq <= st.Status.Stream.Seq; seq++ {
+		if !held[seq] {
+			out = append(out, fmt.Sprintf("local seq %d concluded, but neither its record nor its Operation can be read", seq))
+		}
+	}
+	return out
 }
 
 // history reads a Stage's history and returns, with it, the records and the
@@ -131,6 +161,7 @@ func (d *Delivery) history(ctx context.Context, ns, stage string) (*delivery.His
 	}
 	recorded := map[string]bool{}
 	if r != nil {
+		r.fold.Problems = append(r.fold.Problems, missingSeqs(st, ops)...)
 		h.Source, h.Head, h.Problems, h.Unreadable = delivery.SourceRecords, r.fold.Head, r.fold.Problems, r.unreadable
 		h.Completeness, h.Note, h.Verified = d.complete(r), d.recordsNote(r), d.Trust != nil
 		for _, rec := range r.fold.Records {
@@ -188,6 +219,13 @@ func (d *Delivery) Blame(ctx context.Context, ns, stage, digest string) (*delive
 				b.OnBehalfOf = p.Actor.OnBehalfOf.User
 			}
 			return b, nil
+		}
+		// Read from the Operation's status: no signed record vouches for it,
+		// whatever the history's completeness.
+		b.Completeness, b.Unsigned = "partial", []string{"change", "approvals", "verdicts", "intentReason", "onBehalfOf"}
+		b.Note += ", read from its Operation's unsigned status"
+		if e.Record != "" {
+			b.Note += ": its record could not vouch for it (" + e.Reason + ")"
 		}
 		o := opByName(ops, e.Operation)
 		b.Verdicts, b.IntentReason = o.Status.Verdicts, o.Spec.Reason
@@ -266,6 +304,10 @@ func (d *Delivery) Undo(ctx context.Context, ns, name, stage string) (*delivery.
 	case ptr.Before == "":
 		u.Note = "it brought the Stage its first version; there is no earlier version to go back to"
 		return u, nil
+	case gone && st.Status.Pointer == ptr.After:
+		u.Kind, req.Type, req.To = "promote", delivery.TypePromote, ptr.Before
+		u.Note = "the Stage still runs this change, but its Operation is gone, so a rollback cannot name it; going back to " +
+			ptr.Before + " is a promote, and every gate runs"
 	case st.Status.Pointer == ptr.Before:
 		u.Note = "the Stage already runs " + ptr.Before + ", the version it replaced"
 		return u, nil
@@ -313,7 +355,7 @@ func (d *Delivery) recordedOperation(ctx context.Context, ns, stage, name string
 // config and checks the chain.
 func (d *Delivery) VerifyRecords(ctx context.Context, ns, stage string) (*delivery.StreamVerification, error) {
 	if d.Trust == nil {
-		return nil, errors.New("record verify needs a trust config: pass --trust with the recorder's public key or a trust config file")
+		return nil, errNoTrust
 	}
 	st, err := d.Stage(ctx, ns, stage)
 	if err != nil {
@@ -402,4 +444,102 @@ func (d *Delivery) subjectRecords(ctx context.Context, stage *delivery.StageObje
 		return deliveryrecord.Listing{}, err
 	}
 	return deliveryrecord.List(bounded, repo, desc, d.verifier())
+}
+
+// A fleet audit walks every Stage in the caller's scope. One walk reads at
+// most auditLimit Stages, auditParallel at once, and gives up on what is
+// left after auditTimeout; what it did not read makes the answer partial.
+const (
+	auditLimit    = 500
+	auditParallel = 8
+	auditTimeout  = 2 * time.Minute
+)
+
+// audit runs read on every Stage, bounded as above. out[i] is nil when Stage
+// i could not be read; unreadable says which and why.
+func audit[T any](ctx context.Context, stages []delivery.StageObject, read func(context.Context, delivery.StageObject) (*T, error)) (out []*T, unreadable []string) {
+	ctx, cancel := context.WithTimeout(ctx, auditTimeout)
+	defer cancel()
+	if len(stages) > auditLimit {
+		unreadable = append(unreadable, fmt.Sprintf("%d Stages were not read: one walk reads at most %d", len(stages)-auditLimit, auditLimit))
+		stages = stages[:auditLimit]
+	}
+	out, errs := make([]*T, len(stages)), make([]error, len(stages))
+	var g errgroup.Group
+	g.SetLimit(auditParallel)
+	for i, s := range stages {
+		g.Go(func() error {
+			out[i], errs[i] = read(ctx, s)
+			return nil
+		})
+	}
+	_ = g.Wait()
+	for i, err := range errs {
+		if err != nil {
+			unreadable = append(unreadable, stages[i].Metadata.Namespace+"/"+stages[i].Metadata.Name+": "+err.Error())
+		}
+	}
+	return out, unreadable
+}
+
+// HistoryAll reads the history of every Stage in namespace, or in every
+// namespace the caller can list for "".
+func (d *Delivery) HistoryAll(ctx context.Context, namespace string) (*delivery.Histories, error) {
+	stages, err := d.Stages(ctx, namespace)
+	if err != nil {
+		return nil, err
+	}
+	return d.Histories(ctx, stages), nil
+}
+
+// Histories reads the history of each of stages.
+func (d *Delivery) Histories(ctx context.Context, stages []delivery.StageObject) *delivery.Histories {
+	hs, unreadable := audit(ctx, stages, func(ctx context.Context, s delivery.StageObject) (*delivery.History, error) {
+		return d.History(ctx, s.Metadata.Namespace, s.Metadata.Name)
+	})
+	out := &delivery.Histories{AsOf: d.Now().UTC().Format(time.RFC3339), Completeness: "complete", Unreadable: unreadable,
+		Histories: []delivery.StageHistory{}}
+	for i, h := range hs {
+		if h == nil {
+			continue
+		}
+		out.Histories = append(out.Histories, delivery.StageHistory{Namespace: stages[i].Metadata.Namespace, History: *h})
+		if h.Completeness != "complete" {
+			out.Completeness = "partial"
+		}
+	}
+	out.Note = fmt.Sprintf("the histories of %d of %d Stages", len(out.Histories), len(stages))
+	if len(unreadable) > 0 {
+		out.Completeness = "partial"
+		out.Note += "; the Stages listed as unreadable were not read, so a change on them may still have happened"
+	}
+	return out
+}
+
+// VerifyAll verifies the stream of every Stage in namespace, or in every
+// namespace the caller can list for "". A Stage with no records does not
+// verify.
+func (d *Delivery) VerifyAll(ctx context.Context, namespace string) (*delivery.StreamVerifications, error) {
+	if d.Trust == nil {
+		return nil, errNoTrust
+	}
+	stages, err := d.Stages(ctx, namespace)
+	if err != nil {
+		return nil, err
+	}
+	vs, unreadable := audit(ctx, stages, func(ctx context.Context, s delivery.StageObject) (*delivery.StreamVerification, error) {
+		return d.VerifyRecords(ctx, s.Metadata.Namespace, s.Metadata.Name)
+	})
+	out := &delivery.StreamVerifications{AsOf: d.Now().UTC().Format(time.RFC3339), Completeness: "complete", Trust: d.Trust.Digest(),
+		OK: len(unreadable) == 0, Unreadable: unreadable, Streams: []delivery.StreamVerification{}}
+	if len(unreadable) > 0 {
+		out.Completeness = "partial"
+	}
+	for _, v := range vs {
+		if v != nil {
+			out.Streams = append(out.Streams, *v)
+			out.OK = out.OK && v.OK
+		}
+	}
+	return out, nil
 }

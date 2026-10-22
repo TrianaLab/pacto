@@ -3,6 +3,7 @@ package cli
 import (
 	"cmp"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -459,31 +460,67 @@ func newDeliveryHistoryCommand(v *viper.Viper, d deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			stage, _ := cmd.Flags().GetString("stage")
+			stage, all, err := stageOrAll(cmd, &ns)
+			if err != nil {
+				return err
+			}
+			if all {
+				hs, err := c.HistoryAll(cmd.Context(), ns)
+				if err != nil {
+					return err
+				}
+				return formatResult(cmd, v.GetString(outputFormatKey), hs, func() error {
+					out := cmd.OutOrStdout()
+					for _, h := range hs.Histories {
+						_, _ = fmt.Fprintf(out, "== %s/%s\n", h.Namespace, h.Stage.Name)
+						printHistory(out, &h.History)
+					}
+					printAnswerNotes(out, nil, hs.Unreadable)
+					_, _ = fmt.Fprintf(out, "as of %s, %s: %s\n", hs.AsOf, hs.Completeness, hs.Note)
+					return nil
+				}, nil)
+			}
 			h, err := c.History(cmd.Context(), ns, stage)
 			if err != nil {
 				return err
 			}
 			return formatResult(cmd, v.GetString(outputFormatKey), h, func() error {
-				out := cmd.OutOrStdout()
-				printStageNow(out, h.Stage)
-				w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-				_, _ = fmt.Fprintln(w, "SEQ\tOPERATION\tTYPE\tTO\tACTOR\tRESULT\tREASON\tRECORD")
-				for _, e := range h.Entries {
-					result := strings.Trim(string(e.Outcome)+"/"+string(e.Verification), "/")
-					_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", e.Seq, cmp.Or(e.Operation, "-"), cmp.Or(strings.TrimPrefix(e.Type, "pacto.dev/"), e.Kind),
-						orNone([]string{e.To}), e.ActorClass, cmp.Or(result, string(e.Phase)), e.Reason, shortRecord(e.Record))
-				}
-				_ = w.Flush()
-				printAnswerNotes(out, h.Problems, h.Unreadable)
-				_, _ = fmt.Fprintf(out, "as of %s, from %s, %s: %s\n", h.AsOf, h.Source, h.Completeness, h.Note)
+				printHistory(cmd.OutOrStdout(), h)
 				return nil
 			}, nil)
 		},
 	}
-	cmd.Flags().String("stage", "", "the Stage (required)")
-	_ = cmd.MarkFlagRequired("stage")
+	cmd.Flags().String("stage", "", "the Stage (this or --all)")
+	cmd.Flags().Bool("all", false, "walk every Stage in the namespace given with -n, or in every namespace you can list")
 	return cmd
+}
+
+// stageOrAll reads --stage and --all: exactly one must be set. With --all and
+// no -n, *ns becomes "", every namespace the caller can list.
+func stageOrAll(cmd *cobra.Command, ns *string) (string, bool, error) {
+	stage, _ := cmd.Flags().GetString("stage")
+	all, _ := cmd.Flags().GetBool("all")
+	if (stage == "") == !all {
+		return "", false, errors.New("name one Stage with --stage, or pass --all to walk every Stage")
+	}
+	if all && !cmd.Flags().Changed("namespace") {
+		*ns = ""
+	}
+	return stage, all, nil
+}
+
+func printHistory(out io.Writer, h *delivery.History) {
+	printStageNow(out, h.Stage)
+	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
+	_, _ = fmt.Fprintln(w, "SEQ\tOPERATION\tTYPE\tTO\tACTOR\tRESULT\tREASON\tRECORD")
+	for _, e := range h.Entries {
+		result := strings.Trim(string(e.Outcome)+"/"+string(e.Verification), "/")
+		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", e.Seq, cmp.Or(e.Operation, "-"), cmp.Or(strings.TrimPrefix(e.Type, "pacto.dev/"), e.Kind),
+			orNone([]string{e.To}), e.ActorClass, cmp.Or(result, string(e.Phase)), e.Reason, recordCell(e))
+	}
+	_ = w.Flush()
+	printAnswerNotes(out, h.Problems, h.Unreadable)
+	_, _ = fmt.Fprintf(out, "as of %s, from %s, %s: %s\n", h.AsOf, h.Source, h.Completeness, h.Note)
 }
 
 // shortRecord is a record id short enough for a table; "-" is a line read
@@ -493,6 +530,15 @@ func shortRecord(id string) string {
 		return "-"
 	}
 	return id[:min(len(id), 19)]
+}
+
+// recordCell is a history line's record: its id, "unverified" for a record
+// the recorder wrote that could not be verified, or "-".
+func recordCell(e delivery.HistoryEntry) string {
+	if e.Record == "" && e.UnverifiedRecord != "" {
+		return "unverified"
+	}
+	return shortRecord(e.Record)
 }
 
 func printAnswerNotes(w io.Writer, problems, unreadable []string) {
@@ -590,19 +636,19 @@ func newDeliveryRecordCommand(v *viper.Viper, d deps) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			stage, _ := cmd.Flags().GetString("stage")
+			stage, all, err := stageOrAll(cmd, &ns)
+			if err != nil {
+				return err
+			}
+			if all {
+				return verifyAll(cmd, v, c, ns)
+			}
 			res, err := c.VerifyRecords(cmd.Context(), ns, stage)
 			if err != nil {
 				return err
 			}
 			err = formatResult(cmd, v.GetString(outputFormatKey), res, func() error {
-				w := cmd.OutOrStdout()
-				_, _ = fmt.Fprintf(w, "stream %s at %s, trust config %s\n", res.Stream, res.Anchor, res.Trust)
-				for _, r := range res.Records {
-					_, _ = fmt.Fprintf(w, "  seq %-4d %-13s %s %s\n", r.Seq, r.Kind, r.Record, r.Operation)
-				}
-				printAnswerNotes(w, res.Problems, res.Unreadable)
-				_, _ = fmt.Fprintf(w, "check one record without Pacto:\n  %s\n", res.Cosign)
+				printVerification(cmd.OutOrStdout(), res)
 				return nil
 			}, nil)
 			if err == nil && !res.OK {
@@ -614,8 +660,43 @@ func newDeliveryRecordCommand(v *viper.Viper, d deps) *cobra.Command {
 			return err
 		},
 	}
-	verify.Flags().String("stage", "", "the Stage (required)")
-	_ = verify.MarkFlagRequired("stage")
+	verify.Flags().String("stage", "", "the Stage (this or --all)")
+	verify.Flags().Bool("all", false, "verify every Stage's stream in the namespace given with -n, or in every namespace you can list")
 	cmd.AddCommand(verify)
 	return cmd
+}
+
+func printVerification(w io.Writer, res *delivery.StreamVerification) {
+	_, _ = fmt.Fprintf(w, "stream %s at %s, trust config %s\n", res.Stream, res.Anchor, res.Trust)
+	for _, r := range res.Records {
+		_, _ = fmt.Fprintf(w, "  seq %-4d %-13s %s %s\n", r.Seq, r.Kind, r.Record, r.Operation)
+	}
+	printAnswerNotes(w, res.Problems, res.Unreadable)
+	_, _ = fmt.Fprintf(w, "check one record without Pacto:\n  %s\n", res.Cosign)
+}
+
+// verifyAll is `record verify --all`: it fails unless every Stage was read
+// and every stream verified.
+func verifyAll(cmd *cobra.Command, v *viper.Viper, c *app.Delivery, ns string) error {
+	res, err := c.VerifyAll(cmd.Context(), ns)
+	if err != nil {
+		return err
+	}
+	err = formatResult(cmd, v.GetString(outputFormatKey), res, func() error {
+		w := cmd.OutOrStdout()
+		for i := range res.Streams {
+			_, _ = fmt.Fprintf(w, "== %s\n", res.Streams[i].Stage)
+			printVerification(w, &res.Streams[i])
+		}
+		printAnswerNotes(w, nil, res.Unreadable)
+		_, _ = fmt.Fprintf(w, "as of %s, %s\n", res.AsOf, res.Completeness)
+		return nil
+	}, nil)
+	if err == nil && !res.OK {
+		err = errors.New("not every Stage's records verify: the problems and what could not be read are listed above")
+	}
+	if err == nil {
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "%d streams verified\n", len(res.Streams))
+	}
+	return err
 }

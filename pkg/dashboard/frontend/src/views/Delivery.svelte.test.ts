@@ -531,6 +531,7 @@ describe('history and published', () => {
           { seq: 2, operation: '', type: '', actor: '', kind: 'gap', reason: 'Gap: gone', record: 'sha256:' + 'b'.repeat(64) },
           { seq: 3, operation: 'op3', type: '', actor: 'bot', kind: 'unrecordable', reason: 'Unrecordable: sensitive-value', record: 'sha256:' + 'c'.repeat(64) },
           { operation: 'op4', type: 'pacto.dev/promote', actor: 'bot', phase: 'Verifying' },
+          { seq: 4, operation: 'op5', type: 'pacto.dev/promote', actor: 'bot', outcome: 'Succeeded', unverifiedRecord: 'sha256:' + 'd'.repeat(64) },
         ] },
       { namespace: 'test', asOf: listing.asOf, completeness: 'complete', source: 'records', verified: true, note: '', stage: { name: 'pay' }, entries: [] },
       { namespace: 'stage', asOf: listing.asOf, completeness: 'partial', source: 'records', note: '', stage: { name: 'pay' }, entries: [] },
@@ -547,6 +548,8 @@ describe('history and published', () => {
     expect(text(target)).toContain('Gap');
     expect(target.querySelector('a[href="#/delivery/changes/prod/op3"]')?.textContent).toBe('Unrecordable');
     expect(text(target)).toContain('Not recorded yet');
+    // A record that exists but did not verify is never "not recorded yet".
+    expect(text(target)).toContain('Recorded, not verified');
     destroy();
   });
 

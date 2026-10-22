@@ -107,6 +107,10 @@ type HistoryEntry struct {
 	// its id. Both are empty for a line read from an Operation's status.
 	Kind   string `json:"kind,omitempty"`
 	Record string `json:"record,omitempty"`
+	// UnverifiedRecord is the record a line read from an Operation's status
+	// names, when that record could not be read or verified: the recorder
+	// wrote it, but nothing vouches for it.
+	UnverifiedRecord string `json:"unverifiedRecord,omitempty"`
 	// Pointer is the move this operation made, when it moved the Stage.
 	Pointer *PointerChange `json:"pointer,omitempty"`
 }
@@ -141,6 +145,37 @@ type History struct {
 	Entries    []HistoryEntry `json:"entries"`
 }
 
+// StageHistory is one Stage's history and the namespace the Stage lives in,
+// which the history itself does not carry.
+type StageHistory struct {
+	Namespace string `json:"namespace"`
+	History
+}
+
+// Histories is the history of every Stage a walk read: a fleet audit. It is
+// complete only when every Stage was read and every history is complete.
+type Histories struct {
+	AsOf         string `json:"asOf"`
+	Completeness string `json:"completeness"`
+	Note         string `json:"note"`
+	// Unreadable names the Stages the walk could not read, and why.
+	Unreadable []string       `json:"unreadable,omitempty"`
+	Histories  []StageHistory `json:"histories"`
+}
+
+// StreamVerifications is `record verify --all`'s answer: every Stage's stream
+// a walk read, verified against one trust config. OK only when every Stage
+// was read and every stream verified.
+type StreamVerifications struct {
+	AsOf         string `json:"asOf"`
+	Completeness string `json:"completeness"`
+	Trust        string `json:"trust"`
+	OK           bool   `json:"ok"`
+	// Unreadable names the Stages the walk could not verify, and why.
+	Unreadable []string             `json:"unreadable,omitempty"`
+	Streams    []StreamVerification `json:"streams"`
+}
+
 // Blame says who put a version in place on a Stage: the change that moved the
 // Stage to it most recently, who asked, on whose behalf, who approved and
 // what every gate said. An empty Change with a partial completeness means
@@ -157,7 +192,12 @@ type Blame struct {
 	IntentReason string           `json:"intentReason,omitempty"`
 	Approvals    []RecordApproval `json:"approvals,omitempty"`
 	Verdicts     []Verdict        `json:"verdicts,omitempty"`
-	Unreadable   []string         `json:"unreadable,omitempty"`
+	// Unsigned names the parts of the answer read from an Operation's
+	// status, which no signed record vouches for: the change, approvals,
+	// verdicts, intentReason and onBehalfOf. Empty means the answer is read
+	// from a signed record.
+	Unsigned   []string `json:"unsigned,omitempty"`
+	Unreadable []string `json:"unreadable,omitempty"`
 }
 
 // Undo is how to undo one operation, as a plan nobody has proposed: a

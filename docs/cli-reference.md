@@ -367,8 +367,9 @@ pacto delivery history [flags]
 **Flags:**
 
 ```
+      --all            walk every Stage in the namespace given with -n, or in every namespace you can list
   -h, --help           help for history
-      --stage string   the Stage (required)
+      --stage string   the Stage (this or --all)
 ```
 
 ### `pacto delivery plan`
@@ -442,8 +443,9 @@ pacto delivery record verify [flags]
 **Flags:**
 
 ```
+      --all            verify every Stage's stream in the namespace given with -n, or in every namespace you can list
   -h, --help           help for verify
-      --stage string   the Stage (required)
+      --stage string   the Stage (this or --all)
 ```
 
 ### `pacto delivery types`

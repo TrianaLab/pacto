@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -123,6 +124,15 @@ func TestDeliveryRecordVerbs(t *testing.T) {
 			"first version"}},
 		{"text", []string{"undo", "-n", "prod", "ship"}, true, []string{"name its Stage"}},
 		{"text", append([]string{"history", "--trust", filepath.Join(t.TempDir(), "absent")}, stage...), true, []string{"reading the delivery trust config"}},
+		{"text", []string{"history", "--all", "--trust", trust}, false, []string{"== prod/payments-prod", "ship", "complete: the histories of 1 of 1 Stages"}},
+		{"json", []string{"history", "--all", "-n", "prod", "--trust", trust}, false, []string{`"histories"`, `"completeness": "complete"`}},
+		{"text", []string{"history", "-n", "prod"}, true, []string{"name one Stage with --stage, or pass --all"}},
+		{"text", append([]string{"history", "--all"}, stage...), true, []string{"name one Stage"}},
+		{"text", []string{"record", "verify", "--all", "--trust", trust}, false, []string{"== prod/payments-prod", "seq 1", "as of"}},
+		{"json", []string{"record", "verify", "--all", "--trust", trust}, false, []string{`"streams"`, `"ok": true`}},
+		{"text", []string{"record", "verify", "--all", "--trust", wrong}, true, []string{"not every Stage's records verify"}},
+		{"text", []string{"record", "verify", "--all"}, true, []string{"needs a trust config"}},
+		{"text", []string{"record", "verify", "-n", "prod"}, true, []string{"name one Stage"}},
 	})
 	t.Setenv(trustEnv, trust)
 	checkDeliveryRuns(t, d, []deliveryRun{{"text", append([]string{"history"}, stage...), false, []string{"from records, complete"}}})
@@ -151,8 +161,8 @@ func TestDeliveryUndoPrintsThePlanAndProposesNothing(t *testing.T) {
 		{"text", []string{"blame", "-n", "prod", "--stage", "missing"}, true, nil},
 		{"text", []string{"undo", "-n", "prod", "missing", "--stage", "missing"}, true, nil},
 	})
-	if shortRecord("") != "-" {
-		t.Fatal("a line read from status needs a dash")
+	if shortRecord("") != "-" || recordCell(delivery.HistoryEntry{UnverifiedRecord: "sha256:x"}) != "unverified" {
+		t.Fatal("a line read from status needs a dash, or says its record did not verify")
 	}
 	out := &strings.Builder{}
 	printPrecedent(out, &delivery.Precedent{Completeness: "complete", Note: "n",
@@ -169,4 +179,18 @@ func TestDeliveryUndoPrintsThePlanAndProposesNothing(t *testing.T) {
 func edSigner(key ed25519.PrivateKey) delivery.Signer {
 	kp, _ := signing.FromPrivateKey(key)
 	return signing.Keyed(kp, "")
+}
+
+func TestDeliveryHistoryAllUnlistable(t *testing.T) {
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	d := recordDeps(t, key)
+	inner := d.newDynamic
+	d.newDynamic = func() (dynamic.Interface, error) {
+		c, _ := inner()
+		c.(*dynamicfake.FakeDynamicClient).PrependReactor("list", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
+			return true, nil, errors.New("forbidden")
+		})
+		return c, nil
+	}
+	checkDeliveryRuns(t, d, []deliveryRun{{"text", []string{"history", "--all"}, true, []string{"forbidden"}}})
 }

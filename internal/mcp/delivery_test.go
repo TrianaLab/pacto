@@ -69,6 +69,20 @@ func (s *stubDelivery) Undo(_ context.Context, ns, name, stage string) (*deliver
 	return &delivery.Undo{Operation: ns + "/" + name, Kind: "rollback", Note: stage}, nil
 }
 
+func (s *stubDelivery) HistoryAll(_ context.Context, ns string) (*delivery.Histories, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &delivery.Histories{Completeness: "partial", Note: "ns=" + ns}, nil
+}
+
+func (s *stubDelivery) VerifyAll(_ context.Context, ns string) (*delivery.StreamVerifications, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return &delivery.StreamVerifications{OK: true, Trust: "ns=" + ns}, nil
+}
+
 func (s *stubDelivery) VerifyRecords(_ context.Context, ns, stage string) (*delivery.StreamVerification, error) {
 	if s.err != nil {
 		return nil, s.err
@@ -185,6 +199,17 @@ func TestDeliveryRecordToolCalls(t *testing.T) {
 	if !v.OK || v.Stage != "prod/s" {
 		t.Fatalf("verify: %+v", v)
 	}
+	// With no stage the tools walk every Stage: a fleet audit.
+	var hs delivery.Histories
+	decode(t, callToolOn(t, server, "pacto_delivery_history", map[string]any{"namespace": "prod"}), &hs)
+	if hs.Note != "ns=prod" {
+		t.Fatalf("history of every Stage: %+v", hs)
+	}
+	var vs delivery.StreamVerifications
+	decode(t, callToolOn(t, server, "pacto_delivery_record_verify", map[string]any{}), &vs)
+	if !vs.OK || vs.Trust != "ns=" {
+		t.Fatalf("verify of every Stage: %+v", vs)
+	}
 }
 
 func TestDeliveryWriteToolCalls(t *testing.T) {
@@ -233,6 +258,11 @@ func TestDeliveryToolErrors(t *testing.T) {
 	for _, tool := range []string{"pacto_delivery_history", "pacto_delivery_blame", "pacto_delivery_record_verify"} {
 		if res := callToolOn(t, server, tool, map[string]any{"namespace": "prod", "stage": "s"}); !res.IsError {
 			t.Fatalf("%s must surface the error", tool)
+		}
+	}
+	for _, tool := range []string{"pacto_delivery_history", "pacto_delivery_record_verify"} {
+		if res := callToolOn(t, server, tool, map[string]any{"namespace": "prod"}); !res.IsError {
+			t.Fatalf("%s of every Stage must surface the error", tool)
 		}
 	}
 	if res := callToolOn(t, server, "pacto_delivery_undo", map[string]any{"namespace": "prod", "name": "p1"}); !res.IsError {
