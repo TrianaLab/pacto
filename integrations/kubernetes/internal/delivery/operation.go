@@ -364,7 +364,7 @@ func (r *OperationReconciler) plan(ctx context.Context, op *dv1.Operation, stage
 		pactos, listErr := r.Cluster.pactos(ctx)
 		in.Stages, in.StagesErr = r.stages(ctx)
 		ks, ksErr := r.Cluster.kustomizations(ctx)
-		pactos = delivery.EnvironmentPactos(pactos, in.Stages, ks, errors.Join(in.StagesErr, ksErr), stage.Spec.Environment)
+		pactos, in.Misplaced = delivery.EnvironmentPactos(pactos, in.Stages, ks, errors.Join(in.StagesErr, ksErr), stage.Spec.Environment)
 		in.Candidates = r.Cluster.describe
 		snap, err := delivery.Snapshot(ctx, pactos, listErr, []delivery.Revision{in.From, in.To}, r.now())
 		if err != nil {

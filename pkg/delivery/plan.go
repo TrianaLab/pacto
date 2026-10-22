@@ -73,6 +73,11 @@ type PlanInput struct {
 	// its upstream Stage verified.
 	Stages    []StageObject
 	StagesErr error
+	// Misplaced names the consumer Pactos whose environment label no Stage
+	// declares (EnvironmentPactos): they count everywhere, and the impact
+	// gate cannot clear the change until the label is fixed or a person
+	// accepts the unknown.
+	Misplaced []string
 	// Candidates reads what a digest on a consumer's Stage carries. It is the
 	// one registry read planning makes beyond the two sides of the change,
 	// only for a blocked change, and it must be bounded (ResolveRevision is).
@@ -298,6 +303,7 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 		unseenConsumers = append(unseenConsumers, c.Service+" has no usable compatibility range for this change")
 	}
 	unseenConsumers = append(unseenConsumers, unresolvedConsumers(in.Snapshot, in.Stage.Service.Name)...)
+	unseenConsumers = append(unseenConsumers, in.Misplaced...)
 	unseen := slices.Clone(unseenConsumers)
 	if in.From.Digest != "" && !slices.Contains(in.Status.Verified, in.From.Digest) {
 		unseen = append(unseen, "the version a rollback would return to ("+short(in.From.Digest)+") was never verified here")

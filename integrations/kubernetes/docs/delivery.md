@@ -212,7 +212,11 @@ Pacto works this out from the contracts and the Stages:
   that applies the Stage's `applyRef` sets `targetNamespace` to it. Where a
   Stage object lives places nothing. A Pacto that cannot be placed counts in every
   environment, and so does every Pacto when the Stages or the Kustomizations
-  cannot be listed. Pacto never leaves out a consumer it cannot place.
+  cannot be listed. A label that names an environment no Stage declares, such
+  as `production` when the Stages say `prod`, places nothing either: the Pacto
+  counts everywhere and the plan names the label and asks a person to accept
+  the unknown until you fix it. Pacto never leaves out a consumer it cannot
+  place.
 - **The candidate must accept both versions.** Pacto looks at the versions the
   consumer's upstream Stage offered and verified, newest first, and picks one
   whose contract accepts the provider version running now and the new one. A

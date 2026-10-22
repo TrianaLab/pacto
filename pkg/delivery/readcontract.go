@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -238,9 +239,21 @@ func DecodeKustomizations(data []byte) ([]KustomizationView, error) {
 // Stage's apply OCIRepository). A Pacto it cannot place counts in every
 // environment, and with the Stages or the Kustomizations unreadable (placeErr)
 // every Pacto counts: a consumer Pacto cannot place is one it cannot rule out.
-func EnvironmentPactos(pactos []PactoView, stages []StageObject, kustomizations []KustomizationView, placeErr error, environment string) []PactoView {
+// A label naming an environment no Stage declares places nothing either: that
+// Pacto counts everywhere, and misplaced names it so the plan can say why it
+// cannot see which consumers run here.
+func EnvironmentPactos(pactos []PactoView, stages []StageObject, kustomizations []KustomizationView, placeErr error, environment string) (kept []PactoView, misplaced []string) {
 	if placeErr != nil {
-		return pactos
+		return pactos, nil
+	}
+	known := map[string]bool{}
+	for _, s := range stages {
+		known[s.Spec.Environment] = true
+	}
+	for _, p := range pactos {
+		if env := p.Metadata.Labels[EnvironmentLabel]; env != "" && !known[env] {
+			misplaced = append(misplaced, fmt.Sprintf("Pacto %s/%s is labelled for environment %q, which no Stage declares", p.Metadata.Namespace, p.Metadata.Name, env))
+		}
 	}
 	envs := map[string]map[string]bool{} // namespace -> the environments Stages apply into it
 	for _, k := range kustomizations {
@@ -259,9 +272,9 @@ func EnvironmentPactos(pactos []PactoView, stages []StageObject, kustomizations 
 	}
 	return slices.DeleteFunc(slices.Clone(pactos), func(p PactoView) bool {
 		if env := p.Metadata.Labels[EnvironmentLabel]; env != "" {
-			return env != environment
+			return known[env] && env != environment
 		}
 		placed := envs[p.Metadata.Namespace]
 		return len(placed) > 0 && !placed[environment]
-	})
+	}), misplaced
 }

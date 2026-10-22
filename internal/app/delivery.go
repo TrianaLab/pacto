@@ -205,7 +205,7 @@ func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.Pla
 			return d.Describe(ctx, &s, digest)
 		}
 		ks, ksErr := d.kustomizations(ctx)
-		pactos = delivery.EnvironmentPactos(pactos, in.Stages, ks, errors.Join(in.StagesErr, ksErr), stage.Spec.Environment)
+		pactos, in.Misplaced = delivery.EnvironmentPactos(pactos, in.Stages, ks, errors.Join(in.StagesErr, ksErr), stage.Spec.Environment)
 		if in.Snapshot, err = delivery.Snapshot(ctx, pactos, listErr, []delivery.Revision{in.From, in.To}, d.Now()); err != nil {
 			return delivery.Plan{}, delivery.OperationSpec{}, err
 		}

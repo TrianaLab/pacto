@@ -68,23 +68,35 @@ func TestEnvironmentPactos(t *testing.T) {
 		kustomization("ops", "cart", "test"),
 	}
 	ks[2].Spec.SourceRef.Namespace = "orders-prod"
-	if got := names(EnvironmentPactos(pactos, stages, ks, nil, "prod")); !slices.Equal(got, []string{"prod/a", "orders-prod/b", "loose/d", "mixed/e", "ops/g"}) {
+	if got := names(keep(EnvironmentPactos(pactos, stages, ks, nil, "prod"))); !slices.Equal(got, []string{"prod/a", "orders-prod/b", "loose/d", "mixed/e", "ops/g"}) {
 		// ops holds only a test Stage, but that Stage's version runs in test:
 		// nothing places g, so it counts.
 		t.Fatalf("prod keeps what runs there, the unplaced and the mixed namespace: %v", got)
 	}
-	if got := names(EnvironmentPactos(pactos, stages, ks, nil, "test")); !slices.Equal(got, []string{"test/c", "loose/d", "mixed/e", "delivery/f", "ops/g"}) {
+	if got := names(keep(EnvironmentPactos(pactos, stages, ks, nil, "test"))); !slices.Equal(got, []string{"test/c", "loose/d", "mixed/e", "delivery/f", "ops/g"}) {
 		t.Fatalf("test: %v", got)
 	}
 	// The namespace a Stage object lives in places nothing: the Stages all
 	// live in delivery, but only the label places f there.
-	if got := names(EnvironmentPactos(pactos, stages, nil, nil, "prod")); !slices.Equal(got, []string{"prod/a", "orders-prod/b", "test/c", "loose/d", "mixed/e", "ops/g"}) {
+	if got := names(keep(EnvironmentPactos(pactos, stages, nil, nil, "prod"))); !slices.Equal(got, []string{"prod/a", "orders-prod/b", "test/c", "loose/d", "mixed/e", "ops/g"}) {
 		t.Fatalf("with no Kustomization every unlabelled Pacto counts: %v", got)
 	}
-	if got := EnvironmentPactos(pactos, nil, nil, errors.New("forbidden"), "prod"); len(got) != len(pactos) {
+	if got, misplaced := EnvironmentPactos(pactos, nil, nil, errors.New("forbidden"), "prod"); misplaced != nil || len(got) != len(pactos) {
 		t.Fatalf("unreadable Stages or Kustomizations keep every Pacto: %v", names(got))
 	}
+	// A label naming no environment a Stage declares places nothing: the Pacto
+	// counts in every environment and is named, never silently dropped.
+	typo := pactoIn("prod", "h")
+	typo.Metadata.Labels = map[string]string{EnvironmentLabel: "production"}
+	for _, env := range []string{"prod", "test"} {
+		got, misplaced := EnvironmentPactos([]PactoView{typo}, stages, ks, nil, env)
+		if !slices.Equal(names(got), []string{"prod/h"}) || !slices.Equal(misplaced, []string{`Pacto prod/h is labelled for environment "production", which no Stage declares`}) {
+			t.Fatalf("%s: an unknown label must count and be named: %v %v", env, names(got), misplaced)
+		}
+	}
 }
+
+func keep(p []PactoView, _ []string) []PactoView { return p }
 
 func consumerPacto(ns, name, version, rng string) PactoView {
 	p := checkoutPacto(rng)
@@ -135,7 +147,7 @@ func paymentsDep(rng string) contract.Dependency {
 
 func orderPlan(t *testing.T, in PlanInput, pactos []PactoView, from, to Revision) Plan {
 	t.Helper()
-	pactos = EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), in.StagesErr, "prod")
+	pactos = keep(EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), in.StagesErr, "prod"))
 	snap, err := Snapshot(context.Background(), pactos, nil, []Revision{from, to}, now)
 	if err != nil {
 		t.Fatal(err)
@@ -332,7 +344,7 @@ func TestOrderCandidateMustAcceptWhatElseRunsHere(t *testing.T) {
 func TestAcceptsWhatRunsHere(t *testing.T) {
 	in, pactos := ordersWorld(nil)
 	pactos = append(pactos, runningPacto("orders-prod", "shipping", "1.4.0"))
-	s, err := Snapshot(context.Background(), EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), nil, "prod"), nil, nil, now)
+	s, err := Snapshot(context.Background(), keep(EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), nil, "prod")), nil, nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +469,7 @@ func TestOrderCandidateMustKeepItsOwnConsumers(t *testing.T) {
 func TestAcceptedHere(t *testing.T) {
 	in, pactos := ordersWorld(nil)
 	pactos = append(pactos, dependentPacto("prod", "checkout", "1.0.0", "^1.0.0"))
-	s, err := Snapshot(context.Background(), EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), nil, "prod"), nil, nil, now)
+	s, err := Snapshot(context.Background(), keep(EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), nil, "prod")), nil, nil, now)
 	if err != nil {
 		t.Fatal(err)
 	}

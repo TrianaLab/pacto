@@ -91,6 +91,20 @@ func TestPlanCompatibleChangeShipsWithNoPerson(t *testing.T) {
 	}
 }
 
+func TestPlanMisplacedConsumerAsksToAcceptTheUnknown(t *testing.T) {
+	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
+	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := PlanFor(context.Background(), PlanInput{Spec: promote(dA, dB), Stage: stageSpec(),
+		Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}}, From: from, To: to,
+		Snapshot: snap, Class: ClassAgent, Misplaced: []string{`Pacto prod/h is labelled for environment "production", which no Stage declares`}})
+	if v := verdict(t, p, GateImpact); v.Result != Unknown || p.Floor.Decision != AcceptUnknown || !strings.Contains(p.Question, `"production"`) {
+		t.Fatalf("a label no Stage declares must surface and hold the change: %+v", p)
+	}
+}
+
 func TestPlanNoConsumersShipsEvenWhenBreaking(t *testing.T) {
 	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "2.0.0"))
 	p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, from, to)
