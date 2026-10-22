@@ -186,6 +186,16 @@ async function arrange(page: Page, id: string): Promise<Spatial> {
   return after;
 }
 
+/** Waits until the browser store does (or no longer does) hold an arrangement at this
+ *  zoom. The save is debounced, so a reload is safe only once the store itself says so --
+ *  not after a guess at the debounce. Zoom is the arrangement's fingerprint: `arrange`
+ *  changes it, and a fresh layout fits to a different one. */
+async function expectSaved(page: Page, zoom: number, held = true): Promise<void> {
+  await expect.poll(() => page.evaluate((z) => Object.keys(sessionStorage)
+    .filter((k) => k.startsWith('pacto.graph.spatial.v1:'))
+    .some((k) => Math.abs(JSON.parse(sessionStorage.getItem(k) || '{}').zoom - z) < 1e-3), zoom)).toBe(held);
+}
+
 function expectSamePlace(after: Spatial, before: Spatial, ids: string[], tol = 1.5) {
   for (const id of ids) {
     expect(after.positions[id], `node ${id} still present`).toBeTruthy();
@@ -247,7 +257,7 @@ test.describe('Operational graph — spatial state survives refresh, reload and 
     await waitPainted(page);
     const ids = Object.keys((await waitStable(page)).positions).sort();
     const arranged = await arrange(page, ids[0]);
-    await page.waitForTimeout(600); // the save is debounced
+    await expectSaved(page, arranged.zoom);
 
     await page.reload();
     await waitPainted(page);
@@ -297,7 +307,7 @@ test.describe('Operational graph — spatial state survives refresh, reload and 
     expect(ids.some((i) => moved(relaid.positions[i], arranged.positions[i]) > 25), 'the layout was recomputed').toBe(true);
 
     // A reload must not resurrect what the user just threw away.
-    await page.waitForTimeout(600);
+    await expectSaved(page, arranged.zoom, false);
     await page.reload();
     await waitPainted(page);
     const afterReload = await waitStable(page);
@@ -311,7 +321,7 @@ test.describe('Operational graph — spatial state survives refresh, reload and 
     // payments-service is a node in BOTH neighborhoods (orders-service depends on it), so
     // a leak would be visible as the same id sitting at the same dragged coordinates.
     const arranged = await arrange(page, 'payments-service');
-    await page.waitForTimeout(600);
+    await expectSaved(page, arranged.zoom);
 
     await page.evaluate(() => { location.hash = '#/fleet/graph/service/orders-service'; });
     await waitPainted(page);

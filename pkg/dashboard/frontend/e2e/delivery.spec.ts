@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
+import { settle } from './ready';
 
 // Delivery views in a real browser, over the built WASM demo.
 //
@@ -153,7 +154,7 @@ async function as(page: Page, persona: Persona) {
 }
 
 async function audit(page: Page, what: string) {
-  await page.waitForTimeout(400); // let entrances settle, as axe.spec.ts does
+  await settle(page);
   const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
   expect(r.violations, `${what}: ${JSON.stringify(r.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })))}`).toEqual([]);
 }

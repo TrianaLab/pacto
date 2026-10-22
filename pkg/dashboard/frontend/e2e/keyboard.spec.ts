@@ -1,17 +1,14 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
+import { appReady } from './ready';
 
 // Keyboard-only acceptance against the built WASM demo: global
 // shortcuts behave (open/close overlays, never hijack typing), and the Operational Graph
 // is fully operable by keyboard through the accessible relationships navigator (select a
 // node/edge, open inspection, Escape closes and restores focus, full-detail link works).
-async function ready(page: Page) {
-  await page.goto('/');
-  await expect(page.getByRole('link', { name: 'Operational Graph' })).toBeVisible({ timeout: 20_000 });
-}
 
 test.describe('keyboard operability', () => {
   test('"/" opens entity search outside an input; Escape closes it', async ({ page }) => {
-    await ready(page);
+    await appReady(page);
     await page.keyboard.press('/');
     await expect(page.locator('.es-panel')).toBeVisible();
     await page.keyboard.press('Escape');
@@ -19,7 +16,7 @@ test.describe('keyboard operability', () => {
   });
 
   test('"/" typed inside an input stays literal text (no shortcut hijack)', async ({ page }) => {
-    await ready(page);
+    await appReady(page);
     await page.keyboard.press('/'); // open search so there is a focused input
     const input = page.locator('.es-panel input');
     await expect(input).toBeFocused();
@@ -29,7 +26,7 @@ test.describe('keyboard operability', () => {
   });
 
   test('Cmd/Ctrl-K opens the command palette; Escape closes it', async ({ page }) => {
-    await ready(page);
+    await appReady(page);
     await page.keyboard.press('ControlOrMeta+k');
     await expect(page.locator('.cp-panel')).toBeVisible();
     await page.keyboard.press('Escape');

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { appReady } from './ready';
 
 // Rich bundle documentation in the PRODUCT information architecture: a revision page
 // must not merely list its docs, it must open them, render the Markdown as formatted
@@ -12,11 +13,6 @@ import { test, expect, type Page } from '@playwright/test';
 // engine and the HTTP transport in Go, where they can be constructed exactly.
 
 const T = 20_000;
-
-async function waitReady(page: Page) {
-  await page.goto('/');
-  await expect(page.getByRole('link', { name: 'Operational Graph' })).toBeVisible({ timeout: T });
-}
 
 // The demo's payments-service v2.1.1 overview carries a flowchart fence.
 //
@@ -47,7 +43,7 @@ async function openMermaidDoc(page: Page) {
 }
 
 test('a revision doc opens as rendered Markdown with its mermaid diagram as SVG', async ({ page }) => {
-  await waitReady(page);
+  await appReady(page);
   const doc = await openMermaidDoc(page);
 
   // Formatted content, not raw source: the heading is an element, and the Markdown
@@ -64,7 +60,7 @@ test('a revision doc opens as rendered Markdown with its mermaid diagram as SVG'
 });
 
 test('a revision doc opens in a keyboard-usable reading view', async ({ page }) => {
-  await waitReady(page);
+  await appReady(page);
   const doc = await openMermaidDoc(page);
   await expect(doc.locator('.markdown-body h1')).toBeVisible({ timeout: T });
 

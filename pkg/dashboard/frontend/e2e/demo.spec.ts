@@ -1,17 +1,11 @@
 import { test, expect, type Page } from '@playwright/test';
+import { appReady } from './ready';
 
 // Browser E2E against the built WASM demo (see playwright.config.ts): the real Svelte
 // bundle + the real dashboard API compiled to wasm, serving deterministic embedded
 // data over the LIVE product endpoints (overview/entities/neighborhood/impact). Tests
 // are organized around user WORKFLOWS (land -> search the operational graph -> focus a
 // neighborhood -> inspect -> analyze impact) and use precise, role-based locators.
-
-async function waitReady(page: Page) {
-  await page.goto('/');
-  // The Operational Graph tab is capability-gated, so its presence proves the wasm
-  // host registered the fleet provider and capabilities were fetched.
-  await expect(page.getByRole('link', { name: 'Operational Graph' })).toBeVisible({ timeout: 20_000 });
-}
 
 // The search-first graph landing (no focus): a discovery state, never a hairball.
 async function gotoGraphDiscovery(page: Page) {
@@ -51,14 +45,14 @@ async function searchAndFocus(page: Page, text: string, perspective: 'service' |
 // The tour is opt-in: it exists only after the invitation in the demo strip is pressed,
 // which is also the only thing that lets it move the route.
 async function startTour(page: Page) {
-  await waitReady(page);
+  await appReady(page);
   const start = page.getByTestId('demo-tour-start');
   await expect(start).toBeVisible({ timeout: 20_000 });
   await start.click();
   await expect(page.getByTestId('demo-tour-bubble')).toBeVisible({ timeout: 20_000 });
 }
 
-// The same, at a phone viewport, from the first paint. waitReady's probe is a desktop
+// The same, at a phone viewport, from the first paint. appReady's probe is a desktop
 // signal -- a narrow window keeps that nav link in the hamburger drawer -- and the
 // invitation is the better readiness signal anyway: the strip only offers it once the
 // engine has resolved. Sized before the goto, because a tour started wide and then
@@ -231,7 +225,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   // and Readiness are dimensions of them (reachable from the Overview, entity pages and
   // the palette), and the legacy-only destinations never leak onto a Fleet host.
   test('navigation exposes exactly the four primary workflows (no dead tabs, no dimensions promoted)', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     const nav = page.getByRole('navigation', { name: 'Primary' }).first();
     await expect(nav.getByRole('link')).toHaveText(['Overview', 'Services', 'Operational graph', 'Change analysis']);
   });
@@ -353,7 +347,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   });
 
   test('the Pacto logo is HOME: from inside the fleet product it lands on the Operational Overview', async ({ page }) => {
-    await waitReady(page); // fleet-capable host
+    await appReady(page); // fleet-capable host
     await page.goto('/#/fleet/services');
     await expect(page).toHaveURL(/\/fleet\/services/);
     // Wait until the fleet capability has RESOLVED to true (not merely unresolved): the
@@ -373,7 +367,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   });
 
   test('workflow: a legacy Compare bookmark lands in Change analysis, not a legacy screen', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     await page.goto('/#/diff?from_name=payments-service&from_ver=1.2.1&to_name=payments-service&to_ver=2.0.1');
     // The legacy compare route has a product equivalent, so a Fleet host canonicalizes it
     // and resolves the display NAME to a canonical ServiceKey through the Product API --
@@ -384,7 +378,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   });
 
   test('changes: the Change analysis workspace compares by canonical identity', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     await page.goto('/#/fleet/changes/payments-service');
     // The revision selectors are populated from the product service detail (never the
     // raw snapshot). Pick the known breaking pair 1.0.0 -> 2.0.1.
@@ -401,7 +395,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   });
 
   test('changes: include-observed surfaces the observed-only shadow consumer', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     await page.goto('/#/fleet/changes/payments-service');
     await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
     await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.1' });
@@ -421,7 +415,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   // explanation. Assert what the visitor is owed: the fixture is named, and the
   // documentation is one click away.
   test('demo strip: the fixture is labelled and the docs are one click away', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     const strip = page.getByTestId('demo-strip');
     await expect(strip).toBeVisible({ timeout: 20_000 });
     await expect(strip).toContainText('fixture fleet', { timeout: 20_000 });
@@ -453,7 +447,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   // window that is where the content is, so a reader who has read it needs a way to put
   // it away — otherwise the notice explaining the demo is also obscuring it.
   test('demo strip: the reader can dismiss it once they have read it', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     const strip = page.getByTestId('demo-strip');
     await expect(strip).toBeVisible({ timeout: 20_000 });
     await page.getByTestId('demo-strip-close').click();
@@ -480,7 +474,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   // demo and nothing else, so there is no deployment flag that could turn it on in front
   // of a real fleet.
   test('demo tour: it never starts itself — the strip invites, and nothing more', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     const strip = page.getByTestId('demo-strip');
     // The fixture disclosure is the strip's resting state, owed before anything is
     // pressed: the fast path from the home page's call to action never passes the
@@ -1040,7 +1034,7 @@ test.describe('WASM dashboard demo — workflows', () => {
       await new Promise((r) => setTimeout(r, 3000));
       await route.continue();
     });
-    await waitReady(page);
+    await appReady(page);
     await expect(page.getByTestId('demo-strip')).toContainText('fixture fleet', { timeout: 30_000 });
     const log = await page.evaluate(() => (window as unknown as { __meterLog: string[] }).__meterLog);
     // Elapsed seconds while the engine is in flight, and the real transfer size read
@@ -1052,7 +1046,7 @@ test.describe('WASM dashboard demo — workflows', () => {
   });
 
   test('accessibility: keyboard reaches the primary nav with real, named links', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     await page.keyboard.press('Tab');
     expect(await page.evaluate(() => document.activeElement?.tagName)).toBeTruthy();
     await expect(page.getByRole('link', { name: 'Operational Graph' })).toHaveAttribute('href', /#\/fleet/);

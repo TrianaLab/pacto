@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { boot, canonicalKeys } from './typographyChecks';
+import { settleScroll } from './ready';
 
 /**
  * The shared "On this page" navigator, measured in a browser.
@@ -190,7 +191,7 @@ test('choosing a section makes it current at once, and holds until the reader dr
   await page.getByRole('button', { name: chosen, exact: true }).click();
   expect(await currentEntries(page), 'the choice was not answered until the scroll arrived').toEqual([chosen]);
 
-  await page.waitForTimeout(1500); // the animation lands, having crossed every section
+  await settleScroll(page); // the animation lands, having crossed every section
   expect(await currentEntries(page), 'the scroll walked the marker off the chosen section').toEqual([chosen]);
 
   // Current is somewhere the reader can actually see: opened, if it arrived collapsed.

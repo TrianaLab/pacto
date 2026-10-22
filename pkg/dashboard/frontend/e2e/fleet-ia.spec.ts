@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { appReady } from './ready';
 
 // Browser E2E for the fleet information architecture against the built WASM
 // demo (real Svelte bundle + real dashboard API compiled to wasm, serving the
@@ -6,11 +7,6 @@ import { test, expect, type Page } from '@playwright/test';
 // navigation workflows that only a real browser exercises: the overview landing,
 // actionable navigation, global search, deep-link reload and browser back. No
 // physical-device testing is claimed — these run headless in CI's chromium.
-
-async function waitReady(page: Page) {
-  await page.goto('/');
-  await expect(page.getByRole('link', { name: 'Operational Graph' })).toBeVisible({ timeout: 20_000 });
-}
 
 async function openSearch(page: Page) {
   await page.keyboard.press('/');
@@ -29,7 +25,7 @@ async function entityHeading(page: Page): Promise<string> {
 
 test.describe('WASM demo — fleet product IA', () => {
   test('scenario 1: /fleet loads the operational overview from the product endpoint', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     await page.goto('/#/fleet');
     await expect(page.getByRole('heading', { name: 'Operational overview' })).toBeVisible({ timeout: 20_000 });
     // The fleet-posture distributions prove it consumed the product overview, not a
@@ -60,7 +56,7 @@ test.describe('WASM demo — fleet product IA', () => {
   });
 
   test('scenario 6/8-10: global search finds an entity and opens it by canonical identity', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     await openSearch(page);
     await page.getByRole('textbox', { name: 'Search services, revisions and targets' }).fill('payment');
     const result = page.getByTestId('search-result').first();
@@ -73,7 +69,7 @@ test.describe('WASM demo — fleet product IA', () => {
   });
 
   test('scenario 11 + 13: a deep-linked entity route survives a reload (encoded key round-trips)', async ({ page }) => {
-    await waitReady(page);
+    await appReady(page);
     await openSearch(page);
     await page.getByRole('textbox', { name: 'Search services, revisions and targets' }).fill('payment');
     await page.getByTestId('search-result').first().click();

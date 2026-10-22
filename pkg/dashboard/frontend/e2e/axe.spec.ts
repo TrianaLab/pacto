@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { appReady, settle } from './ready';
 import AxeBuilder from '@axe-core/playwright';
 
 // Automated WCAG A/AA accessibility gate over
@@ -8,30 +9,6 @@ import AxeBuilder from '@axe-core/playwright';
 // deepened so every rendered text pair clears AA 4.5:1 in dark and light; see tokens.css).
 // Every WCAG 2.0/2.1 A and AA rule, contrast included, is asserted here.
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
-
-// settle waits for the page to STOP MOVING, so axe samples it at rest: a fade's
-// mid-flight opacity transiently dips muted text below the AA ratio and reports a
-// contrast failure against a colour the reader never sees.
-//
-// Two hazards, and a single wait catches only one of them. Waiting once for the
-// animations that exist right now misses every entrance that has not started yet --
-// each test gates on a heading, and the list under it arrives later, so at that instant
-// there is frequently nothing running and the audit proceeds straight into the fade.
-// Hence two consecutive quiet samples rather than one: an entrance that begins between
-// them resets the count.
-//
-// Every product animation is finite by design (see the alarm note in
-// FleetAttentionView -- it is three pulses and not an infinite loop precisely so this
-// can be a real wait), so the deadline is a backstop against a bug, not the normal path.
-async function settle(page: Page) {
-  const deadline = Date.now() + 6_000;
-  const moving = () => page.evaluate(() => (document.getAnimations?.() ?? []).some((a) => a.playState === 'running'));
-  let quiet = 0;
-  while (quiet < 2 && Date.now() < deadline) {
-    quiet = (await moving()) ? 0 : quiet + 1;
-    await page.waitForTimeout(200);
-  }
-}
 
 async function audit(page: Page, testInfo: { title: string }) {
   await settle(page);
@@ -47,11 +24,6 @@ async function lightTheme(page: Page) {
   await page.addInitScript(() => { try { localStorage.setItem('pacto-theme', 'light'); } catch { /* private mode */ } });
 }
 
-async function ready(page: Page) {
-  await page.goto('/');
-  await expect(page.getByRole('link', { name: 'Operational Graph' })).toBeVisible({ timeout: 20_000 });
-}
-
 test.describe('WCAG A/AA axe gate over product states', () => {
   // Headless Chromium prefers light, and the app honors prefers-color-scheme, so without
   // this the "default" audits would silently run LIGHT. Emulate a dark preference so these
@@ -60,7 +32,7 @@ test.describe('WCAG A/AA axe gate over product states', () => {
   test.use({ colorScheme: 'dark' });
 
   test('Operational Overview', async ({ page }, ti) => {
-    await ready(page);
+    await appReady(page);
     await page.goto('/#/fleet');
     await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 20_000 });
     await audit(page, ti);

@@ -74,6 +74,7 @@ jobs:
               - 'mkdocs.test.yml'
               - 'pkg/dashboard/frontend/e2e-docs-site/**'
               - 'pkg/dashboard/frontend/playwright.docs-site.config.ts'
+              - 'pkg/dashboard/frontend/e2e/serve.py'
               - 'pkg/dashboard/frontend/package.json'
               - 'pkg/dashboard/frontend/package-lock.json'
               - 'Makefile'
