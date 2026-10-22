@@ -197,7 +197,10 @@ func TestSignAndOpenRecord(t *testing.T) {
 		"two signatures": edit(func(x *envelope) {
 			x.DSSEEnvelope.Signatures = append(x.DSSEEnvelope.Signatures, x.DSSEEnvelope.Signatures[0])
 		}),
-		"unknown field": edit(func(x *envelope) { x.DSSEEnvelope.Payload = []byte(`{"_type":"x","extra":1}`) }),
+		"payload not json": edit(func(x *envelope) { x.DSSEEnvelope.Payload = []byte(`not json`) }),
+		"unknown field": edit(func(x *envelope) {
+			x.DSSEEnvelope.Payload = []byte(`{"_type":"https://in-toto.io/Statement/v1","predicateType":"pacto.dev/operation/v1","extra":1}`)
+		}),
 		"other predicate": edit(func(x *envelope) {
 			x.DSSEEnvelope.Payload = []byte(`{"_type":"https://in-toto.io/Statement/v1","subject":[],"predicateType":"x","predicate":{"kind":"","intent":{"stage":{"cluster":"","namespace":"","name":""}},"chain":{"stream":"","seq":0},"time":{"finished":""}}}`)
 		}),

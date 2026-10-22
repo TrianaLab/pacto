@@ -100,24 +100,15 @@ func List(ctx context.Context, repo *remote.Repository, subject ocispec.Descript
 	var out Listing
 	seen := map[string]bool{}
 	for _, d := range descs {
-		if d.Size > MaxBytes {
-			continue // too large to be a record manifest
-		}
-		raw, err := content.FetchAll(ctx, repo, d)
-		if err != nil {
+		bundle, bad, err := fetchBundle(ctx, repo, d, delivery.PredicateOperation)
+		switch {
+		case err != nil:
 			return Listing{}, err
-		}
-		var m ocispec.Manifest
-		if json.Unmarshal(raw, &m) != nil || m.Annotations[AnnPredicateType] != delivery.PredicateOperation {
-			continue // another tool's referrer
-		}
-		if len(m.Layers) != 1 || m.Layers[0].Size > MaxBytes {
-			out.Unreadable = append(out.Unreadable, d.Digest.String()+": not one bundle layer")
+		case bad != "":
+			out.Unreadable = append(out.Unreadable, bad)
 			continue
-		}
-		bundle, err := content.FetchAll(ctx, repo, m.Layers[0])
-		if err != nil {
-			return Listing{}, err
+		case bundle == nil:
+			continue // another tool's referrer
 		}
 		st, id, err := delivery.OpenRecord(bundle, verify)
 		if err != nil {
@@ -131,6 +122,28 @@ func List(ctx context.Context, repo *remote.Repository, subject ocispec.Descript
 		out.Records = append(out.Records, delivery.StoredRecord{ID: id, Manifest: d.Digest.String(), Statement: st})
 	}
 	return out, nil
+}
+
+// fetchBundle reads the sigstore bundle a referrer manifest d carries when the
+// manifest says it is a bundle of predicate: nil for anything else, bad when
+// it is one but not one bundle layer, an error when the registry fails.
+func fetchBundle(ctx context.Context, repo *remote.Repository, d ocispec.Descriptor, predicate string) (bundle []byte, bad string, err error) {
+	if d.Size > MaxBytes {
+		return nil, "", nil // too large to be a record manifest
+	}
+	raw, err := content.FetchAll(ctx, repo, d)
+	if err != nil {
+		return nil, "", err
+	}
+	var m ocispec.Manifest
+	if json.Unmarshal(raw, &m) != nil || m.Annotations[AnnPredicateType] != predicate {
+		return nil, "", nil
+	}
+	if len(m.Layers) != 1 || m.Layers[0].Size > MaxBytes {
+		return nil, d.Digest.String() + ": not one bundle layer", nil
+	}
+	bundle, err = content.FetchAll(ctx, repo, m.Layers[0])
+	return bundle, "", err
 }
 
 // Unchecked is a Verifier that accepts every signature: a reader with no trust

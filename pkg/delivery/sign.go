@@ -29,6 +29,10 @@ type Verifier func(stream string, bundle []byte) error
 // the DSSE payload, so the id does not depend on a signature that a KMS makes
 // differently every time.
 func SignRecord(ctx context.Context, s Signer, st Statement) (bundle []byte, id string, err error) {
+	return signStatement(ctx, s, st)
+}
+
+func signStatement(ctx context.Context, s Signer, st any) (bundle []byte, id string, err error) {
 	payload, _ := json.Marshal(st) // plain data; marshalling cannot fail
 	bundle, err = s.Sign(ctx, PayloadType, payload)
 	if err != nil {
@@ -53,28 +57,46 @@ type envelope struct {
 // it names decides which keys may have signed it; nothing it says is trusted
 // until the signature verifies.
 func OpenRecord(bundle []byte, verify Verifier) (Statement, string, error) {
-	var b envelope
-	if err := json.Unmarshal(bundle, &b); err != nil {
-		return Statement{}, "", fmt.Errorf("bundle: %w", err)
-	}
-	env := b.DSSEEnvelope
-	switch {
-	case b.MediaType != BundleMediaType:
-		return Statement{}, "", fmt.Errorf("bundle media type %q", b.MediaType)
-	case env.PayloadType != PayloadType:
-		return Statement{}, "", fmt.Errorf("payload type %q", env.PayloadType)
-	case len(env.Signatures) != 1:
-		return Statement{}, "", fmt.Errorf("%d signatures, want 1", len(env.Signatures))
-	}
 	var st Statement
-	if err := strictjson.Unmarshal(env.Payload, &st); err != nil {
-		return Statement{}, "", fmt.Errorf("statement: %w", err)
-	}
-	if st.Type != StatementType || st.PredicateType != PredicateOperation {
-		return Statement{}, "", fmt.Errorf("statement %q with predicate %q", st.Type, st.PredicateType)
+	payload, err := openStatement(bundle, PredicateOperation, &st)
+	if err != nil {
+		return Statement{}, "", err
 	}
 	if err := verify(st.Predicate.Chain.Stream, bundle); err != nil {
 		return Statement{}, "", fmt.Errorf("signature: %w", err)
 	}
-	return st, sha256Hex(env.Payload), nil
+	return st, sha256Hex(payload), nil
+}
+
+// openStatement checks a bundle carries one DSSE-signed in-toto statement and
+// decodes it into st, which must then be of the predicate want. It returns the
+// payload, unverified: the caller checks the signature.
+func openStatement(bundle []byte, want string, st any) ([]byte, error) {
+	var b envelope
+	if err := json.Unmarshal(bundle, &b); err != nil {
+		return nil, fmt.Errorf("bundle: %w", err)
+	}
+	env := b.DSSEEnvelope
+	switch {
+	case b.MediaType != BundleMediaType:
+		return nil, fmt.Errorf("bundle media type %q", b.MediaType)
+	case env.PayloadType != PayloadType:
+		return nil, fmt.Errorf("payload type %q", env.PayloadType)
+	case len(env.Signatures) != 1:
+		return nil, fmt.Errorf("%d signatures, want 1", len(env.Signatures))
+	}
+	var head struct {
+		Type          string `json:"_type"`
+		PredicateType string `json:"predicateType"`
+	}
+	if err := json.Unmarshal(env.Payload, &head); err != nil {
+		return nil, fmt.Errorf("statement: %w", err)
+	}
+	if head.Type != StatementType || head.PredicateType != want {
+		return nil, fmt.Errorf("statement %q with predicate %q", head.Type, head.PredicateType)
+	}
+	if err := strictjson.Unmarshal(env.Payload, st); err != nil {
+		return nil, fmt.Errorf("statement: %w", err)
+	}
+	return env.Payload, nil
 }
