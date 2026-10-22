@@ -227,6 +227,40 @@ func TestBlameOfAVersionNeverMovedTo(t *testing.T) {
 	}
 }
 
+func TestBlameOfAnUnrecordableMove(t *testing.T) {
+	e := newRecordEnv(t,
+		opFixture("live", shipSpec(dlB), map[string]any{"phase": "Concluded", "outcome": "Succeeded", "seq": int64(3),
+			"pointer": map[string]any{"before": dlA, "after": dlB},
+			"approvals": []any{map[string]any{"name": "a1", "by": "dave", "decision": "approve"}}}))
+	_, r2 := e.twoRecords()
+	// The approval was gone before the recorder ran: the record of live says
+	// only that it could not be recorded, and the Stage runs B.
+	r3 := e.attach("delivery/streams", e.anchor, delivery.RecordPredicate{Kind: delivery.RecordUnrecordable,
+		Intent: delivery.RecordIntent{UID: "uid-live", Name: "live"}, Chain: delivery.Chain{Stream: recStream, Seq: 3, Parent: r2},
+		Unrecordable: &delivery.Refusal{Check: delivery.CheckApproval, Message: "approval a1 is gone"}})
+	e.setStream(map[string]any{"pointer": dlB, "stream": map[string]any{"id": recStream, "seq": int64(3), "recordedSeq": int64(3),
+		"head": r3, "anchor": deliveryrecord.AnchorRef(e.host+"/delivery/streams", recStream)}})
+	ctx := context.Background()
+	h, _ := e.d.History(ctx, "prod", "payments-prod")
+	last := h.Entries[len(h.Entries)-1]
+	if len(h.Entries) != 3 || last.Record != r3 || last.To != dlB || last.Pointer == nil || !strings.HasPrefix(last.Reason, "Unrecordable") {
+		t.Fatalf("history = %+v", h.Entries)
+	}
+	b, _ := e.d.Blame(ctx, "prod", "payments-prod", "")
+	if b.Change == nil || b.Change.Operation != "live" || len(b.Approvals) != 1 || b.Approvals[0].By != "dave" {
+		t.Fatalf("blame = %+v", b)
+	}
+	// With the Operation gone, what the unrecordable change moved is unknown,
+	// never nobody.
+	if err := e.c.Resource(gvrOperations).Namespace("prod").Delete(ctx, "live", metav1.DeleteOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	b, _ = e.d.Blame(ctx, "prod", "payments-prod", "")
+	if b.Change != nil || b.Completeness != "partial" || !strings.Contains(b.Note, "unrecordable record hides") {
+		t.Fatalf("blame with the Operation gone = %+v", b)
+	}
+}
+
 func TestBlameFromStatusAndEmptyStage(t *testing.T) {
 	d, c, _ := deliveryFixture(t, "alice", nil, nil,
 		opFixture("ship", map[string]any{"type": delivery.TypePromote, "stage": "payments-prod", "params": map[string]any{"to": dlA},

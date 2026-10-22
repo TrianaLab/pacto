@@ -133,8 +133,9 @@ func (d *Delivery) history(ctx context.Context, ns, stage string) (*delivery.His
 		h.Source, h.Head, h.Problems, h.Unreadable = delivery.SourceRecords, r.fold.Head, r.fold.Problems, r.unreadable
 		h.Completeness, h.Note = d.complete(r), d.recordsNote(r)
 		for _, rec := range r.fold.Records {
-			recorded[rec.Statement.Predicate.Intent.UID] = true
-			h.Entries = append(h.Entries, delivery.RecordEntry(rec))
+			uid := rec.Statement.Predicate.Intent.UID
+			recorded[uid] = true
+			h.Entries = append(h.Entries, withUnsignedMove(delivery.RecordEntry(rec), ops, uid))
 		}
 	}
 	for _, o := range ops {
@@ -143,6 +144,20 @@ func (d *Delivery) history(ctx context.Context, ns, stage string) (*delivery.His
 		}
 	}
 	return h, r, ops, nil
+}
+
+// withUnsignedMove fills an unrecordable record's line, which carries no
+// params or outcome, from its Operation's status while the Operation is still
+// in the cluster. Its reason still says Unrecordable: what it adds is not signed.
+func withUnsignedMove(e delivery.HistoryEntry, ops []delivery.OperationObject, uid string) delivery.HistoryEntry {
+	i := slices.IndexFunc(ops, func(o delivery.OperationObject) bool { return o.Metadata.UID == uid })
+	if e.Kind != delivery.RecordUnrecordable || i < 0 {
+		return e
+	}
+	s := statusEntry(ops[i])
+	e.Type, e.From, e.To, e.Actor, e.ActorClass = s.Type, s.From, s.To, s.Actor, s.ActorClass
+	e.Outcome, e.Verification, e.Pointer = s.Outcome, s.Verification, s.Pointer
+	return e
 }
 
 // Blame says who put digest in place on a Stage, by default the version it
@@ -165,7 +180,7 @@ func (d *Delivery) Blame(ctx context.Context, ns, stage, digest string) (*delive
 		}
 		b.Change = &e
 		b.Note = "the newest change that moved the Stage to " + b.Digest
-		if e.Record != "" {
+		if e.Record != "" && e.Kind != delivery.RecordUnrecordable {
 			p := recordByID(r, e.Record).Statement.Predicate
 			b.Approvals, b.Verdicts, b.IntentReason = p.Approvals, p.Verdicts, p.Intent.Reason
 			if p.Actor != nil && p.Actor.OnBehalfOf != nil {
@@ -184,9 +199,17 @@ func (d *Delivery) Blame(ctx context.Context, ns, stage, digest string) (*delive
 		}
 		return b, nil
 	}
-	if b.Completeness == "complete" {
+	unknown := slices.ContainsFunc(h.Entries, func(e delivery.HistoryEntry) bool {
+		return e.Kind == delivery.RecordUnrecordable && e.Pointer == nil
+	})
+	switch {
+	case b.Completeness == "complete" && unknown:
+		b.Completeness = "partial"
+		b.Note = "no readable change moved the Stage to " + b.Digest + ", but an unrecordable record hides what its " +
+			"change moved, and that change may have"
+	case b.Completeness == "complete":
 		b.Note = "no change in the stream moved the Stage to " + b.Digest
-	} else {
+	default:
 		b.Note = "no change Pacto could read moved the Stage to " + b.Digest + ", and the history is partial, " +
 			"so who did it is unknown, not nobody"
 	}

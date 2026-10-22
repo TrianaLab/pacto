@@ -21,6 +21,14 @@ func TestFoldStreamIntact(t *testing.T) {
 	if len(f.Problems) != 0 || f.Head != "3" || f.Records[0].ID != "1" {
 		t.Fatalf("fold = %+v", f)
 	}
+	// An unrecordable record hides what it moved, so the next move is not
+	// called hidden for starting somewhere the one before did not leave.
+	u := rec("2", 2, "1", "", "")
+	u.Statement.Predicate.Kind, u.Statement.Predicate.Outcome = RecordUnrecordable, nil
+	u.Statement.Predicate.Unrecordable = &Refusal{Check: CheckApproval}
+	if f := FoldStream([]StoredRecord{rec("1", 1, "", "", "A"), u, rec("3", 3, "2", "B", "C")}); len(f.Problems) != 0 {
+		t.Fatalf("problems after an unrecordable record = %v", f.Problems)
+	}
 	if FoldStream(nil).Head != "" {
 		t.Fatal("an empty stream has a head")
 	}

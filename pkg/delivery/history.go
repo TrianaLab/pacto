@@ -52,6 +52,9 @@ func FoldStream(recs []StoredRecord) Fold {
 		if p.Gap != nil {
 			f.Problems = append(f.Problems, fmt.Sprintf("seq %d is a gap: the operation with local seq %d was gone before it was recorded", seq, p.Gap.Seq))
 		}
+		if p.Unrecordable != nil {
+			lastAfter = "" // what it moved is not signed, so the next move cannot be checked against it
+		}
 		if o := p.Outcome; o != nil && o.Pointer.After != "" {
 			if lastAfter != "" && o.Pointer.Before != lastAfter {
 				f.Problems = append(f.Problems, fmt.Sprintf("seq %d moved the Stage from %s, but the change before it left %s: "+
