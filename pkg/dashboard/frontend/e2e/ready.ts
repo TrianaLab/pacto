@@ -41,11 +41,3 @@ export async function settle(page: Page): Promise<void> {
     await page.waitForTimeout(200); // the sampling interval, not a guess at an end
   }
 }
-
-/** settleScroll waits for a smooth scroll to come to rest: scrollY unchanged across frames. */
-export async function settleScroll(page: Page): Promise<void> {
-  await page.waitForFunction(() => new Promise<boolean>((resolve) => {
-    const y = window.scrollY;
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve(window.scrollY === y)));
-  }));
-}
