@@ -67,6 +67,25 @@ records_scenario() {
   [ "$n" -ge 4 ] || fail "only $n Stages have a stream anchor"
   pass "record verify passes on all $n Stages, one record per seq"
 
+  section "the fleet audit: record verify --all and history --all read every Stage in one walk"
+  # Every Stage that recorded something verifies. A Stage with no records does
+  # not: publish-manual/billing-anyone never ran an operation, so the walk
+  # names it and says not every Stage verifies.
+  local total norec
+  total="$(kubectl get stages -A -o json | jq '.items | length')"
+  norec="$(kubectl get stages -A -o json | jq -r '[.items[] | select(.status.stream.anchor | not) | "\(.metadata.namespace)/\(.metadata.name)"] | join(" ")')"
+  [ "$norec" = publish-manual/billing-anyone ] || fail "the Stages with no records are '$norec', want publish-manual/billing-anyone alone"
+  out="$(rec record verify --all --output-format json 2>"$tmp/err" || true)"
+  jq -e --argjson n "$n" '.ok == false and .completeness == "partial" and (.streams | length) == $n and ([.streams[] | select(.ok)] | length) == $n
+    and (.unreadable | length) == 1 and (.unreadable[0] | contains("billing-anyone"))' <<<"$out" >/dev/null \
+    || fail "record verify --all does not verify the $n Stages with records and name billing-anyone: $(cat "$tmp/err") $(jq -c '{ok, completeness, unreadable, streams: [.streams[] | {stage, ok}]}' <<<"$out")"
+  grep -q "not every Stage's records verify" "$tmp/err" || fail "record verify --all did not fail on the Stage with no records: $(cat "$tmp/err")"
+  out="$(rec history --all --output-format json 2>"$tmp/err")" || fail "history --all failed: $(cat "$tmp/err") $out"
+  jq -e --argjson total "$total" --argjson n "$n" '(.histories | length) == $total and (.unreadable // [] | length) == 0
+    and ([.histories[] | select(.source == "records" and .completeness == "complete")] | length) == $n' <<<"$out" >/dev/null \
+    || fail "history --all does not read all $total Stages, $n of them complete from their records: $(jq -c '{completeness, note, unreadable, histories: [.histories[] | {namespace, source, completeness}]}' <<<"$out")"
+  pass "record verify --all verifies all $n Stages with records and names the one with none; history --all reads all $total Stages"
+
   section "a record is attached to the version, the one it replaced, the contract and the anchor"
   local opc_uid ctr
   opc_uid="$(uid_of test "$OPC")"

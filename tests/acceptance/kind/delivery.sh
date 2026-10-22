@@ -13,6 +13,12 @@
 # of every other phase; CI runs one phase per shard. DELIVERY_DRY_RUN=1 prints
 # which phases would run and stops before touching Docker or a cluster.
 #
+# The setup runs once; then the phases that do not depend on each other run at
+# the same time in their own namespaces of the one cluster, each line prefixed
+# with its phase (see run_phases). DELIVERY_SEQUENTIAL=1 runs them one at a
+# time, for debugging. Every section and wait is timed, and a summary of where
+# the time went prints at the end (KIND_TIMING=FILE keeps the raw lines).
+#
 # DELIVERY_SAVE_IMAGES=FILE builds the three Pacto images, saves them to FILE
 # and stops; DELIVERY_LOAD_IMAGES=FILE loads them from FILE instead of building.
 # CI builds once and every shard loads the same archive.
@@ -70,8 +76,16 @@ source "$(dirname "$0")/lib.sh"
 # Every section and every wait is timed; the summary prints when the run ends.
 KIND_TIMING="${KIND_TIMING:-$(mktemp)}"
 export KIND_TIMING
+# Waits poll every second; how long each is willing to wait does not change.
+# shellcheck disable=SC2034  # read by lib.sh's eventually
+KIND_POLL=1
+# The candidate OCIRepositories Flux scans for a moved tag or a new version.
+# Every version a phase ships waits on this scan, so the run keeps it short.
+CANDIDATE_INTERVAL=2s
 
 PHASES="core health publish ordering identity records"
+# skip_var PHASE — the name of the phase's skip switch.
+skip_var() { echo "DELIVERY_SKIP_$(tr '[:lower:]' '[:upper:]' <<<"${1/ordering/order}")"; }
 if [ -n "${DELIVERY_PHASES:-}" ]; then
   want=",${DELIVERY_PHASES},"
   for p in ${DELIVERY_PHASES//,/ }; do
@@ -82,17 +96,20 @@ if [ -n "${DELIVERY_PHASES:-}" ]; then
   [[ "$want" == *,identity,* || "$want" == *,records,* ]] && want+="core,"
   [[ "$want" == *,records,* ]] && want+="publish,"
   for p in $PHASES; do
-    sw="DELIVERY_SKIP_$(tr '[:lower:]' '[:upper:]' <<<"${p/ordering/order}")"
+    sw="$(skip_var "$p")"
     if [[ "$want" == *,"$p",* ]]; then unset "$sw"; else printf -v "$sw" 1; fi
   done
 fi
+# shellcheck disable=SC2034  # the skip switches are read through skip_var
 [ -n "${DELIVERY_SKIP_CORE:-}" ] && DELIVERY_SKIP_IDENTITY=1 && DELIVERY_SKIP_RECORDS=1
+# shellcheck disable=SC2034
 [ -n "${DELIVERY_SKIP_PUBLISH:-}" ] && DELIVERY_SKIP_RECORDS=1
 if [ -n "${DELIVERY_DRY_RUN:-}" ]; then
   for p in $PHASES; do
-    sw="DELIVERY_SKIP_$(tr '[:lower:]' '[:upper:]' <<<"${p/ordering/order}")"
+    sw="$(skip_var "$p")"
     [ -n "${!sw:-}" ] && echo "skip $p" || echo "run  $p"
   done
+  [ -n "${DELIVERY_SEQUENTIAL:-}" ] && echo "one phase at a time" || echo "independent phases at once"
   exit 0
 fi
 # Every HTTP call here and in delivery-identity.sh is bounded: a server that
@@ -115,8 +132,84 @@ dump_delivery() {
     kubectl -n flux-system logs "deploy/$d" --tail=100 || true
   done
 }
+# --- running the phases --------------------------------------------------------
+# Every phase runs in a subshell of its own. By default the phases that do not
+# depend on each other run at the same time, each in its own namespaces of the
+# one cluster; DELIVERY_SEQUENTIAL=1 runs them one at a time, in PHASES order,
+# straight to the terminal, for debugging. The dependencies:
+#   - identity runs after core: it ships core's F again on prod;
+#   - records runs after every other phase: it checks every operation of the
+#     run and stops the recorder for a while;
+#   - health, publish and ordering start once core has its operator back
+#     (item 8 stops the operator, which every phase's contract check needs).
+# What a later phase reads from an earlier one is handed over with `share`.
+STATE="$(mktemp -d)"
+share() { local v; for v in "$@"; do printf '%s=%q\n' "$v" "${!v}"; done >> "$STATE/shared.env"; }
+signal() { touch "$STATE/signal-$1"; }
+await() { eventually 200 test -e "$STATE/signal-$1" || fail "waited ten minutes for $1"; }
+phase_runs() { local sw; sw="$(skip_var "$1")"; [ -z "${!sw:-}" ]; }
+# phase_deps PHASE — the phases that must have finished before PHASE starts.
+phase_deps() {
+  case "$1" in
+    identity) echo core ;;
+    records) echo core health publish ordering identity ;;
+  esac
+}
+# phase_body PHASE — the phase itself, in its subshell. PHASE_PIDS are the
+# background helpers it started (a port-forward, a span generator); they stop
+# with it. Its exit code is left in STATE.
+phase_body() {
+  TIMING_PHASE="$1" PHASE_PIDS=""
+  trap 'rc=$?; for p in $PHASE_PIDS; do kill "$p" 2>/dev/null || true; done; timing_end; echo "$rc" > "$STATE/$TIMING_PHASE.rc"' EXIT
+  "phase_$1"
+}
+# kill_tree PID — PID and everything it started.
+kill_tree() { local c; for c in $(pgrep -P "$1" 2>/dev/null); do kill_tree "$c"; done; kill "$1" 2>/dev/null || true; }
+RUNNING=""
+# stop PID — stop a background job of this shell and reap it quietly.
+stop() { kill_tree "$1"; wait "$1" 2>/dev/null || true; }
+stop_phases() { local p v; for p in $RUNNING; do for v in PID TAIL; do v="${v}_$p"; [ -z "${!v:-}" ] || stop "${!v}"; done; done; RUNNING=""; }
+run_phases() {
+  local p d ready rc pending="" pid tail
+  for p in $PHASES; do phase_runs "$p" && pending+=" $p"; done
+  if [ -n "${DELIVERY_SEQUENTIAL:-}" ]; then
+    for p in $pending; do
+      ( phase_body "$p" )
+      # shellcheck disable=SC1091
+      [ ! -s "$STATE/shared.env" ] || source "$STATE/shared.env"
+    done
+    return
+  fi
+  while [ -n "${pending// /}${RUNNING// /}" ]; do
+    for p in $pending; do
+      ready=1
+      for d in $(phase_deps "$p"); do [[ " $pending $RUNNING " != *" $d "* ]] || ready=; done
+      [ -n "$ready" ] || continue
+      ( phase_body "$p" ) > "$STATE/$p.log" 2>&1 &
+      printf -v "PID_$p" %s $!
+      ( tail -n +1 -f "$STATE/$p.log" | awk -v p="[$p] " '{ print p $0; fflush() }' ) 2>/dev/null &
+      printf -v "TAIL_$p" %s $!
+      pending=" ${pending// $p/}" RUNNING+=" $p"
+    done
+    sleep 2
+    for p in $RUNNING; do
+      pid="PID_$p" tail="TAIL_$p"
+      ! kill -0 "${!pid}" 2>/dev/null || continue
+      wait "${!pid}" 2>/dev/null || true
+      sleep 1; stop "${!tail}"
+      RUNNING=" ${RUNNING// $p/}"
+      rc="$(cat "$STATE/$p.rc" 2>/dev/null || echo 1)"
+      if [ "$rc" != 0 ]; then
+        echo "  FAIL: phase $p failed (exit $rc); its full log is $STATE/$p.log" >&2
+        exit "$rc"
+      fi
+      # shellcheck disable=SC1091
+      [ ! -s "$STATE/shared.env" ] || source "$STATE/shared.env"
+    done
+  done
+}
 # shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
-trap 'rc=$?; timing_end; timing_summary "$KIND_TIMING"; [ -z "${_CLUSTER_BG_PID:-}" ] || wait "$_CLUSTER_BG_PID" 2>/dev/null || true; [ $rc -ne 0 ] && { dump_diag "$NS"; dump_delivery; dump_identity; }; [ -z "${GEN_PID:-}" ] || kill "$GEN_PID" 2>/dev/null || true; pkill -f "kubectl.*port-forward" 2>/dev/null || true; identity_cleanup; exit $rc' EXIT
+trap 'rc=$?; stop_phases; timing_end; timing_summary "$KIND_TIMING"; echo "run took ${SECONDS}s"; [ -z "${_CLUSTER_BG_PID:-}" ] || wait "$_CLUSTER_BG_PID" 2>/dev/null || true; [ $rc -ne 0 ] && { dump_diag "$NS"; dump_delivery; dump_identity; }; pkill -f "kubectl.*port-forward" 2>/dev/null || true; identity_cleanup; exit $rc' EXIT
 
 if [ -z "${DELIVERY_SAVE_IMAGES:-}" ]; then
   command -v oras >/dev/null 2>&1 || fail "oras is required: it publishes the manifest artifacts Flux pulls"
@@ -147,19 +240,20 @@ PAUSE_IMG=registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed
 FLUX_INSTALL_SHA256=cc3dcd743af16215838b6937e1fce83745bf24c0dcc6c59737c59df15429caaf
 FLUX_IMAGES=(ghcr.io/fluxcd/source-controller:v1.9.5 ghcr.io/fluxcd/kustomize-controller:v1.9.5)
 
-if [ -n "${DELIVERY_LOAD_IMAGES:-}" ]; then
-  section "load the prebuilt Pacto images"
-  docker load -i "$DELIVERY_LOAD_IMAGES" >/dev/null
-  for img in "$OP_IMG" "$DL_IMG" "$DASH_IMG"; do
-    docker image inspect "$img" >/dev/null 2>&1 || fail "$DELIVERY_LOAD_IMAGES has no $img: it was built from another tree"
-  done
-else
-  build_operator_images "$OP_IMG" "$DASH_IMG" "$VER"
-  section "build the pacto-delivery image (the operator Dockerfile, its second entrypoint)"
+# build_images — the three Pacto images at once, each build's output in its own
+# log, printed when it fails.
+build_images() {
+  local logs; logs="$(mktemp -d)"
+  build_operator_images "$OP_IMG" "$DASH_IMG" "$VER" > "$logs/operator.log" 2>&1 &
+  local op=$!
   docker build --load -f "$_PACTO_ROOT/integrations/kubernetes/Dockerfile" --build-arg VERSION="$VER" \
-    --target delivery --build-arg CMD=cmd/delivery -t "$DL_IMG" "$_PACTO_ROOT"
-fi
+    --target delivery --build-arg CMD=cmd/delivery -t "$DL_IMG" "$_PACTO_ROOT" > "$logs/delivery.log" 2>&1 &
+  local dl=$!
+  wait "$op" || { cat "$logs/operator.log" >&2; fail "the dashboard or operator image did not build"; }
+  wait "$dl" || { cat "$logs/delivery.log" >&2; fail "the pacto-delivery image did not build"; }
+}
 if [ -n "${DELIVERY_SAVE_IMAGES:-}" ]; then
+  timed "build the operator, dashboard and pacto-delivery images" build_images
   docker save -o "$DELIVERY_SAVE_IMAGES" "$OP_IMG" "$DL_IMG" "$DASH_IMG"
   echo "saved $OP_IMG $DL_IMG $DASH_IMG to $DELIVERY_SAVE_IMAGES"
   exit 0
@@ -167,10 +261,20 @@ fi
 
 # The cluster trusts the run's identity providers (phase 4): its apiserver is
 # created with their structured authentication and an audit log. It is created
-# in the background while the pulls and builds below run.
-section "pull and build what the cluster runs, while it is created"
+# in the background, and the images build in the background, while the pulls
+# below run.
+section "create the cluster and build the images while the rest is pulled"
 KIND_CONFIG="$(identity_prepare)"
 cluster_start_bg "$KIND_CONFIG"
+if [ -n "${DELIVERY_LOAD_IMAGES:-}" ]; then
+  docker load -i "$DELIVERY_LOAD_IMAGES" >/dev/null
+  for img in "$OP_IMG" "$DL_IMG" "$DASH_IMG"; do
+    docker image inspect "$img" >/dev/null 2>&1 || fail "$DELIVERY_LOAD_IMAGES has no $img: it was built from another tree"
+  done
+else
+  build_images &
+  BUILD_PID=$!
+fi
 FLUX_INSTALL="$(mktemp)"
 infra "download the Flux $FLUX_VERSION install manifest" \
   curl -fsSL --retry 2 -o "$FLUX_INSTALL" "https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/install.yaml"
@@ -178,21 +282,39 @@ infra "download the Flux $FLUX_VERSION install manifest" \
   || fail "the Flux $FLUX_VERSION install manifest changed upstream: its checksum is not the pinned one"
 for img in "${FLUX_IMAGES[@]}"; do infra "pull $img" docker pull -q "$img" >/dev/null; done
 pull_pinned "$PAUSE_IMG"
-[ -n "${DELIVERY_SKIP_HEALTH:-}" ] || for img in "$MIRA_IMG" "$AGNHOST"; do pull_pinned "$img"; done
+EXTRA_IMAGES=()
+phase_runs health && for img in "$MIRA_IMG" "$AGNHOST"; do pull_pinned "$img"; EXTRA_IMAGES+=("${img%@*}"); done
 MIRA_IMG="${MIRA_IMG%@*}" AGNHOST="${AGNHOST%@*}" PAUSE_IMG="${PAUSE_IMG%@*}"
-[ -n "${DELIVERY_SKIP_IDENTITY:-}" ] || for img in "$DEX_IMG" "$KC_IMG"; do infra "pull $img" docker pull -q "$img" >/dev/null; done
+phase_runs identity && for img in "$DEX_IMG" "$KC_IMG"; do infra "pull $img" docker pull -q "$img" >/dev/null; done
 PACTO="$(build_pacto)"
 OP_CHART="$(package_chart "$PACTO_CHART")"
 DL_CHART="$(package_chart "$_PACTO_ROOT/integrations/kubernetes/charts/pacto-delivery")"
+# Phase 4 proves the promoter ignores an approval on a login older than its
+# login freshness (15 minutes by default), so one login has to get that old.
+# Where the chart lets the run set the freshness, it is 3 minutes here: the
+# same check, without a quarter of an hour of waiting.
+# shellcheck disable=SC2034  # read by delivery-identity.sh
+AUTH_FRESHNESS=900 DL_FRESH=()
+if helm show values "$DL_CHART" | grep -q '^  authFreshness:'; then
+  # shellcheck disable=SC2034
+  AUTH_FRESHNESS=180 DL_FRESH=(--set promoter.authFreshness=3m)
+fi
+if [ -n "${BUILD_PID:-}" ]; then
+  section "wait for the image builds"
+  wait "$BUILD_PID" || exit 1
+fi
 
 timed "wait for the cluster" ensure_cluster "$KIND_CONFIG"
 section "load the images into the cluster"
-infra "load the images into the cluster" load_images "$OP_IMG" "$DL_IMG" "$DASH_IMG" "${FLUX_IMAGES[@]}" "$PAUSE_IMG"
+infra "load the images into the cluster" load_images "$OP_IMG" "$DL_IMG" "$DASH_IMG" "${FLUX_IMAGES[@]}" "$PAUSE_IMG" ${EXTRA_IMAGES[@]+"${EXTRA_IMAGES[@]}"}
 for n in "$NS" "$DELIVERY_NS" test prod agents; do
   kubectl create namespace "$n" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 done
+# DELIVERY_SKIP_IDENTITY=1 skips phase 4. It needs phase 1 (it ships F again).
+# Its providers start now and are waited on once the rest is installed.
+! phase_runs identity || timed "identity providers: Dex for people, Keycloak for agents over HTTP" identity_start
 
-section "zot, the Pacto operator (observing only) and Flux"
+section "zot, the Pacto operator (observing only), Flux and the delivery chart"
 install_registry
 REG_PF_PID="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
 # The operator-managed dashboard gets its sign-in from the chart (phase 4
@@ -200,28 +322,88 @@ REG_PF_PID="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
 # phase 4's own dashboard runs with.
 kubectl -n "$NS" create secret generic dashboard-oidc --from-literal=client-secret="$DASH_SECRET" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+KEYDIR="$(mktemp -d)"
+# The recorder's signing key: an Ed25519 key in a Secret only the recorder mounts.
+RECORDER_KEY="$KEYDIR/recorder.pem"
+RECORDER_PUB="$KEYDIR/recorder.pub"
+openssl genpkey -algorithm ed25519 -out "$RECORDER_KEY" 2>/dev/null || fail "openssl could not generate the recorder's key"
+openssl pkey -in "$RECORDER_KEY" -pubout -out "$RECORDER_PUB"
+kubectl -n "$DELIVERY_NS" create secret generic recorder-key --from-file=key.pem="$RECORDER_KEY" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+STREAMS_REPO="pacto-delivery-streams"
+
+# Phase 2 needs the operator's node agent and the promoter's Mira provider.
+# Both are installed with the charts, not by phase 2 itself: an upgrade
+# restarts the operator and the promoter under the phases running beside it.
+OP_HEALTH=() DL_HEALTH=()
+if phase_runs health; then
+  OP_HEALTH=(--set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s)
+  DL_HEALTH=(--set-json "gates.providers=[{\"name\":\"mira\",\"type\":\"mira\",\"url\":\"http://mira.${NS}.svc.cluster.local:4318\"}]")
+fi
 # The Pacto chart installs and rollouts below are the product under test, not
-# infrastructure: they run once and a failure is a FAIL, never a retry.
-helm upgrade --install pacto-operator "$OP_CHART" -n "$NS" \
+# infrastructure: they run once and a failure is a FAIL, never a retry. The two
+# charts install at the same time, the delivery chart once Flux's kinds exist.
+helm upgrade --install pacto-operator "$OP_CHART" -n "$NS" ${OP_HEALTH[@]+"${OP_HEALTH[@]}"} \
   --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
   --set dashboard.enabled=true --set dashboard.auth.oidc.issuerURL="$DEX_ISSUER" \
   --set dashboard.auth.oidc.clientID=pacto-dashboard --set dashboard.auth.oidc.redirectURL="$DASH_URL/auth/callback" \
   --set dashboard.auth.oidc.clientSecretRef.name=dashboard-oidc \
-  --set "insecureRegistries[0]=$REG_HOST" --wait --timeout 240s || fail "the pacto-operator chart did not roll out"
+  --set "insecureRegistries[0]=$REG_HOST" --wait --timeout 240s >/dev/null || fail "the pacto-operator chart did not roll out" &
+OP_HELM=$!
 infra "install Flux" kubectl apply --server-side -f "$FLUX_INSTALL" >/dev/null
 kubectl -n flux-system scale deploy helm-controller --replicas=0 >/dev/null 2>&1 || true
+helm upgrade --install pacto-delivery "$DL_CHART" -n "$DELIVERY_NS" ${DL_HEALTH[@]+"${DL_HEALTH[@]}"} ${DL_FRESH[@]+"${DL_FRESH[@]}"} \
+  --set image.repository="$DL_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
+  --set "insecureRegistries[0]=$REG_HOST" --set promoter.poll=2s \
+  --set recorder.enabled=true --set recorder.streamsRepository="$REG_HOST/$STREAMS_REPO" --set recorder.poll=5s \
+  --set recorder.signing.ed25519.secretName=recorder-key --wait --timeout 240s >/dev/null || fail "the pacto-delivery chart did not roll out" &
+DL_HELM=$!
 infra "roll out Flux's source-controller" kubectl -n flux-system rollout status deploy/source-controller --timeout=240s
 infra "roll out Flux's kustomize-controller" kubectl -n flux-system rollout status deploy/kustomize-controller --timeout=240s
 
-# DELIVERY_SKIP_IDENTITY=1 skips phase 4. It needs phase 1 (it ships F again).
-if [ -z "${DELIVERY_SKIP_IDENTITY:-}" ]; then
-  section "identity providers: Dex for people, Keycloak for agents over HTTP"
-  identity_up
+if phase_runs health; then
+  section "Mira, the OTLP store phase 2's health gate reads"
+  kubectl -n "$NS" apply -f - >/dev/null <<YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: mira}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: mira}}
+  template:
+    metadata: {labels: {app: mira}}
+    spec:
+      containers:
+      - name: mira
+        image: $MIRA_IMG
+        imagePullPolicy: Never
+        ports: [{containerPort: 4318}]
+        readinessProbe: {httpGet: {path: /readyz, port: 4318}, periodSeconds: 2}
+        volumeMounts: [{name: data, mountPath: /data}]
+      volumes: [{name: data, emptyDir: {}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: mira}
+spec: {selector: {app: mira}, ports: [{name: http, port: 4318, targetPort: 4318}]}
+YAML
+  infra "roll out Mira" kubectl -n "$NS" rollout status deploy/mira --timeout=120s >/dev/null
+fi
+
+section "wait for the Pacto operator and the delivery chart"
+wait "$OP_HELM" || exit 1
+wait "$DL_HELM" || exit 1
+if kubectl auth can-i patch ocirepositories.source.toolkit.fluxcd.io -A \
+  --as "system:serviceaccount:${NS}:pacto-operator" | grep -q yes; then
+  fail "the observing operator can edit the pointer; delivery must add no permission to it"
+fi
+pass "delivery installed; the operator's service account still cannot change what runs"
+
+if phase_runs identity; then
+  timed "wait for Dex and Keycloak" identity_up
   identity_login_stale
 fi
 
 section "the signing key: a cosign key pair, its public half in a Secret Flux verifies with"
-KEYDIR="$(mktemp -d)"
 (cd "$KEYDIR" && COSIGN_PASSWORD="" cosign generate-key-pair >/dev/null 2>&1) || fail "cosign could not generate a key pair"
 for n in test prod; do
   kubectl -n "$n" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -234,26 +416,6 @@ sign_digest() {
     --allow-http-registry "127.0.0.1:${LOCAL_REG_PORT}/$1@$2" >/dev/null 2>&1 || fail "signing $1@$2 failed"
 }
 VERIFY='verify: {provider: cosign, secretRef: {name: cosign-pub}}'
-
-section "the recorder's signing key: an Ed25519 key in a Secret only the recorder mounts"
-RECORDER_KEY="$KEYDIR/recorder.pem"
-RECORDER_PUB="$KEYDIR/recorder.pub"
-openssl genpkey -algorithm ed25519 -out "$RECORDER_KEY" 2>/dev/null || fail "openssl could not generate the recorder's key"
-openssl pkey -in "$RECORDER_KEY" -pubout -out "$RECORDER_PUB"
-kubectl -n "$DELIVERY_NS" create secret generic recorder-key --from-file=key.pem="$RECORDER_KEY" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-STREAMS_REPO="pacto-delivery-streams"
-
-section "the opt-in delivery chart, with the recorder"
-helm upgrade --install pacto-delivery "$DL_CHART" -n "$DELIVERY_NS" \
-  --set image.repository="$DL_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
-  --set "insecureRegistries[0]=$REG_HOST" --set promoter.poll=2s \
-  --set recorder.enabled=true --set recorder.streamsRepository="$REG_HOST/$STREAMS_REPO" --set recorder.poll=5s \
-  --set recorder.signing.ed25519.secretName=recorder-key --wait --timeout 240s || fail "the pacto-delivery chart did not roll out"
-if kubectl auth can-i patch ocirepositories.source.toolkit.fluxcd.io -A \
-  --as "system:serviceaccount:${NS}:pacto-operator" | grep -q yes; then
-  fail "the observing operator can edit the pointer; delivery must add no permission to it"
-fi
-pass "delivery installed; the operator's service account still cannot change what runs"
 
 section "identities: two agents, two people, break-glass"
 for a in agent-a agent-b; do kubectl -n agents create serviceaccount "$a" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; done
@@ -453,8 +615,7 @@ held() { [ "$(field "$1" "$2" phase)" = Held ]; }
 published_in() { kubectl -n "$1" get stage "${3:-payments}" -o json | jq -e --arg d "$2" '.status.published // [] | index($d)' >/dev/null; }
 
 # Phase 1, the core. DELIVERY_SKIP_CORE=1 skips it; DELIVERY_PHASES=health runs the setup and phase 2 only.
-if [ -z "${DELIVERY_SKIP_CORE:-}" ]; then
-timing_end; TIMING_PHASE=core
+phase_core() {
 section "the consumers: checkout accepts ^1.0.0, ledger accepts >=1.0.0, in both environments"
 consumer() { # NS NAME CONTRACT_REF
   kubectl -n "$1" apply -f - >/dev/null <<YAML
@@ -493,7 +654,7 @@ kubectl -n test apply -f - >/dev/null <<YAML
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata: {name: payments-candidates}
-spec: {interval: 10s, insecure: true, url: "oci://${REG_HOST}/${APP_REPO}", ref: {tag: candidate}, $VERIFY}
+spec: {interval: $CANDIDATE_INTERVAL, insecure: true, url: "oci://${REG_HOST}/${APP_REPO}", ref: {tag: candidate}, $VERIFY}
 ---
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Stage
@@ -548,6 +709,7 @@ else
 fi
 kubectl -n "$NS" scale deploy pacto-operator --replicas=1 >/dev/null
 wait_concluded test "$OPB" Succeeded/Verified
+signal operator-back
 OPBP="$(wait_op prod "$B")"; wait_concluded prod "$OPBP" Succeeded/Verified
 has_pointer prod "$B" || fail "prod does not run B"
 [ "$(kubectl -n prod get deploy payments -o jsonpath='{.spec.template.metadata.annotations.version}')" = B ] \
@@ -571,7 +733,8 @@ has_pointer test "$B" || fail "test is not back on B"
 kubectl -n test get stage payments -o json | jq -e --arg c "$C" '.status.failedDigests | index($c)' >/dev/null || fail "C is not remembered as failed"
 [ "$(op_to test "$B" pacto.dev/rollback | wc -l | tr -d ' ')" = 1 ] || fail "more than one automatic rollback for one cause"
 never_retried() { [ "$(op_to test "$C" | wc -l | tr -d ' ')" = 1 ] && [ -z "$(op_to prod "$C")" ] && has_pointer prod "$B"; }
-always 10 never_retried || fail "C was retried in test or reached prod"
+# 18s: nine candidate scans and nine promoter polls (2s each).
+always 6 never_retried || fail "C was retried in test or reached prod"
 pass "item 2: C rolled back by one bound rollback, absent from prod, not retried"
 
 section "item 5: a published artifact whose contract cannot be read waits for a person instead of shipping"
@@ -684,7 +847,7 @@ wait_concluded prod human-undo Succeeded/Verified
 has_pointer prod "$WINNER" || fail "prod is not back on $WINNER"
 [ "$(kubectl -n prod get stage payments -o jsonpath='{.status.autoHold}')" = true ] || fail "no auto-hold after a person's rollback"
 held_back() { has_pointer prod "$WINNER" && [ "$(op_to prod "$F" | wc -l | tr -d ' ')" = 1 ]; }
-always 10 held_back || fail "automation promoted F again after a person rolled it back"
+always 6 held_back || fail "automation promoted F again after a person rolled it back"
 pass "item 7: prod stays on the version alice chose; auto-promotion is on hold"
 
 section "admission: the intent is immutable, and only break-glass edits the pointer"
@@ -728,19 +891,20 @@ WITNESSED="$(kubectl get operations -A -o json | jq '[.items[] | select(.spec.wi
 PROMOTES="$(kubectl get operations -A -o json | jq '[.items[] | select(.spec.type == "pacto.dev/promote")] | length')"
 [ "$WITNESSED" = 1 ] || fail "$WITNESSED witnessed overrides, want exactly the one break-glass edit"
 pass "$PROMOTES promotes, 0 witnessed overrides of their own"
+share B C F OPC OPF C120
 
 echo "DELIVERY CORE PASS"
-fi
+}
 
 # Phase 2, health. DELIVERY_SKIP_HEALTH=1 skips it; DELIVERY_PHASES=publish runs the setup and phase 3 only.
-if [ -z "${DELIVERY_SKIP_HEALTH:-}" ]; then
-timing_end; TIMING_PHASE=health
+phase_health() {
 # --- phase 2: health ----------------------------------------------------------
 # Mira (OTLP in, the query API the health gate reads) and the operator's node
 # agent (kernel evidence the claim gate reads) join the cluster. One Stage,
 # health/payments, verifies with the Pacto contract check, a Mira error-ratio
-# check and the pacto.runtime claim check, and re-checks every 10s once a version
-# shipped. A generator on the host sends payments spans to Mira in the mode the
+# check and the pacto.runtime claim check, and re-checks every 5s once a version
+# shipped. A clean version passes after a 10s soak; one that never has enough
+# spans is held for a person when the 1m window ends. A generator on the host sends payments spans to Mira in the mode the
 # running version is set to (ok, errors or silent), which stands in for the
 # telemetry of a real workload. It proves:
 #   - a version whose error ratio exceeds the limit is rolled back, and the
@@ -751,49 +915,15 @@ timing_end; TIMING_PHASE=health
 #   - a version the node agent sees calling a service its contract never
 #     declares fails the claim gate, though Pacto's own status is only Warning.
 section "phase 2: Mira, the node agent and a Stage with health and claim checks"
+! phase_runs core || await operator-back
 H=health
 MIRA_PORT=5603
 H_REPO=apps/payments-health
-# The operator restarts with the node agent first: the new manager takes over
-# the leader lease from the old one, which can take a few minutes on kind.
 AGENT_NS=pacto-node-agent
-helm upgrade pacto-operator "$OP_CHART" -n "$NS" --reuse-values \
-  --set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s --wait --timeout 240s >/dev/null \
-  || fail "the pacto-operator chart with the node agent did not roll out"
-infra "load Mira and agnhost into the cluster" load_images "$MIRA_IMG" "$AGNHOST"
 kubectl create namespace "$H" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl -n "$H" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-kubectl -n "$NS" apply -f - >/dev/null <<YAML
-apiVersion: apps/v1
-kind: Deployment
-metadata: {name: mira}
-spec:
-  replicas: 1
-  selector: {matchLabels: {app: mira}}
-  template:
-    metadata: {labels: {app: mira}}
-    spec:
-      containers:
-      - name: mira
-        image: $MIRA_IMG
-        imagePullPolicy: Never
-        ports: [{containerPort: 4318}]
-        readinessProbe: {httpGet: {path: /readyz, port: 4318}, periodSeconds: 2}
-        volumeMounts: [{name: data, mountPath: /data}]
-      volumes: [{name: data, emptyDir: {}}]
----
-apiVersion: v1
-kind: Service
-metadata: {name: mira}
-spec: {selector: {app: mira}, ports: [{name: http, port: 4318, targetPort: 4318}]}
-YAML
-infra "roll out Mira" kubectl -n "$NS" rollout status deploy/mira --timeout=120s >/dev/null
 MIRA_PF_PID="$(pf "$MIRA_PORT" svc/mira 4318)"
-
-helm upgrade pacto-delivery "$DL_CHART" -n "$DELIVERY_NS" --reuse-values \
-  --set-json "gates.providers=[{\"name\":\"mira\",\"type\":\"mira\",\"url\":\"http://mira.${NS}.svc.cluster.local:4318\"}]" \
-  --wait --timeout 240s >/dev/null || fail "the pacto-delivery chart with Mira did not roll out"
-kubectl -n "$DELIVERY_NS" rollout status deploy/pacto-delivery --timeout=120s >/dev/null || fail "pacto-delivery did not roll out"
+PHASE_PIDS+=" $MIRA_PF_PID"
 eventually 40 kubectl -n "$AGENT_NS" get ds pacto-node-agent >/dev/null 2>&1 || fail "the operator never created the node agent"
 kubectl -n "$AGENT_NS" rollout status ds/pacto-node-agent --timeout=180s >/dev/null || fail "the node agent did not roll out"
 agent_running() {
@@ -825,39 +955,8 @@ PY
 }
 gen_loop &
 GEN_PID=$!
+PHASE_PIDS+=" $GEN_PID"
 mode() { echo "$2" > "$GEN/$1"; } # LABEL MODE
-
-section "the fraud service: Pacto-managed, and in no payments contract"
-FRAUD="$(contract fraud 1.0.0 service)"
-kubectl -n "$H" apply -f - >/dev/null <<YAML
-apiVersion: apps/v1
-kind: Deployment
-metadata: {name: fraud}
-spec:
-  replicas: 1
-  selector: {matchLabels: {app: fraud}}
-  template:
-    metadata: {labels: {app: fraud}}
-    spec:
-      containers:
-      - {name: server, image: $AGNHOST, imagePullPolicy: Never, args: [netexec, --http-port=8080], ports: [{containerPort: 8080}],
-         readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 2}}
----
-apiVersion: v1
-kind: Service
-metadata: {name: fraud}
-spec: {selector: {app: fraud}, ports: [{name: http, port: 80, targetPort: 8080}]}
----
-apiVersion: pacto.trianalab.io/v1alpha1
-kind: Pacto
-metadata: {name: fraud}
-spec:
-  checkIntervalSeconds: 30
-  contractRef: {oci: "$FRAUD"}
-  target: {serviceName: fraud}
-YAML
-kubectl -n "$H" rollout status deploy/fraud --timeout=120s >/dev/null
-eventually 60 reconciled "$H" fraud || fail "the fraud Pacto was never reconciled"
 
 # publish_health LABEL [CALLS] — a payments version for the health Stage: an
 # agnhost Deployment and its Pacto on payments 1.0.0 (no dependencies). With
@@ -919,7 +1018,7 @@ spec: {interval: 30s, insecure: true, url: "oci://${REG_HOST}/${H_REPO}", ref: {
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata: {name: payments-candidates}
-spec: {interval: 5s, insecure: true, url: "oci://${REG_HOST}/${H_REPO}", ref: {tag: candidate}, $VERIFY}
+spec: {interval: $CANDIDATE_INTERVAL, insecure: true, url: "oci://${REG_HOST}/${H_REPO}", ref: {tag: candidate}, $VERIFY}
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -943,15 +1042,50 @@ spec:
   candidates: {ociRepositoryRef: {name: payments-candidates}}
   gates:
     verify:
-      window: 2m
-      recheck: 10s
+      window: 1m
+      recheck: 5s
       checks:
       - name: health
         provider: mira
-        params: {minSpans: "20", maxErrorRatio: "0.2", soak: "20s"}
+        params: {minSpans: "20", maxErrorRatio: "0.2", soak: "10s"}
       - name: claims
         provider: pacto.runtime
 YAML
+section "the fraud service: Pacto-managed, and in no payments contract"
+# Created once its namespace is placed (a Stage applies into it), so while
+# the operator has not read its contract it never counts as a consumer of the
+# payments that other phases ship at the same time.
+FRAUD="$(contract fraud 1.0.0 service)"
+kubectl -n "$H" apply -f - >/dev/null <<YAML
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: fraud}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: fraud}}
+  template:
+    metadata: {labels: {app: fraud}}
+    spec:
+      containers:
+      - {name: server, image: $AGNHOST, imagePullPolicy: Never, args: [netexec, --http-port=8080], ports: [{containerPort: 8080}],
+         readinessProbe: {httpGet: {path: /healthz, port: 8080}, periodSeconds: 2}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: fraud}
+spec: {selector: {app: fraud}, ports: [{name: http, port: 80, targetPort: 8080}]}
+---
+apiVersion: pacto.trianalab.io/v1alpha1
+kind: Pacto
+metadata: {name: fraud}
+spec:
+  checkIntervalSeconds: 30
+  contractRef: {oci: "$FRAUD"}
+  target: {serviceName: fraud}
+YAML
+kubectl -n "$H" rollout status deploy/fraud --timeout=120s >/dev/null
+eventually 60 reconciled "$H" fraud || fail "the fraud Pacto was never reconciled"
+
 eventually 60 reconciled "$H" payments || fail "health/payments was never reconciled"
 
 # ship LABEL DIGEST — CI moves the candidate tag to the version, Flux verifies
@@ -1059,11 +1193,10 @@ pass "explain cites how to re-run, history lists every rollback"
 
 kill "$GEN_PID" "$MIRA_PF_PID" 2>/dev/null || true
 echo "DELIVERY HEALTH PASS"
-fi
+}
 
 # DELIVERY_SKIP_PUBLISH=1 skips phase 3 (and phase 6, which reads it).
-if [ -z "${DELIVERY_SKIP_PUBLISH:-}" ]; then
-timing_end; TIMING_PHASE=publish
+phase_publish() {
 # --- phase 3: publishing -------------------------------------------------------
 # billing is published by the real `pacto publish` from a contract that declares
 # what it publishes: its bundle and one manifests artifact, the deploy artifact a
@@ -1082,6 +1215,7 @@ timing_end; TIMING_PHASE=publish
 # resolve. HTTP_PROXY points plain-HTTP registry traffic at the port-forward, so
 # the contract's refs are the in-cluster names Flux and the promoter read.
 section "phase 3: pacto publish, and a Stage that promotes only what it published"
+! phase_runs core || await operator-back
 P=publish
 kubectl create namespace "$P" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl -n "$P" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -1157,7 +1291,7 @@ kubectl -n "$P" apply -f - >/dev/null <<YAML
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata: {name: billing-candidates}
-spec: {interval: 5s, insecure: true, url: "oci://${REG_HOST}/apps/billing", ref: {semver: ">=0.0.0"}, $VERIFY}
+spec: {interval: $CANDIDATE_INTERVAL, insecure: true, url: "oci://${REG_HOST}/apps/billing", ref: {semver: ">=0.0.0"}, $VERIFY}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
@@ -1245,7 +1379,7 @@ kubectl -n "$M" apply -f - >/dev/null <<YAML
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata: {name: billing-candidates}
-spec: {interval: 5s, insecure: true, url: "oci://${REG_HOST}/apps/billing", ref: {semver: ">=0.0.0"}, $VERIFY}
+spec: {interval: $CANDIDATE_INTERVAL, insecure: true, url: "oci://${REG_HOST}/apps/billing", ref: {semver: ">=0.0.0"}, $VERIFY}
 ---
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
@@ -1321,7 +1455,7 @@ kubectl -n "$M" apply -f - >/dev/null <<YAML
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata: {name: billing-anyone}
-spec: {interval: 5s, insecure: true, url: "oci://${REG_HOST}/apps/billing", ref: {semver: ">=0.0.0"}}
+spec: {interval: $CANDIDATE_INTERVAL, insecure: true, url: "oci://${REG_HOST}/apps/billing", ref: {semver: ">=0.0.0"}}
 ---
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Stage
@@ -1337,12 +1471,12 @@ eventually 20 ready_is "$M" billing-anyone False/CandidateUnverified \
   || fail "a Stage whose candidate sets no spec.verify is not reported: $(kubectl -n "$M" get stage billing-anyone -o jsonpath='{.status.conditions}')"
 [ -z "$(kubectl -n "$M" get stage billing-anyone -o jsonpath='{.status.published}')" ] || fail "an unverified candidate was recorded as published"
 pass "a Stage whose candidate OCIRepository sets no spec.verify is Ready=False with CandidateUnverified and records nothing"
+share P M FOREIGN
 echo "DELIVERY PUBLISH PASS"
-fi
+}
 
 # DELIVERY_SKIP_ORDER=1 skips phase 5.
-if [ -z "${DELIVERY_SKIP_ORDER:-}" ]; then
-timing_end; TIMING_PHASE=ordering
+phase_ordering() {
 # --- phase 5: ordering ---------------------------------------------------------
 # pricing ships to live straight from its candidate tag. Its consumer, orders,
 # ships through staging (fed by a candidate tag) and live (fed by staging's
@@ -1359,6 +1493,7 @@ timing_end; TIMING_PHASE=ordering
 # Compatibility is judged from the declared ranges only; nothing here claims
 # Pacto knows which fields or endpoints orders uses.
 section "phase 5: a provider whose consumer must move first"
+! phase_runs core || await operator-back
 for n in staging live; do
   kubectl create namespace "$n" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl -n "$n" create secret generic cosign-pub --from-file=cosign.pub="$KEYDIR/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -1379,7 +1514,7 @@ O18="$(publish O18 "$OR18" orders)"; candidate O18 orders
 # stage_ptr NS STAGE — the digest a Stage runs.
 stage_ptr() { kubectl -n "$1" get stage "$2" -o jsonpath='{.status.pointer}'; }
 stage_runs() { [ "$(stage_ptr "$1" "$2")" = "$3" ]; }
-# stage_yaml NAME ENV CANDIDATES
+# stage_yaml NAME ENV CANDIDATES [AUTO]
 stage_yaml() {
   cat <<YAML
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
@@ -1390,7 +1525,7 @@ spec:
   environment: $2
   applyRef: {name: $1}
   candidates: $3
-  auto: true
+  auto: ${4:-true}
   gates: {verify: {window: 3m}}
 YAML
 }
@@ -1399,16 +1534,21 @@ candidates_yaml() { # SERVICE
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata: {name: $1-candidates}
-spec: {interval: 10s, insecure: true, url: "oci://${REG_HOST}/apps/$1", ref: {tag: candidate}, $VERIFY}
+spec: {interval: $CANDIDATE_INTERVAL, insecure: true, url: "oci://${REG_HOST}/apps/$1", ref: {tag: candidate}, $VERIFY}
 YAML
 }
 
 section "bootstrap: orders 1.8.0 verified in staging and live, then pricing 1.0.0 in live"
+# The Stages come first, promoting nothing until orders' Pactos are read: a
+# Pacto in a namespace a Stage applies into counts only for that Stage's
+# environment, so while the operator has not read one yet it never holds what
+# the other phases ship at the same time.
+{ candidates_yaml orders; echo ---; stage_yaml orders staging "{ociRepositoryRef: {name: orders-candidates}}" false; } | kubectl -n staging apply -f - >/dev/null
+stage_yaml orders live "{upstreamStage: {name: orders, namespace: staging}}" false | kubectl -n live apply -f - >/dev/null
 apply_env staging orders "$O18"
 apply_env live orders "$O18"
 for n in staging live; do eventually 60 reconciled "$n" orders || fail "$n/orders was never reconciled"; done
-{ candidates_yaml orders; echo ---; stage_yaml orders staging "{ociRepositoryRef: {name: orders-candidates}}"; } | kubectl -n staging apply -f - >/dev/null
-stage_yaml orders live "{upstreamStage: {name: orders, namespace: staging}}" | kubectl -n live apply -f - >/dev/null
+for n in staging live; do kubectl -n "$n" patch stage orders --type merge -p '{"spec":{"auto":true}}' >/dev/null; done
 OP="$(wait_op staging "$O18")"; wait_concluded staging "$OP" Succeeded/Verified
 OP="$(wait_op live "$O18")"; wait_concluded live "$OP" Succeeded/Verified
 apply_env live pricing "$P1"
@@ -1484,23 +1624,23 @@ as_agent "$AGENT_A" cancel -n live pricing-partial >/dev/null
 kubectl -n live delete pacto shipping --wait=false >/dev/null
 pass "with shipping unreadable the plan holds as Unknown (accept-unknown)"
 echo "DELIVERY ORDER PASS"
-fi
+}
 
-if [ -z "${DELIVERY_SKIP_IDENTITY:-}" ]; then
-timing_end; TIMING_PHASE=identity
+phase_identity() {
   identity_scenario
   echo "DELIVERY IDENTITY PASS"
-fi
+}
 
-# DELIVERY_SKIP_RECORDS=1 skips phase 6. It needs phases 1 and 3 (it reads their operations).
-if [ -z "${DELIVERY_SKIP_RECORDS:-}" ]; then
-timing_end; TIMING_PHASE=records
+# Phase 6 needs phases 1 and 3 (it reads their operations) and runs last: it
+# checks every operation of the run and stops the recorder for a while.
+phase_records() {
   # shellcheck source=tests/acceptance/kind/delivery-records.sh
   source "$(dirname "$0")/delivery-records.sh"
   records_scenario
   echo "DELIVERY RECORDS PASS"
-fi
+}
 
+run_phases
 timing_end; TIMING_PHASE=teardown
 kill "$REG_PF_PID" 2>/dev/null || true
 echo "DELIVERY PASS"

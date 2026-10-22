@@ -140,7 +140,7 @@ timed() { local label="$1"; shift; section "$label"; "$@"; }
 timing_summary() {
   [ -s "${1:-}" ] || return 0
   echo "== timing =="
-  sort -n -k1,1 "$1" | awk -F'\t' '
+  sort -s -n -k1,1 "$1" | awk -F'\t' '
     $3 == "section" || $3 == "end" {
       if ($2 in open) { d = $1 - at[$2]; sec[++n] = sprintf("%6ds  %-9s %s", d, $2, open[$2]) }
       if ($3 == "end") { delete open[$2]; last[$2] = $1 } else { open[$2] = $5; at[$2] = $1 }
@@ -281,21 +281,22 @@ release_version() {
     "$_PACTO_ROOT/release/release-plan.json" "$1"
 }
 
-# build_operator_images OP_IMG DASH_IMG VERSION — the two production builds, in
-# the order that couples them: the operator deploys the dashboard image baked in
-# at build time, so the dashboard must exist first and be named in the operator's
-# DASHBOARD_IMAGE build-arg.
+# build_operator_images OP_IMG DASH_IMG VERSION — the two production builds.
+# They are coupled by name only: the operator deploys the dashboard image baked
+# in at build time through its DASHBOARD_IMAGE build-arg, a string, so the two
+# build at the same time.
 #
 # --load forces the result into the local docker image store even when the
 # default buildx builder uses the docker-container driver (otherwise the image
 # lives only in buildkit's cache and `kind load docker-image` fails with
 # "content digest not found").
 build_operator_images() {
-  section "build the dashboard image (root Dockerfile)"
-  docker build --load -f "$_PACTO_ROOT/Dockerfile" -t "$2" "$_PACTO_ROOT"
-  section "build the operator image (production root context) coupled to that dashboard"
+  section "build the dashboard (root Dockerfile) and operator (production root context) images"
+  docker build --load -f "$_PACTO_ROOT/Dockerfile" -t "$2" "$_PACTO_ROOT" &
+  local dash=$!
   docker build --load -f "$_PACTO_ROOT/integrations/kubernetes/Dockerfile" \
-    --build-arg VERSION="$3" --build-arg DASHBOARD_IMAGE="$2" -t "$1" "$_PACTO_ROOT"
+    --build-arg VERSION="$3" --build-arg DASHBOARD_IMAGE="$2" -t "$1" "$_PACTO_ROOT" || { wait "$dash"; return 1; }
+  wait "$dash"
 }
 
 # package_chart CHART_DIR [helm package args...] — prints the packaged .tgz path.
