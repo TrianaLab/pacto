@@ -168,7 +168,10 @@ func signCheck(pub *contract.Publish) Check {
 	if pub.Sign == nil {
 		return Check{Name: "sign", Message: "publish.sign is not configured; everything published is signed, so publish refuses"}
 	}
-	return Check{Name: "sign", Passed: true, Message: "signed with cosign (" + signMethod(pub.Sign) + ")"}
+	if s := pub.Sign; s.Key == "" && s.KMS == "" && s.TransparencyLog != nil && !*s.TransparencyLog {
+		return Check{Name: "sign", Message: "keyless signing needs the transparency log: a short-lived certificate verifies only at the time the log saw it"}
+	}
+	return Check{Name: "sign", Passed: true, Message: "signed with Sigstore (" + signMethod(pub.Sign) + ")"}
 }
 
 func signMethod(s *contract.PublishSign) string {

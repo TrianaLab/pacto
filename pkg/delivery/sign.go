@@ -2,92 +2,49 @@ package delivery
 
 import (
 	"context"
-	"crypto"
-	"crypto/ecdsa"
-	"crypto/ed25519"
-	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/x509"
-	"encoding/asn1"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"slices"
 
 	"github.com/trianalab/pacto/v4/pkg/strictjson"
 )
 
-// Signing format: a DSSE envelope over the Statement, in a sigstore bundle.
+// Signing format: a DSSE envelope over the Statement, in a Sigstore bundle.
 const (
 	PayloadType     = "application/vnd.in-toto+json"
 	BundleMediaType = "application/vnd.dev.sigstore.bundle.v0.3+json"
 )
 
-// Bundle is a sigstore bundle v0.3 carrying one DSSE envelope. Byte fields
-// marshal as standard base64, as the bundle's protobuf JSON form requires.
-type Bundle struct {
-	MediaType            string               `json:"mediaType"`
-	VerificationMaterial VerificationMaterial `json:"verificationMaterial"`
-	DSSEEnvelope         Envelope             `json:"dsseEnvelope"`
-}
-
-// VerificationMaterial names the key (by hint) or carries the certificate a
-// signature verifies against.
-type VerificationMaterial struct {
-	PublicKey   *KeyHint     `json:"publicKey,omitempty"`
-	Certificate *Certificate `json:"certificate,omitempty"`
-}
-
-// KeyHint names a public key the verifier already holds.
-type KeyHint struct {
-	Hint string `json:"hint"`
-}
-
-// Certificate is a DER certificate, as keyless signing produces.
-type Certificate struct {
-	RawBytes []byte `json:"rawBytes"`
-}
-
-// Envelope is a DSSE envelope.
-type Envelope struct {
-	Payload     []byte      `json:"payload"`
-	PayloadType string      `json:"payloadType"`
-	Signatures  []Signature `json:"signatures"`
-}
-
-// Signature is one DSSE signature.
-type Signature struct {
-	Sig []byte `json:"sig"`
-}
-
-// Signer signs DSSE pre-authentication bytes. Ed25519Signer is the built-in
-// one; KMS and keyless signers live with the recorder.
+// Signer signs a DSSE payload into a Sigstore bundle and returns its JSON.
+// pkg/signing implements it with sigstore-go; this package holds no crypto,
+// so the browser dashboard that reads records does not link it.
 type Signer interface {
-	Sign(ctx context.Context, pae []byte) (sig []byte, material VerificationMaterial, err error)
+	Sign(ctx context.Context, payloadType string, payload []byte) (bundle []byte, err error)
 }
 
-// Verifier checks a signature over pae against the bundle's material, for a
-// record of stream: a trust config trusts each key for some streams only.
-type Verifier func(stream string, pae, sig []byte, m VerificationMaterial) error
-
-// PAE is DSSE's pre-authentication encoding of a payload.
-func PAE(payloadType string, payload []byte) []byte {
-	return fmt.Appendf(nil, "DSSEv1 %d %s %d %s", len(payloadType), payloadType, len(payload), payload)
-}
+// Verifier checks a record's bundle, for a record of stream: a trust config
+// trusts each key for some streams only. pkg/signing.TrustVerifier builds one.
+type Verifier func(stream string, bundle []byte) error
 
 // SignRecord signs st and returns the bundle and the record id: the sha256 of
 // the DSSE payload, so the id does not depend on a signature that a KMS makes
 // differently every time.
 func SignRecord(ctx context.Context, s Signer, st Statement) (bundle []byte, id string, err error) {
 	payload, _ := json.Marshal(st) // plain data; marshalling cannot fail
-	sig, m, err := s.Sign(ctx, PAE(PayloadType, payload))
+	bundle, err = s.Sign(ctx, PayloadType, payload)
 	if err != nil {
 		return nil, "", err
 	}
-	b, _ := json.Marshal(Bundle{MediaType: BundleMediaType, VerificationMaterial: m,
-		DSSEEnvelope: Envelope{Payload: payload, PayloadType: PayloadType, Signatures: []Signature{{Sig: sig}}}})
-	return b, sha256Hex(payload), nil
+	return bundle, sha256Hex(payload), nil
+}
+
+// envelope is the part of a bundle OpenRecord reads before it verifies.
+type envelope struct {
+	MediaType    string `json:"mediaType"`
+	DSSEEnvelope struct {
+		Payload     []byte            `json:"payload"`
+		PayloadType string            `json:"payloadType"`
+		Signatures  []json.RawMessage `json:"signatures"`
+	} `json:"dsseEnvelope"`
 }
 
 // OpenRecord verifies a bundle and returns its statement and record id. A
@@ -96,7 +53,7 @@ func SignRecord(ctx context.Context, s Signer, st Statement) (bundle []byte, id 
 // it names decides which keys may have signed it; nothing it says is trusted
 // until the signature verifies.
 func OpenRecord(bundle []byte, verify Verifier) (Statement, string, error) {
-	var b Bundle
+	var b envelope
 	if err := json.Unmarshal(bundle, &b); err != nil {
 		return Statement{}, "", fmt.Errorf("bundle: %w", err)
 	}
@@ -116,122 +73,8 @@ func OpenRecord(bundle []byte, verify Verifier) (Statement, string, error) {
 	if st.Type != StatementType || st.PredicateType != PredicateOperation {
 		return Statement{}, "", fmt.Errorf("statement %q with predicate %q", st.Type, st.PredicateType)
 	}
-	if err := verify(st.Predicate.Chain.Stream, PAE(env.PayloadType, env.Payload), env.Signatures[0].Sig, b.VerificationMaterial); err != nil {
+	if err := verify(st.Predicate.Chain.Stream, bundle); err != nil {
 		return Statement{}, "", fmt.Errorf("signature: %w", err)
 	}
 	return st, sha256Hex(env.Payload), nil
-}
-
-// KeyHintOf returns the hint a key is named by: the hex sha256 of its DER
-// public key.
-func KeyHintOf(pub crypto.PublicKey) string {
-	der, err := x509.MarshalPKIXPublicKey(pub)
-	if err != nil {
-		return ""
-	}
-	sum := sha256.Sum256(der)
-	return hex.EncodeToString(sum[:])
-}
-
-type ed25519Signer struct {
-	key  ed25519.PrivateKey
-	hint string
-}
-
-// Ed25519Signer signs with an Ed25519 key, as the recorder does on kind.
-func Ed25519Signer(key ed25519.PrivateKey) Signer {
-	return ed25519Signer{key: key, hint: KeyHintOf(key.Public())}
-}
-
-func (s ed25519Signer) Sign(_ context.Context, pae []byte) ([]byte, VerificationMaterial, error) {
-	return ed25519.Sign(s.key, pae), VerificationMaterial{PublicKey: &KeyHint{Hint: s.hint}}, nil
-}
-
-// PublicKeyVerifier verifies signatures by one Ed25519, ECDSA or RSA key, the
-// key types cosign and KMS produce, for any stream. ECDSA and RSA sign the
-// sha256 of the pre-authentication bytes.
-func PublicKeyVerifier(pub crypto.PublicKey) Verifier {
-	hint := KeyHintOf(pub)
-	return func(_ string, pae, sig []byte, m VerificationMaterial) error {
-		if m.PublicKey == nil || m.PublicKey.Hint != hint {
-			return errors.New("signed by a key that is not trusted here")
-		}
-		return verifyWith(pub, pae, sig)
-	}
-}
-
-func verifyWith(pub crypto.PublicKey, pae, sig []byte) error {
-	digest := sha256.Sum256(pae)
-	ok := false
-	switch k := pub.(type) {
-	case ed25519.PublicKey:
-		ok = ed25519.Verify(k, pae, sig)
-	case *ecdsa.PublicKey:
-		ok = ecdsa.VerifyASN1(k, digest[:], sig)
-	case *rsa.PublicKey:
-		ok = rsa.VerifyPKCS1v15(k, crypto.SHA256, digest[:], sig) == nil
-	default:
-		return fmt.Errorf("unsupported key type %T", pub)
-	}
-	if !ok {
-		return errors.New("the signature does not verify")
-	}
-	return nil
-}
-
-// Fulcio certificate extensions naming the OIDC issuer.
-var (
-	oidIssuerV1 = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 1}
-	oidIssuerV2 = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 57264, 1, 8}
-)
-
-// CertificateVerifier verifies keyless signatures, for any stream: the
-// bundle's certificate must chain to roots for code signing, checked at its
-// NotBefore (a bundle written with Rekor off carries no signed time, and
-// Fulcio certificates live ten minutes), name identity (a SAN URI or email)
-// and issuer, and the signature must verify under its key. Without roots it
-// verifies nothing: anyone can mint a self-signed certificate naming any
-// identity and issuer.
-// ponytail: no transparency log check; registry write access plus the root is
-// the trust boundary. Add a signed timestamp if records must outlive a root.
-func CertificateVerifier(identity, issuer string, roots *x509.CertPool) Verifier {
-	return func(_ string, pae, sig []byte, m VerificationMaterial) error {
-		if m.Certificate == nil {
-			return errors.New("the bundle carries no certificate")
-		}
-		cert, err := x509.ParseCertificate(m.Certificate.RawBytes)
-		if err != nil {
-			return err
-		}
-		if roots == nil {
-			return errors.New("no trusted roots: a certificate that chains to nothing proves no identity")
-		}
-		if _, err := cert.Verify(x509.VerifyOptions{Roots: roots, CurrentTime: cert.NotBefore,
-			KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageCodeSigning}}); err != nil {
-			return fmt.Errorf("the certificate does not chain to the trusted roots: %w", err)
-		}
-		ids := slices.Clone(cert.EmailAddresses)
-		for _, u := range cert.URIs {
-			ids = append(ids, u.String())
-		}
-		if !slices.Contains(ids, identity) || certIssuer(cert) != issuer {
-			return fmt.Errorf("the certificate names %v from %q, want %q from %q", ids, certIssuer(cert), identity, issuer)
-		}
-		return verifyWith(cert.PublicKey, pae, sig)
-	}
-}
-
-func certIssuer(cert *x509.Certificate) string {
-	for _, ext := range cert.Extensions {
-		switch {
-		case ext.Id.Equal(oidIssuerV2):
-			var s string
-			if _, err := asn1.Unmarshal(ext.Value, &s); err == nil {
-				return s
-			}
-		case ext.Id.Equal(oidIssuerV1):
-			return string(ext.Value)
-		}
-	}
-	return ""
 }

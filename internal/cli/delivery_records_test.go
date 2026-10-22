@@ -24,6 +24,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
 const cliStream = "c/prod/payments-prod"
@@ -61,7 +62,7 @@ func recordDeps(t *testing.T, key ed25519.PrivateKey) deps {
 		Verdicts:  []delivery.Verdict{{Gate: delivery.GateContract, Result: delivery.Pass, Message: "compliant"}},
 		Outcome:   &delivery.RecordOutcome{Result: delivery.Succeeded, Verification: delivery.Verified, Pointer: delivery.PointerChange{After: cliA}},
 		Chain:     delivery.Chain{Stream: cliStream, Seq: 1}, Time: delivery.RecordTime{Finished: "2026-10-21T10:00:00Z"}}}
-	b, id, err := delivery.SignRecord(ctx, delivery.Ed25519Signer(key), st)
+	b, id, err := delivery.SignRecord(ctx, edSigner(key), st)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,4 +163,10 @@ func TestDeliveryUndoPrintsThePlanAndProposesNothing(t *testing.T) {
 	if r, err := newRecordRepo("reg.example/x"); err != nil || r == nil {
 		t.Fatalf("record repository: %v", err)
 	}
+}
+
+// edSigner signs records with key through sigstore-go.
+func edSigner(key ed25519.PrivateKey) delivery.Signer {
+	kp, _ := signing.FromPrivateKey(key)
+	return signing.Keyed(kp, "")
 }

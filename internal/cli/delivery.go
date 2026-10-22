@@ -20,6 +20,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
 // newDeliveryRegistry is the production registry for the delivery verbs: the
@@ -54,6 +55,9 @@ func deliveryTrust(path string) (*delivery.TrustConfig, error) {
 		return nil, fmt.Errorf("reading the delivery trust config: %w", err)
 	}
 	t, err := delivery.ParseTrust(raw)
+	if err == nil {
+		_, err = signing.TrustVerifier(t)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}

@@ -26,7 +26,7 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command 
 		Short: "Publish what the contract declares, as the version it states",
 		Long: "Publishes every artifact the contract's publish section declares (pactoVersion 2.1), the contract " +
 			"bundle and the deploy artifact Flux applies, all tagged with service.version. Docker or the declared " +
-			"command builds; Pacto pushes, never over an existing tag, signs every digest with cosign and attaches " +
+			"command builds; Pacto pushes, never over an existing tag, signs every digest with Sigstore (no cosign needed) and attaches " +
 			"SBOMs made by syft. A breaking change since the last published version is refused below a major bump " +
 			"(a minor before 1.0).\n\n" +
 			"--plan shows what is missing and changes nothing. Running publish again finishes what is missing and " +

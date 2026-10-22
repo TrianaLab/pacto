@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"slices"
 
@@ -47,6 +48,9 @@ type Registry interface {
 	Tag(ctx context.Context, repo, digest, tag string) error
 	// Referrers lists the digests of repo@digest's referrers of artifactType.
 	Referrers(ctx context.Context, repo, digest, artifactType string) ([]string, error)
+	// Layer reads the one layer of the small manifest repo@digest, such as
+	// a signature referrer, and the manifest's annotations.
+	Layer(ctx context.Context, repo, digest string) ([]byte, map[string]string, error)
 }
 
 // Client is the go-containerregistry Registry, with Pacto's credentials and
@@ -175,4 +179,31 @@ func (c *Client) Referrers(ctx context.Context, repo, digest, artifactType strin
 		out = append(out, d.Digest.String())
 	}
 	return out, nil
+}
+
+// maxLayer bounds what Layer reads: a signature bundle is a few kilobytes.
+const maxLayer = 4 << 20
+
+// Layer implements Registry.
+func (c *Client) Layer(ctx context.Context, repo, digest string) ([]byte, map[string]string, error) {
+	r, err := c.parse(repo + "@" + digest)
+	if err != nil {
+		return nil, nil, err
+	}
+	img, err := remote.Image(r, c.opts(ctx)...)
+	if err != nil {
+		return nil, nil, err
+	}
+	m, _ := img.Manifest() // remote.Image fetched and parsed it already
+	if len(m.Layers) != 1 || m.Layers[0].Size > maxLayer {
+		return nil, nil, fmt.Errorf("%s@%s is not one small layer", repo, digest)
+	}
+	l, _ := img.LayerByDigest(m.Layers[0].Digest) // the manifest names it
+	rc, err := l.Compressed()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = rc.Close() }()
+	b, err := io.ReadAll(io.LimitReader(rc, maxLayer))
+	return b, m.Annotations, err
 }

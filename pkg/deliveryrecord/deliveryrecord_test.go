@@ -16,6 +16,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
 const stream = "c/ns/payments"
@@ -47,7 +48,7 @@ func signed(t *testing.T, key ed25519.PrivateKey, seq int64) []byte {
 	t.Helper()
 	st := delivery.Statement{Type: delivery.StatementType, PredicateType: delivery.PredicateOperation,
 		Predicate: delivery.RecordPredicate{Kind: delivery.RecordOperation, Chain: delivery.Chain{Stream: stream, Seq: seq}}}
-	b, _, err := delivery.SignRecord(context.Background(), delivery.Ed25519Signer(key), st)
+	b, _, err := delivery.SignRecord(context.Background(), edSigner(key), st)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,12 +88,20 @@ func TestList(t *testing.T) {
 		t.Fatal(err)
 	}
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
-	verify := delivery.PublicKeyVerifier(pub)
+	verify := keyVerifier(pub)
 	ann := map[string]string{AnnPredicateType: delivery.PredicateOperation}
 	good := signed(t, key, 1)
 	attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, good, ann)
 	attach(t, path, anchor.ManifestDesc, "application/x-other", []byte("not ours"), nil)
-	var tampered delivery.Bundle
+	var tampered struct {
+		MediaType            string          `json:"mediaType"`
+		VerificationMaterial json.RawMessage `json:"verificationMaterial"`
+		DSSEEnvelope         struct {
+			Payload     []byte            `json:"payload"`
+			PayloadType string            `json:"payloadType"`
+			Signatures  []json.RawMessage `json:"signatures"`
+		} `json:"dsseEnvelope"`
+	}
 	_ = json.Unmarshal(signed(t, key, 2), &tampered)
 	tampered.DSSEEnvelope.Payload = []byte(strings.Replace(string(tampered.DSSEEnvelope.Payload), `"seq":2`, `"seq":3`, 1))
 	tb, _ := json.Marshal(tampered)
@@ -176,10 +185,10 @@ func TestListStreamBindsRecordsToTheAnchor(t *testing.T) {
 	// A record validly signed for another stream, attached to this anchor.
 	st := delivery.Statement{Type: delivery.StatementType, PredicateType: delivery.PredicateOperation,
 		Predicate: delivery.RecordPredicate{Kind: delivery.RecordOperation, Chain: delivery.Chain{Stream: "c/dev/x", Seq: 2}}}
-	foreign, _, _ := delivery.SignRecord(t.Context(), delivery.Ed25519Signer(key), st)
+	foreign, _, _ := delivery.SignRecord(t.Context(), edSigner(key), st)
 	attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, foreign, ann)
 
-	l, err := ListStream(t.Context(), repo, stream, delivery.PublicKeyVerifier(pub))
+	l, err := ListStream(t.Context(), repo, stream, keyVerifier(pub))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -194,4 +203,14 @@ func TestListStreamBindsRecordsToTheAnchor(t *testing.T) {
 	if _, err := ListStream(t.Context(), repo, stream, Unchecked); err == nil {
 		t.Fatal("listed a stream on a registry without the Referrers API")
 	}
+}
+
+// edSigner signs records with key through sigstore-go.
+func edSigner(key ed25519.PrivateKey) delivery.Signer {
+	kp, _ := signing.FromPrivateKey(key)
+	return signing.Keyed(kp, "")
+}
+
+func keyVerifier(pub ed25519.PublicKey) delivery.Verifier {
+	return func(_ string, b []byte) error { _, err := signing.Policy{Key: pub}.Verify(b, nil); return err }
 }

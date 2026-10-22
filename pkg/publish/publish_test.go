@@ -390,6 +390,13 @@ func (b brokenRegistry) Referrers(ctx context.Context, repo, digest, at string) 
 	return b.Client.Referrers(ctx, repo, digest, at)
 }
 
+func (b brokenRegistry) Layer(ctx context.Context, repo, digest string) ([]byte, map[string]string, error) {
+	if b.fail == "layer" {
+		return nil, nil, errTest
+	}
+	return b.Client.Layer(ctx, repo, digest)
+}
+
 func isSBOM(a Artifact) bool {
 	img, ok := a.(v1.Image)
 	if !ok {
@@ -426,6 +433,9 @@ func TestPlanChecks(t *testing.T) {
 		c := signCheck(&contract.Publish{Sign: &s})
 		expect(t, c.Passed, "sign %+v: %+v", s, c)
 	}
+	off := false
+	c := signCheck(&contract.Publish{Sign: &contract.PublishSign{Keyless: true, Identity: "ci@acme", Issuer: "https://issuer", TransparencyLog: &off}})
+	expect(t, !c.Passed && strings.Contains(c.Message, "transparency log"), "keyless without the log: %+v", c)
 	expect(t, refusal(Plan{}) == "not ready", "refusal of an empty plan")
 }
 

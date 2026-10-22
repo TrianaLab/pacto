@@ -16,6 +16,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/override"
 	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
 // PublishOptions holds options for `pacto publish`.
@@ -75,7 +76,7 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	if opts.Plan {
 		return &publish.Result{Plan: publish.MakePlan(ctx, reg, in)}, nil
 	}
-	return publish.Apply(ctx, reg, execTools{dir: path, run: env.run}, in)
+	return publish.Apply(ctx, reg, execTools{dir: path, run: env.run, reg: reg}, in)
 }
 
 // checkOf is a passed check, or a failed one carrying the first error.
@@ -113,11 +114,13 @@ func defaultPublishRegistry() publish.Registry {
 	return publish.NewClient(oci.NewKeychain(oci.EnvCredentialOptions()), oci.EnvInsecureRegistries()...)
 }
 
-// execTools implements publish.Tools with docker buildx, the declared command,
-// cosign and syft. Each fails closed when its program is missing.
+// execTools implements publish.Tools with docker buildx, the declared command
+// and syft, which fail closed when their program is missing, and signs with
+// sigstore-go through reg.
 type execTools struct {
 	dir string
 	run runner
+	reg publish.Registry
 }
 
 // Build implements publish.Tools.
@@ -152,88 +155,86 @@ func insecureHost(ref string) bool {
 	return name == "localhost" || name == "127.0.0.1" || slices.Contains(oci.EnvInsecureRegistries(), host)
 }
 
-// cosignArgs are the verify and sign arguments for ref and the configured
-// identity; done removes the temporary public key.
-func (t execTools) cosignArgs(ctx context.Context, sign contract.PublishSign, ref string) (verify, signArgs []string, done func(), err error) {
-	verify, signArgs, done = []string{"verify"}, []string{"sign", "--yes"}, func() {}
-	if insecureHost(ref) {
-		verify = append(verify, "--allow-http-registry")
-		signArgs = append(signArgs, "--allow-http-registry")
-	}
-	if sign.TransparencyLog != nil && !*sign.TransparencyLog {
-		verify = append(verify, "--insecure-ignore-tlog")
-		signArgs = append(signArgs, "--tlog-upload=false", "--use-signing-config=false")
-	}
+// Public-good Sigstore, which keyless publishing signs with and a key's
+// signature is logged to unless transparencyLog is false. Tests swap them.
+var (
+	publicGoodRoot              = signing.PublicGoodRoot
+	fulcioURL, rekorURL, tsaURL = signing.PublicFulcio, signing.PublicRekor, ""
+)
+
+// signing is how publish signs, and the policy a signature must verify
+// under: the configured key file, KMS key or keyless identity and issuer.
+func (t execTools) signing(ctx context.Context, sign contract.PublishSign) (signing.Signer, signing.Policy, error) {
+	tlog := sign.TransparencyLog == nil || *sign.TransparencyLog
+	var (
+		kp  *signing.Keypair
+		err error
+	)
 	switch {
 	case sign.Key != "":
 		key := sign.Key
 		if !filepath.IsAbs(key) {
 			key = filepath.Join(t.dir, key)
 		}
-		pub, err := t.publicKey(ctx, key)
-		if err != nil {
-			return nil, nil, done, err
-		}
-		done = func() { _ = os.Remove(pub) }
-		verify = append(verify, "--key", pub)
-		signArgs = append(signArgs, "--key", key)
+		kp, err = signing.LoadKey(key)
 	case sign.KMS != "":
-		verify = append(verify, "--key", sign.KMS)
-		signArgs = append(signArgs, "--key", sign.KMS)
+		kp, err = signing.KMS(ctx, sign.KMS)
 	default:
-		verify = append(verify, "--certificate-identity", sign.Identity, "--certificate-oidc-issuer", sign.Issuer)
+		// The sign check refused keyless without the transparency log.
+		root, err := publicGoodRoot(signing.PublicTUF)
+		if err != nil {
+			return signing.Signer{}, signing.Policy{}, fmt.Errorf("public-good Sigstore's trusted root: %w", err)
+		}
+		s, err := signing.Keyless(fulcioURL, tsaURL, rekorURL, signing.IDToken(""), root)
+		return s, signing.Policy{Identity: sign.Identity, Issuer: sign.Issuer, Root: root, Tlog: rekorURL != ""}, err
 	}
-	return append(verify, ref), append(signArgs, ref), done, nil
+	if err != nil {
+		return signing.Signer{}, signing.Policy{}, err
+	}
+	log := ""
+	if tlog {
+		log = rekorURL
+	}
+	return signing.Keyed(kp, log), signing.Policy{Key: kp.GetPublicKey()}, nil
 }
 
-// Verify implements publish.Tools: cosign verify with the configured key, KMS
-// key or keyless identity and issuer.
+// Verify implements publish.Tools: a signature referrer of ref that verifies
+// under the configured key, KMS key or keyless identity and issuer.
 func (t execTools) Verify(ctx context.Context, sign contract.PublishSign, ref string) error {
-	verify, _, done, err := t.cosignArgs(ctx, sign, ref)
-	defer done()
+	_, p, err := t.signing(ctx, sign)
 	if err != nil {
 		return err
 	}
-	_, err = t.run(ctx, t.dir, nil, "cosign", verify...)
-	return err
+	return t.verify(ctx, p, ref)
+}
+
+func (t execTools) verify(ctx context.Context, p signing.Policy, ref string) error {
+	repo, digest, _ := strings.Cut(ref, "@")
+	return publish.VerifyDigest(ctx, t.reg, func(b, d []byte) error { _, err := p.Verify(b, d); return err }, repo, digest)
 }
 
 // Sign implements publish.Tools: a valid signature by the configured identity
-// is kept, otherwise cosign signs and the new signature must then verify.
+// is kept, otherwise Pacto signs and the new signature must then verify.
 func (t execTools) Sign(ctx context.Context, sign contract.PublishSign, ref string) (bool, error) {
-	verify, signArgs, done, err := t.cosignArgs(ctx, sign, ref)
-	defer done()
+	s, p, err := t.signing(ctx, sign)
 	if err != nil {
 		return false, err
 	}
-	if _, err := t.run(ctx, t.dir, nil, "cosign", verify...); err == nil {
+	if t.verify(ctx, p, ref) == nil {
 		return false, nil
 	}
-	if _, err := t.run(ctx, t.dir, nil, "cosign", signArgs...); err != nil {
+	repo, digest, _ := strings.Cut(ref, "@")
+	if err := publish.SignDigest(ctx, t.reg, s, repo, digest); err != nil {
 		return false, err
 	}
 	// A keyless signature carries whatever identity the CI token had. One the
 	// pinned verify rejects would never reach a Stage, so it fails here, before
 	// any tag is written.
-	if _, err := t.run(ctx, t.dir, nil, "cosign", verify...); err != nil {
-		return false, fmt.Errorf("the signature cosign wrote for %s does not verify against the configured identity (identity %q, issuer %q); check that the CI identity matches publish.sign: %w",
+	if err := t.verify(ctx, p, ref); err != nil {
+		return false, fmt.Errorf("the signature Pacto wrote for %s does not verify against the configured identity (identity %q, issuer %q); check that the CI identity matches publish.sign: %w",
 			ref, sign.Identity, sign.Issuer, err)
 	}
 	return true, nil
-}
-
-// publicKey writes the public half of a cosign key file to a temporary file.
-func (t execTools) publicKey(ctx context.Context, key string) (string, error) {
-	out, err := t.run(ctx, t.dir, nil, "cosign", "public-key", "--key", key)
-	if err != nil {
-		return "", err
-	}
-	f, err := os.CreateTemp("", "pacto-cosign-*.pub")
-	if err != nil {
-		return "", err
-	}
-	_, err = f.Write(out)
-	return f.Name(), errors.Join(err, f.Close())
 }
 
 // SBOM implements publish.Tools.

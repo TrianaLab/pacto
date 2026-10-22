@@ -22,6 +22,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
 const recStream = "c/prod/payments-prod"
@@ -71,7 +72,7 @@ func (e *recordEnv) repo(path string) *remote.Repository {
 func (e *recordEnv) attach(repo string, subject ocispec.Descriptor, p delivery.RecordPredicate) string {
 	e.t.Helper()
 	st := delivery.Statement{Type: delivery.StatementType, PredicateType: delivery.PredicateOperation, Predicate: p}
-	b, id, err := delivery.SignRecord(context.Background(), delivery.Ed25519Signer(e.key), st)
+	b, id, err := delivery.SignRecord(context.Background(), edSigner(e.key), st)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -456,4 +457,10 @@ func TestPlanPrecedentUnreadable(t *testing.T) {
 	if plan, _, _ := e.d.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeOverride, To: dlE}); plan.Precedent != nil {
 		t.Fatalf("precedent with no records = %+v", plan.Precedent)
 	}
+}
+
+// edSigner signs records with key through sigstore-go.
+func edSigner(key ed25519.PrivateKey) delivery.Signer {
+	kp, _ := signing.FromPrivateKey(key)
+	return signing.Keyed(kp, "")
 }

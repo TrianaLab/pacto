@@ -16,7 +16,8 @@ import (
 )
 
 // Tools run what Pacto does not do itself. internal/app implements them by
-// running docker buildx, the declared command, cosign and syft.
+// running docker buildx, the declared command and syft, and by signing with
+// sigstore-go.
 type Tools interface {
 	// Build runs a's builder, which writes the artifact to out. env holds
 	// PACTO_OUT, PACTO_VERSION, PACTO_REVISION and PACTO_DIGEST_<NAME> /

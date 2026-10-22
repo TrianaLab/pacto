@@ -30,10 +30,11 @@ type TrustedKey struct {
 	// its OIDC issuer.
 	Identity string `json:"identity,omitempty" yaml:"identity,omitempty"`
 	Issuer   string `json:"issuer,omitempty" yaml:"issuer,omitempty"`
-	// Roots are PEM certificates (the Fulcio root and intermediate) a keyless
-	// certificate must chain to. A keyless entry needs them: without roots a
-	// self-signed certificate could name any identity and issuer.
-	Roots string `json:"roots,omitempty" yaml:"roots,omitempty"`
+	// TrustedRoot is a Sigstore trusted root (trusted_root.json): the
+	// certificate authority a keyless certificate must chain to and the
+	// timestamp authority that saw it signed. A keyless entry needs one:
+	// without it a self-signed certificate could name any identity and issuer.
+	TrustedRoot string `json:"trustedRoot,omitempty" yaml:"trustedRoot,omitempty"`
 	// Streams are path.Match patterns over stream ids
 	// (<cluster>/<namespace>/<stage>), such as "*/prod/*". Empty means every
 	// stream.
@@ -45,7 +46,7 @@ type TrustedKey struct {
 func ParseTrust(raw []byte) (TrustConfig, error) {
 	if bytes.HasPrefix(bytes.TrimSpace(raw), []byte("-----BEGIN")) {
 		t := TrustConfig{Keys: []TrustedKey{{PublicKey: string(raw)}}}
-		_, err := t.Verifier()
+		_, err := t.Verifier(check)
 		return t, err
 	}
 	var t TrustConfig
@@ -57,7 +58,7 @@ func ParseTrust(raw []byte) (TrustConfig, error) {
 	if len(t.Keys) == 0 {
 		return TrustConfig{}, errors.New("trust config: no keys")
 	}
-	_, err := t.Verifier()
+	_, err := t.Verifier(check)
 	return t, err
 }
 
@@ -68,32 +69,32 @@ func (t TrustConfig) Digest() string {
 }
 
 // Verifier checks a record's signature against the keys trusted for its
-// stream.
-func (t TrustConfig) Verifier() (Verifier, error) {
+// stream; open turns one key into the check of a bundle (pkg/signing does).
+func (t TrustConfig) Verifier(open func(TrustedKey) (func(bundle []byte) error, error)) (Verifier, error) {
 	type entry struct {
 		streams []string
-		verify  Verifier
+		verify  func([]byte) error
 	}
 	var entries []entry
 	for i, k := range t.Keys {
-		v, err := k.verifier()
-		if err != nil {
-			return nil, fmt.Errorf("trust config key %d (%s): %w", i, k.Name, err)
-		}
 		for _, p := range k.Streams {
 			if _, err := path.Match(p, ""); err != nil {
 				return nil, fmt.Errorf("trust config key %d (%s): stream pattern %q: %w", i, k.Name, p, err)
 			}
 		}
+		v, err := open(k)
+		if err != nil {
+			return nil, fmt.Errorf("trust config key %d (%s): %w", i, k.Name, err)
+		}
 		entries = append(entries, entry{k.Streams, v})
 	}
-	return func(stream string, pae, sig []byte, m VerificationMaterial) error {
+	return func(stream string, bundle []byte) error {
 		err := fmt.Errorf("no trusted key may sign records of stream %q", stream)
 		for _, e := range entries {
 			if !covers(e.streams, stream) {
 				continue
 			}
-			if err = e.verify(stream, pae, sig, m); err == nil {
+			if err = e.verify(bundle); err == nil {
 				return nil
 			}
 		}
@@ -113,26 +114,26 @@ func covers(patterns []string, stream string) bool {
 	return false
 }
 
-func (k TrustedKey) verifier() (Verifier, error) {
+// check validates a key's shape without crypto beyond the standard library;
+// pkg/signing checks the rest when it builds the verifier.
+func check(k TrustedKey) (func([]byte) error, error) {
 	switch {
-	case k.PublicKey != "" && k.Identity == "" && k.Issuer == "" && k.Roots == "":
+	case k.PublicKey != "" && k.Identity == "" && k.Issuer == "" && k.TrustedRoot == "":
 		block, _ := pem.Decode([]byte(k.PublicKey))
 		if block == nil {
 			return nil, errors.New("publicKey holds no PEM block")
 		}
-		pub, err := x509.ParsePKIXPublicKey(block.Bytes)
-		if err != nil {
+		if _, err := x509.ParsePKIXPublicKey(block.Bytes); err != nil {
 			return nil, fmt.Errorf("publicKey: %w", err)
 		}
-		return PublicKeyVerifier(pub), nil
+		return nil, nil
 	case k.PublicKey == "" && k.Identity != "" && k.Issuer != "":
-		roots := x509.NewCertPool()
-		if !roots.AppendCertsFromPEM([]byte(k.Roots)) {
-			return nil, errors.New("a keyless entry needs roots, the PEM certificates its certificate must chain to")
+		if !json.Valid([]byte(k.TrustedRoot)) {
+			return nil, errors.New("a keyless entry needs trustedRoot, the Sigstore trusted root (JSON) its certificate must chain to")
 		}
-		return CertificateVerifier(k.Identity, k.Issuer, roots), nil
+		return nil, nil
 	}
-	return nil, errors.New("set publicKey, or identity, issuer and roots, not both")
+	return nil, errors.New("set publicKey, or identity, issuer and trustedRoot, not both")
 }
 
 // PublicKeyPEM is pub as a PEM public key, for a trust config.

@@ -2,24 +2,12 @@ package delivery
 
 import (
 	"context"
-	"crypto"
-	"crypto/ecdsa"
-	"crypto/ed25519"
-	"crypto/elliptic"
-	"crypto/rand"
-	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/asn1"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"math/big"
-	"net/url"
 	"strings"
 	"testing"
-	"time"
 )
 
 const (
@@ -159,14 +147,24 @@ func TestCheckRecord(t *testing.T) {
 
 type failingSigner struct{}
 
-func (failingSigner) Sign(context.Context, []byte) ([]byte, VerificationMaterial, error) {
-	return nil, VerificationMaterial{}, errors.New("kms down")
+func (failingSigner) Sign(context.Context, string, []byte) ([]byte, error) {
+	return nil, errors.New("kms down")
 }
 
+// plainSigner writes the bundle shape without a real signature; pkg/signing
+// tests the crypto.
+type plainSigner struct{}
+
+func (plainSigner) Sign(_ context.Context, payloadType string, payload []byte) ([]byte, error) {
+	return json.Marshal(map[string]any{"mediaType": BundleMediaType, "dsseEnvelope": map[string]any{
+		"payload": payload, "payloadType": payloadType, "signatures": []map[string]any{{"sig": "c2ln"}}}})
+}
+
+func accept(string, []byte) error { return nil }
+
 func TestSignAndOpenRecord(t *testing.T) {
-	_, key, _ := ed25519.GenerateKey(rand.Reader)
 	st := NewOperationRecord(recordInput())
-	b, id, err := SignRecord(t.Context(), Ed25519Signer(key), st)
+	b, id, err := SignRecord(t.Context(), plainSigner{}, st)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,126 +172,38 @@ func TestSignAndOpenRecord(t *testing.T) {
 	if sum := sha256.Sum256(payload); id != "sha256:"+hex.EncodeToString(sum[:]) {
 		t.Fatalf("id %s is not the payload digest", id)
 	}
-	got, gotID, err := OpenRecord(b, PublicKeyVerifier(key.Public()))
-	if err != nil || gotID != id || got.Predicate.Intent.UID != "3b1e" {
-		t.Fatalf("open = %+v %s %v", got.Predicate.Intent, gotID, err)
+	var stream string
+	got, gotID, err := OpenRecord(b, func(s string, bundle []byte) error { stream = s; return nil })
+	if err != nil || gotID != id || got.Predicate.Intent.UID != "3b1e" || stream != st.Predicate.Chain.Stream {
+		t.Fatalf("open = %+v %s %q %v", got.Predicate.Intent, gotID, stream, err)
 	}
 	if _, _, err := SignRecord(t.Context(), failingSigner{}, st); err == nil {
 		t.Fatal("a failing signer signed")
 	}
-
-	_, other, _ := ed25519.GenerateKey(rand.Reader)
-	if _, _, err := OpenRecord(b, PublicKeyVerifier(other.Public())); err == nil {
-		t.Fatal("verified under another key")
+	if _, _, err := OpenRecord(b, func(string, []byte) error { return errors.New("untrusted") }); err == nil {
+		t.Fatal("opened a record the verifier refused")
 	}
-	edit := func(f func(*Bundle)) []byte {
-		var x Bundle
+	edit := func(f func(*envelope)) []byte {
+		var x envelope
 		_ = json.Unmarshal(b, &x)
 		f(&x)
 		out, _ := json.Marshal(x)
 		return out
 	}
-	resign := func(payload []byte) func(*Bundle) {
-		return func(x *Bundle) {
-			x.DSSEEnvelope.Payload = payload
-			x.DSSEEnvelope.Signatures[0].Sig = ed25519.Sign(key, PAE(PayloadType, payload))
-		}
-	}
 	for name, bad := range map[string][]byte{
-		"not json":        []byte("{"),
-		"media type":      edit(func(x *Bundle) { x.MediaType = "x" }),
-		"payload type":    edit(func(x *Bundle) { x.DSSEEnvelope.PayloadType = "x" }),
-		"two signatures":  edit(func(x *Bundle) { x.DSSEEnvelope.Signatures = append(x.DSSEEnvelope.Signatures, Signature{}) }),
-		"tampered":        edit(func(x *Bundle) { x.DSSEEnvelope.Payload = append(x.DSSEEnvelope.Payload, ' ') }),
-		"unknown field":   edit(resign([]byte(`{"_type":"x","extra":1}`))),
-		"other predicate": edit(resign([]byte(`{"_type":"https://in-toto.io/Statement/v1","subject":[],"predicateType":"x","predicate":{"kind":"","intent":{"stage":{"cluster":"","namespace":"","name":""}},"chain":{"stream":"","seq":0},"time":{"finished":""}}}`))),
+		"not json":     []byte("{"),
+		"media type":   edit(func(x *envelope) { x.MediaType = "x" }),
+		"payload type": edit(func(x *envelope) { x.DSSEEnvelope.PayloadType = "x" }),
+		"two signatures": edit(func(x *envelope) {
+			x.DSSEEnvelope.Signatures = append(x.DSSEEnvelope.Signatures, x.DSSEEnvelope.Signatures[0])
+		}),
+		"unknown field": edit(func(x *envelope) { x.DSSEEnvelope.Payload = []byte(`{"_type":"x","extra":1}`) }),
+		"other predicate": edit(func(x *envelope) {
+			x.DSSEEnvelope.Payload = []byte(`{"_type":"https://in-toto.io/Statement/v1","subject":[],"predicateType":"x","predicate":{"kind":"","intent":{"stage":{"cluster":"","namespace":"","name":""}},"chain":{"stream":"","seq":0},"time":{"finished":""}}}`)
+		}),
 	} {
-		if _, _, err := OpenRecord(bad, PublicKeyVerifier(key.Public())); err == nil {
+		if _, _, err := OpenRecord(bad, accept); err == nil {
 			t.Errorf("%s: opened", name)
 		}
-	}
-}
-
-func TestPublicKeyVerifierKeyTypes(t *testing.T) {
-	pae := PAE(PayloadType, []byte("{}"))
-	digest := sha256.Sum256(pae)
-	ec, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	ecSig, _ := ecdsa.SignASN1(rand.Reader, ec, digest[:])
-	rk, _ := rsa.GenerateKey(rand.Reader, 2048)
-	rsaSig, _ := rsa.SignPKCS1v15(rand.Reader, rk, crypto.SHA256, digest[:])
-	for name, c := range map[string]struct {
-		pub any
-		sig []byte
-	}{"ecdsa": {&ec.PublicKey, ecSig}, "rsa": {&rk.PublicKey, rsaSig}} {
-		v := PublicKeyVerifier(c.pub)
-		m := VerificationMaterial{PublicKey: &KeyHint{Hint: KeyHintOf(c.pub)}}
-		if err := v("", pae, c.sig, m); err != nil {
-			t.Errorf("%s: %v", name, err)
-		}
-		if err := v("", pae, []byte("bad"), m); err == nil {
-			t.Errorf("%s: a bad signature verified", name)
-		}
-		if err := v("", pae, c.sig, VerificationMaterial{}); err == nil {
-			t.Errorf("%s: verified with no key named", name)
-		}
-	}
-	if KeyHintOf(struct{}{}) != "" {
-		t.Fatal("an unsupported key has a hint")
-	}
-	if err := verifyWith(struct{}{}, pae, nil); err == nil {
-		t.Fatal("verified with an unsupported key type")
-	}
-}
-
-func selfSigned(t *testing.T, identity string, ext []pkix.Extension) (*ecdsa.PrivateKey, []byte) {
-	t.Helper()
-	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	u, _ := url.Parse(identity)
-	tmpl := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: time.Now(), NotAfter: time.Now().Add(time.Hour),
-		URIs: []*url.URL{u}, EmailAddresses: []string{"ops@acme.example"}, ExtraExtensions: ext}
-	der, err := x509.CreateCertificate(rand.Reader, tmpl, tmpl, &key.PublicKey, key)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return key, der
-}
-
-func TestCertificateVerifier(t *testing.T) {
-	const id, iss = "https://kubernetes.io/namespaces/pacto/serviceaccounts/recorder", "https://issuer.example"
-	v2, _ := asn1.Marshal(iss)
-	key, der := selfSigned(t, id, []pkix.Extension{{Id: oidIssuerV2, Value: v2}})
-	pae := PAE(PayloadType, []byte("{}"))
-	digest := sha256.Sum256(pae)
-	sig, _ := ecdsa.SignASN1(rand.Reader, key, digest[:])
-	m := VerificationMaterial{Certificate: &Certificate{RawBytes: der}}
-	// Without roots a self-signed certificate naming the right identity and
-	// issuer proves nothing, so it does not verify.
-	if err := CertificateVerifier(id, iss, nil)("", pae, sig, m); err == nil || !strings.Contains(err.Error(), "no trusted roots") {
-		t.Fatalf("verified a certificate with no roots: %v", err)
-	}
-	cert, _ := x509.ParseCertificate(der)
-	roots := x509.NewCertPool()
-	roots.AddCert(cert)
-	if err := CertificateVerifier(id, iss, roots)("", pae, sig, m); err != nil {
-		t.Fatal(err)
-	}
-	if err := CertificateVerifier("ops@acme.example", iss, roots)("", pae, sig, m); err != nil {
-		t.Fatalf("email identity: %v", err)
-	}
-	if err := CertificateVerifier("someone-else", iss, roots)("", pae, sig, m); err == nil {
-		t.Fatal("verified another identity")
-	}
-	if err := CertificateVerifier(id, iss, roots)("", pae, sig, VerificationMaterial{}); err == nil {
-		t.Fatal("verified with no certificate")
-	}
-	if err := CertificateVerifier(id, iss, roots)("", pae, sig, VerificationMaterial{Certificate: &Certificate{RawBytes: []byte("x")}}); err == nil {
-		t.Fatal("verified with a broken certificate")
-	}
-	_, v1der := selfSigned(t, id, []pkix.Extension{{Id: oidIssuerV1, Value: []byte(iss)}})
-	c1, _ := x509.ParseCertificate(v1der)
-	_, badDer := selfSigned(t, id, []pkix.Extension{{Id: oidIssuerV2, Value: []byte{0xff}}})
-	c2, _ := x509.ParseCertificate(badDer)
-	if certIssuer(c1) != iss || certIssuer(c2) != "" {
-		t.Fatalf("issuers %q %q", certIssuer(c1), certIssuer(c2))
 	}
 }

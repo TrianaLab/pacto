@@ -1,6 +1,14 @@
 package app
 
 import (
+	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"net/http"
+	"os/exec"
+	"time"
+
 	"context"
 	"errors"
 	"io"
@@ -12,6 +20,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sigstore/sigstore-go/pkg/root"
+	"github.com/sigstore/sigstore/pkg/cryptoutils"
+	"github.com/sigstore/sigstore/pkg/signature"
+	"github.com/sigstore/sigstore/pkg/signature/kms"
+
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/registry"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
@@ -20,17 +33,15 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/signing"
+	sigtest "github.com/trianalab/pacto/v4/pkg/signing/testutil"
 )
 
-// fakeRun stands in for git, docker, cosign, syft and the declared command.
-// Every call is recorded as "name arg...".
+// fakeRun stands in for git, docker, syft and the declared command. Every
+// call is recorded as "name arg...".
 type fakeRun struct {
-	calls  []string
-	signed map[string]bool
-	fail   string // a call prefix that fails
-	// wrongIdentity: sign succeeds but writes a signature verify rejects, as
-	// a keyless sign under an unexpected CI identity does.
-	wrongIdentity bool
+	calls []string
+	fail  string // a call prefix that fails
 }
 
 func (f *fakeRun) run(_ context.Context, _ string, env []string, name string, args ...string) ([]byte, error) {
@@ -46,28 +57,10 @@ func (f *fakeRun) run(_ context.Context, _ string, env []string, name string, ar
 		p, _ := layout.Write(outOf(env), empty.Index)
 		img, _ := random.Image(32, 1)
 		return nil, p.AppendImage(img)
-	case "cosign":
-		return f.cosign(args)
 	case "syft":
 		return []byte(`{"spdxVersion":"SPDX-2.3"}`), nil
 	}
 	return nil, os.WriteFile(filepath.Join(outOf(env), "deployment.yaml"), []byte("kind: Deployment\n"), 0o644)
-}
-
-// cosign answers public-key, verify (only what it signed) and sign.
-func (f *fakeRun) cosign(args []string) ([]byte, error) {
-	ref := args[len(args)-1]
-	switch args[0] {
-	case "public-key":
-		return []byte("-----BEGIN PUBLIC KEY-----\n"), nil
-	case "verify":
-		if !f.signed[ref] {
-			return nil, errors.New("no signatures found")
-		}
-		return nil, nil
-	}
-	f.signed[ref] = !f.wrongIdentity
-	return nil, nil
 }
 
 func outOf(env []string) string {
@@ -113,7 +106,7 @@ func publishService(f *fakeRun, reg publish.Registry) *Service {
 // TestPublishPlan: --plan lists what is missing and runs nothing but git.
 func TestPublishPlan(t *testing.T) {
 	host, reg := publishRegistry(t)
-	f := &fakeRun{signed: map[string]bool{}}
+	f := &fakeRun{}
 	res, err := publishService(f, reg).Publish(context.Background(), PublishOptions{Path: writePublishBundle(t, host, ""), Plan: true})
 	if err != nil {
 		t.Fatal(err)
@@ -123,20 +116,43 @@ func TestPublishPlan(t *testing.T) {
 	}
 }
 
+// signingKey writes a cosign key file, encrypted with COSIGN_PASSWORD, into
+// dir, keeps it out of the bundle and returns its public key.
+func signingKey(t *testing.T, dir string) crypto.PublicKey {
+	t.Helper()
+	priv, pub, err := cryptoutils.GeneratePEMEncodedECDSAKeyPair(elliptic.P256(), cryptoutils.StaticPasswordFunc([]byte("pw")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("COSIGN_PASSWORD", "pw")
+	_ = os.WriteFile(filepath.Join(dir, "cosign.key"), priv, 0o600)
+	_ = os.WriteFile(filepath.Join(dir, "cosign.pub"), pub, 0o600)
+	_ = os.WriteFile(filepath.Join(dir, ".pactoignore"), []byte("cosign.key\ncosign.pub\n"), 0o600)
+	k, _ := cryptoutils.UnmarshalPEMToPublicKey(pub)
+	return k
+}
+
 // TestPublishRunsTheTools: publish builds with docker buildx and the declared
-// command, makes an SBOM with syft and signs every digest with cosign, then a
-// second run signs nothing.
+// command, makes an SBOM with syft and signs every digest with sigstore-go,
+// so each verifies under the public key, then a second run signs nothing.
 func TestPublishRunsTheTools(t *testing.T) {
 	host, reg := publishRegistry(t)
-	f := &fakeRun{signed: map[string]bool{}}
+	f := &fakeRun{}
 	svc := publishService(f, reg)
 	dir := writePublishBundle(t, host, "")
+	pub := signingKey(t, dir)
 	res, err := svc.Publish(context.Background(), PublishOptions{Path: dir, Revision: "r1"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Deploy == "" || len(f.signed) != 4 {
-		t.Fatalf("result %+v signed %v", res, f.signed)
+	refs := []string{host + "/payments@" + res.Digests["api"], host + "/payments@" + res.SBOMs["api"],
+		host + "/deploy/payments@" + res.Digests["manifests"], host + "/pacto/payments@" + res.Digests[publish.BundleItem]}
+	for _, ref := range refs {
+		repo, digest, _ := strings.Cut(ref, "@")
+		if err := publish.VerifyDigest(t.Context(), reg, keyPolicy(pub), repo, digest); err != nil {
+			t.Errorf("%s: %v", ref, err)
+		}
+		independentlyVerified(t, dir, ref)
 	}
 	joined := strings.Join(f.calls, "\n")
 	for _, want := range []string{
@@ -144,24 +160,45 @@ func TestPublishRunsTheTools(t *testing.T) {
 		"--label org.opencontainers.image.version=1.0.0 --label org.opencontainers.image.revision=r1 --file Dockerfile --platform linux/amd64 .",
 		"./render.sh --flag",
 		"syft scan registry:" + host + "/payments@",
-		"cosign sign --yes --allow-http-registry --tlog-upload=false --use-signing-config=false --key " + filepath.Join(dir, "cosign.key"),
-		"cosign verify --allow-http-registry --insecure-ignore-tlog --key ",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("no call with %q in:\n%s", want, joined)
 		}
 	}
-	f.calls = nil
+	if strings.Contains(joined, "cosign") {
+		t.Errorf("publish ran cosign:\n%s", joined)
+	}
 	again, err := svc.Publish(context.Background(), PublishOptions{Path: dir, Revision: "r1"})
-	if err != nil || len(again.Actions) != 0 || slices.ContainsFunc(f.calls, func(c string) bool { return strings.HasPrefix(c, "cosign sign") }) {
-		t.Fatalf("second run: %v %v %v", err, again.Actions, f.calls)
+	if err != nil || len(again.Actions) != 0 {
+		t.Fatalf("second run: %v %v", err, again.Actions)
+	}
+}
+
+func keyPolicy(pub crypto.PublicKey) publish.BundleVerifier {
+	return func(b, d []byte) error { _, err := signing.Policy{Key: pub}.Verify(b, d); return err }
+}
+
+// independentlyVerified checks ref with the cosign CLI when it is installed:
+// what Pacto signs verifies with standard tooling, as Flux's does. The kind
+// e2e runs it everywhere; here it is skipped without cosign.
+func independentlyVerified(t *testing.T, dir, ref string) {
+	t.Helper()
+	if _, err := exec.LookPath("cosign"); err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "cosign", "verify", "--key", filepath.Join(dir, "cosign.pub"),
+		"--insecure-ignore-tlog", "--allow-http-registry", ref).CombinedOutput()
+	if err != nil {
+		t.Errorf("cosign does not verify %s: %v\n%s", ref, err, out)
 	}
 }
 
 func TestPublishRefusals(t *testing.T) {
 	host, reg := publishRegistry(t)
 	ctx := context.Background()
-	f := &fakeRun{signed: map[string]bool{}}
+	f := &fakeRun{}
 	if _, err := publishService(f, reg).Publish(ctx, PublishOptions{Path: writeInvalidBundle(t)}); err == nil {
 		t.Fatal("an invalid contract is refused")
 	}
@@ -182,75 +219,170 @@ func TestPublishRefusals(t *testing.T) {
 	if err := keyOutsideBundle(&contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Key: "/abs/cosign.key"}}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	nogit := &fakeRun{signed: map[string]bool{}, fail: "git"}
+	nogit := &fakeRun{fail: "git"}
 	res, _ = publishService(nogit, reg).Publish(ctx, PublishOptions{Path: writePublishBundle(t, host, ""), Plan: true})
 	if res.Plan.Revision != "" || res.Plan.Ready {
 		t.Fatalf("no git revision: %+v", res.Plan)
 	}
 }
 
-// TestExecToolsVerify: Verify passes only for a digest signed by the
-// configured identity, and fails when the public key cannot be read.
-func TestExecToolsVerify(t *testing.T) {
-	ctx := context.Background()
-	f := &fakeRun{signed: map[string]bool{"ghcr.io/a@sha256:1": true}}
-	tools := execTools{dir: t.TempDir(), run: f.run}
-	if err := tools.Verify(ctx, contract.PublishSign{Key: "/abs/k"}, "ghcr.io/a@sha256:1"); err != nil {
-		t.Fatalf("verify of a signed digest: %v", err)
+// pushImage pushes a random image and returns its repo@digest.
+func pushImage(t *testing.T, reg publish.Registry, repo string) string {
+	t.Helper()
+	img, _ := random.Image(32, 1)
+	d, err := reg.Write(t.Context(), repo, img)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := tools.Verify(ctx, contract.PublishSign{KMS: "awskms:///a"}, "ghcr.io/a@sha256:2"); err == nil {
-		t.Fatal("verify of an unsigned digest passed")
+	return repo + "@" + d
+}
+
+// TestExecToolsSignKeyed: a key file and a KMS key sign once, keep a valid
+// signature, and a failing key or log surfaces.
+func TestExecToolsSignKeyed(t *testing.T) {
+	ctx := t.Context()
+	host, reg := publishRegistry(t)
+	dir := t.TempDir()
+	pub := signingKey(t, dir)
+	tools := execTools{dir: dir, reg: reg}
+	off := false
+	key := contract.PublishSign{Key: "cosign.key", TransparencyLog: &off}
+	ref := pushImage(t, reg, host+"/app")
+	if err := tools.Verify(ctx, key, ref); err == nil {
+		t.Fatal("an unsigned digest verified")
 	}
-	noKey := execTools{dir: t.TempDir(), run: (&fakeRun{signed: map[string]bool{}, fail: "cosign public-key"}).run}
-	if err := noKey.Verify(ctx, contract.PublishSign{Key: "k"}, "ghcr.io/a@sha256:1"); err == nil {
-		t.Error("verify without the public key must fail")
+	if signed, err := tools.Sign(ctx, key, ref); err != nil || !signed {
+		t.Fatalf("sign: %v %v", signed, err)
+	}
+	if err := tools.Verify(ctx, key, ref); err != nil {
+		t.Fatalf("verify after signing: %v", err)
+	}
+	independentlyVerified(t, dir, ref)
+	if signed, err := tools.Sign(ctx, key, ref); err != nil || signed {
+		t.Fatalf("an existing signature is kept: %v %v", signed, err)
+	}
+	repo, digest, _ := strings.Cut(ref, "@")
+	if err := publish.VerifyDigest(ctx, reg, keyPolicy(pub), repo, digest); err != nil {
+		t.Fatalf("the key file's signature: %v", err)
 	}
 }
 
-func TestExecTools(t *testing.T) {
-	ctx := context.Background()
-	f := &fakeRun{signed: map[string]bool{}}
-	tools := execTools{dir: t.TempDir(), run: f.run}
+func TestExecToolsSignKMS(t *testing.T) {
+	ctx := t.Context()
+	host, reg := publishRegistry(t)
+	tools := execTools{dir: t.TempDir(), reg: reg}
 	off := false
-	cases := []struct {
-		sign contract.PublishSign
-		want string
-	}{
-		{contract.PublishSign{KMS: "awskms:///a"}, "cosign sign --yes --key awskms:///a ghcr.io/a@sha256:1"},
-		{contract.PublishSign{Keyless: true, Identity: "ci@acme", Issuer: "https://issuer"},
-			"cosign verify --certificate-identity ci@acme --certificate-oidc-issuer https://issuer ghcr.io/a@sha256:1"},
-		{contract.PublishSign{Key: "/abs/k", TransparencyLog: &off}, "cosign sign --yes --tlog-upload=false --use-signing-config=false --key /abs/k ghcr.io/a@sha256:1"},
+	ref := pushImage(t, reg, host+"/app")
+	kmsKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	sv, _ := signature.LoadSignerVerifier(kmsKey, crypto.SHA256)
+	kms.AddProvider("apptestkms://", func(context.Context, string, crypto.Hash, ...signature.RPCOption) (kms.SignerVerifier, error) {
+		return testKMS{sv}, nil
+	})
+	viaKMS := contract.PublishSign{KMS: "apptestkms://k", TransparencyLog: &off}
+	if signed, err := tools.Sign(ctx, viaKMS, ref); err != nil || !signed {
+		t.Fatalf("KMS sign: %v %v", signed, err)
 	}
-	for _, c := range cases {
-		f.calls, f.signed = nil, map[string]bool{}
-		if signed, err := tools.Sign(ctx, c.sign, "ghcr.io/a@sha256:1"); err != nil || !signed {
-			t.Fatalf("%+v: %v %v", c.sign, signed, err)
-		}
-		if !slices.Contains(f.calls, c.want) {
-			t.Errorf("%+v: no %q in %v", c.sign, c.want, f.calls)
-		}
+	repo, digest, _ := strings.Cut(ref, "@")
+	if err := publish.VerifyDigest(ctx, reg, keyPolicy(kmsKey.Public()), repo, digest); err != nil {
+		t.Fatalf("the KMS signature: %v", err)
 	}
-	if signed, err := tools.Sign(ctx, contract.PublishSign{Key: "/abs/k", TransparencyLog: &off}, "ghcr.io/a@sha256:1"); err != nil || signed {
-		t.Fatalf("an existing signature is kept: %v %v", signed, err)
-	}
-	for _, fail := range []string{"cosign sign", "cosign public-key"} {
-		bad := execTools{dir: t.TempDir(), run: (&fakeRun{signed: map[string]bool{}, fail: fail}).run}
-		if _, err := bad.Sign(ctx, contract.PublishSign{Key: "k"}, "ghcr.io/a@sha256:1"); err == nil {
-			t.Errorf("%s failing must surface", fail)
-		}
-	}
+}
 
-	// A keyless signature under another CI identity fails before any tag.
-	wrong := execTools{dir: t.TempDir(), run: (&fakeRun{signed: map[string]bool{}, wrongIdentity: true}).run}
-	if _, err := wrong.Sign(ctx, contract.PublishSign{Keyless: true, Identity: "ci@acme", Issuer: "https://issuer"}, "ghcr.io/a@sha256:1"); err == nil ||
-		!strings.Contains(err.Error(), `identity "ci@acme", issuer "https://issuer"`) {
+func TestExecToolsSignFailures(t *testing.T) {
+	ctx := t.Context()
+	host, reg := publishRegistry(t)
+	dir := t.TempDir()
+	signingKey(t, dir)
+	tools := execTools{dir: dir, reg: reg}
+	off := false
+	key := contract.PublishSign{Key: "cosign.key", TransparencyLog: &off}
+	ref := pushImage(t, reg, host+"/app")
+	for name, s := range map[string]contract.PublishSign{
+		"missing key": {Key: "/abs/missing", TransparencyLog: &off},
+		"no KMS":      {KMS: "nokms://k", TransparencyLog: &off},
+	} {
+		if _, err := tools.Sign(ctx, s, ref); err == nil {
+			t.Errorf("%s: signed", name)
+		}
+		if err := tools.Verify(ctx, s, ref); err == nil {
+			t.Errorf("%s: verified", name)
+		}
+	}
+	// The transparency log is on by default; a log that fails stops signing.
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadRequest) }))
+	defer down.Close()
+	old := rekorURL
+	rekorURL = down.URL
+	defer func() { rekorURL = old }()
+	if _, err := tools.Sign(ctx, contract.PublishSign{Key: "cosign.key"}, pushImage(t, reg, host+"/bpp")); err == nil {
+		t.Fatal("signed with the transparency log down")
+	}
+	if _, err := tools.Sign(ctx, key, "BAD REF@sha256:1"); err == nil {
+		t.Fatal("signed a broken reference")
+	}
+}
+
+// testKMS is a KMS provider backed by a local key.
+type testKMS struct{ signature.SignerVerifier }
+
+func (testKMS) CreateKey(context.Context, string) (crypto.PublicKey, error) { return nil, nil }
+func (testKMS) CryptoSigner(context.Context, func(error)) (crypto.Signer, crypto.SignerOpts, error) {
+	return nil, nil, nil
+}
+func (testKMS) SupportedAlgorithms() []string { return nil }
+func (testKMS) DefaultAlgorithm() string      { return "" }
+
+// TestExecToolsSignKeyless: keyless signing pins the configured identity and
+// issuer: the CI identity signs and verifies, another identity fails before
+// any tag, and an unreachable trusted root fails closed.
+func TestExecToolsSignKeyless(t *testing.T) {
+	ctx := t.Context()
+	host, reg := publishRegistry(t)
+	ss := sigtest.New(t)
+	oldRoot, oldF, oldR, oldT := publicGoodRoot, fulcioURL, rekorURL, tsaURL
+	defer func() { publicGoodRoot, fulcioURL, rekorURL, tsaURL = oldRoot, oldF, oldR, oldT }()
+	publicGoodRoot = func(string) (root.TrustedMaterial, error) { return ss.Root, nil }
+	fulcioURL, rekorURL, tsaURL = ss.Fulcio, "", ss.TSA
+	t.Setenv("SIGSTORE_ID_TOKEN", sigtest.Token("ci@acme.example", "https://token.actions.githubusercontent.com"))
+	tools := execTools{dir: t.TempDir(), reg: reg}
+	ci := contract.PublishSign{Keyless: true, Identity: "ci@acme.example", Issuer: "https://token.actions.githubusercontent.com"}
+	ref := pushImage(t, reg, host+"/app")
+	if signed, err := tools.Sign(ctx, ci, ref); err != nil || !signed {
+		t.Fatalf("keyless sign: %v %v", signed, err)
+	}
+	if err := tools.Verify(ctx, ci, ref); err != nil {
+		t.Fatal(err)
+	}
+	for name, s := range map[string]contract.PublishSign{
+		"identity": {Keyless: true, Identity: "mallory@acme.example", Issuer: ci.Issuer},
+		"issuer":   {Keyless: true, Identity: ci.Identity, Issuer: "https://evil.example"},
+	} {
+		if err := tools.Verify(ctx, s, ref); err == nil {
+			t.Errorf("another %s verified", name)
+		}
+	}
+	// A CI token for another identity signs, but its signature fails the
+	// pinned verify before any tag is written.
+	wrong := contract.PublishSign{Keyless: true, Identity: "release@acme.example", Issuer: ci.Issuer}
+	if _, err := tools.Sign(ctx, wrong, pushImage(t, reg, host+"/bpp")); err == nil ||
+		!strings.Contains(err.Error(), `identity "release@acme.example", issuer "https://token.actions.githubusercontent.com"`) {
 		t.Errorf("a signature by the wrong identity must fail: %v", err)
 	}
-
-	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
-	if _, err := tools.Sign(ctx, contract.PublishSign{Key: "k"}, "ghcr.io/a@sha256:1"); err == nil {
-		t.Fatal("no temporary file for the public key")
+	// A root from another Sigstore does not trust this one's certificates.
+	other := sigtest.New(t)
+	publicGoodRoot = func(string) (root.TrustedMaterial, error) { return other.Root, nil }
+	if err := tools.Verify(ctx, ci, ref); err == nil {
+		t.Error("verified under an untrusted root")
 	}
+	publicGoodRoot = func(string) (root.TrustedMaterial, error) { return nil, errors.New("tuf down") }
+	if err := tools.Verify(ctx, ci, ref); err == nil || !strings.Contains(err.Error(), "trusted root") {
+		t.Errorf("no trusted root: %v", err)
+	}
+}
+
+func TestExecToolsHelpers(t *testing.T) {
+	ctx := context.Background()
+	tools := execTools{dir: t.TempDir(), run: (&fakeRun{}).run}
 	t.Setenv("PACTO_INSECURE_REGISTRIES", "zot.local:5000")
 	for ref, want := range map[string]bool{"localhost:5000/a": true, "127.0.0.1/a": true, "zot.local:5000/a": true, "ghcr.io/a": false} {
 		if insecureHost(ref) != want {

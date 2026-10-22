@@ -13,6 +13,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
 // RecordRepo opens a repository for reading records, reaching insecureHosts
@@ -68,7 +69,7 @@ func (d *Delivery) verifier() delivery.Verifier {
 	if d.Trust == nil {
 		return deliveryrecord.Unchecked
 	}
-	v, _ := d.Trust.Verifier() // validated when the trust config was parsed
+	v, _ := signing.TrustVerifier(*d.Trust) // validated when the trust config was parsed
 	return v
 }
 

@@ -135,4 +135,4 @@ func List(ctx context.Context, repo *remote.Repository, subject ocispec.Descript
 
 // Unchecked is a Verifier that accepts every signature: a reader with no trust
 // config still lists records, and says they are unverified.
-func Unchecked(string, []byte, []byte, delivery.VerificationMaterial) error { return nil }
+func Unchecked(string, []byte) error { return nil }
