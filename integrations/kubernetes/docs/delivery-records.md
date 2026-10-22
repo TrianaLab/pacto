@@ -38,7 +38,9 @@ A record can be late. It is never skipped: an Operation keeps its
 registry and listed by the Referrers API. An Operation without the finalizer,
 because admission is off or someone removed it, is still recorded in order.
 A number the Stage gave an Operation that has not finished concluding is a
-wait, not a gap.
+wait, not a gap. A Stage deleted and recreated with the same name starts its
+numbers over. An Operation the old Stage concluded is still recorded, under
+the old Stage's uid, and moves nothing of the new Stage.
 
 ## Install
 

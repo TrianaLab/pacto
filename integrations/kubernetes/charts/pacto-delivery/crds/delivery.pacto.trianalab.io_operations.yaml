@@ -631,6 +631,12 @@ spec:
               seq:
                 format: int64
                 type: integer
+              stageUID:
+                description: |-
+                  StageUID is the uid of the Stage that gave the operation its seq. A
+                  Stage deleted and recreated with the same name starts its seqs over,
+                  and an operation left over from the old one is not part of the new one.
+                type: string
               times:
                 description: Times are RFC 3339 timestamps.
                 properties:

@@ -783,3 +783,32 @@ func TestRecorderWaitsForAConcludingOperation(t *testing.T) {
 		t.Fatalf("records = %d, want a gap and the operation", len(recs))
 	}
 }
+
+// TestRecorderLeftoverOfADeletedStage: an operation an earlier Stage of the
+// same name concluded is recorded under that Stage and never moves the new
+// Stage's recordedSeq, so the new Stage's own seqs are not skipped.
+func TestRecorderLeftoverOfADeletedStage(t *testing.T) {
+	re := newRecEnv(t)
+	re.stage(1)
+	re.concluded("old", 50, delivery.Succeeded)
+	old := re.getOp("old")
+	old.Status.StageUID = "old-stage"
+	if err := re.c.Status().Update(context.Background(), old); err != nil {
+		t.Fatal(err)
+	}
+	re.concluded("ship", 1, delivery.Succeeded)
+	re.reconcile()
+	recs := re.records()
+	if len(recs) != 2 {
+		t.Fatalf("records = %d, want 2", len(recs))
+	}
+	if uid := recs[0].Statement.Predicate.Intent.Stage.UID; uid != "old-stage" {
+		t.Fatalf("the leftover is recorded under %q", uid)
+	}
+	if s := re.getStage(); s.Status.Stream.RecordedSeq != 1 {
+		t.Fatalf("recordedSeq = %d, want 1", s.Status.Stream.RecordedSeq)
+	}
+	if o := re.getOp("old"); controllerutil.ContainsFinalizer(o, dv1.RecordFinalizer) {
+		t.Fatal("the leftover was not let go")
+	}
+}

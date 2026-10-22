@@ -832,7 +832,7 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 			// edit inside the seconds between a failed write and its retry
 			// lands in the record; store the spec in Concluded if that matters.
 			spec := s.Spec
-			op.Status.Policy = &spec
+			op.Status.Policy, op.Status.StageUID = &spec, string(s.UID)
 			if done := concludedOn(s.Status, op.UID); done != nil {
 				// This operation took its seq and its status write failed.
 				op.Status.Seq, c = done.Seq, conclusion{outcome: done.Outcome, verification: done.Verification, reason: done.Reason}

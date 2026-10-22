@@ -351,6 +351,11 @@ func TestAdmissionRefusals(t *testing.T) {
 func TestDeletedMidChangeStillConcludes(t *testing.T) {
 	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
 	e.op.Records = true
+	s := e.getStage()
+	s.UID = "stage-1"
+	if err := e.c.Update(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
 	e.drive("p1")
 	e.apply(dB)
 	if o := e.drive("p1"); o.Status.Phase != delivery.PhaseVerifying {
@@ -364,6 +369,9 @@ func TestDeletedMidChangeStillConcludes(t *testing.T) {
 	wantOutcome(t, o, delivery.Succeeded, "Verified")
 	if o.Status.Seq != 1 || !controllerutil.ContainsFinalizer(o, dv1.RecordFinalizer) {
 		t.Fatalf("seq %d finalizers %v", o.Status.Seq, o.Finalizers)
+	}
+	if o.Status.StageUID != "stage-1" {
+		t.Fatalf("the seq is not bound to the Stage that gave it: %q", o.Status.StageUID)
 	}
 }
 

@@ -104,6 +104,9 @@ type item struct {
 	seq  int64
 	op   *dv1.Operation
 	wait bool
+	// leftover is an operation an earlier Stage of the same name gave its
+	// seq: it is recorded under that Stage and moves nothing of this one.
+	leftover bool
 }
 
 // passTimeout bounds one pass over a Stage: a registry or signer that stops
@@ -184,6 +187,12 @@ func (r *Recorder) pending(ctx context.Context, stage *dv1.Stage) ([]item, error
 		if op.Status.Phase != delivery.PhaseConcluded || op.Status.Seq < 1 {
 			continue
 		}
+		if op.Status.StageUID != "" && op.Status.StageUID != string(stage.UID) {
+			if controllerutil.ContainsFinalizer(op, dv1.RecordFinalizer) {
+				items = append(items, item{seq: op.Status.Seq, op: op, leftover: true})
+			}
+			continue
+		}
 		held[op.Status.Seq] = true
 		// The finalizer is not proof the record is owed: admission may be
 		// off, or someone removed it. A seq after recordedSeq always is.
@@ -215,8 +224,18 @@ func (r *Recorder) pending(ctx context.Context, stage *dv1.Stage) ([]item, error
 		}
 	}
 	r.mu.Unlock()
-	slices.SortStableFunc(items, func(a, b item) int { return int(a.seq - b.seq) })
+	// Leftovers go first, in the order the old Stage numbered them.
+	slices.SortStableFunc(items, func(a, b item) int {
+		return cmp.Or(cmp.Compare(rank(b.leftover), rank(a.leftover)), cmp.Compare(a.seq, b.seq))
+	})
 	return items, nil
+}
+
+func rank(leftover bool) int {
+	if leftover {
+		return 1
+	}
+	return 0
 }
 
 // conflict says why the recorder must not extend this stream, or "". Two
@@ -372,8 +391,10 @@ func (w *writer) record(ctx context.Context, it item) (time.Duration, error) {
 		}
 		rec = written
 	}
-	if err := w.advance(ctx, it.seq); err != nil {
-		return 0, err
+	if !it.leftover {
+		if err := w.advance(ctx, it.seq); err != nil {
+			return 0, err
+		}
 	}
 	return 0, w.release(ctx, op, rec)
 }
@@ -425,7 +446,7 @@ func (w *writer) input(ctx context.Context, op *dv1.Operation) (delivery.RecordI
 	in := delivery.RecordInput{
 		ClusterID: w.ClusterID,
 		Stage: delivery.StageObject{Metadata: delivery.ObjectMeta{Name: w.stage.Name, Namespace: w.stage.Namespace,
-			UID: string(w.stage.UID)}, Spec: *cmp.Or(op.Status.Policy, &w.stage.Spec)},
+			UID: cmp.Or(op.Status.StageUID, string(w.stage.UID))}, Spec: *cmp.Or(op.Status.Policy, &w.stage.Spec)},
 		Operation: delivery.OperationObject{Metadata: delivery.ObjectMeta{Name: op.Name, Namespace: op.Namespace,
 			UID: string(op.UID)}, Spec: op.Spec, Status: op.Status},
 		Approvals: map[string]delivery.ApprovalSpec{},

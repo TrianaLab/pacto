@@ -616,6 +616,11 @@ type OperationStatus struct {
 	// written.
 	// +optional
 	Policy *StageSpec `json:"policy,omitempty"`
+	// StageUID is the uid of the Stage that gave the operation its seq. A
+	// Stage deleted and recreated with the same name starts its seqs over,
+	// and an operation left over from the old one is not part of the new one.
+	// +optional
+	StageUID string `json:"stageUID,omitempty"`
 	// Record is the signed record of this operation, once the recorder wrote
 	// it. Only the recorder writes it.
 	// +optional
