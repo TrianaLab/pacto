@@ -788,6 +788,16 @@ func (r *OperationReconciler) heldAfterApply(ctx context.Context, op *dv1.Operat
 // between the failure and the rollback.
 func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, stage *dv1.Stage, c conclusion) (reconcile.Result, error) {
 	code, msg, _ := strings.Cut(c.reason, ": ")
+	// A stale cached read can show an operation that already concluded as
+	// still running: concluding it again would take a second seq. Decide on
+	// the stored operation only.
+	fresh := &dv1.Operation{}
+	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(op), fresh); err != nil {
+		return reconcile.Result{}, err
+	}
+	if fresh.ResourceVersion != op.ResourceVersion {
+		return reconcile.Result{RequeueAfter: immediately}, nil
+	}
 	if stage != nil {
 		if c.outcome == delivery.Failed && op.Spec.Type == delivery.TypePromote && op.Status.Pointer.Before != "" {
 			if err := raiseRollback(ctx, r.Client, r.Policy, op, stage, code+": "+msg, c.cause); err != nil {

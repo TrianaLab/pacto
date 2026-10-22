@@ -796,7 +796,7 @@ func TestConclusionConflictTakesOneSeq(t *testing.T) {
 		if getErr != nil {
 			r.APIReader = interceptor.NewClient(e.c, interceptor.Funcs{
 				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-					if _, ok := obj.(*dv1.Operation); ok {
+					if _, ok := obj.(*dv1.Operation); ok && conflicted {
 						return getErr
 					}
 					return c.Get(ctx, key, obj, opts...)
@@ -824,5 +824,29 @@ func TestConclusionConflictTakesOneSeq(t *testing.T) {
 	}
 	if err == nil || !strings.Contains(err.Error(), "injected read failure") {
 		t.Fatalf("a failed re-read after a conflict must surface: %v", err)
+	}
+}
+
+// TestStaleOperationIsNotConcludedAgain: a cached read older than the stored
+// operation, such as one that shows a concluded operation still verifying, is
+// decided again on the next reconcile and takes no seq. A failed fresh read
+// surfaces.
+func TestStaleOperationIsNotConcludedAgain(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	stale := e.getOp("p1")
+	moved := e.getOp("p1")
+	moved.Labels = map[string]string{"touched": "yes"}
+	if err := e.c.Update(context.Background(), moved); err != nil {
+		t.Fatal(err)
+	}
+	c := conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified, reason: "Preempted: a rollback or override took the Stage"}
+	res, err := e.op.finish(context.Background(), stale, e.getStage(), c)
+	if err != nil || res.RequeueAfter != immediately || e.getStage().Status.Stream.Seq != 0 || e.getOp("p1").Status.Phase == delivery.PhaseConcluded {
+		t.Fatalf("a stale operation must be decided again, not concluded: %v %+v seq %d", err, res, e.getStage().Status.Stream.Seq)
+	}
+	current, stage := e.getOp("p1"), e.getStage()
+	e.fails["get/Operation"] = true
+	if _, err := e.op.finish(context.Background(), current, stage, c); err == nil {
+		t.Fatal("a failed fresh read must surface")
 	}
 }
