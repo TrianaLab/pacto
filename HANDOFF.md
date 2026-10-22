@@ -57,3 +57,38 @@ changed while publishing" instead of a registry digest error. `docker buildx`,
    `.../schema.ts` and `examples/demo/pacto-dashboard/interfaces/openapi.json`);
    no frontend code reads the field, so the UI bundle is unchanged. On a merge
    conflict, rerun `make generate-dashboard-sdk` rather than hand-merging.
+
+## `pacto init` pactifies (ledger B)
+
+`pacto init [dir]` (default: the current folder) writes a blank contract into
+an empty or new folder, as before, and no longer fails on an existing one. A
+folder with a Dockerfile or Kubernetes manifests gets a contract read from
+them (publish section included) and a report: Found, Depends on, Used by
+(`--fleet <dir of contracts>`), Unknown, Next. `--delivery` adds
+`delivery/pacto.yaml` (the Pacto resource, shipped inside every version: the
+manifests build fills in `@PACTO_VERSION@`) and `delivery/<env>.yaml` per
+`--env` (default test, prod): candidate OCIRepository (first env), apply
+OCIRepository labelled `delivery.pacto.trianalab.io/apply-ref`, Kustomization
+and Stage. `--plan` prints every file's content and writes nothing. It only
+adds files and missing `.pactoignore` lines. MCP: `pacto_create` with
+`pactify: true` (plus `delivery`, `registry`, `environments`, `fleet_roots`;
+`dry_run` plans). Code: `internal/pactify`.
+
+9. story track, `examples/story/contracts/fraud/1.0.0/pacto.yaml`: the header
+   comment says "pacto init does not read a Dockerfile or manifests yet (ledger
+   B); no test derives it from plain/fraud". That is no longer true:
+   `pacto init --owner risk` in `plain/fraud` writes this contract (the fields
+   match; it adds a two-line header comment, and with `--delivery` the
+   manifests build also ships `delivery/pacto.yaml`). Suggested: a story test
+   that runs `pactify.Init(ctx, pactify.Options{Dir: <copy of plain/fraud>,
+   Owner: "risk", Plan: true}, nil)` and compares the parsed contract with
+   `contracts/fraud/1.0.0` (the core branch pins the same thing against a copy
+   in `internal/pactify/testdata/fraud`; keep the two copies in step).
+10. docs track: the "Pactify a service" front door (ledger E) can now show
+    `pacto init --plan`, then `pacto init --delivery --owner <team>`, then
+    `pacto publish --plan`. `docs/mcp-integration.md` (pacto_create section)
+    can mention `pactify`. `docs/cli-reference.md` is regenerated
+    (`make gen-cli-docs`); on conflict regenerate, do not hand-merge.
+11. demos track: the browser pactify step and the Compose `pacto init --plan`
+    step can use the plan output verbatim; the Kubernetes demo's agent can
+    call `pacto_create` with `pactify: true, delivery: true` on `plain/fraud`.
