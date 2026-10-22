@@ -14,8 +14,8 @@ changes what runs. To set it up for a service, [pactify it](../../pactify.md).
 
 ## What happens to a change
 
-A change is a request such as "run payments 2.4.0 in prod". A person, a CI job
-or an AI agent can ask for one. Every change takes the same path:
+A change is a request such as "run payments 2.4.0 in prod". A person, your build
+pipeline or an AI agent can ask for one. Every change takes the same path:
 
 ```mermaid
 flowchart LR
@@ -29,9 +29,10 @@ flowchart LR
   F -->|a later check fails| G
 ```
 
-**Before it moves**, Pacto checks that `pacto publish` published and signed
-this version, compares its contract with the one running and looks at every
-service in that environment that uses this one. If none of them would break,
+**Before it moves**, Pacto checks that this version was published and signed
+with `pacto publish`, Pacto's release command. It compares the new contract
+with the one running and looks at every service in that environment that uses
+this one. If none of them would break,
 the change goes ahead on its own.
 
 **After Flux applies it**, Pacto checks that the running version does what its
