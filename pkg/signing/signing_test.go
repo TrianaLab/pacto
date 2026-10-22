@@ -179,6 +179,10 @@ func TestKMS(t *testing.T) {
 	// PKCS#1 v1.5, which every verifier would then check it as.
 	rk, _ := rsa.GenerateKey(rand.Reader, 2048)
 	pss, _ := signature.LoadRSAPSSSignerVerifier(rk, crypto.SHA256, nil)
+	// An RSA PKCS#1 v1.5 key that hashes with SHA-512: NewKeypair accepts its
+	// public key, so only the probe refuses it.
+	sha512, _ := signature.LoadRSAPKCS1v15SignerVerifier(rk, crypto.SHA512)
+	// A P-384 key, which NewKeypair refuses before the probe runs.
 	ek, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	p384, _ := signature.LoadSignerVerifier(ek, crypto.SHA384)
 	kms.AddProvider("testkms://", func(_ context.Context, uri string, _ crypto.Hash, _ ...signature.RPCOption) (kms.SignerVerifier, error) {
@@ -191,6 +195,8 @@ func TestKMS(t *testing.T) {
 			return fakeKMS{SignerVerifier: sv, signErr: errors.New("denied")}, nil
 		case "testkms://pss":
 			return fakeKMS{SignerVerifier: pss}, nil
+		case "testkms://sha512":
+			return fakeKMS{SignerVerifier: sha512}, nil
 		case "testkms://p384":
 			return fakeKMS{SignerVerifier: p384}, nil
 		}
@@ -207,7 +213,7 @@ func TestKMS(t *testing.T) {
 	if err := independentKeyVerify(t, b, key.Public()); err != nil {
 		t.Errorf("a KMS signature does not verify: %v", err)
 	}
-	for _, uri := range []string{"testkms://down", "testkms://nopub", "testkms://nosign", "testkms://pss", "testkms://p384", "nokms://key"} {
+	for _, uri := range []string{"testkms://down", "testkms://nopub", "testkms://nosign", "testkms://pss", "testkms://sha512", "testkms://p384", "nokms://key"} {
 		if _, err := KMS(t.Context(), uri); err == nil {
 			t.Errorf("%s loaded", uri)
 		}
