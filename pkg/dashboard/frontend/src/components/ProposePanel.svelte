@@ -9,7 +9,7 @@
   // Plan first, then propose. The plan says what the promoter would do; the
   // proposal carries the plan's intent digest, so anything that moved since is
   // refused with a fresh plan instead of acting on a stale one.
-  let { request, miraURL = '', onClose } = $props();
+  let { request, toVersion = '', miraURL = '', onClose } = $props();
 
   let plan = $state(null);
   let planError = $state(null);
@@ -48,7 +48,7 @@
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <section class="pp" aria-labelledby="pp-title" onkeydown={onKeydown} data-testid="propose-panel">
   <h3 id="pp-title" class="t-subsection-title" tabindex="-1" bind:this={headingEl}>
-    {typeLabel(request.type)} {request.namespace}/{request.stage}{#if request.to}: {shortDigest(request.to)}{/if}
+    {typeLabel(request.type)} {request.namespace}/{request.stage}{#if request.to}: {toVersion || shortDigest(request.to)}{/if}
   </h3>
   {#if planError}
     <RefusalNotice error={planError} />

@@ -84,7 +84,7 @@ function installDelivery(persona: Persona): void {
     }
     if (route === '/api/delivery/history') {
       const rec = (c: string) => 'sha256:' + c.repeat(64);
-      return json(200, { ...listing, histories: [
+      return json(200, { ...listing, versions: { [D1]: '1.4.0', [D2]: '2.0.0' }, histories: [
         { namespace: 'prod', stage: { name: 'payments-prod', pointer: D2 }, asOf: listing.asOf, completeness: 'partial', source: 'records', verified: true,
           note: 'read from the signed records in the registry, which show problems', head: rec('c'),
           problems: ['seq 3 moved the Stage from ' + D1 + ', but the change before it left ' + D2 + ': something moved it with no record'],
@@ -95,7 +95,7 @@ function installDelivery(persona: Persona): void {
             { seq: 2, operation: '', type: '', actor: '', phase: 'Concluded', kind: 'gap', reason: 'Gap: the operation with local seq 2 was gone before it was recorded',
               finished: '2026-10-20T10:00:00Z', record: rec('b') },
             { seq: 3, operation: 'op1', type: 'pacto.dev/promote', from: D1, to: D2, actor: 'https://idp#carol', actorClass: 'human', phase: 'Concluded',
-              outcome: 'Succeeded', verification: 'Verified', finished: '2026-10-21T10:00:00Z', kind: 'operation', record: rec('c') },
+              outcome: 'Succeeded', verification: 'Verified', finished: '2026-10-21T10:00:00Z', kind: 'operation', record: rec('c'), pointer: { before: D1, after: D2 } },
             { operation: 'op2', type: 'pacto.dev/promote', from: D2, to: D1, actor: 'system:serviceaccount:agents:release-bot', phase: 'Verifying' },
           ] },
         { namespace: 'test', stage: { name: 'payments-test', pointer: D2 }, asOf: listing.asOf, completeness: 'partial', source: 'status',
@@ -103,6 +103,24 @@ function installDelivery(persona: Persona): void {
           entries: [{ seq: 4, operation: 'op5', type: 'pacto.dev/rollback', from: D2, to: D1, actor: 'https://idp#alice', actorClass: 'human',
             phase: 'Concluded', outcome: 'Succeeded', verification: 'Verified', finished: '2026-10-21T09:00:00Z' }] },
       ] });
+    }
+    if (route === '/api/delivery/blame') {
+      return json(200, { stage: { name: 'payments-prod', pointer: D2 }, digest: D2, asOf: listing.asOf, completeness: 'complete', source: 'records',
+        note: 'the newest change that moved the Stage to ' + D2, intentReason: 'ship the fix',
+        change: { operation: 'op1', type: 'pacto.dev/promote', from: D1, to: D2, actor: 'https://idp#carol', actorClass: 'human', finished: '2026-10-21T10:00:00Z' },
+        approvals: [{ by: 'https://idp#dave', decision: 'approve', operation: 'u1', authTime: '1792560000' }],
+        verdicts: [{ gate: 'pacto.diff', phase: 'pre', result: 'Pass' }], versions: { [D1]: '1.4.0', [D2]: '2.0.0' }, people: { 'https://idp#dave': 'Dave Lee' } });
+    }
+    if (route === '/api/delivery/undo') {
+      return json(200, { operation: 'prod/op1', kind: 'promote', note: 'the Stage changed since, so going back to ' + D1 + ' is a promote, and every gate runs',
+        plan: { ...plan, to: D1 }, command: 'pacto delivery propose -n prod --stage payments-prod --type promote --to ' + D1 + ' --reason "undo op1" --intent-digest sha256:intent',
+        versions: { [D1]: '1.4.0' } });
+    }
+    if (route === '/api/delivery/published') return json(200, { ...listing, services: [] });
+    if (route === '/api/delivery/refusals') {
+      return json(200, { asOf: listing.asOf, recorded: true, completeness: 'complete', refusals: [
+        { service: 'payments', version: '2.4.3', check: 'version', requiredBump: 'major', baseline: '2.4.2', reason: 'removing a field is a breaking change',
+          actor: 'system:serviceaccount:agents:pay-agent', at: '2026-10-21T08:00:00Z', verified: true }] });
     }
     if (route === '/api/delivery/plan' && method === 'POST') return json(200, plan);
     if (route === '/api/delivery/operations/prod/op1/decision' && method === 'POST') {
@@ -206,11 +224,12 @@ test.describe('Delivery views', () => {
     await expect(candidate).toBeFocused();
     await audit(page, 'change detail with what moves first');
 
-    // The message carries a full digest: on a phone it wraps instead of scrolling the page sideways.
+    // One sentence, no full digest: on a phone it wraps instead of scrolling the page sideways.
+    expect(await page.locator('body').innerText()).not.toContain('3'.repeat(64));
     await page.setViewportSize({ width: 320, height: 800 });
     for (const hash of ['#/delivery/inbox', '#/delivery/changes/prod/op1']) {
       await page.goto('/' + hash);
-      await expect(page.getByText('Ship checkout first').first()).toBeVisible({ timeout: T });
+      await expect(page.getByText('promote it on').first()).toBeVisible({ timeout: T });
       expect(await page.evaluate(() => [document.documentElement, document.body].every((e) => e.scrollWidth <= e.clientWidth + 1)), hash).toBe(true);
     }
   });
@@ -289,6 +308,41 @@ test.describe('Delivery views', () => {
     await page.goto('/#/delivery/history');
     await expect(prod.getByTestId('history-problems')).toBeVisible({ timeout: T });
     expect(await page.evaluate(() => [document.documentElement, document.body].every((e) => e.scrollWidth <= e.clientWidth + 1))).toBe(true);
+  });
+
+  test('history says who put a version there and how to undo a change, and nothing is proposed', async ({ page }) => {
+    await as(page, 'carol');
+    await page.goto('/#/delivery/history');
+    const prod = page.getByRole('region', { name: 'History of prod/payments-prod' });
+    await expect(prod.getByRole('row', { name: /^3 Promote/ })).toContainText('1.4.0 → 2.0.0', { timeout: T });
+    await expect(prod.getByRole('row', { name: /^1 Promote/ })).toContainText('promoter (controller)');
+    await prod.getByRole('button', { name: 'Who put 2.0.0 here?' }).click();
+    const blame = page.getByTestId('blame-panel');
+    await expect(blame).toContainText('Approve by Dave Lee', { timeout: T });
+    await expect(blame.getByTestId('blame-source')).toContainText('Read from its signed record.');
+    await audit(page, 'history with blame');
+    await page.keyboard.press('Escape');
+    await expect(blame).toHaveCount(0);
+    await prod.getByRole('button', { name: 'Undo op1' }).click();
+    const undo = page.getByTestId('undo-panel');
+    await expect(undo.getByTestId('undo-note')).toContainText('Promote to 1.4.0.', { timeout: T });
+    await expect(undo).toContainText('Nothing has been proposed.');
+    await audit(page, 'history with undo');
+    await undo.getByRole('button', { name: 'Plan this promote' }).click();
+    await expect(undo.getByTestId('propose-panel')).toContainText('Promote prod/payments-prod: 1.4.0', { timeout: T });
+    // The command carries full digests: on a phone it wraps instead of scrolling the page sideways.
+    await page.setViewportSize({ width: 320, height: 800 });
+    expect(await page.evaluate(() => [document.documentElement, document.body].every((e) => e.scrollWidth <= e.clientWidth + 1))).toBe(true);
+  });
+
+  test('the published view lists recently refused publishes with the bump they need', async ({ page }) => {
+    await as(page, 'carol');
+    await page.goto('/#/delivery/publish');
+    const refused = page.getByTestId('refused-publishes');
+    await expect(refused).toContainText('payments 2.4.3', { timeout: T });
+    await expect(refused).toContainText('Needs a major version');
+    await expect(refused).toContainText('By pay-agent');
+    await audit(page, 'published with refusals');
   });
 
   test('the environments board plans a promote before proposing it', async ({ page }) => {

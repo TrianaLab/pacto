@@ -30,9 +30,10 @@
   // Each request is a new object, so a second click re-plans in a new panel;
   // closing it sends focus back to the button that opened it.
   let proposing = $state(null);
+  let proposingVersion = $state('');
   let opener = null;
-  function open(e, req) { opener = e.currentTarget; proposing = req; }
-  function promote(r, e) { open(e, { namespace: r.namespace, stage: r.stage, type: 'pacto.dev/promote', to: r.candidate, from: r.pointer || undefined }); }
+  function open(e, req, version = '') { opener = e.currentTarget; proposingVersion = version; proposing = req; }
+  function promote(r, e) { open(e, { namespace: r.namespace, stage: r.stage, type: 'pacto.dev/promote', to: r.candidate, from: r.pointer || undefined }, r.candidateVersion); }
   function unpause(r, e) { open(e, { namespace: r.namespace, stage: r.stage, type: 'pacto.dev/unfreeze' }); }
   function closePlan() { proposing = null; opener?.focus(); }
 </script>
@@ -49,7 +50,7 @@
 
   {#if proposing}
     {#key proposing}
-      <ProposePanel request={proposing} {miraURL} onClose={closePlan} />
+      <ProposePanel request={proposing} toVersion={proposingVersion} {miraURL} onClose={closePlan} />
     {/key}
   {/if}
 
@@ -93,7 +94,7 @@
                         {#if r.actions?.length}
                           <span class="ev-actions">
                             {#if r.actions.includes('promote')}
-                              <button type="button" class="btn btn-sm" onclick={(e) => promote(r, e)} aria-label={`Promote ${svc} in ${env} to ${shortDigest(r.candidate)}`}>Promote {shortDigest(r.candidate)}</button>
+                              <button type="button" class="btn btn-sm" onclick={(e) => promote(r, e)} aria-label={`Promote ${svc} in ${env} to ${r.candidateVersion || shortDigest(r.candidate)}`}>Promote {r.candidateVersion || shortDigest(r.candidate)}</button>
                             {/if}
                             {#if r.actions.includes('unfreeze')}
                               <button type="button" class="btn btn-sm" onclick={(e) => unpause(r, e)} aria-label={`Unpause ${svc} in ${env}`}>Unpause</button>

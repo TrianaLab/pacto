@@ -443,13 +443,20 @@ test.describe('WASM dashboard demo — workflows', () => {
       .toHaveAttribute('href', '../examples/dashboard-demo/');
   });
 
-  // The strip floats over the bottom of the dashboard and never leaves. On a short
-  // window that is where the content is, so a reader who has read it needs a way to put
-  // it away — otherwise the notice explaining the demo is also obscuring it.
-  test('demo strip: the reader can dismiss it once they have read it', async ({ page }) => {
+  // The strip is a band above the dashboard, in the page's own flow: it never covers
+  // content, at any width. It used to float over the foot of the page, which on a short
+  // window is where the content was. A reader who has read it can still put it away.
+  test('demo strip: it never covers the page, and the reader can dismiss it', async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 640 });
     await appReady(page);
     const strip = page.getByTestId('demo-strip');
     await expect(strip).toBeVisible({ timeout: 20_000 });
+    const layout = await strip.evaluate((el) => {
+      const app = el.nextElementSibling as HTMLElement;
+      return { position: getComputedStyle(el).position, stripBottom: el.getBoundingClientRect().bottom, appTop: app.getBoundingClientRect().top };
+    });
+    expect(layout.position).not.toBe('fixed');
+    expect(layout.stripBottom).toBeLessThanOrEqual(layout.appTop + 1);
     await page.getByTestId('demo-strip-close').click();
     await expect(strip).toBeHidden();
   });

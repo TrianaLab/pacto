@@ -391,7 +391,7 @@
           <DeliveryChangeView namespace={route.params.namespace} name={route.params.name} {refreshTick} miraURL={capabilities.miraURL || ''} />
         {/key}
       {:else if route.view === 'delivery-history'}
-        <DeliveryHistoryView namespace={route.params.namespace || ''} stage={route.params.stage || ''} {refreshTick} />
+        <DeliveryHistoryView namespace={route.params.namespace || ''} stage={route.params.stage || ''} {refreshTick} miraURL={capabilities.miraURL || ''} />
       {:else}
         <DeliveryPublishView {refreshTick} />
       {/if}

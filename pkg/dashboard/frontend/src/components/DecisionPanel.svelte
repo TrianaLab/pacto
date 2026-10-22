@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
-  import { decisionAsked, decisionLabel, cliDecision, loginUrl, keepPending, pendingFor, dropPending } from '../lib/delivery.ts';
+  import { decisionAsked, decisionLabel, cliDecision, loginUrl, keepPending, pendingFor, dropPending, shortDigests } from '../lib/delivery.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import RefusalNotice from './RefusalNotice.svelte';
 
@@ -58,7 +58,7 @@
 
 <section class="dp" aria-labelledby="dp-title" data-testid="decision-panel">
   <h2 id="dp-title" class="t-section-title">The decision</h2>
-  {#if op.status?.question}<p class="dp-question t-body">{op.status.question}</p>{/if}
+  {#if op.status?.question}<p class="dp-question t-body">{shortDigests(op.status.question)}</p>{/if}
   <p class="t-body-2">Asked: <strong>{decisionLabel(asked)}</strong> or reject. {owners.length ? `Only ${owners.join(' or ')} may answer.` : 'Any person may answer.'}</p>
 
   {#if decided}

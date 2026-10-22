@@ -27,6 +27,53 @@ export function decisionLabel(d: string | undefined): string {
   return DECISION_LABELS[d ?? ''] ?? (d || '');
 }
 
+/**
+ * versionLabel names a digest by the version it carries when the server could
+ * read it, else by its short form.
+ */
+export function versionLabel(digest: string | undefined, versions: Record<string, string> | null | undefined): string {
+  return (digest && versions?.[digest]) || shortDigest(digest);
+}
+
+/** shortDigests shortens every full OCI digest in a sentence. */
+export function shortDigests(text: string | undefined): string {
+  return (text ?? '').replace(/sha256:([0-9a-f]{12})[0-9a-f]{52}/g, 'sha256:$1');
+}
+
+/** timeLabel shows an RFC 3339 UTC time to the minute: 2026-10-21 11:00 UTC. */
+export function timeLabel(iso: string | undefined): string {
+  const m = /^(\d{4}-\d\d-\d\d)T(\d\d:\d\d)(:\d\d(\.\d+)?)?Z$/.exec(iso ?? '');
+  return m ? `${m[1]} ${m[2]} UTC` : (iso ?? '');
+}
+
+/** sentence turns a server note into a sentence: capitalised, digests short, a full stop. */
+export function sentence(text: string | undefined): string {
+  const t = shortDigests(text).trim();
+  if (!t) return '';
+  return t[0].toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.');
+}
+
+/** Who the signed-in person is, as personLabel reads it. */
+export interface Me {
+  user?: string;
+  name?: string;
+}
+
+/**
+ * personLabel names a cluster username for a reader: the name of a person who
+ * signed in to this dashboard, a service account by its own name and an
+ * `issuer#subject` username by its subject. The full username stays in a title.
+ */
+export function personLabel(user: string | undefined, people?: Record<string, string> | null, me?: Me | null): string {
+  if (!user) return '';
+  if (people?.[user]) return people[user];
+  if (me?.name && me.user === user) return me.name;
+  const sa = /^system:serviceaccount:[^:]+:(.+)$/.exec(user);
+  if (sa) return sa[1];
+  const hash = user.lastIndexOf('#');
+  return hash > 0 && hash < user.length - 1 ? user.slice(hash + 1) : user;
+}
+
 /** shortDigest keeps the first 12 hex characters of an OCI digest. */
 export function shortDigest(d: string | undefined): string {
   if (!d) return '';

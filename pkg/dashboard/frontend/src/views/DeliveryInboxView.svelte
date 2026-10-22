@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryChangeUrl, deliveryHistoryUrl, serviceUrl } from '../lib/router.ts';
-  import { typeLabel, decisionLabel, shortDigest } from '../lib/delivery.ts';
+  import { typeLabel, decisionLabel, shortDigest, shortDigests } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
@@ -58,16 +58,16 @@
             {#each held as it (it.namespace + '/' + it.name)}
               <li class="pl-row dl-row">
                 <a class="dl-title" href={deliveryChangeUrl(it.namespace, it.name)}>
-                  {typeLabel(it.type)} on {it.namespace}/{it.stage}{#if it.to}: {shortDigest(it.to)}{/if}
+                  {typeLabel(it.type)} on {it.namespace}/{it.stage}{#if it.to}: {it.fromVersion && it.toVersion ? `${it.fromVersion} to ${it.toVersion}` : it.toVersion || shortDigest(it.to)}{/if}
                 </a>
-                {#if it.question}<p class="dl-question t-body">{it.question}</p>{/if}
+                {#if it.question}<p class="dl-question t-body">{shortDigests(it.question)}</p>{/if}
                 <MoveFirstList order={it.order} testid="inbox-move-first" />
                 <dl class="dl-facts t-body-2">
                   <dt>Decision asked</dt><dd>{decisionLabel(it.decision) || 'A decision'}</dd>
                   <dt>Who may answer</dt><dd>{it.owners?.length ? it.owners.join(', ') : 'Any person'}</dd>
                   {#if it.consumers?.length}
                     <dt>Affected services</dt>
-                    <dd>{#each it.consumers as c, i}{#if i > 0}, {/if}<a href={serviceUrl(c)}>{c}</a>{/each}</dd>
+                    <dd>{#each it.consumers as c, i}{#if i > 0},{' '}{/if}<a href={serviceUrl(c)}>{c}</a>{/each}</dd>
                   {/if}
                 </dl>
               </li>
