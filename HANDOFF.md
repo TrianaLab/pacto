@@ -36,11 +36,14 @@ flag that does not exist yet on b32da8b5.
 - "Check the contract's `publish` section first: it says where each piece goes
   and how it is signed." (Does init fill `publish.sign`? If not, say what to add.)
 - "`pacto init --delivery --plan` / `pacto init --delivery`" and the three
-  bullets it adds: a Pacto resource, one Stage for each environment ("such as
+  bullets it adds: a Pacto entry, one Stage for each environment ("such as
   test and prod": how are environments chosen?), the Flux OCIRepository and
-  Kustomization.
-- "Review the files and apply them with `kubectl apply`." (Does init write files,
-  and where, or apply them itself?)
+  Kustomization. The page now also says "Each environment is a Kubernetes
+  namespace of the same name" (taken from the setup examples): confirm init
+  does that.
+- "`init` only writes files. Read them, then apply them to the cluster with
+  `kubectl apply -f` and the file names." (Does init write files, and where,
+  or apply them itself? Name the directory once known.)
 - "`pacto publish --propose test/my-service`" (the Stage name and namespace init
   generates) and "A Stage set to promote on its own (`auto: true`) needs no
   `--propose`" (does init set `auto` on the test Stage?).

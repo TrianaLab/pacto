@@ -3,11 +3,14 @@
 Pacto delivery decides which version of each service runs in each
 environment, such as test and prod. It uses your contracts to tell a safe
 change from a risky one, asks a person only when it must and rolls back a
-version that fails its checks. Flux, the tool that applies what runs in your
-Kubernetes cluster, does the applying.
+version that fails its checks. A contract is the file, `pacto.yaml`, in which
+each service says what it offers and which other services it calls. Flux, a
+tool that keeps your Kubernetes cluster running what your files say, does the
+actual switch from one version to the next.
 
 Delivery is opt-in. It is a separate install, and without it Pacto never
-changes what runs. To set it up for a service, [pactify it](../../pactify.md).
+changes what runs. To set it up for a service, [pactify it](../../pactify.md):
+give it a contract and connect it to delivery.
 
 !!! warning "Alpha"
     Delivery is new and its API may still change.
@@ -29,8 +32,9 @@ flowchart LR
   F -->|a later check fails| G
 ```
 
-**Before it moves**, Pacto checks that this version was published and signed
-with `pacto publish`, Pacto's release command. It compares the new contract
+**Before it moves**, Pacto checks that this version was published with
+`pacto publish`, Pacto's release command, and signed, which proves who
+published it. It compares the new contract
 with the one running and looks at every service in that environment that uses
 this one. If none of them would break,
 the change goes ahead on its own.
@@ -38,22 +42,24 @@ the change goes ahead on its own.
 **After Flux applies it**, Pacto checks that the running version does what its
 contract says. You can add health checks too, such as error rates from your
 monitoring. These checks keep running after release, so a problem found an
-hour later still rolls the version back. A version that failed is never
-offered again.
+hour later still rolls the version back: the version that ran before is put
+back. A version that failed is never tried again in that environment.
 
 A version reaches prod only after it passed in the environment before it. Each
-service in each environment is called a **Stage**, and a Stage can promote new
-versions on its own or wait to be asked.
+service in each environment is called a **Stage**. Moving a Stage to a new
+version is called promoting it, and a Stage can promote new versions on its
+own or wait to be asked.
 
 **Every change that ends**, refusals included, can leave a signed record in
-your registry (where your images are stored). Anyone can check later who asked
-for what, who approved and what each check said.
+your container registry, the place your images are stored. The signature shows
+the record was not changed later. Anyone can check who asked for what, who
+approved and what each check said.
 
 ## Who is asked and why
 
 Each contract says which services it depends on and which of their versions it
-accepts, for example "checkout accepts payments 2.x". That is how Pacto knows
-who a change can break.
+accepts, for example "checkout accepts payments 2.x". This is its version
+range. That is how Pacto knows who a change can break.
 
 Say payments 3.0.0 removes a field. In prod, checkout and orders still accept
 only payments 2.x. The change waits, and Pacto asks the checkout and orders
@@ -64,11 +70,11 @@ Pacto also says what to update first. If checkout 1.9.0 accepts both payments
 checkout has moved, only the orders team is still asked.
 
 Pacto judges this by the version range each service declares, not by which
-fields or endpoints it uses. The calls it observes say only which service calls
-which.
+fields or endpoints it uses. Pacto can also watch the traffic between services,
+but that tells it only which service calls which, not what each call uses.
 
-Agents can plan, propose and cancel changes, but only people can approve. To
-approve, a person signs in again as themselves, and the record names them.
+AI agents can plan, ask for and cancel changes, but only people can approve.
+To approve, a person signs in again as themselves, and the record names them.
 
 ## What Unknown means
 
@@ -82,14 +88,15 @@ pass.
 
 ## Where you follow it
 
-- **The dashboard** gains a Delivery tab once it knows who you are (you sign
-  in, or run it on your own machine): an inbox of the
+- **The dashboard**, Pacto's web page that `pacto dashboard` starts, gains a
+  Delivery tab once it knows who you are (you sign in, or run it on your own
+  machine): an inbox of the
   changes waiting for your team, every environment and what it runs, the
   history of past changes and the published versions.
 - **The command line**: `pacto delivery plan` shows what would happen before
   you ask, and `pacto delivery history` what already did.
-- **AI agents** get the same tools through `pacto mcp --delivery`, without an
-  approve tool.
+- **AI agents** get the same tools through `pacto mcp --delivery`, which
+  speaks MCP, the common way AI agents call tools. There is no approve tool.
 
 ## Reference
 
