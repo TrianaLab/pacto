@@ -340,7 +340,8 @@ func unseenConsumersOf(in PlanInput, res *impact.Result, unknown []impact.Affect
 	}
 	for _, r := range in.Snapshot.Relationships {
 		if unresolvedTo(r, in.Stage.Service.Name) {
-			consumers[string(r.FromService)] = true
+			_, name := fleet.ParseServiceKey(r.FromService) // a Misplaced names the bare service
+			consumers[name] = true
 		}
 	}
 	for _, m := range in.Misplaced {

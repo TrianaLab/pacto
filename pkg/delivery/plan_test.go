@@ -99,6 +99,8 @@ func TestPlanMisplacedConsumerAsksToAcceptTheUnknown(t *testing.T) {
 	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
 	inline := checkoutPacto("^1.0.0")
 	inline.Status.Contract.ResolvedRef = ""
+	elsewhere := checkoutPacto("^1.0.0") // published in another domain, so its key is domain-qualified
+	elsewhere.Status.Contract.ResolvedRef = "oci://other.example/pactos/checkout@" + c3
 	const note = `Pacto prod/h is labelled for environment "production", which no Stage declares`
 	for _, c := range []struct {
 		name, service string
@@ -107,6 +109,7 @@ func TestPlanMisplacedConsumerAsksToAcceptTheUnknown(t *testing.T) {
 	}{
 		{"a resolved consumer", "checkout", checkoutPacto("^1.0.0"), true},
 		{"a consumer the graph cannot resolve", "checkout", inline, true},
+		{"an unresolved consumer published in another domain", "checkout", elsewhere, true},
 		{"a Pacto with no contract", "", checkoutPacto("^1.0.0"), true},
 		{"a Pacto that does not depend on the service", "sandbox-app", checkoutPacto("^1.0.0"), false},
 	} {
