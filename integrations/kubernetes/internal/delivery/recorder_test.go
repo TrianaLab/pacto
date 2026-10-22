@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/registry"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
+	promtest "github.com/prometheus/client_golang/prometheus/testutil"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -187,7 +188,17 @@ func TestRecorderWritesChainedRecords(t *testing.T) {
 	if err := re.c.Status().Update(context.Background(), second); err != nil {
 		t.Fatal(err)
 	}
+	pending := func() float64 { return promtest.ToFloat64(RecordsPending.WithLabelValues("cid/prod/payments-prod")) }
+	re.rec.Signer = failingSigner{}
 	re.reconcile()
+	if got := pending(); got != 2 {
+		t.Fatalf("pacto_delivery_records_pending = %v with two operations unrecorded, want 2", got)
+	}
+	re.rec.Signer = edSigner(re.key)
+	re.reconcile()
+	if got := pending(); got != 0 {
+		t.Fatalf("pacto_delivery_records_pending = %v once both are recorded, want 0", got)
+	}
 
 	recs := re.records()
 	if len(recs) != 2 {
