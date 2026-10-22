@@ -23,6 +23,7 @@ const (
 	AnnBundlePredicate = "dev.sigstore.bundle.predicateType"
 	inTotoPayload      = "application/vnd.in-toto+json"
 	maxSignatures      = 32
+	maxReferrers       = 256
 )
 
 // Signer signs a DSSE payload into a Sigstore bundle (pkg/signing.Signer).
@@ -31,8 +32,9 @@ type Signer interface {
 }
 
 // BundleVerifier checks a bundle whose statement must name digest, the raw
-// sha256 of the signed manifest (pkg/signing.Policy.Verify).
-type BundleVerifier func(bundle, digest []byte) error
+// sha256 of the signed manifest (pkg/signing.Policy.Verify), and returns the
+// predicate type of the statement it verified.
+type BundleVerifier func(bundle, digest []byte) (predicateType string, err error)
 
 // SignDigest signs repo@digest and attaches the signature as its referrer.
 func SignDigest(ctx context.Context, reg Registry, s Signer, repo, digest string) error {
@@ -69,15 +71,28 @@ func VerifyDigest(ctx context.Context, reg Registry, verify BundleVerifier, repo
 		return err
 	}
 	var why []string
-	for _, r := range refs[:min(len(refs), maxSignatures)] {
+	// ponytail: attestations cost a fetch each before their annotation says
+	// so; maxReferrers bounds that work, maxSignatures the signatures checked.
+	seen := 0
+	for _, r := range refs[:min(len(refs), maxReferrers)] {
 		bundle, ann, err := reg.Layer(ctx, repo, r)
 		if err != nil {
-			return err
+			why = append(why, r+": "+err.Error()) // one unreadable referrer hides no other
+			continue
 		}
 		if ann[AnnBundlePredicate] != SignPredicate {
 			continue // an attestation, not a signature
 		}
-		if err := verify(bundle, sum); err != nil {
+		if seen++; seen > maxSignatures {
+			break
+		}
+		// The annotation is unsigned: only the predicate the signature covers
+		// says that this bundle signs the digest rather than attests to it.
+		pt, err := verify(bundle, sum)
+		if err == nil && pt != SignPredicate {
+			err = fmt.Errorf("it signs a %q statement, not a signature", pt)
+		}
+		if err != nil {
 			why = append(why, r+": "+err.Error())
 			continue
 		}

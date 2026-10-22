@@ -210,7 +210,19 @@ func (t execTools) Verify(ctx context.Context, sign contract.PublishSign, ref st
 
 func (t execTools) verify(ctx context.Context, p signing.Policy, ref string) error {
 	repo, digest, _ := strings.Cut(ref, "@")
-	return publish.VerifyDigest(ctx, t.reg, func(b, d []byte) error { _, err := p.Verify(b, d); return err }, repo, digest)
+	return publish.VerifyDigest(ctx, t.reg, bundleVerifier(p), repo, digest)
+}
+
+// bundleVerifier verifies a bundle under p and returns the predicate type of
+// the statement its signature covers.
+func bundleVerifier(p signing.Policy) publish.BundleVerifier {
+	return func(b, d []byte) (string, error) {
+		res, err := p.Verify(b, d)
+		if err != nil {
+			return "", err
+		}
+		return res.Statement.GetPredicateType(), nil
+	}
 }
 
 // Sign implements publish.Tools: a valid signature by the configured identity

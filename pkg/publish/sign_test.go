@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"errors"
 	"net/http"
 	"strings"
@@ -45,7 +47,7 @@ func TestSignAndVerifyDigest(t *testing.T) {
 	if err != nil || ann[AnnBundleContent] != "dsse-envelope" || ann[AnnBundlePredicate] != SignPredicate {
 		t.Fatalf("referrer annotations %v %v", ann, err)
 	}
-	if err := VerifyDigest(ctx, reg, func([]byte, []byte) error { return errors.New("wrong key") }, repo, digest); err == nil ||
+	if err := VerifyDigest(ctx, reg, func([]byte, []byte) (string, error) { return "", errors.New("wrong key") }, repo, digest); err == nil ||
 		!strings.Contains(err.Error(), "wrong key") {
 		t.Fatalf("a bundle the verifier refuses: %v", err)
 	}
@@ -64,12 +66,105 @@ func signedImage(t *testing.T, reg *Client, host string) (string, string) {
 	return repo, digest
 }
 
-func names(b, d []byte) error {
-	if !bytes.Contains(b, []byte(`"sha256":"`+hex.EncodeToString(d)+`"`)) || !bytes.Contains(b, []byte(SignPredicate)) {
-		return errors.New("not a signature of this digest")
+// names "verifies" an echoed statement: it must name the digest, and its
+// predicate type is returned as the verified statement's.
+func names(b, d []byte) (string, error) {
+	var st struct {
+		PredicateType string `json:"predicateType"`
 	}
-	return nil
+	if !bytes.Contains(b, []byte(`"sha256":"`+hex.EncodeToString(d)+`"`)) || json.Unmarshal(b, &st) != nil {
+		return "", errors.New("not a signature of this digest")
+	}
+	return st.PredicateType, nil
 }
+
+// statementOver is a statement over digest d with predicate type pt.
+func statementOver(d, pt string) []byte {
+	return fmt.Appendf(nil, `{"subject":[{"digest":{"sha256":%q}}],"predicateType":%q}`, strings.TrimPrefix(d, "sha256:"), pt)
+}
+
+// writeBundle attaches bundle to repo@d as a signature-type referrer annotated
+// with predicate.
+func writeBundle(t *testing.T, reg *Client, repo, d, predicate string, bundle []byte) string {
+	t.Helper()
+	ref, err := reg.Write(t.Context(), repo, newArtifact(BundleType, BundleType, []byte("{}"), BundleType, bundle,
+		map[string]string{AnnBundlePredicate: predicate}, subjectOf(t, reg, repo, d)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ref
+}
+
+// TestVerifyDigestChecksTheSignedPredicate: an attestation over the right
+// digest by the right signer, annotated as a signature, is no signature: the
+// annotation is unsigned, the predicate type is not.
+func TestVerifyDigestChecksTheSignedPredicate(t *testing.T) {
+	ctx := t.Context()
+	host, reg := newRegistry(t)
+	repo, d := signedImage(t, reg, host)
+	writeBundle(t, reg, repo, d, SignPredicate, statementOver(d, "https://slsa.dev/provenance/v1"))
+	if err := VerifyDigest(ctx, reg, names, repo, d); err == nil || !strings.Contains(err.Error(), "slsa.dev") {
+		t.Fatalf("a re-annotated attestation counted as a signature: %v", err)
+	}
+}
+
+// memReferrers serves signature-type referrers from memory, in order: a
+// referrer with no bundle fails to read.
+type memReferrers struct {
+	*Client
+	refs []memRef
+}
+
+type memRef struct {
+	predicate string
+	bundle    []byte
+}
+
+func (m memReferrers) Referrers(context.Context, string, string, string) ([]string, error) {
+	var out []string
+	for i := range m.refs {
+		out = append(out, fmt.Sprint(i))
+	}
+	return out, nil
+}
+
+func (m memReferrers) Layer(_ context.Context, _, digest string) ([]byte, map[string]string, error) {
+	var i int
+	_, _ = fmt.Sscan(digest, &i)
+	if m.refs[i].bundle == nil {
+		return nil, nil, errTest
+	}
+	return m.refs[i].bundle, map[string]string{AnnBundlePredicate: m.refs[i].predicate}, nil
+}
+
+// TestVerifyDigestReadsPastBadReferrers: an unreadable referrer and more
+// attestations than signatures are checked hide no valid signature, and
+// more forged signatures than are checked stop the check, refusing.
+func TestVerifyDigestReadsPastBadReferrers(t *testing.T) {
+	d := "sha256:" + strings.Repeat("a", 64)
+	const slsa = "https://slsa.dev/provenance/v1"
+	refs := []memRef{{predicate: SignPredicate}}
+	for range maxSignatures + 1 {
+		refs = append(refs, memRef{slsa, statementOver(d, slsa)})
+	}
+	reg := memReferrers{refs: refs}
+	if err := VerifyDigest(t.Context(), reg, names, "r", d); err == nil || !strings.Contains(err.Error(), errTest.Error()) {
+		t.Fatalf("verified with the only signature unreadable: %v", err)
+	}
+	reg.refs = append(refs, memRef{SignPredicate, statementOver(d, SignPredicate)})
+	if err := VerifyDigest(t.Context(), reg, names, "r", d); err != nil {
+		t.Fatalf("an unreadable referrer or the attestations hid a valid signature: %v", err)
+	}
+	reg.refs = nil
+	for i := range maxSignatures + 1 {
+		reg.refs = append(reg.refs, memRef{SignPredicate, fmt.Appendf(nil, "forged %d", i)})
+	}
+	reg.refs = append(reg.refs, memRef{SignPredicate, statementOver(d, SignPredicate)})
+	if err := VerifyDigest(t.Context(), reg, names, "r", d); err == nil || strings.Count(err.Error(), "not a signature") != maxSignatures {
+		t.Fatalf("checked other than %d signatures: %v", maxSignatures, err)
+	}
+}
+
 
 // TestVerifyDigestSkipsAttestations: a bundle with another predicate is an
 // attestation, not a signature.

@@ -3,8 +3,12 @@ package app
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"crypto/ed25519"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"net/http"
 	"os/exec"
 	"time"
@@ -175,7 +179,28 @@ func TestPublishRunsTheTools(t *testing.T) {
 }
 
 func keyPolicy(pub crypto.PublicKey) publish.BundleVerifier {
-	return func(b, d []byte) error { _, err := signing.Policy{Key: pub}.Verify(b, d); return err }
+	return bundleVerifier(signing.Policy{Key: pub})
+}
+
+// TestBundleVerifierReturnsTheSignedPredicate: the predicate type comes from
+// the signed statement, so an attestation by the right key over the right
+// digest is told apart from a signature whatever its referrer says.
+func TestBundleVerifierReturnsTheSignedPredicate(t *testing.T) {
+	_, key, _ := ed25519.GenerateKey(rand.Reader)
+	kp, _ := signing.FromPrivateKey(key)
+	d := sha256.Sum256([]byte("artifact"))
+	st := fmt.Appendf(nil, `{"_type":"https://in-toto.io/Statement/v1","subject":[{"digest":{"sha256":%q}}],"predicateType":"https://slsa.dev/provenance/v1","predicate":{}}`,
+		hex.EncodeToString(d[:]))
+	b, err := signing.Keyed(kp, "").Sign(t.Context(), "application/vnd.in-toto+json", st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pt, err := keyPolicy(key.Public())(b, d[:]); err != nil || pt != "https://slsa.dev/provenance/v1" {
+		t.Fatalf("predicate %q %v", pt, err)
+	}
+	if _, err := keyPolicy(key.Public())(b, make([]byte, 32)); err == nil {
+		t.Fatal("verified over another digest")
+	}
 }
 
 // independentlyVerified checks ref with the cosign CLI when it is installed:
