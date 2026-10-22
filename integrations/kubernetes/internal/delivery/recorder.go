@@ -79,7 +79,15 @@ type Recorder struct {
 	GapGrace time.Duration
 
 	mu      sync.Mutex
-	missing map[string]time.Time
+	missing map[gapKey]time.Time
+}
+
+// gapKey names a seq of one Stage: a Stage recreated with the same name
+// reuses the stream but starts its seqs over.
+type gapKey struct {
+	stream string
+	stage  types.UID
+	seq    int64
 }
 
 // SetupWithManager registers the recorder. An Operation wakes its Stage.
@@ -89,10 +97,13 @@ func (r *Recorder) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-// item is one local seq to record: an operation, or a gap where none is.
+// item is one local seq to record: an operation, or a gap where none is. A
+// wait item is a seq an existing operation took but has not yet concluded:
+// nothing after it is recorded until it is.
 type item struct {
-	seq int64
-	op  *dv1.Operation
+	seq  int64
+	op   *dv1.Operation
+	wait bool
 }
 
 // passTimeout bounds one pass over a Stage: a registry or signer that stops
@@ -150,8 +161,9 @@ func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 }
 
 // pending lists what this Stage still owes a record, in local seq order: every
-// concluded operation that keeps the record finalizer, and every seq after
-// recordedSeq that no operation holds.
+// concluded operation that keeps the record finalizer or whose seq is after
+// recordedSeq, a wait for every later seq the Stage gave an operation that
+// has not concluded yet, and a gap for every later seq no operation holds.
 // ponytail: one uncached list of the namespace's operations per event; add a
 // field index on spec.stage if that ever shows on the apiserver.
 func (r *Recorder) pending(ctx context.Context, stage *dv1.Stage) ([]item, error) {
@@ -159,23 +171,50 @@ func (r *Recorder) pending(ctx context.Context, stage *dv1.Stage) ([]item, error
 	if err := r.APIReader.List(ctx, list, client.InNamespace(stage.Namespace)); err != nil {
 		return nil, err
 	}
+	stream := stage.Status.Stream
 	held := map[int64]bool{}
+	exists := map[string]bool{}
 	var items []item
 	for i := range list.Items {
 		op := &list.Items[i]
-		if op.Spec.Stage != stage.Name || op.Status.Phase != delivery.PhaseConcluded || op.Status.Seq < 1 {
+		if op.Spec.Stage != stage.Name {
+			continue
+		}
+		exists[string(op.UID)] = true
+		if op.Status.Phase != delivery.PhaseConcluded || op.Status.Seq < 1 {
 			continue
 		}
 		held[op.Status.Seq] = true
-		if controllerutil.ContainsFinalizer(op, dv1.RecordFinalizer) {
+		// The finalizer is not proof the record is owed: admission may be
+		// off, or someone removed it. A seq after recordedSeq always is.
+		if op.Status.Seq > stream.RecordedSeq || controllerutil.ContainsFinalizer(op, dv1.RecordFinalizer) {
 			items = append(items, item{seq: op.Status.Seq, op: op})
 		}
 	}
-	for seq := stage.Status.Stream.RecordedSeq + 1; seq <= stage.Status.Stream.Seq; seq++ {
+	// The promoter takes the seq on the Stage before it writes the
+	// operation's status: that seq is late, not gone.
+	for _, c := range stream.Concluded {
+		if c.Seq > stream.RecordedSeq && !held[c.Seq] && exists[c.UID] {
+			held[c.Seq] = true
+			items = append(items, item{seq: c.Seq, wait: true})
+		}
+	}
+	gaps := map[int64]bool{}
+	for seq := stream.RecordedSeq + 1; seq <= stream.Seq; seq++ {
 		if !held[seq] {
+			gaps[seq] = true
 			items = append(items, item{seq: seq})
 		}
 	}
+	// A seq that is no longer a gap of this Stage forgets when it was first
+	// missed, so a later miss of it starts its grace over.
+	r.mu.Lock()
+	for k := range r.missing {
+		if k.stream == stream.ID && (k.stage != stage.UID || !gaps[k.seq]) {
+			delete(r.missing, k)
+		}
+	}
+	r.mu.Unlock()
 	slices.SortStableFunc(items, func(a, b item) int { return int(a.seq - b.seq) })
 	return items, nil
 }
@@ -312,6 +351,9 @@ func (w *writer) recordOf(uid string) string {
 // record writes or adopts the record of one item. It returns how long to wait
 // when a gap is still inside its grace period.
 func (w *writer) record(ctx context.Context, it item) (time.Duration, error) {
+	if it.wait {
+		return w.Poll, nil
+	}
 	if it.op == nil {
 		return w.gap(ctx, it.seq)
 	}
@@ -410,10 +452,10 @@ func (w *writer) input(ctx context.Context, op *dv1.Operation) (delivery.RecordI
 
 // gap records a local seq no operation holds, once its grace has passed.
 func (w *writer) gap(ctx context.Context, seq int64) (time.Duration, error) {
-	key := fmt.Sprintf("%s/%d", w.stage.Status.Stream.ID, seq)
+	key := gapKey{stream: w.stage.Status.Stream.ID, stage: w.stage.UID, seq: seq}
 	w.mu.Lock()
 	if w.missing == nil {
-		w.missing = map[string]time.Time{}
+		w.missing = map[gapKey]time.Time{}
 	}
 	first, seen := w.missing[key]
 	if !seen {
@@ -467,6 +509,8 @@ func (w *writer) release(ctx context.Context, op *dv1.Operation, rec *stored) er
 			return err
 		}
 	}
-	controllerutil.RemoveFinalizer(op, dv1.RecordFinalizer)
+	if !controllerutil.RemoveFinalizer(op, dv1.RecordFinalizer) {
+		return nil
+	}
 	return w.Update(ctx, op)
 }

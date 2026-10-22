@@ -35,7 +35,10 @@ Two kinds of record stand in for an operation that cannot be recorded as is:
 
 A record can be late. It is never skipped: an Operation keeps its
 `delivery.pacto.trianalab.io/record` finalizer until its record is in the
-registry and listed by the Referrers API.
+registry and listed by the Referrers API. An Operation without the finalizer,
+because admission is off or someone removed it, is still recorded in order.
+A number the Stage gave an Operation that has not finished concluding is a
+wait, not a gap.
 
 ## Install
 

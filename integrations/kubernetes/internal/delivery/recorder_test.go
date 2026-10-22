@@ -702,3 +702,84 @@ func TestRecorderEdgeCases(t *testing.T) {
 		}
 	})
 }
+
+// TestRecorderRecordsAnOperationWithoutTheFinalizer: admission off, or the
+// finalizer removed, does not let a concluded operation's seq be skipped.
+func TestRecorderRecordsAnOperationWithoutTheFinalizer(t *testing.T) {
+	re := newRecEnv(t)
+	re.stage(2)
+	re.concluded("ship", 1, delivery.Succeeded, func(o *dv1.Operation) { o.Finalizers = nil })
+	re.concluded("ship-again", 2, delivery.Succeeded)
+	re.reconcile()
+	if recs := re.records(); len(recs) != 2 {
+		t.Fatalf("records = %d, want 2", len(recs))
+	}
+	if got := re.getOp("ship").Status.Record; got == nil || got.Seq != 1 {
+		t.Fatalf("record = %+v, want seq 1", got)
+	}
+}
+
+// TestRecorderForgetsAMissedSeq: a seq missed for a moment and then held
+// starts its grace over the next time it is missed, here by a Stage recreated
+// with the same name.
+func TestRecorderForgetsAMissedSeq(t *testing.T) {
+	re := newRecEnv(t)
+	re.stage(1)
+	re.reconcile()
+	re.concluded("ship", 1, delivery.Succeeded)
+	re.reconcile()
+	ctx := context.Background()
+	if err := re.c.Delete(ctx, re.getStage()); err != nil {
+		t.Fatal(err)
+	}
+	if err := re.c.Delete(ctx, re.getOp("ship")); err != nil {
+		t.Fatal(err)
+	}
+	s := stageObj(re.reg.from)
+	s.UID, s.Status.Stream.Seq = "new-stage", 1
+	re.create(s)
+	re.now = re.now.Add(2 * time.Minute)
+	if res := re.reconcile(); res.RequeueAfter != time.Minute {
+		t.Fatalf("a stale miss skipped the grace: %+v", res)
+	}
+	if recs := re.records(); len(recs) != 1 {
+		t.Fatalf("records = %d, want only the first operation", len(recs))
+	}
+}
+
+// TestRecorderWaitsForAConcludingOperation: the Stage gave an operation its
+// seq and the operation's status write is late. That seq is no gap and
+// nothing after it is recorded; once the operation is gone it is a gap.
+func TestRecorderWaitsForAConcludingOperation(t *testing.T) {
+	re := newRecEnv(t)
+	re.stage(2)
+	late := opObj("late", delivery.TypePromote, re.reg.from, re.reg.to, bot)
+	re.create(late)
+	re.setStage(func(s *delivery.StageStatus) {
+		s.Stream.Concluded = []delivery.Concluded{{UID: string(late.UID), Seq: 1, Outcome: delivery.Succeeded}}
+	})
+	re.concluded("ship", 2, delivery.Succeeded)
+	for range 2 {
+		if res := re.reconcile(); res.RequeueAfter != time.Second {
+			t.Fatalf("not waiting: %+v", res)
+		}
+		re.now = re.now.Add(2 * time.Minute)
+	}
+	if recs := re.records(); len(recs) != 0 {
+		t.Fatalf("records = %d while seq 1 concludes", len(recs))
+	}
+	gone := re.getOp("late")
+	gone.Finalizers = nil
+	if err := re.c.Update(context.Background(), gone); err != nil {
+		t.Fatal(err)
+	}
+	if err := re.c.Delete(context.Background(), gone); err != nil {
+		t.Fatal(err)
+	}
+	re.reconcile()
+	re.now = re.now.Add(2 * time.Minute)
+	re.reconcile()
+	if recs := re.records(); len(recs) != 2 {
+		t.Fatalf("records = %d, want a gap and the operation", len(recs))
+	}
+}
