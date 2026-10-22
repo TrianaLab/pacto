@@ -142,7 +142,9 @@ func LoadKey(path string) (*Keypair, error) {
 }
 
 // KMS is the keypair of a KMS key URI (awskms://, gcpkms://, azurekms://,
-// hashivault://). The binary must link that provider.
+// hashivault://). The binary must link that provider. The key must sign with
+// the default scheme of its public key: ECDSA P-256, Ed25519 or RSA PKCS#1
+// v1.5, all with SHA-256. RSA-PSS and SHA-384/512 keys are refused.
 func KMS(ctx context.Context, uri string) (*Keypair, error) {
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
 	defer cancel()
@@ -154,7 +156,26 @@ func KMS(ctx context.Context, uri string) (*Keypair, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", uri, err)
 	}
-	return NewKeypair(sv, pub)
+	kp, err := NewKeypair(sv, pub)
+	if err != nil {
+		return nil, err
+	}
+	// The public key alone does not say how the KMS signs: an RSA key may sign
+	// with PSS or SHA-512 while the bundle and every verifier assume PKCS#1
+	// v1.5 with SHA-256. Sign a probe and verify it the way a bundle is
+	// verified, so such a key is refused here rather than at its first
+	// signature.
+	probe := []byte("pacto signing scheme probe")
+	sig, err := sv.SignMessage(bytes.NewReader(probe), options.WithContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", uri, err)
+	}
+	v, _ := signature.LoadDefaultVerifier(pub) // NewKeypair accepted pub's type
+	if v.VerifySignature(bytes.NewReader(sig), bytes.NewReader(probe)) != nil {
+		return nil, fmt.Errorf("%s signs with another algorithm than %s: use an ECDSA P-256, Ed25519 or RSA PKCS#1 v1.5 SHA-256 key; RSA-PSS and SHA-384/512 keys are not supported",
+			uri, kp.details.GetSignatureAlgorithm())
+	}
+	return kp, nil
 }
 
 // Signer signs DSSE envelopes into Sigstore bundles: with Keypair alone, or

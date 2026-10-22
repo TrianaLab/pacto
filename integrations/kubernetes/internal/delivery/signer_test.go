@@ -185,15 +185,26 @@ func TestNewSignerKeyless(t *testing.T) {
 		t.Fatal("a keyless record verified for another identity")
 	}
 
+	// The identity configured is not the one Fulcio certifies for the token:
+	// the probe fails, so no record its own stream rejects is ever written.
+	typo := cfg
+	typo.Identity = "recorder@pacto.exampel"
 	noTSA := cfg
 	noTSA.TimestampURL = ""
 	badRoot := cfg
 	badRoot.TrustedRootFile = writeFile(t, "bad.json", []byte("{}"))
 	noRoot := cfg
 	noRoot.TrustedRootFile = filepath.Join(t.TempDir(), "absent")
-	for name, c := range map[string]SigningConfig{"no timestamp authority": noTSA, "bad root": badRoot, "missing root": noRoot} {
+	for name, c := range map[string]SigningConfig{"identity typo": typo, "no timestamp authority": noTSA, "bad root": badRoot, "missing root": noRoot} {
 		if _, _, err := NewSigner(ctx, c); err == nil {
 			t.Errorf("%s: built a signer", name)
 		}
+	}
+}
+
+func TestSelfCheckedPassesSigningErrors(t *testing.T) {
+	s := selfChecked{Signer: failingSigner{}, verify: func(string, []byte) error { return nil }}
+	if _, err := s.Sign(context.Background(), delivery.PayloadType, nil); err == nil {
+		t.Fatal("a signing error was swallowed")
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -148,7 +149,14 @@ func TestLoadKey(t *testing.T) {
 // fakeKMS is a KMS provider backed by a local key.
 type fakeKMS struct {
 	signature.SignerVerifier
-	pubErr error
+	pubErr, signErr error
+}
+
+func (f fakeKMS) SignMessage(r io.Reader, o ...signature.SignOption) ([]byte, error) {
+	if f.signErr != nil {
+		return nil, f.signErr
+	}
+	return f.SignerVerifier.SignMessage(r, o...)
 }
 
 func (f fakeKMS) PublicKey(...signature.PublicKeyOption) (crypto.PublicKey, error) {
@@ -167,12 +175,24 @@ func (fakeKMS) DefaultAlgorithm() string      { return "" }
 func TestKMS(t *testing.T) {
 	key, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	sv, _ := signature.LoadSignerVerifier(key, crypto.SHA256)
+	// An RSA key that signs with PSS: its public key alone looks like
+	// PKCS#1 v1.5, which every verifier would then check it as.
+	rk, _ := rsa.GenerateKey(rand.Reader, 2048)
+	pss, _ := signature.LoadRSAPSSSignerVerifier(rk, crypto.SHA256, nil)
+	ek, _ := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
+	p384, _ := signature.LoadSignerVerifier(ek, crypto.SHA384)
 	kms.AddProvider("testkms://", func(_ context.Context, uri string, _ crypto.Hash, _ ...signature.RPCOption) (kms.SignerVerifier, error) {
 		switch uri {
 		case "testkms://down":
 			return nil, errors.New("kms down")
 		case "testkms://nopub":
 			return fakeKMS{SignerVerifier: sv, pubErr: errors.New("denied")}, nil
+		case "testkms://nosign":
+			return fakeKMS{SignerVerifier: sv, signErr: errors.New("denied")}, nil
+		case "testkms://pss":
+			return fakeKMS{SignerVerifier: pss}, nil
+		case "testkms://p384":
+			return fakeKMS{SignerVerifier: p384}, nil
 		}
 		return fakeKMS{SignerVerifier: sv}, nil
 	})
@@ -187,7 +207,7 @@ func TestKMS(t *testing.T) {
 	if err := independentKeyVerify(t, b, key.Public()); err != nil {
 		t.Errorf("a KMS signature does not verify: %v", err)
 	}
-	for _, uri := range []string{"testkms://down", "testkms://nopub", "nokms://key"} {
+	for _, uri := range []string{"testkms://down", "testkms://nopub", "testkms://nosign", "testkms://pss", "testkms://p384", "nokms://key"} {
 		if _, err := KMS(t.Context(), uri); err == nil {
 			t.Errorf("%s loaded", uri)
 		}

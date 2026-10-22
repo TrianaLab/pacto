@@ -10,6 +10,7 @@ package delivery
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 
 	"github.com/sigstore/sigstore-go/pkg/root"
@@ -44,8 +45,44 @@ type SigningConfig struct {
 }
 
 // NewSigner builds the recorder's signer and the trust config entry for the
-// records it writes.
+// records it writes. The entry is built from the configuration, apart from the
+// signer it describes, so every signature is checked against it before it is
+// returned, and one probe is signed here: a keyless identity that is not the
+// one Fulcio certifies, or a key that signs with another scheme, stops the
+// recorder at startup and never writes a record its own stream would reject.
 func NewSigner(ctx context.Context, cfg SigningConfig) (delivery.Signer, delivery.TrustedKey, error) {
+	s, own, err := newSigner(ctx, cfg)
+	if err != nil {
+		return nil, own, err
+	}
+	v, _ := signing.TrustVerifier(delivery.TrustConfig{Keys: []delivery.TrustedKey{own}}) // newSigner built own from a loaded key or root
+	checked := selfChecked{Signer: s, verify: v}
+	probe := delivery.NewGap("probe", delivery.ObjectMeta{Name: "probe"}, 0, delivery.Chain{Stream: "probe", Seq: 1}, "", "probe")
+	if _, _, err := delivery.SignRecord(ctx, checked, probe); err != nil {
+		return nil, own, fmt.Errorf("signing a probe record: %w", err)
+	}
+	return checked, own, nil
+}
+
+// selfChecked refuses a signature the recorder's own trust entry does not
+// verify, so the operation is retried rather than recorded.
+type selfChecked struct {
+	delivery.Signer
+	verify delivery.Verifier
+}
+
+func (s selfChecked) Sign(ctx context.Context, payloadType string, payload []byte) ([]byte, error) {
+	b, err := s.Signer.Sign(ctx, payloadType, payload)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.verify("", b); err != nil {
+		return nil, fmt.Errorf("the recorder's own trust entry rejects its signature: %w", err)
+	}
+	return b, nil
+}
+
+func newSigner(ctx context.Context, cfg SigningConfig) (delivery.Signer, delivery.TrustedKey, error) {
 	own := delivery.TrustedKey{Name: "recorder"}
 	set := 0
 	for _, on := range []bool{cfg.KeyFile != "", cfg.KMSKey != "", cfg.Keyless} {
