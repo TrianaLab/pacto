@@ -344,6 +344,29 @@ func TestAdmissionRefusals(t *testing.T) {
 	}
 }
 
+// TestDeletedMidChangeStillConcludes: an operation deleted after it moved
+// the pointer keeps the record finalizer and runs to its conclusion, so its
+// seq is taken and the recorder is owed a record, never a seq that waits
+// forever.
+func TestDeletedMidChangeStillConcludes(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.op.Records = true
+	e.drive("p1")
+	e.apply(dB)
+	if o := e.drive("p1"); o.Status.Phase != delivery.PhaseVerifying {
+		t.Fatalf("want Verifying, got %s", o.Status.Phase)
+	}
+	if err := e.c.Delete(context.Background(), e.getOp("p1")); err != nil {
+		t.Fatal(err)
+	}
+	e.evaluate(c2, "Compliant")
+	o := e.drive("p1")
+	wantOutcome(t, o, delivery.Succeeded, "Verified")
+	if o.Status.Seq != 1 || !controllerutil.ContainsFinalizer(o, dv1.RecordFinalizer) {
+		t.Fatalf("seq %d finalizers %v", o.Status.Seq, o.Finalizers)
+	}
+}
+
 // TestCancelAndExpire: deleting a pending operation cancels it; a held one
 // expires at its deadline.
 func TestCancelAndExpire(t *testing.T) {

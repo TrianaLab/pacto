@@ -110,3 +110,7 @@ tests:
           path: spec.validations[1].expression
           pattern: "^!variables.recorder \\|\\|"
         documentIndex: 8
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "object.status.locks : \\{\\}\\) == .*object.status.frozenReason.*object.status.stream.concluded : \\[\\]\\) == .*object.status.stageUID"
+        documentIndex: 8

@@ -124,6 +124,10 @@ records_scenario() {
   out="$(kubectl -n test patch stage payments --subresource=status --type merge -p '{"status":{"stream":{"head":"sha256:forged"}}}' 2>&1 || true)"
   grep -q "written only by the Pacto delivery recorder" <<<"$out" || fail "an admin moved the stream head: $out"
   pass "admission refuses a stream head written by anyone but the recorder"
+  out="$(kubectl -n test get stage payments -o json | jq '.status.locks = {"pointer": "forged"} | .status.stream.concluded = []' |
+    kubectl --as "system:serviceaccount:$DELIVERY_NS:pacto-delivery-recorder" replace --subresource=status -f - 2>&1 || true)"
+  grep -q "the Pacto delivery recorder writes records, never what runs" <<<"$out" || fail "the recorder rewrote the locks and conclusions: $out"
+  pass "admission refuses the recorder a write to the locks or the conclusions a Stage keeps"
 
   # refuse NAME — a refusal on publish-manual/billing: FOREIGN is never
   # published, so the promote is Rejected at once.
