@@ -18,6 +18,42 @@ workflow, kind script or chart value has to change).
 3. logic track (chart), `integrations/kubernetes/charts/pacto-delivery/values.yaml`
    comment on `recorder.signing.kms` (and the generated chart README): optional
    note that the default image includes every provider. No value change needed.
-4. owner of `pkg/validation/schema/pacto-v2.1.schema.json`: the `publish.sign.kms`
-   description says "A cosign KMS key URI"; consider "A KMS key URI (needs a
-   pacto build with -tags kms)". Regenerate dependants with the repo targets.
+4. Done by the core track in the SBOM commit below: the `publish.sign.kms`
+   schema description now says it needs a `-tags kms` build.
+
+## No git or syft programs in `pacto publish`
+
+The source revision is read from `.git` (HEAD, loose refs, packed-refs, a
+worktree's or submodule's gitdir file) with no `git` program. `syft` is gone:
+`publish.artifacts[].sbom` is now a path (string, `.spdx.json` or `.cdx.json`,
+relative to the contract directory) to the SBOM file the build writes. Pacto
+checks the file is that format, attaches it as a referrer
+(`application/spdx+json` or `application/vnd.cyclonedx+json`) and signs it; it
+never makes one. A build that writes into the contract directory after the plan
+(an SBOM not listed in `.pactoignore`) now fails with "the contract directory
+changed while publishing" instead of a registry digest error. `docker buildx`,
+`gh` and `docker-credential-*` stay.
+
+5. docs track, `docs/contract-reference/publish.md`: the example's
+   `sbom: true` becomes `sbom: sbom/api.spdx.json`, and the `artifacts[].sbom`
+   row becomes "The SPDX (`.spdx.json`) or CycloneDX (`.cdx.json`) JSON file the
+   build writes, relative to the contract directory. Pacto attaches it to the
+   image and signs it; it never makes one. Write it before `pacto publish` (for
+   example `syft dir:. -o spdx-json=sbom/api.spdx.json` or `trivy fs`) or, when
+   the build command writes it, list it in `.pactoignore`. Images only".
+6. docs track, `docs/publishing.md` line 67 ("attaches an SBOM made by `syft`")
+   and line 77 (the list of needed programs): Pacto attaches the declared SBOM
+   file; syft is no longer needed, and the revision comes from `.git` without
+   git. A file in `sbom/` is also what `pacto diff` reads for package changes,
+   so `sbom/<name>.spdx.json` serves both.
+7. ci track (optional, not required by this change): the release workflows
+   still install syft to make the CLI release's own SBOM
+   (`release/orchestrator/build-cli.sh`, `ci.yml`, `release.yml`, `pacto.yml`).
+   That is the release pipeline, not Pacto at runtime, so it is left as is.
+8. dash track and integrator: the `sbom` type change reaches the dashboard's
+   generated OpenAPI (`Contract.PublishArtifact.sbom` boolean to string). The
+   core branch regenerated it with `make generate-dashboard-sdk` (one line in
+   each of `pkg/dashboard/frontend/src/lib/generated/openapi.json`,
+   `.../schema.ts` and `examples/demo/pacto-dashboard/interfaces/openapi.json`);
+   no frontend code reads the field, so the UI bundle is unchanged. On a merge
+   conflict, rerun `make generate-dashboard-sdk` rather than hand-merging.
