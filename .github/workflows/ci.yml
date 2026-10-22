@@ -101,6 +101,39 @@ jobs:
               - 'pkg/probe/**'
               - 'internal/cli/agent.go'
               - 'internal/cli/run.go'
+              # The CLI the delivery phases run: `pacto delivery`, `record verify`
+              # and `pacto publish`, plus the publish code behind the last one.
+              - 'internal/cli/delivery*.go'
+              - 'internal/cli/publish.go'
+              - 'pkg/publish/**'
+              # Every core package the operator and pacto-delivery images compile
+              # in (the transitive import closure of integrations/kubernetes).
+              # TestE2EFilterCoversTheOperatorImports derives this list from the
+              # imports and fails when a package is missing.
+              - 'pkg/capability/**'
+              - 'pkg/catalog/**'
+              - 'pkg/contract/**'
+              - 'pkg/delivery/**'
+              - 'pkg/deliveryrecord/**'
+              - 'pkg/diff/**'
+              - 'pkg/evidence/**'
+              - 'pkg/finding/**'
+              - 'pkg/fleet/**'
+              - 'pkg/graph/**'
+              - 'pkg/impact/**'
+              - 'pkg/lock/**'
+              - 'pkg/logging/**'
+              - 'pkg/oci/**'
+              - 'pkg/ocireferrer/**'
+              - 'pkg/openapi/**'
+              - 'pkg/readiness/**'
+              - 'pkg/sbom/**'
+              - 'pkg/schemax/**'
+              - 'pkg/semver/**'
+              - 'pkg/signing/**'
+              - 'pkg/skills/**'
+              - 'pkg/strictjson/**'
+              - 'pkg/validation/**'
 
   ci-static:
     needs: changes
