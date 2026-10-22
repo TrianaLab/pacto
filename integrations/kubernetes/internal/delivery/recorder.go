@@ -216,11 +216,22 @@ func (r *Recorder) pending(ctx context.Context, stage *dv1.Stage) ([]item, error
 		}
 	}
 	// A seq that is no longer a gap of this Stage forgets when it was first
-	// missed, so a later miss of it starts its grace over.
+	// missed, so a later miss of it starts its grace over. Every gap starts
+	// its grace now, not when the records before it are written, so N gaps
+	// wait one grace, not N.
 	r.mu.Lock()
 	for k := range r.missing {
 		if k.stream == stream.ID && (k.stage != stage.UID || !gaps[k.seq]) {
 			delete(r.missing, k)
+		}
+	}
+	if r.missing == nil {
+		r.missing = map[gapKey]time.Time{}
+	}
+	for seq := range gaps {
+		k := gapKey{stream: stream.ID, stage: stage.UID, seq: seq}
+		if _, seen := r.missing[k]; !seen {
+			r.missing[k] = r.Now()
 		}
 	}
 	r.mu.Unlock()
@@ -475,14 +486,7 @@ func (w *writer) input(ctx context.Context, op *dv1.Operation) (delivery.RecordI
 func (w *writer) gap(ctx context.Context, seq int64) (time.Duration, error) {
 	key := gapKey{stream: w.stage.Status.Stream.ID, stage: w.stage.UID, seq: seq}
 	w.mu.Lock()
-	if w.missing == nil {
-		w.missing = map[gapKey]time.Time{}
-	}
-	first, seen := w.missing[key]
-	if !seen {
-		first = w.Now()
-		w.missing[key] = first
-	}
+	first := w.missing[key] // pending stamped it
 	w.mu.Unlock()
 	if wait := w.GapGrace - w.Now().Sub(first); wait > 0 {
 		return wait, nil

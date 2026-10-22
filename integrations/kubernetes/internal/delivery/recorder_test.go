@@ -802,13 +802,32 @@ func TestRecorderLeftoverOfADeletedStage(t *testing.T) {
 	if len(recs) != 2 {
 		t.Fatalf("records = %d, want 2", len(recs))
 	}
-	if uid := recs[0].Statement.Predicate.Intent.Stage.UID; uid != "old-stage" {
-		t.Fatalf("the leftover is recorded under %q", uid)
+	for _, r := range recs {
+		p := r.Statement.Predicate
+		if want := map[string]string{"old": "old-stage", "ship": "uid-payments-prod"}[p.Intent.Name]; p.Intent.Stage.UID != want {
+			t.Fatalf("%s is recorded under %q, want %q", p.Intent.Name, p.Intent.Stage.UID, want)
+		}
 	}
 	if s := re.getStage(); s.Status.Stream.RecordedSeq != 1 {
 		t.Fatalf("recordedSeq = %d, want 1", s.Status.Stream.RecordedSeq)
 	}
 	if o := re.getOp("old"); controllerutil.ContainsFinalizer(o, dv1.RecordFinalizer) {
 		t.Fatal("the leftover was not let go")
+	}
+}
+
+// TestRecorderGapsWaitOneGraceTogether: two missing seqs start their grace
+// together, so both are recorded one grace later, not one grace each.
+func TestRecorderGapsWaitOneGraceTogether(t *testing.T) {
+	re := newRecEnv(t)
+	re.stage(3)
+	re.concluded("ship", 3, delivery.Succeeded)
+	re.reconcile()
+	re.now = re.now.Add(time.Minute + time.Second)
+	if res := re.reconcile(); res.RequeueAfter != 0 {
+		t.Fatalf("the second gap started its grace late: %+v", res)
+	}
+	if recs := re.records(); len(recs) != 3 {
+		t.Fatalf("records = %d, want two gaps and the operation", len(recs))
 	}
 }
