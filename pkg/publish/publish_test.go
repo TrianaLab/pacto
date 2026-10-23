@@ -437,6 +437,17 @@ func TestPlanChecks(t *testing.T) {
 	expect(t, failedCheck(p) == "sign", "no sign: %+v", p.Checks)
 	p = MakePlan(ctx, reg, Input{Bundle: b})
 	expect(t, failedCheck(p) == "revision", "no revision: %+v", p.Checks)
+	clash := bundleOf(host, "1.0.0", workloadService)
+	clash.Contract.Publish.Artifacts[0].Ref = clash.Contract.Publish.Bundle
+	p = MakePlan(ctx, reg, Input{Bundle: clash, Revision: "r"})
+	expect(t, failedCheck(p) == "refs" && strings.Contains(p.Checks[1].Message, "bundle and api are both published to"), "bundle on the image: %+v", p.Checks)
+	clash.Contract.Publish.Artifacts[0].Ref = clash.Contract.Publish.Artifacts[1].Ref
+	p = MakePlan(ctx, reg, Input{Bundle: clash, Revision: "r"})
+	expect(t, failedCheck(p) == "refs", "two artifacts in one repository: %+v", p.Checks)
+	docker := bundleOf(host, "1.0.0", workloadService)
+	docker.Contract.Publish.Artifacts[0].Build = contract.PublishBuild{Dockerfile: &contract.DockerfileBuild{Context: "."}}
+	p = MakePlan(ctx, reg, Input{Bundle: docker, Revision: "r"})
+	expect(t, failedCheck(p) == "sbom" && strings.Contains(p.Checks[2].Message, "writes no SBOM file"), "an SBOM on a dockerfile build: %+v", p.Checks)
 	for _, s := range []contract.PublishSign{{KMS: "awskms:///a"}, {Keyless: true, Identity: "ci@acme", Issuer: "https://issuer"}} {
 		c := signCheck(&contract.Publish{Sign: &s})
 		expect(t, c.Passed, "sign %+v: %+v", s, c)
