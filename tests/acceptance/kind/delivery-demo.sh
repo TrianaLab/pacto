@@ -281,7 +281,7 @@ cmd_up() {
   section "create the cluster and build the images while the rest is pulled"
   local cfg; cfg="$(kind_config)"
   cluster_start_bg "$cfg"
-  build_images & local build=$!
+  infra "build the Pacto images" build_images & local build=$!
   local flux; flux="$(mktemp)"
   infra "download the Flux $FLUX_VERSION install manifest" \
     curl -fsSL --retry 2 --max-time 60 -o "$flux" "https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/install.yaml"
