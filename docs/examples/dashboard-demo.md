@@ -58,7 +58,7 @@ Kubernetes cluster or the [Docker Compose demo](compose-demo.md).
 
 Delivery is simulated, as the strip says on every delivery screen. Plans,
 checks, history, blame and undo come from Pacto's own code on fixed data. The
-health check results are recorded and the `pacto init` plan is recorded output
+health check results and the node agent's finding are recorded and the `pacto init` plan is recorded output
 that a test keeps current. Records are signed with a key made in your tab, so
 nothing outside it can check them, and a reload starts over. With no promoter,
 Flux or real sign-in, nothing it approves runs anywhere. One
