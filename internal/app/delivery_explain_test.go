@@ -68,7 +68,7 @@ func TestDeliverySummary(t *testing.T) {
 		want   string
 	}{{map[string]any{}, "is not admitted yet"}, {map[string]any{"phase": "Verifying", "message": "soaking"}, "is Verifying: soaking"},
 		{map[string]any{"phase": "Running"}, "is Running: in progress"}} {
-		if got := summarize(&delivery.OperationObject{Status: decodeStatus(t, c.status)}); !strings.Contains(got, c.want) {
+		if got := delivery.Summarize(&delivery.OperationObject{Status: decodeStatus(t, c.status)}); !strings.Contains(got, c.want) {
 			t.Errorf("summary %q, want %q", got, c.want)
 		}
 	}
