@@ -267,6 +267,9 @@ func TestOrderPlacesTheConsumerOrSaysWhy(t *testing.T) {
 			in.Stages = append(in.Stages, stageIn("prod", "orders", "orders", "prod"))
 		}, "2 Stages deliver orders in prod (orders-prod/orders and prod/orders)"},
 		{"upstream gone", func(in *PlanInput) { in.Stages = in.Stages[:2] }, "its upstream Stage test/orders does not exist or cannot be read"},
+		{"upstream in another cluster", func(in *PlanInput) {
+			in.Stages[1].Spec.Candidates = Candidates{UpstreamRecords: &RemoteStage{Repository: "reg/streams", Stream: "c2/test/orders"}}
+		}, "its upstream Stage is in another cluster (c2/test/orders (records in reg/streams)), which a plan does not read"},
 	}
 	for _, c := range cases {
 		in := in

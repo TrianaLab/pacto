@@ -109,6 +109,25 @@ spec:
                     required:
                     - name
                     type: object
+                  upstreamRecords:
+                    description: |-
+                      UpstreamRecords offers what a Stage in another cluster verified, read
+                      from its signed records: the promoter must trust the key that signs
+                      that stream (promoter.upstreamTrust), or it offers nothing.
+                    properties:
+                      repository:
+                        description: Repository (host/path) is the upstream recorder's
+                          streams repository.
+                        type: string
+                      stream:
+                        description: |-
+                          Stream is the upstream Stage's stream id, <clusterID>/<namespace>/<name>:
+                          its status.stream.id.
+                        type: string
+                    required:
+                    - repository
+                    - stream
+                    type: object
                   upstreamStage:
                     description: UpstreamStage offers that Stage's verified digests
                       minus its failed ones.

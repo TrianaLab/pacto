@@ -301,9 +301,10 @@ func TestPublishedGate(t *testing.T) {
 	plan := func(stage StageSpec, status StageStatus, to Revision, upstream *StageStatus) Plan {
 		snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
 		return PlanFor(context.Background(), PlanInput{Spec: promote(dA, dB), Stage: stage, Status: status, From: from, To: to,
-			Snapshot: snap, Class: ClassAgent, Upstream: upstream})
+			Snapshot: snap, Class: ClassAgent, Upstream: upstream, UpstreamErr: "untrusted key"})
 	}
-	oci, up, none := stageSpec(), stageSpec(), stageSpec()
+	oci, up, none, remote := stageSpec(), stageSpec(), stageSpec(), stageSpec()
+	remote.Candidates = Candidates{UpstreamRecords: &RemoteStage{Repository: "reg/streams", Stream: "c2/test/payments"}}
 	up.Candidates = Candidates{UpstreamStage: &StageRef{Name: "payments", Namespace: "test"}}
 	none.Candidates = Candidates{}
 	published := StageStatus{Pointer: dA, Published: []string{dB}, Verified: []string{dA}}
@@ -325,6 +326,8 @@ func TestPublishedGate(t *testing.T) {
 		{"upstream only signed", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}, Published: []string{dB}}), Fail, "is not offered"},
 		// Never an unknown a person could accept.
 		{"upstream unreadable", plan(up, StageStatus{Pointer: dA}, to, nil), Fail, "does not exist or cannot be read"},
+		{"remote offered", plan(remote, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}, Offered: []string{dB}}), Pass, "verified on the upstream Stage"},
+		{"remote unverifiable", plan(remote, StageStatus{Pointer: dA}, to, nil), Fail, "c2/test/payments (records in reg/streams) cannot be read or verified (untrusted key)"},
 		{"no source", plan(none, published, to, nil), Fail, "names no candidate source"},
 	}
 	for _, c := range cases {

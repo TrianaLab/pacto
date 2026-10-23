@@ -214,3 +214,36 @@ func edSigner(key ed25519.PrivateKey) delivery.Signer {
 func keyVerifier(pub ed25519.PublicKey) delivery.Verifier {
 	return func(_ string, b []byte) error { _, err := signing.Policy{Key: pub}.Verify(b, nil); return err }
 }
+
+// TestUpstream: a downstream reads what the upstream verified from its
+// signed records, and nothing when a record does not verify or the registry
+// cannot be read.
+func TestUpstream(t *testing.T) {
+	_, path := setup(t, testutil.ReferrersOptions{})
+	repo, _ := ocireferrer.Open(path, ocireferrer.Options{})
+	anchor := Anchor(stream)
+	_ = ocireferrer.Push(t.Context(), repo, anchor)
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	const to = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	st := delivery.Statement{Type: delivery.StatementType, PredicateType: delivery.PredicateOperation,
+		Predicate: delivery.RecordPredicate{Kind: delivery.RecordOperation, Type: &delivery.RecordType{ID: delivery.TypePromote},
+			Intent:   delivery.RecordIntent{Params: &delivery.Params{To: to}},
+			Verdicts: []delivery.Verdict{{Gate: delivery.GatePublished, Result: delivery.Pass}},
+			Outcome:  &delivery.RecordOutcome{Result: delivery.Succeeded, Verification: delivery.Verified},
+			Chain:    delivery.Chain{Stream: stream, Seq: 1}}}
+	b, _, _ := delivery.SignRecord(t.Context(), edSigner(key), st)
+	attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, b, map[string]string{AnnPredicateType: delivery.PredicateOperation})
+
+	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(pub)); why != "" || len(s.Offered) != 1 || s.Offered[0] != to {
+		t.Fatalf("offered = %+v %q", s, why)
+	}
+	other, _, _ := ed25519.GenerateKey(rand.Reader)
+	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(other)); s != nil || !strings.Contains(why, "could not be verified") {
+		t.Fatalf("an untrusted key offers nothing: %+v %q", s, why)
+	}
+	_, path = setup(t, testutil.ReferrersOptions{Unsupported: true})
+	repo, _ = ocireferrer.Open(path, ocireferrer.Options{})
+	if s, why := Upstream(t.Context(), repo, stream, Unchecked); s != nil || !strings.HasPrefix(why, "reading the records") {
+		t.Fatalf("an unreadable registry offers nothing: %+v %q", s, why)
+	}
+}

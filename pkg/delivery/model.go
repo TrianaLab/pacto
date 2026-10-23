@@ -121,6 +121,20 @@ type Candidates struct {
 	// UpstreamStage offers that Stage's verified digests minus its failed ones.
 	// +optional
 	UpstreamStage *StageRef `json:"upstreamStage,omitempty"`
+	// UpstreamRecords offers what a Stage in another cluster verified, read
+	// from its signed records: the promoter must trust the key that signs
+	// that stream (promoter.upstreamTrust), or it offers nothing.
+	// +optional
+	UpstreamRecords *RemoteStage `json:"upstreamRecords,omitempty"`
+}
+
+// RemoteStage is a Stage in another cluster, known only by its signed records.
+type RemoteStage struct {
+	// Repository (host/path) is the upstream recorder's streams repository.
+	Repository string `json:"repository"`
+	// Stream is the upstream Stage's stream id, <clusterID>/<namespace>/<name>:
+	// its status.stream.id.
+	Stream string `json:"stream"`
 }
 
 // StageRef names a Stage, in the referring Stage's namespace unless Namespace

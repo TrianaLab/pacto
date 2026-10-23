@@ -67,6 +67,9 @@ type PlanInput struct {
 	// Upstream is the upstream Stage's status when the Stage takes its
 	// candidates from one; nil when it could not be read.
 	Upstream *StageStatus
+	// UpstreamErr says why the records of an upstream Stage in another
+	// cluster gave no Upstream.
+	UpstreamErr string
 	// Stages are every Stage the caller could list, in every namespace, and
 	// StagesErr why they could not be listed. They place the consumers of a
 	// blocked change: which Stage delivers each in this environment and what
@@ -203,9 +206,12 @@ func publishedGate(in PlanInput) Verdict {
 	v := Verdict{Gate: GatePublished, Phase: "pre", Result: Fail, Citation: map[string]string{}}
 	to, c := in.Spec.Params.To, in.Stage.Candidates
 	switch {
-	case c.UpstreamStage != nil:
-		v.Citation["upstream"] = c.UpstreamStage.Namespace + "/" + c.UpstreamStage.Name
+	case c.UpstreamStage != nil || c.UpstreamRecords != nil:
+		v.Citation["upstream"] = upstreamName(c)
 		switch {
+		case in.Upstream == nil && c.UpstreamRecords != nil:
+			v.Message = "the records of the upstream Stage " + v.Citation["upstream"] + " cannot be read or verified (" +
+				in.UpstreamErr + "), so it offers no candidate"
 		case in.Upstream == nil:
 			v.Message = "the upstream Stage " + v.Citation["upstream"] + " does not exist or cannot be read, so it offers no candidate"
 		case slices.Contains(in.Upstream.Verified, to) && slices.Contains(in.Upstream.Offered, to):

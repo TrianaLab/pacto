@@ -15,6 +15,7 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 )
 
 // Delivery resources the client reads and writes.
@@ -199,7 +200,7 @@ func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.Pla
 			in.From = delivery.ResolveRevision(ctx, reg, repo, spec.Params.From)
 			in.To = delivery.ResolveRevision(ctx, reg, repo, spec.Params.To)
 		}
-		in.Upstream = d.upstream(ctx, stage)
+		in.Upstream, in.UpstreamErr = d.upstream(ctx, stage)
 		pactos, listErr := d.pactos(ctx)
 		in.Stages, in.StagesErr = d.Stages(ctx, "")
 		in.Candidates = func(ctx context.Context, s delivery.StageObject, digest string) delivery.Revision {
@@ -220,11 +221,24 @@ func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.Pla
 
 // upstream reads the status of the Stage this one takes its candidates from;
 // nil when there is none or it cannot be read, which the published gate
-// refuses.
-func (d *Delivery) upstream(ctx context.Context, stage *delivery.StageObject) *delivery.StageStatus {
+// refuses. An upstream in another cluster is read from its signed records,
+// and only with a trust config: unverified history never admits a version.
+func (d *Delivery) upstream(ctx context.Context, stage *delivery.StageObject) (*delivery.StageStatus, string) {
+	if r := stage.Spec.Candidates.UpstreamRecords; r != nil {
+		if d.Records == nil || d.Trust == nil {
+			return nil, "no trust config was given (pass --trust with the key of the upstream recorder), so its records are not read"
+		}
+		repo, err := d.Records(r.Repository)
+		if err != nil {
+			return nil, err.Error()
+		}
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		return deliveryrecord.Upstream(ctx, repo, r.Stream, d.verifier())
+	}
 	up := stage.Spec.Candidates.UpstreamStage
 	if up == nil {
-		return nil
+		return nil, ""
 	}
 	ns := up.Namespace
 	if ns == "" {
@@ -232,9 +246,9 @@ func (d *Delivery) upstream(ctx context.Context, stage *delivery.StageObject) *d
 	}
 	s, err := d.Stage(ctx, ns, up.Name)
 	if err != nil {
-		return nil
+		return nil, ""
 	}
-	return &s.Status
+	return &s.Status, ""
 }
 
 // spec turns a request into the intent the promoter will admit.

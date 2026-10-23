@@ -1069,6 +1069,7 @@ export interface components {
         };
         "Delivery.Candidates": {
             ociRepositoryRef?: components["schemas"]["Delivery.LocalRef"];
+            upstreamRecords?: components["schemas"]["Delivery.RemoteStage"];
             upstreamStage?: components["schemas"]["Delivery.StageRef"];
         };
         "Delivery.Cause": {
@@ -1261,6 +1262,10 @@ export interface components {
             refused?: string;
             /** Format: int64 */
             seq: number;
+        };
+        "Delivery.RemoteStage": {
+            repository: string;
+            stream: string;
         };
         "Delivery.Request": {
             cause?: components["schemas"]["Delivery.Cause"];
