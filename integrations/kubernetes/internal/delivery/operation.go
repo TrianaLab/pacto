@@ -672,7 +672,9 @@ func stillPasses(prev, cur delivery.Plan) bool {
 	// changes from one read to the next.
 	for _, v := range cur.Verdicts {
 		if v.Gate == delivery.GateImpact && v.Result == delivery.Unknown &&
-			!slices.ContainsFunc(prev.Verdicts, func(p delivery.Verdict) bool { return p.Gate == v.Gate && p.Result == v.Result && p.Message == v.Message }) {
+			!slices.ContainsFunc(prev.Verdicts, func(p delivery.Verdict) bool {
+				return p.Gate == v.Gate && p.Result == v.Result && p.Message == v.Message
+			}) {
 			return false
 		}
 	}

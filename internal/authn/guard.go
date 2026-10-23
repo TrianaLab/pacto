@@ -161,22 +161,29 @@ func (d *Dashboard) local(w http.ResponseWriter, r *http.Request) (State, bool) 
 	if !delivery(r.URL.Path) {
 		return st, true
 	}
+	if why := d.refuseLocal(r, st); why != "" {
+		http.Error(w, why, http.StatusForbidden)
+		return State{}, false
+	}
+	return st, true
+}
+
+// refuseLocal says why a local dashboard refuses a delivery request, or "".
+func (d *Dashboard) refuseLocal(r *http.Request, st State) string {
 	switch {
 	case !loopback(r.Host):
-		http.Error(w, "a local dashboard answers delivery requests only on a loopback address", http.StatusForbidden)
+		return "a local dashboard answers delivery requests only on a loopback address"
 	case !st.SignedIn && r.URL.Path != "/api/session":
 		// Reads too: they go to the cluster as the kubeconfig user, which only
 		// whoever saw the launch token may borrow. /api/session stays open so
 		// the UI can tell it is signed out.
-		http.Error(w, "delivery needs the dashboard's launch token; open the URL pacto dashboard printed", http.StatusForbidden)
+		return "delivery needs the dashboard's launch token; open the URL pacto dashboard printed"
 	case isMutating(r.Method) && (!st.SignedIn || !equal(r.Header.Get(CSRFHeader), d.launchCSRF)):
-		http.Error(w, "this action needs the dashboard's launch token and the "+CSRFHeader+" header; open the URL pacto dashboard printed", http.StatusForbidden)
+		return "this action needs the dashboard's launch token and the " + CSRFHeader + " header; open the URL pacto dashboard printed"
 	case isMutating(r.Method) && r.Header.Get("Origin") != "" && !sameOrigin(r):
-		http.Error(w, "cross-origin request forbidden", http.StatusForbidden)
-	default:
-		return st, true
+		return "cross-origin request forbidden"
 	}
-	return State{}, false
+	return ""
 }
 
 // alwaysOpen: the paths RequireLogin leaves open, for probes, the UI's
