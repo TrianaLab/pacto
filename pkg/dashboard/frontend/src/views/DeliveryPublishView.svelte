@@ -54,6 +54,8 @@
     {:else if refused}
       {#if refused.completeness === 'partial'}
         <p class="t-body-2 pv-partial" role="status" data-testid="refused-partial">This list may be incomplete{#if refused.note}: {refused.note}{/if}.{#if refused.unreadable?.length}{' '}Could not read: {refused.unreadable.join('; ')}.{/if}</p>
+      {:else if refused.note}
+        <p class="t-meta" data-testid="refused-note">{sentence(refused.note)}</p>
       {/if}
       {#if (refused.refusals ?? []).length === 0}
         <p class="t-body-2 pv-none">No publish was refused{refused.completeness === 'partial' ? ' that Pacto could read' : ''}.</p>

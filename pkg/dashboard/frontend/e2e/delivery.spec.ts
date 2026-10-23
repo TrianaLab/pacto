@@ -118,7 +118,8 @@ function installDelivery(persona: Persona): void {
     }
     if (route === '/api/delivery/published') return json(200, { ...listing, services: [] });
     if (route === '/api/delivery/refusals') {
-      return json(200, { asOf: listing.asOf, recorded: true, completeness: 'complete', refusals: [
+      return json(200, { asOf: listing.asOf, recorded: true, completeness: 'complete',
+        note: "read from each service's contract bundle repository; their signatures are not checked here", refusals: [
         { service: 'payments', version: '2.4.3', check: 'version', requiredBump: 'major', baseline: '2.4.2', reason: 'removing a field is a breaking change',
           actor: 'system:serviceaccount:agents:pay-agent', at: '2026-10-21T08:00:00Z', verified: true }] });
     }
@@ -342,6 +343,7 @@ test.describe('Delivery views', () => {
     await expect(refused).toContainText('payments 2.4.3', { timeout: T });
     await expect(refused).toContainText('Needs a major version');
     await expect(refused).toContainText('By pay-agent');
+    await expect(refused.getByTestId('refused-note')).toContainText('Read from each service');
     await audit(page, 'published with refusals');
   });
 
