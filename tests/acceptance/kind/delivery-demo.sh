@@ -485,6 +485,8 @@ wait_concluded() { # NS OP WANT
 pointer() { kubectl -n "$1" get stage "$2" -o jsonpath='{.status.pointer}'; }
 runs() { [ "$(pointer "$1" "$2")" = "$3" ]; }
 failed_on() { kubectl -n "$1" get stage "$2" -o json | jq -e --arg d "$3" '.status.failedDigests // [] | index($d)' >/dev/null; }
+# offered SERVICE DIGEST — test verified it and offers it to prod.
+offered() { kubectl -n test get stage "$1" -o json | jq -e --arg d "$2" '.status.offered // [] | index($d)' >/dev/null; }
 published_in() { kubectl -n "$1" get stage "$2" -o json | jq -e --arg d "$3" '.status.published // [] | index($d)' >/dev/null; }
 digest_of() { cat "$DEMO/digests/$1-$2"; } # SERVICE VERSION
 remember() { mkdir -p "$DEMO/digests"; echo "$3" > "$DEMO/digests/$1-$2"; }
@@ -497,7 +499,7 @@ ship_test() {
 # ship_prod SERVICE VERSION — pay-agent promotes a verified version in prod.
 ship_prod() {
   local d; d="$(digest_of "$1" "$2")"
-  eventually 60 published_in prod "$1" "$d" || fail "prod never offered $1 $2"
+  eventually 60 offered "$1" "$d" || fail "test never offered $1 $2 to prod"
   propose -n prod --stage "$1" --to "$d" --name "$1-${2//./-}" --reason "the demo's starting point"
   wait_concluded prod "$1-${2//./-}" Succeeded/Verified
 }
@@ -532,6 +534,8 @@ diffs() {
   same "$1" "required bump" "$(jq -r .requiredBump <<<"$got")" "$(expect "$1" RequiredBump | jq -r .)"
 }
 predicted() { # BEAT NS OP — the promoter's plan says what the story says
+  planned() { [ -n "$(field "$2" "$3" plan.predicted)" ]; }
+  eventually 30 planned "$@" || fail "$2/$3 has no plan: $(field "$2" "$3" phase) $(field "$2" "$3" message)"
   same "$1" "predicted" "$(field "$2" "$3" plan.predicted)" "$(expect "$1" Predicted | jq -r .)"
 }
 
@@ -567,7 +571,7 @@ story_b1() {
   diffs B1 2.3.0 2.4.0
   ship_test payments 2.4.0
   local d; d="$(digest_of payments 2.4.0)"
-  eventually 60 published_in prod payments "$d" || fail "prod never offered payments 2.4.0"
+  eventually 60 offered payments "$d" || fail "test never offered payments 2.4.0 to prod"
   propose -n prod --stage payments --to "$d" --name payments-2-4-0 --reason "B1: adds an endpoint"
   predicted B1 prod payments-2-4-0
   same B1 "a person asked" "$(field prod payments-2-4-0 plan.floor.decision)" "$(expect B1 Decision | jq -r .)"
@@ -613,9 +617,10 @@ story_b4() {
   local out
   checkout_version payments 2.4.3
   out="$(cd "$WORK/payments" && reg "$PACTO" publish 2>&1)" && fail "publishing payments 2.4.3 was not refused: $out"
-  grep -q "Required bump: $(expect B4 RequiredBump | jq -r .)" <<<"$out" || drift B4 "the version rule" "$out" "Required bump: $(expect B4 RequiredBump | jq -r .)"
+  local rule; rule="$(grep -m1 "FAIL version:" <<<"$out" || true)"
+  grep -q "$(expect B4 RequiredBump | jq -r .)" <<<"$rule" || drift B4 "the version rule" "${rule:-$out}" "a $(expect B4 RequiredBump | jq -r .) bump"
   same B4 "the version refused" "2.4.3" "$(expect B4 Refused | jq -r .)"
-  echo "  pacto publish 2.4.3: $(grep -m1 "Required bump" <<<"$out")"
+  echo "  pacto publish 2.4.3 is refused: ${rule#*FAIL }"
   diffs B4 2.4.2 3.0.0
   ship_test payments 3.0.0
   # A copy pushed with plain oras: the same layer and contract, never signed by
@@ -639,7 +644,7 @@ story_b5() {
   beat B5
   diffs B5 2.3.0 3.0.0
   local d; d="$(digest_of payments 3.0.0)"
-  eventually 60 published_in prod payments "$d" || fail "prod never offered payments 3.0.0"
+  eventually 60 offered payments "$d" || fail "test never offered payments 3.0.0 to prod"
   propose -n prod --stage payments --to "$d" --name payments-3-0-0 --reason "B5: removes a field"
   eventually 60 held prod payments-3-0-0 || fail "payments 3.0.0 was not held: $(field prod payments-3-0-0 phase) $(field prod payments-3-0-0 message)"
   predicted B5 prod payments-3-0-0
