@@ -1314,6 +1314,7 @@ export interface components {
             approvalDeadline?: string;
             executionDeadline?: string;
             finished?: string;
+            held?: string;
             started?: string;
             verifyDeadline?: string;
         };
