@@ -21,8 +21,8 @@ included, and a list of what Pacto found and what it could not tell
 checks the running service, and per environment a Stage with the Flux
 OCIRepository and Kustomization it applies through.
 
-It only adds: a file that is already there is yours and is left as it is, so
-running it twice is safe. --plan shows exactly what would be added and
+It only adds files and missing .pactoignore lines; any other file already
+there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and
 changes nothing.`,
 		Example: `  pacto init my-service
   pacto init --plan
