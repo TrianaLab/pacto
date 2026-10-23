@@ -130,9 +130,10 @@ func TestPublishCommandFailures(t *testing.T) {
 	out, err = runPublish(t, fromUpstream, "text", "--propose", "prod/payments-prod", "--propose-timeout", "5ms")
 	wantRun(t, out, err, false, "Proposed "+cliA+" on prod/payments-prod")
 	// A refused publish never claims everything is published.
-	refusedRes := &publish.Result{Plan: publishPlan(false), Actions: []string{}, Digests: map[string]string{}}
+	refusedRes := &publish.Result{Plan: publishPlan(false), Actions: []string{}, Digests: map[string]string{}, Refusal: "the refusal is kept, signed, in reg/pacto/payments"}
 	out, err = runPublish(t, publishDeps(refusedRes, publish.ErrNotReady, &got), "text")
 	wantRun(t, out, err, true, "FAIL version")
+	wantRun(t, out, err, true, "Refusal: the refusal is kept, signed, in reg/pacto/payments")
 	if strings.Contains(out, "Nothing to publish") {
 		t.Fatalf("a refused publish claims nothing is left to publish:\n%s", out)
 	}

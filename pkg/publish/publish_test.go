@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/registry"
@@ -291,8 +292,15 @@ func TestVersionRule(t *testing.T) {
 		p.Baseline != "1.0.0" || p.RequiredBump != "major" {
 		t.Fatalf("breaking as a minor: %v %+v", err, p)
 	}
-	if _, err := publishAt("2.0.0", "job"); err != nil {
+	at := time.Date(2026, 10, 22, 12, 0, 0, 0, time.FixedZone("CEST", 7200))
+	if r, ok := VersionRefusal(p, at); !ok || r.Service != "payments" || r.Version != "1.1.0" || r.Baseline != "1.0.0" ||
+		r.RequiredBump != "major" || r.Classification != "BREAKING" || r.At != "2026-10-22T10:00:00Z" || !strings.Contains(r.Message, "needs a major bump") {
+		t.Fatalf("refusal: %+v %v", r, ok)
+	}
+	if p, err := publishAt("2.0.0", "job"); err != nil {
 		t.Fatalf("breaking as a major: %v", err)
+	} else if _, ok := VersionRefusal(p, at); ok {
+		t.Fatal("a published version reads as refused")
 	}
 	// 1.5.0 compares against 1.0.0, the highest version below it.
 	if p, _ := publishAt("1.5.0", workloadService); p.Baseline != "1.0.0" {
@@ -471,6 +479,8 @@ func TestPlanUnreadable(t *testing.T) {
 	next := bundleOf(host, "1.1.0", workloadService)
 	p = MakePlan(ctx, brokenRegistry{reg, "pull"}, Input{Bundle: next, Revision: "r"})
 	expect(t, failedCheck(p) == "version", "baseline unreadable: %+v", p.Checks)
+	_, refused := VersionRefusal(p, time.Now())
+	expect(t, !refused && p.RequiredBump == "", "an unreadable baseline is no version refusal: %+v", p)
 	unpackable := bundleOf(host, "1.1.0", workloadService)
 	unpackable.FS = nil
 	p = MakePlan(ctx, reg, Input{Bundle: unpackable, Revision: "r"})

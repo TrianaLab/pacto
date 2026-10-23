@@ -156,6 +156,9 @@ func printPublishResult(cmd *cobra.Command, res *publish.Result, format string, 
 		if res.Deploy != "" {
 			_, _ = fmt.Fprintln(w, "Deploy: "+res.Deploy)
 		}
+		if res.Refusal != "" {
+			_, _ = fmt.Fprintln(w, "Refusal: "+res.Refusal)
+		}
 		return nil
 	}, nil)
 }

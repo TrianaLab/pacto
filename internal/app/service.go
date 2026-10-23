@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"oras.land/oras-go/v2/registry/remote"
+
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/contractview"
 	"github.com/trianalab/pacto/v4/pkg/doc"
@@ -53,6 +55,8 @@ type sysDeps struct {
 	run runner
 	// publishRegistry is the registry publish reads and writes.
 	publishRegistry func() publish.Registry
+	// refusalRepo opens the repository a publish refusal is kept in.
+	refusalRepo func(path string) (*remote.Repository, error)
 }
 
 // env is sys with every unset field at its production default.
@@ -96,6 +100,9 @@ func (s *Service) env() sysDeps {
 	}
 	if d.publishRegistry == nil {
 		d.publishRegistry = defaultPublishRegistry
+	}
+	if d.refusalRepo == nil {
+		d.refusalRepo = defaultRefusalRepo
 	}
 	return d
 }

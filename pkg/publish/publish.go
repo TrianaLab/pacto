@@ -10,9 +10,11 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	mver "github.com/Masterminds/semver/v3"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/semver"
@@ -262,6 +264,7 @@ func bumpCheck(ctx context.Context, reg Registry, b *contract.Bundle, p *Plan, r
 	p.Baseline = baseline
 	base, err := reg.Pull(ctx, repo+":"+baseline)
 	if err != nil {
+		p.Classification, p.RequiredBump = "", "" // no comparison with this baseline was made
 		ch.Message = "the published " + baseline + " could not be read: " + err.Error()
 		return ch
 	}
@@ -276,6 +279,19 @@ func bumpCheck(ctx context.Context, reg Registry, b *contract.Bundle, p *Plan, r
 		ch.Message += "; Pacto could not tell whether it breaks a consumer, so a minor is enough"
 	}
 	return ch
+}
+
+// VersionRefusal is the version rule's refusal of p, kept as a signed record
+// where a supervising person looks: false when the rule did not refuse it
+// after comparing with a published baseline.
+func VersionRefusal(p Plan, at time.Time) (delivery.PublishRefusal, bool) {
+	for _, ch := range p.Checks {
+		if ch.Name == "version" && !ch.Passed && p.RequiredBump != "" {
+			return delivery.PublishRefusal{Service: p.Service, Version: p.Version, Baseline: p.Baseline, Classification: p.Classification,
+				RequiredBump: string(p.RequiredBump), Message: ch.Message, At: at.UTC().Format(time.RFC3339)}, true
+		}
+	}
+	return delivery.PublishRefusal{}, false
 }
 
 // prerelease reports whether the semver tag t is a release candidate.

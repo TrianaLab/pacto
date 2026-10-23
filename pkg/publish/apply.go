@@ -50,6 +50,9 @@ type Result struct {
 	SBOMs map[string]string `json:"sboms,omitempty"`
 	// Deploy is the deploy artifact as repo@digest, when there is one.
 	Deploy string `json:"deploy,omitempty"`
+	// Refusal says where a version-rule refusal was kept, signed, or why it
+	// could not be. It never changes the publish's outcome.
+	Refusal string `json:"refusal,omitempty"`
 }
 
 // Apply plans, then publishes what is absent: builds it, pushes it by digest,

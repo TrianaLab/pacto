@@ -81,7 +81,12 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	if opts.Plan {
 		return &publish.Result{Plan: publish.MakePlan(ctx, reg, in)}, nil
 	}
-	return publish.Apply(ctx, reg, newExecTools(path, env.run, reg), in)
+	tools := newExecTools(path, env.run, reg)
+	res, err := publish.Apply(ctx, reg, tools, in)
+	if errors.Is(err, publish.ErrNotReady) {
+		res.Refusal = keepRefusal(ctx, env, tools, b, res.Plan)
+	}
+	return res, err
 }
 
 // checkOf is a passed check, or a failed one carrying the first error.
