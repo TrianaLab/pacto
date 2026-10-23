@@ -319,6 +319,7 @@ func TestPublishedGate(t *testing.T) {
 		{"oci no contract", plan(oci, published, Revision{Digest: dB, NoContract: true, Err: "no annotation"}, nil), Fail, "names no digest-pinned"},
 		{"oci unreadable", plan(oci, published, Revision{Digest: dB, Err: "registry down"}, nil), Unknown, "registry down"},
 		{"upstream offered", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}, Offered: []string{dB}}), Pass, "passed pacto.published and verified on the upstream Stage"},
+		{"upstream failed", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{FailedDigests: []string{dB}}), Fail, "failed after release on the upstream Stage test/payments"},
 		{"upstream not verified", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Offered: []string{dB}}), Fail, "is not offered by the upstream Stage test/payments"},
 		// Verified there, but on an accepted unknown or before the published
 		// rule existed, or only signed there: never offered.
