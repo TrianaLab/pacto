@@ -678,6 +678,11 @@ spec:
                     type: string
                   finished:
                     type: string
+                  held:
+                    description: |-
+                      Held is when the operation was last held for a person. An approval
+                      created before it answered an earlier question and does not count.
+                    type: string
                   started:
                     type: string
                   verifyDeadline:

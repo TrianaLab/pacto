@@ -202,6 +202,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.times.approvalDeadline` | `string` | no |  |  |  |
 | `status.times.executionDeadline` | `string` | no |  |  |  |
 | `status.times.finished` | `string` | no |  |  |  |
+| `status.times.held` | `string` | no |  |  | Held is when the operation was last held for a person. An approval created before it answered an earlier question and does not count. |
 | `status.times.started` | `string` | no |  |  |  |
 | `status.times.verifyDeadline` | `string` | no |  |  |  |
 | `status.verdicts` | `[]object` | no |  |  |  |
