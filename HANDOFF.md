@@ -50,3 +50,19 @@ later (design: "after M5, when a real team asks"); the page says so.
    which applier a Stage uses. If they ever do, include `upstreamRecords` and
    `applyRef.kind`. The Ready reason `UpstreamUntrusted` is new.
 9. Ledger: section H phase 8 can be ticked once a verifier confirms.
+
+## Out-of-ownership paths (phase 7)
+
+Phase 7 commits 28a54d28, 3d4a150e and 50526990 touched paths outside the
+roadmap row. Check them against the docs and ci branches when integrating:
+
+10. ci and docs tooling: `release/scripts/docs_check.py` writes an `mcp` tools
+    stub (`MCP_STUB`) for doc examples with an `mcp` interface, and follows
+    `agent.evals` as a local ref, so the doc contract check validates 2.1
+    agent examples the way the real CLI does.
+11. core: `pkg/diff/{classification,engine,interfaces,mcp}.go` classify `mcp`
+    interface and `agent` changes (a model swap needs at least a minor), and
+    `pkg/validation/crossfield.go` adds the agent cross-field checks.
+12. core: `pkg/validation/schema/pacto-v2.1.schema.json` and
+    `field-coverage.yaml` add the `mcp` interface type and the `agent`
+    section; `tests/integration/field_coverage_test.go` covers them.
