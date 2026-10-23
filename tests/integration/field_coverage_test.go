@@ -308,7 +308,7 @@ var fieldCoverageCases = []fcCase{
 	valid("publish.artifacts/valid", del("publish.deploy"), del("publish.artifacts")),
 	invalid("publish.artifacts/invalid", parseError, set("publish.artifacts", "api")),
 	valid("publish.artifacts[]/valid"),
-	invalid("publish.artifacts[]/invalid", "DUPLICATE_PUBLISH_ARTIFACT", set("publish.artifacts.3",
+	invalid("publish.artifacts[]/invalid", "DUPLICATE_PUBLISH_ARTIFACT", set("publish.artifacts.4",
 		map[string]any{"name": "api", "type": "image", "ref": "oci://ghcr.io/acme/other", "build": map[string]any{"command": []any{"make"}}})),
 	valid("publish.artifacts[].name/valid", set("publish.artifacts.0.name", "api-v2")),
 	invalid("publish.artifacts[].name/invalid", schemaViolation, set("publish.artifacts.0.name", "Api")),
@@ -336,8 +336,9 @@ var fieldCoverageCases = []fcCase{
 	invalid("publish.artifacts[].build.command/invalid", schemaViolation, set("publish.artifacts.1.build.command", []any{})),
 	valid("publish.artifacts[].build.command[]/valid", set("publish.artifacts.1.build.command.0", "./package.sh")),
 	invalid("publish.artifacts[].build.command[]/invalid", schemaViolation, set("publish.artifacts.1.build.command.0", "")),
-	valid("publish.artifacts[].sbom/valid", del("publish.artifacts.0.sbom")),
+	valid("publish.artifacts[].sbom/valid", del("publish.artifacts.3.sbom")),
 	invalid("publish.artifacts[].sbom/invalid", "PUBLISH_SBOM_NOT_IMAGE", set("publish.artifacts.1.sbom", "sbom/chart.spdx.json")),
+	invalid("publish.artifacts[].sbom/dockerfile", "PUBLISH_SBOM_DOCKERFILE", set("publish.artifacts.0.sbom", "sbom/api.spdx.json")),
 	valid("publish.sign/valid", del("publish.sign")),
 	invalid("publish.sign/invalid", schemaViolation, set("publish.sign", map[string]any{})),
 	valid("publish.sign.keyless/valid", set("publish.sign", map[string]any{"keyless": true, "identity": "ci@acme.com", "issuer": "https://accounts.google.com"})),
@@ -436,7 +437,6 @@ publish:
           context: .
           file: Dockerfile
           platforms: [linux/amd64]
-      sbom: sbom/api.spdx.json
     - name: chart
       type: chart
       ref: oci://ghcr.io/acme/charts/orders
@@ -447,6 +447,12 @@ publish:
       ref: oci://ghcr.io/acme/deploy/orders
       build:
         command: [./render.sh]
+    - name: worker
+      type: image
+      ref: oci://ghcr.io/acme/orders-worker
+      build:
+        command: [./build-worker.sh]
+      sbom: sbom/worker.spdx.json
   sign:
     key: cosign.key
     transparencyLog: false
