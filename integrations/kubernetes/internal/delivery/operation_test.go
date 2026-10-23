@@ -830,6 +830,35 @@ func TestHeldOrderIsRefreshed(t *testing.T) {
 	}
 }
 
+// TestHeldRejectSurvivesAPlanFailure: a re-plan that cannot read its inputs
+// does not hold back a human Reject, which needs no plan.
+func TestHeldRejectSurvivesAPlanFailure(t *testing.T) {
+	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2),
+		pactoObj("payments", "payments", c1, "Compliant", 2),
+		pactoObj("checkout", "checkout", c3, "Compliant", 1,
+			map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "compatibility": "^1.0.0"}),
+		opObj("p1", delivery.TypePromote, dA, dC, bot))
+	ctx := context.Background()
+	o := e.drive("p1")
+	if o.Status.Phase != delivery.PhaseHeld || o.Status.Plan.Order == nil {
+		t.Fatalf("want Held on its order: %s %+v", o.Status.Phase, o.Status.Plan)
+	}
+	e.approveAs(o, "checkout-no", "bob", []string{"team-checkout"}, delivery.Reject)
+	// The upstream Stage cannot be read, so the re-plan cannot be made.
+	up := e.getStage()
+	up.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "payments-test"}}
+	e.fails["get/Stage/payments-test"] = true
+	if _, err := e.op.refreshOrder(ctx, e.getOp("p1"), up); err == nil {
+		t.Fatal("want the re-plan to fail")
+	}
+	if _, err := e.op.held(ctx, e.getOp("p1"), up); err != nil {
+		t.Fatalf("a Reject needs no plan: %v", err)
+	}
+	if o = e.getOp("p1"); o.Status.Outcome != delivery.Rejected {
+		t.Fatalf("want Rejected: %s %s", o.Status.Phase, o.Status.Outcome)
+	}
+}
+
 // TestHeldOrderGoesMoot: once every blocked consumer has moved, nothing holds
 // the change. The question says so, the people already asked may still
 // approve it, and with no order left it is not planned again.

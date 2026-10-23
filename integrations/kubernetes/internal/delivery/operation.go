@@ -418,19 +418,19 @@ func (r *OperationReconciler) held(ctx context.Context, op *dv1.Operation, stage
 	}
 	// The order is refreshed before any approval is read, so an approval is
 	// judged against the teams the change still breaks, not the ones it broke
-	// when it was admitted.
+	// when it was admitted. A Reject needs no plan, so a re-plan that fails
+	// still lets one through.
 	refreshed, err := r.refreshOrder(ctx, op, stage)
-	if err != nil {
-		return reconcile.Result{}, err
-	}
 	a := r.approval(ctx, op)
 	switch {
+	case a != nil && a.Decision == delivery.Reject:
+		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Rejected, reason: "RejectedByHuman: " + a.By + ": " + a.Note})
+	case err != nil:
+		return reconcile.Result{}, err
 	case a == nil && refreshed:
 		return r.save(ctx, op)
 	case a == nil:
 		return r.requeue()
-	case a.Decision == delivery.Reject:
-		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Rejected, reason: "RejectedByHuman: " + a.By + ": " + a.Note})
 	case a.Decision == delivery.AcceptUnknown && op.Status.Plan != nil && op.Status.Plan.Floor.Decision == delivery.Approve:
 		op.Status.Message = a.By + " accepted the unknown, but this operation needs an approval"
 		return r.save(ctx, op)
