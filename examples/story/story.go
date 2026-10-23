@@ -255,6 +255,16 @@ var Beats = []Beat{
 		Service: "payments", Environment: Prod, Type: delivery.TypeUnfreeze, Actor: Alice, Frozen: true,
 		Expect: Outcome{Predicted: delivery.PredictProceeds},
 	},
+	// agent: pay-agent is a service too. Its contract declares its tools, its
+	// model and its eval suite, and its test Stage checks it with an eval
+	// runner. 1.1.0 swaps the model, which needs at least a minor version.
+	{
+		ID:      "agent",
+		Says:    "pay-agent 1.1.0 swaps its model, passes only 14 of its 20 evals in test, and rolls back without reaching prod.",
+		Why:     "An agent ships like any other service, and its eval suite is the check after release.",
+		Service: "pay-agent", Environment: Test, Actor: PayAgent, From: "1.0.0", To: "1.1.0",
+		Expect: Outcome{Classification: "POTENTIAL_BREAKING", RequiredBump: diff.BumpMinor, Predicted: delivery.PredictProceeds, Verify: delivery.Fail},
+	},
 }
 
 // Bundle reads the story contract of service at version.

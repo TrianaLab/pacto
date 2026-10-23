@@ -76,12 +76,15 @@ accepts that; she rolls 3.0.0 back and automation holds off. Last comes B10:
 a changed copy of a signed record freezes payments in prod. pay-agent cannot
 unfreeze it; alice does once the copy is gone. Then ops pins a version by hand
 under break-glass, which shows as a witnessed record and freezes the Stage
-again. `story` also prints the commands for
+again. Then pay-agent ships as a service of its own, with its eval suite as
+the check: 1.0.0 passes, and 1.1.0 swaps its model, passes 14 of 20 evals and
+rolls back in test. `story` also prints the commands for
 `pacto delivery blame` and `undo` and for the agent over remote MCP.
 
 ## What is generated
 
 The payments workload is a stand-in (podinfo). Its telemetry comes from a span
 generator in the cluster, and the call 2.4.2 makes to fraud comes from a sidecar
-in that version. Sign-in uses the demo's own Dex and Keycloak, not a company
+in that version. pay-agent's eval runner is a stand-in that answers fixed
+counts. Sign-in uses the demo's own Dex and Keycloak, not a company
 login. For the operational graph on its own, see `make e2e-operational-graph-up`.
