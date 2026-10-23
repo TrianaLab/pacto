@@ -41,28 +41,30 @@ import (
 	sigtest "github.com/trianalab/pacto/v4/pkg/signing/testutil"
 )
 
-// fakeRun stands in for git, docker, syft and the declared command. Every
+// fakeRun stands in for docker and the declared command. Every
 // call is recorded as "name arg...".
 type fakeRun struct {
 	calls []string
 	fail  string // a call prefix that fails
 }
 
-func (f *fakeRun) run(_ context.Context, _ string, env []string, name string, args ...string) ([]byte, error) {
+func (f *fakeRun) run(_ context.Context, dir string, env []string, name string, args ...string) ([]byte, error) {
 	call := strings.Join(append([]string{name}, args...), " ")
 	f.calls = append(f.calls, call)
 	if f.fail != "" && strings.HasPrefix(call, f.fail) {
 		return nil, errors.New("injected: " + call)
 	}
 	switch name {
-	case "git":
-		return []byte("abc123\n"), nil
+	case "./build-worker.sh": // an image built with its SBOM
+		_ = os.MkdirAll(filepath.Join(dir, "sbom"), 0o755)
+		if err := os.WriteFile(filepath.Join(dir, "sbom", "worker.spdx.json"), []byte(`{"spdxVersion":"SPDX-2.3"}`), 0o644); err != nil {
+			return nil, err
+		}
+		fallthrough
 	case "docker":
 		p, _ := layout.Write(outOf(env), empty.Index)
 		img, _ := random.Image(32, 1)
 		return nil, p.AppendImage(img)
-	case "syft":
-		return []byte(`{"spdxVersion":"SPDX-2.3"}`), nil
 	}
 	return nil, os.WriteFile(filepath.Join(outOf(env), "deployment.yaml"), []byte("kind: Deployment\n"), 0o644)
 }
@@ -93,13 +95,16 @@ service: {name: payments, version: 1.0.0}
   bundle: oci://` + host + `/pacto/payments
   deploy: manifests
   artifacts:
-    - {name: api, type: image, ref: "oci://` + host + `/payments", sbom: true, build: {dockerfile: {context: ., file: Dockerfile, platforms: [linux/amd64]}}}
+    - {name: api, type: image, ref: "oci://` + host + `/payments", build: {dockerfile: {context: ., file: Dockerfile, platforms: [linux/amd64]}}}
+    - {name: worker, type: image, ref: "oci://` + host + `/worker", sbom: sbom/worker.spdx.json, build: {command: [./build-worker.sh]}}
     - {name: manifests, type: manifests, ref: "oci://` + host + `/deploy/payments", build: {command: [./render.sh, --flag]}}
   sign: {key: cosign.key, transparencyLog: false}
 `
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(y), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The worker build writes its SBOM into the folder, so it stays out of the bundle.
+	_ = os.WriteFile(filepath.Join(dir, ".pactoignore"), []byte("sbom/\n"), 0o644)
 	return dir
 }
 
@@ -107,15 +112,18 @@ func publishService(f *fakeRun, reg publish.Registry) *Service {
 	return &Service{sys: sysDeps{run: f.run, publishRegistry: func() publish.Registry { return reg }}}
 }
 
-// TestPublishPlan: --plan lists what is missing and runs nothing but git.
+// TestPublishPlan: --plan lists what is missing, reads the revision from .git
+// and runs nothing.
 func TestPublishPlan(t *testing.T) {
 	host, reg := publishRegistry(t)
 	f := &fakeRun{}
-	res, err := publishService(f, reg).Publish(context.Background(), PublishOptions{Path: writePublishBundle(t, host, ""), Plan: true})
+	dir := writePublishBundle(t, host, "")
+	writeGit(t, dir, map[string]string{"HEAD": "ref: refs/heads/main\n", "refs/heads/main": commitA + "\n"})
+	res, err := publishService(f, reg).Publish(context.Background(), PublishOptions{Path: dir, Plan: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Plan.Ready || res.Plan.Missing != 3 || res.Plan.Revision != "abc123" || len(f.calls) != 1 {
+	if !res.Plan.Ready || res.Plan.Missing != 4 || res.Plan.Revision != commitA || len(f.calls) != 0 {
 		t.Fatalf("plan: %+v calls %v", res.Plan, f.calls)
 	}
 }
@@ -131,13 +139,13 @@ func signingKey(t *testing.T, dir string) crypto.PublicKey {
 	t.Setenv("COSIGN_PASSWORD", "pw")
 	_ = os.WriteFile(filepath.Join(dir, "cosign.key"), priv, 0o600)
 	_ = os.WriteFile(filepath.Join(dir, "cosign.pub"), pub, 0o600)
-	_ = os.WriteFile(filepath.Join(dir, ".pactoignore"), []byte("cosign.key\ncosign.pub\n"), 0o600)
+	_ = os.WriteFile(filepath.Join(dir, ".pactoignore"), []byte("sbom/\ncosign.key\ncosign.pub\n"), 0o600)
 	k, _ := cryptoutils.UnmarshalPEMToPublicKey(pub)
 	return k
 }
 
 // TestPublishRunsTheTools: publish builds with docker buildx and the declared
-// command, makes an SBOM with syft and signs every digest with sigstore-go,
+// command, attaches the build's SBOM and signs every digest with sigstore-go,
 // so each verifies under the public key, then a second run signs nothing.
 func TestPublishRunsTheTools(t *testing.T) {
 	host, reg := publishRegistry(t)
@@ -149,7 +157,7 @@ func TestPublishRunsTheTools(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	refs := []string{host + "/payments@" + res.Digests["api"], host + "/payments@" + res.SBOMs["api"],
+	refs := []string{host + "/payments@" + res.Digests["api"], host + "/worker@" + res.Digests["worker"], host + "/worker@" + res.SBOMs["worker"],
 		host + "/deploy/payments@" + res.Digests["manifests"], host + "/pacto/payments@" + res.Digests[publish.BundleItem]}
 	for _, ref := range refs {
 		repo, digest, _ := strings.Cut(ref, "@")
@@ -163,7 +171,6 @@ func TestPublishRunsTheTools(t *testing.T) {
 		"docker buildx build --output type=oci,dest=",
 		"--label org.opencontainers.image.version=1.0.0 --label org.opencontainers.image.revision=r1 --file Dockerfile --platform linux/amd64 .",
 		"./render.sh --flag",
-		"syft scan registry:" + host + "/payments@",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("no call with %q in:\n%s", want, joined)
@@ -244,10 +251,16 @@ func TestPublishRefusals(t *testing.T) {
 	if err := keyOutsideBundle(&contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Key: "/abs/cosign.key"}}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	nogit := &fakeRun{fail: "git"}
-	res, _ = publishService(nogit, reg).Publish(ctx, PublishOptions{Path: writePublishBundle(t, host, ""), Plan: true})
+	res, _ = publishService(f, reg).Publish(ctx, PublishOptions{Path: writePublishBundle(t, host, ""), Plan: true})
 	if res.Plan.Revision != "" || res.Plan.Ready {
 		t.Fatalf("no git revision: %+v", res.Plan)
+	}
+	noAbs := publishService(f, reg)
+	noAbs.sys.absPath = func(string) (string, error) { return "", errors.New("no cwd") }
+	dir := writePublishBundle(t, host, "")
+	writeGit(t, dir, map[string]string{"HEAD": commitA})
+	if res, _ = noAbs.Publish(ctx, PublishOptions{Path: dir, Plan: true}); res.Plan.Revision != "" {
+		t.Fatalf("an unresolvable path has no revision: %+v", res.Plan)
 	}
 }
 
@@ -418,17 +431,69 @@ func TestExecToolsSignKeyless(t *testing.T) {
 	}
 }
 
-func TestExecToolsHelpers(t *testing.T) {
-	ctx := context.Background()
-	tools := newExecTools(t.TempDir(), (&fakeRun{}).run, nil)
-	t.Setenv("PACTO_INSECURE_REGISTRIES", "zot.local:5000")
-	for ref, want := range map[string]bool{"localhost:5000/a": true, "127.0.0.1/a": true, "zot.local:5000/a": true, "ghcr.io/a": false} {
-		if insecureHost(ref) != want {
-			t.Errorf("insecureHost(%s) != %v", ref, want)
+// TestExecToolsSBOM: an SBOM is read only when this publish built its image
+// and the build wrote the file; a file left from an earlier build is refused.
+func TestExecToolsSBOM(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	tools := newExecTools(dir, (&fakeRun{}).run, nil)
+	build := func(sbom string) {
+		t.Helper()
+		a := contract.PublishArtifact{Name: "api", Type: contract.ArtifactImage, SBOM: sbom, Build: contract.PublishBuild{Command: []string{"./render.sh"}}}
+		if err := tools.Build(ctx, a, t.TempDir(), []string{"PACTO_OUT=" + t.TempDir()}); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if _, err := tools.SBOM(ctx, "ghcr.io/a@sha256:1"); err != nil {
+	stale := filepath.Join(dir, "stale.spdx.json")
+	_ = os.WriteFile(stale, []byte("{}"), 0o644)
+	if _, err := tools.SBOM("stale.spdx.json"); err == nil || !strings.Contains(err.Error(), "this publish did not build the image") {
+		t.Fatalf("an SBOM of an image this publish did not build: %v", err)
+	}
+	old := time.Now().Add(-time.Hour)
+	_ = os.Chtimes(stale, old, old)
+	build("stale.spdx.json")
+	if _, err := tools.SBOM("stale.spdx.json"); err == nil || !strings.Contains(err.Error(), "before the build started") {
+		t.Fatalf("a stale SBOM must be refused: %v", err)
+	}
+	build("missing.spdx.json")
+	if _, err := tools.SBOM("missing.spdx.json"); err == nil {
+		t.Fatal("a missing SBOM file must fail")
+	}
+	abs := filepath.Join(t.TempDir(), "a.spdx.json")
+	build(abs)
+	_ = os.WriteFile(abs, []byte("{}"), 0o644)
+	if b, err := tools.SBOM(abs); err != nil || string(b) != "{}" {
+		t.Fatalf("an absolute SBOM path the build wrote: %q %v", b, err)
+	}
+}
+
+// TestSBOMsIgnored: an SBOM written inside the contract directory must be
+// left out by .pactoignore, itself or by its folder.
+func TestSBOMsIgnored(t *testing.T) {
+	dir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("x"), 0o644)
+	c := &contract.Contract{Publish: &contract.Publish{Artifacts: []contract.PublishArtifact{
+		{Name: "api", SBOM: "out/api.spdx.json"}, {Name: "abs", SBOM: "/tmp/a.spdx.json"}, {Name: "up", SBOM: "../a.spdx.json"}, {Name: "none"}}}}
+	if err := sbomsIgnored(c, dir); err == nil || !strings.Contains(err.Error(), "add out/api.spdx.json to .pactoignore") {
+		t.Fatalf("an SBOM in the bundle: %v", err)
+	}
+	inside := &contract.Contract{Publish: &contract.Publish{Artifacts: []contract.PublishArtifact{{Name: "in", SBOM: filepath.Join(dir, "sbom", "api.spdx.json")}}}}
+	if err := sbomsIgnored(inside, dir); err == nil || !strings.Contains(err.Error(), "add sbom/api.spdx.json to .pactoignore") {
+		t.Fatalf("an absolute SBOM path in the bundle: %v", err)
+	}
+	for _, ig := range []string{"out/\n", "*.spdx.json\n"} {
+		_ = os.WriteFile(filepath.Join(dir, ".pactoignore"), []byte(ig), 0o644)
+		if err := sbomsIgnored(c, dir); err != nil {
+			t.Fatalf("%q: %v", ig, err)
+		}
+	}
+	if err := sbomsIgnored(&contract.Contract{}, dir); err != nil {
 		t.Fatal(err)
+	}
+	_ = os.Remove(filepath.Join(dir, ".pactoignore"))
+	_ = os.Mkdir(filepath.Join(dir, ".pactoignore"), 0o755)
+	if err := sbomsIgnored(c, dir); err == nil {
+		t.Fatal("an unreadable .pactoignore must fail")
 	}
 }
 

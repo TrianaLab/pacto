@@ -123,7 +123,7 @@ func MakePlan(ctx context.Context, reg Registry, in Input) Plan {
 		p.Checks = append(p.Checks, Check{Name: "publish", Message: "the contract declares no publish section (pactoVersion 2.1)"})
 		return p
 	}
-	p.Checks = append(p.Checks, signCheck(pub), revisionCheck(in.Revision), versionCheck(ctx, reg, in.Bundle, &p))
+	p.Checks = append(p.Checks, signCheck(pub), refsCheck(pub), sbomCheck(pub), revisionCheck(in.Revision), versionCheck(ctx, reg, in.Bundle, &p))
 	for _, a := range pub.Artifacts {
 		ref := Repo(a.Ref) + ":" + p.Version
 		r, err := reg.Head(ctx, ref)
@@ -182,6 +182,33 @@ func signMethod(s *contract.PublishSign) string {
 		return "kms " + s.KMS
 	}
 	return "keyless as " + s.Identity
+}
+
+// refsCheck refuses two items in one repository: they share the version tag,
+// so the second would find the first's digest there and never be written.
+func refsCheck(pub *contract.Publish) Check {
+	seen := map[string]string{Repo(pub.Bundle): BundleItem}
+	for _, a := range pub.Artifacts {
+		repo := Repo(a.Ref)
+		if other, ok := seen[repo]; ok {
+			return Check{Name: "refs", Message: fmt.Sprintf("%s and %s are both published to %s, where they would share the version tag; give each its own repository", other, a.Name, repo)}
+		}
+		seen[repo] = a.Name
+	}
+	return Check{Name: "refs", Passed: true, Message: "every item has its own repository"}
+}
+
+// sbomCheck refuses an SBOM on an image the dockerfile builder builds: docker
+// buildx writes no SBOM file, so whatever sits at the path would be attached
+// and signed as this build's.
+func sbomCheck(pub *contract.Publish) Check {
+	for _, a := range pub.Artifacts {
+		if a.SBOM != "" && a.Build.Dockerfile != nil {
+			return Check{Name: "sbom", Message: a.Name + " is built from a Dockerfile, which writes no SBOM file, so " + a.SBOM +
+				" would not be this build's; build it with a command that writes the SBOM, or drop sbom"}
+		}
+	}
+	return Check{Name: "sbom", Passed: true, Message: "every SBOM is written by the build of its image"}
 }
 
 func revisionCheck(rev string) Check {

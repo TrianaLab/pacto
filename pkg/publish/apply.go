@@ -16,8 +16,8 @@ import (
 )
 
 // Tools run what Pacto does not do itself. internal/app implements them by
-// running docker buildx, the declared command and syft, and by signing with
-// sigstore-go.
+// running docker buildx or the declared command, reading files and signing
+// with sigstore-go.
 type Tools interface {
 	// Build runs a's builder, which writes the artifact to out. env holds
 	// PACTO_OUT, PACTO_VERSION, PACTO_REVISION and PACTO_DIGEST_<NAME> /
@@ -29,8 +29,9 @@ type Tools interface {
 	// Sign signs ref (repo@digest) unless Verify passes; signed says whether
 	// it wrote one.
 	Sign(ctx context.Context, sign contract.PublishSign, ref string) (signed bool, err error)
-	// SBOM makes the SPDX JSON SBOM of the image at ref (repo@digest).
-	SBOM(ctx context.Context, ref string) ([]byte, error)
+	// SBOM reads the SBOM file the build wrote, at path relative to the
+	// contract directory. Pacto attaches and signs it; it never makes one.
+	SBOM(path string) ([]byte, error)
 }
 
 // ErrNotReady is a publish refused by its plan: a failed check, a conflict or
@@ -144,10 +145,10 @@ func (r *applier) artifacts() error {
 			r.res.Deploy = repo + "@" + digest
 		}
 		env = append(env, "PACTO_DIGEST_"+envName(a.Name)+"="+digest, "PACTO_REF_"+envName(a.Name)+"="+repo)
-		if !a.SBOM {
+		if a.SBOM == "" {
 			continue
 		}
-		sbom, err := attachSBOM(r.ctx, r.reg, r.tools, *r.pub.Sign, repo, digest, version, r.in.Revision, r.res)
+		sbom, err := attachSBOM(r.ctx, r.reg, r.tools, *r.pub.Sign, a.SBOM, repo, digest, version, r.in.Revision, r.res)
 		if err != nil {
 			return fmt.Errorf("SBOM of %s: %w", a.Name, err)
 		}
@@ -187,6 +188,13 @@ func (r *applier) bundle() error {
 	r.res.Digests[BundleItem] = it.Digest
 	if it.State != Absent {
 		return nil
+	}
+	// The bundle is read from the contract directory again, after the builds.
+	// A build that wrote into it (an SBOM, say) changed the digest the
+	// artifacts were annotated with.
+	if d, err := oci.BundleDigest(r.in.Bundle); d != it.Digest {
+		return errors.Join(fmt.Errorf("the contract directory changed while publishing (planned bundle %s, now %q); "+
+			"list build outputs such as the SBOM in .pactoignore", it.Digest, d), err)
 	}
 	img, _ := oci.BundleImage(r.in.Bundle) // packed once already by the plan
 	h, _ := v1.NewHash(it.Digest)
@@ -245,11 +253,13 @@ func buildAndPush(ctx context.Context, reg Registry, tools Tools, a contract.Pub
 	return d, nil
 }
 
-// attachSBOM attaches an SBOM to repo@digest unless one signed by the
-// configured identity is there already, and returns the SBOM's digest. An
-// SBOM anyone else attached is left alone and never signed.
-func attachSBOM(ctx context.Context, reg Registry, tools Tools, sign contract.PublishSign, repo, digest, version, revision string, res *Result) (string, error) {
-	have, err := reg.Referrers(ctx, repo, digest, SBOMType)
+// attachSBOM attaches the SBOM file at path to repo@digest unless an SBOM of
+// its format signed by the configured identity is there already, and returns
+// the SBOM's digest. An SBOM anyone else attached is left alone and never
+// signed.
+func attachSBOM(ctx context.Context, reg Registry, tools Tools, sign contract.PublishSign, path, repo, digest, version, revision string, res *Result) (string, error) {
+	mt := sbomType(path)
+	have, err := reg.Referrers(ctx, repo, digest, mt)
 	if err != nil {
 		return "", err
 	}
@@ -262,14 +272,17 @@ func attachSBOM(ctx context.Context, reg Registry, tools Tools, sign contract.Pu
 	if err != nil || head == nil {
 		return "", fmt.Errorf("reading %s@%s back: %v", repo, digest, err)
 	}
-	sbom, err := tools.SBOM(ctx, repo+"@"+digest)
+	sbom, err := tools.SBOM(path)
 	if err != nil {
+		return "", err
+	}
+	if err := checkSBOM(path, mt, sbom); err != nil {
 		return "", err
 	}
 	h, _ := v1.NewHash(digest)
 	subject := v1.Descriptor{MediaType: types.MediaType(head.MediaType), Size: head.Size, Digest: h}
 	ann := map[string]string{AnnotationVersion: version, AnnotationRevision: revision}
-	d, err := reg.Write(ctx, repo, sbomArtifact(sbom, subject, ann))
+	d, err := reg.Write(ctx, repo, sbomArtifact(mt, sbom, subject, ann))
 	if err != nil {
 		return "", err
 	}

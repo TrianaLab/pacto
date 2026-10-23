@@ -46,7 +46,10 @@ type PublishArtifact struct {
 	Type  string       `yaml:"type" json:"type"`
 	Ref   string       `yaml:"ref" json:"ref"`
 	Build PublishBuild `yaml:"build" json:"build"`
-	SBOM  bool         `yaml:"sbom,omitempty" json:"sbom,omitempty"`
+	// SBOM is the SPDX (.spdx.json) or CycloneDX (.cdx.json) file the build
+	// writes, relative to the contract directory. Pacto attaches it to the
+	// image and signs it; it never makes one.
+	SBOM string `yaml:"sbom,omitempty" json:"sbom,omitempty"`
 }
 
 // Publish artifact types.

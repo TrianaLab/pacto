@@ -8,11 +8,13 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
-	"slices"
 	"strings"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/ignore"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/override"
 	"github.com/trianalab/pacto/v4/pkg/publish"
@@ -68,10 +70,13 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	env := s.env()
 	in := publish.Input{Bundle: b, Revision: opts.Revision, Checks: []publish.Check{{Name: "validation", Passed: true, Message: "the contract is valid"}}}
 	if in.Revision == "" {
-		in.Revision = gitRevision(ctx, env.run, path)
+		if abs, err := env.absPath(path); err == nil {
+			in.Revision = gitRevision(abs)
+		}
 	}
 	in.Checks = append(in.Checks, checkOf("references", rejectLocalDeps(c), rejectLocalRefs(c)),
-		checkOf("lock", s.verifyLockIfPresent(ctx, path, b)), checkOf("signing key", keyOutsideBundle(c, fsys)))
+		checkOf("lock", s.verifyLockIfPresent(ctx, path, b)), checkOf("signing key", keyOutsideBundle(c, fsys)),
+		checkOf("build outputs", sbomsIgnored(c, path)))
 	reg := env.publishRegistry()
 	if opts.Plan {
 		return &publish.Result{Plan: publish.MakePlan(ctx, reg, in)}, nil
@@ -99,13 +104,43 @@ func keyOutsideBundle(c *contract.Contract, fsys fs.FS) error {
 	return nil
 }
 
-// gitRevision is the commit of the checkout dir is in, or "".
-func gitRevision(ctx context.Context, run runner, dir string) string {
-	out, err := run(ctx, dir, nil, "git", "rev-parse", "HEAD")
-	if err != nil {
-		return ""
+// sbomsIgnored refuses an SBOM path inside the contract directory that
+// .pactoignore does not leave out: the build writes it after the plan packed
+// the bundle, so the bundle would change under the publish after every image
+// was pushed.
+func sbomsIgnored(c *contract.Contract, path string) error {
+	if c.Publish == nil {
+		return nil
 	}
-	return strings.TrimSpace(string(out))
+	_, dir, _ := resolveLocalPath(path) // ponytail: the bundle was just loaded from it
+	m, err := ignore.Load(os.DirFS(dir))
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, a := range c.Publish.Artifacts {
+		rel := a.SBOM
+		if filepath.IsAbs(rel) {
+			base, _ := filepath.Abs(dir) // ponytail: fails only without a working directory, then Rel fails and rel is skipped
+			rel, _ = filepath.Rel(base, rel)
+		}
+		if a.SBOM == "" || !filepath.IsLocal(rel) || ignoredIn(m, filepath.ToSlash(filepath.Clean(rel))) {
+			continue
+		}
+		errs = append(errs, fmt.Errorf("the build of %s writes %s inside the contract directory, which changes the bundle after the plan packed it; add %s to .pactoignore", a.Name, a.SBOM, filepath.ToSlash(filepath.Clean(rel))))
+	}
+	return errors.Join(errs...)
+}
+
+// ignoredIn says whether .pactoignore leaves rel out, itself or by a parent
+// folder, as packing the bundle does.
+func ignoredIn(m *ignore.Matcher, rel string) bool {
+	for p, dir := rel, false; p != "."; p, dir = path.Dir(p), true {
+		if m.Ignored(p, dir) {
+			return true
+		}
+	}
+	return false
 }
 
 // defaultPublishRegistry is the registry publish writes through: the CLI's
@@ -114,8 +149,8 @@ func defaultPublishRegistry() publish.Registry {
 	return publish.NewClient(oci.NewKeychain(oci.EnvCredentialOptions()), oci.EnvInsecureRegistries()...)
 }
 
-// execTools implements publish.Tools with docker buildx, the declared command
-// and syft, which fail closed when their program is missing, and signs with
+// execTools implements publish.Tools with docker buildx or the declared
+// command, which fail closed when their program is missing, and signs with
 // sigstore-go through reg.
 type execTools struct {
 	dir string
@@ -124,6 +159,8 @@ type execTools struct {
 	// signers holds each sign config's loaded signer, so a run loads a key,
 	// signs a KMS probe or fetches the trusted root once, not per reference.
 	signers map[contract.PublishSign]loadedSigner
+	// built holds, per SBOM path, when the build that must write it started.
+	built map[string]time.Time
 }
 
 type loadedSigner struct {
@@ -133,11 +170,16 @@ type loadedSigner struct {
 }
 
 func newExecTools(dir string, run runner, reg publish.Registry) execTools {
-	return execTools{dir: dir, run: run, reg: reg, signers: map[contract.PublishSign]loadedSigner{}}
+	return execTools{dir: dir, run: run, reg: reg, signers: map[contract.PublishSign]loadedSigner{}, built: map[string]time.Time{}}
 }
 
 // Build implements publish.Tools.
 func (t execTools) Build(ctx context.Context, a contract.PublishArtifact, out string, env []string) error {
+	if a.SBOM != "" {
+		// ponytail: second precision, as some file systems keep no finer
+		// mtime; a stale file written in the same second still passes.
+		t.built[t.abs(a.SBOM)] = time.Now().Truncate(time.Second)
+	}
 	if d := a.Build.Dockerfile; d != nil {
 		args := []string{"buildx", "build", "--output", "type=oci,dest=" + out + ",tar=false"}
 		for _, e := range env {
@@ -159,13 +201,6 @@ func (t execTools) Build(ctx context.Context, a contract.PublishArtifact, out st
 	}
 	_, err := t.run(ctx, t.dir, env, a.Build.Command[0], a.Build.Command[1:]...)
 	return err
-}
-
-// insecureHost reports whether ref's registry is reached over plain HTTP.
-func insecureHost(ref string) bool {
-	host, _, _ := strings.Cut(ref, "/")
-	name, _, _ := strings.Cut(host, ":")
-	return name == "localhost" || name == "127.0.0.1" || slices.Contains(oci.EnvInsecureRegistries(), host)
 }
 
 // Public-good Sigstore, which keyless publishing signs with and a key's
@@ -272,11 +307,29 @@ func (t execTools) Sign(ctx context.Context, sign contract.PublishSign, ref stri
 	return true, nil
 }
 
-// SBOM implements publish.Tools.
-func (t execTools) SBOM(ctx context.Context, ref string) ([]byte, error) {
-	var env []string
-	if insecureHost(ref) {
-		env = append(env, "SYFT_REGISTRY_INSECURE_USE_HTTP=true")
+// SBOM implements publish.Tools. It reads the file only when this publish
+// built the image and the build wrote the file since it started: anything
+// older is not this build's SBOM and is never attached or signed as one.
+func (t execTools) SBOM(path string) ([]byte, error) {
+	abs := t.abs(path)
+	start, ok := t.built[abs]
+	if !ok {
+		return nil, fmt.Errorf("%s: this publish did not build the image, so nothing ties the file to it", path)
 	}
-	return t.run(ctx, t.dir, env, "syft", "scan", "registry:"+ref, "-o", "spdx-json", "-q")
+	st, err := os.Stat(abs)
+	if err != nil {
+		return nil, err
+	}
+	if st.ModTime().Before(start) {
+		return nil, fmt.Errorf("%s was last written at %s, before the build started at %s: the build must write its SBOM", path, st.ModTime().Format(time.RFC3339), start.Format(time.RFC3339))
+	}
+	return os.ReadFile(abs)
+}
+
+// abs is path relative to the contract directory.
+func (t execTools) abs(path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(t.dir, path)
 }

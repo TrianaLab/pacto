@@ -72,25 +72,50 @@ func TestInitCommand(t *testing.T) {
 		assertContains(t, output, "md-svc")
 	})
 
-	t.Run("error on existing dir", func(t *testing.T) {
+	t.Run("existing empty dir gets the blank contract", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
 		inDir(t, dir)
 
 		os.Mkdir(filepath.Join(dir, "existing-svc"), 0755)
 
-		_, err := runCommand(t, nil, "init", "existing-svc")
-		if err == nil {
-			t.Fatal("expected init to fail when directory already exists")
+		if _, err := runCommand(t, nil, "init", "existing-svc"); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "existing-svc", "pacto.yaml")); err != nil {
+			t.Fatal(err)
 		}
 	})
 
-	t.Run("error without name", func(t *testing.T) {
+	t.Run("pactify a plain service, plan first", func(t *testing.T) {
 		t.Parallel()
-		_, err := runCommand(t, nil, "init")
-		if err == nil {
-			t.Fatal("expected init to fail without a name argument")
+		dir := filepath.Join(t.TempDir(), "fraud")
+		os.MkdirAll(filepath.Join(dir, "k8s"), 0755)
+		os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0644)
+		os.WriteFile(filepath.Join(dir, "k8s", "deployment.yaml"), []byte("apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: fraud}\nspec: {template: {spec: {containers: [{name: fraud, image: 'registry.example/story/images/fraud:1.0.0'}]}}}\n"), 0644)
+
+		output, err := runCommand(t, nil, "init", "--plan", "--delivery", "--owner", "risk", dir)
+		if err != nil {
+			t.Fatalf("init --plan: %v\n%s", err, output)
 		}
+		assertContains(t, output, "Plan for fraud")
+		assertContains(t, output, "bundle: oci://registry.example/story/fraud")
+		assertContains(t, output, "kind: Stage")
+		if _, err := os.Stat(filepath.Join(dir, "pacto.yaml")); err == nil {
+			t.Fatal("--plan wrote pacto.yaml")
+		}
+
+		if output, err = runCommand(t, nil, "init", "--delivery", "--owner", "risk", dir); err != nil {
+			t.Fatalf("init: %v\n%s", err, output)
+		}
+		if output, err = runCommand(t, nil, "validate", dir); err != nil {
+			t.Fatalf("validate: %v\n%s", err, output)
+		}
+		output, err = runCommand(t, nil, "init", "--delivery", dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertContains(t, output, "Nothing to add")
 	})
 
 	t.Run("help flag", func(t *testing.T) {

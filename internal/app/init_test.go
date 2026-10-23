@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -85,30 +86,54 @@ func TestInit_Success(t *testing.T) {
 
 }
 
-func TestInit_EmptyName(t *testing.T) {
-	svc := NewService(nil, nil)
-	_, err := svc.Init(context.Background(), InitOptions{Name: ""})
-	if err == nil {
-		t.Error("expected error for empty name")
+// TestInit_NameFromFolder: with no name and no folder, init writes here and
+// names the service after the folder; a folder name with nothing usable in it
+// is refused with the flag to pass.
+func TestInit_NameFromFolder(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "Orders API")
+	if err := os.Mkdir(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+	res, err := NewService(nil, nil).Init(context.Background(), InitOptions{})
+	if err != nil || res.Service != "orders-api" || res.Dir != "." {
+		t.Fatalf("init: %+v %v", res, err)
+	}
+
+	bad := filepath.Join(t.TempDir(), "___")
+	if err := os.Mkdir(bad, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewService(nil, nil).Init(context.Background(), InitOptions{Dir: bad}); err == nil || !strings.Contains(err.Error(), "--name") {
+		t.Fatalf("want a name error, got %v", err)
 	}
 }
 
+// TestInit_DirectoryExists: an existing empty folder gets the blank contract,
+// and running init again adds nothing and keeps every file.
 func TestInit_DirectoryExists(t *testing.T) {
-	orig, _ := os.Getwd()
-	dir := t.TempDir()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = os.Chdir(orig) }()
-
+	t.Chdir(t.TempDir())
 	if err := os.Mkdir("existing", 0755); err != nil {
 		t.Fatal(err)
 	}
-
 	svc := NewService(nil, nil)
-	_, err := svc.Init(context.Background(), InitOptions{Name: "existing"})
-	if err == nil {
-		t.Error("expected error for existing directory")
+	if _, err := svc.Init(context.Background(), InitOptions{Name: "existing"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join("existing", "pacto.yaml"), []byte("mine\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.Init(context.Background(), InitOptions{Name: "existing"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range res.Files {
+		if f.Action != "keep" {
+			t.Errorf("second run would touch %s (%s)", f.Path, f.Action)
+		}
+	}
+	if data, _ := os.ReadFile(filepath.Join("existing", "pacto.yaml")); string(data) != "mine\n" {
+		t.Fatalf("the user's pacto.yaml was rewritten: %q", data)
 	}
 }
 
@@ -202,5 +227,42 @@ func TestInit_ScaffoldValidates(t *testing.T) {
 
 	if validationResult := validation.ValidateStructuralRaw(content); !validationResult.IsValid() {
 		t.Errorf("scaffolded contract failed validation: %v", validationResult.Errors)
+	}
+}
+
+// TestInit_PactifiedContractPublishes: the contract init reads out of a plain
+// service (the story's fraud: a Dockerfile and two manifests) is one pacto
+// publish accepts: its plan is ready and lists the bundle and both artifacts,
+// all in the registry read from the Deployment's image.
+func TestInit_PactifiedContractPublishes(t *testing.T) {
+	host, reg := publishRegistry(t)
+	dir := filepath.Join(t.TempDir(), "fraud")
+	files := map[string]string{
+		"Dockerfile":          "FROM python:3.13-alpine\nCOPY app.py /app/app.py\nEXPOSE 8080\n",
+		"k8s/deployment.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: fraud}\nspec: {template: {spec: {containers: [{name: fraud, image: '" + host + "/story/images/fraud:1.0.0'}]}}}\n",
+		"k8s/service.yaml":    "apiVersion: v1\nkind: Service\nmetadata: {name: fraud}\n",
+	}
+	for p, c := range files {
+		_ = os.MkdirAll(filepath.Dir(filepath.Join(dir, p)), 0o755)
+		if err := os.WriteFile(filepath.Join(dir, p), []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeGit(t, dir, map[string]string{"HEAD": commitA + "\n"})
+	f := &fakeRun{}
+	svc := publishService(f, reg)
+	res, err := svc.Init(context.Background(), InitOptions{Dir: dir, Owner: "risk", Delivery: true})
+	if err != nil || !res.Applied {
+		t.Fatalf("init: %+v %v", res, err)
+	}
+	if !slices.Contains(res.Found, "registry "+host+"/story, from the image "+host+"/story/images/fraud:1.0.0") {
+		t.Fatalf("found: %v", res.Found)
+	}
+	pub, err := svc.Publish(context.Background(), PublishOptions{Path: dir, Plan: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pub.Plan.Ready || pub.Plan.Missing != 3 || len(f.calls) != 0 {
+		t.Fatalf("publish plan: %+v", pub.Plan)
 	}
 }

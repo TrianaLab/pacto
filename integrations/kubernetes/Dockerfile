@@ -18,6 +18,13 @@ ARG DASHBOARD_IMAGE=
 # the opt-in pacto-delivery image (built with --target delivery). One
 # Dockerfile, two images.
 ARG CMD=cmd
+# GO_TAGS=kms links the cloud KMS signing providers (AWS, GCP, Azure, Vault)
+# that the default pacto CLI leaves out: the delivery recorder often signs with
+# a cloud KMS key (--kms-key). The operator image does not link the signing
+# package, so the tag changes nothing there. Pass --build-arg GO_TAGS= for a
+# delivery image without KMS (key file and keyless signing only) or, say,
+# GO_TAGS=kms_aws for one provider.
+ARG GO_TAGS=kms
 # RELEASE_BUILD=1 (set by the release publisher) builds the operator module
 # STANDALONE with GOWORK=off, so it resolves the engine core from the PUBLISHED
 # version pinned in integrations/kubernetes/go.mod — the same dependency graph an
@@ -76,12 +83,12 @@ RUN set -eu; \
       cd integrations/kubernetes; \
       retry env GOWORK=off GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org,direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' go mod download; \
       CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} GOWORK=off GOFLAGS=-mod=mod GOPROXY=https://proxy.golang.org,direct GOPRIVATE='github.com/trianalab/*' GONOSUMDB='github.com/trianalab/*' \
-        go build -ldflags "${LDFLAGS}" -o /workspace/manager "./${CMD}"; \
+        go build -tags "${GO_TAGS}" -ldflags "${LDFLAGS}" -o /workspace/manager "./${CMD}"; \
     else \
       echo "workspace build: go.work resolves the local core"; \
       retry go mod download all; \
       CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
-        go build -ldflags "${LDFLAGS}" -o /workspace/manager "./integrations/kubernetes/${CMD}"; \
+        go build -tags "${GO_TAGS}" -ldflags "${LDFLAGS}" -o /workspace/manager "./integrations/kubernetes/${CMD}"; \
     fi
 
 FROM gcr.io/distroless/static:nonroot AS operator

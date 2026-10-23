@@ -337,7 +337,7 @@ var fieldCoverageCases = []fcCase{
 	valid("publish.artifacts[].build.command[]/valid", set("publish.artifacts.1.build.command.0", "./package.sh")),
 	invalid("publish.artifacts[].build.command[]/invalid", schemaViolation, set("publish.artifacts.1.build.command.0", "")),
 	valid("publish.artifacts[].sbom/valid", del("publish.artifacts.0.sbom")),
-	invalid("publish.artifacts[].sbom/invalid", "PUBLISH_SBOM_NOT_IMAGE", set("publish.artifacts.1.sbom", true)),
+	invalid("publish.artifacts[].sbom/invalid", "PUBLISH_SBOM_NOT_IMAGE", set("publish.artifacts.1.sbom", "sbom/chart.spdx.json")),
 	valid("publish.sign/valid", del("publish.sign")),
 	invalid("publish.sign/invalid", schemaViolation, set("publish.sign", map[string]any{})),
 	valid("publish.sign.keyless/valid", set("publish.sign", map[string]any{"keyless": true, "identity": "ci@acme.com", "issuer": "https://accounts.google.com"})),
@@ -436,7 +436,7 @@ publish:
           context: .
           file: Dockerfile
           platforms: [linux/amd64]
-      sbom: true
+      sbom: sbom/api.spdx.json
     - name: chart
       type: chart
       ref: oci://ghcr.io/acme/charts/orders

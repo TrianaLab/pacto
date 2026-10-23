@@ -61,7 +61,7 @@ func validatePublish(c *contract.Contract, result *ValidationResult) {
 			result.AddError(path+".name", "DUPLICATE_PUBLISH_ARTIFACT", fmt.Sprintf("artifact name %q is used more than once", a.Name))
 		}
 		types[a.Name] = a.Type
-		if a.SBOM && a.Type != contract.ArtifactImage {
+		if a.SBOM != "" && a.Type != contract.ArtifactImage {
 			result.AddError(path+".sbom", "PUBLISH_SBOM_NOT_IMAGE", fmt.Sprintf("%s is a %s; an SBOM is attached to images only", a.Name, a.Type))
 		}
 		if a.Build.Dockerfile != nil && a.Type != contract.ArtifactImage {

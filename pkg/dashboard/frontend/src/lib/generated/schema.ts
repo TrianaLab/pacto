@@ -880,7 +880,7 @@ export interface components {
             build: components["schemas"]["Contract.PublishBuild"];
             name: string;
             ref: string;
-            sbom?: boolean;
+            sbom?: string;
             type: string;
         };
         "Contract.PublishBuild": {
