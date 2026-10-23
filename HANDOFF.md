@@ -74,3 +74,11 @@ Requests outside this track's files:
     B7 to B9 partly through the dashboard in Chromium). B10 (a tampered record
     freezes payments) is not played on Kubernetes; record that note on G
     ("checks every story step itself") until a later wave adds it.
+11. story owner (`examples/story`): two comments still say the Kubernetes
+    demo proves what it does not play. `story.go` (B10 entry): "is proven by
+    the operator (TestStreamConflictFreezesTheStage) and the Kubernetes
+    demo"; `story_test.go` (above TestB9PersonsRollbackHoldsAutomation):
+    "blame and undo) are proven by pkg/delivery's record tests and the
+    Kubernetes demo". The demo never tampers with a record or freezes a Stage,
+    and only prints `blame` and `undo` as next steps. Please drop "and the
+    Kubernetes demo" from both until a later wave plays them (see item 10).

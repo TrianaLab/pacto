@@ -9,8 +9,8 @@
 #            fraud is a plain folder, not pactified yet.
 #   story    play the story: pactify fraud, then B1 to B5, checking every beat
 #            against examples/story; it stops with payments 3.0.0 held.
-#   browser  B6 (the agent ships checkout 1.9 first; the held change now asks
-#            only orders), then the dashboard journeys in Chromium (B7).
+#   browser  B6, then B7 to B9 in Chromium with the cluster checked between
+#            beats, then History; it runs once per cluster.
 #   status   what runs where.
 #   logs     diagnostics of the cluster.
 #   down     delete the cluster and the containers beside it.
@@ -765,6 +765,10 @@ b9() {
 cmd_browser() {
   admin
   [ -e "$DEMO/digests/payments-3.0.0" ] || fail "run the story first: make e2e-delivery-demo-story"
+  # Carol's approval (B7) moves 3.0.0 on and B9 rolls prod back for good, so
+  # once 3.0.0 has left its first hold the step cannot be played again.
+  { held prod payments-3-0-0 && [ "$(field prod payments-3-0-0 applied)" != true ]; } \
+    || fail "the browser step already ran on this cluster: 'make e2e-delivery-demo-down' and up again to replay it"
   b6
   ( cd "$ROOT/pkg/dashboard/frontend" \
     && { [ -d node_modules ] || npm ci --ignore-scripts >/dev/null 2>&1; } \

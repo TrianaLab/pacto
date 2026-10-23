@@ -65,8 +65,8 @@ Open <http://127.0.0.1:3300> and sign in through Dex. Every password is
 - `alice@example.com` is on team payments and is never asked.
 - `pay-agent@example.com` is an agent: it may look and propose, never approve.
 
-`make e2e-delivery-demo-browser` plays the rest of the story in Chromium and
-checks each beat against `examples/story`: the agent ships checkout 1.9 first
+`make e2e-delivery-demo-browser` plays and checks B6 to B9 (B7 to B9 in
+Chromium) against `examples/story`, once per cluster: the agent ships checkout 1.9 first
 and the held change then asks only orders; carol approves after signing in
 again; 3.0.0 sends too little telemetry, so its check says Unknown until carol
 accepts that; she rolls 3.0.0 back and automation holds off. The tampered
