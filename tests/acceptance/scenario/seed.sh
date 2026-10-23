@@ -50,7 +50,6 @@ echo "== publish the fixture's contract revisions =="
 # second failure is a real one.
 : >"$WORK/digests"
 pushed=0
-fresh=0
 while IFS="$TAB" read -r key dir ref extra; do
 	[ -n "$key" ] && [ -n "$dir" ] && [ -n "$ref" ] && [ -z "${extra:-}" ] ||
 		fail "malformed push record in $PACTO_DEMO_PLAN"
@@ -64,18 +63,17 @@ while IFS="$TAB" read -r key dir ref extra; do
 		attempt=$((attempt + 1))
 		sleep 1
 	done
-	# A push that finds its tag already taken declines to overwrite it and prints no
-	# digest — the whole point of a second `up`, and not something to fail on. The
-	# digest cross-check below is what a first run gets and a resumed one does not.
+	# A push that finds the same bundle under its tag is a successful no-op that
+	# says "Already published" — the whole point of a second `up`. Either way it
+	# prints the digest, so the cross-check below runs on every start.
 	digest=$(printf '%s' "$out" | grep -oE 'sha256:[0-9a-f]{64}' | head -1 || true)
+	[ -n "$digest" ] || fail "pushing $ref printed no digest: $out"
+	printf '%s\n' "$digest" >>"$WORK/digests"
 	pushed=$((pushed + 1))
-	if [ -n "$digest" ]; then
-		printf '%s\n' "$digest" >>"$WORK/digests"
-		fresh=$((fresh + 1))
-		echo "  published $ref $digest"
-	else
-		echo "  $ref is already in the registry"
-	fi
+	case "$out" in
+	*"Already published"*) echo "  $ref is already in the registry" ;;
+	*) echo "  published $ref $digest" ;;
+	esac
 done <"$WORK/push"
 [ "$pushed" -gt 0 ] || fail "the plan declares nothing to publish"
 
@@ -107,20 +105,12 @@ while IFS="$TAB" read -r subject payload sequence envelope_id extra; do
 		fail "malformed evidence record in $PACTO_DEMO_PLAN"
 	# The payload was pinned to a digest computed from these exact bundle bytes
 	# BEFORE any registry existed. Packing is content-deterministic, so it must be
-	# one of the digests just published — and if the two ever diverge, this says so
-	# instead of leaving the demo pointing at content nobody pushed.
-	#
-	# Only when THIS run published all of them. A resumed run pushed nothing, so it
-	# has nothing to compare against and would report a divergence that is really
-	# just the registry remembering. The comparison is not the only guard: ingestion
-	# resolves the envelope's digest-pinned ref against the registry on every run,
-	# resumed ones included, and a payload pointing at absent content fails there.
+	# one of the digests the registry now holds — and if the two ever diverge, this
+	# says so instead of leaving the demo pointing at content nobody pushed.
 	want=$(grep -oE 'sha256:[0-9a-f]{64}' "$payload" | head -1 || true)
 	[ -n "$want" ] || fail "$payload pins no digest"
-	if [ "$fresh" -eq "$pushed" ]; then
-		grep -qxF "$want" "$WORK/digests" ||
-			fail "$payload points at $want, which this run did not publish"
-	fi
+	grep -qxF "$want" "$WORK/digests" ||
+		fail "$payload points at $want, which the registry does not hold"
 
 	pacto evidence sign "$payload" --key "$key" --key-id "$key_id" --producer "$producer" \
 		--sequence "$sequence" --id "$envelope_id" >"$WORK/$envelope_id.envelope.json"

@@ -80,8 +80,11 @@ IMAGE="${PACTO_DEMO_IMAGE:-}"
 # to derive one from — the application is executed out of a registry — so `-p` is
 # the whole of project identity, and the upgrade story is two of them: two
 # versions, two sets of containers, two sets of volumes, two sets of ports.
-PROJ1="pacto-demo"
-PROJ2="pacto-demo-next"
+# PACTO_DEMO_ACCEPTANCE_PROJECT moves both off the documented names on a machine
+# where somebody's own demo already holds them: the harness refuses those rather
+# than take them down.
+PROJ1="${PACTO_DEMO_ACCEPTANCE_PROJECT:-pacto-demo}"
+PROJ2="$PROJ1-next"
 V1_PORTS=(PACTO_DEMO_DASHBOARD_PORT=18080 PACTO_DEMO_EVIDENCE_PORT=18686 PACTO_DEMO_REGISTRY_PORT=15051)
 V2_PORTS=(PACTO_DEMO_DASHBOARD_PORT=18081 PACTO_DEMO_EVIDENCE_PORT=18687 PACTO_DEMO_REGISTRY_PORT=15052)
 V1_BASE="http://127.0.0.1:18080"
@@ -1117,6 +1120,27 @@ pass "the running project's only configuration file is Compose's own cache of $D
 echo "== 9. the live demo proves the canonical fixture =="
 "$WORK/productready" -base "$V1_BASE" -domain registry:5000/demo -surface compose \
 	-out "$WORK/fixture.json"
+
+# The two CLI steps the docs page shows, typed the way it types them: by project
+# name, inside the dashboard container, against the demo's own registry. diff
+# exits non-zero on a breaking change, which is the point a CI step relies on,
+# so the exit status is judged as well as the output.
+diff_rc=0
+diff_out=$(docker compose -p "$PROJ1" exec -T dashboard pacto diff \
+	oci://registry:5000/demo/checkout:1.0.0 oci://registry:5000/demo/checkout:1.1.0 2>&1) || diff_rc=$?
+grep -q '^Required bump: major$' <<<"$diff_out" ||
+	fail "pacto diff on checkout 1.0.0 -> 1.1.0 did not say 'Required bump: major': $diff_out"
+[ "$diff_rc" -ne 0 ] ||
+	fail "pacto diff on a breaking change exited 0, so a CI step would not stop: $diff_out"
+pass "pacto diff says checkout 1.1.0 needs a major bump and exits non-zero"
+init_out=$(docker compose -p "$PROJ1" exec -T dashboard sh -c \
+	'mkdir -p /tmp/checkout && printf "FROM nginx:1.27\nEXPOSE 8080\n" >/tmp/checkout/Dockerfile && pacto init --plan --owner commerce /tmp/checkout && echo "checkout holds: $(ls -A /tmp/checkout | tr "\n" " ")"' 2>&1) ||
+	fail "pacto init --plan failed in the demo: $init_out"
+grep -q '(nothing changed)' <<<"$init_out" && grep -q '+ pacto.yaml' <<<"$init_out" ||
+	fail "pacto init --plan did not show the contract it would add: $init_out"
+grep -q '^checkout holds: Dockerfile $' <<<"$init_out" ||
+	fail "pacto init --plan wrote into the checkout, which should still hold only its Dockerfile: $init_out"
+pass "pacto init --plan shows the checkout contract and changes nothing"
 
 # The same live journeys the Kind vertical runs, against the published demo
 # instead of a cluster. The suite reads the fixture the gate just discovered, so it

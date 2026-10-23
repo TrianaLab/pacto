@@ -64,6 +64,28 @@ For the same moves at the command line — six user stories from "what is out
 there" to "an agent reading the same server" — follow the
 [guided tour](demo-tour.md).
 
+## Try the CLI in the demo
+
+The dashboard container has the Pacto CLI, so these need nothing on your machine.
+
+Ask which version `checkout` 1.1.0 should have been. It drops a path 1.0.0
+served, so Pacto answers `Required bump: major` (and exits non-zero, as a CI
+step would):
+
+```sh
+docker compose -p pacto-demo exec dashboard pacto diff \
+  oci://registry:5000/demo/checkout:1.0.0 oci://registry:5000/demo/checkout:1.1.0
+```
+
+Pactify a plain `checkout` that has only a Dockerfile. `--plan` shows the
+contract `pacto init` would write and changes nothing:
+
+```sh
+docker compose -p pacto-demo exec dashboard sh -c \
+  'mkdir -p /tmp/checkout && printf "FROM nginx:1.27\nEXPOSE 8080\n" >/tmp/checkout/Dockerfile &&
+   pacto init --plan --owner commerce /tmp/checkout'
+```
+
 ## The live runtime check
 
 `inventory` is the live part. Its container is running and labelled with its
@@ -133,6 +155,9 @@ removes the registry volume and the evidence with it.
   no Docker at all: the engine and a curated fleet compiled to WebAssembly.
 - [Dashboard container](../dashboard-docker.md) — the dashboard against your own
   services rather than a fixture.
+- [Kubernetes demo](kubernetes-demo.md) — delivery: promotions, approvals,
+  rollbacks and signed records. This demo has no cluster and no sign-in, so its
+  dashboard shows no Delivery tab.
 
 Next: the [Quickstart](../quickstart.md) takes an empty directory to a validated
 contract and a caught breaking change in about five minutes.
