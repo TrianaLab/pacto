@@ -172,6 +172,8 @@ spec:
   path: ./
   prune: true
   targetNamespace: %s
+  # Ready only once what it applied is rolled out, so the Stage judges the new pods.
+  wait: true
   timeout: 2m
 ---
 apiVersion: delivery.pacto.trianalab.io/v1alpha1

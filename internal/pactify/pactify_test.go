@@ -183,6 +183,11 @@ func checkStages(t *testing.T, test, prod string) {
 	if !tk["OCIRepository"] || !tk["Kustomization"] || !pk["Kustomization"] || !strings.Contains(test, "delivery.pacto.trianalab.io/apply-ref: fraud") {
 		t.Fatalf("pieces: test %v prod %v", tk, pk)
 	}
+	// Flux must not report a version applied before it rolls out, or the
+	// verify gates judge the old pods.
+	if !strings.Contains(test, "  wait: true\n") {
+		t.Fatalf("the Kustomization does not wait for the rollout:\n%s", test)
+	}
 }
 
 // decodeStage returns the Stage spec in text, decoded strictly, and the kinds
