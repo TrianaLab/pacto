@@ -545,10 +545,13 @@ def check_coordinates() -> None:
         if u["version"] not in ah:
             problems.append(f"{uid} version {u['version']} absent from artifact-hub.md")
     # Authored install snippets must use the manifest chart coordinate, not a stale one.
-    for name, unit in (("installation.md", "operator-chart"), ("upgrade.md", "operator-chart"),
-                       ("delivery.md", "delivery-chart")):
+    for path, unit in ((os.path.join(K8S, "docs", "installation.md"), "operator-chart"),
+                       (os.path.join(K8S, "docs", "upgrade.md"), "operator-chart"),
+                       (os.path.join(K8S, "docs", "delivery-setup.md"), "delivery-chart"),
+                       (os.path.join(REPO_ROOT, "docs", "pactify.md"), "delivery-chart")):
+        name = os.path.basename(path)
         chart_coord = units[unit]["coordinate"]
-        text = read(os.path.join(K8S, "docs", name))
+        text = read(path)
         for coord in re.findall(r"oci://(ghcr\.io/\S*charts/\S+)", text):
             if coord.rstrip("\\").strip() != chart_coord:
                 problems.append(f"{name}: chart coordinate {coord} != manifest {chart_coord}")
