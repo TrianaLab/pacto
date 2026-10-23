@@ -21,8 +21,9 @@ the publish, and writes nothing. `pacto publish` builds what is absent, pushes
 it by digest with its version and source revision on the manifest (the git
 commit, read from `.git` without running git, unless `--revision` gives one),
 attaches the SBOM file each image declares (`sbom`, an SPDX or CycloneDX JSON
-file the build writes; Pacto never makes one and refuses a missing file or one
-that is not the format its name says), signs every digest and verifies each new signature
+file the build writes; Pacto never makes one and refuses a missing file, one
+that is not the format its name says and one this publish's build did not
+write, so a file left from an earlier build is never signed as this one's), signs every digest and verifies each new signature
 against the configured identity (a keyless signature by the wrong CI identity
 fails before any tag is written), pushes the bundle and
 writes the tags with the deploy artifact last; the deploy artifact names its
@@ -33,7 +34,10 @@ reused only when it carries a signature by the configured identity, and an SBOM
 only when it does too: Pacto never signs content it did not publish. After a
 release candidate, its fixes ship as the version it was a candidate for, but
 the change since the last final release must still fit the version. It refuses an invalid contract, local references, a broken lock, a
-missing signing configuration, a signing key inside the bundle, a missing
+missing signing configuration, a signing key inside the bundle, two items in
+one repository, an SBOM on an image built from a Dockerfile (docker buildx
+writes no SBOM file), an SBOM written inside the contract directory that
+`.pactoignore` does not leave out, a missing
 source revision and a version too small for the change: a breaking change
 needs a major version (a minor before 1.0) and a change Pacto cannot classify
 at least a minor. `--propose <namespace>/<stage>` hands the deploy artifact to

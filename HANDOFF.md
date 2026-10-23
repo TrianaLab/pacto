@@ -38,9 +38,11 @@ changed while publishing" instead of a registry digest error. `docker buildx`,
    `sbom: true` becomes `sbom: sbom/api.spdx.json`, and the `artifacts[].sbom`
    row becomes "The SPDX (`.spdx.json`) or CycloneDX (`.cdx.json`) JSON file the
    build writes, relative to the contract directory. Pacto attaches it to the
-   image and signs it; it never makes one. Write it before `pacto publish` (for
-   example `syft dir:. -o spdx-json=sbom/api.spdx.json` or `trivy fs`) or, when
-   the build command writes it, list it in `.pactoignore`. Images only".
+   image and signs it; it never makes one. The image's build command must write
+   it (for example `syft dir:. -o spdx-json=sbom/api.spdx.json` inside the
+   command): a file older than the build is refused, and so is `sbom` on a
+   `dockerfile` build, which writes none. A path inside the contract directory
+   must be in `.pactoignore` (`publish --plan` names the line). Images only".
 6. docs track, `docs/publishing.md` line 67 ("attaches an SBOM made by `syft`")
    and line 77 (the list of needed programs): Pacto attaches the declared SBOM
    file; syft is no longer needed, and the revision comes from `.git` without
@@ -92,3 +94,14 @@ adds files and missing `.pactoignore` lines. MCP: `pacto_create` with
 11. demos track: the browser pactify step and the Compose `pacto init --plan`
     step can use the plan output verbatim; the Kubernetes demo's agent can
     call `pacto_create` with `pactify: true, delivery: true` on `plain/fraud`.
+12. docs track, from the core fix round: `pacto publish --plan` has three new
+    checks, `refs` (the bundle and every artifact need their own repository),
+    `sbom` (no `sbom` on a `dockerfile` build) and `build outputs` (an SBOM
+    inside the contract directory must be in `.pactoignore`). `pacto init` puts
+    the bundle at `<registry>/contracts/<name>` when the image is at
+    `<registry>/<name>`, leaves a file holding a Secret's values out of the
+    shipped manifests (Next says to use a SealedSecret, an ExternalSecret or
+    SOPS) and reports a kept `delivery/<env>.yaml` whose Stage reads from the
+    wrong place for `--env`. Whoever owns `pkg/validation` may also reject
+    `sbom` with a `dockerfile` builder in crossfield validation so `pacto
+    validate` says it too; the publish plan already refuses it.
