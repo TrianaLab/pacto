@@ -96,7 +96,9 @@
     margin: 0.7em 0 0.35em;
     line-height: 1.25;
   }
-  .markdown-body :global(h1) { font-size: var(--text-lg, 1.1rem); }
+  /* base.css draws the page-title double rule under every `main h1`; a doc heading is
+     not the page title, so it opts out. */
+  .markdown-body :global(h1) { font-size: var(--text-lg, 1.1rem); border-bottom: 0; padding-bottom: 0; }
   .markdown-body :global(p) { margin: 0.4em 0; }
   .markdown-body :global(ul),
   .markdown-body :global(ol) { margin: 0.4em 0; padding-left: 1.4em; }

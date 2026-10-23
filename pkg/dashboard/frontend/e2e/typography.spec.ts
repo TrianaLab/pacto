@@ -194,5 +194,17 @@ test.describe('typography hierarchy on desktop', () => {
     expect(got.size, 'legacy section title size').toBe(got.want);
     expect(got.caps, 'legacy section title is not a small-caps label').toBe('normal');
     expect(got.weight).toBe('700');
+    // The rule marks the page title only. A doc that opens with `# ...` renders its h1
+    // inside <main> too, and must not draw a second page-title rule in the doc card.
+    await page.getByRole('heading', { level: 2, name: /^Documentation/ }).getByRole('button').click();
+    await page.locator('main .detail-card-header-btn', { hasText: 'overview.md' }).first().click();
+    const docH1 = page.locator('main .markdown-body h1').first();
+    await expect(docH1).toBeVisible({ timeout: 30_000 });
+    const doc = await docH1.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { rule: cs.borderBottomStyle, pad: cs.paddingBottom };
+    });
+    expect(doc.rule, 'a markdown h1 draws the page-title rule').toBe('none');
+    expect(doc.pad).toBe('0px');
   });
 });
