@@ -23,7 +23,6 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
-
 // bumpVersion rewrites the contract in dir to version and workload.
 func bumpVersion(t *testing.T, dir, version, workload string) {
 	t.Helper()
