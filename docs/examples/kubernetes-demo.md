@@ -37,7 +37,9 @@ It starts with one service not yet pactified. The guided path is five moments,
 in the order the story plays them:
 
 - **Pactify a service.** `pacto init --delivery` reads fraud's Dockerfile and
-  manifests and writes its contract and its Stages. fraud ships to test.
+  manifests and writes its contract, its Pacto resource and its Stages. The
+  demo patches two things init wrote: offline signing and the plain-HTTP
+  registry. fraud ships to test.
 - **A safe change ships on its own.** payments 2.4.0 adds an endpoint and
   reaches prod with nobody involved, because checkout and orders accept
   payments ^2.
@@ -63,11 +65,13 @@ Open <http://127.0.0.1:3300> and sign in through Dex. Every password is
 - `alice@example.com` is on team payments and is never asked.
 - `pay-agent@example.com` is an agent: it may look and propose, never approve.
 
-`story` prints the commands for the rest: the agent ships checkout 1.9 first
+`make e2e-delivery-demo-browser` plays the rest of the story in Chromium and
+checks each beat against `examples/story`: the agent ships checkout 1.9 first
 and the held change then asks only orders; carol approves after signing in
-again; she rolls 3.0.0 back from the dashboard; `pacto delivery blame` and
-`undo`; the agent over remote MCP. `make e2e-delivery-demo-browser` runs the
-first two and the dashboard journeys in Chromium.
+again; 3.0.0 sends too little telemetry, so its check says Unknown until carol
+accepts that; she rolls 3.0.0 back and automation holds off. The tampered
+record of beat B10 is not played here. `story` also prints the commands for
+`pacto delivery blame` and `undo` and for the agent over remote MCP.
 
 ## What is generated
 

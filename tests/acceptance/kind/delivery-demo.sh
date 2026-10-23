@@ -721,17 +721,62 @@ b6() {
   pass "checkout 1.9.0 shipped with nobody involved, and the same held operation now asks only orders"
 }
 
+# journeys BEAT — the dashboard journeys whose titles start with "BEAT: ", against
+# the live demo; the team they expect to be asked comes from examples/story.
+journeys() {
+  ( cd "$ROOT/pkg/dashboard/frontend" && PW_BASE_URL="$DASH_URL/" PW_DELIVERY_DEMO=1 PW_ASKED="$(expect B7 Asked | jq -r 'join(" or ")')" \
+    timeout 600 npx playwright test --config playwright.live.config.ts e2e-live/delivery-journeys.spec.ts --grep "$1: " ) \
+    || fail "the dashboard journeys failed: $1"
+}
+
+# b8 — carol approved, 3.0.0 shipped, and prod sends no telemetry for it
+# (span-modes prod.3.0.0=silent), so the check says Unknown and the operation
+# waits for carol to accept the unknown.
+b8() {
+  beat B8
+  left_held() { ! held prod payments-3-0-0; }
+  eventually 60 left_held || fail "carol's approval did not move payments 3.0.0 on: $(field prod payments-3-0-0 phase) $(field prod payments-3-0-0 message)"
+  [ "$(field prod payments-3-0-0 phase)" != Concluded ] || fail "payments 3.0.0 concluded $(outcome prod payments-3-0-0) instead of verifying"
+  unknown_held() { held prod payments-3-0-0 && [ "$(field prod payments-3-0-0 applied)" = true ]; }
+  eventually 150 unknown_held || fail "payments 3.0.0 never waited on its check: $(field prod payments-3-0-0 phase) $(field prod payments-3-0-0 message)"
+  same B8 "the check after release" "$(op_json prod payments-3-0-0 | jq -r '[.status.verdicts[]? | select(.phase == "verify") | .result] | if index("Fail") then "Fail" elif index("Unknown") then "Unknown" else "Pass" end')" "$(expect B8 Verify | jq -r .)"
+  journeys B8
+  wait_concluded prod payments-3-0-0 Succeeded/AcceptedUnknown
+  pass "payments 3.0.0 shipped, its check said Unknown, and it stays recorded as an accepted unknown, never a pass"
+}
+
+# b9 — carol rolls 3.0.0 back from the dashboard; the rollback proceeds and
+# holds automation off, so nothing moves prod forward again on its own.
+b9() {
+  beat B9
+  journeys B9
+  local d op; d="$(digest_of payments 2.3.0)"
+  rolled() { op_to prod payments "$d" pacto.dev/rollback | grep -vx payments-2-4-0-rollback | grep -q .; }
+  eventually 60 rolled || fail "carol's rollback of payments 3.0.0 raised no operation"
+  op="$(op_to prod payments "$d" pacto.dev/rollback | grep -vx payments-2-4-0-rollback | head -1)"
+  predicted B9 prod "$op"
+  wait_concluded prod "$op" Succeeded/Verified
+  runs prod payments "$d" || fail "prod is not back on payments 2.3.0"
+  [ "$(kubectl -n prod get stage payments -o jsonpath='{.status.autoHold}')" = true ] || fail "carol's rollback did not hold automation off"
+  always 5 runs prod payments "$d" || fail "automation moved payments off 2.3.0 after carol's rollback"
+  pass "carol rolled payments back to 2.3.0 and automation holds off"
+}
+
 cmd_browser() {
   admin
   [ -e "$DEMO/digests/payments-3.0.0" ] || fail "run the story first: make e2e-delivery-demo-story"
   b6
-  echo; echo "== B7 in Chromium: Inbox, Change, refusals, carol approves after a fresh sign-in, History"
   ( cd "$ROOT/pkg/dashboard/frontend" \
     && { [ -d node_modules ] || npm ci --ignore-scripts >/dev/null 2>&1; } \
-    && timeout 300 npx playwright install ${CI:+--with-deps} chromium >/dev/null 2>&1 \
-    && PW_BASE_URL="$DASH_URL/" PW_DELIVERY_DEMO=1 timeout 600 npx playwright test --config playwright.live.config.ts e2e-live/delivery-journeys.spec.ts ) \
-    || fail "the dashboard journeys failed"
-  pass "the dashboard journeys passed against the live demo"
+    && timeout 300 npx playwright install ${CI:+--with-deps} chromium >/dev/null 2>&1 ) \
+    || fail "could not install the browser for the dashboard journeys"
+  beat B7
+  journeys B7
+  b8
+  b9
+  echo; echo "== moment 5 in Chromium: History reads the steps from signed records"
+  journeys History
+  pass "B6 to B9 matched examples/story, and the dashboard journeys passed against the live demo"
 }
 
 # --- next steps --------------------------------------------------------------
@@ -772,7 +817,7 @@ EOF
 Explore more:
   B6, as the agent: ship checkout 1.9 first, and the held change asks only orders
        $a $p delivery propose -n prod --stage checkout --to $(cat "$DEMO/digests/checkout-1.9.0" 2>/dev/null || echo '<checkout 1.9.0 digest>') --name checkout-1-9-0
-       or run it and the browser journeys: make e2e-delivery-demo-browser
+       or play and check B6 to B9 (B7 to B9 in Chromium): make e2e-delivery-demo-browser
   B7, in the browser: pay-agent and alice cannot approve; carol signs in again and approves
   B8: prod sends too little telemetry for 3.0.0 (generated), so the check says Unknown and waits for carol
   B9: carol rolls 3.0.0 back from the dashboard; then
