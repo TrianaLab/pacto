@@ -10,6 +10,7 @@ package observer
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -156,11 +157,12 @@ type dependencyTarget struct {
 // resolveDependencyToSibling resolves a contract dependency to an in-cluster Pacto CR (spec section 7.6).
 // Returns (nil, false, nil) when no reliable match exists (external / not pacto-managed); (target, false,
 // nil) for a single match; (nil, true, nil) when the dependency resolves to more than one DISTINCT
-// {namespace, serviceName} target (blue-green with equal resolvedRef, or the same service in two watched
-// namespaces) and not exactly one of them satisfies dep.Compatibility — an arbitrary pick would risk a
+// {namespace, serviceName} target (blue-green with equal resolvedRef) and not exactly one of them
+// satisfies dep.Compatibility. A target in the consumer's own namespace wins over the same service in
+// another one: a service in test calls the provider in test, never the one in prod — an arbitrary pick would risk a
 // wrong verdict, so the caller must treat it as Insufficient.
 // Returns an error only for controller-runtime client failures.
-func (o *Observer) resolveDependencyToSibling(ctx context.Context, _ string, dep contract.Dependency) (*dependencyTarget, bool, error) {
+func (o *Observer) resolveDependencyToSibling(ctx context.Context, namespace string, dep contract.Dependency) (*dependencyTarget, bool, error) {
 	// List all Pacto CRs. For single-namespace manager cache, this only sees CRs in the watched namespace(s).
 	var pactoList unversioned.PactoList
 	if err := o.client.List(ctx, &pactoList); err != nil {
@@ -189,6 +191,9 @@ func (o *Observer) resolveDependencyToSibling(ctx context.Context, _ string, dep
 		}
 	}
 
+	if local := slices.DeleteFunc(slices.Clone(matches), func(m dependencyTarget) bool { return m.namespace != namespace }); len(local) > 0 {
+		matches = local
+	}
 	switch len(matches) {
 	case 0:
 		// No matching sibling CR -> external / not pacto-managed.

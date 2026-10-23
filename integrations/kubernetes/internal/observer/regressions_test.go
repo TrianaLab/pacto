@@ -82,6 +82,27 @@ func TestDependency_VersionTieBreak(t *testing.T) {
 	}
 }
 
+// TestDependency_OwnNamespaceWins is the regression for one service in two environments of one cluster
+// (test and prod namespaces, as pacto init --delivery writes them): a consumer's dependency resolves to
+// the provider in its own namespace, and only a service in no namespace of its own stays ambiguous.
+func TestDependency_OwnNamespaceWins(t *testing.T) {
+	here := kPacto("payments", "payments", "payments", "2.3.0", "registry/payments:2.3.0")
+	there := kPacto("payments", "payments", "payments", "2.3.0", "registry/payments:2.3.0")
+	there.Namespace = "prod"
+	elsewhere := kPacto("payments", "payments", "payments", "2.3.0", "registry/payments:2.3.0")
+	elsewhere.Namespace = "staging"
+	dep := contract.Dependency{Name: "payments", Ref: "oci://registry/payments", Compatibility: "^2"}
+	c := fake.NewClientBuilder().WithScheme(kernelScheme()).WithObjects(here, there).Build()
+	got, ambig, err := New(c).resolveDependencyToSibling(context.Background(), kNS, dep)
+	if err != nil || ambig || got == nil || got.namespace != kNS {
+		t.Fatalf("got %+v ambiguous=%v err=%v, want the payments in %s", got, ambig, err, kNS)
+	}
+	c = fake.NewClientBuilder().WithScheme(kernelScheme()).WithObjects(there, elsewhere).Build()
+	if got, ambig, err := New(c).resolveDependencyToSibling(context.Background(), kNS, dep); err != nil || !ambig || got != nil {
+		t.Fatalf("got %+v ambiguous=%v err=%v, want ambiguous with no payments in %s", got, ambig, err, kNS)
+	}
+}
+
 // TestSharedClaim_ReadOnlyClaimsAreNotShared is the regression for a read-only claim counted as a shared
 // writer: a claim opened read-only, or mounted read-only everywhere it is mounted, does not make the
 // scope shared; one writable mount does.
