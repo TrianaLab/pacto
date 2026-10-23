@@ -41,6 +41,12 @@ applies count in every environment.
   Wait for a Stage's changes to conclude before you delete it.
 - The recorder notices a tampered record or a broken chain only when it next
   records on that Stage. `pacto delivery record verify` checks any time.
+- A Stage that follows another cluster sees the upstream's history only as far
+  as its records reach the registry. A failure whose record is not written yet,
+  or a stream cut at its newest records, is not seen there.
+- A check after release that fails and freezes the upstream Stage without a
+  rollback writes no record, so a Stage in another cluster does not see that
+  failure and can still take that version.
 - GitHub's registry and released `distribution` have no native Referrers API,
   so they hold no records.
 

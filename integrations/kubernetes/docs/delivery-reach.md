@@ -121,23 +121,27 @@ You need:
          stream: 8d1e…/staging/payments
    ```
 
-The promoter rebuilds what the upstream Stage verified from its records. It
-works the same way as on a local upstream:
+The promoter rebuilds what the upstream Stage verified from its records:
 
-- A promote that `Succeeded` and `Verified` there counts as verified.
-- If it also passed the published gate there, it is offered here.
-- A promote that `Failed` there is never offered.
+- A change that `Succeeded` and `Verified` there counts as verified.
+- A promote that also passed the published gate there is offered here.
+- A version whose change `Failed` there, of any type, is never taken.
+- A version that failed its check after release there is never taken either,
+  when that failure raised a rollback, because the rollback record names it.
 
 The downstream Stage takes the newest offered version that failed in neither
-cluster. Its own gates, approvals and checks still run.
+cluster. Its own gates, approvals and checks still run. It sees the upstream's
+history only as far as its records reach the registry, so a recent failure is
+not seen yet. [What delivery does not do](delivery-limitations.md) lists the
+cases.
 
 The promoter offers nothing when it cannot check the history:
 
 - Without `promoter.upstreamTrust` the Stage is not `Ready`, with the reason
   `UpstreamUntrusted`.
 - A record no trusted key signed for that stream offers nothing, and neither
-  does a stream with a gap, a fork or a missing record, or a registry that
-  cannot be read. A promote is then refused as `NotPublished`, and the message
+  does a stream with a gap or a fork inside it, or a registry that cannot be
+  read. A promote is then refused as `NotPublished`, and the message
   says why.
 
 The digest must also exist in the downstream Stage's own apply repository.
