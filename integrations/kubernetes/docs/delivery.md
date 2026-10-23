@@ -6,14 +6,14 @@ change from a risky one, asks a person only when it must and rolls back a
 version that fails its checks. A contract is the file, `pacto.yaml`, in which
 each service says what it offers and which other services it calls. Flux, a
 tool that keeps your Kubernetes cluster running what your files say, does the
-actual switch from one version to the next.
+actual switch from one version to the next (Argo CD can do it instead).
 
 Delivery is opt-in. It is a separate install, and without it Pacto never
 changes what runs. To set it up for a service, [pactify it](../../pactify.md):
 give it a contract and connect it to delivery.
 
 !!! warning "Alpha"
-    Delivery is new and its API may still change.
+    Delivery is new: its settings and commands may still change.
 
 ## What happens to a change
 
@@ -34,10 +34,9 @@ flowchart LR
 
 **Before it moves**, Pacto checks that this version was published with
 `pacto publish`, Pacto's release command, and signed, which proves who
-published it. It compares the new contract
-with the one running and looks at every service in that environment that uses
-this one. If none of them would break,
-the change goes ahead on its own.
+published it. It compares the new contract with the one running and looks at
+every service in that environment that uses this one. If none of them would
+break, the change goes ahead on its own.
 
 **After Flux applies it**, Pacto checks that the running version does what its
 contract says. You can add health checks too, such as error rates from your
@@ -46,8 +45,7 @@ hour later still rolls the version back: the version that ran before is put
 back. A version that failed is never tried again in that environment.
 
 A version reaches prod only after it passed in the environment before it,
-such as test. Each
-service in each environment is called a **Stage**. Moving a Stage to a new
+such as test. Each service in each environment is called a **Stage**. Moving a Stage to a new
 version is called promoting it, and a Stage can promote new versions on its
 own or wait to be asked.
 
@@ -67,7 +65,8 @@ only payments 2.x. The change waits, and Pacto asks the checkout and orders
 teams, because theirs are the services it would break. Nobody else is asked.
 
 Pacto also says what to update first. If checkout 1.9.0 accepts both payments
-2.x and 3.0.0 and already passed in test, the plan says to ship it first. Once
+2.x and 3.0.0 and already passed in test, Pacto's plan for the change says to
+ship it first. Once
 checkout has moved, only the orders team is still asked.
 
 Pacto judges this by the version range each service declares, not by which
@@ -90,32 +89,29 @@ pass.
 
 ## Where you follow it
 
-- **The dashboard**, Pacto's web page that `pacto dashboard` starts, gains a
-  Delivery tab once it knows who you are (you sign in, or run it on your own
-  machine): an inbox of the
-  changes waiting for your team, every environment and what it runs, the
-  history of past changes with who asked for and approved each one and how to
-  undo it, the published versions and the publishes Pacto refused, with the
-  version bump each one needed.
+- **The dashboard**, the web page `pacto dashboard` starts, gains a Delivery
+  tab once it knows who you are (you sign in, or run it on your own machine):
+  the changes waiting for your team, what each environment runs, past changes
+  with who asked and who approved, and the publishes Pacto refused.
 - **The command line**: `pacto delivery plan` shows what would happen before
   you ask, and `pacto delivery history` what already did.
-- **AI agents** get the same tools through `pacto mcp --delivery`, which
-  speaks MCP, the common way AI agents call tools. There is no approve tool.
+- **AI agents** get the same tools through `pacto mcp --delivery`. MCP is the
+  common way AI agents call tools. There is no approve tool.
 
 ## Reference
 
 None of these is required reading:
 
-- [Setup and gates](delivery-setup.md): install, Stages by hand, the gates,
-  what moves first and who may do what
-- [Health checks and claims](delivery-health.md)
+- [Setup and gates](delivery-setup.md): install, Stages by hand, what moves
+  first and who may do what
+- [Health checks](delivery-health.md): monitoring, AI agent evals and the
+  calls a service makes
 - [Sign-in, approvals and agents](delivery-identity.md)
-- [Signed records and key rotation](delivery-records.md)
-- [History, blame and verification](delivery-history.md)
+- [Signed records and history](delivery-records.md): records, key rotation,
+  blame, undo and verification
+- [Argo CD and several clusters](delivery-reach.md)
 - [Publishing details](../../publishing.md) and the contract's
   [`publish` section](../../contract-reference/publish.md)
-- [Argo CD and several clusters](delivery-reach.md)
-- [What delivery does not do](delivery-limitations.md)
 
-To see all of it run on your machine, try the
-[Kubernetes demo](../../examples/kubernetes-demo.md).
+To see all of it run on your machine,
+try the [Kubernetes demo](../../examples/kubernetes-demo.md).

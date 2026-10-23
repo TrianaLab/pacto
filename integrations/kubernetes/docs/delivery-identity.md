@@ -66,35 +66,21 @@ process on your machine could do it as you; it shows the
 
 ## Follow delivery in the dashboard
 
-The dashboard shows a **Delivery** tab only where the cluster serves the
-delivery API and the dashboard knows who you are. Its views are **Inbox**
-(changes waiting for your teams, then paused environments and the changes that
-paused them), **Environments** (where promote and unpause start), **History**
-(who asked for and approved each change, and an undo that plans the way back)
-and **Published** (the versions your Stages know, then the publishes Pacto
-refused with the version bump each one needed). If you may not list delivery objects across the cluster,
-the views read only the namespaces Pacto knows of and say they may be
-incomplete. If the dashboard cannot reach the cluster, they say that too.
-
-A change has its own page: the plan, what Pacto predicted next to what
-happened, the proof behind each check (a link into Mira when the dashboard has
-`--mira-url`, otherwise the query to copy), who decided, the affected services
-and a timeline. Promote, roll back and unpause first show the plan, and if
-anything moved since, you get the fresh plan instead. When the cluster
-refuses, the page shows its reason as it gave it.
+The **Delivery** tab ([what it shows](delivery.md#where-you-follow-it))
+appears only where the cluster serves the delivery API and the dashboard knows
+who you are. Every action shows the plan first, and the fresh plan if anything
+moved since. When you may not list delivery objects across the cluster, the
+views say they may be incomplete.
 
 ## Approve from the dashboard
 
-A held change asks one question of the teams that own the affected services,
-or of the service's own team. Only their members may answer; the promoter
-ignores anyone else. A contract owner team `T` is the group `T`, or
-`teamGroupPrefix` followed by `T`.
-
-To decide, the person signs in again: the dashboard sends them to the identity
-provider with `prompt=login` when their login is older than ten minutes, and
-the promoter ignores an approval more than fifteen minutes after its login.
-The decision is then shown again for one more click, never sent on its own.
-Agents are refused, and so is a login with no login time.
+A held change asks one question of the teams that own the affected services.
+Only their members may answer. A contract owner team `T` is the group `T`, or
+`teamGroupPrefix` followed by `T`. To decide, a person whose login is older
+than ten minutes signs in again (`prompt=login`), and the promoter ignores an
+approval more than fifteen minutes after its login. The decision takes one more
+click, never sent on its own. Agents are refused, and so is a token with no
+login time.
 
 ## Agents over the network
 
@@ -104,13 +90,23 @@ PACTO_MCP_EXCHANGE_CLIENT_SECRET=... pacto mcp --delivery -t http --host 0.0.0.0
   --exchange-client-id pacto-mcp
 ```
 
-Every request must carry a bearer token for the resource, and the server
-publishes where to get one at `/.well-known/oauth-protected-resource`. The
-server exchanges each caller's token at the identity provider (RFC 8693) for
-one the apiserver accepts, as its own OAuth client, and asks the apiserver who
-the caller is on every request. An agent gets propose and cancel, a person the
-read tools and nobody an approve tool. Put agent clients in `pacto:agents` (or
+Every request must carry a bearer token for the resource; the server publishes
+where to get one at `/.well-known/oauth-protected-resource`. It exchanges each
+caller's token at the identity provider (RFC 8693) for one the apiserver
+accepts and asks the apiserver who the caller is on every request. Everyone
+gets the read tools, an agent also propose and cancel, nobody an approve tool. Put agent clients in `pacto:agents` (or
 your agent group). Without token exchange the server refuses `--delivery` over
 HTTP.
 
-What this does not stop is in [What delivery does not do](delivery-limitations.md#identity).
+## Limits
+
+- An agent holding a person's credentials, session or refresh token is that
+  person to the cluster. Fresh sign-in raises the bar; it does not close the
+  gap.
+- A stolen dashboard session can approve only in the ten minutes after that
+  person signed in again, and can take their other actions until it ends.
+- Sessions live in the dashboard's memory: it runs as one replica and a restart
+  signs everyone out. A session ends after an hour idle or twelve in all.
+- A change's timeline shows only the Operation's own times, not Kubernetes
+  events. Published versions are those your Stages know, and refused publishes
+  are listed as the registry holds them, without checking their signatures.
