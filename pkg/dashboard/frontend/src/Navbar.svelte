@@ -333,10 +333,10 @@
   .source-tag :global(.source-dot) { flex-shrink: 0; }
   .source-tag {
     display: inline-flex; align-items: center; gap: 5px;
-    font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;
     color: var(--c-text-3);
     padding: 4px 10px; border-radius: var(--radius-xs);
     transition: background var(--transition), color var(--transition);
+    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .source-tag:hover { background: var(--c-surface-hover); color: var(--c-text-2); }
   .sources-trigger {

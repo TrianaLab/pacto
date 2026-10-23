@@ -120,9 +120,9 @@ td code { word-break: break-all; }
 thead { border-bottom: 1px solid var(--c-border); }
 th {
   text-align: left; padding: var(--sp-3) var(--sp-3);
-  color: var(--c-text-3); font-weight: 500;
-  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--c-text-3);
   position: relative; z-index: 1;
+  font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
 }
 td {
   padding: var(--sp-3) var(--sp-3);

@@ -627,7 +627,7 @@
   .svc-line { display: flex; align-items: center; gap: var(--sp-2); }
   .selectors { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
   .field { display: flex; flex-direction: column; gap: 6px; }
-  .field label { font-size: var(--text-xs); color: var(--c-text-3); font-weight: 600; text-transform: uppercase; }
+  .field label { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .field select { padding: var(--sp-2) var(--sp-3); min-height: var(--touch-min); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); color: var(--c-text); font: inherit; font-size: var(--text-sm); }
   .form-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
   .check-field { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--c-text-2); }

@@ -200,7 +200,7 @@
   .graph-cta-desc { display: block; font-size: var(--text-xs); opacity: 0.8; margin-top: 2px; }
 
   .alerts { display: flex; flex-direction: column; gap: var(--sp-2); margin-bottom: var(--sp-5); }
-  .alerts-title { font-size: var(--text-xs); font-weight: 600; color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: var(--sp-1); }
+  .alerts-title { color: var(--c-text-3); margin-bottom: var(--sp-1); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .alert-item {
     display: flex; align-items: center; gap: var(--sp-2);
     padding: var(--sp-3) var(--sp-3); border-radius: var(--radius-xs);

@@ -182,9 +182,8 @@
     margin-bottom: var(--sp-1);
   }
   .meta-item { display: flex; flex-direction: column; gap: 2px; }
-  .meta-label {
-    font-size: var(--text-xs); font-weight: 500; text-transform: uppercase;
-    letter-spacing: 0.05em; color: var(--c-text-3);
+  .meta-label { color: var(--c-text-3);
+    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .meta-value { font-size: var(--text-sm); font-weight: 600; color: var(--c-text); }
   .meta-contacts { margin-top: var(--sp-3); }
@@ -196,8 +195,8 @@
     font-size: var(--text-xs);
   }
   .contact-type {
-    font-weight: 600; text-transform: uppercase;
-    color: var(--c-text-3); font-size: var(--text-xs); letter-spacing: 0.03em;
+    color: var(--c-text-3);
+    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .contact-value { color: var(--c-text); }
   .contact-purpose {
