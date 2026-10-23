@@ -1,5 +1,8 @@
 # Publish a version
 
+Reference for publishing. To take a service from nothing to its first release,
+follow [Pactify a service](pactify.md).
+
 `pacto publish` publishes what a contract's [`publish`](contract-reference/publish.md)
 section declares: the contract bundle, the service's images, charts and the
 manifests Flux applies, all tagged with the version the contract states. Docker

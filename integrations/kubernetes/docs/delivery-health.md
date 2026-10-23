@@ -1,13 +1,9 @@
-# Health checks and claims
+# Delivery reference: health checks and claims
 
-A Stage can ask more of a new version than the Pacto contract check. It can
-check the version's errors and response times in your monitoring, and check
-that the version only calls what its contract declares. These checks keep
-running after release, so a problem found an hour later still rolls the
-version back.
-
-Every check answers Pass, Fail or Unknown and cites what it read, so anyone can
-run it again. Unknown never passes.
+Beyond the Pacto contract check, a Stage can check a version's errors and
+response times in your monitoring and that it calls only what its contract
+declares. Every check answers Pass, Fail or Unknown and cites what it read, so
+anyone can run it again. Unknown never passes.
 
 ## Add checks to a Stage
 
@@ -38,16 +34,15 @@ spec:
           provider: pacto.runtime
 ```
 
-The promoter runs the Pacto contract check and every listed check on the time
-since Flux applied the version. Any Fail fails the version and rolls it back.
-All Pass verifies it. Anything else waits, and when `window` runs out a person
-is asked to accept the unknown or reject the version.
+The checks run on the time since Flux applied the version. Any Fail rolls it
+back, all Pass verifies it and anything else waits; when `window` runs out a
+person is asked to accept the unknown or reject the version.
 
 ## Providers
 
 `pacto.runtime` is built in. Every other provider is configured in the
-delivery chart, never in a Stage, so a Stage or an agent can name a provider
-but never point the promoter at a host:
+delivery chart, so a Stage or an agent can name a provider but never point the
+promoter at a host:
 
 ```yaml
 gates:
@@ -67,10 +62,9 @@ by `service.name`. Its params:
 | `maxLatencyRatio` | 0.05 | A larger share of slow spans fails |
 | `where` | none | Extra Mira terms as JSON, for example the namespace |
 
-Mira's API returns rows, not counts, so the check reads every page. A read
-that fails or stops short is Unknown, never Pass. The citation holds the exact
-query documents with absolute time bounds in nanoseconds, so posting them to
-Mira's `/api/v1/query` again reads exactly the same spans.
+The check reads every page of Mira's rows; a read that fails or stops short is
+Unknown. The citation holds the exact queries with absolute time bounds, so
+posting them to Mira's `/api/v1/query` again reads the same spans.
 
 An `http` provider is the plug-in format for any other tool. The promoter
 posts `{"input": ..., "params": ...}`, where the input names the operation,
@@ -79,26 +73,23 @@ answers `{"result": "Pass|Fail|Unknown", "message": "...", "citation": {...}}`.
 
 ## Claims against the running service
 
-`pacto.runtime` compares what the version does with what its contract says,
-using the [node agent](runtime-conformance.md). It fails a version the kernel
-saw calling a Pacto-managed service its contract never declares, or not
-listening on a port it declares. It reads the Pacto evaluation of exactly this
-version, and passes only when
-`status.evaluatedRevision.kernelCoverage` is `Complete`. If the node agent is
-off or could not see every pod, the answer is Unknown.
+`pacto.runtime` uses the [node agent](runtime-conformance.md). It fails a
+version the kernel saw calling a Pacto-managed service its contract never
+declares, or not listening on a port it declares. It reads the Pacto
+evaluation of exactly this version and passes only when
+`status.evaluatedRevision.kernelCoverage` is `Complete`; otherwise the answer
+is Unknown.
 
 ## After release
 
-Once a version ships, the promoter runs the same checks again every
-`recheck` (default 1m) on the last `window` of time. A confirmed Fail marks the
-version failed and raises one rollback, which cites the failing check. If that
-cause already had its rollback, or there is nothing to roll back to, the Stage
-freezes and waits for a person. It also freezes when a person or an agent
-chose the running version, with a rollback or a promote while the Stage is on
-auto-hold: automation never undoes that choice. Unknown after release never
-rolls back, and a result about a version the Stage stopped running while the
-checks ran is dropped. The newest result is in the Stage's `status.lastCheck`,
-which also says when the operation that shipped the running version is gone.
+After release the checks run again every `recheck` (default 1m) on the last
+`window`. A confirmed Fail marks the version failed and raises one rollback
+citing the check. The Stage freezes instead when that cause already had its
+rollback, when there is nothing to roll back to, or when a person or an agent
+chose the running version (a rollback, or a promote during auto-hold).
+Unknown after release never rolls back, and a result about a version the Stage
+stopped running is dropped. The newest result is in `status.lastCheck`, which
+also says when the operation that shipped the running version is gone.
 
 ## Explain and history
 
@@ -107,14 +98,12 @@ pacto delivery explain -n prod <operation>
 pacto delivery history -n prod --stage payments
 ```
 
-`explain` shows where an operation is, every verdict with its citation and how
-to run it again. `history` lists a Stage's operations in order, from its
-signed records when the recorder runs; see [reading records](delivery-history.md).
+`explain` shows where an operation is and every verdict with its citation and
+how to run it again. `history` lists a Stage's operations; see
+[history, blame and verification](delivery-history.md).
 
-A person or an agent can cite a verdict as the cause of an operation with
-`--cause-verdict '<verdict JSON>'`, for example to roll back a frozen Stage.
-The promoter runs it again on the Stage's own check when it admits the
-operation, over the cited window, which must fall in the time the running
-version has run. A cause that comes back Unknown or with another result is
-refused, and so is any cause while the running version has no applied time
-(Flux never confirmed it, or its operation is gone).
+`--cause-verdict '<verdict JSON>'` cites a verdict as an operation's cause, for
+example to roll back a frozen Stage. The promoter runs it again on the Stage's
+own check over the cited window, which must fall in the time the running
+version has run. It refuses a cause that comes back with another result, and
+any cause while the running version has no applied time.
