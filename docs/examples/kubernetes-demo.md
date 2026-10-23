@@ -6,10 +6,12 @@ search:
 
 # Try it on Kubernetes
 
-The payments story on a real cluster on your machine. Here everything is real:
+The payments story on a real cluster on your machine. The components are real:
 the registry, Flux, the delivery promoter, the recorder that signs every step,
 the health check, the node agent that sees calls, sign-in and the dashboard. The
-browser demo shows the same story over fixed data.
+workloads, their telemetry and the B10 sign-ins are generated (see
+[What is generated](#what-is-generated)). The browser demo shows the same story
+over fixed data.
 
 ## Run it
 
