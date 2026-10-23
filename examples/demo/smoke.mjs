@@ -211,8 +211,8 @@ globalThis.__pactoPersona("carol", true);
 check("freshly signed-in carol approves", call("POST", `${opPath}/decision`, JSON.stringify({ decision: "approve" })).status === 201);
 const hist = json(call("GET", "/api/delivery/history")).histories || [];
 check("history has a verified stream and one with problems",
-  hist.some((h) => h.history.verified && h.history.completeness === "complete")
-    && hist.some((h) => (h.history.problems || []).length > 0 && (h.history.unreadable || []).length > 0));
+  hist.some((h) => h.verified && h.completeness === "complete")
+    && hist.some((h) => (h.problems || []).length > 0 && (h.unreadable || []).length > 0));
 check("the refused 2.4.3 is listed", (json(call("GET", "/api/delivery/refusals")).refusals || []).some((r) => r.version === "2.4.3" && r.requiredBump === "major"));
 check("the pacto init plan is embedded", JSON.parse(globalThis.__pactoPactifyPlan).files.some((f) => f.path === "pacto.yaml"));
 

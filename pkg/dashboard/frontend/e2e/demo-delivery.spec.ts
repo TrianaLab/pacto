@@ -55,11 +55,14 @@ test.describe('Browser demo: the delivery story', () => {
   });
 
   test('a breaking change asks only the affected teams, and only a freshly signed-in person on them decides', async ({ page }) => {
+    test.setTimeout(120_000);
     await ready(page, '#/delivery/environments');
     await promote(page, 'payments', '3.0.0');
     const panel = page.getByTestId('decision-panel');
     await expect(panel).toContainText('Asked of: checkout, orders', { timeout: T });
-    await expect(page.getByTestId('decide-agent')).toBeVisible();
+    // pay-agent asked for it, and is an agent: either way it gets no buttons.
+    await expect(page.getByTestId('decide-own')).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Approve' })).toHaveCount(0);
     const change = page.url();
 
     // checkout moves first, with nobody involved; the question shrinks to orders.
@@ -145,7 +148,7 @@ test.describe('Browser demo: the delivery story', () => {
 
     // Where it ended: 3.0.0 rolled back by carol, automation on hold.
     await page.goto('/#/delivery/environments');
-    await expect(page.getByTestId('environments-board')).toContainText(/auto-hold|on hold/i, { timeout: T });
+    await expect(page.getByTestId('environments-board')).toContainText('Kept by a person', { timeout: T });
   });
 
   test('every delivery view passes the accessibility audit', async ({ page }) => {

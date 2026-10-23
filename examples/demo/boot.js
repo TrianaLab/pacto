@@ -236,7 +236,7 @@
       var env = serve("GET", "/api/delivery/environments");
       ((env && env.body && env.body.environments) || []).forEach(function (r) { facts.rows[r.environment + "/" + r.service] = r; });
       var h = serve("GET", "/api/delivery/history?namespace=prod&stage=payments");
-      var entries = (h && h.body && h.body.histories && h.body.histories[0] && h.body.histories[0].history.entries) || [];
+      var entries = (h && h.body && h.body.histories && h.body.histories[0] && h.body.histories[0].entries) || [];
       entries.forEach(function (e) {
         if (e.type === "pacto.dev/promote" && e.operation) { facts.latest = e.operation; }
         if (e.phase === "Held") { facts.held = e.operation; }
