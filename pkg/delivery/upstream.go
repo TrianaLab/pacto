@@ -27,36 +27,50 @@ func UpstreamFromRecords(recs []StoredRecord, unreadable []string) (*StageStatus
 		return nil, "the stream is not whole: " + strings.Join(f.Problems, "; ")
 	}
 	s := &StageStatus{}
-	fail := func(d string) {
-		s.FailedDigests = AddDigest(s.FailedDigests, d, MaxFailedDigests)
-		s.Verified = RemoveDigest(s.Verified, d)
-	}
 	for _, r := range f.Records {
-		p := r.Statement.Predicate
-		if p.Kind != RecordOperation || p.Type == nil || p.Intent.Params == nil || p.Outcome == nil {
-			continue
-		}
-		if c := p.Intent.Cause; p.Type.ID == TypeRollback && c != nil && c.Verdict != nil && c.Verdict.Result == Fail && p.Intent.Params.From != "" {
-			fail(p.Intent.Params.From)
-		}
-		to := p.Intent.Params.To
-		if to == "" { // a freeze or unfreeze moves no version
-			continue
-		}
-		switch p.Outcome.Result {
-		case Succeeded:
-			if p.Outcome.Verification != Verified {
-				continue
-			}
-			s.Verified = AddDigest(s.Verified, to, MaxVerified)
-			if p.Type.ID == TypePromote && slices.ContainsFunc(p.Verdicts, func(v Verdict) bool { return v.Gate == GatePublished && v.Result == Pass }) {
-				s.Offered = AddDigest(s.Offered, to, MaxOffered)
-			}
-		case Failed:
-			fail(to)
-		}
+		s.foldUpstream(r.Statement.Predicate)
 	}
 	return s, ""
+}
+
+// foldUpstream applies one verified record to the remote view
+// UpstreamFromRecords builds.
+func (s *StageStatus) foldUpstream(p RecordPredicate) {
+	if p.Kind != RecordOperation || p.Type == nil || p.Intent.Params == nil || p.Outcome == nil {
+		return
+	}
+	if failedRollback(p) {
+		s.failUpstream(p.Intent.Params.From)
+	}
+	to := p.Intent.Params.To
+	if to == "" { // a freeze or unfreeze moves no version
+		return
+	}
+	switch p.Outcome.Result {
+	case Succeeded:
+		if p.Outcome.Verification != Verified {
+			return
+		}
+		s.Verified = AddDigest(s.Verified, to, MaxVerified)
+		if p.Type.ID == TypePromote && slices.ContainsFunc(p.Verdicts, func(v Verdict) bool { return v.Gate == GatePublished && v.Result == Pass }) {
+			s.Offered = AddDigest(s.Offered, to, MaxOffered)
+		}
+	case Failed:
+		s.failUpstream(to)
+	}
+}
+
+// failedRollback says whether p is a rollback raised on a Fail verdict, which
+// leaves the version it moves from failed.
+func failedRollback(p RecordPredicate) bool {
+	c := p.Intent.Cause
+	return p.Type.ID == TypeRollback && c != nil && c.Verdict != nil && c.Verdict.Result == Fail && p.Intent.Params.From != ""
+}
+
+// failUpstream marks d failed in the remote view.
+func (s *StageStatus) failUpstream(d string) {
+	s.FailedDigests = AddDigest(s.FailedDigests, d, MaxFailedDigests)
+	s.Verified = RemoveDigest(s.Verified, d)
 }
 
 // upstreamName names a Stage's upstream for messages: a local Stage by

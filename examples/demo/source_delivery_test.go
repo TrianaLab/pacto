@@ -69,7 +69,15 @@ func inbox(t *testing.T, h http.Handler) []dashboard.InboxItem {
 // moves first, who may decide, the approval, the rollback and the records.
 func TestDeliveryStory(t *testing.T) {
 	d, h := demoServer(t)
+	storyReplayed(t, d)
+	op, decide := storyHeld(t, d, h)
+	storyApproved(t, d, h, decide)
+	storyRolledBack(t, d, h, op)
+}
 
+// storyReplayed checks the history replayed at load and what Environments offers.
+func storyReplayed(t *testing.T, d *demoDelivery) {
+	t.Helper()
 	// The replay: B2 rolled payments prod back to 2.3.0 and 2.4.0 failed
 	// there; B3's 2.4.2 failed in test; 3.0.0 runs in test.
 	prod, _ := d.Stage(t.Context(), story.Prod, "payments")
@@ -92,8 +100,12 @@ func TestDeliveryStory(t *testing.T) {
 		t.Fatalf("prod candidates %v, want %v", cands, want)
 	}
 
-	// B5: pay-agent proposes 3.0.0 for prod; it is held for checkout and
-	// orders, and checkout 1.9.0 can move first.
+}
+
+// storyHeld is B5: pay-agent proposes 3.0.0 for prod; it is held for
+// checkout and orders, and checkout 1.9.0 can move first.
+func storyHeld(t *testing.T, d *demoDelivery, h http.Handler) (delivery.OperationObject, string) {
+	t.Helper()
 	body := `{"namespace":"prod","stage":"payments","to":"` + digest("payments", "3.0.0") + `"}`
 	var proposed struct {
 		Operation delivery.OperationObject `json:"operation"`
@@ -114,10 +126,19 @@ func TestDeliveryStory(t *testing.T) {
 	if code := call(t, h, "POST", decide, `{"decision":"approve"}`, nil); code != 403 {
 		t.Fatalf("pay-agent decided: %d", code)
 	}
+	return op, decide
+}
+
+// storyApproved is B6 and B7: checkout moves first, then only orders is asked.
+func storyApproved(t *testing.T, d *demoDelivery, h http.Handler, decide string) {
+	t.Helper()
+	var proposed struct {
+		Operation delivery.OperationObject `json:"operation"`
+	}
 
 	// B6: checkout 1.9.0 ships with nobody, and the held change now asks
 	// only orders.
-	body = `{"namespace":"prod","stage":"checkout","to":"` + digest("checkout", "1.9.0") + `"}`
+	body := `{"namespace":"prod","stage":"checkout","to":"` + digest("checkout", "1.9.0") + `"}`
 	if code := call(t, h, "POST", "/api/delivery/operations", body, &proposed); code != 201 || proposed.Operation.Status.Phase != delivery.PhaseConcluded {
 		t.Fatalf("B6 checkout: %d %+v", code, proposed.Operation.Status)
 	}
@@ -145,23 +166,38 @@ func TestDeliveryStory(t *testing.T) {
 	if code := call(t, h, "POST", decide, `{"decision":"approve"}`, nil); code != 201 {
 		t.Fatalf("fresh carol: %d", code)
 	}
-	prod, _ = d.Stage(t.Context(), story.Prod, "payments")
+	prod, _ := d.Stage(t.Context(), story.Prod, "payments")
 	if prod.Status.Pointer != digest("payments", "3.0.0") {
 		t.Fatalf("3.0.0 did not ship: %+v", prod.Status)
 	}
 
+}
+
+// storyRolledBack is B9 and the records: carol rolls op back, and history,
+// blame, undo and the refused publish read as the story says.
+func storyRolledBack(t *testing.T, d *demoDelivery, h http.Handler, op delivery.OperationObject) {
+	t.Helper()
+	var proposed struct {
+		Operation delivery.OperationObject `json:"operation"`
+	}
 	// B9: carol rolls it back; automation holds off.
-	body = `{"namespace":"prod","stage":"payments","type":"pacto.dev/rollback","undoes":"` + op.Metadata.Name + `"}`
+	body := `{"namespace":"prod","stage":"payments","type":"pacto.dev/rollback","undoes":"` + op.Metadata.Name + `"}`
 	if code := call(t, h, "POST", "/api/delivery/operations", body, &proposed); code != 201 {
 		t.Fatalf("rollback %d", code)
 	}
-	prod, _ = d.Stage(t.Context(), story.Prod, "payments")
+	prod, _ := d.Stage(t.Context(), story.Prod, "payments")
 	if prod.Status.Pointer != digest("payments", "2.3.0") || !prod.Status.AutoHold {
 		t.Fatalf("B9: %+v", prod.Status)
 	}
 
-	// Records: prod reads verified and complete; blame names carol's
-	// approval of the change that brought 3.0.0.
+	storyRecords(t, d, op, proposed.Operation.Metadata.Name)
+}
+
+// storyRecords: prod reads verified and complete; blame names carol's
+// approval of op, the change that brought 3.0.0, and undo plans a rollback of
+// rollback.
+func storyRecords(t *testing.T, d *demoDelivery, op delivery.OperationObject, rollback string) {
+	t.Helper()
 	ph, _ := d.History(t.Context(), story.Prod, "payments")
 	if ph.Source != delivery.SourceRecords || !ph.Verified || ph.Completeness != "complete" {
 		t.Fatalf("prod history: %+v", ph)
@@ -170,13 +206,18 @@ func TestDeliveryStory(t *testing.T) {
 	if b.Change == nil || b.Change.Operation != op.Metadata.Name || len(b.Approvals) != 1 || b.Approvals[0].By != story.Carol.User {
 		t.Fatalf("blame: %+v", b)
 	}
-	u, _ := d.Undo(t.Context(), story.Prod, proposed.Operation.Metadata.Name, "")
+	u, _ := d.Undo(t.Context(), story.Prod, rollback, "")
 	if u.Kind != "rollback" || u.Plan == nil {
 		t.Fatalf("undo: %+v", u)
 	}
 
-	// The deliberate problems: a gap and an untrusted record in payments
-	// test, and fraud read from status only.
+	storyProblems(t, d)
+}
+
+// storyProblems: the deliberate problems (a gap and an untrusted record in
+// payments test, fraud read from status only) and the refused publish (B4).
+func storyProblems(t *testing.T, d *demoDelivery) {
+	t.Helper()
 	th, _ := d.History(t.Context(), story.Test, "payments")
 	if th.Completeness != "partial" || len(th.Problems) == 0 || len(th.Unreadable) != 1 {
 		t.Fatalf("test history: %+v", th)
