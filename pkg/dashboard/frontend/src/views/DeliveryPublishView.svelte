@@ -1,9 +1,10 @@
 <script>
+  import Person from '../components/Person.svelte';
   import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { serviceUrl } from '../lib/router.ts';
-  import { shortDigest, personLabel, sentence, timeLabel } from '../lib/delivery.ts';
+  import { shortDigest, sentence, timeLabel } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
@@ -66,7 +67,7 @@
                 {#if r.verified}<span class="badge badge-ok">Signed record</span>{/if}
               </div>
               <p class="t-body-2">{sentence(r.reason)}{#if r.baseline}{' '}Compared with {r.baseline}.{/if}</p>
-              <p class="t-meta">{#if r.actor}By <span title={r.actor}>{personLabel(r.actor)}</span>,{' '}{/if}<time datetime={r.at}>{timeLabel(r.at)}</time></p>
+              <p class="t-meta">{#if r.actor}By <Person user={r.actor} />,{' '}{/if}<time datetime={r.at}>{timeLabel(r.at)}</time></p>
             </li>
           {/each}
         </ul>

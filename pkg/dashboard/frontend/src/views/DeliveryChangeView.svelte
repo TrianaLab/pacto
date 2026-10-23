@@ -1,9 +1,10 @@
 <script>
+  import Person from '../components/Person.svelte';
   import { onDestroy, tick } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryInboxUrl, deliveryHistoryUrl, serviceUrl } from '../lib/router.ts';
-  import { typeLabel, shortDigest, shortDigests, predictionLabel, decisionLabel, authTimeText, personLabel } from '../lib/delivery.ts';
+  import { typeLabel, shortDigest, shortDigests, predictionLabel, decisionLabel, authTimeText } from '../lib/delivery.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -32,7 +33,6 @@
   const actions = $derived(data?.actions ?? []);
   const consumers = $derived(st?.plan?.floor?.consumers ?? []);
   const me = $derived({ user: deliverySession.data?.caller?.user, name: deliverySession.data?.name });
-  const person = (user) => personLabel(user, data?.people, me);
 
   const TIMES = [
     ['admitted', 'Admitted'], ['started', 'Started'], ['applied', 'Applied'], ['finished', 'Finished'],
@@ -106,7 +106,7 @@
       {#each [['From', e.spec.params?.from], ['To', e.spec.params?.to]] as [label, d] (label)}
         {#if d}<dt>{label}</dt><dd>{#if data.versions?.[d]}{data.versions[d]}{' '}{/if}<code class="cd-digest" title={d}>{shortDigest(d)}</code></dd>{/if}
       {/each}
-      <dt>Asked by</dt><dd><span title={e.spec.actor.user}>{person(e.spec.actor.user)}</span>{#if e.status.actorClass}{` (${e.status.actorClass})`}{/if}{#if e.spec.onBehalfOf?.user}, for <span title={e.spec.onBehalfOf.user}>{person(e.spec.onBehalfOf.user)}</span>{/if}</dd>
+      <dt>Asked by</dt><dd><Person user={e.spec.actor.user} people={data?.people} {me} />{#if e.status.actorClass}{` (${e.status.actorClass})`}{/if}{#if e.spec.onBehalfOf?.user}, for <Person user={e.spec.onBehalfOf.user} people={data?.people} {me} />{/if}</dd>
       {#if e.spec.reason}<dt>Why</dt><dd>{e.spec.reason}</dd>{/if}
     </dl>
 
@@ -185,7 +185,7 @@
       {#if st?.approvals?.length}
         <ul class="cd-approvals">
           {#each st.approvals as a (a.name)}
-            <li class="t-body-2"><strong>{decisionLabel(a.decision)}</strong> by <span title={a.by}>{person(a.by)}</span>{#if a.authTime}, signed in at {authTimeText(a.authTime)}{/if}{#if a.note}: “{a.note}”{/if}</li>
+            <li class="t-body-2"><strong>{decisionLabel(a.decision)}</strong> by <Person user={a.by} people={data?.people} {me} />{#if a.authTime}, signed in at {authTimeText(a.authTime)}{/if}{#if a.note}: “{a.note}”{/if}</li>
           {/each}
         </ul>
       {:else}

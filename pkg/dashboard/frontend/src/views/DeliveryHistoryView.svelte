@@ -1,9 +1,10 @@
 <script>
+  import Person from '../components/Person.svelte';
   import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryChangeUrl, deliveryHistoryUrl } from '../lib/router.ts';
-  import { typeLabel, shortDigest, versionLabel, personLabel, timeLabel } from '../lib/delivery.ts';
+  import { typeLabel, shortDigest, versionLabel, timeLabel } from '../lib/delivery.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import BlamePanel from '../components/BlamePanel.svelte';
   import UndoPanel from '../components/UndoPanel.svelte';
@@ -106,7 +107,7 @@
                       <td>{en.seq ?? ''}</td>
                       <td>{#if en.operation}<a href={deliveryChangeUrl(h.namespace, en.operation)}>{changeLabel(en)}</a>{:else}{changeLabel(en)}{/if}</td>
                       <td class="hv-nowrap" title={[en.from, en.to].filter(Boolean).join(' → ')}>{version(en.from) || '–'} → {version(en.to) || '–'}</td>
-                      <td><span title={en.actor}>{personLabel(en.actor, data.people, me) || '–'}</span>{#if en.actorClass}{' '}<span class="hv-class">({en.actorClass})</span>{/if}</td>
+                      <td>{#if en.actor}<Person user={en.actor} people={data.people} {me} />{:else}–{/if}{#if en.actorClass}{' '}<span class="hv-class">({en.actorClass})</span>{/if}</td>
                       <td>{en.outcome || en.phase}{#if en.verification}, {en.verification}{/if}{#if en.reason}: {en.reason}{/if}</td>
                       <td class="hv-nowrap">{#if en.finished}<time datetime={en.finished}>{timeLabel(en.finished)}</time>{/if}</td>
                       <td class="hv-nowrap">{#if en.record}<code title={en.record}>{shortDigest(en.record)}</code>{:else if en.unverifiedRecord}<span title={en.unverifiedRecord}>Recorded, not verified</span>{:else if h.source === 'records'}Not recorded yet{:else}–{/if}</td>
