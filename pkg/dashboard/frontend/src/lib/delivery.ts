@@ -99,6 +99,23 @@ export function cliDecision(namespace: string, name: string, decision: string): 
   return `pacto delivery approve -n ${namespace} ${name} --decision ${decision}`;
 }
 
+/**
+ * signIn sends the person to sign in and back to `hash`; fresh makes them log
+ * in again. A host with no /auth routes handles it itself: the browser demo
+ * sets window.__pactoSignIn (beside __pactoServe) to its simulated sign-in,
+ * because leaving the page would lose everything the tab simulated.
+ */
+export function signIn(hash: string, fresh = false): void {
+  const hook = (window as unknown as { __pactoSignIn?: (hash: string, fresh: boolean) => void }).__pactoSignIn;
+  if (typeof hook === 'function') hook(hash, fresh);
+  else location.assign(loginUrl(hash, fresh));
+}
+
+/** hostSignsIn: the host handles sign-in itself (see signIn). */
+export function hostSignsIn(): boolean {
+  return typeof (window as unknown as { __pactoSignIn?: unknown }).__pactoSignIn === 'function';
+}
+
 /** loginUrl signs in and comes back to `hash`; fresh makes the person log in again. */
 export function loginUrl(hash: string, fresh = false): string {
   const ret = '/' + (hash.startsWith('#') ? hash : `#${hash}`);

@@ -80,7 +80,14 @@ func main() {
 	// The payments story's delivery, simulated in the tab (source_delivery.go).
 	// The promoter's steps are spaced out so a reader sees a change run,
 	// verify and conclude.
-	d, err := newDemoDelivery(time.Now, func(f func()) { time.AfterFunc(1500*time.Millisecond, f) })
+	// After each step the views are asked to read again (pacto:refresh), so
+	// the change page moves with the promoter instead of at the next poll.
+	refresh := func() {
+		js.Global().Call("dispatchEvent", js.Global().Get("Event").New("pacto:refresh"))
+	}
+	d, err := newDemoDelivery(time.Now, func(f func()) {
+		time.AfterFunc(1500*time.Millisecond, func() { f(); refresh() })
+	})
 	if err != nil {
 		panic(err)
 	}

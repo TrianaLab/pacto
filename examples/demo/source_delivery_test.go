@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -78,6 +79,17 @@ func TestDeliveryStory(t *testing.T) {
 	test, _ := d.Stage(t.Context(), story.Test, "payments")
 	if test.Status.Pointer != digest("payments", "3.0.0") || !slices.Contains(test.Status.FailedDigests, digest("payments", "2.4.2")) {
 		t.Fatalf("payments test after B4: %+v", test.Status)
+	}
+
+	// What Environments offers to promote: 3.0.0 to payments prod, 1.9.0 to
+	// checkout prod and fraud's first version to prod.
+	stages, _ := d.Stages(t.Context(), story.Prod)
+	cands := map[string]string{}
+	for _, s := range stages {
+		cands[s.Metadata.Name] = versionOf(s.Metadata.Name, s.Status.Candidate)
+	}
+	if want := map[string]string{"payments": "3.0.0", "checkout": "1.9.0", "fraud": "1.0.0", "orders": ""}; !maps.Equal(cands, want) {
+		t.Fatalf("prod candidates %v, want %v", cands, want)
 	}
 
 	// B5: pay-agent proposes 3.0.0 for prod; it is held for checkout and

@@ -595,6 +595,23 @@ func clone[T any](v T) T {
 	return out
 }
 
+// view is a copy of s with the candidate the stage reconciler would see:
+// the newest version its upstream Stage offers, or the newest pacto publish
+// published for a test Stage.
+func (d *demoDelivery) view(s *delivery.StageObject) delivery.StageObject {
+	c := clone(*s)
+	var up *delivery.StageStatus
+	if u := s.Spec.Candidates.UpstreamStage; u != nil {
+		up = &d.stage(u.Namespace, u.Name).Status
+	}
+	rev := ""
+	if p := s.Status.Published; len(p) > 0 {
+		rev = "latest@" + p[len(p)-1]
+	}
+	c.Status.Candidate = delivery.NewestCandidate(c.Status, rev, up)
+	return c
+}
+
 func (d *demoDelivery) WhoAmI(context.Context) (delivery.Caller, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -607,7 +624,7 @@ func (d *demoDelivery) Stages(_ context.Context, ns string) ([]delivery.StageObj
 	out := []delivery.StageObject{}
 	for _, s := range d.stages {
 		if ns == "" || s.Metadata.Namespace == ns {
-			out = append(out, clone(*s))
+			out = append(out, d.view(s))
 		}
 	}
 	return out, nil
@@ -643,7 +660,7 @@ func (d *demoDelivery) Stage(_ context.Context, ns, name string) (*delivery.Stag
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if s := d.stage(ns, name); s != nil {
-		c := clone(*s)
+		c := d.view(s)
 		return &c, nil
 	}
 	return nil, notFound("Stage " + stageKey(ns, name))

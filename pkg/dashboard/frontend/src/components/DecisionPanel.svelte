@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
-  import { decisionAsked, decisionLabel, cliDecision, loginUrl, keepPending, pendingFor, dropPending, shortDigests } from '../lib/delivery.ts';
+  import { decisionAsked, decisionLabel, cliDecision, loginUrl, signIn, keepPending, pendingFor, dropPending, shortDigests } from '../lib/delivery.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import RefusalNotice from './RefusalNotice.svelte';
 
@@ -52,7 +52,7 @@
 
   function signInAgain() {
     keepPending({ namespace: ns, name, decision: needsFresh.decision, note });
-    location.assign(loginUrl(location.hash, true));
+    signIn(location.hash, true);
   }
 </script>
 

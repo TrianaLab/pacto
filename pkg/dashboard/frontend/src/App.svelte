@@ -7,6 +7,7 @@
   import { syncPageTitle } from './lib/pageTitle.ts';
   import { initScrollRestore } from './lib/scrollRestore.ts';
   import { api } from './lib/api.ts';
+  import { loadSession } from './lib/deliverySession.svelte.ts';
   import Navbar from './Navbar.svelte';
   import CommandPalette from './CommandPalette.svelte';
   import EntitySearch from './EntitySearch.svelte';
@@ -211,9 +212,18 @@
 
   let mainEl = $state(null);
 
+  // A host whose state changes outside the UI (the browser demo, when its
+  // simulated promoter moves or the reader switches person) dispatches
+  // pacto:refresh so every view reads again now, not at the next poll.
+  function onHostRefresh() {
+    loadSession();
+    loadGlobal(true);
+  }
+
   onMount(() => {
     window.addEventListener('hashchange', onHashChange);
     window.addEventListener('keydown', handlePaletteKeydown);
+    window.addEventListener('pacto:refresh', onHostRefresh);
     const teardownTips = initTooltipPlacement();
     // Every route used to be titled "Pacto Dashboard". The title now follows the
     // page's own h1, so a tab, a history entry and a screen reader all name the
@@ -228,6 +238,7 @@
     return () => {
       window.removeEventListener('hashchange', onHashChange);
       window.removeEventListener('keydown', handlePaletteKeydown);
+      window.removeEventListener('pacto:refresh', onHostRefresh);
       teardownTips();
       teardownTitle();
       teardownScroll();
