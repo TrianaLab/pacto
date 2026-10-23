@@ -20,9 +20,9 @@ test.skip(!DEMO, 'runs only against the Kubernetes delivery demo: tests/acceptan
 
 // dexLogin fills Dex's password form for user, wherever the browser is sent to it.
 async function dexLogin(page: Page, user: string): Promise<void> {
-  await page.locator('#login').fill(`${user}@example.com`, { timeout: T });
-  await page.locator('#password').fill('password');
-  await page.locator('#submit-login').click();
+  await page.locator('input[name="login"]').fill(`${user}@example.com`, { timeout: T });
+  await page.locator('input[name="password"]').fill('password');
+  await page.locator('button[type="submit"]').click();
 }
 
 // signIn signs user in through the dashboard's own Sign in link and comes back to hash.
