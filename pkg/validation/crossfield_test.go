@@ -1116,3 +1116,42 @@ func TestValidatePublish(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateAgent(t *testing.T) {
+	codes := func(c *contract.Contract, fsys fs.FS) []string {
+		var r ValidationResult
+		validateAgent(c, fsys, &r)
+		var out []string
+		for _, e := range r.Errors {
+			out = append(out, e.Path+" "+e.Code)
+		}
+		return out
+	}
+	c := validV20Contract()
+	c.PactoVersion = "2.1"
+	c.Interfaces = []contract.Interface{
+		{Name: "api", Type: "openapi", Ref: "openapi.yaml"},
+		{Name: "tools", Type: "mcp", Ref: "tools.json"},
+		{Name: "gone", Type: "mcp", Ref: "missing.json"},
+	}
+	c.Agent = &contract.Agent{Models: []string{"m"}, Evals: "evals.yaml"}
+	good := fstest.MapFS{
+		"tools.json": {Data: []byte(`{"tools":[{"name":"refund"}]}`)},
+		"evals.yaml": {Data: []byte("cases: []")},
+	}
+	if got := codes(c, good); got != nil {
+		t.Fatalf("valid agent: %v", got)
+	}
+	if got := codes(c, nil); got != nil {
+		t.Fatalf("no bundle: %v", got)
+	}
+	bad := fstest.MapFS{"tools.json": {Data: []byte(`{"tools":[]}`)}}
+	got := codes(c, bad)
+	if len(got) != 2 || got[0] != "interfaces[1].ref INVALID_MCP_TOOLS" || got[1] != "agent.evals FILE_NOT_FOUND" {
+		t.Fatalf("got %v", got)
+	}
+	c.Agent = nil
+	if got := codes(c, good); got != nil {
+		t.Fatalf("no agent section: %v", got)
+	}
+}

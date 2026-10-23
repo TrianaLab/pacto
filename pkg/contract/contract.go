@@ -23,8 +23,23 @@ type Contract struct {
 	Policies       []Policy        `yaml:"policies,omitempty" json:"policies,omitempty"`
 	Readiness      *Readiness      `yaml:"readiness,omitempty" json:"readiness,omitempty"`
 	Publish        *Publish        `yaml:"publish,omitempty" json:"publish,omitempty"`
+	Agent          *Agent          `yaml:"agent,omitempty" json:"agent,omitempty"`
 	Metadata       map[string]any  `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	Extensions     map[string]any  `yaml:"extensions,omitempty" json:"extensions,omitempty"`
+}
+
+// Agent marks the service as an AI agent (pactoVersion 2.1). The tools it
+// exposes are interfaces of type mcp; the services it calls are dependencies.
+// Agent adds only what neither says: the models it calls that have no
+// contract of their own, and the eval suite delivery checks it with.
+type Agent struct {
+	// Models are model ids the agent calls, exactly as its code names them.
+	// A model served behind a Pacto contract is a dependency instead, with a
+	// version range.
+	Models []string `yaml:"models,omitempty" json:"models,omitempty"`
+	// Evals is the eval suite's file in the bundle. Pacto ships it with the
+	// version and never reads it: an eval runner behind a gate does.
+	Evals string `yaml:"evals,omitempty" json:"evals,omitempty"`
 }
 
 // Publish declares what the service publishes, where and how each artifact is
@@ -196,6 +211,9 @@ const (
 	InterfaceTypeOpenAPI  = "openapi"
 	InterfaceTypeAsyncAPI = "asyncapi"
 	InterfaceTypeGRPC     = "grpc"
+	// InterfaceTypeMCP is the tools an agent exposes over the Model Context
+	// Protocol; its ref is a tools/list result ({"tools": [...]}).
+	InterfaceTypeMCP = "mcp"
 )
 
 // Visibility constants.

@@ -215,6 +215,7 @@ nav:
           - Dependencies and state: contract-reference/dependencies-and-state.md
           - Readiness: contract-reference/readiness.md
           - Publish: contract-reference/publish.md
+          - Agents: contract-reference/agent.md
           - Validation layers: contract-reference/validation.md
           - Overrides: contract-reference/overrides.md
           - Change classification: contract-reference/diff.md

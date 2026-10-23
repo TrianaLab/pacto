@@ -42,6 +42,7 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateStatePersistenceInvariants(c, &result)
 	validateReadiness(c, &result)
 	validatePublish(c, &result)
+	validateAgent(c, bundleFS, &result)
 
 	return result
 }
@@ -73,6 +74,30 @@ func validatePublish(c *contract.Contract, result *ValidationResult) {
 	}
 	if d := c.Publish.Deploy; d != "" && types[d] != contract.ArtifactManifests {
 		result.AddError("publish.deploy", "PUBLISH_DEPLOY_NOT_MANIFESTS", fmt.Sprintf("deploy %q must name a manifests artifact: Flux applies it through a Kustomization", d))
+	}
+}
+
+// validateAgent checks what the schema cannot: an mcp interface file is a
+// tools/list result with named tools, so a diff can tell a removed tool from a
+// changed one, and the eval suite is in the bundle, so it ships with the version.
+func validateAgent(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
+	if bundleFS == nil {
+		return
+	}
+	for i, iface := range c.Interfaces {
+		if iface.Type != contract.InterfaceTypeMCP {
+			continue
+		}
+		data, err := fs.ReadFile(bundleFS, iface.Ref)
+		if err != nil {
+			continue // validateInterfaceFiles reports a missing file
+		}
+		if _, err := contract.ParseMCPTools(data); err != nil {
+			result.AddError(fmt.Sprintf("interfaces[%d].ref", i), "INVALID_MCP_TOOLS", fmt.Sprintf("mcp interface file %q %v", iface.Ref, err))
+		}
+	}
+	if c.Agent != nil && c.Agent.Evals != "" && missingFile(bundleFS, c.Agent.Evals) {
+		result.AddError("agent.evals", "FILE_NOT_FOUND", fmt.Sprintf("eval suite file %q not found in bundle", c.Agent.Evals))
 	}
 }
 

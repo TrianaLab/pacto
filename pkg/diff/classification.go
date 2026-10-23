@@ -149,6 +149,19 @@ var rules = map[classificationKey]Classification{
 	{"grpc.messages.fields", Added}:    NonBreaking,
 	{"grpc.messages.fields", Removed}:  Breaking,
 	{"grpc.messages.fields", Modified}: Breaking,
+
+	// MCP tools an agent exposes. A tool on both sides is deep-diffed by
+	// diffJSON (input as a request, output as a response), so there is no
+	// Modified rule.
+	{"mcp.tools", Added}:   NonBreaking,
+	{"mcp.tools", Removed}: Breaking,
+
+	// Agent: a different model can change every answer, so any model change
+	// is PotentialBreaking (the default). The eval suite checks the agent and
+	// is not part of what callers rely on.
+	{"agent.evals", Added}:    NonBreaking,
+	{"agent.evals", Removed}:  NonBreaking,
+	{"agent.evals", Modified}: NonBreaking,
 }
 
 // classify returns the classification for a given path and change type.

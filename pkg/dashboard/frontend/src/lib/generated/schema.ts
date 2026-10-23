@@ -878,6 +878,10 @@ export interface components {
             values?: components["schemas"]["Schemax.Property"][] | null;
             valuesAreCurrent?: boolean;
         };
+        "Contract.Agent": {
+            evals?: string;
+            models?: string[] | null;
+        };
         "Contract.Capability": {
             binding?: components["schemas"]["Contract.CapabilityBinding"];
             ref?: string;
@@ -898,6 +902,7 @@ export interface components {
             };
         };
         "Contract.Contract": {
+            agent?: components["schemas"]["Contract.Agent"];
             capabilities?: components["schemas"]["Contract.Capability"][] | null;
             configurations?: components["schemas"]["Contract.Configuration"][] | null;
             dependencies?: components["schemas"]["Contract.Dependency"][] | null;
