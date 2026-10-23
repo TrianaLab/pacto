@@ -103,6 +103,9 @@ h1 {
   font-size: var(--role-page-title-size); font-weight: var(--role-page-title-weight);
   letter-spacing: -0.01em; line-height: var(--role-page-title-lh);
 }
+/* The double rule belongs to the page-title ROLE, not to the class: the legacy host and
+   the redirect pages write a bare <h1>, and option A puts the rule under every one. */
+main h1 { padding-bottom: 10px; border-bottom: var(--role-page-title-rule); }
 h2 {
   font-family: var(--role-section-title-family);
   font-size: var(--role-section-title-size); font-weight: var(--role-section-title-weight);

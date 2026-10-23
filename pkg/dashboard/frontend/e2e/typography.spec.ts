@@ -3,6 +3,7 @@ import {
   boot, canonicalKeys, runAnalysis, sampleRoles, normalBody,
   assertPageHierarchy, assertRoleCoherence, type RoleSample,
 } from './typographyChecks';
+import { DOC_ORIGIN } from './ports';
 
 /**
  * Desktop typography acceptance in real Chromium, from COMPUTED styles.
@@ -135,7 +136,7 @@ test.describe('typography hierarchy on desktop', () => {
           const el = Array.from(document.querySelectorAll(sel)).find((x) => x.getClientRects().length > 0);
           return el ? getComputedStyle(el) : null;
         };
-        const title = cs('main .t-page-title');
+        const title = cs('main h1');
         const sub = cs('main .t-subsection-title');
         const label = cs('main .t-label, main th');
         const upper = Array.from(document.querySelectorAll('body *'))
@@ -155,5 +156,43 @@ test.describe('typography hierarchy on desktop', () => {
       expect(got.labelCaps, `${hash}: label caps`).toBe('all-small-caps');
       expect(got.upper, `${hash}: uppercase text outside the label role`).toEqual([]);
     }
+  });
+
+  // The legacy views have one host, the offline `pacto doc` export (fleet:false), and
+  // they write bare <h1>s and `.section-title` headings. Option A applies there too: the
+  // double rule under the h1 and a serif section title, not a small-caps label.
+  test('the signed-document identity paints on the legacy non-Fleet host', async ({ page }) => {
+    test.setTimeout(SWEEP_TIMEOUT);
+    const go = async (hash: string) => {
+      await page.goto(`${DOC_ORIGIN}/index.html${hash}`);
+      await expect(page.locator('main h1')).toBeVisible({ timeout: 60_000 });
+    };
+    await go('#/services');
+    const name = await page.evaluate(
+      () => (globalThis as { __PACTO_STATIC__?: { service?: string } }).__PACTO_STATIC__?.service || '',
+    );
+    expect(name, 'the offline export did not name its service').not.toBe('');
+    await go(`#/services/${encodeURIComponent(name)}`);
+    await expect(page.locator('main .section-title').first()).toBeVisible({ timeout: 30_000 });
+    const got = await page.evaluate(async () => {
+      await document.fonts.ready;
+      const h1 = getComputedStyle(document.querySelector('main h1')!);
+      const st = Array.from(document.querySelectorAll('main .section-title')).find((x) => x.getClientRects().length > 0)!;
+      const probe = document.createElement('h2');
+      probe.className = 't-section-title';
+      document.querySelector('main')!.appendChild(probe);
+      const want = getComputedStyle(probe).fontSize;
+      probe.remove();
+      const cs = getComputedStyle(st);
+      return {
+        rule: h1.borderBottomStyle, family: cs.fontFamily, size: cs.fontSize, want,
+        caps: cs.fontVariantCaps, weight: cs.fontWeight,
+      };
+    });
+    expect(got.rule, 'legacy page title rule').toBe('double');
+    expect(got.family, 'legacy section title family').toMatch(/^"?Source Serif 4/);
+    expect(got.size, 'legacy section title size').toBe(got.want);
+    expect(got.caps, 'legacy section title is not a small-caps label').toBe('normal');
+    expect(got.weight).toBe('700');
   });
 });
