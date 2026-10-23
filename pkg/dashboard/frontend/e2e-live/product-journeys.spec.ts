@@ -343,3 +343,15 @@ test('H: the external payments target is reachable and attributed to the Evidenc
       .filter({ hasText: fixture.evidenceSource }),
   ).not.toHaveCount(0);
 });
+
+// I — delivery stays out of sight: neither deployment installs delivery or signs anyone
+// in, so its URL says why instead of showing an empty view, and there is no Delivery
+// tab. The page comes first because it renders only once the host has answered the
+// capability probe; checking the tab before that would pass on a pending probe.
+test('I: delivery stays out of sight without sign-in', async ({ page }) => {
+  await page.goto('/#/delivery/inbox');
+  await expect(page.getByTestId('delivery-unavailable')).toBeVisible();
+  const primary = page.getByRole('navigation', { name: 'Primary' });
+  await expect(primary.getByRole('link', { name: 'Overview', exact: true })).toBeVisible();
+  await expect(primary.getByRole('link', { name: 'Delivery' })).toHaveCount(0);
+});

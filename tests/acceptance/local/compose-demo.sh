@@ -1118,6 +1118,22 @@ echo "== 9. the live demo proves the canonical fixture =="
 "$WORK/productready" -base "$V1_BASE" -domain registry:5000/demo -surface compose \
 	-out "$WORK/fixture.json"
 
+# The two CLI steps the docs page shows, typed the way it types them: by project
+# name, inside the dashboard container, against the demo's own registry. diff
+# exits non-zero on a breaking change, which is the point, so only its output is
+# judged.
+diff_out=$(docker compose -p "$PROJ1" exec -T dashboard pacto diff \
+	oci://registry:5000/demo/checkout:1.0.0 oci://registry:5000/demo/checkout:1.1.0 2>&1 || true)
+grep -q '^Required bump: major$' <<<"$diff_out" ||
+	fail "pacto diff on checkout 1.0.0 -> 1.1.0 did not say 'Required bump: major': $diff_out"
+pass "pacto diff says checkout 1.1.0 needs a major bump"
+init_out=$(docker compose -p "$PROJ1" exec -T dashboard sh -c \
+	'mkdir -p /tmp/checkout && printf "FROM nginx:1.27\nEXPOSE 8080\n" >/tmp/checkout/Dockerfile && pacto init --plan --owner commerce /tmp/checkout' 2>&1) ||
+	fail "pacto init --plan failed in the demo: $init_out"
+grep -q '(nothing changed)' <<<"$init_out" && grep -q '+ pacto.yaml' <<<"$init_out" ||
+	fail "pacto init --plan did not show the contract it would add: $init_out"
+pass "pacto init --plan shows the checkout contract and changes nothing"
+
 # The same live journeys the Kind vertical runs, against the published demo
 # instead of a cluster. The suite reads the fixture the gate just discovered, so it
 # addresses THIS deployment's entities by name — and skips, with a reason, the one
