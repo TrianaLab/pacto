@@ -38,8 +38,11 @@ in the order the story plays them:
 
 - **Pactify a service.** `pacto init --delivery` reads fraud's Dockerfile and
   manifests and writes its contract, its Pacto resource and its Stages. The
-  demo patches two things init wrote: offline signing and the plain-HTTP
-  registry. fraud ships to test.
+  demo then changes two lines, as a team would for its own setup:
+  `transparencyLog: false`, because it signs with a throwaway key that does
+  not belong in the public transparency log, and `insecure: true` on the
+  OCIRepositories, because its registry speaks plain HTTP. init has no flag
+  for either. fraud ships to test.
 - **A safe change ships on its own.** payments 2.4.0 adds an endpoint and
   reaches prod with nobody involved, because checkout and orders accept
   payments ^2.
@@ -65,12 +68,15 @@ Open <http://127.0.0.1:3300> and sign in through Dex. Every password is
 - `alice@example.com` is on team payments and is never asked.
 - `pay-agent@example.com` is an agent: it may look and propose, never approve.
 
-`make e2e-delivery-demo-browser` plays and checks B6 to B9 (B7 to B9 in
+`make e2e-delivery-demo-browser` plays and checks B6 to B10 (B7 to B9 in
 Chromium) against `examples/story`, once per cluster: the agent ships checkout 1.9 first
 and the held change then asks only orders; carol approves after signing in
 again; 3.0.0 sends too little telemetry, so its check says Unknown until carol
-accepts that; she rolls 3.0.0 back and automation holds off. The tampered
-record of beat B10 is not played here. `story` also prints the commands for
+accepts that; she rolls 3.0.0 back and automation holds off. Last comes B10:
+a changed copy of a signed record freezes payments in prod. pay-agent cannot
+unfreeze it; alice does once the copy is gone. Then ops pins a version by hand
+under break-glass, which shows as a witnessed record and freezes the Stage
+again. `story` also prints the commands for
 `pacto delivery blame` and `undo` and for the agent over remote MCP.
 
 ## What is generated

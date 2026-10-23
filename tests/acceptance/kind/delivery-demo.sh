@@ -10,7 +10,9 @@
 #   story    play the story: pactify fraud, then B1 to B5, checking every beat
 #            against examples/story; it stops with payments 3.0.0 held.
 #   browser  B6, then B7 to B9 in Chromium with the cluster checked between
-#            beats, then History; it runs once per cluster.
+#            beats, then History, then B10 (a tampered record freezes
+#            payments in prod, a break-glass edit is a witnessed record);
+#            it runs once per cluster.
 #   status   what runs where.
 #   logs     diagnostics of the cluster.
 #   down     delete the cluster and the containers beside it.
@@ -560,10 +562,12 @@ story_pactify() {
   echo "  \$ pacto init --delivery --owner risk"
   (cd "$dir" && "$PACTO" init --delivery --owner risk) | sed 's/^/    /'
   [ -s "$dir/delivery/test.yaml" ] || fail "pacto init --delivery wrote no Stage for test"
-  # Two patches on what pacto init wrote (HANDOFF: init could take hints for
-  # both): the story signs offline (no transparency log), as its fraud
-  # contract says, and the demo registry speaks plain HTTP, so the
-  # OCIRepositories init wrote get insecure: true once applied.
+  # Two lines a team would change for its own setup; init has no flag for
+  # either, on purpose: a real registry speaks HTTPS, and how a team signs is
+  # its choice in the contract (examples/story's fraud 1.0.0 has the same line).
+  echo "  the demo changes two lines, as a team would for its own setup:"
+  echo "    pacto.yaml: transparencyLog: false (a throwaway key does not belong in the public transparency log)"
+  echo "    the OCIRepositories: insecure: true (the demo's registry speaks plain HTTP)"
   perl -pi -e 's#^(    key: cosign\.key)$#$1\n    transparencyLog: false#' "$dir/pacto.yaml"
   cp "$KEYS/cosign.key" "$dir/"
   git -C "$dir" init -q && git -C "$dir" add -A && git -C "$dir" -c user.email=demo@example.com -c user.name=demo commit -qm "pactify fraud"
@@ -580,7 +584,7 @@ story_pactify() {
   wait_concluded test "$op" Succeeded/Verified
   predicted pactify test "$op"
   eventually 60 kubectl -n test get pacto fraud >/dev/null 2>&1 || fail "pacto init --delivery wrote no Pacto resource for fraud in test"
-  pass "fraud is pactified: its contract, Pacto resource and Stages come from pacto init (patched for offline signing and the plain-HTTP registry), and 1.0.0 runs in test with nobody involved"
+  pass "fraud is pactified: its contract, Pacto resource and Stages come from pacto init (with the two lines changed for the demo), and 1.0.0 runs in test with nobody involved"
 }
 
 story_b1() {
@@ -649,6 +653,7 @@ story_b4() {
   copy="$(cd "$tmp" && oras push --plain-http --disable-path-validation --format go-template='{{.digest}}' \
     --annotation "pacto.dev/contract=$(jq -r '.annotations["pacto.dev/contract"]' <<<"$man")" \
     "$r:oras-copy" "layer:$(jq -r '.layers[0].mediaType' <<<"$man")")" || fail "oras could not push the copy"
+  remember payments oras-copy "$copy"
   propose -n test --stage payments --to "$copy" --name payments-oras-copy --reason "B4: a copy pushed with plain oras"
   wait_concluded test payments-oras-copy Rejected/
   predicted B4 test payments-oras-copy
@@ -759,6 +764,82 @@ b9() {
   pass "carol rolled payments back to 2.3.0 and automation holds off"
 }
 
+# person USER GROUP — a kubeconfig that is USER, a person on GROUP, signed in
+# just now: the admin credentials impersonating them, with the sign-in time
+# structured authentication maps from Dex's auth_time.
+person() {
+  local f="$DEMO/$1.kubeconfig"
+  kubectl config view --raw --minify -o json | jq --arg u "$1" --arg g "$2" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '.users[0].user += {as: $u, "as-groups": [$g], "as-user-extra": {"pacto.dev/auth-time": [$t]}}' > "$f"
+  echo "$f"
+}
+rec() { reg "$PACTO" delivery "$@" --trust "$KEYS/recorder.pub"; }
+condition() { kubectl -n prod get stage payments -o jsonpath="{.status.conditions[?(@.type==\"RecordStoreReady\")].$1}"; }
+frozen() { [ "$(kubectl -n prod get stage payments -o jsonpath='{.status.frozen}')" = true ]; }
+
+# b10 — someone changes a signed record of the payments prod stream: the
+# recorder refuses to write after it and the promoter freezes the Stage. The
+# agent cannot unfreeze it; once the forged record is gone alice does. Then
+# ops edits the pointer by hand under break-glass, which the promoter adopts
+# as a witnessed override record and freezes the Stage again.
+b10() {
+  beat B10
+  local tmp streams="127.0.0.1:${LOCAL_REG_PORT}/pacto-delivery-streams" m l forged out
+  tmp="$(mktemp -d)"
+  m="$(rec record verify -n prod --stage payments --output-format json | jq -r '.records[-1].manifest')"
+  l="$(oras manifest fetch --plain-http "$streams@$m" | jq -r '.layers[0].digest')"
+  oras blob fetch --plain-http --output "$tmp/head.json" "$streams@$l" >/dev/null || fail "oras could not read the newest payments prod record"
+  # The newest record, with the time it finished changed and its signature kept.
+  jq --arg p "$(jq -r .dsseEnvelope.payload "$tmp/head.json" | base64 -d | jq -cj '.predicate.time.finished = "2000-01-01T00:00:00Z"' | base64 | tr -d '\n')" \
+    '.dsseEnvelope.payload = $p' "$tmp/head.json" > "$tmp/tampered.json"
+  forged="$(cd "$tmp" && oras attach --plain-http --artifact-type application/vnd.dev.sigstore.bundle.v0.3+json \
+    --annotation dev.sigstore.bundle.predicateType=pacto.dev/operation/v1 --annotation dev.sigstore.bundle.content=dsse-envelope \
+    --format go-template='{{.digest}}' "$streams@$(kubectl -n prod get stage payments -o jsonpath='{.status.stream.anchor}' | sed 's/.*@//')" \
+    "tampered.json:application/vnd.dev.sigstore.bundle.v0.3+json")" || fail "oras could not attach the tampered record"
+  echo "  a changed copy of the newest record is attached to the payments prod stream: $forged"
+  out="$(rec record verify -n prod --stage payments 2>&1 || true)"
+  grep -q "unreadable: $forged: signature" <<<"$out" || fail "record verify did not refuse the tampered record: $out"
+  echo "  pacto delivery record verify: $(grep -m1 "$forged" <<<"$out" | sed 's/^ *//')"
+  # The next record the recorder writes reads the stream first, and stops there.
+  propose -n prod --stage payments --to "$(digest_of payments oras-copy)" --name payments-b10 --reason "B10: anything the recorder must write"
+  conflict() { [ "$(condition reason)" = StreamConflict ]; }
+  eventually 60 conflict || fail "the recorder did not stop on the tampered record: $(condition message)"
+  eventually 30 frozen || fail "the payments prod Stage did not freeze on the tampered record"
+  out="$(KUBECONFIG="$AGENT_KC" "$PACTO" delivery propose -n prod --stage payments --type unfreeze --name b10-agent-unfreeze --reason "B10" 2>&1 || true)"
+  grep -q "only a person or break-glass may unfreeze" <<<"$out" || fail "pay-agent's unfreeze was not refused: $out"
+  echo "  pay-agent tries to unfreeze it: refused, only a person or break-glass may unfreeze a Stage"
+  oras manifest delete --plain-http --force "$streams@$forged" >/dev/null || fail "oras could not remove the tampered record"
+  sound() { [ "$(condition status)" = True ]; }
+  eventually 60 sound || fail "the recorder did not resume once the tampered record was gone: $(condition message)"
+  frozen || fail "the Stage unfroze on its own"
+  echo "  the tampered record is removed and the recorder resumes; payments prod stays frozen until a person says so"
+  KUBECONFIG="$(person alice@example.com team-payments)" "$PACTO" delivery propose -n prod --stage payments --type unfreeze \
+    --name b10-unfreeze --reason "B10: the tampered record is gone" >/dev/null || fail "alice could not propose the unfreeze"
+  predicted B10 prod b10-unfreeze
+  eventually 60 concluded prod b10-unfreeze || fail "alice's unfreeze never concluded: $(field prod b10-unfreeze message)"
+  [[ "$(outcome prod b10-unfreeze)" == Succeeded/* ]] || fail "alice's unfreeze concluded $(outcome prod b10-unfreeze)"
+  ! frozen || fail "payments prod stayed frozen after alice unfroze it"
+  pass "the tampered record froze payments in prod; pay-agent could not unfreeze it, alice did once the record was gone"
+
+  echo "  ops pins payments 2.4.0 in prod by hand, under break-glass, outside Pacto"
+  mode prod.2.4.0 ok
+  kubectl create clusterrole demo-break-glass --verb=get,patch --resource=ocirepositories.source.toolkit.fluxcd.io \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl create clusterrolebinding demo-break-glass --clusterrole=demo-break-glass --group=pacto:break-glass \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  local d op; d="$(digest_of payments 2.4.0)"
+  KUBECONFIG="$(person ops@example.com pacto:break-glass)" kubectl -n prod patch ocirepository payments --type merge \
+    -p "{\"spec\":{\"ref\":{\"digest\":\"$d\"}}}" >/dev/null || fail "the break-glass edit was refused"
+  op="$(wait_op prod payments "$d" pacto.dev/override)"
+  wait_concluded prod "$op" Witnessed/Unverified
+  eventually 30 frozen || fail "the witnessed override did not freeze payments prod"
+  witnessed() { rec history -n prod --stage payments --output-format json | jq -e \
+    '[.entries[] | select(.outcome == "Witnessed" and .record != "")] | length >= 1' >/dev/null; }
+  eventually 60 witnessed || fail "the history shows no witnessed record of the break-glass edit"
+  rec record verify -n prod --stage payments >/dev/null 2>&1 || fail "the payments prod records do not verify after B10"
+  pass "the break-glass edit is a witnessed override record, payments prod is frozen again, and every record verifies"
+}
+
 cmd_browser() {
   admin
   [ -e "$DEMO/digests/payments-3.0.0" ] || fail "run the story first: make e2e-delivery-demo-story"
@@ -777,7 +858,10 @@ cmd_browser() {
   b9
   echo; echo "== moment 5 in Chromium: History reads the steps from signed records"
   journeys History
-  pass "B6 to B9 matched examples/story, and the dashboard journeys passed against the live demo"
+  registry_pf
+  b10
+  stop_pf
+  pass "B6 to B10 matched examples/story, and the dashboard journeys passed against the live demo"
 }
 
 # --- next steps --------------------------------------------------------------
@@ -850,7 +934,7 @@ cmd_down() {
 case "$CMD" in
   up) trap 'rc=$?; stop_pf; [ $rc -eq 0 ] || { dump_diag "$NS"; dump_identity; }; exit $rc' EXIT; cmd_up ;;
   story) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_story ;;
-  browser) cmd_browser ;;
+  browser) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_browser ;;
   status) cmd_status ;;
   logs) admin; dump_diag "$NS"; dump_identity; kubectl -n "$DELIVERY_NS" logs deploy/pacto-delivery --tail=100 2>&1 || true ;;
   down) cmd_down ;;
