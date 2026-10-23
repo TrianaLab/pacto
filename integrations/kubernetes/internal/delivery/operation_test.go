@@ -458,6 +458,28 @@ func TestCancelAndExpire(t *testing.T) {
 	wantOutcome(t, e.drive("p2"), delivery.Expired, "Expired")
 }
 
+// TestFreeze: a person freezes the Stage on the version it runs, and a
+// promote then waits; an agent may not freeze, and a freeze that names a
+// version the Stage no longer runs is refused.
+func TestFreeze(t *testing.T) {
+	e := baseEnv(t, opObj("f1", delivery.TypeFreeze, dA, "", bot))
+	wantOutcome(t, e.drive("f1"), delivery.Rejected, "NotPermitted")
+	e.create(opObj("f2", delivery.TypeFreeze, dB, "", "alice"))
+	wantOutcome(t, e.drive("f2"), delivery.Rejected, "PointerMoved")
+	f3 := opObj("f3", delivery.TypeFreeze, dA, "", "alice")
+	f3.Spec.Reason = "payments is under investigation"
+	f3.Spec.IntentDigest = delivery.IntentDigest(f3.Spec, stageObj("").Spec)
+	e.create(f3)
+	wantOutcome(t, e.drive("f3"), delivery.Succeeded, "Frozen")
+	if s := e.getStage(); !s.Status.Frozen || s.Status.FrozenReason != "f3: frozen: payments is under investigation" || s.Status.Pointer != dA {
+		t.Fatalf("a freeze freezes on the running version: %+v", s.Status)
+	}
+	e.create(opObj("p1", delivery.TypePromote, dA, dB, bot))
+	if o := e.drive("p1"); o.Status.Phase != delivery.PhasePending || o.Status.Reason != "Waiting" {
+		t.Fatalf("a promote waits on a frozen Stage: %s %s", o.Status.Phase, o.Status.Reason)
+	}
+}
+
 // TestFrozenPromoteWaitsAndUnfreeze: a frozen Stage parks promotes; an agent
 // may not unfreeze, a person may.
 func TestFrozenPromoteWaitsAndUnfreeze(t *testing.T) {

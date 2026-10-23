@@ -51,7 +51,7 @@ type sysDeps struct {
 	readinessTimeout time.Duration
 	// httpClient posts evidence envelopes.
 	httpClient *http.Client
-	// run runs the programs publish hands work to (git, docker, syft).
+	// run runs the program publish hands work to (docker buildx).
 	run runner
 	// publishRegistry is the registry publish reads and writes.
 	publishRegistry func() publish.Registry

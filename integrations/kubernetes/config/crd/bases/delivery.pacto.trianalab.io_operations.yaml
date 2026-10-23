@@ -159,6 +159,7 @@ spec:
                 - pacto.dev/rollback
                 - pacto.dev/override
                 - pacto.dev/unfreeze
+                - pacto.dev/freeze
                 type: string
               witnessed:
                 description: |-

@@ -402,7 +402,7 @@ type Cause struct {
 
 // OperationSpec is the intent. It is frozen at admission.
 type OperationSpec struct {
-	// +kubebuilder:validation:Enum=pacto.dev/promote;pacto.dev/rollback;pacto.dev/override;pacto.dev/unfreeze
+	// +kubebuilder:validation:Enum=pacto.dev/promote;pacto.dev/rollback;pacto.dev/override;pacto.dev/unfreeze;pacto.dev/freeze
 	Type string `json:"type"`
 	// Stage is the name of a Stage in the operation's namespace.
 	Stage string `json:"stage"`

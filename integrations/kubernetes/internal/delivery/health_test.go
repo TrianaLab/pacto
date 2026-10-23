@@ -202,12 +202,15 @@ func TestRecheckAfterRelease(t *testing.T) {
 	// the freeze says so instead of blaming a person.
 	e.health.result = delivery.Fail
 	e.now = e.now.Add(time.Hour)
-	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 2 {
-		t.Fatalf("a failed rollback is not rolled back: %v ops=%d", err, len(e.ops()))
+	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 3 {
+		t.Fatalf("a failed rollback is not rolled back, only frozen: %v ops=%d", err, len(e.ops()))
 	}
 	if s := e.getStage(); !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "the promoter's own rollback, which is never undone automatically") ||
 		strings.Contains(s.Status.FrozenReason, "person or agent") {
 		t.Fatalf("frozen reason: %+v", s.Status)
+	}
+	if fz := e.getOp("p1-rollback-freeze"); fz.Spec.Type != delivery.TypeFreeze || fz.Spec.Params.From != dA {
+		t.Fatalf("the freeze names the version that failed: %+v", fz.Spec)
 	}
 }
 
@@ -230,12 +233,33 @@ func TestRecheckFreezesWhenItCannotRollBack(t *testing.T) {
 			if !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "cannot be rolled back automatically") {
 				t.Fatalf("want frozen: %+v", s.Status)
 			}
+			if fz := e.getOp("p1-freeze"); fz.Spec.Params.From != dB {
+				t.Fatalf("freeze: %+v", fz.Spec)
+			}
 			for _, o := range e.ops() {
 				if o.Spec.Type == delivery.TypeRollback {
 					t.Fatal("no rollback when it cannot be bound")
 				}
 			}
 		})
+	}
+}
+
+// TestRecheckRaisesTheFreezeFirst: a freeze that cannot be created leaves
+// the Stage unfrozen, so the next re-check raises it again; once frozen, no
+// re-check runs that could.
+func TestRecheckRaisesTheFreezeFirst(t *testing.T) {
+	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.shipB()
+	e.setStage(func(s *delivery.StageStatus) { s.AutoRollbacks = map[string]int{"uid-p1": 1} })
+	e.health.result = delivery.Fail
+	e.fails["create/Operation"] = true
+	if err := e.reconcileStage("payments-prod"); err == nil || e.getStage().Status.Frozen {
+		t.Fatalf("a lost freeze must be retried before the Stage freezes: %v", err)
+	}
+	e.fails["create/Operation"] = false
+	if err := e.reconcileStage("payments-prod"); err != nil || !e.getStage().Status.Frozen || len(e.ops()) != 2 {
+		t.Fatalf("the freeze is raised on retry: %v ops=%d", err, len(e.ops()))
 	}
 }
 
@@ -388,12 +412,22 @@ func TestRecheckNeverUndoesAChoice(t *testing.T) {
 			}
 			s := e.getStage()
 			if !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "a person must decide") || s.Status.FailedDigests[0] != dB ||
-				len(s.Status.AutoRollbacks) != 0 || len(e.ops()) != 1 {
+				len(s.Status.AutoRollbacks) != 0 || len(e.ops()) != 2 {
 				t.Fatalf("want frozen with no rollback: %+v ops=%d", s.Status, len(e.ops()))
+			}
+			// The freeze is how the failure reaches the records: it concludes
+			// on the failed version and keeps the re-check's reason.
+			fz := e.getOp("p1-freeze")
+			if fz.Spec.Type != delivery.TypeFreeze || fz.Spec.Params.From != dB || fz.Spec.Cause.Verdict.Result != delivery.Fail || fz.Spec.Cause.Operation != "uid-p1" {
+				t.Fatalf("freeze: %+v", fz.Spec)
+			}
+			wantOutcome(t, e.drive("p1-freeze"), delivery.Succeeded, "Frozen")
+			if s := e.getStage(); !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "a person must decide") {
+				t.Fatalf("the freeze kept the reason: %+v", s.Status)
 			}
 			// Unfrozen on the failed version, automation still leaves the choice alone.
 			e.setStage(func(s *delivery.StageStatus) { s.Frozen = false })
-			if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 1 {
+			if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 2 {
 				t.Fatalf("a chosen version is rolled back after unfreeze: %v ops=%d", err, len(e.ops()))
 			}
 		})

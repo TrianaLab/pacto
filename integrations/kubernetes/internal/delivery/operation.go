@@ -195,6 +195,9 @@ func (r *OperationReconciler) refusal(ctx context.Context, op *dv1.Operation, st
 	if reason, err := r.causeRefusal(ctx, op, stage); reason != "" || err != nil {
 		return reason, err
 	}
+	if s.Type == delivery.TypeFreeze && s.Params.From != stage.Status.Pointer {
+		return fmt.Sprintf("PointerMoved: a freeze stays on %q but the Stage runs %q", s.Params.From, stage.Status.Pointer), nil
+	}
 	if s.Facet != delivery.FacetPointer {
 		return "", nil
 	}
@@ -291,6 +294,9 @@ func (r *OperationReconciler) pending(ctx context.Context, op *dv1.Operation, st
 		if newer != "" {
 			return r.finish(ctx, op, stage, conclusion{outcome: delivery.Superseded, reason: "Superseded: " + newer + " is a newer promote on this Stage"})
 		}
+	}
+	if op.Spec.Type == delivery.TypeFreeze {
+		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified, reason: "Frozen: automation stops moving the Stage until a person unfreezes it"})
 	}
 	if op.Spec.Facet == delivery.FacetFreeze {
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified, reason: "Unfrozen: automation may move the Stage again"})
@@ -1016,8 +1022,13 @@ func applyEffects(s *delivery.StageStatus, op *dv1.Operation, c conclusion) {
 				s.Offered = delivery.AddDigest(s.Offered, to, delivery.MaxOffered)
 			}
 		}
-		if op.Spec.Type == delivery.TypeUnfreeze {
+		switch {
+		case op.Spec.Type == delivery.TypeUnfreeze:
 			s.Frozen, s.FrozenReason, s.AutoHold = false, "", false
+		case op.Spec.Type == delivery.TypeFreeze && !s.Frozen:
+			// A freeze a failed re-check raised finds the Stage frozen already,
+			// with that check's reason, which it keeps.
+			s.Frozen, s.FrozenReason = true, op.Name+": frozen: "+op.Spec.Reason
 		}
 	case delivery.Rejected:
 		// A refused automatic rollback must not leave the failed version
@@ -1065,6 +1076,31 @@ func raiseRollback(ctx context.Context, c client.Client, policy delivery.ClassPo
 	}
 	rb.Spec.IntentDigest = delivery.IntentDigest(rb.Spec, stage.Spec)
 	if err := c.Create(ctx, rb); err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+	return nil
+}
+
+// raiseFreeze creates the freeze a failed re-check raises when it cannot roll
+// back. The Stage is already frozen; the freeze is how that failure reaches
+// the records, naming the version the Stage stays on and the failed verdict,
+// so a Stage in another cluster that follows these records never takes it.
+// Its name is derived from the operation that shipped the version, so raising
+// it twice is a no-op.
+func raiseFreeze(ctx context.Context, c client.Client, policy delivery.ClassPolicy, shipped *dv1.Operation, stage *dv1.Stage, why string, cause *delivery.Verdict) error {
+	fz := &dv1.Operation{}
+	fz.Namespace, fz.Name = shipped.Namespace, shipped.Name+"-freeze"
+	fz.Labels = map[string]string{StageLabel: stage.Name}
+	controllerutil.AddFinalizer(fz, dv1.RecordFinalizer)
+	fz.Spec = delivery.OperationSpec{
+		Type: delivery.TypeFreeze, Stage: stage.Name, Facet: delivery.FacetFreeze,
+		Params: delivery.Params{From: shipped.Spec.Params.To},
+		Reason: shipped.Name + " failed after release (" + why + ")",
+		Actor:  delivery.Actor{User: policy.ControllerUser},
+		Cause:  &delivery.Cause{Operation: string(shipped.UID), Verdict: cause},
+	}
+	fz.Spec.IntentDigest = delivery.IntentDigest(fz.Spec, stage.Spec)
+	if err := c.Create(ctx, fz); err != nil && !apierrors.IsAlreadyExists(err) {
 		return err
 	}
 	return nil

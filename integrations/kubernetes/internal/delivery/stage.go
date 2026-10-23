@@ -351,6 +351,14 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 	// The failure is recorded before the rollback is raised: raising takes the
 	// pointer lock, after which the Stage reads as moved and the record would be
 	// dropped. A rollback lost after the record is raised again by reraise.
+	// A freeze is raised first instead: it takes no lock, and once the Stage is
+	// frozen no re-check runs again to raise it, so a freeze lost here would
+	// leave the failure out of the records.
+	if !rollback {
+		if err := raiseFreeze(ctx, r.Client, r.Policy, shipped, stage, why, f); err != nil {
+			return err
+		}
+	}
 	wrote := false
 	if err := r.updateStatus(ctx, stage, func(st *dv1.Stage) {
 		if wrote = !moved(check, st.Status); !wrote {

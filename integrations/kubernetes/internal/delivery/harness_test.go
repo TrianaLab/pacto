@@ -287,7 +287,7 @@ func deployment(name string, gen, observed int64) *appsv1.Deployment {
 
 func opObj(name, typ, from, to string, actor string, groups ...string) *dv1.Operation {
 	facet := delivery.FacetPointer
-	if typ == delivery.TypeUnfreeze {
+	if typ == delivery.TypeUnfreeze || typ == delivery.TypeFreeze {
 		facet = delivery.FacetFreeze
 	}
 	o := &dv1.Operation{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name, UID: types.UID("uid-" + name),

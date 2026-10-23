@@ -115,7 +115,7 @@ export interface paths {
         put?: never;
         /**
          * Propose a change
-         * @description Promote, roll back (with undoes) or unfreeze, as the caller. Pass the plan's intent digest: anything that moved since fails with PlanStale and the fresh plan. Override stays in the CLI, for break-glass.
+         * @description Promote, roll back (with undoes), freeze or unfreeze, as the caller. Pass the plan's intent digest: anything that moved since fails with PlanStale and the fresh plan. Override stays in the CLI, for break-glass.
          */
         post: operations["delivery-propose"];
         delete?: never;

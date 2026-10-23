@@ -190,6 +190,10 @@ func TestDeliveryProposeGeneratesNameAndRollback(t *testing.T) {
 	if err != nil || op.Spec.Facet != delivery.FacetFreeze {
 		t.Fatalf("unfreeze: %+v %v", op, err)
 	}
+	op, _, err = d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeFreeze})
+	if err != nil || op.Spec.Facet != delivery.FacetFreeze || op.Spec.Params.From == "" || op.Spec.Params.To != "" {
+		t.Fatalf("freeze names the version it stays on: %+v %v", op, err)
+	}
 }
 
 func TestDeliveryRefusals(t *testing.T) {

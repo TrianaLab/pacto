@@ -9,12 +9,13 @@ import (
 	"time"
 )
 
-// Tier 0 operation type ids.
+// Operation type ids: the four Tier 0 types and freeze.
 const (
 	TypePromote  = "pacto.dev/promote"
 	TypeRollback = "pacto.dev/rollback"
 	TypeOverride = "pacto.dev/override"
 	TypeUnfreeze = "pacto.dev/unfreeze"
+	TypeFreeze   = "pacto.dev/freeze"
 )
 
 // Gate ids.
@@ -30,7 +31,7 @@ const (
 
 // OperationType is a type descriptor: what an operation of this type changes,
 // what checks it, when a person is needed and how it is undone. Agents discover
-// types; they never register them. In M0 the four Tier 0 types are compiled-in
+// types; they never register them. The types are compiled-in
 // values and a switch on Facet executes them.
 type OperationType struct {
 	ID          string       `json:"id"`
@@ -137,12 +138,25 @@ var tier0 = []OperationType{
 		ApprovalDeadline:  defaultApprovalDeadline,
 		ExecutionDeadline: defaultExecutionDeadline,
 	},
+	{
+		ID: TypeFreeze, Version: "1.0.0", Facet: FacetFreeze,
+		Description:       "Freeze the Stage on the version it runs, so automation stops moving it until a person unfreezes it. The promoter raises one when a check after release fails and it cannot roll back, so the record names the failed version.",
+		Params:            []string{"from"},
+		Raisers:           []ActorClass{ClassHuman, ClassBreakGlass, ClassController},
+		PreGates:          []string{},
+		VerifyGates:       []string{},
+		ApprovalFloor:     "none",
+		Inverse:           TypeUnfreeze,
+		Cancellable:       "until it applies",
+		ApprovalDeadline:  defaultApprovalDeadline,
+		ExecutionDeadline: defaultExecutionDeadline,
+	},
 }
 
-// Types returns the Tier 0 operation types.
+// Types returns the operation types.
 func Types() []OperationType { return slices.Clone(tier0) }
 
-// TypeByID returns the Tier 0 type with the given id.
+// TypeByID returns the operation type with the given id.
 func TypeByID(id string) (OperationType, bool) {
 	for _, t := range tier0 {
 		if t.ID == id {

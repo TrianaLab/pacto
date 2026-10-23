@@ -13,8 +13,8 @@ import (
 // there; a Failed operation of any type adds its version to FailedDigests and
 // takes it out of Verified. A rollback raised on a Fail verdict, the one a
 // failed post-release re-check raises, marks the version it leaves failed the
-// same way. A re-check that fails and freezes the Stage without a rollback
-// writes no record, so the remote view cannot see it. unreadable names the
+// same way, and so does the freeze such a re-check raises when it cannot roll
+// back: that freeze names the failed version it stays on. unreadable names the
 // records that failed verification. Any of those, or a gap or fork inside the
 // stream, offers nothing: a downstream never promotes on history it cannot
 // check, so the result is nil with the reason.
@@ -39,7 +39,7 @@ func (s *StageStatus) foldUpstream(p RecordPredicate) {
 	if p.Kind != RecordOperation || p.Type == nil || p.Intent.Params == nil || p.Outcome == nil {
 		return
 	}
-	if failedRollback(p) {
+	if failedCause(p) {
 		s.failUpstream(p.Intent.Params.From)
 	}
 	to := p.Intent.Params.To
@@ -60,11 +60,12 @@ func (s *StageStatus) foldUpstream(p RecordPredicate) {
 	}
 }
 
-// failedRollback says whether p is a rollback raised on a Fail verdict, which
-// leaves the version it moves from failed.
-func failedRollback(p RecordPredicate) bool {
+// failedCause says whether p is a rollback or a freeze raised on a Fail
+// verdict, which leaves the version it moves from, or stays on, failed. A
+// freeze a person raised with no failed check behind it fails nothing.
+func failedCause(p RecordPredicate) bool {
 	c := p.Intent.Cause
-	return p.Type.ID == TypeRollback && c != nil && c.Verdict != nil && c.Verdict.Result == Fail && p.Intent.Params.From != ""
+	return (p.Type.ID == TypeRollback || p.Type.ID == TypeFreeze) && c != nil && c.Verdict != nil && c.Verdict.Result == Fail && p.Intent.Params.From != ""
 }
 
 // failUpstream marks d failed in the remote view.

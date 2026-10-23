@@ -238,7 +238,7 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 		Summary: "Plan a change", Description: "What the promoter would do: verdicts, whether a person must decide, who and the question."}), s.deliveryPlan)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-propose", Method: http.MethodPost, Path: "/api/delivery/operations",
 		DefaultStatus: http.StatusCreated, Summary: "Propose a change",
-		Description: "Promote, roll back (with undoes) or unfreeze, as the caller. Pass the plan's intent digest: anything that moved since fails with PlanStale and the fresh plan. Override stays in the CLI, for break-glass."}), s.deliveryPropose)
+		Description: "Promote, roll back (with undoes), freeze or unfreeze, as the caller. Pass the plan's intent digest: anything that moved since fails with PlanStale and the fresh plan. Override stays in the CLI, for break-glass."}), s.deliveryPropose)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-decide", Method: http.MethodPost, Path: "/api/delivery/operations/{namespace}/{name}/decision",
 		DefaultStatus: http.StatusCreated, Summary: "Decide on a held change",
 		Description: "Approve, reject or accept an unknown, as the signed-in person, with a login made fresh for it. Only the teams the question names may decide. Never served in local mode or to agents."}), s.deliveryDecide)

@@ -13,8 +13,8 @@ import (
 
 func TestTier0Types(t *testing.T) {
 	ts := Types()
-	if len(ts) != 4 {
-		t.Fatalf("want the four Tier 0 types, got %d", len(ts))
+	if len(ts) != 5 {
+		t.Fatalf("want the four Tier 0 types and freeze, got %d", len(ts))
 	}
 	ts[0].ID = "mutated"
 	if p, _ := TypeByID(TypePromote); p.ID != TypePromote {
@@ -54,6 +54,9 @@ func TestMayRaise(t *testing.T) {
 		{TypeOverride, ClassBreakGlass, true, false},
 		{TypeUnfreeze, ClassAgent, false, false},
 		{TypeUnfreeze, ClassHuman, false, true},
+		{TypeFreeze, ClassAgent, false, false},
+		{TypeFreeze, ClassHuman, false, true},
+		{TypeFreeze, ClassController, false, true},
 		{"pacto.dev/scale", ClassHuman, false, false},
 	}
 	for _, c := range cases {

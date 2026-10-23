@@ -42,3 +42,31 @@ func TestUpstreamFromRecords(t *testing.T) {
 		t.Fatalf("a stream with a hole offers nothing: %+v %q", s, why)
 	}
 }
+
+// A re-check that fails and cannot roll back freezes the Stage through a
+// freeze record naming the failed version: downstream sees it failed. A
+// person's freeze with no failed check behind it fails nothing.
+func TestUpstreamFoldsAFailedFreeze(t *testing.T) {
+	recs := []StoredRecord{
+		upstreamRecord(1, "", TypePromote, dA, Succeeded, Verified, true),
+		upstreamRecord(2, "r1", TypePromote, dB, Succeeded, Verified, true),
+		upstreamRecord(3, "r2", TypeFreeze, "", Succeeded, Unverified, false),
+		upstreamRecord(4, "r3", TypeFreeze, "", Succeeded, Unverified, false),
+	}
+	recs[2].Statement.Predicate.Intent.Params.From = dA // a person paused on dA, no failed check
+	recs[3].Statement.Predicate.Intent.Params.From = dB
+	recs[3].Statement.Predicate.Intent.Cause = &Cause{Verdict: &Verdict{Gate: "smoke", Result: Fail}}
+	s, why := UpstreamFromRecords(recs, nil)
+	if why != "" || !slices.Equal(s.Verified, []string{dA}) || !slices.Equal(s.FailedDigests, []string{dB}) {
+		t.Fatalf("got %+v %q", s, why)
+	}
+	// The record the recorder writes for the promoter's freeze folds the same way.
+	fz := OperationObject{Spec: OperationSpec{Type: TypeFreeze, Facet: FacetFreeze, Params: Params{From: dA},
+		Cause: &Cause{Operation: "uid-p1", Verdict: &Verdict{Gate: "smoke", Result: Fail}}},
+		Status: OperationStatus{Outcome: Succeeded, Verification: Unverified}}
+	rec := NewOperationRecord(RecordInput{Operation: fz, Chain: Chain{Stream: "c2/test/payments", Seq: 5, Parent: "r4"}})
+	s, why = UpstreamFromRecords(append(recs, StoredRecord{ID: "r5", Statement: rec}), nil)
+	if why != "" || len(s.Verified) != 0 || !slices.Equal(s.FailedDigests, []string{dB, dA}) {
+		t.Fatalf("a recorded freeze: %+v %q", s, why)
+	}
+}

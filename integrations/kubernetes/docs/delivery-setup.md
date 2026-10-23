@@ -83,8 +83,10 @@ flowchart LR
   unfreezes it. A person's rollback puts an auto-hold on an
   `auto: true` Stage, so automation does not undo it.
 
-Only the four built-in operation types exist: promote, rollback, override and
-unfreeze. Stage approval policy is `approval.always`, not an expression.
+Only five built-in operation types exist: promote, rollback, override, freeze
+and unfreeze. A freeze stops automation on the version the Stage runs until a
+person unfreezes it; the promoter raises one when a check after release fails
+and it cannot roll back. Stage approval policy is `approval.always`, not an expression.
 
 ## Set up a Stage
 
@@ -165,8 +167,8 @@ placed counts everywhere and, as a consumer, asks a person.
 
 | Identity | May | May not |
 |---|---|---|
-| Agent (its service account or `pacto:agents`) | propose, read and cancel | approve, unfreeze, write status, edit the pointer |
-| Person | the above, approve a question their team is asked, unfreeze | write status |
+| Agent (its service account or `pacto:agents`) | propose, read and cancel | approve, freeze, unfreeze, write status, edit the pointer |
+| Person | the above, approve a question their team is asked, freeze, unfreeze | write status |
 | Break-glass (`pacto:break-glass`) | override and edit `spec.ref.digest` | |
 | Promoter | write status and raise its own operations | sign or push |
 | Recorder | write the record fields and finalizer; sign and push records | anything else |

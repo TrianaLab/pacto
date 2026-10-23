@@ -115,10 +115,10 @@ You need:
 The promoter rebuilds from the records what the upstream verified: a promote
 that `Succeeded`, `Verified` and passed the published gate there is offered
 here, and a version that failed there (or was rolled back after release) is
-never taken. One failure writes no record yet: a version that fails a check
-after release and freezes the upstream Stage without a rollback (because a
-person or agent chose it). Until a person there rolls it back, the downstream
-still sees it as verified there. Its own gates, approvals and checks still run. The digest must
+never taken. That includes a version that fails a check after release when
+the promoter cannot roll it back there (a person or agent chose it, or its
+rollback is used up): the promoter freezes that Stage with a freeze operation
+whose record names the failed version. Its own gates, approvals and checks still run. The digest must
 also exist in the Stage's own apply repository: use the same repository or a
 mirror that keeps digests. `pacto delivery plan` reads these records only with
 `--trust` and the upstream recorder's key.
@@ -133,5 +133,3 @@ untrusted record, a gap, a fork or an unreadable registry refuse a promote as
 - A Stage sees the upstream's history only as far as its records reach the
   registry, so a failure not yet recorded, or a stream cut at its newest
   records, is not seen.
-- A check after release that freezes the upstream without a rollback writes no
-  record, so another cluster can still take that version.

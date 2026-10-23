@@ -88,7 +88,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.params.undoes` | `string` | no |  |  | Undoes is the uid of the operation a rollback undoes. |
 | `spec.reason` | `string` | no |  |  |  |
 | `spec.stage` | `string` | yes |  |  | Stage is the name of a Stage in the operation's namespace. |
-| `spec.type` | `string` | yes |  | `pacto.dev/promote`, `pacto.dev/rollback`, `pacto.dev/override`, `pacto.dev/unfreeze` |  |
+| `spec.type` | `string` | yes |  | `pacto.dev/promote`, `pacto.dev/rollback`, `pacto.dev/override`, `pacto.dev/unfreeze`, `pacto.dev/freeze` |  |
 | `spec.witnessed` | `boolean` | no |  |  | Witnessed marks an override the promoter raised for an edit it saw but did not make. Only the promoter may set it. |
 | `status` | `object` | no |  |  | OperationStatus is written only by the promoter. |
 | `status.actorClass` | `string` | no |  |  | ActorClass is who raised an operation, as the promoter classifies the apiserver identity. It is derived, never asserted by the client. |

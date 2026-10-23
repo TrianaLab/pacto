@@ -7,8 +7,8 @@
 {{- $agents := include "pacto-delivery.celList" .Values.identities.agentGroups }}
 {{- $breakGlass := include "pacto-delivery.celList" .Values.identities.breakGlassGroups }}
 # An operation states who asked, and admission holds it to that: the actor is
-# the requesting user, only the promoter may set witnessed, override and
-# unfreeze are limited to their raisers, and the record finalizer is required.
+# the requesting user, only the promoter may set witnessed, override, unfreeze
+# and freeze are limited to their raisers, and the record finalizer is required.
 # The promoter trusts the actor in a spec only because this policy checked it:
 # it admits no operation and counts no approval while this policy or the
 # approval policy is missing.
@@ -63,6 +63,11 @@ spec:
         object.spec.type != 'pacto.dev/unfreeze' || variables.breakGlass ||
         (!variables.agent && request.userInfo.username != '{{ $controller }}')
       message: "only a person or break-glass may unfreeze a Stage; agents and the promoter may not"
+      reason: Forbidden
+    - expression: >-
+        object.spec.type != 'pacto.dev/freeze' || variables.breakGlass ||
+        !variables.agent || request.userInfo.username == '{{ $controller }}'
+      message: "only a person, break-glass or the promoter may freeze a Stage; agents may not"
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1
