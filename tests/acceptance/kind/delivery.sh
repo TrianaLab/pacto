@@ -1214,10 +1214,17 @@ billing_contract 1.1.0 job
 if OUT="$(pub --plan 2>&1)"; then fail "the plan of a breaking minor passed: $OUT"; fi
 grep -q "needs a major bump over 1.0.0: publish 2.0.0 or higher" <<<"$OUT" || fail "the plan does not say a major is needed: $OUT"
 if OUT="$(pub 2>&1)"; then fail "a breaking change was published as a minor: $OUT"; fi
-[ "$(tags apps/billing)|$(tags demo/billing)|$(referrers "apps/billing@$D1")" = "$AFTER" ] \
-  || fail "the refused publish wrote to the registry: $(tags apps/billing) $(tags demo/billing)"
+# The only write is the signed refusal, on its per-service anchor tag in the
+# contract repository, where the dashboard reads it.
+grep -q "Refusal: the refusal is kept, signed, in ${REG_HOST}/demo/billing" <<<"$OUT" || fail "the refusal was not kept: $OUT"
+ANCHOR="$(tags demo/billing | tr ' ' '\n' | grep '^refusals-')" || fail "no refusal anchor in demo/billing: $(tags demo/billing)"
+REFUSALS="$(oras discover --plain-http --format json "127.0.0.1:${LOCAL_REG_PORT}/demo/billing:$ANCHOR" 2>/dev/null \
+  | jq '[.. | objects | select((.annotations // {})["dev.sigstore.bundle.predicateType"] == "pacto.dev/publish-refusal/v1")] | length')"
+[ "$REFUSALS" = 1 ] || fail "the refusal anchor carries $REFUSALS refusals, want 1"
+[ "$(tags apps/billing)|$(tags demo/billing | sed "s/$ANCHOR //")|$(referrers "apps/billing@$D1")" = "$AFTER" ] \
+  || fail "the refused publish wrote a version to the registry: $(tags apps/billing) $(tags demo/billing)"
 billing_contract 1.0.0 service
-pass "BREAKING since 1.0.0 is refused as 1.1.0, and nothing was written"
+pass "BREAKING since 1.0.0 is refused as 1.1.0; only its signed refusal was written"
 
 echo "== delivery promotes the published version with no extra step =="
 OPP="$(wait_op "$P" "$D1")"
