@@ -74,10 +74,11 @@ and the held change then asks only orders; carol approves after signing in
 again; 3.0.0 sends too little telemetry, so its check says Unknown until carol
 accepts that; she rolls 3.0.0 back and automation holds off. Last comes B10:
 a changed copy of a signed record freezes payments in prod. pay-agent cannot
-unfreeze it; alice does once the copy is gone. Then ops pins a version by hand
+unfreeze it; alice does once the copy is gone. The promoter plans no unfreeze,
+so the demo checks how it concludes (Succeeded/Unverified, as the story says). Then ops pins a version by hand
 under break-glass, which shows as a witnessed record and freezes the Stage
 again. Then pay-agent ships as a service of its own, with its eval suite as
-the check: 1.0.0 passes, and 1.1.0 swaps its model, passes 14 of 20 evals and
+the check: 1.0.0 passes, and 1.1.0 swaps its model, passes 1 of its 2 evals and
 rolls back in test. `story` also prints the commands for
 `pacto delivery blame` and `undo` and for the agent over remote MCP.
 
@@ -85,9 +86,11 @@ rolls back in test. `story` also prints the commands for
 
 `make e2e-delivery-demo-reach` adds a second cluster, prod-us. Its payments
 Stage follows prod in the first cluster through prod's signed records, and
-Argo CD applies what it promotes. The clusters never talk to each other:
-prod-us reads the records from the registry. It takes the newest version prod
-verified and refuses 2.4.0, which failed there. See
+Argo CD applies what it promotes. The controllers never talk to each other:
+prod-us reads prod's signed records from the registry. In the demo that
+registry runs in the first cluster and prod-us reaches it through a NodePort.
+It takes the newest version prod verified and refuses 2.4.0 because it failed
+after release there, so run `story` before `reach`. See
 [Argo CD and several clusters](../integrations/kubernetes/delivery-reach.md).
 
 ## What is generated
@@ -96,4 +99,5 @@ The payments workload is a stand-in (podinfo). Its telemetry comes from a span
 generator in the cluster, and the call 2.4.2 makes to fraud comes from a sidecar
 in that version. pay-agent's eval runner is a stand-in that answers fixed
 counts. Sign-in uses the demo's own Dex and Keycloak, not a company
-login. For the operational graph on its own, see `make e2e-operational-graph-up`.
+login. In B10 alice and ops do not sign in: they act through the admin
+credentials impersonating them, with a sign-in time the script makes up. For the operational graph on its own, see `make e2e-operational-graph-up`.
