@@ -61,11 +61,16 @@ How a promote runs on Argo CD:
 
 1. The promoter sets `spec.source.targetRevision` to the new digest and asks
    Argo CD to refresh.
-2. The move counts as applied once the Application reports that digest in
-   `status.sync.revision`, sync status `Synced` and health `Healthy`.
+2. The move counts as applied once the Application is `Synced` and `Healthy`
+   with that digest in `status.sync.revision`. That field is the revision
+   Argo CD compared against, not proof of a sync: it moves to the new digest
+   as soon as the refresh runs, while the live workloads are still the old
+   version. Only sync status `Synced` says the live state matches it.
 3. A sync of that digest that ends `Failed` or `Error` fails the promote, and
-   so does an Application that turns `Degraded` at that digest. Either one
-   starts the usual rollback.
+   so does an Application that is `Degraded` once Argo CD has synced that
+   digest (sync status `Synced`, or a sync of the digest that `Succeeded`).
+   A `Degraded` health before the sync describes the old version and only
+   means "not yet". Either failure starts the usual rollback.
 
 Things that differ from Flux:
 

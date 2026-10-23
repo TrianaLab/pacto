@@ -99,6 +99,11 @@ func TestArgoCDFailures(t *testing.T) {
 			return u
 		}(),
 		"degraded": argoApp(dB, dB, "Synced", "Degraded"),
+		"degraded after a sync that drifted": func() *unstructured.Unstructured {
+			u := argoApp(dB, dB, "OutOfSync", "Degraded")
+			_ = unstructured.SetNestedMap(u.Object, map[string]any{"phase": "Succeeded", "syncResult": map[string]any{"revision": dB}}, "status", "operationState")
+			return u
+		}(),
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := newEnv(t, argoStage(dA), argoApp(dA, dA, "Synced", "Healthy"))
@@ -108,6 +113,17 @@ func TestArgoCDFailures(t *testing.T) {
 			wantOutcome(t, e.drive("p1"), delivery.Failed, "ApplyFailed")
 		})
 	}
+	// A refresh moves status.sync.revision to the target before any sync, so
+	// the health still describes the old version's workloads.
+	t.Run("degraded before the sync waits", func(t *testing.T) {
+		e := newEnv(t, argoStage(dA), argoApp(dA, dA, "Synced", "Degraded"))
+		e.create(argoOp(dA, dB))
+		e.drive("p1")
+		e.setApp(argoApp(dB, dB, "OutOfSync", "Degraded"))
+		if o := e.drive("p1"); o.Status.Outcome != "" || o.Status.Phase != delivery.PhaseRunning {
+			t.Fatalf("the old version's health is not a verdict on B: %+v", o.Status)
+		}
+	})
 	t.Run("a foreign writer freezes", func(t *testing.T) {
 		e := newEnv(t, argoStage(dA), argoApp(dA, dA, "Synced", "Healthy"))
 		e.create(argoOp(dA, dB))

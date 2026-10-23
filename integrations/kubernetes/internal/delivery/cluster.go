@@ -214,8 +214,12 @@ func (c Cluster) applied(ctx context.Context, ns string, a *applyRef, digest str
 
 // argoApplied reads whether Argo CD applied digest: Synced and Healthy at that
 // revision is a success; a sync of digest that Failed or Errored, or the
-// Application Degraded at digest, is a confirmed failure; anything else is
-// "not yet" (Progressing, OutOfSync or still at another revision).
+// Application Degraded once Argo CD synced digest, is a confirmed failure;
+// anything else is "not yet" (Progressing, OutOfSync or still at another
+// revision). status.sync.revision is the revision Argo CD compared against,
+// which moves to the target on a refresh before any sync, so Degraded counts
+// only when the sync is Synced or a sync of digest Succeeded: before that the
+// health still describes the previous version's workloads.
 func argoApplied(a *applyRef, digest string) (ok, failed bool, msg string) {
 	name := a.obj.GetName()
 	at := delivery.RevisionDigest(a.revision) == digest
@@ -229,7 +233,7 @@ func argoApplied(a *applyRef, digest string) (ok, failed bool, msg string) {
 		return false, true, fmt.Sprintf("Application %s failed to sync %s: %s: %s", name, digest, phase, opMsg)
 	case !at:
 		return false, false, "Application " + name + " has not synced " + digest + " yet"
-	case health == "Degraded":
+	case health == "Degraded" && (sync == "Synced" || phase == "Succeeded" && delivery.RevisionDigest(opRev) == digest):
 		healthMsg, _, _ := unstructured.NestedString(a.obj.Object, "status", "health", "message")
 		return false, true, fmt.Sprintf("Application %s is Degraded at %s: %s", name, digest, healthMsg)
 	case sync == "Synced" && health == "Healthy":
