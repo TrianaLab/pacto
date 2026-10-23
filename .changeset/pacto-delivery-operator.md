@@ -35,7 +35,9 @@ checks the Stage lists in `spec.gates.verify.checks`: the Pacto contract check,
 providers from `gates.providers` (`mira`, `http` or `eval`) and the built-in
 `pacto.runtime`. Checks run again every `spec.gates.verify.recheck` after
 release. Unknown never passes and never rolls back. A confirmed failure is
-never promoted again and gets one bound rollback; a second failure, an outcome
+never promoted again (the Stage keeps its last 50) and gets one bound rollback;
+a second failure, a version a person chose, nothing safe to go back to, a
+refused automatic rollback, an outcome
 that cannot be established or an edit of the pointer the promoter did not make
 freezes the Stage. Stages with `auto: true` promote the newest eligible
 candidate.
@@ -66,7 +68,10 @@ their CRDs, ServiceAccounts, RBAC, the `pacto-delivery-agent` and
 `pacto-delivery-approver` roles and ValidatingAdmissionPolicies (Kubernetes
 1.30 or later) that bind an operation's actor to the requesting user, keep
 approvals to people with a login time, keep the pointer to the promoter or
-break-glass and keep the record fields to the recorder. The image and chart are
+break-glass, keep the promoter itself to the pointer field and keep the record
+fields to the recorder. The chart renders them even offline and refuses to
+render without them unless `admissionPolicies.allowUnguarded` is set; the
+promoter admits no operation and counts no approval while they are missing. The image and chart are
 published, signed and versioned with the operator, so install the delivery
 chart at your operator's version. Helm never updates a chart's CRDs: apply the
 delivery CRDs before every `helm upgrade pacto-delivery`. `make sync-crds`

@@ -108,7 +108,7 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 	case in.Spec.Facet == FacetPointer && in.Spec.Params.From != in.Status.Pointer:
 		rejected = fmt.Sprintf("PointerMoved: from is %q but the Stage runs %q", in.Spec.Params.From, in.Status.Pointer)
 	case in.Spec.Type == TypePromote && slices.Contains(in.Status.FailedDigests, in.Spec.Params.To):
-		rejected = "FailedDigest: " + in.Spec.Params.To + " already failed on this Stage and is never promoted again"
+		rejected = "FailedDigest: " + in.Spec.Params.To + " is one of the last 50 versions that failed on this Stage, which are never promoted again"
 	}
 	if rejected != "" {
 		p.Conflicts = append(p.Conflicts, rejected)

@@ -160,8 +160,10 @@ To see what would happen before you ask, run `pacto delivery plan` with the
 same flags; see
 [Plan, propose and approve](integrations/kubernetes/delivery-setup.md#plan-propose-and-approve).
 A change that would break a service using
-yours waits, asks that service's team and says what to update first. A version
-that fails its checks is rolled back: the version that ran before is put back.
+yours waits, asks that service's team and says what to update first. A promoted
+version that fails its checks is rolled back once: the version that ran before
+is put back. Otherwise, such as when a person picked that version, the Stage
+freezes until a person decides.
 [Delivery](integrations/kubernetes/delivery.md) explains each of these in plain
 words.
 

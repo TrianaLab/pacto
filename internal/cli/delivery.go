@@ -71,7 +71,8 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 		Short: "Plan, propose and approve changes to what runs (needs the pacto-delivery chart)",
 		Long: "Pacto delivery decides which version each environment (a Stage) runs. Every change is an " +
 			"Operation: plan it to see what the promoter will do and who must agree, propose it, and a person " +
-			"approves only when the contracts say a consumer would break or Pacto cannot see enough.\n\n" +
+			"approves only when the contracts say a consumer would break, Pacto cannot see enough or the Stage " +
+			"asks for approval on every promote.\n\n" +
 			"There is no approve tool for agents. `approve` is for people, with a fresh login.",
 	}
 	cmd.PersistentFlags().StringP("namespace", "n", "default", "namespace of the Stage and its Operations")

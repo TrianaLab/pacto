@@ -281,7 +281,8 @@ type StageStatus struct {
 	// Verified holds the newest verified digests, oldest first (cap 10).
 	// +optional
 	Verified []string `json:"verified,omitempty"`
-	// FailedDigests are never promoted again (cap 50).
+	// FailedDigests are the last 50 versions that failed here; none of them is
+	// promoted again. An older failure drops out.
 	// +optional
 	FailedDigests []string `json:"failedDigests,omitempty"`
 	// +optional

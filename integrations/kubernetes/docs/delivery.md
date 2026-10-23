@@ -28,8 +28,10 @@ flowchart LR
   C -->|approved| D
   D --> E[Checks after]
   E -->|pass| F[Done]
-  E -->|fail| G[Rolled back]
+  E -->|fail| G{Safe to roll back?}
   F -->|a later check fails| G
+  G -->|yes, once| R[Rolled back]
+  G -->|no| Z[Frozen until a person decides]
 ```
 
 **Before it moves**, Pacto checks that this version was published with
@@ -41,8 +43,10 @@ break, the change goes ahead on its own.
 **After Flux applies it**, Pacto checks that the running version does what its
 contract says. You can add health checks too, such as error rates from your
 monitoring. These checks keep running after release, so a problem found an
-hour later still rolls the version back: the version that ran before is put
-back. A version that failed is never tried again in that environment.
+hour later still rolls the version back once: the version that ran before is
+put back. When a person picked the failed version, there is nothing safe to go
+back to or the rollback itself fails, the Stage freezes instead and waits for a
+person. None of a Stage's last 50 failed versions is tried again there.
 
 A version reaches prod only after it passed in the environment before it,
 such as test. Each service in each environment is called a **Stage**. Moving a Stage to a new

@@ -77,9 +77,10 @@ flowchart LR
   current workload generation. `Compliant` and `Warning` pass, `NonCompliant`
   and `Invalid` fail, anything else is Unknown.
   [Health checks](delivery-health.md) can join it.
-- A failed version is never promoted again on that Stage. The promoter raises
-  one rollback per failure; if that fails too or is unclear, the Stage freezes
-  until a person unfreezes it. A person's rollback puts an auto-hold on an
+- None of a Stage's last 50 failed versions is promoted again there. The
+  promoter raises one rollback per failure; if that fails, is refused or is
+  unclear, or the version before failed too, the Stage freezes until a person
+  unfreezes it. A person's rollback puts an auto-hold on an
   `auto: true` Stage, so automation does not undo it.
 
 Only the four built-in operation types exist: promote, rollback, override and

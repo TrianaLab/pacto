@@ -83,11 +83,13 @@ every node. See [Runtime conformance](https://pacto.run/latest/runtime-conforman
 ## Ship with the contract graph (opt-in)
 
 Install the delivery component and Pacto promotes versions from test to prod.
-A change that breaks no consumer goes ahead on its own; one that would break a
-consumer waits and asks only that consumer's team, and the plan says which
-service to ship first. A version that fails its checks after release is rolled
-back. AI agents may propose changes, only people may approve, and every change
-can leave a signed record in your registry. Flux or Argo CD still applies the
+A change that breaks no consumer goes ahead on its own, unless the Stage asks a
+person to approve every promote; one that would break a consumer waits and asks
+only that consumer's team, and the plan says which service to ship first. A
+promoted version that fails its checks after release is rolled back once;
+otherwise the Stage freezes until a person decides. AI agents may propose
+changes and only people may approve. Every change can leave a signed record in
+your registry. Flux or Argo CD still applies the
 version. Without the component, Pacto never changes what runs.
 
 Delivery synthesizes two ideas from others and adds one of ours:
