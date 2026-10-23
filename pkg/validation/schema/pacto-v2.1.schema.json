@@ -18,7 +18,7 @@
     },
     "service": {
       "type": "object",
-      "description": "Identifies the service: its name, version, and owner.",
+      "description": "Identifies the service: its name, version and owner.",
       "required": [
         "name",
         "version"
@@ -81,7 +81,7 @@
                   "value": {
                     "type": "string",
                     "minLength": 1,
-                    "description": "The contact value, such as an email address, URL, or group identifier."
+                    "description": "The contact value, such as an email address, URL or group identifier."
                   },
                   "purpose": {
                     "type": "string",
@@ -319,7 +319,7 @@
     },
     "state": {
       "type": "object",
-      "description": "Declares how the service manages state, including whether it retains data, how that data is persisted, and how critical the data is.",
+      "description": "Declares how the service manages state, including whether it retains data, how that data is persisted and how critical the data is.",
       "required": [
         "type",
         "persistence",
@@ -337,8 +337,8 @@
           "description": "Whether the service needs data from a previous request to handle the current one.",
           "x-enum-descriptions": {
             "stateless": "does not retain data between requests; any instance can handle any request (e.g. an API proxy or a service whose in-memory data can be fully rebuilt from external sources)",
-            "stateful": "retains data between requests and requires stable storage or affinity (e.g. a database, a message broker, or a service with on-disk state)",
-            "hybrid": "handles requests statelessly but keeps selective in-memory or local state that enriches behaviour (e.g. an API with a local cache, in-memory session store, or background-refreshed data)"
+            "stateful": "retains data between requests and requires stable storage or affinity (e.g. a database, a message broker or a service with on-disk state)",
+            "hybrid": "handles requests statelessly but keeps selective in-memory or local state that enriches behaviour (e.g. an API with a local cache, in-memory session store or background-refreshed data)"
           }
         },
         "persistence": {
@@ -359,7 +359,7 @@
               "description": "Whether data is confined to a single instance or shared across instances.",
               "x-enum-descriptions": {
                 "local": "data is confined to a single instance and not shared across replicas (e.g. in-memory caches, local files, embedded databases)",
-                "shared": "data is shared across all instances via a common store (e.g. a database, Redis, or shared filesystem)"
+                "shared": "data is shared across all instances via a common store (e.g. a database, Redis or shared filesystem)"
               }
             },
             "durability": {
@@ -370,8 +370,8 @@
               ],
               "description": "Whether the data survives process restarts.",
               "x-enum-descriptions": {
-                "ephemeral": "data can be lost on restart without impact; used for in-memory caches, temp files, or reconstructible state",
-                "persistent": "data must survive restarts and be durably stored (e.g. on disk, in a database, or in an external store)"
+                "ephemeral": "data can be lost on restart without impact; used for in-memory caches, temp files or reconstructible state",
+                "persistent": "data must survive restarts and be durably stored (e.g. on disk, in a database or in an external store)"
               }
             }
           }
