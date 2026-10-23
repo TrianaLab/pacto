@@ -9,3 +9,10 @@
    docs_check entry is optional.
 3. Not this track: `docs/mcp-integration.md` is 1243 prose words (max 1200) on this base, so
    `make docs-lint` fails on (c) before and after this branch.
+4. Kind: journey I ("delivery stays out of sight") also runs in `operational-graph.sh browser`.
+   It ran here only on Compose; the operational-graph Kind surface installs no delivery either,
+   so it should hold there. Run it at integration.
+5. Fixed in this track's files, caused by core: `pacto push` now reports an unchanged bundle as
+   "Already published" with its digest, so the Compose seed thought a restart re-published and
+   stage 10 of the Compose acceptance failed. `tests/acceptance/scenario/seed.sh` now reads that
+   wording and checks the evidence digests on every start.
