@@ -292,15 +292,8 @@ func TestVersionRule(t *testing.T) {
 		p.Baseline != "1.0.0" || p.RequiredBump != "major" {
 		t.Fatalf("breaking as a minor: %v %+v", err, p)
 	}
-	at := time.Date(2026, 10, 22, 12, 0, 0, 0, time.FixedZone("CEST", 7200))
-	if r, ok := VersionRefusal(p, at); !ok || r.Service != "payments" || r.Version != "1.1.0" || r.Baseline != "1.0.0" ||
-		r.RequiredBump != "major" || r.Classification != "BREAKING" || r.At != "2026-10-22T10:00:00Z" || !strings.Contains(r.Message, "needs a major bump") {
-		t.Fatalf("refusal: %+v %v", r, ok)
-	}
-	if p, err := publishAt("2.0.0", "job"); err != nil {
+	if _, err := publishAt("2.0.0", "job"); err != nil {
 		t.Fatalf("breaking as a major: %v", err)
-	} else if _, ok := VersionRefusal(p, at); ok {
-		t.Fatal("a published version reads as refused")
 	}
 	// 1.5.0 compares against 1.0.0, the highest version below it.
 	if p, _ := publishAt("1.5.0", workloadService); p.Baseline != "1.0.0" {
@@ -329,6 +322,27 @@ func TestVersionRule(t *testing.T) {
 	if !ch.Passed || !strings.Contains(ch.Message, "could not tell") {
 		t.Fatalf("potentially breaking: %+v", ch)
 	}
+}
+
+// TestVersionRefusal: the version rule's refusal is what publish keeps; a
+// version it accepts is none.
+func TestVersionRefusal(t *testing.T) {
+	host, reg := newRegistry(t)
+	ctx := context.Background()
+	publishAt := func(version, workload string) Plan {
+		res, _ := Apply(ctx, reg, newTools(), Input{Bundle: bundleOf(host, version, workload), Revision: "r" + version})
+		return res.Plan
+	}
+	publishAt("1.0.0", workloadService)
+	at := time.Date(2026, 10, 22, 12, 0, 0, 0, time.FixedZone("CEST", 7200))
+	want := delivery.PublishRefusal{Service: "payments", Version: "1.1.0", Baseline: "1.0.0", Classification: "BREAKING", RequiredBump: "major",
+		At: "2026-10-22T10:00:00Z"}
+	r, ok := VersionRefusal(publishAt("1.1.0", "job"), at)
+	msg := r.Message
+	r.Message = ""
+	expect(t, ok && r == want && strings.Contains(msg, "needs a major bump"), "refusal: %+v %v", r, ok)
+	_, ok = VersionRefusal(publishAt("2.0.0", "job"), at)
+	expect(t, !ok, "a published version reads as refused")
 }
 
 // TestVersionRuleCandidate: a release candidate is exempt only from the bump
