@@ -600,6 +600,10 @@ type Times struct {
 	Applied string `json:"applied,omitempty"`
 	// +optional
 	Finished string `json:"finished,omitempty"`
+	// Held is when the operation was last held for a person. An approval
+	// created before it answered an earlier question and does not count.
+	// +optional
+	Held string `json:"held,omitempty"`
 	// +optional
 	ApprovalDeadline string `json:"approvalDeadline,omitempty"`
 	// +optional

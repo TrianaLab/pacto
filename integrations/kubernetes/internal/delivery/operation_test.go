@@ -122,6 +122,41 @@ func TestFailedVerifyRollsBackOnceAndNeverRetries(t *testing.T) {
 	wantOutcome(t, e.drive("p2"), delivery.Rejected, "FailedDigest")
 }
 
+// TestFailedPromoteOverAFailedVersionFreezes: when the version a failed
+// promote would roll back to failed here too, no rollback is raised and the
+// Stage freezes.
+func TestFailedPromoteOverAFailedVersionFreezes(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.setStage(func(s *delivery.StageStatus) { s.FailedDigests = []string{dA} })
+	e.drive("p1")
+	e.apply(dB)
+	e.drive("p1")
+	e.evaluate(c2, "NonCompliant")
+	wantOutcome(t, e.drive("p1"), delivery.Failed, "VerifyFailed")
+	if s := e.getStage(); !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "nothing safe to roll back to") || len(s.Status.AutoRollbacks) != 0 {
+		t.Fatalf("want frozen with no rollback: %+v", s.Status)
+	}
+	if err := e.c.Get(context.Background(), keyOf("p1-rollback"), &dv1Op{}); err == nil {
+		t.Fatal("no rollback may target a failed version")
+	}
+}
+
+// TestRefusedAutomaticRollbackFreezes: a rollback the promoter raised that is
+// refused freezes the Stage rather than leave the failed version running.
+func TestRefusedAutomaticRollbackFreezes(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.drive("p1")
+	e.apply(dB)
+	e.drive("p1")
+	e.evaluate(c2, "NonCompliant")
+	e.drive("p1")
+	e.setStage(func(s *delivery.StageStatus) { s.Pointer = dC }) // something moved it first
+	wantOutcome(t, e.drive("p1-rollback"), delivery.Rejected, "PointerMoved")
+	if s := e.getStage(); !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "automatic rollback was refused") {
+		t.Fatalf("a refused automatic rollback must freeze: %+v", s.Status)
+	}
+}
+
 // TestFailedRollbackFreezes: a second Fail for the same cause freezes instead of
 // rolling back again.
 func TestFailedRollbackFreezes(t *testing.T) {
@@ -186,6 +221,26 @@ func TestBreakingChangeWaitsForTheConsumersTeam(t *testing.T) {
 	}
 }
 
+// TestApprovedHeldWaitsWithoutASecondApproval: an approved change that finds
+// the Stage frozen keeps its approval and moves once the freeze lifts.
+func TestApprovedHeldWaitsWithoutASecondApproval(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dC, bot))
+	e.create(pactoObj("checkout", "checkout", c3, "Compliant", 1,
+		map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "required": true, "compatibility": "^1.0.0"}))
+	o := e.drive("p1")
+	e.setStage(func(s *delivery.StageStatus) { s.Frozen, s.FrozenReason = true, "a person froze it" })
+	e.approveAs(o, "ok", "bob", []string{"team-checkout"}, delivery.Approve)
+	o = e.drive("p1")
+	if o.Status.Phase != delivery.PhaseHeld || o.Status.Reason != "Waiting" || len(o.Status.Approvals) != 0 || !strings.Contains(o.Status.Message, "bob approved") {
+		t.Fatalf("want waiting with the approval kept: %s %s %q %+v", o.Status.Phase, o.Status.Reason, o.Status.Message, o.Status.Approvals)
+	}
+	e.setStage(func(s *delivery.StageStatus) { s.Frozen, s.FrozenReason = false, "" })
+	o = e.drive("p1")
+	if o.Status.Phase != delivery.PhaseRunning || len(o.Status.Approvals) != 1 || o.Status.Approvals[0].By != "bob" {
+		t.Fatalf("the one approval moves it: %s %+v", o.Status.Phase, o.Status.Approvals)
+	}
+}
+
 // TestUnknownWaits is acceptance item 5: a contract Pacto cannot read holds the
 // change for accept-unknown; it never ships on its own.
 func TestUnknownWaits(t *testing.T) {
@@ -210,10 +265,16 @@ func TestApprovedButRecheckChanged(t *testing.T) {
 		map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "required": true, "compatibility": "^1.0.0"}))
 	o := e.drive("p1")
 	e.approve(o, "ok", "alice", delivery.Approve)
-	delete(e.reg.contracts, dA) // the running contract can no longer be read
+	e.approve(o, "dup", "carol", delivery.Approve) // a second click, never consumed
+	delete(e.reg.contracts, dA)                    // the running contract can no longer be read
+	e.now = e.now.Add(time.Minute)
 	o = e.drive("p1")
 	if o.Status.Phase != delivery.PhaseHeld || o.Status.Reason != "RecheckChanged" {
 		t.Fatalf("want back to Held: %s %s", o.Status.Phase, o.Status.Reason)
+	}
+	// The leftover approval answered the old question, not this one.
+	if o = e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || len(o.Status.Approvals) != 1 {
+		t.Fatalf("a leftover approval must not clear the new question: %s %+v", o.Status.Phase, o.Status.Approvals)
 	}
 	// Now the to contract names another service: the re-check is a Fail.
 	e.reg.contracts[dA] = contractRef(c1)
@@ -516,6 +577,18 @@ func TestVerifyUnknownHoldsAfterApply(t *testing.T) {
 		if o.Status.Verification != delivery.AcceptedUnknown {
 			t.Fatal(o.Status.Verification)
 		}
+	})
+	t.Run("only a later accept or reject answers", func(t *testing.T) {
+		e := setup(t)
+		e.now = e.now.Add(-time.Hour)
+		e.approve(e.getOp("p1"), "early", "alice", delivery.Reject)
+		e.now = e.now.Add(time.Hour)
+		e.approve(e.getOp("p1"), "approve", "alice", delivery.Approve)
+		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || len(o.Status.Approvals) != 0 {
+			t.Fatalf("an earlier reject and an approve do not answer: %s %+v", o.Status.Phase, o.Status.Approvals)
+		}
+		e.approve(e.getOp("p1"), "au", "bob", delivery.AcceptUnknown)
+		wantOutcome(t, e.drive("p1"), delivery.Succeeded, "AcceptedUnknown")
 	})
 	t.Run("reject rolls back", func(t *testing.T) {
 		e := setup(t)

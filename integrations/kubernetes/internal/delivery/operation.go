@@ -295,7 +295,7 @@ func (r *OperationReconciler) pending(ctx context.Context, op *dv1.Operation, st
 	case delivery.PredictRejected:
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Rejected, reason: planRefusal(plan)})
 	case delivery.PredictHeld:
-		op.Status.Phase, op.Status.Question = delivery.PhaseHeld, plan.Question
+		op.Status.Phase, op.Status.Question, op.Status.Times.Held = delivery.PhaseHeld, plan.Question, ts(r.now())
 		op.Status.Reason, op.Status.Message = "AwaitingHuman", "a person must "+string(plan.Floor.Decision)
 		return r.save(ctx, op)
 	case delivery.PredictWaits:
@@ -431,7 +431,7 @@ func (r *OperationReconciler) held(ctx context.Context, op *dv1.Operation, stage
 	// when it was admitted. A Reject needs no plan, so a re-plan that fails
 	// still lets one through.
 	refreshed, err := r.refreshOrder(ctx, op, stage)
-	a := r.approval(ctx, op)
+	a := r.approval(ctx, op, delivery.Approve, delivery.AcceptUnknown, delivery.Reject)
 	switch {
 	case a != nil && a.Decision == delivery.Reject:
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Rejected, reason: "RejectedByHuman: " + a.By + ": " + a.Note})
@@ -496,11 +496,16 @@ func (r *OperationReconciler) refreshOrder(ctx context.Context, op *dv1.Operatio
 // neither the actor nor whoever the actor acts for, belongs to a team the
 // question was routed to (floor.owners) and was given within r.Freshness of
 // that person's login. The groups are the ones admission bound to the user.
-func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) *delivery.ApprovalRecord {
+// It answers the question asked now: it was created no earlier than the
+// operation was last held, and its decision is one of decisions.
+// ponytail: times are whole seconds, so an approval created in the same
+// second as a new hold still counts.
+func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation, decisions ...delivery.Decision) *delivery.ApprovalRecord {
 	var owners []string
 	if op.Status.Plan != nil {
 		owners = op.Status.Plan.Floor.Owners
 	}
+	held := parseOr(op.Status.Times.Held)
 	list := &dv1.ApprovalList{}
 	if err := r.List(ctx, list, client.InNamespace(op.Namespace)); err != nil {
 		return nil
@@ -509,7 +514,7 @@ func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) *
 	for _, a := range list.Items {
 		s := a.Spec
 		consumed := slices.ContainsFunc(op.Status.Approvals, func(x delivery.ApprovalRecord) bool { return x.Name == a.Name })
-		if consumed || s.OperationUID != string(op.UID) || s.IntentDigest != op.Spec.IntentDigest ||
+		if consumed || a.CreationTimestamp.Time.Before(held) || !slices.Contains(decisions, s.Decision) || s.OperationUID != string(op.UID) || s.IntentDigest != op.Spec.IntentDigest ||
 			s.By == op.Spec.Actor.User || op.Spec.OnBehalfOf != nil && s.By == op.Spec.OnBehalfOf.User ||
 			!r.Policy.IsHuman(delivery.Identity{User: s.By, Groups: s.Groups}) || !r.Policy.InTeams(s.Groups, owners) ||
 			!fresh(s.AuthTime, a.CreationTimestamp.Time, cmp.Or(r.Freshness, delivery.AuthFreshness)) {
@@ -544,7 +549,7 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 		}
 		if !stillPasses(*op.Status.Plan, cur) {
 			op.Status.Plan, op.Status.Verdicts = &cur, mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
-			op.Status.Phase, op.Status.Question = delivery.PhaseHeld, cur.Question
+			op.Status.Phase, op.Status.Question, op.Status.Times.Held = delivery.PhaseHeld, cur.Question, ts(r.now())
 			op.Status.Reason, op.Status.Message = "RecheckChanged", "a gate no longer passes, so a person must decide again"
 			return r.save(ctx, op)
 		}
@@ -583,6 +588,14 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 	case errors.Is(err, errConcluded):
 		return r.finish(ctx, op, stage, conclusion{})
 	case errors.Is(err, errWait):
+		if recheck {
+			// The approval held() just took stays unconsumed, so it moves the
+			// operation once the lock or the freeze lets go, re-checked then
+			// against the people the question is routed to at that moment.
+			a := op.Status.Approvals[len(op.Status.Approvals)-1]
+			op.Status.Approvals = op.Status.Approvals[:len(op.Status.Approvals)-1]
+			waiting = a.By + " approved; " + waiting
+		}
 		op.Status.Reason, op.Status.Message = reasonWaiting, waiting
 		return r.save(ctx, op)
 	case errors.Is(err, errPointerMoved):
@@ -604,7 +617,8 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 // stillPasses reports whether an approval given on prev still covers cur:
 // every gate that passed still passes (a Pass that comes back empty is Unknown,
 // and Unknown never passes), and cur asks for nothing the approval did not
-// answer.
+// answer: it is routed to no team and names no consumer the approval was not
+// asked about, and the impact gate is unknown for the reason the person saw.
 func stillPasses(prev, cur delivery.Plan) bool {
 	for _, v := range prev.Verdicts {
 		if v.Result != delivery.Pass {
@@ -614,7 +628,27 @@ func stillPasses(prev, cur delivery.Plan) bool {
 			return false
 		}
 	}
-	return !cur.Floor.Human || cur.Floor.Decision == prev.Floor.Decision || prev.Floor.Decision == delivery.Approve
+	if !cur.Floor.Human {
+		return true
+	}
+	if !subset(cur.Floor.Owners, prev.Floor.Owners) || !subset(cur.Floor.Consumers, prev.Floor.Consumers) {
+		return false
+	}
+	// ponytail: only the impact gate's message is compared, as it lists what
+	// Pacto cannot see; other gates' Unknown messages carry error text that
+	// changes from one read to the next.
+	for _, v := range cur.Verdicts {
+		if v.Gate == delivery.GateImpact && v.Result == delivery.Unknown &&
+			!slices.ContainsFunc(prev.Verdicts, func(p delivery.Verdict) bool { return p.Gate == v.Gate && p.Result == v.Result && p.Message == v.Message }) {
+			return false
+		}
+	}
+	return cur.Floor.Decision == prev.Floor.Decision || prev.Floor.Decision == delivery.Approve
+}
+
+// subset reports whether every element of a is in b.
+func subset(a, b []string) bool {
+	return !slices.ContainsFunc(a, func(x string) bool { return !slices.Contains(b, x) })
 }
 
 // lockFree reports whether op may take the lock holder has: holder is gone or
@@ -770,7 +804,7 @@ func (r *OperationReconciler) verifying(ctx context.Context, op *dv1.Operation, 
 	case r.passed(op.Status.Times.VerifyDeadline):
 		t, _ := delivery.TypeByID(op.Spec.Type)
 		approval, _ := t.Deadlines(stage.Spec.Deadlines)
-		op.Status.Phase = delivery.PhaseHeld
+		op.Status.Phase, op.Status.Times.Held = delivery.PhaseHeld, ts(r.now())
 		op.Status.Times.ApprovalDeadline = ts(r.now().Add(approval))
 		op.Status.Reason, op.Status.Message = "VerifyUnknown", msg
 		op.Status.Question = "The verify gates could not confirm " + op.Spec.Params.To + " in time: " + msg +
@@ -811,7 +845,9 @@ func (r *OperationReconciler) heldAfterApply(ctx context.Context, op *dv1.Operat
 	if r.passed(op.Status.Times.ApprovalDeadline) {
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Errored, freeze: true, reason: "VerifyUndecided: nobody accepted or rejected the unknown in time"})
 	}
-	a := r.approval(ctx, op)
+	// An Approve answers the question asked before the version shipped, not
+	// this one, so only an accept or a reject counts here.
+	a := r.approval(ctx, op, delivery.AcceptUnknown, delivery.Reject)
 	switch {
 	case a == nil:
 		return r.requeue()
@@ -846,7 +882,7 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 			if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(stage), cur); err != nil {
 				return reconcile.Result{}, err
 			}
-			if concludedOn(cur.Status, op.UID) == nil {
+			if concludedOn(cur.Status, op.UID) == nil && !slices.Contains(cur.Status.FailedDigests, op.Status.Pointer.Before) {
 				if err := raiseRollback(ctx, r.Client, r.Policy, op, stage, code+": "+msg, c.cause); err != nil {
 					return reconcile.Result{}, err
 				}
@@ -945,6 +981,12 @@ func applyEffects(s *delivery.StageStatus, op *dv1.Operation, c conclusion) {
 		if op.Spec.Type == delivery.TypeUnfreeze {
 			s.Frozen, s.FrozenReason, s.AutoHold = false, "", false
 		}
+	case delivery.Rejected:
+		// A refused automatic rollback must not leave the failed version
+		// running unwatched: a person decides.
+		if op.Spec.Type == delivery.TypeRollback && op.Status.ActorClass == delivery.ClassController {
+			c.freeze, c.reason = true, "the automatic rollback was refused: "+c.reason
+		}
 	case delivery.Failed:
 		s.FailedDigests = delivery.AddDigest(s.FailedDigests, to, delivery.MaxFailedDigests)
 		s.Verified = delivery.RemoveDigest(s.Verified, to)
@@ -953,6 +995,8 @@ func applyEffects(s *delivery.StageStatus, op *dv1.Operation, c conclusion) {
 			c.freeze, c.reason = true, "a "+op.Spec.Type+" failed: "+c.reason
 		case op.Status.Pointer.Before == "":
 			c.freeze, c.reason = true, "the first version failed, so there is nothing to roll back to"
+		case slices.Contains(s.FailedDigests, op.Status.Pointer.Before):
+			c.freeze, c.reason = true, "the version before it failed here too, so there is nothing safe to roll back to"
 		default:
 			if s.AutoRollbacks == nil {
 				s.AutoRollbacks = map[string]int{}

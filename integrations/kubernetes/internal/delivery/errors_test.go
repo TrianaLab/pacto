@@ -173,6 +173,28 @@ func TestStillPasses(t *testing.T) {
 	if stillPasses(prev, delivery.Plan{Verdicts: []delivery.Verdict{pass}, Floor: delivery.Floor{Human: true, Decision: delivery.Approve}}) {
 		t.Fatal("an approval-needing floor accept-unknown never answered")
 	}
+	// An approval routed to one team does not answer a question for another.
+	approved := delivery.Plan{Verdicts: []delivery.Verdict{pass}, Floor: delivery.Floor{Human: true, Decision: delivery.Approve, Owners: []string{"team-payments"}}}
+	if !stillPasses(approved, approved) {
+		t.Fatal("the same question is answered")
+	}
+	if stillPasses(approved, delivery.Plan{Verdicts: []delivery.Verdict{pass}, Floor: delivery.Floor{Human: true, Decision: delivery.Approve, Owners: []string{"team-checkout"}, Consumers: []string{"checkout"}}}) {
+		t.Fatal("a question now routed to the consumer's team needs that team")
+	}
+	if stillPasses(approved, delivery.Plan{Verdicts: []delivery.Verdict{pass}, Floor: delivery.Floor{Human: true, Decision: delivery.Approve, Owners: []string{"team-payments"}, Consumers: []string{"checkout"}}}) {
+		t.Fatal("a consumer nobody was asked about needs a new answer")
+	}
+	// Accepting one unknown does not accept a different one.
+	seen := delivery.Verdict{Gate: delivery.GateImpact, Result: delivery.Unknown, Message: "the graph is partial"}
+	au := delivery.Plan{Verdicts: []delivery.Verdict{seen}, Floor: delivery.Floor{Human: true, Decision: delivery.AcceptUnknown}}
+	if !stillPasses(au, au) {
+		t.Fatal("the same unknown is accepted")
+	}
+	other := seen
+	other.Message = "orders cannot be seen"
+	if stillPasses(au, delivery.Plan{Verdicts: []delivery.Verdict{other}, Floor: au.Floor}) {
+		t.Fatal("a different unknown needs a new answer")
+	}
 }
 
 func TestFirstVersionFailureFreezes(t *testing.T) {
