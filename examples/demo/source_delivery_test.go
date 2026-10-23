@@ -1,0 +1,211 @@
+package main
+
+import (
+	"encoding/json"
+	"maps"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/danielgtaylor/huma/v2/adapters/humago"
+	"github.com/trianalab/pacto/v4/examples/story"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
+)
+
+// demoServer is the dashboard the wasm binary serves, over the story.
+func demoServer(t *testing.T) (*demoDelivery, http.Handler) {
+	t.Helper()
+	d, err := newDemoDelivery(time.Now, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var opts dashboard.Options
+	d.wire(&opts)
+	mux := http.NewServeMux()
+	dashboard.NewServer(opts).RegisterOperations(humago.New(mux, dashboard.APIConfig()))
+	return d, mux
+}
+
+func call(t *testing.T, h http.Handler, method, path, body string, out any) int {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if out != nil && rec.Code < 300 {
+		if err := json.Unmarshal(rec.Body.Bytes(), out); err != nil {
+			t.Fatalf("%s %s: %v: %s", method, path, err, rec.Body)
+		}
+	}
+	if rec.Code >= 300 {
+		t.Logf("%s %s -> %d %s", method, path, rec.Code, rec.Body)
+	}
+	return rec.Code
+}
+
+func digest(svc, v string) string { return story.ArtifactDigest(svc, v) }
+
+type held struct {
+	Held []dashboard.InboxItem `json:"held"`
+}
+
+func inbox(t *testing.T, h http.Handler) []dashboard.InboxItem {
+	t.Helper()
+	var out held
+	if code := call(t, h, "GET", "/api/delivery/inbox", "", &out); code != 200 {
+		t.Fatalf("inbox %d", code)
+	}
+	return out.Held
+}
+
+// TestDeliveryStory plays the guided path through the dashboard's own
+// handlers: the replayed history, the held breaking change, the consumer that
+// moves first, who may decide, the approval, the rollback and the records.
+func TestDeliveryStory(t *testing.T) {
+	d, h := demoServer(t)
+
+	// The replay: B2 rolled payments prod back to 2.3.0 and 2.4.0 failed
+	// there; B3's 2.4.2 failed in test; 3.0.0 runs in test.
+	prod, _ := d.Stage(t.Context(), story.Prod, "payments")
+	if prod.Status.Pointer != digest("payments", "2.3.0") || !slices.Contains(prod.Status.FailedDigests, digest("payments", "2.4.0")) {
+		t.Fatalf("payments prod after B2: %+v", prod.Status)
+	}
+	test, _ := d.Stage(t.Context(), story.Test, "payments")
+	if test.Status.Pointer != digest("payments", "3.0.0") || !slices.Contains(test.Status.FailedDigests, digest("payments", "2.4.2")) {
+		t.Fatalf("payments test after B4: %+v", test.Status)
+	}
+
+	// What Environments offers to promote: 3.0.0 to payments prod, 1.9.0 to
+	// checkout prod and fraud's first version to prod.
+	stages, _ := d.Stages(t.Context(), story.Prod)
+	cands := map[string]string{}
+	for _, s := range stages {
+		cands[s.Metadata.Name] = versionOf(s.Metadata.Name, s.Status.Candidate)
+	}
+	if want := map[string]string{"payments": "3.0.0", "checkout": "1.9.0", "fraud": "1.0.0", "orders": ""}; !maps.Equal(cands, want) {
+		t.Fatalf("prod candidates %v, want %v", cands, want)
+	}
+
+	// B5: pay-agent proposes 3.0.0 for prod; it is held for checkout and
+	// orders, and checkout 1.9.0 can move first.
+	body := `{"namespace":"prod","stage":"payments","to":"` + digest("payments", "3.0.0") + `"}`
+	var proposed struct {
+		Operation delivery.OperationObject `json:"operation"`
+	}
+	if code := call(t, h, "POST", "/api/delivery/operations", body, &proposed); code != 201 {
+		t.Fatalf("propose %d", code)
+	}
+	op := proposed.Operation
+	if op.Status.Phase != delivery.PhaseHeld || !slices.Equal(op.Status.Plan.Floor.Owners, []string{"checkout", "orders"}) {
+		t.Fatalf("B5: %+v", op.Status)
+	}
+	if o := op.Status.Plan.Order; o == nil || !slices.ContainsFunc(o.MoveFirst, func(m delivery.MoveFirst) bool {
+		return m.Candidate != nil && m.Candidate.Version == "1.9.0"
+	}) {
+		t.Fatalf("B5 order: %+v", op.Status.Plan.Order)
+	}
+	decide := "/api/delivery/operations/prod/" + op.Metadata.Name + "/decision"
+	if code := call(t, h, "POST", decide, `{"decision":"approve"}`, nil); code != 403 {
+		t.Fatalf("pay-agent decided: %d", code)
+	}
+
+	// B6: checkout 1.9.0 ships with nobody, and the held change now asks
+	// only orders.
+	body = `{"namespace":"prod","stage":"checkout","to":"` + digest("checkout", "1.9.0") + `"}`
+	if code := call(t, h, "POST", "/api/delivery/operations", body, &proposed); code != 201 || proposed.Operation.Status.Phase != delivery.PhaseConcluded {
+		t.Fatalf("B6 checkout: %d %+v", code, proposed.Operation.Status)
+	}
+	if items := inbox(t, h); len(items) != 0 {
+		t.Fatalf("an agent's inbox holds what only people answer: %+v", items)
+	}
+	_ = d.SetPersona("carol", false)
+	items := inbox(t, h)
+	if len(items) != 1 || !slices.Equal(items[0].Owners, []string{"orders"}) || !strings.Contains(items[0].Question, "Asked of: orders") {
+		t.Fatalf("B6 inbox: %+v", items)
+	}
+
+	// B7: alice is not on the asked team; carol must sign in again first.
+	if err := d.SetPersona("alice", true); err != nil {
+		t.Fatal(err)
+	}
+	if code := call(t, h, "POST", decide, `{"decision":"approve"}`, nil); code != 403 {
+		t.Fatalf("alice decided: %d", code)
+	}
+	_ = d.SetPersona("carol", false)
+	if code := call(t, h, "POST", decide, `{"decision":"approve"}`, nil); code != 401 {
+		t.Fatalf("stale carol decided: %d", code)
+	}
+	_ = d.SetPersona("carol", true)
+	if code := call(t, h, "POST", decide, `{"decision":"approve"}`, nil); code != 201 {
+		t.Fatalf("fresh carol: %d", code)
+	}
+	prod, _ = d.Stage(t.Context(), story.Prod, "payments")
+	if prod.Status.Pointer != digest("payments", "3.0.0") {
+		t.Fatalf("3.0.0 did not ship: %+v", prod.Status)
+	}
+
+	// B9: carol rolls it back; automation holds off.
+	body = `{"namespace":"prod","stage":"payments","type":"pacto.dev/rollback","undoes":"` + op.Metadata.Name + `"}`
+	if code := call(t, h, "POST", "/api/delivery/operations", body, &proposed); code != 201 {
+		t.Fatalf("rollback %d", code)
+	}
+	prod, _ = d.Stage(t.Context(), story.Prod, "payments")
+	if prod.Status.Pointer != digest("payments", "2.3.0") || !prod.Status.AutoHold {
+		t.Fatalf("B9: %+v", prod.Status)
+	}
+
+	// Records: prod reads verified and complete; blame names carol's
+	// approval of the change that brought 3.0.0.
+	ph, _ := d.History(t.Context(), story.Prod, "payments")
+	if ph.Source != delivery.SourceRecords || !ph.Verified || ph.Completeness != "complete" {
+		t.Fatalf("prod history: %+v", ph)
+	}
+	b, _ := d.Blame(t.Context(), story.Prod, "payments", digest("payments", "3.0.0"))
+	if b.Change == nil || b.Change.Operation != op.Metadata.Name || len(b.Approvals) != 1 || b.Approvals[0].By != story.Carol.User {
+		t.Fatalf("blame: %+v", b)
+	}
+	u, _ := d.Undo(t.Context(), story.Prod, proposed.Operation.Metadata.Name, "")
+	if u.Kind != "rollback" || u.Plan == nil {
+		t.Fatalf("undo: %+v", u)
+	}
+
+	// The deliberate problems: a gap and an untrusted record in payments
+	// test, and fraud read from status only.
+	th, _ := d.History(t.Context(), story.Test, "payments")
+	if th.Completeness != "partial" || len(th.Problems) == 0 || len(th.Unreadable) != 1 {
+		t.Fatalf("test history: %+v", th)
+	}
+	fh, _ := d.History(t.Context(), story.Test, "fraud")
+	if fh.Source != delivery.SourceStatus || len(fh.Entries) != 1 {
+		t.Fatalf("fraud history: %+v", fh)
+	}
+
+	// The refused publish (B4).
+	r, _ := d.PublishRefusals(t.Context(), "")
+	if len(r.Refusals) != 1 || r.Refusals[0].RequiredBump != "major" || r.Refusals[0].Verified {
+		t.Fatalf("refusals: %+v", r)
+	}
+}
+
+// TestWasmBuildHasNoKubernetes: the browser demo links no Kubernetes client.
+// The delivery it shows is pkg/delivery over fixed data, never internal/app,
+// which would bring client-go and several times the download.
+func TestWasmBuildHasNoKubernetes(t *testing.T) {
+	cmd := exec.CommandContext(t.Context(), "go", "list", "-deps", ".")
+	cmd.Env = append(os.Environ(), "GOOS=js", "GOARCH=wasm")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range strings.Fields(string(out)) {
+		if strings.Contains(p, "k8s.io") {
+			t.Fatalf("the wasm build links %s", p)
+		}
+	}
+}

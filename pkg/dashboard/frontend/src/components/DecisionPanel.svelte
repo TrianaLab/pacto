@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
-  import { decisionAsked, decisionLabel, cliDecision, loginUrl, keepPending, pendingFor, dropPending, shortDigests } from '../lib/delivery.ts';
+  import { decisionAsked, decisionLabel, cliDecision, loginUrl, signIn, hostSignsIn, keepPending, pendingFor, dropPending, shortDigests } from '../lib/delivery.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import RefusalNotice from './RefusalNotice.svelte';
 
@@ -23,7 +23,7 @@
 
   // A decision kept across the fresh sign-in, if this is the change it was for.
   // Read once: the page is keyed by the change, so it never needs re-reading.
-  const kept = untrack(() => pendingFor(op.metadata.namespace || '', op.metadata.name));
+  let kept = $state(untrack(() => pendingFor(op.metadata.namespace || '', op.metadata.name)));
   let note = $state(kept?.note ?? '');
   let busy = $state(false);
   let refusal = $state(null);
@@ -51,8 +51,12 @@
   }
 
   function signInAgain() {
-    keepPending({ namespace: ns, name, decision: needsFresh.decision, note });
-    location.assign(loginUrl(location.hash, true));
+    const pending = { namespace: ns, name, decision: needsFresh.decision, note };
+    keepPending(pending);
+    // A host that signs people in itself never reloads this page, so the kept
+    // choice is shown back from here once the session is fresh.
+    if (hostSignsIn()) { kept = pending; needsFresh = null; }
+    signIn(location.hash, true);
   }
 </script>
 

@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   typeLabel, decisionLabel, shortDigest, decisionAsked, cliDecision, loginUrl,
   keepPending, pendingFor, dropPending, miraLink, predictionLabel, authTimeText,
-  versionLabel, shortDigests, sentence, timeLabel, personLabel,
+  versionLabel, shortDigests, sentence, timeLabel, personLabel, signIn, hostSignsIn,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -49,6 +49,26 @@ describe('sign-in and the CLI', () => {
     expect(cliDecision('prod', 'op1', 'approve')).toBe('pacto delivery approve -n prod op1 --decision approve');
     expect(loginUrl('#/delivery/inbox')).toBe('/auth/login?return=%2F%23%2Fdelivery%2Finbox');
     expect(loginUrl('/delivery/inbox', true)).toBe('/auth/login?return=%2F%23%2Fdelivery%2Finbox&fresh=1');
+  });
+
+  it('signs in through the host when it handles sign-in itself, else through /auth/login', () => {
+    const w = window as unknown as { __pactoSignIn?: (h: string, f: boolean) => void };
+    const assign = vi.fn();
+    vi.stubGlobal('location', { assign });
+    try {
+      expect(hostSignsIn()).toBe(false);
+      signIn('#/delivery/inbox', true);
+      expect(assign).toHaveBeenCalledWith('/auth/login?return=%2F%23%2Fdelivery%2Finbox&fresh=1');
+      const hook = vi.fn();
+      w.__pactoSignIn = hook;
+      expect(hostSignsIn()).toBe(true);
+      signIn('#/delivery/inbox');
+      expect(hook).toHaveBeenCalledWith('#/delivery/inbox', false);
+      expect(assign).toHaveBeenCalledTimes(1);
+    } finally {
+      delete w.__pactoSignIn;
+      vi.unstubAllGlobals();
+    }
   });
 
   describe('the decision kept across a fresh login', () => {

@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { deliverySession, loadSession } from '../lib/deliverySession.svelte.ts';
   import { deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryHistoryUrl, deliveryPublishUrl } from '../lib/router.ts';
-  import { loginUrl } from '../lib/delivery.ts';
+  import { loginUrl, signIn, hostSignsIn } from '../lib/delivery.ts';
   import Person from './Person.svelte';
 
   // The delivery section's own navigation and who the views act as. Every
@@ -29,6 +29,9 @@
 
   async function signOut() {
     signOutError = '';
+    // A host that signs people in itself (the browser demo) switches who you
+    // are instead: there is no session to end.
+    if (hostSignsIn()) { signIn(location.hash || deliveryInboxUrl()); return; }
     try {
       const next = await api.signOut();
       location.assign(/^https?:\/\//i.test(next) ? next : `/${deliveryInboxUrl()}`);
@@ -60,7 +63,7 @@
         Signed in. <span class="dn-err">The cluster did not say who you are{#if s.callerError}: {s.callerError}{:else}.{/if}</span>
       {/if}
     </span>
-    <button type="button" class="btn btn-sm" onclick={signOut}>Sign out</button>
+    <button type="button" class="btn btn-sm" onclick={signOut}>{hostSignsIn() ? 'Switch person' : 'Sign out'}</button>
   {:else}
     <span>You are not signed in, so delivery shows nothing and offers no actions.</span>
     <a class="btn btn-sm btn-primary" href={loginUrl(location.hash || deliveryInboxUrl())}>Sign in</a>

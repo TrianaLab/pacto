@@ -35,10 +35,15 @@ UI_BUILD    := $(abspath .ui-build)
 # short SHA, then "dev", when no tags are present.
 VERSION     ?= $(shell git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev)
 
-.PHONY: build preflight ui wasm wasmexec inject doc-export serve test validate smoke clean diff breaking-change evolution graph explain
+.PHONY: pactify-plan build preflight ui wasm wasmexec inject doc-export serve test validate smoke clean diff breaking-change evolution graph explain
 
 build: preflight ui wasm wasmexec inject
 	@echo "==> Built '$(DIST)' (base $(BASE))"
+
+## Rewrite the pacto init plan the delivery tour shows for the story's plain
+## fraud service (pactify-fraud.json, embedded in the wasm).
+pactify-plan:
+	PACTO_UPDATE_PACTIFY_PLAN=1 go test -run TestPactifyPlanIsCurrent -count=1 .
 
 ## Fail fast with clear guidance if a previous `sudo make` left root-owned
 ## artifacts a normal-user build can't overwrite. This build never needs root.

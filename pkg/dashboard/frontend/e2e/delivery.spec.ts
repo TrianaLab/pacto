@@ -1,11 +1,13 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { settle } from './ready';
+import { DOC_ORIGIN } from './ports';
 
 // Delivery views in a real browser, over the built WASM demo.
 //
-// The demo has no cluster, so it serves no delivery: its capabilities say so and the
-// first test proves the views stay out of sight there. Every other test wraps the
+// The offline `pacto doc` export serves no delivery, and the first test proves the
+// views stay out of sight there. The demo itself simulates delivery (the payments
+// story, demo-delivery.spec.ts); every other test here wraps the
 // engine's serve function (the one seam every API call passes, see swr.spec.ts) with a
 // small delivery backend that behaves like the dashboard's: who the caller is comes from
 // a persona, a decision needs a fresh sign-in and only the named team may decide. A
@@ -149,6 +151,9 @@ function installDelivery(persona: Persona): void {
     if (route === '/api/session' || route.startsWith('/api/delivery/')) return delivery(method, route);
     return (real as Serve)(method, path, body);
   };
+  // The demo signs people in itself (window.__pactoSignIn); these tests cover the
+  // real redirect to /auth/login instead, so the hook is kept away.
+  Object.defineProperty(window, '__pactoSignIn', { configurable: true, get() { return undefined; }, set() {} });
   Object.defineProperty(window, '__pactoServe', {
     configurable: true,
     get() { return real ? wrapped : undefined; },
@@ -180,10 +185,11 @@ async function audit(page: Page, what: string) {
 
 test.describe('Delivery views', () => {
   test('stay out of sight where delivery is not installed', async ({ page }) => {
-    await page.goto('/#/fleet');
-    await expect(page.getByRole('link', { name: 'Overview', exact: true }).first()).toBeVisible({ timeout: T });
-    await expect(page.locator('.navbar-nav-desktop').getByRole('link', { name: 'Delivery' })).toHaveCount(0);
-    await page.goto('/#/delivery/inbox');
+    await page.goto(`${DOC_ORIGIN}/#/services`);
+    const nav = page.getByRole('navigation', { name: 'Primary' }).first();
+    await expect(nav.getByRole('link', { name: 'Services', exact: true })).toBeVisible({ timeout: T });
+    await expect(nav.getByRole('link', { name: 'Delivery' })).toHaveCount(0);
+    await page.goto(`${DOC_ORIGIN}/#/delivery/inbox`);
     await expect(page.getByTestId('delivery-unavailable')).toBeVisible({ timeout: T });
   });
 
