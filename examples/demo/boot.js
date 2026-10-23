@@ -217,6 +217,12 @@
       try { return { status: r.status, body: JSON.parse(r.body) }; } catch (e) { return { status: r.status, body: null }; }
     }
     function refreshViews() { window.dispatchEvent(new Event("pacto:refresh")); }
+    // Every record in the tab. The delivery tour's copy describes the world the
+    // replay leaves at load, so a tour started after anything moved it reloads
+    // first: there is no way to undo a signed record in place.
+    var WORLD_AT_LOAD = "";
+    var REPLAY_KEY = "pacto-demo-delivery-tour";
+    function world() { var h = serve("GET", "/api/delivery/history"); return JSON.stringify(h && h.body); }
     function digestOf(svc, version) {
       var r = serve("GET", "/api/delivery/environments");
       var rows = (r && r.body && r.body.environments) || [];
@@ -281,7 +287,7 @@
       hash: "#/delivery/history?namespace=prod&stage=payments",
       target: '[aria-label="History of prod/payments"]'
     }, {
-      text: "A bad release is caught and rolled back: the health check failed after 2.4.0 shipped and the promoter went back to 2.3.0 on its own, because the check cites the query it read.",
+      text: "A bad release is caught and rolled back: the health check failed after 2.4.0 shipped, so the promoter went back to 2.3.0 on its own and will never promote 2.4.0 there again.",
       hash: "#/delivery/changes/prod/payments-promote-3",
       target: '[aria-labelledby="cd-actual"]'
     }, {
@@ -1069,6 +1075,16 @@
 
     function startTour(tour) {
       if (running || !el) { return; }
+      if (tour === DELIVERY_TOUR) {
+        if (world() !== WORLD_AT_LOAD) {
+          try { window.sessionStorage.setItem(REPLAY_KEY, "1"); } catch (e) { /* the reader presses it again after load */ }
+          window.location.reload();
+          return;
+        }
+        // The steps say "as pay-agent": a reader who switched person first would
+        // otherwise propose as Carol, who then may not approve her own change.
+        setPersona("pay-agent", false);
+      }
       TOUR = tour === DELIVERY_TOUR ? DELIVERY_TOUR : FLEET_TOUR;
       running = true;
       // One announcer at a time: the strip is a role=status live region and the bubble is
@@ -1135,6 +1151,10 @@
       notice();
       window.addEventListener("hashchange", notice);
       offerTour();
+      WORLD_AT_LOAD = world();
+      var replay = false;
+      try { replay = !!window.sessionStorage.getItem(REPLAY_KEY); window.sessionStorage.removeItem(REPLAY_KEY); } catch (e) { /* no storage, no replay */ }
+      if (replay) { startTour(DELIVERY_TOUR); }
     });
     window.__pactoDemoFailed = function () {
       done();

@@ -40,6 +40,45 @@ async function audit(page: Page, what: string) {
   expect(r.violations, `${what}: ${JSON.stringify(r.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })))}`).toEqual([]);
 }
 
+/** Play the delivery tour to its end, skipping the gated moments, and check where it ends. */
+async function playTour(page: Page) {
+  await page.getByTestId('demo-delivery-start').click();
+  const bubble = page.getByTestId('demo-tour-bubble');
+  const next = page.getByTestId('demo-tour-next');
+  const text = page.getByTestId('demo-tour-text');
+
+  await expect(text).toContainText('simulated');
+  await next.click();
+  await expect(text).toContainText('Act 1, pactify a service');
+  await expect(page.getByTestId('demo-tour-pre')).toContainText('pacto init --plan --owner risk');
+  await expect(page.getByTestId('demo-tour-pre')).toContainText('team: risk');
+  await next.click();
+  await expect(text).toContainText('Act 2, a safe change ships on its own');
+  await next.click();
+  await expect(text).toContainText('A bad release is caught');
+  await expect(page.getByTestId('actual-verdicts')).toContainText('recorded for this demo', { timeout: T });
+  await next.click();
+
+  // The three gated moments, skipped: Skip performs the action, then the step
+  // holds on its result until Continue.
+  for (const says of ['asks only the affected teams', 'promote checkout 1.9.0', 'Only a person on the asked team decides', 'Every step is a signed record']) {
+    await expect(text).toContainText(says);
+    await page.getByTestId('demo-tour-skip').click();
+    await expect(next).toBeVisible({ timeout: T });
+    await next.click();
+  }
+  await expect(text).toContainText('History reads every step back');
+  await next.click();
+  await expect(page.getByTestId('demo-tour-explore').getByRole('link')).toHaveCount(3);
+  await expect(page.getByTestId('demo-tour-more')).toHaveAttribute('href', '../examples/kubernetes-demo/');
+  await next.click();
+  await expect(bubble).toHaveCount(0);
+
+  // Where it ended: 3.0.0 rolled back by carol, automation on hold.
+  await page.goto('/#/delivery/environments');
+  await expect(page.getByTestId('environments-board')).toContainText('Kept by a person', { timeout: T });
+}
+
 test.describe('Browser demo: the delivery story', () => {
   test('the strip says delivery is simulated and names the signing key, without covering the page', async ({ page }) => {
     await ready(page, '#/delivery/environments');
@@ -114,41 +153,19 @@ test.describe('Browser demo: the delivery story', () => {
   test('the tour plays both acts as five moments and hands over the rest', async ({ page }) => {
     test.setTimeout(180_000);
     await ready(page, '#/fleet');
-    await page.getByTestId('demo-delivery-start').click();
-    const bubble = page.getByTestId('demo-tour-bubble');
-    const next = page.getByTestId('demo-tour-next');
-    const text = page.getByTestId('demo-tour-text');
+    await playTour(page);
+  });
 
-    await expect(text).toContainText('simulated');
-    await next.click();
-    await expect(text).toContainText('Act 1, pactify a service');
-    await expect(page.getByTestId('demo-tour-pre')).toContainText('pacto init --plan --owner risk');
-    await expect(page.getByTestId('demo-tour-pre')).toContainText('team: risk');
-    await next.click();
-    await expect(text).toContainText('Act 2, a safe change ships on its own');
-    await next.click();
-    await expect(text).toContainText('A bad release is caught');
-    await expect(page.getByTestId('actual-verdicts')).toContainText('recorded for this demo', { timeout: T });
-    await next.click();
-
-    // The three gated moments, skipped: Skip performs the action, then the step
-    // holds on its result until Continue.
-    for (const says of ['asks only the affected teams', 'promote checkout 1.9.0', 'Only a person on the asked team decides', 'Every step is a signed record']) {
-      await expect(text).toContainText(says);
-      await page.getByTestId('demo-tour-skip').click();
-      await expect(next).toBeVisible({ timeout: T });
-      await next.click();
-    }
-    await expect(text).toContainText('History reads every step back');
-    await next.click();
-    await expect(page.getByTestId('demo-tour-explore').getByRole('link')).toHaveCount(3);
-    await expect(page.getByTestId('demo-tour-more')).toHaveAttribute('href', '../examples/kubernetes-demo/');
-    await next.click();
-    await expect(bubble).toHaveCount(0);
-
-    // Where it ended: 3.0.0 rolled back by carol, automation on hold.
-    await page.goto('/#/delivery/environments');
-    await expect(page.getByTestId('environments-board')).toContainText('Kept by a person', { timeout: T });
+  // The steps say "as pay-agent" and describe the world the replay leaves at load.
+  // A reader who switched to Carol first would propose as Carol, and Carol may not
+  // approve her own change; a second play would start from a world the copy no
+  // longer describes. Both must end where the first play does.
+  test('the tour tells the same story after a switch of person and on a second play', async ({ page }) => {
+    test.setTimeout(360_000);
+    await ready(page, '#/delivery/environments');
+    await switchTo(page, 'carol');
+    await playTour(page);
+    await playTour(page);
   });
 
   for (const [label, viewport] of [['desktop', null], ['a phone', { width: 390, height: 844 }]] as const) {
