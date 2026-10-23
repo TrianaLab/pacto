@@ -118,4 +118,42 @@ test.describe('typography hierarchy on desktop', () => {
     // Dominance is not one pixel. A 5% edge is invisible; the ramp is a real step.
     expect(title[0].size / biggest).toBeGreaterThan(1.2);
   });
+
+  // The identity (signed document): serif titles over a double rule, italic subsections,
+  // serif small-caps labels. It lives in the type tokens, so this reads what PAINTED: a
+  // private `text-transform: uppercase` is exactly how the first try at small-caps labels
+  // lost to forty component rules and still rendered capitals.
+  test('the signed-document identity paints on every kind of page', async ({ page }) => {
+    test.setTimeout(SWEEP_TIMEOUT);
+    const k = await canonicalKeys(page);
+    const e = encodeURIComponent;
+    for (const hash of ['#/fleet', `#/fleet/services/${e(k.service)}`, '#/fleet/attention', '#/fleet/owners']) {
+      await boot(page, hash);
+      const got = await page.evaluate(async () => {
+        await document.fonts.ready;
+        const cs = (sel: string) => {
+          const el = Array.from(document.querySelectorAll(sel)).find((x) => x.getClientRects().length > 0);
+          return el ? getComputedStyle(el) : null;
+        };
+        const title = cs('main .t-page-title');
+        const sub = cs('main .t-subsection-title');
+        const label = cs('main .t-label, main th');
+        const upper = Array.from(document.querySelectorAll('body *'))
+          .filter((x) => x.getClientRects().length > 0 && getComputedStyle(x).textTransform === 'uppercase' && !x.closest('.rt-method'))
+          .map((x) => `${x.tagName}.${x.className}`).slice(0, 5);
+        return {
+          loaded: document.fonts.check('700 16px "Source Serif 4"') && Array.from(document.fonts).some((f) => f.family.includes('Source Serif 4') && f.status === 'loaded'),
+          titleFamily: title?.fontFamily ?? '', titleRule: title?.borderBottomStyle ?? '',
+          subStyle: sub ? sub.fontStyle : 'italic', labelCaps: label ? label.fontVariantCaps : 'all-small-caps',
+          upper,
+        };
+      });
+      expect(got.loaded, `${hash}: the bundled Source Serif 4 never loaded`).toBe(true);
+      expect(got.titleFamily, `${hash}: page title family`).toMatch(/^"?Source Serif 4/);
+      expect(got.titleRule, `${hash}: page title rule`).toBe('double');
+      expect(got.subStyle, `${hash}: subsection style`).toBe('italic');
+      expect(got.labelCaps, `${hash}: label caps`).toBe('all-small-caps');
+      expect(got.upper, `${hash}: uppercase text outside the label role`).toEqual([]);
+    }
+  });
 });
