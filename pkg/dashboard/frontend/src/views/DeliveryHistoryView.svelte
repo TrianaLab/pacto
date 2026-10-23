@@ -4,7 +4,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryChangeUrl, deliveryHistoryUrl } from '../lib/router.ts';
-  import { typeLabel, shortDigest, versionLabel, timeLabel } from '../lib/delivery.ts';
+  import { typeLabel, shortDigest, shortDigests, versionLabel, timeLabel } from '../lib/delivery.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import BlamePanel from '../components/BlamePanel.svelte';
   import UndoPanel from '../components/UndoPanel.svelte';
@@ -13,6 +13,7 @@
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
   import ListingNote from '../components/ListingNote.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import DigestText from '../components/DigestText.svelte';
 
   // What happened on each environment: from its signed records where the
   // recorder runs, otherwise from the changes still in the cluster. Every
@@ -28,6 +29,9 @@
   const histories = $derived(data?.histories ?? []);
   const me = $derived({ user: deliverySession.data?.caller?.user, name: deliverySession.data?.name });
   const version = (d) => versionLabel(d, data?.versions);
+  // The full ids a history names, so a short one in a problem line can show and copy its full id.
+  const knownIds = (h) => [h.stage.pointer, h.head, ...(h.entries ?? []).flatMap((en) =>
+    [en.record, en.unverifiedRecord, en.from, en.to, en.pointer?.before, en.pointer?.after])];
 
   // One panel open at a time: blame of an environment, or undo of a change.
   // Closing it gives focus back to the button that opened it.
@@ -86,13 +90,13 @@
           {#if (h.problems ?? []).length}
             <div class="hv-notes" data-testid="history-problems">
               <h3 class="t-body-2">What the records show is wrong</h3>
-              <ul>{#each h.problems as p (p)}<li>{p}</li>{/each}</ul>
+              <ul>{#each h.problems as p (p)}<li><DigestText text={p} known={knownIds(h)} /></li>{/each}</ul>
             </div>
           {/if}
           {#if (h.unreadable ?? []).length}
             <div class="hv-notes" data-testid="history-unreadable">
               <h3 class="t-body-2">What could not be read or verified</h3>
-              <ul>{#each h.unreadable as u (u)}<li>{u}</li>{/each}</ul>
+              <ul>{#each h.unreadable as u (u)}<li><DigestText text={u} known={knownIds(h)} /></li>{/each}</ul>
             </div>
           {/if}
           {#if (h.entries ?? []).length === 0}
@@ -108,7 +112,7 @@
                       <td>{#if en.operation}<a href={deliveryChangeUrl(h.namespace, en.operation)}>{changeLabel(en)}</a>{:else}{changeLabel(en)}{/if}</td>
                       <td class="hv-nowrap" title={[en.from, en.to].filter(Boolean).join(' → ')}>{version(en.from) || '–'} → {version(en.to) || '–'}</td>
                       <td>{#if en.actor}<Person user={en.actor} people={data.people} {me} />{:else}–{/if}{#if en.actorClass}{' '}<span class="hv-class">({en.actorClass})</span>{/if}</td>
-                      <td>{en.outcome || en.phase}{#if en.verification}, {en.verification}{/if}{#if en.reason}: {en.reason}{/if}</td>
+                      <td>{en.outcome || en.phase}{#if en.verification}, {en.verification}{/if}{#if en.reason}: {shortDigests(en.reason)}{/if}</td>
                       <td class="hv-nowrap">{#if en.finished}<time datetime={en.finished}>{timeLabel(en.finished)}</time>{/if}</td>
                       <td class="hv-nowrap">{#if en.record}<code title={en.record}>{shortDigest(en.record)}</code>{:else if en.unverifiedRecord}<span title={en.unverifiedRecord}>Recorded, not verified</span>{:else if h.source === 'records'}Not recorded yet{:else}–{/if}</td>
                       <td>{#if en.operation && en.pointer?.after}<button type="button" class="btn btn-sm" aria-label={`Undo ${en.operation}`} onclick={(e) => show(e, { kind: 'undo', ns: h.namespace, key: en.operation })}>Undo</button>{/if}</td>

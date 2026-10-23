@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   typeLabel, decisionLabel, shortDigest, decisionAsked, cliDecision, loginUrl,
   keepPending, pendingFor, dropPending, miraLink, predictionLabel, authTimeText,
-  versionLabel, shortDigests, sentence, timeLabel, personLabel, signIn, hostSignsIn,
+  versionLabel, shortDigests, digestParts, sentence, timeLabel, personLabel, signIn, hostSignsIn,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -134,10 +134,21 @@ describe('names and versions', () => {
   it('shortens full digests inside sentences and turns notes into sentences', () => {
     expect(shortDigests(`promote ${D} on Stage x`)).toBe('promote sha256:abababababab on Stage x');
     expect(shortDigests(undefined)).toBe('');
+    expect(shortDigests(`${D} -> x`, { [D]: '2.4.0' })).toBe('2.4.0 (abababababab) -> x');
     expect(sentence(`the Stage runs ${D}`)).toBe('The Stage runs sha256:abababababab.');
     expect(sentence('Done!')).toBe('Done!');
     expect(sentence('  ')).toBe('');
     expect(sentence(undefined)).toBe('');
+  });
+
+  it('splits digests out of a sentence, resolving short ones only when one known id starts them', () => {
+    const E = 'sha256:' + 'ab'.repeat(6) + 'cd'.repeat(26);
+    expect(digestParts(`from ${D} on`)).toEqual([{ text: 'from ' }, { text: 'abababababab', full: D }, { text: ' on' }]);
+    expect(digestParts('seq 2 from sha256:abababababab', [D, undefined, 'x'])).toEqual([{ text: 'seq 2 from ' }, { text: 'abababababab', full: D }]);
+    expect(digestParts('sha256:abababababab', [D, E])).toEqual([{ text: 'sha256:abababababab' }]);
+    expect(digestParts('sha256:abababababab', [D, D])).toEqual([{ text: 'abababababab', full: D }]);
+    expect(digestParts('sha256:ababababababab is not one')).toEqual([{ text: 'sha256:ababababababab is not one' }]);
+    expect(digestParts(undefined)).toEqual([]);
   });
 
   it('shows times to the minute', () => {

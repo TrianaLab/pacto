@@ -541,8 +541,9 @@ describe('history and published', () => {
   it('says a history read from signed records, what is wrong with them and what was not recorded yet', async () => {
     fns.history.mockResolvedValue({ ...listing, histories: [
       { namespace: 'prod', asOf: listing.asOf, completeness: 'partial', source: 'records', verified: true, note: 'Read from the signed records.', stage: { name: 'pay', pointer: D1 },
-        problems: ['seq 2 is a gap: the operation with local seq 2 was gone before it was recorded'],
-        unreadable: ['sha256:bad: signature: signed by a key that is not trusted here'],
+        problems: ['seq 2 is a gap: the operation with local seq 2 was gone before it was recorded',
+          'the record at seq 3 does not chain from sha256:bbbbbbbbbbbb at seq 2'],
+        unreadable: ['sha256:bad: signature: signed by a key that is not trusted here', `sha256:${'e'.repeat(64)}: not trusted here`],
         entries: [
           { seq: 1, operation: 'op1', type: 'pacto.dev/promote', to: D1, actor: 'bot', actorClass: 'agent', outcome: 'Succeeded', kind: 'operation', record: 'sha256:' + 'a'.repeat(64) },
           { seq: 2, operation: '', type: '', actor: '', kind: 'gap', reason: 'Gap: gone', record: 'sha256:' + 'b'.repeat(64) },
@@ -561,6 +562,18 @@ describe('history and published', () => {
     expect(sources).toEqual(['From signed records, partial', 'From signed records, complete', 'From records, not verified, partial', 'From status, partial']);
     expect(target.querySelector('[data-testid="history-problems"]')?.textContent).toContain('seq 2 is a gap');
     expect(target.querySelector('[data-testid="history-unreadable"]')?.textContent).toContain('not trusted here');
+    // Ids are short inline; the full one is on hover and copied on a click.
+    const ids = [...target.querySelectorAll('[data-testid^="history-"] button.dt-id')];
+    expect(ids.map((b) => b.textContent)).toEqual(['bbbbbbbbbbbb', 'eeeeeeeeeeee']);
+    expect(ids[0].getAttribute('title')).toBe(`sha256:${'b'.repeat(64)} (click to copy)`);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    (ids[1] as HTMLButtonElement).click();
+    expect(writeText).toHaveBeenCalledWith('sha256:' + 'e'.repeat(64));
+    writeText.mockRejectedValueOnce(new Error('denied'));
+    (ids[0] as HTMLButtonElement).click();
+    await settle();
+    expect(target.querySelector('[data-testid="history-unreadable"]')?.textContent).not.toContain('e'.repeat(20));
     expect(text(target)).toContain('aaaaaaaaaaaa');
     expect(text(target)).toContain('Gap');
     expect(target.querySelector('a[href="#/delivery/changes/prod/op3"]')?.textContent).toBe('Unrecordable');
@@ -693,9 +706,17 @@ describe('names, versions and one clear sentence', () => {
     await settle();
     expect(text(target)).toContain('From2.4.0 111111111111To3.0.0 222222222222');
     expect(text(target)).toContain('Reject by Dave Lee');
-    expect(text(target)).toContain('promote payments to sha256:222222222222');
+    expect(text(target)).toContain('promote payments to 3.0.0 (222222222222)');
     expect(text(target)).toContain('Ship sha256:222222222222?');
     expect(text(target)).not.toContain('2'.repeat(64));
+    destroy();
+  });
+
+  it('says when a version could not be read, with the short digest', async () => {
+    fns.operation.mockResolvedValue(heldOperation({ versions: { [D2]: '3.0.0' } }));
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(text(target)).toContain('From111111111111 (version unknown: its artifact could not be read)To3.0.0 222222222222');
     destroy();
   });
 });

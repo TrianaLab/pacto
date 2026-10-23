@@ -35,9 +35,38 @@ export function versionLabel(digest: string | undefined, versions: Record<string
   return (digest && versions?.[digest]) || shortDigest(digest);
 }
 
-/** shortDigests shortens every full OCI digest in a sentence. */
-export function shortDigests(text: string | undefined): string {
-  return (text ?? '').replace(/sha256:([0-9a-f]{12})[0-9a-f]{52}/g, 'sha256:$1');
+/**
+ * shortDigests shortens every full OCI digest in a sentence, and names the
+ * version a digest carries when versions knows it.
+ */
+export function shortDigests(text: string | undefined, versions?: Record<string, string> | null): string {
+  return (text ?? '').replace(/sha256:([0-9a-f]{12})[0-9a-f]{52}/g, (d, hex) => (versions?.[d] ? `${versions[d]} (${hex})` : `sha256:${hex}`));
+}
+
+/** A piece of text, or a digest in it: short to read, full to hover and copy. */
+export interface DigestPart {
+  text: string;
+  full?: string;
+}
+
+/**
+ * digestParts splits a sentence around its OCI digests. A full digest keeps
+ * itself; a short one (sha256: and 12 hex characters, as the server writes
+ * them) takes the one id in known it starts, when exactly one does.
+ */
+export function digestParts(text: string | undefined, known: (string | undefined)[] = []): DigestPart[] {
+  const s = text ?? '';
+  const out: DigestPart[] = [];
+  let last = 0;
+  for (const m of s.matchAll(/sha256:[0-9a-f]{12}(?:[0-9a-f]{52})?(?![0-9a-f])/g)) {
+    const idx = m.index ?? 0;
+    if (idx > last) out.push({ text: s.slice(last, idx) });
+    const hits = m[0].length === 71 ? [m[0]] : [...new Set(known.filter((k) => k?.length === 71 && k.startsWith(m[0])))];
+    out.push(hits.length === 1 ? { text: shortDigest(hits[0]), full: hits[0] } : { text: m[0] });
+    last = idx + m[0].length;
+  }
+  if (last < s.length) out.push({ text: s.slice(last) });
+  return out;
 }
 
 /** timeLabel shows an RFC 3339 UTC time to the minute: 2026-10-21 11:00 UTC. */
