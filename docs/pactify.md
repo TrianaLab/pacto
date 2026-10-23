@@ -31,8 +31,8 @@ pacto init --plan
 
 `pacto init` reads what is already there, such as the Dockerfile and any
 Kubernetes files that describe how the service runs, and fills in a contract
-from it, including where its releases go (step 3). With `--plan` it shows exactly what it would add and
-changes nothing.
+from it, including where its releases go (step 3). With `--plan` it shows
+exactly what it would add and changes nothing.
 
 The plan also shows what you get before you apply anything: the services
 yours depends on, the services that depend on yours and what Pacto could not
@@ -112,14 +112,15 @@ role to the right people or accounts; see
 
 ## 5. Ship your first gated release
 
-Make a change, raise `service.version` in the contract and publish again:
+Make a change, raise the version in the contract (the `version` line under
+`service`) and publish again:
 
 ```bash
 pacto publish --propose test/my-service
 ```
 
-`test/my-service` is the environment, then the Stage, which has your
-service's name. To promote is to move a Stage to a new version. `--propose`
+`test/my-service` names one Stage: the environment (`test`), a slash, then the
+Stage name, which is your service's name. To promote is to move a Stage to a new version. `--propose`
 asks the test Stage to promote the new version once it sees it in the
 registry. A Stage set to promote on its own (`auto: true` in the Stage file)
 needs no `--propose`. Watch it move:
@@ -133,7 +134,9 @@ The first command lists every Stage in every namespace and the version it
 runs. The second shows the changes on your service in test.
 
 From here Pacto does the rest. A safe change goes ahead without anyone being
-asked, and reaches prod only after it passed in test. A change that would
+asked. The prod Stage only takes versions that passed in test: with
+`auto: true` it moves on its own, otherwise you propose it there the same way
+as in test, with `pacto delivery propose`. A change that would
 break a service using yours waits, asks that service's team and says what to
 update first. A version that fails its checks is rolled back: the version that
 ran before is put back. [Delivery](integrations/kubernetes/delivery.md)

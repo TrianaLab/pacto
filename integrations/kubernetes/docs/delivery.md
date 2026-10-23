@@ -45,7 +45,8 @@ monitoring. These checks keep running after release, so a problem found an
 hour later still rolls the version back: the version that ran before is put
 back. A version that failed is never tried again in that environment.
 
-A version reaches prod only after it passed in the environment before it. Each
+A version reaches prod only after it passed in the environment before it,
+such as test. Each
 service in each environment is called a **Stage**. Moving a Stage to a new
 version is called promoting it, and a Stage can promote new versions on its
 own or wait to be asked.
@@ -74,7 +75,8 @@ fields or endpoints it uses. Pacto can also watch the traffic between services,
 but that tells it only which service calls which, not what each call uses.
 
 AI agents can plan, ask for and cancel changes, but only people can approve.
-To approve, a person signs in again as themselves, and the record names them.
+To approve, a person must have signed in with their own account in the last
+15 minutes, and the record names them.
 
 ## What Unknown means
 
