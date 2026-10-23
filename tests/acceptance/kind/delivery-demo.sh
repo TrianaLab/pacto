@@ -1091,6 +1091,9 @@ YAML
   pass "prod-us runs payments 2.3.0, the version prod verified, and Argo CD applied it"
   [ -s "$DEMO/digests/payments-2.4.0" ] || fail "payments 2.4.0 never failed in prod: run 'make e2e-delivery-demo-story' first"
   local bad msg; bad="$(digest_of payments 2.4.0)"
+  # reach reuses a running prod-us, and propose is a plain create: drop the last run's operation first.
+  us kubectl -n prod delete operation payments-2-4-0 --ignore-not-found --wait --timeout=60s >/dev/null \
+    || fail "could not remove the previous payments 2.4.0 operation in prod-us"
   us "$PACTO" delivery propose -n prod --stage payments --to "$bad" --name payments-2-4-0 --reason "2.4.0 failed in prod" >/dev/null \
     || fail "could not propose payments 2.4.0 in prod-us"
   refused() { [ "$(us kubectl -n prod get operation payments-2-4-0 -o jsonpath='{.status.outcome}')" = Rejected ]; }

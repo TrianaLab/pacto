@@ -163,8 +163,8 @@ func TestBeats(t *testing.T) {
 
 // unfreeze is what the controller concludes for an unfreeze: it plans none,
 // so only the permission gate (the same one PlanFor runs) stands between the
-// actor and Succeeded/Unverified (the operator's
-// TestFrozenPromoteWaitsAndUnfreeze proves the conclusion).
+// actor and Succeeded/Unverified. That value is mirrored from the operator,
+// not computed here: TestFrozenPromoteWaitsAndUnfreeze pins it.
 func unfreeze(t *testing.T, b Beat) string {
 	t.Helper()
 	if p := plan(t, b); p.Predicted != delivery.PredictProceeds {
