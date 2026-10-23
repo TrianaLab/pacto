@@ -151,7 +151,7 @@ func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 		return reconcile.Result{}, err
 	}
 	w := &writer{Recorder: r, stage: stage, anchor: anchor, recs: recs}
-	for _, it := range items {
+	for i, it := range items {
 		wait, err := w.record(ctx, it)
 		if err != nil {
 			return r.notReady(ctx, stage, storeReason(err), err)
@@ -159,6 +159,7 @@ func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 		if wait > 0 {
 			return reconcile.Result{RequeueAfter: wait}, nil
 		}
+		RecordsPending.WithLabelValues(stream.ID).Set(float64(len(items) - i - 1))
 	}
 	return reconcile.Result{}, nil
 }

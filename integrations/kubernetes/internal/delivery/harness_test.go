@@ -82,7 +82,8 @@ func bundle(version string) *contract.Bundle {
 		Service: contract.Service{Name: "payments", Version: version, Owner: contract.Owner{Team: "team-payments"}}}}
 }
 
-// fails names the calls the interceptor turns into errors, as "<verb>/<kind>".
+// fails names the calls the interceptor turns into errors, as "<verb>/<kind>",
+// or "get/<kind>/<name>" for one object.
 type fails map[string]bool
 
 type env struct {
@@ -151,6 +152,9 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 				if err := fail("get", obj); err != nil {
 					return err
+				}
+				if e.fails["get/"+kindOf(obj)+"/"+key.Name] {
+					return errors.New("injected get failure")
 				}
 				return c.Get(ctx, key, obj, opts...)
 			},
