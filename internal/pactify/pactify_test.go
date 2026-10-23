@@ -372,7 +372,8 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 		!hasLine(r.Unknown, "several Dockerfiles") || hasLine(r.Next, "signing key") {
 		t.Fatalf("findings: %+v", r)
 	}
-	if res := file(t, r, "delivery/pacto.yaml").Content; !strings.Contains(res, "kind: CronJob") || strings.Contains(res, "serviceName") || !strings.Contains(file(t, r, "delivery/dev.yaml").Content, "ociRepositoryRef") {
+	// No Service in the folder, so the target names none: workloadRef follows target directly.
+	if !strings.Contains(file(t, r, "delivery/pacto.yaml").Content, "  target:\n    workloadRef:\n      name: report\n      kind: CronJob\n") || !strings.Contains(file(t, r, "delivery/dev.yaml").Content, "ociRepositoryRef") {
 		t.Fatal("delivery pieces")
 	}
 	if ig := file(t, r, ".pactoignore"); ig.Action != Append || ig.Content != "delivery/\n" {
