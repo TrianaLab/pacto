@@ -176,7 +176,7 @@
   .te-dim { display: flex; flex-direction: column; gap: var(--sp-1); }
   .te-facts { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
   .te-fact, .te-rev { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-  .te-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .te-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .te-rev-unresolved { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); background: var(--c-surface-inset); border: 1px solid var(--c-border); color: var(--c-text-2); font-size: var(--text-sm); }
   .te-runtime { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .te-runtime li { display: flex; gap: var(--sp-3); font-size: var(--text-sm); }

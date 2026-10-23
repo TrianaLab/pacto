@@ -277,7 +277,7 @@
   .navbar-left { flex-shrink: 0; }
   .navbar-brand {
     display: flex; align-items: center; gap: 8px;
-    font-size: 1rem; font-weight: 700; letter-spacing: -0.03em;
+    font-family: var(--font-display); font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em;
     color: var(--c-text); text-decoration: none;
   }
   .navbar-brand:hover { text-decoration: none; color: var(--c-text); }
@@ -333,10 +333,10 @@
   .source-tag :global(.source-dot) { flex-shrink: 0; }
   .source-tag {
     display: inline-flex; align-items: center; gap: 5px;
-    font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;
     color: var(--c-text-3);
     padding: 4px 10px; border-radius: var(--radius-xs);
     transition: background var(--transition), color var(--transition);
+    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .source-tag:hover { background: var(--c-surface-hover); color: var(--c-text-2); }
   .sources-trigger {

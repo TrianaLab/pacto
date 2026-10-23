@@ -132,7 +132,7 @@
      how the last version lost its Records label off the right edge on a phone. */
   .se-facts { margin: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: var(--sp-3) var(--sp-5); }
   .se-fact { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-  .se-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .se-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .se-v { margin: 0; color: var(--c-text); font-size: var(--text-sm); overflow-wrap: anywhere; }
   .se-breakdown { margin: 0 0 var(--sp-3); }
   /* The comparison is the point of the line, so it is on the line -- quietly, because

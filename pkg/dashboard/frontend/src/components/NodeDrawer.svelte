@@ -79,12 +79,12 @@
   .drawer-close:hover { color: var(--c-text); }
   .drawer-meta { display: grid; gap: var(--sp-2); margin: 0; }
   .drawer-meta div { display: flex; justify-content: space-between; gap: var(--sp-2); }
-  .drawer-meta dt { color: var(--c-text-3); font-size: var(--text-xs); }
+  .drawer-meta dt { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .drawer-meta dd { margin: 0; font-size: var(--text-sm); text-align: right; }
   .drawer-sources { display: inline-flex; gap: var(--sp-2); flex-wrap: wrap; }
-  .drawer-sources .src { display: inline-flex; align-items: center; gap: 4px; text-transform: uppercase; font-size: var(--text-xs); }
+  .drawer-sources .src { display: inline-flex; align-items: center; gap: 4px; font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .drawer-lists { display: grid; gap: var(--sp-3); }
-  .drawer-list-label { font-size: var(--text-xs); font-weight: 600; color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: var(--sp-1); }
+  .drawer-list-label { color: var(--c-text-3); margin-bottom: var(--sp-1); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .drawer-list-label .count { color: var(--c-text-2); }
   .drawer-lists ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
   .drawer-lists li { font-size: var(--text-sm); }

@@ -78,6 +78,6 @@
     padding: var(--sp-2) 0; border-top: 1px solid var(--c-border); font-size: var(--text-sm);
   }
   .src-row:first-of-type { border-top: none; }
-  .src-type { font-weight: 600; min-width: 56px; text-transform: uppercase; font-size: var(--text-xs); letter-spacing: 0.03em; }
+  .src-type { min-width: 56px; font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .src-summary { color: var(--c-text-2); }
 </style>

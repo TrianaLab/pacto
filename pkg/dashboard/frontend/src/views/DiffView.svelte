@@ -226,7 +226,7 @@
   .diff-field {
     display: flex; flex-direction: column; gap: 6px; flex: 1;
   }
-  .diff-field label { font-size: var(--text-xs); color: var(--c-text-3); font-weight: 500; text-transform: uppercase; }
+  .diff-field label { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .diff-field select, .diff-field input {
     padding: var(--sp-2) var(--sp-3);
     min-height: var(--touch-min);

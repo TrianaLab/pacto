@@ -201,7 +201,7 @@
   .svc-entity { display: flex; flex-direction: column; gap: var(--sp-4); }
   .se-facts { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
   .se-fact { display: flex; align-items: center; gap: var(--sp-2); }
-  .se-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .se-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .se-conflicts {
     display: flex; flex-direction: column; gap: var(--sp-2);
     padding: var(--sp-3); border-radius: var(--radius-md); font-size: var(--text-sm);

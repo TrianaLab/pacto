@@ -477,7 +477,7 @@
   .rev-entity { display: flex; flex-direction: column; gap: var(--sp-4); }
   .re-facts, .re-idrows, .re-adjacent { display: flex; gap: var(--sp-5); flex-wrap: wrap; }
   .re-fact, .re-idrow, .re-adj { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-  .re-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .re-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .re-contactrows { list-style: none; margin: var(--sp-2) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
   .re-contactrow { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
   .re-cpurpose { font-size: var(--text-sm); color: var(--c-text-3); }
@@ -517,7 +517,7 @@
   .ri-ref { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .ri-note { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .re-kv, .re-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-  .re-kv th, .re-table th { text-align: left; font-weight: 600; color: var(--c-text-3); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; }
+  .re-kv th, .re-table th { text-align: left; color: var(--c-text-3); padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .re-kv td, .re-table td { padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; color: var(--c-text-2); border-top: 1px solid var(--c-border); overflow-wrap: anywhere; vertical-align: top; }
   .re-kv td:first-child { font-family: var(--font-mono, monospace); color: var(--c-text); }
   /* 320px: a four-column policy table cannot fit, so it becomes a stacked list with
@@ -526,6 +526,6 @@
     .re-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
     .re-table tr { display: block; border-top: 1px solid var(--c-border); padding: var(--sp-2) 0; }
     .re-table td { display: block; border: 0; padding: 0; }
-    .re-table td::before { content: attr(data-label) ' '; color: var(--c-text-3); font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; }
+    .re-table td::before { content: attr(data-label) ' '; color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   }
 </style>

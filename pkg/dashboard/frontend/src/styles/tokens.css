@@ -63,6 +63,12 @@
      role could reproduce and nothing could match. */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  /* The identity: a signed document. Titles, big numbers and labels are set in a serif,
+     the rest of the product stays in the sans. Source Serif 4 is bundled (typography.css,
+     SIL OFL 1.1, licence shipped as licenses/source-serif-4-OFL.md), so the identity does
+     not depend on what the reader has installed, and it carries REAL small caps, which
+     labels need: a synthesized small cap is a shrunken capital, thin and uneven. */
+  --font-display: 'Source Serif 4', 'Iowan Old Style', Georgia, serif;
   --text-xs: 0.8125rem;   /* 12.19px: the smallest step, raised from 11.25px so captions and meta read without effort */
   --text-sm: 0.875rem;    /* 13.13px */
   --text-base: 0.9375rem; /* 14.06px */
@@ -70,6 +76,7 @@
   --text-lg: 1.25rem;     /* 18.75px */
   --text-xl: 1.625rem;    /* 24.38px */
   --text-2xl: 2rem;       /* 30px */
+  --text-3xl: 2.25rem;    /* 33.75px — the page title, set in the serif */
   --line-height: 1.65;
 
   /* ── Typography: the ROLES ──
@@ -79,17 +86,23 @@
      rendered as h3 because it is nested still looks like every other section.
      Use them through the .t-* classes in typography.css; these tokens exist so a
      component that must set the size on its own element still lands on the ramp. */
-  --role-page-title-size: var(--text-xl);
+  --role-page-title-family: var(--font-display);
+  --role-page-title-size: var(--text-3xl);
   --role-page-title-weight: 700;
-  --role-page-title-lh: 1.25;
+  --role-page-title-lh: 1.2;
+  /* The double rule under a page title: the line a signed agreement is closed with. */
+  --role-page-title-rule: 3px double var(--c-text);
 
-  --role-section-title-size: var(--text-md);
-  --role-section-title-weight: 600;
-  --role-section-title-lh: 1.35;
+  --role-section-title-family: var(--font-display);
+  --role-section-title-size: 1.375rem; /* 20.63px: serif runs small, so a step between lg and xl */
+  --role-section-title-weight: 700;
+  --role-section-title-lh: 1.3;
 
-  --role-subsection-title-size: var(--text-base);
+  --role-subsection-title-family: var(--font-display);
+  --role-subsection-title-size: var(--text-md);
   --role-subsection-title-weight: 600;
-  --role-subsection-title-lh: 1.4;
+  --role-subsection-title-lh: 1.35;
+  --role-subsection-title-style: italic;
 
   --role-body-size: var(--text-base);
   --role-body-weight: 400;
@@ -99,18 +112,29 @@
   --role-body-2-weight: 400;
   --role-body-2-lh: 1.6;
 
-  --role-label-size: var(--text-xs);
-  --role-label-weight: 500;
+  /* A label is set in serif small caps at BODY size: a small cap is only as tall as a
+     lowercase letter, so the body step is what makes it read like the caption it is.
+     All-small-caps (not lowercase + small-caps) keeps the text as written, so an
+     acronym like OCI stays OCI for copy and for screen readers. --role-label-font is the
+     whole label in one value, for the components that style a label on their own
+     element: `font: var(--role-label-font); font-variant-caps: var(--role-label-caps);
+     letter-spacing: var(--role-label-tracking)`. */
+  --role-label-family: var(--font-display);
+  --role-label-size: var(--text-base);
+  --role-label-weight: 600;
   --role-label-lh: 1.4;
-  --role-label-tracking: 0.04em;
+  --role-label-tracking: 0.05em;
+  --role-label-caps: all-small-caps;
+  --role-label-font: var(--role-label-weight) var(--role-label-size) / var(--role-label-lh) var(--role-label-family);
 
   --role-meta-size: var(--text-xs);
   --role-meta-weight: 400;
   --role-meta-lh: 1.5;
 
-  --role-metric-size: var(--text-lg);
+  --role-metric-family: var(--font-display);
+  --role-metric-size: 2.4rem; /* 36px: the number the reader lands on */
   --role-metric-weight: 700;
-  --role-metric-lh: 1.2;
+  --role-metric-lh: 1.1;
 
   --role-code-size: var(--text-xs);
   --role-code-weight: 400;

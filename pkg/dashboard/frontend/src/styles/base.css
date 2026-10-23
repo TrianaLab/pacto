@@ -99,14 +99,20 @@ pre {
    which is how a deeply nested section title ended up smaller than its own body
    text. Every level now lands on the ramp. */
 h1 {
+  font-family: var(--role-page-title-family);
   font-size: var(--role-page-title-size); font-weight: var(--role-page-title-weight);
-  letter-spacing: -0.02em; line-height: var(--role-page-title-lh);
+  letter-spacing: -0.01em; line-height: var(--role-page-title-lh);
 }
+/* The double rule belongs to the page-title ROLE, not to the class: the legacy host and
+   the redirect pages write a bare <h1>, and option A puts the rule under every one. */
+main h1 { padding-bottom: 10px; border-bottom: var(--role-page-title-rule); }
 h2 {
+  font-family: var(--role-section-title-family);
   font-size: var(--role-section-title-size); font-weight: var(--role-section-title-weight);
   letter-spacing: -0.01em; line-height: var(--role-section-title-lh);
 }
 h3, h4, h5, h6 {
+  font-family: var(--role-subsection-title-family); font-style: var(--role-subsection-title-style);
   font-size: var(--role-subsection-title-size); font-weight: var(--role-subsection-title-weight);
   line-height: var(--role-subsection-title-lh);
 }
@@ -117,9 +123,9 @@ td code { word-break: break-all; }
 thead { border-bottom: 1px solid var(--c-border); }
 th {
   text-align: left; padding: var(--sp-3) var(--sp-3);
-  color: var(--c-text-3); font-weight: 500;
-  font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--c-text-3);
   position: relative; z-index: 1;
+  font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
 }
 td {
   padding: var(--sp-3) var(--sp-3);
