@@ -56,12 +56,12 @@ the staging `orders-service` target carries `INTERFACE_ABSENT`, and its evidence
 line says "seen by: Kubernetes + kernel". A live check needs the node agent on a
 Kubernetes cluster or the [Docker Compose demo](compose-demo.md).
 
-Delivery is simulated, as the strip says on every delivery screen. Plans,
+Delivery is simulated, as every delivery screen says. Plans,
 checks, history, blame and undo come from Pacto's own code on fixed data. The
-health check results and the node agent's finding are recorded and the `pacto init` plan is recorded output
-that a test keeps current. Records are signed with a key made in your tab, so
+health check results and the node agent's finding are recorded, and so is
+the `pacto init` plan, which a test keeps current. Records are signed with a key made in your tab, so
 nothing outside it can check them, and a reload starts over. With no promoter,
-Flux or real sign-in, nothing it approves runs anywhere. One
+Flux or real sign-in, nothing approved runs. One
 history shows a gap, one record signed by a key nobody trusts and one Stage
 read from status only: these look like bugs and are deliberate. See
 [delivery](../integrations/kubernetes/delivery.md) and the

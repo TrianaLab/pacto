@@ -5,21 +5,25 @@ new version before it runs. A contract is one file, `pacto.yaml`, kept next to
 your code. It says what the service offers, which other services it calls and
 how it is built and run. This guide takes a plain service to its first gated
 release: one Pacto checks before it reaches production. It is the only
-delivery page you need. The
-[idea behind delivery](integrations/kubernetes/delivery.md) is one short page,
-and everything else is reference.
+delivery page you need; everything else is reference.
 
 You need:
 
-- a service in a git repository, with a Dockerfile;
-- a container registry you can push to, the place your images are stored;
+- the `pacto` command:
+  `go install github.com/trianalab/pacto/v4/cmd/pacto@latest`, or another
+  method from [Installation](installation.md);
+- a service in a git repository, with a Dockerfile and the Kubernetes files
+  that run it (a Deployment and a Service). Those files are what lands in the
+  cluster;
+- a container registry where your images are stored, and `pacto login` (or
+  `docker login`) to it;
 - for steps 4 and 5, a Kubernetes cluster with
   [Flux](https://fluxcd.io) (a tool that keeps the cluster running what your
-  files say) and the [Pacto operator](integrations/kubernetes/installation.md)
-  (Pacto's program that runs in the cluster and watches your services).
+  files say) and the Pacto operator (Pacto's program in the cluster that
+  watches your services), installed first as its
+  [installation page](integrations/kubernetes/installation.md) shows.
 
-You do not write the contract by hand: Pacto writes it from the service you
-already have.
+You do not write the contract by hand: Pacto writes it from your service.
 
 ## 1. See what Pacto would add
 
@@ -56,9 +60,13 @@ Open the contract and fill in what the plan marked Unknown, above all the
 dependencies: which services yours calls and which of their versions it
 accepts, such as `^2.0.0` for any 2.x. This is called a version range. That
 one line is what later lets Pacto ask the right team about a change. Commit
-the contract. Then add [`pacto diff`](ci.md), which compares two versions of a
-contract, to the checks that run on every commit, so a change that breaks the
-services using yours fails there.
+the contract.
+
+Once you have published (step 3), optionally add `pacto diff <bundle> .` to
+the checks that run on every commit, with the `bundle` address from the
+contract's `publish` section. It compares the published contract with yours
+and fails on a change that breaks the services using yours; see
+[CI integration](ci.md).
 
 ## 3. Publish a version
 
@@ -67,14 +75,17 @@ pacto publish --plan
 pacto publish
 ```
 
-`--plan` shows what publishing would do and changes nothing. `pacto publish`
-then builds the service with Docker, pushes the image and the contract to your
-registry, signs them so anyone can check they came from you and labels them
-with the version in the contract. The contract's `publish` section says where
-each piece goes and how it is signed. Signing uses a key pair: a private key
-file, `cosign.key`, that only you hold, and the public key, `cosign.pub`, that
-anyone uses to check. Make them with `cosign generate-key-pair`, and set
-`COSIGN_PASSWORD` to its password when you publish.
+`--plan` changes nothing. `pacto publish` builds the service with Docker,
+pushes the image, your Kubernetes files and the contract to your registry,
+signs them so anyone can check they came from you and labels them with the
+version in the contract. The contract's `publish` section says where each
+piece goes and how it is signed. Signing uses a key pair: a private key file,
+`cosign.key`, that only you hold, and the public key, `cosign.pub`, that
+anyone uses to check. Make them once with `cosign generate-key-pair` (the
+[cosign](https://docs.sigstore.dev/cosign/) tool; publishing itself does not
+need it) and set `COSIGN_PASSWORD` to its password when you publish. Never
+commit `cosign.key`: give it and its password to your build pipeline as
+secrets.
 
 Versions have three numbers, major.minor.patch, such as 2.4.1. Publishing
 refuses a version too small for the change (a change that breaks the services
@@ -84,8 +95,9 @@ build pipeline after your tests; details in [Publish a version](publishing.md).
 ## 4. Connect the service to your cluster
 
 Delivery is the part of Pacto that decides which version runs in each
-environment. Install it once per cluster with Helm, the usual Kubernetes
-installer. It is opt-in: without it, Pacto never changes what runs.
+environment. It is a second Helm chart (Helm is the usual Kubernetes
+installer), installed once per cluster after the operator. It is opt-in:
+without it, Pacto never changes what runs.
 
 --8<-- "integrations/kubernetes/docs/generated/_delivery-install-command.md"
 
@@ -109,9 +121,9 @@ pacto init --delivery
   applies the version the Stage picks. Each environment is a Kubernetes
   namespace of the same name.
 
-`init` only writes files. Its Next list says what to do with them: create the
+`init` only writes files. Its Next list says: create the
 namespaces, store `cosign.pub` in each as a Kubernetes Secret named
-`cosign-pub` so Flux can check your signatures, then
+`cosign-pub`, with the key `cosign.pub`, so Flux can check your signatures, then
 `kubectl apply -f delivery/test.yaml -f delivery/prod.yaml`. The install also
 adds two Kubernetes roles: `pacto-delivery-approver` for the people who may
 approve a change and `pacto-delivery-agent` for AI agents, which may only
@@ -144,9 +156,8 @@ kubectl get stage -A
 pacto delivery history -n test --stage my-service
 ```
 
-The `Pointer` column of the first is the digest the Stage runs
-(`sha256:...`), a fingerprint of one published version. The second lists the
-changes on your service in test.
+The `Pointer` column is the digest the Stage runs (`sha256:...`), a
+fingerprint of one published version. History lists the changes in test.
 
 From here Pacto does the rest. A safe change goes ahead without anyone being
 asked. The prod Stage only takes versions that passed in test, on its own with
