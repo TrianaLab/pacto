@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"syscall/js"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
@@ -76,6 +77,28 @@ func main() {
 		// the demo carries them, so no flag is needed.
 	}
 
+	// The payments story's delivery, simulated in the tab (source_delivery.go).
+	// The promoter's steps are spaced out so a reader sees a change run,
+	// verify and conclude.
+	d, err := newDemoDelivery(time.Now, func(f func()) { time.AfterFunc(1500*time.Millisecond, f) })
+	if err != nil {
+		panic(err)
+	}
+	d.wire(&opts)
+	js.Global().Set("__pactoDeliveryKey", d.KeyHint())
+	js.Global().Set("__pactoPactifyPlan", pactifyPlan)
+	// __pactoPersona(name, fresh) switches who the tab acts as: pay-agent,
+	// alice or carol; fresh is a simulated sign-in made now.
+	js.Global().Set("__pactoPersona", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		if len(args) < 1 {
+			return "name a persona"
+		}
+		if err := d.SetPersona(args[0].String(), len(args) > 1 && args[1].Truthy()); err != nil {
+			return err.Error()
+		}
+		return ""
+	}))
+
 	mux := http.NewServeMux()
 	api := humago.New(mux, dashboard.APIConfig())
 	dashboard.NewServer(opts).RegisterOperations(api)
@@ -91,7 +114,8 @@ func main() {
 
 // serve answers a single API request in memory. JS calls it as
 // __pactoServe(method, path, body?, headers?) and receives { status, body,
-// contentType }. The headers are not read here: the demo has no sign-in.
+// contentType }. The headers are not read here: the simulated sign-in is the
+// tab's current persona.
 func serve(_ js.Value, args []js.Value) any {
 	method := args[0].String()
 	path := args[1].String()
