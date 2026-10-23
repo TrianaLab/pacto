@@ -45,6 +45,15 @@ func TestEval(t *testing.T) {
 		t.Fatalf("below 95%%: %+v", v)
 	}
 
+	answer = ran(7, 100)
+	if v := g.Check(context.Background(), gateIn(), map[string]string{"minPassRate": "0.07"}); v.Result != Pass {
+		t.Fatalf("exactly 7%% needed: %+v", v)
+	}
+	answer = ran(28, 100)
+	if v := g.Check(context.Background(), gateIn(), map[string]string{"minPassRate": "0.29"}); v.Result != Fail || v.Message != "28 of 100 eval cases passed, 29% needed: two refunds wrong" {
+		t.Fatalf("29%% message: %+v", v)
+	}
+
 	unknown := map[string]string{
 		"another version": `{"subject":"sha256:other","suite":"s","run":"r","passed":1,"total":1}`,
 		"no subject":      `{"suite":"s","run":"r","passed":1,"total":1}`,
@@ -62,7 +71,7 @@ func TestEval(t *testing.T) {
 		}
 	}
 	answer = ran(50, 50)
-	for _, bad := range []string{"x", "-0.1", "1.5"} {
+	for _, bad := range []string{"x", "-0.1", "1.5", "NaN"} {
 		if v := g.Check(context.Background(), gateIn(), map[string]string{"minPassRate": bad}); v.Result != Unknown {
 			t.Errorf("minPassRate %q: %+v", bad, v)
 		}

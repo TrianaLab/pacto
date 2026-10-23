@@ -39,7 +39,7 @@ func (e Eval) Check(ctx context.Context, in GateInput, params map[string]string)
 	minRate := 1.0
 	if s, ok := params["minPassRate"]; ok {
 		r, err := strconv.ParseFloat(s, 64)
-		if err != nil || r < 0 || r > 1 {
+		if err != nil || !(r >= 0 && r <= 1) { // the negation also refuses NaN
 			return Verdict{Result: Unknown, Message: fmt.Sprintf("minPassRate %q is not a number from 0 to 1", s)}
 		}
 		minRate = r
@@ -60,10 +60,11 @@ func (e Eval) Check(ctx context.Context, in GateInput, params map[string]string)
 		"run": a.Run, "suite": a.Suite, "subject": a.Subject,
 		"passed": strconv.Itoa(a.Passed), "total": strconv.Itoa(a.Total),
 	}}
-	if float64(a.Passed) >= minRate*float64(a.Total) {
+	// Divide, never multiply: 7/100 rounds to the parsed 0.07, 0.07*100 does not round to 7.
+	if float64(a.Passed)/float64(a.Total) >= minRate {
 		v.Result = Pass
 	}
-	v.Message = fmt.Sprintf("%d of %d eval cases passed, %s needed", a.Passed, a.Total, strconv.FormatFloat(minRate*100, 'f', -1, 64)+"%")
+	v.Message = fmt.Sprintf("%d of %d eval cases passed, %s needed", a.Passed, a.Total, strconv.FormatFloat(minRate*100, 'g', 10, 64)+"%")
 	if a.Message != "" {
 		v.Message += ": " + a.Message
 	}

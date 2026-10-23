@@ -82,7 +82,7 @@ func runPromoter(args []string) error {
 			"The operation a Stage runs is never deleted.")
 	gateProviders := fs.String("gate-providers", "",
 		`The health gate providers Stages may name, as JSON: `+
-			`[{"name":"mira","type":"mira","url":"http://mira:4318"}]. Types: mira, http.`)
+			`[{"name":"mira","type":"mira","url":"http://mira:4318"}]. Types: mira, http, eval.`)
 	upstreamTrust := fs.String("upstream-trust-config", "",
 		"A trust config (YAML) of the recorder keys of other clusters, per stream glob. "+
 			"Stages with candidates.upstreamRecords promote only on records these keys signed.")
