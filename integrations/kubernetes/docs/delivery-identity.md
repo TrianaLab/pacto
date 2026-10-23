@@ -60,7 +60,7 @@ read-only: it gains nothing in delivery and cannot impersonate.
 
 Without sign-in, a dashboard bound beyond loopback shows no delivery data and
 offers no actions. On loopback it acts as your kubeconfig user and prints a URL
-with a launch token its actions need. It never decides there, because any
+with a launch token that its delivery reads and actions need. It never decides there, because any
 process on your machine could do it as you; it shows the
 `pacto delivery approve` command instead.
 

@@ -82,7 +82,8 @@ func TestLocalGuards(t *testing.T) {
 		want int
 	}{
 		{"rebinding host", req(http.MethodGet, "evil.example:3000", true, "", ""), http.StatusForbidden},
-		{"read on loopback", req(http.MethodGet, "localhost:3000", false, "", ""), http.StatusTeapot},
+		{"read without the cookie", req(http.MethodGet, "localhost:3000", false, "", ""), http.StatusForbidden},
+		{"read on loopback", req(http.MethodGet, "localhost:3000", true, "", ""), http.StatusTeapot},
 		{"action without the cookie", req(http.MethodPost, "127.0.0.1:3000", false, d.launchCSRF, ""), http.StatusForbidden},
 		{"action without csrf", req(http.MethodPost, "127.0.0.1:3000", true, "", ""), http.StatusForbidden},
 		{"action cross-origin", req(http.MethodPost, "127.0.0.1:3000", true, d.launchCSRF, "http://evil.example"), http.StatusForbidden},
@@ -92,6 +93,8 @@ func TestLocalGuards(t *testing.T) {
 		code := serve(h, tc.r).Code
 		expect(t, code == tc.want, "%s: %d, want %d", tc.name, code, tc.want)
 	}
+	session := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:3000/api/session", nil)
+	expect(t, serve(h, session).Code == http.StatusTeapot, "the session check stays open signed out")
 	serve(h, req(http.MethodGet, "127.0.0.1", true, "", ""))
 	expect(t, got.SignedIn && got.CSRF == d.launchCSRF, "local state %+v", got)
 	expect(t, got.CSRF != d.launch && got.Token == "", "local state %+v must never carry the launch token", got)

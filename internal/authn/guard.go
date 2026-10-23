@@ -164,6 +164,11 @@ func (d *Dashboard) local(w http.ResponseWriter, r *http.Request) (State, bool) 
 	switch {
 	case !loopback(r.Host):
 		http.Error(w, "a local dashboard answers delivery requests only on a loopback address", http.StatusForbidden)
+	case !st.SignedIn && r.URL.Path != "/api/session":
+		// Reads too: they go to the cluster as the kubeconfig user, which only
+		// whoever saw the launch token may borrow. /api/session stays open so
+		// the UI can tell it is signed out.
+		http.Error(w, "delivery needs the dashboard's launch token; open the URL pacto dashboard printed", http.StatusForbidden)
 	case isMutating(r.Method) && (!st.SignedIn || !equal(r.Header.Get(CSRFHeader), d.launchCSRF)):
 		http.Error(w, "this action needs the dashboard's launch token and the "+CSRFHeader+" header; open the URL pacto dashboard printed", http.StatusForbidden)
 	case isMutating(r.Method) && r.Header.Get("Origin") != "" && !sameOrigin(r):
