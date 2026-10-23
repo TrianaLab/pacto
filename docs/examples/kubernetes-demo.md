@@ -23,7 +23,7 @@ make e2e-delivery-demo-up      # the cluster and everything on it
 make e2e-delivery-demo-story   # play the story, checking every step
 ```
 
-`up` takes about 15 minutes the first time. `story` stops with payments 3.0.0
+`up` takes about 20 minutes, most of it building the images; `story` about 8. `story` stops with payments 3.0.0
 held for prod and prints what to do next. When you are done:
 
 ```sh
