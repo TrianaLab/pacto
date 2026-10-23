@@ -710,8 +710,8 @@ describe('history blame and undo', () => {
     await settle();
     const prod = target.querySelector('section[aria-label="History of prod/pay"]') as HTMLElement;
     const rows = [...prod.querySelectorAll('tbody tr')].map((r) => [...r.querySelectorAll('td')].map((td) => text(td as HTMLElement).trim()));
-    expect(rows[0].slice(2, 6)).toEqual(['2.4.0 → 3.0.0', 'Carol Diaz (human)', 'Succeeded', '2026-10-21 11:00 UTC']);
-    expect(rows[1].slice(2, 6)).toEqual(['– → 2.4.0', 'pay-agent (agent)', 'Failed', 'soon']);
+    expect(rows[0].slice(2, 6)).toEqual(['2.4.0 → 3.0.0', 'Carol Diaz (https://idp#carol) (human)', 'Succeeded', '2026-10-21 11:00 UTC']);
+    expect(rows[1].slice(2, 6)).toEqual(['– → 2.4.0', 'pay-agent (system:serviceaccount:agents:pay-agent) (agent)', 'Failed', 'soon']);
     expect(text(prod)).toContain('Runs 3.0.0 222222222222');
     // Only a change that moved the environment can be undone.
     expect(prod.querySelectorAll('button[aria-label^="Undo"]').length).toBe(1);
@@ -723,8 +723,8 @@ describe('history blame and undo', () => {
     expect(fns.blame).toHaveBeenCalledWith('prod', 'pay');
     const panel = target.querySelector('[data-testid="blame-panel"]') as HTMLElement;
     expect(text(panel)).toContain('Who put 3.0.0 here');
-    expect(text(panel.querySelector('[data-testid="blame-change"]') as HTMLElement)).toContain('Promote by pay-agent (agent), for erin, from 2.4.0, finished 2026-10-21 11:00 UTC. Why: “ship the fix”.');
-    expect(text(panel)).toContain('Approve by Carol Diaz');
+    expect(text(panel.querySelector('[data-testid="blame-change"]') as HTMLElement)).toContain('Promote by pay-agent (system:serviceaccount:agents:pay-agent) (agent), for erin (https://idp#erin), from 2.4.0, finished 2026-10-21 11:00 UTC. Why: “ship the fix”.');
+    expect(text(panel)).toContain('Approve by Carol Diaz (https://idp#carol)');
     expect(text(panel.querySelector('[data-testid="blame-verdicts"]') as HTMLElement)).toContain('pacto.diff');
     expect(text(panel.querySelector('[data-testid="blame-source"]') as HTMLElement).trim()).toBe('Read from its signed record. The newest change that moved the Stage to sha256:222222222222.');
     panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
@@ -848,7 +848,7 @@ describe('refused publishes', () => {
     const sec = target.querySelector('[data-testid="refused-publishes"]') as HTMLElement;
     expect(text(sec.querySelector('[data-testid="refused-partial"]') as HTMLElement).trim()).toBe('This list may be incomplete: one registry could not be read. Could not read: registry.example: timeout.');
     const rows = [...sec.querySelectorAll('li')].map((li) => text(li as HTMLElement).trim());
-    expect(rows[0]).toBe('payments 2.4.3 Needs a major version Signed record Removing a field is a breaking change. Compared with 2.4.2. By pay-agent, 2026-10-22 09:00 UTC');
+    expect(rows[0]).toBe('payments 2.4.3 Needs a major version Signed record Removing a field is a breaking change. Compared with 2.4.2. By pay-agent (system:serviceaccount:agents:pay-agent), 2026-10-22 09:00 UTC');
     expect(rows[1]).toBe('orders 1.5.0 Refused: sign Publish.sign is not configured. 2026-10-22 08:00 UTC');
     expect(rows[2]).toContain('Needs odd');
     destroy();
