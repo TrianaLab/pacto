@@ -1041,6 +1041,10 @@ export interface components {
             groups?: string[] | null;
             user: string;
         };
+        "Delivery.ApplyRef": {
+            kind?: string;
+            name: string;
+        };
         "Delivery.ApprovalPolicy": {
             always?: boolean;
         };
@@ -1290,7 +1294,7 @@ export interface components {
             namespace?: string;
         };
         "Delivery.StageSpec": {
-            applyRef: components["schemas"]["Delivery.LocalRef"];
+            applyRef: components["schemas"]["Delivery.ApplyRef"];
             approval?: components["schemas"]["Delivery.ApprovalPolicy"];
             auto?: boolean;
             candidates?: components["schemas"]["Delivery.Candidates"];

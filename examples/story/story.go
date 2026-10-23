@@ -325,7 +325,7 @@ func pacto(env string, r delivery.Revision) delivery.PactoView {
 }
 
 func stage(service, env string) delivery.StageSpec {
-	s := delivery.StageSpec{Service: delivery.ServiceRef{Name: service}, Environment: env, ApplyRef: delivery.LocalRef{Name: service}}
+	s := delivery.StageSpec{Service: delivery.ServiceRef{Name: service}, Environment: env, ApplyRef: delivery.ApplyRef{Name: service}}
 	if env == Test {
 		s.Candidates.OCIRepositoryRef = &delivery.LocalRef{Name: service + "-candidates"}
 	} else {

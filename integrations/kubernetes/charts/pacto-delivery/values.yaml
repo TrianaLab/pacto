@@ -121,6 +121,13 @@ recorder:
       # -- Memory request
       memory: 64Mi
 
+argocd:
+  # -- Let Stages name an Argo CD Application as their applier (`spec.applyRef.kind: Application`).
+  # Grants the promoter patch on `argoproj.io` Applications (it only sets `spec.source.targetRevision`,
+  # and the pointer admission policy holds it to that) and read access to the agent, approver and
+  # recorder roles. Off by default.
+  enabled: false
+
 # -- Registry hosts (`host:port`) the promoter and the recorder reach over plain HTTP. An
 # OCIRepository with `spec.insecure: true` is read over HTTP anyway.
 insecureRegistries: []

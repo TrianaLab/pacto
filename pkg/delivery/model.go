@@ -96,6 +96,22 @@ type LocalRef struct {
 	Name string `json:"name"`
 }
 
+// Applier kinds a Stage's ApplyRef may name.
+const (
+	ApplierFlux   = "OCIRepository"
+	ApplierArgoCD = "Application"
+)
+
+// ApplyRef names the Stage's applier object, in the Stage's namespace.
+type ApplyRef struct {
+	// Kind is OCIRepository (Flux, the default) or Application (Argo CD, with
+	// an OCI source and automated sync).
+	// +optional
+	// +kubebuilder:validation:Enum=OCIRepository;Application
+	Kind string `json:"kind,omitempty"`
+	Name string `json:"name"`
+}
+
 // Candidates says where new versions come from. Exactly one is set.
 type Candidates struct {
 	// OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the
@@ -179,9 +195,10 @@ type Deadlines struct {
 type StageSpec struct {
 	Service     ServiceRef `json:"service"`
 	Environment string     `json:"environment"`
-	// ApplyRef is the Flux OCIRepository the promoter owns. It only ever sets
-	// spec.ref.digest on it.
-	ApplyRef LocalRef `json:"applyRef"`
+	// ApplyRef is the object the promoter points at a version: a Flux
+	// OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it
+	// sets spec.source.targetRevision). Nothing else is ever written on it.
+	ApplyRef ApplyRef `json:"applyRef"`
 	// +optional
 	Candidates Candidates `json:"candidates,omitzero"`
 	// Auto promotes the newest eligible candidate without anyone asking.

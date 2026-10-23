@@ -102,7 +102,7 @@ func (r *StageReconciler) streamConflict(ctx context.Context, stage *dv1.Stage) 
 	return r.updateStatus(ctx, stage, func(s *dv1.Stage) { s.Status.Frozen, s.Status.FrozenReason = true, why })
 }
 
-// witness raises a witnessed override when the OCIRepository's digest differs
+// witness raises a witnessed override when the applier's digest differs
 // from the pointer while no operation holds the pointer lock: someone with
 // break-glass rights edited it directly. The edit is never undone; it is
 // recorded, adopted and the Stage freezes until a person unfreezes it.
@@ -110,7 +110,7 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 	if stage.Status.Locks[delivery.FacetPointer] != "" || stage.Status.Pointer == "" {
 		return nil
 	}
-	a, err := r.Cluster.ociRepository(ctx, stage.Namespace, stage.Spec.ApplyRef.Name)
+	a, err := r.Cluster.applier(ctx, stage.Namespace, stage.Spec.ApplyRef)
 	if err != nil {
 		return client.IgnoreNotFound(err)
 	}
@@ -120,7 +120,7 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 	spec := delivery.OperationSpec{
 		Type: delivery.TypeOverride, Stage: stage.Name, Facet: delivery.FacetPointer,
 		Params:    delivery.Params{From: stage.Status.Pointer, To: a.digest},
-		Reason:    "witnessed: spec.ref.digest of OCIRepository " + a.obj.GetName() + " was edited outside Pacto",
+		Reason:    "witnessed: " + a.field() + " was edited outside Pacto",
 		Actor:     delivery.Actor{User: r.Policy.ControllerUser},
 		Cause:     &delivery.Cause{Reason: "pointer edited outside Pacto (editor: unknown)"},
 		Witnessed: true,

@@ -39,6 +39,7 @@ var (
 	gvkOCIRepository = schema.GroupVersionKind{Group: "source.toolkit.fluxcd.io", Version: "v1", Kind: "OCIRepository"}
 	gvkKustomization = schema.GroupVersionKind{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Kind: "KustomizationList"}
 	gvkPactoList     = schema.GroupVersionKind{Group: "pacto.trianalab.io", Version: "v1alpha1", Kind: "PactoList"}
+	gvkApplication   = schema.GroupVersionKind{Group: "argoproj.io", Version: "v1alpha1", Kind: "Application"}
 )
 
 // Cluster is the promoter's read and write access to everything that is not a
@@ -50,16 +51,44 @@ type Cluster struct {
 	Registry func(insecureHosts ...string) delivery.Registry
 }
 
-// applyRef is the Stage's OCIRepository as the promoter sees it.
+// applyRef is the Stage's applier object (a Flux OCIRepository or an Argo CD
+// Application) as the promoter sees it.
 type applyRef struct {
+	argo     bool // an Argo CD Application
 	obj      *unstructured.Unstructured
 	repo     string
 	insecure bool
-	digest   string // spec.ref.digest
-	revision string // status.artifact.revision
+	digest   string // spec.ref.digest; spec.source.targetRevision on Argo CD
+	revision string // status.artifact.revision; status.sync.revision on Argo CD
 	// verified is true when spec.verify names the publisher's identity and
 	// Flux reports SourceVerified for the current artifact revision.
 	verified bool
+}
+
+// applier reads the Stage's applier object.
+func (c Cluster) applier(ctx context.Context, ns string, ref delivery.ApplyRef) (*applyRef, error) {
+	if ref.Kind != delivery.ApplierArgoCD {
+		return c.ociRepository(ctx, ns, ref.Name)
+	}
+	u := &unstructured.Unstructured{}
+	u.SetGroupVersionKind(gvkApplication)
+	if err := c.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, u); err != nil {
+		return nil, err
+	}
+	// ponytail: one OCI spec.source; multi-source Applications (spec.sources)
+	// are not supported until a team needs one.
+	url, _, _ := unstructured.NestedString(u.Object, "spec", "source", "repoURL")
+	digest, _, _ := unstructured.NestedString(u.Object, "spec", "source", "targetRevision")
+	revision, _, _ := unstructured.NestedString(u.Object, "status", "sync", "revision")
+	return &applyRef{argo: true, obj: u, repo: delivery.RepoFromURL(url), digest: digest, revision: revision}, nil
+}
+
+// field names where the promoter writes the version on a, for messages.
+func (a *applyRef) field() string {
+	if a.argo {
+		return "spec.source.targetRevision of Application " + a.obj.GetName()
+	}
+	return "spec.ref.digest of OCIRepository " + a.obj.GetName()
 }
 
 func (c Cluster) ociRepository(ctx context.Context, ns, name string) (*applyRef, error) {
@@ -108,12 +137,19 @@ func (a *applyRef) host() string {
 	return host
 }
 
-// setDigest sets spec.ref.digest and asks Flux to reconcile now. It is the only
-// write the promoter ever makes to an object it does not own.
+// setDigest sets spec.ref.digest (spec.source.targetRevision on Argo CD) and
+// asks the applier to reconcile now. It is the only write the promoter ever
+// makes to an object it does not own.
 func (c Cluster) setDigest(ctx context.Context, a *applyRef, digest string, now time.Time) error {
 	patch := map[string]any{
 		"metadata": map[string]any{"annotations": map[string]string{"reconcile.fluxcd.io/requestedAt": now.Format(time.RFC3339Nano)}},
 		"spec":     map[string]any{"ref": map[string]any{"digest": digest}},
+	}
+	if a.argo {
+		patch = map[string]any{
+			"metadata": map[string]any{"annotations": map[string]string{"argocd.argoproj.io/refresh": "normal"}},
+			"spec":     map[string]any{"source": map[string]any{"targetRevision": digest}},
+		}
 	}
 	b, _ := json.Marshal(patch)
 	return c.Client.Patch(ctx, a.obj, client.RawPatch(types.MergePatchType, b))
@@ -124,6 +160,10 @@ func (c Cluster) setDigest(ctx context.Context, a *applyRef, digest string, now 
 // Ready for a reason other than progress), ok is a confirmed success, and
 // neither means "not yet".
 func (c Cluster) applied(ctx context.Context, ns string, a *applyRef, digest string) (ok, failed bool, msg string, err error) {
+	if a.argo {
+		ok, failed, msg = argoApplied(a, digest)
+		return ok, failed, msg, nil
+	}
 	if delivery.RevisionDigest(a.revision) != digest {
 		return false, false, "the OCIRepository has not fetched " + digest + " yet", nil
 	}
@@ -157,6 +197,32 @@ func (c Cluster) applied(ctx context.Context, ns string, a *applyRef, digest str
 	return true, false, "", nil
 }
 
+// argoApplied reads whether Argo CD applied digest: Synced and Healthy at that
+// revision is a success; a sync of digest that Failed or Errored, or the
+// Application Degraded at digest, is a confirmed failure; anything else is
+// "not yet" (Progressing, OutOfSync or still at another revision).
+func argoApplied(a *applyRef, digest string) (ok, failed bool, msg string) {
+	name := a.obj.GetName()
+	at := delivery.RevisionDigest(a.revision) == digest
+	sync, _, _ := unstructured.NestedString(a.obj.Object, "status", "sync", "status")
+	health, _, _ := unstructured.NestedString(a.obj.Object, "status", "health", "status")
+	phase, _, _ := unstructured.NestedString(a.obj.Object, "status", "operationState", "phase")
+	opRev, _, _ := unstructured.NestedString(a.obj.Object, "status", "operationState", "syncResult", "revision")
+	opMsg, _, _ := unstructured.NestedString(a.obj.Object, "status", "operationState", "message")
+	switch {
+	case (phase == "Failed" || phase == "Error") && delivery.RevisionDigest(opRev) == digest:
+		return false, true, fmt.Sprintf("Application %s failed to sync %s: %s: %s", name, digest, phase, opMsg)
+	case !at:
+		return false, false, "Application " + name + " has not synced " + digest + " yet"
+	case health == "Degraded":
+		healthMsg, _, _ := unstructured.NestedString(a.obj.Object, "status", "health", "message")
+		return false, true, fmt.Sprintf("Application %s is Degraded at %s: %s", name, digest, healthMsg)
+	case sync == "Synced" && health == "Healthy":
+		return true, false, ""
+	}
+	return false, false, fmt.Sprintf("Application %s at %s is %s and %s, not Synced and Healthy yet", name, digest, sync, health)
+}
+
 func readyCondition(obj map[string]any) (status, reason, message string) {
 	conds, _, _ := unstructured.NestedSlice(obj, "status", "conditions")
 	for _, c := range conds {
@@ -173,7 +239,7 @@ func readyCondition(obj map[string]any) (status, reason, message string) {
 // describe reads what digest carries on a Stage's own apply repository. The
 // read is bounded by ResolveRevision.
 func (c Cluster) describe(ctx context.Context, stage delivery.StageObject, digest string) delivery.Revision {
-	a, err := c.ociRepository(ctx, stage.Metadata.Namespace, stage.Spec.ApplyRef.Name)
+	a, err := c.applier(ctx, stage.Metadata.Namespace, stage.Spec.ApplyRef)
 	if err != nil {
 		return delivery.Revision{Digest: digest, Err: "the apply OCIRepository: " + err.Error()}
 	}

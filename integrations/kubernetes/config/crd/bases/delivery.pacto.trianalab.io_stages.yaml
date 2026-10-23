@@ -65,9 +65,18 @@ spec:
             properties:
               applyRef:
                 description: |-
-                  ApplyRef is the Flux OCIRepository the promoter owns. It only ever sets
-                  spec.ref.digest on it.
+                  ApplyRef is the object the promoter points at a version: a Flux
+                  OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it
+                  sets spec.source.targetRevision). Nothing else is ever written on it.
                 properties:
+                  kind:
+                    description: |-
+                      Kind is OCIRepository (Flux, the default) or Application (Argo CD, with
+                      an OCI source and automated sync).
+                    enum:
+                    - OCIRepository
+                    - Application
+                    type: string
                   name:
                     type: string
                 required:

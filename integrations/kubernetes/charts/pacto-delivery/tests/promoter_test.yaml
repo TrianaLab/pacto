@@ -75,6 +75,37 @@ tests:
             verbs: [get]
         documentIndex: 1
 
+  - it: grants nothing on Argo CD unless it is enabled
+    template: templates/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [get, list, watch, patch]
+
+  - it: grants the targetRevision write on Argo CD Applications, and reads to agents, when enabled
+    template: templates/rbac.yaml
+    set:
+      argocd.enabled: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [get, list, watch, patch]
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [get]
+        documentIndex: 5
+
   - it: never lets an agent create approvals
     template: templates/rbac.yaml
     documentIndex: 5

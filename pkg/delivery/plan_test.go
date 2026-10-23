@@ -45,7 +45,7 @@ func checkoutPacto(rng string) PactoView {
 }
 
 func stageSpec() StageSpec {
-	return StageSpec{Service: ServiceRef{Name: "payments"}, Environment: "prod", ApplyRef: LocalRef{Name: "payments"},
+	return StageSpec{Service: ServiceRef{Name: "payments"}, Environment: "prod", ApplyRef: ApplyRef{Name: "payments"},
 		Candidates: Candidates{OCIRepositoryRef: &LocalRef{Name: "payments-candidates"}}}
 }
 

@@ -36,6 +36,11 @@ rules:
   - apiGroups: [source.toolkit.fluxcd.io]
     resources: [ocirepositories]
     verbs: [get, list, watch, patch]
+  {{- if .Values.argocd.enabled }}
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get, list, watch, patch]
+  {{- end }}
   - apiGroups: [kustomize.toolkit.fluxcd.io]
     resources: [kustomizations]
     verbs: [get, list, watch]
@@ -119,6 +124,11 @@ rules:
   - apiGroups: [source.toolkit.fluxcd.io]
     resources: [ocirepositories]
     verbs: [get]
+  {{- if .Values.argocd.enabled }}
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get]
+  {{- end }}
   - apiGroups: [kustomize.toolkit.fluxcd.io]
     resources: [kustomizations]
     verbs: [list]
@@ -148,6 +158,11 @@ rules:
   - apiGroups: [source.toolkit.fluxcd.io]
     resources: [ocirepositories]
     verbs: [get]
+  {{- if .Values.argocd.enabled }}
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get]
+  {{- end }}
   - apiGroups: [kustomize.toolkit.fluxcd.io]
     resources: [kustomizations]
     verbs: [list]

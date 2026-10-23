@@ -199,6 +199,53 @@ metadata:
 spec:
   policyName: {{ $fullname }}-pointer
   validationActions: [Deny]
+{{- if .Values.argocd.enabled }}
+---
+# The pointer on Argo CD: on an Application a Stage applies through (label it
+# delivery.pacto.trianalab.io/apply-ref), spec.source.targetRevision changes
+# only by the promoter or break-glass. Every other field, and Argo CD's own
+# writes, pass.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-pointer-argocd
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    objectSelector:
+      matchExpressions:
+        - key: delivery.pacto.trianalab.io/apply-ref
+          operator: Exists
+    resourceRules:
+      - apiGroups: [argoproj.io]
+        apiVersions: ["*"]
+        operations: [UPDATE]
+        resources: [applications]
+  variables:
+    - name: revision
+      expression: "has(object.spec.source) && has(object.spec.source.targetRevision) ? object.spec.source.targetRevision : ''"
+    - name: oldRevision
+      expression: "has(oldObject.spec.source) && has(oldObject.spec.source.targetRevision) ? oldObject.spec.source.targetRevision : ''"
+  validations:
+    - expression: >-
+        variables.revision == variables.oldRevision ||
+        request.userInfo.username == '{{ $controller }}' ||
+        request.userInfo.groups.exists(g, g in {{ $breakGlass }})
+      message: "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-pointer-argocd
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-pointer-argocd
+  validationActions: [Deny]
+{{- end }}
 {{- if .Values.recorder.enabled }}
 {{- $recorder := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "pacto-delivery.recorderServiceAccountName" .) }}
 ---

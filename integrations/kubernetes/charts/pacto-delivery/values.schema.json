@@ -115,6 +115,11 @@
       }
     },
     "insecureRegistries": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "argocd": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "enabled": { "type": "boolean" } }
+    },
     "admissionPolicies": {
       "type": "object",
       "additionalProperties": false,

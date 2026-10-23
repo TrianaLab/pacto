@@ -118,7 +118,7 @@ func newScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(s)
 	_ = dv1.AddToScheme(s)
-	for _, gvk := range []schema.GroupVersionKind{gvkOCI, gvkKs, gvkPacto} {
+	for _, gvk := range []schema.GroupVersionKind{gvkOCI, gvkKs, gvkPacto, gvkApplication} {
 		s.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
 		s.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
 	}
@@ -209,7 +209,7 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 func stageObj(pointer string) *dv1.Stage {
 	s := &dv1.Stage{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: "payments-prod"},
 		Spec: delivery.StageSpec{Service: delivery.ServiceRef{Name: "payments"}, Environment: "prod",
-			ApplyRef: delivery.LocalRef{Name: "payments"}, Gates: delivery.Gates{Verify: delivery.VerifyGates{Window: "1m"}},
+			ApplyRef: delivery.ApplyRef{Name: "payments"}, Gates: delivery.Gates{Verify: delivery.VerifyGates{Window: "1m"}},
 			Candidates: delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "payments-candidates"}}},
 		// Every version the tests ship was published: Flux verified its signature.
 		Status: delivery.StageStatus{Pointer: pointer, Stream: delivery.Stream{ID: "cid/prod/payments-prod"}, Published: []string{dA, dB, dC}}}

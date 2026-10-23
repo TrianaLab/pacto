@@ -350,7 +350,7 @@ func (r *OperationReconciler) plan(ctx context.Context, op *dv1.Operation, stage
 	in := delivery.PlanInput{Spec: op.Spec, Stage: stage.Spec, Status: stage.Status, Class: op.Status.ActorClass,
 		From: delivery.Revision{Digest: op.Spec.Params.From}, To: delivery.Revision{Digest: op.Spec.Params.To}}
 	if op.Spec.Type == delivery.TypePromote {
-		a, err := r.Cluster.ociRepository(ctx, op.Namespace, stage.Spec.ApplyRef.Name)
+		a, err := r.Cluster.applier(ctx, op.Namespace, stage.Spec.ApplyRef)
 		if err != nil {
 			in.From.Err, in.To.Err = "the apply OCIRepository: "+err.Error(), "the apply OCIRepository: "+err.Error()
 		} else {
@@ -682,7 +682,7 @@ func (r *OperationReconciler) running(ctx context.Context, op *dv1.Operation, st
 			return reconcile.Result{}, err
 		}
 	}
-	a, err := r.Cluster.ociRepository(ctx, op.Namespace, stage.Spec.ApplyRef.Name)
+	a, err := r.Cluster.applier(ctx, op.Namespace, stage.Spec.ApplyRef)
 	if err != nil {
 		op.Status.Message = "reading the apply OCIRepository: " + err.Error()
 		return r.save(ctx, op)
@@ -690,7 +690,7 @@ func (r *OperationReconciler) running(ctx context.Context, op *dv1.Operation, st
 	if a.digest != to {
 		if a.digest != from {
 			return r.finish(ctx, op, stage, conclusion{outcome: delivery.Errored, freeze: true,
-				reason: fmt.Sprintf("ForeignWriter: spec.ref.digest is %q, which this operation did not write; it is left as found", a.digest)})
+				reason: fmt.Sprintf("ForeignWriter: %s is %q, which this operation did not write; it is left as found", a.field(), a.digest)})
 		}
 		if err := r.Cluster.setDigest(ctx, a, to, r.now()); err != nil {
 			return reconcile.Result{}, err
