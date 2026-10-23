@@ -73,7 +73,8 @@ registry, signs them so anyone can check they came from you and labels them
 with the version in the contract. The contract's `publish` section says where
 each piece goes and how it is signed. Signing uses a key pair: a private key
 file, `cosign.key`, that only you hold, and the public key, `cosign.pub`, that
-anyone uses to check. Make them with `cosign generate-key-pair`.
+anyone uses to check. Make them with `cosign generate-key-pair`, and set
+`COSIGN_PASSWORD` to its password when you publish.
 
 Versions have three numbers, major.minor.patch, such as 2.4.1. Publishing
 refuses a version too small for the change (a change that breaks the services
