@@ -172,7 +172,8 @@ func (f *fakeDelivery) Describe(_ context.Context, _ *delivery.StageObject, dige
 	if digest == "sha256:unreadable" {
 		return delivery.Revision{Digest: digest, Err: "registry down"}
 	}
-	return delivery.Revision{Digest: digest}
+	// What the real Describe returns for an artifact pacto publish did not make.
+	return delivery.Revision{Digest: digest, Err: "the artifact has no digest-pinned annotation", NoContract: true}
 }
 
 // A version the dashboard cannot name says why in its log: an artifact it

@@ -725,10 +725,11 @@ func versions(ctx context.Context, api DeliveryAPI, stage *delivery.StageObject,
 }
 
 // version is the version a revision's contract declares; "" when it has
-// none, with the reason logged when its artifact could not be read.
+// none, with the reason logged when its artifact could not be read. An
+// artifact that names no contract is not a failure and logs nothing.
 func version(ctx context.Context, r delivery.Revision) string {
 	if r.Bundle == nil {
-		if r.Err != "" {
+		if r.Err != "" && !r.NoContract {
 			logging.LoggerFromContext(ctx).Warn("reading the version of a digest", "digest", r.Digest, "err", r.Err)
 		}
 		return ""
