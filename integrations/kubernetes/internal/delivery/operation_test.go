@@ -15,6 +15,8 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	admissionv1 "k8s.io/api/admissionregistration/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -1129,4 +1131,64 @@ func TestStaleOperationIsNotConcludedAgain(t *testing.T) {
 	if _, err := e.op.finish(context.Background(), current, stage, c); err == nil {
 		t.Fatal("a failed fresh read must surface")
 	}
+}
+
+// TestUnguardedAdmitsNothingAndCountsNoApproval: while the admission policies
+// that check who wrote a spec are missing, no operation is admitted and no
+// approval counts; once they are installed the operation goes on.
+func TestUnguardedAdmitsNothingAndCountsNoApproval(t *testing.T) {
+	guard := func(e *env) {
+		e.create(&admissionv1.ValidatingAdmissionPolicy{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"}},
+			&admissionv1.ValidatingAdmissionPolicyBinding{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"}})
+	}
+	t.Run("admission waits for the policy and its binding", func(t *testing.T) {
+		e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+		e.op.AdmissionPolicies = []string{"pd-operation"}
+		if o := e.drive("p1"); o.Status.Phase != "" || o.Status.Reason != "Unguarded" || o.Status.ActorClass != "" {
+			t.Fatalf("want parked before admission: %q %s %s", o.Status.Phase, o.Status.Reason, o.Status.ActorClass)
+		}
+		e.create(&admissionv1.ValidatingAdmissionPolicy{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"}})
+		if o := e.drive("p1"); o.Status.Reason != "Unguarded" {
+			t.Fatalf("a policy with no binding guards nothing: %s", o.Status.Reason)
+		}
+		e.create(&admissionv1.ValidatingAdmissionPolicyBinding{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"}})
+		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning {
+			t.Fatalf("guarded, it moves: %s %s", o.Status.Phase, o.Status.Message)
+		}
+	})
+	t.Run("a held operation counts no approval", func(t *testing.T) {
+		e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+		delete(e.reg.bundles, contractRef(c2))
+		o := e.drive("p1")
+		e.op.AdmissionPolicies = []string{"pd-operation"}
+		e.approve(o, "no", "alice", delivery.Reject)
+		if o = e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || o.Status.Reason != "Unguarded" || len(o.Status.Approvals) != 0 {
+			t.Fatalf("an unguarded approval must not count: %s %s %+v", o.Status.Phase, o.Status.Reason, o.Status.Approvals)
+		}
+		guard(e)
+		wantOutcome(t, e.drive("p1"), delivery.Rejected, "RejectedByHuman")
+	})
+	t.Run("held after apply counts no approval", func(t *testing.T) {
+		e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+		e.drive("p1")
+		e.apply(dB)
+		e.drive("p1")
+		e.now = e.now.Add(2 * time.Minute)
+		e.drive("p1")
+		e.op.AdmissionPolicies = []string{"pd-operation"}
+		e.approve(e.getOp("p1"), "au", "alice", delivery.AcceptUnknown)
+		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || o.Status.Reason != "Unguarded" {
+			t.Fatalf("want parked: %s %s", o.Status.Phase, o.Status.Reason)
+		}
+		guard(e)
+		wantOutcome(t, e.drive("p1"), delivery.Succeeded, "AcceptedUnknown")
+	})
+	t.Run("an unreadable policy is not installed", func(t *testing.T) {
+		e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+		e.op.AdmissionPolicies = []string{"pd-operation"}
+		e.fails["get/*v1.ValidatingAdmissionPolicy"] = true
+		if err := e.reconcileOpErr("p1"); err == nil {
+			t.Fatal("a failed policy read must surface")
+		}
+	})
 }

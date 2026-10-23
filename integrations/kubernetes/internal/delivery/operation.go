@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	admissionv1 "k8s.io/api/admissionregistration/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -66,6 +67,11 @@ type OperationReconciler struct {
 	// Freshness is how old a login may be when its approval is given; zero
 	// means delivery.AuthFreshness.
 	Freshness time.Duration
+	// AdmissionPolicies names the ValidatingAdmissionPolicies (each bound by a
+	// binding of the same name) that check an operation's actor and an
+	// approval's identity. While one is missing the promoter admits nothing
+	// and counts no approval: the spec says only what its writer claimed.
+	AdmissionPolicies []string
 }
 
 // conclusion is how an operation ends.
@@ -148,6 +154,9 @@ func (r *OperationReconciler) save(ctx context.Context, op *dv1.Operation) (reco
 // admit validates the intent once. Everything checked here is a property of
 // the request, so a refusal is final.
 func (r *OperationReconciler) admit(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, error) {
+	if res, done, err := r.unguarded(ctx, op); done {
+		return res, err
+	}
 	now := r.now()
 	class := r.Policy.Classify(delivery.Identity{User: op.Spec.Actor.User, Groups: op.Spec.Actor.Groups})
 	op.Status.ActorClass = class
@@ -305,6 +314,27 @@ func (r *OperationReconciler) pending(ctx context.Context, op *dv1.Operation, st
 	return r.lock(ctx, op, stage, false)
 }
 
+// unguarded parks op while an admission policy or binding in
+// r.AdmissionPolicies is not installed. A failed read is an error, so an
+// unreadable policy never reads as installed.
+func (r *OperationReconciler) unguarded(ctx context.Context, op *dv1.Operation) (reconcile.Result, bool, error) {
+	for _, name := range r.AdmissionPolicies {
+		for _, obj := range []client.Object{&admissionv1.ValidatingAdmissionPolicy{}, &admissionv1.ValidatingAdmissionPolicyBinding{}} {
+			err := r.Get(ctx, client.ObjectKey{Name: name}, obj)
+			if apierrors.IsNotFound(err) {
+				op.Status.Reason = "Unguarded"
+				op.Status.Message = "the admission policy " + name + " is not installed, so who wrote an operation or approval cannot be trusted; waiting for it"
+				res, err := r.save(ctx, op)
+				return res, true, err
+			}
+			if err != nil {
+				return reconcile.Result{}, true, err
+			}
+		}
+	}
+	return reconcile.Result{}, false, nil
+}
+
 // preApplyExits handles the ways an operation that has not moved anything can
 // end on its own: cancel (delete) and the approval deadline.
 func (r *OperationReconciler) preApplyExits(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, bool, error) {
@@ -424,6 +454,9 @@ func (r *OperationReconciler) upstream(ctx context.Context, stage *dv1.Stage) (_
 // held consumes approvals for an operation waiting before it moved anything.
 func (r *OperationReconciler) held(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, error) {
 	if res, done, err := r.preApplyExits(ctx, op, stage); done {
+		return res, err
+	}
+	if res, done, err := r.unguarded(ctx, op); done {
 		return res, err
 	}
 	// The order is refreshed before any approval is read, so an approval is
@@ -844,6 +877,9 @@ func (r *OperationReconciler) heldAfterApply(ctx context.Context, op *dv1.Operat
 	}
 	if r.passed(op.Status.Times.ApprovalDeadline) {
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Errored, freeze: true, reason: "VerifyUndecided: nobody accepted or rejected the unknown in time"})
+	}
+	if res, done, err := r.unguarded(ctx, op); done {
+		return res, err
 	}
 	// An Approve answers the question asked before the version shipped, not
 	// this one, so only an accept or a reject counts here.

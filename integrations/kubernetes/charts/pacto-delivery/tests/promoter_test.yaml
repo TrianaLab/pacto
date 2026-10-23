@@ -19,6 +19,17 @@ tests:
             - --controller-user=system:serviceaccount:pacto-delivery:d-pacto-delivery
             - --agent-groups=pacto:agents
             - --break-glass-groups=pacto:break-glass
+            - --admission-policies=d-pacto-delivery-operation,d-pacto-delivery-approval
+
+  - it: names no admission policies when they are off on purpose
+    template: templates/deployment.yaml
+    set:
+      admissionPolicies.enabled: false
+      admissionPolicies.allowUnguarded: true
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --admission-policies=RELEASE-NAME-pacto-delivery-operation,RELEASE-NAME-pacto-delivery-approval
 
   - it: passes the team group prefix only when set
     template: templates/deployment.yaml

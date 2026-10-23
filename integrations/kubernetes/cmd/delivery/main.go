@@ -88,6 +88,9 @@ func runPromoter(args []string) error {
 	upstreamTrust := fs.String("upstream-trust-config", "",
 		"A trust config (YAML) of the recorder keys of other clusters, per stream glob. "+
 			"Stages with candidates.upstreamRecords promote only on records these keys signed.")
+	admissionPolicies := fs.String("admission-policies", "",
+		"Comma-separated ValidatingAdmissionPolicies (each with a binding of the same name) that check who wrote an "+
+			"operation or approval. While one is missing no operation is admitted and no approval counts.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -129,7 +132,7 @@ func runPromoter(args []string) error {
 	gates := delivery.NewGates(cluster, configured)
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Gates: gates, Now: time.Now, Poll: *poll, Records: *records, Freshness: *authFreshness,
-		RecordedTTL: *recordedTTL}).SetupWithManager(mgr); err != nil {
+		RecordedTTL: *recordedTTL, AdmissionPolicies: delivery.SplitList(*admissionPolicies)}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := (&delivery.StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,

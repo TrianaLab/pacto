@@ -18,6 +18,13 @@ The chart brings its own image, CRDs, RBAC and admission policies; the
 agents' service accounts and `pacto-delivery-approver` to the people who may
 approve.
 
+It needs Kubernetes 1.30 or later. The admission policies are what make the
+actor of an Operation and the person behind an Approval true, so the chart
+renders them even offline and refuses `admissionPolicies.enabled=false` unless
+you also set `admissionPolicies.allowUnguarded=true`. While its operation or
+approval policy is missing, the promoter admits no operation and counts no
+approval: the operation shows the reason `Unguarded`.
+
 To run an unreleased change, from the repository root:
 
 ```bash

@@ -142,9 +142,14 @@ insecureRegistries: []
 # actor is the requesting user, only the promoter may set witnessed, override and
 # unfreeze are limited to their raisers, cancel is refused once the pointer moved,
 # approvals come from people and spec.ref.digest is edited only by the promoter or
-# break-glass.
+# break-glass. The promoter admits no operation and counts no approval while
+# its operation and approval policies are missing.
 admissionPolicies:
   enabled: true
+  # -- Render without the policies (enabled=false) anyway. Without them anyone who
+  # may create an Operation or an Approval can claim to be anyone, so the chart
+  # refuses enabled=false unless this is set.
+  allowUnguarded: false
 
 podSecurityContext:
   # -- Run pod as non-root

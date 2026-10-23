@@ -42,7 +42,8 @@ same version as your Pacto operator.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| admissionPolicies | object | `{"enabled":true}` | Install the ValidatingAdmissionPolicies (Kubernetes 1.30 or later): an operation's actor is the requesting user, only the promoter may set witnessed, override and unfreeze are limited to their raisers, cancel is refused once the pointer moved, approvals come from people and spec.ref.digest is edited only by the promoter or break-glass. |
+| admissionPolicies | object | `{"allowUnguarded":false,"enabled":true}` | Install the ValidatingAdmissionPolicies (Kubernetes 1.30 or later): an operation's actor is the requesting user, only the promoter may set witnessed, override and unfreeze are limited to their raisers, cancel is refused once the pointer moved, approvals come from people and spec.ref.digest is edited only by the promoter or break-glass. The promoter admits no operation and counts no approval while its operation and approval policies are missing. |
+| admissionPolicies.allowUnguarded | bool | `false` | Render without the policies (enabled=false) anyway. Without them anyone who may create an Operation or an Approval can claim to be anyone, so the chart refuses enabled=false unless this is set. |
 | affinity | object | `{}` | Affinity for the promoter pod |
 | argocd.enabled | bool | `false` | Let Stages name an Argo CD Application as their applier (`spec.applyRef.kind: Application`). Grants the promoter patch on `argoproj.io` Applications (it only sets `spec.source.targetRevision`, and the pointer admission policy holds it to that) and read access to the agent, approver and recorder roles. Off by default. |
 | fullnameOverride | string | `""` | Override the full release name |

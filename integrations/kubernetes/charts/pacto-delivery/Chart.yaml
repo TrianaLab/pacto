@@ -2,6 +2,9 @@ apiVersion: v2
 name: pacto-delivery
 description: Opt-in Pacto delivery promoter that decides which version each environment runs
 type: application
+# ValidatingAdmissionPolicy is GA from 1.30, and the promoter trusts nothing
+# an operation or approval says about who wrote it without those policies.
+kubeVersion: ">=1.30.0-0"
 version: 6.0.1
 appVersion: "6.0.1"
 keywords:

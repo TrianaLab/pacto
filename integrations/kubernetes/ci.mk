@@ -51,9 +51,11 @@ helm-template: ## Render chart templates and validate output.
 	@echo "==> Rendering with metrics disabled..."
 	helm template pacto-operator charts/pacto-operator --set metrics.enabled=false > /dev/null
 	@echo "==> Rendering the delivery chart, with and without admission policies..."
-	helm template pacto-delivery charts/pacto-delivery --debug \
-		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy > /dev/null
-	helm template pacto-delivery charts/pacto-delivery --set admissionPolicies.enabled=false > /dev/null
+	helm template pacto-delivery charts/pacto-delivery --debug > /dev/null
+	helm template pacto-delivery charts/pacto-delivery --set admissionPolicies.enabled=false \
+		--set admissionPolicies.allowUnguarded=true > /dev/null
+	@echo "==> The delivery chart refuses to render unguarded by accident..."
+	! helm template pacto-delivery charts/pacto-delivery --set admissionPolicies.enabled=false > /dev/null 2>&1
 
 .PHONY: helm-unittest
 helm-unittest: $(HELM_UNITTEST) ## Run Helm unit tests.

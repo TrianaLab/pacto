@@ -1,4 +1,7 @@
-{{- if and .Values.admissionPolicies.enabled (.Capabilities.APIVersions.Has "admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy") }}
+{{- if not (or .Values.admissionPolicies.enabled .Values.admissionPolicies.allowUnguarded) }}
+{{- fail "admissionPolicies.enabled=false leaves every actor, approver and the pointer unguarded: anyone who may create an Operation or an Approval can claim to be anyone. Set admissionPolicies.allowUnguarded=true only if you accept that." }}
+{{- end }}
+{{- if .Values.admissionPolicies.enabled }}
 {{- $fullname := include "pacto-delivery.fullname" . }}
 {{- $controller := include "pacto-delivery.controllerUser" . }}
 {{- $agents := include "pacto-delivery.celList" .Values.identities.agentGroups }}
@@ -6,7 +9,9 @@
 # An operation states who asked, and admission holds it to that: the actor is
 # the requesting user, only the promoter may set witnessed, override and
 # unfreeze are limited to their raisers, and the record finalizer is required.
-# The promoter re-checks the raiser rules itself in case this policy is absent.
+# The promoter trusts the actor in a spec only because this policy checked it:
+# it admits no operation and counts no approval while this policy or the
+# approval policy is missing.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -326,6 +331,105 @@ metadata:
     {{- include "pacto-delivery.labels" . | nindent 4 }}
 spec:
   policyName: {{ $fullname }}-records
+  validationActions: [Deny]
+{{- end }}
+---
+# The promoter itself: its RBAC may patch any OCIRepository, so admission holds
+# it to the one write it needs. It may only touch an OCIRepository a Stage
+# applies through, and only spec.ref.digest in its spec.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-promoter-writes
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [source.toolkit.fluxcd.io]
+        apiVersions: ["*"]
+        operations: [UPDATE]
+        resources: [ocirepositories]
+  matchConditions:
+    - name: promoter
+      expression: "request.userInfo.username == '{{ $controller }}'"
+  variables:
+    - name: ref
+      expression: "has(object.spec.ref) ? object.spec.ref : {}"
+    - name: oldRef
+      expression: "has(oldObject.spec.ref) ? oldObject.spec.ref : {}"
+  validations:
+    - expression: >-
+        has(oldObject.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in oldObject.metadata.labels &&
+        has(object.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in object.metadata.labels
+      message: "the promoter writes only to an OCIRepository labelled delivery.pacto.trianalab.io/apply-ref"
+      reason: Forbidden
+    - expression: >-
+        object.spec.all(k, k == 'ref' || (k in oldObject.spec && object.spec[k] == oldObject.spec[k])) &&
+        oldObject.spec.all(k, k in object.spec) &&
+        variables.ref.all(k, k == 'digest' || (k in variables.oldRef && variables.ref[k] == variables.oldRef[k])) &&
+        variables.oldRef.all(k, k == 'digest' || k in variables.ref)
+      message: "the promoter may change only spec.ref.digest"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-promoter-writes
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-promoter-writes
+  validationActions: [Deny]
+{{- if .Values.argocd.enabled }}
+---
+# The promoter on Argo CD: only an Application a Stage applies through, and
+# only spec.source.targetRevision in its spec.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-promoter-writes-argocd
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [argoproj.io]
+        apiVersions: ["*"]
+        operations: [UPDATE]
+        resources: [applications]
+  matchConditions:
+    - name: promoter
+      expression: "request.userInfo.username == '{{ $controller }}'"
+  variables:
+    - name: source
+      expression: "has(object.spec.source) ? object.spec.source : {}"
+    - name: oldSource
+      expression: "has(oldObject.spec.source) ? oldObject.spec.source : {}"
+  validations:
+    - expression: >-
+        has(oldObject.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in oldObject.metadata.labels &&
+        has(object.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in object.metadata.labels
+      message: "the promoter writes only to an Application labelled delivery.pacto.trianalab.io/apply-ref"
+      reason: Forbidden
+    - expression: >-
+        object.spec.all(k, k == 'source' || (k in oldObject.spec && object.spec[k] == oldObject.spec[k])) &&
+        oldObject.spec.all(k, k in object.spec) &&
+        variables.source.all(k, k == 'targetRevision' || (k in variables.oldSource && variables.source[k] == variables.oldSource[k])) &&
+        variables.oldSource.all(k, k == 'targetRevision' || k in variables.source)
+      message: "the promoter may change only spec.source.targetRevision"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-promoter-writes-argocd
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-promoter-writes-argocd
   validationActions: [Deny]
 {{- end }}
 {{- end }}

@@ -5,13 +5,13 @@ release:
   name: d
   namespace: pacto-delivery
 tests:
-  - it: installs four policies, each bound with Deny
+  - it: installs five policies, each bound with Deny
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     asserts:
       - hasDocuments:
-          count: 8
+          count: 10
       - equal:
           path: spec.validationActions
           value: [Deny]
@@ -82,7 +82,7 @@ tests:
       argocd.enabled: true
     asserts:
       - hasDocuments:
-          count: 10
+          count: 14
       - equal:
           path: spec.matchConstraints.resourceRules[0].resources
           value: [applications]
@@ -96,20 +96,49 @@ tests:
           pattern: "request\\.userInfo\\.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
         documentIndex: 8
 
-  - it: renders nothing when disabled
-    capabilities:
-      apiVersions:
-        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+  - it: renders nothing when disabled on purpose
     set:
       admissionPolicies.enabled: false
+      admissionPolicies.allowUnguarded: true
     asserts:
       - hasDocuments:
           count: 0
 
-  - it: renders nothing on a cluster without ValidatingAdmissionPolicy
+  - it: refuses to render unguarded by accident
+    set:
+      admissionPolicies.enabled: false
     asserts:
-      - hasDocuments:
-          count: 0
+      - failedTemplate:
+          errorPattern: "leaves every actor, approver and the pointer unguarded"
+
+  - it: renders the policies without cluster capabilities, so an offline render keeps them
+    asserts:
+      - containsDocument:
+          kind: ValidatingAdmissionPolicy
+          apiVersion: admissionregistration.k8s.io/v1
+          name: d-pacto-delivery-operation
+          any: true
+
+  - it: holds the promoter to labelled objects and the pointer field alone
+    set:
+      argocd.enabled: true
+    asserts:
+      - equal:
+          path: spec.matchConditions[0].expression
+          value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
+        documentIndex: 10
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "k == 'digest'"
+        documentIndex: 10
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources
+          value: [applications]
+        documentIndex: 12
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "k == 'targetRevision'"
+        documentIndex: 12
 
   - it: keeps the record fields to the recorder, and the recorder away from what runs
     capabilities:
@@ -119,7 +148,7 @@ tests:
       recorder.enabled: true
     asserts:
       - hasDocuments:
-          count: 10
+          count: 12
       - equal:
           path: spec.variables[0].expression
           value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery-recorder'"

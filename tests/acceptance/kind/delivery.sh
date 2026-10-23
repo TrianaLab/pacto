@@ -888,6 +888,15 @@ if grep -q "the Pacto delivery pointer" <<<"$OUT"; then
 else
   fail "the pointer admission policy let a non-break-glass edit through: $OUT"
 fi
+# The promoter's RBAC reaches every OCIRepository; admission holds it to the
+# pointer field of a labelled one.
+OUT="$(kubectl --as "system:serviceaccount:${DELIVERY_NS}:pacto-delivery" -n prod patch ocirepository payments --type merge \
+  -p '{"spec":{"url":"oci://elsewhere.example/payments"}}' 2>&1 || true)"
+if grep -q "the promoter may change only spec.ref.digest" <<<"$OUT"; then
+  pass "the promoter cannot change anything but the pointer"
+else
+  fail "the promoter changed an OCIRepository's url: $OUT"
+fi
 KUBECONFIG="$(person_kubeconfig ops pacto:break-glass)" kubectl -n prod patch ocirepository payments --type merge \
   -p "{\"spec\":{\"ref\":{\"digest\":\"$B\"}}}" >/dev/null
 OPW2="$(wait_op prod "$B" pacto.dev/override)"

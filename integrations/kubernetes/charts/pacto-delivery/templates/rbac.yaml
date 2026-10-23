@@ -14,8 +14,10 @@ metadata:
 {{- end }}
 # The promoter: it writes delivery status, raises its own operations, reads
 # Flux, Pacto and the workloads Pacto checked, and sets spec.ref.digest on the
-# OCIRepositories Stages point at. The pointer admission policy limits that one
-# write to the digest field. It holds no signing key and no registry push right.
+# OCIRepositories Stages point at. Its RBAC reaches every OCIRepository (and
+# Application); the promoter-writes admission policies narrow that to labelled
+# objects and the one pointer field. It holds no signing key and no registry
+# push right.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -33,6 +35,12 @@ rules:
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [stages/status, operations/status]
     verbs: [get, update, patch]
+  {{- if .Values.admissionPolicies.enabled }}
+  # It checks its own admission policies are installed before trusting a spec.
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [validatingadmissionpolicies, validatingadmissionpolicybindings]
+    verbs: [get, list, watch]
+  {{- end }}
   - apiGroups: [source.toolkit.fluxcd.io]
     resources: [ocirepositories]
     verbs: [get, list, watch, patch]

@@ -125,7 +125,7 @@
     "admissionPolicies": {
       "type": "object",
       "additionalProperties": false,
-      "properties": { "enabled": { "type": "boolean" } }
+      "properties": { "enabled": { "type": "boolean" }, "allowUnguarded": { "type": "boolean" } }
     },
     "podSecurityContext": { "type": "object" },
     "securityContext": { "type": "object" },
