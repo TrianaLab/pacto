@@ -147,7 +147,7 @@
     {#if e.status.phase === 'Held' && !st?.applied && st?.plan?.order?.moveFirst?.length}
       <section aria-labelledby="cd-move-first">
         <h2 id="cd-move-first" class="t-section-title">Update these first</h2>
-        <p class="t-body-2">This list is from when the change was planned. Once they run a version that accepts the new one, plan and propose this change again: this one keeps waiting for a person. Pacto never moves them for you.</p>
+        <p class="t-body-2">Pacto keeps this list current while the change waits. Each team drops out once its service runs a version that accepts the new one, and when nobody is left the change can be approved as it is. Pacto never moves them for you.</p>
         <MoveFirstList order={st.plan.order} />
       </section>
     {/if}
