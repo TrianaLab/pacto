@@ -81,6 +81,15 @@ the check: 1.0.0 passes, and 1.1.0 swaps its model, passes 14 of 20 evals and
 rolls back in test. `story` also prints the commands for
 `pacto delivery blame` and `undo` and for the agent over remote MCP.
 
+## Another cluster and Argo CD
+
+`make e2e-delivery-demo-reach` adds a second cluster, prod-us. Its payments
+Stage follows prod in the first cluster through prod's signed records, and
+Argo CD applies what it promotes. The clusters never talk to each other:
+prod-us reads the records from the registry. It takes the newest version prod
+verified and refuses 2.4.0, which failed there. See
+[Argo CD and several clusters](../integrations/kubernetes/delivery-reach.md).
+
 ## What is generated
 
 The payments workload is a stand-in (podinfo). Its telemetry comes from a span

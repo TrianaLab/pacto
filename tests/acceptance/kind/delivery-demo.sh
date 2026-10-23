@@ -14,10 +14,12 @@
 #            payments in prod, a break-glass edit is a witnessed record),
 #            then the agent beat (pay-agent ships behind its evals); it runs
 #            once per cluster.
+#   reach    phase 8: a second cluster, prod-us, follows prod through its
+#            signed records, and Argo CD applies what its promoter promotes.
 #   status   what runs where.
 #   logs     diagnostics of the cluster.
 #   down     delete the cluster and the containers beside it.
-#   all      up, story, browser and down (CI's nightly run).
+#   all      up, story, browser, reach and down (CI's nightly run).
 #
 # Keys and kubeconfigs live in tmp/delivery-demo/ (ignored by git), so every
 # subcommand finds them. Host ports 3300, 8585, 5556, 8443 and 5602 must be
@@ -943,6 +945,148 @@ cmd_browser() {
   pass "B6 to B10 and the agent beat matched examples/story, and the dashboard journeys passed against the live demo"
 }
 
+# --- reach (phase 8) ---------------------------------------------------------
+
+# A second cluster, prod-us, runs payments wherever prod (the first cluster)
+# verified it. The clusters never talk: prod-us's promoter reads prod's signed
+# records from the registry, and Argo CD, not Flux, applies what it promotes.
+US_CLUSTER=pacto-delivery-demo-us
+US_KC="$DEMO/us.kubeconfig"
+ARGOCD_VERSION=v3.5.2
+us() { KUBECONFIG="$US_KC" "$@"; }
+
+# us_registry — prod-us reaches the first cluster's registry under the same
+# name, so every reference in an artifact or a record resolves unchanged: a
+# NodePort on the first cluster, and in prod-us a Service of that name whose
+# endpoint is the first cluster's node.
+us_registry() {
+  local ip port
+  kubectl -n "$NS" expose deploy pacto-registry --name pacto-registry-np --type NodePort --port 5000 \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  port="$(kubectl -n "$NS" get svc pacto-registry-np -o jsonpath='{.spec.ports[0].nodePort}')"
+  ip="$(docker inspect -f '{{.NetworkSettings.Networks.kind.IPAddress}}' "$CLUSTER-control-plane")"
+  us kubectl -n "$NS" apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: Service
+metadata: {name: pacto-registry}
+spec: {ports: [{port: 5000, targetPort: $port}]}
+---
+apiVersion: v1
+kind: Endpoints
+metadata: {name: pacto-registry}
+subsets: [{addresses: [{ip: "$ip"}], ports: [{port: $port}]}]
+YAML
+}
+
+# us_argocd — Argo CD's core install (no API server, no UI), told to read
+# Applications in the prod namespace, to fetch the registry over plain HTTP
+# and to accept the layer type pacto publish writes (Flux's).
+us_argocd() {
+  local m img; m="$(mktemp)"
+  infra "download Argo CD $ARGOCD_VERSION" curl -fsSL --max-time 60 -o "$m" \
+    "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/core-install.yaml"
+  sed -i.bak 's/imagePullPolicy: Always/imagePullPolicy: IfNotPresent/' "$m"
+  for img in $(awk '$1 == "image:" { print $2 }' "$m" | sort -u); do
+    infra "pull $img" docker pull -q "$img" >/dev/null
+    CLUSTER="$US_CLUSTER" infra "load $img into prod-us" load_images "$img"
+  done
+  us kubectl create namespace argocd --dry-run=client -o yaml | us kubectl apply -f - >/dev/null
+  us kubectl apply -n argocd --server-side -f "$m" >/dev/null
+  crds() { us kubectl get applications.argoproj.io -A >/dev/null 2>&1 && us kubectl get appprojects.argoproj.io -A >/dev/null 2>&1; }
+  eventually 40 crds || fail "Argo CD's kinds never reached discovery"
+  us kubectl -n argocd scale deploy argocd-applicationset-controller --replicas=0 >/dev/null 2>&1 || true
+  us kubectl -n argocd patch configmap argocd-cmd-params-cm --type merge -p '{"data":{"application.namespaces":"prod",
+    "reposerver.oci.layer.media.types":"application/vnd.oci.image.layer.v1.tar,application/vnd.oci.image.layer.v1.tar+gzip,application/vnd.cncf.flux.content.v1.tar+gzip"}}' >/dev/null
+  us kubectl -n argocd rollout restart statefulset/argocd-application-controller deploy/argocd-repo-server >/dev/null
+  us kubectl apply -f - >/dev/null <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata: {name: default, namespace: argocd}
+spec:
+  sourceRepos: ['*']
+  sourceNamespaces: [prod]
+  destinations: [{server: '*', namespace: '*'}]
+  clusterResourceWhitelist: [{group: '*', kind: '*'}]
+---
+apiVersion: v1
+kind: Secret
+metadata: {name: story-deploy-payments, namespace: argocd, labels: {argocd.argoproj.io/secret-type: repository}}
+stringData: {name: payments, type: oci, url: "oci://${REG_HOST}/story/deploy/payments", insecureOCIForceHttp: "true"}
+YAML
+  infra "roll out Argo CD's repo server" us kubectl -n argocd rollout status deploy/argocd-repo-server --timeout=300s
+  infra "roll out Argo CD's controller" us kubectl -n argocd rollout status statefulset/argocd-application-controller --timeout=300s
+}
+
+cmd_reach() {
+  admin
+  [ -s "$DEMO/digests/payments-2.3.0" ] || fail "the demo's starting point is missing: run 'make e2e-delivery-demo-up'"
+  kind get clusters 2>/dev/null | grep -qx "$US_CLUSTER" && fail "prod-us is already up: 'make e2e-delivery-demo-down' and up again to replay it"
+  local ver stream op_chart dl_chart d trust
+  ver="$(release_version kubernetes)"
+  stream="$(kubectl -n prod get stage payments -o jsonpath='{.status.stream.id}')"
+  [ -n "$stream" ] || fail "payments prod has no record stream yet"
+
+  section "prod-us: a second cluster with Argo CD, the Pacto operator and the promoter"
+  kind create cluster --name "$US_CLUSTER" --kubeconfig "$US_KC" --wait 90s >/dev/null || fail "kind could not create prod-us"
+  CLUSTER="$US_CLUSTER" infra "load the images into prod-us" load_images "localhost:5001/pacto-operator/pacto-controller:$ver" \
+    "localhost:5001/pacto-delivery:$ver" "${PODINFO_IMG%@*}"
+  local n
+  for n in "$NS" "$DELIVERY_NS" prod; do us kubectl create namespace "$n" --dry-run=client -o yaml | us kubectl apply -f - >/dev/null; done
+  us_registry
+  us_argocd
+  op_chart="$(package_chart "$PACTO_CHART")"
+  dl_chart="$(package_chart "$ROOT/integrations/kubernetes/charts/pacto-delivery")"
+  # The first cluster's recorder key, trusted for that one stream only.
+  trust="$(jq -n --arg k "$(cat "$KEYS/recorder.pub")" --arg s "$stream" '{keys: [{name: "prod-recorder", publicKey: $k, streams: [$s]}]}')"
+  us helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set image.repository=localhost:5001/pacto-operator/pacto-controller \
+    --set image.tag="$ver" --set image.pullPolicy=Never --set "insecureRegistries[0]=$REG_HOST" --wait --timeout 240s >/dev/null \
+    || fail "the pacto-operator chart did not roll out in prod-us"
+  us helm upgrade --install pacto-delivery "$dl_chart" -n "$DELIVERY_NS" --set image.repository=localhost:5001/pacto-delivery \
+    --set image.tag="$ver" --set image.pullPolicy=Never --set "insecureRegistries[0]=$REG_HOST" --set promoter.poll=2s \
+    --set argocd.enabled=true --set-string promoter.upstreamTrust="$trust" --wait --timeout 240s >/dev/null \
+    || fail "the pacto-delivery chart did not roll out in prod-us"
+
+  section "payments in prod-us follows prod through its signed records, applied by Argo CD"
+  us kubectl apply -f - >/dev/null <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: payments, namespace: prod, labels: {delivery.pacto.trianalab.io/apply-ref: "true"}}
+spec:
+  project: default
+  source: {repoURL: "oci://${REG_HOST}/story/deploy/payments", path: .}
+  destination: {server: https://kubernetes.default.svc, namespace: prod}
+  syncPolicy: {automated: {}}
+---
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Stage
+metadata: {name: payments, namespace: prod}
+spec:
+  service: {name: payments}
+  environment: prod-us
+  applyRef: {kind: Application, name: payments}
+  candidates: {upstreamRecords: {repository: "${REG_HOST}/pacto-delivery-streams", stream: "$stream"}}
+  auto: true
+YAML
+  d="$(digest_of payments 2.3.0)"
+  us_runs() { [ "$(us kubectl -n prod get stage payments -o jsonpath='{.status.pointer}')" = "$d" ]; }
+  eventually 150 us_runs || fail "prod-us never took payments 2.3.0: $(us kubectl -n prod get stage payments -o jsonpath='{.status.conditions}')"
+  synced() { us kubectl -n prod get application payments -o json | jq -e --arg d "$d" \
+    '.status.sync.status == "Synced" and .status.health.status == "Healthy" and (.status.sync.revision | endswith($d | ltrimstr("sha256:")))' >/dev/null; }
+  eventually 90 synced || fail "Argo CD never applied payments 2.3.0: $(us kubectl -n prod get application payments -o jsonpath='{.status.sync}')"
+  [ "$(us kubectl -n prod get deploy payments -o jsonpath='{.spec.template.metadata.labels.app\.kubernetes\.io/version}')" = 2.3.0 ] \
+    || fail "prod-us does not run payments 2.3.0"
+  pass "prod-us runs payments 2.3.0, the version prod verified, and Argo CD applied it"
+  if [ -s "$DEMO/digests/payments-2.4.0" ]; then
+    local bad; bad="$(digest_of payments 2.4.0)"
+    us "$PACTO" delivery propose -n prod --stage payments --to "$bad" --name payments-2-4-0 --reason "2.4.0 failed in prod" >/dev/null \
+      || fail "could not propose payments 2.4.0 in prod-us"
+    refused() { [ "$(us kubectl -n prod get operation payments-2-4-0 -o jsonpath='{.status.outcome}')" = Rejected ]; }
+    eventually 60 refused || fail "prod-us did not refuse payments 2.4.0: $(us kubectl -n prod get operation payments-2-4-0 -o jsonpath='{.status}')"
+    pass "prod-us refuses payments 2.4.0: $(us kubectl -n prod get operation payments-2-4-0 -o jsonpath='{.status.message}')"
+  fi
+  echo; echo "REACH PASS: prod-us followed prod through signed records, applied by Argo CD"
+}
+
 # --- next steps --------------------------------------------------------------
 
 next_steps() {
@@ -1006,6 +1150,7 @@ cmd_status() {
 
 cmd_down() {
   docker rm -f "${IDP_CONTAINERS[@]}" >/dev/null 2>&1 || true
+  CLUSTER="$US_CLUSTER" down_cluster
   down_cluster
   rm -rf "$DEMO"
 }
@@ -1014,13 +1159,14 @@ case "$CMD" in
   up) trap 'rc=$?; stop_pf; [ $rc -eq 0 ] || { dump_diag "$NS"; dump_identity; }; exit $rc' EXIT; cmd_up ;;
   story) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_story ;;
   browser) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_browser ;;
+  reach) cmd_reach ;;
   status) cmd_status ;;
   logs) admin; dump_diag "$NS"; dump_identity; kubectl -n "$DELIVERY_NS" logs deploy/pacto-delivery --tail=100 2>&1 || true ;;
   down) cmd_down ;;
   all)
-    rc=0; { bash "$0" up && bash "$0" story && bash "$0" browser; } || rc=$?
+    rc=0; { bash "$0" up && bash "$0" story && bash "$0" browser && bash "$0" reach; } || rc=$?
     # A failed run in CI keeps the cluster for scripts/ci/kind-diagnostics.sh.
     { [ -n "${CI:-}" ] && [ $rc -ne 0 ]; } || bash "$0" down
     exit $rc ;;
-  *) echo "usage: $0 up|story|status|logs|browser|down|all"; exit 2 ;;
+  *) echo "usage: $0 up|story|status|logs|browser|reach|down|all"; exit 2 ;;
 esac

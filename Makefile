@@ -30,7 +30,7 @@ IMAGE := ghcr.io/trianalab/pacto/dashboard
         e2e-runtime-conformance-kind-logs e2e-runtime-conformance-kind-down \
         e2e-runtime-docker e2e-runtime-run \
         e2e-delivery-demo e2e-delivery-demo-up e2e-delivery-demo-story e2e-delivery-demo-status \
-        e2e-delivery-demo-logs e2e-delivery-demo-browser e2e-delivery-demo-down \
+        e2e-delivery-demo-logs e2e-delivery-demo-browser e2e-delivery-demo-reach e2e-delivery-demo-down \
         e2e-dashboard-kind-browser e2e-all-operational-graph test-browser-docs-site \
         generate-dashboard-openapi generate-dashboard-sdk check-dashboard-sdk-drift \
         bpf-generate test-ebpf
@@ -209,8 +209,9 @@ e2e-runtime-conformance-kind-down:
 	bash tests/acceptance/kind/runtime-conformance.sh down
 
 # The Kubernetes delivery demo (docs/examples/kubernetes-demo.md): -up leaves it
-# running, -story plays the payments story, -browser runs B6 and the dashboard
-# journeys, -down removes it. e2e-delivery-demo runs them all, as CI does nightly.
+# running, -story plays the payments story, -browser runs B6 to B10, the agent
+# beat and the dashboard journeys, -reach adds prod-us (a second cluster, applied
+# by Argo CD, following prod through signed records), -down removes it. e2e-delivery-demo runs them all, as CI does nightly.
 e2e-delivery-demo: test-acceptance-kind-delivery-demo
 e2e-delivery-demo-up:
 	bash tests/acceptance/kind/delivery-demo.sh up
@@ -222,6 +223,8 @@ e2e-delivery-demo-logs:
 	bash tests/acceptance/kind/delivery-demo.sh logs
 e2e-delivery-demo-browser:
 	bash tests/acceptance/kind/delivery-demo.sh browser
+e2e-delivery-demo-reach:
+	bash tests/acceptance/kind/delivery-demo.sh reach
 e2e-delivery-demo-down:
 	bash tests/acceptance/kind/delivery-demo.sh down
 
