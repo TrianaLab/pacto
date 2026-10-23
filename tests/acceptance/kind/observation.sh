@@ -186,7 +186,7 @@ kubectl -n "$NS" get deployment pacto-dashboard -o json \
 echo "== declared services: orders declares a dependency on checkout =="
 kubectl create namespace "$DEMO_NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 for svc in checkout orders; do
-  kubectl -n "$DEMO_NS" create deployment "$svc" --image=registry.k8s.io/pause:3.9 >/dev/null 2>&1 || true
+  kubectl -n "$DEMO_NS" create deployment "$svc" --image=registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097 >/dev/null 2>&1 || true
 done
 kubectl -n "$DEMO_NS" rollout status deployment/checkout --timeout=90s
 kubectl -n "$DEMO_NS" rollout status deployment/orders --timeout=90s

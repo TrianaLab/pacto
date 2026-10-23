@@ -14,6 +14,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
 // DeliveryAPI is Pacto delivery as one caller sees it. A live host binds it to
@@ -603,9 +604,7 @@ func (s *Server) deliveryPublished(ctx context.Context, _ *struct{}) (*published
 			if v == nil {
 				r := api.Describe(ctx, &st, d)
 				v = &PublishedVersion{Digest: d, Contract: r.ContractRef, Stages: []PublishedOnStages{}}
-				if r.Bundle != nil {
-					v.Version = r.Bundle.Contract.Service.Version
-				}
+				v.Version = version(ctx, r)
 				byService[svc][d] = v
 			}
 			v.Signed = v.Signed || slices.Contains(ss.Published, d)
@@ -718,11 +717,35 @@ func versions(ctx context.Context, api DeliveryAPI, stage *delivery.StageObject,
 		if _, known := into[d]; known || d == "" {
 			continue
 		}
-		if b := api.Describe(ctx, stage, d).Bundle; b != nil {
-			into[d] = b.Contract.Service.Version
+		if v := version(ctx, api.Describe(ctx, stage, d)); v != "" {
+			into[d] = v
 		}
 	}
 	return into
+}
+
+// version is the version a revision's contract declares; "" when it has
+// none, with the reason logged when its artifact could not be read. An
+// artifact that names no contract is not a failure and logs nothing.
+func version(ctx context.Context, r delivery.Revision) string {
+	if r.Bundle == nil {
+		if r.Err != "" && !r.NoContract {
+			logging.LoggerFromContext(ctx).Warn("reading the version of a digest", "digest", r.Digest, "err", r.Err)
+		}
+		return ""
+	}
+	return r.Bundle.Contract.Service.Version
+}
+
+// stageVersions is versions for the digests of a change on a Stage read by
+// name; nil, with the reason logged, when the Stage cannot be read.
+func stageVersions(ctx context.Context, api DeliveryAPI, namespace, stage string, digests ...string) map[string]string {
+	st, err := api.Stage(ctx, namespace, stage)
+	if err != nil {
+		logging.LoggerFromContext(ctx).Warn("reading a Stage to name versions", "namespace", namespace, "stage", stage, "err", err)
+		return nil
+	}
+	return versions(ctx, api, st, nil, digests...)
 }
 
 // maxPeople bounds the names a dashboard remembers.
@@ -794,10 +817,8 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 	out := &operationOutput{}
 	out.Body.Explanation, out.Body.Operation = e, op
 	out.Body.Actions = s.actions(ctx, op, e.Stage, caller)
-	if st, err := api.Stage(ctx, in.Namespace, op.Spec.Stage); err == nil {
-		out.Body.Versions = versions(ctx, api, st, nil, op.Spec.Params.From, op.Spec.Params.To, op.Status.Pointer.Before,
-			op.Status.Pointer.After, e.Stage.Pointer)
-	}
+	out.Body.Versions = stageVersions(ctx, api, in.Namespace, op.Spec.Stage, op.Spec.Params.From, op.Spec.Params.To,
+		op.Status.Pointer.Before, op.Status.Pointer.After, e.Stage.Pointer)
 	people := []string{op.Spec.Actor.User}
 	if op.Spec.OnBehalfOf != nil {
 		people = append(people, op.Spec.OnBehalfOf.User)
@@ -845,9 +866,7 @@ func (s *Server) deliveryBlame(ctx context.Context, in *blameInput) (*blameOutpu
 	for _, a := range b.Approvals {
 		people = append(people, a.By)
 	}
-	if st, err := api.Stage(ctx, in.Namespace, in.Stage); err == nil {
-		out.Body.Versions = versions(ctx, api, st, nil, digests...)
-	}
+	out.Body.Versions = stageVersions(ctx, api, in.Namespace, in.Stage, digests...)
 	out.Body.People = s.named(people...)
 	return out, nil
 }
@@ -880,9 +899,7 @@ func (s *Server) deliveryUndo(ctx context.Context, in *undoInput) (*undoOutput, 
 	out := &undoOutput{}
 	out.Body.Undo = *u
 	if p := u.Plan; p != nil && in.Stage != "" {
-		if st, err := api.Stage(ctx, in.Namespace, in.Stage); err == nil {
-			out.Body.Versions = versions(ctx, api, st, nil, p.From, p.To)
-		}
+		out.Body.Versions = stageVersions(ctx, api, in.Namespace, in.Stage, p.From, p.To)
 	}
 	return out, nil
 }

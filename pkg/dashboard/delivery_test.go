@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
 const (
@@ -167,7 +169,36 @@ func (f *fakeDelivery) Describe(_ context.Context, _ *delivery.StageObject, dige
 	if v, ok := f.known[digest]; ok {
 		return delivery.Revision{Digest: digest, Bundle: &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Version: v}}}}
 	}
-	return delivery.Revision{Digest: digest}
+	if digest == "sha256:unreadable" {
+		return delivery.Revision{Digest: digest, Err: "registry down"}
+	}
+	// What the real Describe returns for an artifact pacto publish did not make.
+	return delivery.Revision{Digest: digest, Err: "the artifact has no digest-pinned annotation", NoContract: true}
+}
+
+// A version the dashboard cannot name says why in its log: an artifact it
+// could not read, or a Stage it could not read. An artifact read that names
+// no contract is not a failure and logs nothing.
+func TestVersionsLogWhyTheyAreUnknown(t *testing.T) {
+	var buf bytes.Buffer
+	ctx := logging.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, nil)))
+	st := stage("prod", "payments", "payments", delivery.StageStatus{})
+	f := &fakeDelivery{stages: []delivery.StageObject{st}}
+	if v := versions(ctx, f, &st, nil, dRun, "sha256:unreadable", dNext); len(v) != 1 || v[dRun] != "1.0.0" {
+		t.Fatalf("versions = %v", v)
+	}
+	if got := buf.String(); !strings.Contains(got, "digest=sha256:unreadable") || !strings.Contains(got, `err="registry down"`) ||
+		strings.Contains(got, dNext) || strings.Contains(got, dRun) {
+		t.Fatalf("log = %q", got)
+	}
+	buf.Reset()
+	if v := stageVersions(ctx, f, "prod", "payments", dRun); v[dRun] != "1.0.0" || buf.Len() != 0 {
+		t.Fatalf("versions = %v, log = %q", v, buf.String())
+	}
+	f.stageErr = errors.New("forbidden")
+	if v := stageVersions(ctx, f, "prod", "payments", dRun); v != nil || !strings.Contains(buf.String(), "stage=payments err=forbidden") {
+		t.Fatalf("versions = %v, log = %q", v, buf.String())
+	}
 }
 
 func stage(ns, name, service string, st delivery.StageStatus) delivery.StageObject {

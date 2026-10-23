@@ -212,9 +212,9 @@ func TestInstallRegistryLoadsThroughTheSharedBoundary(t *testing.T) {
 		t.Fatal("install_registry has no closing brace")
 	}
 	for _, want := range []string{
-		`docker pull "$PACTO_REGISTRY_IMAGE"`,
-		`load_images "$PACTO_REGISTRY_IMAGE"`,
-		"image: $PACTO_REGISTRY_IMAGE",
+		`pull_pinned "$PACTO_REGISTRY_IMAGE"`,
+		`load_images "${PACTO_REGISTRY_IMAGE%@*}"`,
+		"image: ${PACTO_REGISTRY_IMAGE%@*}",
 	} {
 		if !strings.Contains(fn, want) {
 			t.Errorf("install_registry must contain %q so one pin covers pull, load and deploy", want)
@@ -246,5 +246,13 @@ func TestInClusterRegistrySupportsNativeReferrers(t *testing.T) {
 	}
 	if !strings.Contains(body, `PACTO_REGISTRY_IMAGE="ghcr.io/project-zot/zot-minimal:`) {
 		t.Error("PACTO_REGISTRY_IMAGE must pin a registry with a native Referrers API")
+	}
+	// One registry pin for Kind and Compose, by tag and index digest: a tag
+	// moved upstream must not change what either run tests.
+	compose := code(t, filepath.Join(kindDir(t), "..", "scenario", "compose.go"))
+	_, pin, _ := strings.Cut(compose, `ComposeDefaultRegistryImage = "`)
+	pin, _, _ = strings.Cut(pin, `"`)
+	if !strings.Contains(pin, "@sha256:") || !strings.Contains(body, `PACTO_REGISTRY_IMAGE="`+pin+`"`) {
+		t.Errorf("PACTO_REGISTRY_IMAGE must be the Compose demo's digest-pinned registry %q", pin)
 	}
 }

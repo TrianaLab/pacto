@@ -40,12 +40,12 @@ func FoldStream(recs []StoredRecord) Fold {
 		seq := p.Chain.Seq
 		switch {
 		case prev != nil && seq == lastSeq:
-			f.Problems = append(f.Problems, fmt.Sprintf("seq %d has two records, %s and %s: the stream forked", seq, prev.ID, r.ID))
+			f.Problems = append(f.Problems, fmt.Sprintf("seq %d has two records, %s and %s: the stream forked", seq, short(prev.ID), short(r.ID)))
 			continue
 		case seq > lastSeq+1:
 			f.Problems = append(f.Problems, fmt.Sprintf("%s missing: the registry holds no record for them", seqRange(lastSeq+1, seq-1)))
 		case prev != nil && p.Chain.Parent != prev.ID:
-			f.Problems = append(f.Problems, fmt.Sprintf("the record at seq %d does not chain from %s at seq %d", seq, prev.ID, lastSeq))
+			f.Problems = append(f.Problems, fmt.Sprintf("the record at seq %d does not chain from %s at seq %d", seq, short(prev.ID), lastSeq))
 		case prev == nil && seq == 1 && p.Chain.Parent != "":
 			f.Problems = append(f.Problems, fmt.Sprintf("the record at seq 1 names a parent, %s, so older history is missing", p.Chain.Parent))
 		}
@@ -74,7 +74,7 @@ func checkMove(p RecordPredicate, lastAfter string) (after, problem string) {
 		return lastAfter, ""
 	case lastAfter != "" && o.Pointer.Before != lastAfter:
 		problem = fmt.Sprintf("seq %d moved the Stage from %s, but the change before it left %s: "+
-			"something moved it with no record", p.Chain.Seq, o.Pointer.Before, lastAfter)
+			"something moved it with no record", p.Chain.Seq, short(o.Pointer.Before), short(lastAfter))
 	}
 	return o.Pointer.After, problem
 }

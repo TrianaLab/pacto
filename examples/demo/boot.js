@@ -209,7 +209,7 @@
     // Its gates read the engine's own answers rather than the DOM, through the same
     // __pactoServe the dashboard calls, so a gate means the story moved, not that a
     // label rendered.
-    var DELIVERY_NOTICE = "Simulated delivery: no cluster and no promoter. Plans, checks and signatures are Pacto's own code on the payments story's fixed data, records are signed with a key made in this tab, and what you do here is lost on reload.";
+    var DELIVERY_NOTICE = "Simulated delivery: no cluster and no promoter. Plans, checks and signatures are Pacto's own code on the payments story's fixed data (the health results and what the node agent saw are recorded too), records are signed with a key made in this tab, and what you do here is lost on reload.";
 
     function serve(method, path, body) {
       if (typeof window.__pactoServe !== "function") { return null; }

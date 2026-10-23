@@ -45,7 +45,7 @@ AGENT_NS=pacto-node-agent
 APP=conf
 REG_HOST="pacto-registry.${NS}.svc.cluster.local:5000"
 LOCAL_REG_PORT=5597
-AGNHOST="registry.k8s.io/e2e-test-images/agnhost:2.53"
+AGNHOST="registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85"
 NRO=noderuntimeobservations.pacto.trianalab.io
 # shellcheck source=tests/acceptance/kind/lib.sh
 source "$(dirname "$0")/lib.sh"
@@ -141,7 +141,7 @@ echo "== package the chart =="
 CHART="$(package_chart "$PACTO_CHART")"
 
 ensure_cluster
-docker pull "$AGNHOST" >/dev/null
+pull_pinned "$AGNHOST"; AGNHOST="${AGNHOST%@*}"
 load_images "$OP_IMG" "$DASH_IMG" "$AGNHOST"
 
 # The node agent needs hostPID and BPF capabilities, which only the privileged Pod

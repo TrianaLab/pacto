@@ -80,7 +80,7 @@
   <PageHeader
     eyebrow="Change"
     title={e ? `${typeLabel(e.spec.type)} on ${namespace}/${e.spec.stage}` : `${namespace}/${name}`}
-    subtitle={shortDigests(e?.summary)}
+    subtitle={shortDigests(e?.summary, data?.versions)}
     revalidating={!!data && loader.loading}
   />
   <DeliveryNav current="" />
@@ -98,13 +98,13 @@
       <span class="badge badge-neutral">{e.status.phase}</span>
       {#if e.status.outcome}<span class="badge {e.status.outcome === 'Succeeded' ? 'badge-ok' : e.status.outcome === 'Failed' || e.status.outcome === 'Errored' ? 'badge-err' : 'badge-neutral'}">{e.status.outcome}</span>{/if}
       {#if e.status.verification}<span class="badge badge-info">{e.status.verification}</span>{/if}
-      {#if e.status.reason}<span class="t-body-2">{e.status.reason}{#if e.status.message}: {e.status.message}{/if}</span>{/if}
+      {#if e.status.reason}<span class="t-body-2">{e.status.reason}{#if e.status.message}: {shortDigests(e.status.message)}{/if}</span>{/if}
     </section>
 
     <dl class="cd-facts t-body-2">
-      <dt>Environment</dt><dd><a href={deliveryHistoryUrl({ namespace, stage: e.spec.stage })}>{namespace}/{e.spec.stage}</a>{#if e.stage.frozen}{' '}(paused{#if e.stage.frozenReason}: {e.stage.frozenReason}{/if}){/if}</dd>
+      <dt>Environment</dt><dd><a href={deliveryHistoryUrl({ namespace, stage: e.spec.stage })}>{namespace}/{e.spec.stage}</a>{#if e.stage.frozen}{' '}(paused{#if e.stage.frozenReason}: {shortDigests(e.stage.frozenReason)}{/if}){/if}</dd>
       {#each [['From', e.spec.params?.from], ['To', e.spec.params?.to]] as [label, d] (label)}
-        {#if d}<dt>{label}</dt><dd>{#if data.versions?.[d]}{data.versions[d]}{' '}{/if}<code class="cd-digest" title={d}>{shortDigest(d)}</code></dd>{/if}
+        {#if d}<dt>{label}</dt><dd>{#if data.versions?.[d]}{data.versions[d]}{' '}{/if}<code class="cd-digest" title={d}>{shortDigest(d)}</code>{#if !data.versions?.[d]}{' '}<span class="cd-digest">(version unknown)</span>{/if}</dd>{/if}
       {/each}
       <dt>Asked by</dt><dd><Person user={e.spec.actor.user} people={data?.people} {me} />{#if e.status.actorClass}{` (${e.status.actorClass})`}{/if}{#if e.spec.onBehalfOf?.user}, for <Person user={e.spec.onBehalfOf.user} people={data?.people} {me} />{/if}</dd>
       {#if e.spec.reason}<dt>Why</dt><dd>{e.spec.reason}</dd>{/if}

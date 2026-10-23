@@ -33,7 +33,8 @@ REG_HOST="pacto-registry.${NS}.svc.cluster.local:5000"
 LOCAL_REG_PORT=5602
 FLUX_VERSION=v2.9.5
 FLUX_INSTALL_SHA256=cc3dcd743af16215838b6937e1fce83745bf24c0dcc6c59737c59df15429caaf
-FLUX_IMAGES=(ghcr.io/fluxcd/source-controller:v1.9.5 ghcr.io/fluxcd/kustomize-controller:v1.9.5)
+FLUX_IMAGES=(ghcr.io/fluxcd/source-controller:v1.9.5@sha256:6f20d232d596a758c923d2861f23511718fc303b8a2e36a1434a7c736b9f4268
+  ghcr.io/fluxcd/kustomize-controller:v1.9.5@sha256:a3a955eb2bc432c2eaa94d2d3714e3beae7fdf17586fd23aadf71ab597ac3339)
 MIRA_IMG=ghcr.io/trianalab/mira:0.4.3@sha256:2fc95e0d4c8ffa38aa2de1a2389c98eb83e020ab7a1719ca27db90a62794fbcc
 PODINFO_IMG=ghcr.io/stefanprodan/podinfo:6.7.1@sha256:862ca45e61b32392f7941a1bdfdbe5ff8b6899070135f1bdca1c287d0057fc94
 PYTHON_IMG=python:3.13-alpine@sha256:bf12ecc0bea3f171d55145dd02c78b5eeb09f30ee2ac9cc2b4c9e4e8f5e30741
@@ -289,8 +290,8 @@ cmd_up() {
     curl -fsSL --retry 2 --max-time 60 -o "$flux" "https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/install.yaml"
   [ "$(shasum -a 256 "$flux" | cut -d' ' -f1)" = "$FLUX_INSTALL_SHA256" ] || fail "the Flux install manifest changed upstream"
   local img
-  for img in "${FLUX_IMAGES[@]}" "$DEX_IMG" "$KC_IMG"; do infra "pull $img" docker pull -q "$img" >/dev/null; done
-  for img in "$MIRA_IMG" "$PODINFO_IMG" "$PYTHON_IMG"; do pull_pinned "$img"; done
+  for img in "$DEX_IMG" "$KC_IMG"; do infra "pull $img" docker pull -q "$img" >/dev/null; done
+  for img in "${FLUX_IMAGES[@]}" "$MIRA_IMG" "$PODINFO_IMG" "$PYTHON_IMG"; do pull_pinned "$img"; done
   go build -o "$PACTO" "$ROOT/cmd/pacto" || fail "pacto did not build"
   ( cd "$ROOT" && go build -o "$OIDC_BIN" ./tests/acceptance/kind/oidclogin ) || fail "the login helper did not build"
   local op_chart dl_chart
@@ -300,7 +301,7 @@ cmd_up() {
 
   timed "wait for the cluster" ensure_cluster "$cfg"
   cp "$KUBECONFIG" "$ADMIN_KC"; export KUBECONFIG="$ADMIN_KC"
-  infra "load the images into the cluster" load_images "$OP_IMG" "$DL_IMG" "$DASH_IMG" "${FLUX_IMAGES[@]}" \
+  infra "load the images into the cluster" load_images "$OP_IMG" "$DL_IMG" "$DASH_IMG" "${FLUX_IMAGES[@]%@*}" \
     "${MIRA_IMG%@*}" "${PODINFO_IMG%@*}" "${PYTHON_IMG%@*}"
   local n
   for n in "$NS" "$DELIVERY_NS" test prod agents; do kubectl create namespace "$n" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; done

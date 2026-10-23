@@ -83,7 +83,7 @@
             {#each frozen as row (row.namespace + '/' + row.stage)}
               <li class="pl-row dl-row">
                 <a class="dl-title" href={deliveryHistoryUrl({ namespace: row.namespace, stage: row.stage })}>{row.service} in {row.environment}</a>
-                <p class="t-body-2">Paused{#if row.frozenReason}: {row.frozenReason}{/if}. Nothing moves here until someone unpauses it.</p>
+                <p class="t-body-2">Paused{#if row.frozenReason}: {shortDigests(row.frozenReason)}{/if}. Nothing moves here until someone unpauses it.</p>
               </li>
             {/each}
           </ul>

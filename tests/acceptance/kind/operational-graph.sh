@@ -43,7 +43,7 @@ LOCAL_REG_PORT=5601
 LOCAL_EV_PORT=8687
 # The workload that really serves its interface: with the node agent watching
 # the kernel, a pause container bound to a port would be caught as deaf.
-AGNHOST="registry.k8s.io/e2e-test-images/agnhost:2.53"
+AGNHOST="registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85"
 # shellcheck source=tests/acceptance/kind/lib.sh
 source "$(dirname "$0")/lib.sh"
 
@@ -99,7 +99,7 @@ echo "== package the operator chart =="
 CHART="$(package_chart "$PACTO_CHART")"
 
 ensure_cluster
-"$ROOT/release/scripts/retry.sh" docker pull -q "$AGNHOST" >/dev/null
+pull_pinned "$AGNHOST"; AGNHOST="${AGNHOST%@*}"
 load_images "$DASH_IMG" "$OP_IMG" "$AGNHOST"
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
@@ -230,7 +230,7 @@ while IFS=$'\t' read -r service deployment port mode extra; do
     serve) kubectl -n "$DEMO_NS" create deployment "$deployment" --image="$AGNHOST" --port="$port" \
              -- /agnhost netexec --http-port="$port" >/dev/null 2>&1 || true
            statuses+=(Compliant) ;;
-    idle|deaf) kubectl -n "$DEMO_NS" create deployment "$deployment" --image=registry.k8s.io/pause:3.9 >/dev/null 2>&1 || true
+    idle|deaf) kubectl -n "$DEMO_NS" create deployment "$deployment" --image=registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097 >/dev/null 2>&1 || true
            if [ "$mode" = deaf ]; then statuses+=(NonCompliant); else statuses+=(Compliant); fi ;;
     *) fail "unknown workload mode $mode in $PLAN" ;;
   esac

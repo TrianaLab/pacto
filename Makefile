@@ -363,7 +363,7 @@ docker-run: docker-build
 # compiled in a pinned Linux image; the output (internal/runtimewatch/ebpf/
 # sockstate_bpfel.*) is committed, so neither CI nor the image build needs clang.
 BPF2GO_VERSION ?= v0.22.0
-BPF_BUILDER_IMAGE ?= golang:1.26.9-trixie
+BPF_BUILDER_IMAGE ?= golang:1.26.9-trixie@sha256:f06b7122f888680048afb247c4e5f49c0069eb6c4c1ccae0f3f4834527a8d22c
 RUNTIMEWATCH_EBPF_DIR := internal/runtimewatch/ebpf
 
 bpf-generate: ## Regenerate the agent's eBPF object and Go bindings (needs Docker).
