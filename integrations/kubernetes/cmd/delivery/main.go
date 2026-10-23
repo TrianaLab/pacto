@@ -74,6 +74,8 @@ func runPromoter(args []string) error {
 		"A contract owner team T is identity-provider group T, or this prefix plus T. "+
 			"Only members of the teams a question names may answer it.")
 	poll := fs.Duration("poll", 3*time.Second, "How often an operation waiting on Flux, Pacto or a person is looked at.")
+	authFreshness := fs.Duration("auth-freshness", core.AuthFreshness,
+		"How old a person's login may be when their approval is given; an older one is ignored.")
 	records := fs.Bool("records", false,
 		"The recorder runs: leave the record finalizer of every operation that got a seq to it.")
 	recordedTTL := fs.Duration("recorded-ttl", 0,
@@ -117,7 +119,7 @@ func runPromoter(args []string) error {
 	}}
 	gates := delivery.NewGates(cluster, configured)
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
-		Policy: policy, Gates: gates, Now: time.Now, Poll: *poll, Records: *records,
+		Policy: policy, Gates: gates, Now: time.Now, Poll: *poll, Records: *records, Freshness: *authFreshness,
 		RecordedTTL: *recordedTTL}).SetupWithManager(mgr); err != nil {
 		return err
 	}

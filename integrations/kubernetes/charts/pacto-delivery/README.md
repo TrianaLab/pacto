@@ -58,6 +58,7 @@ same version as your Pacto operator.
 | nodeSelector | object | `{}` | Node selector for the promoter pod |
 | podSecurityContext.runAsNonRoot | bool | `true` | Run pod as non-root |
 | podSecurityContext.seccompProfile.type | string | `"RuntimeDefault"` | Seccomp profile type |
+| promoter.authFreshness | string | `"15m"` | How old a person's login may be when their approval is given; an older one is ignored (a Go duration) |
 | promoter.leaderElect | bool | `true` | Elect one active promoter |
 | promoter.poll | string | `"3s"` | How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration) |
 | recorder.cdeventsSink | string | `""` | A URL the recorder POSTs a CDEvent (CloudEvents, structured mode) to for every record, best effort. Empty sends none. |

@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package delivery
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -62,6 +63,9 @@ type OperationReconciler struct {
 	// RecordedTTL deletes a recorded operation this long after it concluded;
 	// zero keeps every operation.
 	RecordedTTL time.Duration
+	// Freshness is how old a login may be when its approval is given; zero
+	// means delivery.AuthFreshness.
+	Freshness time.Duration
 }
 
 // conclusion is how an operation ends.
@@ -484,7 +488,7 @@ func (r *OperationReconciler) refreshOrder(ctx context.Context, op *dv1.Operatio
 // approval consumes the first valid, not yet consumed Approval for op. A valid
 // one is bound to this uid and intent digest, comes from a person who is
 // neither the actor nor whoever the actor acts for, belongs to a team the
-// question was routed to (floor.owners) and was given within delivery.AuthFreshness of
+// question was routed to (floor.owners) and was given within r.Freshness of
 // that person's login. The groups are the ones admission bound to the user.
 func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) *delivery.ApprovalRecord {
 	var owners []string
@@ -502,7 +506,7 @@ func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) *
 		if consumed || s.OperationUID != string(op.UID) || s.IntentDigest != op.Spec.IntentDigest ||
 			s.By == op.Spec.Actor.User || op.Spec.OnBehalfOf != nil && s.By == op.Spec.OnBehalfOf.User ||
 			!r.Policy.IsHuman(delivery.Identity{User: s.By, Groups: s.Groups}) || !r.Policy.InTeams(s.Groups, owners) ||
-			!fresh(s.AuthTime, a.CreationTimestamp.Time) {
+			!fresh(s.AuthTime, a.CreationTimestamp.Time, cmp.Or(r.Freshness, delivery.AuthFreshness)) {
 			continue
 		}
 		rec := delivery.ApprovalRecord{Name: a.Name, By: s.By, Decision: s.Decision, Note: s.Note, AuthTime: s.AuthTime}
@@ -513,11 +517,11 @@ func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) *
 }
 
 // fresh reports whether a login at authTime (RFC 3339 or Unix seconds) was at
-// most delivery.AuthFreshness before at.
-func fresh(authTime string, at time.Time) bool {
+// most limit before at.
+func fresh(authTime string, at time.Time, limit time.Duration) bool {
 	t, ok := delivery.ParseAuthTime(authTime)
 	age := at.Sub(t)
-	return ok && age >= -time.Minute && age <= delivery.AuthFreshness
+	return ok && age >= -time.Minute && age <= limit
 }
 
 // lock takes the Stage's facet lock with one compare-and-swap. An approved

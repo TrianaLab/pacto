@@ -562,7 +562,9 @@ func TestVerdictUnknownReasons(t *testing.T) {
 
 func TestFresh(t *testing.T) {
 	at := time.Unix(1_000_000, 0)
-	if !fresh("999990", at) || fresh("990000", at) || fresh("nope", at) || !fresh(at.Format(time.RFC3339), at) || fresh(at.Add(time.Hour).Format(time.RFC3339), at) {
+	f := delivery.AuthFreshness
+	if !fresh("999990", at, f) || fresh("990000", at, f) || fresh("nope", at, f) || !fresh(at.Format(time.RFC3339), at, f) || fresh(at.Add(time.Hour).Format(time.RFC3339), at, f) ||
+		fresh("999990", at, time.Second) {
 		t.Fatal("fresh")
 	}
 }
