@@ -80,8 +80,11 @@ IMAGE="${PACTO_DEMO_IMAGE:-}"
 # to derive one from — the application is executed out of a registry — so `-p` is
 # the whole of project identity, and the upgrade story is two of them: two
 # versions, two sets of containers, two sets of volumes, two sets of ports.
-PROJ1="pacto-demo"
-PROJ2="pacto-demo-next"
+# PACTO_DEMO_ACCEPTANCE_PROJECT moves both off the documented names on a machine
+# where somebody's own demo already holds them: the harness refuses those rather
+# than take them down.
+PROJ1="${PACTO_DEMO_ACCEPTANCE_PROJECT:-pacto-demo}"
+PROJ2="$PROJ1-next"
 V1_PORTS=(PACTO_DEMO_DASHBOARD_PORT=18080 PACTO_DEMO_EVIDENCE_PORT=18686 PACTO_DEMO_REGISTRY_PORT=15051)
 V2_PORTS=(PACTO_DEMO_DASHBOARD_PORT=18081 PACTO_DEMO_EVIDENCE_PORT=18687 PACTO_DEMO_REGISTRY_PORT=15052)
 V1_BASE="http://127.0.0.1:18080"
