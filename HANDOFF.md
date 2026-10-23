@@ -58,3 +58,19 @@ Requests outside this track's files:
    to its own Kustomizations (as delivery.sh does). Suggest init writes the
    same for the workload it found, or the promoter treats "applied" as "rolled
    out" (Deployment updatedReplicas == availableReplicas == replicas).
+9. core (pacto init): the pactify act patches two things `pacto init
+   --delivery` writes for fraud, so the demo can sign and pull:
+   - `transparencyLog: false` under `publish.sign` in the generated
+     pacto.yaml (the story signs offline);
+   - `spec.insecure: true` on the three OCIRepositories it writes (`fraud` in
+     test and prod, `fraud-candidates` in test), because the demo registry
+     speaks plain HTTP.
+   Suggest init takes hints for both (for example `--insecure-registry` and
+   `--offline-signing`, or reads them from an existing publish config), and
+   the demo then drops its patches. The demo now checks that init's Pacto
+   resource for fraud exists in test.
+10. ledger F and G (integrator): the Kubernetes demo now checks B1 to B9
+    against examples/story (B6 to B9 in `make e2e-delivery-demo-browser`,
+    B7 to B9 partly through the dashboard in Chromium). B10 (a tampered record
+    freezes payments) is not played on Kubernetes; record that note on G
+    ("checks every story step itself") until a later wave adds it.
