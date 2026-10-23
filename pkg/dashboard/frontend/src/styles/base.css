@@ -99,14 +99,17 @@ pre {
    which is how a deeply nested section title ended up smaller than its own body
    text. Every level now lands on the ramp. */
 h1 {
+  font-family: var(--role-page-title-family);
   font-size: var(--role-page-title-size); font-weight: var(--role-page-title-weight);
-  letter-spacing: -0.02em; line-height: var(--role-page-title-lh);
+  letter-spacing: -0.01em; line-height: var(--role-page-title-lh);
 }
 h2 {
+  font-family: var(--role-section-title-family);
   font-size: var(--role-section-title-size); font-weight: var(--role-section-title-weight);
   letter-spacing: -0.01em; line-height: var(--role-section-title-lh);
 }
 h3, h4, h5, h6 {
+  font-family: var(--role-subsection-title-family); font-style: var(--role-subsection-title-style);
   font-size: var(--role-subsection-title-size); font-weight: var(--role-subsection-title-weight);
   line-height: var(--role-subsection-title-lh);
 }
