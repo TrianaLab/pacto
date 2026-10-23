@@ -42,8 +42,8 @@ for pkg in "$units_dir"/*/package.json; do
   fi
   # GHCR refuses the anonymous token itself (403) for a private repository.
   code="token-denied"
-  if token="$(curl -fsS --retry 3 "https://ghcr.io/token?scope=repository:${repo}:pull" | jq -er .token)"; then
-    code="$(curl -sS --retry 3 -o /dev/null -w '%{http_code}' \
+  if token="$(curl -fsS --connect-timeout 10 --max-time 30 --retry 3 "https://ghcr.io/token?scope=repository:${repo}:pull" | jq -er .token)"; then
+    code="$(curl -sS --connect-timeout 10 --max-time 30 --retry 3 -o /dev/null -w '%{http_code}' \
       -H "Authorization: Bearer ${token}" "https://ghcr.io/v2/${repo}/tags/list")"
   fi
   if [ "$code" = 200 ]; then

@@ -2,7 +2,10 @@ package release
 
 import (
 	"maps"
+	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -45,6 +48,33 @@ func TestJobTimeoutsCoverTheirStepTimeouts(t *testing.T) {
 				t.Errorf("%s job %q allows %d minutes but its steps allow %d plus %d for setup, so a hung step can cancel the job before its failure steps run",
 					file, name, job, sum, setup)
 			}
+		}
+	}
+}
+
+// The release jobs this delivery work added, and the terminal verify, carry
+// their own bound too; the older release jobs predate the rule.
+// ponytail: only these jobs are listed; extend to every release job when the
+// older ones get their timeouts.
+func TestNewReleaseJobsHaveATimeout(t *testing.T) {
+	jobs := workflowJobs(t, repoRoot(t), "release.yml")
+	for _, name := range []string{"delivery-image-build", "delivery-image", "delivery-chart", "verify-transaction"} {
+		if j, ok := jobs[name]; !ok || j.TimeoutMinutes == nil {
+			t.Errorf("release.yml job %q has no timeout-minutes", name)
+		}
+	}
+}
+
+// verify-public.sh probes the registry anonymously at the end of a release; a
+// stalled endpoint must fail it in seconds, not hold the run for six hours.
+func TestVerifyPublicCurlsHaveATimeout(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(repoRoot(t), "release", "orchestrator", "verify-public.sh"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, line := range strings.Split(string(b), "\n") {
+		if strings.Contains(line, "curl ") && !strings.Contains(line, "--max-time") {
+			t.Errorf("verify-public.sh:%d calls curl with no --max-time: %s", i+1, strings.TrimSpace(line))
 		}
 	}
 }

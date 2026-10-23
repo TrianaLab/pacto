@@ -802,6 +802,7 @@ jobs:
             runner: ubuntu-24.04-arm
             arch: arm64
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -855,6 +856,7 @@ jobs:
     needs: [detect, core-ready, ledger-init, delivery-image-build]
     if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'delivery-image')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       packages: write
       id-token: write
@@ -1040,6 +1042,7 @@ jobs:
       contains(fromJSON(needs.detect.outputs.units_json), 'delivery-chart') &&
       !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       packages: write
       id-token: write
@@ -1286,6 +1289,7 @@ jobs:
       - release
     if: always() && needs.detect.outputs.release == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       # Deliberately NOT `ref: source_sha`. This job reads the unit -> job mapping
       # out of the workflow, and the workflow that ran is the one at the dispatched
