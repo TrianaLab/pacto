@@ -418,7 +418,9 @@ publish() {
 
 # environment SERVICE ENV CANDIDATES AUTO [GATES] — what applies SERVICE in
 # ENV and the Stage that decides which version runs there, in the shape
-# pacto init --delivery writes (the registry speaks plain HTTP, hence insecure).
+# pacto init --delivery writes (the registry speaks plain HTTP, hence insecure),
+# plus a health check on the Deployment: Flux calls a version applied only once
+# its rollout is done, so the verify gates never judge the old pods (HANDOFF).
 environment() {
   local svc="$1" env="$2" verify='verify: {provider: cosign, secretRef: {name: cosign-pub}}'
   local url="oci://${REG_HOST}/story/deploy/$svc"
@@ -444,7 +446,9 @@ spec: {interval: 30s, insecure: true, url: "$url", $verify}
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata: {name: $svc, namespace: $env}
-spec: {interval: 10m, sourceRef: {kind: OCIRepository, name: $svc}, path: ./, prune: true, targetNamespace: $env, timeout: 2m}
+spec:
+  {interval: 10m, sourceRef: {kind: OCIRepository, name: $svc}, path: ./, prune: true, targetNamespace: $env, timeout: 3m,
+   healthChecks: [{apiVersion: apps/v1, kind: Deployment, name: $svc, namespace: $env}]}
 ---
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Stage
@@ -645,6 +649,7 @@ story_b4() {
   propose -n test --stage payments --to "$copy" --name payments-oras-copy --reason "B4: a copy pushed with plain oras"
   wait_concluded test payments-oras-copy Rejected/
   predicted B4 test payments-oras-copy
+  same B4 "the refusing gate" "$(field test payments-oras-copy plan | jq -r '[.verdicts[] | select(.result == "Fail") | .gate][0]')" "$(expect B4 Refusal | jq -r .)"
   [ "$(field test payments-oras-copy reason)" = NotPublished ] \
     || drift B4 "the refusal" "$(field test payments-oras-copy reason)" "$(expect B4 Refusal | jq -r .) (NotPublished)"
   pass "2.4.3 refused (Required bump: major), 3.0.0 published signed and verified in test, the oras copy refused as not published"
