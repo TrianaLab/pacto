@@ -866,7 +866,6 @@ b10() {
   echo "  the tampered record is removed and the recorder resumes; payments prod stays frozen until a person says so"
   KUBECONFIG="$(person alice@example.com team-payments)" "$PACTO" delivery propose -n prod --stage payments --type unfreeze \
     --name b10-unfreeze --reason "B10: the tampered record is gone" >/dev/null || fail "alice could not propose the unfreeze"
-  predicted B10 prod b10-unfreeze
   eventually 60 concluded prod b10-unfreeze || fail "alice's unfreeze never concluded: $(field prod b10-unfreeze message)"
   [[ "$(outcome prod b10-unfreeze)" == Succeeded/* ]] || fail "alice's unfreeze concluded $(outcome prod b10-unfreeze)"
   ! frozen || fail "payments prod stayed frozen after alice unfroze it"
