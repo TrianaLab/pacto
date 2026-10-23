@@ -4,8 +4,8 @@ name: Delivery demo
 # never a required check. The demo script checks each story step itself and fails
 # loudly on drift; a nightly failure opens (or comments on) one issue, so it is
 # seen without anyone watching the Actions tab.
-#
-# Until `make e2e-delivery-demo` exists the run says so and passes.
+# It runs `make e2e-delivery-demo`: up, story, the dashboard journeys and down
+# (tests/acceptance/kind/delivery-demo.sh).
 
 on:
   schedule:
@@ -25,36 +25,19 @@ jobs:
     timeout-minutes: 105
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Is the demo target there yet
-        id: target
-        timeout-minutes: 2
-        run: |
-          if make -n e2e-delivery-demo >/dev/null 2>&1; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-            echo "::notice title=delivery demo not built yet::make e2e-delivery-demo does not exist yet, so nothing ran"
-          fi
-      - if: steps.target.outputs.present == 'true'
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
-      - if: steps.target.outputs.present == 'true'
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '22'
-      - if: steps.target.outputs.present == 'true'
-        uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2
-      - if: steps.target.outputs.present == 'true'
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - if: steps.target.outputs.present == 'true'
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
+      - uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
       - name: Install kind (checksum-verified via GOSUMDB)
-        if: steps.target.outputs.present == 'true'
         timeout-minutes: 5
         run: bash release/scripts/retry.sh go install sigs.k8s.io/kind@v0.30.0
       - name: Run the demo
-        if: steps.target.outputs.present == 'true'
         timeout-minutes: 75
         run: bash scripts/ci/kind-run.sh "$RUNNER_TEMP/diagnostics/run.log" make e2e-delivery-demo
       - name: Collect cluster diagnostics

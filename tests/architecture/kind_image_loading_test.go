@@ -103,6 +103,8 @@ func TestEveryKindScenarioRuns(t *testing.T) {
 	mk := readFile(t, filepath.Join(repoDir(t), "ci.mk"))
 	// Comment lines dropped: a commented-out `make` line runs nothing.
 	wf := code(t, filepath.Join(repoDir(t), ".github", "workflows", "ci.yml"))
+	// The heavy Kubernetes demo runs nightly, in its own workflow, as e2e-<target>.
+	nightly := code(t, filepath.Join(repoDir(t), ".github", "workflows", "delivery-demo.yml"))
 	matrix := kindMatrixScenarios(t)
 	const prefix = "test-acceptance-kind-"
 	for _, path := range scenarios(t) {
@@ -126,7 +128,8 @@ func TestEveryKindScenarioRuns(t *testing.T) {
 			t.Errorf("%s is run by a ci.mk recipe with no %s* target above it", filepath.Base(path), prefix)
 			continue
 		}
-		if !slices.Contains(matrix, target) && !strings.Contains(wf, "make "+prefix+target+"\n") {
+		if !slices.Contains(matrix, target) && !strings.Contains(wf, "make "+prefix+target+"\n") &&
+			!strings.Contains(nightly, "make e2e-"+target+"\n") {
 			t.Errorf("%s runs under `make %s%s`, which neither the ci-e2e-kind matrix lists nor a ci.yml job runs, "+
 				"so CI never runs it (matrix: %v)", filepath.Base(path), prefix, target, matrix)
 		}
