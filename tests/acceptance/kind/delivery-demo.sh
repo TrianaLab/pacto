@@ -731,18 +731,24 @@ cmd_browser() {
 # --- next steps --------------------------------------------------------------
 
 next_steps() {
-  local k="KUBECONFIG=$ADMIN_KC" a="KUBECONFIG=$AGENT_KC" t="--trust $KEYS/recorder.pub"
+  # Paths from the repository root; the CLI reaches the registry in the
+  # cluster through a port-forward, as the story does.
+  local d=tmp/delivery-demo
+  local k="KUBECONFIG=$d/admin.kubeconfig" a="KUBECONFIG=$d/pay-agent.kubeconfig" t="--trust $d/keys/recorder.pub"
+  local r="HTTP_PROXY=http://127.0.0.1:$LOCAL_REG_PORT PACTO_INSECURE_REGISTRIES=$REG_HOST" p="$d/bin/pacto"
   cat <<EOF
 
 == What to do next ==
+From the repository root. The commands that read signed records need the
+registry: $k kubectl -n $NS port-forward svc/pacto-registry $LOCAL_REG_PORT:5000 &
 The guided path (five moments):
   1. pactify a service ............ $([ "$1" = up ] && echo "make e2e-delivery-demo-story" || echo "done: fraud")
   2. a safe change ships alone .... $([ "$1" = up ] && echo "(story B1)" || echo "done: payments 2.4.0")
   4. a bad release rolls back ..... $([ "$1" = up ] && echo "(story B2, B3)" || echo "done: 2.4.0 in prod, 2.4.2 in test")
   3. a breaking change asks only the affected teams .... $([ "$1" = up ] && echo "(story B5)" || echo "now: payments 3.0.0 is held")
   5. every step is a signed record:
-       $k $PACTO delivery history -n prod --stage payments $t
-       $k $PACTO delivery record verify --all $t
+       $k $r $p delivery history -n prod --stage payments $t
+       $k $r $p delivery record verify --all $t
 (The story plays beats in order, so moment 4 comes before moment 3.)
 
 The dashboard: $DASH_URL  (sign in through Dex; every password is "password")
@@ -752,18 +758,20 @@ The dashboard: $DASH_URL  (sign in through Dex; every password is "password")
 
 Explore more:
   B6, as the agent: ship checkout 1.9 first, and the held change asks only orders
-       $a $PACTO delivery propose -n prod --stage checkout --to $(cat "$DEMO/digests/checkout-1.9.0" 2>/dev/null || echo '<checkout 1.9.0 digest>') --name checkout-1-9-0
+       $a $p delivery propose -n prod --stage checkout --to $(cat "$DEMO/digests/checkout-1.9.0" 2>/dev/null || echo '<checkout 1.9.0 digest>') --name checkout-1-9-0
        or run it and the browser journeys: make e2e-delivery-demo-browser
   B7, in the browser: pay-agent and alice cannot approve; carol signs in again and approves
   B8: prod sends too little telemetry for 3.0.0 (generated), so the check says Unknown and waits for carol
   B9: carol rolls 3.0.0 back from the dashboard; then
-       $k $PACTO delivery blame -n prod --stage payments $t
-       $k $PACTO delivery undo -n prod <operation>
+       $k $r $p delivery blame -n prod --stage payments $t
+       $k $p delivery undo -n prod <operation>
   The agent over remote MCP ($MCP_URL/mcp): get a Keycloak token for agent-bot
        curl -sk https://127.0.0.1:8443/realms/pacto/protocol/openid-connect/token -u agent-bot:agent-secret -d grant_type=client_credentials
        and call the pacto_delivery_* tools with it as a bearer token (there is no approve tool)
-  Check a record yourself with cosign, as docs/delivery-history.md shows (key: $KEYS/recorder.pub)
+  Check a record yourself with cosign, as docs/delivery-history.md shows (key: $d/keys/recorder.pub)
   $k kubectl get stages,operations,approvals -A
+  Two agents racing, a check result never reused for a new version and the admission
+  policies (no agent approvals, immutable intent) are proven by: make test-acceptance-kind-delivery
   make e2e-delivery-demo-status | make e2e-delivery-demo-logs | make e2e-delivery-demo-down
 What is generated, not real: the payments workload (podinfo), its telemetry (a span generator) and the call 2.4.2 makes (a sidecar).
 EOF
