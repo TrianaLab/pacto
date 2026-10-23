@@ -145,7 +145,7 @@ func TestDeliveryToolCalls(t *testing.T) {
 	server := NewDeliveryServer("v", api, true, nil)
 	var types []delivery.OperationType
 	decode(t, callToolOn(t, server, "pacto_delivery_operation_types", map[string]any{}), &types)
-	if len(types) != 4 {
+	if len(types) != len(delivery.Types()) {
 		t.Fatalf("types: %d", len(types))
 	}
 	var desc struct {
