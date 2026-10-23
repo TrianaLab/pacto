@@ -942,12 +942,19 @@ func (s *Server) deliveryRefusals(ctx context.Context, _ *struct{}) (*refusalsOu
 		return out, nil
 	}
 	out.Body.Recorded, out.Body.PublishRefusals = true, *r
-	slices.SortFunc(out.Body.Refusals, func(a, b PublishRefusal) int { return cmp.Compare(b.At, a.At) })
+	slices.SortFunc(out.Body.Refusals, func(a, b PublishRefusal) int { return refusedAt(b.At).Compare(refusedAt(a.At)) })
 	out.Body.Refusals = out.Body.Refusals[:min(len(out.Body.Refusals), recentRefusals)]
 	if out.Body.Refusals == nil {
 		out.Body.Refusals = []PublishRefusal{}
 	}
 	return out, nil
+}
+
+// refusedAt reads a refusal time. Strings do not sort as times once offsets
+// or fractional seconds differ, and an unreadable time sorts as the oldest.
+func refusedAt(s string) time.Time {
+	t, _ := time.Parse(time.RFC3339Nano, s)
+	return t
 }
 
 // actions are what the UI offers on an operation. They only hide what the

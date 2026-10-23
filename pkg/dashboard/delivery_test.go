@@ -871,6 +871,16 @@ func TestRefusals(t *testing.T) {
 	list := r["refusals"].([]any)
 	expect(t, len(list) == recentRefusals && list[0].(map[string]any)["version"] == "2.4.24" &&
 		list[0].(map[string]any)["requiredBump"] == "major", "newest first, bounded: %d %v", len(list), list[0])
+	// Times, not strings: an offset, a fraction and an unreadable value.
+	f.refusals = &PublishRefusals{Completeness: "complete", Refusals: []PublishRefusal{
+		{Version: "bad", At: "yesterday"}, {Version: "zulu", At: "2026-10-22T10:30:00Z"},
+		{Version: "offset", At: "2026-10-22T12:00:00+02:00"}, {Version: "fraction", At: "2026-10-22T10:30:00.5Z"}}}
+	_, r = call(t, http.MethodGet, base+"/api/delivery/refusals", nil)
+	var order []string
+	for _, x := range r["refusals"].([]any) {
+		order = append(order, x.(map[string]any)["version"].(string))
+	}
+	expect(t, slices.Equal(order, []string{"fraction", "zulu", "offset", "bad"}), "time order: %v", order)
 	f.refusalsErr = Refuse(http.StatusForbidden, "Forbidden", "no")
 	code, _ := call(t, http.MethodGet, base+"/api/delivery/refusals", nil)
 	expect(t, code == http.StatusForbidden, "refused: %d", code)
