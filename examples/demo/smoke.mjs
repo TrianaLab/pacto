@@ -182,5 +182,39 @@ const attn = json(call("GET", "/api/fleet/attention"));
 const sevs = new Set((attn.items || []).map((i) => i.severity));
 check("attention spans more than one severity", sevs.size >= 2, [...sevs].join(","));
 
+
+// ── Delivery: the payments story, simulated (source_delivery.go) ──
+// The real dashboard handlers over the tab's simulated delivery: the session is
+// signed in, a breaking change is held for the two teams whose ranges it breaks,
+// the consumer that moves first shrinks the question to one team and only a
+// freshly signed-in person on that team may decide.
+check("capabilities: delivery enabled", json(call("GET", "/api/capabilities")).delivery === true);
+const sess = json(call("GET", "/api/session"));
+check("session: signed in as pay-agent", sess.signedIn === true && sess.caller?.user === "system:serviceaccount:agents:pay-agent", JSON.stringify(sess.caller));
+const rows = json(call("GET", "/api/delivery/environments")).environments || [];
+const cand = (svc) => (rows.find((r) => r.environment === "prod" && r.service === svc) || {}).candidate;
+const held = json(call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "payments", to: cand("payments") })));
+check("payments 3.0.0 is held for checkout and orders",
+  held.operation?.status?.phase === "Held" && /Asked of: checkout, orders/.test(held.operation.status.question), held.operation?.status?.question);
+call("POST", "/api/delivery/operations", JSON.stringify({ namespace: "prod", stage: "checkout", to: cand("checkout") }));
+const opPath = `/api/delivery/operations/prod/${held.operation?.metadata?.name}`;
+let question = "";
+for (let i = 0; i < 40 && !/Asked of: orders$/.test(question); i++) {
+  await new Promise((r) => setTimeout(r, 250)); // the simulated promoter moves every 1.5 s
+  question = json(call("GET", opPath)).operation?.status?.question || "";
+}
+check("after checkout moves first, only orders is asked", /Asked of: orders$/.test(question), question);
+check("pay-agent may not decide", call("POST", `${opPath}/decision`, JSON.stringify({ decision: "approve" })).status === 403);
+globalThis.__pactoPersona("carol", false);
+check("carol must sign in again", call("POST", `${opPath}/decision`, JSON.stringify({ decision: "approve" })).status === 401);
+globalThis.__pactoPersona("carol", true);
+check("freshly signed-in carol approves", call("POST", `${opPath}/decision`, JSON.stringify({ decision: "approve" })).status === 201);
+const hist = json(call("GET", "/api/delivery/history")).histories || [];
+check("history has a verified stream and one with problems",
+  hist.some((h) => h.history.verified && h.history.completeness === "complete")
+    && hist.some((h) => (h.history.problems || []).length > 0 && (h.history.unreadable || []).length > 0));
+check("the refused 2.4.3 is listed", (json(call("GET", "/api/delivery/refusals")).refusals || []).some((r) => r.version === "2.4.3" && r.requiredBump === "major"));
+check("the pacto init plan is embedded", JSON.parse(globalThis.__pactoPactifyPlan).files.some((f) => f.path === "pacto.yaml"));
+
 console.log(failures === 0 ? "\nALL CHECKS PASSED" : `\n${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);

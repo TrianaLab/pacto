@@ -83,7 +83,9 @@ func main() {
 	// After each step the views are asked to read again (pacto:refresh), so
 	// the change page moves with the promoter instead of at the next poll.
 	refresh := func() {
-		js.Global().Call("dispatchEvent", js.Global().Get("Event").New("pacto:refresh"))
+		if g := js.Global(); g.Get("dispatchEvent").Type() == js.TypeFunction { // not in the Node smoke
+			g.Call("dispatchEvent", g.Get("Event").New("pacto:refresh"))
+		}
 	}
 	d, err := newDemoDelivery(time.Now, func(f func()) {
 		time.AfterFunc(1500*time.Millisecond, func() { f(); refresh() })
