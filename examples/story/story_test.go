@@ -135,7 +135,9 @@ func TestBeats(t *testing.T) {
 		t.Run(b.ID, func(t *testing.T) {
 			got := Outcome{Verify: verify(t, b)}
 			bumpRule(t, b, &got)
-			if b.To != "" || b.Type == delivery.TypeUnfreeze {
+			if b.Type == delivery.TypeUnfreeze {
+				got.Concluded = unfreeze(t, b)
+			} else if b.To != "" {
 				p := plan(t, b)
 				got.Predicted = p.Predicted
 				if p.Predicted == delivery.PredictRejected {
@@ -157,6 +159,18 @@ func TestBeats(t *testing.T) {
 			}
 		})
 	}
+}
+
+// unfreeze is what the controller concludes for an unfreeze: it plans none,
+// so only the permission gate (the same one PlanFor runs) stands between the
+// actor and Succeeded/Unverified (the operator's
+// TestFrozenPromoteWaitsAndUnfreeze proves the conclusion).
+func unfreeze(t *testing.T, b Beat) string {
+	t.Helper()
+	if p := plan(t, b); p.Predicted != delivery.PredictProceeds {
+		return string(delivery.Rejected) + "/" + refusal(p)
+	}
+	return string(delivery.Succeeded) + "/" + string(delivery.Unverified)
 }
 
 // bumpRule fills the classification, the required bump and whether Tried is
@@ -224,8 +238,8 @@ func verify(t *testing.T, b Beat) delivery.Result {
 		return mira(t, 100, 30).Result
 	case "B8": // 3 spans in the window, fewer than the 20 needed to judge
 		return mira(t, 3, 0).Result
-	case "agent": // the runner passed 14 of 20 cases; the Stage needs 95%
-		return evals(t, 14, 20).Result
+	case "agent": // the runner passed 1 of the suite's 2 cases; the Stage needs 95%
+		return evals(t, 1, 2).Result
 	case "B3":
 		r, err := Revision("payments", "2.4.2")
 		if err != nil {
@@ -296,8 +310,8 @@ func evals(t *testing.T, passed, total int) delivery.Verdict {
 // TestAgentPassingItsEvalsShips: the eval gate passes 1.0.0, which passed
 // every case, so a failed 1.1.0 is the evals' doing.
 func TestAgentPassingItsEvalsShips(t *testing.T) {
-	if v := evals(t, 20, 20); v.Result != delivery.Pass || v.Citation["run"] == "" {
-		t.Fatalf("20 of 20 must pass and cite its run: %+v", v)
+	if v := evals(t, 2, 2); v.Result != delivery.Pass || v.Citation["run"] == "" {
+		t.Fatalf("2 of 2 must pass and cite its run: %+v", v)
 	}
 	b, err := Bundle("pay-agent", "1.1.0")
 	if err != nil || b.Contract.Agent == nil || b.Contract.Agent.Evals == "" {
