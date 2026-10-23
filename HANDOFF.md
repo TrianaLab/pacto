@@ -66,3 +66,13 @@ roadmap row. Check them against the docs and ci branches when integrating:
 12. core: `pkg/validation/schema/pacto-v2.1.schema.json` and
     `field-coverage.yaml` add the `mcp` interface type and the `agent`
     section; `tests/integration/field_coverage_test.go` covers them.
+13. story: commit 4666fbfb renames the Stage applier type in
+    `examples/story/story.go` (`ApplyRef: delivery.LocalRef{...}` becomes
+    `delivery.ApplyRef{...}`). The old `LocalRef` no longer compiles there, so
+    keep the new type when resolving a conflict with the story branch, and
+    apply the same rename to any `StageSpec` the story branch added since.
+14. demo: commits 3d4a150e, 4666fbfb and 0ad3e6cf regenerate
+    `examples/demo/pacto-dashboard/interfaces/openapi.json` (a copy of the
+    dashboard OpenAPI). Do not hand-merge it: after merging the demo and dash
+    branches, run `make generate-dashboard-openapi` (or
+    `make generate-dashboard-sdk`) and commit the result.
