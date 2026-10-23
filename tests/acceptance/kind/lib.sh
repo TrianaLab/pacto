@@ -373,10 +373,11 @@ wait_pacto_status() {
 # conformant option: same port, same /var/lib/registry, no CVE-database
 # downloads to make a demo depend on the network.
 #
-# Pinned to a released tag so a scenario's `imagePullPolicy: Never` names a
-# version rather than whatever `latest` moved to this morning.
+# Pinned to a released tag and its index digest (the same pin as the Compose
+# demo's ComposeDefaultRegistryImage), so a tag moved upstream cannot change what
+# a run tests. The node knows it by the tag: pull_pinned tags the digest locally.
 # shellcheck disable=SC2034  # read by the scenarios that source this file
-PACTO_REGISTRY_IMAGE="ghcr.io/project-zot/zot-minimal:v2.1.20"
+PACTO_REGISTRY_IMAGE="ghcr.io/project-zot/zot-minimal:v2.1.20@sha256:73f26433b341f4a319963f7c5e169858663a10565e4037e71605737daee202ee"
 
 # install_registry — an in-cluster OCI registry in $NS, ready to be pushed to.
 # Plain HTTP, so callers must also teach whatever resolves from it to treat the
@@ -384,14 +385,14 @@ PACTO_REGISTRY_IMAGE="ghcr.io/project-zot/zot-minimal:v2.1.20"
 # into the node rather than pulled from the internet by every kind node in CI.
 #
 # The pull stays unconditional and needs no protecting: the registry image is a
-# multi-platform tag, and the host's copy of it is a multi-platform index whose
+# multi-platform index, and the host's copy of it is a multi-platform index whose
 # other platforms are not present — the very artifact that used to break the
 # load. load_images narrows it at load time, so re-pulling cannot restore a
 # broken state and there is no pre-flattened local image for a later pull to
 # overwrite.
 install_registry() {
-  docker pull "$PACTO_REGISTRY_IMAGE" >/dev/null
-  load_images "$PACTO_REGISTRY_IMAGE"
+  pull_pinned "$PACTO_REGISTRY_IMAGE"
+  load_images "${PACTO_REGISTRY_IMAGE%@*}"
   kubectl -n "$NS" apply -f - >/dev/null <<YAML
 apiVersion: apps/v1
 kind: Deployment
@@ -403,7 +404,7 @@ spec:
     metadata: { labels: { app: pacto-registry } }
     spec:
       containers:
-      - { name: registry, image: $PACTO_REGISTRY_IMAGE, imagePullPolicy: Never, ports: [ { containerPort: 5000 } ] }
+      - { name: registry, image: ${PACTO_REGISTRY_IMAGE%@*}, imagePullPolicy: Never, ports: [ { containerPort: 5000 } ] }
 ---
 apiVersion: v1
 kind: Service

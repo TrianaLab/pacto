@@ -67,7 +67,7 @@ for verb_res in "get:deployments" "list:deployments" "get:statefulsets" "get:job
 done
 
 kubectl create namespace demo --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-kubectl -n demo create deployment orders --image=registry.k8s.io/pause:3.9 >/dev/null 2>&1 || true
+kubectl -n demo create deployment orders --image=registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097 >/dev/null 2>&1 || true
 kubectl -n demo rollout status deployment/orders --timeout=90s
 kubectl apply -f - >/dev/null <<YAML
 apiVersion: pacto.trianalab.io/v1alpha1
@@ -91,7 +91,7 @@ expect_status Unknown
 kubectl -n demo get pacto orders -o jsonpath='{range .status.findings[*]}{.code}{" "}{end}' | grep -q EVIDENCE_MISSING \
   && echo "  finding EVIDENCE_MISSING present"
 echo "== C target recreated -> Compliant (recovery) =="
-kubectl -n demo create deployment orders --image=registry.k8s.io/pause:3.9 >/dev/null
+kubectl -n demo create deployment orders --image=registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097 >/dev/null
 kubectl -n demo rollout status deployment/orders --timeout=90s
 expect_status Compliant
 

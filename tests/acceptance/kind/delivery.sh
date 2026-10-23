@@ -243,12 +243,13 @@ DASH_IMG="localhost:5001/pacto-dashboard:$(release_version core)"
 # checksum; only the two controllers the run waits on are preloaded from it. Its
 # other controllers (helm, notification, image-reflector, image-automation,
 # source-watcher) are still pulled by the nodes mid-run, and nothing waits on
-# them. zot is pulled by tag (lib.sh install_registry).
+# them. zot is pinned by digest too (lib.sh install_registry).
 MIRA_IMG=ghcr.io/trianalab/mira:0.4.3@sha256:2fc95e0d4c8ffa38aa2de1a2389c98eb83e020ab7a1719ca27db90a62794fbcc
 AGNHOST=registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85
 PAUSE_IMG=registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097
 FLUX_INSTALL_SHA256=cc3dcd743af16215838b6937e1fce83745bf24c0dcc6c59737c59df15429caaf
-FLUX_IMAGES=(ghcr.io/fluxcd/source-controller:v1.9.5 ghcr.io/fluxcd/kustomize-controller:v1.9.5)
+FLUX_IMAGES=(ghcr.io/fluxcd/source-controller:v1.9.5@sha256:6f20d232d596a758c923d2861f23511718fc303b8a2e36a1434a7c736b9f4268
+  ghcr.io/fluxcd/kustomize-controller:v1.9.5@sha256:a3a955eb2bc432c2eaa94d2d3714e3beae7fdf17586fd23aadf71ab597ac3339)
 
 # build_images — the three Pacto images at once, each build's output in its own
 # log, printed when it fails.
@@ -290,8 +291,8 @@ infra "download the Flux $FLUX_VERSION install manifest" \
   curl -fsSL --retry 2 -o "$FLUX_INSTALL" "https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/install.yaml"
 [ "$(shasum -a 256 "$FLUX_INSTALL" | cut -d' ' -f1)" = "$FLUX_INSTALL_SHA256" ] \
   || fail "the Flux $FLUX_VERSION install manifest changed upstream: its checksum is not the pinned one"
-for img in "${FLUX_IMAGES[@]}"; do infra "pull $img" docker pull -q "$img" >/dev/null; done
-pull_pinned "$PAUSE_IMG"
+for img in "${FLUX_IMAGES[@]}" "$PAUSE_IMG"; do pull_pinned "$img"; done
+FLUX_IMAGES=("${FLUX_IMAGES[@]%@*}")
 EXTRA_IMAGES=()
 phase_runs health && for img in "$MIRA_IMG" "$AGNHOST"; do pull_pinned "$img"; EXTRA_IMAGES+=("${img%@*}"); done
 MIRA_IMG="${MIRA_IMG%@*}" AGNHOST="${AGNHOST%@*}" PAUSE_IMG="${PAUSE_IMG%@*}"
