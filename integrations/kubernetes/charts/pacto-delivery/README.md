@@ -82,7 +82,7 @@ same version as your Pacto operator.
 | recorder.signing.keyless.issuer | string | `""` | The OIDC issuer keyless signing uses |
 | recorder.signing.keyless.timestampURL | string | `""` | The timestamp authority whose signed time a short-lived certificate verifies at |
 | recorder.signing.keyless.trustedRoot | string | `""` | The Sigstore trusted root (`trusted_root.json`) naming that Fulcio and timestamp authority. Required with keyless: without it a self-signed certificate could name the recorder's identity. |
-| recorder.signing.kms | string | `""` | A KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`) |
+| recorder.signing.kms | string | `""` | A KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`). The default image includes every provider; an image built with `--build-arg GO_TAGS=` has none, and one built with `GO_TAGS=kms_aws` (or `kms_gcp`, `kms_azure`, `kms_hashivault`) has only that one |
 | recorder.streamsRepository | string | `""` | Repository (`host/path`) that holds one anchor per Stage stream. Required when enabled. |
 | recorder.trust | string | `""` | Other keys whose records the recorder accepts, as a trust config in YAML (`keys: [{publicKey: <PEM>, streams: ["*/prod/*"]}]`): list the old key here while you rotate to a new one. The recorder's own key is always trusted. A record no listed key signed stops the stream. |
 | replicaCount | int | `1` | Number of promoter replicas. Only the elected leader acts. |

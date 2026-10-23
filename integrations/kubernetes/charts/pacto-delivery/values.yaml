@@ -77,7 +77,9 @@ recorder:
       secretName: ""
       # -- The key in that Secret
       key: key.pem
-    # -- A KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`)
+    # -- A KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`). The default image
+    # includes every provider; an image built with `--build-arg GO_TAGS=` has none, and one built with
+    # `GO_TAGS=kms_aws` (or `kms_gcp`, `kms_azure`, `kms_hashivault`) has only that one
     kms: ""
     keyless:
       # -- Sign keyless with a Fulcio certificate for the recorder's workload identity, presented as a
