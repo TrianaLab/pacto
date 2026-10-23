@@ -48,8 +48,8 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 
 // validatePublish enforces what the schema cannot say about publish: artifact
 // names are unique, deploy names a manifests artifact (a Kustomization applies
-// manifests, never a chart or an image), and the dockerfile builder and sbom
-// apply to images only.
+// manifests, never a chart or an image), the dockerfile builder and sbom
+// apply to images only, and an sbom needs a command build, which writes it.
 func validatePublish(c *contract.Contract, result *ValidationResult) {
 	if c.Publish == nil {
 		return
@@ -61,8 +61,11 @@ func validatePublish(c *contract.Contract, result *ValidationResult) {
 			result.AddError(path+".name", "DUPLICATE_PUBLISH_ARTIFACT", fmt.Sprintf("artifact name %q is used more than once", a.Name))
 		}
 		types[a.Name] = a.Type
-		if a.SBOM != "" && a.Type != contract.ArtifactImage {
+		switch {
+		case a.SBOM != "" && a.Type != contract.ArtifactImage:
 			result.AddError(path+".sbom", "PUBLISH_SBOM_NOT_IMAGE", fmt.Sprintf("%s is a %s; an SBOM is attached to images only", a.Name, a.Type))
+		case a.SBOM != "" && a.Build.Dockerfile != nil:
+			result.AddError(path+".sbom", "PUBLISH_SBOM_DOCKERFILE", fmt.Sprintf("%s is built from a Dockerfile, which writes no SBOM file; build it with a command that writes %s, or drop sbom", a.Name, a.SBOM))
 		}
 		if a.Build.Dockerfile != nil && a.Type != contract.ArtifactImage {
 			result.AddError(path+".build.dockerfile", "PUBLISH_DOCKERFILE_NOT_IMAGE", fmt.Sprintf("%s is a %s; the dockerfile builder builds images only, use command", a.Name, a.Type))
