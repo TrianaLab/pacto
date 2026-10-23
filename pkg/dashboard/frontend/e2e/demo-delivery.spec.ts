@@ -151,12 +151,15 @@ test.describe('Browser demo: the delivery story', () => {
     await expect(page.getByTestId('environments-board')).toContainText('Kept by a person', { timeout: T });
   });
 
-  test('every delivery view passes the accessibility audit', async ({ page }) => {
-    await ready(page, '#/delivery/inbox');
-    for (const hash of ['#/delivery/inbox', '#/delivery/environments', '#/delivery/history', '#/delivery/publish', '#/delivery/changes/prod/payments-promote-3']) {
-      await page.goto(`/${hash}`);
-      await expect(page.getByTestId('delivery-identity')).toContainText('Signed in as', { timeout: T });
-      await audit(page, hash);
-    }
-  });
+  for (const [label, viewport] of [['desktop', null], ['a phone', { width: 390, height: 844 }]] as const) {
+    test(`every delivery view passes the accessibility audit on ${label}`, async ({ page }) => {
+      if (viewport) await page.setViewportSize(viewport);
+      await ready(page, '#/delivery/inbox');
+      for (const hash of ['#/delivery/inbox', '#/delivery/environments', '#/delivery/history', '#/delivery/publish', '#/delivery/changes/prod/payments-promote-3']) {
+        await page.goto(`/${hash}`);
+        await expect(page.getByTestId('delivery-identity')).toContainText('Signed in as', { timeout: T });
+        await audit(page, `${hash} on ${label}`);
+      }
+    });
+  }
 });
