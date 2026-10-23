@@ -70,7 +70,9 @@ The dashboard shows a **Delivery** tab only where the cluster serves the
 delivery API and the dashboard knows who you are. Its views are **Inbox**
 (changes waiting for your teams, then paused environments and the changes that
 paused them), **Environments** (where promote and unpause start), **History**
-and **Published**. If you may not list delivery objects across the cluster,
+(who asked for and approved each change, and an undo that plans the way back)
+and **Published** (the versions your Stages know, then the publishes Pacto
+refused with the version bump each one needed). If you may not list delivery objects across the cluster,
 the views read only the namespaces Pacto knows of and say they may be
 incomplete. If the dashboard cannot reach the cluster, they say that too.
 

@@ -19,8 +19,18 @@ Pacto runs no tests. It refuses to publish when one of its own checks fails:
 
 - the contract is invalid, or uses a local reference or breaks its `pacto.lock`;
 - `publish.sign` is missing, or the signing key file would end up inside the bundle;
-- there is no source revision (run it in a git checkout, or pass `--revision`);
+- there is no source revision (run it in a git checkout, or pass `--revision`).
+  Pacto reads the commit from `.git` itself, worktrees and packed refs
+  included, and needs no `git` program;
+- two artifacts, or an artifact and the bundle, share one repository;
+- an SBOM is declared on a `dockerfile` build, which writes none, or sits in
+  the contract directory without a `.pactoignore` line (`--plan` names it);
 - the version is too small for the change.
+
+A version too small for the change is also kept as a signed refusal in the
+contract bundle repository, signed with the publish key, so the dashboard's
+**Published** view shows it with the bump it needed. Keeping it never changes
+the outcome: if the registry refuses it, publish says so beside the refusal.
 
 A release candidate's fixes ship as the version it was a candidate for: after
 `2.0.0-rc.1`, `2.0.0-rc.2` and `2.0.0` are accepted whatever changed. The change
@@ -67,8 +77,9 @@ manifests build can pin the image it deploys by digest. Pacto then:
    `org.opencontainers.image.revision` on its manifest;
 2. packages the deploy artifact as a Flux artifact whose `pacto.dev/contract`
    annotation names the digest-pinned contract bundle;
-3. attaches an SBOM made by `syft` to each image that asks for one, unless one
-   signed by the configured identity is already there;
+3. attaches the SBOM file the build wrote to each image that declares one, and
+   signs it, unless one signed by the configured identity is already there.
+   Pacto never makes an SBOM, and refuses a file older than the build;
 4. signs every digest, unless a valid signature by the configured
    key, KMS key or keyless identity is already there, then verifies the new
    signature against that identity. A keyless signature carries whatever
@@ -77,7 +88,8 @@ manifests build can pin the image it deploys by digest. Pacto then:
 5. pushes the bundle and writes the tags.
 
 It needs `docker buildx` with a builder that can write an OCI layout (the
-`docker-container` driver can) for `dockerfile` builds and `syft` for SBOMs.
+`docker-container` driver can) for `dockerfile` builds, and nothing else: no
+`git`, `syft` or `cosign`.
 Registry credentials and plain-HTTP registries come from the same settings as
 `pacto push`.
 
@@ -90,7 +102,7 @@ cosign 3 writes one, so `cosign verify` and Flux's `spec.verify` both check it.
 | `sign` | What signs | Notes |
 |---|---|---|
 | `key: cosign.key` | A PEM private key file | A cosign key is decrypted with `COSIGN_PASSWORD` |
-| `kms: awskms:///alias/ci` | A KMS key | `awskms://`, `gcpkms://`, `azurekms://` or `hashivault://`, with that cloud's usual credentials. The key must be ECDSA P-256, Ed25519 or RSA PKCS#1 v1.5 with SHA-256: Pacto refuses RSA-PSS and SHA-384 or SHA-512 keys |
+| `kms: awskms:///alias/ci` | A KMS key | `awskms://`, `gcpkms://`, `azurekms://` or `hashivault://`, with that cloud's usual credentials. The key must be ECDSA P-256, Ed25519 or RSA PKCS#1 v1.5 with SHA-256: Pacto refuses RSA-PSS and SHA-384 or SHA-512 keys. The released `pacto` binaries leave cloud KMS out to stay small: build one with `go install -tags kms github.com/trianalab/pacto/v4/cmd/pacto@<version>`, or one provider's tag (`kms_aws`, `kms_gcp`, `kms_azure`, `kms_hashivault`). The error names the build to use |
 | `keyless: true` | A short-lived certificate from public-good Fulcio | The OIDC token comes from `SIGSTORE_ID_TOKEN` or GitHub Actions (`id-token: write`) |
 
 A signature goes to the public transparency log unless `transparencyLog:

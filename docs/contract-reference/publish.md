@@ -24,8 +24,8 @@ publish:
       type: image
       ref: oci://ghcr.io/acme/payments       # no tag
       build:
-        dockerfile: {context: ., platforms: [linux/amd64, linux/arm64]}
-      sbom: true
+        command: [./hack/build-image.sh]     # an OCI layout to $PACTO_OUT, and the SBOM
+      sbom: sbom/api.spdx.json               # sbom/ is listed in .pactoignore
     - name: manifests
       type: manifests
       ref: oci://ghcr.io/acme/deploy/payments
@@ -43,8 +43,8 @@ publish:
 | `artifacts[].ref` | The repository, as `oci://host/path` with no tag |
 | `artifacts[].build.dockerfile` | `context`, optional `file` and `platforms`. Runs `docker buildx` into an OCI image layout. Images only |
 | `artifacts[].build.command` | A command run in the contract directory that writes the artifact to `$PACTO_OUT`: an OCI image layout for an image, one `.tgz` for a chart, files for manifests |
-| `artifacts[].sbom` | Attach an SBOM made by `syft` to the image. Images only |
-| `sign` | Exactly one of `keyless: true`, `key` (a PEM key file, such as a cosign key) or `kms` (a KMS key URI). `transparencyLog: false` keeps signatures out of the public log; keyless signing refuses it. Publishing refuses without `sign` |
+| `artifacts[].sbom` | The SPDX (`.spdx.json`) or CycloneDX (`.cdx.json`) JSON file the build writes, relative to the contract directory. Pacto attaches it to the image and signs it; it never makes one. The image's build command must write it (for example `syft dir:. -o spdx-json=sbom/api.spdx.json` inside the command): a file older than the build is refused, and so is `sbom` on a `dockerfile` build, which writes none. A path inside the contract directory must be in `.pactoignore` (`publish --plan` names the line). Images only |
+| `sign` | Exactly one of `keyless: true`, `key` (a PEM key file, such as a cosign key) or `kms` (a KMS key URI, which needs a `pacto` built with `-tags kms`). `transparencyLog: false` keeps signatures out of the public log; keyless signing refuses it. Publishing refuses without `sign` |
 | `sign.identity`, `sign.issuer` | Required with `keyless: true`: the certificate identity the signature carries and its OIDC issuer. Pacto keeps or adopts only what this identity signed |
 
 Builders never push. Pacto pushes every artifact itself, never over an existing

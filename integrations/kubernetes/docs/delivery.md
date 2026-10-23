@@ -94,7 +94,9 @@ pass.
   Delivery tab once it knows who you are (you sign in, or run it on your own
   machine): an inbox of the
   changes waiting for your team, every environment and what it runs, the
-  history of past changes and the published versions.
+  history of past changes with who asked for and approved each one and how to
+  undo it, the published versions and the publishes Pacto refused, with the
+  version bump each one needed.
 - **The command line**: `pacto delivery plan` shows what would happen before
   you ask, and `pacto delivery history` what already did.
 - **AI agents** get the same tools through `pacto mcp --delivery`, which

@@ -58,7 +58,9 @@ with `openssl genpkey -algorithm ed25519 -out key.pem` and
 
 In production, sign with a KMS key (`signing.kms: awskms:///alias/pacto`): ECDSA
 P-256, Ed25519 or RSA PKCS#1 v1.5 with SHA-256, never RSA-PSS, SHA-384 or
-SHA-512. Or sign keyless (`signing.keyless`) with the certificate `identity`
+SHA-512. The delivery image ships every KMS provider (AWS, GCP, Azure and
+Vault); build it with `--build-arg GO_TAGS=` for an image without them, or
+`GO_TAGS=kms_aws` (or `kms_gcp`, `kms_azure`, `kms_hashivault`) for one. Or sign keyless (`signing.keyless`) with the certificate `identity`
 and `issuer`, a Fulcio (`fulcioURL`), a timestamp authority (`timestampURL`)
 and the `trustedRoot` that names both. The recorder shows Fulcio a projected
 service account token for the `sigstore` audience. The timestamp authority is

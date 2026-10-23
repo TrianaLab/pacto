@@ -181,7 +181,9 @@ accepts it (>=2.0.0 <4.0.0) and was verified on test/orders. Ship orders first: 
 It is in `pacto delivery plan` and `explain`, the plan MCP tool, the
 Operation's `status.plan` (`order.moveFirst[]` and `order.unknown`) and the
 dashboard's **Update these first**. While a change waits, the promoter plans
-the order again, so a consumer that moved drops out. Pacto never promotes the
+the order again, so a consumer that moved drops out and its team is no
+longer asked: only the teams the change still breaks may approve it, and a
+team it newly breaks is asked too. Pacto never promotes the
 other service itself, and a person can still approve shipping anyway.
 
 ## Who may do what

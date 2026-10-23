@@ -60,3 +60,8 @@ applies count in every environment.
   graph rather than a graph inside the change.
 - Published versions are the ones your Stages know about. A version no Stage
   has seen yet is not listed.
+- Refused publishes are read from the contract repository of each service with
+  a Stage, and only refusals of the version rule are kept there. The dashboard
+  does not check their signatures, so the list is what the registry holds. A
+  service whose Stages know no version yet shows none and makes the list
+  incomplete.
