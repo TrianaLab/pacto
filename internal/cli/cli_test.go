@@ -278,3 +278,18 @@ func TestVerboseFlag_ShortForm(t *testing.T) {
 		t.Errorf("expected validation output, got %q", out.String())
 	}
 }
+
+// TestInitFailureIsReturned: a dir that is a file is an error, not a contract.
+func TestInitFailureIsReturned(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := cli.NewRootCommand(app.NewService(nil, nil), cli.VersionInfo{Version: "test"})
+	root.SetArgs([]string{"init", file})
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	if err := root.Execute(); err == nil {
+		t.Fatal("init into a file succeeded")
+	}
+}

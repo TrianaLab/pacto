@@ -213,8 +213,6 @@ func TestDashDeliveryAdapterReads(t *testing.T) {
 	expect(t, err == nil && b.Stage.Name == "payments-prod", "blame %v %v", b, err)
 	_, err = api.Undo(ctx, "prod", "missing", "")
 	expect(t, isRefusal(err, http.StatusNotFound), "undo of an operation that is not there keeps the 404: %v", err)
-	r, err := api.PublishRefusals(ctx, "prod")
-	expect(t, r == nil && err == nil, "no refused-publish source yet: %v %v", r, err)
 }
 
 func TestTokenName(t *testing.T) {

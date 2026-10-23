@@ -6,8 +6,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -19,8 +21,10 @@ import (
 	"github.com/spf13/viper"
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 )
 
 // deliveryGroupVersion is the API the delivery chart installs.
@@ -310,10 +314,80 @@ func (a dashDelivery) Undo(ctx context.Context, ns, name, stage string) (*delive
 	return u, refusal(err)
 }
 
-// PublishRefusals: no source records refused publishes yet, so the dashboard
-// says it keeps none rather than showing an empty list as proof.
-func (a dashDelivery) PublishRefusals(context.Context, string) (*dashboard.PublishRefusals, error) {
-	return nil, nil
+// PublishRefusals reads the version-rule refusals pacto publish kept in each
+// service's contract bundle repository: the one the versions its Stages know
+// name. A service whose repository cannot be found or read makes the answer
+// partial, never "none".
+// ponytail: signatures are not checked (the dashboard holds no publisher
+// key), so the note says a refusal is what the registry holds; verify against
+// the key the Stage's OCIRepository verifies with if forged refusals matter.
+func (a dashDelivery) PublishRefusals(ctx context.Context, ns string) (*dashboard.PublishRefusals, error) {
+	if a.d.Records == nil {
+		return nil, nil
+	}
+	stages, err := a.d.Stages(ctx, ns)
+	if err != nil {
+		return nil, refusal(err)
+	}
+	repos, services := map[string]string{}, []string{}
+	for i := range stages {
+		st := &stages[i]
+		svc := st.Spec.Service.Name
+		if _, ok := repos[svc]; !ok {
+			services = append(services, svc)
+		}
+		if repos[svc] == "" {
+			repos[svc] = a.contractRepo(ctx, st)
+		}
+	}
+	out := &dashboard.PublishRefusals{Completeness: "complete", Refusals: []dashboard.PublishRefusal{},
+		Note: "read from each service's contract bundle repository; their signatures are not checked here"}
+	for _, svc := range services {
+		if err := a.refusalsOf(ctx, svc, repos[svc], out); err != nil {
+			out.Completeness, out.Unreadable = "partial", append(out.Unreadable, svc+": "+err.Error())
+		}
+	}
+	return out, nil
+}
+
+// contractRepo is the contract bundle repository the first version st knows
+// names, or "" when none does.
+func (a dashDelivery) contractRepo(ctx context.Context, st *delivery.StageObject) string {
+	ss := st.Status
+	for _, d := range slices.Concat([]string{ss.Pointer}, ss.Published, ss.Offered, ss.Verified, ss.FailedDigests) {
+		if d == "" {
+			continue
+		}
+		if repo, _, ok := strings.Cut(contract.TrimOCIScheme(a.Describe(ctx, st, d).ContractRef), "@"); ok {
+			return repo
+		}
+	}
+	return ""
+}
+
+func (a dashDelivery) refusalsOf(ctx context.Context, svc, repo string, out *dashboard.PublishRefusals) error {
+	if repo == "" {
+		return errors.New("no version its Stages know names a contract, so where its refusals are kept is unknown")
+	}
+	rr, err := a.d.Records(repo)
+	if err != nil {
+		return err
+	}
+	bounded, cancel := delivery.WithRegistryTimeout(ctx)
+	defer cancel()
+	l, err := deliveryrecord.ListRefusals(bounded, rr, svc, func([]byte) error { return nil })
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", repo, err)
+	}
+	for _, u := range l.Unreadable {
+		out.Completeness, out.Unreadable = "partial", append(out.Unreadable, svc+": "+u)
+	}
+	for _, r := range l.Refusals {
+		p := r.Statement.Predicate
+		out.Refusals = append(out.Refusals, dashboard.PublishRefusal{Service: p.Service, Version: p.Version, Check: "version",
+			Reason: p.Message, Baseline: p.Baseline, RequiredBump: p.RequiredBump, At: p.At})
+	}
+	return nil
 }
 
 func (a dashDelivery) Describe(ctx context.Context, stage *delivery.StageObject, digest string) delivery.Revision {
