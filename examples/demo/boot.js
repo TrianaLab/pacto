@@ -222,7 +222,19 @@
     // first: there is no way to undo a signed record in place.
     var WORLD_AT_LOAD = "";
     var REPLAY_KEY = "pacto-demo-delivery-tour";
-    function world() { var h = serve("GET", "/api/delivery/history"); return JSON.stringify(h && h.body); }
+    // Only the histories, and without any asOf: the clock and the names of who signed
+    // in are not records, and with them no two reads a second or a sign-in apart would
+    // ever compare equal.
+    function world() {
+      var h = serve("GET", "/api/delivery/history");
+      return JSON.stringify(h && h.body && h.body.histories, function (k, v) { return k === "asOf" ? undefined : v; });
+    }
+    // Set by the ready path after a reload the tour asked for. The tour starts from
+    // whichever of the ready path and mount() runs second, since either can.
+    var replayPending = false;
+    function replayTour() {
+      if (ready && el && replayPending) { replayPending = false; startTour(DELIVERY_TOUR); }
+    }
     function digestOf(svc, version) {
       var r = serve("GET", "/api/delivery/environments");
       var rows = (r && r.body && r.body.environments) || [];
@@ -603,6 +615,7 @@
       label.textContent = pending;
       if (ready) { offerTour(); }
       paint();
+      replayTour();
     }
 
     function offerTour() {
@@ -1152,9 +1165,8 @@
       window.addEventListener("hashchange", notice);
       offerTour();
       WORLD_AT_LOAD = world();
-      var replay = false;
-      try { replay = !!window.sessionStorage.getItem(REPLAY_KEY); window.sessionStorage.removeItem(REPLAY_KEY); } catch (e) { /* no storage, no replay */ }
-      if (replay) { startTour(DELIVERY_TOUR); }
+      try { replayPending = !!window.sessionStorage.getItem(REPLAY_KEY); window.sessionStorage.removeItem(REPLAY_KEY); } catch (e) { /* no storage, no replay */ }
+      replayTour();
     });
     window.__pactoDemoFailed = function () {
       done();

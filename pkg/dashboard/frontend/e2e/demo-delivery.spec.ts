@@ -40,14 +40,20 @@ async function audit(page: Page, what: string) {
   expect(r.violations, `${what}: ${JSON.stringify(r.violations.map((v) => ({ id: v.id, nodes: v.nodes.map((n) => n.target) })))}`).toEqual([]);
 }
 
-/** Play the delivery tour to its end, skipping the gated moments, and check where it ends. */
-async function playTour(page: Page) {
+/**
+ * Play the delivery tour to its end, skipping the gated moments, and check where it
+ * ends. `reload` says whether starting it must reload the page first: only when the
+ * tab's records changed since load.
+ */
+async function playTour(page: Page, reload: boolean) {
+  await page.evaluate(() => { (window as unknown as { __noReload?: number }).__noReload = 1; });
   await page.getByTestId('demo-delivery-start').click();
   const bubble = page.getByTestId('demo-tour-bubble');
   const next = page.getByTestId('demo-tour-next');
   const text = page.getByTestId('demo-tour-text');
 
-  await expect(text).toContainText('simulated');
+  await expect(text).toContainText('simulated', { timeout: T });
+  expect(await page.evaluate(() => (window as unknown as { __noReload?: number }).__noReload)).toBe(reload ? undefined : 1);
   await next.click();
   await expect(text).toContainText('Act 1, pactify a service');
   await expect(page.getByTestId('demo-tour-pre')).toContainText('pacto init --plan --owner risk');
@@ -153,7 +159,28 @@ test.describe('Browser demo: the delivery story', () => {
   test('the tour plays both acts as five moments and hands over the rest', async ({ page }) => {
     test.setTimeout(180_000);
     await ready(page, '#/fleet');
-    await playTour(page);
+    // Past a second boundary on purpose: the records carry the clock, and a tour that
+    // read it as a change would reload a page nothing had touched.
+    await page.waitForTimeout(1_100);
+    await playTour(page, false);
+  });
+
+  // The engine can resolve before the strip mounts. A tour owed by a reload must still
+  // start: here mount() is held until the engine is ready, with the replay flag set.
+  test('the tour owed by a reload starts when the engine is ready before the strip mounts', async ({ page }) => {
+    await page.addInitScript(() => {
+      window.sessionStorage.setItem('pacto-demo-delivery-tour', '1');
+      const add = document.addEventListener.bind(document);
+      document.addEventListener = ((type: string, fn: EventListener, opts?: unknown) => {
+        if (type === 'DOMContentLoaded' && fn.name === 'mount') {
+          const w = window as unknown as { __pactoReady: Promise<unknown> };
+          return add(type, () => { void w.__pactoReady.then(() => setTimeout(fn, 0)); }, opts as boolean);
+        }
+        return add(type, fn, opts as boolean);
+      }) as typeof document.addEventListener;
+    });
+    await page.goto('/#/fleet');
+    await expect(page.getByTestId('demo-tour-text')).toContainText('simulated', { timeout: T });
   });
 
   // The steps say "as pay-agent" and describe the world the replay leaves at load.
@@ -164,8 +191,10 @@ test.describe('Browser demo: the delivery story', () => {
     test.setTimeout(360_000);
     await ready(page, '#/delivery/environments');
     await switchTo(page, 'carol');
-    await playTour(page);
-    await playTour(page);
+    // Switching person changes no record, so no reload: setPersona alone must make
+    // the first play pay-agent's. The second starts after the first changed records.
+    await playTour(page, false);
+    await playTour(page, true);
   });
 
   for (const [label, viewport] of [['desktop', null], ['a phone', { width: 390, height: 844 }]] as const) {
