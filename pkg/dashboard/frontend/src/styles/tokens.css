@@ -11,8 +11,8 @@
 
   /* Text */
   --c-text: #f1f5f9;
-  --c-text-2: #94a3b8;
-  --c-text-3: #818ea3; /* clears AA 4.5:1 on surfaces, still dimmer than text-2 */
+  --c-text-2: #b4bfcf;
+  --c-text-3: #9aa6b8; /* 7.2:1 on the surface, 5.9:1 on a hovered row: AA with margin, still dimmer than text-2 */
 
   /* Borders */
   --c-border: #1e293b;
@@ -45,6 +45,9 @@
      White on the light-indigo dark-mode accent is only 2.98:1; a dark ink is 6.47:1, so
      on-accent controls read at AA. (Light theme flips this to white; see below.) */
   --c-on-accent: #0a0e17;
+  /* Ink for a label printed ON a solid status fill (chart slices). Dark ink on the light
+     dark-theme tones is 7:1 or more on every one; the light theme flips it to white. */
+  --seg-ink: #0a0e17;
 
   /* ── Typography: the SIZE RAMP ──
      One ramp, no gaps. 1rem inside the app is 15px (base.css sets the rem base to
@@ -60,7 +63,7 @@
      role could reproduce and nothing could match. */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
-  --text-xs: 0.75rem;     /* 11.25px */
+  --text-xs: 0.8125rem;   /* 12.19px: the smallest step, raised from 11.25px so captions and meta read without effort */
   --text-sm: 0.875rem;    /* 13.13px */
   --text-base: 0.9375rem; /* 14.06px */
   --text-md: 1.125rem;    /* 16.88px — the step between base and lg that section titles need */
@@ -236,8 +239,8 @@
   --c-surface-hover: #e2e8f0;
   --c-surface-inset: #f1f5f9;
   --c-text: #0f172a;
-  --c-text-2: #475569;
-  --c-text-3: #5f6d80; /* clears AA 4.5:1 on light surfaces, still dimmer than text-2 */
+  --c-text-2: #3f4b5c;
+  --c-text-3: #526073; /* 6.1:1 on white, 5.2:1 on a hovered row: AA with margin, still dimmer than text-2 */
   --c-border: #e2e8f0;
   --c-border-subtle: rgba(0, 0, 0, 0.04);
   /* emerald-700: deepened from #059669 so ok-as-text (badges, scores, diff-added) clears
@@ -267,6 +270,7 @@
   --c-accent-hover: #4338ca;
   /* On the darker light-mode accent, white now clears AA (6.29:1). */
   --c-on-accent: #ffffff;
+  --seg-ink: #ffffff;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
   --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
 }

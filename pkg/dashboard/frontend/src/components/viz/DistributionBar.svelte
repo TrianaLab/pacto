@@ -108,32 +108,12 @@
   };
   const pctLabel = (v) => (denom > 0 ? `(${pctText(v)}% of ${denom})` : '(share unavailable)');
 
-  // A countable population is drawn as individuals rather than as proportions. Nine
-  // targets on a proportional bar is a shape the reader has to convert back into nine
-  // things; drawn as nine marks they can see that two of them are red without reading a
-  // number. Above the ceiling the marks stop being countable and the proportion is the
-  // honest reading again, so the bar comes back.
-  //
-  // Gated on `over === 0` because an over-count has no individuals to draw: the buckets
-  // account for more things than exist, and a mark per counted thing would render that
-  // contradiction as a larger, complete-looking population.
-  const UNIT_MAX = 120;
-  const unit = $derived(
-    denom > 0 && denom <= UNIT_MAX && over === 0 && rows.every((r) => Number.isInteger(r.value)),
-  );
-  // `rows` sums to exactly `denom` whenever there is no over-count -- the shortfall is
-  // already carried as the Unclassified row -- so the marks partition the population by
-  // construction and no cell is invented or dropped.
-  const cells = $derived(unit ? rows.flatMap((r) => Array.from({ length: r.value }, () => r)) : []);
-  // The mark is sized from the population so a small one is BIG. Nine targets drawn as
-  // nine 16px squares is a 150px smudge in a 400px column -- technically countable and
-  // visually nothing, which is the state this component was in when the marks first
-  // landed. Nine at 26px is a block the eye lands on from across the room, and the
-  // ladder steps down only as fast as it has to for the row to still fit beside its
-  // siblings. It is a ladder rather than a container query because the sizes are chosen
-  // against the two column widths this product actually uses, and a fluid mark would
-  // make the same population a different size on every page that draws it.
-  const unitPx = $derived(denom <= 12 ? 26 : denom <= 20 ? 18 : denom <= 60 ? 12 : 8);
+  // ONE stacked bar for every population, labelled on the bar itself. The bar used to
+  // switch to a field of squares (one per member) under 120 members; reviewers read the
+  // squares as a waffle chart they had to decode against the legend. A stacked bar with
+  // each slice's name and count printed inside it reads on its own, a native tooltip
+  // carries the exact share, and the legend below stays the accessible statement.
+  const tip = (r) => `${r.label}: ${r.value} ${pctLabel(r.value)}`;
 </script>
 
 <figure class="dist">
@@ -168,46 +148,27 @@
         {/if}
       </p>
     {/if}
-    <!-- One element either way, so the graphic is hidden from assistive technology in
-         exactly one place and neither drawing can be added to the accessible tree by
-         forgetting to. No role on the marks, deliberately: they live inside
+    <!-- Hidden from assistive technology in exactly one place: the on-bar labels and
+         tooltips repeat the legend for sighted readers. No role on the slices,
+         deliberately: they live inside
          aria-hidden="true" and are not in the accessible tree at all, so giving them one
          would put a decorative shape back into it. The pointer gesture they carry is
          presentational, and its keyboard equivalent is the legend entry below, which IS
          focusable. -->
-    <div
-      class="dist-bar"
-      class:dist-bar-warn={over > 0}
-      class:dist-units={unit}
-      style={unit ? `--unit: ${unitPx}px` : undefined}
-      aria-hidden="true"
-    >
-      {#if unit}
-        {#each cells as c, i (i)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <span
-            class="dist-unit tone-{c.tone || 'neutral'}"
-            class:dim={dimmed(c.label)}
-            class:sel={selected === c.label}
-            data-motion
-            onmouseenter={() => (active = c.label)}
-            onmouseleave={() => (active = '')}
-          ></span>
-        {/each}
-      {:else}
-        {#each rows as r (r.label)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <span
-            class="dist-seg tone-{r.tone || 'neutral'}"
-            class:dim={dimmed(r.label)}
-            class:sel={selected === r.label}
-            data-motion
-            style="flex-grow: {r.value}"
-            onmouseenter={() => (active = r.label)}
-            onmouseleave={() => (active = '')}
-          ></span>
-        {/each}
-      {/if}
+    <div class="dist-bar" class:dist-bar-warn={over > 0} aria-hidden="true">
+      {#each rows as r (r.label)}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <span
+          class="dist-seg tone-{r.tone || 'neutral'}"
+          class:dim={dimmed(r.label)}
+          class:sel={selected === r.label}
+          data-motion
+          title={tip(r)}
+          style="flex-grow: {r.value}"
+          onmouseenter={() => (active = r.label)}
+          onmouseleave={() => (active = '')}
+        ><span class="dist-seg-text"><span class="dist-seg-value">{r.value}</span> <span class="dist-seg-name">{r.label}</span></span></span>
+      {/each}
     </div>
     <ul class="dist-legend">
       {#each rows as r (r.label)}
@@ -269,35 +230,32 @@
      (Unknown beside Warning, both amber) read as one wide slice without it, and the
      reader counts three buckets on a four-bucket bar. */
   .dist-bar {
-    display: flex; gap: 2px; width: 100%; height: 12px; border-radius: var(--radius-xs);
+    display: flex; gap: 2px; width: 100%; height: 24px; border-radius: var(--radius-xs);
     overflow: hidden; background: var(--c-surface-inset); border: 1px solid var(--c-border);
   }
   /* A bar that fills edge to edge reads as a complete distribution. When the buckets
      over-count it is not one, so it is drawn hatched — the notice above already says
      so in words; this only stops the shape from contradicting it. */
   .dist-bar-warn { border-color: var(--c-warn); border-style: dashed; }
-  /* Marks, not a bar: the frame and the fixed height belong to a single continuous shape
-     and would read as a container the marks sit inside. They size themselves and wrap. */
-  .dist-units {
-    height: auto; flex-wrap: wrap; overflow: visible;
-    background: none; border: 0; border-radius: 0;
-    /* One rule instead of a second size ladder: the gutter is a fixed fraction of the
-       mark, so the marks read as a field of individuals at every step and never as a
-       row of bars with a hairline between them. */
-    gap: max(2px, calc(var(--unit) / 6));
-  }
-  .dist-unit {
-    display: block; width: var(--unit); height: var(--unit); flex: none;
-    border-radius: max(2px, calc(var(--unit) / 8));
-    background: var(--tone-c, var(--c-neutral));
-    transition: opacity var(--motion-feedback);
-  }
-  .dist-unit.dim { opacity: 0.25; }
-  .dist-unit.sel { box-shadow: inset 0 0 0 2px var(--c-text); }
+  /* Each slice is its own size container, so its label decides from the slice's own
+     width what fits: name and count, the count alone, or nothing (the tooltip and the
+     legend still say it). flex-basis 0 keeps the width proportional to the value alone. */
   .dist-seg {
-    display: block; min-width: 2px; background: var(--tone-c, var(--c-neutral));
+    display: flex; align-items: center; min-width: 2px; flex-basis: 0;
+    container-type: inline-size; overflow: hidden;
+    background: var(--tone-c, var(--c-neutral)); color: var(--seg-ink);
     transition: flex-grow var(--motion-reveal), opacity var(--motion-feedback);
   }
+  .dist-seg-text {
+    padding: 0 var(--sp-2); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-size: var(--text-xs); font-weight: 600; line-height: 1;
+  }
+  .dist-seg-value { font-variant-numeric: tabular-nums; }
+  @container (max-width: 72px) { .dist-seg-name { display: none; } }
+  @container (max-width: 22px) { .dist-seg-text { display: none; } }
+  /* A dimmed slice keeps its colour at a third; its label would drop below AA, so it
+     goes rather than being shown unreadable. */
+  .dist-seg.dim .dist-seg-text { visibility: hidden; }
   /* The reader caused this, so it is the feedback role and not an entrance. Dimming the
      OTHERS rather than brightening the one keeps every slice its own tone: brightening
      would mean two renderings of the same colour on one bar. */

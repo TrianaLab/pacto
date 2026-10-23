@@ -110,7 +110,7 @@
       <a href={serviceUrl(svc.name)} class="alert-item" class:alert-err={svc.contractStatus === 'NonCompliant'} class:alert-warn={svc.contractStatus === 'Warning'}>
         <span class="alert-dot" style="background:{svc.contractStatus === 'NonCompliant' ? 'var(--c-err)' : 'var(--c-warn)'}"></span>
         <span class="alert-name">{svc.name}</span>
-        <span class="badge badge-{statusClass(svc.contractStatus)}" style="font-size:10px">{statusLabel(svc.contractStatus)}</span>
+        <span class="badge badge-{statusClass(svc.contractStatus)}" style="font-size: var(--text-xs)">{statusLabel(svc.contractStatus)}</span>
         {#if svc.topInsight}<span class="alert-reason">{svc.topInsight}</span>{/if}
         {#if (svc.blastRadius || 0) > 0}
           <span class="blast-pill" class:blast-pill-high={svc.blastRadius >= 5} class:blast-pill-med={svc.blastRadius >= 3 && svc.blastRadius < 5}>

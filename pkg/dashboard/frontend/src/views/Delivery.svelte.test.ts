@@ -9,6 +9,7 @@ import { mount, unmount, flushSync, tick } from 'svelte';
 const fns = vi.hoisted(() => ({
   session: vi.fn(), inbox: vi.fn(), environments: vi.fn(), published: vi.fn(), history: vi.fn(),
   operation: vi.fn(), plan: vi.fn(), propose: vi.fn(), decide: vi.fn(), cancel: vi.fn(), signOut: vi.fn(),
+  blame: vi.fn(), undo: vi.fn(), refusals: vi.fn(),
 }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
@@ -20,6 +21,8 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
       deliveryOperation: (...a: unknown[]) => fns.operation(...a), deliveryPlan: (...a: unknown[]) => fns.plan(...a),
       deliveryPropose: (...a: unknown[]) => fns.propose(...a), deliveryDecide: (...a: unknown[]) => fns.decide(...a),
       deliveryCancel: (...a: unknown[]) => fns.cancel(...a), signOut: () => fns.signOut(),
+      deliveryBlame: (...a: unknown[]) => fns.blame(...a), deliveryUndo: (...a: unknown[]) => fns.undo(...a),
+      deliveryRefusals: () => fns.refusals(),
     },
   };
 });
@@ -65,6 +68,7 @@ beforeEach(() => {
   for (const f of Object.values(fns)) f.mockReset();
   deliverySession.data = null; deliverySession.error = null; deliverySession.loaded = false;
   fns.session.mockResolvedValue(shared());
+  fns.refusals.mockResolvedValue({ asOf: listing.asOf, recorded: false, completeness: "partial", refusals: [] });
   sessionStorage.clear();
   location.hash = '#/delivery';
 });
@@ -84,7 +88,9 @@ describe('inbox', () => {
     expect(held.querySelector('a[href="#/services/checkout"]')).not.toBeNull();
     expect(text(target)).toContain('Paused: Errored');
     expect(text(target.querySelector('[data-testid="inbox-errored"]') as HTMLElement)).toContain('Pacto could not tell how it ended');
-    expect(text(target)).toContain('Signed in as https://idp#carol, in team-checkout');
+    // The person's subject and, printed next to it, the username the cluster uses. Never only in a tooltip.
+    expect(text(target)).toContain('Signed in as carol (https://idp#carol), in team-checkout');
+    expect(target.querySelector('[data-testid="delivery-identity"] [title]')).toBeNull();
     destroy();
   });
 
@@ -120,6 +126,17 @@ describe('inbox', () => {
     expect(note).toContain('only the namespaces Pacto knows of');
     expect(note).toContain('the namespaces a, b');
     expect(note).not.toContain('*');
+    destroy();
+  });
+
+  it('does not name a person from the ID token alone when the cluster did not say who they are', async () => {
+    fns.session.mockResolvedValue(shared({ name: 'Release Bot', caller: undefined, callerError: 'whoami: forbidden' }));
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [] });
+    const { target, destroy } = render(DeliveryInboxView);
+    await settle();
+    const bar = text(target.querySelector('[data-testid="delivery-identity"]') as HTMLElement);
+    expect(bar).not.toContain('Release Bot');
+    expect(bar).toContain('The cluster did not say who you are: whoami: forbidden');
     destroy();
   });
 
@@ -268,12 +285,12 @@ describe('change detail', () => {
     const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1', miraURL: 'https://mira.example' });
     await settle();
     expect(text(target)).toContain('Promote on prod/pay');
-    expect(text(target)).toContain('agent-bot (agent), for https://idp#erin');
+    expect(text(target)).toContain('agent-bot (agent), for erin');
     expect(text(target.querySelector('[data-testid="predicted-verdicts"]') as HTMLElement)).toContain('pacto.impact');
     const actual = target.querySelector('[data-testid="actual-verdicts"]')!;
     expect(actual.querySelector('[data-testid="mira-link"]')?.getAttribute('href')).toContain('https://mira.example/#/traces?q=');
     expect(text(actual as HTMLElement)).toContain('pacto delivery explain op1');
-    expect(text(target)).toContain('Reject by https://idp#dave');
+    expect(text(target)).toContain('Reject by dave');
     expect(text(target)).toContain('Decision due by');
     expect(target.querySelector('[data-testid="affected-services"] a[href="#/services/checkout"]')).not.toBeNull();
     destroy();
@@ -406,7 +423,7 @@ describe('change detail', () => {
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     expect(text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement)).toContain('pacto delivery approve -n prod op1 --decision approve');
-    expect(text(r.target)).toContain('Acting as https://idp#carol from this machine');
+    expect(text(r.target)).toContain('Acting as carol (https://idp#carol) from this machine');
     r.destroy();
 
     fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: false, fresh: false });
@@ -605,5 +622,273 @@ describe('a list whose refresh fails', () => {
     expect(fn).toHaveBeenCalledTimes(3);
     expect(target.querySelector('[data-testid="listing-stale"]')).toBeNull();
     destroy();
+  });
+});
+
+describe('names, versions and one clear sentence', () => {
+  it('says the person, the versions and a question without full digests in the inbox', async () => {
+    fns.session.mockResolvedValue(shared({ name: 'Carol Diaz' }));
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [
+      { namespace: 'prod', name: 'op1', stage: 'pay', type: 'pacto.dev/promote', from: D1, to: D2, fromVersion: '2.4.0', toVersion: '3.0.0', phase: 'Held',
+        question: `Promote to ${D2}?`, decision: 'approve', owners: ['team-checkout'] },
+      { namespace: 'prod', name: 'op2', stage: 'pay', type: 'pacto.dev/promote', to: D2, toVersion: '3.0.0', phase: 'Held', decision: 'approve' },
+    ] });
+    const { target, destroy } = render(DeliveryInboxView);
+    await settle();
+    // The name is a claim Carol set herself, so the cluster's username sits next to it.
+    expect(text(target)).toContain('Signed in as Carol Diaz (https://idp#carol)');
+    expect(target.querySelector('[data-testid="delivery-identity"] [title]')).toBeNull();
+    expect(target.querySelector('a[href="#/delivery/changes/prod/op1"]')?.textContent?.trim()).toBe('Promote on prod/pay: 2.4.0 to 3.0.0');
+    expect(target.querySelector('a[href="#/delivery/changes/prod/op2"]')?.textContent?.trim()).toBe('Promote on prod/pay: 3.0.0');
+    expect(text(target)).toContain('Promote to sha256:222222222222?');
+    expect(text(target)).not.toContain('2'.repeat(64));
+    destroy();
+  });
+
+  it('says what moves first in one sentence, never with a full digest', async () => {
+    const order = { moveFirst: [
+      ORDER.moveFirst[0],
+      { service: 'ledger', version: '1.0.0', accepts: '^2.0.0', stage: { namespace: 'prod', name: 'ledger-prod' },
+        candidate: { digest: D1, version: '2.0.0', verifiedOn: { namespace: 'test', name: 'ledger-test' } }, message: 'm' },
+      { service: 'fraud', accepts: '^2.0.0', candidate: { digest: D2, accepts: '^3.0.0', verifiedOn: { namespace: 'test', name: 'fraud-test' } }, message: 'm' },
+      { service: 'audit', version: '1.0.0', accepts: '^2.0.0', stage: { namespace: 'prod', name: 'audit-prod' }, message: 'm' },
+      { service: 'mail', message: 'm' },
+    ] };
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
+      held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'pacto.dev/promote', to: D2, phase: 'Held', decision: 'approve', order }] });
+    const { target, destroy } = render(DeliveryInboxView);
+    await settle();
+    const items = [...target.querySelectorAll('[data-testid="inbox-move-first"] li.mf-item')].map((li) => text(li as HTMLElement).trim());
+    expect(items[0]).toBe('Update orders first: orders 1.8.0 runs here and accepts only ^2.0.0; orders 1.9.0, verified on test/orders-test accepts the new version, so promote it on Stage prod/orders-prod.');
+    expect(items[1]).toContain('ledger 2.0.0, verified on test/ledger-test no longer depends on it, so promote it on Stage prod/ledger-prod.');
+    expect(items[2]).toBe('Update fraud first: it accepts only ^2.0.0; fraud 222222222222, verified on test/fraud-test accepts the new version, so ship it first.');
+    expect(items[3]).toBe('Update audit first: audit 1.0.0 runs here and accepts only ^2.0.0, and no version verified upstream can move first yet (it runs on Stage prod/audit-prod).');
+    expect(items[4]).toBe('Update mail first, and no version verified upstream can move first yet.');
+    expect(text(target)).not.toContain('9'.repeat(64));
+    destroy();
+  });
+
+  it('promotes to a version, not a digest', async () => {
+    const row = { namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', pointer: D1, version: '1.0.0', candidate: D2, candidateVersion: '2.0.0',
+      verified: true, failed: false, frozen: false, autoHold: false, held: 0, ready: 'True', actions: ['promote'] };
+    fns.environments.mockResolvedValue({ ...listing, environments: [row] });
+    fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'pacto.dev/promote', predicted: 'Proceeds' });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const btn = target.querySelector('button[aria-label="Promote payments in prod to 2.0.0"]') as HTMLButtonElement;
+    expect(btn.textContent).toBe('Promote 2.0.0');
+    btn.click();
+    await settle();
+    expect(target.querySelector('#pp-title')?.textContent?.trim()).toBe('Promote prod/pay: 2.0.0');
+    destroy();
+  });
+
+  it('names versions and people on a change', async () => {
+    fns.session.mockResolvedValue(shared({ name: 'Carol Diaz' }));
+    const op = heldOperation({ versions: { [D1]: '2.4.0', [D2]: '3.0.0' }, people: { 'https://idp#dave': 'Dave Lee' } });
+    op.explanation.summary = `promote payments to ${D2}`;
+    op.operation.status.question = `Ship ${D2}?`;
+    fns.operation.mockResolvedValue(op);
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(text(target)).toContain('From2.4.0 111111111111To3.0.0 222222222222');
+    expect(text(target)).toContain('Reject by Dave Lee');
+    expect(text(target)).toContain('promote payments to sha256:222222222222');
+    expect(text(target)).toContain('Ship sha256:222222222222?');
+    expect(text(target)).not.toContain('2'.repeat(64));
+    destroy();
+  });
+});
+
+describe('history blame and undo', () => {
+  const REC = 'sha256:' + 'a'.repeat(64);
+  const history = () => ({ ...listing, versions: { [D1]: '2.4.0', [D2]: '3.0.0' }, people: { 'https://idp#carol': 'Carol Diaz' }, histories: [
+    { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', source: 'records', verified: true, note: 'read from records', stage: { name: 'pay', pointer: D2 },
+      entries: [
+        { seq: 1, operation: 'op1', type: 'pacto.dev/promote', from: D1, to: D2, actor: 'https://idp#carol', actorClass: 'human', outcome: 'Succeeded',
+          finished: '2026-10-21T11:00:05Z', kind: 'operation', record: REC, pointer: { before: D1, after: D2 } },
+        { seq: 2, operation: 'op2', type: 'pacto.dev/promote', to: D1, actor: 'system:serviceaccount:agents:pay-agent', actorClass: 'agent', outcome: 'Failed', finished: 'soon' },
+      ] },
+    { namespace: 'test', asOf: listing.asOf, completeness: 'partial', source: 'status', note: '', stage: { name: 'pay', pointer: D1 }, entries: [] },
+  ] });
+
+  it('shows versions, readable actors and times, and who put the running version there', async () => {
+    fns.history.mockResolvedValue(history());
+    fns.blame.mockResolvedValue({ stage: { name: 'pay', pointer: D2 }, digest: D2, asOf: listing.asOf, completeness: 'complete', source: 'records',
+      note: `the newest change that moved the Stage to ${D2}`, onBehalfOf: 'https://idp#erin', intentReason: 'ship the fix',
+      change: { operation: 'op1', type: 'pacto.dev/promote', from: D1, to: D2, actor: 'system:serviceaccount:agents:pay-agent', actorClass: 'agent', finished: '2026-10-21T11:00:05Z' },
+      approvals: [{ by: 'https://idp#carol', decision: 'approve', operation: 'u', authTime: '1792560000', note: 'ok' }],
+      verdicts: [{ gate: 'pacto.diff', phase: 'pre', result: 'Pass' }], versions: { [D1]: '2.4.0', [D2]: '3.0.0' }, people: { 'https://idp#carol': 'Carol Diaz' } });
+    const { target, destroy } = render(DeliveryHistoryView);
+    await settle();
+    const prod = target.querySelector('section[aria-label="History of prod/pay"]') as HTMLElement;
+    const rows = [...prod.querySelectorAll('tbody tr')].map((r) => [...r.querySelectorAll('td')].map((td) => text(td as HTMLElement).trim()));
+    expect(rows[0].slice(2, 6)).toEqual(['2.4.0 → 3.0.0', 'Carol Diaz (https://idp#carol) (human)', 'Succeeded', '2026-10-21 11:00 UTC']);
+    expect(rows[1].slice(2, 6)).toEqual(['– → 2.4.0', 'pay-agent (system:serviceaccount:agents:pay-agent) (agent)', 'Failed', 'soon']);
+    expect(text(prod)).toContain('Runs 3.0.0 222222222222');
+    // Only a change that moved the environment can be undone.
+    expect(prod.querySelectorAll('button[aria-label^="Undo"]').length).toBe(1);
+
+    const blameBtn = [...prod.querySelectorAll('button')].find((b) => b.textContent === 'Who put 3.0.0 here?') as HTMLButtonElement;
+    blameBtn.focus();
+    blameBtn.click();
+    await settle();
+    expect(fns.blame).toHaveBeenCalledWith('prod', 'pay');
+    const panel = target.querySelector('[data-testid="blame-panel"]') as HTMLElement;
+    expect(text(panel)).toContain('Who put 3.0.0 here');
+    expect(text(panel.querySelector('[data-testid="blame-change"]') as HTMLElement)).toContain('Promote by pay-agent (system:serviceaccount:agents:pay-agent) (agent), for erin (https://idp#erin), from 2.4.0, finished 2026-10-21 11:00 UTC. Why: “ship the fix”.');
+    expect(text(panel)).toContain('Approve by Carol Diaz (https://idp#carol)');
+    expect(text(panel.querySelector('[data-testid="blame-verdicts"]') as HTMLElement)).toContain('pacto.diff');
+    expect(text(panel.querySelector('[data-testid="blame-source"]') as HTMLElement).trim()).toBe('Read from its signed record. The newest change that moved the Stage to sha256:222222222222.');
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle();
+    expect(target.querySelector('[data-testid="blame-panel"]')).toBeNull();
+    expect(document.activeElement).toBe(blameBtn);
+    destroy();
+  });
+
+  it('says when blame is unsigned, unknown or refused', async () => {
+    fns.history.mockResolvedValue(history());
+    const { target, destroy } = render(DeliveryHistoryView);
+    await settle();
+    const open = async (ns: string) => {
+      const sec = target.querySelector(`section[aria-label="History of ${ns}/pay"]`) as HTMLElement;
+      (sec.querySelector('button') as HTMLButtonElement).click();
+      await settle();
+      return target.querySelector('[data-testid="blame-panel"]') as HTMLElement;
+    };
+    fns.blame.mockResolvedValueOnce({ stage: { name: 'pay' }, digest: D2, completeness: 'partial', source: 'status', note: 'read from its status',
+      change: { operation: 'op1', type: 'pacto.dev/promote', to: D2, actor: 'bob' }, unsigned: ['change', 'approvals'] });
+    let panel = await open('prod');
+    expect(text(panel)).toContain('Who put 222222222222 here');
+    expect(text(panel)).toContain('No person approved it');
+    expect(text(panel)).toContain('No signed record vouches for this: change, approvals come from the change\'s own status.');
+    expect(text(panel)).toContain('The history is partial, so this may not be the whole story.');
+    (panel.querySelector('button') as HTMLButtonElement).click();
+    await settle();
+    fns.blame.mockResolvedValueOnce({ stage: { name: 'pay' }, digest: D1, completeness: 'partial', source: 'status', note: 'unknown, not nobody', versions: { [D1]: '2.4.0' } });
+    panel = await open('test');
+    expect(text(panel)).toContain('Who put 2.4.0 here');
+    expect(panel.querySelector('[data-testid="blame-change"]')).toBeNull();
+    expect(text(panel.querySelector('[data-testid="blame-source"]') as HTMLElement).trim()).toBe('Unknown, not nobody. The history is partial, so this may not be the whole story.');
+    (panel.querySelector('button') as HTMLButtonElement).click();
+    await settle();
+    fns.blame.mockRejectedValueOnce(new ApiError(403, 'no', 'Forbidden'));
+    panel = await open('test');
+    expect(text(panel)).toContain('no');
+    destroy();
+  });
+
+  it('plans an undo, shows the command and proposes nothing on its own', async () => {
+    fns.history.mockResolvedValue(history());
+    fns.undo.mockResolvedValueOnce({ operation: 'prod/op1', kind: 'rollback', note: 'it is the change the Stage runs now, so a rollback bound to it undoes it',
+      command: 'pacto delivery propose -n prod --stage pay --type rollback --undoes op1', plan: { intentDigest: 'sha256:i', type: 'pacto.dev/rollback', predicted: 'Proceeds' } });
+    fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'pacto.dev/rollback', predicted: 'Proceeds' });
+    const { target, destroy } = render(DeliveryHistoryView);
+    await settle();
+    const undoBtn = target.querySelector('button[aria-label="Undo op1"]') as HTMLButtonElement;
+    undoBtn.click();
+    await settle();
+    expect(fns.undo).toHaveBeenCalledWith('prod', 'op1', 'pay');
+    let panel = target.querySelector('[data-testid="undo-panel"]') as HTMLElement;
+    expect(text(panel.querySelector('[data-testid="undo-note"]') as HTMLElement).trim()).toBe('Roll back. It is the change the Stage runs now, so a rollback bound to it undoes it.');
+    expect(text(panel)).toContain('pacto delivery propose -n prod --stage pay --type rollback --undoes op1');
+    expect(fns.propose).not.toHaveBeenCalled();
+    ([...panel.querySelectorAll('button')].find((b) => b.textContent === 'Plan this roll back') as HTMLButtonElement).click();
+    await settle();
+    expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'pacto.dev/rollback', undoes: 'op1' });
+    // Escape inside the plan closes the plan, not the undo.
+    (panel.querySelector('[data-testid="propose-panel"]') as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    await settle();
+    expect(panel.querySelector('[data-testid="propose-panel"]')).toBeNull();
+    expect(target.querySelector('[data-testid="undo-panel"]')).not.toBeNull();
+    panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle();
+    expect(target.querySelector('[data-testid="undo-panel"]')).toBeNull();
+
+    fns.undo.mockResolvedValueOnce({ operation: 'prod/op1', kind: 'promote', note: `the Stage changed since, so going back to ${D1} is a promote`,
+      command: 'pacto delivery propose --to ' + D1, plan: { intentDigest: 'sha256:i', type: 'pacto.dev/promote', to: D1, predicted: 'Held' }, versions: { [D1]: '2.4.0' } });
+    undoBtn.click();
+    await settle();
+    panel = target.querySelector('[data-testid="undo-panel"]') as HTMLElement;
+    expect(text(panel.querySelector('[data-testid="undo-note"]') as HTMLElement).trim()).toBe('Promote to 2.4.0. The Stage changed since, so going back to sha256:111111111111 is a promote.');
+    ([...panel.querySelectorAll('button')].find((b) => b.textContent === 'Plan this promote') as HTMLButtonElement).click();
+    await settle();
+    expect(fns.plan).toHaveBeenLastCalledWith({ namespace: 'prod', stage: 'pay', type: 'pacto.dev/promote', to: D1 });
+    expect(panel.querySelector('#pp-title')?.textContent?.trim()).toBe('Promote prod/pay: 2.4.0');
+    ([...panel.querySelectorAll('button')].find((b) => b.textContent === 'Close') as HTMLButtonElement).click();
+    await settle();
+
+    fns.undo.mockResolvedValueOnce({ operation: 'prod/op1', kind: 'none', note: 'it moved nothing, so there is nothing to undo' });
+    undoBtn.click();
+    await settle();
+    panel = target.querySelector('[data-testid="undo-panel"]') as HTMLElement;
+    expect(text(panel.querySelector('[data-testid="undo-note"]') as HTMLElement).trim()).toBe('Nothing to undo. It moved nothing, so there is nothing to undo.');
+    expect([...panel.querySelectorAll('button')].map((b) => b.textContent)).toEqual(['Close']);
+    (panel.querySelector('button') as HTMLButtonElement).click();
+    await settle();
+
+    fns.undo.mockRejectedValueOnce(new ApiError(404, 'operation prod/op1 is not in the cluster', 'Refused'));
+    undoBtn.click();
+    await settle();
+    expect(text(target.querySelector('[data-testid="undo-panel"]') as HTMLElement)).toContain('operation prod/op1 is not in the cluster');
+    destroy();
+  });
+});
+
+describe('refused publishes', () => {
+  const pub = { ...listing, services: [] };
+
+  it('says when the cluster keeps no record of them', async () => {
+    fns.published.mockResolvedValue(pub);
+    const { target, destroy } = render(DeliveryPublishView);
+    await settle();
+    expect(text(target.querySelector('[data-testid="refused-unrecorded"]') as HTMLElement)).toContain('This cluster keeps no record of refused publishes');
+    destroy();
+  });
+
+  it('lists recent refusals with the bump they need, and says when the list may be incomplete', async () => {
+    fns.published.mockResolvedValue(pub);
+    fns.refusals.mockResolvedValue({ asOf: listing.asOf, recorded: true, completeness: 'partial', note: 'one registry could not be read', unreadable: ['registry.example: timeout'],
+      refusals: [
+        { service: 'payments', version: '2.4.3', check: 'version', requiredBump: 'major', baseline: '2.4.2', reason: 'removing a field is a breaking change',
+          actor: 'system:serviceaccount:agents:pay-agent', at: '2026-10-22T09:00:00Z', verified: true },
+        { service: 'orders', version: '1.5.0', check: 'sign', reason: 'publish.sign is not configured.', at: '2026-10-22T08:00:00Z', verified: false },
+        { service: 'fraud', version: '1.0.1', check: 'version', requiredBump: 'odd', reason: 'x', at: 'later', verified: false },
+      ] });
+    const { target, destroy } = render(DeliveryPublishView);
+    await settle();
+    const sec = target.querySelector('[data-testid="refused-publishes"]') as HTMLElement;
+    expect(text(sec.querySelector('[data-testid="refused-partial"]') as HTMLElement).trim()).toBe('This list may be incomplete: one registry could not be read. Could not read: registry.example: timeout.');
+    const rows = [...sec.querySelectorAll('li')].map((li) => text(li as HTMLElement).trim());
+    expect(rows[0]).toBe('payments 2.4.3 Needs a major version Signed record Removing a field is a breaking change. Compared with 2.4.2. By pay-agent (system:serviceaccount:agents:pay-agent), 2026-10-22 09:00 UTC');
+    expect(rows[1]).toBe('orders 1.5.0 Refused: sign Publish.sign is not configured. 2026-10-22 08:00 UTC');
+    expect(rows[2]).toContain('Needs odd');
+    destroy();
+  });
+
+  it('says when none was refused, and when the list could not be read', async () => {
+    fns.published.mockResolvedValue(pub);
+    fns.refusals.mockResolvedValue({ asOf: listing.asOf, recorded: true, completeness: 'complete', refusals: [] });
+    let r = render(DeliveryPublishView);
+    await settle();
+    expect(text(r.target)).toContain('No publish was refused.');
+    r.destroy();
+    fns.refusals.mockResolvedValue({ asOf: listing.asOf, recorded: true, completeness: 'partial' });
+    r = render(DeliveryPublishView);
+    await settle();
+    expect(text(r.target)).toContain('No publish was refused that Pacto could read.');
+    expect(text(r.target)).toContain('This list may be incomplete.');
+    r.destroy();
+    fns.refusals.mockRejectedValueOnce(new ApiError(500, 'boom'));
+    fns.refusals.mockResolvedValueOnce({ asOf: listing.asOf, recorded: true, completeness: 'complete', refusals: [] });
+    r = render(DeliveryPublishView);
+    await settle();
+    const sec = r.target.querySelector('[data-testid="refused-publishes"]') as HTMLElement;
+    expect(text(sec)).toContain('Could not read refused publishes: boom');
+    (sec.querySelector('button') as HTMLButtonElement).click();
+    await settle();
+    expect(text(sec)).toContain('No publish was refused.');
+    r.destroy();
   });
 });

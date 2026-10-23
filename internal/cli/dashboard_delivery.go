@@ -1,7 +1,10 @@
 package cli
 
 import (
+	"cmp"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
@@ -115,13 +118,32 @@ func (id *dashboardIdentity) options(o *dashboard.Options) {
 	o.Auth = &dashboard.Auth{Local: id.auth.Local(), Login: id.auth.Login(), Routes: id.auth.Routes(), Middleware: id.auth.Middleware,
 		State: func(r *http.Request) dashboard.AuthState {
 			st := id.state(r.Context())
-			return dashboard.AuthState{SignedIn: st.SignedIn, Fresh: st.Fresh, CSRF: st.CSRF}
+			return dashboard.AuthState{SignedIn: st.SignedIn, Fresh: st.Fresh, CSRF: st.CSRF, Name: tokenName(st.Token)}
 		}}
 	o.DeliveryPolicy = id.policy
 	if id.cluster != nil {
 		o.Delivery = id.delivery
 		o.DeliveryInstalled = id.deliveryInstalled
 	}
+}
+
+// tokenName is the person's name in an ID token the identity layer already
+// verified: name, else email; empty when the token says neither.
+func tokenName(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var c struct {
+		Name  string `json:"name"`
+		Email string `json:"email"`
+	}
+	_ = json.Unmarshal(payload, &c) // a token without these claims has no name
+	return cmp.Or(c.Name, c.Email)
 }
 
 // deliveryInstalled asks discovery, with the dashboard's own credentials,
@@ -271,6 +293,27 @@ func (a dashDelivery) Approve(ctx context.Context, ns, name string, decision del
 
 func (a dashDelivery) Cancel(ctx context.Context, ns, name string) error {
 	return refusal(a.d.Cancel(ctx, ns, name))
+}
+
+func (a dashDelivery) Stage(ctx context.Context, ns, name string) (*delivery.StageObject, error) {
+	s, err := a.d.Stage(ctx, ns, name)
+	return s, refusal(err)
+}
+
+func (a dashDelivery) Blame(ctx context.Context, ns, stage, digest string) (*delivery.Blame, error) {
+	b, err := a.d.Blame(ctx, ns, stage, digest)
+	return b, refusal(err)
+}
+
+func (a dashDelivery) Undo(ctx context.Context, ns, name, stage string) (*delivery.Undo, error) {
+	u, err := a.d.Undo(ctx, ns, name, stage)
+	return u, refusal(err)
+}
+
+// PublishRefusals: no source records refused publishes yet, so the dashboard
+// says it keeps none rather than showing an empty list as proof.
+func (a dashDelivery) PublishRefusals(context.Context, string) (*dashboard.PublishRefusals, error) {
+	return nil, nil
 }
 
 func (a dashDelivery) Describe(ctx context.Context, stage *delivery.StageObject, digest string) delivery.Revision {

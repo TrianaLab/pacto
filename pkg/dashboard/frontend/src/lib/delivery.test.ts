@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   typeLabel, decisionLabel, shortDigest, decisionAsked, cliDecision, loginUrl,
   keepPending, pendingFor, dropPending, miraLink, predictionLabel, authTimeText,
+  versionLabel, shortDigests, sentence, timeLabel, personLabel,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -98,5 +99,44 @@ describe('delivery routes', () => {
       view: 'delivery-history', params: { namespace: 'prod', stage: 'pay ments' },
     });
     expect(parseHash(deliveryChangeUrl('prod', 'a/b'))).toEqual({ view: 'delivery-change', params: { namespace: 'prod', name: 'a/b' } });
+  });
+});
+
+describe('names and versions', () => {
+  const D = 'sha256:' + 'ab'.repeat(32);
+  it('names a digest by its version when known', () => {
+    expect(versionLabel(D, { [D]: '2.4.0' })).toBe('2.4.0');
+    expect(versionLabel(D, {})).toBe('abababababab');
+    expect(versionLabel(D, null)).toBe('abababababab');
+    expect(versionLabel(undefined, { [D]: '1' })).toBe('');
+  });
+
+  it('shortens full digests inside sentences and turns notes into sentences', () => {
+    expect(shortDigests(`promote ${D} on Stage x`)).toBe('promote sha256:abababababab on Stage x');
+    expect(shortDigests(undefined)).toBe('');
+    expect(sentence(`the Stage runs ${D}`)).toBe('The Stage runs sha256:abababababab.');
+    expect(sentence('Done!')).toBe('Done!');
+    expect(sentence('  ')).toBe('');
+    expect(sentence(undefined)).toBe('');
+  });
+
+  it('shows times to the minute', () => {
+    expect(timeLabel('2026-10-21T11:00:05Z')).toBe('2026-10-21 11:00 UTC');
+    expect(timeLabel('2026-10-21T11:00:05.123Z')).toBe('2026-10-21 11:00 UTC');
+    expect(timeLabel('2026-10-21T11:00Z')).toBe('2026-10-21 11:00 UTC');
+    expect(timeLabel('2026-10-21T11:00:05+02:00')).toBe('2026-10-21T11:00:05+02:00');
+    expect(timeLabel(undefined)).toBe('');
+  });
+
+  it('names people: a known name, the signed-in person, a service account, a subject', () => {
+    expect(personLabel('https://idp#u1', { 'https://idp#u1': 'Ann' })).toBe('Ann');
+    expect(personLabel('https://idp#u1', null, { user: 'https://idp#u1', name: 'Me' })).toBe('Me');
+    expect(personLabel('https://idp#u1', null, { user: 'other', name: 'Me' })).toBe('u1');
+    expect(personLabel('https://idp#u1', null, { user: 'https://idp#u1' })).toBe('u1');
+    expect(personLabel('system:serviceaccount:agents:pay-agent')).toBe('pay-agent');
+    expect(personLabel('kind-admin')).toBe('kind-admin');
+    expect(personLabel('#x')).toBe('#x');
+    expect(personLabel('weird#')).toBe('weird#');
+    expect(personLabel(undefined)).toBe('');
   });
 });

@@ -73,6 +73,9 @@ export type DeliveryEnvironments = GetResponse<'/api/delivery/environments'>;
 export type DeliveryPublished = GetResponse<'/api/delivery/published'>;
 export type DeliveryHistory = GetResponse<'/api/delivery/history'>;
 export type DeliveryOperation = GetResponse<'/api/delivery/operations/{namespace}/{name}'>;
+export type DeliveryBlame = GetResponse<'/api/delivery/blame'>;
+export type DeliveryUndo = GetResponse<'/api/delivery/undo'>;
+export type DeliveryRefusals = GetResponse<'/api/delivery/refusals'>;
 export type DeliveryPlan = components['schemas']['Delivery.Plan'];
 export type DeliveryRequest = components['schemas']['Delivery.Request'];
 export type DeliveryDecision = components['schemas']['DecideInputBody']['decision'];
@@ -411,6 +414,11 @@ export const api = {
     unwrap(client.GET('/api/delivery/history', {
       params: { query: { namespace: namespace || undefined, stage: stage || undefined } },
     })),
+  deliveryBlame: (namespace: string, stage: string, digest = ''): Promise<DeliveryBlame> =>
+    unwrap(client.GET('/api/delivery/blame', { params: { query: { namespace, stage, digest: digest || undefined } } })),
+  deliveryUndo: (namespace: string, name: string, stage = ''): Promise<DeliveryUndo> =>
+    unwrap(client.GET('/api/delivery/undo', { params: { query: { namespace, name, stage: stage || undefined } } })),
+  deliveryRefusals: (): Promise<DeliveryRefusals> => unwrap(client.GET('/api/delivery/refusals')),
   deliveryOperation: (namespace: string, name: string): Promise<DeliveryOperation> =>
     unwrap(client.GET('/api/delivery/operations/{namespace}/{name}', { params: { path: { namespace, name } } })),
   deliveryPlan: (body: DeliveryRequest): Promise<DeliveryPlan> =>

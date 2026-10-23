@@ -245,21 +245,15 @@
     function mount() {
       var style = document.createElement("style");
       style.textContent =
-        // pointer-events:none on the container, auto on the link. The strip floats over
-        // the dashboard, and at phone widths it wraps tall enough to sit on top of the
-        // app's own controls -- a notice must never swallow a tap meant for the thing
-        // underneath it. Only the link is clickable.
-        "#pacto-demo-strip{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);" +
-        "z-index:9999;max-width:min(92vw,46rem);display:flex;gap:.6rem;align-items:center;" +
-        "padding:.5rem .9rem;border-radius:999px;background:#1e293b;color:#e2e8f0;" +
-        "font:400 .8125rem/1.4 system-ui,-apple-system,'Segoe UI',sans-serif;" +
-        "box-shadow:0 2px 12px rgba(15,23,42,.35);pointer-events:none}" +
-        "#pacto-demo-strip a{color:#a5b4fc;text-decoration:underline;white-space:nowrap;" +
-        "pointer-events:auto}" +
-        // The invitation. Same pointer-events:auto rule as the link: the strip stays
-        // transparent to taps meant for the dashboard under it, and only the things a
-        // reader can actually press are pressable.
-        "#pacto-demo-strip button{pointer-events:auto;appearance:none;cursor:pointer;" +
+        // A band across the top of the page, in the page's own flow: it never floats, so it
+        // can never cover what the dashboard drew. It used to float over the foot of the
+        // page, and on a short window that is exactly where the content was.
+        "#pacto-demo-strip{position:relative;box-sizing:border-box;width:100%;" +
+        "display:flex;gap:.6rem;align-items:center;" +
+        "padding:.5rem .9rem;background:#1e293b;color:#e2e8f0;" +
+        "font:400 .8125rem/1.4 system-ui,-apple-system,'Segoe UI',sans-serif}" +
+        "#pacto-demo-strip a{color:#a5b4fc;text-decoration:underline;white-space:nowrap}" +
+        "#pacto-demo-strip button{appearance:none;cursor:pointer;" +
         "font:inherit;line-height:1}" +
         "#pacto-demo-start{border:1px solid #a5b4fc;background:none;color:#c7d2fe;" +
         "border-radius:999px;padding:.25rem .8rem;white-space:nowrap}" +
@@ -267,21 +261,18 @@
         "#pacto-demo-start:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px}" +
         // The strip wraps once the invitation is in it, so the text can no longer be
         // vertically centred against a single row of controls.
-        // A pill radius on a box that now wraps to three lines reads as a lozenge, so
-        // soften it; the loading state is one line and looks the same either way.
-        "#pacto-demo-strip{flex-wrap:wrap;justify-content:center;border-radius:14px}" +
+        "#pacto-demo-strip{flex-wrap:wrap;justify-content:center}" +
         "#pacto-demo-strip>span:first-child{flex:1 1 18rem;min-width:0}" +
         "#pacto-demo-meter{color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}" +
         // display:flex above beats the hidden attribute, so say so explicitly or
         // dismissing the strip would do nothing at all.
         "#pacto-demo-strip[hidden]{display:none}" +
-        "#pacto-demo-close{pointer-events:auto;appearance:none;border:0;background:none;" +
+        "#pacto-demo-close{appearance:none;border:0;background:none;" +
         "color:#94a3b8;font:inherit;line-height:1;cursor:pointer;border-radius:999px;" +
         "padding:.2rem .4rem;margin:-.2rem -.3rem -.2rem 0}" +
         "#pacto-demo-close:hover{color:#e2e8f0;background:rgba(148,163,184,.2)}" +
         "#pacto-demo-strip a:focus-visible,#pacto-demo-close:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px}" +
-        "@media (max-width:480px){#pacto-demo-strip{bottom:8px;max-width:96vw;" +
-        "font-size:.75rem;padding:.4rem .7rem}}" +
+        "@media (max-width:480px){#pacto-demo-strip{font-size:.75rem;padding:.4rem .7rem}}" +
         // The tour overlay. Two elements, and the dimming is ONE declaration: a 100vmax
         // spread box-shadow on the cut-out is the dark layer and the hole in it at the
         // same time. An SVG mask or four dim panels would be more code for the same
@@ -360,9 +351,9 @@
       var link = document.createElement("a");
       link.href = DOCS_HREF;
       link.textContent = "About this demo";
-      // The strip is a notice, and a notice the reader has read is in the way. It sits
-      // over the bottom of the dashboard, which on a short window is where the content
-      // is -- so give it the one control every persistent notice owes the reader.
+      // The strip is a notice, and a notice the reader has read takes space the
+      // dashboard could use -- so give it the one control every persistent notice owes
+      // the reader.
       // Dismissed for the tab only: a reload is a fresh visitor as far as this fixture
       // knows, and the label is the only thing on the page saying the fleet is invented.
       var close = document.createElement("button");
@@ -377,16 +368,11 @@
       el.appendChild(startBtn);
       el.appendChild(link);
       el.appendChild(close);
-      document.body.appendChild(el);
-      // The strip floats over the foot of the page, and its controls are the part of
-      // it that must stay clickable -- which at phone widths means they sit on top of
-      // whatever the dashboard drew there and swallow taps meant for it.
-      // pointer-events cannot fix that: a button that ignores pointers is not a
-      // button. Reserving the strip's own height at the end of the document lets the
-      // page scroll clear of it instead, so nothing underneath is ever unreachable.
-      // Observed rather than measured once: the height changes with the message, because
-      // each one wraps to a different number of lines.
-      if (window.ResizeObserver) { sizeObs = new window.ResizeObserver(reserve); sizeObs.observe(el); }
+      // First in the body, so it sits above the dashboard rather than over it.
+      document.body.insertBefore(el, document.body.firstChild);
+      // The tour bubble floats, so the page reserves its height; observed rather than
+      // measured once, because each step's text wraps to a different number of lines.
+      if (window.ResizeObserver) { sizeObs = new window.ResizeObserver(reserve); }
       // The engine can resolve before DOMContentLoaded, in which case `pending` already
       // holds the notice and the invitation is owed straight away. Painting the held
       // message covers both orderings with one line.
@@ -408,7 +394,7 @@
     // window sits on top of whatever the dashboard drew there, and a tour that makes the
     // control it is pointing at unreachable is worse than no tour.
     function reserve() {
-      var box = running ? bubble : (el && !el.hidden ? el : null);
+      var box = running ? bubble : null;
       var h = box ? box.getBoundingClientRect().height + 24 : 0;
       document.body.style.paddingBottom = h ? h + "px" : "";
     }

@@ -52,6 +52,8 @@ async function scrollPast(page: Page, label: string): Promise<boolean> {
 test('a long revision page says what is on it before the reader scrolls', async ({ page }) => {
   test.setTimeout(240_000);
   await revisionPage(page);
+  // The demo's own notice is a band above the dashboard; this measures the dashboard.
+  await page.getByTestId('demo-strip-close').click();
 
   const m = await page.evaluate(() => {
     const nav = document.querySelector('[data-testid="page-toc"]')!;

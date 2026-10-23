@@ -82,7 +82,7 @@
   .drawer-meta dt { color: var(--c-text-3); font-size: var(--text-xs); }
   .drawer-meta dd { margin: 0; font-size: var(--text-sm); text-align: right; }
   .drawer-sources { display: inline-flex; gap: var(--sp-2); flex-wrap: wrap; }
-  .drawer-sources .src { display: inline-flex; align-items: center; gap: 4px; text-transform: uppercase; font-size: 10px; }
+  .drawer-sources .src { display: inline-flex; align-items: center; gap: 4px; text-transform: uppercase; font-size: var(--text-xs); }
   .drawer-lists { display: grid; gap: var(--sp-3); }
   .drawer-list-label { font-size: var(--text-xs); font-weight: 600; color: var(--c-text-3); text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: var(--sp-1); }
   .drawer-list-label .count { color: var(--c-text-2); }

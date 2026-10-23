@@ -4,6 +4,7 @@
   import { deliverySession, loadSession } from '../lib/deliverySession.svelte.ts';
   import { deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryHistoryUrl, deliveryPublishUrl } from '../lib/router.ts';
   import { loginUrl } from '../lib/delivery.ts';
+  import Person from './Person.svelte';
 
   // The delivery section's own navigation and who the views act as. Every
   // delivery view renders it first, so a person always sees whose identity an
@@ -21,6 +22,9 @@
 
   const s = $derived(deliverySession.data);
   const caller = $derived(s?.caller);
+  // The name the identity provider gave is a claim the person may have set
+  // themselves, so Person prints the cluster's username next to it.
+  const me = $derived({ user: caller?.user, name: s?.name });
   let signOutError = $state('');
 
   async function signOut() {
@@ -46,11 +50,15 @@
   {:else if deliverySession.error}
     <span class="dn-err" role="alert">Could not read your session: {deliverySession.error?.message || deliverySession.error}</span>
   {:else if s?.mode === 'local'}
-    <span>Acting as <strong>{caller?.user || 'your kubeconfig user'}</strong> from this machine. Decisions on held changes are taken with <code>pacto delivery approve</code>.</span>
+    <span>Acting as <strong>{#if caller?.user}<Person user={caller.user} {me} />{:else}your kubeconfig user{/if}</strong> from this machine. Decisions on held changes are taken with <code>pacto delivery approve</code>.</span>
   {:else if s?.signedIn}
     <span>
-      Signed in as <strong>{caller?.user || 'unknown'}</strong>{#if caller?.groups?.length}, in {caller.groups.join(', ')}{/if}.
-      {#if s.callerError}<span class="dn-err">The cluster did not say who you are: {s.callerError}</span>{/if}
+      {#if caller?.user}
+        Signed in as <strong><Person user={caller.user} {me} /></strong>{#if caller.groups?.length}, in {caller.groups.join(', ')}{/if}.
+      {:else}
+        <!-- The ID token's name alone is self-asserted, so it is never shown as who you are. -->
+        Signed in. <span class="dn-err">The cluster did not say who you are{#if s.callerError}: {s.callerError}{:else}.{/if}</span>
+      {/if}
     </span>
     <button type="button" class="btn btn-sm" onclick={signOut}>Sign out</button>
   {:else}

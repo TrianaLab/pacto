@@ -42,6 +42,37 @@ type fakeDelivery struct {
 	approved   []string
 	cancelled  []string
 	proposed   []delivery.Request
+	// history replaces the default answer; known adds digest versions.
+	history     *delivery.History
+	known       map[string]string
+	stageErr    error
+	blame       *delivery.Blame
+	blameErr    error
+	undo        *delivery.Undo
+	undoErr     error
+	refusals    *PublishRefusals
+	refusalsErr error
+}
+
+func (f *fakeDelivery) Stage(_ context.Context, ns, name string) (*delivery.StageObject, error) {
+	for _, s := range f.stages {
+		if s.Metadata.Namespace == ns && s.Metadata.Name == name {
+			return &s, f.stageErr
+		}
+	}
+	return nil, Refuse(http.StatusNotFound, "NotFound", name+" not found")
+}
+
+func (f *fakeDelivery) Blame(context.Context, string, string, string) (*delivery.Blame, error) {
+	return f.blame, f.blameErr
+}
+
+func (f *fakeDelivery) Undo(context.Context, string, string, string) (*delivery.Undo, error) {
+	return f.undo, f.undoErr
+}
+
+func (f *fakeDelivery) PublishRefusals(context.Context, string) (*PublishRefusals, error) {
+	return f.refusals, f.refusalsErr
 }
 
 func (f *fakeDelivery) WhoAmI(context.Context) (delivery.Caller, error) { return f.caller, f.callerErr }
@@ -99,6 +130,9 @@ func (f *fakeDelivery) Explain(_ context.Context, ns, name string) (*delivery.Ex
 }
 
 func (f *fakeDelivery) History(_ context.Context, ns, stage string) (*delivery.History, error) {
+	if f.history != nil {
+		return f.history, f.historyErr
+	}
 	return &delivery.History{Stage: delivery.StageNow{Name: ns + "/" + stage}, Completeness: "partial"}, f.historyErr
 }
 
@@ -129,6 +163,9 @@ func (f *fakeDelivery) Describe(_ context.Context, _ *delivery.StageObject, dige
 	if digest == dRun {
 		return delivery.Revision{Digest: digest, ContractRef: "oci://r/payments@sha256:c",
 			Bundle: &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "payments", Version: "1.0.0"}}}}
+	}
+	if v, ok := f.known[digest]; ok {
+		return delivery.Revision{Digest: digest, Bundle: &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Version: v}}}}
 	}
 	return delivery.Revision{Digest: digest}
 }
@@ -298,7 +335,8 @@ func TestDeliveryNotInstalledAndRefusals(t *testing.T) {
 	_, caps = call(t, http.MethodGet, open+"/api/capabilities", nil)
 	expect(t, caps["delivery"] == false && !asked, "an open dashboard does not ask the cluster: %v %v", caps, asked)
 	base = startDelivery(t, f, a.auth(false, true), true, Refuse(http.StatusUnauthorized, "LoginRequired", "sign in"))
-	for _, p := range []string{"inbox", "environments", "published", "history", "operations/prod/op"} {
+	for _, p := range []string{"inbox", "environments", "published", "history", "operations/prod/op", "refusals",
+		"blame?namespace=prod&stage=s", "undo?namespace=prod&name=op"} {
 		if code, body = call(t, http.MethodGet, base+"/api/delivery/"+p, nil); code != http.StatusUnauthorized || body["code"] != "LoginRequired" {
 			t.Errorf("%s: %d %v", p, code, body)
 		}
@@ -687,6 +725,8 @@ func TestDeliveryNamespaceScope(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/delivery/operations/books/broke", nil},
 		{http.MethodGet, "/api/delivery/history?namespace=books&stage=ledger", nil},
+		{http.MethodGet, "/api/delivery/blame?namespace=books&stage=ledger", nil},
+		{http.MethodGet, "/api/delivery/undo?namespace=books&name=broke", nil},
 		{http.MethodPost, "/api/delivery/operations/books/broke/decision", map[string]string{"decision": "approve"}},
 		{http.MethodDelete, "/api/delivery/operations/books/broke", nil},
 		{http.MethodPost, "/api/delivery/plan", delivery.Request{Namespace: "books", Stage: "ledger"}},
@@ -698,4 +738,150 @@ func TestDeliveryNamespaceScope(t *testing.T) {
 	expect(t, len(f.approved)+len(f.cancelled)+len(f.proposed) == 0, "nothing acted outside the scope")
 	code, _ := call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments", nil)
 	expect(t, code == http.StatusOK, "history in scope: %d", code)
+}
+
+func TestPeopleAndVersionLabels(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true, Name: "Carol Diaz"}}
+	f := sampleCluster("acme:team-checkout")
+	f.known = map[string]string{dNext: "2.0.0"}
+	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	_, sess := call(t, http.MethodGet, base+"/api/session", nil)
+	expect(t, sess["name"] == "Carol Diaz", "the session says the person's name: %v", sess)
+
+	// The inbox and the environments say versions, not only digests.
+	_, inbox := call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	first := inbox["held"].([]any)[0].(map[string]any)
+	expect(t, first["fromVersion"] == "1.0.0" && first["toVersion"] == "2.0.0", "held item versions: %v", first)
+	_, envs := call(t, http.MethodGet, base+"/api/delivery/environments", nil)
+	pay := envs["environments"].([]any)[2].(map[string]any)
+	expect(t, pay["version"] == "1.0.0" && pay["candidateVersion"] == "2.0.0", "candidate version: %v", pay)
+
+	// History names the versions its digests carry and the people who signed in.
+	f.history = &delivery.History{Stage: delivery.StageNow{Name: "payments", Pointer: dRun}, Completeness: "complete",
+		Entries: []delivery.HistoryEntry{{Operation: "done", From: dRun, To: dNext, Actor: person().User}, {Operation: "bot", Actor: "system:serviceaccount:a:b"}}}
+	_, h := call(t, http.MethodGet, base+"/api/delivery/history", nil)
+	vs, people := h["versions"].(map[string]any), h["people"].(map[string]any)
+	expect(t, vs[dRun] == "1.0.0" && vs[dNext] == "2.0.0" && len(vs) == 2, "history versions: %v", vs)
+	expect(t, people[person().User] == "Carol Diaz" && len(people) == 1, "history people: %v", people)
+	_, h = call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments", nil)
+	expect(t, h["versions"].(map[string]any)[dNext] == "2.0.0", "one Stage's history versions: %v", h)
+	// A Stage that cannot be read still has a history, without versions.
+	f.stageErr = errors.New("forbidden")
+	code, h := call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments", nil)
+	expect(t, code == http.StatusOK && h["versions"] == nil && len(h["histories"].([]any)) == 1, "unreadable Stage: %d %v", code, h)
+	f.stageErr = nil
+
+	// One change names the versions and people too.
+	f.ops[0].Spec.OnBehalfOf = &delivery.Principal{User: "someone"}
+	f.ops[0].Status.Approvals = []delivery.ApprovalRecord{{Name: "a1", By: person().User, Decision: delivery.Approve}}
+	_, op := call(t, http.MethodGet, base+"/api/delivery/operations/prod/for-checkout", nil)
+	expect(t, op["versions"].(map[string]any)[dRun] == "1.0.0" && op["people"].(map[string]any)[person().User] == "Carol Diaz",
+		"operation labels: %v %v", op["versions"], op["people"])
+	f.stageErr = errors.New("forbidden")
+	_, op = call(t, http.MethodGet, base+"/api/delivery/operations/prod/for-checkout", nil)
+	expect(t, op["versions"] == nil, "an unreadable Stage leaves the versions out: %v", op["versions"])
+	f.stageErr = nil
+
+	// A held change on a Stage the caller cannot see has no versions.
+	f.ops = append(f.ops, operation("prod", "elsewhere", "gone", held("team-checkout")))
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	last := inbox["held"].([]any)[len(inbox["held"].([]any))-1].(map[string]any)
+	_, has := last["fromVersion"]
+	expect(t, last["name"] == "elsewhere" && !has, "no Stage, no versions: %v", last)
+}
+
+func TestRememberIsBounded(t *testing.T) {
+	s := &Server{}
+	s.remember("", "x")
+	s.remember("u", "")
+	expect(t, s.people == nil, "nothing to remember without a user and a name")
+	for i := range maxPeople {
+		s.remember(strconv.Itoa(i), "n")
+	}
+	s.remember("one-more", "Name")
+	expect(t, len(s.people) == 1 && s.named("one-more", "0")["one-more"] == "Name", "a full directory starts over: %d", len(s.people))
+}
+
+func TestBlame(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true, Name: "Carol Diaz"}}
+	f := sampleCluster("team-checkout")
+	f.known = map[string]string{dNext: "2.0.0"}
+	f.blame = &delivery.Blame{Stage: delivery.StageNow{Name: "payments", Pointer: dNext}, Digest: dNext, Completeness: "complete",
+		Source: "records", OnBehalfOf: "someone",
+		Change:    &delivery.HistoryEntry{Operation: "done", From: dRun, To: dNext, Actor: "system:serviceaccount:agents:pay-agent"},
+		Approvals: []delivery.RecordApproval{{By: person().User, Decision: delivery.Approve}}}
+	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	call(t, http.MethodGet, base+"/api/session", nil) // carol signs in
+	code, b := call(t, http.MethodGet, base+"/api/delivery/blame?namespace=prod&stage=payments", nil)
+	expect(t, code == http.StatusOK && b["change"].(map[string]any)["operation"] == "done" && b["completeness"] == "complete", "blame %d %v", code, b)
+	vs := b["versions"].(map[string]any)
+	expect(t, vs[dRun] == "1.0.0" && vs[dNext] == "2.0.0", "blame versions: %v", vs)
+	expect(t, b["people"].(map[string]any)[person().User] == "Carol Diaz", "blame people: %v", b["people"])
+	// Nothing moved it there: no change, no versions of it.
+	f.blame = &delivery.Blame{Digest: "", Completeness: "partial", Note: "the Stage runs nothing yet"}
+	f.stageErr = errors.New("forbidden")
+	_, b = call(t, http.MethodGet, base+"/api/delivery/blame?namespace=prod&stage=payments", nil)
+	expect(t, b["change"] == nil && b["versions"] == nil && b["note"] == "the Stage runs nothing yet", "no change: %v", b)
+	f.blameErr = Refuse(http.StatusForbidden, "Forbidden", "no")
+	code, b = call(t, http.MethodGet, base+"/api/delivery/blame?namespace=prod&stage=payments", nil)
+	expect(t, code == http.StatusForbidden && b["detail"] == "no", "blame refused: %d %v", code, b)
+	code, _ = call(t, http.MethodGet, base+"/api/delivery/blame?namespace=prod", nil)
+	expect(t, code == http.StatusUnprocessableEntity, "blame needs a Stage: %d", code)
+}
+
+func TestUndo(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	f := sampleCluster("team-checkout")
+	f.undo = &delivery.Undo{Operation: "prod/done", Kind: "promote", Note: "the Stage changed since",
+		Plan: &delivery.Plan{IntentDigest: "sha256:i", From: dNext, To: dRun}, Command: "pacto delivery propose"}
+	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	code, u := call(t, http.MethodGet, base+"/api/delivery/undo?namespace=prod&name=done&stage=payments", nil)
+	expect(t, code == http.StatusOK && u["kind"] == "promote" && u["plan"].(map[string]any)["to"] == dRun &&
+		u["versions"].(map[string]any)[dRun] == "1.0.0", "undo %d %v", code, u)
+	// Without its Stage, or with one that cannot be read, no versions.
+	_, u = call(t, http.MethodGet, base+"/api/delivery/undo?namespace=prod&name=done", nil)
+	expect(t, u["versions"] == nil, "no Stage named: %v", u)
+	f.stageErr = errors.New("forbidden")
+	_, u = call(t, http.MethodGet, base+"/api/delivery/undo?namespace=prod&name=done&stage=payments", nil)
+	expect(t, u["versions"] == nil, "unreadable Stage: %v", u)
+	f.undo = &delivery.Undo{Operation: "prod/done", Kind: "none", Note: "it moved nothing"}
+	_, u = call(t, http.MethodGet, base+"/api/delivery/undo?namespace=prod&name=done&stage=payments", nil)
+	expect(t, u["kind"] == "none" && u["plan"] == nil, "nothing to undo: %v", u)
+	f.undoErr = errors.New("gone")
+	code, _ = call(t, http.MethodGet, base+"/api/delivery/undo?namespace=prod&name=done", nil)
+	expect(t, code == http.StatusInternalServerError, "undo error: %d", code)
+}
+
+func TestRefusals(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	f := sampleCluster("team-payments")
+	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	_, r := call(t, http.MethodGet, base+"/api/delivery/refusals", nil)
+	expect(t, r["recorded"] == false && r["completeness"] == "partial" && len(r["refusals"].([]any)) == 0 &&
+		strings.Contains(r["note"].(string), "keeps no record"), "no source: %v", r)
+	f.refusals = &PublishRefusals{Completeness: "complete"}
+	_, r = call(t, http.MethodGet, base+"/api/delivery/refusals", nil)
+	expect(t, r["recorded"] == true && r["refusals"] != nil && len(r["refusals"].([]any)) == 0, "recorded, none: %v", r)
+	f.refusals = &PublishRefusals{Completeness: "complete"}
+	for i := range recentRefusals + 5 {
+		f.refusals.Refusals = append(f.refusals.Refusals, PublishRefusal{Service: "payments", Version: fmt.Sprintf("2.4.%d", i),
+			Check: "version", RequiredBump: "major", At: fmt.Sprintf("2026-10-22T10:%02d:00Z", i)})
+	}
+	_, r = call(t, http.MethodGet, base+"/api/delivery/refusals", nil)
+	list := r["refusals"].([]any)
+	expect(t, len(list) == recentRefusals && list[0].(map[string]any)["version"] == "2.4.24" &&
+		list[0].(map[string]any)["requiredBump"] == "major", "newest first, bounded: %d %v", len(list), list[0])
+	// Times, not strings: an offset, a fraction and an unreadable value.
+	f.refusals = &PublishRefusals{Completeness: "complete", Refusals: []PublishRefusal{
+		{Version: "bad", At: "yesterday"}, {Version: "zulu", At: "2026-10-22T10:30:00Z"},
+		{Version: "offset", At: "2026-10-22T12:00:00+02:00"}, {Version: "fraction", At: "2026-10-22T10:30:00.5Z"}}}
+	_, r = call(t, http.MethodGet, base+"/api/delivery/refusals", nil)
+	var order []string
+	for _, x := range r["refusals"].([]any) {
+		order = append(order, x.(map[string]any)["version"].(string))
+	}
+	expect(t, slices.Equal(order, []string{"fraction", "zulu", "offset", "bad"}), "time order: %v", order)
+	f.refusalsErr = Refuse(http.StatusForbidden, "Forbidden", "no")
+	code, _ := call(t, http.MethodGet, base+"/api/delivery/refusals", nil)
+	expect(t, code == http.StatusForbidden, "refused: %d", code)
 }

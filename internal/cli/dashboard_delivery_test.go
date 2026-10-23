@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net"
@@ -206,6 +207,35 @@ func TestDashDeliveryAdapterReads(t *testing.T) {
 	expect(t, err == nil && e.Operation == "prod/held", "explain %v %v", e, err)
 	_, err = api.History(ctx, "prod", "payments-prod")
 	expect(t, err == nil, "history %v", err)
+	st, err := api.Stage(ctx, "prod", "payments-prod")
+	expect(t, err == nil && st.Metadata.Name == "payments-prod", "stage %v %v", st, err)
+	b, err := api.Blame(ctx, "prod", "payments-prod", "")
+	expect(t, err == nil && b.Stage.Name == "payments-prod", "blame %v %v", b, err)
+	_, err = api.Undo(ctx, "prod", "missing", "")
+	expect(t, isRefusal(err, http.StatusNotFound), "undo of an operation that is not there keeps the 404: %v", err)
+	r, err := api.PublishRefusals(ctx, "prod")
+	expect(t, r == nil && err == nil, "no refused-publish source yet: %v %v", r, err)
+}
+
+func TestTokenName(t *testing.T) {
+	tok := func(claims string) string {
+		return "h." + base64.RawURLEncoding.EncodeToString([]byte(claims)) + ".s"
+	}
+	for _, c := range []struct{ token, want string }{
+		{tok(`{"name":"Carol Diaz","email":"carol@example.com"}`), "Carol Diaz"},
+		{tok(`{"email":"carol@example.com"}`), "carol@example.com"},
+		{tok(`{"sub":"u-carol"}`), ""},
+		{tok(`not json`), ""},
+		{"h.!!!.s", ""},
+		{"", ""},
+	} {
+		expect(t, tokenName(c.token) == c.want, "tokenName(%q) = %q, want %q", c.token, tokenName(c.token), c.want)
+	}
+	id, _ := localAPI(t)
+	id.state = func(context.Context) authn.State { return authn.State{SignedIn: true, Token: tok(`{"name":"Carol"}`)} }
+	o := &dashboard.Options{}
+	id.options(o)
+	expect(t, o.Auth.State(httptest.NewRequest(http.MethodGet, "/", nil)).Name == "Carol", "the session carries the token's name")
 }
 
 func TestDashDeliveryAdapterActions(t *testing.T) {

@@ -1,9 +1,11 @@
 <script>
+  import Person from '../components/Person.svelte';
   import { onDestroy, tick } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryInboxUrl, deliveryHistoryUrl, serviceUrl } from '../lib/router.ts';
-  import { typeLabel, shortDigest, predictionLabel, decisionLabel, authTimeText } from '../lib/delivery.ts';
+  import { typeLabel, shortDigest, shortDigests, predictionLabel, decisionLabel, authTimeText } from '../lib/delivery.ts';
+  import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
@@ -30,6 +32,7 @@
   const st = $derived(op?.status);
   const actions = $derived(data?.actions ?? []);
   const consumers = $derived(st?.plan?.floor?.consumers ?? []);
+  const me = $derived({ user: deliverySession.data?.caller?.user, name: deliverySession.data?.name });
 
   const TIMES = [
     ['admitted', 'Admitted'], ['started', 'Started'], ['applied', 'Applied'], ['finished', 'Finished'],
@@ -77,7 +80,7 @@
   <PageHeader
     eyebrow="Change"
     title={e ? `${typeLabel(e.spec.type)} on ${namespace}/${e.spec.stage}` : `${namespace}/${name}`}
-    subtitle={e?.summary || ''}
+    subtitle={shortDigests(e?.summary)}
     revalidating={!!data && loader.loading}
   />
   <DeliveryNav current="" />
@@ -99,10 +102,11 @@
     </section>
 
     <dl class="cd-facts t-body-2">
-      <dt>Environment</dt><dd><a href={deliveryHistoryUrl({ namespace, stage: e.spec.stage })}>{namespace}/{e.spec.stage}</a>{#if e.stage.frozen} (paused{#if e.stage.frozenReason}: {e.stage.frozenReason}{/if}){/if}</dd>
-      {#if e.spec.params?.from}<dt>From</dt><dd><code title={e.spec.params.from}>{shortDigest(e.spec.params.from)}</code></dd>{/if}
-      {#if e.spec.params?.to}<dt>To</dt><dd><code title={e.spec.params.to}>{shortDigest(e.spec.params.to)}</code></dd>{/if}
-      <dt>Asked by</dt><dd>{e.spec.actor.user}{#if e.status.actorClass}{` (${e.status.actorClass})`}{/if}{#if e.spec.onBehalfOf?.user}{`, for ${e.spec.onBehalfOf.user}`}{/if}</dd>
+      <dt>Environment</dt><dd><a href={deliveryHistoryUrl({ namespace, stage: e.spec.stage })}>{namespace}/{e.spec.stage}</a>{#if e.stage.frozen}{' '}(paused{#if e.stage.frozenReason}: {e.stage.frozenReason}{/if}){/if}</dd>
+      {#each [['From', e.spec.params?.from], ['To', e.spec.params?.to]] as [label, d] (label)}
+        {#if d}<dt>{label}</dt><dd>{#if data.versions?.[d]}{data.versions[d]}{' '}{/if}<code class="cd-digest" title={d}>{shortDigest(d)}</code></dd>{/if}
+      {/each}
+      <dt>Asked by</dt><dd><Person user={e.spec.actor.user} people={data?.people} {me} />{#if e.status.actorClass}{` (${e.status.actorClass})`}{/if}{#if e.spec.onBehalfOf?.user}, for <Person user={e.spec.onBehalfOf.user} people={data?.people} {me} />{/if}</dd>
       {#if e.spec.reason}<dt>Why</dt><dd>{e.spec.reason}</dd>{/if}
     </dl>
 
@@ -143,7 +147,7 @@
     {#if e.status.phase === 'Held' && !st?.applied && st?.plan?.order?.moveFirst?.length}
       <section aria-labelledby="cd-move-first">
         <h2 id="cd-move-first" class="t-section-title">Update these first</h2>
-        <p class="t-body-2">These services run here and declare a version range that does not include the new version. This list is from when the change was planned. Once each of them runs a version whose range includes the new one, plan and propose this change again: this one keeps waiting for a person. Pacto never moves them for you.</p>
+        <p class="t-body-2">This list is from when the change was planned. Once they run a version that accepts the new one, plan and propose this change again: this one keeps waiting for a person. Pacto never moves them for you.</p>
         <MoveFirstList order={st.plan.order} />
       </section>
     {/if}
@@ -181,7 +185,7 @@
       {#if st?.approvals?.length}
         <ul class="cd-approvals">
           {#each st.approvals as a (a.name)}
-            <li class="t-body-2"><strong>{decisionLabel(a.decision)}</strong> by {a.by}{#if a.authTime}, signed in at {authTimeText(a.authTime)}{/if}{#if a.note}: “{a.note}”{/if}</li>
+            <li class="t-body-2"><strong>{decisionLabel(a.decision)}</strong> by <Person user={a.by} people={data?.people} {me} />{#if a.authTime}, signed in at {authTimeText(a.authTime)}{/if}{#if a.note}: “{a.note}”{/if}</li>
           {/each}
         </ul>
       {:else}
@@ -209,6 +213,7 @@
   .cd-facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px var(--sp-3); margin: 0; }
   .cd-facts dt { color: var(--c-text-3); }
   .cd-facts dd { margin: 0; overflow-wrap: anywhere; }
+  .cd-digest { color: var(--c-text-2); }
   .cd-facts a, .cd-consumers a { color: var(--c-accent); text-decoration: underline; }
   .cd-actions { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .cd-consumers { display: flex; gap: var(--sp-3); flex-wrap: wrap; list-style: none; padding: 0; margin: var(--sp-2) 0 0; }

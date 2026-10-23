@@ -376,7 +376,7 @@ function resolvePalette(container: HTMLElement): Palette {
   return {
     surface: v('--c-surface', '#111827'),
     text: v('--c-text', '#f1f5f9'),
-    textDim: v('--c-text-3', '#818ea3'),
+    textDim: v('--c-text-3', '#9aa6b8'),
     border: v('--c-border', '#1e293b'),
     ok: v('--c-ok', '#34d399'),
     warn: v('--c-warn', '#fbbf24'),
