@@ -20,7 +20,7 @@
 # explicit argument.
 #
 #   pass MSG / fail MSG            report one claim; fail exits 1
-#   eventually ROUNDS CMD...       run CMD until it succeeds, for ROUNDS x 3s
+#   eventually ROUNDS CMD...       run CMD until it succeeds, ROUNDS tries over ROUNDS x 3s
 #   always ROUNDS CMD...           CMD holds every 3s for ROUNDS rounds
 #   section TITLE / timed TITLE CMD  a section header, timed when KIND_TIMING=FILE
 #   timing_end / timing_summary FILE close a phase's last section / where the time went
@@ -68,16 +68,21 @@ fail() { echo "  FAIL: $*" >&2; exit 1; }
 # differ only in the condition and in how long they are willing to wait, so
 # those are the two arguments.
 #
-# The deadline is ROUNDS x 3s whatever the poll interval: KIND_POLL (seconds,
-# default 3) only changes how often CMD is tried, so a faster poll never
-# shortens how long a scenario is willing to wait.
+# KIND_POLL (whole seconds, default 3) only changes how often CMD is tried. A
+# wait gives up only after at least ROUNDS tries AND at least ROUNDS x 3s of
+# sleeping between them, so a faster poll never means fewer tries or a shorter
+# wait than the old "ROUNDS tries, 3s apart". It counts tries and sleeps, not the
+# wall clock: time CMD spends running, or a host asleep mid-wait, uses up none
+# of it.
 eventually() {
   local rounds="$1"; shift
-  local start=$SECONDS deadline=$((SECONDS + rounds * 3)) rc=1
+  local start=$SECONDS tries=0 slept=0 poll="${KIND_POLL:-3}" rc=1
   while :; do
     "$@" && { rc=0; break; }
-    [ "$SECONDS" -ge "$deadline" ] && break
-    sleep "${KIND_POLL:-3}"
+    tries=$((tries + 1))
+    [ "$tries" -ge "$rounds" ] && [ "$slept" -ge $((rounds * 3)) ] && break
+    sleep "$poll"
+    slept=$((slept + poll))
   done
   _timed_wait eventually "$start" "$@"
   return $rc

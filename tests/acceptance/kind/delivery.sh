@@ -80,7 +80,8 @@ source "$(dirname "$0")/lib.sh"
 # Every section and every wait is timed; the summary prints when the run ends.
 KIND_TIMING="${KIND_TIMING:-$(mktemp)}"
 export KIND_TIMING
-# Waits poll every second; how long each is willing to wait does not change.
+# Waits poll every second. Each still makes at least as many tries, and sleeps
+# at least as long between them, as it did at 3s (see lib.sh's eventually).
 # shellcheck disable=SC2034  # read by lib.sh's eventually
 KIND_POLL=1
 # The candidate OCIRepositories Flux scans for a moved tag or a new version.
