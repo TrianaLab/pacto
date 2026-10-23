@@ -434,10 +434,12 @@ checkout_version() {
   cp -R "$STORY/contracts/$svc/$v/." "$dir/"
   cp "$KEYS/cosign.key" "$dir/cosign.key"
   perl -pi -e "s#registry\\.example/story#${REG_HOST}/story#g" "$dir/pacto.yaml"
-  # The http interface payments declares is served by its Service's port 8080:
+  # The interface payments (http) or pay-agent (tools) declares is served by
+  # its Service's port 8080:
   # Kubernetes knowledge that lives on the Pacto resource, not the contract.
   local bind=""
   [ "$svc" = payments ] && bind=", serviceName: payments, interfaceBindings: [{interface: http, servicePort: 8080}]"
+  [ "$svc" = pay-agent ] && bind=", serviceName: pay-agent, interfaceBindings: [{interface: tools, servicePort: 8080}]"
   cat > "$dir/deploy/pacto-resource.yaml" <<YAML
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto

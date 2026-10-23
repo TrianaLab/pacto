@@ -18,3 +18,13 @@ spec:
           command: [./podinfo, --port=8080]
           ports:
             - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pay-agent
+spec:
+  selector: {app: pay-agent}
+  ports:
+    - port: 8080
+      targetPort: 8080
