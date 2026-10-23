@@ -46,7 +46,7 @@ later (design: "after M5, when a real team asks"); the page says so.
    upstream recorder on, the downstream promoter with `promoter.upstreamTrust`.
 7. Demos (rows, not demos): optional "applied by Argo CD" and "prod in another
    cluster follows staging" rows on the delivery pages.
-8. dash (optional): the Stage view shows `candidates.upstreamStage`; it does
-   not name an `upstreamRecords` source or an Argo CD applier, and the Ready
-   reason `UpstreamUntrusted` is new.
+8. dash (optional): the Stage views do not show where candidates come from or
+   which applier a Stage uses. If they ever do, include `upstreamRecords` and
+   `applyRef.kind`. The Ready reason `UpstreamUntrusted` is new.
 9. Ledger: section H phase 8 can be ticked once a verifier confirms.
