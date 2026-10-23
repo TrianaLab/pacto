@@ -14,8 +14,11 @@ out until you set the versions you accept. With `--fleet <dir>` it also lists
 the services whose contracts declare this one. Anything it cannot tell is
 reported as Unknown, never guessed. When the image is at `<registry>/<name>`
 the contract bundle goes to `<registry>/contracts/<name>`, so the two never
-share a tag. A file holding a Secret's values is never shipped with the
-manifests; the report says to supply it another way.
+share a tag. A file holding a Secret's values, or a kustomization with a
+`secretGenerator`, is never shipped with the manifests; the report says to
+supply it another way. Every manifest is copied by name, so a file added later
+is not shipped unseen, and a kustomize layout keeps its folders; the folder
+Flux builds is reported as Unknown.
 
 `--delivery` also writes the cluster pieces: the Pacto resource, which ships
 inside every version, and for each environment (`--env`, default test and
