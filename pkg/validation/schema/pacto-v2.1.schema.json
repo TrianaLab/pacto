@@ -123,13 +123,15 @@
             "enum": [
               "openapi",
               "asyncapi",
-              "grpc"
+              "grpc",
+              "mcp"
             ],
             "description": "The spec-kind for this interface.",
             "x-enum-descriptions": {
               "openapi": "OpenAPI spec for HTTP/REST traffic",
               "asyncapi": "AsyncAPI spec for event-driven communication",
-              "grpc": "gRPC Protocol Buffers spec"
+              "grpc": "gRPC Protocol Buffers spec",
+              "mcp": "Model Context Protocol tools an AI agent exposes, as a tools/list result"
             }
           },
           "ref": {
@@ -812,6 +814,29 @@
               "description": "Upload each signature to the transparency log. Defaults to true; set false for a private registry."
             }
           }
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "description": "Marks this service as an AI agent. The tools it exposes are interfaces of type mcp and the services it calls are dependencies; agent adds the models it calls that have no contract of their own and the eval suite delivery checks it with.",
+      "additionalProperties": false,
+      "minProperties": 1,
+      "properties": {
+        "models": {
+          "type": "array",
+          "description": "Model ids the agent calls, exactly as its code names them. Changing them changes what the agent does, so it needs at least a minor version. A model served behind a Pacto contract is a dependency instead, with a version range.",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "evals": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Path to the eval suite file in the bundle. It ships with the version; Pacto never reads it. An eval runner behind a delivery gate does."
         }
       }
     },

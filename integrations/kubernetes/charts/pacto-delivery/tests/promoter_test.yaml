@@ -76,6 +76,63 @@ tests:
             verbs: [get]
         documentIndex: 1
 
+  - it: mounts the upstream trust config and passes it only when set
+    template: templates/deployment.yaml
+    set:
+      promoter.upstreamTrust: "keys: []"
+    asserts:
+      - equal:
+          path: data["trust.yaml"]
+          value: "keys: []"
+        documentIndex: 0
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --upstream-trust-config=/etc/pacto/upstream-trust/trust.yaml
+        documentIndex: 1
+      - equal:
+          path: spec.template.spec.volumes[0].configMap.name
+          value: RELEASE-NAME-pacto-delivery-upstream-trust
+        documentIndex: 1
+
+  - it: passes no upstream trust config by default
+    template: templates/deployment.yaml
+    asserts:
+      - hasDocuments:
+          count: 1
+      - notExists:
+          path: spec.template.spec.volumes
+
+  - it: grants nothing on Argo CD unless it is enabled
+    template: templates/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [get, list, watch, patch]
+
+  - it: grants the targetRevision write on Argo CD Applications, and reads to agents, when enabled
+    template: templates/rbac.yaml
+    set:
+      argocd.enabled: true
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [get, list, watch, patch]
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups: [argoproj.io]
+            resources: [applications]
+            verbs: [get]
+        documentIndex: 5
+
   - it: never lets an agent create approvals
     template: templates/rbac.yaml
     documentIndex: 5

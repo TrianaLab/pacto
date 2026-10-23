@@ -66,6 +66,12 @@ func placeCandidate(ctx context.Context, in PlanInput, m *MoveFirst, newVersion,
 		return ""
 	}
 	m.Stage = &StageRef{Name: stage.Metadata.Name, Namespace: stage.Metadata.Namespace}
+	if r := stage.Spec.Candidates.UpstreamRecords; r != nil {
+		// ponytail: a plan does not read another cluster's records to place a
+		// candidate; it says so, and the downstream Stage still promotes on them.
+		m.Unknown = "its upstream Stage is in another cluster (" + upstreamName(stage.Spec.Candidates) + "), which a plan does not read"
+		return ""
+	}
 	up := stage.Spec.Candidates.UpstreamStage
 	if up == nil {
 		return m.Service + " takes its versions straight from its candidate source here, so no version of it is verified ahead of " +

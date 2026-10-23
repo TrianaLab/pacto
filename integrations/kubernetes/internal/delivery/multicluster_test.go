@@ -1,0 +1,104 @@
+/*
+Copyright 2026 TrianaLab.
+
+Licensed under the MIT License.
+See LICENSE file in the project root for full license text.
+*/
+
+package delivery
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
+)
+
+var remoteTest = delivery.RemoteStage{Repository: "reg.example/delivery/streams", Stream: "cid-test/test/payments-test"}
+
+// remoteStage is a prod Stage that takes its versions from a test Stage in
+// another cluster, through that Stage's signed records.
+func remoteStage(pointer string) *dv1.Stage {
+	s := stageObj(pointer)
+	s.Spec.Candidates = delivery.Candidates{UpstreamRecords: &remoteTest}
+	return s
+}
+
+// upstreamReads makes the promoter read the remote upstream as status, or
+// nothing with why.
+func (e *env) upstreamReads(status *delivery.StageStatus, why string) {
+	f := func(_ context.Context, r delivery.RemoteStage) (*delivery.StageStatus, string) {
+		if r != remoteTest {
+			e.t.Fatalf("read the wrong upstream: %+v", r)
+		}
+		return status, why
+	}
+	e.op.Cluster.Upstream, e.st.Cluster.Upstream = f, f
+}
+
+// TestRemoteUpstreamReady: a Stage fed by another cluster's records is not
+// Ready while the promoter trusts no upstream key.
+func TestRemoteUpstreamReady(t *testing.T) {
+	e := newEnv(t, remoteStage(dA))
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if c := e.getStage().Status.Conditions; len(c) != 1 || c[0].Reason != "UpstreamUntrusted" || !strings.Contains(c[0].Message, "promoter.upstreamTrust") {
+		t.Fatalf("untrusted: %+v", c)
+	}
+	e.upstreamReads(&delivery.StageStatus{}, "")
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if c := e.getStage().Status.Conditions; len(c) != 1 || c[0].Reason != "Ready" {
+		t.Fatalf("trusted: %+v", c)
+	}
+}
+
+// TestRemoteUpstreamAutoPromote: auto-promotion ships the newest version the
+// remote upstream verified and offered, and nothing when its records cannot be
+// verified.
+func TestRemoteUpstreamAutoPromote(t *testing.T) {
+	s := remoteStage(dA)
+	s.Spec.Auto = true
+	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false))
+	e.upstreamReads(nil, "records that could not be verified")
+	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 0 {
+		t.Fatalf("unverifiable records raise nothing: %v %d", err, len(e.ops()))
+	}
+	e.upstreamReads(&delivery.StageStatus{Verified: []string{dB, dC}, Offered: []string{dB}}, "")
+	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 1 || e.ops()[0].Spec.Params.To != dB {
+		t.Fatalf("remote candidate: %v %+v", err, e.ops())
+	}
+}
+
+// TestRemoteUpstreamPublishedGate: a promote passes pacto.published only on a
+// version the remote upstream's records show offered, and the refusal says
+// why the records gave nothing.
+func TestRemoteUpstreamPublishedGate(t *testing.T) {
+	op := func() *dv1.Operation {
+		o := opObj("p1", delivery.TypePromote, dA, dB, bot)
+		o.Spec.IntentDigest = delivery.IntentDigest(o.Spec, remoteStage("").Spec)
+		return o
+	}
+	world := func() *env {
+		return newEnv(t, remoteStage(dA), ociRepo("payments", dA, "latest@"+dA, true),
+			kustomization("payments", "payments", "True", "ReconciliationSucceeded", "latest@"+dA, "latest@"+dA),
+			deployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
+	}
+	e := world()
+	e.create(op())
+	o := e.drive("p1")
+	wantOutcome(t, o, delivery.Rejected, "NotPublished")
+	if !strings.Contains(o.Status.Message, "promoter.upstreamTrust") {
+		t.Fatalf("names the missing trust: %q", o.Status.Message)
+	}
+	e = world()
+	e.upstreamReads(&delivery.StageStatus{Verified: []string{dB}, Offered: []string{dB}}, "")
+	e.create(op())
+	if o = e.drive("p1"); o.Status.Phase != delivery.PhaseRunning {
+		t.Fatalf("an offered version ships: %s %q", o.Status.Phase, o.Status.Message)
+	}
+}

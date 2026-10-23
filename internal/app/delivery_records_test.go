@@ -697,3 +697,31 @@ func TestAuditIsBounded(t *testing.T) {
 		t.Fatalf("out = %d, unreadable = %v", len(out), unreadable)
 	}
 }
+
+// TestDeliveryUpstreamRecords: an upstream Stage in another cluster is read
+// from its signed records, only with a trust config, and offers nothing when
+// they cannot be read.
+func TestDeliveryUpstreamRecords(t *testing.T) {
+	e := newRecordEnv(t)
+	ctx := context.Background()
+	p := move(1, "", "ship", "", dlB)
+	p.Verdicts = []delivery.Verdict{{Gate: delivery.GatePublished, Result: delivery.Pass}}
+	e.attach("delivery/streams", e.anchor, p)
+	stage, err := e.d.Stage(ctx, "prod", "payments-prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage.Spec.Candidates = delivery.Candidates{UpstreamRecords: &delivery.RemoteStage{Repository: e.host + "/delivery/streams", Stream: recStream}}
+	if up, why := e.d.upstream(ctx, stage); why != "" || len(up.Offered) != 1 || up.Offered[0] != dlB {
+		t.Fatalf("offered: %+v %q", up, why)
+	}
+	records := e.d.Records
+	e.d.Records = func(string, ...string) (*remote.Repository, error) { return nil, errors.New("bad reference") }
+	if up, why := e.d.upstream(ctx, stage); up != nil || why != "bad reference" {
+		t.Fatalf("an unopenable repository offers nothing: %+v %q", up, why)
+	}
+	e.d.Records, e.d.Trust = records, nil
+	if up, why := e.d.upstream(ctx, stage); up != nil || !strings.Contains(why, "no trust config") {
+		t.Fatalf("without trust nothing is read: %+v %q", up, why)
+	}
+}

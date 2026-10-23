@@ -878,6 +878,10 @@ export interface components {
             values?: components["schemas"]["Schemax.Property"][] | null;
             valuesAreCurrent?: boolean;
         };
+        "Contract.Agent": {
+            evals?: string;
+            models?: string[] | null;
+        };
         "Contract.Capability": {
             binding?: components["schemas"]["Contract.CapabilityBinding"];
             ref?: string;
@@ -898,6 +902,7 @@ export interface components {
             };
         };
         "Contract.Contract": {
+            agent?: components["schemas"]["Contract.Agent"];
             capabilities?: components["schemas"]["Contract.Capability"][] | null;
             configurations?: components["schemas"]["Contract.Configuration"][] | null;
             dependencies?: components["schemas"]["Contract.Dependency"][] | null;
@@ -1036,6 +1041,10 @@ export interface components {
             groups?: string[] | null;
             user: string;
         };
+        "Delivery.ApplyRef": {
+            kind?: string;
+            name: string;
+        };
         "Delivery.ApprovalPolicy": {
             always?: boolean;
         };
@@ -1060,6 +1069,7 @@ export interface components {
         };
         "Delivery.Candidates": {
             ociRepositoryRef?: components["schemas"]["Delivery.LocalRef"];
+            upstreamRecords?: components["schemas"]["Delivery.RemoteStage"];
             upstreamStage?: components["schemas"]["Delivery.StageRef"];
         };
         "Delivery.Cause": {
@@ -1253,6 +1263,10 @@ export interface components {
             /** Format: int64 */
             seq: number;
         };
+        "Delivery.RemoteStage": {
+            repository: string;
+            stream: string;
+        };
         "Delivery.Request": {
             cause?: components["schemas"]["Delivery.Cause"];
             from?: string;
@@ -1285,7 +1299,7 @@ export interface components {
             namespace?: string;
         };
         "Delivery.StageSpec": {
-            applyRef: components["schemas"]["Delivery.LocalRef"];
+            applyRef: components["schemas"]["Delivery.ApplyRef"];
             approval?: components["schemas"]["Delivery.ApprovalPolicy"];
             auto?: boolean;
             candidates?: components["schemas"]["Delivery.Candidates"];

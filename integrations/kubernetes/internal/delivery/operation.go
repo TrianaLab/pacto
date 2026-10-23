@@ -354,7 +354,7 @@ func (r *OperationReconciler) plan(ctx context.Context, op *dv1.Operation, stage
 	in := delivery.PlanInput{Spec: op.Spec, Stage: stage.Spec, Status: stage.Status, Class: op.Status.ActorClass,
 		From: delivery.Revision{Digest: op.Spec.Params.From}, To: delivery.Revision{Digest: op.Spec.Params.To}}
 	if op.Spec.Type == delivery.TypePromote {
-		a, err := r.Cluster.ociRepository(ctx, op.Namespace, stage.Spec.ApplyRef.Name)
+		a, err := r.Cluster.applier(ctx, op.Namespace, stage.Spec.ApplyRef)
 		if err != nil {
 			in.From.Err, in.To.Err = "the apply OCIRepository: "+err.Error(), "the apply OCIRepository: "+err.Error()
 		} else {
@@ -362,7 +362,7 @@ func (r *OperationReconciler) plan(ctx context.Context, op *dv1.Operation, stage
 			in.From = delivery.ResolveRevision(ctx, reg, a.repo, op.Spec.Params.From)
 			in.To = delivery.ResolveRevision(ctx, reg, a.repo, op.Spec.Params.To)
 		}
-		if in.Upstream, err = r.upstream(ctx, stage); err != nil {
+		if in.Upstream, in.UpstreamErr, err = r.upstream(ctx, stage); err != nil {
 			return delivery.Plan{}, err
 		}
 		pactos, listErr := r.Cluster.pactos(ctx)
@@ -396,10 +396,16 @@ func (r *OperationReconciler) stages(ctx context.Context) ([]delivery.StageObjec
 // It is nil when there is none, or when it does not exist or the promoter may
 // not read it: the published gate then refuses, as nothing it offers is
 // known. Any other read error is returned, so the operation is planned again.
-func (r *OperationReconciler) upstream(ctx context.Context, stage *dv1.Stage) (*delivery.StageStatus, error) {
+// A Stage in another cluster is read from its signed records, and why says
+// why that gave nothing.
+func (r *OperationReconciler) upstream(ctx context.Context, stage *dv1.Stage) (_ *delivery.StageStatus, why string, _ error) {
+	if rs := stage.Spec.Candidates.UpstreamRecords; rs != nil {
+		s, why := r.Cluster.remote(ctx, *rs)
+		return s, why, nil
+	}
 	up := stage.Spec.Candidates.UpstreamStage
 	if up == nil {
-		return nil, nil
+		return nil, "", nil
 	}
 	ns := up.Namespace
 	if ns == "" {
@@ -408,11 +414,11 @@ func (r *OperationReconciler) upstream(ctx context.Context, stage *dv1.Stage) (*
 	s := &dv1.Stage{}
 	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: up.Name}, s); err != nil {
 		if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
-			return nil, nil
+			return nil, "", nil
 		}
-		return nil, err
+		return nil, "", err
 	}
-	return &s.Status, nil
+	return &s.Status, "", nil
 }
 
 // held consumes approvals for an operation waiting before it moved anything.
@@ -686,7 +692,7 @@ func (r *OperationReconciler) running(ctx context.Context, op *dv1.Operation, st
 			return reconcile.Result{}, err
 		}
 	}
-	a, err := r.Cluster.ociRepository(ctx, op.Namespace, stage.Spec.ApplyRef.Name)
+	a, err := r.Cluster.applier(ctx, op.Namespace, stage.Spec.ApplyRef)
 	if err != nil {
 		op.Status.Message = "reading the apply OCIRepository: " + err.Error()
 		return r.save(ctx, op)
@@ -694,7 +700,7 @@ func (r *OperationReconciler) running(ctx context.Context, op *dv1.Operation, st
 	if a.digest != to {
 		if a.digest != from {
 			return r.finish(ctx, op, stage, conclusion{outcome: delivery.Errored, freeze: true,
-				reason: fmt.Sprintf("ForeignWriter: spec.ref.digest is %q, which this operation did not write; it is left as found", a.digest)})
+				reason: fmt.Sprintf("ForeignWriter: %s is %q, which this operation did not write; it is left as found", a.field(), a.digest)})
 		}
 		if err := r.Cluster.setDigest(ctx, a, to, r.now()); err != nil {
 			return reconcile.Result{}, err

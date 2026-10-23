@@ -31,11 +31,15 @@ promoter:
   authFreshness: 15m
   # -- Elect one active promoter
   leaderElect: true
+  # -- The recorder keys of other clusters, as a trust config in YAML (keys per stream glob). A Stage
+  # with `candidates.upstreamRecords` promotes only on records one of these keys signed for that
+  # stream; without it such a Stage is not Ready. Public keys only.
+  upstreamTrust: ""
 
 gates:
   # -- Health gate providers a Stage may name in `spec.gates.verify.checks[].provider`, each
-  # `{name, type, url}` with type `mira` (Mira's query API) or `http` (any tool behind the
-  # plug-in format). The URL is operator configuration: a Stage only names a provider and an
+  # `{name, type, url}` with type `mira` (Mira's query API), `http` (any tool behind the
+  # plug-in format) or `eval` (an eval runner for an AI agent's eval suite). The URL is operator configuration: a Stage only names a provider and an
   # agent names nothing. `pacto.contract` and `pacto.runtime` are built in.
   providers: []
 
@@ -122,6 +126,13 @@ recorder:
       cpu: 10m
       # -- Memory request
       memory: 64Mi
+
+argocd:
+  # -- Let Stages name an Argo CD Application as their applier (`spec.applyRef.kind: Application`).
+  # Grants the promoter patch on `argoproj.io` Applications (it only sets `spec.source.targetRevision`,
+  # and the pointer admission policy holds it to that) and read access to the agent, approver and
+  # recorder roles. Off by default.
+  enabled: false
 
 # -- Registry hosts (`host:port`) the promoter and the recorder reach over plain HTTP. An
 # OCIRepository with `spec.insecure: true` is read over HTTP anyway.

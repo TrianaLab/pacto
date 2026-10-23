@@ -74,6 +74,28 @@ tests:
           path: spec.matchConstraints.objectSelector.matchExpressions[0].key
           value: delivery.pacto.trianalab.io/apply-ref
 
+  - it: holds an Argo CD Application's targetRevision to the promoter and break-glass when enabled
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      argocd.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 10
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources
+          value: [applications]
+        documentIndex: 8
+      - equal:
+          path: spec.matchConstraints.objectSelector.matchExpressions[0].key
+          value: delivery.pacto.trianalab.io/apply-ref
+        documentIndex: 8
+      - matchRegex:
+          path: spec.validations[0].expression
+          pattern: "request\\.userInfo\\.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
+        documentIndex: 8
+
   - it: renders nothing when disabled
     capabilities:
       apiVersions:

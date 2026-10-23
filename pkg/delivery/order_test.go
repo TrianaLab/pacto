@@ -20,7 +20,7 @@ func pactoIn(ns, name string) PactoView {
 
 func stageIn(ns, name, service, env string) StageObject {
 	return StageObject{Metadata: ObjectMeta{Namespace: ns, Name: name},
-		Spec: StageSpec{Service: ServiceRef{Name: service}, Environment: env, ApplyRef: LocalRef{Name: service}}}
+		Spec: StageSpec{Service: ServiceRef{Name: service}, Environment: env, ApplyRef: ApplyRef{Name: service}}}
 }
 
 func names(ps []PactoView) []string {
@@ -80,6 +80,13 @@ func TestEnvironmentPactos(t *testing.T) {
 	// live in delivery, but only the label places f there.
 	if got := names(keep(EnvironmentPactos(pactos, stages, nil, nil, "prod"))); !slices.Equal(got, []string{"prod/a", "orders-prod/b", "test/c", "loose/d", "mixed/e", "ops/g"}) {
 		t.Fatalf("with no Kustomization every unlabelled Pacto counts: %v", got)
+	}
+	// An Argo CD Stage is never placed through a Kustomization that happens
+	// to share its applier's name: Argo applies it, so only labels place it.
+	argo := slices.Clone(stages)
+	argo[0].Spec.ApplyRef.Kind = ApplierArgoCD
+	if got := names(keep(EnvironmentPactos(pactos, argo, ks, nil, "test"))); !slices.Contains(got, "prod/a") {
+		t.Fatalf("an Argo CD Stage places nothing through Kustomizations: %v", got)
 	}
 	if got, misplaced := EnvironmentPactos(pactos, nil, nil, errors.New("forbidden"), "prod"); misplaced != nil || len(got) != len(pactos) {
 		t.Fatalf("unreadable Stages or Kustomizations keep every Pacto: %v", names(got))
@@ -260,6 +267,9 @@ func TestOrderPlacesTheConsumerOrSaysWhy(t *testing.T) {
 			in.Stages = append(in.Stages, stageIn("prod", "orders", "orders", "prod"))
 		}, "2 Stages deliver orders in prod (orders-prod/orders and prod/orders)"},
 		{"upstream gone", func(in *PlanInput) { in.Stages = in.Stages[:2] }, "its upstream Stage test/orders does not exist or cannot be read"},
+		{"upstream in another cluster", func(in *PlanInput) {
+			in.Stages[1].Spec.Candidates = Candidates{UpstreamRecords: &RemoteStage{Repository: "reg/streams", Stream: "c2/test/orders"}}
+		}, "its upstream Stage is in another cluster (c2/test/orders (records in reg/streams)), which a plan does not read"},
 	}
 	for _, c := range cases {
 		in := in

@@ -417,7 +417,7 @@ func (w *writer) write(ctx context.Context, op *dv1.Operation) (*stored, error) 
 	if err != nil {
 		return nil, err
 	}
-	apply, err := w.Cluster.ociRepository(ctx, w.stage.Namespace, w.stage.Spec.ApplyRef.Name)
+	apply, err := w.Cluster.applier(ctx, w.stage.Namespace, w.stage.Spec.ApplyRef)
 	switch {
 	case apierrors.IsNotFound(err):
 		apply = nil // records still go on the anchor

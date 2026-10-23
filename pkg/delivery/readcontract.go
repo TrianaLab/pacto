@@ -261,7 +261,7 @@ func misplacedLabels(pactos []PactoView, stages []StageObject) (known map[string
 // Pacto places a Pacto from where it runs, never from where a Stage object
 // lives: by its EnvironmentLabel, else by its namespace when a Stage's version
 // runs there (the targetNamespace of the Kustomization that applies the
-// Stage's apply OCIRepository). A Pacto it cannot place counts in every
+// Stage's apply OCIRepository; an Argo CD Stage places only by label). A Pacto it cannot place counts in every
 // environment, and with the Stages or the Kustomizations unreadable (placeErr)
 // every Pacto counts: a consumer Pacto cannot place is one it cannot rule out.
 // A label naming an environment no Stage declares places nothing either: that
@@ -279,7 +279,7 @@ func EnvironmentPactos(pactos []PactoView, stages []StageObject, kustomizations 
 			continue
 		}
 		for _, s := range stages {
-			if s.Spec.ApplyRef.Name == src.Name && s.Metadata.Namespace == cmp.Or(src.Namespace, k.Metadata.Namespace) {
+			if s.Spec.ApplyRef.Kind != ApplierArgoCD && s.Spec.ApplyRef.Name == src.Name && s.Metadata.Namespace == cmp.Or(src.Namespace, k.Metadata.Namespace) {
 				if envs[target] == nil {
 					envs[target] = map[string]bool{}
 				}

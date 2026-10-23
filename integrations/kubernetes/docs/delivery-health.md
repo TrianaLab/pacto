@@ -71,6 +71,21 @@ posts `{"input": ..., "params": ...}`, where the input names the operation,
 the Stage, the service, the digests under check and the time window. The tool
 answers `{"result": "Pass|Fail|Unknown", "message": "...", "citation": {...}}`.
 
+An `eval` provider is an eval runner, the check an AI agent ships behind (see
+[agents](../../contract-reference/agent.md)). The promoter posts the
+same `{"input": ..., "params": ...}`; the runner runs the agent's eval suite
+on the version under check and answers how many cases passed:
+`{"subject": "sha256:...", "suite": "sha256:...", "run": "...", "passed": 48, "total": 50}`.
+The Stage decides, not the runner:
+
+| Param | Default | Meaning |
+|---|---|---|
+| `minPassRate` | 1 | The share of cases that must pass, from 0 to 1. Fewer fails |
+
+An answer about another version, with no cases, or with no `run` or `suite`
+to cite is Unknown. The citation holds the run, the suite, the version and
+the counts.
+
 ## Claims against the running service
 
 `pacto.runtime` uses the [node agent](runtime-conformance.md). It fails a

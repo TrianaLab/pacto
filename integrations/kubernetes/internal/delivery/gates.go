@@ -55,7 +55,7 @@ func (g clusterGate) Check(ctx context.Context, in delivery.GateInput, _ map[str
 // the contract the artifact names, whether Flux applied it, the service's
 // Pactos and the live workloads they evaluated. msg says why it could not.
 func (c Cluster) contractCheck(ctx context.Context, stage *dv1.Stage, digest string) (delivery.ContractCheck, string) {
-	a, err := c.ociRepository(ctx, stage.Namespace, stage.Spec.ApplyRef.Name)
+	a, err := c.applier(ctx, stage.Namespace, stage.Spec.ApplyRef)
 	if err != nil {
 		return delivery.ContractCheck{}, "reading the apply OCIRepository: " + err.Error()
 	}

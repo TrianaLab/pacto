@@ -89,8 +89,10 @@ func NewGates(configs []ProviderConfig, client *http.Client) (map[string]Gate, e
 			gates[c.Name] = Mira{URL: c.URL, Client: client}
 		case ProviderHTTP:
 			gates[c.Name] = Webhook{URL: c.URL, Client: client}
+		case ProviderEval:
+			gates[c.Name] = Eval{URL: c.URL, Client: client}
 		default:
-			return nil, fmt.Errorf("gate provider %q: type %q is not mira or http", c.Name, c.Type)
+			return nil, fmt.Errorf("gate provider %q: type %q is not mira, http or eval", c.Name, c.Type)
 		}
 	}
 	return gates, nil

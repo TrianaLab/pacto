@@ -87,7 +87,7 @@ var fieldCoverageCases = []fcCase{
 	valid("pactoVersion/valid"),
 	invalid("pactoVersion/invalid", parseError, set("pactoVersion", "1.0")),
 	valid("pactoVersion=2.1", set("pactoVersion", "2.1")),
-	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("publish")),
+	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("publish"), del("agent")),
 
 	valid("service/valid"),
 	invalid("service/invalid", parseError, set("service", "orders")),
@@ -134,6 +134,8 @@ var fieldCoverageCases = []fcCase{
 	valid("interfaces[].type=openapi", set("interfaces.0.type", "openapi")),
 	valid("interfaces[].type=asyncapi", set("interfaces.0.type", "asyncapi"), set("interfaces.0.ref", "interfaces/asyncapi.yaml")),
 	valid("interfaces[].type=grpc", set("interfaces.0.type", "grpc"), set("interfaces.0.ref", "interfaces/orders.proto")),
+	valid("interfaces[].type=mcp", set("interfaces.0.type", "mcp"), set("interfaces.0.ref", "interfaces/tools.json")),
+	invalid("interfaces[].type=mcp/no-tools", "INVALID_MCP_TOOLS", set("interfaces.0.type", "mcp")),
 	valid("interfaces[].ref/valid", set("interfaces.0.ref", "interfaces/asyncapi.yaml")),
 	invalid("interfaces[].ref/invalid", "FILE_NOT_FOUND", set("interfaces.0.ref", "interfaces/missing.yaml")),
 	valid("interfaces[].visibility/valid", del("interfaces.0.visibility")),
@@ -354,6 +356,17 @@ var fieldCoverageCases = []fcCase{
 	valid("publish.sign.transparencyLog/valid", del("publish.sign.transparencyLog")),
 	invalid("publish.sign.transparencyLog/invalid", parseError, set("publish.sign.transparencyLog", 3)),
 
+	valid("agent/valid"),
+	invalid("agent/invalid", parseError, set("agent", "yes")),
+	invalid("agent/invalid-empty", schemaViolation, set("agent", map[string]any{})),
+	invalid("agent/invalid-2.0", schemaViolation, set("pactoVersion", "2.0"), del("publish")),
+	valid("agent.models/valid", del("agent.models")),
+	invalid("agent.models/invalid", schemaViolation, set("agent.models", []any{"m", "m"})),
+	valid("agent.models[]/valid", set("agent.models", []any{"openai/gpt-5", "anthropic/claude-sonnet-4-5"})),
+	invalid("agent.models[]/invalid", schemaViolation, set("agent.models", []any{""})),
+	valid("agent.evals/valid", del("agent.evals")),
+	invalid("agent.evals/invalid", "FILE_NOT_FOUND", set("agent.evals", "evals/missing.yaml")),
+
 	valid("metadata/valid", set("metadata.runbook", "https://example.com/runbook")),
 	invalid("metadata/invalid", parseError, set("metadata", "gold")),
 	valid("extensions/valid", set("extensions.acme", map[string]any{"nested": []any{1, "two"}})),
@@ -456,6 +469,9 @@ publish:
   sign:
     key: cosign.key
     transparencyLog: false
+agent:
+  models: [anthropic/claude-sonnet-4-5]
+  evals: evals/suite.yaml
 metadata:
   tier: gold
 extensions:
@@ -467,6 +483,8 @@ var fieldCoverageFiles = map[string]string{
 	"interfaces/openapi.yaml":          "openapi: 3.0.3\ninfo: {title: orders, version: 1.0.0}\npaths: {}\n",
 	"interfaces/asyncapi.yaml":         "asyncapi: 2.6.0\ninfo: {title: orders, version: 1.0.0}\nchannels: {}\n",
 	"interfaces/orders.proto":          "syntax = \"proto3\";\npackage orders;\n",
+	"interfaces/tools.json":            `{"tools":[{"name":"refund","inputSchema":{"type":"object"}}]}`,
+	"evals/suite.yaml":                 "cases: []\n",
 	"configuration/schema.json":        `{"type":"object","properties":{"port":{"type":"integer"}}}`,
 	"policy/schema.json":               `{"type":"object","required":["service"]}`,
 	"policy-bundle/pacto.yaml":         "pactoVersion: \"2.0\"\nservice:\n  name: platform-policy\n  version: 1.0.0\n",

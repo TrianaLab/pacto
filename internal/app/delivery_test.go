@@ -411,15 +411,15 @@ func TestDeliveryUpstreamStage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if up := d.upstream(ctx, stage); up == nil || up.Verified[0] != dlB {
+	if up, _ := d.upstream(ctx, stage); up == nil || up.Verified[0] != dlB {
 		t.Fatalf("upstream: %+v", up)
 	}
 	stage.Spec.Candidates.UpstreamStage.Namespace = ""
-	if up := d.upstream(ctx, stage); up != nil {
+	if up, _ := d.upstream(ctx, stage); up != nil {
 		t.Fatalf("an upstream in prod does not exist: %+v", up)
 	}
 	stage.Spec.Candidates = delivery.Candidates{}
-	if up := d.upstream(ctx, stage); up != nil {
+	if up, _ := d.upstream(ctx, stage); up != nil {
 		t.Fatal("no upstream")
 	}
 	c.PrependReactor("get", "stages", func(a k8stesting.Action) (bool, runtime.Object, error) {

@@ -460,9 +460,18 @@ spec:
                 properties:
                   applyRef:
                     description: |-
-                      ApplyRef is the Flux OCIRepository the promoter owns. It only ever sets
-                      spec.ref.digest on it.
+                      ApplyRef is the object the promoter points at a version: a Flux
+                      OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it
+                      sets spec.source.targetRevision). Nothing else is ever written on it.
                     properties:
+                      kind:
+                        description: |-
+                          Kind is OCIRepository (Flux, the default) or Application (Argo CD, with
+                          an OCI source and automated sync).
+                        enum:
+                        - OCIRepository
+                        - Application
+                        type: string
                       name:
                         type: string
                     required:
@@ -494,6 +503,25 @@ spec:
                             type: string
                         required:
                         - name
+                        type: object
+                      upstreamRecords:
+                        description: |-
+                          UpstreamRecords offers what a Stage in another cluster verified, read
+                          from its signed records: the promoter must trust the key that signs
+                          that stream (promoter.upstreamTrust), or it offers nothing.
+                        properties:
+                          repository:
+                            description: Repository (host/path) is the upstream recorder's
+                              streams repository.
+                            type: string
+                          stream:
+                            description: |-
+                              Stream is the upstream Stage's stream id, <clusterID>/<namespace>/<name>:
+                              its status.stream.id.
+                            type: string
+                        required:
+                        - repository
+                        - stream
                         type: object
                       upstreamStage:
                         description: UpstreamStage offers that Stage's verified digests

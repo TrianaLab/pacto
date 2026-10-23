@@ -31,7 +31,8 @@
       "properties": {
         "poll": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$" },
         "authFreshness": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$" },
-        "leaderElect": { "type": "boolean" }
+        "leaderElect": { "type": "boolean" },
+        "upstreamTrust": { "type": "string" }
       }
     },
     "recorder": {
@@ -99,7 +100,7 @@
             "required": ["name", "type", "url"],
             "properties": {
               "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$", "not": { "pattern": "^pacto[.]" } },
-              "type": { "type": "string", "enum": ["mira", "http"] },
+              "type": { "type": "string", "enum": ["mira", "http", "eval"] },
               "url": { "type": "string", "pattern": "^https?://[^/]+" }
             }
           }
@@ -116,6 +117,11 @@
       }
     },
     "insecureRegistries": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "argocd": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": { "enabled": { "type": "boolean" } }
+    },
     "admissionPolicies": {
       "type": "object",
       "additionalProperties": false,

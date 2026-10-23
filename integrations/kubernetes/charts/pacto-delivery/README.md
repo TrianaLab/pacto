@@ -44,8 +44,9 @@ same version as your Pacto operator.
 |-----|------|---------|-------------|
 | admissionPolicies | object | `{"enabled":true}` | Install the ValidatingAdmissionPolicies (Kubernetes 1.30 or later): an operation's actor is the requesting user, only the promoter may set witnessed, override and unfreeze are limited to their raisers, cancel is refused once the pointer moved, approvals come from people and spec.ref.digest is edited only by the promoter or break-glass. |
 | affinity | object | `{}` | Affinity for the promoter pod |
+| argocd.enabled | bool | `false` | Let Stages name an Argo CD Application as their applier (`spec.applyRef.kind: Application`). Grants the promoter patch on `argoproj.io` Applications (it only sets `spec.source.targetRevision`, and the pointer admission policy holds it to that) and read access to the agent, approver and recorder roles. Off by default. |
 | fullnameOverride | string | `""` | Override the full release name |
-| gates.providers | list | `[]` | Health gate providers a Stage may name in `spec.gates.verify.checks[].provider`, each `{name, type, url}` with type `mira` (Mira's query API) or `http` (any tool behind the plug-in format). The URL is operator configuration: a Stage only names a provider and an agent names nothing. `pacto.contract` and `pacto.runtime` are built in. |
+| gates.providers | list | `[]` | Health gate providers a Stage may name in `spec.gates.verify.checks[].provider`, each `{name, type, url}` with type `mira` (Mira's query API), `http` (any tool behind the plug-in format) or `eval` (an eval runner for an AI agent's eval suite). The URL is operator configuration: a Stage only names a provider and an agent names nothing. `pacto.contract` and `pacto.runtime` are built in. |
 | identities.agentGroups | list | `["pacto:agents"]` | Groups whose members are agents. Agents may propose, never approve or unfreeze. Service accounts other than the promoter are always agents. |
 | identities.breakGlassGroups | list | `["pacto:break-glass"]` | Groups that may raise an override and edit an OCIRepository's spec.ref.digest directly |
 | identities.teamGroupPrefix | string | `""` | Only members of the teams a held question names may answer it. A contract owner team `T` is the identity-provider group `T`, or this prefix followed by `T` (for example `acme:`). |
@@ -61,6 +62,7 @@ same version as your Pacto operator.
 | promoter.authFreshness | string | `"15m"` | How old a person's login may be when their approval is given; an older one is ignored (a Go duration) |
 | promoter.leaderElect | bool | `true` | Elect one active promoter |
 | promoter.poll | string | `"3s"` | How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration) |
+| promoter.upstreamTrust | string | `""` | The recorder keys of other clusters, as a trust config in YAML (keys per stream glob). A Stage with `candidates.upstreamRecords` promotes only on records one of these keys signed for that stream; without it such a Stage is not Ready. Public keys only. |
 | recorder.cdeventsSink | string | `""` | A URL the recorder POSTs a CDEvent (CloudEvents, structured mode) to for every record, best effort. Empty sends none. |
 | recorder.enabled | bool | `false` | Run the recorder, which writes a signed record of every concluded operation to the registry as OCI referrers. Off by default. When on, the promoter leaves the record finalizer to it. The registry must support the OCI Referrers API natively (GHCR and released `distribution` do not). |
 | recorder.extraEnv | list | `[]` | Extra environment for the recorder (for example the credentials a KMS client reads) |

@@ -143,6 +143,8 @@ def yaml_docs(block: str) -> list:
 # is the point: the validator must see the same INVALID_INTERFACE_SPEC a reader
 # copying the example would get.
 PROTO_STUB = 'syntax = "proto3";\n\nservice Stub {\n}\n'
+# An mcp interface must list at least one named tool (INVALID_MCP_TOOLS).
+MCP_STUB = '{"tools": [{"name": "stub"}]}\n'
 
 
 def is_local_ref(val) -> bool:
@@ -157,7 +159,7 @@ def is_local_ref(val) -> bool:
 def collect_local_refs(obj, out: set[str]) -> None:
     if isinstance(obj, dict):
         for k, v in obj.items():
-            if k in ("ref", "schema") and is_local_ref(v):
+            if k in ("ref", "schema", "evals") and is_local_ref(v):
                 out.add(v)
             else:
                 collect_local_refs(v, out)
@@ -197,6 +199,10 @@ def check_contracts(pacto_bin: str, md_files: list[str]) -> None:
                             # rejects with INVALID_INTERFACE_SPEC. Stubbing that
                             # with "{}" would pass a doc example the real CLI fails.
                             fh.write(PROTO_STUB if ref.endswith(".proto") else "{}\n")
+                    for iface in doc.get("interfaces") or []:
+                        if iface.get("type") == "mcp" and iface.get("ref") in refs:
+                            with open(os.path.join(tmp, iface["ref"]), "w", encoding="utf-8") as fh:
+                                fh.write(MCP_STUB)
                     proc = run([pacto_bin, "validate", tmp])
                     if proc.returncode == 0:
                         ok += 1

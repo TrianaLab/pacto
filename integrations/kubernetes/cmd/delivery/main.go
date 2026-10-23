@@ -39,6 +39,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/delivery"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/signing"
@@ -83,7 +84,10 @@ func runPromoter(args []string) error {
 			"The operation a Stage runs is never deleted.")
 	gateProviders := fs.String("gate-providers", "",
 		`The health gate providers Stages may name, as JSON: `+
-			`[{"name":"mira","type":"mira","url":"http://mira:4318"}]. Types: mira, http.`)
+			`[{"name":"mira","type":"mira","url":"http://mira:4318"}]. Types: mira, http, eval.`)
+	upstreamTrust := fs.String("upstream-trust-config", "",
+		"A trust config (YAML) of the recorder keys of other clusters, per stream glob. "+
+			"Stages with candidates.upstreamRecords promote only on records these keys signed.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -117,6 +121,11 @@ func runPromoter(args []string) error {
 	cluster := delivery.Cluster{Client: mgr.GetClient(), Registry: func(hosts ...string) core.Registry {
 		return oci.NewClient(keychain, slices.Concat(insecure, []oci.ClientOption{oci.WithInsecureRegistries(hosts...)})...)
 	}}
+	if *upstreamTrust != "" {
+		if cluster.Upstream, err = upstreamReader(*upstreamTrust, keychain); err != nil {
+			return err
+		}
+	}
 	gates := delivery.NewGates(cluster, configured)
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Gates: gates, Now: time.Now, Poll: *poll, Records: *records, Freshness: *authFreshness,
@@ -252,4 +261,34 @@ func registryKeychain() authn.Keychain {
 		Username: os.Getenv("PACTO_REGISTRY_USERNAME"),
 		Password: os.Getenv("PACTO_REGISTRY_PASSWORD"),
 	})
+}
+
+// upstreamReader reads what a Stage in another cluster verified from its
+// signed records, verified against the trust config in file, under a timeout.
+func upstreamReader(file string, keychain authn.Keychain) (
+	func(context.Context, core.RemoteStage) (*core.StageStatus, string), error,
+) {
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return nil, err
+	}
+	trust, err := core.ParseTrust(raw)
+	if err != nil {
+		return nil, err
+	}
+	verify, err := signing.TrustVerifier(trust)
+	if err != nil {
+		return nil, err
+	}
+	insecure := delivery.SplitList(os.Getenv(loader.InsecureRegistriesEnvVar))
+	opts := ocireferrer.Options{Keychain: keychain, Insecure: insecure}
+	return func(ctx context.Context, r core.RemoteStage) (*core.StageStatus, string) {
+		repo, err := ocireferrer.Open(r.Repository, opts)
+		if err != nil {
+			return nil, err.Error()
+		}
+		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		return deliveryrecord.Upstream(ctx, repo, r.Stream, verify)
+	}, nil
 }

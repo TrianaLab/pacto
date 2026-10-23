@@ -149,3 +149,16 @@ func fetchBundle(ctx context.Context, repo *remote.Repository, d ocispec.Descrip
 // Unchecked is a Verifier that accepts every signature: a reader with no trust
 // config still lists records, and says they are unverified.
 func Unchecked(string, []byte) error { return nil }
+
+// Upstream reads what a Stage in another cluster verified from its stream's
+// records, verified with verify (a trust config naming the key that signs
+// that stream). It is nil, with the reason, when the registry cannot be read,
+// a record does not verify or the stream is not whole: a downstream Stage
+// never promotes on history it cannot check.
+func Upstream(ctx context.Context, repo *remote.Repository, stream string, verify delivery.Verifier) (*delivery.StageStatus, string) {
+	l, err := ListStream(ctx, repo, stream, verify)
+	if err != nil {
+		return nil, "reading the records: " + err.Error()
+	}
+	return delivery.UpstreamFromRecords(l.Records, l.Unreadable)
+}

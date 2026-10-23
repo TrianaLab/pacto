@@ -19,7 +19,7 @@ Validates against the embedded schema of the contract's version, `pacto-v2.0.sch
 
 - Field types match
 - Required fields are present (including the mandatory `required` on `configurations[]` and `dependencies[]`)
-- Enum values are valid (e.g. interface `type` is `openapi`/`asyncapi`/`grpc`, `capabilities[].type` is `health`/`metrics`/`extension`, `policies[].target` is `contract`)
+- Enum values are valid (e.g. interface `type` is `openapi`/`asyncapi`/`grpc`/`mcp`, `capabilities[].type` is `health`/`metrics`/`extension`, `policies[].target` is `contract`)
 - Fields that must carry a value are non-empty (e.g. `interfaces[].ref`, `dependencies[].compatibility`)
 - Discriminated shapes hold — a `configurations[]` entry has exactly one of `schema`/`ref`; a `capabilities[]` `extension` requires a namespaced `ref` while `health`/`metrics` must not set `ref`
 - State invariants hold (`stateless` requires `ephemeral` durability)
@@ -44,6 +44,8 @@ Validates semantic references and consistency:
 | Dependency names are unique | `DUPLICATE_DEPENDENCY_NAME` |
 | Interface spec file exists in the bundle | `FILE_NOT_FOUND` |
 | Interface spec file parses, if the ref ends `.json`, `.yaml` or `.yml` (any other extension is existence-checked only) | `INVALID_INTERFACE_SPEC` |
+| An `mcp` interface file lists tools, each with a name used once | `INVALID_MCP_TOOLS` |
+| `agent.evals` file exists in the bundle | `FILE_NOT_FOUND` |
 | `extension` capability `ref` is well-formed | `CAPABILITY_REF_INVALID` |
 | Standard capability type is not declared twice | `DUPLICATE_CAPABILITY` |
 | `capabilities[].binding.interface` matches a declared interface | `CAPABILITY_INTERFACE_UNKNOWN` |
