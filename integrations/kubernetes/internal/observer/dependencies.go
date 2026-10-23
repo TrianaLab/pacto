@@ -128,7 +128,7 @@ func (o *Observer) observeDependenciesDim(ctx context.Context, input CollectInpu
 		}
 
 		// Count ready endpoints for the dependency Service (protocol-agnostic, using any port).
-		readyCount, slices, err := o.countReadyEndpointsForService(ctx, target.namespace, target.serviceName)
+		readyCount, epSlices, err := o.countReadyEndpointsForService(ctx, target.namespace, target.serviceName)
 		if err != nil {
 			// Error listing EndpointSlices -> COLLECTION_FAILED.
 			o.fail("dependencies", err)
@@ -138,7 +138,7 @@ func (o *Observer) observeDependenciesDim(ctx context.Context, input CollectInpu
 		}
 
 		// We have a reliable ready-endpoint count.
-		obs, update := dependencyReachability(input, subj, target.version, readyCount == 0, servicePeers(svc, slices), prov, now)
+		obs, update := dependencyReachability(input, subj, target.version, readyCount == 0, servicePeers(svc, epSlices), prov, now)
 		observations = append(observations, obs)
 		windowUpdates = append(windowUpdates, update)
 	}
@@ -248,8 +248,8 @@ func stripRefSuffix(ref string) string {
 // returns the slices it read, so the kernel merge can match peer addresses without a second list.
 // ponytail: reuse EndpointSlice listing logic, count all ready endpoints regardless of port.
 func (o *Observer) countReadyEndpointsForService(ctx context.Context, namespace, serviceName string) (int, []discoveryv1.EndpointSlice, error) {
-	slices := &discoveryv1.EndpointSliceList{}
-	err := o.client.List(ctx, slices, client.InNamespace(namespace), client.MatchingLabels{
+	list := &discoveryv1.EndpointSliceList{}
+	err := o.client.List(ctx, list, client.InNamespace(namespace), client.MatchingLabels{
 		discoveryv1.LabelServiceName: serviceName,
 	})
 	if err != nil {
@@ -258,7 +258,7 @@ func (o *Observer) countReadyEndpointsForService(ctx context.Context, namespace,
 
 	// Count all ready endpoints across all slices (protocol-agnostic).
 	readyCount := 0
-	for _, slice := range slices.Items {
+	for _, slice := range list.Items {
 		for _, endpoint := range slice.Endpoints {
 			if endpoint.Conditions.Ready != nil && *endpoint.Conditions.Ready {
 				readyCount++
@@ -267,5 +267,5 @@ func (o *Observer) countReadyEndpointsForService(ctx context.Context, namespace,
 	}
 
 	// An empty slice list (freshly-created Service) is zero ready, which the caller windows.
-	return readyCount, slices.Items, nil
+	return readyCount, list.Items, nil
 }

@@ -836,15 +836,15 @@ func TestTargetPods(t *testing.T) {
 			Status:     corev1.PodStatus{Phase: phase},
 		}
 	}
+	leaving := pod("leaving", corev1.PodRunning, kNode)
+	leaving.DeletionTimestamp, leaving.Finalizers = &metav1.Time{Time: time.Now()}, []string{"test/hold"}
 	objs := []client.Object{
 		makeDeployment(kNS, "checkout", nil),
 		pod("running", corev1.PodRunning, kNode),
 		pod("pending", corev1.PodPending, ""),
 		pod("done", corev1.PodSucceeded, kNode),
+		leaving,
 	}
-	leaving := pod("leaving", corev1.PodRunning, kNode)
-	leaving.DeletionTimestamp, leaving.Finalizers = &metav1.Time{Time: time.Now()}, []string{"test/hold"}
-	objs = append(objs, leaving)
 	in := CollectInput{Namespace: kNS, WorkloadName: "checkout", WorkloadKind: workloadDeployment}
 
 	c := fake.NewClientBuilder().WithScheme(kernelScheme()).WithObjects(objs...).Build()
