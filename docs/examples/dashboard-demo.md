@@ -48,8 +48,8 @@ apart.
 
 ## What it cannot show
 
-There is no cluster behind the demo. The compliance states on its targets are
-recorded fixture data. It shows
+There is no cluster behind the demo: compliance states are recorded fixture
+data. It shows
 [runtime conformance](../integrations/kubernetes/runtime-conformance.md) (what a
 service really does on the network) as one recorded finding, not a live check:
 the staging `orders-service` target carries `INTERFACE_ABSENT`, and its evidence
@@ -64,7 +64,8 @@ nothing outside it can check them, and a reload starts over. With no promoter,
 Flux or real sign-in, nothing it approves runs anywhere. One
 history shows a gap, one record signed by a key nobody trusts and one Stage
 read from status only: these look like bugs and are deliberate. See
-[delivery](../integrations/kubernetes/delivery.md) for the real thing on a cluster.
+[delivery](../integrations/kubernetes/delivery.md) and the
+[Kubernetes demo](kubernetes-demo.md) for the real thing on a cluster.
 
 To run the dashboard against your own services, see
 [Dashboard container](../dashboard-docker.md). The source and build harness live

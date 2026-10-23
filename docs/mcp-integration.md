@@ -86,7 +86,7 @@ Claude: payments-api is valid. Suggestion: "No dependencies declared. If this
         service depends on others, declare them explicitly."
 ```
 
-Pacto never guesses dependencies: naming PostgreSQL adds none, so the second prompt adds one. The service is stateful only because the agent passed `stores_data` and `data_survives_restart`.
+Pacto never guesses dependencies, so the second prompt adds one. The service is stateful because the agent passed `stores_data` and `data_survives_restart`.
 
 ---
 
@@ -120,29 +120,27 @@ What the assistant can reach depends on how you start the server:
 | **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call is bounded by a 30-second timeout and follows no redirect at all — a 3xx comes back to the agent as the result. |
 | **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only understanding of the *operational system* — services, revisions, targets, relationships and status. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects. | Read-only always: they write nothing, anywhere. Two things that boundary does *not* cover — read-only is not offline, and a read-only *family* is not a read-only *server*: see [Fleet query safety](#fleet-query-safety). The only server with no write tool is catalog mode. |
 
-Two tools sit outside these families: `pacto_skill` and `pacto_catalog_revision`.
+Outside these families: `pacto_skill` and `pacto_catalog_revision`.
 
 Not in the surface: inspecting a registry contract, resolving a dependency graph,
 diffing revisions, generating docs and the two non-query `pacto fleet`
 operations — `reconcile` (declared dependencies against observed traffic) and
 `snapshot` (the whole read model as one document). These stay CLI-only. No tool pushes, pulls or deploys
 anything. [Server modes](cli-reference.md#server-modes) lists which tools each
-invocation registers; [What Pacto is not](model.md#what-pacto-is-not) tells the
-MCP surface, the catalog and the fleet apart.
+invocation registers.
 
 !!! warning "The boundary is documented, not machine-advertised"
     Pacto ships **no MCP tool annotations**. A `tools/list` response carries no
     [`annotations`](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations)
     member on any tool — not `readOnlyHint`, `destructiveHint` or
     `idempotentHint` — including `pacto_create`, `pacto_edit` and a generated
-    tool such as `createRefund`, which moves money. A client cannot tell a read
-    tool from a write tool or warn before a write, so build allow-lists by hand
+    tool such as `createRefund`, which moves money. Build allow-lists by hand
     from the tool name. `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`,
     `pacto_impact` and `pacto_catalog_revision` are read-only; `pacto_create` and
     `pacto_edit` write contract files. Generated service tools carry no `pacto_`
     prefix and reach a live service, so treat every unprefixed tool as unsafe
-    unless the server was started without `--allow-writes`. That holds because
-    the `pacto_` names are reserved: a bundle cannot claim one.
+    unless the server was started without `--allow-writes`. A bundle cannot
+    claim a `pacto_` name.
 
 ### Fleet query safety
 

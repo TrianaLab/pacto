@@ -114,4 +114,8 @@ None of these is required reading:
 - [History, blame and verification](delivery-history.md)
 - [Publishing details](../../publishing.md) and the contract's
   [`publish` section](../../contract-reference/publish.md)
+- [Argo CD and several clusters](delivery-reach.md)
 - [What delivery does not do](delivery-limitations.md)
+
+To see all of it run on your machine, try the
+[Kubernetes demo](../../examples/kubernetes-demo.md).
