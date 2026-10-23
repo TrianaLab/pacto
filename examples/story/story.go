@@ -247,7 +247,7 @@ var Beats = []Beat{
 	// B10: the story starts from a Stage already frozen and proves that an
 	// agent cannot unfreeze it, a person can and a frozen Stage ships nothing.
 	// That a record which does not verify freezes the Stage is proven by the
-	// operator (TestStreamConflictFreezesTheStage) and the Kubernetes demo.
+	// operator (TestStreamConflictFreezesTheStage).
 	{
 		ID:      "B10",
 		Says:    "A tampered record freezes payments in prod until alice unfreezes it.",

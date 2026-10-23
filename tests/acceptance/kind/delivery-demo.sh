@@ -396,9 +396,6 @@ spec:
   contractRef: {oci: "oci://${REG_HOST}/story/$svc:$v"}
   target: {workloadRef: {name: $svc, kind: Deployment}$bind}
 YAML
-  # ponytail: podinfo has no entrypoint, so the story's `args: [--port=8080]`
-  # cannot start it; run it as a command until examples/story does (HANDOFF).
-  perl -pi -e 's#^(\s+)args: \[--port=8080\]#$1command: [./podinfo, --port=8080]#' "$dir"/deploy/*.yaml
   # payments 2.4.2 is "logging only" but calls fraud: a sidecar stands in for
   # the code that makes the call.
   if [ "$svc/$v" = payments/2.4.2 ]; then

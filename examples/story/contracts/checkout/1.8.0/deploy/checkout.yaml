@@ -15,7 +15,7 @@ spec:
       containers:
         - name: checkout
           image: ghcr.io/stefanprodan/podinfo:6.7.1
-          args: [--port=8080]
+          command: [./podinfo, --port=8080]
           ports:
             - containerPort: 8080
 ---

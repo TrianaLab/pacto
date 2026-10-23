@@ -349,8 +349,8 @@ func TestB7OnlyAPersonOnTheAskedTeamDecides(t *testing.T) {
 }
 
 // TestB9PersonsRollbackHoldsAutomation. The records themselves (signing,
-// history, blame and undo) are proven by pkg/delivery's record tests and the
-// Kubernetes demo; the story proves the decision they record.
+// history, blame and undo) are proven by pkg/delivery's record tests; the
+// story proves the decision they record.
 func TestB9PersonsRollbackHoldsAutomation(t *testing.T) {
 	b := beat(t, "B9")
 	in, err := b.PlanInput(context.Background())
