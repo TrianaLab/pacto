@@ -1123,18 +1123,23 @@ echo "== 9. the live demo proves the canonical fixture =="
 
 # The two CLI steps the docs page shows, typed the way it types them: by project
 # name, inside the dashboard container, against the demo's own registry. diff
-# exits non-zero on a breaking change, which is the point, so only its output is
-# judged.
+# exits non-zero on a breaking change, which is the point a CI step relies on,
+# so the exit status is judged as well as the output.
+diff_rc=0
 diff_out=$(docker compose -p "$PROJ1" exec -T dashboard pacto diff \
-	oci://registry:5000/demo/checkout:1.0.0 oci://registry:5000/demo/checkout:1.1.0 2>&1 || true)
+	oci://registry:5000/demo/checkout:1.0.0 oci://registry:5000/demo/checkout:1.1.0 2>&1) || diff_rc=$?
 grep -q '^Required bump: major$' <<<"$diff_out" ||
 	fail "pacto diff on checkout 1.0.0 -> 1.1.0 did not say 'Required bump: major': $diff_out"
-pass "pacto diff says checkout 1.1.0 needs a major bump"
+[ "$diff_rc" -ne 0 ] ||
+	fail "pacto diff on a breaking change exited 0, so a CI step would not stop: $diff_out"
+pass "pacto diff says checkout 1.1.0 needs a major bump and exits non-zero"
 init_out=$(docker compose -p "$PROJ1" exec -T dashboard sh -c \
-	'mkdir -p /tmp/checkout && printf "FROM nginx:1.27\nEXPOSE 8080\n" >/tmp/checkout/Dockerfile && pacto init --plan --owner commerce /tmp/checkout' 2>&1) ||
+	'mkdir -p /tmp/checkout && printf "FROM nginx:1.27\nEXPOSE 8080\n" >/tmp/checkout/Dockerfile && pacto init --plan --owner commerce /tmp/checkout && echo "checkout holds: $(ls -A /tmp/checkout | tr "\n" " ")"' 2>&1) ||
 	fail "pacto init --plan failed in the demo: $init_out"
 grep -q '(nothing changed)' <<<"$init_out" && grep -q '+ pacto.yaml' <<<"$init_out" ||
 	fail "pacto init --plan did not show the contract it would add: $init_out"
+grep -q '^checkout holds: Dockerfile $' <<<"$init_out" ||
+	fail "pacto init --plan wrote into the checkout, which should still hold only its Dockerfile: $init_out"
 pass "pacto init --plan shows the checkout contract and changes nothing"
 
 # The same live journeys the Kind vertical runs, against the published demo
