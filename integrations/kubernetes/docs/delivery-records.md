@@ -122,9 +122,30 @@ pacto delivery record verify -n prod --stage payments --trust recorder.pub
 ```
 
 It checks every signature and the whole chain, exits non-zero if anything is
-wrong and prints an [oras](https://oras.land) and
-[cosign](https://github.com/sigstore/cosign) command that checks one record
-without Pacto. `record verify --all` checks every stream.
+wrong and prints a command that checks one record without Pacto, with
+[oras](https://oras.land) and [cosign](https://github.com/sigstore/cosign).
+`record verify --all` checks every stream. The printed command looks like this:
+
+```bash
+REPO=registry.example/pacto/streams
+oras blob fetch --output record.json \
+  "$REPO@$(oras manifest fetch "$REPO@<record manifest>" | jq -r '.layers[0].digest')"
+cosign verify-blob-attestation --bundle record.json --key recorder.pub \
+  --type pacto.dev/operation/v1 --insecure-ignore-tlog \
+  --digest <anchor digest without sha256:> --digestAlg sha256
+```
+
+For a keyless recorder it uses these flags instead of `--key recorder.pub`,
+with the entry's `trustedRoot` saved as `trusted_root.json`:
+
+```bash
+--trusted-root trusted_root.json --certificate-identity <identity> \
+  --certificate-oidc-issuer <issuer> --use-signed-timestamps
+```
+
+`oras discover` on a version lists the records attached to it. The record
+itself is a DSSE envelope: `jq -r .dsseEnvelope.payload record.json | base64 -d`
+prints the statement.
 
 ## Retention and events
 
