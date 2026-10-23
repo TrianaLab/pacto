@@ -8,12 +8,16 @@ import (
 
 // UpstreamFromRecords rebuilds what a Stage in another cluster verified from
 // its stream's verified records, the way the promoter keeps it on a local
-// Stage: a promote that Succeeded and Verified adds its version to Verified,
-// and to Offered when pacto.published passed there; a Failed one adds it to
-// FailedDigests and takes it out of Verified. unreadable names the records
-// that failed verification. Any of those, or a stream with a problem (a gap,
-// a fork, a missing seq), offers nothing: a downstream never promotes on
-// history it cannot check, so the result is nil with the reason.
+// Stage: an operation that Succeeded and Verified adds its version to
+// Verified, and a promote adds it to Offered too when pacto.published passed
+// there; a Failed operation of any type adds its version to FailedDigests and
+// takes it out of Verified. A rollback raised on a Fail verdict, the one a
+// failed post-release re-check raises, marks the version it leaves failed the
+// same way. A re-check that fails and freezes the Stage without a rollback
+// writes no record, so the remote view cannot see it. unreadable names the
+// records that failed verification. Any of those, or a gap or fork inside the
+// stream, offers nothing: a downstream never promotes on history it cannot
+// check, so the result is nil with the reason.
 func UpstreamFromRecords(recs []StoredRecord, unreadable []string) (*StageStatus, string) {
 	if len(unreadable) > 0 {
 		return nil, "records that could not be verified: " + strings.Join(unreadable, "; ")
@@ -23,24 +27,33 @@ func UpstreamFromRecords(recs []StoredRecord, unreadable []string) (*StageStatus
 		return nil, "the stream is not whole: " + strings.Join(f.Problems, "; ")
 	}
 	s := &StageStatus{}
+	fail := func(d string) {
+		s.FailedDigests = AddDigest(s.FailedDigests, d, MaxFailedDigests)
+		s.Verified = RemoveDigest(s.Verified, d)
+	}
 	for _, r := range f.Records {
 		p := r.Statement.Predicate
-		if p.Kind != RecordOperation || p.Type == nil || p.Type.ID != TypePromote || p.Intent.Params == nil || p.Outcome == nil {
+		if p.Kind != RecordOperation || p.Type == nil || p.Intent.Params == nil || p.Outcome == nil {
 			continue
 		}
+		if c := p.Intent.Cause; p.Type.ID == TypeRollback && c != nil && c.Verdict != nil && c.Verdict.Result == Fail && p.Intent.Params.From != "" {
+			fail(p.Intent.Params.From)
+		}
 		to := p.Intent.Params.To
+		if to == "" { // a freeze or unfreeze moves no version
+			continue
+		}
 		switch p.Outcome.Result {
 		case Succeeded:
 			if p.Outcome.Verification != Verified {
 				continue
 			}
 			s.Verified = AddDigest(s.Verified, to, MaxVerified)
-			if slices.ContainsFunc(p.Verdicts, func(v Verdict) bool { return v.Gate == GatePublished && v.Result == Pass }) {
+			if p.Type.ID == TypePromote && slices.ContainsFunc(p.Verdicts, func(v Verdict) bool { return v.Gate == GatePublished && v.Result == Pass }) {
 				s.Offered = AddDigest(s.Offered, to, MaxOffered)
 			}
 		case Failed:
-			s.FailedDigests = AddDigest(s.FailedDigests, to, MaxFailedDigests)
-			s.Verified = RemoveDigest(s.Verified, to)
+			fail(to)
 		}
 	}
 	return s, ""
