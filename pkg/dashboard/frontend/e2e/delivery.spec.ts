@@ -185,9 +185,10 @@ async function audit(page: Page, what: string) {
 
 test.describe('Delivery views', () => {
   test('stay out of sight where delivery is not installed', async ({ page }) => {
-    await page.goto(`${DOC_ORIGIN}/#/fleet`);
-    await expect(page.getByRole('link', { name: 'Overview', exact: true }).first()).toBeVisible({ timeout: T });
-    await expect(page.locator('.navbar-nav-desktop').getByRole('link', { name: 'Delivery' })).toHaveCount(0);
+    await page.goto(`${DOC_ORIGIN}/#/services`);
+    const nav = page.getByRole('navigation', { name: 'Primary' }).first();
+    await expect(nav.getByRole('link', { name: 'Services', exact: true })).toBeVisible({ timeout: T });
+    await expect(nav.getByRole('link', { name: 'Delivery' })).toHaveCount(0);
     await page.goto(`${DOC_ORIGIN}/#/delivery/inbox`);
     await expect(page.getByTestId('delivery-unavailable')).toBeVisible({ timeout: T });
   });
