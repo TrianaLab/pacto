@@ -401,12 +401,11 @@ func TestPactifyWritesTheFraudContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := os.Open("contracts/fraud/1.0.0/pacto.yaml")
+	raw, err := os.ReadFile("contracts/fraud/1.0.0/pacto.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
-	want, err := contract.Parse(f)
+	want, err := contract.Parse(strings.NewReader(string(raw)))
 	if err != nil {
 		t.Fatal(err)
 	}
