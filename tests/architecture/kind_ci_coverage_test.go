@@ -9,12 +9,12 @@ import (
 
 // e2eFilter returns the path globs of the `e2e` filter in ci.yml: the paths
 // whose change runs the kind and Compose shards.
-func e2eFilter(t *testing.T) []string {
+func pathsFilter(t *testing.T, name string) []string {
 	t.Helper()
 	wf := code(t, filepath.Join(repoDir(t), ".github", "workflows", "ci.yml"))
-	_, after, ok := strings.Cut(wf, "\n            e2e:\n")
+	_, after, ok := strings.Cut(wf, "\n            "+name+":\n")
 	if !ok {
-		t.Fatal("no `e2e:` paths filter in .github/workflows/ci.yml")
+		t.Fatalf("no `%s:` paths filter in .github/workflows/ci.yml", name)
 	}
 	var globs []string
 	for line := range strings.SplitSeq(after, "\n") {
@@ -27,28 +27,32 @@ func e2eFilter(t *testing.T) []string {
 	return globs
 }
 
-// TestE2EFilterCoversTheOperatorImports fails when a core package compiled
-// into the operator or pacto-delivery image is missing from the e2e filter. A
-// change to such a package alone would otherwise skip every kind shard, and
-// the `required` gate counts a skipped job as passing.
-func TestE2EFilterCoversTheOperatorImports(t *testing.T) {
-	globs := e2eFilter(t)
+// TestPathFiltersCoverTheOperatorImports fails when a core package compiled
+// into the operator or pacto-delivery image is missing from the e2e or the
+// kubernetes filter. A change to such a package alone would otherwise skip
+// every kind shard, or the operator's unit tests, coverage gate and envtest,
+// and the `required` gate counts a skipped job as passing.
+func TestPathFiltersCoverTheOperatorImports(t *testing.T) {
 	const core = "github.com/trianalab/pacto/v4/"
-	for _, dep := range deps(t, "github.com/trianalab/pacto/integrations/kubernetes/v6/...") {
-		rel, ok := strings.CutPrefix(dep, core)
-		if !ok {
-			continue
-		}
-		covered := false
-		for _, g := range globs {
-			dir, isTree := strings.CutSuffix(g, "/**")
-			if isTree && (rel == dir || strings.HasPrefix(rel, dir+"/")) {
-				covered = true
-				break
+	imports := deps(t, "github.com/trianalab/pacto/integrations/kubernetes/v6/...")
+	for _, name := range []string{"e2e", "kubernetes"} {
+		globs := pathsFilter(t, name)
+		for _, dep := range imports {
+			rel, ok := strings.CutPrefix(dep, core)
+			if !ok {
+				continue
 			}
-		}
-		if !covered {
-			t.Errorf("the operator compiles in %s, but the ci.yml e2e filter has no '%s/**' entry, so a change there alone skips the kind shards", rel, rel)
+			covered := false
+			for _, g := range globs {
+				dir, isTree := strings.CutSuffix(g, "/**")
+				if isTree && (rel == dir || strings.HasPrefix(rel, dir+"/")) {
+					covered = true
+					break
+				}
+			}
+			if !covered {
+				t.Errorf("the operator compiles in %s, but the ci.yml %s filter has no '%s/**' entry, so a change there alone skips its jobs", rel, name, rel)
+			}
 		}
 	}
 }

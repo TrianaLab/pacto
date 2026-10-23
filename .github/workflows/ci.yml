@@ -63,6 +63,36 @@ jobs:
             kubernetes:
               - 'integrations/kubernetes/**'
               - 'go.work'
+              # The core packages the operator module compiles in, as in the e2e
+              # filter: a change there alone must still run the operator's unit
+              # tests, coverage gate, chart checks and envtest.
+              # TestPathFiltersCoverTheOperatorImports keeps both lists whole.
+              - 'pkg/probe/**'
+              - 'pkg/runtimefacts/**'
+              - 'pkg/capability/**'
+              - 'pkg/catalog/**'
+              - 'pkg/contract/**'
+              - 'pkg/delivery/**'
+              - 'pkg/deliveryrecord/**'
+              - 'pkg/diff/**'
+              - 'pkg/evidence/**'
+              - 'pkg/finding/**'
+              - 'pkg/fleet/**'
+              - 'pkg/graph/**'
+              - 'pkg/impact/**'
+              - 'pkg/lock/**'
+              - 'pkg/logging/**'
+              - 'pkg/oci/**'
+              - 'pkg/ocireferrer/**'
+              - 'pkg/openapi/**'
+              - 'pkg/readiness/**'
+              - 'pkg/sbom/**'
+              - 'pkg/schemax/**'
+              - 'pkg/semver/**'
+              - 'pkg/signing/**'
+              - 'pkg/skills/**'
+              - 'pkg/strictjson/**'
+              - 'pkg/validation/**'
             release:
               - 'release/**'
               - '.github/workflows/**'
@@ -112,7 +142,7 @@ jobs:
               - 'pkg/publish/**'
               # Every core package the operator and pacto-delivery images compile
               # in (the transitive import closure of integrations/kubernetes).
-              # TestE2EFilterCoversTheOperatorImports derives this list from the
+              # TestPathFiltersCoverTheOperatorImports derives this list from the
               # imports and fails when a package is missing.
               - 'pkg/capability/**'
               - 'pkg/catalog/**'
