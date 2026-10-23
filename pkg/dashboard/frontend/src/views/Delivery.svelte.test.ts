@@ -712,11 +712,11 @@ describe('names, versions and one clear sentence', () => {
     destroy();
   });
 
-  it('says when a version could not be read, with the short digest', async () => {
+  it('says when a version is unknown, with the short digest', async () => {
     fns.operation.mockResolvedValue(heldOperation({ versions: { [D2]: '3.0.0' } }));
     const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
-    expect(text(target)).toContain('From111111111111 (version unknown: its artifact could not be read)To3.0.0 222222222222');
+    expect(text(target)).toContain('From111111111111 (version unknown)To3.0.0 222222222222');
     destroy();
   });
 });
