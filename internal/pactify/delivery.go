@@ -34,8 +34,14 @@ func (p *planner) delivery() {
 	if w := p.sc.workload; w != nil {
 		kind, target = w.kind, w.name
 	}
+	// ponytail: only a Service named like the workload counts as its Service;
+	// read Service selectors if services name theirs differently.
+	service := ""
+	if p.sc.services[target] {
+		service = "    serviceName: " + target + "\n"
+	}
 	p.deliveryPlanned = true
-	p.file("delivery/pacto.yaml", fmt.Sprintf(pactoResource, name, name, p.pub.Bundle, target, kind))
+	p.file("delivery/pacto.yaml", fmt.Sprintf(pactoResource, name, name, p.pub.Bundle, service, target, kind))
 	verify := p.verify()
 	for i, env := range p.envs {
 		var b strings.Builder
@@ -111,7 +117,8 @@ func (p *planner) verify() string {
 
 const pactoResource = `# The Pacto resource: it checks the running %s against the contract of the
 # version that ships. It ships inside every version: the manifests build in
-# pacto.yaml fills in @PACTO_VERSION@ when pacto publish runs it.
+# pacto.yaml fills in @PACTO_VERSION@ when pacto publish runs it. Its Service,
+# when there is one, lets Pacto see the calls made to it.
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -120,7 +127,7 @@ spec:
   contractRef:
     oci: %s:@PACTO_VERSION@
   target:
-    workloadRef:
+%s    workloadRef:
       name: %s
       kind: %s
 `

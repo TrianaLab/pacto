@@ -102,8 +102,9 @@ func TestPactifyFraud(t *testing.T) {
 	if ig := file(t, r, ".pactoignore"); ig.Content != "cosign.key\ndelivery/\n" {
 		t.Fatalf(".pactoignore: %+v", ig)
 	}
-	if !strings.Contains(file(t, r, "delivery/pacto.yaml").Content, "oci: oci://registry.example/story/fraud:@PACTO_VERSION@") {
-		t.Fatal("the Pacto resource does not name the contract")
+	if res := file(t, r, "delivery/pacto.yaml").Content; !strings.Contains(res, "oci: oci://registry.example/story/fraud:@PACTO_VERSION@") ||
+		!strings.Contains(res, "  target:\n    serviceName: fraud\n    workloadRef:\n") {
+		t.Fatalf("the Pacto resource does not name the contract and fraud's Service:\n%s", res)
 	}
 	checkStages(t, file(t, r, "delivery/test.yaml").Content, file(t, r, "delivery/prod.yaml").Content)
 
@@ -371,7 +372,7 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 		!hasLine(r.Unknown, "several Dockerfiles") || hasLine(r.Next, "signing key") {
 		t.Fatalf("findings: %+v", r)
 	}
-	if !strings.Contains(file(t, r, "delivery/pacto.yaml").Content, "kind: CronJob") || !strings.Contains(file(t, r, "delivery/dev.yaml").Content, "ociRepositoryRef") {
+	if res := file(t, r, "delivery/pacto.yaml").Content; !strings.Contains(res, "kind: CronJob") || strings.Contains(res, "serviceName") || !strings.Contains(file(t, r, "delivery/dev.yaml").Content, "ociRepositoryRef") {
 		t.Fatal("delivery pieces")
 	}
 	if ig := file(t, r, ".pactoignore"); ig.Action != Append || ig.Content != "delivery/\n" {
