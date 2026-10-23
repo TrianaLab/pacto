@@ -18,6 +18,10 @@
 # with its phase (see run_phases). DELIVERY_SEQUENTIAL=1 runs them one at a
 # time, for debugging. Every section and wait is timed, and a summary of where
 # the time went prints at the end (KIND_TIMING=FILE keeps the raw lines).
+# A laptop that sleeps mid-run (a closed lid sleeps even under `caffeinate -i`)
+# drops every port-forward and lets verify windows pass with no telemetry, so a
+# phase stalls on a Held operation: check `pmset -g log` before blaming the
+# concurrency.
 #
 # DELIVERY_SAVE_IMAGES=FILE builds the three Pacto images, saves them to FILE
 # and stops; DELIVERY_LOAD_IMAGES=FILE loads them from FILE instead of building.
