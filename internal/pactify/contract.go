@@ -245,8 +245,20 @@ func (p *planner) pactified() string {
 	default:
 		p.unknown("interfaces: nothing describes what %s serves", name)
 	}
-	p.dependencyComments(&b, registry)
-	p.publish(&b, registry, imgRepo)
+	// Bundles live beside the images, at registry/<name>, unless the image is
+	// there already (the usual org/name layout): then they go under
+	// registry/contracts, so a bundle tag never lands on the image.
+	bundles := registry
+	if imgRepo == registry+"/"+name {
+		bundles = registry + "/contracts"
+		p.found("contract bundles under %s, as the image %s already holds %s/%s", bundles, w.image, registry, name)
+	}
+	p.dependencyComments(&b, bundles)
+	p.publish(&b, bundles, registry, imgRepo)
+	for _, f := range sc.secrets {
+		p.next("%s holds a Secret's values, so it is left out of the published manifests, which anyone who can pull them reads; "+
+			"supply it another way (a SealedSecret, an ExternalSecret or SOPS) and move any other objects in it to their own file", f)
+	}
 	if sc.chart != "" {
 		p.unknown("the Helm chart in %s is not read; add it under publish.artifacts as a chart", sc.chart)
 	}
@@ -255,21 +267,21 @@ func (p *planner) pactified() string {
 
 // dependencyComments lists the services found as commented-out dependencies:
 // declaring one needs the versions accepted, which only its consumer knows.
-func (p *planner) dependencyComments(b *strings.Builder, registry string) {
+func (p *planner) dependencyComments(b *strings.Builder, bundles string) {
 	if len(p.r.Dependencies) == 0 {
 		return
 	}
 	fmt.Fprintf(b, "# %s calls these services. Declare each one with the versions it accepts,\n# or the runtime check reports the call as undeclared.\n# dependencies:\n", p.r.Service)
 	for _, d := range p.r.Dependencies {
-		fmt.Fprintf(b, "#   - name: %s\n#     ref: oci://%s/%s\n#     required: true\n#     compatibility: \"^1.0.0\"\n", d.Name, registry, d.Name)
+		fmt.Fprintf(b, "#   - name: %s\n#     ref: oci://%s/%s\n#     required: true\n#     compatibility: \"^1.0.0\"\n", d.Name, bundles, d.Name)
 		p.unknown("the versions of %s that %s accepts: declare it under dependencies in pacto.yaml", d.Name, p.r.Service)
 	}
 }
 
 // publish writes the publish section and keeps it for the cluster pieces.
-func (p *planner) publish(b *strings.Builder, registry, imgRepo string) {
+func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string) {
 	sc, name := p.sc, p.r.Service
-	p.pub = &contract.Publish{Bundle: "oci://" + registry + "/" + name, Sign: &contract.PublishSign{Key: signKey}}
+	p.pub = &contract.Publish{Bundle: "oci://" + bundles + "/" + name, Sign: &contract.PublishSign{Key: signKey}}
 	fmt.Fprintf(b, "publish:\n  bundle: %s\n", p.pub.Bundle)
 	if len(sc.manifests) > 0 {
 		p.pub.Deploy = "manifests"

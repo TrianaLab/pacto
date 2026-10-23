@@ -21,6 +21,7 @@ type scan struct {
 	dockerfile  string   // the Dockerfile used, relative and slash-separated
 	dockerfiles []string // every Dockerfile found
 	manifests   []string // YAML files that hold Kubernetes objects
+	secrets     []string // YAML files holding a Secret's values, never published
 	objects     map[string]bool
 	workloads   []*workload
 	workload    *workload // the one the contract describes
@@ -126,7 +127,7 @@ func (sc *scan) file(p, rel, base string) {
 // YAML, or holds no object with apiVersion and kind, is not a manifest.
 func (sc *scan) manifest(rel string, data []byte) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
-	found := false
+	found, secret := false, false
 	for {
 		var doc map[string]any
 		err := dec.Decode(&doc)
@@ -141,6 +142,9 @@ func (sc *scan) manifest(rel string, data []byte) {
 			continue
 		}
 		found = true
+		if kind == "Secret" && (doc["data"] != nil || doc["stringData"] != nil) {
+			secret = true
+		}
 		name, _ := dig(doc, "metadata", "name").(string)
 		sc.objects[name] = true
 		if path.Base(rel) == "kustomization.yaml" || kind == "Kustomization" {
@@ -150,7 +154,10 @@ func (sc *scan) manifest(rel string, data []byte) {
 			sc.workloads = append(sc.workloads, readWorkload(rel, kind, name, doc))
 		}
 	}
-	if found {
+	switch {
+	case secret:
+		sc.secrets = append(sc.secrets, rel)
+	case found:
 		sc.manifests = append(sc.manifests, rel)
 	}
 }

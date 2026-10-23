@@ -239,7 +239,8 @@ func runManifestsBuild(t *testing.T, dir string, command []string) {
 // commented out in the contract and its accepted versions are Unknown.
 func TestDependenciesFromEnvironment(t *testing.T) {
 	dir := writeTree(t, t.TempDir(), map[string]string{
-		"Dockerfile": "FROM scratch\n",
+		"Dockerfile":         "FROM scratch\n",
+		"deploy/secret.yaml": "apiVersion: v1\nkind: Secret\nmetadata: {name: s}\nstringData: {password: hunter2}\n",
 		"deploy/app.yaml": `apiVersion: apps/v1
 kind: Deployment
 metadata: {name: checkout, labels: {team: shop}}
@@ -278,13 +279,15 @@ metadata: {name: db}
 		t.Fatalf("dependencies: %+v", r.Dependencies)
 	}
 	text := file(t, r, "pacto.yaml").Content
-	for _, s := range []string{"#   - name: payments\n#     ref: oci://ghcr.io/acme/payments", "version: 1.9.0", "team: shop", "ref: oci://ghcr.io/acme/checkout\n",
-		`command: [sh, -c, 'cp deploy/*.yaml "$PACTO_OUT"/']`} {
+	for _, s := range []string{"#   - name: payments\n#     ref: oci://ghcr.io/acme/contracts/payments", "version: 1.9.0", "team: shop", "ref: oci://ghcr.io/acme/checkout\n",
+		"bundle: oci://ghcr.io/acme/contracts/checkout\n",
+		`command: [sh, -c, 'cp deploy/app.yaml "$PACTO_OUT"/']`, "from Dockerfile, deploy/app.yaml.\n"} {
 		if !strings.Contains(text, s) {
 			t.Errorf("pacto.yaml lacks %q:\n%s", s, text)
 		}
 	}
-	if !hasLine(r.Unknown, "the versions of payments that checkout accepts") || !hasLine(r.Found, "owner team shop") || !hasLine(r.Unknown, "port 8080, 9090") {
+	if !hasLine(r.Next, "deploy/secret.yaml holds a Secret's values") ||
+		!hasLine(r.Unknown, "the versions of payments that checkout accepts") || !hasLine(r.Found, "owner team shop") || !hasLine(r.Unknown, "port 8080, 9090") {
 		t.Fatalf("findings: %+v", r)
 	}
 }
@@ -428,6 +431,35 @@ publish:
 		})
 	}
 
+}
+
+// TestDeliveryEnvironmentAdded: adding an environment in front of kept ones
+// leaves the old first Stage reading the registry, and dropping the first
+// leaves the new first reading a Stage that is gone; both are Next.
+func TestDeliveryEnvironmentAdded(t *testing.T) {
+	dir := fraudDir(t)
+	if _, err := Init(context.Background(), Options{Dir: dir, Owner: "risk", Delivery: true}, os.WriteFile); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Init(context.Background(), Options{Dir: dir, Delivery: true, Plan: true, Environments: []string{"dev", "test", "prod"}}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if file(t, r, "delivery/dev.yaml").Action != Add || !hasLine(r.Next, "delivery/test.yaml was left as it is, but its Stage takes candidates from the registry, not the Stage in dev") ||
+		hasLine(r.Next, "delivery/prod.yaml was left") {
+		t.Fatalf("plan: %+v", r)
+	}
+	r, err = Init(context.Background(), Options{Dir: dir, Delivery: true, Plan: true, Environments: []string{"prod"}}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasLine(r.Next, "delivery/prod.yaml was left as it is, but its Stage takes candidates from the Stage in test, not the registry") {
+		t.Fatalf("plan: %+v", r)
+	}
+	writeTree(t, dir, map[string]string{"delivery/prod.yaml": "kind: [\n"})
+	if r, _ = Init(context.Background(), Options{Dir: dir, Delivery: true, Plan: true, Environments: []string{"prod"}}, os.WriteFile); hasLine(r.Next, "was left as it is") {
+		t.Fatalf("an unreadable file says nothing: %+v", r)
+	}
 }
 
 // TestDeliveryWithoutManifests: a contract with no publish section, or one

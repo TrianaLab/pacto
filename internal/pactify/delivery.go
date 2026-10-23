@@ -1,9 +1,14 @@
 package pactify
 
 import (
+	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
@@ -42,6 +47,11 @@ func (p *planner) delivery() {
 		}
 		fmt.Fprintf(&b, envPieces, name, env, name, deployRepo, verify, name, env, name, env, name, env, name, env, name, candidates)
 		p.file("delivery/"+env+".yaml", b.String())
+		want := "the registry"
+		if i > 0 {
+			want = "the Stage in " + p.envs[i-1]
+		}
+		p.keptSource(env, want)
 	}
 	envs := strings.Join(p.envs, ", ")
 	p.next("create the namespaces %s, then apply each environment: kubectl apply -f delivery/%s.yaml", envs, strings.Join(p.envs, ".yaml -f delivery/"))
@@ -50,6 +60,36 @@ func (p *planner) delivery() {
 	}
 	for _, k := range p.sc.kustomize {
 		p.next("%s decides what Flux applies: add pacto-resource.yaml to its resources", k)
+	}
+}
+
+// keptSource warns when a delivery/<env>.yaml already there takes its
+// candidates from somewhere other than want, the place --env now gives it:
+// the first environment reads the registry, every other the one before it.
+func (p *planner) keptSource(env, want string) {
+	data, err := os.ReadFile(filepath.Join(p.r.Dir, "delivery", env+".yaml"))
+	if err != nil {
+		return // planned as new
+	}
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	for {
+		var doc map[string]any
+		if dec.Decode(&doc) != nil {
+			return
+		}
+		if doc["kind"] != "Stage" {
+			continue
+		}
+		got := "the registry"
+		if up, ok := dig(doc, "spec", "candidates", "upstreamStage").(map[string]any); ok {
+			ns, _ := up["namespace"].(string)
+			got = "the Stage in " + ns
+		}
+		if got != want {
+			p.next("delivery/%s.yaml was left as it is, but its Stage takes candidates from %s, not %s as --env %s orders them; "+
+				"change its spec.candidates, or move the file away and run pacto init --delivery again to rewrite it", env, got, want, strings.Join(p.envs, ","))
+		}
+		return
 	}
 }
 
