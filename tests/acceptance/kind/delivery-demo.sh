@@ -379,14 +379,24 @@ checkout_version() {
   cp -R "$STORY/contracts/$svc/$v/." "$dir/"
   cp "$KEYS/cosign.key" "$dir/cosign.key"
   perl -pi -e "s#registry\\.example/story#${REG_HOST}/story#g" "$dir/pacto.yaml"
+  # The http interface payments declares is served by its Service's port 8080:
+  # Kubernetes knowledge that lives on the Pacto resource, not the contract.
+  local bind=""
+  [ "$svc" = payments ] && bind=", serviceName: payments, interfaceBindings: [{interface: http, servicePort: 8080}]"
   cat > "$dir/deploy/pacto-resource.yaml" <<YAML
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata: {name: $svc}
 spec:
+  # Re-checked every 30s, so the claim check sees the node agent's baseline
+  # inside the verify window (the default is 5 minutes).
+  checkIntervalSeconds: 30
   contractRef: {oci: "oci://${REG_HOST}/story/$svc:$v"}
-  target: {workloadRef: {name: $svc, kind: Deployment}}
+  target: {workloadRef: {name: $svc, kind: Deployment}$bind}
 YAML
+  # ponytail: podinfo has no entrypoint, so the story's `args: [--port=8080]`
+  # cannot start it; run it as a command until examples/story does (HANDOFF).
+  perl -pi -e 's#^(\s+)args: \[--port=8080\]#$1command: [./podinfo, --port=8080]#' "$dir"/deploy/*.yaml
   # payments 2.4.2 is "logging only" but calls fraud: a sidecar stands in for
   # the code that makes the call.
   if [ "$svc/$v" = payments/2.4.2 ]; then
@@ -447,7 +457,7 @@ spec:
   auto: $4
   gates:
     verify:
-      window: 2m
+      window: 3m
 ${5:-}
 YAML
   } | kubectl apply -f - >/dev/null
