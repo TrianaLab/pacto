@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The Kubernetes delivery demo: "the payments story" (examples/story) played on
-# a real cluster, where everything is real: the registry, Flux, the promoter,
+# a real cluster, where the components are real (the workloads, their telemetry
+# and the B10 sign-ins are generated): the registry, Flux, the promoter,
 # the recorder, Mira, the node agent, Dex and Keycloak sign-in, the dashboard
 # and remote MCP.
 #
