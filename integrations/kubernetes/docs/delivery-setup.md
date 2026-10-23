@@ -90,7 +90,8 @@ records each digest Flux verified in `status.published` and refuses anything
 else as `NotPublished`. Without a `secretRef` or `matchOIDCIdentity` Flux
 accepts a keyless signature from anyone, so such a Stage promotes nothing. A
 Stage that cannot promote has `Ready` `False` with the reason
-`CandidateUnverified`, `CandidateNotFound` or `NoCandidateSource`.
+`CandidateUnverified`, `CandidateNotFound`, `NoCandidateSource` or
+`UpstreamUntrusted` (see [Argo CD and several clusters](delivery-reach.md)).
 
 ```yaml
 apiVersion: source.toolkit.fluxcd.io/v1

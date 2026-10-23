@@ -4,7 +4,11 @@ The limits of [Pacto delivery](delivery.md), in one place.
 
 ## Scope
 
-- One cluster, Flux only.
+- Flux applies by default. Argo CD can apply a Stage instead, and a Stage can
+  follow a Stage in another cluster through its signed records. Both have
+  limits, listed in [Argo CD and several clusters](delivery-reach.md).
+- The four built-in operation types are the only ones. External types come
+  later.
 - Compatibility comes from the version range each consumer declares. Pacto
   does not know which fields or endpoints a consumer uses, and the calls it
   observes say only which service calls which.

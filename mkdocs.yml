@@ -202,6 +202,7 @@ nav:
       - Delivery reference:
           - Setup and gates: integrations/kubernetes/delivery-setup.md
           - Health checks and claims: integrations/kubernetes/delivery-health.md
+          - Argo CD and several clusters: integrations/kubernetes/delivery-reach.md
           - Sign-in, approvals and agents: integrations/kubernetes/delivery-identity.md
           - Signed records and key rotation: integrations/kubernetes/delivery-records.md
           - History, blame and verification: integrations/kubernetes/delivery-history.md

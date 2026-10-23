@@ -157,7 +157,8 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.pointer.after` | `string` | no |  |  |  |
 | `status.pointer.before` | `string` | no |  |  |  |
 | `status.policy` | `object` | no |  |  | Policy is the Stage spec the operation concluded under, taken when it concluded, so its record says what governed it however late it is written. |
-| `status.policy.applyRef` | `object` | yes |  |  | ApplyRef is the Flux OCIRepository the promoter owns. It only ever sets spec.ref.digest on it. |
+| `status.policy.applyRef` | `object` | yes |  |  | ApplyRef is the object the promoter points at a version: a Flux OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it sets spec.source.targetRevision). Nothing else is ever written on it. |
+| `status.policy.applyRef.kind` | `string` | no |  | `OCIRepository`, `Application` | Kind is OCIRepository (Flux, the default) or Application (Argo CD, with an OCI source and automated sync). |
 | `status.policy.applyRef.name` | `string` | yes |  |  |  |
 | `status.policy.approval` | `object` | no |  |  | ApprovalPolicy can only raise the approval floor, never lower it. |
 | `status.policy.approval.always` | `boolean` | no |  |  | Always holds every promote for a human, whatever the contracts say. |
@@ -165,6 +166,9 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.policy.candidates` | `object` | no |  |  | Candidates says where new versions come from. Exactly one is set. |
 | `status.policy.candidates.ociRepositoryRef` | `object` | no |  |  | OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the candidate is the @sha256: part of its status.artifact.revision. |
 | `status.policy.candidates.ociRepositoryRef.name` | `string` | yes |  |  |  |
+| `status.policy.candidates.upstreamRecords` | `object` | no |  |  | UpstreamRecords offers what a Stage in another cluster verified, read from its signed records: the promoter must trust the key that signs that stream (promoter.upstreamTrust), or it offers nothing. |
+| `status.policy.candidates.upstreamRecords.repository` | `string` | yes |  |  | Repository (host/path) is the upstream recorder's streams repository. |
+| `status.policy.candidates.upstreamRecords.stream` | `string` | yes |  |  | Stream is the upstream Stage's stream id, &lt;clusterID&gt;/&lt;namespace&gt;/&lt;name&gt;: its status.stream.id. |
 | `status.policy.candidates.upstreamStage` | `object` | no |  |  | UpstreamStage offers that Stage's verified digests minus its failed ones. |
 | `status.policy.candidates.upstreamStage.name` | `string` | yes |  |  |  |
 | `status.policy.candidates.upstreamStage.namespace` | `string` | no |  |  |  |
@@ -234,7 +238,8 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | Field | Type | Required | Default | Enum | Description |
 | --- | --- | --- | --- | --- | --- |
 | `spec` | `object` | yes |  |  | StageSpec is one service in one environment. |
-| `spec.applyRef` | `object` | yes |  |  | ApplyRef is the Flux OCIRepository the promoter owns. It only ever sets spec.ref.digest on it. |
+| `spec.applyRef` | `object` | yes |  |  | ApplyRef is the object the promoter points at a version: a Flux OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it sets spec.source.targetRevision). Nothing else is ever written on it. |
+| `spec.applyRef.kind` | `string` | no |  | `OCIRepository`, `Application` | Kind is OCIRepository (Flux, the default) or Application (Argo CD, with an OCI source and automated sync). |
 | `spec.applyRef.name` | `string` | yes |  |  |  |
 | `spec.approval` | `object` | no |  |  | ApprovalPolicy can only raise the approval floor, never lower it. |
 | `spec.approval.always` | `boolean` | no |  |  | Always holds every promote for a human, whatever the contracts say. |
@@ -242,6 +247,9 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.candidates` | `object` | no |  |  | Candidates says where new versions come from. Exactly one is set. |
 | `spec.candidates.ociRepositoryRef` | `object` | no |  |  | OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the candidate is the @sha256: part of its status.artifact.revision. |
 | `spec.candidates.ociRepositoryRef.name` | `string` | yes |  |  |  |
+| `spec.candidates.upstreamRecords` | `object` | no |  |  | UpstreamRecords offers what a Stage in another cluster verified, read from its signed records: the promoter must trust the key that signs that stream (promoter.upstreamTrust), or it offers nothing. |
+| `spec.candidates.upstreamRecords.repository` | `string` | yes |  |  | Repository (host/path) is the upstream recorder's streams repository. |
+| `spec.candidates.upstreamRecords.stream` | `string` | yes |  |  | Stream is the upstream Stage's stream id, &lt;clusterID&gt;/&lt;namespace&gt;/&lt;name&gt;: its status.stream.id. |
 | `spec.candidates.upstreamStage` | `object` | no |  |  | UpstreamStage offers that Stage's verified digests minus its failed ones. |
 | `spec.candidates.upstreamStage.name` | `string` | yes |  |  |  |
 | `spec.candidates.upstreamStage.namespace` | `string` | no |  |  |  |
