@@ -22,8 +22,9 @@
 #   - a person sees what waits on their team and decides from the dashboard
 #     under their own identity (the audit log shows their username)
 #   - a decision needs a fresh login; the promoter ignores an approval whose
-#     login is older than 15 minutes; a token without the interactive azp gets
-#     no auth-time and admission refuses its approval
+#     login is older than its login freshness (15 minutes unless set); a token
+#     without the interactive azp gets no auth-time and admission refuses its
+#     approval
 #   - only the named team may approve; the promoter ignores anyone else
 #   - an agent reaches Pacto over HTTP as itself (token exchange) and cannot
 #     approve through the dashboard, the MCP server or the apiserver
@@ -126,9 +127,10 @@ in_node() {
   docker run -d --name "$name" --network "container:${CLUSTER}-control-plane" "$@" >/dev/null
 }
 
-# identity_up starts Dex and Keycloak and waits until the apiserver trusts
-# both: a token from each authenticates.
-identity_up() {
+# identity_start starts Dex and Keycloak; identity_up waits until the
+# apiserver trusts both: a token from each authenticates. Keycloak takes a
+# while to start, so the run installs the rest of the cluster in between.
+identity_start() {
   cp "$IDP_FIXTURES/dex.yaml" "$IDP_FIXTURES/pacto-realm.json" "$IDP_DIR/"
   chmod 644 "$IDP_DIR/dex.yaml" "$IDP_DIR/pacto-realm.json"
   in_node pacto-e2e-dex -e DEX_SESSIONS_ENABLED=true -v "$IDP_DIR:/etc/dex:ro" "$DEX_IMG" dex serve /etc/dex/dex.yaml
@@ -138,6 +140,8 @@ identity_up() {
     --https-certificate-file=/etc/x509/tls.crt --https-certificate-key-file=/etc/x509/tls.key --hostname="https://127.0.0.1:8443"
   OIDC_BIN="$(mktemp -d)/oidclogin"
   ( cd "$_PACTO_ROOT" && go build -o "$OIDC_BIN" ./tests/acceptance/kind/oidclogin ) || fail "building the login helper failed"
+}
+identity_up() {
   up() { curl -sf --cacert "$IDP_DIR/tls.crt" "$1/.well-known/openid-configuration" >/dev/null; }
   eventually 60 up "$DEX_ISSUER" || { docker logs pacto-e2e-dex 2>&1 | tail -20; fail "Dex did not start"; }
   eventually 100 up "$KC_ISSUER" || { docker logs pacto-e2e-keycloak 2>&1 | tail -20; fail "Keycloak did not start"; }
@@ -200,8 +204,8 @@ kind: SelfSubjectReview
 YAML
 }
 
-# identity_login_stale signs carol in at the start of the run. Phase 4 runs
-# long after, and her login is then older than the promoter's 15 minutes.
+# identity_login_stale signs carol in at the start of the run. When phase 4
+# needs it, her login is older than the promoter's login freshness.
 identity_login_stale() {
   STALE_AT="$(date +%s)"
   STALE_TOKEN="$(dex_token carol)" || fail "carol could not log in through Dex"
@@ -254,7 +258,7 @@ audited() { # VERB RESOURCE USER — the apiserver's audit log saw USER do it
 }
 
 identity_scenario() {
-  echo "== phase 4: the dashboard and identity =="
+  section "phase 4: the dashboard and identity"
   # --- structured authentication ---
   local alice; alice="$(dex_token alice)"
   local who; who="$(whoami_json "$alice")"
@@ -455,11 +459,15 @@ YAML
   [ "${out%% *}" = 403 ] && grep -q AgentsMayNotApprove <<<"$out" || fail "an agent decided through the dashboard: $out"
   pass "no auth-time, no approval; an agent cannot approve at the apiserver, through MCP or through the dashboard"
 
-  # A stale login: carol's first login, now over 15 minutes old.
-  local wait=$((STALE_AT + 16 * 60 - $(date +%s)))
-  if [ "$wait" -gt 0 ]; then echo "  waiting ${wait}s for carol's first login to pass 15 minutes"; sleep "$wait"; fi
+  # A stale login: carol's first login, now older than the promoter's login
+  # freshness (AUTH_FRESHNESS seconds, set by delivery.sh), with a minute to spare.
+  local wait=$((STALE_AT + AUTH_FRESHNESS + 60 - $(date +%s)))
+  if [ "$wait" -gt 0 ]; then
+    echo "  waiting ${wait}s for carol's first login to pass the promoter's $((AUTH_FRESHNESS / 60)) minutes"
+    local slept=$SECONDS; sleep "$wait"; _timed_wait sleep "$slept" "carol's first login goes stale"
+  fi
   approval_as "$STALE_TOKEN" idp-stale >/dev/null || fail "carol's stale Approval was refused by admission (its auth-time matches)"
-  always 5 still_held || fail "the promoter took an approval whose login is over 15 minutes old"
+  always 5 still_held || fail "the promoter took an approval whose login is older than its login freshness"
   # Single sign-on gives carol a new session but keeps that old login: still no decision.
   local sso; sso="$(login carol -session "$carol")"
   out="$(dash "$sso" POST /api/delivery/operations/prod/idp-f/decision '{"decision":"approve"}' "$(csrf_of "$sso")")"
