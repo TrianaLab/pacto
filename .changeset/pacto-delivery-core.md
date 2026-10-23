@@ -110,7 +110,7 @@ a grouped data-sources menu and labelled status bars.
 
 **Demos.** The browser demo plays the payments story from `examples/story` on
 Pacto's own code over fixed data and labels it simulated; its Wasm is about
-4 MB to download. The Compose demo hides delivery until sign-in and shows
-`pacto diff` and `pacto init --plan`.
+4 MB to download. The Compose demo has no cluster or sign-in, so it shows no
+Delivery tab; it now shows `pacto diff` and `pacto init --plan`.
 
 Adds `github.com/coreos/go-oidc/v3`.
