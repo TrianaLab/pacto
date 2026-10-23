@@ -28,6 +28,16 @@ already looks for the value (`helm show values ... | grep '^  authFreshness:'`)
 and, when it is there, sets it to 3m and waits 4 minutes instead of 16. Nothing
 else in the kind scripts needs to change.
 
+**Measured (2026-10-23, full runs, all DELIVERY PASS).** Sequential 1399s,
+parallel 1137s (identity: 645s of its 704s is the stale-login sleep). The same
+parallel run with a minimal version of this change applied in a scratch tree
+(flag, `Freshness` field on `OperationReconciler`, `fresh()` taking the
+maximum, the value, the schema entry and the template line; nothing else)
+took 899s, of which 254s was a cold image build because the Go code changed;
+with a warm build cache the setup is about 140s, so about 11 minutes. The
+real change also needs the existing `fresh` tests updated, the README
+regenerated and, where the zero value can reach it, a default of 15m.
+
 ## 2. Optional: the operator re-evaluates when kernel evidence changes (operator owner)
 
 **What.** `integrations/kubernetes/internal/controller/pacto_controller.go`:
