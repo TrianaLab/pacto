@@ -79,7 +79,7 @@
   .drawer-close:hover { color: var(--c-text); }
   .drawer-meta { display: grid; gap: var(--sp-2); margin: 0; }
   .drawer-meta div { display: flex; justify-content: space-between; gap: var(--sp-2); }
-  .drawer-meta dt { color: var(--c-text-3); font-size: var(--text-xs); }
+  .drawer-meta dt { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .drawer-meta dd { margin: 0; font-size: var(--text-sm); text-align: right; }
   .drawer-sources { display: inline-flex; gap: var(--sp-2); flex-wrap: wrap; }
   .drawer-sources .src { display: inline-flex; align-items: center; gap: 4px; font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }

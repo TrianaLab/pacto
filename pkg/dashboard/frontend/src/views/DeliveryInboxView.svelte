@@ -112,7 +112,7 @@
   .dl-title { font-weight: 600; color: var(--c-accent); }
   .dl-question { margin: 0; }
   .dl-facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px var(--sp-3); margin: 0; }
-  .dl-facts dt { color: var(--c-text-3); }
+  .dl-facts dt { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .dl-facts dd { margin: 0; }
   .dl-facts a { text-decoration: underline; }
   .dl-none { color: var(--c-text-3); }

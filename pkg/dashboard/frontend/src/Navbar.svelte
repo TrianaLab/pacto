@@ -277,7 +277,7 @@
   .navbar-left { flex-shrink: 0; }
   .navbar-brand {
     display: flex; align-items: center; gap: 8px;
-    font-size: 1rem; font-weight: 700; letter-spacing: -0.03em;
+    font-family: var(--font-display); font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em;
     color: var(--c-text); text-decoration: none;
   }
   .navbar-brand:hover { text-decoration: none; color: var(--c-text); }

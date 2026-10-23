@@ -57,7 +57,7 @@
   .vl-msg, .vl-proof { margin: 0; }
   .vl-proof a { color: var(--c-accent); text-decoration: underline; }
   .vl-cite { display: grid; grid-template-columns: max-content 1fr; gap: 2px var(--sp-3); margin: 0; }
-  .vl-cite dt { color: var(--c-text-3); }
+  .vl-cite dt { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .vl-cite dd { margin: 0; overflow-wrap: anywhere; }
   .vl-none { color: var(--c-text-3); }
 </style>
