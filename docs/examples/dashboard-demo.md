@@ -15,7 +15,7 @@ tab.
 <a href="../../demo/#/fleet" class="md-button md-button--primary">Open the live dashboard demo →</a>
 
 The whole engine ships to your browser, so the first visit downloads about
-11 MB of compiled Wasm (57 MB unpacked). Give it a moment on a slow connection —
+4 MB of compiled Wasm (17 MB unpacked). Give it a moment on a slow connection —
 the loading strip counts the seconds and names the size, and the browser caches
 it afterwards.
 
@@ -39,6 +39,12 @@ apart.
   everything reports complete is not every day.
 - **Change analysis** — the `v1.2.1 → v2.0.1` step removes the `/charges` API
   and shows which consumers the break reaches.
+- **Delivery, simulated** — press **Play the delivery story** for the payments
+  story in two acts. First `pacto init` pactifies a plain service. Then a safe
+  change ships on its own, a bad release is rolled back, a breaking change asks
+  only the teams whose declared range it breaks and every step reads back as a
+  signed record. **Switch person** acts as `pay-agent`, Alice or Carol, so you
+  can see who may decide and the fresh sign-in a decision needs.
 
 ## What it cannot show
 
@@ -49,6 +55,16 @@ service really does on the network) as one recorded finding, not a live check:
 the staging `orders-service` target carries `INTERFACE_ABSENT`, and its evidence
 line says "seen by: Kubernetes + kernel". A live check needs the node agent on a
 Kubernetes cluster or the [Docker Compose demo](compose-demo.md).
+
+Delivery is simulated, as the strip says on every delivery screen. Plans,
+checks, history, blame and undo come from Pacto's own code on fixed data. The
+health check results are recorded and the `pacto init` plan is recorded output
+that a test keeps current. Records are signed with a key made in your tab, so
+nothing outside it can check them, and a reload starts over. With no promoter,
+Flux or real sign-in, nothing it approves runs anywhere. One
+history shows a gap, one record signed by a key nobody trusts and one Stage
+read from status only: these look like bugs and are deliberate. See
+[delivery](../integrations/kubernetes/delivery.md) for the real thing on a cluster.
 
 To run the dashboard against your own services, see
 [Dashboard container](../dashboard-docker.md). The source and build harness live
