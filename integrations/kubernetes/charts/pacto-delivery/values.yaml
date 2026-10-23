@@ -29,6 +29,10 @@ promoter:
   poll: 3s
   # -- Elect one active promoter
   leaderElect: true
+  # -- The recorder keys of other clusters, as a trust config in YAML (keys per stream glob). A Stage
+  # with `candidates.upstreamRecords` promotes only on records one of these keys signed for that
+  # stream; without it such a Stage is not Ready. Public keys only.
+  upstreamTrust: ""
 
 gates:
   # -- Health gate providers a Stage may name in `spec.gates.verify.checks[].provider`, each

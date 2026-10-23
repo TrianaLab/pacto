@@ -1,3 +1,18 @@
+{{- with .Values.promoter.upstreamTrust }}
+# The recorder keys of other clusters whose records an upstreamRecords Stage
+# promotes on, per stream glob. Public keys only.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pacto-delivery.fullname" $ }}-upstream-trust
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: promoter
+    {{- include "pacto-delivery.labels" $ | nindent 4 }}
+data:
+  trust.yaml: {{ . | quote }}
+---
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -47,6 +62,9 @@ spec:
             {{- with .Values.gates.providers }}
             - {{ printf "--gate-providers=%s" (toJson .) | quote }}
             {{- end }}
+            {{- if .Values.promoter.upstreamTrust }}
+            - --upstream-trust-config=/etc/pacto/upstream-trust/trust.yaml
+            {{- end }}
           env:
             - name: POD_NAMESPACE
               valueFrom:
@@ -76,6 +94,16 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.promoter.upstreamTrust }}
+          volumeMounts:
+            - name: upstream-trust
+              mountPath: /etc/pacto/upstream-trust
+              readOnly: true
+      volumes:
+        - name: upstream-trust
+          configMap:
+            name: {{ include "pacto-delivery.fullname" . }}-upstream-trust
+          {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

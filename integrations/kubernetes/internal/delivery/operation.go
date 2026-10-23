@@ -358,7 +358,7 @@ func (r *OperationReconciler) plan(ctx context.Context, op *dv1.Operation, stage
 			in.From = delivery.ResolveRevision(ctx, reg, a.repo, op.Spec.Params.From)
 			in.To = delivery.ResolveRevision(ctx, reg, a.repo, op.Spec.Params.To)
 		}
-		if in.Upstream, err = r.upstream(ctx, stage); err != nil {
+		if in.Upstream, in.UpstreamErr, err = r.upstream(ctx, stage); err != nil {
 			return delivery.Plan{}, err
 		}
 		pactos, listErr := r.Cluster.pactos(ctx)
@@ -392,10 +392,16 @@ func (r *OperationReconciler) stages(ctx context.Context) ([]delivery.StageObjec
 // It is nil when there is none, or when it does not exist or the promoter may
 // not read it: the published gate then refuses, as nothing it offers is
 // known. Any other read error is returned, so the operation is planned again.
-func (r *OperationReconciler) upstream(ctx context.Context, stage *dv1.Stage) (*delivery.StageStatus, error) {
+// A Stage in another cluster is read from its signed records, and why says
+// why that gave nothing.
+func (r *OperationReconciler) upstream(ctx context.Context, stage *dv1.Stage) (_ *delivery.StageStatus, why string, _ error) {
+	if rs := stage.Spec.Candidates.UpstreamRecords; rs != nil {
+		s, why := r.Cluster.remote(ctx, *rs)
+		return s, why, nil
+	}
 	up := stage.Spec.Candidates.UpstreamStage
 	if up == nil {
-		return nil, nil
+		return nil, "", nil
 	}
 	ns := up.Namespace
 	if ns == "" {
@@ -404,11 +410,11 @@ func (r *OperationReconciler) upstream(ctx context.Context, stage *dv1.Stage) (*
 	s := &dv1.Stage{}
 	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: up.Name}, s); err != nil {
 		if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
-			return nil, nil
+			return nil, "", nil
 		}
-		return nil, err
+		return nil, "", err
 	}
-	return &s.Status, nil
+	return &s.Status, "", nil
 }
 
 // held consumes approvals for an operation waiting before it moved anything.

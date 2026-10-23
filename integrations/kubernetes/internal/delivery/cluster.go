@@ -49,7 +49,22 @@ type Cluster struct {
 	// Registry returns a read-only registry client that reaches insecureHosts
 	// over plain HTTP.
 	Registry func(insecureHosts ...string) delivery.Registry
+	// Upstream reads what a Stage in another cluster verified from its signed
+	// records (deliveryrecord.Upstream with the promoter's upstream trust
+	// config). Nil when the promoter trusts no upstream key: such a Stage is
+	// not Ready and offers nothing.
+	Upstream func(ctx context.Context, r delivery.RemoteStage) (*delivery.StageStatus, string)
 }
+
+// remote reads an upstream Stage in another cluster, or says why it cannot.
+func (c Cluster) remote(ctx context.Context, r delivery.RemoteStage) (*delivery.StageStatus, string) {
+	if c.Upstream == nil {
+		return nil, noUpstreamTrust
+	}
+	return c.Upstream(ctx, r)
+}
+
+const noUpstreamTrust = "the promoter trusts no key for the records of other clusters (promoter.upstreamTrust)"
 
 // applyRef is the Stage's applier object (a Flux OCIRepository or an Argo CD
 // Application) as the promoter sees it.

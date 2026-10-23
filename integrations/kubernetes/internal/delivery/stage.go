@@ -177,8 +177,10 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 				" sets no spec.verify with a secretRef or matchOIDCIdentity naming the publisher, so no version is published and the Stage never promotes")
 		}
 		cand = a
-	case c.UpstreamStage == nil:
-		want = notReady("NoCandidateSource", "the Stage names no candidates.ociRepositoryRef or candidates.upstreamStage, so it never promotes")
+	case c.UpstreamRecords != nil && r.Cluster.Upstream == nil:
+		want = notReady("UpstreamUntrusted", noUpstreamTrust+", so the Stage never promotes")
+	case c.UpstreamStage == nil && c.UpstreamRecords == nil:
+		want = notReady("NoCandidateSource", "the Stage names no candidates.ociRepositoryRef, candidates.upstreamStage or candidates.upstreamRecords, so it never promotes")
 	}
 	if slices.Contains(stage.Status.Conditions, want) {
 		return cand, nil
@@ -236,6 +238,12 @@ func (r *StageReconciler) candidate(ctx context.Context, stage *dv1.Stage) (stri
 			return "", client.IgnoreNotFound(err)
 		}
 		return delivery.NewestCandidate(stage.Status, "", &up.Status), nil
+	case c.UpstreamRecords != nil:
+		up, _ := r.Cluster.remote(ctx, *c.UpstreamRecords)
+		if up == nil {
+			return "", nil // nothing it cannot verify is ever a candidate
+		}
+		return delivery.NewestCandidate(stage.Status, "", up), nil
 	}
 	return "", nil
 }

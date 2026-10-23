@@ -30,7 +30,8 @@
       "additionalProperties": false,
       "properties": {
         "poll": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$" },
-        "leaderElect": { "type": "boolean" }
+        "leaderElect": { "type": "boolean" },
+        "upstreamTrust": { "type": "string" }
       }
     },
     "recorder": {
