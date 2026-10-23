@@ -88,9 +88,9 @@ describe('inbox', () => {
     expect(held.querySelector('a[href="#/services/checkout"]')).not.toBeNull();
     expect(text(target)).toContain('Paused: Errored');
     expect(text(target.querySelector('[data-testid="inbox-errored"]') as HTMLElement)).toContain('Pacto could not tell how it ended');
-    // The person's subject, not the issuer URL; the full username stays in the title.
-    expect(text(target)).toContain('Signed in as carol, in team-checkout');
-    expect(target.querySelector('[data-testid="delivery-identity"] strong')?.getAttribute('title')).toBe('https://idp#carol');
+    // The person's subject and, printed next to it, the username the cluster uses. Never only in a tooltip.
+    expect(text(target)).toContain('Signed in as carol (https://idp#carol), in team-checkout');
+    expect(target.querySelector('[data-testid="delivery-identity"] [title]')).toBeNull();
     destroy();
   });
 
@@ -126,6 +126,17 @@ describe('inbox', () => {
     expect(note).toContain('only the namespaces Pacto knows of');
     expect(note).toContain('the namespaces a, b');
     expect(note).not.toContain('*');
+    destroy();
+  });
+
+  it('does not name a person from the ID token alone when the cluster did not say who they are', async () => {
+    fns.session.mockResolvedValue(shared({ name: 'Release Bot', caller: undefined, callerError: 'whoami: forbidden' }));
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [] });
+    const { target, destroy } = render(DeliveryInboxView);
+    await settle();
+    const bar = text(target.querySelector('[data-testid="delivery-identity"]') as HTMLElement);
+    expect(bar).not.toContain('Release Bot');
+    expect(bar).toContain('The cluster did not say who you are: whoami: forbidden');
     destroy();
   });
 
@@ -412,7 +423,7 @@ describe('change detail', () => {
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     expect(text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement)).toContain('pacto delivery approve -n prod op1 --decision approve');
-    expect(text(r.target)).toContain('Acting as carol from this machine');
+    expect(text(r.target)).toContain('Acting as carol (https://idp#carol) from this machine');
     r.destroy();
 
     fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: false, fresh: false });
@@ -624,7 +635,9 @@ describe('names, versions and one clear sentence', () => {
     ] });
     const { target, destroy } = render(DeliveryInboxView);
     await settle();
-    expect(text(target)).toContain('Signed in as Carol Diaz');
+    // The name is a claim Carol set herself, so the cluster's username sits next to it.
+    expect(text(target)).toContain('Signed in as Carol Diaz (https://idp#carol)');
+    expect(target.querySelector('[data-testid="delivery-identity"] [title]')).toBeNull();
     expect(target.querySelector('a[href="#/delivery/changes/prod/op1"]')?.textContent?.trim()).toBe('Promote on prod/pay: 2.4.0 to 3.0.0');
     expect(target.querySelector('a[href="#/delivery/changes/prod/op2"]')?.textContent?.trim()).toBe('Promote on prod/pay: 3.0.0');
     expect(text(target)).toContain('Promote to sha256:222222222222?');

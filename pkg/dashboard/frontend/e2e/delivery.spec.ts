@@ -195,7 +195,7 @@ test.describe('Delivery views', () => {
     await expect(held).toContainText('removes a field checkout reads');
     await expect(held).toContainText('team-checkout');
     await expect(held.getByRole('link', { name: 'checkout', exact: true })).toBeVisible();
-    await expect(page.getByTestId('delivery-identity')).toContainText('Signed in as carol');
+    await expect(page.getByTestId('delivery-identity')).toContainText('Signed in as carol (https://idp#carol)');
     await audit(page, 'inbox');
 
     const link = held.getByRole('link', { name: /Promote on prod\/payments-prod/ });

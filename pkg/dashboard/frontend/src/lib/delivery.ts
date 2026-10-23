@@ -62,7 +62,8 @@ export interface Me {
 /**
  * personLabel names a cluster username for a reader: the name of a person who
  * signed in to this dashboard, a service account by its own name and an
- * `issuer#subject` username by its subject. The full username stays in a title.
+ * `issuer#subject` username by its subject. Person prints the full username
+ * next to it, never only in a tooltip.
  */
 export function personLabel(user: string | undefined, people?: Record<string, string> | null, me?: Me | null): string {
   if (!user) return '';
