@@ -1153,7 +1153,7 @@ Explore more:
   The agent over remote MCP ($MCP_URL/mcp): get a Keycloak token for agent-bot
        curl -sk https://127.0.0.1:8443/realms/pacto/protocol/openid-connect/token -u agent-bot:agent-secret -d grant_type=client_credentials
        and call the pacto_delivery_* tools with it as a bearer token (there is no approve tool)
-  Check a record yourself with cosign, as docs/delivery-history.md shows (key: $d/keys/recorder.pub)
+  Check a record yourself with cosign, as integrations/kubernetes/docs/delivery-records.md#verify-records shows (key: $d/keys/recorder.pub)
   $k kubectl get stages,operations,approvals -A
   Two agents racing, a check result never reused for a new version and the admission
   policies (no agent approvals, immutable intent) are proven by: make test-acceptance-kind-delivery
