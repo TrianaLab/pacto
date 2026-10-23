@@ -194,7 +194,7 @@ func (r *applier) bundle() error {
 	// artifacts were annotated with.
 	if d, err := oci.BundleDigest(r.in.Bundle); d != it.Digest {
 		return errors.Join(fmt.Errorf("the contract directory changed while publishing (planned bundle %s, now %q); "+
-			"write build outputs such as the SBOM before publishing or list them in .pactoignore", it.Digest, d), err)
+			"list build outputs such as the SBOM in .pactoignore", it.Digest, d), err)
 	}
 	img, _ := oci.BundleImage(r.in.Bundle) // packed once already by the plan
 	h, _ := v1.NewHash(it.Digest)

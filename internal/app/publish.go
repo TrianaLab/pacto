@@ -119,11 +119,15 @@ func sbomsIgnored(c *contract.Contract, path string) error {
 	}
 	var errs []error
 	for _, a := range c.Publish.Artifacts {
-		rel := filepath.ToSlash(filepath.Clean(a.SBOM))
-		if a.SBOM == "" || !filepath.IsLocal(a.SBOM) || ignoredIn(m, rel) {
+		rel := a.SBOM
+		if filepath.IsAbs(rel) {
+			base, _ := filepath.Abs(dir) // ponytail: fails only without a working directory, then Rel fails and rel is skipped
+			rel, _ = filepath.Rel(base, rel)
+		}
+		if a.SBOM == "" || !filepath.IsLocal(rel) || ignoredIn(m, filepath.ToSlash(filepath.Clean(rel))) {
 			continue
 		}
-		errs = append(errs, fmt.Errorf("the build of %s writes %s inside the contract directory, which changes the bundle after the plan packed it; add %s to .pactoignore", a.Name, a.SBOM, rel))
+		errs = append(errs, fmt.Errorf("the build of %s writes %s inside the contract directory, which changes the bundle after the plan packed it; add %s to .pactoignore", a.Name, a.SBOM, filepath.ToSlash(filepath.Clean(rel))))
 	}
 	return errors.Join(errs...)
 }

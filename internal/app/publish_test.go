@@ -477,6 +477,10 @@ func TestSBOMsIgnored(t *testing.T) {
 	if err := sbomsIgnored(c, dir); err == nil || !strings.Contains(err.Error(), "add out/api.spdx.json to .pactoignore") {
 		t.Fatalf("an SBOM in the bundle: %v", err)
 	}
+	inside := &contract.Contract{Publish: &contract.Publish{Artifacts: []contract.PublishArtifact{{Name: "in", SBOM: filepath.Join(dir, "sbom", "api.spdx.json")}}}}
+	if err := sbomsIgnored(inside, dir); err == nil || !strings.Contains(err.Error(), "add sbom/api.spdx.json to .pactoignore") {
+		t.Fatalf("an absolute SBOM path in the bundle: %v", err)
+	}
 	for _, ig := range []string{"out/\n", "*.spdx.json\n"} {
 		_ = os.WriteFile(filepath.Join(dir, ".pactoignore"), []byte(ig), 0o644)
 		if err := sbomsIgnored(c, dir); err != nil {
