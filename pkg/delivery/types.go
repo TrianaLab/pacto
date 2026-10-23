@@ -195,15 +195,16 @@ type Caller struct {
 	AuthTime string     `json:"authTime,omitempty"`
 }
 
-// InTeams reports whether groups name one of the teams, by exact name or with
-// the TeamGroupPrefix. No teams means the question names nobody, so any
-// person may answer it.
+// InTeams reports whether groups name one of the teams: the group T, or with
+// a TeamGroupPrefix only that prefix plus T. A Kubernetes system: group is
+// never a team, as every user carries one. No teams means the question names
+// nobody, so any person may answer it.
 func (p ClassPolicy) InTeams(groups, teams []string) bool {
 	if len(teams) == 0 {
 		return true
 	}
 	for _, t := range teams {
-		if slices.Contains(groups, t) || p.TeamGroupPrefix != "" && slices.Contains(groups, p.TeamGroupPrefix+t) {
+		if g := p.TeamGroupPrefix + t; !strings.HasPrefix(g, "system:") && slices.Contains(groups, g) {
 			return true
 		}
 	}

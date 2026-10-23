@@ -362,7 +362,7 @@ cosign verify \
 | dashboard.auth.oidc.extraScopes | list | `[]` | Scopes asked for beyond openid, profile and groups (for example a cross-client audience scope) |
 | dashboard.auth.oidc.issuerURL | string | `""` | OpenID Connect issuer URL people sign in with (empty: no sign-in) |
 | dashboard.auth.oidc.redirectURL | string | `""` | The dashboard's `/auth/callback` URL as browsers reach it |
-| dashboard.auth.teamGroupPrefix | string | `""` | A contract owner team `T` is the group `T` or this prefix followed by `T`, as the delivery chart is configured |
+| dashboard.auth.teamGroupPrefix | string | `""` | A contract owner team `T` is the group `T`, or once this prefix is set only this prefix followed by `T`, as the delivery chart is configured |
 | dashboard.enabled | bool | `true` | Enable the operator-managed dashboard deployment. The dashboard image is controlled by the operator and derived from the bundled Pacto library version. It is not user-configurable. |
 | dashboard.httpRoute.enabled | bool | `false` | Enable Gateway API HTTPRoute for the dashboard |
 | dashboard.httpRoute.hostnames | list | `[]` | Hostnames for the HTTPRoute |

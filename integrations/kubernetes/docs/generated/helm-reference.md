@@ -30,7 +30,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `dashboard.auth.oidc.extraScopes` | `[]` | Scopes asked for beyond openid, profile and groups (for example a cross-client audience scope) |
 | `dashboard.auth.oidc.issuerURL` | `""` | OpenID Connect issuer URL people sign in with (empty: no sign-in) |
 | `dashboard.auth.oidc.redirectURL` | `""` | The dashboard's `/auth/callback` URL as browsers reach it |
-| `dashboard.auth.teamGroupPrefix` | `""` | A contract owner team `T` is the group `T` or this prefix followed by `T`, as the delivery chart is configured |
+| `dashboard.auth.teamGroupPrefix` | `""` | A contract owner team `T` is the group `T`, or once this prefix is set only this prefix followed by `T`, as the delivery chart is configured |
 | `dashboard.enabled` | `true` | Enable the operator-managed dashboard deployment. The dashboard image is controlled by the operator and derived from the bundled Pacto library version. It is not user-configurable. |
 | `dashboard.httpRoute.enabled` | `false` | Enable Gateway API HTTPRoute for the dashboard |
 | `dashboard.httpRoute.hostnames` | `[]` | Hostnames for the HTTPRoute |

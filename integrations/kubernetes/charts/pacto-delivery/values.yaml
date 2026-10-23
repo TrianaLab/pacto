@@ -52,7 +52,8 @@ identities:
   breakGlassGroups:
     - pacto:break-glass
   # -- Only members of the teams a held question names may answer it. A contract owner team `T`
-  # is the identity-provider group `T`, or this prefix followed by `T` (for example `acme:`).
+  # is the identity-provider group `T`, or once this prefix is set only this prefix followed by `T`
+  # (for example `acme:`). A `system:` group is never a team.
   teamGroupPrefix: ""
 
 recorder:

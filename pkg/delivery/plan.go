@@ -128,7 +128,9 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 }
 
 // routeToServiceTeam sends a question that names no consumer's owner to the
-// team of the Stage's own service, the one its contract declares. It is set
+// team of the Stage's own service, the one the contract running now declares:
+// the author of the incoming version does not pick who approves it. Only a
+// first version, with nothing running, is routed to its own team. It is set
 // even when nothing is asked yet: a version that stays Unknown after it shipped
 // is held for that same team. Only the named teams may answer (the promoter
 // ignores anyone else); with no team declared anywhere, any person may.
@@ -136,7 +138,7 @@ func routeToServiceTeam(in PlanInput, p *Plan) {
 	if len(p.Floor.Owners) > 0 {
 		return
 	}
-	for _, r := range []Revision{in.To, in.From} {
+	for _, r := range []Revision{in.From, in.To} {
 		if r.Bundle != nil && r.Bundle.Contract != nil {
 			if team := r.Bundle.Contract.Service.Owner.DisplayString(); team != "" {
 				p.Floor.Owners = []string{team}

@@ -194,7 +194,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("mira-url", "", "Mira's address, to link the health-check citations of delivery verdicts")
 	cmd.Flags().StringSlice("agent-groups", []string{"pacto:agents"}, "groups whose members are agents, as the delivery promoter is configured")
 	cmd.Flags().StringSlice("break-glass-groups", []string{"pacto:break-glass"}, "groups that may override, as the delivery promoter is configured")
-	cmd.Flags().String("team-group-prefix", "", "a contract owner team T is group T or this prefix plus T, as the delivery promoter is configured")
+	cmd.Flags().String("team-group-prefix", "", "a contract owner team T is group T, or with this prefix set only this prefix plus T, as the delivery promoter is configured")
 	cmd.Flags().String("delivery-trust", "", "the trust config delivery records are verified with, so History reads signed records "+
 		"(the recorder's PEM public key or a YAML trust config; default $"+trustEnv+")")
 

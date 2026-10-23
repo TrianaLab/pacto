@@ -294,7 +294,7 @@ func expect(t *testing.T, ok bool, format string, args ...any) {
 
 func TestCapabilitiesAndSessionSignedIn(t *testing.T) {
 	a := &authed{state: AuthState{SignedIn: true, Fresh: true, CSRF: "c"}}
-	f := &fakeDelivery{caller: person("team-payments")}
+	f := &fakeDelivery{caller: person("acme:team-payments")}
 	base := startDelivery(t, f, a.auth(false, true), true, nil)
 	_, caps := call(t, http.MethodGet, base+"/api/capabilities", nil)
 	auth, _ := caps["auth"].(map[string]any)
@@ -433,7 +433,7 @@ func TestInbox(t *testing.T) {
 	errored := inbox["errored"].([]any)
 	expect(t, len(errored) == 1 && errored[0].(map[string]any)["name"] == "broke-too",
 		"errored: only on my (or unowned) Stages that are still frozen: %v", errored)
-	f.caller = person("team-payments")
+	f.caller = person("acme:team-payments")
 	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
 	fr = inbox["frozen"].([]any)
 	expect(t, len(fr) == 2 && fr[0].(map[string]any)["service"] == "payments", "the frozen Stage of my service: %v", fr)
@@ -448,7 +448,7 @@ func TestInbox(t *testing.T) {
 }
 
 func TestEnvironments(t *testing.T) {
-	f := sampleCluster("team-payments")
+	f := sampleCluster("acme:team-payments")
 	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
 	_, envs := call(t, http.MethodGet, base+"/api/delivery/environments", nil)
 	rows := envs["environments"].([]any)
@@ -466,7 +466,7 @@ func TestEnvironments(t *testing.T) {
 }
 
 func TestPublished(t *testing.T) {
-	f := sampleCluster("team-payments")
+	f := sampleCluster("acme:team-payments")
 	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
 	_, pub := call(t, http.MethodGet, base+"/api/delivery/published", nil)
 	payments := pub["services"].([]any)[2].(map[string]any)
@@ -552,7 +552,7 @@ func TestHistoryAndOperation(t *testing.T) {
 	a := &authed{state: AuthState{SignedIn: true}}
 	succeeded := delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Succeeded, Applied: true,
 		Pointer: delivery.PointerChange{Before: dRun, After: dNext}}
-	f := &fakeDelivery{caller: person("team-checkout"),
+	f := &fakeDelivery{caller: person("acme:team-checkout"),
 		stages: []delivery.StageObject{stage("prod", "payments", "payments", delivery.StageStatus{})},
 		ops: []delivery.OperationObject{operation("prod", "held", "payments", held("team-checkout")), operation("prod", "done", "payments", succeeded),
 			operation("prod", "unknown", "payments", delivery.OperationStatus{Phase: delivery.PhaseHeld, Applied: true})}}
@@ -593,7 +593,7 @@ func TestHistoryAndOperation(t *testing.T) {
 		t.Fatalf("a change made on my behalf: %s", got)
 	}
 	f.ops[0].Spec.OnBehalfOf = nil
-	f.caller = person("team-ledger")
+	f.caller = person("acme:team-ledger")
 	if got := actions("held"); got != "cancel" {
 		t.Fatalf("not my team: %s", got)
 	}
@@ -673,14 +673,14 @@ func TestDecide(t *testing.T) {
 			f.caller = person("acme:team-checkout", "pacto:agents")
 			return base
 		}, http.StatusForbidden, "AgentsMayNotApprove"},
-		{"no auth-time", func() string { f.caller = person("team-checkout"); f.caller.AuthTime = ""; return base }, http.StatusForbidden, "AuthTimeUnavailable"},
+		{"no auth-time", func() string { f.caller = person("acme:team-checkout"); f.caller.AuthTime = ""; return base }, http.StatusForbidden, "AuthTimeUnavailable"},
 		{"stale auth-time", func() string {
 			f.caller.AuthTime = strconv.FormatInt(time.Now().Add(-11*time.Minute).Unix(), 10)
 			return base
 		}, http.StatusUnauthorized, "FreshLoginRequired"},
-		{"not my team", func() string { f.caller = person("team-payments"); return base }, http.StatusForbidden, "NotYourTeam"},
+		{"not my team", func() string { f.caller = person("acme:team-payments"); return base }, http.StatusForbidden, "NotYourTeam"},
 		{"my own change", func() string {
-			f.caller = person("team-checkout")
+			f.caller = person("acme:team-checkout")
 			f.ops[0].Spec.Actor.User = f.caller.User
 			return base
 		}, http.StatusForbidden, "OwnChange"},
@@ -696,7 +696,7 @@ func TestDecide(t *testing.T) {
 		}
 	}
 	f.ops[0].Spec.OnBehalfOf = nil
-	f.caller = person("team-checkout")
+	f.caller = person("acme:team-checkout")
 	f.getErr = errors.New("gone")
 	if code, _ := decide(base); code != http.StatusInternalServerError {
 		t.Fatal("a failed read of the operation fails")
@@ -835,7 +835,7 @@ func TestRememberIsBounded(t *testing.T) {
 
 func TestBlame(t *testing.T) {
 	a := &authed{state: AuthState{SignedIn: true, Name: "Carol Diaz"}}
-	f := sampleCluster("team-checkout")
+	f := sampleCluster("acme:team-checkout")
 	f.known = map[string]string{dNext: "2.0.0"}
 	f.blame = &delivery.Blame{Stage: delivery.StageNow{Name: "payments", Pointer: dNext}, Digest: dNext, Completeness: "complete",
 		Source: "records", OnBehalfOf: "someone",
@@ -862,7 +862,7 @@ func TestBlame(t *testing.T) {
 
 func TestUndo(t *testing.T) {
 	a := &authed{state: AuthState{SignedIn: true}}
-	f := sampleCluster("team-checkout")
+	f := sampleCluster("acme:team-checkout")
 	f.undo = &delivery.Undo{Operation: "prod/done", Kind: "promote", Note: "the Stage changed since",
 		Plan: &delivery.Plan{IntentDigest: "sha256:i", From: dNext, To: dRun}, Command: "pacto delivery propose"}
 	base := startDelivery(t, f, a.auth(false, true), true, nil)
@@ -885,7 +885,7 @@ func TestUndo(t *testing.T) {
 
 func TestRefusals(t *testing.T) {
 	a := &authed{state: AuthState{SignedIn: true}}
-	f := sampleCluster("team-payments")
+	f := sampleCluster("acme:team-payments")
 	base := startDelivery(t, f, a.auth(false, true), true, nil)
 	_, r := call(t, http.MethodGet, base+"/api/delivery/refusals", nil)
 	expect(t, r["recorded"] == false && r["completeness"] == "partial" && len(r["refusals"].([]any)) == 0 &&

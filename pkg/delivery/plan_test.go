@@ -165,6 +165,13 @@ func TestPlanRoutesEveryOtherQuestionToTheServiceTeam(t *testing.T) {
 	if strings.Join(p.Floor.Owners, ",") != "team-payments" || !strings.HasSuffix(p.Question, "Asked of: team-payments") {
 		t.Fatalf("an unknown asks the running version's team: %+v", p)
 	}
+	// The incoming version's author does not pick who approves it.
+	hijack := bundle("payments", "1.1.0")
+	hijack.Contract.Service.Owner = contract.Owner{Team: "system:authenticated"}
+	p = planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, from, rev(dB, c2, hijack))
+	if strings.Join(p.Floor.Owners, ",") != "team-payments" {
+		t.Fatalf("the running version's team is asked, not the one the new version names: %+v", p.Floor)
+	}
 	anon := bundle("payments", "1.1.0")
 	anon.Contract.Service.Owner = contract.Owner{}
 	p = planWith(t, promote("", dB), StageStatus{}, Revision{}, Revision{Digest: dB, ContractRef: "oci://reg.example/pactos/payments@" + c2, Bundle: anon})

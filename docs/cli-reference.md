@@ -237,7 +237,7 @@ pacto dashboard [sources...] [flags]
       --oidc-issuer-url string       OpenID Connect issuer people sign in with; delivery views and actions then run as the signed-in person (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)
       --oidc-redirect-url string     the dashboard's /auth/callback as browsers reach it (https)
       --port int                     port for the dashboard server (default 3000)
-      --team-group-prefix string     a contract owner team T is group T or this prefix plus T, as the delivery promoter is configured
+      --team-group-prefix string     a contract owner team T is group T, or with this prefix set only this prefix plus T, as the delivery promoter is configured
       --trace-source stringArray     named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)
       --traces stringArray           OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
 ```

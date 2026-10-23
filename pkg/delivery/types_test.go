@@ -92,7 +92,7 @@ func TestInTeams(t *testing.T) {
 		want          bool
 	}{
 		{nil, nil, true}, // no team named: any person
-		{[]string{"team-checkout"}, []string{"team-checkout"}, true},
+		{[]string{"team-checkout"}, []string{"team-checkout"}, false}, // with a prefix only the prefixed group counts
 		{[]string{"acme:team-checkout"}, []string{"team-ledger", "team-checkout"}, true},
 		{[]string{"team-payments", "acme:team-payments"}, []string{"team-checkout"}, false},
 		{nil, []string{"team-checkout"}, false},
@@ -104,6 +104,12 @@ func TestInTeams(t *testing.T) {
 	}
 	if (ClassPolicy{}).InTeams([]string{"team-checkout"}, []string{"checkout"}) {
 		t.Error("with no prefix only the exact name counts")
+	}
+	if !(ClassPolicy{}).InTeams([]string{"team-checkout"}, []string{"team-checkout"}) {
+		t.Error("with no prefix the exact name counts")
+	}
+	if (ClassPolicy{}).InTeams([]string{"system:authenticated"}, []string{"system:authenticated"}) {
+		t.Error("a system: group every user carries is never a team")
 	}
 }
 
