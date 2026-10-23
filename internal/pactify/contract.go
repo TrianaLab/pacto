@@ -180,16 +180,11 @@ func (p *planner) next(format string, a ...any) {
 	p.r.Next = append(p.r.Next, fmt.Sprintf(format, a...))
 }
 
-// pactified writes the contract the folder describes. Every value it could
-// not read is left out or marked, and named in Unknown.
-func (p *planner) pactified() string {
-	sc, name, w := p.sc, p.r.Service, p.sc.workload
-	if w == nil {
-		w = &workload{}
-	} else {
-		p.found("%s %s in %s", w.kind, w.name, w.file)
-	}
-	imgRepo, tag := "", ""
+// versionAndRegistry reads the version from the image tag and the registry
+// from the image (or --registry), naming placeholders in Unknown. imgRepo is
+// the image repository, "" when the image names none Pacto can push to.
+func (p *planner) versionAndRegistry(w *workload, name string) (version, registry, imgRepo string) {
+	tag := ""
 	if w.image != "" {
 		imgRepo, tag = imageRepo(w.image)
 		if !refRE.MatchString("oci://" + imgRepo) {
@@ -197,7 +192,7 @@ func (p *planner) pactified() string {
 		}
 	}
 
-	version := "0.1.0"
+	version = "0.1.0"
 	if v, err := semver.StrictNewVersion(strings.TrimPrefix(tag, "v")); err == nil {
 		version = v.String()
 		p.found("version %s, from the image tag in %s", version, w.file)
@@ -205,7 +200,7 @@ func (p *planner) pactified() string {
 		p.unknown("version: no image tag is a version (x.y.z), so 0.1.0 is a placeholder")
 	}
 
-	registry := strings.Trim(strings.TrimPrefix(p.opts.Registry, "oci://"), "/")
+	registry = strings.Trim(strings.TrimPrefix(p.opts.Registry, "oci://"), "/")
 	switch {
 	case registry != "":
 	case imgRepo != "":
@@ -215,6 +210,19 @@ func (p *planner) pactified() string {
 		registry = "registry.example"
 		p.unknown("registry: no image says where %s is published, so registry.example is a placeholder; pass --registry", name)
 	}
+	return version, registry, imgRepo
+}
+
+// pactified writes the contract the folder describes. Every value it could
+// not read is left out or marked, and named in Unknown.
+func (p *planner) pactified() string {
+	sc, name, w := p.sc, p.r.Service, p.sc.workload
+	if w == nil {
+		w = &workload{}
+	} else {
+		p.found("%s %s in %s", w.kind, w.name, w.file)
+	}
+	version, registry, imgRepo := p.versionAndRegistry(w, name)
 
 	var b strings.Builder
 	files := strings.Join(append(nonEmpty(sc.dockerfile), sc.manifests...), ", ")

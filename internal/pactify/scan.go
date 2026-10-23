@@ -141,16 +141,11 @@ func (sc *scan) manifest(rel string, data []byte) {
 			return
 		}
 		kind, _ := doc["kind"].(string)
-		if (kust || kind == "Kustomization") && doc["secretGenerator"] != nil {
-			secret = true
-		}
+		secret = secret || holdsSecret(kust, kind, doc)
 		if _, ok := doc["apiVersion"].(string); !ok || kind == "" {
 			continue
 		}
 		found = true
-		if kind == "Secret" && (doc["data"] != nil || doc["stringData"] != nil) {
-			secret = true
-		}
 		name, _ := dig(doc, "metadata", "name").(string)
 		sc.objects[name] = true
 		kust = kust || kind == "Kustomization"
@@ -167,6 +162,15 @@ func (sc *scan) manifest(rel string, data []byte) {
 			sc.kustomize = append(sc.kustomize, rel)
 		}
 	}
+}
+
+// holdsSecret reports whether doc holds a Secret's values: a Secret with data,
+// or a kustomization's secretGenerator.
+func holdsSecret(kust bool, kind string, doc map[string]any) bool {
+	if (kust || kind == "Kustomization") && doc["secretGenerator"] != nil {
+		return true
+	}
+	return kind == "Secret" && (doc["data"] != nil || doc["stringData"] != nil)
 }
 
 func readWorkload(rel, kind, name string, doc map[string]any) *workload {
