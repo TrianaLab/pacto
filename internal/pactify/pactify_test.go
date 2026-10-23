@@ -160,7 +160,7 @@ publish:
       type: manifests
       ref: oci://registry.example/story/deploy/fraud
       build:
-        command: [sh, -c, 'cp k8s/*.yaml "$PACTO_OUT"/ && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
+        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
   sign:
     key: cosign.key
 `
@@ -330,9 +330,9 @@ func TestPactifyWhatItCannotTell(t *testing.T) {
 
 // TestPactifyReadsWhatIsThere: an OpenAPI file becomes the interface, a
 // CronJob a scheduled workload, a chart and a kustomization are named, a
-// registry given wins over the image's, and manifests are copied by folder
-// only when the folder holds nothing else. Tooling folders and the cluster
-// pieces init writes are never read.
+// registry given wins over the image's, and manifests beside a kustomization
+// keep their folders. Tooling folders and the cluster pieces init writes are
+// never read.
 func TestPactifyReadsWhatIsThere(t *testing.T) {
 	dir := writeTree(t, t.TempDir(), map[string]string{
 		"Dockerfile":                "FROM scratch\n",
@@ -359,7 +359,7 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 	}
 	text := file(t, r, "pacto.yaml").Content
 	for _, s := range []string{"name: report", "workload: scheduled", "ref: api/openapi.yaml", "bundle: oci://ghcr.io/acme/report", "ref: oci://reg.io/r\n",
-		`cp mixed/a.yaml mixed/b.yml ''my k8s''/*.yaml root.yaml "$PACTO_OUT"/`} {
+		`mkdir -p "$PACTO_OUT"/mixed/ && cp mixed/a.yaml mixed/b.yml "$PACTO_OUT"/mixed/ && mkdir -p "$PACTO_OUT"/''my k8s''/ && cp ''my k8s/cron.yaml'' ''my k8s/kustomization.yaml'' "$PACTO_OUT"/''my k8s''/ && cp root.yaml "$PACTO_OUT"/ &&`} {
 		if !strings.Contains(text, s) {
 			t.Errorf("pacto.yaml lacks %q:\n%s", s, text)
 		}
@@ -385,6 +385,56 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(filepath.Join(dir, ".pactoignore")); string(data) != "*.key\ndelivery/\n" {
 		t.Fatalf(".pactoignore: %q", data)
+	}
+}
+
+// TestPactifyKustomizeLayout: a base and an overlay keep their folders, so
+// neither kustomization overwrites the other, the one with a secretGenerator
+// is left out like a Secret, and every file is named, so a Secret added later
+// is not shipped by a glob.
+func TestPactifyKustomizeLayout(t *testing.T) {
+	deploy := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: api}\nspec:\n  template:\n    spec:\n      containers: [{name: api, image: 'reg.io/api:1'}]\n"
+	dir := writeTree(t, t.TempDir(), map[string]string{
+		"deploy/base/deployment.yaml":             deploy,
+		"deploy/base/kustomization.yaml":          "resources: [deployment.yaml]\n",
+		"deploy/overlays/prod/deployment.yaml":    deploy,
+		"deploy/overlays/prod/kustomization.yaml": "resources: [../../base]\npatches: [{path: deployment.yaml}]\n",
+		"deploy/overlays/dev/kustomization.yaml":  "resources: [../../base]\nsecretGenerator: [{name: db, literals: [password=hunter2]}]\n",
+		"deploy/overlays/dev/deployment.yaml":     deploy,
+	})
+	r, err := Init(context.Background(), Options{Dir: dir, Registry: "oci://ghcr.io/acme/", Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c struct {
+		Publish struct {
+			Artifacts []struct{ Build struct{ Command []string } }
+		}
+	}
+	if err := yaml.Unmarshal([]byte(file(t, r, "pacto.yaml").Content), &c); err != nil {
+		t.Fatal(err)
+	}
+	cmd := c.Publish.Artifacts[len(c.Publish.Artifacts)-1].Build.Command[2]
+	if strings.Contains(cmd, "*") || strings.Contains(cmd, "overlays/dev/kustomization.yaml") {
+		t.Fatalf("command: %s", cmd)
+	}
+	if !hasLine(r.Next, "deploy/overlays/dev/kustomization.yaml holds a Secret's values") || !hasLine(r.Unknown, "the folder Flux builds") {
+		t.Fatalf("findings: %+v", r)
+	}
+	_ = os.WriteFile(filepath.Join(dir, "deploy/base/secret.yaml"), []byte("apiVersion: v1\nkind: Secret\ndata: {a: b}\n"), 0o644)
+	out := t.TempDir()
+	build := exec.Command("sh", "-c", cmd)
+	build.Dir, build.Env = dir, append(os.Environ(), "PACTO_OUT="+out)
+	if b, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("%s: %v", b, err)
+	}
+	for _, f := range []string{"deploy/base/kustomization.yaml", "deploy/overlays/prod/kustomization.yaml", "deploy/overlays/prod/deployment.yaml"} {
+		if _, err := os.Stat(filepath.Join(out, f)); err != nil {
+			t.Error(err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(out, "deploy/base/secret.yaml")); err == nil {
+		t.Error("a Secret added after init was shipped")
 	}
 }
 

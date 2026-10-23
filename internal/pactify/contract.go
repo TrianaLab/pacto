@@ -302,7 +302,7 @@ func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string)
 		}
 	}
 	if len(sc.manifests) > 0 {
-		cmd := "cp " + strings.Join(manifestArgs(p.r.Dir, sc.manifests), " ") + ` "$PACTO_OUT"/`
+		cmd := p.copyManifests()
 		if p.opts.Delivery {
 			cmd += ` && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml`
 		}
@@ -316,47 +316,41 @@ func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string)
 	}
 }
 
-// manifestArgs are the cp arguments: dir/*.yaml for a folder whose YAML files
-// are all manifests, else each file.
-func manifestArgs(root string, manifests []string) []string {
+// copyManifests is the build command that copies the manifests into
+// $PACTO_OUT. Each file is named, never globbed: a YAML file added later (a
+// Secret, say) is not shipped unseen. A kustomize layout, or files that share
+// a name, keep their folders, since flattened one would overwrite the other.
+func (p *planner) copyManifests() string {
 	byDir := map[string][]string{}
-	var dirs []string
-	for _, m := range manifests {
+	var dirs, all []string
+	seen := map[string]bool{}
+	keep := len(p.sc.kustomize) > 0
+	for _, m := range p.sc.manifests {
 		d := path.Dir(m)
 		if byDir[d] == nil {
 			dirs = append(dirs, d)
 		}
-		byDir[d] = append(byDir[d], m)
+		byDir[d] = append(byDir[d], shq(m))
+		all = append(all, shq(m))
+		keep = keep || seen[path.Base(m)]
+		seen[path.Base(m)] = true
 	}
-	var args []string
-	for _, d := range dirs {
-		// The contract folder itself is never globbed: pacto.yaml would ship
-		// as a manifest.
-		if d != "." && allManifests(filepath.Join(root, d), byDir[d]) {
-			args = append(args, shq(d)+"/*.yaml")
-			continue
-		}
-		for _, m := range byDir[d] {
-			args = append(args, shq(m))
-		}
+	if !keep {
+		return "cp " + strings.Join(all, " ") + ` "$PACTO_OUT"/`
 	}
-	return args
-}
-
-// allManifests says whether every YAML file in dir is one of ms and ends in
-// .yaml, so dir/*.yaml copies exactly ms.
-func allManifests(dir string, ms []string) bool {
-	entries, _ := os.ReadDir(dir) // ponytail: dir was just walked
-	n := 0
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".yml") {
-			return false
+	cmds := make([]string, len(dirs))
+	for i, d := range dirs {
+		out, mkdir := `"$PACTO_OUT"/`+shq(d)+"/", ""
+		if d == "." {
+			out = `"$PACTO_OUT"/`
+		} else {
+			mkdir = "mkdir -p " + out + " && "
 		}
-		if strings.HasSuffix(e.Name(), ".yaml") {
-			n++
-		}
+		cmds[i] = mkdir + "cp " + strings.Join(byDir[d], " ") + " " + out
 	}
-	return n == len(ms)
+	p.unknown("the folder Flux builds: the manifests keep their folders (%s), as they use kustomize or share file names; "+
+		"set spec.path of the Kustomization that applies them to it", strings.Join(dirs, ", "))
+	return strings.Join(cmds, " && ")
 }
 
 // consumers looks for the services that declare this one, in FleetRoots.

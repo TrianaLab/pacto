@@ -127,7 +127,10 @@ func (sc *scan) file(p, rel, base string) {
 // YAML, or holds no object with apiVersion and kind, is not a manifest.
 func (sc *scan) manifest(rel string, data []byte) {
 	dec := yaml.NewDecoder(bytes.NewReader(data))
-	found, secret := false, false
+	// A kustomization.yaml needs no apiVersion or kind; its secretGenerator
+	// holds a Secret's values as plainly as a Secret does.
+	kust := path.Base(rel) == "kustomization.yaml"
+	found, secret := kust, false
 	for {
 		var doc map[string]any
 		err := dec.Decode(&doc)
@@ -138,6 +141,9 @@ func (sc *scan) manifest(rel string, data []byte) {
 			return
 		}
 		kind, _ := doc["kind"].(string)
+		if (kust || kind == "Kustomization") && doc["secretGenerator"] != nil {
+			secret = true
+		}
 		if _, ok := doc["apiVersion"].(string); !ok || kind == "" {
 			continue
 		}
@@ -147,9 +153,7 @@ func (sc *scan) manifest(rel string, data []byte) {
 		}
 		name, _ := dig(doc, "metadata", "name").(string)
 		sc.objects[name] = true
-		if path.Base(rel) == "kustomization.yaml" || kind == "Kustomization" {
-			sc.kustomize = append(sc.kustomize, rel)
-		}
+		kust = kust || kind == "Kustomization"
 		if _, ok := workloadKinds[kind]; ok {
 			sc.workloads = append(sc.workloads, readWorkload(rel, kind, name, doc))
 		}
@@ -159,6 +163,9 @@ func (sc *scan) manifest(rel string, data []byte) {
 		sc.secrets = append(sc.secrets, rel)
 	case found:
 		sc.manifests = append(sc.manifests, rel)
+		if kust {
+			sc.kustomize = append(sc.kustomize, rel)
+		}
 	}
 }
 
