@@ -971,10 +971,12 @@ kind: Service
 metadata: {name: pacto-registry}
 spec: {ports: [{port: 5000, targetPort: $port}]}
 ---
-apiVersion: v1
-kind: Endpoints
-metadata: {name: pacto-registry}
-subsets: [{addresses: [{ip: "$ip"}], ports: [{port: $port}]}]
+apiVersion: discovery.k8s.io/v1
+kind: EndpointSlice
+metadata: {name: pacto-registry-first-cluster, labels: {kubernetes.io/service-name: pacto-registry}}
+addressType: IPv4
+ports: [{port: $port}]
+endpoints: [{addresses: ["$ip"]}]
 YAML
 }
 
@@ -1020,14 +1022,14 @@ YAML
 cmd_reach() {
   admin
   [ -s "$DEMO/digests/payments-2.3.0" ] || fail "the demo's starting point is missing: run 'make e2e-delivery-demo-up'"
-  kind get clusters 2>/dev/null | grep -qx "$US_CLUSTER" && fail "prod-us is already up: 'make e2e-delivery-demo-down' and up again to replay it"
   local ver stream op_chart dl_chart d trust
   ver="$(release_version kubernetes)"
   stream="$(kubectl -n prod get stage payments -o jsonpath='{.status.stream.id}')"
   [ -n "$stream" ] || fail "payments prod has no record stream yet"
 
   section "prod-us: a second cluster with Argo CD, the Pacto operator and the promoter"
-  kind create cluster --name "$US_CLUSTER" --kubeconfig "$US_KC" --wait 90s >/dev/null || fail "kind could not create prod-us"
+  kind get clusters 2>/dev/null | grep -qx "$US_CLUSTER" \
+    || infra "create prod-us" kind create cluster --name "$US_CLUSTER" --kubeconfig "$US_KC" --wait 90s >/dev/null
   CLUSTER="$US_CLUSTER" infra "load the images into prod-us" load_images "localhost:5001/pacto-operator/pacto-controller:$ver" \
     "localhost:5001/pacto-delivery:$ver" "${PODINFO_IMG%@*}"
   local n
@@ -1037,13 +1039,15 @@ cmd_reach() {
   op_chart="$(package_chart "$PACTO_CHART")"
   dl_chart="$(package_chart "$ROOT/integrations/kubernetes/charts/pacto-delivery")"
   # The first cluster's recorder key, trusted for that one stream only.
-  trust="$(jq -n --arg k "$(cat "$KEYS/recorder.pub")" --arg s "$stream" '{keys: [{name: "prod-recorder", publicKey: $k, streams: [$s]}]}')"
+  trust="$DEMO/us-values.json"
+  jq -n --arg k "$(cat "$KEYS/recorder.pub")" --arg s "$stream" \
+    '{promoter: {upstreamTrust: ({keys: [{name: "prod-recorder", publicKey: $k, streams: [$s]}]} | tojson)}}' > "$trust"
   us helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set image.repository=localhost:5001/pacto-operator/pacto-controller \
     --set image.tag="$ver" --set image.pullPolicy=Never --set "insecureRegistries[0]=$REG_HOST" --wait --timeout 240s >/dev/null \
     || fail "the pacto-operator chart did not roll out in prod-us"
   us helm upgrade --install pacto-delivery "$dl_chart" -n "$DELIVERY_NS" --set image.repository=localhost:5001/pacto-delivery \
     --set image.tag="$ver" --set image.pullPolicy=Never --set "insecureRegistries[0]=$REG_HOST" --set promoter.poll=2s \
-    --set argocd.enabled=true --set-string promoter.upstreamTrust="$trust" --wait --timeout 240s >/dev/null \
+    --set argocd.enabled=true -f "$trust" --wait --timeout 240s >/dev/null \
     || fail "the pacto-delivery chart did not roll out in prod-us"
 
   section "payments in prod-us follows prod through its signed records, applied by Argo CD"
