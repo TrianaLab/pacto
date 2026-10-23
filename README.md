@@ -9,7 +9,8 @@ an OpenAPI file in another repository. What it depends on is implied by Helm
 values and a Service name. What breaks if you change it is in someone's memory.
 
 Pacto puts those facts in one YAML file, published to the container registry you
-already run.
+already run. With the opt-in delivery component, Pacto also acts on them: it
+decides which version of each service runs in each environment.
 
 **[Documentation](https://pacto.run)** · **[Quickstart](https://pacto.run/latest/quickstart)** · **[Specification](https://pacto.run/latest/contract-reference)** · **[Examples](https://pacto.run/latest/examples)** · **[Live demo](https://pacto.run/latest/demo/#/fleet)**
 
@@ -79,6 +80,30 @@ when it cannot see it says "don't know" instead of guessing. Run it three ways:
 Docker host or a server and the Kubernetes operator deploys the same agent on
 every node. See [Runtime conformance](https://pacto.run/latest/runtime-conformance/).
 
+## Ship with the contract graph (opt-in)
+
+Install the delivery component and Pacto promotes versions from test to prod.
+A change that breaks no consumer goes ahead on its own; one that would break a
+consumer waits and asks only that consumer's team, and the plan says which
+service to ship first. A version that fails its checks after release is rolled
+back. AI agents may propose changes, only people may approve, and every change
+can leave a signed record in your registry. Flux or Argo CD still applies the
+version. Without the component, Pacto never changes what runs.
+
+Delivery synthesizes two ideas from others and adds one of ours:
+
+- **[ConfigHub](https://confighub.com)**: desired state as data with an API,
+  the step beyond GitOps. Pacto keeps only "which version runs where" that way.
+- **Anthropic's [Scion](https://www.anthropic.com/engineering/redesigning-source-control)**:
+  principles for agent-scale change. Content stored once and never changed,
+  a pointer only one writer can move and checks after a change lands, before
+  it deploys.
+- **Ours, the contract graph**: which services depend on which and which
+  versions each accepts. That decides whether a change is safe, who must agree
+  and what ships first.
+
+Start with [Pactify a service](https://pacto.run/latest/pactify/).
+
 ## What a contract declares
 
 This is the `checkout` contract from the run above:
@@ -113,9 +138,9 @@ schema you already own.
 ## How Pacto compares
 
 Pacto composes the interface tools it sits between (OpenAPI, config schemas) and
-complements the deploy tools (Helm, Terraform). It gets compared to the
-orchestrators and portals that *act on* a service; it is not one of them and
-makes zero deployment decisions.
+complements the deploy tools (Helm, Terraform). Its core makes no deployment
+decisions. The opt-in delivery component decides which version runs where and
+leaves applying it to Flux or Argo CD, as Kargo does.
 
 | | Versioned artifact | Semantic diff | Dependency graph | Transitive policy | Runtime verify | Orchestrator-agnostic | Deploys? |
 |---|---|---|---|---|---|---|---|
@@ -126,7 +151,7 @@ makes zero deployment decisions.
 | **Kratix** | Partial | — | Partial | — | — | Partial | Yes |
 | **Backstage** / Port | — | — | Partial | — | — | ✅ | No |
 | **Kargo** | ✅ | — | — | — | Partial | — | No |
-| **Pacto** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **No** |
+| **Pacto** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **No** (delivery promotes) |
 
 ✅ first-class · Partial adjacent or limited · — not in scope. Verified against
 each project's own documentation, August 2026; these projects move fast, so
@@ -175,6 +200,8 @@ Full documentation at **[pacto.run](https://pacto.run)**.
 | [Dashboard](https://pacto.run/latest/dashboard-docker) | Deploy the dashboard container alongside the operator |
 | [Runtime conformance](https://pacto.run/latest/runtime-conformance/) | Check what running services do on the network, on any Linux host |
 | [Kubernetes Operator](https://pacto.run/latest/integrations/kubernetes/overview/) | Runtime contract tracking and verification |
+| [Pactify a service](https://pacto.run/latest/pactify/) | From a plain service to its first release Pacto checks before prod |
+| [Delivery](https://pacto.run/latest/integrations/kubernetes/delivery/) | What happens to a change, who is asked and why |
 | [MCP Integration](https://pacto.run/latest/mcp-integration) | Connect AI tools (Claude, Cursor, Copilot) to Pacto via MCP |
 | [Plugin Development](https://pacto.run/latest/plugins) | Build plugins to generate artifacts from contracts |
 | [Examples](https://pacto.run/latest/examples) | PostgreSQL, Redis, RabbitMQ, NGINX, gRPC and more |
@@ -183,4 +210,5 @@ Full documentation at **[pacto.run](https://pacto.run)**.
 
 ## License
 
-[MIT](LICENSE)
+Fully open source under the [MIT](LICENSE) licence, delivery included, with no
+hosted service.
