@@ -250,7 +250,7 @@ For a tour of what the dashboard surfaces, see [For platform engineers](platform
 
 ## `pacto delivery`
 
-Pacto delivery decides which version each environment (a Stage) runs. Every change is an Operation: plan it to see what the promoter will do and who must agree, propose it, and a person approves only when the contracts say a consumer would break or Pacto cannot see enough.
+Pacto delivery decides which version each environment (a Stage) runs. Every change is an Operation: plan it to see what the promoter will do and who must agree, propose it, and a person approves only when the contracts say a consumer would break, Pacto cannot see enough or the Stage asks for approval on every promote.
 
 There is no approve tool for agents. `approve` is for people, with a fresh login.
 

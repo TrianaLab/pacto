@@ -279,7 +279,9 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               failedDigests:
-                description: FailedDigests are never promoted again (cap 50).
+                description: |-
+                  FailedDigests are the last 50 versions that failed here; none of them is
+                  promoted again. An older failure drops out.
                 items:
                   type: string
                 type: array

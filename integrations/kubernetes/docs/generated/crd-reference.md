@@ -278,7 +278,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.conditions[].reason` | `string` | no |  |  |  |
 | `status.conditions[].status` | `string` | yes |  | `True`, `False`, `Unknown` |  |
 | `status.conditions[].type` | `string` | yes |  |  |  |
-| `status.failedDigests` | `[]string` | no |  |  | FailedDigests are never promoted again (cap 50). |
+| `status.failedDigests` | `[]string` | no |  |  | FailedDigests are the last 50 versions that failed here; none of them is promoted again. An older failure drops out. |
 | `status.frozen` | `boolean` | no |  |  |  |
 | `status.frozenReason` | `string` | no |  |  |  |
 | `status.lastCheck` | `object` | no |  |  | LastCheck is the newest re-check of the running version after it shipped. |
