@@ -523,7 +523,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.interfaces` | `[]object` | no |  |  | Interfaces lists the parsed interfaces from the contract. |
 | `status.interfaces[].name` | `string` | yes |  |  | Name is the interface name. |
 | `status.interfaces[].ref` | `string` | no |  |  | Ref is the bundle-relative path to the interface specification file. |
-| `status.interfaces[].type` | `string` | yes |  | `openapi`, `asyncapi`, `grpc` | Type is the interface type: openapi, asyncapi, or grpc. |
+| `status.interfaces[].type` | `string` | yes |  | `openapi`, `asyncapi`, `grpc`, `mcp` | Type is the interface type: openapi, asyncapi, grpc or mcp. |
 | `status.interfaces[].visibility` | `string` | no |  |  | Visibility is the declared visibility: public or internal. |
 | `status.lastReconciledAt` | `string` | no |  |  | LastReconciledAt is when the last reconciliation completed. |
 | `status.metadata` | `object` | no |  |  | Metadata contains arbitrary key-value pairs from the contract's metadata section. |

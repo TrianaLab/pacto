@@ -362,8 +362,8 @@ type InterfaceInfo struct {
 	// Name is the interface name.
 	Name string `json:"name"`
 
-	// Type is the interface type: openapi, asyncapi, or grpc.
-	// +kubebuilder:validation:Enum=openapi;asyncapi;grpc
+	// Type is the interface type: openapi, asyncapi, grpc or mcp.
+	// +kubebuilder:validation:Enum=openapi;asyncapi;grpc;mcp
 	Type string `json:"type"`
 
 	// Ref is the bundle-relative path to the interface specification file.

@@ -1,0 +1,1 @@
+{"tools": [{"name": "propose", "inputSchema": {"type": "object", "required": ["stage", "version"], "properties": {"stage": {"type": "string"}, "version": {"type": "string"}}}}]}

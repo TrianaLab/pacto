@@ -216,6 +216,8 @@ func publishedGate(in PlanInput) Verdict {
 			v.Message = "the upstream Stage " + v.Citation["upstream"] + " does not exist or cannot be read, so it offers no candidate"
 		case slices.Contains(in.Upstream.Verified, to) && slices.Contains(in.Upstream.Offered, to):
 			v.Result, v.Message = Pass, short(to)+" passed pacto.published and verified on the upstream Stage"
+		case slices.Contains(in.Upstream.FailedDigests, to):
+			v.Message = short(to) + " failed after release on the upstream Stage " + v.Citation["upstream"] + ", so it is not a candidate here"
 		default:
 			v.Message = short(to) + " is not offered by the upstream Stage " + v.Citation["upstream"] +
 				": it never passed pacto.published there or never verified, so it is not a candidate here"

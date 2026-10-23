@@ -406,7 +406,11 @@ func TestFrozenPromoteWaitsAndUnfreeze(t *testing.T) {
 	e.create(opObj("u1", delivery.TypeUnfreeze, "", "", bot))
 	wantOutcome(t, e.drive("u1"), delivery.Rejected, "NotPermitted")
 	e.create(opObj("u2", delivery.TypeUnfreeze, "", "", "alice"))
-	wantOutcome(t, e.drive("u2"), delivery.Succeeded, "Unfrozen")
+	u2 := e.drive("u2")
+	wantOutcome(t, u2, delivery.Succeeded, "Unfrozen")
+	if u2.Status.Verification != delivery.Unverified {
+		t.Fatalf("an unfreeze concludes Unverified: %s", u2.Status.Verification)
+	}
 	if s := e.getStage(); s.Status.Frozen || s.Status.AutoHold {
 		t.Fatalf("unfreeze clears the freeze and the hold: %+v", s.Status)
 	}

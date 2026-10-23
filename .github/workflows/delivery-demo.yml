@@ -4,7 +4,8 @@ name: Delivery demo
 # never a required check. The demo script checks each story step itself and fails
 # loudly on drift; a nightly failure opens (or comments on) one issue, so it is
 # seen without anyone watching the Actions tab.
-# It runs `make e2e-delivery-demo`: up, story, the dashboard journeys and down
+# It runs `make e2e-delivery-demo`: up, story, the dashboard journeys with B10
+# and the agent beat, reach (a second cluster applied by Argo CD) and down
 # (tests/acceptance/kind/delivery-demo.sh).
 
 on:
