@@ -132,7 +132,8 @@ func runPromoter(args []string) error {
 	gates := delivery.NewGates(cluster, configured)
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Gates: gates, Now: time.Now, Poll: *poll, Records: *records, Freshness: *authFreshness,
-		RecordedTTL: *recordedTTL, AdmissionPolicies: delivery.SplitList(*admissionPolicies)}).SetupWithManager(mgr); err != nil {
+		RecordedTTL:       *recordedTTL,
+		AdmissionPolicies: delivery.SplitList(*admissionPolicies)}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := (&delivery.StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,

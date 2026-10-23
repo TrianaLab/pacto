@@ -167,7 +167,8 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.StringVar(&o.dashboardAuth.ClientSecretKey, "dashboard-oidc-client-secret-key", "client-secret",
 		"Key of the client secret in that Secret.")
 	fs.StringVar(&o.dashboardAuth.TeamGroupPrefix, "dashboard-team-group-prefix", "",
-		"A contract owner team T is group T, or with this prefix set only this prefix plus T, as the delivery promoter is configured.")
+		"A contract owner team T is group T, or with this prefix set only this prefix plus T, "+
+			"as the delivery promoter is configured.")
 	fs.StringVar(&o.dashboardAgentGroups, "dashboard-agent-groups", "",
 		"Comma-separated groups whose members are agents, as the delivery promoter is configured; empty keeps pacto:agents.")
 	fs.StringVar(&o.dashboardBreakGlass, "dashboard-break-glass-groups", "",
