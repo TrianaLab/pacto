@@ -48,6 +48,7 @@ func TestNewGates(t *testing.T) {
 		"scheme":    {{Name: "m", Type: ProviderMira, URL: "file:///etc/passwd"}},
 		"no host":   {{Name: "m", Type: ProviderMira, URL: "http://"}},
 		"unparsed":  {{Name: "m", Type: ProviderMira, URL: "http://[::1"}},
+		"userinfo":  {{Name: "m", Type: ProviderHTTP, URL: "https://user:token@gate.internal/check"}},
 	}
 	for name, cfg := range bad {
 		if _, err := NewGates(cfg, http.DefaultClient); err == nil {
@@ -196,7 +197,13 @@ func TestWebhook(t *testing.T) {
 			t.Errorf("%s: %+v", name, v)
 		}
 	}
-	if v := (Webhook{URL: "http://127.0.0.1:1", Client: srv.Client()}).Check(context.Background(), gateIn(), nil); v.Result != Unknown {
+	// A provider's url and answer never reach a verdict message beyond its host and path.
+	answer, status = `secret body`, 500
+	if v := (Webhook{URL: srv.URL + "/check?apikey=k1", Client: srv.Client()}).Check(context.Background(), gateIn(), nil); strings.Contains(v.Message, "k1") ||
+		strings.Contains(v.Message, "secret") || !strings.Contains(v.Message, "/check answered 500") {
+		t.Errorf("leaky message: %q", v.Message)
+	}
+	if v := (Webhook{URL: "http://127.0.0.1:1/x?apikey=k1", Client: srv.Client()}).Check(context.Background(), gateIn(), nil); v.Result != Unknown || strings.Contains(v.Message, "k1") {
 		t.Errorf("unreachable: %+v", v)
 	}
 	if v := (Webhook{URL: "http://[::1", Client: srv.Client()}).Check(context.Background(), gateIn(), nil); v.Result != Unknown {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 
 	"fmt"
 	"io"
@@ -82,7 +83,10 @@ func NewGates(configs []ProviderConfig, client *http.Client) (map[string]Gate, e
 		case gates[c.Name] != nil:
 			return nil, fmt.Errorf("gate provider %q is configured twice", c.Name)
 		case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":
-			return nil, fmt.Errorf("gate provider %q: url %q must be http(s)://host", c.Name, c.URL)
+			return nil, fmt.Errorf("gate provider %q: url %q must be http(s)://host", c.Name, where(c.URL))
+		case u.User != nil:
+			// Verdict messages land in Operation status and signed records.
+			return nil, fmt.Errorf("gate provider %q: the url must not carry a user or password", c.Name)
 		}
 		switch c.Type {
 		case ProviderMira:
@@ -189,26 +193,42 @@ const maxAnswer = 64 << 20
 
 // postJSON posts body to u and decodes a 2xx answer into out, tolerating
 // fields it does not know: a provider's answer is not a schema Pacto owns.
+// Its errors name the provider by where(u) and never echo the answer's body:
+// they end up in Operation status and signed records.
 func postJSON(ctx context.Context, client *http.Client, u string, body, out any) error {
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(b))
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: the gate provider url does not parse", where(u))
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		err = ue.Err // its text repeats the url, query and all
+	}
 	if err != nil {
-		return err
+		return fmt.Errorf("%s did not answer: %w", where(u), err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	data, _ := io.ReadAll(io.LimitReader(resp.Body, maxAnswer))
 	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("%s answered %d: %s", u, resp.StatusCode, strings.TrimSpace(string(data[:min(len(data), 300)])))
+		return fmt.Errorf("%s answered %d", where(u), resp.StatusCode)
 	}
 	if err := json.Unmarshal(data, out); err != nil {
-		return fmt.Errorf("%s answered something that is not the expected JSON: %w", u, err)
+		return fmt.Errorf("%s answered something that is not the expected JSON", where(u))
 	}
 	return nil
+}
+
+// where names a provider URL for messages: scheme, host and path, with no
+// user, password or query.
+func where(u string) string {
+	p, err := url.Parse(u)
+	if err != nil {
+		return "the gate provider"
+	}
+	return p.Scheme + "://" + p.Host + p.Path
 }
 
 // Webhook is the plug-in format: any monitoring tool can be a gate behind a
@@ -227,7 +247,7 @@ func (w Webhook) Check(ctx context.Context, in GateInput, params map[string]stri
 	case err != nil:
 		return Verdict{Result: Unknown, Message: err.Error()}
 	case a.Result != Pass && a.Result != Fail && a.Result != Unknown:
-		return Verdict{Result: Unknown, Message: fmt.Sprintf("%s answered result %q", w.URL, a.Result)}
+		return Verdict{Result: Unknown, Message: fmt.Sprintf("%s answered result %q", where(w.URL), a.Result)}
 	}
 	return Verdict{Result: a.Result, Message: a.Message, Citation: a.Citation}
 }
