@@ -1,44 +1,33 @@
-# Delivery reference: signed records and key rotation
+# Delivery reference: signed records and history
 
 The recorder writes a signed record of every operation that ends, refusals
 included, into your registry next to the versions it touched. It is off by
 default. Only it holds the signing key and the right to push; the promoter
-never gets either.
+never gets either. With it on, history, blame and undo read the records, not
+the Operations left in the cluster.
 
 ## What a record is
 
-A record is an [in-toto](https://in-toto.io) statement of predicate type
-`pacto.dev/operation/v1`: what was asked, who asked and for whom, the Stage
+An [in-toto](https://in-toto.io) statement of predicate type
+`pacto.dev/operation/v1`: what was asked, by whom and for whom, the Stage
 policy, every check result with its proof, every approval and the outcome. It
-holds references, never secrets. It is signed as a DSSE envelope in a sigstore
-bundle, attached as an OCI referrer to the version the Stage moved to, the one
-it moved from, the new version's contract and the Stage's stream anchor. Each
-referrer carries `dev.sigstore.bundle.predicateType: pacto.dev/operation/v1`,
-`dev.pacto.uid`, `dev.pacto.stream` and `dev.pacto.seq`.
+holds references, never secrets. It is a sigstore bundle attached as an OCI
+referrer to the version moved to, the one moved from, the new contract and the
+Stage's stream anchor.
 
-Every Stage has one stream. Its records are numbered (`seq`) and each names the
-one before it (`parent`). The anchor is a manifest in the streams repository
-tagged `stream-<sha256 of the stream id>`. Two kinds of record stand in for an
-operation that cannot be recorded as is:
-
-- **unrecordable**: a check before signing failed, for example a value that
-  looks like a secret or an approval no longer bound to the operation. The
-  record names the check and the intent digest and leaves the details out.
-  `status.record.refused` on the Operation says why.
-- **gap**: the stream skipped a number and no operation holds it.
-
-A record can be late but is never skipped: an Operation keeps its
-`delivery.pacto.trianalab.io/record` finalizer until the Referrers API lists
-its record, and one without the finalizer is still recorded in order. A number
-whose Operation is still concluding is a wait, not a gap. A Stage recreated
-with the same name starts its numbers over; the old Stage's Operations are
-recorded under its uid and move nothing of the new one.
+Each Stage has one stream: records are numbered (`seq`) and each names the one
+before (`parent`). An **unrecordable** record stands in for an operation that
+failed a check before signing (a value that looks like a secret, an approval no
+longer bound); `status.record.refused` says why. A **gap** record marks a
+number no operation holds. A record can be late but is never skipped: an
+Operation keeps its `delivery.pacto.trianalab.io/record` finalizer until the
+registry lists its record.
 
 ## Install
 
 Your registry must serve the OCI Referrers API natively.
 [zot](https://zotregistry.dev) does; GitHub's registry and released
-`distribution` do not.
+`distribution` do not, so they hold no records.
 
 ```yaml
 recorder:
@@ -51,26 +40,17 @@ recorder:
       secretName: recorder-key      # holds key.pem, a PKCS#8 Ed25519 key
 ```
 
-The push Secret needs write access to the streams repository, the repositories
-your Stages apply from and the contract repositories. On kind, create the key
-with `openssl genpkey -algorithm ed25519 -out key.pem` and
-`kubectl create secret generic recorder-key --from-file=key.pem`.
+The push Secret needs write access to the streams repository and the deploy
+and contract repositories. Create a test key with
+`openssl genpkey -algorithm ed25519 -out key.pem`.
 
-In production, sign with a KMS key (`signing.kms: awskms:///alias/pacto`): ECDSA
-P-256, Ed25519 or RSA PKCS#1 v1.5 with SHA-256, never RSA-PSS, SHA-384 or
-SHA-512. The delivery image ships every KMS provider (AWS, GCP, Azure and
-Vault); build it with `--build-arg GO_TAGS=` for an image without them, or
-`GO_TAGS=kms_aws` (or `kms_gcp`, `kms_azure`, `kms_hashivault`) for one. Or sign keyless (`signing.keyless`) with the certificate `identity`
-and `issuer`, a Fulcio (`fulcioURL`), a timestamp authority (`timestampURL`)
-and the `trustedRoot` that names both. The recorder shows Fulcio a projected
-service account token for the `sigstore` audience. The timestamp authority is
-required: the certificate lives minutes, so a record verifies only at the time
-the authority saw it signed. Give the service account the workload identity
-your KMS or OIDC provider expects through `recorder.serviceAccount.annotations`.
-
-The recorder signs with the Sigstore library, never uploads to a public
-transparency log and checks a probe record at startup and every record before
-it writes it, so a wrong key or identity stops it before anything lands.
+In production, sign with a KMS key (`signing.kms: awskms:///alias/pacto`;
+ECDSA P-256, Ed25519 or RSA PKCS#1 v1.5 with SHA-256; AWS, GCP, Azure and
+Vault) or keyless (`signing.keyless`: certificate `identity` and `issuer`, a
+Fulcio, a required timestamp authority and a `trustedRoot`). Workload identity
+goes in `recorder.serviceAccount.annotations`. The recorder never uploads to a
+public transparency log and checks a probe record at startup, so a wrong key
+stops it before anything lands.
 
 ## Check it works
 
@@ -80,28 +60,18 @@ Each Stage gets a `RecordStoreReady` condition:
 |---|---|
 | `ReferrersSupported` | Records are being written |
 | `ReferrersUnsupported` | The registry has no Referrers API |
-| `RegistryUnavailable` | The registry or the signer did not answer; the recorder tries again |
-| `StreamConflict` | The stream holds two records with one number, a record that does not chain from the one before, a record no trusted key signed or the Stage names a newest record the registry does not hold. The recorder stops writing that stream and the promoter freezes the Stage |
-
-`status.stream.recordedSeq` and `status.stream.head` show how far the stream
-is recorded, and the metric `pacto_delivery_records_pending` shows how many
-operations wait for a record.
-
-After an etcd restore the recorder adopts the records the registry already
-holds and continues from the newest, so it never forks the stream.
+| `RegistryUnavailable` | The registry or signer did not answer; it tries again |
+| `StreamConflict` | Two records with one number, a broken chain or an untrusted signature. The recorder stops and the Stage freezes |
 
 Pacto never resolves a `StreamConflict` for you. Find the bad record with
-[`pacto delivery record verify`](delivery-history.md#verify-records), delete
-its referrer manifest from the streams repository, wait for `RecordStoreReady`
-to turn `True`, then unfreeze the Stage. Until then every unfreeze freezes
-again.
+`pacto delivery record verify`, delete its referrer manifest from the streams
+repository, wait for `RecordStoreReady` to turn `True`, then unfreeze. After an
+etcd restore the recorder continues from the newest record, never forking.
 
 ## Trust and key rotation
 
-Every record names, by digest, the trust config the recorder checked the
-stream with. The recorder trusts its own key. To rotate keys, sign with the
-new key and list the old one in `recorder.trust`, so the old records still
-verify:
+Readers and the recorder check every signature against a trust config. To
+rotate, sign with the new key and keep the old one listed:
 
 ```yaml
 recorder:
@@ -115,25 +85,81 @@ recorder:
         streams: ["*/prod/*"]
 ```
 
-`streams` are patterns over stream ids (`<cluster>/<namespace>/<stage>`). A
-key is trusted only for the streams it lists, or all when the list is empty,
-so a dev recorder's key cannot sign prod history. A keyless entry names
-`identity`, `issuer` and the required `trustedRoot`; without it anyone could
-mint a self-signed certificate with the right names. A record is trusted only
-on the anchor of the stream it names.
+`streams` are patterns over stream ids (`<cluster>/<namespace>/<stage>`), so a
+dev key cannot sign prod history. A keyless entry names `identity`, `issuer`
+and the required `trustedRoot`. Pass the same file (or the recorder's PEM
+public key) to the CLI with `--trust` or `PACTO_DELIVERY_TRUST`, and to
+`pacto mcp --delivery` and `pacto dashboard` with `--delivery-trust`. Without
+it, records are read unchecked and every answer says it is partial.
 
-## Recorded operations and the registry
+## History, blame and undo
 
-A recorded operation is deleted after `recorder.operationTTL` (a week by
-default), except the one a Stage runs, which a rollback must name. Nothing in
-Pacto deletes a record, but a registry that removes old manifests removes old
-records and leaves history partial. Keep the streams repository and the
-referrers on your deploy and contract repositories out of retention rules.
+```bash
+pacto delivery history -n prod --stage payments --trust recorder.pub
+pacto delivery history --all --trust recorder.pub
+pacto delivery blame -n prod --stage payments
+pacto delivery undo -n prod <operation>
+```
 
-With `recorder.cdeventsSink` set, the recorder posts a
-[CDEvent](https://cdevents.dev) for every record, best effort:
-`service.deployed`, `upgraded` or `rolledback` when Flux applied the new
-version, and `dev.cdeventsx.pacto-operation.concluded` for every operation.
-The event id is the record digest.
+Every answer says when it was read (`asOf`), its `source` (`records`, or
+`status` when only the cluster's Operations could be read) and its
+`completeness`: `complete` only when every record verifies and the chain is
+whole. `problems` lists what the records show is wrong, and `unreadable` what
+could not be read. On a partial answer a missing change may still have
+happened. `--all` walks every Stage you can list, up to 500 in two minutes.
 
-The limits of records are in [What delivery does not do](delivery-limitations.md#records).
+`blame` names the change that moved the Stage to what it runs: who asked, who
+approved, what each check said. No change on a partial history means unknown,
+never nobody. `undo` proposes nothing; it returns the plan and the command that
+would undo an operation. `pacto delivery plan` also lists what the new
+version's records say happened on other Stages, so a version that failed in
+test shows when you plan it for prod.
+
+## Verify records
+
+```bash
+pacto delivery record verify -n prod --stage payments --trust recorder.pub
+```
+
+It checks every signature and the whole chain, exits non-zero if anything is
+wrong and prints a command that checks one record without Pacto, with
+[oras](https://oras.land) and [cosign](https://github.com/sigstore/cosign).
+`record verify --all` checks every stream. The printed command looks like this:
+
+```bash
+REPO=registry.example/pacto/streams
+oras blob fetch --output record.json \
+  "$REPO@$(oras manifest fetch "$REPO@<record manifest>" | jq -r '.layers[0].digest')"
+cosign verify-blob-attestation --bundle record.json --key recorder.pub \
+  --type pacto.dev/operation/v1 --insecure-ignore-tlog \
+  --digest <anchor digest without sha256:> --digestAlg sha256
+```
+
+For a keyless recorder it uses these flags instead of `--key recorder.pub`,
+with the entry's `trustedRoot` saved as `trusted_root.json`:
+
+```bash
+--trusted-root trusted_root.json --certificate-identity <identity> \
+  --certificate-oidc-issuer <issuer> --use-signed-timestamps
+```
+
+`oras discover` on a version lists the records attached to it. The record
+itself is a DSSE envelope: `jq -r .dsseEnvelope.payload record.json | base64 -d`
+prints the statement.
+
+## Retention and events
+
+A recorded Operation is deleted after `recorder.operationTTL` (a week), except
+the one a Stage runs. Nothing in Pacto deletes a record, but registry retention
+rules can, leaving history partial: keep the streams repository and the
+referrers out of them. With `recorder.cdeventsSink` set, the recorder posts a
+[CDEvent](https://cdevents.dev) for every record, best effort.
+
+## Limits
+
+- The recorder notices a tampered record only when it next records on that
+  Stage; `record verify` checks any time.
+- Deleting a Stage while a change runs leaves that change unrecorded. Wait for
+  its changes to conclude first.
+- Without Rekor a keyless record has no signed time, so its chain is checked at
+  the moment the certificate was issued.

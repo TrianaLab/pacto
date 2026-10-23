@@ -1,9 +1,10 @@
-# Delivery reference: health checks and claims
+# Delivery reference: health checks
 
 Beyond the Pacto contract check, a Stage can check a version's errors and
-response times in your monitoring and that it calls only what its contract
-declares. Every check answers Pass, Fail or Unknown and cites what it read, so
-anyone can run it again. Unknown never passes.
+response times in your monitoring, an AI agent's evals and that the service
+calls only what its contract declares (its claims). Every check answers Pass,
+Fail or Unknown and cites what it read, so anyone can run it again. Unknown
+never passes.
 
 ## Add checks to a Stage
 
@@ -62,9 +63,9 @@ by `service.name`. Its params:
 | `maxLatencyRatio` | 0.05 | A larger share of slow spans fails |
 | `where` | none | Extra Mira terms as JSON, for example the namespace |
 
-The check reads every page of Mira's rows; a read that fails or stops short is
-Unknown. The citation holds the exact queries with absolute time bounds, so
-posting them to Mira's `/api/v1/query` again reads the same spans.
+A read that fails or stops short is Unknown. The citation holds the exact
+queries with absolute time bounds, so posting them to Mira again reads the same
+spans.
 
 An `http` provider is the plug-in format for any other tool. The promoter
 posts `{"input": ..., "params": ...}`, where the input names the operation,
@@ -82,9 +83,7 @@ The Stage decides, not the runner:
 |---|---|---|
 | `minPassRate` | 1 | The share of cases that must pass, from 0 to 1. Fewer fails |
 
-An answer about another version, with no cases, or with no `run` or `suite`
-to cite is Unknown. The citation holds the run, the suite, the version and
-the counts.
+An answer about another version, with no cases or nothing to cite is Unknown.
 
 ## Claims against the running service
 
@@ -106,19 +105,13 @@ Unknown after release never rolls back, and a result about a version the Stage
 stopped running is dropped. The newest result is in `status.lastCheck`, which
 also says when the operation that shipped the running version is gone.
 
-## Explain and history
+## Explain
 
 ```bash
 pacto delivery explain -n prod <operation>
-pacto delivery history -n prod --stage payments
 ```
 
 `explain` shows where an operation is and every verdict with its citation and
-how to run it again. `history` lists a Stage's operations; see
-[history, blame and verification](delivery-history.md).
-
-`--cause-verdict '<verdict JSON>'` cites a verdict as an operation's cause, for
-example to roll back a frozen Stage. The promoter runs it again on the Stage's
-own check over the cited window, which must fall in the time the running
-version has run. It refuses a cause that comes back with another result, and
-any cause while the running version has no applied time.
+how to run it again. `--cause-verdict` on `propose` cites a
+verdict as its cause, for example on a frozen Stage; the promoter runs it again
+and refuses a cause that comes back with another result.

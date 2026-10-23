@@ -57,31 +57,17 @@ spec:
     upstreamStage: {name: payments, namespace: test}
 ```
 
-How a promote runs on Argo CD:
+The promoter sets `spec.source.targetRevision` to the new digest and asks
+Argo CD to refresh. The move counts as applied once the Application is `Synced`
+and `Healthy` at that digest; `status.sync.revision` alone is not proof, since
+it moves on refresh while the old version still runs. A sync of the digest that
+ends `Failed` or `Error`, or `Degraded` health after that sync, fails the
+promote and starts the usual rollback.
 
-1. The promoter sets `spec.source.targetRevision` to the new digest and asks
-   Argo CD to refresh.
-2. The move counts as applied once the Application is `Synced` and `Healthy`
-   with that digest in `status.sync.revision`. That field is the revision
-   Argo CD compared against, not proof of a sync: it moves to the new digest
-   as soon as the refresh runs, while the live workloads are still the old
-   version. Only sync status `Synced` says the live state matches it.
-3. A sync of that digest that ends `Failed` or `Error` fails the promote, and
-   so does an Application that is `Degraded` once Argo CD has synced that
-   digest (sync status `Synced`, or a sync of the digest that `Succeeded`).
-   A `Degraded` health before the sync describes the old version and only
-   means "not yet". Either failure starts the usual rollback.
-
-Things that differ from Flux:
-
-- **Signatures.** Argo CD does not check signatures. The candidate source
-  still does: a Flux `OCIRepository` with `spec.verify`, or an upstream Stage.
-  The promoter only ever writes a digest, and a digest names exact bytes, so
-  Argo CD fetches exactly the version that was checked.
-- **Placement.** Pacto finds where a consumer runs through Flux Kustomizations.
-  An Argo CD Stage places nothing that way, so label the Pactos it runs with
-  `delivery.pacto.trianalab.io/environment`. An unlabelled Pacto counts in
-  every environment.
+Argo CD does not check signatures, but the candidate source still does, and the
+promoter only ever writes a digest, so Argo CD fetches exactly the checked
+bytes. An Argo CD Stage places no consumers, so label the Pactos it runs with
+`delivery.pacto.trianalab.io/environment`.
 
 ## Follow a Stage in another cluster
 
@@ -126,40 +112,23 @@ You need:
          stream: 8d1e…/staging/payments
    ```
 
-The promoter rebuilds what the upstream Stage verified from its records:
+The promoter rebuilds from the records what the upstream verified: a promote
+that `Succeeded`, `Verified` and passed the published gate there is offered
+here, and a version that failed there (or was rolled back after release) is
+never taken. Its own gates, approvals and checks still run. The digest must
+also exist in the Stage's own apply repository: use the same repository or a
+mirror that keeps digests. `pacto delivery plan` reads these records only with
+`--trust` and the upstream recorder's key.
 
-- A change that `Succeeded` and `Verified` there counts as verified.
-- A promote that also passed the published gate there is offered here.
-- A version whose change `Failed` there, of any type, is never taken.
-- A version that failed its check after release there is never taken either,
-  when that failure raised a rollback, because the rollback record names it.
+The promoter offers nothing when it cannot check the history: without
+`promoter.upstreamTrust` the Stage is not `Ready` (`UpstreamUntrusted`), and an
+untrusted record, a gap, a fork or an unreadable registry refuse a promote as
+`NotPublished`, saying why.
 
-The downstream Stage takes the newest offered version that failed in neither
-cluster. Its own gates, approvals and checks still run. It sees the upstream's
-history only as far as its records reach the registry, so a recent failure is
-not seen yet. [What delivery does not do](delivery-limitations.md) lists the
-cases.
+## Limits
 
-The promoter offers nothing when it cannot check the history:
-
-- Without `promoter.upstreamTrust` the Stage is not `Ready`, with the reason
-  `UpstreamUntrusted`.
-- A record no trusted key signed for that stream offers nothing, and neither
-  does a stream with a gap or a fork inside it, or a registry that cannot be
-  read. A promote is then refused as `NotPublished`, and the message
-  says why.
-
-The digest must also exist in the downstream Stage's own apply repository.
-Use the same repository, or a mirror that keeps digests.
-
-`pacto delivery plan` reads these records only when you pass `--trust` with
-the upstream recorder's key. When a change waits for a consumer whose upstream
-is in another cluster, the plan says so instead of looking for a candidate.
-
-## External operation types
-
-Delivery has four built-in operation types: promote, rollback, override and
-unfreeze. You cannot add your own yet, such as `migrate-db` or
-`rotate-secret`. The design leaves external types for later, when a team asks
-for one. They would be signed OCI bundles that a cluster admin registers by
-digest.
+- A Stage sees the upstream's history only as far as its records reach the
+  registry, so a failure not yet recorded, or a stream cut at its newest
+  records, is not seen.
+- A check after release that freezes the upstream without a rollback writes no
+  record, so another cluster can still take that version.

@@ -15,7 +15,7 @@ tab.
 <a href="../../demo/#/fleet" class="md-button md-button--primary">Open the live dashboard demo →</a>
 
 The whole engine ships to your browser, so the first visit downloads about
-4 MB of compiled Wasm (17 MB unpacked). Give it a moment on a slow connection —
+4.3 MB of compiled Wasm (17.5 MB unpacked). Give it a moment on a slow connection —
 the loading strip counts the seconds and names the size, and the browser caches
 it afterwards.
 
