@@ -67,6 +67,10 @@ test('B7: the agent sees the held change and the refused publish, and may not de
   await expect(page.getByTestId('decision-panel')).toBeVisible({ timeout: T });
   await expect(page.getByTestId('decide-agent')).toContainText('agents may not decide');
   await expect(page.getByTestId('decision-panel').getByRole('button', { name: 'Approve' })).toHaveCount(0);
+  // From and To name versions, read from the artifacts, with the digest second.
+  await expect(page.locator('dt:text-is("To") + dd')).toContainText('3.0.0');
+  await expect(page.locator('dt:text-is("From") + dd')).toContainText(/\d+\.\d+\.\d+/);
+  await expect(page.getByText('(version unknown)')).toHaveCount(0);
   await axe(page, 'change, as the agent');
 
   await page.goto('/#/delivery/publish');
