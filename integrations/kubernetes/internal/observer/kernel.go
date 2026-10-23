@@ -322,7 +322,9 @@ func servicePeers(svc *corev1.Service, epSlices []discoveryv1.EndpointSlice) []r
 	return slices.Collect(maps.Keys(peers))
 }
 
-// targetPods lists the workload's running, scheduled pods through its selector.
+// targetPods lists the workload's running, scheduled pods through its selector. A pod that is shutting
+// down is leaving: what it does is not what the workload runs now, so a rollback is never judged on the
+// pods of the version it undid.
 func (o *Observer) targetPods(ctx context.Context, input CollectInput) ([]corev1.Pod, error) {
 	sel, err := o.workloadPodSelector(ctx, input)
 	if err != nil || sel == nil {
@@ -335,7 +337,7 @@ func (o *Observer) targetPods(ctx context.Context, input CollectInput) ([]corev1
 	}
 	pods := list.Items[:0]
 	for _, p := range list.Items {
-		if p.Status.Phase == corev1.PodRunning && p.Spec.NodeName != "" {
+		if p.Status.Phase == corev1.PodRunning && p.Spec.NodeName != "" && p.DeletionTimestamp == nil {
 			pods = append(pods, p)
 		}
 	}
