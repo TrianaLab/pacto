@@ -1,4 +1,4 @@
-# HANDOFF from the roadmap track (phase 7, agents as services)
+# HANDOFF from the roadmap track (phase 7 agents as services, phase 8 reach)
 
 What landed (feat/pd-roadmap): pactoVersion 2.1 `mcp` interface type and `agent`
 section (`models`, `evals`), diff and validation for both, the `eval` gate
@@ -28,3 +28,25 @@ Requests for other tracks:
 4. Ledger: section H phase 7 can be ticked once a verifier confirms.
 5. Pre-existing, not from this track: `docs/mcp-integration.md` is 1243 prose
    words (budget 1200) in `make docs-lint`.
+
+## Phase 8 (reach)
+
+What landed: Stage `applyRef.kind: Application` (Argo CD applier, chart
+`argocd.enabled`), `candidates.upstreamRecords` (follow a Stage in another
+cluster through its signed records; promoter `--upstream-trust-config`, chart
+`promoter.upstreamTrust`), reference page
+`integrations/kubernetes/docs/delivery-reach.md`. External operation types stay
+later (design: "after M5, when a real team asks"); the page says so.
+
+6. Kind (ci or demok8s, optional): no live run of either piece. An Argo CD
+   shard could reuse the GitOps gate's core-install fixture (patch `argocd-cm`
+   before the controller starts, create the `default` AppProject, enable
+   apps-in-any-namespace for the Stage namespace, OCI source from the zot
+   registry). Two-cluster: two kind clusters sharing the zot registry, the
+   upstream recorder on, the downstream promoter with `promoter.upstreamTrust`.
+7. Demos (rows, not demos): optional "applied by Argo CD" and "prod in another
+   cluster follows staging" rows on the delivery pages.
+8. dash (optional): the Stage view shows `candidates.upstreamStage`; it does
+   not name an `upstreamRecords` source or an Argo CD applier, and the Ready
+   reason `UpstreamUntrusted` is new.
+9. Ledger: section H phase 8 can be ticked once a verifier confirms.
