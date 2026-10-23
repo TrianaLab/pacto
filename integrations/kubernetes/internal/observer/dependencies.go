@@ -158,9 +158,9 @@ type dependencyTarget struct {
 // Returns (nil, false, nil) when no reliable match exists (external / not pacto-managed); (target, false,
 // nil) for a single match; (nil, true, nil) when the dependency resolves to more than one DISTINCT
 // {namespace, serviceName} target (blue-green with equal resolvedRef) and not exactly one of them
-// satisfies dep.Compatibility. A target in the consumer's own namespace wins over the same service in
-// another one: a service in test calls the provider in test, never the one in prod — an arbitrary pick would risk a
-// wrong verdict, so the caller must treat it as Insufficient.
+// satisfies dep.Compatibility — an arbitrary pick would risk a wrong verdict, so the caller must treat it
+// as Insufficient. A target in the consumer's own namespace wins over the same service in another one: a
+// service in test calls the provider in test, never the one in prod.
 // Returns an error only for controller-runtime client failures.
 func (o *Observer) resolveDependencyToSibling(ctx context.Context, namespace string, dep contract.Dependency) (*dependencyTarget, bool, error) {
 	// List all Pacto CRs. For single-namespace manager cache, this only sees CRs in the watched namespace(s).

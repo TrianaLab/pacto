@@ -270,6 +270,8 @@ cmd_up() {
   command -v oras >/dev/null 2>&1 || fail "oras is required"
   command -v cosign >/dev/null 2>&1 || fail "cosign is required: it makes the publisher's key"
   command -v jq >/dev/null 2>&1 || fail "jq is required"
+  command -v openssl >/dev/null 2>&1 || fail "openssl is required: it makes the recorder's key"
+  command -v timeout >/dev/null 2>&1 || fail "timeout is required (GNU coreutils; on macOS: brew install coreutils)"
   if kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then fail "the demo cluster is already up; 'make e2e-delivery-demo-down' first"; fi
   rm -rf "$DEMO"; mkdirs
   VER="$(release_version kubernetes)"
@@ -365,7 +367,7 @@ says() { beats | jq -r ".\"$1\".Says"; }
 # drift BEAT WHAT GOT WANT — a beat the cluster does not play as the story says.
 drift() { fail "DRIFT in beat $1: $2: the cluster says $3, examples/story says $4"; }
 same() { [ "$3" = "$4" ] || drift "$1" "$2" "$3" "$4"; } # BEAT WHAT GOT WANT
-beat() { echo; echo "== $1: $(says "$1")"; }
+beat() { echo; echo "== $1: $(says "$1")"; echo "   because: $(beats | jq -r ".\"$1\".Why")"; }
 
 # checkout_version SERVICE VERSION — the story's files for that version in the
 # service's git working copy, with only the registry host rewritten to the
@@ -561,7 +563,10 @@ story_pactify() {
   echo "  \$ pacto init --delivery --owner risk"
   (cd "$dir" && "$PACTO" init --delivery --owner risk) | sed 's/^/    /'
   [ -s "$dir/delivery/test.yaml" ] || fail "pacto init --delivery wrote no Stage for test"
-  # The story signs offline (no transparency log), as its fraud contract says.
+  # Two patches on what pacto init wrote (HANDOFF: init could take hints for
+  # both): the story signs offline (no transparency log), as its fraud
+  # contract says, and the demo registry speaks plain HTTP, so the
+  # OCIRepositories init wrote get insecure: true once applied.
   perl -pi -e 's#^(    key: cosign\.key)$#$1\n    transparencyLog: false#' "$dir/pacto.yaml"
   cp "$KEYS/cosign.key" "$dir/"
   git -C "$dir" init -q && git -C "$dir" add -A && git -C "$dir" -c user.email=demo@example.com -c user.name=demo commit -qm "pactify fraud"
@@ -577,7 +582,8 @@ story_pactify() {
   op="$(wait_op test fraud "$d")"
   wait_concluded test "$op" Succeeded/Verified
   predicted pactify test "$op"
-  pass "fraud is pactified: its contract, Pacto resource and Stages come from pacto init, and 1.0.0 runs in test with nobody involved"
+  eventually 60 kubectl -n test get pacto fraud >/dev/null 2>&1 || fail "pacto init --delivery wrote no Pacto resource for fraud in test"
+  pass "fraud is pactified: its contract, Pacto resource and Stages come from pacto init (patched for offline signing and the plain-HTTP registry), and 1.0.0 runs in test with nobody involved"
 }
 
 story_b1() {
@@ -756,6 +762,13 @@ The dashboard: $DASH_URL  (sign in through Dex; every password is "password")
   alice@example.com  team payments, never asked
   pay-agent@example.com  an agent: it may look and propose, never approve
 
+  make e2e-delivery-demo-status | make e2e-delivery-demo-logs | make e2e-delivery-demo-down
+What is generated, not real: the payments workload (podinfo), its telemetry (a span generator) and the call 2.4.2 makes (a sidecar).
+EOF
+  # Explore more only after the story: B6 run before it ships checkout 1.9.0
+  # early and the story's B5 no longer plays as written.
+  [ "$1" = story ] || return 0
+  cat <<EOF
 Explore more:
   B6, as the agent: ship checkout 1.9 first, and the held change asks only orders
        $a $p delivery propose -n prod --stage checkout --to $(cat "$DEMO/digests/checkout-1.9.0" 2>/dev/null || echo '<checkout 1.9.0 digest>') --name checkout-1-9-0
@@ -772,8 +785,6 @@ Explore more:
   $k kubectl get stages,operations,approvals -A
   Two agents racing, a check result never reused for a new version and the admission
   policies (no agent approvals, immutable intent) are proven by: make test-acceptance-kind-delivery
-  make e2e-delivery-demo-status | make e2e-delivery-demo-logs | make e2e-delivery-demo-down
-What is generated, not real: the payments workload (podinfo), its telemetry (a span generator) and the call 2.4.2 makes (a sidecar).
 EOF
 }
 

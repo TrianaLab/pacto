@@ -14,8 +14,9 @@ browser demo shows the same story over fixed data.
 ## Run it
 
 You need Docker, [kind](https://kind.sigs.k8s.io/), kubectl, helm, Go, Node,
-[oras](https://oras.land/) and cosign, and a clone of the Pacto repository. It
-builds the images from the clone. Host ports 3300, 8585, 5556, 8443 and 5602 must
+[oras](https://oras.land/), cosign, jq, openssl and GNU `timeout` (on macOS,
+`brew install coreutils`), and a clone of the Pacto repository. It builds the
+images from the clone. Host ports 3300, 8585, 5556, 8443 and 5602 must
 be free.
 
 ```sh
