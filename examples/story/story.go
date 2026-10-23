@@ -145,12 +145,12 @@ var (
 
 // Beats is the story, in the order every demo plays it.
 var Beats = []Beat{
-	// The pactify input, contracts/fraud/1.0.0, is hand-written: pacto init
-	// does not read a Dockerfile or manifests yet (ledger B). The beat claims
-	// only what the test proves, that a first version ships with nobody.
+	// The pactify input, contracts/fraud/1.0.0, is what pacto init writes in
+	// plain/fraud (TestPactifyWritesTheFraudContract), and a first version
+	// ships with nobody.
 	{
 		ID: "pactify", Moment: 1,
-		Says:    "fraud gets a contract, and its first version ships to test with nobody involved.",
+		Says:    "pacto init reads fraud's Dockerfile and manifests and writes its contract, and its first version ships to test with nobody involved.",
 		Why:     "Nothing depends on fraud yet, so its first version breaks no one.",
 		Service: "fraud", Environment: Test, Actor: PayAgent, To: "1.0.0",
 		Expect: Outcome{Predicted: delivery.PredictProceeds},

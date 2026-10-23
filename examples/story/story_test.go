@@ -6,13 +6,17 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/trianalab/pacto/v4/internal/pactify"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/validation"
@@ -93,9 +97,13 @@ func TestFraudPublishesFromPlainFraud(t *testing.T) {
 			if _, err := fs.Stat(Files, path.Join("plain/fraud", a.Build.Dockerfile.Context, file)); err != nil {
 				t.Errorf("%s: %v", a.Name, err)
 			}
-		case strings.Contains(strings.Join(a.Build.Command, " "), "k8s/*.yaml"):
-			if m, _ := fs.Glob(Files, "plain/fraud/k8s/*.yaml"); len(m) == 0 {
-				t.Errorf("%s: plain/fraud has no k8s/*.yaml", a.Name)
+		case strings.Contains(strings.Join(a.Build.Command, " "), "k8s/"):
+			for _, f := range strings.Fields(strings.Join(a.Build.Command, " ")) {
+				if strings.HasPrefix(f, "k8s/") {
+					if _, err := fs.Stat(Files, path.Join("plain/fraud", f)); err != nil {
+						t.Errorf("%s: %v", a.Name, err)
+					}
+				}
 			}
 		default:
 			t.Errorf("%s: unchecked build input", a.Name)
@@ -370,5 +378,41 @@ func TestB10FrozenStageShipsNothingAndOnlyAPersonUnfreezes(t *testing.T) {
 func TestBeatWithoutAPlan(t *testing.T) {
 	if _, err := beat(t, "B8").PlanInput(context.Background()); err == nil {
 		t.Fatal("B8 plans nothing")
+	}
+}
+
+// TestPactifyWritesTheFraudContract: pacto init on plain/fraud writes the
+// contract the story's fraud 1.0.0 is, so the pactify beat shows what
+// pactifying really produces.
+func TestPactifyWritesTheFraudContract(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "fraud")
+	if err := os.CopyFS(dir, os.DirFS("plain/fraud")); err != nil {
+		t.Fatal(err)
+	}
+	r, err := pactify.Init(context.Background(), pactify.Options{Dir: dir, Owner: "risk", Plan: true}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(r.Files, func(f pactify.File) bool { return f.Path == "pacto.yaml" })
+	if i < 0 {
+		t.Fatalf("no pacto.yaml in the plan: %+v", r.Files)
+	}
+	got, err := contract.Parse(strings.NewReader(r.Files[i].Content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open("contracts/fraud/1.0.0/pacto.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	want, err := contract.Parse(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The two lines the story adds by hand.
+	want.Publish.Sign.TransparencyLog, want.Metadata = nil, nil
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("pacto init wrote\n%s\nwhich differs from contracts/fraud/1.0.0", r.Files[i].Content)
 	}
 }
