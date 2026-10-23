@@ -40,14 +40,15 @@ func FoldStream(recs []StoredRecord) Fold {
 		seq := p.Chain.Seq
 		switch {
 		case prev != nil && seq == lastSeq:
-			f.Problems = append(f.Problems, fmt.Sprintf("seq %d has two records, %s and %s: the stream forked", seq, short(prev.ID), short(r.ID)))
+			// The skipped record has no line of its own, so its id stays whole.
+			f.Problems = append(f.Problems, fmt.Sprintf("seq %d has two records, %s and %s: the stream forked", seq, short(prev.ID), r.ID))
 			continue
 		case seq > lastSeq+1:
 			f.Problems = append(f.Problems, fmt.Sprintf("%s missing: the registry holds no record for them", seqRange(lastSeq+1, seq-1)))
 		case prev != nil && p.Chain.Parent != prev.ID:
 			f.Problems = append(f.Problems, fmt.Sprintf("the record at seq %d does not chain from %s at seq %d", seq, short(prev.ID), lastSeq))
 		case prev == nil && seq == 1 && p.Chain.Parent != "":
-			f.Problems = append(f.Problems, fmt.Sprintf("the record at seq 1 names a parent, %s, so older history is missing", short(p.Chain.Parent)))
+			f.Problems = append(f.Problems, fmt.Sprintf("the record at seq 1 names a parent, %s, so older history is missing", p.Chain.Parent))
 		}
 		if p.Gap != nil {
 			f.Problems = append(f.Problems, fmt.Sprintf("seq %d is a gap: the operation with local seq %d was gone before it was recorded", seq, p.Gap.Seq))
