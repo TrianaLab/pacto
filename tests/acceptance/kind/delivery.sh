@@ -193,7 +193,9 @@ run_phases() {
       [ -n "$ready" ] || continue
       ( phase_body "$p" ) > "$STATE/$p.log" 2>&1 &
       printf -v "PID_$p" %s $!
-      ( tail -n +1 -f "$STATE/$p.log" | awk -v p="[$p] " '{ print p $0; fflush() }' ) 2>/dev/null &
+      # A FAIL line keeps FAIL: first ("  FAIL: [health] ...") so CI's
+      # scripts/ci/kind-run.sh, which strips a leading FAIL:, still reads it.
+      ( tail -n +1 -f "$STATE/$p.log" | awk -v p="[$p] " '{ if (match($0, /^ *FAIL: */)) print substr($0, 1, RLENGTH) p substr($0, RLENGTH + 1); else print p $0; fflush() }' ) 2>/dev/null &
       printf -v "TAIL_$p" %s $!
       pending=" ${pending// $p/}" RUNNING+=" $p"
     done
@@ -206,7 +208,9 @@ run_phases() {
       RUNNING=" ${RUNNING// $p/}"
       rc="$(cat "$STATE/$p.rc" 2>/dev/null || echo 1)"
       if [ "$rc" != 0 ]; then
-        echo "  FAIL: phase $p failed (exit $rc); its full log is $STATE/$p.log" >&2
+        # No FAIL: here: kind-run.sh reports the first FAIL: line, which must be
+        # the phase's own check, not this pointer to a log CI never uploads.
+        echo "  phase $p failed (exit $rc); its full log is $STATE/$p.log" >&2
         exit "$rc"
       fi
       # shellcheck disable=SC1091

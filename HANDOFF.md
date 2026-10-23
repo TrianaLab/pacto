@@ -72,3 +72,24 @@ check was removed):
 | Health `recheck` | 10s | 5s | H5 and R are still caught by a re-check after they shipped; it runs twice as often. |
 | Mira check `soak` | 20s | 10s | `minSpans: 20` and `maxErrorRatio: 0.2` are unchanged, so a version passes only on the same evidence; the soak only sets how long it collects before deciding. |
 | `eventually` poll (`KIND_POLL`) | 3s | 1s | Every wait still makes at least ROUNDS tries and sleeps at least ROUNDS x 3s between them (lib.sh, tested in `tests/architecture/kind_eventually_test.go`), so no wait gives up sooner than before. |
+
+## 4. Accept a test file outside this track's area (ci track, integrator)
+
+**What.** `tests/architecture/kind_eventually_test.go` is new on this branch.
+`tests/architecture/` is not in the kindfast area, so it needs the
+integrator's yes. It holds two checks on the kind scripts, in the same style
+as the existing `kind_image_loading_test.go`:
+
+- `TestEventuallyNeverMakesFewerTries`: `eventually` in `lib.sh` never gives a
+  wait fewer tries or less time when `KIND_POLL` is faster.
+- `TestDeliveryPhaseFailReadsInCI`: a failing phase in `delivery.sh` still
+  gives `scripts/ci/kind-run.sh` a readable FAIL line (`[health] boom`, not
+  `[health]   FAIL: boom`).
+
+**Why.** Both fail against the old scripts and pass now. If the ci track would
+rather keep `tests/architecture/` to itself, move the file under
+`tests/acceptance/kind/` as a small Go package with the same two tests.
+
+**Optional (ci track).** `scripts/ci/kind-run.sh` strips FAIL: only at the
+start of a line (`sed 's/^ *FAIL: *//'`). `delivery.sh` now keeps FAIL: first,
+so nothing breaks, but `sed 's/^.*FAIL: *//'` would be more forgiving.

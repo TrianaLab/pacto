@@ -43,3 +43,24 @@ eventually "$3" cmd "$2" && exit 9; echo "$n"`
 		})
 	}
 }
+
+// CI runs delivery.sh's phases through run_phases, which prefixes each line
+// with its phase, and scripts/ci/kind-run.sh reports the first FAIL: line with
+// a leading FAIL: stripped. The prefix must not break that, and run_phases'
+// own failure line must not be the one reported.
+func TestDeliveryPhaseFailReadsInCI(t *testing.T) {
+	kind := kindDir(t)
+	script := `eval "$(awk '/^phase_body\(\) \{/{on=1} on{print} on && /^run_phases\(\) \{/{f=1} f && /^}$/{exit}' "$1")"
+timing_end() { :; }; phase_runs() { :; }; phase_deps() { :; }
+phase_health() { echo "  FAIL: boom" >&2; exit 1; }
+STATE="$(mktemp -d)"; PHASES=health; unset DELIVERY_SEQUENTIAL
+( run_phases ) > "$STATE/out" 2>&1
+grep -m1 'FAIL:' "$STATE/out" | sed 's/^ *FAIL: *//'`
+	out, err := exec.Command("bash", "-c", script, "t", filepath.Join(kind, "delivery.sh")).CombinedOutput() //nolint:gosec // fixed args
+	if err != nil {
+		t.Fatalf("bash: %v\n%s", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "[health] boom" {
+		t.Fatalf("CI would report %q, want %q", got, "[health] boom")
+	}
+}
