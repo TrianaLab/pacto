@@ -177,6 +177,7 @@ nav:
       # Path stays under examples/ on purpose: there is no redirect plugin, so
       # moving the file would permanently break every existing inbound URL.
       - Run it locally: examples/compose-demo.md
+      - Try it on Kubernetes: examples/kubernetes-demo.md
   - Get started:
       - Installation: installation.md
       - Quickstart: quickstart.md

@@ -23,6 +23,7 @@ type scan struct {
 	manifests   []string // YAML files that hold Kubernetes objects
 	secrets     []string // YAML files holding a Secret's values, never published
 	objects     map[string]bool
+	services    map[string]bool // Kubernetes Services, by name
 	workloads   []*workload
 	workload    *workload // the one the contract describes
 	openapi     string
@@ -51,7 +52,7 @@ var openapiRE = regexp.MustCompile(`^(openapi|swagger)\.(ya?ml|json)$`)
 var skipDirs = map[string]bool{"node_modules": true, "vendor": true}
 
 func scanDir(dir string) (*scan, error) {
-	sc := &scan{objects: map[string]bool{}}
+	sc := &scan{objects: map[string]bool{}, services: map[string]bool{}}
 	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
 		if errors.Is(err, fs.ErrNotExist) && p == dir {
 			return fs.SkipAll // a folder that is not there yet is empty
@@ -148,6 +149,7 @@ func (sc *scan) manifest(rel string, data []byte) {
 		found = true
 		name, _ := dig(doc, "metadata", "name").(string)
 		sc.objects[name] = true
+		sc.services[name] = sc.services[name] || kind == "Service"
 		kust = kust || kind == "Kustomization"
 		if _, ok := workloadKinds[kind]; ok {
 			sc.workloads = append(sc.workloads, readWorkload(rel, kind, name, doc))

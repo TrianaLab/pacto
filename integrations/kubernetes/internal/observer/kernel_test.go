@@ -842,12 +842,15 @@ func TestTargetPods(t *testing.T) {
 		pod("pending", corev1.PodPending, ""),
 		pod("done", corev1.PodSucceeded, kNode),
 	}
+	leaving := pod("leaving", corev1.PodRunning, kNode)
+	leaving.DeletionTimestamp, leaving.Finalizers = &metav1.Time{Time: time.Now()}, []string{"test/hold"}
+	objs = append(objs, leaving)
 	in := CollectInput{Namespace: kNS, WorkloadName: "checkout", WorkloadKind: workloadDeployment}
 
 	c := fake.NewClientBuilder().WithScheme(kernelScheme()).WithObjects(objs...).Build()
 	pods, err := New(c).targetPods(context.Background(), in)
 	if err != nil || len(pods) != 1 || pods[0].Name != "running" {
-		t.Fatalf("got %v, %v; want only the running pod", pods, err)
+		t.Fatalf("got %v, %v; want only the running pod, not the one shutting down", pods, err)
 	}
 
 	c = fake.NewClientBuilder().WithScheme(kernelScheme()).Build()

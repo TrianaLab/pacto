@@ -14,7 +14,7 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-runtime-conformance \
-       test-acceptance-kind-delivery ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
+       test-acceptance-kind-delivery test-acceptance-kind-delivery-demo ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
 
@@ -194,6 +194,13 @@ test-acceptance-kind-runtime-conformance:
 # at a time), and prints where the time went.
 test-acceptance-kind-delivery:
 	bash tests/acceptance/kind/delivery.sh
+
+# The Kubernetes delivery demo: the payments story (examples/story) on a real
+# cluster, up, story, the dashboard journeys and down. It checks every beat
+# against examples/story and fails on drift. Nightly and on demand only
+# (.github/workflows/delivery-demo.yml), never per PR.
+test-acceptance-kind-delivery-demo:
+	bash tests/acceptance/kind/delivery-demo.sh all
 
 # Compatibility aliases for the older names. Temporary.
 ci-e2e-kind:                    test-acceptance-kind
