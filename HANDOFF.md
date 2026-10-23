@@ -48,3 +48,27 @@ shows complete kernel coverage, and a new pod's coverage is only re-read on the
 Pacto's check interval (at least 30s, the CRD minimum). Every phase 2
 verification waits for that tick; phase 2 is the longest phase of the parallel
 run. Not needed for the 15-minute target once request 1 lands.
+
+## 3. For review: the test-mode timings this track changed, and the baseline
+
+**Baseline.** The "before" time is **1834s**, from a full run of commit
+68ecbcf0 (the base branch plus wait timing only; no overlap, no parallel
+phases, old timings). The earlier figure of 1719s had no log behind it and is
+withdrawn. Logs, kept outside git under the main checkout's gitignored
+`docs/superpowers/logs/`: `kindfast-baseline-68ecbcf0-1834s.log`,
+`kindfast-proof-sequential.log` (1399s), `kindfast-proof-parallel.log`
+(1137s) and `kindfast-proof-summary.log`. The 1399s sequential run is not a
+"before": it already has the shorter timings below and the setup overlap.
+
+**Timings changed in `tests/acceptance/kind/delivery.sh`** (test mode only; no
+check was removed):
+
+| Setting | Old | New | Why it still proves the same thing |
+|---|---|---|---|
+| Candidate OCIRepository `interval` (every stage) | 10s or 5s | 2s (`CANDIDATE_INTERVAL`) | Only how soon Flux sees a new tag or version; every phase still waits for it to be seen. |
+| `always N never_retried` | 10 (30s) | 6 (18s) | The watch spans 9 candidate scans instead of 3 and 9 promoter polls (2s) instead of 15, so a retry or a prod promotion still has many chances to show up. |
+| `always N held_back` | 10 (30s) | 6 (18s) | Same: 9 scans and 9 polls in which automation could promote F again. |
+| Health `window` | 2m | 1m | Q is still held for a person only when the window ends without enough spans; the end just comes sooner. |
+| Health `recheck` | 10s | 5s | H5 and R are still caught by a re-check after they shipped; it runs twice as often. |
+| Mira check `soak` | 20s | 10s | `minSpans: 20` and `maxErrorRatio: 0.2` are unchanged, so a version passes only on the same evidence; the soak only sets how long it collects before deciding. |
+| `eventually` poll (`KIND_POLL`) | 3s | 1s | Every wait still makes at least ROUNDS tries and sleeps at least ROUNDS x 3s between them (lib.sh, tested in `tests/architecture/kind_eventually_test.go`), so no wait gives up sooner than before. |
