@@ -149,7 +149,7 @@ describe('names and versions', () => {
     expect(digestParts('sha256:abababababab', [D, D])).toEqual([{ text: 'abababababab', full: D }]);
     expect(digestParts('sha256:ababababababab is not one')).toEqual([{ text: 'sha256:ababababababab is not one' }]);
     expect(digestParts(undefined)).toEqual([]);
-    // A fork: the record the history kept is known by its short id; the one it skipped comes whole.
+    // A fork: the record the history kept is known by its short id; a whole id in the text is cut short too.
     const F = 'sha256:' + 'ef'.repeat(32);
     expect(digestParts(`seq 2 has two records, sha256:abababababab and ${F}: the stream forked`, [D])).toEqual([
       { text: 'seq 2 has two records, ' }, { text: 'abababababab', full: D }, { text: ' and ' },

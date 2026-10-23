@@ -57,16 +57,16 @@ func TestFoldStreamReportsEverythingWrong(t *testing.T) {
 }
 
 // Problems name records and digests by their short form: a 71-character id
-// inline is unreadable, and the full one is on the record's own line. A
-// forked record and a seq-1 parent have no line of their own, so they stay
-// whole for the reader to copy.
+// inline is unreadable, and the full one is on the record's own line. Both
+// records of a fork have a line; a seq-1 parent has none, so it stays whole
+// for the reader to copy.
 func TestFoldStreamProblemsUseShortIDs(t *testing.T) {
 	id := func(c string) string { return "sha256:" + strings.Repeat(c, 64) }
 	f := FoldStream([]StoredRecord{rec(id("1"), 1, id("0"), "", id("a")), rec(id("2"), 2, id("9"), id("b"), id("c")),
 		rec(id("3"), 2, id("1"), id("a"), id("c"))})
 	got := strings.Join(f.Problems, "|")
 	if len(f.Problems) < 3 || strings.Contains(got, strings.Repeat("1", 13)) || strings.Contains(got, strings.Repeat("a", 13)) ||
-		!strings.Contains(got, "sha256:"+strings.Repeat("1", 12)) || !strings.Contains(got, "two records, sha256:"+strings.Repeat("2", 12)+" and "+id("3")) ||
+		!strings.Contains(got, "sha256:"+strings.Repeat("1", 12)) || !strings.Contains(got, "two records, sha256:"+strings.Repeat("2", 12)+" and sha256:"+strings.Repeat("3", 12)+": the stream forked") || strings.Contains(got, strings.Repeat("3", 13)) ||
 		!strings.Contains(got, "names a parent, "+id("0")+",") {
 		t.Fatalf("problems = %v", f.Problems)
 	}

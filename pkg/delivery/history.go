@@ -40,8 +40,7 @@ func FoldStream(recs []StoredRecord) Fold {
 		seq := p.Chain.Seq
 		switch {
 		case prev != nil && seq == lastSeq:
-			// The skipped record has no line of its own, so its id stays whole.
-			f.Problems = append(f.Problems, fmt.Sprintf("seq %d has two records, %s and %s: the stream forked", seq, short(prev.ID), r.ID))
+			f.Problems = append(f.Problems, fmt.Sprintf("seq %d has two records, %s and %s: the stream forked", seq, short(prev.ID), short(r.ID)))
 			continue
 		case seq > lastSeq+1:
 			f.Problems = append(f.Problems, fmt.Sprintf("%s missing: the registry holds no record for them", seqRange(lastSeq+1, seq-1)))
