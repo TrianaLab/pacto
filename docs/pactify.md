@@ -155,8 +155,8 @@ done
 kubectl apply -f delivery/test.yaml -f delivery/prod.yaml
 ```
 
-If your images are private, create the pull Secret your Deployment names (step
-2) in each namespace:
+If your images are private, create in each namespace the pull Secret your
+Deployment names since step 2:
 
 ```bash
 for env in test prod; do
