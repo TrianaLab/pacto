@@ -19,12 +19,15 @@ is reported as Unknown, never guessed. A file holding Secret values, or a
 kustomization with a `secretGenerator`, is never shipped. `--delivery` also
 writes the cluster pieces: the Pacto resource and, for each environment
 (`--env`, default test and prod), the Flux `OCIRepository` objects, a
-Kustomization that waits for the rollout and the Stage. `--plan` prints exactly
-what would be added and writes nothing. `pacto init` only adds files and
+Kustomization that waits for the rollout and the Stage; `--insecure-registry`
+marks those Flux objects for a plain-HTTP registry and `--no-transparency-log`
+writes `transparencyLog: false` for a key whose signatures stay out of Rekor.
+`--plan` prints exactly what would be added and writes nothing. `pacto init` only adds files and
 missing `.pactoignore` lines, so running it twice is safe and it never
 overwrites your edits. An empty folder still gets the blank contract. Agents get
 the same through `pacto_create` with `pactify: true` (plus `delivery`,
-`registry`, `environments`, `fleet_roots` and `dry_run`).
+`registry`, `environments`, `fleet_roots`, `no_transparency_log`,
+`insecure_registry` and `dry_run`).
 
 **Contract format 2.1.** `pactoVersion: "2.1"` adds a `publish` section (the
 contract bundle repository, the image, chart or manifests the service
