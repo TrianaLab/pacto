@@ -563,6 +563,56 @@ func TestConsumersFromFleet(t *testing.T) {
 	}
 }
 
+// TestOfflineSigningAndPlainHTTP: NoTransparencyLog writes transparencyLog:
+// false in a valid contract, InsecureRegistry sets spec.insecure on every
+// OCIRepository, a contract init did not write is named in Next, and an
+// insecure registry without delivery is refused.
+func TestOfflineSigningAndPlainHTTP(t *testing.T) {
+	dir := fraudDir(t)
+	opts := Options{Dir: dir, Owner: "risk", Delivery: true, NoTransparencyLog: true, InsecureRegistry: true}
+	r, err := Init(context.Background(), opts, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := file(t, r, "pacto.yaml").Content
+	if text != strings.Replace(fraudContract, "    key: cosign.key\n", "    key: cosign.key\n    transparencyLog: false\n", 1) || hasLine(r.Next, "transparencyLog") {
+		t.Fatalf("pacto.yaml:\n%s\nnext: %v", text, r.Next)
+	}
+	for env, want := range map[string]int{"test": 2, "prod": 1} {
+		var n int
+		dec := yaml.NewDecoder(strings.NewReader(file(t, r, "delivery/"+env+".yaml").Content))
+		for {
+			var doc struct {
+				Kind string
+				Spec struct{ Insecure bool }
+			}
+			if dec.Decode(&doc) != nil {
+				break
+			}
+			if doc.Kind == "OCIRepository" && doc.Spec.Insecure {
+				n++
+			}
+		}
+		if n != want {
+			t.Errorf("%s: %d insecure OCIRepositories, want %d", env, n, want)
+		}
+	}
+	// A second run keeps the contract, which already says it.
+	if again, err := Init(context.Background(), opts, os.WriteFile); err != nil || hasLine(again.Next, "transparencyLog") {
+		t.Fatalf("second run: %+v %v", again, err)
+	}
+
+	for _, d := range []string{t.TempDir(), writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "pactoVersion: \"2.1\"\nservice: {name: p, version: 1.0.0}\npublish: {bundle: oci://r.example/p, sign: {key: k}}\n"})} {
+		r, err := Init(context.Background(), Options{Dir: d, Name: "p", NoTransparencyLog: true, Plan: true}, os.WriteFile)
+		if err != nil || !hasLine(r.Next, "add transparencyLog: false under publish.sign") {
+			t.Fatalf("a contract init did not write: %+v %v", r, err)
+		}
+	}
+	if _, err := Init(context.Background(), Options{Dir: fraudDir(t), InsecureRegistry: true, Plan: true}, os.WriteFile); err == nil || !strings.Contains(err.Error(), "needs delivery") {
+		t.Fatalf("insecure without delivery: %v", err)
+	}
+}
+
 // TestRefusals: what init refuses before planning anything.
 func TestRefusals(t *testing.T) {
 	notDir := writeTree(t, t.TempDir(), map[string]string{"f": "x"})

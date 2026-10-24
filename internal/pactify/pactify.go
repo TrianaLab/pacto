@@ -36,6 +36,13 @@ type Options struct {
 	FleetRoots []string
 	// Plan only plans: nothing is written.
 	Plan bool
+	// NoTransparencyLog writes transparencyLog: false under publish.sign, for
+	// a key whose signatures do not belong in the public transparency log
+	// (a throwaway key, or offline signing).
+	NoTransparencyLog bool
+	// InsecureRegistry makes the Flux OCIRepositories Delivery writes read the
+	// registry over plain HTTP (spec.insecure), for a local registry only.
+	InsecureRegistry bool
 }
 
 // File actions.
@@ -125,6 +132,9 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 			return nil, fmt.Errorf("environment %q is not a valid namespace name", e)
 		}
 	}
+	if opts.InsecureRegistry && !opts.Delivery {
+		return nil, fmt.Errorf("an insecure registry changes only the Flux OCIRepositories that delivery writes, so it needs delivery")
+	}
 	r := &Result{Dir: dir, Path: filepath.Join(dir, "pacto.yaml"), Service: name, Mode: modeBlank,
 		Found: []string{}, Dependencies: []Finding{}, Consumers: []Finding{}, Unknown: []string{}, Next: []string{}, Files: []File{}}
 	if sc.dockerfile != "" || len(sc.manifests) > 0 {
@@ -134,6 +144,7 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 	if err := p.contract(); err != nil {
 		return nil, err
 	}
+	p.transparencyLog()
 	if err := p.consumers(ctx); err != nil {
 		return nil, err
 	}

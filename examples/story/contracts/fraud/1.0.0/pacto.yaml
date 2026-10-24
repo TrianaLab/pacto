@@ -1,6 +1,6 @@
-# The contract for plain/fraud: what pacto init --owner risk writes there
-# (story_test.go checks it), plus two lines added by hand: transparencyLog:
-# false, because the story signs offline, and a summary. It declares no
+# The contract for plain/fraud: what pacto init --owner risk
+# --no-transparency-log writes there (story_test.go checks it; the story signs
+# offline), plus a summary added by hand. It declares no
 # dependencies, because fraud calls nobody. It publishes only from plain/fraud,
 # where its build inputs (Dockerfile, k8s/*.yaml) are.
 pactoVersion: "2.1"

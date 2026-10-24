@@ -43,6 +43,9 @@ func (p *planner) delivery() {
 	p.deliveryPlanned = true
 	p.file("delivery/pacto.yaml", fmt.Sprintf(pactoResource, name, name, p.pub.Bundle, service, target, kind))
 	verify := p.verify()
+	if p.opts.InsecureRegistry {
+		verify = "  # The registry speaks plain HTTP: for a local registry only.\n  insecure: true\n" + verify
+	}
 	for i, env := range p.envs {
 		var b strings.Builder
 		fmt.Fprintf(&b, "# %s in %s: what applies it and the Stage that decides which version runs.\n# Written by pacto init.\n", name, env)

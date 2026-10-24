@@ -614,16 +614,11 @@ story_pactify() {
   local dir="$WORK/fraud"
   rm -rf "$dir"; cp -R "$STORY/plain/fraud" "$dir"
   perl -pi -e "s#registry\\.example/story#${REG_HOST}/story#g" "$dir/k8s/deployment.yaml"
-  echo "  \$ pacto init --delivery --owner risk"
-  (cd "$dir" && "$PACTO" init --delivery --owner risk) | sed 's/^/    /'
+  # A throwaway key stays out of the public transparency log, and the demo's
+  # registry speaks plain HTTP: both are init flags.
+  echo "  \$ pacto init --delivery --owner risk --no-transparency-log --insecure-registry"
+  (cd "$dir" && "$PACTO" init --delivery --owner risk --no-transparency-log --insecure-registry) | sed 's/^/    /'
   [ -s "$dir/delivery/test.yaml" ] || fail "pacto init --delivery wrote no Stage for test"
-  # Two lines a team would change for its own setup; init has no flag for
-  # either, on purpose: a real registry speaks HTTPS, and how a team signs is
-  # its choice in the contract (examples/story's fraud 1.0.0 has the same line).
-  echo "  the demo changes two lines, as a team would for its own setup:"
-  echo "    pacto.yaml: transparencyLog: false (a throwaway key does not belong in the public transparency log)"
-  echo "    the OCIRepositories: insecure: true (the demo's registry speaks plain HTTP)"
-  perl -pi -e 's#^(    key: cosign\.key)$#$1\n    transparencyLog: false#' "$dir/pacto.yaml"
   cp "$KEYS/cosign.key" "$dir/"
   git -C "$dir" init -q && git -C "$dir" add -A && git -C "$dir" -c user.email=demo@example.com -c user.name=demo commit -qm "pactify fraud"
   local out d op
@@ -631,15 +626,11 @@ story_pactify() {
   d="$(grep -oE "^Deploy: .*@sha256:[0-9a-f]{64}" <<<"$out" | sed 's/.*@//')"
   remember fraud 1.0.0 "$d"
   kubectl apply -f "$dir/delivery/test.yaml" -f "$dir/delivery/prod.yaml" >/dev/null
-  for e in test prod; do
-    kubectl -n "$e" patch ocirepository fraud --type merge -p '{"spec":{"insecure":true}}' >/dev/null
-  done
-  kubectl -n test patch ocirepository fraud-candidates --type merge -p '{"spec":{"insecure":true}}' >/dev/null
   op="$(wait_op test fraud "$d")"
   wait_concluded test "$op" Succeeded/Verified
   predicted pactify test "$op"
   eventually 60 kubectl -n test get pacto fraud >/dev/null 2>&1 || fail "pacto init --delivery wrote no Pacto resource for fraud in test"
-  pass "fraud is pactified: its contract, Pacto resource and Stages come from pacto init (with the two lines changed for the demo), and 1.0.0 runs in test with nobody involved"
+  pass "fraud is pactified: its contract, Pacto resource and Stages come from pacto init as it wrote them, and 1.0.0 runs in test with nobody involved"
 }
 
 story_b1() {

@@ -121,6 +121,11 @@ pacto init --delivery
   applies the version the Stage picks. Each environment is a Kubernetes
   namespace of the same name.
 
+For a local registry that speaks plain HTTP, add `--insecure-registry`: the
+Flux pieces then set `insecure: true`. To sign with a key whose signatures do
+not belong in the public transparency log, such as a throwaway key, add
+`--no-transparency-log`: the contract then says `transparencyLog: false`.
+
 `init` only writes files. Its Next list says: create the
 namespaces, store `cosign.pub` in each as a Kubernetes Secret named
 `cosign-pub`, with the key `cosign.pub`, so Flux can check your signatures, then

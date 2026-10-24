@@ -490,7 +490,8 @@ func TestCreateTool_Pactify(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "k8s", "d.yaml"), []byte("apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: fraud}\nspec: {template: {spec: {containers: [{name: fraud, image: 'registry.example/story/images/fraud:1.0.0'}]}}}\n"), 0o644)
 	args := map[string]any{"name": "fraud", "path": dir, "owner": "risk", "pactify": true, "delivery": true,
-		"environments": `["test","prod"]`, "fleet_roots": `[]`, "registry": "registry.example/story", "dry_run": true}
+		"environments": `["test","prod"]`, "fleet_roots": `[]`, "registry": "registry.example/story", "dry_run": true,
+		"no_transparency_log": true, "insecure_registry": true}
 
 	res := callTool(t, "pacto_create", args)
 	var plan struct {
@@ -509,8 +510,10 @@ func TestCreateTool_Pactify(t *testing.T) {
 	if res := callTool(t, "pacto_create", args); res.IsError {
 		t.Fatalf("apply: %s", resultText(t, res))
 	}
-	if _, err := os.Stat(filepath.Join(dir, "delivery", "prod.yaml")); err != nil {
-		t.Fatal(err)
+	prod, _ := os.ReadFile(filepath.Join(dir, "delivery", "prod.yaml"))
+	contract, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	if !strings.Contains(string(prod), "insecure: true") || !strings.Contains(string(contract), "transparencyLog: false") {
+		t.Fatalf("no_transparency_log and insecure_registry were not written:\n%s\n%s", contract, prod)
 	}
 
 	args["environments"] = "not json"
