@@ -207,13 +207,17 @@ This split matters if you gate deployments on the verdict. See
 
 ## Delivery and private registries
 
-The delivery promoter reads the deploy artifact and the contract bundle of each
-version without a login: its chart has no registry credentials setting yet.
-Flux and the operator can log in (`secretRef` on an OCIRepository,
-`spec.contractRef.pullSecretRef` on a Pacto), but with a private contract or
-deploy repository the promoter's checks answer Unknown, so every change waits
-for a person to accept the unknown, and an accepted unknown never moves on to
-the next environment. Images can stay private.
+Images can stay private with only a pull Secret. A private contract or deploy
+repository needs a login in three places, or the checks that read it answer
+Unknown, every change waits for a person to accept the unknown and an accepted
+unknown never moves on to the next environment:
+
+- delivery: install its chart with `promoter.registryCredentials.secretName`
+  set to a `kubernetes.io/dockerconfigjson` Secret in the delivery namespace;
+- Flux: add `secretRef` to each OCIRepository in `delivery/<env>.yaml`;
+- the operator: add `spec.contractRef.pullSecretRef` to `delivery/pacto.yaml`.
+
+`pacto init` writes none of these logins yet.
 
 ## API version
 

@@ -120,10 +120,10 @@ reads `cosign.key` from the root of the repository, as `publish.sign` says. In
 your build pipeline, give the key and its password as secrets and run
 `pacto publish` after your tests.
 
-Pacto reads the contract and deploy repositories (`publish.bundle` and the
-`manifests` ref) without a login, so make those two public. On GitHub a new
-package starts private: open it under your organization's **Packages**, then
-**Package settings** and **Change visibility**. Your images can stay private.
+The simplest setup makes the contract and deploy repositories (`publish.bundle`
+and the `manifests` ref) public. On GitHub a new package starts private: open
+it under your organization's **Packages**, then **Package settings** and
+**Change visibility**. Your images can stay private.
 
 Versions have three numbers, major.minor.patch, such as 2.4.1. Publishing
 refuses a version too small for the change (a change that breaks the services
@@ -167,9 +167,8 @@ for env in test prod; do
 done
 ```
 
-Flux and the operator can read a private repository with the same Secret, but
-delivery cannot yet, hence the two public repositories
-([Limitations](integrations/kubernetes/limitations.md#delivery-and-private-registries)).
+To keep the contract and deploy repositories private too, see
+[Private registries](integrations/kubernetes/limitations.md#delivery-and-private-registries).
 
 Each `delivery/<env>.yaml` holds a Stage, which is one service in one
 environment and holds which version runs there, and the Flux pieces that watch
