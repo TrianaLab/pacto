@@ -39,12 +39,10 @@ It starts with one service not yet pactified. The guided path is five moments,
 in the order the story plays them:
 
 - **Pactify a service.** `pacto init --delivery` reads fraud's Dockerfile and
-  manifests and writes its contract, its Pacto resource and its Stages. The
-  demo then changes two lines, as a team would for its own setup:
-  `transparencyLog: false`, because it signs with a throwaway key that does
-  not belong in the public transparency log, and `insecure: true` on the
-  OCIRepositories, because its registry speaks plain HTTP. init has no flag
-  for either. fraud ships to test.
+  manifests and writes its contract, its Pacto resource and its Stages.
+  `--no-transparency-log` keeps the demo's throwaway key out of the public
+  transparency log, and `--insecure-registry` lets Flux read its plain HTTP
+  registry. The demo uses the files as init wrote them. fraud ships to test.
 - **A safe change ships on its own.** payments 2.4.0 adds an endpoint and
   reaches prod with nobody involved, because checkout and orders accept
   payments ^2.
