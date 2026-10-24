@@ -319,15 +319,25 @@ func TestRunCommand_EBPF(t *testing.T) {
 		session:   &fakeSession{closeErr: errors.New("cgroup busy")},
 		agent: func(ctx context.Context, c runtimewatch.Config) {
 			cfg = c
-			now := time.Now()
-			_ = c.Sink.Publish(ctx, runtimefacts.Snapshot{PublishIntervalSeconds: 1, LastPublished: now,
-				Collection: runtimefacts.Collection{State: runtimefacts.StateRunning},
-				Workloads: []runtimefacts.Workload{{
-					Identity:   runtimefacts.Identity{Kind: runtimefacts.KindSession, ID: "c/pacto-run-1", Name: fmt.Sprintf("pacto-run-%d", os.Getpid())},
-					BaselineAt: now.Add(time.Second), Listeners: []runtimefacts.Listener{{Port: 8080, Address: "0.0.0.0"}},
-					Connections: []runtimefacts.Connection{{Address: "10.0.0.5", Port: 5432, Successes: 1, LastSuccessAt: now}},
-				}}})
-			<-ctx.Done()
+			// Like the real agent it publishes on every tick: the gate opens only after the attach
+			// returns, so a snapshot published before that is dropped.
+			tick := time.NewTicker(10 * time.Millisecond)
+			defer tick.Stop()
+			for {
+				now := time.Now()
+				_ = c.Sink.Publish(ctx, runtimefacts.Snapshot{PublishIntervalSeconds: 1, LastPublished: now,
+					Collection: runtimefacts.Collection{State: runtimefacts.StateRunning},
+					Workloads: []runtimefacts.Workload{{
+						Identity:   runtimefacts.Identity{Kind: runtimefacts.KindSession, ID: "c/pacto-run-1", Name: fmt.Sprintf("pacto-run-%d", os.Getpid())},
+						BaselineAt: now.Add(time.Second), Listeners: []runtimefacts.Listener{{Port: 8080, Address: "0.0.0.0"}},
+						Connections: []runtimefacts.Connection{{Address: "10.0.0.5", Port: 5432, Successes: 1, LastSuccessAt: now}},
+					}}})
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+				}
+			}
 		},
 	}
 	d := stubRun(t, s)
