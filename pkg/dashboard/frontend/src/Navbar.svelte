@@ -455,7 +455,9 @@
        button: same tap target, same overlay, and the accessible name still comes from
        aria-label, so nothing is lost for a screen reader. */
     .search-box { max-width: none; flex: 0 0 auto; margin-left: auto; }
-    .search-trigger { width: var(--touch-min); padding: 0; justify-content: center; }
+    /* min-width: 0 drops the desktop 9rem floor, which kept the magnifier wide enough to
+       push the menu button off a 320px screen. */
+    .search-trigger { width: var(--touch-min); min-width: 0; padding: 0; justify-content: center; }
     .search-trigger .search-icon { position: static; transform: none; }
     .search-trigger-text { display: none; }
   }
