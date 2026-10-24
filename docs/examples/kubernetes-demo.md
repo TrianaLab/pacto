@@ -90,7 +90,12 @@ Argo CD applies what it promotes. The controllers never talk to each other:
 prod-us reads prod's signed records from the registry. In the demo that
 registry runs in the first cluster and prod-us reaches it through a NodePort.
 It takes the newest version prod verified and refuses 2.4.0 because it failed
-after release there, so run `story` before `reach`. See
+after release there, so run `story` before `reach`. Then prod-eu, a third
+payments Stage in the first cluster, takes 2.4.0, which fails after release and
+rolls back to 2.3.0; 2.3.0 then fails its re-check too. A Stage is rolled back
+only once, so prod-eu freezes, and the freeze is a signed record naming 2.3.0.
+A Stage in prod-us that follows prod-eu's records never takes 2.3.0, and alice
+unfreezes prod-eu. See
 [Argo CD and several clusters](../integrations/kubernetes/delivery-reach.md).
 
 ## What is generated

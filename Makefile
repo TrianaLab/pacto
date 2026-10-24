@@ -211,7 +211,8 @@ e2e-runtime-conformance-kind-down:
 # The Kubernetes delivery demo (docs/examples/kubernetes-demo.md): -up leaves it
 # running, -story plays the payments story, -browser runs B6 to B10, the agent
 # beat and the dashboard journeys, -reach adds prod-us (a second cluster, applied
-# by Argo CD, following prod through signed records), -down removes it. e2e-delivery-demo runs them all, as CI does nightly.
+# by Argo CD, following prod through signed records
+# and refusing a version prod-eu froze on), -down removes it. e2e-delivery-demo runs them all, as CI does nightly.
 e2e-delivery-demo: test-acceptance-kind-delivery-demo
 e2e-delivery-demo-up:
 	bash tests/acceptance/kind/delivery-demo.sh up
