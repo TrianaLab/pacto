@@ -4,8 +4,11 @@ To pactify a service is to give it a Pacto contract and let Pacto check every
 new version before it runs. A contract is one file, `pacto.yaml`, kept next to
 your code. It says what the service offers, which other services it calls and
 how it is built and run. This guide takes a plain service to its first gated
-release: one Pacto checks before it reaches production. Every command you need
-is on this page; the links are reference.
+release: one Pacto checks before it reaches production. Every command of that
+path is on this page; the links are reference.
+
+In the cluster, [Flux](https://fluxcd.io) does the deploying: it is a tool that
+keeps the cluster running what your files say. Pacto tells it which version.
 
 You need:
 
@@ -14,13 +17,14 @@ You need:
   method from [Installation](installation.md);
 - a service in a git repository, with a Dockerfile and the Kubernetes files
   that run it (a Deployment and a Service). Those files are what lands in the
-  cluster;
-- Docker with a builder that can write an image to a folder:
+  cluster. Leave the namespace out of them: each environment gets its own;
+- Docker with a builder that can write an image to a folder, as Pacto builds
+  the image there and pushes it itself:
   `docker buildx create --use --driver docker-container`;
 - a container registry, and a login to it:
   `pacto login ghcr.io -u <user>` (or `docker login`);
-- the [cosign](https://docs.sigstore.dev/cosign/) tool, once, to make a
-  signing key;
+- `cosign`, once, to make a signing key: `brew install cosign`, or
+  `go install github.com/sigstore/cosign/v2/cmd/cosign@latest`;
 - for step 4, a Kubernetes cluster (1.30 or later), `kubectl` and `helm`.
 
 You do not write the contract by hand: Pacto writes it from your service.
@@ -47,27 +51,31 @@ error. It is a question Pacto will not guess the answer to.
 ## 2. Write the contract
 
 ```bash
-pacto init --delivery --owner <your-team>
+pacto init --delivery --owner payments
 pacto validate
+echo cosign.key >> .gitignore
 ```
 
-This writes `pacto.yaml`, the `delivery/` folder and a `.pactoignore` file that
-keeps the signing key out of what is published. `pacto validate` checks the
-contract is well formed. Running `pacto init` again never overwrites your edits.
-The contract it writes looks like this, for an image `ghcr.io/acme/my-service`:
+`--owner` names the team that owns the service. Use the name of that team's
+group in your company login: its members are the people Pacto asks about this
+service. `init` writes `pacto.yaml`, the `delivery/` folder and a
+`.pactoignore` file that keeps the signing key out of what is published.
+`pacto validate` checks the contract is well formed. Running `pacto init` again
+never overwrites your edits. For an image `ghcr.io/acme/my-service:1.0.0` and
+the files `k8s/deployment.yaml` and `k8s/service.yaml`, the contract is:
 
 ```yaml
 pactoVersion: "2.1"
 service:
   name: my-service
-  version: 1.0.0            # from the image tag; every release raises it
+  version: 1.0.0            # from the image tag (0.1.0 and an Unknown if none)
   owner:
-    team: payments          # the team asked about changes to this service
+    team: payments
 # dependencies:             # one per service yours calls; init leaves them commented
 #   - name: billing
-#     ref: oci://ghcr.io/acme/contracts/billing
-#     required: true
-#     compatibility: "^2.0.0"
+#     ref: oci://ghcr.io/acme/contracts/billing   # its publish.bundle
+#     required: true                              # yours cannot run without it
+#     compatibility: "^2.0.0"                     # the versions yours accepts
 publish:
   bundle: oci://ghcr.io/acme/contracts/my-service   # where the contract goes
   deploy: manifests                                 # what Flux applies
@@ -79,7 +87,8 @@ publish:
     - name: manifests
       type: manifests
       ref: oci://ghcr.io/acme/deploy/my-service
-      build: {command: [sh, -c, 'cp k8s/*.yaml ... delivery/pacto.yaml ...']}
+      build:                # your Kubernetes files plus delivery/pacto.yaml
+        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
   sign: {key: cosign.key}
 ```
 
@@ -88,13 +97,10 @@ entry per service yours calls and set `compatibility` to the versions it
 accepts, such as `^2.0.0` for any 2.x. This is called a version range, and it is
 what lets Pacto ask the right team about a change. Every field is in
 [Publish](contract-reference/publish.md) and
-[Dependencies](contract-reference/dependencies-and-state.md). Commit
-`pacto.yaml`, `.pactoignore` and `delivery/`.
-
-If your registry needs a login to pull, add the name of the pull Secret of step
-4 now, before you publish: `pullSecretRef: registry-creds` under `contractRef`
-in `delivery/pacto.yaml`, and `secretRef: {name: registry-creds}` under `spec`
-of each OCIRepository in `delivery/test.yaml` and `delivery/prod.yaml`.
+[Dependencies](contract-reference/dependencies-and-state.md). If your images
+are private, also add `imagePullSecrets: [{name: registry-creds}]` under
+`spec.template.spec` in your Deployment; step 4 creates that Secret. Commit
+`pacto.yaml`, `.pactoignore`, `.gitignore` and `delivery/`.
 
 ## 3. Publish a version
 
@@ -108,9 +114,14 @@ pacto publish
 `--plan` changes nothing. `pacto publish` builds the image, pushes it with your
 Kubernetes files and the contract to your registry, signs them so anyone can
 check they came from you and labels them with the version in the contract. It
-looks for `cosign.key` at the root of the repository, where `publish.sign`
-names it. Never commit `cosign.key`: in your build pipeline, give it and its
-password as secrets and run `pacto publish` after your tests.
+reads `cosign.key` from the root of the repository, as `publish.sign` says. In
+your build pipeline, give the key and its password as secrets and run
+`pacto publish` after your tests.
+
+Pacto reads the contract and deploy repositories (`publish.bundle` and the
+`manifests` ref) without a login, so make those two public. On GitHub a new
+package starts private: open it under your organization's **Packages**, then
+**Package settings** and **Change visibility**. Your images can stay private.
 
 Versions have three numbers, major.minor.patch, such as 2.4.1. Publishing
 refuses a version too small for the change (a change that breaks the services
@@ -119,10 +130,10 @@ using yours needs 3.0.0) and never overwrites a published one; see
 
 ## 4. Connect the service to your cluster
 
-Install, once per cluster, [Flux](https://fluxcd.io) (a tool that keeps the
-cluster running what your files say), the Pacto operator (it checks that each
+Install, once per cluster, Flux, the Pacto operator (it checks that each
 running service matches its contract) and delivery (it decides which version
-runs in each environment). Helm is the usual Kubernetes installer.
+runs in each environment). Helm is the usual Kubernetes installer; the charts
+have their own version numbers.
 
 ```bash
 kubectl apply -f https://github.com/fluxcd/flux2/releases/latest/download/install.yaml
@@ -144,9 +155,8 @@ done
 kubectl apply -f delivery/test.yaml -f delivery/prod.yaml
 ```
 
-If your registry needs a login to pull, also create the Secret you named in
-step 2 in each namespace. Flux, the operator and your Deployment (through its
-`imagePullSecrets`) all read it:
+If your images are private, create the pull Secret your Deployment names (step
+2) in each namespace:
 
 ```bash
 for env in test prod; do
@@ -155,10 +165,9 @@ for env in test prod; do
 done
 ```
 
-Delivery's own checks cannot log in to a registry yet: with a private contract
-or deploy repository they answer Unknown, so every change waits for a person
-and stays in test ([Limitations](integrations/kubernetes/limitations.md)). Your
-images can stay private.
+Flux and the operator can read a private repository with the same Secret, but
+delivery cannot yet, hence the two public repositories
+([Limitations](integrations/kubernetes/limitations.md#delivery-and-private-registries)).
 
 Each `delivery/<env>.yaml` holds a Stage, which is one service in one
 environment and holds which version runs there, and the Flux pieces that watch
@@ -170,6 +179,7 @@ with nobody asked, then prod takes it once it passed in test:
 ```bash
 kubectl get stage -A                                  # Pointer: the version it runs
 pacto delivery history -n test --stage my-service     # what happened in test
+kubectl -n test describe stage my-service             # if nothing moves: why, under Ready
 ```
 
 ## 5. Ship the next version
@@ -179,8 +189,8 @@ your Deployment to the same number, then run `pacto publish`. A safe change
 moves through test to prod on its own (`auto: true` in each Stage). A version
 that fails its checks after release is rolled back once, or, with nothing to
 go back to, its Stage freezes: nothing moves there until a person unfreezes it.
-A change that would
-break a service using yours waits and asks that service's team.
+A change that would break a service using yours waits and asks that service's
+team.
 
 ### When a change waits or an environment freezes
 
@@ -194,13 +204,15 @@ pacto delivery explain -n test <operation>            # what is asked and why
 pacto delivery approve -n test <operation> --decision approve
 pacto delivery approve -n test <operation> --decision accept-unknown
 pacto delivery approve -n test <operation> --decision reject
+pacto delivery cancel -n test <operation>             # withdraw it instead
 pacto delivery propose -n test --stage my-service --type unfreeze --reason "fixed"
 ```
 
 `approve` lets a change that breaks a consumer go ahead; `accept-unknown` lets
-one go ahead that Pacto could not check, recorded as accepted, never as a pass;
-unfreezing lets automation move the Stage again. To do any of this a person
-needs the `pacto-delivery-approver` role, and only the team that owns an
+one go ahead that Pacto could not check, recorded as accepted, never as a pass.
+To unfreeze (the dashboard calls it unpause) is to let automation move the
+Stage again; it takes effect without anyone else's approval. Each needs the
+`pacto-delivery-approver` role, and only members of the team that owns an
 affected service may answer for it:
 
 ```bash
@@ -208,14 +220,14 @@ kubectl create clusterrolebinding payments-approvers \
   --clusterrole=pacto-delivery-approver --group=payments
 ```
 
-Approving also needs a company login the cluster trusts, done in the last 15
-minutes; set it up once with
-[Sign-in, approvals and agents](integrations/kubernetes/delivery-identity.md).
+Deciding (approve, accept-unknown or reject) also needs a company login the
+cluster trusts, done in the last 15 minutes; a cluster admin sets that up once
+with [Sign-in, approvals and agents](integrations/kubernetes/delivery-identity.md).
+Until then, cancel the change, fix what it asks about and publish again.
 In the dashboard (`pacto dashboard`), the Delivery tab's **Inbox** lists the
 changes **Waiting for your decision**: open one and press **Approve** (or
 **Accept the unknown**) or **Reject**. Its **Environments** view has an
-**Unpause** button on each frozen Stage. [Delivery](integrations/kubernetes/delivery.md) explains each
-decision in plain words.
+**Unpause** button on each frozen Stage.
 
 ## Where next
 
