@@ -437,7 +437,7 @@ func TestPactifyWritesTheFraudContract(t *testing.T) {
 	if err := os.CopyFS(dir, os.DirFS("plain/fraud")); err != nil {
 		t.Fatal(err)
 	}
-	r, err := pactify.Init(context.Background(), pactify.Options{Dir: dir, Owner: "risk", Plan: true}, nil)
+	r, err := pactify.Init(context.Background(), pactify.Options{Dir: dir, Owner: "risk", NoTransparencyLog: true, Plan: true}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,8 +457,8 @@ func TestPactifyWritesTheFraudContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The two lines the story adds by hand.
-	want.Publish.Sign.TransparencyLog, want.Metadata = nil, nil
+	// The summary is the one line the story adds by hand.
+	want.Metadata = nil
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("pacto init wrote\n%s\nwhich differs from contracts/fraud/1.0.0", r.Files[i].Content)
 	}
