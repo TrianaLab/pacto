@@ -320,6 +320,9 @@ func (r *OperationReconciler) pending(ctx context.Context, op *dv1.Operation, st
 	return r.lock(ctx, op, stage, false)
 }
 
+// ReasonUnguarded holds an operation while an admission policy is missing.
+const ReasonUnguarded = "Unguarded"
+
 // unguarded parks op while an admission policy or binding in
 // r.AdmissionPolicies is not installed. A failed read is an error, so an
 // unreadable policy never reads as installed.
@@ -328,7 +331,7 @@ func (r *OperationReconciler) unguarded(ctx context.Context, op *dv1.Operation) 
 		for _, obj := range []client.Object{&admissionv1.ValidatingAdmissionPolicy{}, &admissionv1.ValidatingAdmissionPolicyBinding{}} {
 			err := r.Get(ctx, client.ObjectKey{Name: name}, obj)
 			if apierrors.IsNotFound(err) {
-				op.Status.Reason = "Unguarded"
+				op.Status.Reason = ReasonUnguarded
 				op.Status.Message = "the admission policy " + name + " is not installed, so who wrote an operation or approval cannot be trusted; waiting for it"
 				res, err := r.save(ctx, op)
 				return res, true, err

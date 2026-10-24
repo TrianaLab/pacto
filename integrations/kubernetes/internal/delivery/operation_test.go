@@ -1166,11 +1166,11 @@ func TestUnguardedAdmitsNothingAndCountsNoApproval(t *testing.T) {
 	t.Run("admission waits for the policy and its binding", func(t *testing.T) {
 		e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
 		e.op.AdmissionPolicies = []string{"pd-operation"}
-		if o := e.drive("p1"); o.Status.Phase != "" || o.Status.Reason != "Unguarded" || o.Status.ActorClass != "" {
+		if o := e.drive("p1"); o.Status.Phase != "" || o.Status.Reason != ReasonUnguarded || o.Status.ActorClass != "" {
 			t.Fatalf("want parked before admission: %q %s %s", o.Status.Phase, o.Status.Reason, o.Status.ActorClass)
 		}
 		e.create(&admissionv1.ValidatingAdmissionPolicy{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"}})
-		if o := e.drive("p1"); o.Status.Reason != "Unguarded" {
+		if o := e.drive("p1"); o.Status.Reason != ReasonUnguarded {
 			t.Fatalf("a policy with no binding guards nothing: %s", o.Status.Reason)
 		}
 		e.create(&admissionv1.ValidatingAdmissionPolicyBinding{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"}})
@@ -1184,7 +1184,7 @@ func TestUnguardedAdmitsNothingAndCountsNoApproval(t *testing.T) {
 		o := e.drive("p1")
 		e.op.AdmissionPolicies = []string{"pd-operation"}
 		e.approve(o, "no", "alice", delivery.Reject)
-		if o = e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || o.Status.Reason != "Unguarded" || len(o.Status.Approvals) != 0 {
+		if o = e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || o.Status.Reason != ReasonUnguarded || len(o.Status.Approvals) != 0 {
 			t.Fatalf("an unguarded approval must not count: %s %s %+v", o.Status.Phase, o.Status.Reason, o.Status.Approvals)
 		}
 		guard(e)
@@ -1199,7 +1199,7 @@ func TestUnguardedAdmitsNothingAndCountsNoApproval(t *testing.T) {
 		e.drive("p1")
 		e.op.AdmissionPolicies = []string{"pd-operation"}
 		e.approve(e.getOp("p1"), "au", "alice", delivery.AcceptUnknown)
-		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || o.Status.Reason != "Unguarded" {
+		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || o.Status.Reason != ReasonUnguarded {
 			t.Fatalf("want parked: %s %s", o.Status.Phase, o.Status.Reason)
 		}
 		guard(e)

@@ -92,7 +92,7 @@ func (r *StageReconciler) updateStatus(ctx context.Context, stage *dv1.Stage, fn
 // conflict lasts, it freezes again.
 func (r *StageReconciler) streamConflict(ctx context.Context, stage *dv1.Stage) error {
 	i := slices.IndexFunc(stage.Status.Conditions, func(c delivery.Condition) bool {
-		return c.Type == ConditionRecordStoreReady && c.Status == "False" && c.Reason == ReasonStreamConflict
+		return c.Type == ConditionRecordStoreReady && c.Status == statusFalse && c.Reason == ReasonStreamConflict
 	})
 	if i < 0 || stage.Status.Frozen {
 		return nil
@@ -196,7 +196,7 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 }
 
 func notReady(reason, msg string) delivery.Condition {
-	return delivery.Condition{Type: "Ready", Status: "False", Reason: reason, Message: msg}
+	return delivery.Condition{Type: "Ready", Status: statusFalse, Reason: reason, Message: msg}
 }
 
 // recordPublished remembers the candidate OCIRepository's current digest once

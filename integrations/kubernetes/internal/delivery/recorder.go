@@ -35,6 +35,9 @@ import (
 // ConditionRecordStoreReady is the recorder's Stage condition.
 const ConditionRecordStoreReady = "RecordStoreReady"
 
+// statusFalse is a condition status.
+const statusFalse = "False"
+
 // Reasons RecordStoreReady is False.
 const (
 	ReasonReferrersUnsupported = "ReferrersUnsupported"
@@ -288,7 +291,7 @@ func storeReason(err error) string {
 // notReady records why the stream is not being written and backs off.
 func (r *Recorder) notReady(ctx context.Context, stage *dv1.Stage, reason string, cause error) (reconcile.Result, error) {
 	ctrl.LoggerFrom(ctx).Info("not recording", "stage", stage.Name, "reason", reason, "error", cause.Error())
-	c := delivery.Condition{Type: ConditionRecordStoreReady, Status: "False", Reason: reason, Message: cause.Error()}
+	c := delivery.Condition{Type: ConditionRecordStoreReady, Status: statusFalse, Reason: reason, Message: cause.Error()}
 	if err := r.setCondition(ctx, stage, c); err != nil {
 		return reconcile.Result{}, err
 	}

@@ -200,7 +200,7 @@ func (c Cluster) applied(ctx context.Context, ns string, a *applyRef, digest str
 		attempted, _, _ := unstructured.NestedString(k.Object, "status", "lastAttemptedRevision")
 		switch {
 		case ready == "True" && delivery.RevisionDigest(applied) == digest:
-		case ready == "False" && delivery.RevisionDigest(attempted) == digest && reason != "Progressing" && reason != "DependencyNotReady":
+		case ready == statusFalse && delivery.RevisionDigest(attempted) == digest && reason != "Progressing" && reason != "DependencyNotReady":
 			return false, true, fmt.Sprintf("Kustomization %s failed to apply %s: %s: %s", k.GetName(), digest, reason, message), nil
 		default:
 			return false, false, "Kustomization " + k.GetName() + " has not applied " + digest + " yet", nil
