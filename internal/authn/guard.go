@@ -144,7 +144,10 @@ func (d *Dashboard) local(w http.ResponseWriter, r *http.Request) (State, bool) 
 			http.Error(w, "this is not the token this dashboard printed when it started", http.StatusForbidden)
 			return State{}, false
 		}
-		http.SetCookie(w, &http.Cookie{Name: launchCookie, Value: d.launch, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		// Secure everywhere but plain HTTP on loopback, the one place a browser
+		// would otherwise drop the cookie and the token never leaves the machine.
+		http.SetCookie(w, &http.Cookie{Name: launchCookie, Value: d.launch, Path: "/", HttpOnly: true,
+			Secure: r.TLS != nil || !loopback(r.Host), SameSite: http.SameSiteStrictMode})
 		q := r.URL.Query()
 		q.Del("token")
 		loc := r.URL.Path

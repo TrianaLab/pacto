@@ -49,6 +49,17 @@ func TestLocalLaunch(t *testing.T) {
 	expect(t, rec.Code == http.StatusSeeOther, "launch status %d", rec.Code)
 	expect(t, rec.Header().Get("Location") == "/?x=1", "launch location %q", rec.Header().Get("Location"))
 	expect(t, c.HttpOnly && c.SameSite == http.SameSiteStrictMode, "launch cookie %+v", c)
+	// Secure everywhere but plain HTTP on loopback.
+	for url, secure := range map[string]bool{
+		"http://127.0.0.1:3000/":         false,
+		"http://localhost:3000/":         false,
+		"https://127.0.0.1:3000/":        true,
+		"http://dashboard.example:3000/": true,
+		"https://dashboard.example/":     true,
+	} {
+		c := cookieNamed(t, serve(h, httptest.NewRequest(http.MethodGet, url+"?token="+d.launch, nil)), launchCookie)
+		expect(t, c.Secure == secure, "launch cookie from %s: Secure=%v, want %v", url, c.Secure, secure)
+	}
 	expect(t, rec.Header().Get("X-Frame-Options") == "DENY", "every answer refuses framing")
 	expect(t, rec.Header().Get("Content-Security-Policy") == "frame-ancestors 'none'", "every answer refuses framing")
 	rec = serve(h, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:3000/?token=wrong", nil))
