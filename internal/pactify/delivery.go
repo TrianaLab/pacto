@@ -18,14 +18,7 @@ import (
 // from, the one Pacto points at the version to run, the Kustomization that
 // applies it and the Stage that decides.
 func (p *planner) delivery() {
-	deployRepo := ""
-	if p.pub != nil {
-		for _, a := range p.pub.Artifacts {
-			if a.Name == p.pub.Deploy && a.Type == contract.ArtifactManifests {
-				deployRepo = a.Ref
-			}
-		}
-	}
+	deployRepo := p.deployRepo()
 	if deployRepo == "" {
 		p.unknown("the cluster pieces: the contract publishes no manifests for Flux to apply (publish.deploy), so none were planned")
 		return
@@ -78,6 +71,21 @@ func (p *planner) delivery() {
 	for _, k := range p.sc.kustomize {
 		p.next("%s decides what Flux applies: add pacto-resource.yaml to its resources", k)
 	}
+}
+
+// deployRepo is the repository of the manifests artifact publish.deploy
+// names, or "" when the contract publishes none.
+func (p *planner) deployRepo() string {
+	if p.pub == nil {
+		return ""
+	}
+	repo := ""
+	for _, a := range p.pub.Artifacts {
+		if a.Name == p.pub.Deploy && a.Type == contract.ArtifactManifests {
+			repo = a.Ref
+		}
+	}
+	return repo
 }
 
 // keptSource warns when a delivery/<env>.yaml already there takes its
