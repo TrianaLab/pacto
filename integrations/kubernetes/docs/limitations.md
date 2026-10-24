@@ -214,10 +214,14 @@ unknown never moves on to the next environment:
 
 - delivery: install its chart with `promoter.registryCredentials.secretName`
   set to a `kubernetes.io/dockerconfigjson` Secret in the delivery namespace;
-- Flux: add `secretRef` to each OCIRepository in `delivery/<env>.yaml`;
-- the operator: add `spec.contractRef.pullSecretRef` to `delivery/pacto.yaml`.
+- Flux: `secretRef` on each OCIRepository in `delivery/<env>.yaml`;
+- the operator: `spec.contractRef.pullSecretRef` in `delivery/pacto.yaml`.
 
-`pacto init` writes none of these logins yet.
+`pacto init --delivery --registry-secret <name>` writes the last two, naming a
+`kubernetes.io/dockerconfigjson` Secret you create in each environment's
+namespace; the delivery chart value stays yours to set. See
+[Pactify a service](../../pactify.md#4-connect-the-service-to-your-cluster) for
+the commands.
 
 ## API version
 

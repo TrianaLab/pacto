@@ -56,7 +56,7 @@ Every client starts the `pacto` binary and talks to it over stdin and stdout. Pi
 
 To serve a bundle's operations as tools, append the bundle reference and flags to `args` (see [bundle capabilities](#bundle-capabilities)).
 
-`pacto_create` with `pactify: true` does what `pacto init` does for a folder that already holds a service: it reads the Dockerfile and Kubernetes files and writes the contract, plus the cluster files with `delivery: true` (`registry`, `environments`, `fleet_roots`, `no_transparency_log` and `insecure_registry` match the CLI flags, and `dry_run` only plans).
+`pacto_create` with `pactify: true` does what `pacto init` does for a folder holding a service: it reads the Dockerfile and Kubernetes files and writes the contract, plus the cluster files with `delivery: true` (`registry`, `environments`, `fleet_roots`, `no_transparency_log`, `insecure_registry` and `registry_secret` match the CLI flags, and `dry_run` only plans).
 
 Every snippet above is the **authoring** server, and `pacto_create` and `pacto_edit` write files. If the agent must change nothing, use [catalog mode](#catalog-mode) instead:
 

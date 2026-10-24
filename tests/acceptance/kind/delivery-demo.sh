@@ -632,6 +632,8 @@ story_pactify() {
   wait_concluded test "$op" Succeeded/Verified
   predicted pactify test "$op"
   eventually 60 kubectl -n test get pacto fraud >/dev/null 2>&1 || fail "pacto init --delivery wrote no Pacto resource for fraud in test"
+  local img; img="$(kubectl -n test get deploy fraud -o jsonpath='{.spec.template.spec.containers[0].image}')"
+  [[ "$img" == "${REG_HOST}/story/images/fraud@sha256:"* ]] || fail "fraud runs $img in test, not the image pacto publish built, pinned by digest"
   pass "fraud is pactified: its contract, Pacto resource and Stages come from pacto init as it wrote them, and 1.0.0 runs in test with nobody involved"
 }
 

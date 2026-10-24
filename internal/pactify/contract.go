@@ -309,6 +309,7 @@ func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string)
 		b.WriteString("  deploy: manifests\n")
 	}
 	b.WriteString("  artifacts:\n")
+	pin := imgRepo
 	if df := sc.dockerfile; df != "" {
 		if imgRepo == "" {
 			imgRepo = registry + "/images/" + name
@@ -323,7 +324,8 @@ func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string)
 		}
 	}
 	if len(sc.manifests) > 0 {
-		cmd := p.copyManifests()
+		cmd, kept := p.copyManifests()
+		cmd += p.pinImage(pin, imgRepo, kept)
 		if p.opts.Delivery {
 			cmd += ` && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml`
 		}
@@ -342,11 +344,37 @@ func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string)
 	}
 }
 
+// pinImage is the build step that rewrites, in the published copy of the
+// workload's manifest, the image it names to the image this publish built,
+// by digest (PACTO_REF_API@PACTO_DIGEST_API). Each version then deploys its
+// own image and nobody raises the tag by hand. pin is the workload's image
+// repository, "" when it names none Pacto can push to; built is the image
+// the Dockerfile builds; kept says the manifests keep their folders.
+func (p *planner) pinImage(pin, built string, kept bool) string {
+	w := p.sc.workload
+	if p.sc.dockerfile == "" || w == nil {
+		return ""
+	}
+	if pin == "" || !imageRE.MatchString(w.image) {
+		p.next("%s does not deploy %s, the image the Dockerfile builds, so its image is published as written, not pinned to the one each version builds", w.file, built)
+		return ""
+	}
+	out := path.Base(w.file)
+	if kept {
+		out = w.file
+	}
+	// ponytail: a plain text match on the image as written; another image that
+	// starts with the same text in that file (name:1.0 and name:1.0-debug) is
+	// rewritten too. Match on the image: field if that ever bites.
+	p.found("the published %s deploys the image each version builds, pinned by digest", w.file)
+	return fmt.Sprintf(` && sed "s#%s#$PACTO_REF_API@$PACTO_DIGEST_API#" %s > "$PACTO_OUT"/%s`, strings.ReplaceAll(w.image, ".", `\.`), shq(w.file), shq(out))
+}
+
 // copyManifests is the build command that copies the manifests into
 // $PACTO_OUT. Each file is named, never globbed: a YAML file added later (a
 // Secret, say) is not shipped unseen. A kustomize layout, or files that share
 // a name, keep their folders, since flattened one would overwrite the other.
-func (p *planner) copyManifests() string {
+func (p *planner) copyManifests() (string, bool) {
 	byDir := map[string][]string{}
 	var dirs, all []string
 	seen := map[string]bool{}
@@ -362,7 +390,7 @@ func (p *planner) copyManifests() string {
 		seen[path.Base(m)] = true
 	}
 	if !keep {
-		return "cp " + strings.Join(all, " ") + ` "$PACTO_OUT"/`
+		return "cp " + strings.Join(all, " ") + ` "$PACTO_OUT"/`, false
 	}
 	cmds := make([]string, len(dirs))
 	for i, d := range dirs {
@@ -376,7 +404,7 @@ func (p *planner) copyManifests() string {
 	}
 	p.unknown("the folder Flux builds: the manifests keep their folders (%s), as they use kustomize or share file names; "+
 		"set spec.path of the Kustomization that applies them to it", strings.Join(dirs, ", "))
-	return strings.Join(cmds, " && ")
+	return strings.Join(cmds, " && "), true
 }
 
 // consumers looks for the services that declare this one, in FleetRoots.
@@ -474,6 +502,8 @@ func (p *planner) ignore() {
 var (
 	refRE  = regexp.MustCompile(`^oci://[a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)+$`)
 	safeRE = regexp.MustCompile(`^[A-Za-z0-9._/-]+$`)
+	// imageRE is an image reference with nothing sh or sed would read.
+	imageRE = regexp.MustCompile(`^[A-Za-z0-9._/:@-]+$`)
 	// plainRE starts with a letter, a dot or a slash, or is x.y.z, so YAML
 	// never reads it as a number.
 	plainRE = regexp.MustCompile(`^([A-Za-z./][A-Za-z0-9._/-]*|[0-9]+\.[0-9]+\.[0-9]+[A-Za-z0-9._+-]*)$`)

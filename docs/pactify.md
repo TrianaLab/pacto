@@ -42,7 +42,8 @@ Kubernetes files, and fills in a contract from it. It reads your registry from
 the image name in your Deployment; pass `--registry ghcr.io/acme` if it cannot.
 `--delivery` adds the cluster files of step 4, so the first version you publish
 already carries them. With `--plan` it shows exactly what it would add and
-changes nothing. For a local registry that speaks plain HTTP, add
+changes nothing. For a private registry, add `--registry-secret registry-creds`
+(step 4 creates that Secret). For a local registry that speaks plain HTTP, add
 `--insecure-registry`; to keep a throwaway key's signatures out of the public
 transparency log, add `--no-transparency-log`.
 
@@ -89,10 +90,14 @@ publish:
     - name: manifests
       type: manifests
       ref: oci://ghcr.io/acme/deploy/my-service
-      build:                # your Kubernetes files plus delivery/pacto.yaml
-        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
+      build:                # your Kubernetes files, the image just built, delivery/pacto.yaml
+        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed "s#ghcr\.io/acme/my-service:1\.0\.0#$PACTO_REF_API@$PACTO_DIGEST_API#" k8s/deployment.yaml > "$PACTO_OUT"/deployment.yaml && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
   sign: {key: cosign.key}
 ```
+
+The manifests build swaps the image in your Deployment for the one this
+version just built, pinned by its digest, so each version runs its own image.
+Your `k8s/deployment.yaml` stays as it is.
 
 Fill in what the plan marked Unknown, above all the dependencies: uncomment one
 entry per service yours calls and set `compatibility` to the versions it
@@ -101,7 +106,9 @@ what lets Pacto ask the right team about a change. Every field is in
 [Publish](contract-reference/publish.md) and
 [Dependencies](contract-reference/dependencies-and-state.md). If your images
 are private, also add `imagePullSecrets: [{name: registry-creds}]` under
-`spec.template.spec` in your Deployment; step 4 creates that Secret. Commit
+`spec.template.spec` in your Deployment; step 4 creates that Secret. If the
+contract and deploy repositories are private too, run `pacto init` with
+`--registry-secret registry-creds` as step 1 says. Commit
 `pacto.yaml`, `.pactoignore`, `.gitignore` and `delivery/`.
 
 ## 3. Publish a version
@@ -120,11 +127,6 @@ reads `cosign.key` from the root of the repository, as `publish.sign` says. In
 your build pipeline, give the key and its password as secrets and run
 `pacto publish` after your tests.
 
-The simplest setup makes the contract and deploy repositories (`publish.bundle`
-and the `manifests` ref) public. On GitHub a new package starts private: open
-it under your organization's **Packages**, then **Package settings** and
-**Change visibility**. Your images can stay private.
-
 Versions have three numbers, major.minor.patch, such as 2.4.1. Publishing
 refuses a version too small for the change (a change that breaks the services
 using yours needs 3.0.0) and never overwrites a published one; see
@@ -135,7 +137,16 @@ using yours needs 3.0.0) and never overwrites a published one; see
 Install, once per cluster, Flux, the Pacto operator (it checks that each
 running service matches its contract) and delivery (it decides which version
 runs in each environment). Helm is the usual Kubernetes installer; the charts
-have their own version numbers.
+have their own version numbers. Delivery reads your contracts, so with a
+private registry give it a login first, in its own namespace, and add
+`--set promoter.registryCredentials.secretName=registry-creds` to its install
+command below:
+
+```bash
+kubectl create namespace pacto-delivery
+kubectl -n pacto-delivery create secret docker-registry registry-creds \
+  --docker-server=ghcr.io --docker-username=<user> --docker-password=<token>
+```
 
 ```bash
 kubectl apply -f https://github.com/fluxcd/flux2/releases/latest/download/install.yaml
@@ -153,22 +164,18 @@ takes only versions you signed, and apply the files `init` wrote:
 for env in test prod; do
   kubectl create namespace $env
   kubectl -n $env create secret generic cosign-pub --from-file=cosign.pub
+  # a private registry only:
+  kubectl -n $env create secret docker-registry registry-creds \
+    --docker-server=ghcr.io --docker-username=<user> --docker-password=<token>
 done
 kubectl apply -f delivery/test.yaml -f delivery/prod.yaml
 ```
 
-If your images are private, create in each namespace the pull Secret your
-Deployment names since step 2:
-
-```bash
-for env in test prod; do
-  kubectl -n $env create secret docker-registry registry-creds \
-    --docker-server=ghcr.io --docker-username=<user> --docker-password=<token>
-done
-```
-
-To keep the contract and deploy repositories private too, see
-[Private registries](integrations/kubernetes/limitations.md#delivery-and-private-registries).
+`registry-creds` is the pull Secret your Deployment names since step 2 and,
+with `--registry-secret registry-creds`, the login Flux and the operator read
+the contract and deploy repositories with. A token that can only read is
+enough (on GitHub, `read:packages`). See [Private registries](integrations/kubernetes/limitations.md#delivery-and-private-registries)
+for what each login is for.
 
 Each `delivery/<env>.yaml` holds a Stage, which is one service in one
 environment and holds which version runs there, and the Flux pieces that watch
@@ -185,8 +192,8 @@ kubectl -n test describe stage my-service             # if nothing moves: why, u
 
 ## 5. Ship the next version
 
-Make a change, raise `service.version` in `pacto.yaml` and the image tag in
-your Deployment to the same number, then run `pacto publish`. A safe change
+Make a change, raise `service.version` in `pacto.yaml`, then run
+`pacto publish`. It builds the new image and the version it publishes runs it. A safe change
 moves through test to prod on its own (`auto: true` in each Stage). A version
 that fails its checks after release is rolled back once, or, with nothing to
 go back to, its Stage freezes: nothing moves there until a person unfreezes it.

@@ -27,7 +27,8 @@ changes nothing.`,
 		Example: `  pacto init my-service
   pacto init --plan
   pacto init --delivery --owner payments --fleet ../contracts
-  pacto init --delivery --no-transparency-log --insecure-registry`,
+  pacto init --delivery --no-transparency-log --insecure-registry
+  pacto init --delivery --registry-secret registry-creds`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			opts.Dir = "."
@@ -50,6 +51,7 @@ changes nothing.`,
 	f.StringSliceVar(&opts.Environments, "env", []string{"test", "prod"}, "environments for --delivery, in promotion order")
 	f.BoolVar(&opts.NoTransparencyLog, "no-transparency-log", false, "write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)")
 	f.BoolVar(&opts.InsecureRegistry, "insecure-registry", false, "with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)")
+	f.StringVar(&opts.RegistrySecret, "registry-secret", "", "with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with")
 	f.StringSliceVar(&opts.FleetRoots, "fleet", nil, "folders of other services' contracts to find the services that use this one")
 	return cmd
 }

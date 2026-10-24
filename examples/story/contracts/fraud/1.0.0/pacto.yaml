@@ -24,7 +24,7 @@ publish:
       type: manifests
       ref: oci://registry.example/story/deploy/fraud
       build:
-        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/']
+        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed "s#registry\.example/story/images/fraud:1\.0\.0#$PACTO_REF_API@$PACTO_DIGEST_API#" k8s/deployment.yaml > "$PACTO_OUT"/deployment.yaml']
   sign:
     key: cosign.key
     transparencyLog: false

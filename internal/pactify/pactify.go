@@ -43,6 +43,10 @@ type Options struct {
 	// InsecureRegistry makes the Flux OCIRepositories Delivery writes read the
 	// registry over plain HTTP (spec.insecure), for a local registry only.
 	InsecureRegistry bool
+	// RegistrySecret names the docker-registry Secret, in each environment's
+	// namespace, that Delivery's Flux OCIRepositories and Pacto resource log
+	// in to a private registry with.
+	RegistrySecret string
 }
 
 // File actions.
@@ -161,6 +165,12 @@ func environments(opts Options) ([]string, error) {
 	}
 	if opts.InsecureRegistry && !opts.Delivery {
 		return nil, fmt.Errorf("an insecure registry changes only the Flux OCIRepositories that delivery writes, so it needs delivery")
+	}
+	if opts.RegistrySecret != "" && !opts.Delivery {
+		return nil, fmt.Errorf("a registry Secret is named only in the cluster pieces that delivery writes, so it needs delivery")
+	}
+	if opts.RegistrySecret != "" && !nameRE.MatchString(opts.RegistrySecret) {
+		return nil, fmt.Errorf("registry Secret %q is not a valid Secret name (lowercase letters, digits and hyphens)", opts.RegistrySecret)
 	}
 	return envs, nil
 }

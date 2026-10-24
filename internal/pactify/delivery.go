@@ -41,8 +41,16 @@ func (p *planner) delivery() {
 		service = "    serviceName: " + target + "\n"
 	}
 	p.deliveryPlanned = true
-	p.file("delivery/pacto.yaml", fmt.Sprintf(pactoResource, name, name, p.pub.Bundle, service, target, kind))
+	pull := ""
 	verify := p.verify()
+	if s := p.opts.RegistrySecret; s != "" {
+		pull = "    pullSecretRef: " + s + "\n"
+		verify = "  # The registry login, for a private registry.\n  secretRef:\n    name: " + s + "\n" + verify
+		p.next("in each of %s, create the Secret %s that logs in to the registry: kubectl -n <env> create secret docker-registry %s "+
+			"--docker-server=<registry> --docker-username=<user> --docker-password=<token>; name it under imagePullSecrets in your Deployment too if the images are private", strings.Join(p.envs, ", "), s, s)
+		p.next("install delivery with promoter.registryCredentials.secretName set to a Secret like %s in its own namespace, so it can read the contracts", s)
+	}
+	p.file("delivery/pacto.yaml", fmt.Sprintf(pactoResource, name, name, p.pub.Bundle, pull, service, target, kind))
 	if p.opts.InsecureRegistry {
 		verify = "  # The registry speaks plain HTTP: for a local registry only.\n  insecure: true\n" + verify
 	}
@@ -129,7 +137,7 @@ metadata:
 spec:
   contractRef:
     oci: %s:@PACTO_VERSION@
-  target:
+%s  target:
 %s    workloadRef:
       name: %s
       kind: %s

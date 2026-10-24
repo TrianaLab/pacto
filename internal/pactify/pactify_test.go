@@ -93,7 +93,8 @@ func TestPactifyFraud(t *testing.T) {
 		t.Fatalf("pacto.yaml:\n%s", text)
 	}
 	wantFound := []string{"Deployment fraud in k8s/deployment.yaml", "version 1.0.0, from the image tag in k8s/deployment.yaml",
-		"registry registry.example/story, from the image registry.example/story/images/fraud:1.0.0", "Dockerfile builds the image registry.example/story/images/fraud"}
+		"registry registry.example/story, from the image registry.example/story/images/fraud:1.0.0", "Dockerfile builds the image registry.example/story/images/fraud",
+		"the published k8s/deployment.yaml deploys the image each version builds, pinned by digest"}
 	wantUnknown := []string{"interfaces: fraud listens on port 8080, but no OpenAPI file describes it",
 		"who uses fraud: no other services' contracts were given (--fleet), so none were looked at"}
 	if !slices.Equal(r.Found, wantFound) || !slices.Equal(r.Unknown, wantUnknown) || len(r.Dependencies) != 0 {
@@ -161,7 +162,7 @@ publish:
       type: manifests
       ref: oci://registry.example/story/deploy/fraud
       build:
-        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
+        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed "s#registry\.example/story/images/fraud:1\.0\.0#$PACTO_REF_API@$PACTO_DIGEST_API#" k8s/deployment.yaml > "$PACTO_OUT"/deployment.yaml && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
   sign:
     key: cosign.key
 `
@@ -218,13 +219,25 @@ func decodeStage(t *testing.T, text string) (delivery.StageSpec, map[string]bool
 	return spec, kinds
 }
 
+// pinnedImage is the image a manifests build deploys once pacto publish has
+// built the api image: its repository, pinned by the digest it was pushed at.
+const pinnedImage = "registry.example/story/images/fraud@sha256:" + "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+// buildEnv is what pacto publish gives a manifests build after the api image.
+func buildEnv(out string) []string {
+	ref, digest, _ := strings.Cut(pinnedImage, "@")
+	return append(os.Environ(), "PACTO_OUT="+out, "PACTO_VERSION=1.0.0", "PACTO_REF_API="+ref, "PACTO_DIGEST_API="+digest)
+}
+
 // runManifestsBuild runs the build command pacto publish would, and checks it
-// ships the manifests and the Pacto resource for the version published.
+// ships the manifests, the Deployment with the image this version built (not
+// the tag written in k8s/deployment.yaml) and the Pacto resource for the
+// version published.
 func runManifestsBuild(t *testing.T, dir string, command []string) {
 	t.Helper()
 	out := t.TempDir()
 	cmd := exec.Command(command[0], command[1:]...)
-	cmd.Dir, cmd.Env = dir, append(os.Environ(), "PACTO_OUT="+out, "PACTO_VERSION=1.0.0")
+	cmd.Dir, cmd.Env = dir, buildEnv(out)
 	if b, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("manifests build: %v\n%s", err, b)
 	}
@@ -232,10 +245,11 @@ func runManifestsBuild(t *testing.T, dir string, command []string) {
 	if err != nil || !strings.Contains(string(res), "oci: oci://registry.example/story/fraud:1.0.0") {
 		t.Fatalf("pacto-resource.yaml: %v\n%s", err, res)
 	}
-	for _, f := range []string{"deployment.yaml", "service.yaml"} {
-		if _, err := os.Stat(filepath.Join(out, f)); err != nil {
-			t.Error(err)
-		}
+	if _, err := os.Stat(filepath.Join(out, "service.yaml")); err != nil {
+		t.Error(err)
+	}
+	if d, _ := os.ReadFile(filepath.Join(out, "deployment.yaml")); !strings.Contains(string(d), "image: "+pinnedImage+"\n") {
+		t.Errorf("the published Deployment does not run the image this version built:\n%s", d)
 	}
 }
 
@@ -287,7 +301,7 @@ metadata: {name: db}
 	text := file(t, r, "pacto.yaml").Content
 	for _, s := range []string{"#   - name: payments\n#     ref: oci://ghcr.io/acme/contracts/payments", "version: 1.9.0", "team: shop", "ref: oci://ghcr.io/acme/checkout\n",
 		"bundle: oci://ghcr.io/acme/contracts/checkout\n",
-		`command: [sh, -c, 'cp deploy/app.yaml "$PACTO_OUT"/']`, "from Dockerfile, deploy/app.yaml.\n"} {
+		`command: [sh, -c, 'cp deploy/app.yaml "$PACTO_OUT"/ && sed "s#ghcr\.io/acme/checkout:v1\.9\.0#$PACTO_REF_API@$PACTO_DIGEST_API#" deploy/app.yaml > "$PACTO_OUT"/app.yaml']`, "from Dockerfile, deploy/app.yaml.\n"} {
 		if !strings.Contains(text, s) {
 			t.Errorf("pacto.yaml lacks %q:\n%s", s, text)
 		}
@@ -402,6 +416,7 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 func TestPactifyKustomizeLayout(t *testing.T) {
 	deploy := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: api}\nspec:\n  template:\n    spec:\n      containers: [{name: api, image: 'reg.io/api:1'}]\n"
 	dir := writeTree(t, t.TempDir(), map[string]string{
+		"Dockerfile":                              "FROM scratch\n",
 		"deploy/base/deployment.yaml":             deploy,
 		"deploy/base/kustomization.yaml":          "resources: [deployment.yaml]\n",
 		"deploy/overlays/prod/deployment.yaml":    deploy,
@@ -431,7 +446,7 @@ func TestPactifyKustomizeLayout(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, "deploy/base/secret.yaml"), []byte("apiVersion: v1\nkind: Secret\ndata: {a: b}\n"), 0o644)
 	out := t.TempDir()
 	build := exec.Command("sh", "-c", cmd)
-	build.Dir, build.Env = dir, append(os.Environ(), "PACTO_OUT="+out)
+	build.Dir, build.Env = dir, buildEnv(out)
 	if b, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("%s: %v", b, err)
 	}
@@ -439,6 +454,9 @@ func TestPactifyKustomizeLayout(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(out, f)); err != nil {
 			t.Error(err)
 		}
+	}
+	if d, _ := os.ReadFile(filepath.Join(out, "deploy/base/deployment.yaml")); !strings.Contains(string(d), "image: '"+pinnedImage+"'") {
+		t.Errorf("the workload's image is not pinned where its folder was kept:\n%s", d)
 	}
 	if _, err := os.Stat(filepath.Join(out, "deploy/base/secret.yaml")); err == nil {
 		t.Error("a Secret added after init was shipped")
@@ -696,6 +714,13 @@ func TestManifestsOnly(t *testing.T) {
 	if strings.Contains(text, "type: image") || !strings.HasPrefix(text, "# Written by pacto init from k8s/app.yaml.\n") || !hasLine(r.Unknown, "registry: no image") {
 		t.Fatalf("plan: %+v\n%s", r, text)
 	}
+	// With a Dockerfile, the image it builds is not the one the workload
+	// names, so there is nothing to pin, and Next says so.
+	_ = os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o644)
+	if r, err = Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); err != nil ||
+		strings.Contains(file(t, r, "pacto.yaml").Content, "PACTO_DIGEST_API") || !hasLine(r.Next, "k8s/app.yaml does not deploy registry.example/images/store") {
+		t.Fatalf("plan: %+v %v", r, err)
+	}
 }
 
 // TestDefaultFolder: with no folder, init uses the name as the folder, and
@@ -713,5 +738,57 @@ func TestDefaultFolder(t *testing.T) {
 	t.Chdir(dir)
 	if r, err = Init(context.Background(), Options{Plan: true}, os.WriteFile); err != nil || r.Dir != "." || r.Service != "here" {
 		t.Fatalf("plan: %+v %v", r, err)
+	}
+}
+
+// TestPrivateRegistry: RegistrySecret names the registry login on every Flux
+// OCIRepository (spec.secretRef) and on the Pacto resource
+// (spec.contractRef.pullSecretRef), and Next says to create it and to give
+// delivery's promoter one; without delivery, or with a bad name, it is refused.
+func TestPrivateRegistry(t *testing.T) {
+	dir := fraudDir(t)
+	r, err := Init(context.Background(), Options{Dir: dir, Owner: "risk", Delivery: true, RegistrySecret: "registry-creds", Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for env, want := range map[string]int{"test": 2, "prod": 1} {
+		n := 0
+		dec := yaml.NewDecoder(strings.NewReader(file(t, r, "delivery/"+env+".yaml").Content))
+		for {
+			var doc struct {
+				Kind string
+				Spec struct {
+					SecretRef struct{ Name string } `yaml:"secretRef"`
+				}
+			}
+			if dec.Decode(&doc) != nil {
+				break
+			}
+			if doc.Kind == "OCIRepository" && doc.Spec.SecretRef.Name == "registry-creds" {
+				n++
+			}
+		}
+		if n != want {
+			t.Errorf("%s: %d OCIRepositories log in with registry-creds, want %d", env, n, want)
+		}
+	}
+	var res struct {
+		Spec struct {
+			ContractRef struct {
+				PullSecretRef string `yaml:"pullSecretRef"`
+			} `yaml:"contractRef"`
+		}
+	}
+	if err := yaml.Unmarshal([]byte(file(t, r, "delivery/pacto.yaml").Content), &res); err != nil || res.Spec.ContractRef.PullSecretRef != "registry-creds" {
+		t.Fatalf("the Pacto resource does not log in with registry-creds: %v\n%s", err, file(t, r, "delivery/pacto.yaml").Content)
+	}
+	if !hasLine(r.Next, "kubectl -n <env> create secret docker-registry registry-creds") || !hasLine(r.Next, "promoter.registryCredentials.secretName") {
+		t.Fatalf("next: %v", r.Next)
+	}
+	for _, opts := range []Options{{Dir: dir, RegistrySecret: "registry-creds"}, {Dir: dir, Delivery: true, RegistrySecret: "Bad_Name"}} {
+		opts.Plan = true
+		if _, err := Init(context.Background(), opts, os.WriteFile); err == nil {
+			t.Errorf("%+v was accepted", opts)
+		}
 	}
 }

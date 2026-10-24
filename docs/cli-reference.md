@@ -1004,21 +1004,23 @@ pacto init [dir] [flags]
   pacto init --plan
   pacto init --delivery --owner payments --fleet ../contracts
   pacto init --delivery --no-transparency-log --insecure-registry
+  pacto init --delivery --registry-secret registry-creds
 ```
 
 **Flags:**
 
 ```
-      --delivery              also write the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization
-      --env strings           environments for --delivery, in promotion order (default [test,prod])
-      --fleet strings         folders of other services' contracts to find the services that use this one
-  -h, --help                  help for init
-      --insecure-registry     with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)
-      --name string           service name (default: the workload's name, then the folder's)
-      --no-transparency-log   write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)
-      --owner string          the team that owns the service (default: the workload's team label)
-      --plan                  show what would be added and change nothing
-      --registry string       where to publish, as host/path (default: read from the workload's image)
+      --delivery                 also write the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization
+      --env strings              environments for --delivery, in promotion order (default [test,prod])
+      --fleet strings            folders of other services' contracts to find the services that use this one
+  -h, --help                     help for init
+      --insecure-registry        with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)
+      --name string              service name (default: the workload's name, then the folder's)
+      --no-transparency-log      write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)
+      --owner string             the team that owns the service (default: the workload's team label)
+      --plan                     show what would be added and change nothing
+      --registry string          where to publish, as host/path (default: read from the workload's image)
+      --registry-secret string   with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with
 ```
 
 Scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml` and a configuration JSON Schema at `configuration/schema.json`.

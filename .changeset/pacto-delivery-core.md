@@ -12,7 +12,8 @@ a service instead of failing. It fills in the contract from the Dockerfile and
 Kubernetes manifests: name, version and registry from the workload and its
 image, the owner from `--owner` or a `team` label, the interface from an
 OpenAPI file and a `publish` section that builds the image and ships the
-manifests. Services the workload's environment points at are listed as
+manifests with the workload's image swapped for the one each version builds,
+pinned by digest, so nobody raises the image tag by hand. Services the workload's environment points at are listed as
 dependencies, commented out until you set the versions you accept; `--fleet
 <dir>` also lists the services that declare this one. Anything it cannot tell
 is reported as Unknown, never guessed. A file holding Secret values, or a
@@ -20,14 +21,16 @@ kustomization with a `secretGenerator`, is never shipped. `--delivery` also
 writes the cluster pieces: the Pacto resource and, for each environment
 (`--env`, default test and prod), the Flux `OCIRepository` objects, a
 Kustomization that waits for the rollout and the Stage; `--insecure-registry`
-marks those Flux objects for a plain-HTTP registry and `--no-transparency-log`
+marks those Flux objects for a plain-HTTP registry, `--registry-secret <name>`
+gives them and the Pacto resource the login for a private registry
+(`secretRef` and `pullSecretRef`) and `--no-transparency-log`
 writes `transparencyLog: false` for a key whose signatures stay out of Rekor.
 `--plan` prints exactly what would be added and writes nothing. `pacto init` only adds files and
 missing `.pactoignore` lines, so running it twice is safe and it never
 overwrites your edits. An empty folder still gets the blank contract. Agents get
 the same through `pacto_create` with `pactify: true` (plus `delivery`,
 `registry`, `environments`, `fleet_roots`, `no_transparency_log`,
-`insecure_registry` and `dry_run`).
+`insecure_registry`, `registry_secret` and `dry_run`).
 
 **Contract format 2.1.** `pactoVersion: "2.1"` adds a `publish` section (the
 contract bundle repository, the image, chart or manifests the service

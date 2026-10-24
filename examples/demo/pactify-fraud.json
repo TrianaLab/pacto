@@ -8,7 +8,8 @@
     "Deployment fraud in k8s/deployment.yaml",
     "version 1.0.0, from the image tag in k8s/deployment.yaml",
     "registry registry.example/story, from the image registry.example/story/images/fraud:1.0.0",
-    "Dockerfile builds the image registry.example/story/images/fraud"
+    "Dockerfile builds the image registry.example/story/images/fraud",
+    "the published k8s/deployment.yaml deploys the image each version builds, pinned by digest"
   ],
   "dependencies": [],
   "consumers": [],
@@ -23,7 +24,7 @@
     {
       "path": "pacto.yaml",
       "action": "add",
-      "content": "# Written by pacto init from Dockerfile, k8s/deployment.yaml, k8s/service.yaml.\n# Check it, then see what publishing would do: pacto publish --plan\npactoVersion: \"2.1\"\nservice:\n  name: fraud\n  version: 1.0.0\n  owner:\n    team: risk\nworkload: service\npublish:\n  bundle: oci://registry.example/story/fraud\n  deploy: manifests\n  artifacts:\n    - name: api\n      type: image\n      ref: oci://registry.example/story/images/fraud\n      build:\n        dockerfile:\n          context: .\n    - name: manifests\n      type: manifests\n      ref: oci://registry.example/story/deploy/fraud\n      build:\n        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml \"$PACTO_OUT\"/']\n  sign:\n    key: cosign.key\n"
+      "content": "# Written by pacto init from Dockerfile, k8s/deployment.yaml, k8s/service.yaml.\n# Check it, then see what publishing would do: pacto publish --plan\npactoVersion: \"2.1\"\nservice:\n  name: fraud\n  version: 1.0.0\n  owner:\n    team: risk\nworkload: service\npublish:\n  bundle: oci://registry.example/story/fraud\n  deploy: manifests\n  artifacts:\n    - name: api\n      type: image\n      ref: oci://registry.example/story/images/fraud\n      build:\n        dockerfile:\n          context: .\n    - name: manifests\n      type: manifests\n      ref: oci://registry.example/story/deploy/fraud\n      build:\n        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml \"$PACTO_OUT\"/ \u0026\u0026 sed \"s#registry\\.example/story/images/fraud:1\\.0\\.0#$PACTO_REF_API@$PACTO_DIGEST_API#\" k8s/deployment.yaml \u003e \"$PACTO_OUT\"/deployment.yaml']\n  sign:\n    key: cosign.key\n"
     },
     {
       "path": ".pactoignore",
