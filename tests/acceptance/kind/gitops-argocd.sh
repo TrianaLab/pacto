@@ -271,13 +271,25 @@ echo "== Argo CD $ARGOCD_VERSION (core install: no API server, no UI) =="
 # to the node, redis comes from public.ecr.aws, whose anonymous pulls from shared
 # runners get throttled: on 2026-10-19 argocd-redis sat in ImagePullBackOff for
 # the whole five-minute rollout wait on a tree that had passed an hour before.
+# The host pull can hit the same quota ("Data limit exceeded"), so an image from
+# public.ecr.aws/docker/library falls back to the Docker Hub official image it
+# mirrors, tagged under the name the manifest asks for.
 ARGO_MANIFEST="$(mktemp)"
 bash "$_PACTO_ROOT/release/scripts/retry.sh" curl -fsSL -o "$ARGO_MANIFEST" \
   "https://raw.githubusercontent.com/argoproj/argo-cd/${ARGOCD_VERSION}/manifests/core-install.yaml"
 sed -i.bak 's/imagePullPolicy: Always/imagePullPolicy: IfNotPresent/' "$ARGO_MANIFEST"
 ARGO_IMAGES="$(awk '$1 == "image:" { print $2 }' "$ARGO_MANIFEST" | sort -u)"
 for img in $ARGO_IMAGES; do
-  bash "$_PACTO_ROOT/release/scripts/retry.sh" docker pull "$img" > /dev/null
+  bash "$_PACTO_ROOT/release/scripts/retry.sh" docker pull "$img" > /dev/null && continue
+  case "$img" in
+    public.ecr.aws/docker/library/*)
+      hub="docker.io/library/${img#public.ecr.aws/docker/library/}"
+      echo "  $img: pulling $hub instead"
+      bash "$_PACTO_ROOT/release/scripts/retry.sh" docker pull "$hub" > /dev/null || fail "could not pull $img or $hub"
+      docker tag "$hub" "$img"
+      ;;
+    *) fail "could not pull $img" ;;
+  esac
 done
 # shellcheck disable=SC2086  # one image reference per word
 load_images $ARGO_IMAGES
