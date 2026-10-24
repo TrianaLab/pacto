@@ -143,6 +143,8 @@ def yaml_docs(block: str) -> list:
 # is the point: the validator must see the same INVALID_INTERFACE_SPEC a reader
 # copying the example would get.
 PROTO_STUB = 'syntax = "proto3";\n\nservice Stub {\n}\n'
+# An mcp interface must list at least one named tool (INVALID_MCP_TOOLS).
+MCP_STUB = '{"tools": [{"name": "stub"}]}\n'
 
 
 def is_local_ref(val) -> bool:
@@ -157,7 +159,7 @@ def is_local_ref(val) -> bool:
 def collect_local_refs(obj, out: set[str]) -> None:
     if isinstance(obj, dict):
         for k, v in obj.items():
-            if k in ("ref", "schema") and is_local_ref(v):
+            if k in ("ref", "schema", "evals") and is_local_ref(v):
                 out.add(v)
             else:
                 collect_local_refs(v, out)
@@ -197,6 +199,10 @@ def check_contracts(pacto_bin: str, md_files: list[str]) -> None:
                             # rejects with INVALID_INTERFACE_SPEC. Stubbing that
                             # with "{}" would pass a doc example the real CLI fails.
                             fh.write(PROTO_STUB if ref.endswith(".proto") else "{}\n")
+                    for iface in doc.get("interfaces") or []:
+                        if iface.get("type") == "mcp" and iface.get("ref") in refs:
+                            with open(os.path.join(tmp, iface["ref"]), "w", encoding="utf-8") as fh:
+                                fh.write(MCP_STUB)
                     proc = run([pacto_bin, "validate", tmp])
                     if proc.returncode == 0:
                         ok += 1
@@ -538,16 +544,20 @@ def check_coordinates() -> None:
     units = manifest["units"]
     ah = read(os.path.join(K8S, "docs", "generated", "artifact-hub.md"))
     problems = []
-    for uid in ("operator-image", "operator-chart", "k8s-module"):
+    for uid in ("operator-image", "operator-chart", "delivery-image", "delivery-chart", "k8s-module"):
         u = units[uid]
         if u["coordinate"] not in ah:
             problems.append(f"{uid} coordinate {u['coordinate']} absent from artifact-hub.md")
         if u["version"] not in ah:
             problems.append(f"{uid} version {u['version']} absent from artifact-hub.md")
     # Authored install snippets must use the manifest chart coordinate, not a stale one.
-    chart_coord = units["operator-chart"]["coordinate"]
-    for name in ("installation.md", "upgrade.md"):
-        text = read(os.path.join(K8S, "docs", name))
+    for path, unit in ((os.path.join(K8S, "docs", "installation.md"), "operator-chart"),
+                       (os.path.join(K8S, "docs", "upgrade.md"), "operator-chart"),
+                       (os.path.join(K8S, "docs", "delivery-setup.md"), "delivery-chart"),
+                       (os.path.join(REPO_ROOT, "docs", "pactify.md"), "delivery-chart")):
+        name = os.path.basename(path)
+        chart_coord = units[unit]["coordinate"]
+        text = read(path)
         for coord in re.findall(r"oci://(ghcr\.io/\S*charts/\S+)", text):
             if coord.rstrip("\\").strip() != chart_coord:
                 problems.append(f"{name}: chart coordinate {coord} != manifest {chart_coord}")
@@ -558,8 +568,20 @@ def check_coordinates() -> None:
         for ver in re.findall(r"--version\s+(\d\S*)", text):
             problems.append(
                 f"{name}: hand-written --version {ver}; include "
-                f"generated/_install-command.md or _upgrade-command.md instead"
+                f"generated/_install-command.md, _upgrade-command.md or "
+                "_delivery-{install,upgrade}-command.md instead"
             )
+    # Each CRD-apply snippet must name exactly the CRDs its chart ships in crds/,
+    # the directory `helm upgrade` never updates. A delivery CRD in the operator
+    # snippet would install delivery on an operator upgrade; a missing one would
+    # leave a chart's schema stale.
+    for snippet, chart in (("_crd-apply.md", "pacto-operator"),
+                           ("_delivery-crd-apply.md", "pacto-delivery")):
+        named = sorted(re.findall(r"/config/crd/bases/(\S+\.yaml)",
+                                  read(os.path.join(K8S, "docs", "generated", snippet))))
+        shipped = sorted(os.listdir(os.path.join(K8S, "charts", chart, "crds")))
+        if named != shipped:
+            problems.append(f"{snippet} applies {named}, chart {chart} ships {shipped}")
     # Every pinned image coordinate anywhere on the site, not only the chart's.
     # `ghcr.io/trianalab/pacto/demo:3.2.1` sat in the Compose demo page against a
     # 3.2.7 release unit with nothing comparing them, so the page's one

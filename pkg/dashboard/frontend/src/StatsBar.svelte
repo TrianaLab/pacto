@@ -162,7 +162,7 @@
   .filter-sep {
     width: 1px; height: 18px; background: var(--c-border); margin: 0 var(--sp-1);
   }
-  .filter-pill-source { text-transform: uppercase; font-size: var(--text-xs); font-weight: 600; }
+  .filter-pill-source { font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .filter-search {
     display: inline-flex; align-items: center; gap: 5px;
     padding: 4px 10px; border-radius: 100px;

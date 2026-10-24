@@ -9,12 +9,15 @@ import (
 	"path/filepath"
 	"time"
 
+	"oras.land/oras-go/v2/registry/remote"
+
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/contractview"
 	"github.com/trianalab/pacto/v4/pkg/doc"
 	"github.com/trianalab/pacto/v4/pkg/graph"
 	"github.com/trianalab/pacto/v4/pkg/lock"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
 // Service is the application service container. It holds injected dependencies
@@ -48,6 +51,12 @@ type sysDeps struct {
 	readinessTimeout time.Duration
 	// httpClient posts evidence envelopes.
 	httpClient *http.Client
+	// run runs the program publish hands work to (docker buildx).
+	run runner
+	// publishRegistry is the registry publish reads and writes.
+	publishRegistry func() publish.Registry
+	// refusalRepo opens the repository a publish refusal is kept in.
+	refusalRepo func(path string) (*remote.Repository, error)
 }
 
 // env is sys with every unset field at its production default.
@@ -85,6 +94,15 @@ func (s *Service) env() sysDeps {
 	}
 	if d.httpClient == nil {
 		d.httpClient = evidenceClient
+	}
+	if d.run == nil {
+		d.run = execRun
+	}
+	if d.publishRegistry == nil {
+		d.publishRegistry = defaultPublishRegistry
+	}
+	if d.refusalRepo == nil {
+		d.refusalRepo = defaultRefusalRepo
 	}
 	return d
 }

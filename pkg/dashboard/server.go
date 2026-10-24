@@ -20,10 +20,12 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/logging"
@@ -50,18 +52,44 @@ type Options struct {
 	// Fleet enables the read-only operational-graph endpoints. When nil, none of
 	// the /api/fleet/* endpoints are registered.
 	Fleet func(ctx context.Context) (*fleet.Query, error)
+	// Published returns the snapshot already published, or nil, without
+	// building one. Capabilities, the nav and delivery read it, so a slow
+	// first build never holds them up. Nil falls back to Fleet, for hosts
+	// whose snapshot is always at hand, like the WASM demo.
+	Published func() *fleet.Query
 	// Impact enables the read-only /api/fleet/impact endpoint. When nil, the
 	// endpoint is not registered.
 	Impact func(ctx context.Context, old, new string, includeObserved bool) (*impact.Result, error)
 	// Refresh rebuilds the fleet snapshot for /api/refresh. When nil — as in the
 	// offline WASM demo, whose snapshot is baked in — refresh is a successful no-op.
 	Refresh func(ctx context.Context) error
+	// Delivery serves /api/delivery/* as the caller: it returns the delivery
+	// API bound to the request's own identity, or a *DeliveryError saying why
+	// there is none. Nil on hosts without a cluster: no delivery routes.
+	Delivery func(*http.Request) (DeliveryAPI, error)
+	// DeliveryInstalled reports whether the cluster serves the delivery API
+	// group; an error means the cluster could not be asked. Nil means it does.
+	DeliveryInstalled func(context.Context) (bool, error)
+	// DeliveryPolicy classifies callers and maps owner teams to groups, the
+	// way the promoter does.
+	DeliveryPolicy delivery.ClassPolicy
+	// DeliveryNamespace, when set, is the only namespace delivery reads and
+	// acts in, as the fleet views are scoped to it.
+	DeliveryNamespace string
+	// Auth is the identity layer: sign-in, sessions and request guards.
+	Auth *Auth
+	// MiraURL, when set, turns Mira citations into links.
+	MiraURL string
 }
 
 // Server serves the dashboard web UI and REST API.
 type Server struct {
 	opts       Options
 	listenAddr string // server URL for the OpenAPI spec, empty when no port is set
+
+	// people are the names of the people who signed in, by username.
+	peopleMu sync.Mutex
+	people   map[string]string
 }
 
 // APIConfig returns the Huma configuration for the dashboard API.
@@ -161,6 +189,11 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 	mux := http.NewServeMux()
 
 	s.registerAPI(mux)
+	handler := withRequest(mux)
+	if a := s.opts.Auth; a != nil {
+		mux.Handle("/auth/", a.Routes)
+		handler = a.Middleware(handler)
+	}
 
 	// Static UI — served on the raw mux, not through Huma.
 	mux.Handle("/", http.FileServer(http.FS(s.opts.UI)))
@@ -171,7 +204,7 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 	defer cancelBase()
 
 	srv := &http.Server{
-		Handler:           s.corsMiddleware(mux),
+		Handler:           s.corsMiddleware(handler),
 		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
@@ -255,6 +288,7 @@ func (s *Server) RegisterOperations(api huma.API) {
 	s.registerCapabilitiesOperation(api)
 	s.registerFleetOperations(api)
 	s.registerProductOperations(api)
+	s.registerDeliveryOperations(api)
 }
 
 // ExportOpenAPI builds the Huma API with every operation registered — the live
@@ -318,6 +352,9 @@ func (s *Server) health(_ context.Context, _ *struct{}) (*healthOutput, error) {
 func (s *Server) publishedQuery(ctx context.Context) *fleet.Query {
 	if s.opts.Fleet == nil {
 		return nil
+	}
+	if s.opts.Published != nil {
+		return s.opts.Published()
 	}
 	q, err := s.opts.Fleet(ctx)
 	if err != nil {

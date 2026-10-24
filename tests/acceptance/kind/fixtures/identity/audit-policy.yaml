@@ -1,0 +1,9 @@
+# The delivery kind e2e reads who created, cancelled and approved what from the
+# apiserver's own audit log.
+apiVersion: audit.k8s.io/v1
+kind: Policy
+omitStages: [RequestReceived]
+rules:
+- level: Metadata
+  resources: [{group: delivery.pacto.trianalab.io}]
+- level: None

@@ -9,17 +9,21 @@ dependencies and state are in
 
 ## `pactoVersion`
 
-The contract specification version. The only supported value is `"2.0"`.
+The contract specification version: `"2.0"` or `"2.1"`. 2.1 adds
+[`publish`](publish.md), [`agent`](agent.md) and the `mcp` interface type and
+nothing else, so a 2.0 contract keeps working unchanged.
 
 ```yaml
 pactoVersion: "2.0"
 ```
 
-Every contract is validated against the single tracked JSON Schema,
-[`pacto-v2.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.0.schema.json).
+The version picks the JSON Schema the contract is validated against:
+[`pacto-v2.0.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.0.schema.json)
+or
+[`pacto-v2.1.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.1.schema.json).
 Any other value is a hard error: the contract fails to load before validation
-runs and reports `PARSE_ERROR` (`unsupported pactoVersion "2.1"; only "2.0" is
-supported`). See [Validation layers](validation.md).
+runs and reports `PARSE_ERROR` (`unsupported pactoVersion "3.0"; supported: 2.0,
+2.1`). See [Validation layers](validation.md).
 
 ---
 
@@ -93,12 +97,12 @@ service:
 
 ## `interfaces`
 
-Declares the service's communication boundaries. Optional — a service with no network interfaces (e.g. a batch job or shared library) may omit this section entirely. The `ref` field points at the spec you already publish — an OpenAPI document, an AsyncAPI document or a gRPC service descriptor — so Pacto references your existing interface rather than redefining it.
+Declares the service's communication boundaries. Optional — a service with no network interfaces (e.g. a batch job or shared library) may omit this section entirely. The `ref` field points at the spec you already publish — an OpenAPI document, an AsyncAPI document, a gRPC service descriptor or an agent's MCP tools — so Pacto references your existing interface rather than redefining it.
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Non-empty. Must be unique across interfaces |
-| `type` | string | Yes | Enum: `openapi`, `asyncapi`, `grpc` |
+| `type` | string | Yes | Enum: `openapi`, `asyncapi`, `grpc`, `mcp` (2.1) |
 | `ref` | string | Yes | Non-empty. Path to the spec file within the bundle |
 | `visibility` | string | No | Enum: `public`, `internal`. Default: `internal` |
 
@@ -109,6 +113,7 @@ Declares the service's communication boundaries. Optional — a service with no 
 | `openapi` | OpenAPI document for HTTP/REST traffic |
 | `asyncapi` | AsyncAPI document for event-driven communication |
 | `grpc` | gRPC service descriptor |
+| `mcp` | The tools an AI agent exposes, as an MCP `tools/list` result. See [agents](agent.md#tools) |
 
 !!! note
     Interface names must be unique within a contract. Every interface requires a non-empty `ref` (`SCHEMA_VIOLATION` otherwise), and the referenced file must exist in the bundle (`FILE_NOT_FOUND` otherwise). A `.json`, `.yaml` or `.yml` ref must also parse (`INVALID_INTERFACE_SPEC` otherwise); any other extension — a gRPC `.proto`, say — carries no format this layer can check, so it is only checked for existence. There is no `port` field — ports are a deployment concern. Health and metrics endpoints are declared as [capabilities](#capabilities), not interfaces.

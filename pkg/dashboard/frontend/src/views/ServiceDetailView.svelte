@@ -487,8 +487,8 @@
               <tr class:version-current={ver.version === detail.version}>
                 <td>
                   <a href={ver.isCurrent ? serviceUrl(name) : serviceVersionUrl(name, ver.version)}><code>{ver.version}</code></a>
-                  {#if ver.isCurrent}<span class="badge badge-neutral" style="margin-left:6px;font-size:10px">current</span>{/if}
-                  {#if ver.version === detail.version && !ver.isCurrent}<span class="badge badge-viewing" style="margin-left:6px;font-size:10px">viewing</span>{/if}
+                  {#if ver.isCurrent}<span class="badge badge-neutral" style="margin-left:6px;font-size: var(--text-xs)">current</span>{/if}
+                  {#if ver.version === detail.version && !ver.isCurrent}<span class="badge badge-viewing" style="margin-left:6px;font-size: var(--text-xs)">viewing</span>{/if}
                 </td>
                 <td>
                   {#if ver.classification === 'BREAKING'}<span class="badge badge-err">Breaking</span>
@@ -624,12 +624,9 @@
   }
 
   .section-toc-title {
-    font-size: var(--text-xs);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
     color: var(--c-text-3);
     margin-bottom: var(--sp-2);
+    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
 
   .section-toc-item {

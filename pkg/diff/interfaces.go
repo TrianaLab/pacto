@@ -48,6 +48,8 @@ func diffInterfaces(old, new *contract.Contract, oldFS, newFS fs.FS) []Change {
 				changes = append(changes, diffAsyncAPI(oldIface.Ref, newIface.Ref, oldFS, newFS)...)
 			case contract.InterfaceTypeGRPC:
 				changes = append(changes, diffGRPC(oldIface.Ref, newIface.Ref, oldFS, newFS)...)
+			case contract.InterfaceTypeMCP:
+				changes = append(changes, diffMCP(oldIface.Ref, newIface.Ref, oldFS, newFS)...)
 			}
 		}
 	}

@@ -130,7 +130,7 @@ echo "== STEP 2: create a representative v4-shaped Pacto CR + let v4 reconcile =
 # faithful: the point is the v4 operator RECONCILES the CR and writes a status
 # (surfaced, not dropped). The v6 operator resolves it to Compliant after upgrade.
 kubectl create namespace "$DEMO_NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-kubectl -n "$DEMO_NS" create deployment orders --image=registry.k8s.io/pause:3.9 >/dev/null 2>&1 || true
+kubectl -n "$DEMO_NS" create deployment orders --image=registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097 >/dev/null 2>&1 || true
 kubectl -n "$DEMO_NS" rollout status deployment/orders --timeout=90s >/dev/null
 kubectl apply -f - >/dev/null <<YAML
 apiVersion: pacto.trianalab.io/v1alpha1

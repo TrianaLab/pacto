@@ -12,8 +12,10 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/term"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/rest"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/internal/runtimewatch"
 	"github.com/trianalab/pacto/v4/internal/runtimewatch/ebpf"
@@ -25,6 +27,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/doc"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
 const outputFormatKey = "output-format"
@@ -40,14 +43,27 @@ type deps struct {
 	buildStaticExport func(*dashboard.ServiceDetails, *dashboard.GlobalGraph) (map[string][]byte, error)
 	// The runtime commands: the collector and a session touch the kernel, the dynamic client a cluster,
 	// runAgent blocks until its context ends.
-	newCollector  func(ringbuf uint32) (runtimewatch.Collector, error)
-	newDynamic    func() (dynamic.Interface, error)
+	newCollector func(ringbuf uint32) (runtimewatch.Collector, error)
+	newDynamic   func() (dynamic.Interface, error)
+	// clusterConfig is the ambient cluster config the dashboard builds callers' clients from (address and CA
+	// only); served asks discovery whether an API group version is installed.
+	clusterConfig func() (*rest.Config, error)
+	served        func(*rest.Config, string) (bool, error)
+	// dynamicFor builds a client from a caller's own config; newMCPAuth reads the remote MCP issuer.
+	dynamicFor func(*rest.Config) (dynamic.Interface, error)
+	newMCPAuth func(authn.MCPConfig) (mcpAuth, error)
+	// newDeliveryRegistry is the read-only registry `pacto delivery` resolves artifacts through.
+	newDeliveryRegistry func(insecureHosts ...string) app.DeliveryRegistry
+	// newRecordRepo opens a repository delivery records are read from.
+	newRecordRepo app.RecordRepo
 	runAgent      func(context.Context, runtimewatch.Config)
 	newDocker     func(socket string) *evalsink.Docker
 	newSession    func(parent, name string) (ebpf.Session, error)
 	setSubreaper  func() error
 	notifySignals func(chan<- os.Signal, ...os.Signal)
 	resolveBundle func(svc *app.Service, ctx context.Context, ref string) (*contract.Bundle, error)
+	// publish runs `pacto publish`: it builds, signs and writes to a registry.
+	publish func(svc *app.Service, ctx context.Context, opts app.PublishOptions) (*publish.Result, error)
 	// selfProc is this process's own /proc, read for its network namespace.
 	selfProc runtimewatch.ProcFS
 	// attachTimeout bounds the wait for `pacto run`'s eBPF program before the command starts.
@@ -63,23 +79,30 @@ type deps struct {
 // defaultDeps are the real dependencies.
 func defaultDeps() deps {
 	return deps{
-		checkForUpdate:    update.CheckForUpdate,
-		readPassword:      term.ReadPassword,
-		executable:        os.Executable,
-		runTUI:            tui.Run,
-		buildStaticExport: doc.BuildStaticExport,
-		newCollector:      ebpf.New,
-		newDynamic:        k8sclient.NewDynamic,
-		runAgent:          runtimewatch.Run,
-		newDocker:         evalsink.NewDocker,
-		newSession:        ebpf.NewSession,
-		setSubreaper:      ebpf.SetSubreaper,
-		notifySignals:     signal.Notify,
-		resolveBundle:     (*app.Service).ResolveBundle,
-		selfProc:          runtimewatch.OSProcFS{Root: "/proc"},
-		attachTimeout:     10 * time.Second,
-		pollInterval:      time.Second,
-		updateWait:        200 * time.Millisecond,
+		checkForUpdate:      update.CheckForUpdate,
+		readPassword:        term.ReadPassword,
+		executable:          os.Executable,
+		runTUI:              tui.Run,
+		buildStaticExport:   doc.BuildStaticExport,
+		newCollector:        ebpf.New,
+		newDynamic:          k8sclient.NewDynamic,
+		clusterConfig:       k8sclient.Config,
+		served:              k8sclient.Served,
+		dynamicFor:          newDynamicForConfig,
+		newMCPAuth:          newMCPAuth,
+		newDeliveryRegistry: newDeliveryRegistry,
+		newRecordRepo:       newRecordRepo,
+		runAgent:            runtimewatch.Run,
+		newDocker:           evalsink.NewDocker,
+		newSession:          ebpf.NewSession,
+		setSubreaper:        ebpf.SetSubreaper,
+		notifySignals:       signal.Notify,
+		resolveBundle:       (*app.Service).ResolveBundle,
+		publish:             (*app.Service).Publish,
+		selfProc:            runtimewatch.OSProcFS{Root: "/proc"},
+		attachTimeout:       10 * time.Second,
+		pollInterval:        time.Second,
+		updateWait:          200 * time.Millisecond,
 	}
 }
 
@@ -215,6 +238,7 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	root.AddCommand(newDiffCommand(svc, v))
 	root.AddCommand(newPackCommand(svc, v))
 	root.AddCommand(newPushCommand(svc, v))
+	root.AddCommand(newPublishCommand(svc, v, d))
 	root.AddCommand(newPullCommand(svc, v))
 	root.AddCommand(newGraphCommand(svc, v))
 	root.AddCommand(newFleetCommand(svc, v))
@@ -231,8 +255,9 @@ func newRootCommand(svc *app.Service, info VersionInfo, d deps) *cobra.Command {
 	root.AddCommand(newLogoutCommand())
 	root.AddCommand(newVersionCommand(info, v))
 	root.AddCommand(newUpdateCommand(info.Version, update.New()))
-	root.AddCommand(newMCPCommand(svc, info.Version))
-	root.AddCommand(newDashboardCommand(svc, v, info.Version))
+	root.AddCommand(newMCPCommand(svc, info.Version, d))
+	root.AddCommand(newDeliveryCommand(v, d))
+	root.AddCommand(newDashboardCommand(svc, v, info.Version, d))
 	root.AddCommand(newTUICommand(svc, v, d))
 
 	attachBanner(root)

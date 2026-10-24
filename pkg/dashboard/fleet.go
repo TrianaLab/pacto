@@ -25,7 +25,19 @@ type capabilitiesOutput struct {
 		// the impact provider, so a consumer can honestly enable an include-observed
 		// control instead of shipping a placebo.
 		Observed bool `json:"observed" doc:"An observation source backs impact analysis"`
+		// Delivery reports whether the delivery views apply: the cluster serves
+		// the delivery API group and the caller can be identified (local mode,
+		// or a dashboard people sign in to).
+		Delivery bool           `json:"delivery" doc:"The delivery views and actions are served"`
+		Auth     capabilityAuth `json:"auth" doc:"How callers are identified"`
+		MiraURL  string         `json:"miraURL,omitempty" doc:"Mira's address, to link health-check citations"`
 	}
+}
+
+type capabilityAuth struct {
+	Mode     string `json:"mode" enum:"local,shared,none" doc:"local: the kubeconfig user; shared: people sign in; none: no identity layer"`
+	Login    bool   `json:"login" doc:"People sign in with the identity provider"`
+	SignedIn bool   `json:"signedIn" doc:"This caller is signed in"`
 }
 
 // registerCapabilitiesOperation registers the always-on capabilities endpoint. It
@@ -48,13 +60,26 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 	out.Body.Impact = s.opts.Impact != nil
 	// Observed availability is DERIVED from the currently published snapshot (does
 	// it carry any observed relationship?), never a hardcoded flag — so the
-	// capability is honest on every host, including the WASM demo. If the snapshot
-	// cannot be read, observed is reported false (we cannot confirm it).
-	if s.opts.Fleet != nil {
-		if q, err := s.opts.Fleet(ctx); err == nil && q.HasObserved() {
-			out.Body.Observed = true
+	// capability is honest on every host, including the WASM demo. Until a snapshot
+	// is published, observed is reported false (we cannot confirm it).
+	if q := s.publishedQuery(ctx); q != nil && q.HasObserved() {
+		out.Body.Observed = true
+	}
+	out.Body.Auth.Mode = "none"
+	if a := s.opts.Auth; a != nil {
+		out.Body.Auth = capabilityAuth{Mode: "shared", Login: a.Login, SignedIn: s.authState(ctx).SignedIn}
+		if a.Local {
+			out.Body.Auth.Mode = "local"
+		}
+		// A cluster that cannot be asked keeps the tab: its views then say
+		// the cluster is unreachable instead of hiding delivery. Where delivery
+		// is never served, the cluster is not asked at all.
+		if s.opts.Delivery != nil && (a.Local || a.Login) {
+			installed, err := s.deliveryInstalled(ctx)
+			out.Body.Delivery = installed || err != nil
 		}
 	}
+	out.Body.MiraURL = s.opts.MiraURL
 	return out, nil
 }
 

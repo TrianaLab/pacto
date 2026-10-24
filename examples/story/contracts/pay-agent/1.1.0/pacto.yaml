@@ -1,0 +1,28 @@
+pactoVersion: "2.1"
+service:
+  name: pay-agent
+  version: 1.1.0
+  owner:
+    team: payments
+workload: service
+interfaces:
+  - name: tools
+    type: mcp
+    ref: interfaces/tools.json
+agent:
+  models: [anthropic/claude-haiku-4-5]
+  evals: evals/suite.yaml
+publish:
+  bundle: oci://registry.example/story/pay-agent
+  deploy: manifests
+  artifacts:
+    - name: manifests
+      type: manifests
+      ref: oci://registry.example/story/deploy/pay-agent
+      build:
+        command: [sh, -c, 'cp deploy/*.yaml "$PACTO_OUT"/']
+  sign:
+    key: cosign.key
+    transparencyLog: false
+metadata:
+  summary: "The agent that ships payments changes."

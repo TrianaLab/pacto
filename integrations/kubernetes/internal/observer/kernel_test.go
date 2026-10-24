@@ -836,18 +836,21 @@ func TestTargetPods(t *testing.T) {
 			Status:     corev1.PodStatus{Phase: phase},
 		}
 	}
+	leaving := pod("leaving", corev1.PodRunning, kNode)
+	leaving.DeletionTimestamp, leaving.Finalizers = &metav1.Time{Time: time.Now()}, []string{"test/hold"}
 	objs := []client.Object{
 		makeDeployment(kNS, "checkout", nil),
 		pod("running", corev1.PodRunning, kNode),
 		pod("pending", corev1.PodPending, ""),
 		pod("done", corev1.PodSucceeded, kNode),
+		leaving,
 	}
 	in := CollectInput{Namespace: kNS, WorkloadName: "checkout", WorkloadKind: workloadDeployment}
 
 	c := fake.NewClientBuilder().WithScheme(kernelScheme()).WithObjects(objs...).Build()
 	pods, err := New(c).targetPods(context.Background(), in)
 	if err != nil || len(pods) != 1 || pods[0].Name != "running" {
-		t.Fatalf("got %v, %v; want only the running pod", pods, err)
+		t.Fatalf("got %v, %v; want only the running pod, not the one shutting down", pods, err)
 	}
 
 	c = fake.NewClientBuilder().WithScheme(kernelScheme()).Build()
@@ -1076,6 +1079,39 @@ func TestKernelMerge_LeaseHeartbeat(t *testing.T) {
 			set, _ := f.collect(t)
 			if o, _ := iface(t, set); o.Outcome != tc.want {
 				t.Fatalf("got %s, want %s", o.Outcome, tc.want)
+			}
+		})
+	}
+}
+
+// TestKernelCoverage is what an evaluation reports about the node agent's view of the target's pods, so
+// a reader of the status (Pacto delivery's claim gate) can tell "observed and clean" from "not observed".
+func TestKernelCoverage(t *testing.T) {
+	cases := map[string]struct {
+		mutate func(f *kernelFixture)
+		kernel bool
+		want   string
+	}{
+		"complete":          {func(*kernelFixture) {}, true, "Complete"},
+		"stale":             {func(f *kernelFixture) { f.node.Status.LastPublished = kTime(5 * time.Minute) }, true, "Stale"},
+		"collection failed": {func(f *kernelFixture) { f.node.Status.Collection.State = pactoapi.CollectionFailed }, true, "Failed"},
+		"shared netns":      {func(f *kernelFixture) { f.entry().NetnsShared = true }, true, "Partial"},
+		"no pod":            {func(f *kernelFixture) { f.pod.Spec.NodeName = ""; f.pod.Status.Phase = corev1.PodPending }, true, "Partial"},
+		"pod list failed":   {func(f *kernelFixture) { f.funcs = interceptor.Funcs{List: failList[*corev1.PodList]()} }, true, "Failed"},
+		"kernel off":        {func(*kernelFixture) {}, false, ""},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			f := newKernelFixture()
+			c.mutate(f)
+			cl := fake.NewClientBuilder().WithScheme(kernelScheme()).WithObjects(f.objects(true)...).WithInterceptorFuncs(f.funcs).Build()
+			o := New(cl)
+			if got := o.KernelCoverage(); got != "" {
+				t.Fatalf("before any Collect: %q", got)
+			}
+			_, _, _ = o.Collect(context.Background(), f.input(c.kernel))
+			if got := o.KernelCoverage(); got != c.want {
+				t.Fatalf("got %q, want %q", got, c.want)
 			}
 		})
 	}

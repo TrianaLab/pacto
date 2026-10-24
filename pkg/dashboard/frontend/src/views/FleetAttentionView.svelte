@@ -358,8 +358,8 @@
   }
   .attn-main { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-width: 0; }
   .attn-cat {
-    font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.03em;
     color: var(--c-text-3); background: var(--c-surface-inset); padding: 1px 6px; border-radius: var(--radius-xs);
+    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .attn-summary { color: var(--c-text-2); font-size: var(--text-sm); }
   .attn-src { color: var(--c-text-3); font-size: var(--text-xs); }
@@ -370,6 +370,6 @@
   /* No opacity: every other uppercase micro-label in the product (.attn-cat, .te-k,
      .src-k) is plain --c-text-3, and dimming this one further put it at 3.58:1 -- below
      WCAG AA -- while also making it the only micro-label with its own shade. */
-  .attn-next-k { text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .attn-next-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   /* The list and the pager are the shared .pl-* rules in styles/components.css. */
 </style>

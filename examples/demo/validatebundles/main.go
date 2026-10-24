@@ -36,7 +36,9 @@ import (
 
 // Roots walked for contracts. `pacto-dashboard` lives beside ./bundles rather
 // than inside it — it is the dashboard's own bundle, not a fleet fixture — and it
-// is just as much a demo contract, so it is validated here too.
+// is just as much a demo contract, so it is validated here too. Arguments replace
+// these roots, so another contract set (the payments story) is indexed on its own
+// and never resolves a ref against the demo fleet.
 var roots = []string{"bundles", "pacto-dashboard"}
 
 const contractFile = "pacto.yaml"
@@ -60,6 +62,9 @@ func main() {
 }
 
 func run() error {
+	if len(os.Args) > 1 {
+		roots = os.Args[1:]
+	}
 	idx, err := buildIndex(roots...)
 	if err != nil {
 		return err

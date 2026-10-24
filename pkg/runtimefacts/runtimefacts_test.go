@@ -288,3 +288,11 @@ func TestDependencyObservationBuilder(t *testing.T) {
 		}
 	}
 }
+
+func TestCoverageString(t *testing.T) {
+	for c, want := range map[Coverage]string{CoverageComplete: "Complete", CoveragePartial: "Partial", CoverageFailed: "Failed", CoverageStale: "Stale"} {
+		if c.String() != want {
+			t.Errorf("%d: %q", c, c.String())
+		}
+	}
+}

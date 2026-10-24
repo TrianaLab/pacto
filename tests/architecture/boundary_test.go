@@ -37,6 +37,7 @@ var corePackages = []string{
 	"github.com/trianalab/pacto/v4/pkg/contract/...",
 	"github.com/trianalab/pacto/v4/pkg/contractview/...",
 	"github.com/trianalab/pacto/v4/pkg/dashboard/...",
+	"github.com/trianalab/pacto/v4/pkg/delivery/...",
 	"github.com/trianalab/pacto/v4/pkg/evidence/...",
 	"github.com/trianalab/pacto/v4/pkg/evidenceenvelope/...",
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest/...",

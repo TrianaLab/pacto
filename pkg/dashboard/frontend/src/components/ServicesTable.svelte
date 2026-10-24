@@ -295,7 +295,7 @@
     border-radius: var(--radius-xs);
     background: var(--c-neutral-bg);
     color: var(--c-text-3);
-    font-size: 10px;
+    font-size: var(--text-xs);
     font-weight: 600;
     vertical-align: middle;
   }

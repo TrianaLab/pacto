@@ -1260,3 +1260,25 @@ func TestBundleToTarGz_DocsPreserved(t *testing.T) {
 		}
 	}
 }
+
+// TestBundleDigest: the digest computed without pushing is the digest a push
+// writes, and a bundle that cannot be packed has none.
+func TestBundleDigest(t *testing.T) {
+	d, err := BundleDigest(testBundle())
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, _ := BundleImage(testBundle())
+	pushed, _ := materializeImage(t, img).Digest()
+	if d != pushed.String() {
+		t.Fatalf("computed %s, pushed %s", d, pushed)
+	}
+	if _, err := BundleDigest(&contract.Bundle{}); err == nil {
+		t.Fatal("an empty bundle has no digest")
+	}
+	broken := testBundle()
+	broken.FS = fstest.MapFS{"pacto.yaml": &fstest.MapFile{Mode: fs.ModeSymlink}}
+	if _, err := BundleDigest(broken); err == nil {
+		t.Fatal("an unreadable bundle has no digest")
+	}
+}

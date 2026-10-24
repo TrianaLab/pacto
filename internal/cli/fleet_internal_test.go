@@ -76,7 +76,7 @@ func TestFleetOptionsCarriesTheCatalogRoots(t *testing.T) {
 func TestFleetOptionsReadersDeclareEverySharedFlag(t *testing.T) {
 	for _, cmd := range []*cobra.Command{
 		newImpactCommand(newTestService(t), viper.New()),
-		newMCPCommand(newTestService(t), "test"),
+		newMCPCommand(newTestService(t), "test", defaultDeps()),
 		newTUICommand(newTestService(t), viper.New(), defaultDeps()),
 	} {
 		for _, name := range fleetFlagNames() {

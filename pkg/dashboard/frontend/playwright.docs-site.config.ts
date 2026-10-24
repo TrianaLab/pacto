@@ -38,7 +38,7 @@ export default defineConfig({
     // The gate owns the build, so `npx playwright test -c playwright.docs-site.config.ts`
     // is self-sufficient and can never run against a stale site. --strict is the
     // production gate; mkdocs.test.yml INHERITs everything else from mkdocs.yml.
-    command: `mkdocs build --strict --config-file mkdocs.test.yml && python3 -m http.server ${PORT} --directory site-test`,
+    command: `mkdocs build --strict --config-file mkdocs.test.yml && python3 pkg/dashboard/frontend/e2e/serve.py ${PORT} site-test`,
     cwd: REPO_ROOT,
     url: `http://127.0.0.1:${PORT}/index.html`,
     reuseExistingServer: !process.env.CI,

@@ -5,9 +5,10 @@
 // the signed envelope, so evidence lives beside the revision it describes and
 // survives any Evidence Server restart without local state.
 //
-// The package is deliberately narrow. It owns four responsibilities, one per
-// file: subject parsing and the ORAS repository/credential factory (subject.go,
-// repository.go), artifact codec and descriptor construction (artifact.go), the
+// The package is deliberately narrow. It owns what is evidence-specific, one
+// responsibility per file: subject parsing (subject.go), opening the repository through the shared
+// referrer writer in pkg/ocireferrer (repository.go), the artifact codec
+// (artifact.go), the
 // paginated Referrers scan and strict fetch (scan.go), and the
 // [evidenceingest.Store] commit/list semantics (store.go).
 package evidenceoci

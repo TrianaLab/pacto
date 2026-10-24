@@ -2,160 +2,22 @@ package app
 
 import (
 	"context"
-	"fmt"
-	"os"
-	"path/filepath"
 
+	"github.com/trianalab/pacto/v4/internal/pactify"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
-// InitOptions holds options for the init command.
-type InitOptions struct {
-	Name string
-}
+// InitOptions holds options for the init command: the folder, what the caller
+// already knows and whether to only plan. See [pactify.Options].
+type InitOptions = pactify.Options
 
-// InitResult holds the result of the init command.
-type InitResult struct {
-	Dir  string `json:"dir"`
-	Path string `json:"path"`
-}
+// InitResult is the plan and, once applied, what was added.
+type InitResult = pactify.Result
 
-const defaultContract = `pactoVersion: "2.0"
-
-service:
-  name: %s
-  version: 0.1.0
-  owner:
-    team: my-team
-    dri: my.handle
-    contacts:
-      - type: email
-        value: my-team@example.com
-        purpose: ownership
-
-interfaces:
-  - name: api
-    type: openapi
-    ref: interfaces/openapi.yaml
-    visibility: internal
-
-configurations:
-  - name: default
-    schema: configuration/schema.json
-    required: true
-
-# dependencies:
-#   - name: other-service
-#     ref: oci://ghcr.io/my-org/other-service-pacto:1.0.0
-#     required: true
-#     compatibility: "^1.0.0"
-
-workload: service
-
-state:
-  type: stateless
-  persistence:
-    scope: local
-    durability: ephemeral
-  dataCriticality: low
-
-capabilities:
-  - type: health
-  - type: metrics
-
-readiness:
-  minScore: 80
-  expires: 2099-12-31
-  partialCredit: 0.5
-  history:
-    - date: 2099-01-01
-      version: 0.1.0
-      author: my.handle
-      description: Initial readiness assessment
-  claims:
-    - id: runbook
-      type: document
-      category: documentation
-      status: not-done
-      evidence: docs/runbook.md
-      weight: 40
-    - id: security-review
-      type: ticket
-      category: security
-      status: not-done
-      evidence: SEC-0000
-      weight: 60
-
-metadata:
-  team: my-team
-  tier: standard
-`
-
-const defaultOpenAPI = `openapi: "3.0.0"
-info:
-  title: %s
-  version: 0.1.0
-paths:
-  /health:
-    get:
-      summary: Health check
-      responses:
-        "200":
-          description: OK
-`
-
-const defaultConfigSchema = `{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
-  "properties": {},
-  "additionalProperties": false
-}
-`
-
-// Init scaffolds a new pacto project directory with the full bundle structure.
+// Init pactifies a folder: an empty one gets a blank contract, one that holds
+// a service gets a contract read from its Dockerfile and manifests. With
+// opts.Plan nothing is written; otherwise only missing files and lines are.
 func (s *Service) Init(ctx context.Context, opts InitOptions) (*InitResult, error) {
-	name := opts.Name
-	if name == "" {
-		return nil, fmt.Errorf("service name is required")
-	}
-	logging.LoggerFromContext(ctx).Debug("initializing new pacto project", "name", name)
-
-	dir := name
-
-	if _, err := os.Stat(dir); err == nil {
-		return nil, fmt.Errorf("directory %q already exists", dir)
-	}
-
-	// Create the bundle directory structure.
-	dirs := []string{
-		dir,
-		filepath.Join(dir, "interfaces"),
-		filepath.Join(dir, "configuration"),
-	}
-	for _, d := range dirs {
-		if err := os.MkdirAll(d, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create directory %s: %w", d, err)
-		}
-	}
-
-	// Write pacto.yaml.
-	pactoPath := filepath.Join(dir, "pacto.yaml")
-	content := fmt.Sprintf(defaultContract, name)
-	if err := s.env().writeFile(pactoPath, []byte(content), 0644); err != nil {
-		return nil, fmt.Errorf("failed to write pacto.yaml: %w", err)
-	}
-
-	// Write placeholder contract and configuration files.
-	openapiPath := filepath.Join(dir, "interfaces", "openapi.yaml")
-	openapiContent := fmt.Sprintf(defaultOpenAPI, name)
-	if err := s.env().writeFile(openapiPath, []byte(openapiContent), 0644); err != nil {
-		return nil, fmt.Errorf("failed to write %s: %w", openapiPath, err)
-	}
-
-	schemaPath := filepath.Join(dir, "configuration", "schema.json")
-	if err := s.env().writeFile(schemaPath, []byte(defaultConfigSchema), 0644); err != nil {
-		return nil, fmt.Errorf("failed to write %s: %w", schemaPath, err)
-	}
-
-	return &InitResult{Dir: dir, Path: pactoPath}, nil
+	logging.LoggerFromContext(ctx).Debug("initializing pacto project", "dir", opts.Dir, "name", opts.Name)
+	return pactify.Init(ctx, opts, s.env().writeFile)
 }

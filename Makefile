@@ -29,6 +29,8 @@ IMAGE := ghcr.io/trianalab/pacto/dashboard
         e2e-runtime-conformance-kind e2e-runtime-conformance-kind-up e2e-runtime-conformance-kind-status \
         e2e-runtime-conformance-kind-logs e2e-runtime-conformance-kind-down \
         e2e-runtime-docker e2e-runtime-run \
+        e2e-delivery-demo e2e-delivery-demo-up e2e-delivery-demo-story e2e-delivery-demo-status \
+        e2e-delivery-demo-logs e2e-delivery-demo-browser e2e-delivery-demo-reach e2e-delivery-demo-down \
         e2e-dashboard-kind-browser e2e-all-operational-graph test-browser-docs-site \
         generate-dashboard-openapi generate-dashboard-sdk check-dashboard-sdk-drift \
         bpf-generate test-ebpf
@@ -206,6 +208,27 @@ e2e-runtime-conformance-kind-logs:
 e2e-runtime-conformance-kind-down:
 	bash tests/acceptance/kind/runtime-conformance.sh down
 
+# The Kubernetes delivery demo (docs/examples/kubernetes-demo.md): -up leaves it
+# running, -story plays the payments story, -browser runs B6 to B10, the agent
+# beat and the dashboard journeys, -reach adds prod-us (a second cluster, applied
+# by Argo CD, following prod through signed records
+# and refusing a version prod-eu froze on), -down removes it. e2e-delivery-demo runs them all, as CI does nightly.
+e2e-delivery-demo: test-acceptance-kind-delivery-demo
+e2e-delivery-demo-up:
+	bash tests/acceptance/kind/delivery-demo.sh up
+e2e-delivery-demo-story:
+	bash tests/acceptance/kind/delivery-demo.sh story
+e2e-delivery-demo-status:
+	bash tests/acceptance/kind/delivery-demo.sh status
+e2e-delivery-demo-logs:
+	bash tests/acceptance/kind/delivery-demo.sh logs
+e2e-delivery-demo-browser:
+	bash tests/acceptance/kind/delivery-demo.sh browser
+e2e-delivery-demo-reach:
+	bash tests/acceptance/kind/delivery-demo.sh reach
+e2e-delivery-demo-down:
+	bash tests/acceptance/kind/delivery-demo.sh down
+
 # Portable runtime evidence on the local Docker daemon: the host agent over
 # labelled containers, and `pacto run` in its privileged and unprivileged modes.
 e2e-runtime-docker: test-acceptance-local-runtime-docker
@@ -344,7 +367,7 @@ docker-run: docker-build
 # compiled in a pinned Linux image; the output (internal/runtimewatch/ebpf/
 # sockstate_bpfel.*) is committed, so neither CI nor the image build needs clang.
 BPF2GO_VERSION ?= v0.22.0
-BPF_BUILDER_IMAGE ?= golang:1.26.9-trixie
+BPF_BUILDER_IMAGE ?= golang:1.26.9-trixie@sha256:f06b7122f888680048afb247c4e5f49c0069eb6c4c1ccae0f3f4834527a8d22c
 RUNTIMEWATCH_EBPF_DIR := internal/runtimewatch/ebpf
 
 bpf-generate: ## Regenerate the agent's eBPF object and Go bindings (needs Docker).

@@ -41,6 +41,18 @@ func TestConfigValidate(t *testing.T) {
 			errMsg:  "dashboard namespace must be set",
 		},
 		{
+			name: "sign-in without a client id fails",
+			cfg: Config{Enabled: true, Image: "ghcr.io/trianalab/pacto/dashboard:0.24.2", Namespace: "ns",
+				Auth: AuthConfig{IssuerURL: "https://idp", RedirectURL: "https://d/cb"}},
+			wantErr: true,
+			errMsg:  "needs a client id and a redirect URL",
+		},
+		{
+			name: "sign-in fully configured succeeds",
+			cfg: Config{Enabled: true, Image: "ghcr.io/trianalab/pacto/dashboard:0.24.2", Namespace: "ns",
+				Auth: AuthConfig{IssuerURL: "https://idp", ClientID: "c", RedirectURL: "https://d/cb"}},
+		},
+		{
 			name:    "enabled with latest tag fails",
 			cfg:     Config{Enabled: true, Image: "ghcr.io/trianalab/pacto/dashboard:latest", Namespace: "ns"},
 			wantErr: true,

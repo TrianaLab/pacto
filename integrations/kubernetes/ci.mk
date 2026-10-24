@@ -50,19 +50,27 @@ helm-template: ## Render chart templates and validate output.
 	helm template pacto-operator charts/pacto-operator --set dashboard.ingress.enabled=true > /dev/null
 	@echo "==> Rendering with metrics disabled..."
 	helm template pacto-operator charts/pacto-operator --set metrics.enabled=false > /dev/null
+	@echo "==> Rendering the delivery chart, with and without admission policies..."
+	helm template pacto-delivery charts/pacto-delivery --debug > /dev/null
+	helm template pacto-delivery charts/pacto-delivery --set admissionPolicies.enabled=false \
+		--set admissionPolicies.allowUnguarded=true > /dev/null
+	@echo "==> The delivery chart refuses to render unguarded by accident..."
+	! helm template pacto-delivery charts/pacto-delivery --set admissionPolicies.enabled=false > /dev/null 2>&1
 
 .PHONY: helm-unittest
 helm-unittest: $(HELM_UNITTEST) ## Run Helm unit tests.
 	@echo "==> Running Helm unit tests..."
-	"$(HELM_UNITTEST)" charts/pacto-operator
+	"$(HELM_UNITTEST)" charts/pacto-operator charts/pacto-delivery
 
 .PHONY: helm-schema
-helm-schema: ## Validate values.yaml against values.schema.json.
-	@echo "==> Validating chart schema..."
-	@python3 -c "import json; json.load(open('charts/pacto-operator/values.schema.json'))" || \
-		{ echo "Error: values.schema.json is not valid JSON." >&2; exit 1; }
+helm-schema: ## Validate each chart's values.yaml against its values.schema.json.
+	@echo "==> Validating chart schemas..."
 	@command -v check-jsonschema >/dev/null 2>&1 || pip install check-jsonschema --quiet
-	@check-jsonschema --schemafile charts/pacto-operator/values.schema.json charts/pacto-operator/values.yaml
+	@for c in pacto-operator pacto-delivery; do \
+		python3 -c "import json; json.load(open('charts/$$c/values.schema.json'))" || \
+			{ echo "Error: charts/$$c/values.schema.json is not valid JSON." >&2; exit 1; }; \
+		check-jsonschema --schemafile charts/$$c/values.schema.json charts/$$c/values.yaml || exit 1; \
+	done
 
 .PHONY: helm-docs-check
 helm-docs-check: ## Check that helm-docs output matches committed README.

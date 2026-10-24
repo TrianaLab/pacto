@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -202,18 +203,11 @@ func TestValidateJSONOutput(t *testing.T) {
 	}
 }
 
-func TestInitFailsIfDirectoryExists(t *testing.T) {
-	orig, _ := os.Getwd()
+// TestInitInExistingEmptyDirectory: an empty folder that is already there
+// gets the blank contract, as a new one does.
+func TestInitInExistingEmptyDirectory(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.Chdir(dir); err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := os.Chdir(orig); err != nil {
-			t.Fatal(err)
-		}
-	}()
-
+	t.Chdir(dir)
 	if err := os.Mkdir(filepath.Join(dir, "existing-svc"), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -221,21 +215,33 @@ func TestInitFailsIfDirectoryExists(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"init", "existing-svc"})
-
-	err := root.Execute()
-	if err == nil {
-		t.Fatal("expected init to fail when directory already exists")
+	root.SetOut(io.Discard)
+	if err := root.Execute(); err != nil {
+		t.Fatalf("init in an existing empty folder: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "existing-svc", "pacto.yaml")); err != nil {
+		t.Fatal(err)
 	}
 }
 
-func TestInitRequiresName(t *testing.T) {
+// TestInitWithoutArgumentsUsesTheCurrentFolder: no dir means here, and the
+// service is named after the folder.
+func TestInitWithoutArgumentsUsesTheCurrentFolder(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "Here_Svc")
+	if err := os.Mkdir(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
 	svc := app.NewService(nil, nil)
 	root := cli.NewRootCommand(svc, cli.VersionInfo{Version: "test"})
 	root.SetArgs([]string{"init"})
-
-	err := root.Execute()
-	if err == nil {
-		t.Fatal("expected init to fail without a name argument")
+	root.SetOut(io.Discard)
+	if err := root.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
+	if err != nil || !strings.Contains(string(data), "name: here-svc") {
+		t.Fatalf("pacto.yaml: %v\n%s", err, data)
 	}
 }
 
@@ -270,5 +276,20 @@ func TestVerboseFlag_ShortForm(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "is valid") {
 		t.Errorf("expected validation output, got %q", out.String())
+	}
+}
+
+// TestInitFailureIsReturned: a dir that is a file is an error, not a contract.
+func TestInitFailureIsReturned(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root := cli.NewRootCommand(app.NewService(nil, nil), cli.VersionInfo{Version: "test"})
+	root.SetArgs([]string{"init", file})
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	if err := root.Execute(); err == nil {
+		t.Fatal("init into a file succeeded")
 	}
 }

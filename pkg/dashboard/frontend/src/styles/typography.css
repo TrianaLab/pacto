@@ -18,15 +18,35 @@
    are the whole vocabulary; anything that does not fit one of them is a sign the
    design, not the stylesheet, needs the decision. */
 
+/* Source Serif 4 (Adobe, SIL OFL 1.1), the unmodified variable release 4.005: the OFL
+   reserves the name "Source" for unmodified files, so it is shipped whole, not subset.
+   Weight and optical size are axes, so one file per style covers every role. */
+@font-face {
+  font-family: 'Source Serif 4';
+  src: url('../assets/fonts/SourceSerif4Variable-Roman.otf.woff2') format('woff2');
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Source Serif 4';
+  src: url('../assets/fonts/SourceSerif4Variable-Italic.otf.woff2') format('woff2');
+  font-weight: 200 900;
+  font-style: italic;
+  font-display: swap;
+}
+
 .t-page-title {
+  font-family: var(--role-page-title-family);
   font-size: var(--role-page-title-size);
   font-weight: var(--role-page-title-weight);
   line-height: var(--role-page-title-lh);
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
 
 .t-section-title {
+  font-family: var(--role-section-title-family);
   font-size: var(--role-section-title-size);
   font-weight: var(--role-section-title-weight);
   line-height: var(--role-section-title-lh);
@@ -34,6 +54,8 @@
 }
 
 .t-subsection-title {
+  font-family: var(--role-subsection-title-family);
+  font-style: var(--role-subsection-title-style);
   font-size: var(--role-subsection-title-size);
   font-weight: var(--role-subsection-title-weight);
   line-height: var(--role-subsection-title-lh);
@@ -52,14 +74,12 @@
   color: var(--c-text-2);
 }
 
-/* A LABEL names a value ("Owner", "Canonical key"). It is deliberately small and
-   uppercase so it reads as a caption for the thing beside it, never as content. */
+/* A LABEL names a value ("Owner", "Canonical key"). It is set in small caps so it
+   reads as a caption for the thing beside it, never as content. */
 .t-label {
-  font-size: var(--role-label-size);
-  font-weight: var(--role-label-weight);
-  line-height: var(--role-label-lh);
+  font: var(--role-label-font);
+  font-variant-caps: var(--role-label-caps);
   letter-spacing: var(--role-label-tracking);
-  text-transform: uppercase;
   color: var(--c-text-3);
 }
 
@@ -70,13 +90,14 @@
   color: var(--c-text-3);
 }
 
-/* A METRIC is a number the reader is meant to land on. Tabular figures so a column
-   of them lines up and a changing value does not jitter. */
+/* A METRIC is a number the reader is meant to land on, set in the serif with old-style
+   figures. Tabular too, so a column of them lines up and a changing value does not jitter. */
 .t-metric {
+  font-family: var(--role-metric-family);
   font-size: var(--role-metric-size);
   font-weight: var(--role-metric-weight);
   line-height: var(--role-metric-lh);
-  font-variant-numeric: tabular-nums;
+  font-variant-numeric: oldstyle-nums tabular-nums;
 }
 
 .t-code {
@@ -90,6 +111,6 @@
    Hierarchy is carried by whitespace at least as much as by size.
    These are the gaps between a title and what it introduces; a component that wants
    different spacing is describing a different role. */
-.t-page-title { margin: 0 0 var(--sp-2); }
+.t-page-title { margin: 0 0 var(--sp-2); padding-bottom: 10px; border-bottom: var(--role-page-title-rule); }
 .t-section-title { margin: 0; }
 .t-subsection-title { margin: 0; }

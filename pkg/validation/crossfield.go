@@ -41,8 +41,64 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateConfigValues(c, bundleFS, &result)
 	validateStatePersistenceInvariants(c, &result)
 	validateReadiness(c, &result)
+	validatePublish(c, &result)
+	validateAgent(c, bundleFS, &result)
 
 	return result
+}
+
+// validatePublish enforces what the schema cannot say about publish: artifact
+// names are unique, deploy names a manifests artifact (a Kustomization applies
+// manifests, never a chart or an image), the dockerfile builder and sbom
+// apply to images only, and an sbom needs a command build, which writes it.
+func validatePublish(c *contract.Contract, result *ValidationResult) {
+	if c.Publish == nil {
+		return
+	}
+	types := map[string]string{}
+	for i, a := range c.Publish.Artifacts {
+		path := fmt.Sprintf("publish.artifacts[%d]", i)
+		if _, dup := types[a.Name]; dup {
+			result.AddError(path+".name", "DUPLICATE_PUBLISH_ARTIFACT", fmt.Sprintf("artifact name %q is used more than once", a.Name))
+		}
+		types[a.Name] = a.Type
+		switch {
+		case a.SBOM != "" && a.Type != contract.ArtifactImage:
+			result.AddError(path+".sbom", "PUBLISH_SBOM_NOT_IMAGE", fmt.Sprintf("%s is a %s; an SBOM is attached to images only", a.Name, a.Type))
+		case a.SBOM != "" && a.Build.Dockerfile != nil:
+			result.AddError(path+".sbom", "PUBLISH_SBOM_DOCKERFILE", fmt.Sprintf("%s is built from a Dockerfile, which writes no SBOM file; build it with a command that writes %s, or drop sbom", a.Name, a.SBOM))
+		}
+		if a.Build.Dockerfile != nil && a.Type != contract.ArtifactImage {
+			result.AddError(path+".build.dockerfile", "PUBLISH_DOCKERFILE_NOT_IMAGE", fmt.Sprintf("%s is a %s; the dockerfile builder builds images only, use command", a.Name, a.Type))
+		}
+	}
+	if d := c.Publish.Deploy; d != "" && types[d] != contract.ArtifactManifests {
+		result.AddError("publish.deploy", "PUBLISH_DEPLOY_NOT_MANIFESTS", fmt.Sprintf("deploy %q must name a manifests artifact: Flux applies it through a Kustomization", d))
+	}
+}
+
+// validateAgent checks what the schema cannot: an mcp interface file is a
+// tools/list result with named tools, so a diff can tell a removed tool from a
+// changed one, and the eval suite is in the bundle, so it ships with the version.
+func validateAgent(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
+	if bundleFS == nil {
+		return
+	}
+	for i, iface := range c.Interfaces {
+		if iface.Type != contract.InterfaceTypeMCP {
+			continue
+		}
+		data, err := fs.ReadFile(bundleFS, iface.Ref)
+		if err != nil {
+			continue // validateInterfaceFiles reports a missing file
+		}
+		if _, err := contract.ParseMCPTools(data); err != nil {
+			result.AddError(fmt.Sprintf("interfaces[%d].ref", i), "INVALID_MCP_TOOLS", fmt.Sprintf("mcp interface file %q %v", iface.Ref, err))
+		}
+	}
+	if c.Agent != nil && c.Agent.Evals != "" && missingFile(bundleFS, c.Agent.Evals) {
+		result.AddError("agent.evals", "FILE_NOT_FOUND", fmt.Sprintf("eval suite file %q not found in bundle", c.Agent.Evals))
+	}
 }
 
 // validateReadiness enforces the readiness rules that JSON Schema cannot express:

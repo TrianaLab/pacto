@@ -1,0 +1,733 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.20.1
+  name: operations.delivery.pacto.trianalab.io
+spec:
+  group: delivery.pacto.trianalab.io
+  names:
+    kind: Operation
+    listKind: OperationList
+    plural: operations
+    singular: operation
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.type
+      name: Type
+      type: string
+    - jsonPath: .spec.stage
+      name: Stage
+      type: string
+    - jsonPath: .status.phase
+      name: Phase
+      type: string
+    - jsonPath: .status.outcome
+      name: Outcome
+      type: string
+    - jsonPath: .status.reason
+      name: Reason
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          Operation is one decision to change one facet of one Stage. Its spec is the
+          intent and never changes after admission; to change your mind, cancel and
+          propose again.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: OperationSpec is the intent. It is frozen at admission.
+            properties:
+              actor:
+                description: Actor is the apiserver identity that created the operation.
+                properties:
+                  groups:
+                    items:
+                      type: string
+                    type: array
+                  user:
+                    type: string
+                required:
+                - user
+                type: object
+              cause:
+                description: |-
+                  Cause is why an operation was raised. A person or an agent sets one field;
+                  a verdict they cite is re-run when the operation is admitted. An automatic
+                  rollback names the failed operation and, when a gate failed it, the verdict.
+                properties:
+                  operation:
+                    description: Operation is the uid of the operation that caused
+                      this one.
+                    type: string
+                  reason:
+                    type: string
+                  verdict:
+                    description: Verdict is one gate's answer plus a citation that
+                      can be re-run.
+                    properties:
+                      citation:
+                        additionalProperties:
+                          type: string
+                        type: object
+                      gate:
+                        type: string
+                      message:
+                        type: string
+                      phase:
+                        enum:
+                        - pre
+                        - verify
+                        type: string
+                      result:
+                        description: Result is a gate verdict.
+                        enum:
+                        - Pass
+                        - Fail
+                        - Unknown
+                        type: string
+                    required:
+                    - gate
+                    - phase
+                    - result
+                    type: object
+                type: object
+              correlationID:
+                type: string
+              facet:
+                enum:
+                - pointer
+                - freeze
+                type: string
+              intentDigest:
+                description: IntentDigest is what plan() returned; the promoter recomputes
+                  it.
+                type: string
+              onBehalfOf:
+                description: |-
+                  Principal is a person an agent says it acts for. It is asserted, never
+                  verified.
+                properties:
+                  user:
+                    type: string
+                required:
+                - user
+                type: object
+              params:
+                description: Params are the Tier 0 operation parameters. Digests are
+                  OCI manifest digests.
+                properties:
+                  from:
+                    type: string
+                  to:
+                    type: string
+                  undoes:
+                    description: Undoes is the uid of the operation a rollback undoes.
+                    type: string
+                type: object
+              reason:
+                type: string
+              stage:
+                description: Stage is the name of a Stage in the operation's namespace.
+                type: string
+              type:
+                enum:
+                - pacto.dev/promote
+                - pacto.dev/rollback
+                - pacto.dev/override
+                - pacto.dev/unfreeze
+                - pacto.dev/freeze
+                type: string
+              witnessed:
+                description: |-
+                  Witnessed marks an override the promoter raised for an edit it saw but
+                  did not make. Only the promoter may set it.
+                type: boolean
+            required:
+            - actor
+            - facet
+            - stage
+            - type
+            type: object
+            x-kubernetes-validations:
+            - message: 'an operation''s intent is immutable: cancel it and propose
+                again'
+              rule: self == oldSelf
+          status:
+            description: OperationStatus is written only by the promoter.
+            properties:
+              actorClass:
+                description: |-
+                  ActorClass is who raised an operation, as the promoter classifies the
+                  apiserver identity. It is derived, never asserted by the client.
+                type: string
+              applied:
+                description: Applied is true once the pointer moved for this operation.
+                type: boolean
+              approvals:
+                items:
+                  description: ApprovalRecord is an approval the promoter consumed.
+                  properties:
+                    authTime:
+                      type: string
+                    by:
+                      type: string
+                    decision:
+                      description: Decision is what a human approval says.
+                      type: string
+                    name:
+                      type: string
+                    note:
+                      type: string
+                  required:
+                  - by
+                  - decision
+                  - name
+                  type: object
+                type: array
+              message:
+                type: string
+              outcome:
+                description: Outcome is how a concluded operation ended.
+                type: string
+              phase:
+                description: Phase is where an operation is in its lifecycle.
+                type: string
+              plan:
+                description: Plan is plan()'s answer. It binds to the intent digest.
+                properties:
+                  conflicts:
+                    items:
+                      type: string
+                    type: array
+                  floor:
+                    description: |-
+                      Floor is the approval floor plan() computed: whether a human must decide,
+                      which decision is asked for and whose.
+                    properties:
+                      consumers:
+                        description: Consumers are the services that made the floor.
+                        items:
+                          type: string
+                        type: array
+                      decision:
+                        description: Decision is what a human approval says.
+                        type: string
+                      human:
+                        type: boolean
+                      owners:
+                        description: |-
+                          Owners are the teams the question is routed to and the only ones whose
+                          members may answer it: the owners of the consumers that made the floor,
+                          or else the team of the Stage's own service. Empty means no team is
+                          declared, and any person may answer.
+                        items:
+                          type: string
+                        type: array
+                    type: object
+                  from:
+                    type: string
+                  impactDigest:
+                    description: ImpactDigest is the sha256 of the pkg/impact answer
+                      the floor came from.
+                    type: string
+                  intentDigest:
+                    type: string
+                  order:
+                    description: |-
+                      Order says what must move first when a consumer running in this
+                      environment does not accept the new version. Pacto only says it: it
+                      never moves another service itself.
+                    properties:
+                      moveFirst:
+                        description: |-
+                          MoveFirst names every consumer running in this environment whose
+                          declared range does not accept the new version.
+                        items:
+                          description: MoveFirst is one consumer that must move before
+                            the provider can.
+                          properties:
+                            accepts:
+                              description: Accepts is the range that version declares
+                                on the provider.
+                              type: string
+                            candidate:
+                              description: |-
+                                Candidate is the newest version of the consumer its upstream Stage
+                                offered and verified that is newer than the one running here, accepts
+                                both the provider version running here and the new one, accepts what
+                                its other dependencies run here and is accepted by the range every
+                                Pacto here declares on it, so it can move first without breaking a
+                                range Pacto can see. Absent when there is none or Pacto cannot tell.
+                              properties:
+                                accepts:
+                                  description: |-
+                                    Accepts is the range it declares on the provider; empty when it no
+                                    longer depends on it.
+                                  type: string
+                                digest:
+                                  type: string
+                                verifiedOn:
+                                  description: VerifiedOn is the upstream Stage that
+                                    verified it.
+                                  properties:
+                                    name:
+                                      type: string
+                                    namespace:
+                                      type: string
+                                  required:
+                                  - name
+                                  type: object
+                                version:
+                                  type: string
+                              required:
+                              - digest
+                              - verifiedOn
+                              type: object
+                            domain:
+                              type: string
+                            message:
+                              description: Message says all of the above in plain
+                                words.
+                              type: string
+                            service:
+                              description: Service is the consumer.
+                              type: string
+                            stage:
+                              description: Stage is the consumer's Stage in this environment,
+                                the one to promote.
+                              properties:
+                                name:
+                                  type: string
+                                namespace:
+                                  type: string
+                              required:
+                              - name
+                              type: object
+                            unknown:
+                              description: Unknown says why Pacto cannot tell whether
+                                such a version exists.
+                              type: string
+                            version:
+                              description: |-
+                                Version is the consumer version running here that does not accept the
+                                new provider version.
+                              type: string
+                          required:
+                          - message
+                          - service
+                          type: object
+                        type: array
+                      unknown:
+                        description: |-
+                          Unknown says why the list may be incomplete: a partial graph, a range
+                          Pacto cannot read or a consumer it cannot place. Empty means Pacto saw
+                          every consumer running here.
+                        items:
+                          type: string
+                        type: array
+                    required:
+                    - moveFirst
+                    type: object
+                  precedent:
+                    description: |-
+                      Precedent is what happened the last times this version was the target
+                      of a recorded operation, on any Stage. Clients fill it from records;
+                      the promoter leaves it empty.
+                    properties:
+                      completeness:
+                        type: string
+                      entries:
+                        items:
+                          description: |-
+                            PrecedentEntry is one recorded operation that moved, or tried to move, a
+                            Stage to the version.
+                          properties:
+                            finished:
+                              type: string
+                            outcome:
+                              description: Outcome is how a concluded operation ended.
+                              type: string
+                            reason:
+                              type: string
+                            record:
+                              type: string
+                            seq:
+                              format: int64
+                              type: integer
+                            stream:
+                              type: string
+                            type:
+                              type: string
+                            verification:
+                              description: Verification qualifies a Succeeded outcome.
+                              type: string
+                          required:
+                          - outcome
+                          - record
+                          - seq
+                          - stream
+                          - type
+                          type: object
+                        type: array
+                      note:
+                        type: string
+                    required:
+                    - completeness
+                    type: object
+                  predicted:
+                    description: Prediction is what plan() expects the promoter to
+                      do.
+                    type: string
+                  question:
+                    description: Question is the one question a human would be asked.
+                    type: string
+                  to:
+                    type: string
+                  type:
+                    type: string
+                  verdicts:
+                    items:
+                      description: Verdict is one gate's answer plus a citation that
+                        can be re-run.
+                      properties:
+                        citation:
+                          additionalProperties:
+                            type: string
+                          type: object
+                        gate:
+                          type: string
+                        message:
+                          type: string
+                        phase:
+                          enum:
+                          - pre
+                          - verify
+                          type: string
+                        result:
+                          description: Result is a gate verdict.
+                          enum:
+                          - Pass
+                          - Fail
+                          - Unknown
+                          type: string
+                      required:
+                      - gate
+                      - phase
+                      - result
+                      type: object
+                    type: array
+                required:
+                - intentDigest
+                - predicted
+                - type
+                type: object
+              pointer:
+                description: PointerChange is the pointer before and after an operation.
+                properties:
+                  after:
+                    type: string
+                  before:
+                    type: string
+                type: object
+              policy:
+                description: |-
+                  Policy is the Stage spec the operation concluded under, taken when it
+                  concluded, so its record says what governed it however late it is
+                  written.
+                properties:
+                  applyRef:
+                    description: |-
+                      ApplyRef is the object the promoter points at a version: a Flux
+                      OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it
+                      sets spec.source.targetRevision). Nothing else is ever written on it.
+                    properties:
+                      kind:
+                        description: |-
+                          Kind is OCIRepository (Flux, the default) or Application (Argo CD, with
+                          an OCI source and automated sync).
+                        enum:
+                        - OCIRepository
+                        - Application
+                        type: string
+                      name:
+                        type: string
+                    required:
+                    - name
+                    type: object
+                  approval:
+                    description: ApprovalPolicy can only raise the approval floor,
+                      never lower it.
+                    properties:
+                      always:
+                        description: Always holds every promote for a human, whatever
+                          the contracts say.
+                        type: boolean
+                    type: object
+                  auto:
+                    description: Auto promotes the newest eligible candidate without
+                      anyone asking.
+                    type: boolean
+                  candidates:
+                    description: Candidates says where new versions come from. Exactly
+                      one is set.
+                    properties:
+                      ociRepositoryRef:
+                        description: |-
+                          OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the
+                          candidate is the @sha256: part of its status.artifact.revision.
+                        properties:
+                          name:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                      upstreamRecords:
+                        description: |-
+                          UpstreamRecords offers what a Stage in another cluster verified, read
+                          from its signed records: the promoter must trust the key that signs
+                          that stream (promoter.upstreamTrust), or it offers nothing.
+                        properties:
+                          repository:
+                            description: Repository (host/path) is the upstream recorder's
+                              streams repository.
+                            type: string
+                          stream:
+                            description: |-
+                              Stream is the upstream Stage's stream id, <clusterID>/<namespace>/<name>:
+                              its status.stream.id.
+                            type: string
+                        required:
+                        - repository
+                        - stream
+                        type: object
+                      upstreamStage:
+                        description: UpstreamStage offers that Stage's verified digests
+                          minus its failed ones.
+                        properties:
+                          name:
+                            type: string
+                          namespace:
+                            type: string
+                        required:
+                        - name
+                        type: object
+                    type: object
+                  deadlines:
+                    description: Deadlines override the operation type's defaults
+                      (Go durations).
+                    properties:
+                      approval:
+                        type: string
+                      execution:
+                        type: string
+                    type: object
+                  environment:
+                    type: string
+                  gates:
+                    description: |-
+                      Gates configures the Stage's gates. The pre-gates are fixed by the operation
+                      type; the Pacto contract check always verifies, beside the Stage's checks.
+                    properties:
+                      verify:
+                        description: VerifyGates configures what runs after a version
+                          is applied.
+                        properties:
+                          checks:
+                            description: |-
+                              Checks are this Stage's own verify gates, run beside the Pacto contract
+                              check: a health provider the delivery chart configures, or the built-in
+                              pacto.runtime claim gate.
+                            items:
+                              description: GateCheck is one verify gate a Stage runs.
+                              properties:
+                                name:
+                                  description: Name is the gate id its verdicts carry,
+                                    unique on the Stage.
+                                  minLength: 1
+                                  type: string
+                                params:
+                                  additionalProperties:
+                                    type: string
+                                  description: Params are the provider's settings
+                                    (thresholds, filters).
+                                  type: object
+                                provider:
+                                  description: |-
+                                    Provider is a gate provider configured in the delivery chart, or
+                                    pacto.runtime. A Stage cannot name a URL: providers are operator
+                                    configuration.
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - name
+                              - provider
+                              type: object
+                            maxItems: 16
+                            type: array
+                          recheck:
+                            description: |-
+                              Recheck is how often the verify gates run again on the version the
+                              Stage runs once it shipped (a Go duration, default 1m). A confirmed Fail
+                              rolls it back; Unknown never does.
+                            type: string
+                          window:
+                            description: |-
+                              Window is how long the verify gates may stay Unknown before the
+                              operation is held for a human (a Go duration, default 5m). Re-checks
+                              after release judge the same length of time.
+                            type: string
+                        type: object
+                    type: object
+                  service:
+                    description: |-
+                      ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified
+                      service name its contracts declare.
+                    properties:
+                      domain:
+                        description: Domain is the registry and organisation scope
+                          (empty for the default).
+                        type: string
+                      name:
+                        description: Name is the contract's service.name.
+                        type: string
+                    required:
+                    - name
+                    type: object
+                required:
+                - applyRef
+                - environment
+                - service
+                type: object
+              question:
+                description: Question is what a human is asked while the operation
+                  is Held.
+                type: string
+              reason:
+                description: |-
+                  Reason is the machine reason for the outcome or the hold (PlanStale,
+                  PointerMoved, NoStage, ...).
+                type: string
+              record:
+                description: |-
+                  Record is the signed record of this operation, once the recorder wrote
+                  it. Only the recorder writes it.
+                properties:
+                  digest:
+                    description: 'Digest is the record id: the sha256 of its signed
+                      payload.'
+                    type: string
+                  kind:
+                    description: Kind is operation, or unrecordable when a pre-sign
+                      check refused it.
+                    type: string
+                  refused:
+                    description: Refused names the check and why, for an unrecordable
+                      record.
+                    type: string
+                  seq:
+                    description: Seq is the record's place in the stream.
+                    format: int64
+                    type: integer
+                required:
+                - digest
+                - kind
+                - seq
+                type: object
+              seq:
+                format: int64
+                type: integer
+              stageUID:
+                description: |-
+                  StageUID is the uid of the Stage that gave the operation its seq. A
+                  Stage deleted and recreated with the same name starts its seqs over,
+                  and an operation left over from the old one is not part of the new one.
+                type: string
+              times:
+                description: Times are RFC 3339 timestamps.
+                properties:
+                  admitted:
+                    type: string
+                  applied:
+                    type: string
+                  approvalDeadline:
+                    type: string
+                  executionDeadline:
+                    type: string
+                  finished:
+                    type: string
+                  held:
+                    description: |-
+                      Held is when the operation was last held for a person. An approval
+                      created before it answered an earlier question and does not count.
+                    type: string
+                  started:
+                    type: string
+                  verifyDeadline:
+                    type: string
+                type: object
+              verdicts:
+                items:
+                  description: Verdict is one gate's answer plus a citation that can
+                    be re-run.
+                  properties:
+                    citation:
+                      additionalProperties:
+                        type: string
+                      type: object
+                    gate:
+                      type: string
+                    message:
+                      type: string
+                    phase:
+                      enum:
+                      - pre
+                      - verify
+                      type: string
+                    result:
+                      description: Result is a gate verdict.
+                      enum:
+                      - Pass
+                      - Fail
+                      - Unknown
+                      type: string
+                  required:
+                  - gate
+                  - phase
+                  - result
+                  type: object
+                type: array
+              verification:
+                description: Verification qualifies a Succeeded outcome.
+                type: string
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

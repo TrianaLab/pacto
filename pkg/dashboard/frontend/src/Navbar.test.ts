@@ -9,7 +9,7 @@ import { mount, unmount } from 'svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import Navbar from './Navbar.svelte';
 
-function navLabels(cap: { fleet: boolean; impact: boolean } | null): string[] {
+function navLabels(cap: { fleet: boolean; impact: boolean; delivery?: boolean } | null): string[] {
   const target = document.createElement('div');
   document.body.appendChild(target);
   const component = mount(Navbar, {
@@ -224,5 +224,45 @@ describe('Navbar — the active tab agrees with the breadcrumb trail', () => {
     ['changes', 'Change analysis'],
   ])('lights the %s list view under %s', (view, label) => {
     expect(activeLabel(view)).toBe(label);
+  });
+});
+
+describe('Navbar — delivery is opt-in', () => {
+  it('shows Delivery only once the host confirms it', () => {
+    expect(navLabels(null)).not.toContain('Delivery');
+    expect(navLabels({ fleet: true, impact: true })).not.toContain('Delivery');
+    expect(navLabels({ fleet: true, impact: true, delivery: false })).not.toContain('Delivery');
+    expect(navLabels({ fleet: true, impact: true, delivery: true })).toContain('Delivery');
+  });
+});
+
+describe('Navbar — data sources', () => {
+  function mountWith(props: Record<string, unknown>) {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(Navbar, { target, props: { services: [], capabilities: { fleet: true, impact: true }, view: 'list', version: 'x', ...props } });
+    return { target, done: () => { unmount(component); document.body.removeChild(target); } };
+  }
+
+  it('groups every source behind one Data sources control, so the search keeps its room', () => {
+    const { target, done } = mountWith({ sourcesInfo: [{ type: 'kubernetes', enabled: true }, { type: 'oci', enabled: true }, { type: 'local', enabled: false }] });
+    const trigger = target.querySelector('[data-testid="navbar-sources"]') as HTMLButtonElement;
+    expect(trigger.textContent?.trim()).toBe('Data sources');
+    expect(trigger.getAttribute('popovertarget')).toBe('navbar-sources');
+    const panel = target.querySelector('#navbar-sources') as HTMLElement;
+    expect(panel.hasAttribute('popover')).toBe(true);
+    expect(Array.from(panel.querySelectorAll('li strong')).map((n) => n.textContent)).toEqual(['kubernetes', 'oci']);
+    expect(panel.querySelector('a')?.getAttribute('href')).toBe('#/fleet/sources');
+    done();
+  });
+
+  it('says it is still discovering, and offers no control when there is nothing to list', () => {
+    let m = mountWith({ sourcesInfo: [], discovering: true });
+    expect(m.target.querySelector('[data-testid="navbar-sources"]')?.textContent).toContain('discovering');
+    expect(m.target.querySelector('#navbar-sources')?.textContent).toContain('Still discovering');
+    m.done();
+    m = mountWith({ sourcesInfo: [], capabilities: { fleet: false, impact: false } });
+    expect(m.target.querySelector('[data-testid="navbar-sources"]')).toBeNull();
+    m.done();
   });
 });

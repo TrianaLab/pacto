@@ -3,6 +3,7 @@ import {
   boot, canonicalKeys, runAnalysis, sampleRoles, normalBody,
   assertPageHierarchy, assertRoleCoherence, type RoleSample,
 } from './typographyChecks';
+import { DOC_ORIGIN } from './ports';
 
 /**
  * Desktop typography acceptance in real Chromium, from COMPUTED styles.
@@ -117,5 +118,93 @@ test.describe('typography hierarchy on desktop', () => {
     expect(title[0].size, `page title ${title[0].size}px vs largest section ${biggest}px`).toBeGreaterThan(biggest);
     // Dominance is not one pixel. A 5% edge is invisible; the ramp is a real step.
     expect(title[0].size / biggest).toBeGreaterThan(1.2);
+  });
+
+  // The identity (signed document): serif titles over a double rule, italic subsections,
+  // serif small-caps labels. It lives in the type tokens, so this reads what PAINTED: a
+  // private `text-transform: uppercase` is exactly how the first try at small-caps labels
+  // lost to forty component rules and still rendered capitals.
+  test('the signed-document identity paints on every kind of page', async ({ page }) => {
+    test.setTimeout(SWEEP_TIMEOUT);
+    const k = await canonicalKeys(page);
+    const e = encodeURIComponent;
+    for (const hash of ['#/fleet', `#/fleet/services/${e(k.service)}`, '#/fleet/attention', '#/fleet/owners']) {
+      await boot(page, hash);
+      const got = await page.evaluate(async () => {
+        await document.fonts.ready;
+        const cs = (sel: string) => {
+          const el = Array.from(document.querySelectorAll(sel)).find((x) => x.getClientRects().length > 0);
+          return el ? getComputedStyle(el) : null;
+        };
+        const title = cs('main h1');
+        const sub = cs('main .t-subsection-title');
+        const label = cs('main .t-label, main th');
+        const upper = Array.from(document.querySelectorAll('body *'))
+          .filter((x) => x.getClientRects().length > 0 && getComputedStyle(x).textTransform === 'uppercase' && !x.closest('.rt-method'))
+          .map((x) => `${x.tagName}.${x.className}`).slice(0, 5);
+        return {
+          loaded: document.fonts.check('700 16px "Source Serif 4"') && Array.from(document.fonts).some((f) => f.family.includes('Source Serif 4') && f.status === 'loaded'),
+          titleFamily: title?.fontFamily ?? '', titleRule: title?.borderBottomStyle ?? '',
+          subStyle: sub ? sub.fontStyle : 'italic', labelCaps: label ? label.fontVariantCaps : 'all-small-caps',
+          upper,
+        };
+      });
+      expect(got.loaded, `${hash}: the bundled Source Serif 4 never loaded`).toBe(true);
+      expect(got.titleFamily, `${hash}: page title family`).toMatch(/^"?Source Serif 4/);
+      expect(got.titleRule, `${hash}: page title rule`).toBe('double');
+      expect(got.subStyle, `${hash}: subsection style`).toBe('italic');
+      expect(got.labelCaps, `${hash}: label caps`).toBe('all-small-caps');
+      expect(got.upper, `${hash}: uppercase text outside the label role`).toEqual([]);
+    }
+  });
+
+  // The legacy views have one host, the offline `pacto doc` export (fleet:false), and
+  // they write bare <h1>s and `.section-title` headings. Option A applies there too: the
+  // double rule under the h1 and a serif section title, not a small-caps label.
+  test('the signed-document identity paints on the legacy non-Fleet host', async ({ page }) => {
+    test.setTimeout(SWEEP_TIMEOUT);
+    const go = async (hash: string) => {
+      await page.goto(`${DOC_ORIGIN}/index.html${hash}`);
+      await expect(page.locator('main h1')).toBeVisible({ timeout: 60_000 });
+    };
+    await go('#/services');
+    const name = await page.evaluate(
+      () => (globalThis as { __PACTO_STATIC__?: { service?: string } }).__PACTO_STATIC__?.service || '',
+    );
+    expect(name, 'the offline export did not name its service').not.toBe('');
+    await go(`#/services/${encodeURIComponent(name)}`);
+    await expect(page.locator('main .section-title').first()).toBeVisible({ timeout: 30_000 });
+    const got = await page.evaluate(async () => {
+      await document.fonts.ready;
+      const h1 = getComputedStyle(document.querySelector('main h1')!);
+      const st = Array.from(document.querySelectorAll('main .section-title')).find((x) => x.getClientRects().length > 0)!;
+      const probe = document.createElement('h2');
+      probe.className = 't-section-title';
+      document.querySelector('main')!.appendChild(probe);
+      const want = getComputedStyle(probe).fontSize;
+      probe.remove();
+      const cs = getComputedStyle(st);
+      return {
+        rule: h1.borderBottomStyle, family: cs.fontFamily, size: cs.fontSize, want,
+        caps: cs.fontVariantCaps, weight: cs.fontWeight,
+      };
+    });
+    expect(got.rule, 'legacy page title rule').toBe('double');
+    expect(got.family, 'legacy section title family').toMatch(/^"?Source Serif 4/);
+    expect(got.size, 'legacy section title size').toBe(got.want);
+    expect(got.caps, 'legacy section title is not a small-caps label').toBe('normal');
+    expect(got.weight).toBe('700');
+    // The rule marks the page title only. A doc that opens with `# ...` renders its h1
+    // inside <main> too, and must not draw a second page-title rule in the doc card.
+    await page.getByRole('heading', { level: 2, name: /^Documentation/ }).getByRole('button').click();
+    await page.locator('main .detail-card-header-btn', { hasText: 'overview.md' }).first().click();
+    const docH1 = page.locator('main .markdown-body h1').first();
+    await expect(docH1).toBeVisible({ timeout: 30_000 });
+    const doc = await docH1.evaluate((el) => {
+      const cs = getComputedStyle(el);
+      return { rule: cs.borderBottomStyle, pad: cs.paddingBottom };
+    });
+    expect(doc.rule, 'a markdown h1 draws the page-title rule').toBe('none');
+    expect(doc.pad).toBe('0px');
   });
 });

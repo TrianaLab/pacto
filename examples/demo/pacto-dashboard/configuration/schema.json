@@ -5,13 +5,42 @@
       "description": "OCI bundle cache directory (default: ~/.cache/pacto/oci)",
       "type": "string"
     },
+    "PACTO_DASHBOARD_AUTH_REQUIRED": {
+      "default": false,
+      "description": "With OIDC sign-in, gate the fleet views and the whole API behind it too",
+      "type": "boolean"
+    },
     "PACTO_DASHBOARD_HOST": {
       "default": "127.0.0.1",
       "description": "Bind address for the server",
       "type": "string"
     },
+    "PACTO_DASHBOARD_MIRA_URL": {
+      "description": "Mira's address, to link health-check citations",
+      "type": "string"
+    },
     "PACTO_DASHBOARD_NAMESPACE": {
       "description": "Kubernetes namespace filter (empty = all)",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_OIDC_CLIENT_ID": {
+      "description": "OpenID Connect client id of the dashboard",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_OIDC_CLIENT_SECRET": {
+      "description": "OpenID Connect client secret of the dashboard",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_OIDC_EXTRA_SCOPES": {
+      "description": "Space-separated scopes beyond openid, profile and groups",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_OIDC_ISSUER_URL": {
+      "description": "OpenID Connect issuer people sign in with; delivery then runs as the signed-in person",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_OIDC_REDIRECT_URL": {
+      "description": "The dashboard's /auth/callback as browsers reach it",
       "type": "string"
     },
     "PACTO_DASHBOARD_PORT": {
@@ -22,6 +51,10 @@
     },
     "PACTO_DASHBOARD_REPO": {
       "description": "Comma-separated OCI repositories to scan",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_TEAM_GROUP_PREFIX": {
+      "description": "A contract owner team T is group T or this prefix plus T",
       "type": "string"
     },
     "PACTO_NO_CACHE": {

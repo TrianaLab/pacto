@@ -239,6 +239,35 @@
             "type": "string"
           }
         },
+        "auth": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Sign-in for the dashboard; delivery actions then run with each person's own token.",
+          "properties": {
+            "oidc": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "issuerURL": { "type": "string" },
+                "clientID": { "type": "string" },
+                "clientSecretRef": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": { "type": "string" },
+                    "key": { "type": "string" }
+                  }
+                },
+                "redirectURL": { "type": "string" },
+                "extraScopes": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+              }
+            },
+            "teamGroupPrefix": { "type": "string" },
+            "agentGroups": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "breakGlassGroups": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "miraURL": { "type": "string" },
         "observation": {
           "type": "object",
           "additionalProperties": false,

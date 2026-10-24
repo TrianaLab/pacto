@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/discovery"
@@ -244,4 +245,32 @@ func (b builders) newDynamic() (dynamic.Interface, error) {
 		return nil, fmt.Errorf("loading kubeconfig: %w", err)
 	}
 	return b.dynamic(config)
+}
+
+// Config is the cluster config from in-cluster config or the ambient
+// kubeconfig, with the process's own credentials.
+func Config() (*rest.Config, error) {
+	return defaultBuilders().config()
+}
+
+// Served reports whether the cluster serves the API group version gv,
+// asked with config's own credentials through discovery. Only a NotFound
+// means not served; any other failure is an error, so an unreachable
+// cluster is never mistaken for one without the API.
+func Served(config *rest.Config, gv string) (bool, error) {
+	return defaultBuilders().served(config, gv)
+}
+
+func (b builders) served(config *rest.Config, gv string) (bool, error) {
+	d, err := b.discovery(config)
+	if err != nil {
+		return false, err
+	}
+	switch _, err = d.ServerResourcesForGroupVersion(gv); {
+	case apierrors.IsNotFound(err):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return true, nil
 }

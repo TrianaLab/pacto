@@ -12,12 +12,16 @@ import (
 //go:embed schema/pacto-v2.0.schema.json
 var schemaV20Bytes []byte
 
-// SchemaBytes returns the raw embedded JSON Schema bytes for the supported
-// version (2.0). This is used by the doc package to extract field descriptions.
-func SchemaBytes() []byte { return schemaV20Bytes }
+//go:embed schema/pacto-v2.1.schema.json
+var schemaV21Bytes []byte
+
+// SchemaBytes returns the raw embedded JSON Schema bytes of the newest version
+// (2.1, a superset of 2.0 that adds publish). The doc package extracts field
+// descriptions from it.
+func SchemaBytes() []byte { return schemaV21Bytes }
 
 // supportedSchemaVersions lists the supported pactoVersion values.
-var supportedSchemaVersions = []string{"2.0"}
+var supportedSchemaVersions = []string{"2.0", "2.1"}
 
 // compiledSchemas maps each supported pactoVersion to its compiled JSON Schema.
 var compiledSchemas map[string]*jsonschema.Schema
@@ -25,6 +29,7 @@ var compiledSchemas map[string]*jsonschema.Schema
 func init() {
 	compiledSchemas = map[string]*jsonschema.Schema{
 		"2.0": mustCompileSchema(schemaV20Bytes),
+		"2.1": mustCompileSchema(schemaV21Bytes),
 	}
 }
 

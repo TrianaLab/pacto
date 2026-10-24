@@ -40,6 +40,10 @@ import (
 // the reason it is allowed to have no production caller. A stale entry fails
 // the test as loudly as a missing one: an exemption that has stopped applying
 // is how the next real instance hides.
+// sigstoreKeypair is why a sign.Keypair method has no caller in Pacto:
+// sigstore-go calls it through that interface while it signs.
+const sigstoreKeypair = "a sign.Keypair method sigstore-go calls through that interface, never by name"
+
 var deadCodeAllowlist = map[string]string{
 	// Every entry is "<pkg>.<Symbol>": reason.
 
@@ -49,6 +53,14 @@ var deadCodeAllowlist = map[string]string{
 		"assertion about two packages, so it cannot be written inside either one's production " +
 		"code, and deleting the table to satisfy this gate would delete the coverage proof " +
 		"with it",
+
+	"pkg/signing.GetHashAlgorithm":    sigstoreKeypair,
+	"pkg/signing.GetKeyAlgorithm":     sigstoreKeypair,
+	"pkg/signing.GetPublicKeyPem":     sigstoreKeypair,
+	"pkg/signing.GetSigningAlgorithm": sigstoreKeypair,
+
+	"pkg/dashboard.GetStatus": "huma's StatusError: huma reads the HTTP status of a refusal a handler returns " +
+		"through that interface, never by name",
 
 	"pkg/contract.PolicyTargetContract":     schemaVocabulary,
 	"pkg/contract.CategoryArchitecture":     schemaVocabulary,
@@ -72,6 +84,10 @@ var deadCodeAllowlist = map[string]string{
 	"pkg/contract.EvidenceTypeReport":       schemaVocabulary,
 	"pkg/contract.EvidenceTypeTicket":       schemaVocabulary,
 	"pkg/contract.EvidenceTypeURL":          schemaVocabulary,
+
+	"pkg/delivery.DeepCopyInto": "the delivery CRDs embed the pkg/delivery wire types, and the only caller " +
+		"is the controller-gen deepcopy of integrations/kubernetes/api/delivery/v1alpha1, a generated file " +
+		"this gate does not read",
 
 	"integrations/kubernetes/api/v1alpha1.CollectionRunning":  crdVocabulary,
 	"integrations/kubernetes/api/v1alpha1.CollectionDegraded": crdVocabulary,

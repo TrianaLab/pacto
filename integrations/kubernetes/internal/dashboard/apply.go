@@ -8,6 +8,8 @@ See LICENSE file in the project root for full license text.
 package dashboard
 
 import (
+	"strings"
+
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -62,6 +64,35 @@ func clusterRoleBindingAC(cfg Config) runtime.ApplyConfiguration {
 		)
 }
 
+// authEnv passes the sign-in settings to the dashboard; the client secret only
+// by secretKeyRef.
+func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
+	var env []*corev1ac.EnvVarApplyConfiguration
+	add := func(name, value string) {
+		if value != "" {
+			env = append(env, corev1ac.EnvVar().WithName(name).WithValue(value))
+		}
+	}
+	a := cfg.Auth
+	add("PACTO_DASHBOARD_OIDC_ISSUER_URL", a.IssuerURL)
+	add("PACTO_DASHBOARD_OIDC_CLIENT_ID", a.ClientID)
+	add("PACTO_DASHBOARD_OIDC_REDIRECT_URL", a.RedirectURL)
+	add("PACTO_DASHBOARD_OIDC_EXTRA_SCOPES", strings.Join(a.ExtraScopes, " "))
+	add("PACTO_DASHBOARD_TEAM_GROUP_PREFIX", a.TeamGroupPrefix)
+	add("PACTO_DASHBOARD_AGENT_GROUPS", strings.Join(a.AgentGroups, ","))
+	add("PACTO_DASHBOARD_BREAK_GLASS_GROUPS", strings.Join(a.BreakGlassGroups, ","))
+	add("PACTO_DASHBOARD_MIRA_URL", cfg.MiraURL)
+	if a.ClientSecretName != "" {
+		key := a.ClientSecretKey
+		if key == "" {
+			key = "client-secret"
+		}
+		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_OIDC_CLIENT_SECRET").WithValueFrom(
+			corev1ac.EnvVarSource().WithSecretKeyRef(corev1ac.SecretKeySelector().WithName(a.ClientSecretName).WithKey(key))))
+	}
+	return env
+}
+
 // deploymentAC returns a server-side apply configuration for the dashboard Deployment.
 func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	env := []*corev1ac.EnvVarApplyConfiguration{
@@ -69,8 +100,9 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		corev1ac.EnvVar().WithName("PACTO_NO_UPDATE_CHECK").WithValue("1"),
 	}
 	if cfg.WatchNamespace != "" {
-		env = append(env, corev1ac.EnvVar().WithName("PACTO_WATCH_NAMESPACE").WithValue(cfg.WatchNamespace))
+		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_NAMESPACE").WithValue(cfg.WatchNamespace))
 	}
+	env = append(env, authEnv(cfg)...)
 	if cfg.EvidenceSourceURL != "" {
 		env = append(env, corev1ac.EnvVar().WithName("PACTO_EVIDENCE_SOURCE_URL").WithValue(cfg.EvidenceSourceURL))
 	}

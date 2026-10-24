@@ -22,8 +22,85 @@ type Contract struct {
 	Capabilities   []Capability    `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
 	Policies       []Policy        `yaml:"policies,omitempty" json:"policies,omitempty"`
 	Readiness      *Readiness      `yaml:"readiness,omitempty" json:"readiness,omitempty"`
+	Publish        *Publish        `yaml:"publish,omitempty" json:"publish,omitempty"`
+	Agent          *Agent          `yaml:"agent,omitempty" json:"agent,omitempty"`
 	Metadata       map[string]any  `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	Extensions     map[string]any  `yaml:"extensions,omitempty" json:"extensions,omitempty"`
+}
+
+// Agent marks the service as an AI agent (pactoVersion 2.1). The tools it
+// exposes are interfaces of type mcp; the services it calls are dependencies.
+// Agent adds only what neither says: the models it calls that have no
+// contract of their own, and the eval suite delivery checks it with.
+type Agent struct {
+	// Models are model ids the agent calls, exactly as its code names them.
+	// A model served behind a Pacto contract is a dependency instead, with a
+	// version range.
+	Models []string `yaml:"models,omitempty" json:"models,omitempty"`
+	// Evals is the eval suite's file in the bundle. Pacto ships it with the
+	// version and never reads it: an eval runner behind a gate does.
+	Evals string `yaml:"evals,omitempty" json:"evals,omitempty"`
+}
+
+// Publish declares what the service publishes, where and how each artifact is
+// built (pactoVersion 2.1). `pacto publish` reads it; every tag is the
+// service version.
+type Publish struct {
+	// Bundle is the repository the contract bundle goes to (oci://, no tag).
+	Bundle string `yaml:"bundle" json:"bundle"`
+	// Deploy names the manifests artifact Flux applies. Pacto annotates it with
+	// the contract and tags it last.
+	Deploy    string            `yaml:"deploy,omitempty" json:"deploy,omitempty"`
+	Artifacts []PublishArtifact `yaml:"artifacts,omitempty" json:"artifacts,omitempty"`
+	Sign      *PublishSign      `yaml:"sign,omitempty" json:"sign,omitempty"`
+}
+
+// PublishArtifact is one artifact a service publishes.
+type PublishArtifact struct {
+	Name  string       `yaml:"name" json:"name"`
+	Type  string       `yaml:"type" json:"type"`
+	Ref   string       `yaml:"ref" json:"ref"`
+	Build PublishBuild `yaml:"build" json:"build"`
+	// SBOM is the SPDX (.spdx.json) or CycloneDX (.cdx.json) file the build
+	// writes, relative to the contract directory. Pacto attaches it to the
+	// image and signs it; it never makes one.
+	SBOM string `yaml:"sbom,omitempty" json:"sbom,omitempty"`
+}
+
+// Publish artifact types.
+const (
+	ArtifactImage     = "image"
+	ArtifactChart     = "chart"
+	ArtifactManifests = "manifests"
+)
+
+// PublishBuild is how an artifact is built: exactly one of the two.
+type PublishBuild struct {
+	Dockerfile *DockerfileBuild `yaml:"dockerfile,omitempty" json:"dockerfile,omitempty"`
+	// Command writes the artifact to $PACTO_OUT.
+	Command []string `yaml:"command,omitempty" json:"command,omitempty"`
+}
+
+// DockerfileBuild builds an image with docker buildx.
+type DockerfileBuild struct {
+	Context   string   `yaml:"context" json:"context"`
+	File      string   `yaml:"file,omitempty" json:"file,omitempty"`
+	Platforms []string `yaml:"platforms,omitempty" json:"platforms,omitempty"`
+}
+
+// PublishSign is how every published digest is signed: exactly one of
+// Keyless, Key and KMS. Keyless names the Identity and Issuer its certificate
+// carries, so Pacto can tell its own signature from anyone else's.
+type PublishSign struct {
+	Keyless bool `yaml:"keyless,omitempty" json:"keyless,omitempty"`
+	// Identity is the certificate identity keyless signing produces.
+	Identity string `yaml:"identity,omitempty" json:"identity,omitempty"`
+	// Issuer is the OIDC issuer of that identity.
+	Issuer string `yaml:"issuer,omitempty" json:"issuer,omitempty"`
+	Key    string `yaml:"key,omitempty" json:"key,omitempty"`
+	KMS    string `yaml:"kms,omitempty" json:"kms,omitempty"`
+	// TransparencyLog is nil for the default (upload).
+	TransparencyLog *bool `yaml:"transparencyLog,omitempty" json:"transparencyLog,omitempty"`
 }
 
 // Readiness declares operational readiness evidence for the service.
@@ -134,6 +211,9 @@ const (
 	InterfaceTypeOpenAPI  = "openapi"
 	InterfaceTypeAsyncAPI = "asyncapi"
 	InterfaceTypeGRPC     = "grpc"
+	// InterfaceTypeMCP is the tools an agent exposes over the Model Context
+	// Protocol; its ref is a tools/list result ({"tools": [...]}).
+	InterfaceTypeMCP = "mcp"
 )
 
 // Visibility constants.

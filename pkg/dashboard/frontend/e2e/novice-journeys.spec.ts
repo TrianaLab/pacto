@@ -39,13 +39,14 @@ async function openPaymentsService(page: Page) {
 
 test.describe('novice journey — a first-time user reads ONE product', () => {
   // J1. "Where am I, and what can I do here?" The app opens on state, and the primary
-  // nav teaches one order: state -> inventory -> relationships -> change.
-  test('J1: the app opens on operational state with exactly four primary workflows', async ({ page }) => {
+  // nav teaches one order: state -> inventory -> relationships -> change, then delivery
+  // where it is served (the demo simulates it).
+  test('J1: the app opens on operational state with exactly five primary workflows', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveURL(/#\/fleet$/, { timeout: T });
     await expect(page.getByRole('heading', { level: 1, name: 'Operational overview' })).toBeVisible({ timeout: T });
     const nav = page.getByRole('navigation', { name: 'Primary' }).first();
-    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Services', 'Operational graph', 'Change analysis']);
+    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Services', 'Operational graph', 'Change analysis', 'Delivery']);
     await expectNoLegacyScreen(page);
   });
 

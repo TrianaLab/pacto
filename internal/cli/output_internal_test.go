@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/pactify"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/graph"
@@ -28,7 +29,7 @@ func testCmd() (*cobra.Command, *bytes.Buffer) {
 
 func TestPrintInitResult_Text(t *testing.T) {
 	cmd, buf := testCmd()
-	result := &app.InitResult{Dir: "my-svc", Path: "my-svc/pacto.yaml"}
+	result := appliedInit
 	if err := printInitResult(cmd, result, "text"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -38,6 +39,80 @@ func TestPrintInitResult_Text(t *testing.T) {
 	}
 	if !strings.Contains(out, "my-svc/pacto.yaml") {
 		t.Errorf("expected 'my-svc/pacto.yaml' in output, got %q", out)
+	}
+}
+
+// appliedInit is a blank init that wrote its contract.
+var appliedInit = &app.InitResult{Dir: "my-svc", Path: "my-svc/pacto.yaml", Mode: "blank", Applied: true,
+	Files: []pactify.File{{Path: "pacto.yaml", Action: pactify.Add}}}
+
+// TestPrintInitResult_Pactify: a pactified folder shows what was found, who
+// depends on whom (none found says so), what is Unknown, what is left to do
+// and what was kept; the plan shows each file's content and changes nothing.
+func TestPrintInitResult_Pactify(t *testing.T) {
+	r := &app.InitResult{Dir: "fraud", Service: "fraud", Mode: "pactify",
+		Found:        []string{"Deployment fraud in k8s/deployment.yaml"},
+		Dependencies: []pactify.Finding{{Name: "payments", Where: "k8s/deployment.yaml, env PAYMENTS_URL"}},
+		Unknown:      []string{"owner: unknown"},
+		Next:         []string{"put the signing key at cosign.key"},
+		Files: []pactify.File{
+			{Path: "pacto.yaml", Action: pactify.Add, Content: "pactoVersion: \"2.1\"\n\nservice: {}\n"},
+			{Path: ".pactoignore", Action: pactify.Append, Content: "cosign.key\n"},
+			{Path: "delivery/test.yaml", Action: pactify.Keep},
+		}}
+	cmd, buf := testCmd()
+	if err := printInitResult(cmd, r, "text"); err != nil {
+		t.Fatal(err)
+	}
+	want := `Plan for fraud in fraud/ (nothing changed)
+
+Found
+  - Deployment fraud in k8s/deployment.yaml
+
+Depends on
+  - payments (k8s/deployment.yaml, env PAYMENTS_URL)
+
+Used by
+  - none found
+
+Unknown
+  - owner: unknown
+
+Next
+  - put the signing key at cosign.key
+
+Already there, left as it is
+  - delivery/test.yaml
+
+Would add
+  + pacto.yaml
+      pactoVersion: "2.1"
+
+      service: {}
+  + .pactoignore (adds these lines)
+      cosign.key
+
+Run it again without --plan to add these.
+`
+	if buf.String() != want {
+		t.Fatalf("plan output:\n%s", buf.String())
+	}
+
+	r.Applied = true
+	cmd, buf = testCmd()
+	if err := printInitResult(cmd, r, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(buf.String(), "Created fraud/\n  fraud/pacto.yaml\n  fraud/.pactoignore (lines added)\n\nFound\n") {
+		t.Fatalf("applied output:\n%s", buf.String())
+	}
+
+	cmd, buf = testCmd()
+	if err := printInitResult(cmd, &app.InitResult{Dir: "x", Service: "x", Files: []pactify.File{{Path: "pacto.yaml", Action: pactify.Keep}}}, "text"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(buf.String(), "\nNothing to add: it is all there.\n") {
+		t.Fatalf("nothing-to-add plan:\n%s", buf.String())
 	}
 }
 
@@ -140,11 +215,14 @@ func TestPrintPullResult_Text(t *testing.T) {
 
 func TestPrintDiffResult_NoChanges(t *testing.T) {
 	cmd, buf := testCmd()
-	result := &app.DiffResult{OldPath: "a.yaml", NewPath: "b.yaml", Classification: "NON_BREAKING"}
+	result := &app.DiffResult{OldPath: "a.yaml", NewPath: "b.yaml", Classification: "NON_BREAKING", RequiredBump: diff.BumpPatch}
 	if err := printDiffResult(cmd, result, "text"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	out := buf.String()
+	if !strings.Contains(out, "Required bump: patch") {
+		t.Errorf("expected the required bump, got %q", out)
+	}
 	if !strings.Contains(out, "NON_BREAKING") {
 		t.Errorf("expected classification, got %q", out)
 	}
@@ -827,7 +905,7 @@ func TestPrintDiffResult_Markdown_NoGraphDiffChanges(t *testing.T) {
 
 func TestFormatResult_MarkdownFallbackToText(t *testing.T) {
 	cmd, buf := testCmd()
-	result := &app.InitResult{Dir: "my-svc", Path: "my-svc/pacto.yaml"}
+	result := appliedInit
 	if err := printInitResult(cmd, result, "markdown"); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

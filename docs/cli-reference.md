@@ -223,18 +223,259 @@ pacto dashboard [sources...] [flags]
 **Flags:**
 
 ```
-      --cors-origin string         explicit cross-origin allowed to call the API (default: same-origin only)
-  -h, --help                       help for dashboard
-      --host string                bind address for the dashboard server (default "127.0.0.1")
-      --namespace string           Kubernetes namespace (empty = all namespaces)
-      --port int                   port for the dashboard server (default 3000)
-      --trace-source stringArray   named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)
-      --traces stringArray         OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
+      --agent-groups strings         groups whose members are agents, as the delivery promoter is configured (default [pacto:agents])
+      --auth-required                with OIDC sign-in, gate the fleet views and the whole API behind it too, not only delivery (also PACTO_DASHBOARD_AUTH_REQUIRED)
+      --break-glass-groups strings   groups that may override, as the delivery promoter is configured (default [pacto:break-glass])
+      --cors-origin string           explicit cross-origin allowed to call the API (default: same-origin only)
+      --delivery-trust string        the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
+  -h, --help                         help for dashboard
+      --host string                  bind address for the dashboard server (default "127.0.0.1")
+      --mira-url string              Mira's address, to link the health-check citations of delivery verdicts
+      --namespace string             Kubernetes namespace (empty = all namespaces)
+      --oidc-client-id string        OpenID Connect client id of the dashboard
+      --oidc-extra-scopes strings    scopes to ask for beyond openid, profile and groups
+      --oidc-issuer-url string       OpenID Connect issuer people sign in with; delivery views and actions then run as the signed-in person (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)
+      --oidc-redirect-url string     the dashboard's /auth/callback as browsers reach it (https)
+      --port int                     port for the dashboard server (default 3000)
+      --team-group-prefix string     a contract owner team T is group T, or with this prefix set only this prefix plus T, as the delivery promoter is configured
+      --trace-source stringArray     named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)
+      --traces stringArray           OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
 ```
 
 It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached).
 
 For a tour of what the dashboard surfaces, see [For platform engineers](platform-engineers.md); to run it as a container, see [Dashboard container](dashboard-docker.md).
+
+---
+
+## `pacto delivery`
+
+Pacto delivery decides which version each environment (a Stage) runs. Every change is an Operation: plan it to see what the promoter will do and who must agree, propose it, and a person approves only when the contracts say a consumer would break, Pacto cannot see enough or the Stage asks for approval on every promote.
+
+There is no approve tool for agents. `approve` is for people, with a fresh login.
+
+```
+pacto delivery [flags]
+```
+
+**Flags:**
+
+```
+      --agent-groups strings         groups whose members are agents (default [pacto:agents])
+      --break-glass-groups strings   groups that may override (default [pacto:break-glass])
+  -h, --help                         help for delivery
+  -n, --namespace string             namespace of the Stage and its Operations (default "default")
+      --trust string                 the trust config delivery records are verified with: the recorder's PEM public key, or a YAML file of keys and the streams each may sign (default $PACTO_DELIVERY_TRUST)
+```
+
+### `pacto delivery approve`
+
+Record your decision on a held operation (people only, with a fresh login)
+
+```
+pacto delivery approve <operation> [flags]
+```
+
+**Flags:**
+
+```
+      --decision string   approve, reject or accept-unknown (default "approve")
+  -h, --help              help for approve
+      --note string       why, for the record
+```
+
+### `pacto delivery blame`
+
+Say who put a version in place on a Stage: who asked, for whom, who approved and what every gate said
+
+```
+pacto delivery blame [flags]
+```
+
+**Flags:**
+
+```
+      --digest string   the version to blame (defaults to the one the Stage runs)
+  -h, --help            help for blame
+      --stage string    the Stage (required)
+```
+
+### `pacto delivery cancel`
+
+Cancel an operation that has not moved the pointer yet
+
+```
+pacto delivery cancel <operation> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for cancel
+```
+
+### `pacto delivery describe`
+
+Show what an operation type checks, when a person is needed and how it is undone
+
+```
+pacto delivery describe <type> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for describe
+```
+
+### `pacto delivery explain`
+
+Explain an operation: where it is, every verdict with its citation and how to run it again
+
+```
+pacto delivery explain <operation> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for explain
+```
+
+### `pacto delivery get`
+
+Show an operation: phase, outcome, verdicts and the question a person is asked
+
+```
+pacto delivery get <operation> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for get
+```
+
+### `pacto delivery history`
+
+List what happened on a Stage, from its signed records when the recorder runs, otherwise from the cluster
+
+```
+pacto delivery history [flags]
+```
+
+**Flags:**
+
+```
+      --all            walk every Stage in the namespace given with -n, or in every namespace you can list
+  -h, --help           help for history
+      --stage string   the Stage (this or --all)
+```
+
+### `pacto delivery plan`
+
+Predict what the promoter will do: verdicts, the approval floor, the one question for a person and what must move first
+
+```
+pacto delivery plan [flags]
+```
+
+**Flags:**
+
+```
+      --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
+      --from string                                                 the digest the Stage runs now (defaults to its pointer)
+  -h, --help                                                        help for plan
+      --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
+      --reason string                                               why, for the record
+      --stage string                                                the Stage to change (required)
+      --to string                                                   the artifact digest to move to (sha256:...)
+      --type string                                                 operation type (default "pacto.dev/promote")
+      --undoes string                                               for a rollback: the name of the operation it undoes
+```
+
+### `pacto delivery propose`
+
+Propose an operation; with --intent-digest it fails with PlanStale if anything moved since the plan
+
+```
+pacto delivery propose [flags]
+```
+
+**Flags:**
+
+```
+      --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
+      --from string                                                 the digest the Stage runs now (defaults to its pointer)
+  -h, --help                                                        help for propose
+      --intent-digest string                                        the intent digest from your plan; propose refuses if it no longer matches
+      --name string                                                 the Operation name (generated when empty)
+      --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
+      --reason string                                               why, for the record
+      --stage string                                                the Stage to change (required)
+      --to string                                                   the artifact digest to move to (sha256:...)
+      --type string                                                 operation type (default "pacto.dev/promote")
+      --undoes string                                               for a rollback: the name of the operation it undoes
+```
+
+### `pacto delivery record`
+
+Work with the signed records of operations
+
+```
+pacto delivery record [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for record
+```
+
+#### `pacto delivery record verify`
+
+Verify every record of a Stage's stream against the trust config and check the chain
+
+```
+pacto delivery record verify [flags]
+```
+
+**Flags:**
+
+```
+      --all            verify every Stage's stream in the namespace given with -n, or in every namespace you can list
+  -h, --help           help for verify
+      --stage string   the Stage (this or --all)
+```
+
+### `pacto delivery types`
+
+List the operation types you may propose
+
+```
+pacto delivery types [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help   help for types
+```
+
+### `pacto delivery undo`
+
+Plan how to undo an operation; it proposes nothing and prints the command that would
+
+```
+pacto delivery undo <operation> [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help           help for undo
+      --stage string   the operation's Stage, needed only when the Operation was deleted and must be found in the records
+```
 
 ---
 
@@ -738,22 +979,48 @@ pacto impact <old> <new> [flags]
 
 ## `pacto init`
 
-Creates a new directory with pacto.yaml and the bundle directory structure (interfaces/, configuration/).
+Writes the contract for the service in dir (default: the current folder).
+
+An empty or new folder gets a blank contract with the bundle structure
+(interfaces/, configuration/). A folder that already holds a service gets a
+contract read from its Dockerfile and Kubernetes manifests, publish section
+included, and a list of what Pacto found and what it could not tell
+(Unknown). --delivery also writes the cluster pieces: the Pacto resource that
+checks the running service, and per environment a Stage with the Flux
+OCIRepository and Kustomization it applies through.
+
+It only adds files and missing .pactoignore lines; any other file already
+there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and
+changes nothing.
 
 ```
-pacto init <name> [flags]
+pacto init [dir] [flags]
 ```
 
 **Examples:**
 
 ```
   pacto init my-service
+  pacto init --plan
+  pacto init --delivery --owner payments --fleet ../contracts
+  pacto init --delivery --no-transparency-log --insecure-registry
+  pacto init --delivery --registry-secret registry-creds
 ```
 
 **Flags:**
 
 ```
-  -h, --help   help for init
+      --delivery                 also write the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization
+      --env strings              environments for --delivery, in promotion order (default [test,prod])
+      --fleet strings            folders of other services' contracts to find the services that use this one
+  -h, --help                     help for init
+      --insecure-registry        with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)
+      --name string              service name (default: the workload's name, then the folder's)
+      --no-transparency-log      write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)
+      --owner string             the team that owns the service (default: the workload's team label)
+      --plan                     show what would be added and change nothing
+      --registry string          where to publish, as host/path (default: read from the workload's image)
+      --registry-secret string   with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with
 ```
 
 Scaffolds three files: a valid `pacto.yaml`, a placeholder OpenAPI spec at `interfaces/openapi.yaml` and a configuration JSON Schema at `configuration/schema.json`.
@@ -885,7 +1152,13 @@ With --root, the server instead exposes a read-only contract catalog: the given 
 
 With --fleet, the server instead exposes the read-only operational-graph query tools over one snapshot. The shared fleet source flags — --local, --target-state, --evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness — compose that snapshot and are read in --fleet mode only.
 
-A bundle reference, --root and --fleet select different servers and cannot be combined.
+With --delivery, the server instead exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, describe, plan and get, plus propose and cancel only when the apiserver says the caller is an agent (a service account or an --agent-groups member). There is no approve tool.
+
+Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies (issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback needs them and refuses --auth and --allow-writes, which would lend this process's service credential to every caller. With --delivery the server then exchanges each caller's token for one the apiserver accepts (RFC 8693, --exchange-client-id) and builds the tools for that caller on every request, so an agent proposes as itself and a person gets the read-only tools.
+
+With --publish, the authoring server also exposes pacto_publish_plan and pacto_publish, which publish a contract's version exactly as `pacto publish` does, with this process's registry credentials.
+
+A bundle reference, --root, --fleet, --delivery and --publish select different servers and cannot be combined.
 
 ```
 pacto mcp [bundle-ref] [flags]
@@ -914,23 +1187,34 @@ pacto mcp [bundle-ref] [flags]
 **Flags:**
 
 ```
-      --allow-writes               expose mutating operations (POST/PUT/PATCH/DELETE) as tools
-      --auth stringArray           credential for a security scheme as name=value (repeatable)
-      --base-url string            base URL for live invocation (overrides the OpenAPI servers[] URL)
-      --cache                      include every bundle in the local OCI cache as an offline baseline revision
-      --evidence-url stringArray   base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --fleet                      expose read-only operational-graph (fleet) query tools
-      --freshness duration         mark target evidence older than this as stale (0 disables)
-  -h, --help                       help for mcp
-      --k8s                        include live Pacto CRs from the current Kubernetes cluster as targets
-      --local stringArray          local bundle root(s) to scan (repeatable) (default [.])
-      --namespace string           namespace to read Pacto CRs from with --k8s (empty = all namespaces)
-      --oci stringArray            registry reference to include as a published-baseline revision (repeatable)
-      --port int                   port for HTTP transport (default 8585)
-      --root stringArray           contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
-      --target-state stringArray   offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
-      --traces stringArray         OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
-  -t, --transport string           transport type: stdio or http (default "stdio")
+      --agent-groups strings         in --delivery mode: groups whose members are agents (default [pacto:agents])
+      --allow-writes                 expose mutating operations (POST/PUT/PATCH/DELETE) as tools
+      --audience string              with --auth-issuer: the audience incoming tokens must carry (default --resource)
+      --auth stringArray             credential for a security scheme as name=value (repeatable)
+      --auth-issuer string           OpenID issuer whose bearer tokens every HTTP request must carry
+      --base-url string              base URL for live invocation (overrides the OpenAPI servers[] URL)
+      --break-glass-groups strings   in --delivery mode: groups that may override (default [pacto:break-glass])
+      --cache                        include every bundle in the local OCI cache as an offline baseline revision
+      --delivery                     expose the Pacto delivery tools over the ambient cluster
+      --delivery-trust string        in --delivery mode: the trust config delivery records are verified with (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
+      --evidence-url stringArray     base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --exchange-audience string     with --delivery over HTTP: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
+      --exchange-client-id string    with --delivery over HTTP: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
+      --fleet                        expose read-only operational-graph (fleet) query tools
+      --freshness duration           mark target evidence older than this as stale (0 disables)
+  -h, --help                         help for mcp
+      --host string                  bind address for HTTP transport; beyond loopback it needs --auth-issuer (default "127.0.0.1")
+      --k8s                          include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray            local bundle root(s) to scan (repeatable) (default [.])
+      --namespace string             namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --oci stringArray              registry reference to include as a published-baseline revision (repeatable)
+      --port int                     port for HTTP transport (default 8585)
+      --publish                      expose pacto_publish_plan and pacto_publish beside the authoring tools
+      --resource string              with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)
+      --root stringArray             contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
+      --target-state stringArray     offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
+      --traces stringArray           OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+  -t, --transport string             transport type: stdio or http (default "stdio")
 ```
 
 The **default** server exposes the four authoring tools below. Three flags select a different server, each with its own tools -- see [Server modes](#server-modes) immediately after this table:
@@ -1044,6 +1328,41 @@ Files matched by `.pactoignore` are excluded from the archive — see [Packaging
 
 ---
 
+## `pacto publish`
+
+Publishes every artifact the contract's publish section declares (pactoVersion 2.1), the contract bundle and the deploy artifact Flux applies, all tagged with service.version. Docker or the declared command builds; Pacto pushes, never over an existing tag, signs every digest with Sigstore (no cosign needed) and attaches the SBOM files the build wrote. A breaking change since the last published version is refused below a major bump (a minor before 1.0).
+
+--plan shows what is missing and changes nothing. Running publish again finishes what is missing and changes nothing else. --propose hands the deploy artifact to Pacto delivery as a promote on a Stage, once the Stage recorded it as published: Flux polled the candidate OCIRepository and verified the signature. It waits up to --propose-timeout for that.
+
+```
+pacto publish [flags]
+```
+
+**Examples:**
+
+```
+  # What would be published, and what refuses it
+  pacto publish --plan
+
+  # Publish, then propose the version on the test Stage
+  pacto publish --propose test/payments
+```
+
+**Flags:**
+
+```
+  -h, --help                       help for publish
+  -p, --path string                path to contract directory (default: current directory)
+      --plan                       show what is missing and what refuses it; change nothing
+      --propose string             after publishing, propose the deploy artifact on <namespace>/<stage> (needs the pacto-delivery chart)
+      --propose-timeout duration   how long --propose waits for the Stage to record the version as published (default 10m0s)
+      --revision string            source revision stamped on every artifact (default: the git commit of --path, read from .git)
+      --set stringArray            set a contract value (e.g. --set service.version=2.0.0)
+      --values stringArray         values file to merge into the contract (can be repeated; last wins)
+```
+
+---
+
 ## `pacto pull`
 
 Pulls a contract bundle from the specified OCI reference and extracts it to a local directory.
@@ -1073,7 +1392,7 @@ pacto pull <ref> [flags]
 
 ## `pacto push`
 
-Validates the contract (including remote policy and config refs), builds an OCI artifact and pushes it to the specified registry reference.
+Validates the contract (including remote policy and config refs), builds an OCI artifact and pushes it to the specified registry reference. Pushing the same content again succeeds without writing anything; different content under an existing reference is refused unless --force.
 
 ```
 pacto push <ref> [flags]
@@ -1102,7 +1421,7 @@ pacto push <ref> [flags]
       --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
-If the artifact already exists in the registry, `pacto push` prints a warning and exits successfully without pushing. Use `--force` to overwrite.
+If the tag already holds the same content, `pacto push` succeeds and writes nothing. If it holds different content, `pacto push` refuses with a non-zero exit and writes nothing. Use `--force` to overwrite.
 
 !!! note "`--values` has no `-f` shorthand on push"
     On every other override-taking command `-f` is the shorthand for `--values`. On `pacto push`, `-f` is `--force`, so `--values` must be spelled out in full here.

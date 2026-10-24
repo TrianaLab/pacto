@@ -35,10 +35,15 @@ UI_BUILD    := $(abspath .ui-build)
 # short SHA, then "dev", when no tags are present.
 VERSION     ?= $(shell git describe --tags --abbrev=0 --match 'v[0-9]*' 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo dev)
 
-.PHONY: build preflight ui wasm wasmexec inject doc-export serve test validate smoke clean diff breaking-change evolution graph explain
+.PHONY: pactify-plan build preflight ui wasm wasmexec inject doc-export serve test validate smoke clean diff breaking-change evolution graph explain
 
 build: preflight ui wasm wasmexec inject
 	@echo "==> Built '$(DIST)' (base $(BASE))"
+
+## Rewrite the pacto init plan the delivery tour shows for the story's plain
+## fraud service (pactify-fraud.json, embedded in the wasm).
+pactify-plan:
+	PACTO_UPDATE_PACTIFY_PLAN=1 go test -run TestPactifyPlanIsCurrent -count=1 .
 
 ## Fail fast with clear guidance if a previous `sudo make` left root-owned
 ## artifacts a normal-user build can't overwrite. This build never needs root.
@@ -128,8 +133,10 @@ test:
 ## contract is not valid v2. This is the offline proof that the demo contracts are
 ## valid; the live `pacto validate` against ghcr.io only passes once the release
 ## republishes the demo bundles as v2 (a production publish, out of scope here).
+## The payments story contracts (../story/contracts) are validated as their own set.
 validate:
 	go run ./validatebundles
+	go run ./validatebundles ../story/contracts
 
 ## Exercise the built wasm engine end-to-end in Node (needs `make build` first).
 smoke:

@@ -14,7 +14,10 @@ an OpenAPI file in another repository. What it depends on is implied by Helm
 values and a Service name. What breaks if you change it is in someone's memory.
 
 Pacto is an operational contract system. It puts those facts in one YAML file,
-published to the container registry you already run.
+published to the container registry you already run. With the opt-in
+[delivery](integrations/kubernetes/delivery.md) component, Pacto also acts on
+them: it decides which version of each service runs in each environment, and
+[pactifying a service](pactify.md) sets it up.
 
 ```yaml title="pacto.yaml"
 pactoVersion: "2.0"

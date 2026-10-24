@@ -172,6 +172,35 @@ dashboard:
     #   - name: orders
     #     file: traces.json
     #     existingClaim: orders-trace-export
+  # Sign-in for the dashboard. With it, the delivery views and actions run with
+  # each signed-in person's own token; the dashboard's ServiceAccount stays
+  # read-only and never gains a delivery right or impersonation. Without it the
+  # dashboard serves no delivery data and no actions. The cluster must trust the
+  # same issuer (structured authentication), and TLS must terminate in front of
+  # the dashboard because its session cookie is Secure.
+  auth:
+    oidc:
+      # -- OpenID Connect issuer URL people sign in with (empty: no sign-in)
+      issuerURL: ""
+      # -- The dashboard's client id at the issuer
+      clientID: ""
+      clientSecretRef:
+        # -- Secret in the operator namespace holding the client secret (passed by secretKeyRef)
+        name: ""
+        # -- Key of the client secret in that Secret
+        key: client-secret
+      # -- The dashboard's `/auth/callback` URL as browsers reach it
+      redirectURL: ""
+      # -- Scopes asked for beyond openid, profile and groups (for example a cross-client audience scope)
+      extraScopes: []
+    # -- A contract owner team `T` is the group `T`, or once this prefix is set only this prefix followed by `T`, as the delivery chart is configured
+    teamGroupPrefix: ""
+    # -- Groups whose members are agents, as the delivery chart's `identities.agentGroups` (empty: `pacto:agents`)
+    agentGroups: []
+    # -- Groups that may override, as the delivery chart's `identities.breakGlassGroups` (empty: `pacto:break-glass`)
+    breakGlassGroups: []
+  # -- Mira's address, to link the health-check citations in delivery views
+  miraURL: ""
   service:
     # -- Dashboard exposure Service type (ClusterIP, NodePort, LoadBalancer).
     # The operator manages an internal ClusterIP Service (pacto-dashboard) for

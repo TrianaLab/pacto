@@ -15,7 +15,7 @@ tab.
 <a href="../../demo/#/fleet" class="md-button md-button--primary">Open the live dashboard demo →</a>
 
 The whole engine ships to your browser, so the first visit downloads about
-11 MB of compiled Wasm (57 MB unpacked). Give it a moment on a slow connection —
+4.3 MB of compiled Wasm (17.5 MB unpacked). Give it a moment on a slow connection —
 the loading strip counts the seconds and names the size, and the browser caches
 it afterwards.
 
@@ -39,16 +39,33 @@ apart.
   everything reports complete is not every day.
 - **Change analysis** — the `v1.2.1 → v2.0.1` step removes the `/charges` API
   and shows which consumers the break reaches.
+- **Delivery, simulated** — press **Play the delivery story** for the payments
+  story in two acts. First `pacto init` pactifies a plain service. Then a safe
+  change ships on its own, a bad release is rolled back, a breaking change asks
+  only the teams whose declared range it breaks and every step reads back as a
+  signed record. **Switch person** acts as `pay-agent`, Alice or Carol, so you
+  can see who may decide and the fresh sign-in a decision needs.
 
 ## What it cannot show
 
-There is no cluster behind the demo. The compliance states on its targets are
-recorded fixture data. It shows
+There is no cluster behind the demo: compliance states are recorded fixture
+data. It shows
 [runtime conformance](../integrations/kubernetes/runtime-conformance.md) (what a
 service really does on the network) as one recorded finding, not a live check:
 the staging `orders-service` target carries `INTERFACE_ABSENT`, and its evidence
 line says "seen by: Kubernetes + kernel". A live check needs the node agent on a
 Kubernetes cluster or the [Docker Compose demo](compose-demo.md).
+
+Delivery is simulated, as every delivery screen says. Plans,
+checks, history, blame and undo come from Pacto's own code on fixed data. The
+health check results and the node agent's finding are recorded, and so is
+the `pacto init` plan, which a test keeps current. Records are signed with a key made in your tab, so
+nothing outside it can check them, and a reload starts over. With no promoter,
+Flux or real sign-in, nothing approved runs. One
+history shows a gap, one record signed by a key nobody trusts and one Stage
+read from status only: these look like bugs and are deliberate. See
+[delivery](../integrations/kubernetes/delivery.md) and the
+[Kubernetes demo](kubernetes-demo.md) for the real thing on a cluster.
 
 To run the dashboard against your own services, see
 [Dashboard container](../dashboard-docker.md). The source and build harness live

@@ -18,6 +18,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 )
 
 const testRepoPath = "team/contracts/orders"
@@ -107,7 +108,7 @@ func pushBlob(t *testing.T, repo *remote.Repository, mediaType string, data []by
 // the store's own push, so a test can never seed bytes the product cannot.
 func publish(t *testing.T, repo *remote.Repository, art Artifact) {
 	t.Helper()
-	if err := pushArtifact(t.Context(), repo, art); err != nil {
+	if err := ocireferrer.Push(t.Context(), repo, art); err != nil {
 		t.Fatalf("push evidence artifact: %v", err)
 	}
 }

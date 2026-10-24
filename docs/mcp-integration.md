@@ -56,6 +56,8 @@ Every client starts the `pacto` binary and talks to it over stdin and stdout. Pi
 
 To serve a bundle's operations as tools, append the bundle reference and flags to `args` (see [bundle capabilities](#bundle-capabilities)).
 
+`pacto_create` with `pactify: true` does what `pacto init` does for a folder holding a service: it reads the Dockerfile and Kubernetes files and writes the contract, plus the cluster files with `delivery: true` (`registry`, `environments`, `fleet_roots`, `no_transparency_log`, `insecure_registry` and `registry_secret` match the CLI flags, and `dry_run` only plans).
+
 Every snippet above is the **authoring** server, and `pacto_create` and `pacto_edit` write files. If the agent must change nothing, use [catalog mode](#catalog-mode) instead:
 
 ```json
@@ -66,7 +68,7 @@ Every snippet above is the **authoring** server, and `pacto_create` and `pacto_e
 }
 ```
 
-`--fleet` is not the read-only choice, despite its tools being read-only: it adds the fleet family *beside* the authoring tools rather than instead of them.
+`--fleet` is not read-only either: it adds the read-only fleet tools *beside* the authoring tools.
 
 ### Example prompts
 
@@ -84,7 +86,7 @@ Claude: payments-api is valid. Suggestion: "No dependencies declared. If this
         service depends on others, declare them explicitly."
 ```
 
-Two things to notice. Pacto never guesses dependencies: naming PostgreSQL adds no `dependencies` section, so the second prompt adds one. And it is stateful only because the agent passed `stores_data` and `data_survives_restart`.
+Pacto never guesses dependencies, so the second prompt adds one. The service is stateful because the agent passed `stores_data` and `data_survives_restart`.
 
 ---
 
@@ -106,6 +108,7 @@ What the assistant can reach depends on how you start the server:
 | Bundle mode | The live service |
 | `--fleet` | Clusters and registries |
 | `--root` | Contracts from a registry |
+| `--publish` | Your registry, to [publish a version](publishing.md) (stdio only) |
 
 ---
 
@@ -117,31 +120,27 @@ What the assistant can reach depends on how you start the server:
 | **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call is bounded by a 30-second timeout and follows no redirect at all — a 3xx comes back to the agent as the result. |
 | **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only understanding of the *operational system* — services, revisions, targets, relationships and status. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects. | Read-only always: they write nothing, anywhere. Two things that boundary does *not* cover — read-only is not offline, and a read-only *family* is not a read-only *server*: see [Fleet query safety](#fleet-query-safety). The only server with no write tool is catalog mode. |
 
-Two tools sit outside these families: `pacto_skill` and `pacto_catalog_revision`.
+Outside these families: `pacto_skill` and `pacto_catalog_revision`.
 
 Not in the surface: inspecting a registry contract, resolving a dependency graph,
 diffing revisions, generating docs and the two non-query `pacto fleet`
 operations — `reconcile` (declared dependencies against observed traffic) and
 `snapshot` (the whole read model as one document). These stay CLI-only. No tool pushes, pulls or deploys
 anything. [Server modes](cli-reference.md#server-modes) lists which tools each
-invocation registers; [What Pacto is not](model.md#what-pacto-is-not) tells the
-MCP surface, the catalog and the fleet apart.
+invocation registers.
 
 !!! warning "The boundary is documented, not machine-advertised"
     Pacto ships **no MCP tool annotations**. A `tools/list` response carries no
     [`annotations`](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations)
     member on any tool — not `readOnlyHint`, `destructiveHint` or
     `idempotentHint` — including `pacto_create`, `pacto_edit` and a generated
-    tool such as `createRefund`, which moves money. A client therefore cannot
-    tell a read tool from a write tool, and will not warn before a write: this
-    boundary is yours to hold, not your client's, so build allow-lists by
-    hand. The only machine-usable signal is the
-    tool name. `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`,
+    tool such as `createRefund`, which moves money. Build allow-lists by hand
+    from the tool name. `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`,
     `pacto_impact` and `pacto_catalog_revision` are read-only; `pacto_create` and
     `pacto_edit` write contract files. Generated service tools carry no `pacto_`
     prefix and reach a live service, so treat every unprefixed tool as unsafe
-    unless the server was started without `--allow-writes`. That holds because
-    the `pacto_` names are reserved: a bundle cannot claim one.
+    unless the server was started without `--allow-writes`. A bundle cannot
+    claim a `pacto_` name.
 
 ### Fleet query safety
 
@@ -149,7 +148,7 @@ MCP surface, the catalog and the fleet apart.
 - **Pacto does not determine authorization.** These tools expose knowledge; they never grant, scope or revoke a permission.
 - **Partial or stale results are incomplete knowledge.** Every answer carries an `asOf` time, a `completeness` value and structured `limitations`. Branch on those before trusting an answer.
 - **A missing result under partial coverage does not prove absence.** If a source was unavailable, "not found" means "not known here", not "does not exist".
-- **The snapshot is frozen for the session.** `pacto mcp --fleet` builds one snapshot at startup, and every `pacto_fleet_*` answer is served from it. A service deployed after the server started will not appear until you restart it. `pacto_impact` is the one exception — it rebuilds the snapshot on every call.
+- **The snapshot is frozen for the session.** A service deployed after the server started does not appear in `pacto_fleet_*` answers until you restart it.
 - **It reads; it does not reconcile and does not store.** Acting on a contract in a cluster is the [Kubernetes operator's](integrations/kubernetes/overview.md) job, and durable evidence lives in an [Evidence Server](evidence.md) someone else runs. Nothing survives the process.
 
 `--fleet` names its sources the same way `pacto fleet` does:
@@ -164,7 +163,7 @@ See [`pacto mcp` reference](cli-reference.md#pacto-mcp) for source flags and [Th
 
 ## The authoring tools
 
-These four are the default server, and every mode except `--root` carries them as well.
+Every mode except `--root` carries these four.
 
 | Tool | Description |
 |------|-------------|
@@ -261,7 +260,7 @@ That is the whole surface. Catalog mode registers no authoring tools: a server s
 | **stdio** (default) | `pacto mcp` | Direct integration with CLI-based AI tools (Claude Code, Cursor) |
 | **HTTP** | `pacto mcp -t http` | Local HTTP endpoint for tools that speak HTTP rather than stdio |
 
-The HTTP transport serves the [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) protocol at the `/mcp` endpoint. The server binds to loopback (`127.0.0.1`) only; remote access requires an explicit tunnel or reverse proxy.
+The HTTP transport serves the [Streamable HTTP](https://modelcontextprotocol.io/specification/2025-03-26/basic/transports#streamable-http) protocol at the `/mcp` endpoint. It binds to loopback by default; beyond it, `--auth-issuer` and `--resource` require a bearer token on every request ([sign-in for agents](integrations/kubernetes/delivery-identity.md#agents-over-the-network)). Beyond loopback the server also refuses `--auth` and `--allow-writes`: every caller would reach the service with this process's credential, and the service could not tell them apart. Run a server that holds a service credential beside its agent instead.
 
 ```bash
 # Default port (8585)

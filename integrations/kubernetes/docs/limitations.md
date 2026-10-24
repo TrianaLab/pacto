@@ -8,7 +8,8 @@ it cannot prove, and it never changes the workloads it watches.
 
 The operator never modifies the workloads it observes: it does not restart pods,
 edit Deployments or change anything it was pointed at. Observation is read and
-report only.
+report only. Deciding which version runs is [Pacto delivery](delivery.md), a
+separate opt-in chart; installing the operator grants none of it.
 
 It is not a read-only component overall. At chart defaults it manages the Pacto
 dashboard for you, which means creating a Deployment, Service, ServiceAccount,
@@ -203,6 +204,24 @@ is nothing transient to wait out; the evidence is already conclusive.
 
 This split matters if you gate deployments on the verdict. See
 [GitOps promotion gates](gitops.md#timing).
+
+## Delivery and private registries
+
+Images can stay private with only a pull Secret. A private contract or deploy
+repository needs a login in three places, or the checks that read it answer
+Unknown, every change waits for a person to accept the unknown and an accepted
+unknown never moves on to the next environment:
+
+- delivery: install its chart with `promoter.registryCredentials.secretName`
+  set to a `kubernetes.io/dockerconfigjson` Secret in the delivery namespace;
+- Flux: `secretRef` on each OCIRepository in `delivery/<env>.yaml`;
+- the operator: `spec.contractRef.pullSecretRef` in `delivery/pacto.yaml`.
+
+`pacto init --delivery --registry-secret <name>` writes the last two, naming a
+`kubernetes.io/dockerconfigjson` Secret you create in each environment's
+namespace; the delivery chart value stays yours to set. See
+[Pactify a service](../../pactify.md#4-connect-the-service-to-your-cluster) for
+the commands.
 
 ## API version
 

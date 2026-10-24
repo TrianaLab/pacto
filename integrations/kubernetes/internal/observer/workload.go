@@ -225,7 +225,7 @@ func (o *Observer) observeDeployment(ctx context.Context, key types.NamespacedNa
 		}
 		return nil
 	}
-	snap.WorkloadExists = true
+	snap.markExists(dep)
 	if dep.Spec.Strategy.Type != "" {
 		snap.DeploymentStrategy = string(dep.Spec.Strategy.Type)
 	}
@@ -245,7 +245,7 @@ func (o *Observer) observeStatefulSet(ctx context.Context, key types.NamespacedN
 		}
 		return nil
 	}
-	snap.WorkloadExists = true
+	snap.markExists(sts)
 	snap.PodManagementPolicy = string(sts.Spec.PodManagementPolicy)
 	if sts.Spec.Replicas != nil {
 		snap.Replicas = sts.Spec.Replicas
@@ -273,7 +273,7 @@ func (o *Observer) observeReplicaSet(ctx context.Context, key types.NamespacedNa
 		}
 		return nil
 	}
-	snap.WorkloadExists = true
+	snap.markExists(rs)
 	snap.Replicas = rs.Spec.Replicas
 	snap.podSelector = rs.Spec.Selector
 	o.extractPodTemplateInfo(&rs.Spec.Template.Spec, snap)
@@ -288,7 +288,7 @@ func (o *Observer) observeJob(ctx context.Context, key types.NamespacedName, sna
 		}
 		return nil
 	}
-	snap.WorkloadExists = true
+	snap.markExists(job)
 	snap.Replicas = job.Spec.Parallelism // pods that run at once, which is what can share a claim
 	snap.podSelector = job.Spec.Selector
 	if snap.podSelector == nil {
@@ -307,9 +307,17 @@ func (o *Observer) observeCronJob(ctx context.Context, key types.NamespacedName,
 		}
 		return nil
 	}
-	snap.WorkloadExists = true
+	snap.markExists(cj)
 	o.extractPodTemplateInfo(&cj.Spec.JobTemplate.Spec.Template.Spec, snap)
 	return nil
+}
+
+// markExists records that the workload exists and which object and generation
+// was read, so a contract result can be tied to exactly that generation.
+func (s *RuntimeSnapshot) markExists(o metav1.Object) {
+	s.WorkloadExists = true
+	s.WorkloadUID = string(o.GetUID())
+	s.WorkloadGeneration = o.GetGeneration()
 }
 
 // extractPodTemplateInfo reads common fields from a PodSpec into the snapshot.

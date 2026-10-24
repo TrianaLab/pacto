@@ -1,0 +1,179 @@
+{{- if .Values.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "pacto-delivery.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+  {{- with .Values.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+---
+{{- end }}
+# The promoter: it writes delivery status, raises its own operations, reads
+# Flux, Pacto and the workloads Pacto checked, and sets spec.ref.digest on the
+# OCIRepositories Stages point at. Its RBAC reaches every OCIRepository (and
+# Application); the promoter-writes admission policies narrow that to labelled
+# objects and the one pointer field. It holds no signing key and no registry
+# push right.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pacto-delivery.fullname" . }}-promoter
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [stages, approvals]
+    verbs: [get, list, watch]
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [operations]
+    # delete: with the recorder, a recorded operation is deleted after recorder.operationTTL.
+    verbs: [get, list, watch, create, update, patch{{ if .Values.recorder.enabled }}, delete{{ end }}]
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [stages/status, operations/status]
+    verbs: [get, update, patch]
+  {{- if .Values.admissionPolicies.enabled }}
+  # It checks its own admission policies are installed before trusting a spec.
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [validatingadmissionpolicies, validatingadmissionpolicybindings]
+    verbs: [get, list, watch]
+  {{- end }}
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [ocirepositories]
+    verbs: [get, list, watch, patch]
+  {{- if .Values.argocd.enabled }}
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get, list, watch, patch]
+  {{- end }}
+  - apiGroups: [kustomize.toolkit.fluxcd.io]
+    resources: [kustomizations]
+    verbs: [get, list, watch]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, replicasets, daemonsets]
+    verbs: [get]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get]
+  - apiGroups: [""]
+    resources: [namespaces]
+    resourceNames: [kube-system]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "pacto-delivery.fullname" . }}-promoter
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "pacto-delivery.fullname" . }}-promoter
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pacto-delivery.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pacto-delivery.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "pacto-delivery.fullname" . }}-leader-election
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "pacto-delivery.fullname" . }}-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "pacto-delivery.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+---
+# Bind this to agents (their own service accounts, or the agent group): they
+# may propose, read and cancel operations and read Stages. Planning reads the
+# Pactos and the Kustomizations, which place each consumer. No approvals, no
+# status, no pointer.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pacto-delivery.fullname" . }}-agent
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [operations]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [stages, approvals]
+    verbs: [get, list, watch]
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [ocirepositories]
+    verbs: [get]
+  {{- if .Values.argocd.enabled }}
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get]
+  {{- end }}
+  - apiGroups: [kustomize.toolkit.fluxcd.io]
+    resources: [kustomizations]
+    verbs: [list]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos]
+    verbs: [get, list]
+---
+# Bind this to the people who may approve: everything an agent may do, plus
+# creating Approvals. Admission still refuses an approval from a service
+# account or an agent group, so binding it to an agent does not make it one.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "pacto-delivery.fullname" . }}-approver
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [operations]
+    verbs: [get, list, watch, create, delete]
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [approvals]
+    verbs: [get, list, watch, create]
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [stages]
+    verbs: [get, list, watch]
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [ocirepositories]
+    verbs: [get]
+  {{- if .Values.argocd.enabled }}
+  - apiGroups: [argoproj.io]
+    resources: [applications]
+    verbs: [get]
+  {{- end }}
+  - apiGroups: [kustomize.toolkit.fluxcd.io]
+    resources: [kustomizations]
+    verbs: [list]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos]
+    verbs: [get, list]

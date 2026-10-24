@@ -60,6 +60,20 @@ func scenarios(t *testing.T) []string {
 	return out
 }
 
+// sourced reports whether another kind script sources path as a part of
+// itself (delivery.sh sources delivery-identity.sh), so it runs when that
+// script runs and needs no target of its own.
+func sourced(t *testing.T, path string) bool {
+	t.Helper()
+	line := `source "$(dirname "$0")/` + filepath.Base(path) + `"`
+	for _, other := range scenarios(t) {
+		if other != path && strings.Contains(code(t, other), line) {
+			return true
+		}
+	}
+	return false
+}
+
 // kindMatrixScenarios returns the scenario list the ci-e2e-kind job shards over.
 func kindMatrixScenarios(t *testing.T) []string {
 	t.Helper()
@@ -82,13 +96,21 @@ func kindMatrixScenarios(t *testing.T) []string {
 // TestEveryKindScenarioRuns is the tripwire for a scenario that exists and never
 // executes. A script is only a gate if something invokes it: ci.mk needs a target
 // whose recipe runs it, and that target's name has to appear in the ci-e2e-kind
-// matrix. Miss either half and the pipeline stays green with one fewer thing
+// matrix (or a job of its own has to run `make test-acceptance-kind-<target>`,
+// as the sharded delivery job does). Miss either half and the pipeline stays green with one fewer thing
 // proved — and nothing in the repository looks wrong, which is the whole problem.
 func TestEveryKindScenarioRuns(t *testing.T) {
 	mk := readFile(t, filepath.Join(repoDir(t), "ci.mk"))
+	// Comment lines dropped: a commented-out `make` line runs nothing.
+	wf := code(t, filepath.Join(repoDir(t), ".github", "workflows", "ci.yml"))
+	// The heavy Kubernetes demo runs nightly, in its own workflow, as e2e-<target>.
+	nightly := code(t, filepath.Join(repoDir(t), ".github", "workflows", "delivery-demo.yml"))
 	matrix := kindMatrixScenarios(t)
 	const prefix = "test-acceptance-kind-"
 	for _, path := range scenarios(t) {
+		if sourced(t, path) {
+			continue // a part of a scenario, run when that scenario runs
+		}
 		script := "bash tests/acceptance/kind/" + filepath.Base(path)
 		before, _, ok := strings.Cut(mk, script)
 		if !ok {
@@ -106,10 +128,47 @@ func TestEveryKindScenarioRuns(t *testing.T) {
 			t.Errorf("%s is run by a ci.mk recipe with no %s* target above it", filepath.Base(path), prefix)
 			continue
 		}
-		if !slices.Contains(matrix, target) {
-			t.Errorf("%s runs under `make %s%s`, which the ci-e2e-kind matrix does not list, "+
+		if !slices.Contains(matrix, target) && !strings.Contains(wf, "make "+prefix+target+"\n") &&
+			!strings.Contains(nightly, "make e2e-"+target+"\n") {
+			t.Errorf("%s runs under `make %s%s`, which neither the ci-e2e-kind matrix lists nor a ci.yml job runs, "+
 				"so CI never runs it (matrix: %v)", filepath.Base(path), prefix, target, matrix)
 		}
+	}
+}
+
+// TestEveryDeliveryPhaseHasAShard ties the ci-e2e-kind-delivery matrix to the
+// phases delivery.sh defines. Each shard runs one phase (DELIVERY_PHASES), so a
+// phase missing from the matrix silently stops running in CI, and a matrix leg
+// naming no phase fails every run.
+func TestEveryDeliveryPhaseHasAShard(t *testing.T) {
+	sh := code(t, filepath.Join(kindDir(t), "delivery.sh"))
+	_, after, ok := strings.Cut(sh, "\nPHASES=\"")
+	if !ok {
+		t.Fatal(`no PHASES="..." in delivery.sh; the phases are defined some other way now`)
+	}
+	list, _, _ := strings.Cut(after, "\"")
+	phases := strings.Fields(list)
+
+	wf := code(t, filepath.Join(repoDir(t), ".github", "workflows", "ci.yml"))
+	_, job, ok := strings.Cut(wf, "\n  ci-e2e-kind-delivery:\n")
+	if !ok {
+		t.Fatal("no ci-e2e-kind-delivery job in .github/workflows/ci.yml")
+	}
+	_, after, ok = strings.Cut(job, "phase: [")
+	if !ok {
+		t.Fatal("ci-e2e-kind-delivery has no `phase: [...]` matrix")
+	}
+	list, _, _ = strings.Cut(after, "]")
+	var matrix []string
+	for name := range strings.SplitSeq(list, ",") {
+		matrix = append(matrix, strings.TrimSpace(name))
+	}
+
+	slices.Sort(phases)
+	slices.Sort(matrix)
+	if !slices.Equal(phases, matrix) {
+		t.Errorf("delivery.sh PHASES %v and the ci-e2e-kind-delivery matrix %v differ; every phase needs exactly one shard",
+			phases, matrix)
 	}
 }
 
@@ -153,9 +212,9 @@ func TestInstallRegistryLoadsThroughTheSharedBoundary(t *testing.T) {
 		t.Fatal("install_registry has no closing brace")
 	}
 	for _, want := range []string{
-		`docker pull "$PACTO_REGISTRY_IMAGE"`,
-		`load_images "$PACTO_REGISTRY_IMAGE"`,
-		"image: $PACTO_REGISTRY_IMAGE",
+		`pull_pinned "$PACTO_REGISTRY_IMAGE"`,
+		`load_images "${PACTO_REGISTRY_IMAGE%@*}"`,
+		"image: ${PACTO_REGISTRY_IMAGE%@*}",
 	} {
 		if !strings.Contains(fn, want) {
 			t.Errorf("install_registry must contain %q so one pin covers pull, load and deploy", want)
@@ -187,5 +246,13 @@ func TestInClusterRegistrySupportsNativeReferrers(t *testing.T) {
 	}
 	if !strings.Contains(body, `PACTO_REGISTRY_IMAGE="ghcr.io/project-zot/zot-minimal:`) {
 		t.Error("PACTO_REGISTRY_IMAGE must pin a registry with a native Referrers API")
+	}
+	// One registry pin for Kind and Compose, by tag and index digest: a tag
+	// moved upstream must not change what either run tests.
+	compose := code(t, filepath.Join(kindDir(t), "..", "scenario", "compose.go"))
+	_, pin, _ := strings.Cut(compose, `ComposeDefaultRegistryImage = "`)
+	pin, _, _ = strings.Cut(pin, `"`)
+	if !strings.Contains(pin, "@sha256:") || !strings.Contains(body, `PACTO_REGISTRY_IMAGE="`+pin+`"`) {
+		t.Errorf("PACTO_REGISTRY_IMAGE must be the Compose demo's digest-pinned registry %q", pin)
 	}
 }

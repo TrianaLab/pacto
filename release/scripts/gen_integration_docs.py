@@ -19,7 +19,10 @@ Source-of-truth map (page -> inputs):
   _compatibility.md        <- integration.yaml (compatibility) + release/release-manifest.json
   _install-command.md      <- release/release-manifest.json (operator-chart version)
   _upgrade-command.md      <- release/release-manifest.json (operator-chart version)
+  _delivery-install-command.md <- release/release-manifest.json (delivery-chart version)
+  _delivery-upgrade-command.md <- release/release-manifest.json (delivery-chart version)
   _crd-apply.md            <- release/release-manifest.json (k8s-module release tag)
+  _delivery-crd-apply.md   <- release/release-manifest.json (k8s-module release tag)
 
 Usage:
   python3 release/scripts/gen_integration_docs.py [--repo-root DIR] [--integration-dir DIR]
@@ -541,7 +544,7 @@ def parse_flags(help_text: str) -> list[dict]:
 
 def chart_arg_flags(helper: str) -> dict[str, str]:
     """Map flag name -> how the chart renders it, for every controller arg the
-    chart can emit.
+    chart can emit, as a literal `- --flag` or a quoted `- {{ printf "--flag=...` line.
 
     The Deployment's args come from one helper template and there is no
     `extraArgs` value, so a flag the helper never emits is unreachable on the
@@ -560,7 +563,7 @@ def chart_arg_flags(helper: str) -> dict[str, str]:
     out: dict[str, str] = {}
     guards: list[str] = []
     for line in (body if nxt < 0 else body[:nxt]).splitlines():
-        m = re.match(r"^\s*-\s+--([a-z0-9-]+)", line)
+        m = re.match(r'^\s*-\s+(?:\{\{\s*printf\s+")?--([a-z0-9-]+)', line)
         if m:
             controlled = ".Values" in line or any(".Values" in g for g in guards)
             out[m.group(1)] = "chart value" if controlled else "always on"
@@ -1072,10 +1075,12 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
     out.append("## Artifact coordinates\n")
     out.append("| Artifact | Kind | Coordinate | Version |")
     out.append("| --- | --- | --- | --- |")
-    order = ["operator-image", "operator-chart", "k8s-module", "k8s-docs"]
+    order = ["operator-image", "operator-chart", "delivery-image", "delivery-chart", "k8s-module", "k8s-docs"]
     labels = {
         "operator-image": "Controller image",
         "operator-chart": "Helm chart",
+        "delivery-image": "Delivery image (opt-in)",
+        "delivery-chart": "Delivery Helm chart (opt-in)",
         "k8s-module": "Go module",
         "k8s-docs": "Documentation",
     }
@@ -1095,8 +1100,9 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
     if signed:
         out.append("## Verify a published artifact\n")
         out.append(
-            "The controller image and the Helm chart are signed keylessly by the release "
-            "workflow through GitHub's OIDC issuer. Verify either before installing it:\n"
+            "The controller image and the Helm chart, and the opt-in delivery image and "
+            "chart, are signed keylessly by the release workflow through GitHub's OIDC "
+            "issuer. Verify each one before installing it:\n"
         )
         out.append("```bash")
         out.append("cosign verify \\")
@@ -1139,15 +1145,16 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
 # installation.md and upgrade.md, so the literal can only ever be the published
 # one and `make docs-check` catches any drift.
 
-def chart_command(chart_unit: dict, verb: str) -> str:
+def chart_command(chart_unit: dict, verb: str, release: str = "pacto-operator",
+                  namespace: str = "pacto-operator-system") -> str:
     """Fenced `helm install|upgrade` block pinned to the published chart version."""
     extra = " --create-namespace" if verb == "install" else ""
     return (
         "```bash\n"
-        f"helm {verb} pacto-operator \\\n"
+        f"helm {verb} {release} \\\n"
         f"  oci://{chart_unit['coordinate']} \\\n"
         f"  --version {chart_unit['version']} \\\n"
-        f"  --namespace pacto-operator-system{extra}\n"
+        f"  --namespace {namespace}{extra}\n"
         "```\n"
     )
 
@@ -1159,22 +1166,37 @@ def gen_chart_command(repo_root: str, verb: str) -> str:
     )
 
 
+def gen_delivery_chart_command(repo_root: str, verb: str) -> str:
+    manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
+    return banner("release/release-manifest.json") + chart_command(
+        manifest["units"]["delivery-chart"], verb, "pacto-delivery", "pacto-delivery"
+    )
+
+
 # The CRD apply in upgrade.md used to fetch from `main`, one command above a
 # `helm upgrade` pinned to an exact chart version: the reader was told to install
 # chart X and to apply whatever CRDs happened to be on the default branch that
 # day. Same drift class as the `--version` literal above, so same fix -- pin the
 # ref to the integration release tag the docs describe. The file list is read
 # from config/crd/bases, so a new CRD cannot be left out of the upgrade snippet
-# (`helm upgrade` never adds or updates CRDs).
+# (`helm upgrade` never adds or updates CRDs). Only the operator's own group: the
+# delivery.pacto.trianalab.io CRDs ship with the opt-in pacto-delivery chart, and
+# upgrading the observing operator must not install them.
 CRD_BASES = "integrations/kubernetes/config/crd/bases"
 RAW_BASE = "https://raw.githubusercontent.com/TrianaLab/pacto"
 
 
-def gen_crd_apply(repo_root: str) -> str:
+# The delivery chart has the same Helm gap, so it gets its own snippet over its
+# own group. One glob per snippet keeps the two upgrades apart: neither ever
+# installs the other's CRDs.
+def gen_crd_apply(repo_root: str, group: str = "pacto.trianalab.io") -> str:
     manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
     tag = manifest["units"]["k8s-module"]["tag"]
+    paths = sorted(glob.glob(os.path.join(repo_root, CRD_BASES, f"{group}_*.yaml")))
+    if not paths:
+        raise SystemExit(f"no {group} CRDs in {CRD_BASES}")
     out = [banner("release/release-manifest.json"), "```bash"]
-    for path in sorted(glob.glob(os.path.join(repo_root, CRD_BASES, "*.yaml"))):
+    for path in paths:
         out.append("kubectl apply --server-side --force-conflicts \\")
         out.append(f"  -f {RAW_BASE}/{tag}/{CRD_BASES}/{os.path.basename(path)}")
     out.append("```")
@@ -1202,6 +1224,8 @@ def gen_compatibility(repo_root: str, k8s: str) -> str:
     out.append("| --- | --- | --- |")
     out.append(f"| Operator image | `{units['operator-image']['version']}` | `{pacto_core_req}` |")
     out.append(f"| Operator chart | `{units['operator-chart']['version']}` | `{pacto_core_req}` |")
+    out.append(f"| Delivery image | `{units['delivery-image']['version']}` | `{pacto_core_req}` |")
+    out.append(f"| Delivery chart | `{units['delivery-chart']['version']}` | `{pacto_core_req}` |")
     out.append(f"| Go module | `{units['k8s-module']['version']}` | `{pacto_core_req}` |")
     out.append(f"| Integration docs | `{units['k8s-docs']['version']}` | `{pacto_core_req}` |")
     out.append("")
@@ -1295,7 +1319,10 @@ def main() -> int:
         "_compatibility.md": gen_compatibility(repo_root, k8s),
         "_install-command.md": gen_chart_command(repo_root, "install"),
         "_upgrade-command.md": gen_chart_command(repo_root, "upgrade"),
+        "_delivery-install-command.md": gen_delivery_chart_command(repo_root, "install"),
+        "_delivery-upgrade-command.md": gen_delivery_chart_command(repo_root, "upgrade"),
         "_crd-apply.md": gen_crd_apply(repo_root),
+        "_delivery-crd-apply.md": gen_crd_apply(repo_root, "delivery.pacto.trianalab.io"),
     }
     for name, content in pages.items():
         path = os.path.join(out_dir, name)

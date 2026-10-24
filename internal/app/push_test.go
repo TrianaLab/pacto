@@ -549,3 +549,25 @@ func TestIsNotFound(t *testing.T) {
 		})
 	}
 }
+
+// TestPush_Identical: the same content again is a successful no-op.
+func TestPush_Identical(t *testing.T) {
+	dir := writeTestBundle(t)
+	svc := NewService(&mockBundleStore{}, nil)
+	b, err := svc.ResolveBundle(context.Background(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, _ := oci.BundleDigest(b)
+	svc.BundleStore = &mockBundleStore{
+		ResolveFn: func(context.Context, string) (string, error) { return local, nil },
+		PushFn: func(context.Context, string, *contract.Bundle) (string, error) {
+			t.Fatal("an identical push writes nothing")
+			return "", nil
+		},
+	}
+	res, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc", Path: dir})
+	if err != nil || !res.Unchanged || res.Digest != local {
+		t.Fatalf("%+v %v", res, err)
+	}
+}

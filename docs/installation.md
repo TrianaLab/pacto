@@ -45,14 +45,14 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
 go install github.com/trianalab/pacto/v4/cmd/pacto@latest
 ```
 
-Requires [Go 1.26.9](https://go.dev/dl/) or later. The binary is placed in `$GOBIN` (typically `~/go/bin`).
+Requires [Go 1.26.10](https://go.dev/dl/) or later. The binary is placed in `$GOBIN` (typically `~/go/bin`).
 
 !!! warning "`go install` builds report as `dev`"
     `pacto version` prints `Pacto: dev` and `pacto update` refuses to run. Use the installer script if you need version metadata.
 
 ## From source
 
-Requires Go 1.26.9 or later, `make` and `git`.
+Requires Go 1.26.10 or later, `make` and `git`.
 
 ```bash
 git clone https://github.com/TrianaLab/pacto.git
@@ -119,12 +119,14 @@ Some release artifacts are signed and some are not. Know which before you rely o
 | --- | --- |
 | `ghcr.io/trianalab/pacto/operator` | Cosign signature (keyless) |
 | `ghcr.io/trianalab/pacto/charts/pacto-operator` | Cosign signature (keyless) |
+| `ghcr.io/trianalab/pacto/delivery` | Cosign signature (keyless) |
+| `ghcr.io/trianalab/pacto/charts/pacto-delivery` | Cosign signature (keyless) |
 | `ghcr.io/trianalab/pacto/dashboard` | Cosign signature (keyless) |
 | CLI binaries on the GitHub release | `checksums.txt` (SHA-256) and an SPDX SBOM. **No signature, no provenance attestation.** |
 | `ghcr.io/trianalab/pacto/dashboard-contract` | Nothing. **Unsigned.** |
 | The demo contract bundles (`ghcr.io/trianalab/pacto/<service>`) | Nothing. **Unsigned.** |
 
-The release workflow signs the three images with [Cosign](https://docs.sigstore.dev/cosign/) "keyless" signing: the signature is tied to the GitHub workflow that built the image, not to a key you must store. Verifying it proves *who built it*:
+The release workflow signs the three images and the two charts with [Cosign](https://docs.sigstore.dev/cosign/) "keyless" signing: the signature is tied to the GitHub workflow that built the image, not to a key you must store. Verifying it proves *who built it*:
 
 ```bash
 cosign verify \

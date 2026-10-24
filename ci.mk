@@ -14,7 +14,7 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-runtime-conformance \
-       ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
+       test-acceptance-kind-delivery test-acceptance-kind-delivery-demo ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
 
@@ -120,7 +120,8 @@ ci-e2e-envtest:
 # say which boundary broke, and cannot be sharded.
 test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
 	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
-	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-runtime-conformance
+	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-runtime-conformance \
+	test-acceptance-kind-delivery
 
 test-acceptance-kind-dashboard:
 	bash tests/acceptance/kind/dashboard-modes.sh
@@ -174,6 +175,33 @@ test-acceptance-kind-gitops-argocd:
 # and the agent's own stale and failed states.
 test-acceptance-kind-runtime-conformance:
 	bash tests/acceptance/kind/runtime-conformance.sh
+
+# Pacto delivery, phase 1: the opt-in promoter with the Pacto contract check,
+# Flux, the Pacto operator and zot. Proves the vision's first-step list (a good
+# version reaches prod alone, a broken one is rolled back once and never
+# retried, a breaking change asks only the broken consumer's team, Unknown
+# waits, two agents yield one winner, a person's rollback holds automation, a
+# stale check never verifies a new version) plus the admission policies. Phase 2
+# adds Mira and the node agent: an error ratio over the limit rolls back citing
+# the Mira query, too little telemetry holds as Unknown, a regression after
+# release rolls back exactly once and an undeclared call fails the claim gate.
+# The recorder runs throughout, and phase 6 proves every operation has a signed
+# record on its subjects, that record verify and cosign accept them, and that a
+# changed or chain-breaking record stops the stream and freezes its Stage.
+# CI shards it by phase (DELIVERY_PHASES=core|health|publish|ordering|identity|
+# records, see the script's header) over images built once; locally it runs all,
+# the independent phases at the same time (DELIVERY_SEQUENTIAL=1 runs them one
+# at a time), and prints where the time went.
+test-acceptance-kind-delivery:
+	bash tests/acceptance/kind/delivery.sh
+
+# The Kubernetes delivery demo: the payments story (examples/story) on a real
+# cluster, up, story, the dashboard journeys, B10, the agent beat, a second
+# cluster applied by Argo CD (reach) and down. It checks every beat
+# against examples/story and fails on drift. Nightly and on demand only
+# (.github/workflows/delivery-demo.yml), never per PR.
+test-acceptance-kind-delivery-demo:
+	bash tests/acceptance/kind/delivery-demo.sh all
 
 # Compatibility aliases for the older names. Temporary.
 ci-e2e-kind:                    test-acceptance-kind
@@ -294,6 +322,9 @@ artifact-drift:
 		integrations/kubernetes/charts/pacto-operator/Chart.yaml \
 		integrations/kubernetes/charts/pacto-operator/values.yaml \
 		integrations/kubernetes/charts/pacto-operator/README.md \
+		integrations/kubernetes/charts/pacto-delivery/Chart.yaml \
+		integrations/kubernetes/charts/pacto-delivery/values.yaml \
+		integrations/kubernetes/charts/pacto-delivery/README.md \
 		docs/examples/compose-demo.md docs/dashboard-docker.md \
 		integrations/kubernetes/docs/installation.md \
 		|| { echo "artifact drift: apply-release-plan is not idempotent (re-run mutated tracked files)"; exit 1; }

@@ -1073,3 +1073,85 @@ func TestValidateSingleConfigValues_NilBundleFS(t *testing.T) {
 		t.Errorf("expected no error when bundleFS is nil, got %v", result.Errors)
 	}
 }
+
+func TestValidatePublish(t *testing.T) {
+	codes := func(p *contract.Publish) []string {
+		c := validV20Contract()
+		c.PactoVersion, c.Publish = "2.1", p
+		var r ValidationResult
+		validatePublish(c, &r)
+		var out []string
+		for _, e := range r.Errors {
+			out = append(out, e.Code)
+		}
+		return out
+	}
+	if got := codes(nil); got != nil {
+		t.Fatalf("no publish: %v", got)
+	}
+	ok := &contract.Publish{Bundle: "oci://r/b", Deploy: "m", Artifacts: []contract.PublishArtifact{
+		{Name: "api", Type: "image", Build: contract.PublishBuild{Command: []string{"x"}}, SBOM: "sbom.spdx.json"},
+		{Name: "web", Type: "image", Build: contract.PublishBuild{Dockerfile: &contract.DockerfileBuild{Context: "."}}},
+		{Name: "m", Type: "manifests", Build: contract.PublishBuild{Command: []string{"x"}}},
+	}}
+	if got := codes(ok); got != nil {
+		t.Fatalf("valid publish: %v", got)
+	}
+	ok.Artifacts[1].SBOM = "sbom/web.spdx.json"
+	if got := codes(ok); len(got) != 1 || got[0] != "PUBLISH_SBOM_DOCKERFILE" {
+		t.Fatalf("an SBOM on a dockerfile build: %v", got)
+	}
+	bad := &contract.Publish{Bundle: "oci://r/b", Deploy: "missing", Artifacts: []contract.PublishArtifact{
+		{Name: "c", Type: "chart", Build: contract.PublishBuild{Dockerfile: &contract.DockerfileBuild{Context: "."}}, SBOM: "sbom.spdx.json"},
+		{Name: "c", Type: "manifests", Build: contract.PublishBuild{Command: []string{"x"}}},
+	}}
+	want := []string{"PUBLISH_SBOM_NOT_IMAGE", "PUBLISH_DOCKERFILE_NOT_IMAGE", "DUPLICATE_PUBLISH_ARTIFACT", "PUBLISH_DEPLOY_NOT_MANIFESTS"}
+	got := codes(bad)
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
+func TestValidateAgent(t *testing.T) {
+	codes := func(c *contract.Contract, fsys fs.FS) []string {
+		var r ValidationResult
+		validateAgent(c, fsys, &r)
+		var out []string
+		for _, e := range r.Errors {
+			out = append(out, e.Path+" "+e.Code)
+		}
+		return out
+	}
+	c := validV20Contract()
+	c.PactoVersion = "2.1"
+	c.Interfaces = []contract.Interface{
+		{Name: "api", Type: "openapi", Ref: "openapi.yaml"},
+		{Name: "tools", Type: "mcp", Ref: "tools.json"},
+		{Name: "gone", Type: "mcp", Ref: "missing.json"},
+	}
+	c.Agent = &contract.Agent{Models: []string{"m"}, Evals: "evals.yaml"}
+	good := fstest.MapFS{
+		"tools.json": {Data: []byte(`{"tools":[{"name":"refund"}]}`)},
+		"evals.yaml": {Data: []byte("cases: []")},
+	}
+	if got := codes(c, good); got != nil {
+		t.Fatalf("valid agent: %v", got)
+	}
+	if got := codes(c, nil); got != nil {
+		t.Fatalf("no bundle: %v", got)
+	}
+	bad := fstest.MapFS{"tools.json": {Data: []byte(`{"tools":[]}`)}}
+	got := codes(c, bad)
+	if len(got) != 2 || got[0] != "interfaces[1].ref INVALID_MCP_TOOLS" || got[1] != "agent.evals FILE_NOT_FOUND" {
+		t.Fatalf("got %v", got)
+	}
+	c.Agent = nil
+	if got := codes(c, good); got != nil {
+		t.Fatalf("no agent section: %v", got)
+	}
+}

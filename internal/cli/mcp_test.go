@@ -113,7 +113,7 @@ func TestRunMCPServer_UnknownTransport(t *testing.T) {
 	server := pactomcp.NewServer(app.NewService(nil, nil).ValidationReport, "test")
 	var stderr bytes.Buffer
 
-	err := runMCPServer(context.Background(), server, "bogus", 0, &stderr)
+	err := runMCPServer(context.Background(), mcpServe{server: server, transport: "bogus"}, &stderr)
 	if err == nil {
 		t.Fatal("expected error for an unknown transport")
 	}
@@ -142,9 +142,9 @@ func TestParseAuthFlags(t *testing.T) {
 }
 
 func TestBuildMCPServer_NoArg(t *testing.T) {
-	cmd := newMCPCommand(app.NewService(nil, nil), "v")
+	cmd := newMCPCommand(app.NewService(nil, nil), "v", defaultDeps())
 	cmd.SetContext(context.Background())
-	server, err := buildMCPServer(cmd, app.NewService(nil, nil), "v", nil)
+	server, err := buildMCPServer(cmd, app.NewService(nil, nil), "v", nil, defaultDeps())
 	if err != nil || server == nil {
 		t.Fatalf("no-arg build = %v,%v", server, err)
 	}
@@ -153,11 +153,11 @@ func TestBuildMCPServer_NoArg(t *testing.T) {
 func TestBuildMCPServer_WithBundle(t *testing.T) {
 	dir := writeCapabilityBundle(t)
 	svc := app.NewService(nil, nil)
-	cmd := newMCPCommand(svc, "v")
+	cmd := newMCPCommand(svc, "v", defaultDeps())
 	cmd.SetContext(context.Background())
 	_ = cmd.Flags().Set("base-url", "http://example.com")
 
-	server, err := buildMCPServer(cmd, svc, "v", []string{dir})
+	server, err := buildMCPServer(cmd, svc, "v", []string{dir}, defaultDeps())
 	if err != nil || server == nil {
 		t.Fatalf("with-bundle build = %v,%v", server, err)
 	}
@@ -166,11 +166,11 @@ func TestBuildMCPServer_WithBundle(t *testing.T) {
 func TestBuildMCPServer_AuthError(t *testing.T) {
 	dir := writeCapabilityBundle(t)
 	svc := app.NewService(nil, nil)
-	cmd := newMCPCommand(svc, "v")
+	cmd := newMCPCommand(svc, "v", defaultDeps())
 	cmd.SetContext(context.Background())
 	_ = cmd.Flags().Set("auth", "bogus")
 
-	if _, err := buildMCPServer(cmd, svc, "v", []string{dir}); err == nil {
+	if _, err := buildMCPServer(cmd, svc, "v", []string{dir}, defaultDeps()); err == nil {
 		t.Error("expected auth parse error")
 	}
 }
@@ -178,10 +178,10 @@ func TestBuildMCPServer_AuthError(t *testing.T) {
 func TestBuildMCPServer_RegisterError(t *testing.T) {
 	dir := writeCapabilityBundle(t)
 	svc := app.NewService(nil, nil)
-	cmd := newMCPCommand(svc, "v")
+	cmd := newMCPCommand(svc, "v", defaultDeps())
 	cmd.SetContext(context.Background())
 	// no base-url and the spec has no servers → RegisterCapabilities fails
-	if _, err := buildMCPServer(cmd, svc, "v", []string{dir}); err == nil {
+	if _, err := buildMCPServer(cmd, svc, "v", []string{dir}, defaultDeps()); err == nil {
 		t.Error("expected register error when no base URL is available")
 	}
 }
@@ -271,7 +271,7 @@ func TestRunMCPServer_HTTP(t *testing.T) {
 	var stderr bytes.Buffer
 
 	cancel()
-	err := runMCPServer(ctx, server, "http", 0, &stderr)
+	err := runMCPServer(ctx, mcpServe{server: server, transport: "http"}, &stderr)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -288,7 +288,7 @@ func TestRunMCPServer_StdioMessage(t *testing.T) {
 	server := pactomcp.NewServer(app.NewService(nil, nil).ValidationReport, "test")
 	var stderr bytes.Buffer
 
-	_ = runMCPServer(ctx, server, "stdio", 0, &stderr)
+	_ = runMCPServer(ctx, mcpServe{server: server, transport: "stdio"}, &stderr)
 
 	output := stderr.String()
 	if !strings.Contains(output, "MCP server running on stdio") {
@@ -300,7 +300,7 @@ func TestRunMCPServer_InvalidPort(t *testing.T) {
 	server := pactomcp.NewServer(app.NewService(nil, nil).ValidationReport, "test")
 	var stderr bytes.Buffer
 
-	err := runMCPServer(context.Background(), server, "http", -1, &stderr)
+	err := runMCPServer(context.Background(), mcpServe{server: server, transport: "http", port: -1}, &stderr)
 	if err == nil {
 		t.Error("expected error for invalid port")
 	}
@@ -319,7 +319,7 @@ func TestServeHTTP_ContextCancel(t *testing.T) {
 	defer cancel()
 
 	errCh := make(chan error, 1)
-	go func() { errCh <- serveHTTP(ctx, server, ln) }()
+	go func() { errCh <- serveHTTP(ctx, mcpHandler(mcpServe{server: server}), ln) }()
 
 	// Wait for server to be ready
 	addr := fmt.Sprintf("http://127.0.0.1:%d", port)
@@ -363,7 +363,7 @@ func TestServeHTTP_ListenerClosed(t *testing.T) {
 	// exercising the errCh path in the select.
 	_ = ln.Close()
 
-	err = serveHTTP(context.Background(), server, ln)
+	err = serveHTTP(context.Background(), mcpHandler(mcpServe{server: server}), ln)
 	if err == nil {
 		t.Error("expected error for closed listener")
 	}

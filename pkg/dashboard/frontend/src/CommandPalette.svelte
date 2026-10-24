@@ -148,8 +148,8 @@
   .cp-results { max-height: 52vh; overflow-y: auto; padding: var(--sp-2); }
   .cp-empty { padding: var(--sp-4); color: var(--c-text-3); font-size: var(--text-sm); }
   .cp-group-label {
-    padding: 8px var(--sp-3) 4px; font-size: 10px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 0.05em; color: var(--c-text-3);
+    padding: 8px var(--sp-3) 4px; color: var(--c-text-3);
+    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .cp-item {
     display: flex; align-items: center; gap: var(--sp-2); width: 100%;
@@ -161,8 +161,8 @@
   .cp-item-label { font-weight: 500; }
   .cp-item-hint { color: var(--c-text-3); font-size: var(--text-xs); }
   .cp-item-kind {
-    margin-left: auto; font-size: 10px; text-transform: uppercase;
-    letter-spacing: 0.04em; color: var(--c-text-3);
+    margin-left: auto; color: var(--c-text-3);
+    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   @keyframes cp-fade { from { opacity: 0; } to { opacity: 1; } }
   @keyframes cp-rise { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }

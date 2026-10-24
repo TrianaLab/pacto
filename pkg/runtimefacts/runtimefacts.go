@@ -216,6 +216,11 @@ const (
 	CoverageStale                    // no snapshot, or none within the staleness bound
 )
 
+// String names the coverage the way the Pacto status reports it.
+func (c Coverage) String() string {
+	return [...]string{"Complete", "Partial", "Failed", "Stale"}[c]
+}
+
 // Verdict is the kernel's answer for one assertion.
 type Verdict int
 

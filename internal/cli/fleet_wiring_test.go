@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 
@@ -24,7 +25,7 @@ import (
 // bundle ref, fleet enabled, so a fleet-backed server is returned.
 func TestBuildMCPServer_WithFleet(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	cmd := newMCPCommand(svc, "v")
+	cmd := newMCPCommand(svc, "v", defaultDeps())
 	cmd.SetContext(context.Background())
 	if err := cmd.Flags().Set("fleet", "true"); err != nil {
 		t.Fatal(err)
@@ -32,7 +33,7 @@ func TestBuildMCPServer_WithFleet(t *testing.T) {
 	if err := cmd.Flags().Set("local", t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
-	server, err := buildMCPServer(cmd, svc, "v", nil)
+	server, err := buildMCPServer(cmd, svc, "v", nil, defaultDeps())
 	if err != nil {
 		t.Fatalf("buildMCPServer --fleet: %v", err)
 	}
@@ -45,7 +46,7 @@ func TestBuildMCPServer_WithFleet(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	cmd.SetContext(ctx)
-	if _, err := buildMCPServer(cmd, svc, "v", nil); err == nil {
+	if _, err := buildMCPServer(cmd, svc, "v", nil, defaultDeps()); err == nil {
 		t.Fatal("buildMCPServer --fleet with a cancelled context: expected an error")
 	}
 }
@@ -55,7 +56,7 @@ func TestBuildMCPServer_WithFleet(t *testing.T) {
 // covers the closure body and its fleet-options capture.
 func TestMCPImpactProvider(t *testing.T) {
 	svc := app.NewService(nil, nil)
-	cmd := newMCPCommand(svc, "v")
+	cmd := newMCPCommand(svc, "v", defaultDeps())
 	cmd.SetContext(context.Background())
 	provide := mcpImpactProvider(cmd, svc)
 	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", true, ""); err == nil {
@@ -694,5 +695,35 @@ func TestFleetSearch_StatusFlagNamesEveryStatus(t *testing.T) {
 	slices.Sort(got)
 	if want := fleet.CanonicalStatuses(); !slices.Equal(got, want) {
 		t.Errorf("--status help advertises %v, want the canonical vocabulary %v", got, want)
+	}
+}
+
+// TestManagerPublishedNeverBuilds: the published-only provider answers nil
+// at once while the first build is still running, and the snapshot after.
+func TestManagerPublishedNeverBuilds(t *testing.T) {
+	release := make(chan struct{})
+	mgr := fleet.NewManager(func(context.Context) (*fleet.FleetSnapshot, error) {
+		<-release
+		return &fleet.FleetSnapshot{}, nil
+	}, fleet.ManagerOptions{})
+	go func() { _ = mgr.Refresh(context.Background()) }()
+	published := managerPublished(mgr)
+	done := make(chan *fleet.Query, 1)
+	go func() { done <- published() }()
+	select {
+	case q := <-done:
+		if q != nil {
+			t.Fatalf("nothing is published yet, got %v", q)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the published-only provider waited on the build")
+	}
+	close(release)
+	deadline := time.Now().Add(3 * time.Second)
+	for published() == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("the finished build was never served")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

@@ -52,6 +52,8 @@ async function scrollPast(page: Page, label: string): Promise<boolean> {
 test('a long revision page says what is on it before the reader scrolls', async ({ page }) => {
   test.setTimeout(240_000);
   await revisionPage(page);
+  // The demo's own notice is a band above the dashboard; this measures the dashboard.
+  await page.getByTestId('demo-strip-close').click();
 
   const m = await page.evaluate(() => {
     const nav = document.querySelector('[data-testid="page-toc"]')!;
@@ -190,7 +192,15 @@ test('choosing a section makes it current at once, and holds until the reader dr
   await page.getByRole('button', { name: chosen, exact: true }).click();
   expect(await currentEntries(page), 'the choice was not answered until the scroll arrived').toEqual([chosen]);
 
-  await page.waitForTimeout(1500); // the animation lands, having crossed every section
+  // The animation lands, having crossed every section: the section rests on its own
+  // line, or the page has run out beneath it. Waited on, not timed -- a loaded machine
+  // stretches the animation, and a wheel sent mid-flight would race the scroll.
+  await page.waitForFunction((wanted: string) => {
+    const el = [...document.querySelectorAll('[data-toc][id]')].find((e) => e.getAttribute('data-toc') === wanted)!;
+    const line = parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
+    const end = document.documentElement.scrollHeight - window.innerHeight;
+    return Math.abs(el.getBoundingClientRect().top - line) <= 1 || window.scrollY >= end - 1;
+  }, chosen);
   expect(await currentEntries(page), 'the scroll walked the marker off the chosen section').toEqual([chosen]);
 
   // Current is somewhere the reader can actually see: opened, if it arrived collapsed.

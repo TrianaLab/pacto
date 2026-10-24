@@ -1,0 +1,26 @@
+pactoVersion: "2.1"
+service:
+  name: checkout
+  version: 1.9.0
+  owner:
+    team: checkout
+workload: service
+dependencies:
+  - name: payments
+    ref: oci://registry.example/story/payments
+    required: true
+    compatibility: "^2 || ^3"
+publish:
+  bundle: oci://registry.example/story/checkout
+  deploy: manifests
+  artifacts:
+    - name: manifests
+      type: manifests
+      ref: oci://registry.example/story/deploy/checkout
+      build:
+        command: [sh, -c, 'cp deploy/*.yaml "$PACTO_OUT"/']
+  sign:
+    key: cosign.key
+    transparencyLog: false
+metadata:
+  summary: "Checks out a cart. Accepts payments 2 and 3."

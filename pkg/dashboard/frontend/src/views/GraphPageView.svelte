@@ -264,7 +264,7 @@
                   {#if edges.length > 0}
                     {#each edges as e, j}
                       <a href={serviceUrl(e.targetName)} onclick={(ev) => ev.stopPropagation()}>{e.targetName}</a>
-                      {#if e.type === 'reference'} <span class="badge badge-accent" style="font-size:10px">ref</span>{:else if e.required} <span class="badge badge-info" style="font-size:10px">req</span>{/if}
+                      {#if e.type === 'reference'} <span class="badge badge-accent" style="font-size: var(--text-xs)">ref</span>{:else if e.required} <span class="badge badge-info" style="font-size: var(--text-xs)">req</span>{/if}
                       {#if j < edges.length - 1}, {/if}
                     {/each}
                   {:else}

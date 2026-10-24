@@ -359,9 +359,8 @@
 
   .chart-panel { /* now inside focal-pair or breakdown region */ }
 
-  .chart-title {
-    font-size: var(--text-xs); font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.05em; color: var(--c-text-3); margin-bottom: var(--sp-2);
+  .chart-title { color: var(--c-text-3); margin-bottom: var(--sp-2);
+    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
 
   .breakdown-controls {
@@ -484,11 +483,10 @@
     animation: slideDown 200ms ease;
   }
   .expand-table { width: 100%; border-collapse: collapse; min-width: 0; table-layout: fixed; }
-  .expand-table th {
-    font-size: var(--text-xs); font-weight: 500; text-transform: uppercase;
-    letter-spacing: 0.05em; color: var(--c-text-3);
+  .expand-table th { color: var(--c-text-3);
     padding: var(--sp-2) var(--sp-2); text-align: left; border-bottom: 1px solid var(--c-border);
     white-space: nowrap;
+    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .expand-table th:nth-child(1) { width: 25%; white-space: normal; }
   .expand-table th:nth-child(2) { width: 8%; }

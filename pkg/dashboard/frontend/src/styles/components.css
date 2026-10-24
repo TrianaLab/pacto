@@ -266,12 +266,15 @@ select {
   margin-bottom: var(--sp-6);
 }
 .section-title {
-  font-size: var(--text-sm);
-  font-weight: 600;
   color: var(--c-text-2);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   margin-bottom: var(--sp-3);
+  /* A section title, not a label: the legacy views' section headings read the same
+     serif section-title role as .t-section-title. */
+  font-family: var(--role-section-title-family);
+  font-size: var(--role-section-title-size);
+  font-weight: var(--role-section-title-weight);
+  line-height: var(--role-section-title-lh);
+  letter-spacing: -0.01em;
 }
 
 /* ─── Key-value grid ─── */
@@ -430,14 +433,10 @@ tr.clickable:active { background: var(--c-surface-inset); }
   background: none;
   border: none;
   padding: 0;
-  font: inherit;
-  font-size: var(--text-xs);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   color: var(--c-text-3);
   cursor: pointer;
   white-space: nowrap;
+  font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
 }
 .col-sort:hover {
   color: var(--c-text);
@@ -612,10 +611,12 @@ tr.clickable:active { background: var(--c-surface-inset); }
 .page-toc-layout { display: flex; flex-direction: column; gap: var(--sp-4); align-items: stretch; }
 .page-toc-main { display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; }
 @media (min-width: 1100px) {
-  .page-toc-layout { flex-direction: row; gap: var(--sp-6); align-items: flex-start; }
+  .page-toc-layout { flex-direction: row; gap: var(--sp-5); align-items: flex-start; }
   /* The rail's width lives with the layout that reserves it, not in PageToc: the
-     navigator does not get to decide how much of the page it takes. */
-  .page-toc-layout > .toc { flex: 0 0 200px; }
+     navigator does not get to decide how much of the page it takes. Narrow, because it
+     holds about six short links; closed, it gives the page back all but its own label. */
+  .page-toc-layout > .toc { flex: 0 0 168px; }
+  .page-toc-layout > .toc:has(> details:not([open])) { flex-basis: auto; }
   .page-toc-layout > .page-toc-main { flex: 1 1 auto; }
 }
 /* Every navigable section clears the sticky app bar when it is scrolled to, rather than

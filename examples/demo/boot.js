@@ -125,7 +125,7 @@
     // has no forward button at all; `hold` marks the gates whose result is the point, which
     // reveal a Continue instead of moving; `wait` is what an unsatisfied gate is waiting
     // for, because a tour that sits there wanting something it has not named is a wall.
-    var TOUR = [{
+    var FLEET_TOUR = [{
       text: NOTICE + " Read that, then press Continue.",
       hash: "#/fleet",
       target: "#sec-attention"
@@ -199,8 +199,217 @@
       linkText: "The same six questions from a terminal"
     }];
 
-    var el, label, meter, startBtn, sizeObs;
-    var overlay, spot, bubble, stepNum, textEl, hintEl, autoEl, backBtn, nextBtn, skipBtn, moreLink;
+
+    // ---- the delivery story -----------------------------------------------------
+    //
+    // A second, opt-in tour: the payments story (examples/story) in two acts --
+    // pactify a plain service, then what that unlocks -- as five moments, with the
+    // rest under "explore more". Unlike the fleet tour, this one IS simulated: there
+    // is no cluster and no promoter, so the strip says so on every delivery screen.
+    // Its gates read the engine's own answers rather than the DOM, through the same
+    // __pactoServe the dashboard calls, so a gate means the story moved, not that a
+    // label rendered.
+    var DELIVERY_NOTICE = "Simulated delivery: no cluster and no promoter. Plans, checks and signatures are Pacto's own code on the payments story's fixed data (the health results and what the node agent saw are recorded too), records are signed with a key made in this tab, and what you do here is lost on reload.";
+
+    function serve(method, path, body) {
+      if (typeof window.__pactoServe !== "function") { return null; }
+      var r = window.__pactoServe(method, path, body ? JSON.stringify(body) : null, {});
+      try { return { status: r.status, body: JSON.parse(r.body) }; } catch (e) { return { status: r.status, body: null }; }
+    }
+    function refreshViews() { window.dispatchEvent(new Event("pacto:refresh")); }
+    // Every record in the tab. The delivery tour's copy describes the world the
+    // replay leaves at load, so a tour started after anything moved it reloads
+    // first: there is no way to undo a signed record in place.
+    var WORLD_AT_LOAD = "";
+    var REPLAY_KEY = "pacto-demo-delivery-tour";
+    // Only the histories, and without any asOf: the clock and the names of who signed
+    // in are not records, and with them no two reads a second or a sign-in apart would
+    // ever compare equal.
+    function world() {
+      var h = serve("GET", "/api/delivery/history");
+      return JSON.stringify(h && h.body && h.body.histories, function (k, v) { return k === "asOf" ? undefined : v; });
+    }
+    // Set by the ready path after a reload the tour asked for. The tour starts from
+    // whichever of the ready path and mount() runs second, since either can.
+    var replayPending = false;
+    function replayTour() {
+      if (ready && el && replayPending) { replayPending = false; startTour(DELIVERY_TOUR); }
+    }
+    function digestOf(svc, version) {
+      var r = serve("GET", "/api/delivery/environments");
+      var rows = (r && r.body && r.body.environments) || [];
+      for (var i = 0; i < rows.length; i++) {
+        var row = rows[i];
+        if (row.service === svc && row.candidateVersion === version) { return row.candidate; }
+      }
+      return "";
+    }
+
+    // The facts the gates read, at most twice a second: a gate runs every frame.
+    var facts = { at: 0 };
+    function fact() {
+      var now = Date.now();
+      if (now - facts.at < 500) { return facts; }
+      facts = { at: now, rows: {}, held: "", question: "", latest: "" };
+      var env = serve("GET", "/api/delivery/environments");
+      ((env && env.body && env.body.environments) || []).forEach(function (r) { facts.rows[r.environment + "/" + r.service] = r; });
+      var h = serve("GET", "/api/delivery/history?namespace=prod&stage=payments");
+      var entries = (h && h.body && h.body.histories && h.body.histories[0] && h.body.histories[0].entries) || [];
+      entries.forEach(function (e) {
+        if (e.type === "pacto.dev/promote" && e.operation) { facts.latest = e.operation; }
+        if (e.phase === "Held") { facts.held = e.operation; }
+      });
+      if (facts.held) {
+        var op = serve("GET", "/api/delivery/operations/prod/" + facts.held);
+        facts.question = (op && op.body && op.body.operation && op.body.operation.status.question) || "";
+      }
+      return facts;
+    }
+    function row(env, svc) { return fact().rows[env + "/" + svc] || {}; }
+    // The change the breaking-change moments are about: the held one, then the
+    // promote that shipped it.
+    function changeHash() {
+      var f = fact();
+      return "#/delivery/changes/prod/" + (f.held || f.latest);
+    }
+    function onChange() { return hashPath().indexOf("#/delivery/changes/prod/") === 0; }
+    function propose(body) { var r = serve("POST", "/api/delivery/operations", body); refreshViews(); return r; }
+
+    function pactifyText() {
+      var p;
+      try { p = JSON.parse(window.__pactoPactifyPlan || ""); } catch (e) { return "The recorded plan did not load."; }
+      var file = (p.files || []).filter(function (f) { return f.path === "pacto.yaml"; })[0] || {};
+      function list(title, xs) { return xs && xs.length ? title + "\n" + xs.map(function (x) { return "  - " + x; }).join("\n") + "\n" : ""; }
+      return "Recorded: what `pacto init --plan --owner risk` prints for the plain fraud service. A test keeps it current.\n\n" +
+        list("Found:", p.found) + list("Not known, so never guessed:", p.unknown) + list("Still yours to do:", p.next) +
+        "\npacto.yaml (" + (file.action || "add") + "):\n" + (file.content || "");
+    }
+
+    var DELIVERY_TOUR = [{
+      text: "This is the payments story, simulated: every plan, check and signed record comes from Pacto's own code on fixed data, and nothing reaches a cluster.",
+      hash: "#/delivery/environments",
+      target: '[data-testid="environments-board"]'
+    }, {
+      text: "Act 1, pactify a service: pacto init read fraud's Dockerfile and Kubernetes manifests and planned its contract, so a plain service joins without anyone writing one by hand.",
+      hash: "#/delivery/environments",
+      target: '[data-testid="environments-board"]',
+      pre: pactifyText
+    }, {
+      text: "Act 2, a safe change ships on its own: payments 2.4.0 reached prod with nobody involved, because checkout and orders declared they accept payments ^2.",
+      hash: "#/delivery/history?namespace=prod&stage=payments",
+      target: '[aria-label="History of prod/payments"]'
+    }, {
+      text: "A bad release is caught and rolled back: the health check failed after 2.4.0 shipped, so the promoter went back to 2.3.0 on its own and will never promote 2.4.0 there again.",
+      hash: "#/delivery/changes/prod/payments-promote-3",
+      target: '[aria-labelledby="cd-actual"]'
+    }, {
+      text: "A breaking change asks only the affected teams: as pay-agent, promote payments 3.0.0 in prod and propose it, and it waits for checkout and orders only, because only their declared ranges stop at ^2.",
+      hash: "#/delivery/environments",
+      target: ['[aria-label="Promote payments in prod to 3.0.0"]', '[data-testid="propose-panel"]', '[aria-labelledby="cd-move-first"]'],
+      wait: "Waiting for payments 3.0.0 to be proposed for prod.",
+      hold: true,
+      gate: function () { return !!fact().held && onChange(); },
+      skip: function () {
+        var r = propose({ namespace: "prod", stage: "payments", to: digestOf("payments", "3.0.0") });
+        if (r && r.body && r.body.operation) { window.location.hash = "#/delivery/changes/prod/" + r.body.operation.metadata.name; }
+      }
+    }, {
+      text: "It said what to update first, so promote checkout 1.9.0 in prod: it ships with nobody, and the waiting change now asks only orders, because checkout 1.9 accepts ^2 || ^3.",
+      hash: "#/delivery/environments",
+      target: ['[aria-label="Promote checkout in prod to 1.9.0"]', '[data-testid="propose-panel"]'],
+      wait: "Waiting for checkout 1.9.0 to ship to prod.",
+      hold: true,
+      gate: function () { return row("prod", "checkout").version === "1.9.0" && fact().question.indexOf("Asked of: orders") >= 0; },
+      skip: function () { propose({ namespace: "prod", stage: "checkout", to: digestOf("checkout", "1.9.0") }); }
+    }, {
+      text: "Only a person on the asked team decides: press Switch person, pick Carol from team orders and approve, and she signs in again first, because a decision needs a fresh login.",
+      hash: changeHash,
+      target: ['[data-testid="delivery-identity"]', '[data-testid="decision-panel"]'],
+      wait: "Waiting for Carol to approve and 3.0.0 to ship.",
+      hold: true,
+      gate: function () { return row("prod", "payments").version === "3.0.0"; },
+      skip: function () {
+        var name = fact().held;
+        setPersona("carol", true);
+        serve("POST", "/api/delivery/operations/prod/" + name + "/decision", { decision: "approve" });
+        refreshViews();
+      }
+    }, {
+      text: "Every step is a signed record: as Carol, roll 3.0.0 back, and automation holds off, because a person's rollback sets an auto-hold.",
+      hash: changeHash,
+      target: '[aria-labelledby="cd-status"], .cd-status',
+      wait: "Waiting for the rollback to finish.",
+      hold: true,
+      gate: function () { return !!row("prod", "payments").autoHold && row("prod", "payments").version === "2.3.0"; },
+      skip: function () {
+        setPersona("carol", false);
+        propose({ namespace: "prod", stage: "payments", type: "pacto.dev/rollback", undoes: fact().latest });
+      }
+    }, {
+      text: "History reads every step back from records signed in this tab, blame names Carol's approval, and payments in test shows a deliberate gap and a record signed by a key nobody trusts.",
+      hash: "#/delivery/history",
+      target: '[aria-label="History of prod/payments"]'
+    }, {
+      text: "Explore more on your own, or see the same story on a real cluster.",
+      links: [
+        ["#/delivery/publish", "The refused 2.4.3 and the bump it needed"],
+        ["#/delivery/history?namespace=test&stage=payments", "The claim check that caught payments calling fraud"],
+        ["#/delivery/environments", "fraud's first version, waiting for prod"]
+      ],
+      href: "../examples/kubernetes-demo/",
+      linkText: "The same story on a real cluster"
+    }];
+
+    // ---- simulated sign-in and persona switch -----------------------------------
+
+    var PERSONAS = [
+      ["pay-agent", "pay-agent", "an agent working for a developer; it may propose, never decide"],
+      ["alice", "Alice", "team payments; not asked about changes that break other teams"],
+      ["carol", "Carol", "team orders; asked when a change breaks orders"]
+    ];
+    var persona = "pay-agent";
+    function setPersona(name, fresh) {
+      var err = typeof window.__pactoPersona === "function" ? window.__pactoPersona(name, fresh) : "the engine is not loaded";
+      if (!err) { persona = name; facts.at = 0; refreshViews(); }
+      return err;
+    }
+
+    // The dashboard calls this instead of leaving for /auth/login (see signIn in
+    // the frontend's delivery.ts): leaving would reload the page and lose the tab's
+    // whole simulation. fresh is a decision asking for a new login: the same person
+    // signs in again. Otherwise it is a switch to another person's existing session.
+    window.__pactoSignIn = function (hash, fresh) {
+      var dlg = document.createElement("dialog");
+      dlg.id = "pacto-signin";
+      dlg.setAttribute("data-testid", "demo-signin");
+      dlg.setAttribute("aria-labelledby", "pacto-signin-title");
+      var who = PERSONAS.filter(function (p) { return p[0] === persona; })[0];
+      var html = '<h2 id="pacto-signin-title">' + (fresh ? "Simulated sign-in" : "Switch person") + "</h2>" +
+        "<p>" + (fresh
+          ? "A real install sends you to your company login, and the cluster reads the sign-in time from it."
+          : "Each person here is already signed in. Carol signed in half an hour ago, so a decision asks her to sign in again.") + "</p>";
+      if (fresh) {
+        html += '<p><button type="submit" value="' + who[0] + '" data-testid="demo-signin-submit">Sign in again as ' + who[1] + "</button></p>";
+      } else {
+        html += PERSONAS.map(function (p) {
+          return '<p><button type="submit" value="' + p[0] + '" data-testid="demo-persona-' + p[0] + '"' + (p[0] === persona ? ' aria-current="true"' : "") +
+            "><strong>" + p[1] + "</strong> — " + p[2] + "</button></p>";
+        }).join("");
+      }
+      html += '<p><button type="submit" value="" data-testid="demo-signin-cancel">Cancel</button></p>';
+      dlg.innerHTML = '<form method="dialog">' + html + "</form>";
+      dlg.addEventListener("close", function () {
+        if (dlg.returnValue) { setPersona(dlg.returnValue, !!fresh); }
+        dlg.parentNode.removeChild(dlg);
+        if (hash && window.location.hash !== hash) { window.location.hash = hash; }
+      });
+      document.body.appendChild(dlg);
+      dlg.showModal();
+    };
+
+    var TOUR = FLEET_TOUR;
+    var el, label, meter, startBtn, deliveryBtn, sizeObs;
+    var overlay, spot, bubble, stepNum, textEl, hintEl, autoEl, backBtn, nextBtn, skipBtn, moreLink, preEl, exploreEl;
     var step = 0;
     var running = false;
     var raf = 0;
@@ -245,21 +454,15 @@
     function mount() {
       var style = document.createElement("style");
       style.textContent =
-        // pointer-events:none on the container, auto on the link. The strip floats over
-        // the dashboard, and at phone widths it wraps tall enough to sit on top of the
-        // app's own controls -- a notice must never swallow a tap meant for the thing
-        // underneath it. Only the link is clickable.
-        "#pacto-demo-strip{position:fixed;left:50%;bottom:12px;transform:translateX(-50%);" +
-        "z-index:9999;max-width:min(92vw,46rem);display:flex;gap:.6rem;align-items:center;" +
-        "padding:.5rem .9rem;border-radius:999px;background:#1e293b;color:#e2e8f0;" +
-        "font:400 .8125rem/1.4 system-ui,-apple-system,'Segoe UI',sans-serif;" +
-        "box-shadow:0 2px 12px rgba(15,23,42,.35);pointer-events:none}" +
-        "#pacto-demo-strip a{color:#a5b4fc;text-decoration:underline;white-space:nowrap;" +
-        "pointer-events:auto}" +
-        // The invitation. Same pointer-events:auto rule as the link: the strip stays
-        // transparent to taps meant for the dashboard under it, and only the things a
-        // reader can actually press are pressable.
-        "#pacto-demo-strip button{pointer-events:auto;appearance:none;cursor:pointer;" +
+        // A band across the top of the page, in the page's own flow: it never floats, so it
+        // can never cover what the dashboard drew. It used to float over the foot of the
+        // page, and on a short window that is exactly where the content was.
+        "#pacto-demo-strip{position:relative;box-sizing:border-box;width:100%;" +
+        "display:flex;gap:.6rem;align-items:center;" +
+        "padding:.5rem .9rem;background:#1e293b;color:#e2e8f0;" +
+        "font:400 .8125rem/1.4 system-ui,-apple-system,'Segoe UI',sans-serif}" +
+        "#pacto-demo-strip a{color:#a5b4fc;text-decoration:underline;white-space:nowrap}" +
+        "#pacto-demo-strip button{appearance:none;cursor:pointer;" +
         "font:inherit;line-height:1}" +
         "#pacto-demo-start{border:1px solid #a5b4fc;background:none;color:#c7d2fe;" +
         "border-radius:999px;padding:.25rem .8rem;white-space:nowrap}" +
@@ -267,21 +470,18 @@
         "#pacto-demo-start:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px}" +
         // The strip wraps once the invitation is in it, so the text can no longer be
         // vertically centred against a single row of controls.
-        // A pill radius on a box that now wraps to three lines reads as a lozenge, so
-        // soften it; the loading state is one line and looks the same either way.
-        "#pacto-demo-strip{flex-wrap:wrap;justify-content:center;border-radius:14px}" +
+        "#pacto-demo-strip{flex-wrap:wrap;justify-content:center}" +
         "#pacto-demo-strip>span:first-child{flex:1 1 18rem;min-width:0}" +
         "#pacto-demo-meter{color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}" +
         // display:flex above beats the hidden attribute, so say so explicitly or
         // dismissing the strip would do nothing at all.
         "#pacto-demo-strip[hidden]{display:none}" +
-        "#pacto-demo-close{pointer-events:auto;appearance:none;border:0;background:none;" +
+        "#pacto-demo-close{appearance:none;border:0;background:none;" +
         "color:#94a3b8;font:inherit;line-height:1;cursor:pointer;border-radius:999px;" +
         "padding:.2rem .4rem;margin:-.2rem -.3rem -.2rem 0}" +
         "#pacto-demo-close:hover{color:#e2e8f0;background:rgba(148,163,184,.2)}" +
         "#pacto-demo-strip a:focus-visible,#pacto-demo-close:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px}" +
-        "@media (max-width:480px){#pacto-demo-strip{bottom:8px;max-width:96vw;" +
-        "font-size:.75rem;padding:.4rem .7rem}}" +
+        "@media (max-width:480px){#pacto-demo-strip{font-size:.75rem;padding:.4rem .7rem}}" +
         // The tour overlay. Two elements, and the dimming is ONE declaration: a 100vmax
         // spread box-shadow on the cut-out is the dark layer and the hole in it at the
         // same time. An SVG mask or four dim panels would be more code for the same
@@ -330,7 +530,24 @@
         "#pacto-tour-ctl button:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px}" +
         "#pacto-tour-ctl button:disabled{cursor:not-allowed;opacity:.45}" +
         "#pacto-tour-next{border-color:#a5b4fc;color:#c7d2fe}" +
-        "#pacto-tour-exit{margin-left:auto}";
+        "#pacto-tour-exit{margin-left:auto}" +
+        "#pacto-demo-delivery{border:1px solid #a5b4fc;background:none;color:#c7d2fe;border-radius:999px;padding:.25rem .8rem;white-space:nowrap}" +
+        "#pacto-demo-delivery:hover{background:rgba(148,163,184,.2)}" +
+        "#pacto-demo-delivery:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px}" +
+        "#pacto-tour-pre{display:block;margin:.5rem 0 0;max-height:min(40vh,18rem);overflow:auto;white-space:pre-wrap;" +
+        "background:#0f172a;color:#e2e8f0;border-radius:8px;padding:.5rem .6rem;font:400 .75rem/1.4 ui-monospace,SFMono-Regular,Menlo,monospace}" +
+        "#pacto-tour-pre[hidden],#pacto-tour-explore[hidden]{display:none}" +
+        "#pacto-tour-explore{display:flex;flex-direction:column;gap:.3rem;margin-top:.45rem}" +
+        "#pacto-signin{max-width:min(92vw,28rem);border:1px solid #475569;border-radius:14px;background:#1e293b;color:#e2e8f0;" +
+        "font:400 .875rem/1.45 system-ui,-apple-system,'Segoe UI',sans-serif;padding:1rem 1.1rem}" +
+        "#pacto-signin::backdrop{background:rgba(15,23,42,.62)}" +
+        "#pacto-signin h2{font-size:1rem;margin:0 0 .5rem}" +
+        "#pacto-signin p{margin:.5rem 0}" +
+        "#pacto-signin button{appearance:none;cursor:pointer;font:inherit;text-align:left;width:100%;border:1px solid #475569;" +
+        "background:none;color:#e2e8f0;border-radius:10px;padding:.45rem .7rem}" +
+        "#pacto-signin button[aria-current]{border-color:#a5b4fc}" +
+        "#pacto-signin button:hover{background:rgba(148,163,184,.2)}" +
+        "#pacto-signin button:focus-visible{outline:2px solid #a5b4fc;outline-offset:2px}";
       document.head.appendChild(style);
 
       el = document.createElement("div");
@@ -355,14 +572,23 @@
       startBtn.setAttribute("data-testid", "demo-tour-start");
       startBtn.textContent = "Take the guided tour";
       startBtn.hidden = true;
-      startBtn.addEventListener("click", startTour);
+      startBtn.addEventListener("click", function () { startTour(FLEET_TOUR); });
+
+      // The delivery story is its own tour, offered beside the first one.
+      deliveryBtn = document.createElement("button");
+      deliveryBtn.id = "pacto-demo-delivery";
+      deliveryBtn.type = "button";
+      deliveryBtn.setAttribute("data-testid", "demo-delivery-start");
+      deliveryBtn.textContent = "Play the delivery story";
+      deliveryBtn.hidden = true;
+      deliveryBtn.addEventListener("click", function () { startTour(DELIVERY_TOUR); });
 
       var link = document.createElement("a");
       link.href = DOCS_HREF;
       link.textContent = "About this demo";
-      // The strip is a notice, and a notice the reader has read is in the way. It sits
-      // over the bottom of the dashboard, which on a short window is where the content
-      // is -- so give it the one control every persistent notice owes the reader.
+      // The strip is a notice, and a notice the reader has read takes space the
+      // dashboard could use -- so give it the one control every persistent notice owes
+      // the reader.
       // Dismissed for the tab only: a reload is a fresh visitor as far as this fixture
       // knows, and the label is the only thing on the page saying the fleet is invented.
       var close = document.createElement("button");
@@ -375,27 +601,34 @@
       el.appendChild(label);
       el.appendChild(meter);
       el.appendChild(startBtn);
+      el.appendChild(deliveryBtn);
       el.appendChild(link);
       el.appendChild(close);
-      document.body.appendChild(el);
-      // The strip floats over the foot of the page, and its controls are the part of
-      // it that must stay clickable -- which at phone widths means they sit on top of
-      // whatever the dashboard drew there and swallow taps meant for it.
-      // pointer-events cannot fix that: a button that ignores pointers is not a
-      // button. Reserving the strip's own height at the end of the document lets the
-      // page scroll clear of it instead, so nothing underneath is ever unreachable.
-      // Observed rather than measured once: the height changes with the message, because
-      // each one wraps to a different number of lines.
-      if (window.ResizeObserver) { sizeObs = new window.ResizeObserver(reserve); sizeObs.observe(el); }
+      // First in the body, so it sits above the dashboard rather than over it.
+      document.body.insertBefore(el, document.body.firstChild);
+      // The tour bubble floats, so the page reserves its height; observed rather than
+      // measured once, because each step's text wraps to a different number of lines.
+      if (window.ResizeObserver) { sizeObs = new window.ResizeObserver(reserve); }
       // The engine can resolve before DOMContentLoaded, in which case `pending` already
       // holds the notice and the invitation is owed straight away. Painting the held
       // message covers both orderings with one line.
       label.textContent = pending;
       if (ready) { offerTour(); }
       paint();
+      replayTour();
     }
 
-    function offerTour() { if (startBtn) { startBtn.hidden = false; } }
+    function offerTour() {
+      if (startBtn) { startBtn.hidden = false; }
+      if (deliveryBtn) { deliveryBtn.hidden = typeof window.__pactoPersona !== "function"; }
+    }
+
+    // On a delivery screen the strip says what is simulated there, and names the
+    // key the tab signs with.
+    function notice() {
+      var delivery = window.location.hash.indexOf("#/delivery") === 0;
+      say(delivery ? DELIVERY_NOTICE + " Signing key: " + (window.__pactoDeliveryKey || "none") + "." : NOTICE);
+    }
 
     function say(text) { pending = text; if (label) { label.textContent = text; } }
 
@@ -408,7 +641,7 @@
     // window sits on top of whatever the dashboard drew there, and a tour that makes the
     // control it is pointing at unreachable is worse than no tour.
     function reserve() {
-      var box = running ? bubble : (el && !el.hidden ? el : null);
+      var box = running ? bubble : null;
       var h = box ? box.getBoundingClientRect().height + 24 : 0;
       document.body.style.paddingBottom = h ? h + "px" : "";
     }
@@ -714,6 +947,21 @@
       moreLink.setAttribute("data-testid", "demo-tour-more");
       moreLink.hidden = true;
 
+      // A step's longer evidence (the recorded pacto init plan), scrollable so the
+      // bubble never grows past the window.
+      preEl = document.createElement("pre");
+      preEl.id = "pacto-tour-pre";
+      preEl.setAttribute("data-testid", "demo-tour-pre");
+      preEl.setAttribute("tabindex", "0");
+      preEl.hidden = true;
+
+      // "Explore more": the beats the guided path leaves out, one link each.
+      exploreEl = document.createElement("nav");
+      exploreEl.id = "pacto-tour-explore";
+      exploreEl.setAttribute("aria-label", "Explore more");
+      exploreEl.setAttribute("data-testid", "demo-tour-explore");
+      exploreEl.hidden = true;
+
       hintEl = document.createElement("span");
       hintEl.id = "pacto-tour-hint";
       hintEl.setAttribute("aria-live", "polite");
@@ -760,6 +1008,8 @@
 
       bubble.appendChild(stepNum);
       bubble.appendChild(textEl);
+      bubble.appendChild(preEl);
+      bubble.appendChild(exploreEl);
       bubble.appendChild(moreLink);
       bubble.appendChild(hintEl);
       bubble.appendChild(ctl);
@@ -816,15 +1066,39 @@
       } else {
         moreLink.hidden = true;
       }
-      if (s.hash && hashPath() !== s.hash) { window.location.hash = s.hash; }
+      var h = typeof s.hash === "function" ? s.hash() : s.hash;
+      // A step whose route carries a query wants exactly that query; one without
+      // leaves the reader's own query alone (step 2 of the fleet tour commits one).
+      if (h && (h.indexOf("?") >= 0 ? window.location.hash !== h : hashPath() !== h)) { window.location.hash = h; }
+      preEl.hidden = !s.pre;
+      preEl.textContent = s.pre ? s.pre() : "";
+      exploreEl.hidden = !s.links;
+      exploreEl.textContent = "";
+      (s.links || []).forEach(function (l) {
+        var a = document.createElement("a");
+        a.href = l[0];
+        a.textContent = l[1];
+        exploreEl.appendChild(a);
+      });
       place(resolve(s.target));
       // Keeps a keyboard reader with the tour after the app re-renders the whole main
       // region underneath it.
       bubble.focus();
     }
 
-    function startTour() {
+    function startTour(tour) {
       if (running || !el) { return; }
+      if (tour === DELIVERY_TOUR) {
+        if (world() !== WORLD_AT_LOAD) {
+          try { window.sessionStorage.setItem(REPLAY_KEY, "1"); } catch (e) { /* the reader presses it again after load */ }
+          window.location.reload();
+          return;
+        }
+        // The steps say "as pay-agent": a reader who switched person first would
+        // otherwise propose as Carol, who then may not approve her own change.
+        setPersona("pay-agent", false);
+      }
+      TOUR = tour === DELIVERY_TOUR ? DELIVERY_TOUR : FLEET_TOUR;
       running = true;
       // One announcer at a time: the strip is a role=status live region and the bubble is
       // about to become the thing that speaks. It comes straight back on exit.
@@ -887,8 +1161,12 @@
       // dashboard, and a walkthrough that starts on its own takes the page away from
       // them. Nothing happens -- and nothing navigates -- until the button is pressed.
       ready = true;
-      say(NOTICE);
+      notice();
+      window.addEventListener("hashchange", notice);
       offerTour();
+      WORLD_AT_LOAD = world();
+      try { replayPending = !!window.sessionStorage.getItem(REPLAY_KEY); window.sessionStorage.removeItem(REPLAY_KEY); } catch (e) { /* no storage, no replay */ }
+      replayTour();
     });
     window.__pactoDemoFailed = function () {
       done();
@@ -896,6 +1174,7 @@
       // Every screen the tour visits is served by the engine, so with no engine there is
       // nothing to walk through.
       if (startBtn) { startBtn.hidden = true; }
+      if (deliveryBtn) { deliveryBtn.hidden = true; }
       // A dismissed notice stays dismissed for anything the reader has already been
       // told. This is not that: without the strip, a failed load is a dashboard whose
       // every panel is permanently empty and nothing anywhere saying why.
@@ -966,10 +1245,15 @@
     } else {
       bodyPromise = Promise.resolve(null);
     }
+    // The request headers (names lowercased) ride along as a fourth argument.
+    // The engine ignores them; a test that wraps __pactoServe reads them.
+    var headers = {};
+    new Headers(isRequest ? input.headers : undefined).forEach(function (v, k) { headers[k] = v; });
+    new Headers(init.headers || {}).forEach(function (v, k) { headers[k] = v; });
     return window.__pactoReady
       .then(function () { return bodyPromise; })
       .then(function (body) {
-        var res = window.__pactoServe(method, u.pathname + u.search, body && body.length ? body : null);
+        var res = window.__pactoServe(method, u.pathname + u.search, body && body.length ? body : null, headers);
         return new Response(res.body, {
           status: res.status,
           headers: { "Content-Type": res.contentType || "application/json" },

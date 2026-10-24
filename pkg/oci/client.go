@@ -2,6 +2,7 @@ package oci
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -277,4 +278,29 @@ func (c *Client) ListTags(ctx context.Context, repo string) ([]string, error) {
 
 	logging.LoggerFromContext(ctx).Debug("tags listed", "repo", repo, "count", len(tags))
 	return tags, nil
+}
+
+// Annotations returns the manifest annotations of ref (a tag or digest
+// reference). Delivery reads an artifact's pacto.dev/contract annotation through
+// it, so a deployable artifact can name the contract it was built from.
+func (c *Client) Annotations(ctx context.Context, ref string) (map[string]string, error) {
+	r, err := c.parseRef(ref)
+	if err != nil {
+		return nil, err
+	}
+	var desc *remote.Descriptor
+	if err := c.doWithAuth(ctx, r.Context(), ref, func(opts []remote.Option) error {
+		var opErr error
+		desc, opErr = remote.Get(r, opts...)
+		return opErr
+	}); err != nil {
+		return nil, err
+	}
+	var m struct {
+		Annotations map[string]string `json:"annotations"`
+	}
+	if err := json.Unmarshal(desc.Manifest, &m); err != nil {
+		return nil, &InvalidBundleError{Ref: ref, Err: err}
+	}
+	return m.Annotations, nil
 }

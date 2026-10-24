@@ -475,6 +475,9 @@ func TestStubProvidersForSchemaExport(t *testing.T) {
 	if _, err := s.opts.Impact(context.Background(), "old", "new", false); err == nil {
 		t.Error("stub impactProvider must error")
 	}
+	if _, err := s.opts.Delivery(nil); err == nil {
+		t.Error("stub delivery must error")
+	}
 }
 
 // TestProductImpact_RejectsNegativePaging covers the paging-validation branch of

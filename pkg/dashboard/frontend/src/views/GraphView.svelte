@@ -648,7 +648,7 @@
   .gv-reset { margin-left: auto; }
   .gv-ctl { display: flex; flex-direction: column; gap: 4px; }
   .gv-viewctl { margin-left: auto; }
-  .gv-ctl-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .gv-ctl-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .gv-seg { display: inline-flex; border: 1px solid var(--c-border); border-radius: var(--radius-sm); overflow: hidden; }
   .gv-seg button { padding: 6px 10px; border: none; background: var(--c-bg); color: var(--c-text-2); font: inherit; font-size: var(--text-sm); cursor: pointer; text-transform: capitalize; }
   .gv-seg button.active { background: var(--c-accent); color: var(--c-on-accent); }
@@ -681,7 +681,7 @@
   .lg-service { border-radius: 3px; }
   .lg-revision { border-radius: 3px; border-style: dashed; }
   .lg-target { border-radius: 50%; }
-  .lg-group { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); font-weight: 600; margin-left: var(--sp-2); }
+  .lg-group { color: var(--c-text-3); margin-left: var(--sp-2); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .lg-group:first-child { margin-left: 0; }
   .lg-edge { width: 22px; height: 0; border-top: 2px solid var(--c-text-3); }
   /* Line-swatches mirror the exact canvas edge styles (lib/graph.ts cyStylesheet):
@@ -707,7 +707,7 @@
   .gv-textbtn.is-selected, .gv-edge.is-selected { border-color: var(--c-accent); box-shadow: inset 0 0 0 2px var(--c-accent); }
   .gv-edge { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; width: 100%; text-align: left; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); cursor: pointer; }
   .gv-edge:hover, .gv-textbtn:hover { border-color: var(--c-accent); }
-  .gv-rel { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.03em; color: var(--c-text-3); }
+  .gv-rel { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .gv-diff { margin-left: auto; }
   .gv-unresolved, .gv-limitations { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-3); background: var(--c-surface); }
   /* These were h3s forced back up to section size with a hard-coded font-size -- a
@@ -722,7 +722,7 @@
   .gv-drawer-head h2 { margin: 0; }
   .gv-close { background: none; border: none; color: var(--c-text-3); cursor: pointer; font-size: var(--text-md); }
   .gv-drow { margin: 0; font-size: var(--text-sm); color: var(--c-text-2); display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-  .gv-k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.04em; color: var(--c-text-3); }
+  .gv-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .gv-ddesc { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .gv-claims ul { margin: 4px 0 0; padding-left: var(--sp-4); font-size: var(--text-sm); color: var(--c-text-2); }
   .gv-drawer-actions { display: flex; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-2); }

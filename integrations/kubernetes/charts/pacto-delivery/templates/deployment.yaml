@@ -1,0 +1,145 @@
+{{- with .Values.promoter.upstreamTrust }}
+# The recorder keys of other clusters whose records an upstreamRecords Stage
+# promotes on, per stream glob. Public keys only.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pacto-delivery.fullname" $ }}-upstream-trust
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: promoter
+    {{- include "pacto-delivery.labels" $ | nindent 4 }}
+data:
+  trust.yaml: {{ . | quote }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pacto-delivery.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: promoter
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: promoter
+      {{- include "pacto-delivery.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: promoter
+        {{- include "pacto-delivery.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "pacto-delivery.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: promoter
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - promoter
+            - --leader-elect={{ .Values.promoter.leaderElect }}
+            - --poll={{ .Values.promoter.poll }}
+            - --auth-freshness={{ .Values.promoter.authFreshness }}
+            - --controller-user={{ include "pacto-delivery.controllerUser" . }}
+            - --agent-groups={{ join "," .Values.identities.agentGroups }}
+            - --break-glass-groups={{ join "," .Values.identities.breakGlassGroups }}
+            {{- if .Values.admissionPolicies.enabled }}
+            {{- $fullname := include "pacto-delivery.fullname" . }}
+            - --admission-policies={{ $fullname }}-operation,{{ $fullname }}-approval
+            {{- end }}
+            {{- with .Values.identities.teamGroupPrefix }}
+            - {{ printf "--team-group-prefix=%s" . | quote }}
+            {{- end }}
+            {{- if .Values.recorder.enabled }}
+            - --records
+            - --recorded-ttl={{ .Values.recorder.operationTTL }}
+            {{- end }}
+            {{- with .Values.gates.providers }}
+            - {{ printf "--gate-providers=%s" (toJson .) | quote }}
+            {{- end }}
+            {{- if .Values.promoter.upstreamTrust }}
+            - --upstream-trust-config=/etc/pacto/upstream-trust/trust.yaml
+            {{- end }}
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            {{- if .Values.promoter.registryCredentials.secretName }}
+            - name: DOCKER_CONFIG
+              value: /etc/pacto/registry
+            {{- end }}
+            {{- with .Values.insecureRegistries }}
+            - name: PACTO_INSECURE_REGISTRIES
+              value: {{ join "," . | quote }}
+            {{- end }}
+          ports:
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- $creds := .Values.promoter.registryCredentials.secretName }}
+          {{- if or .Values.promoter.upstreamTrust $creds }}
+          volumeMounts:
+            {{- if .Values.promoter.upstreamTrust }}
+            - name: upstream-trust
+              mountPath: /etc/pacto/upstream-trust
+              readOnly: true
+            {{- end }}
+            {{- if $creds }}
+            - name: registry
+              mountPath: /etc/pacto/registry
+              readOnly: true
+            {{- end }}
+      volumes:
+        {{- if .Values.promoter.upstreamTrust }}
+        - name: upstream-trust
+          configMap:
+            name: {{ include "pacto-delivery.fullname" . }}-upstream-trust
+        {{- end }}
+        {{- if $creds }}
+        - name: registry
+          secret:
+            secretName: {{ $creds }}
+            items:
+              - key: .dockerconfigjson
+                path: config.json
+        {{- end }}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

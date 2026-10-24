@@ -1,0 +1,31 @@
+apiVersion: v2
+name: pacto-delivery
+description: Opt-in Pacto delivery promoter that decides which version each environment runs
+type: application
+# ValidatingAdmissionPolicy is GA from 1.30, and the promoter trusts nothing
+# an operation or approval says about who wrote it without those policies.
+kubeVersion: ">=1.30.0-0"
+version: 6.0.1
+appVersion: "6.0.1"
+keywords:
+  - pacto
+  - delivery
+  - promotion
+  - flux
+  - kubernetes
+icon: https://raw.githubusercontent.com/TrianaLab/pacto/refs/heads/main/docs/assets/images/logo.png
+maintainers:
+  - name: edu-diaz
+    url: https://edudiaz.dev
+    email: edudiazasencio@gmail.com
+sources:
+  - https://github.com/TrianaLab/pacto/tree/main/integrations/kubernetes
+  - https://github.com/TrianaLab/pacto
+annotations:
+  artifacthub.io/license: MIT
+  artifacthub.io/links: |
+    - name: documentation
+      url: https://pacto.run/latest/integrations/kubernetes/delivery/
+  artifacthub.io/images: |
+    - name: pacto-delivery
+      image: ghcr.io/trianalab/pacto/delivery:6.0.1

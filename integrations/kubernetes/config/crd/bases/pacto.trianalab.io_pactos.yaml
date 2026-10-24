@@ -484,6 +484,51 @@ spec:
                   - required
                   type: object
                 type: array
+              evaluatedRevision:
+                description: |-
+                  EvaluatedRevision ties this status to the exact contract and workload
+                  generation it was computed from, so a result for an old version is never
+                  read as the answer for a new one. A consumer acting on contractStatus
+                  (the opt-in Pacto delivery promoter) must check it first.
+                properties:
+                  contractDigest:
+                    description: |-
+                      ContractDigest is the OCI manifest digest of the evaluated contract
+                      bundle. Empty for inline contracts.
+                    type: string
+                  kernelCoverage:
+                    description: |-
+                      KernelCoverage is how far the node agent's view of the workload's pods
+                      could be trusted in this evaluation, the worst pod first: Complete,
+                      Partial, Failed or Stale. Empty when kernel evidence is off. Complete
+                      is what lets a reader tell "observed and clean" from "not observed".
+                    enum:
+                    - Complete
+                    - Partial
+                    - Failed
+                    - Stale
+                    type: string
+                  workload:
+                    description: |-
+                      Workload is the workload object and generation the evaluation read.
+                      Absent for a reference-only contract or a workload that does not exist.
+                    properties:
+                      generation:
+                        format: int64
+                        type: integer
+                      kind:
+                        type: string
+                      name:
+                        type: string
+                      uid:
+                        type: string
+                    required:
+                    - generation
+                    - kind
+                    - name
+                    - uid
+                    type: object
+                type: object
               evaluationCoverage:
                 description: |-
                   EvaluationCoverage reports how many required assertions were evaluated (metadata; never affects
@@ -598,11 +643,12 @@ spec:
                       type: string
                     type:
                       description: 'Type is the interface type: openapi, asyncapi,
-                        or grpc.'
+                        grpc or mcp.'
                       enum:
                       - openapi
                       - asyncapi
                       - grpc
+                      - mcp
                       type: string
                     visibility:
                       description: 'Visibility is the declared visibility: public

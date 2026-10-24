@@ -6,6 +6,7 @@ pacto diff examples/demo/bundles/payments-service/v1.2.1 examples/demo/bundles/p
 
 ```console
 Classification: BREAKING
+Required bump: major
 Changes (39):
   [NON_BREAKING] service.version (modified): service.version modified [1.2.1 -> 2.0.1]
   [POTENTIAL_BREAKING] capabilities (removed): capabilities removed [- extension (payments.trianalab.com/refund)]
