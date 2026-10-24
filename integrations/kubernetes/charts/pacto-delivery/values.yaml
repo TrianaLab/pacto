@@ -35,6 +35,10 @@ promoter:
   # with `candidates.upstreamRecords` promotes only on records one of these keys signed for that
   # stream; without it such a Stage is not Ready. Public keys only.
   upstreamTrust: ""
+  registryCredentials:
+    # -- A `kubernetes.io/dockerconfigjson` Secret with read access to the contract and deploy
+    # repositories, for a private registry. Without it the promoter reads only public ones.
+    secretName: ""
 
 gates:
   # -- Health gate providers a Stage may name in `spec.gates.verify.checks[].provider`, each

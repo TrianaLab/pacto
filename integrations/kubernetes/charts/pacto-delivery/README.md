@@ -63,6 +63,7 @@ same version as your Pacto operator.
 | promoter.authFreshness | string | `"15m"` | How old a person's login may be when their approval is given; an older one is ignored (a Go duration) |
 | promoter.leaderElect | bool | `true` | Elect one active promoter |
 | promoter.poll | string | `"3s"` | How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration) |
+| promoter.registryCredentials.secretName | string | `""` | A `kubernetes.io/dockerconfigjson` Secret with read access to the contract and deploy repositories, for a private registry. Without it the promoter reads only public ones. |
 | promoter.upstreamTrust | string | `""` | The recorder keys of other clusters, as a trust config in YAML (keys per stream glob). A Stage with `candidates.upstreamRecords` promotes only on records one of these keys signed for that stream; without it such a Stage is not Ready. Public keys only. |
 | recorder.cdeventsSink | string | `""` | A URL the recorder POSTs a CDEvent (CloudEvents, structured mode) to for every record, best effort. Empty sends none. |
 | recorder.enabled | bool | `false` | Run the recorder, which writes a signed record of every concluded operation to the registry as OCI referrers. Off by default. When on, the promoter leaves the record finalizer to it. The registry must support the OCI Referrers API natively (GHCR and released `distribution` do not). |

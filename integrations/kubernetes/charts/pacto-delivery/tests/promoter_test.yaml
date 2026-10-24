@@ -105,6 +105,43 @@ tests:
           value: RELEASE-NAME-pacto-delivery-upstream-trust
         documentIndex: 1
 
+  - it: mounts the registry credentials only when set, beside the upstream trust config
+    template: templates/deployment.yaml
+    set:
+      promoter.upstreamTrust: "keys: []"
+      promoter.registryCredentials.secretName: promoter-pull
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: DOCKER_CONFIG, value: /etc/pacto/registry}
+        documentIndex: 1
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - {name: upstream-trust, mountPath: /etc/pacto/upstream-trust, readOnly: true}
+            - {name: registry, mountPath: /etc/pacto/registry, readOnly: true}
+        documentIndex: 1
+      - equal:
+          path: spec.template.spec.volumes[1]
+          value:
+            name: registry
+            secret:
+              secretName: promoter-pull
+              items: [{key: .dockerconfigjson, path: config.json}]
+        documentIndex: 1
+
+  - it: mounts the registry credentials alone
+    template: templates/deployment.yaml
+    set:
+      promoter.registryCredentials.secretName: promoter-pull
+    asserts:
+      - equal:
+          path: spec.template.spec.volumes[0].secret.secretName
+          value: promoter-pull
+      - lengthEqual:
+          path: spec.template.spec.volumes
+          count: 1
+
   - it: passes no upstream trust config by default
     template: templates/deployment.yaml
     asserts:
@@ -112,6 +149,9 @@ tests:
           count: 1
       - notExists:
           path: spec.template.spec.volumes
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: DOCKER_CONFIG, value: /etc/pacto/registry}
 
   - it: grants nothing on Argo CD unless it is enabled
     template: templates/rbac.yaml

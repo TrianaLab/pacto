@@ -75,6 +75,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            {{- if .Values.promoter.registryCredentials.secretName }}
+            - name: DOCKER_CONFIG
+              value: /etc/pacto/registry
+            {{- end }}
             {{- with .Values.insecureRegistries }}
             - name: PACTO_INSECURE_REGISTRIES
               value: {{ join "," . | quote }}
@@ -99,15 +103,33 @@ spec:
             {{- toYaml .Values.securityContext | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- if .Values.promoter.upstreamTrust }}
+          {{- $creds := .Values.promoter.registryCredentials.secretName }}
+          {{- if or .Values.promoter.upstreamTrust $creds }}
           volumeMounts:
+            {{- if .Values.promoter.upstreamTrust }}
             - name: upstream-trust
               mountPath: /etc/pacto/upstream-trust
               readOnly: true
+            {{- end }}
+            {{- if $creds }}
+            - name: registry
+              mountPath: /etc/pacto/registry
+              readOnly: true
+            {{- end }}
       volumes:
+        {{- if .Values.promoter.upstreamTrust }}
         - name: upstream-trust
           configMap:
             name: {{ include "pacto-delivery.fullname" . }}-upstream-trust
+        {{- end }}
+        {{- if $creds }}
+        - name: registry
+          secret:
+            secretName: {{ $creds }}
+            items:
+              - key: .dockerconfigjson
+                path: config.json
+        {{- end }}
           {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
