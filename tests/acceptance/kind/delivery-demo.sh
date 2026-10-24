@@ -16,7 +16,9 @@
 #            then the agent beat (pay-agent ships behind its evals); it runs
 #            once per cluster.
 #   reach    phase 8: a second cluster, prod-us, follows prod through its
-#            signed records, and Argo CD applies what its promoter promotes.
+#            signed records, and Argo CD applies what its promoter promotes;
+#            then prod-eu (first cluster) freezes on a failed re-check it
+#            cannot roll back, and prod-us refuses the frozen version.
 #   status   what runs where.
 #   logs     diagnostics of the cluster.
 #   down     delete the cluster and the containers beside it.
@@ -173,7 +175,7 @@ while True:
         modes = get("/api/v1/namespaces/pacto-system/configmaps/span-modes").get("data") or {}
     except Exception:
         continue
-    for env in ("test", "prod"):
+    for env in ("test", "prod", "prod-eu"):
         try:
             labels = get(f"/apis/apps/v1/namespaces/{env}/deployments/payments")["spec"]["template"]["metadata"]["labels"]
         except Exception:
@@ -1042,8 +1044,8 @@ cmd_reach() {
   dl_chart="$(package_chart "$ROOT/integrations/kubernetes/charts/pacto-delivery")"
   # The first cluster's recorder key, trusted for that one stream only.
   trust="$DEMO/us-values.json"
-  jq -n --arg k "$(cat "$KEYS/recorder.pub")" --arg s "$stream" \
-    '{promoter: {upstreamTrust: ({keys: [{name: "prod-recorder", publicKey: $k, streams: [$s]}]} | tojson)}}' > "$trust"
+  jq -n --arg k "$(cat "$KEYS/recorder.pub")" --arg s "$stream" --arg eu "${stream%%/*}/prod-eu/payments" \
+    '{promoter: {upstreamTrust: ({keys: [{name: "prod-recorder", publicKey: $k, streams: [$s, $eu]}]} | tojson)}}' > "$trust"
   us helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set image.repository=localhost:5001/pacto-operator/pacto-controller \
     --set image.tag="$ver" --set image.pullPolicy=Never --set "insecureRegistries[0]=$REG_HOST" --wait --timeout 240s >/dev/null \
     || fail "the pacto-operator chart did not roll out in prod-us"
@@ -1095,7 +1097,95 @@ YAML
   grep -qF "failed after release on the upstream Stage $stream" <<<"$msg" \
     || fail "prod-us refused payments 2.4.0 for another reason than its failure in prod: $msg"
   pass "prod-us refuses payments 2.4.0 because it failed after release in prod: $msg"
-  echo; echo "REACH PASS: prod-us followed prod through signed records, applied by Argo CD"
+  reach_freeze
+  echo; echo "REACH PASS: prod-us followed prod through signed records, applied by Argo CD, and refused a version prod-eu froze on"
+}
+
+# reach_freeze — the failure a re-check cannot roll back reaches the other
+# cluster. In the first cluster prod-eu runs payments 2.3.0, takes 2.4.0,
+# which fails after release and rolls back to 2.3.0 on its own; then 2.3.0
+# fails too. That rollback was the cause's one automatic rollback, so the
+# Stage freezes, and the freeze is a signed record naming 2.3.0 and the failed
+# check. A Stage in prod-us following prod-eu's records never takes 2.3.0; a
+# person unfreezes prod-eu. Only the health check runs in prod-eu: it is the
+# one the generated traffic fails.
+reach_freeze() {
+  local a x eu fz=eu-2-4-0-rollback-freeze
+  a="$(digest_of payments 2.3.0)" x="$(digest_of payments 2.4.0)"
+  eu="$(kubectl -n prod get stage payments -o jsonpath='{.status.stream.id}')"; eu="${eu%%/*}/prod-eu/payments"
+  registry_pf
+  # reach reuses the first cluster too: prod-eu plays once per cluster.
+  if ! kubectl -n prod-eu get operation "$fz" >/dev/null 2>&1; then
+    section "prod-eu: a re-check fails on the promoter's own rollback, so the Stage freezes"
+    kubectl create namespace prod-eu --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    kubectl -n prod-eu create secret generic cosign-pub --from-file=cosign.pub="$KEYS/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+    environment payments prod-eu upstream false "$(payments_gates prod-eu 10s | grep -v pacto.runtime)"
+    propose -n prod-eu --stage payments --to "$a" --name eu-2-3-0 --reason "prod-eu starts on 2.3.0"
+    wait_concluded prod-eu eu-2-3-0 Succeeded/Verified
+    propose -n prod-eu --stage payments --to "$x" --name eu-2-4-0 --reason "prod-eu takes 2.4.0"
+    wait_concluded prod-eu eu-2-4-0 Succeeded/Verified
+    mode prod-eu.2.4.0 errors
+    eventually 90 kubectl -n prod-eu get operation eu-2-4-0-rollback >/dev/null 2>&1 || fail "the failed re-check of 2.4.0 raised no rollback in prod-eu"
+    wait_concluded prod-eu eu-2-4-0-rollback Succeeded/Verified
+    runs prod-eu payments "$a" || fail "prod-eu is not back on payments 2.3.0"
+    echo "  2.4.0 failed after release in prod-eu and rolled back to 2.3.0 on its own (generated errors)"
+    mode prod-eu.2.3.0 errors
+    eventually 90 kubectl -n prod-eu get operation "$fz" >/dev/null 2>&1 || fail "the failed re-check of the rollback raised no freeze in prod-eu"
+    wait_concluded prod-eu "$fz" Succeeded/Unverified
+    pe_frozen() { [ "$(kubectl -n prod-eu get stage payments -o jsonpath='{.status.frozen}')" = true ]; }
+    pe_frozen || fail "prod-eu is not frozen after its rollback failed"
+    grep -qF "the promoter's own rollback, which is never undone automatically" <<<"$(kubectl -n prod-eu get stage payments -o jsonpath='{.status.frozenReason}')" \
+      || fail "prod-eu froze for another reason: $(kubectl -n prod-eu get stage payments -o jsonpath='{.status.frozenReason}')"
+    op_json prod-eu "$fz" | jq -e --arg a "$a" '.spec.type == "pacto.dev/freeze" and .spec.params.from == $a and .spec.cause.verdict.result == "Fail"' >/dev/null \
+      || fail "the freeze does not name 2.3.0 and its failed check: $(op_json prod-eu "$fz" | jq -c .spec)"
+    signed() { rec record verify -n prod-eu --stage payments --output-format json 2>/dev/null | jq -e --arg o "$fz" '[.records[] | select(.operation == $o)] | length == 1' >/dev/null; }
+    eventually 60 signed || fail "the freeze is not a signed record of prod-eu: $(rec record verify -n prod-eu --stage payments 2>&1)"
+    mode prod-eu.2.3.0 ok
+    pass "2.3.0 failed its re-check after the rollback that was 2.4.0's one: prod-eu froze, and the freeze is a signed record naming 2.3.0 and the failed check"
+  fi
+
+  section "prod-us follows prod-eu's records and never takes the version prod-eu froze on"
+  us kubectl apply -f - >/dev/null <<YAML
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata: {name: payments-eu, namespace: prod, labels: {delivery.pacto.trianalab.io/apply-ref: "true"}}
+spec:
+  project: default
+  source: {repoURL: "oci://${REG_HOST}/story/deploy/payments", path: .}
+  destination: {server: https://kubernetes.default.svc, namespace: prod-eu}
+---
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Stage
+metadata: {name: payments-eu, namespace: prod}
+spec:
+  service: {name: payments}
+  environment: prod-us
+  applyRef: {kind: Application, name: payments-eu}
+  candidates: {upstreamRecords: {repository: "${REG_HOST}/pacto-delivery-streams", stream: "$eu"}}
+  auto: true
+YAML
+  us_empty() { [ -z "$(us kubectl -n prod get stage payments-eu -o jsonpath='{.status.pointer}')" ]; }
+  always 10 us_empty || fail "prod-us took a version prod-eu failed: $(us kubectl -n prod get stage payments-eu -o jsonpath='{.status.pointer}')"
+  us kubectl -n prod delete operation payments-eu-2-3-0 --ignore-not-found --wait --timeout=60s >/dev/null \
+    || fail "could not remove the previous payments-eu operation in prod-us"
+  us "$PACTO" delivery propose -n prod --stage payments-eu --to "$a" --name payments-eu-2-3-0 --reason "2.3.0 froze prod-eu" >/dev/null \
+    || fail "could not propose payments 2.3.0 to payments-eu in prod-us"
+  eu_refused() { [ "$(us kubectl -n prod get operation payments-eu-2-3-0 -o jsonpath='{.status.outcome}')" = Rejected ]; }
+  eventually 60 eu_refused || fail "prod-us did not refuse payments 2.3.0: $(us kubectl -n prod get operation payments-eu-2-3-0 -o jsonpath='{.status}')"
+  local msg; msg="$(us kubectl -n prod get operation payments-eu-2-3-0 -o jsonpath='{.status.reason}: {.status.message}')"
+  grep -qF "failed after release on the upstream Stage $eu" <<<"$msg" || fail "prod-us refused payments 2.3.0 for another reason than the freeze: $msg"
+  pass "prod-us reads the freeze from prod-eu's records: it takes nothing and refuses payments 2.3.0: $msg"
+
+  if [ "$(kubectl -n prod-eu get stage payments -o jsonpath='{.status.frozen}')" = true ]; then
+    KUBECONFIG="$(person alice@example.com team-payments)" "$PACTO" delivery propose -n prod-eu --stage payments --type unfreeze \
+      --name eu-unfreeze --reason "the failed check is understood" >/dev/null || fail "alice could not propose the unfreeze of prod-eu"
+    wait_concluded prod-eu eu-unfreeze Succeeded/Unverified
+    [ "$(kubectl -n prod-eu get stage payments -o jsonpath='{.status.frozen}')" != true ] || fail "prod-eu stayed frozen after alice unfroze it"
+    unfreeze_signed() { rec record verify -n prod-eu --stage payments --output-format json 2>/dev/null | jq -e '[.records[] | select(.operation == "eu-unfreeze")] | length == 1' >/dev/null; }
+    eventually 60 unfreeze_signed || fail "alice's unfreeze is not a signed record of prod-eu"
+    pass "alice unfroze prod-eu, a signed record too"
+  fi
+  stop_pf
 }
 
 # --- next steps --------------------------------------------------------------
@@ -1170,7 +1260,7 @@ case "$CMD" in
   up) trap 'rc=$?; stop_pf; [ $rc -eq 0 ] || { dump_diag "$NS"; dump_identity; }; exit $rc' EXIT; cmd_up ;;
   story) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_story ;;
   browser) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_browser ;;
-  reach) cmd_reach ;;
+  reach) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_reach ;;
   status) cmd_status ;;
   logs) admin; dump_diag "$NS"; dump_identity; kubectl -n "$DELIVERY_NS" logs deploy/pacto-delivery --tail=100 2>&1 || true ;;
   down) cmd_down ;;
