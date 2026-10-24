@@ -1192,8 +1192,8 @@ YAML
     [ "$(kubectl -n prod-eu get stage payments -o jsonpath='{.status.frozen}')" != true ] || fail "prod-eu stayed frozen after alice unfroze it"
     unfreeze_signed() { rec record verify -n prod-eu --stage payments --output-format json 2>/dev/null | jq -e '[.records[] | select(.operation == "eu-unfreeze")] | length == 1' >/dev/null; }
     eventually 60 unfreeze_signed || fail "alice's unfreeze is not a signed record of prod-eu"
+    pass "alice unfroze prod-eu, a signed record too"
   fi
-  pass "alice unfroze prod-eu, a signed record too"
   stop_pf
 }
 
