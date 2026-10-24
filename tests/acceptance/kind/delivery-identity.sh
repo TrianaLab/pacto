@@ -30,7 +30,9 @@
 #     approve through the dashboard, the MCP server or the apiserver
 #   - the dashboard's ServiceAccount can do nothing in delivery
 
-IDP_DIR="$(mktemp -d)"
+# mktemp -d makes the directory 0700. Keycloak runs as uid 1000, not the runner's
+# uid, so it could not open the import directory and refused to start on CI.
+IDP_DIR="$(mktemp -d)"; chmod 755 "$IDP_DIR"
 DEX_IMG="ghcr.io/dexidp/dex@sha256:0ae7ade1bdf1c83f7f7ccb1935912ac4c116e3e8ecc7e7503b30bab77e7c896c"
 KC_IMG="quay.io/keycloak/keycloak@sha256:9409c59bdfb65dbffa20b11e6f18b8abb9281d480c7ca402f51ed3d5977e6007"
 DEX_ISSUER="https://127.0.0.1:5556/dex"
