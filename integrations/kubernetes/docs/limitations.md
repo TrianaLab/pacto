@@ -205,6 +205,16 @@ is nothing transient to wait out; the evidence is already conclusive.
 This split matters if you gate deployments on the verdict. See
 [GitOps promotion gates](gitops.md#timing).
 
+## Delivery and private registries
+
+The delivery promoter reads the deploy artifact and the contract bundle of each
+version without a login: its chart has no registry credentials setting yet.
+Flux and the operator can log in (`secretRef` on an OCIRepository,
+`spec.contractRef.pullSecretRef` on a Pacto), but with a private contract or
+deploy repository the promoter's checks answer Unknown, so every change waits
+for a person to accept the unknown, and an accepted unknown never moves on to
+the next environment. Images can stay private.
+
 ## API version
 
 The CRDs are served at `v1alpha1`. Fields are added conservatively and
