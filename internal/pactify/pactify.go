@@ -123,17 +123,9 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	envs := opts.Environments
-	if len(envs) == 0 {
-		envs = []string{"test", "prod"}
-	}
-	for _, e := range envs {
-		if !nameRE.MatchString(e) {
-			return nil, fmt.Errorf("environment %q is not a valid namespace name", e)
-		}
-	}
-	if opts.InsecureRegistry && !opts.Delivery {
-		return nil, fmt.Errorf("an insecure registry changes only the Flux OCIRepositories that delivery writes, so it needs delivery")
+	envs, err := environments(opts)
+	if err != nil {
+		return nil, err
 	}
 	r := &Result{Dir: dir, Path: filepath.Join(dir, "pacto.yaml"), Service: name, Mode: modeBlank,
 		Found: []string{}, Dependencies: []Finding{}, Consumers: []Finding{}, Unknown: []string{}, Next: []string{}, Files: []File{}}
@@ -153,6 +145,24 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 	}
 	p.ignore()
 	return r, nil
+}
+
+// environments checks the delivery options and returns the environments,
+// test and prod unless the caller named others.
+func environments(opts Options) ([]string, error) {
+	envs := opts.Environments
+	if len(envs) == 0 {
+		envs = []string{"test", "prod"}
+	}
+	for _, e := range envs {
+		if !nameRE.MatchString(e) {
+			return nil, fmt.Errorf("environment %q is not a valid namespace name", e)
+		}
+	}
+	if opts.InsecureRegistry && !opts.Delivery {
+		return nil, fmt.Errorf("an insecure registry changes only the Flux OCIRepositories that delivery writes, so it needs delivery")
+	}
+	return envs, nil
 }
 
 // serviceName is the caller's name, else the workload's, else the folder's

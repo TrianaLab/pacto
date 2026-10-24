@@ -579,21 +579,7 @@ func TestOfflineSigningAndPlainHTTP(t *testing.T) {
 		t.Fatalf("pacto.yaml:\n%s\nnext: %v", text, r.Next)
 	}
 	for env, want := range map[string]int{"test": 2, "prod": 1} {
-		var n int
-		dec := yaml.NewDecoder(strings.NewReader(file(t, r, "delivery/"+env+".yaml").Content))
-		for {
-			var doc struct {
-				Kind string
-				Spec struct{ Insecure bool }
-			}
-			if dec.Decode(&doc) != nil {
-				break
-			}
-			if doc.Kind == "OCIRepository" && doc.Spec.Insecure {
-				n++
-			}
-		}
-		if n != want {
+		if n := insecureRepositories(file(t, r, "delivery/"+env+".yaml").Content); n != want {
 			t.Errorf("%s: %d insecure OCIRepositories, want %d", env, n, want)
 		}
 	}
@@ -610,6 +596,25 @@ func TestOfflineSigningAndPlainHTTP(t *testing.T) {
 	}
 	if _, err := Init(context.Background(), Options{Dir: fraudDir(t), InsecureRegistry: true, Plan: true}, os.WriteFile); err == nil || !strings.Contains(err.Error(), "needs delivery") {
 		t.Fatalf("insecure without delivery: %v", err)
+	}
+}
+
+// insecureRepositories counts the OCIRepositories in a YAML stream that set
+// spec.insecure.
+func insecureRepositories(text string) int {
+	var n int
+	dec := yaml.NewDecoder(strings.NewReader(text))
+	for {
+		var doc struct {
+			Kind string
+			Spec struct{ Insecure bool }
+		}
+		if dec.Decode(&doc) != nil {
+			return n
+		}
+		if doc.Kind == "OCIRepository" && doc.Spec.Insecure {
+			n++
+		}
 	}
 }
 
