@@ -144,6 +144,19 @@ func (p *planner) contract() error {
 	return nil
 }
 
+// transparencyLog says, when transparencyLog: false was asked for, that a
+// contract init did not write (the user's own, or a blank one) does not
+// carry it.
+func (p *planner) transparencyLog() {
+	if !p.opts.NoTransparencyLog {
+		return
+	}
+	if p.pub != nil && p.pub.Sign != nil && p.pub.Sign.TransparencyLog != nil && !*p.pub.Sign.TransparencyLog {
+		return
+	}
+	p.next("pacto.yaml was not written by this run, so it does not keep signatures out of the transparency log: add transparencyLog: false under publish.sign")
+}
+
 // existing reads what the cluster pieces need from the user's own contract.
 func (p *planner) existing(data []byte) {
 	c, err := contract.Parse(bytes.NewReader(data))
@@ -319,6 +332,11 @@ func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string)
 		fmt.Fprintf(b, "    - name: manifests\n      type: manifests\n      ref: %s\n      build:\n        command: [sh, -c, %s]\n", ref, yq(cmd))
 	}
 	fmt.Fprintf(b, "  sign:\n    key: %s\n", signKey)
+	if p.opts.NoTransparencyLog {
+		f := false
+		p.pub.Sign.TransparencyLog = &f
+		b.WriteString("    transparencyLog: false\n")
+	}
 	if _, err := os.Stat(filepath.Join(p.r.Dir, signKey)); err != nil {
 		p.next("put the signing key at %s: a cosign PEM private key, decrypted with COSIGN_PASSWORD", signKey)
 	}

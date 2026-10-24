@@ -42,6 +42,8 @@ func createTool() *mcpsdk.Tool {
 			"delivery":                     {Type: "boolean", Description: "With pactify: also plan the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization"},
 			"registry":                     {Type: "string", Description: "With pactify: where to publish, as host/path (default: read from the workload's image)"},
 			"environments":                 {Type: "string", Description: "With delivery: JSON array of environments in promotion order (default [\"test\",\"prod\"])"},
+			"no_transparency_log":          {Type: "boolean", Description: "With pactify: write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)"},
+			"insecure_registry":            {Type: "boolean", Description: "With delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)"},
 			"fleet_roots":                  {Type: "string", Description: "With pactify: JSON array of folders of other services' contracts, searched for the services that use this one"},
 		}, []string{"name"}),
 	}
@@ -71,6 +73,8 @@ type createArgs struct {
 	Registry                  string `json:"registry"`
 	Environments              string `json:"environments"`
 	FleetRoots                string `json:"fleet_roots"`
+	NoTransparencyLog         bool   `json:"no_transparency_log"`
+	InsecureRegistry          bool   `json:"insecure_registry"`
 }
 
 func createHandler() mcpsdk.ToolHandlerFor[createArgs, any] {
@@ -113,7 +117,7 @@ func createHandler() mcpsdk.ToolHandlerFor[createArgs, any] {
 // pactifyFolder is pacto_create with pactify: `pacto init` for an agent.
 func pactifyFolder(ctx context.Context, args createArgs) (*mcpsdk.CallToolResult, any, error) {
 	opts := pactify.Options{Dir: args.Path, Name: args.Name, Owner: args.Owner, Registry: args.Registry,
-		Delivery: args.Delivery, Plan: args.DryRun}
+		Delivery: args.Delivery, Plan: args.DryRun, NoTransparencyLog: args.NoTransparencyLog, InsecureRegistry: args.InsecureRegistry}
 	if err := unmarshalFields([]jsonField{
 		{"environments", args.Environments, &opts.Environments},
 		{"fleet_roots", args.FleetRoots, &opts.FleetRoots},
