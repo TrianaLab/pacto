@@ -295,7 +295,7 @@ func attachSBOM(ctx context.Context, reg Registry, tools Tools, sign contract.Pu
 
 // signAll signs every published digest: artifacts, SBOMs and the bundle.
 func signAll(ctx context.Context, tools Tools, sign contract.PublishSign, pub *contract.Publish, bundleRepo string, res *Result) error {
-	refs := make([]string, 0, len(pub.Artifacts)+1)
+	var refs []string // each artifact, its SBOM if any, then the bundle
 	for _, a := range pub.Artifacts {
 		refs = append(refs, Repo(a.Ref)+"@"+res.Digests[a.Name])
 		if sbom := res.SBOMs[a.Name]; sbom != "" {
