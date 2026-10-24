@@ -71,9 +71,11 @@ approvals to people with a login time, keep the pointer to the promoter or
 break-glass, keep the promoter itself to the pointer field and keep the record
 fields to the recorder. The chart renders them even offline and refuses to
 render without them unless `admissionPolicies.allowUnguarded` is set; the
-promoter admits no operation and counts no approval while they are missing. The image and chart are
-published, signed and versioned with the operator, so install the delivery
-chart at your operator's version. Helm never updates a chart's CRDs: apply the
+promoter admits no operation and counts no approval while they are missing.
+`promoter.registryCredentials.secretName` lets the promoter read a private
+contract or deploy repository. The image and chart are published, signed and
+versioned with the operator, so install the delivery chart at your operator's
+version. Helm never updates a chart's CRDs: apply the
 delivery CRDs before every `helm upgrade pacto-delivery`. `make sync-crds`
 copies each API group into its own chart.
 
