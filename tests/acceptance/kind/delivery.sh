@@ -763,13 +763,22 @@ always 5 stays_on_b || fail "E moved while Pacto could not judge it"
 candidate B
 candidate_is_b() { [ "$(kubectl -n test get ocirepository payments-candidates -o jsonpath='{.status.artifact.revision}')" = "candidate@$B" ]; }
 eventually 30 candidate_is_b || fail "the candidate OCIRepository never saw the tag move back to B"
-as_agent "$AGENT_A" cancel -n test "$OPE" >/dev/null
+# E is the promoter's, so an agent may not cancel it: an agent that could
+# would also cancel a rollback the promoter raised before it applies.
+OUT="$(as_agent "$AGENT_A" cancel -n test "$OPE" 2>&1 || true)"
+if grep -q "an agent may cancel only an operation it proposed itself" <<<"$OUT"; then
+  pass "an agent cannot cancel an operation the promoter raised"
+else
+  fail "an agent cancelled the promoter's operation: $OUT"
+fi
+held test "$OPE" || fail "E is gone after the refused cancel: $(field test "$OPE" phase)"
+as_person alice humans cancel -n test "$OPE" >/dev/null
 # A cancelled operation that never moved anything concludes Cancelled and is
 # let go once the recorder has recorded it.
 cancelled() { ! kubectl -n test get operation "$OPE" >/dev/null 2>&1 || [ "$(outcome test "$OPE")" = Cancelled/ ]; }
 eventually 20 cancelled || fail "E was not cancelled: $(field test "$OPE" phase) $(field test "$OPE" outcome)"
 always 5 has_pointer test "$B" || fail "cancelling E moved the pointer"
-pass "item 5: E held for accept-unknown and cancelled by the agent; nothing moved"
+pass "item 5: E held for accept-unknown, refused to the agent and cancelled by a person; nothing moved"
 
 section "item 6: two agents propose at once; exactly one wins"
 G="$(publish G "$C130")"
@@ -1027,6 +1036,7 @@ H2="$(publish_health h2)"; mode h2 errors
 Q="$(publish_health q)"; mode q silent
 H5="$(publish_health h5)"
 R="$(publish_health r calls)"
+S="$(publish_health s)"; mode s errors
 
 kubectl -n "$H" apply -f - >/dev/null <<YAML
 apiVersion: source.toolkit.fluxcd.io/v1
@@ -1211,6 +1221,27 @@ HIST="$(KUBECONFIG="$AGENT_A" "$PACTO" delivery history -n "$H" --stage payments
 jq -e '.completeness == "partial" and ([.entries[] | select(.type == "pacto.dev/rollback")] | length) == 4' <<<"$HIST" >/dev/null \
   || fail "history does not list the four rollbacks: $HIST"
 pass "explain cites how to re-run, history lists every rollback"
+
+section "S: an agent takes the name of S's rollback first; S fails and the Stage freezes instead of keeping S"
+# agent-a creates promote-s-rollback before proposing promote-s, the name the
+# promoter gives S's one rollback. It is not the promoter's rollback, so it
+# never stands in for one.
+KUBECONFIG="$AGENT_A" kubectl -n "$H" create -f - >/dev/null <<YAML
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Operation
+metadata: {name: promote-s-rollback, finalizers: [delivery.pacto.trianalab.io/record]}
+spec: {type: pacto.dev/promote, stage: payments, facet: pointer, params: {from: "$H1", to: "$H1"}, actor: {user: "system:serviceaccount:agents:agent-a"}, reason: squat}
+YAML
+eventually 60 concluded "$H" promote-s-rollback || fail "the squatting operation never concluded: $(field "$H" promote-s-rollback phase)"
+OPS="$(ship s "$S")"
+wait_concluded "$H" "$OPS" Failed/
+squat_frozen() {
+  kubectl -n "$H" get stage payments -o json |
+    jq -e '.status.frozen == true and (.status.frozenReason | contains("promote-s-rollback is taken by a pacto.dev/promote system:serviceaccount:agents:agent-a"))' >/dev/null
+}
+eventually 30 squat_frozen || fail "a squatted rollback name did not freeze the Stage: $(kubectl -n "$H" get stage payments -o jsonpath='{.status.frozen} {.status.frozenReason}')"
+[ "$(rollbacks_of "$OPS")" = 0 ] || fail "a rollback of S was raised under another name"
+pass "S failed with its rollback's name taken; the Stage froze naming the squatter"
 
 kill "$GEN_PID" "$MIRA_PF_PID" 2>/dev/null || true
 echo "DELIVERY HEALTH PASS"

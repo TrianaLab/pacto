@@ -601,3 +601,64 @@ func TestCitedCauseNeedsAnAppliedTime(t *testing.T) {
 		})
 	}
 }
+
+// squat creates a concluded operation bot names like one the promoter raises.
+func (e *env) squat(name string) {
+	e.t.Helper()
+	o := opObj(name, delivery.TypePromote, dC, dC, bot)
+	e.create(o)
+	o = e.getOp(name)
+	o.Status.Phase, o.Status.Outcome = delivery.PhaseConcluded, delivery.Rejected
+	if err := e.c.Status().Update(context.Background(), o); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// TestRecheckSquattedNamesFreeze: an operation someone else created under the
+// name of the rollback or freeze a failed re-check raises never stands in for
+// it: the Stage freezes and says whose operation took the name.
+func TestRecheckSquattedNamesFreeze(t *testing.T) {
+	taken := "is taken by a " + delivery.TypePromote + " " + bot
+	t.Run("rollback", func(t *testing.T) {
+		e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+		e.shipB()
+		e.squat("p1-rollback")
+		e.health.result = delivery.Fail
+		if err := e.reconcileStage("payments-prod"); err != nil {
+			t.Fatal(err)
+		}
+		if s := e.getStage(); !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "p1-rollback "+taken) {
+			t.Fatalf("want frozen: %+v", s.Status)
+		}
+	})
+	t.Run("freeze", func(t *testing.T) {
+		e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+		e.shipB()
+		e.setStage(func(s *delivery.StageStatus) { s.AutoRollbacks = map[string]int{"uid-p1": 1} })
+		e.squat("p1-freeze")
+		e.health.result = delivery.Fail
+		if err := e.reconcileStage("payments-prod"); err != nil {
+			t.Fatal(err)
+		}
+		if s := e.getStage(); !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "p1-freeze "+taken) {
+			t.Fatalf("want the squat in the freeze reason: %+v", s.Status)
+		}
+	})
+	t.Run("reraise", func(t *testing.T) {
+		e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+		e.shipB()
+		e.health.result = delivery.Fail
+		e.fails["create/Operation"] = true
+		if err := e.reconcileStage("payments-prod"); err == nil {
+			t.Fatal("a rollback that cannot be created is an error")
+		}
+		e.fails["create/Operation"] = false
+		e.squat("p1-rollback")
+		if err := e.reconcileStage("payments-prod"); err != nil {
+			t.Fatal(err)
+		}
+		if s := e.getStage(); !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "p1-rollback "+taken) {
+			t.Fatalf("want frozen: %+v", s.Status)
+		}
+	})
+}

@@ -141,7 +141,9 @@ pacto delivery approve -n prod <operation> --decision approve
 `plan` predicts each gate's verdict and the one question a person would be
 asked. `propose` with the plan's intent digest refuses with `PlanStale` if
 anything moved since. `cancel` works until the pointer moves; after that,
-propose `--type rollback --undoes <operation>`. A tag is refused.
+propose `--type rollback --undoes <operation>`. A tag is refused. An agent may
+cancel only an operation it proposed; a rollback or freeze the promoter raised,
+or anyone else's operation, is cancelled by a person or break-glass.
 
 `pacto mcp --delivery` gives agents the read, plan, history, blame, undo and
 record-verify tools, plus propose and cancel only when the apiserver says the
@@ -167,8 +169,8 @@ placed counts everywhere and, as a consumer, asks a person.
 
 | Identity | May | May not |
 |---|---|---|
-| Agent (its service account or `pacto:agents`) | propose, read and cancel | approve, freeze, unfreeze, write status, edit the pointer |
-| Person | the above, approve a question their team is asked, freeze, unfreeze | write status |
+| Agent (its service account or `pacto:agents`) | propose, read and cancel its own operations | approve, freeze, unfreeze, write status, edit the pointer |
+| Person | propose, read and cancel any operation, approve a question their team is asked, freeze, unfreeze | write status |
 | Break-glass (`pacto:break-glass`) | override and edit `spec.ref.digest` | |
 | Promoter | write status and raise its own operations | sign or push |
 | Recorder | write the record fields and finalizer; sign and push records | anything else |

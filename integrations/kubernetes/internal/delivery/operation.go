@@ -922,6 +922,7 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 		return reconcile.Result{RequeueAfter: immediately}, nil
 	}
 	if stage != nil {
+		squat := ""
 		if c.outcome == delivery.Failed && op.Spec.Type == delivery.TypePromote && op.Status.Pointer.Before != "" {
 			// Never on a stale decision: an operation the Stage already
 			// concluded, maybe as a success, raises no rollback.
@@ -930,7 +931,8 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 				return reconcile.Result{}, err
 			}
 			if concludedOn(cur.Status, op.UID) == nil && !slices.Contains(cur.Status.FailedDigests, op.Status.Pointer.Before) {
-				if err := raiseRollback(ctx, r.Client, r.Policy, op, stage, code+": "+msg, c.cause); err != nil {
+				var err error
+				if squat, err = raiseRollback(ctx, r.Client, r.Policy, op, stage, code+": "+msg, c.cause); err != nil {
 					return reconcile.Result{}, err
 				}
 			}
@@ -955,6 +957,9 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 			s.Status.Stream.Concluded = append(s.Status.Stream.Concluded, done)
 			s.Status.Stream.Concluded = s.Status.Stream.Concluded[max(0, len(s.Status.Stream.Concluded)-delivery.MaxConcluded):]
 			applyEffects(&s.Status, op, c)
+			if squat != "" {
+				s.Status.Frozen, s.Status.FrozenReason = true, op.Name+": "+squat
+			}
 			return nil
 		}); err != nil {
 			return reconcile.Result{}, err
@@ -1064,8 +1069,9 @@ func applyEffects(s *delivery.StageStatus, op *dv1.Operation, c conclusion) {
 // raiseRollback creates the one rollback bound to a failed promote, citing
 // the failed operation and, when a gate failed it, that verdict. Its name is
 // derived from the failed operation, so raising it twice is a no-op: at most
-// one automatic rollback per cause.
-func raiseRollback(ctx context.Context, c client.Client, policy delivery.ClassPolicy, failed *dv1.Operation, stage *dv1.Stage, why string, cause *delivery.Verdict) error {
+// one automatic rollback per cause. A non-empty squat says someone else took
+// that name, and the caller freezes the Stage.
+func raiseRollback(ctx context.Context, c client.Client, policy delivery.ClassPolicy, failed *dv1.Operation, stage *dv1.Stage, why string, cause *delivery.Verdict) (squat string, _ error) {
 	rb := &dv1.Operation{}
 	rb.Namespace, rb.Name = failed.Namespace, failed.Name+"-rollback"
 	rb.Labels = map[string]string{StageLabel: stage.Name}
@@ -1078,10 +1084,7 @@ func raiseRollback(ctx context.Context, c client.Client, policy delivery.ClassPo
 		Cause:  &delivery.Cause{Operation: string(failed.UID), Verdict: cause},
 	}
 	rb.Spec.IntentDigest = delivery.IntentDigest(rb.Spec, stage.Spec)
-	if err := c.Create(ctx, rb); err != nil && !apierrors.IsAlreadyExists(err) {
-		return err
-	}
-	return nil
+	return createRaised(ctx, c, rb)
 }
 
 // raiseFreeze creates the freeze a failed re-check raises when it cannot roll
@@ -1089,8 +1092,8 @@ func raiseRollback(ctx context.Context, c client.Client, policy delivery.ClassPo
 // the records, naming the version the Stage stays on and the failed verdict,
 // so a Stage in another cluster that follows these records never takes it.
 // Its name is derived from the operation that shipped the version, so raising
-// it twice is a no-op.
-func raiseFreeze(ctx context.Context, c client.Client, policy delivery.ClassPolicy, shipped *dv1.Operation, stage *dv1.Stage, why string, cause *delivery.Verdict) error {
+// it twice is a no-op. A non-empty squat says someone else took that name.
+func raiseFreeze(ctx context.Context, c client.Client, policy delivery.ClassPolicy, shipped *dv1.Operation, stage *dv1.Stage, why string, cause *delivery.Verdict) (squat string, _ error) {
 	fz := &dv1.Operation{}
 	fz.Namespace, fz.Name = shipped.Namespace, shipped.Name+"-freeze"
 	fz.Labels = map[string]string{StageLabel: stage.Name}
@@ -1103,10 +1106,37 @@ func raiseFreeze(ctx context.Context, c client.Client, policy delivery.ClassPoli
 		Cause:  &delivery.Cause{Operation: string(shipped.UID), Verdict: cause},
 	}
 	fz.Spec.IntentDigest = delivery.IntentDigest(fz.Spec, stage.Spec)
-	if err := c.Create(ctx, fz); err != nil && !apierrors.IsAlreadyExists(err) {
-		return err
+	return createRaised(ctx, c, fz)
+}
+
+// createRaised creates an operation the promoter raises under a name derived
+// from its cause, so raising it twice is a no-op. Anyone who may create
+// operations can take that name first, so an operation found under it counts
+// only if the promoter raised it for the same intent. Otherwise squat says
+// why, and the caller freezes the Stage: a rollback, freeze or promote
+// silently skipped would leave nobody deciding.
+func createRaised(ctx context.Context, c client.Client, op *dv1.Operation) (squat string, _ error) {
+	err := c.Create(ctx, op)
+	if !apierrors.IsAlreadyExists(err) {
+		return "", err
 	}
-	return nil
+	got := &dv1.Operation{}
+	if err := c.Get(ctx, client.ObjectKeyFromObject(op), got); err != nil {
+		return "", err
+	}
+	if got.Spec.Actor.User == op.Spec.Actor.User && got.Spec.Type == op.Spec.Type &&
+		got.Spec.Params == op.Spec.Params && causeOp(got) == causeOp(op) {
+		return "", nil
+	}
+	return "the name " + op.Name + " is taken by a " + got.Spec.Type + " " + got.Spec.Actor.User +
+		" created, so the promoter cannot raise its " + op.Spec.Type + "; a person must decide", nil
+}
+
+func causeOp(o *dv1.Operation) string {
+	if o.Spec.Cause == nil {
+		return ""
+	}
+	return o.Spec.Cause.Operation
 }
 
 // releaseFinalizer lets a concluded, deleted operation go when no record is

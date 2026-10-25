@@ -84,6 +84,26 @@ func TestPromoteShipsAndVerifies(t *testing.T) {
 	}
 }
 
+// TestSquattedRollbackNameFreezes: an operation someone else created under the
+// name of the rollback a failed promote raises never stands in for it. The
+// failed version is not left running unwatched: the Stage freezes, naming the
+// squatter.
+func TestSquattedRollbackNameFreezes(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	squat := opObj("p1-rollback", delivery.TypePromote, dC, dC, bot)
+	e.create(squat)
+	wantOutcome(t, e.drive("p1-rollback"), delivery.Rejected, "")
+	e.drive("p1")
+	e.apply(dB)
+	e.drive("p1")
+	e.evaluate(c2, "NonCompliant")
+	wantOutcome(t, e.drive("p1"), delivery.Failed, "VerifyFailed")
+	s := e.getStage()
+	if !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "p1-rollback is taken by a "+delivery.TypePromote+" "+bot) {
+		t.Fatalf("a squatted rollback name must freeze the Stage: %+v", s.Status)
+	}
+}
+
 // TestFailedVerifyRollsBackOnceAndNeverRetries is acceptance item 2: the
 // broken version fails its check, is remembered as failed, and exactly one
 // bound rollback returns the Stage to the version it ran before.
@@ -105,8 +125,8 @@ func TestFailedVerifyRollsBackOnceAndNeverRetries(t *testing.T) {
 		t.Fatalf("rollback spec: %+v", rb.Spec)
 	}
 	// Raising again is a no-op: one rollback per cause.
-	if err := raiseRollback(context.Background(), e.c, e.op.Policy, o, s, "again", nil); err != nil {
-		t.Fatal(err)
+	if squat, err := raiseRollback(context.Background(), e.c, e.op.Policy, o, s, "again", nil); err != nil || squat != "" {
+		t.Fatal(squat, err)
 	}
 	rb = e.drive("p1-rollback")
 	if rb.Status.Phase != delivery.PhaseRunning || e.ociDigest("payments") != dA {

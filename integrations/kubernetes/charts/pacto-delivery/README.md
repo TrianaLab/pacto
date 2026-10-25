@@ -16,7 +16,7 @@ What the chart installs:
 
 - The promoter `Deployment` (the `pacto-delivery` image, subcommand `promoter`), leader-elected
 - CRDs: `Stage`, `Operation` and `Approval` in `delivery.pacto.trianalab.io/v1alpha1` (from the `crds/` directory)
-- RBAC: the promoter's `ServiceAccount`, `ClusterRole` and leader-election `Role`, plus two roles to bind: `<release>-agent` (propose, read and cancel operations) and `<release>-approver` (the same, plus approvals)
+- RBAC: the promoter's `ServiceAccount`, `ClusterRole` and leader-election `Role`, plus two roles to bind: `<release>-agent` (propose and read operations, and cancel its own) and `<release>-approver` (the same, plus approvals)
 - `ValidatingAdmissionPolicy` objects (Kubernetes 1.30 or later, `admissionPolicies.enabled`)
 
 It needs Flux (source and kustomize controllers) and the Pacto operator. The
@@ -42,7 +42,7 @@ same version as your Pacto operator.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| admissionPolicies | object | `{"allowUnguarded":false,"enabled":true}` | Install the ValidatingAdmissionPolicies (Kubernetes 1.30 or later): an operation's actor is the requesting user, only the promoter may set witnessed, override and unfreeze are limited to their raisers, cancel is refused once the pointer moved, approvals come from people and spec.ref.digest is edited only by the promoter or break-glass. The promoter admits no operation and counts no approval while its operation and approval policies are missing. |
+| admissionPolicies | object | `{"allowUnguarded":false,"enabled":true}` | Install the ValidatingAdmissionPolicies (Kubernetes 1.30 or later): an operation's actor is the requesting user, only the promoter may set witnessed, override and unfreeze are limited to their raisers, cancel is refused once the pointer moved and an agent cancels only its own operations, approvals come from people and spec.ref.digest is edited only by the promoter or break-glass. The promoter admits no operation and counts no approval while its operation and approval policies are missing. |
 | admissionPolicies.allowUnguarded | bool | `false` | Render without the policies (enabled=false) anyway. Without them anyone who may create an Operation or an Approval can claim to be anyone, so the chart refuses enabled=false unless this is set. |
 | affinity | object | `{}` | Affinity for the promoter pod |
 | argocd.enabled | bool | `false` | Let Stages name an Argo CD Application as their applier (`spec.applyRef.kind: Application`). Grants the promoter patch on `argoproj.io` Applications (it only sets `spec.source.targetRevision`, and the pointer admission policy holds it to that) and read access to the agent, approver and recorder roles. Off by default. |

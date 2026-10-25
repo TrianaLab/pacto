@@ -45,8 +45,9 @@ contract says. You can add health checks too, such as error rates from your
 monitoring. These checks keep running after release, so a problem found an
 hour later still rolls the version back once: the version that ran before is
 put back. When a person picked the failed version, there is nothing safe to go
-back to or the rollback itself fails, the Stage freezes instead and waits for
-a person to roll back or unfreeze it, from the dashboard or the command line.
+back to, the rollback itself fails or someone else already took the name of
+the rollback Pacto raises, the Stage freezes instead and waits for a person to
+roll back or unfreeze it, from the dashboard or the command line.
 None of a Stage's last 50 failed versions is tried again there.
 
 ## Stages and records
@@ -80,7 +81,7 @@ Pacto judges this by the version range each service declares, not by which
 fields or endpoints it uses. Pacto can also watch the traffic between services,
 but that tells it only which service calls which, not what each call uses.
 
-AI agents can plan, ask for and cancel changes, but only people can approve.
+AI agents can plan, ask for and cancel the changes they asked for, but only people can approve.
 To approve, a person must have signed in to the dashboard (or the cluster)
 with their own company login in the last 15 minutes, and the record names them.
 

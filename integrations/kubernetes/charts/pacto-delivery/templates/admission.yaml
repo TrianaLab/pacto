@@ -81,7 +81,10 @@ spec:
   validationActions: [Deny]
 ---
 # Cancelling is deleting, and it is refused once the pointer has moved: an
-# applied operation runs to its end, which may be a rollback.
+# applied operation runs to its end, which may be a rollback. An agent cancels
+# only what it asked for itself: a rollback or freeze the promoter raised, or
+# another actor's operation, is cancelled by a person, break-glass or the
+# promoter. The namespace controller may delete one with its namespace.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -97,6 +100,15 @@ spec:
         operations: [DELETE]
         resources: [operations]
   validations:
+    - expression: >-
+        oldObject.spec.actor.user == request.userInfo.username ||
+        request.userInfo.username == '{{ $controller }}' ||
+        request.userInfo.username == 'system:serviceaccount:kube-system:namespace-controller' ||
+        request.userInfo.groups.exists(g, g in {{ $breakGlass }}) ||
+        !(request.userInfo.username.startsWith('system:serviceaccount:') ||
+        request.userInfo.groups.exists(g, g in {{ $agents }}))
+      message: "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest"
+      reason: Forbidden
     - expression: >-
         !has(oldObject.status) || !has(oldObject.status.applied) || !oldObject.status.applied ||
         (has(oldObject.status.phase) && oldObject.status.phase == 'Concluded')

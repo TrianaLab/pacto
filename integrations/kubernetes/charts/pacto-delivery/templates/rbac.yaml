@@ -113,7 +113,8 @@ subjects:
     namespace: {{ .Release.Namespace }}
 ---
 # Bind this to agents (their own service accounts, or the agent group): they
-# may propose, read and cancel operations and read Stages. Planning reads the
+# may propose and read operations, cancel the ones they proposed (admission
+# refuses the rest) and read Stages. Planning reads the
 # Pactos and the Kustomizations, which place each consumer. No approvals, no
 # status, no pointer.
 apiVersion: rbac.authorization.k8s.io/v1

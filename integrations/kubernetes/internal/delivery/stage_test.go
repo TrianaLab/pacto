@@ -11,6 +11,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -67,6 +68,54 @@ func TestAutoPromoteFromOCIRepository(t *testing.T) {
 	// An operation in flight blocks the next automatic one.
 	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 1 {
 		t.Fatalf("in flight: %v %d", err, len(e.ops()))
+	}
+}
+
+// TestAutoPromoteAgainAfterAConclusion: the same move is proposed again once
+// an earlier automatic promote of it concluded without shipping (here it
+// expired), because the stream seq the name carries moved on.
+func TestAutoPromoteAgainAfterAConclusion(t *testing.T) {
+	s := stageObj(dA)
+	s.Spec.Auto = true
+	s.Spec.Approval.Always = true
+	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB),
+		kustomization("payments", "payments", "True", "ReconciliationSucceeded", "latest@"+dA, "latest@"+dA),
+		deployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
+	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 1 {
+		t.Fatalf("want one automatic promote: %v %d", err, len(e.ops()))
+	}
+	first := e.ops()[0].Name
+	e.drive(first)
+	e.now = e.now.Add(25 * time.Hour)
+	wantOutcome(t, e.drive(first), delivery.Expired, "Expired")
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	var open []string
+	for _, o := range e.ops() {
+		if o.Status.Phase != delivery.PhaseConcluded {
+			open = append(open, o.Name)
+		}
+	}
+	if len(open) != 1 || open[0] == first {
+		t.Fatalf("B is still eligible, so it is proposed again: open=%v", open)
+	}
+}
+
+// TestRaisedNameSquatted: an operation someone else created under the name
+// the promoter would raise its automatic promote or witnessed override with
+// freezes the Stage instead of silently skipping the decision.
+func TestRaisedNameSquatted(t *testing.T) {
+	s := stageObj(dA)
+	s.Spec.Auto = true
+	s.Spec.Candidates.OCIRepositoryRef = &delivery.LocalRef{Name: "payments-candidates"}
+	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB))
+	e.squat(raisedName(s, "auto", delivery.Params{From: dA, To: dB}))
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if st := e.getStage(); !st.Status.Frozen || !strings.Contains(st.Status.FrozenReason, "is taken by a "+delivery.TypePromote+" "+bot) {
+		t.Fatalf("want frozen: %+v", st.Status)
 	}
 }
 
@@ -317,5 +366,21 @@ func TestStageReady(t *testing.T) {
 	}
 	if c := e.getStage().Status.Conditions; len(c) != 1 || c[0].Reason != "CandidateUnverified" {
 		t.Fatalf("Ready did not follow the OCIRepository: %+v", c)
+	}
+}
+
+// TestCreateRaised: raising the promoter's own operation again is a no-op,
+// and a read that fails after the name was found taken is an error, retried.
+func TestCreateRaised(t *testing.T) {
+	e := newEnv(t, stageObj(dA))
+	op := opObj("raised", delivery.TypePromote, dA, dB, promoterSA)
+	for range 2 {
+		if squat, err := createRaised(context.Background(), e.c, op.DeepCopy()); err != nil || squat != "" {
+			t.Fatalf("raising twice: %q %v", squat, err)
+		}
+	}
+	e.fails["get/Operation/raised"] = true
+	if _, err := createRaised(context.Background(), e.c, op.DeepCopy()); err == nil {
+		t.Fatal("a failed read of the taken name must be an error")
 	}
 }

@@ -145,7 +145,8 @@ insecureRegistries: []
 
 # -- Install the ValidatingAdmissionPolicies (Kubernetes 1.30 or later): an operation's
 # actor is the requesting user, only the promoter may set witnessed, override and
-# unfreeze are limited to their raisers, cancel is refused once the pointer moved,
+# unfreeze are limited to their raisers, cancel is refused once the pointer moved
+# and an agent cancels only its own operations,
 # approvals come from people and spec.ref.digest is edited only by the promoter or
 # break-glass. The promoter admits no operation and counts no approval while
 # its operation and approval policies are missing.

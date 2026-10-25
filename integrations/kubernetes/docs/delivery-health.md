@@ -100,7 +100,10 @@ After release the checks run again every `recheck` (default 1m) on the last
 `window`. A confirmed Fail marks the version failed and raises one rollback
 citing the check. The Stage freezes instead when that cause already had its
 rollback, when there is nothing to roll back to, or when a person or an agent
-chose the running version (a rollback, or a promote during auto-hold).
+chose the running version (a rollback, or a promote during auto-hold). It also
+freezes, naming the operation, when an operation Pacto did not raise holds the
+name of the rollback or freeze it raises (`<operation>-rollback`,
+`<operation>-freeze`).
 Unknown after release never rolls back, and a result about a version the Stage
 stopped running is dropped. The newest result is in `status.lastCheck`, which
 also says when the operation that shipped the running version is gone.

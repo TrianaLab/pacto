@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"slices"
+	"strconv"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -249,19 +250,38 @@ func (r *StageReconciler) candidate(ctx context.Context, stage *dv1.Stage) (stri
 }
 
 // raise creates a controller-class operation. Its name is derived from the
-// Stage and the pointer move, so raising the same decision twice is a no-op.
+// Stage's stream seq and the pointer move, so raising the same decision twice
+// is a no-op, while the same move after an earlier one concluded (expired,
+// cancelled or rejected) gets a new name and is proposed again.
 func (r *StageReconciler) raise(ctx context.Context, stage *dv1.Stage, kind string, spec delivery.OperationSpec) error {
-	sum := sha256.Sum256([]byte(spec.Params.From + ">" + spec.Params.To))
 	op := &dv1.Operation{}
-	op.Namespace, op.Name = stage.Namespace, stage.Name+"-"+kind+"-"+hex.EncodeToString(sum[:])[:10]
+	op.Namespace, op.Name = stage.Namespace, raisedName(stage, kind, spec.Params)
 	op.Labels = map[string]string{StageLabel: stage.Name}
 	controllerutil.AddFinalizer(op, dv1.RecordFinalizer)
 	spec.IntentDigest = delivery.IntentDigest(spec, stage.Spec)
 	op.Spec = spec
-	if err := r.Create(ctx, op); err != nil && !apierrors.IsAlreadyExists(err) {
+	squat, err := createRaised(ctx, r.Client, op)
+	if err != nil {
 		return err
 	}
-	return nil
+	return r.freeze(ctx, stage, squat)
+}
+
+func raisedName(stage *dv1.Stage, kind string, p delivery.Params) string {
+	sum := sha256.Sum256([]byte(strconv.FormatInt(stage.Status.Stream.Seq, 10) + ":" + p.From + ">" + p.To))
+	return stage.Name + "-" + kind + "-" + hex.EncodeToString(sum[:])[:10]
+}
+
+// freeze freezes the Stage for why, unless why is empty or it is frozen.
+func (r *StageReconciler) freeze(ctx context.Context, stage *dv1.Stage, why string) error {
+	if why == "" {
+		return nil
+	}
+	return r.updateStatus(ctx, stage, func(s *dv1.Stage) {
+		if !s.Status.Frozen {
+			s.Status.Frozen, s.Status.FrozenReason = true, why
+		}
+	})
 }
 
 // recheck runs the verify gates again on the version the Stage runs, every
@@ -355,8 +375,12 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 	// frozen no re-check runs again to raise it, so a freeze lost here would
 	// leave the failure out of the records.
 	if !rollback {
-		if err := raiseFreeze(ctx, r.Client, r.Policy, shipped, stage, why, f); err != nil {
+		squat, err := raiseFreeze(ctx, r.Client, r.Policy, shipped, stage, why, f)
+		if err != nil {
 			return err
+		}
+		if squat != "" {
+			why += " (and " + squat + ")"
 		}
 	}
 	wrote := false
@@ -383,13 +407,23 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 	}); err != nil || !wrote || !rollback {
 		return err
 	}
-	return raiseRollback(ctx, r.Client, r.Policy, shipped, stage, why, f)
+	return r.raiseRollback(ctx, stage, shipped, why, f)
+}
+
+// raiseRollback raises shipped's one bound rollback, or freezes the Stage when
+// someone else took its name.
+func (r *StageReconciler) raiseRollback(ctx context.Context, stage *dv1.Stage, shipped *dv1.Operation, why string, f *delivery.Verdict) error {
+	squat, err := raiseRollback(ctx, r.Client, r.Policy, shipped, stage, why, f)
+	if err != nil || squat == "" {
+		return err
+	}
+	return r.freeze(ctx, stage, shipped.Name+": failed after release: "+why+", and "+squat)
 }
 
 // reraise raises again the rollback a failed re-check recorded but never
 // created, because raising it failed after the record was written. It acts only
 // when the recorded check is about the running version, its cause has its one
-// rollback counted and no rollback for that cause exists yet.
+// rollback counted and the promoter raised no rollback for that cause yet.
 // ponytail: a person deleting a concluded rollback gets it raised again; keep
 // a raised marker in status if that ever matters.
 func (r *StageReconciler) reraise(ctx context.Context, stage *dv1.Stage, shipped *dv1.Operation, ops []dv1.Operation) error {
@@ -398,10 +432,14 @@ func (r *StageReconciler) reraise(ctx context.Context, stage *dv1.Stage, shipped
 		return nil
 	}
 	f := failing(lc.Verdicts)
-	if f == nil || slices.ContainsFunc(ops, func(o dv1.Operation) bool { return o.Name == shipped.Name+"-rollback" }) {
+	if f == nil || slices.ContainsFunc(ops, func(o dv1.Operation) bool {
+		return o.Name == shipped.Name+"-rollback" && o.Spec.Type == delivery.TypeRollback &&
+			o.Spec.Actor.User == r.Policy.ControllerUser && causeOp(&o) == string(shipped.UID)
+	}) {
 		return nil
 	}
-	return raiseRollback(ctx, r.Client, r.Policy, shipped, stage, "RecheckFailed: "+f.Gate+": "+f.Message, f)
+	// One someone else created under that name freezes the Stage instead.
+	return r.raiseRollback(ctx, stage, shipped, "RecheckFailed: "+f.Gate+": "+f.Message, f)
 }
 
 // parseOr parses an RFC 3339 time, zero when it does not parse.
