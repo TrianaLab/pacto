@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package delivery
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -52,6 +53,10 @@ type StageReconciler struct {
 	// (OperationReconciler.AdmissionPolicies); while they do not guard, the
 	// Stage is not Ready.
 	AdmissionPolicies []string
+	// Freshness is the operation reconciler's login freshness, published on
+	// every Stage so clients ask for a login it will still count; zero means
+	// delivery.AuthFreshness.
+	Freshness time.Duration
 	// Events receives the Events it emits when a Stage freezes, stops being
 	// watched or raises a rollback; nil emits none.
 	Events record.EventRecorder
@@ -286,12 +291,14 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 		}
 	}
 	want.ObservedGeneration = stage.Generation
-	if _, changed := delivery.SetCondition(stage.Status.Conditions, want, r.Now()); !changed && stage.Status.ObservedGeneration == stage.Generation {
+	fresh := cmp.Or(r.Freshness, delivery.AuthFreshness).String()
+	if _, changed := delivery.SetCondition(stage.Status.Conditions, want, r.Now()); !changed &&
+		stage.Status.ObservedGeneration == stage.Generation && stage.Status.AuthFreshness == fresh {
 		return cand, nil
 	}
 	set := func(s *dv1.Stage) {
 		s.Status.Conditions, _ = delivery.SetCondition(s.Status.Conditions, want, r.Now())
-		s.Status.ObservedGeneration = stage.Generation
+		s.Status.ObservedGeneration, s.Status.AuthFreshness = stage.Generation, fresh
 	}
 	if err := r.updateStatus(ctx, stage, set); err != nil {
 		return nil, err

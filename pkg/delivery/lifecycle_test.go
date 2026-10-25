@@ -82,3 +82,11 @@ func TestSetCondition(t *testing.T) {
 		t.Fatal("SetCondition edited its input")
 	}
 }
+
+func TestDecisionFreshnessFor(t *testing.T) {
+	for in, want := range map[string]time.Duration{"": DecisionFreshness, "15m0s": DecisionFreshness, "6m": 4 * time.Minute, "nonsense": DecisionFreshness, "-1m": DecisionFreshness} {
+		if got := DecisionFreshnessFor(in); got != want {
+			t.Errorf("%q: %s, want %s", in, got, want)
+		}
+	}
+}

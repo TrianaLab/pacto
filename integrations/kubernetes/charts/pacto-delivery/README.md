@@ -64,7 +64,7 @@ same version as your Pacto operator.
 | nodeSelector | object | `{}` | Node selector for the promoter pod |
 | podSecurityContext.runAsNonRoot | bool | `true` | Run pod as non-root |
 | podSecurityContext.seccompProfile.type | string | `"RuntimeDefault"` | Seccomp profile type |
-| promoter.authFreshness | string | `"15m"` | How old a person's login may be when their approval is given; an older one is ignored (a Go duration) |
+| promoter.authFreshness | string | `"15m"` | How old a person's login may be when their approval is given; an older one is ignored (a Go duration). Every Stage publishes it in `status.authFreshness`, and clients ask for a fresh login once one is two thirds as old |
 | promoter.leaderElect | bool | `true` | Elect one active promoter |
 | promoter.poll | string | `"3s"` | How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration) |
 | promoter.registryCredentials.secretName | string | `""` | A `kubernetes.io/dockerconfigjson` Secret with read access to the contract and deploy repositories, for a private registry. Without it the promoter reads only public ones. |

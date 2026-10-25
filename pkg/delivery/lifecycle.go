@@ -9,12 +9,25 @@ import (
 )
 
 // Login freshness. The promoter ignores an approval given more than
-// AuthFreshness after its author's login; the dashboard asks for a new login
-// once one is older than DecisionFreshness, leaving a margin under it.
+// AuthFreshness (or its --auth-freshness) after its author's login; the
+// dashboard asks for a new login once one is older than DecisionFreshness,
+// leaving a margin under it.
 const (
 	AuthFreshness     = 15 * time.Minute
 	DecisionFreshness = 10 * time.Minute
 )
+
+// DecisionFreshnessFor is DecisionFreshness for the login freshness a Stage
+// publishes in status.authFreshness: two thirds of it, so a login a person
+// approves with is still fresh when the promoter counts it. An empty or
+// unreadable one is AuthFreshness.
+func DecisionFreshnessFor(published string) time.Duration {
+	d, err := time.ParseDuration(published)
+	if err != nil || d <= 0 {
+		d = AuthFreshness
+	}
+	return d * 2 / 3
+}
 
 // ParseAuthTime reads a login time as the apiserver reports it in
 // userInfo.extra["pacto.dev/auth-time"]: Unix seconds (what structured

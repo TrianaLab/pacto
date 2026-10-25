@@ -145,7 +145,7 @@ func runPromoter(args []string) error {
 	}
 	if err := (&delivery.StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Workers: *workers, ClusterID: clusterID, Gates: gates, Now: time.Now,
-		Poll: *poll, AdmissionPolicies: delivery.SplitList(*admissionPolicies),
+		Poll: *poll, AdmissionPolicies: delivery.SplitList(*admissionPolicies), Freshness: *authFreshness,
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
 		Events: mgr.GetEventRecorderFor("pacto-delivery")}).SetupWithManager(mgr); err != nil {
 		return err

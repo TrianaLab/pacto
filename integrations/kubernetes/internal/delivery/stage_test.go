@@ -332,6 +332,7 @@ func TestNeverACandidateUnlessPublished(t *testing.T) {
 	s := stageObj(dA)
 	s.Status.Published = nil
 	s.Status.Conditions = []delivery.Condition{{Type: "Ready", Status: "True", Reason: "Ready", Message: "the Stage can promote published versions"}}
+	s.Status.AuthFreshness = "15m0s"
 	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB))
 	e.fails["status/Stage"] = true
 	if e.reconcileStage("payments-prod") == nil {
@@ -452,7 +453,8 @@ func TestReadyObservesTheGeneration(t *testing.T) {
 	}
 	s := e.getStage()
 	c := s.Status.Conditions[0]
-	if s.Generation != 3 || s.Status.ObservedGeneration != 3 || c.ObservedGeneration != 3 || c.LastTransitionTime != ts(e.now) || c.Status != "True" {
+	if s.Generation != 3 || s.Status.ObservedGeneration != 3 || c.ObservedGeneration != 3 || c.LastTransitionTime != ts(e.now) || c.Status != "True" ||
+		s.Status.AuthFreshness != "15m0s" {
 		t.Fatalf("status %d, condition %+v, generation %d", s.Status.ObservedGeneration, c, s.Generation)
 	}
 	// A spec change: the apiserver bumps the generation (the fake client
@@ -471,6 +473,11 @@ func TestReadyObservesTheGeneration(t *testing.T) {
 	c = s.Status.Conditions[0]
 	if s.Status.ObservedGeneration != 4 || c.ObservedGeneration != 4 || c.LastTransitionTime != created {
 		t.Fatalf("after the spec change: status %d, condition %+v", s.Status.ObservedGeneration, c)
+	}
+	// The promoter's own login freshness is what the Stage publishes.
+	e.st.Freshness = 6 * time.Minute
+	if err := e.reconcileStage("payments-prod"); err != nil || e.getStage().Status.AuthFreshness != "6m0s" {
+		t.Fatalf("published freshness: %v %q", err, e.getStage().Status.AuthFreshness)
 	}
 	// Ready turning False is a transition.
 	if err := e.c.Delete(context.Background(), verifiedRepo("payments-candidates", "")); err != nil {

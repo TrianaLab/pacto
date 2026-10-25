@@ -275,6 +275,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.service.domain` | `string` | no |  |  | Domain is the registry and organisation scope (empty for the default). |
 | `spec.service.name` | `string` | yes |  |  | Name is the contract's service.name. |
 | `status` | `object` | no |  |  | StageStatus is written by the promoter's operation and stage reconcilers and by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each through a compare-and-swap on the Stage's resourceVersion. |
+| `status.authFreshness` | `string` | no |  |  | AuthFreshness is how old a login the promoter accepts on an approval (a Go duration). Clients ask for a fresh login with a margin under it (DecisionFreshnessFor). |
 | `status.autoHold` | `boolean` | no |  |  | AutoHold stops auto-promotion after a person chose an older version. |
 | `status.candidate` | `string` | no |  |  | Candidate is the newest eligible candidate the stage reconciler saw. |
 | `status.conditions` | `[]object` | no |  |  | Conditions holds Ready. It is False, naming what is missing, when the Stage can never promote: its candidate OCIRepository does not exist or sets no spec.verify naming the publisher, or it names no candidate source at all. The recorder adds RecordStoreReady: False when the registry has no Referrers API, cannot be reached or holds a stream it refuses to fork. |
