@@ -82,7 +82,7 @@ async function playTour(page: Page, reload: boolean) {
 
   // Where it ended: 3.0.0 rolled back by carol, automation on hold.
   await page.goto('/#/delivery/environments');
-  await expect(page.getByTestId('environments-board')).toContainText('Kept by a person', { timeout: T });
+  await expect(page.getByTestId('environments-board')).toContainText('Auto-hold', { timeout: T });
 }
 
 test.describe('Browser demo: the delivery story', () => {

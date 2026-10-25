@@ -86,7 +86,7 @@ describe('inbox', () => {
     expect(text(held as HTMLElement)).toContain('team-checkout');
     expect(held.querySelector('a[href="#/delivery/changes/prod/op1"]')).not.toBeNull();
     expect(held.querySelector('a[href="#/services/checkout"]')).not.toBeNull();
-    expect(text(target)).toContain('Paused: Errored');
+    expect(text(target)).toContain('Frozen: Errored');
     expect(text(target.querySelector('[data-testid="inbox-errored"]') as HTMLElement)).toContain('Pacto could not tell how it ended');
     // The person's subject and, printed next to it, the username the cluster uses. Never only in a tooltip.
     expect(text(target)).toContain('Signed in as carol (https://idp#carol), in team-checkout');
@@ -176,7 +176,7 @@ describe('environments', () => {
     await settle();
     const board = target.querySelector('[data-testid="environments-board"]')!;
     expect(text(board as HTMLElement)).toContain('Verified');
-    expect(text(board as HTMLElement)).toContain('Paused');
+    expect(text(board as HTMLElement)).toContain('Frozen');
     expect(text(board as HTMLElement)).toContain('1 waiting');
     expect(text(board as HTMLElement)).toContain('Cannot promote: CandidateUnverified');
     expect(text(board as HTMLElement)).toContain('Nothing yet');
@@ -198,12 +198,12 @@ describe('environments', () => {
     destroy();
   });
 
-  it('unpauses through a plan and shows refusals verbatim', async () => {
+  it('unfreezes through a plan and shows refusals verbatim', async () => {
     fns.environments.mockResolvedValue({ ...listing, environments: [row] });
     fns.plan.mockRejectedValueOnce(new ApiError(403, 'operations is forbidden: User cannot create'));
     const { target, destroy } = render(DeliveryEnvironmentsView);
     await settle();
-    (target.querySelector('button[aria-label="Unpause payments in prod"]') as HTMLButtonElement).click();
+    (target.querySelector('button[aria-label="Unfreeze payments in prod"]') as HTMLButtonElement).click();
     await settle();
     expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'pacto.dev/unfreeze' });
     const refusal = target.querySelector('[data-testid="refusal"]')!;
@@ -223,8 +223,8 @@ describe('environments', () => {
     await settle();
     (target.querySelector('button[aria-label^="Promote payments in prod"]') as HTMLButtonElement).click();
     await settle();
-    const unpauseLedger = target.querySelector('button[aria-label="Unpause ledger in prod"]') as HTMLButtonElement;
-    unpauseLedger.click();
+    const unfreezeLedger = target.querySelector('button[aria-label="Unfreeze ledger in prod"]') as HTMLButtonElement;
+    unfreezeLedger.click();
     await settle();
     expect(fns.plan).toHaveBeenLastCalledWith({ namespace: 'prod', stage: 'led', type: 'pacto.dev/unfreeze' });
     const panel = target.querySelector('[data-testid="propose-panel"]') as HTMLElement;
@@ -234,12 +234,12 @@ describe('environments', () => {
     await settle();
     expect(fns.propose).toHaveBeenLastCalledWith(expect.objectContaining({ stage: 'led', intentDigest: 'sha256:led' }));
     location.hash = '#/delivery';
-    unpauseLedger.click();
+    unfreezeLedger.click();
     await settle();
     (target.querySelector('[data-testid="propose-panel"]') as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await settle();
     expect(target.querySelector('[data-testid="propose-panel"]')).toBeNull();
-    expect(document.activeElement).toBe(unpauseLedger);
+    expect(document.activeElement).toBe(unfreezeLedger);
     destroy();
   });
 

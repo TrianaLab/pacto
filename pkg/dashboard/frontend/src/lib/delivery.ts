@@ -9,8 +9,8 @@ const TYPE_LABELS: Record<string, string> = {
   'pacto.dev/promote': 'Promote',
   'pacto.dev/rollback': 'Roll back',
   'pacto.dev/override': 'Override',
-  'pacto.dev/unfreeze': 'Unpause',
-  'pacto.dev/freeze': 'Pause',
+  'pacto.dev/unfreeze': 'Unfreeze',
+  'pacto.dev/freeze': 'Freeze',
 };
 
 /** typeLabel names an operation type in plain words. */

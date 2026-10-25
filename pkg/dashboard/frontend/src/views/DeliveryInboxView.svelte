@@ -12,7 +12,7 @@
   import MoveFirstList from '../components/MoveFirstList.svelte';
 
   // What waits on me or my team: held changes whose question names one of my
-  // teams, then paused environments and changes that could not finish.
+  // teams, then frozen environments and changes that could not finish.
   let { refreshTick = 0 } = $props();
 
   const loader = createProductLoader(() => api.deliveryInbox());
@@ -46,7 +46,7 @@
     {#if nothing}
       <div class="state-box" data-testid="inbox-empty">
         <h2>{inbox.completeness === 'partial' ? 'Nothing waits on you that you can see' : 'Nothing waits on you'}</h2>
-        <p>No change is held for your teams, and none of your environments is paused or stuck.</p>
+        <p>No change is held for your teams, and none of your environments is frozen or stuck.</p>
       </div>
     {:else}
       <section aria-labelledby="inbox-held">
@@ -78,12 +78,12 @@
 
       {#if frozen.length}
         <section aria-labelledby="inbox-frozen">
-          <h2 id="inbox-frozen" class="t-section-title">Paused environments</h2>
+          <h2 id="inbox-frozen" class="t-section-title">Frozen environments</h2>
           <ul class="pl-list" data-testid="inbox-frozen">
             {#each frozen as row (row.namespace + '/' + row.stage)}
               <li class="pl-row dl-row">
                 <a class="dl-title" href={deliveryHistoryUrl({ namespace: row.namespace, stage: row.stage })}>{row.service} in {row.environment}</a>
-                <p class="t-body-2">Paused{#if row.frozenReason}: {shortDigests(row.frozenReason)}{/if}. Nothing moves here until someone unpauses it.</p>
+                <p class="t-body-2">Frozen{#if row.frozenReason}: {shortDigests(row.frozenReason)}{/if}. Nothing moves here until someone unfreezes it.</p>
               </li>
             {/each}
           </ul>
@@ -97,7 +97,7 @@
             {#each errored as it (it.namespace + '/' + it.name)}
               <li class="pl-row dl-row">
                 <a class="dl-title" href={deliveryChangeUrl(it.namespace, it.name)}>{typeLabel(it.type)} on {it.namespace}/{it.stage}</a>
-                <p class="t-body-2">{it.reason || 'Pacto could not tell how it ended'}. The environment is still paused.</p>
+                <p class="t-body-2">{it.reason || 'Pacto could not tell how it ended'}. The environment is still frozen.</p>
               </li>
             {/each}
           </ul>

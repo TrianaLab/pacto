@@ -102,7 +102,7 @@
     </section>
 
     <dl class="cd-facts t-body-2">
-      <dt>Environment</dt><dd><a href={deliveryHistoryUrl({ namespace, stage: e.spec.stage })}>{namespace}/{e.spec.stage}</a>{#if e.stage.frozen}{' '}(paused{#if e.stage.frozenReason}: {shortDigests(e.stage.frozenReason)}{/if}){/if}</dd>
+      <dt>Environment</dt><dd><a href={deliveryHistoryUrl({ namespace, stage: e.spec.stage })}>{namespace}/{e.spec.stage}</a>{#if e.stage.frozen}{' '}(frozen{#if e.stage.frozenReason}: {shortDigests(e.stage.frozenReason)}{/if}){/if}</dd>
       {#each [['From', e.spec.params?.from], ['To', e.spec.params?.to]] as [label, d] (label)}
         {#if d}<dt>{label}</dt><dd>{#if data.versions?.[d]}{data.versions[d]}{' '}{/if}<code class="cd-digest" title={d}>{shortDigest(d)}</code>{#if !data.versions?.[d]}{' '}<span class="cd-digest">(version unknown)</span>{/if}</dd>{/if}
       {/each}

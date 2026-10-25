@@ -10,8 +10,8 @@ import {
 
 describe('delivery labels', () => {
   it('names types, decisions and predictions in plain words', () => {
-    expect(typeLabel('pacto.dev/unfreeze')).toBe('Unpause');
-    expect(typeLabel('pacto.dev/freeze')).toBe('Pause');
+    expect(typeLabel('pacto.dev/unfreeze')).toBe('Unfreeze');
+    expect(typeLabel('pacto.dev/freeze')).toBe('Freeze');
     expect(typeLabel('example.com/migrate')).toBe('example.com/migrate');
     expect(typeLabel(undefined)).toBe('Change');
     expect(decisionLabel('accept-unknown')).toBe('Accept the unknown');
