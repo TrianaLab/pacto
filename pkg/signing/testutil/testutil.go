@@ -1,6 +1,9 @@
 // Package testutil is a private Sigstore for tests: a certificate authority
 // behind a Fulcio API, a timestamp authority and the trusted root that names
 // both, so keyless signing runs end to end without the network.
+//
+// Experimental: not covered by semantic versioning. Delivery is Alpha, and
+// this API may change in a minor release.
 package testutil
 
 import (

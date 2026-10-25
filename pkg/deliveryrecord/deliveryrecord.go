@@ -3,6 +3,9 @@
 // record's referrer manifest, and reading a subject's records back verified.
 // The recorder writes through it and every reader (CLI, MCP, dashboard) reads
 // through it, so both agree on the layout.
+//
+// Experimental: not covered by semantic versioning. Delivery is Alpha, and
+// this API may change in a minor release.
 package deliveryrecord
 
 import (

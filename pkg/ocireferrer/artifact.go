@@ -3,6 +3,9 @@
 // repository with the native Referrers API required (no tag fallback), builds a
 // deterministic referrer manifest, pushes it and confirms the Referrers API
 // lists it before anyone calls the write done.
+//
+// Experimental: not covered by semantic versioning. Delivery is Alpha, and
+// this API may change in a minor release.
 package ocireferrer
 
 import (

@@ -2,6 +2,9 @@
 // sigstore-go: with a key file, a KMS key or keyless with a Fulcio
 // certificate. Pacto runs no signing program; what it writes verifies with
 // standard Sigstore tooling.
+//
+// Experimental: not covered by semantic versioning. Delivery is Alpha, and
+// this API may change in a minor release.
 package signing
 
 import (

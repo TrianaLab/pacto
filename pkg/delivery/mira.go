@@ -17,7 +17,7 @@ import (
 // reads before it gives up on an exact count.
 // ponytail: Mira's /api/v1/query refuses limit:0 (count-only) on purpose, so
 // the gate pages to the end, a ceiling of 200000 spans per window; switch to a
-// count query once Mira offers one (vision open question 3).
+// count query once Mira offers one.
 const (
 	miraPageSize = 10000
 	miraMaxPages = 20
