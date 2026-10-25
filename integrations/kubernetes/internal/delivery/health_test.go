@@ -476,6 +476,32 @@ func TestRollbackGatesKnowTheVersion(t *testing.T) {
 	}
 }
 
+// TestCitedCauseOnAMovedPointer: when the pointer moved past the operation
+// that shipped (a break-glass edit), the re-run is about the digest the Stage
+// runs and claims no contract version for it.
+func TestCitedCauseOnAMovedPointer(t *testing.T) {
+	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.shipB()
+	applied := e.now
+	e.now = e.now.Add(5 * time.Minute)
+	e.setStage(func(s *delivery.StageStatus) { s.Frozen, s.Pointer = true, dC })
+	cited := delivery.RunChecks(context.Background(), map[string]delivery.Gate{"mira": &fakeHealth{result: delivery.Fail}},
+		healthChecks, gateInput(e.getOp("p1"), e.getStage(), applied, e.now))[0]
+	rb := opObj("rb", delivery.TypeRollback, dC, dA, bot)
+	rb.Spec.Params.Undoes = "uid-p1"
+	rb.Spec.Cause = &delivery.Cause{Verdict: &cited}
+	e.create(bind(rb, e.getStage()))
+	n := len(e.health.inputs)
+	e.health.result = delivery.Fail
+	e.drive("rb")
+	if len(e.health.inputs) == n {
+		t.Fatal("the cited cause was not re-run")
+	}
+	if in := e.health.inputs[n]; in.Subjects[0] != dC || in.Version != "" {
+		t.Fatalf("the re-run is about the running digest, with no version: %+v", in)
+	}
+}
+
 // TestRecheckNeverUndoesAChoice: a version a person chose (a rollback, or a
 // promote while the Stage is on auto-hold) that fails after release is marked
 // failed and freezes the Stage; automation never rolls the choice back.
