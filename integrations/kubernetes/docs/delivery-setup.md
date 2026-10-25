@@ -135,8 +135,14 @@ spec:
 ```bash
 pacto delivery plan -n prod --stage payments --to sha256:...
 pacto delivery propose -n prod --stage payments --to sha256:... --intent-digest sha256:...
-pacto delivery approve -n prod <operation> --decision approve
+PACTO_DELIVERY_OIDC_ISSUER_URL=https://idp.example.com \
+  pacto delivery approve -n prod <operation> --decision approve
 ```
+
+`approve` never uses your kubeconfig: it makes you log in again in your
+browser through its own `pacto-approve` client, so it needs the issuer the
+cluster trusts (`--oidc-issuer-url` or `PACTO_DELIVERY_OIDC_ISSUER_URL`). See
+[approve from the terminal](delivery-identity.md#approve-from-the-terminal).
 
 `plan` predicts each gate's verdict and the one question a person would be
 asked. `propose` with the plan's intent digest refuses with `PlanStale` if
