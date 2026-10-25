@@ -156,4 +156,4 @@ its signature. It waits up to `--propose-timeout` (10 minutes by default), then
 gives up and says so.
 
 To take a version back out of an environment, see
-[Roll back by hand](pactify.md#roll-back-by-hand).
+[Roll back by hand](pactify-decide.md#roll-back-by-hand).
