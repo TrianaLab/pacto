@@ -41,37 +41,56 @@ func ParseAuthTime(v string) (time.Time, bool) {
 // accept or a reject, and a change that needs an approval is not cleared by
 // an accepted unknown.
 func ApprovalEligible(spec OperationSpec, st OperationStatus, uid string, a ApprovalSpec, created time.Time, p ClassPolicy, freshness time.Duration) (bool, string) {
-	var owners []string
+	why := approvalAnswers(spec, st, uid, a)
+	if why == "" {
+		why = approverMay(spec, st, a, created, p, freshness)
+	}
+	return why == "", why
+}
+
+// approvalAnswers says why a does not answer the question op asks now.
+func approvalAnswers(spec OperationSpec, st OperationStatus, uid string, a ApprovalSpec) string {
 	floor := Decision("")
 	if st.Plan != nil {
-		owners, floor = st.Plan.Floor.Owners, st.Plan.Floor.Decision
+		floor = st.Plan.Floor.Decision
+	}
+	switch {
+	case st.Phase != PhaseHeld:
+		return "the operation is not waiting for a decision"
+	case a.OperationUID != uid || a.IntentDigest != spec.IntentDigest:
+		return "it answers another operation or an older intent"
+	case !slices.Contains([]Decision{Approve, AcceptUnknown, Reject}, a.Decision):
+		return fmt.Sprintf("%q is not a decision", a.Decision)
+	case st.Applied && a.Decision == Approve:
+		return "the version already shipped, so only accept-unknown or reject answers the question now"
+	case !st.Applied && a.Decision == AcceptUnknown && floor == Approve:
+		return "this change needs an approval, not an accepted unknown"
+	}
+	return ""
+}
+
+// approverMay says why whoever gave a may not decide op.
+func approverMay(spec OperationSpec, st OperationStatus, a ApprovalSpec, created time.Time, p ClassPolicy, freshness time.Duration) string {
+	var owners []string
+	if st.Plan != nil {
+		owners = st.Plan.Floor.Owners
 	}
 	held, _ := time.Parse(time.RFC3339, st.Times.Held)
 	login, ok := ParseAuthTime(a.AuthTime)
 	age := created.Sub(login)
 	switch {
-	case st.Phase != PhaseHeld:
-		return false, "the operation is not waiting for a decision"
-	case a.OperationUID != uid || a.IntentDigest != spec.IntentDigest:
-		return false, "it answers another operation or an older intent"
-	case !slices.Contains([]Decision{Approve, AcceptUnknown, Reject}, a.Decision):
-		return false, fmt.Sprintf("%q is not a decision", a.Decision)
-	case st.Applied && a.Decision == Approve:
-		return false, "the version already shipped, so only accept-unknown or reject answers the question now"
-	case !st.Applied && a.Decision == AcceptUnknown && floor == Approve:
-		return false, "this change needs an approval, not an accepted unknown"
 	case a.By == spec.Actor.User || spec.OnBehalfOf != nil && a.By == spec.OnBehalfOf.User:
-		return false, a.By + " asked for this change, so someone else must decide it"
+		return a.By + " asked for this change, so someone else must decide it"
 	case !p.IsHuman(Identity{User: a.By, Groups: a.Groups}):
-		return false, a.By + " is not a person, and only people decide"
+		return a.By + " is not a person, and only people decide"
 	case !p.InTeams(a.Groups, owners):
-		return false, fmt.Sprintf("%s is not in a team this question is asked of (%s)", a.By, strings.Join(owners, ", "))
+		return fmt.Sprintf("%s is not in a team this question is asked of (%s)", a.By, strings.Join(owners, ", "))
 	case created.Before(held):
-		return false, "it was given before the question was last asked"
+		return "it was given before the question was last asked"
 	case !ok || age < -time.Minute || age > freshness:
-		return false, fmt.Sprintf("%s's login was not within %s of the decision; sign in again", a.By, freshness)
+		return fmt.Sprintf("%s's login was not within %s of the decision; sign in again", a.By, freshness)
 	}
-	return true, ""
+	return ""
 }
 
 // Caps on the Stage's digest memories.
