@@ -78,7 +78,9 @@ func TestCreateTool_PactifyCluster(t *testing.T) {
 	if res := callTool(t, "pacto_create", args); !res.IsError || !strings.Contains(resultText(t, res), "no kubeconfig") {
 		t.Fatalf("unreachable: %s", resultText(t, res))
 	}
-	gvr := func(g, v, r string) schema.GroupVersionResource { return schema.GroupVersionResource{Group: g, Version: v, Resource: r} }
+	gvr := func(g, v, r string) schema.GroupVersionResource {
+		return schema.GroupVersionResource{Group: g, Version: v, Resource: r}
+	}
 	lists := map[schema.GroupVersionResource]string{
 		gvr("apps", "v1", "deployments"): "DeploymentList", gvr("apps", "v1", "statefulsets"): "StatefulSetList", gvr("apps", "v1", "daemonsets"): "DaemonSetList",
 		gvr("batch", "v1", "cronjobs"): "CronJobList", gvr("", "v1", "services"): "ServiceList", gvr("", "v1", "pods"): "PodList",
