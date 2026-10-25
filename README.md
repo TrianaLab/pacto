@@ -9,8 +9,13 @@ an OpenAPI file in another repository. What it depends on is implied by Helm
 values and a Service name. What breaks if you change it is in someone's memory.
 
 Pacto puts those facts in one YAML file, published to the container registry you
-already run. With the opt-in delivery component, Pacto also acts on them: it
-decides which version of each service runs in each environment.
+already run. With the opt-in delivery component, Pacto also turns them into
+delivery decisions. A change is promoted on its own only when its
+compatibility, its impact on the declared consumers and its health checks back
+it. When Pacto cannot see enough (Unknown), it holds the change and asks only
+the teams concerned, never an agent. Each decision can end in a signed record
+you verify with cosign and oras, on top of your IDP and GitOps (Flux, Argo CD),
+without replacing them.
 
 **[Documentation](https://pacto.run)** · **[Quickstart](https://pacto.run/latest/quickstart)** · **[Specification](https://pacto.run/latest/contract-reference)** · **[Examples](https://pacto.run/latest/examples)** · **[Live demo](https://pacto.run/latest/demo/#/fleet)**
 
@@ -83,14 +88,17 @@ every node. See [Runtime conformance](https://pacto.run/latest/runtime-conforman
 ## Ship with the contract graph (opt-in)
 
 Install the delivery component and Pacto promotes versions from test to prod.
-A change that breaks no consumer goes ahead on its own, unless the Stage asks a
-person to approve every promote; one that would break a consumer waits and asks
-only that consumer's team, and the plan says which service to ship first. A
-promoted version that fails its checks after release is rolled back once;
-otherwise the Stage freezes until a person decides. AI agents may propose
-changes and only people may approve. Every change can leave a signed record in
-your registry. Flux or Argo CD still applies the
-version. Without the component, Pacto never changes what runs.
+A change that breaks no declared consumer goes ahead on its own, unless the
+Stage asks a person to approve every promote; one that would break a consumer
+waits and asks only that consumer's team, and the plan says which service to
+ship first. Autonomy is gated by the evidence for each change, not earned
+from past ones. A promoted version that fails its checks after release is
+rolled back once; otherwise the Stage freezes until a person decides. AI
+agents may propose changes and only people may approve, which needs a cluster
+that trusts your company login. With the recorder turned on and a registry
+that serves OCI Referrers (zot does, GitHub's does not), every change leaves a
+signed record. Flux applies the version, or Argo CD as an experimental option.
+Without the component, Pacto never changes what runs.
 
 Delivery synthesizes two ideas from others and adds one of ours:
 
@@ -142,7 +150,10 @@ schema you already own.
 Pacto composes the interface tools it sits between (OpenAPI, config schemas) and
 complements the deploy tools (Helm, Terraform). Its core makes no deployment
 decisions. The opt-in delivery component decides which version runs where and
-leaves applying it to Flux or Argo CD, as Kargo does.
+leaves applying it to GitOps. Unlike a promotion tool such as Kargo, it decides
+from the contract graph: it asks only the owners of the consumers a change
+would break, treats what it cannot see as Unknown rather than a pass and can
+sign each decision into a record anyone verifies without Pacto.
 
 | | Versioned artifact | Semantic diff | Dependency graph | Transitive policy | Runtime verify | Orchestrator-agnostic | Deploys? |
 |---|---|---|---|---|---|---|---|

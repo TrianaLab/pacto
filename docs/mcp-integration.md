@@ -145,7 +145,7 @@ invocation registers.
 ### Fleet query safety
 
 - **They are read-only.** They project the [Pacto Operational Graph](operational-graph.md) and write nothing. The `pacto_fleet_*` tools answer from the snapshot built at startup. `pacto_impact` re-resolves both refs and rebuilds the snapshot on every call, so each invocation reaches your registry — and your cluster if `--k8s` is on — using the server's credentials.
-- **Pacto does not determine authorization.** These tools expose knowledge; they never grant, scope or revoke a permission.
+- **These tools do not determine authorization.** They expose knowledge; they never grant, scope or revoke a permission.
 - **Partial or stale results are incomplete knowledge.** Every answer carries an `asOf` time, a `completeness` value and structured `limitations`. Branch on those before trusting an answer.
 - **A missing result under partial coverage does not prove absence.** If a source was unavailable, "not found" means "not known here", not "does not exist".
 - **The snapshot is frozen for the session.** A service deployed after the server started does not appear in `pacto_fleet_*` answers until you restart it.

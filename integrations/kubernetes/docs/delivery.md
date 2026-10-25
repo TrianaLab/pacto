@@ -6,7 +6,8 @@ change from a risky one, asks a person only when it must and rolls back a
 version that fails its checks. A contract is the file, `pacto.yaml`, in which
 each service says what it offers and which other services it calls. Flux, a
 tool that keeps your Kubernetes cluster running what your files say, does the
-actual switch from one version to the next (Argo CD can do it instead).
+actual switch from one version to the next (Argo CD can do it instead, as an
+experimental option).
 
 Delivery is opt-in. It is a separate install, and without it Pacto never
 changes what runs. To set it up for a service, [pactify it](../../pactify.md):
@@ -59,7 +60,9 @@ own or wait to be asked.
 **Every change that ends**, refusals included, can leave a signed record in
 your container registry, the place your images are stored. The signature shows
 the record was not changed later. Anyone can check who asked for what, who
-approved and what each check said.
+approved and what each check said. Records are off until you turn them on, and
+they need a registry that serves OCI Referrers, such as zot; GitHub's registry
+does not.
 
 ## Who is asked and why
 
@@ -83,6 +86,9 @@ but that tells it only which service calls which, not what each call uses.
 AI agents can plan, ask for and cancel changes, but only people can approve.
 To approve, a person must have signed in to the dashboard (or the cluster)
 with their own company login in the last 15 minutes, and the record names them.
+That needs a cluster that trusts your company login, which most managed
+clusters cannot yet do; [Sign-in, approvals and agents](delivery-identity.md#where-approving-works)
+says how to check and what to do without it.
 
 ## What Unknown means
 
@@ -93,6 +99,20 @@ registry that did not answer.
 Unknown never counts as yes. The change waits for a person, who can reject it
 or accept the unknown. An accepted unknown is recorded as accepted, never as a
 pass.
+
+## Words used here
+
+| Word | Meaning |
+|---|---|
+| Environment | A namespace, such as `test` or `prod` |
+| Stage | One service in one environment, and the version it runs there |
+| Promote | Move a Stage to a newer version |
+| Operation | One requested change to a Stage, from request to outcome |
+| Held | An Operation waiting for a person to decide |
+| Freeze, unfreeze | Stop automation moving a Stage, and let it move again |
+| Auto-hold | Set when a person rolls back an `auto: true` Stage: automation stops promoting there until a person unfreezes it |
+| Break-glass | A group that may force a version past every check |
+| Record | The signed account of one finished Operation |
 
 ## Where you follow it
 
@@ -116,7 +136,7 @@ None of these is required reading:
 - [Sign-in, approvals and agents](delivery-identity.md)
 - [Signed records and history](delivery-records.md): records, key rotation,
   blame, undo and verification
-- [Argo CD and several clusters](delivery-reach.md)
+- [Argo CD and several clusters](delivery-reach.md) (experimental)
 - [Publishing details](../../publishing.md) and the contract's
   [`publish` section](../../contract-reference/publish.md)
 

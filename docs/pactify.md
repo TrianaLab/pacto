@@ -5,7 +5,9 @@ new version before it runs. A contract is one file, `pacto.yaml`, kept next to
 your code. It says what the service offers, which other services it calls and
 how it is built and run. This guide takes a plain service to its first gated
 release: one Pacto checks before it reaches production. Every command of that
-path is on this page; the links are reference.
+path is on this page; the links are reference. To see where it leads first,
+with nothing to install, press **Play the delivery story** in the
+[live dashboard demo](examples/dashboard-demo.md); it runs in your browser.
 
 In the cluster, [Flux](https://fluxcd.io) does the deploying: it is a tool that
 keeps the cluster running what your files say. Pacto tells it which version.
@@ -22,10 +24,15 @@ You need:
   the image there and pushes it itself:
   `docker buildx create --use --driver docker-container`;
 - a container registry, and a login to it:
-  `pacto login ghcr.io -u <user>` (or `docker login`);
+  `pacto login ghcr.io -u <user>` (or `docker login`). Any registry works
+  for this page. The optional signed record of each change also needs one
+  that serves OCI Referrers, such as [zot](https://zotregistry.dev); GitHub's
+  registry does not, so on `ghcr.io` you get no records;
 - `cosign`, once, to make a signing key: `brew install cosign`, or
   `go install github.com/sigstore/cosign/v2/cmd/cosign@latest`;
-- for step 4, a Kubernetes cluster (1.30 or later), `kubectl` and `helm`.
+- for step 4, a Kubernetes cluster (1.30 or later), `kubectl` and `helm`. For
+  a person to approve a held change, the cluster must trust your company
+  login, which most managed clusters cannot yet do: see step 5.
 
 You do not write the contract by hand: Pacto writes it from your service.
 
@@ -185,9 +192,9 @@ apply it. Within a minute or two the test Stage runs the version you published,
 with nobody asked, then prod takes it once it passed in test:
 
 ```bash
-kubectl get stage -A                                  # Pointer: the version it runs
+kubectl get stages.delivery.pacto.trianalab.io -A    # Pointer: the version it runs
 pacto delivery history -n test --stage my-service     # what happened in test
-kubectl -n test describe stage my-service             # if nothing moves: why, under Ready
+kubectl -n test describe stages.delivery.pacto.trianalab.io my-service  # if nothing moves: why, under Ready
 ```
 
 ## 5. Ship the next version
@@ -207,7 +214,7 @@ A waiting change is an Operation in the phase `Held`; a frozen Stage shows
 person who asked for the change:
 
 ```bash
-kubectl get operations -n test                        # find the held one
+kubectl get operations.delivery.pacto.trianalab.io -n test  # find the held one
 pacto delivery explain -n test <operation>            # what is asked and why
 pacto delivery approve -n test <operation> --decision approve
 pacto delivery approve -n test <operation> --decision accept-unknown
@@ -218,8 +225,7 @@ pacto delivery propose -n test --stage my-service --type unfreeze --reason "fixe
 
 `approve` lets a change that breaks a consumer go ahead; `accept-unknown` lets
 one go ahead that Pacto could not check, recorded as accepted, never as a pass.
-To unfreeze (the dashboard calls it unpause) is to let automation move the
-Stage again; it takes effect without anyone else's approval. Each needs the
+To unfreeze is to let automation move the Stage again; it takes effect without anyone else's approval. Each needs the
 `pacto-delivery-approver` role, and only members of the team that owns an
 affected service may answer for it:
 
@@ -229,13 +235,21 @@ kubectl create clusterrolebinding payments-approvers \
 ```
 
 Deciding (approve, accept-unknown or reject) also needs a company login the
-cluster trusts, done in the last 15 minutes; a cluster admin sets that up once
-with [Sign-in, approvals and agents](integrations/kubernetes/delivery-identity.md).
-Until then, cancel the change, fix what it asks about and publish again.
+cluster trusts, done in the last 15 minutes. A cluster admin sets that up once
+with [Sign-in, approvals and agents](integrations/kubernetes/delivery-identity.md),
+which says how to check a managed cluster can. Where it cannot, nobody decides:
+cancel the change, fix what it asks about and publish again, or have a member
+of the break-glass group force the version, as below. That skips every check,
+shows in the history and freezes the Stage until a person unfreezes it.
+
+```bash
+pacto delivery propose -n test --stage my-service --type override --to sha256:... --reason "why"
+```
+
 In the dashboard (`pacto dashboard`), the Delivery tab's **Inbox** lists the
 changes **Waiting for your decision**: open one and press **Approve** (or
 **Accept the unknown**) or **Reject**. Its **Environments** view has an
-**Unpause** button on each frozen Stage.
+**Unfreeze** button on each frozen Stage.
 
 ## Where next
 
