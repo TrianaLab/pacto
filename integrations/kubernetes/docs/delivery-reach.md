@@ -31,6 +31,12 @@ The Application must:
   value is a write the promoter did not make, so the first promote freezes the
   Stage.
 
+The Stage is not `Ready` while the Application breaks one of these, and the
+reason names which: `ApplierUnreadable` (missing, or the promoter may not read
+it), `ApplierUnlabelled`, `ApplierMultiSource`, `ApplierNotOCI` or
+`ApplierNotAutomated`. A Flux `OCIRepository` the Stage applies through needs
+the same label, so `ApplierUnreadable` and `ApplierUnlabelled` apply to it too.
+
 ```yaml
 apiVersion: argoproj.io/v1alpha1
 kind: Application
@@ -66,7 +72,10 @@ promote and starts the usual rollback.
 
 Argo CD does not check signatures, but the candidate source still does, and the
 promoter only ever writes a digest, so Argo CD fetches exactly the checked
-bytes. An Argo CD Stage places no consumers, so label the Pactos it runs with
+bytes. Only a Flux `OCIRepository` with `spec.verify` admits a new version, so
+the first Stage of a service needs Flux's source controller in its cluster even
+when Argo CD applies it. Stages after it can take versions from that Stage, in
+the same cluster or through its records, with no Flux at all. An Argo CD Stage places no consumers, so label the Pactos it runs with
 `delivery.pacto.trianalab.io/environment`.
 
 ## Follow a Stage in another cluster
@@ -124,13 +133,33 @@ mirror that keeps digests. `pacto delivery plan` reads these records only with
 `--trust` and the upstream recorder's key.
 
 The promoter offers nothing when it cannot check the history: without
-`promoter.upstreamTrust` the Stage is not `Ready` (`UpstreamUntrusted`), and a
-gap, a fork or an unreadable registry refuse a promote as `NotPublished`,
-saying why. A record no trusted key signed is skipped, since anyone with push
-access could attach one. A trusted record that stops verifying leaves a gap.
+`promoter.upstreamTrust` the Stage is not `Ready` (`UpstreamUntrusted`). A gap,
+a fork or an unreadable registry make it not `Ready` (`UpstreamUnreadable`,
+saying why) until a read succeeds, and refuse a promote as `NotPublished`. A
+record no trusted key signed is skipped, since anyone with push access could
+attach one. A trusted record that stops verifying leaves a gap.
+
+The Stage remembers the newest upstream record it read in
+`status.upstreamSeen`. A later read that ends before it, or holds another
+record at its seq, is refused the same way: the newest records were removed,
+and one of them could be a failure. Every `pacto.published` verdict on such a
+Stage cites the record it relied on as `upstreamHead` and `upstreamSeq`, so an
+auditor can replay the stream up to it.
+
+The promoter reads the upstream registry at most every 30 seconds for
+auto-promotion, and afresh when it plans a promote. It fetches and verifies
+each record once.
+
+A freeze is local, in one cluster or across two. Freezing the upstream Stage
+does not stop a follower from taking a version the upstream already verified:
+freeze the follower too. When the promoter freezes a Stage because a check
+failed after release, its record names the failed version, so followers never
+take that version.
 
 ## Limits
 
 - A Stage sees the upstream's history only as far as its records reach the
-  registry, so a failure not yet recorded, or a stream cut at its newest
-  records, is not seen.
+  registry, so a failure not yet recorded is not seen.
+- A cut is noticed only against a record the Stage already read. A Stage
+  that starts following a stream whose newest records were already removed
+  cannot tell.

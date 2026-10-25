@@ -47,7 +47,11 @@ through an Argo CD Application with an OCI source (`applyRef.kind:
 Application`, chart `argocd.enabled`). `candidates.upstreamRecords` lets a
 Stage follow a Stage in another cluster from that cluster's signed records,
 read with `promoter.upstreamTrust`; without it the Stage is not Ready
-(`UpstreamUntrusted`).
+(`UpstreamUntrusted`), and while those records cannot be read or lost their
+newest entries it is not Ready either (`UpstreamUnreadable`). Ready also names
+an applier the promoter cannot write through. Only a Flux `OCIRepository` with
+`spec.verify` admits a new version, so the first Stage of a service needs Flux
+even when Argo CD applies it. A freeze is local: it does not stop followers.
 
 **The recorder** (subcommand `recorder`, chart `recorder.*`, off by default)
 is the only holder of the signing key and the registry push credentials. It
