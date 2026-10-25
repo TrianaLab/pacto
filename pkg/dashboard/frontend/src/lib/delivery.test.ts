@@ -3,6 +3,7 @@ import {
   typeLabel, decisionLabel, shortDigest, decisionAsked, cliDecision, loginUrl,
   keepPending, pendingFor, dropPending, miraLink, predictionLabel, authTimeText,
   versionLabel, shortDigests, digestParts, sentence, timeLabel, personLabel, signIn, hostSignsIn,
+  verdictBadge, isBreaking, andList, changeSummary, actorBadge, autonomyOf, unknownHelp, undoneBy, undoCause, UNKNOWN_DOCS,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -10,8 +11,9 @@ import {
 
 describe('delivery labels', () => {
   it('names types, decisions and predictions in plain words', () => {
-    expect(typeLabel('pacto.dev/unfreeze')).toBe('Unpause');
-    expect(typeLabel('pacto.dev/freeze')).toBe('Pause');
+    // The CRD, the CLI and the docs say freeze; so does the dashboard.
+    expect(typeLabel('pacto.dev/unfreeze')).toBe('Unfreeze');
+    expect(typeLabel('pacto.dev/freeze')).toBe('Freeze');
     expect(typeLabel('example.com/migrate')).toBe('example.com/migrate');
     expect(typeLabel(undefined)).toBe('Change');
     expect(decisionLabel('accept-unknown')).toBe('Accept the unknown');
@@ -175,5 +177,118 @@ describe('names and versions', () => {
     expect(personLabel('#x')).toBe('#x');
     expect(personLabel('weird#')).toBe('weird#');
     expect(personLabel(undefined)).toBe('');
+  });
+});
+
+describe('what a check concluded', () => {
+  it('reads a passed evidence check as Checked, with a chip for what can break', () => {
+    expect(verdictBadge({ gate: 'pacto.diff', result: 'Pass', citation: { classification: 'BREAKING' } })).toEqual({ label: 'Checked', tone: 'badge-neutral', chip: 'Breaking' });
+    expect(verdictBadge({ gate: 'pacto.impact', result: 'Pass', citation: { classification: 'POTENTIAL_BREAKING' } })).toEqual({ label: 'Checked', tone: 'badge-neutral', chip: 'May break' });
+    expect(verdictBadge({ gate: 'pacto.diff', result: 'Pass', citation: { classification: 'NON_BREAKING' } })).toEqual({ label: 'Checked', tone: 'badge-neutral', chip: '' });
+    expect(verdictBadge({ gate: 'pacto.diff', result: 'Unknown' })).toEqual({ label: 'Unknown', tone: 'badge-warn', chip: '' });
+    expect(verdictBadge({ gate: 'pacto.published', result: 'Pass' })).toEqual({ label: 'Pass', tone: 'badge-ok', chip: '' });
+    expect(verdictBadge({ gate: 'mira.health', result: 'Fail' })).toEqual({ label: 'Fail', tone: 'badge-err', chip: '' });
+    expect(verdictBadge({})).toEqual({ label: '', tone: 'badge-neutral', chip: '' });
+  });
+
+  it('says whether a plan is breaking and lists names with no serial comma', () => {
+    expect(isBreaking([{}, { citation: { classification: 'BREAKING' } }])).toBe(true);
+    expect(isBreaking([{ citation: { classification: 'POTENTIAL_BREAKING' } }])).toBe(false);
+    expect(isBreaking(undefined)).toBe(false);
+    expect(andList([])).toBe('');
+    expect(andList(['a'])).toBe('a');
+    expect(andList(['a', 'b'])).toBe('a and b');
+    expect(andList(['a', 'b', 'c'])).toBe('a, b and c');
+  });
+});
+
+describe('what a change says about itself', () => {
+  const D1 = 'sha256:' + '1'.repeat(64);
+  const D2 = 'sha256:' + '2'.repeat(64);
+  const promote = (status: Record<string, string>) => ({ spec: { type: 'pacto.dev/promote', stage: 'payments', params: { from: D1, to: D2 } }, status });
+
+  it('says what a change asked and where it stands, with no empty fields or raw words', () => {
+    const versions = { [D1]: '2.3.0', [D2]: '2.4.0' };
+    expect(changeSummary(promote({ phase: 'Concluded', outcome: 'Failed', verification: 'Unverified' }), 'prod', versions))
+      .toBe('Promote payments in prod from 2.3.0 to 2.4.0 ended: it failed, not verified.');
+    expect(changeSummary(promote({ phase: 'Concluded', outcome: 'Succeeded', verification: 'AcceptedUnknown' }), 'prod', versions))
+      .toBe('Promote payments in prod from 2.3.0 to 2.4.0 ended: it succeeded, a person accepted the unknown.');
+    expect(changeSummary(promote({ phase: 'Concluded', outcome: 'Rejected' }), 'prod', versions)).toBe('Promote payments in prod from 2.3.0 to 2.4.0 ended: it was rejected.');
+    expect(changeSummary(promote({ phase: 'Concluded' }), 'prod', versions)).toBe('Promote payments in prod from 2.3.0 to 2.4.0 ended.');
+    expect(changeSummary(promote({ phase: 'Held' }), 'prod')).toBe('Promote payments in prod from 111111111111 to 222222222222 waits for a person.');
+    expect(changeSummary(promote({ phase: '' }), 'prod', versions)).toBe('Promote payments in prod from 2.3.0 to 2.4.0 is not admitted yet.');
+    expect(changeSummary(promote({ phase: 'Odd' }), 'prod', versions)).toBe('Promote payments in prod from 2.3.0 to 2.4.0 is odd.');
+    expect(changeSummary({ spec: { type: 'pacto.dev/rollback', stage: 'payments', params: { to: D1 } }, status: { phase: 'Running' } }, 'prod', versions))
+      .toBe('Roll back payments in prod to 2.3.0 is running.');
+    expect(changeSummary({ spec: { type: 'pacto.dev/unfreeze', stage: 'payments' } }, 'prod')).toBe('Unfreeze payments in prod is not admitted yet.');
+    expect(changeSummary(null, 'prod')).toBe('');
+    expect(changeSummary(promote({ phase: 'Concluded', outcome: 'Failed', verification: 'Unverified' }), 'prod')).not.toMatch(/: :|pacto\.dev|->/);
+  });
+
+  it('names a person, an agent or the controller with a chip', () => {
+    expect(actorBadge('human')?.label).toBe('Person');
+    expect(actorBadge('agent')?.label).toBe('Agent');
+    expect(actorBadge('controller')?.label).toBe('Controller');
+    expect(actorBadge('')).toBeNull();
+    expect(actorBadge(undefined)).toBeNull();
+  });
+
+  it('says how to resolve each kind of Unknown', () => {
+    expect(unknownHelp({ gate: 'health', citation: { provider: 'mira' } })).toContain('Mira');
+    expect(unknownHelp({ gate: 'pacto.runtime' })).toContain('contract status');
+    expect(unknownHelp({ gate: 'pacto.contract' })).toContain('contract status');
+    expect(unknownHelp({ gate: 'pacto.impact' })).toContain('Publish a contract');
+    expect(unknownHelp({ gate: 'custom' })).toContain('configured and reachable');
+    expect(UNKNOWN_DOCS).toMatch(/^https:\/\/pacto\.run\/latest\/.*#what-unknown-means$/);
+  });
+
+  it('counts how far delivery ran with no person, and what only Unknown held', () => {
+    const p = (over: Record<string, unknown>) => ({ type: 'pacto.dev/promote', phase: 'Concluded', actorClass: 'agent', approvals: null, ...over });
+    expect(autonomyOf([
+      p({}), p({ actorClass: 'controller' }),
+      p({ approvals: [{ decision: 'approve' }] }),
+      p({ verification: 'AcceptedUnknown', approvals: [{ decision: 'accept-unknown' }] }),
+      p({ approvals: [{ decision: 'approve' }, { decision: 'accept-unknown' }] }),
+      p({ actorClass: 'human' }),
+      p({ phase: 'Held' }), p({ type: 'pacto.dev/rollback' }), p({ kind: 'gap' }), p({ kind: 'unrecordable' }),
+    ])).toEqual({ total: 6, noPerson: 2, onlyUnknown: 1 });
+    expect(autonomyOf([])).toEqual({ total: 0, noPerson: 0, onlyUnknown: 0 });
+    // A promotion whose line does not say who approved it cannot be counted:
+    // a person may have approved it.
+    expect(autonomyOf([p({ approvals: null }), { type: 'pacto.dev/promote', phase: 'Concluded', actorClass: 'agent' }])).toBeNull();
+  });
+
+  it('finds the rollback that undid a change', () => {
+    const rb = (over: Record<string, unknown>) => ({ operation: 'rb', type: 'pacto.dev/rollback', from: D2, finished: '2026-10-21T11:00:00Z', pointer: { after: D1 }, ...over });
+    const promoteLine = { operation: 'op1', type: 'pacto.dev/promote', from: D1, finished: '2026-10-21T10:00:00Z', pointer: { after: D2 } };
+    expect(undoneBy([promoteLine, rb({})], 'op1', D2, '2026-10-21T10:00:00Z')?.operation).toBe('rb');
+    expect(undoneBy([rb({ finished: '' })], 'op1', D2, '2026-10-21T10:00:00Z')?.operation).toBe('rb');
+    expect(undoneBy([rb({})], 'op1', D2)?.operation).toBe('rb');
+    // An earlier rollback, one from another version, the change itself or a
+    // rollback that moved nothing undid nothing here.
+    expect(undoneBy([rb({ finished: '2026-10-21T09:00:00Z' })], 'op1', D2, '2026-10-21T10:00:00Z')).toBeNull();
+    expect(undoneBy([rb({ from: D1 })], 'op1', D2)).toBeNull();
+    expect(undoneBy([rb({ operation: 'op1' })], 'op1', D2)).toBeNull();
+    expect(undoneBy([rb({ operation: '' })], 'op1', D2)).toBeNull();
+    expect(undoneBy([promoteLine, rb({ pointer: null })], 'op1', D2)).toBeNull();
+    // A moves to 2.4, B moves on to 2.5, C rolls B back to 2.4 and D rolls C
+    // back to 2.5: D starts from 2.4 but undid C, and A was never undone.
+    const v = (n: string) => 'sha256:' + n.repeat(64);
+    const line = (operation: string, type: string, from: string, to: string, finished: string) =>
+      ({ operation, type: `pacto.dev/${type}`, from: v(from), finished, pointer: { before: v(from), after: v(to) } });
+    const abcd = [line('A', 'promote', '3', '4', 't1'), line('B', 'promote', '4', '5', 't2'),
+      line('C', 'rollback', '5', '4', 't3'), line('D', 'rollback', '4', '5', 't4')];
+    expect(undoneBy(abcd, 'A', v('4'), 't1')).toBeNull();
+    expect(undoneBy(abcd, 'B', v('5'), 't2')?.operation).toBe('C');
+    expect(undoneBy(abcd, 'C', v('4'), 't3')?.operation).toBe('D');
+  });
+
+  it('reads why the controller undid a change from its reason', () => {
+    expect(undoCause('RejectedByHuman', 'carol: risky')).toEqual({ by: 'carol' });
+    expect(undoCause('RejectedByHuman: carol: risky')).toEqual({ by: 'carol' });
+    expect(undoCause('RejectedByHuman')).toEqual({ text: 'a person rejected the unknown' });
+    expect(undoCause('VerifyFailed', 'health: x')).toEqual({ text: 'a check failed after release' });
+    expect(undoCause('ApplyFailed', 'boom')).toEqual({ text: 'the release did not apply' });
+    expect(undoCause()).toEqual({});
   });
 });

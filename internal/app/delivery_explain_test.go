@@ -39,8 +39,8 @@ func TestDeliveryExplain(t *testing.T) {
 		!strings.Contains(e.Summary, "concluded Failed: VerifyFailed: health: 10 of 100") {
 		t.Fatalf("explain: %+v", e)
 	}
-	for i, want := range []string{"pacto delivery plan", "/api/v1/query of the mira provider", "read contractStatus", "to the dd provider", "no citation"} {
-		if !strings.Contains(e.Verdicts[i].Rerun, want) {
+	for i, want := range []string{"pacto delivery plan", "/api/v1/query of the mira provider", "read contractStatus", "to the dd provider", ""} {
+		if !strings.Contains(e.Verdicts[i].Rerun, want) || (want == "") != (e.Verdicts[i].Rerun == "") {
 			t.Errorf("verdict %d rerun %q, want %q", i, e.Verdicts[i].Rerun, want)
 		}
 	}
@@ -67,8 +67,10 @@ func TestDeliverySummary(t *testing.T) {
 		status map[string]any
 		want   string
 	}{{map[string]any{}, "is not admitted yet"}, {map[string]any{"phase": "Verifying", "message": "soaking"}, "is Verifying: soaking"},
-		{map[string]any{"phase": "Running"}, "is Running: in progress"}} {
-		if got := delivery.Summarize(&delivery.OperationObject{Status: decodeStatus(t, c.status)}); !strings.Contains(got, c.want) {
+		{map[string]any{"phase": "Running"}, "is Running: in progress"},
+		{map[string]any{"phase": "Concluded", "outcome": "Failed", "verification": "Unverified"}, "concluded Failed/Unverified"},
+		{map[string]any{"phase": "Concluded", "outcome": "Failed", "message": "gone"}, "concluded Failed: gone"}} {
+		if got := delivery.Summarize(&delivery.OperationObject{Status: decodeStatus(t, c.status)}); !strings.Contains(got, c.want) || strings.HasSuffix(got, ":") || strings.Contains(got, ": :") {
 			t.Errorf("summary %q, want %q", got, c.want)
 		}
 	}
@@ -82,6 +84,12 @@ func decodeStatus(t *testing.T, m map[string]any) delivery.OperationStatus {
 	}
 	if msg, ok := m["message"].(string); ok {
 		s.Message = msg
+	}
+	if o, ok := m["outcome"].(string); ok {
+		s.Outcome = delivery.Outcome(o)
+	}
+	if v, ok := m["verification"].(string); ok {
+		s.Verification = delivery.Verification(v)
 	}
 	return s
 }

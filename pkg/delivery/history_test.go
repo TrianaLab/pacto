@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -77,6 +78,16 @@ func TestRecordEntry(t *testing.T) {
 	if e.Record != "1" || e.Operation != "op-1" || e.Type != TypePromote || e.To != "A" || e.Actor != "bot" ||
 		e.Outcome != Succeeded || e.Pointer == nil || e.Pointer.After != "A" || e.Kind != RecordOperation {
 		t.Fatalf("entry = %+v", e)
+	}
+	// A line with no approvals still says so: the key is there, null, so a
+	// reader can tell "no person decided" from "not said".
+	if b, _ := json.Marshal(e); !strings.Contains(string(b), `"approvals":null`) {
+		t.Fatalf("entry json = %s", b)
+	}
+	a := rec("1", 1, "", "", "A")
+	a.Statement.Predicate.Approvals = []RecordApproval{{By: "carol", Decision: Approve}}
+	if e := RecordEntry(a); len(e.Approvals) != 1 || e.Approvals[0].By != "carol" {
+		t.Fatalf("approved entry = %+v", e)
 	}
 	u := rec("2", 2, "1", "", "")
 	u.Statement.Predicate = RecordPredicate{Kind: RecordUnrecordable, Chain: u.Statement.Predicate.Chain,

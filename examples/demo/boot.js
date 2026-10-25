@@ -250,13 +250,13 @@
     function fact() {
       var now = Date.now();
       if (now - facts.at < 500) { return facts; }
-      facts = { at: now, rows: {}, held: "", question: "", latest: "" };
+      facts = { at: now, rows: {}, held: "", question: "", latest: "", accepted: false };
       var env = serve("GET", "/api/delivery/environments");
       ((env && env.body && env.body.environments) || []).forEach(function (r) { facts.rows[r.environment + "/" + r.service] = r; });
       var h = serve("GET", "/api/delivery/history?namespace=prod&stage=payments");
       var entries = (h && h.body && h.body.histories && h.body.histories[0] && h.body.histories[0].entries) || [];
       entries.forEach(function (e) {
-        if (e.type === "pacto.dev/promote" && e.operation) { facts.latest = e.operation; }
+        if (e.type === "pacto.dev/promote" && e.operation) { facts.latest = e.operation; facts.accepted = e.verification === "AcceptedUnknown"; }
         if (e.phase === "Held") { facts.held = e.operation; }
       });
       if (facts.held) {
@@ -322,7 +322,7 @@
       gate: function () { return row("prod", "checkout").version === "1.9.0" && fact().question.indexOf("Asked of: orders") >= 0; },
       skip: function () { propose({ namespace: "prod", stage: "checkout", to: digestOf("checkout", "1.9.0") }); }
     }, {
-      text: "Only a person on the asked team decides: press Switch person, pick Carol from team orders and approve, and she signs in again first, because a decision needs a fresh login.",
+      text: "Only a person on the asked team decides: press Switch person, pick Carol from team orders, read what each answer does, write why 3.0.0 should ship anyway (it is breaking, so a note is required) and approve. She signs in again first, because a decision needs a fresh login.",
       hash: changeHash,
       target: ['[data-testid="delivery-identity"]', '[data-testid="decision-panel"]'],
       wait: "Waiting for Carol to approve and 3.0.0 to ship.",
@@ -331,7 +331,22 @@
       skip: function () {
         var name = fact().held;
         setPersona("carol", true);
-        serve("POST", "/api/delivery/operations/prod/" + name + "/decision", { decision: "approve" });
+        serve("POST", "/api/delivery/operations/prod/" + name + "/decision", { decision: "approve", note: "orders 1.4 is ready for payments 3" });
+        refreshViews();
+      }
+    }, {
+      text: "Then Pacto could not see: only 3 spans reached Mira after 3.0.0 shipped, too few to judge it, so the health check says Unknown, and Unknown is never a yes. 3.0.0 stays and waits for a person. The change says what Pacto could not observe and how to fix that. As Carol, accept the unknown: it is recorded as accepted, never as a pass.",
+      hash: changeHash,
+      target: ['[data-testid="verdict-unknown"]', '[data-testid="decision-panel"]'],
+      wait: "Waiting for Carol to accept the unknown.",
+      hold: true,
+      gate: function () { var f = fact(); return !f.held && f.accepted; },
+      skip: function accept() {
+        // The checks after release end a moment after 3.0.0 ships; ask once it waits.
+        var name = fact().held;
+        if (!name) { setTimeout(accept, 500); return; }
+        setPersona("carol", true);
+        serve("POST", "/api/delivery/operations/prod/" + name + "/decision", { decision: "accept-unknown", note: "traffic is low at night; the error ratio is watched by hand" });
         refreshViews();
       }
     }, {

@@ -233,9 +233,15 @@ var health = []delivery.Verdict{{Gate: "health", Phase: "verify", Result: delive
 		"threshold": "0.01", "observed": "0.074"},
 	Message: "recorded for this demo: the error ratio was 7.4% against a limit of 1% in the verify window"}}
 
-// failing holds the recorded verdicts that fail a version on a Stage, by
-// "namespace/stage@version".
-var failing = map[string][]delivery.Verdict{"prod/payments@2.4.0": health}
+// thin is the recorded Mira verdict on payments 3.0.0 in prod (B8): too
+// little telemetry arrived to judge it, so the check says Unknown.
+var thin = []delivery.Verdict{{Gate: "health", Phase: "verify", Result: delivery.Unknown,
+	Citation: map[string]string{"provider": "mira", "query": health[0].Citation["query"], "spans": "3", "needed": "50"},
+	Message: "recorded for this demo: only 3 spans arrived in the verify window, too few to judge the error ratio (50 needed)"}}
+
+// recorded holds the recorded verdicts that fail a version on a Stage, or
+// leave it Unknown, by "namespace/stage@version".
+var recorded = map[string][]delivery.Verdict{"prod/payments@2.4.0": health, "prod/payments@3.0.0": thin}
 
 // gapAndStranger adds the two deliberate problems to a stream: a seq whose
 // operation was gone before it was recorded and a record signed by a key the
@@ -491,16 +497,31 @@ func (d *demoDelivery) verify(o *delivery.OperationObject) {
 	}
 	in := delivery.ContractCheck{ContractRef: r.ContractRef, Applied: true, Pactos: []delivery.PactoView{pactoView(env, r, findings...)}}
 	verdicts := []delivery.Verdict{delivery.ContractVerdict(in), delivery.RuntimeVerdict(in)}
-	if f := failing[stageKey(env, svc)+"@"+v]; f != nil {
+	if f := recorded[stageKey(env, svc)+"@"+v]; f != nil {
 		verdicts = append(verdicts, f...)
 	} else {
 		verdicts = append(verdicts, delivery.Verdict{Gate: "health", Phase: "verify", Result: delivery.Pass,
 			Citation: map[string]string{"provider": "mira"}, Message: "recorded for this demo: the error ratio stayed under 1% in the verify window"})
 	}
 	o.Status.Verdicts = append(o.Status.Verdicts, verdicts...)
-	if delivery.Worst(verdicts) == delivery.Fail {
+	switch delivery.Worst(verdicts) {
+	case delivery.Fail:
 		d.conclude(o, delivery.Failed, delivery.Unverified)
-		d.autoRollback(o, verdicts)
+		d.autoRollback(o, verdicts, "a check failed after release")
+		return
+	case delivery.Unknown:
+		// As the promoter does when the verify window ends Unknown: the
+		// version stays and a person accepts the unknown or rejects it.
+		var msgs []string
+		for _, x := range verdicts {
+			if x.Result == delivery.Unknown {
+				msgs = append(msgs, x.Gate+": "+x.Message)
+			}
+		}
+		msg := strings.Join(msgs, "; ")
+		o.Status.Phase, o.Status.Reason, o.Status.Message = delivery.PhaseHeld, "VerifyUnknown", msg
+		o.Status.Question = "The verify gates could not confirm " + o.Spec.Params.To + " in time: " + msg +
+			". Accept the unknown (the version stays), or reject it (it is rolled back)?"
 		return
 	}
 	d.conclude(o, delivery.Succeeded, delivery.Verified)
@@ -508,7 +529,7 @@ func (d *demoDelivery) verify(o *delivery.OperationObject) {
 
 // autoRollback is the promoter undoing a version that failed its checks,
 // once, citing the failed verdict.
-func (d *demoDelivery) autoRollback(failed *delivery.OperationObject, verdicts []delivery.Verdict) {
+func (d *demoDelivery) autoRollback(failed *delivery.OperationObject, verdicts []delivery.Verdict, reason string) {
 	if failed.Status.Pointer.Before == "" {
 		return
 	}
@@ -520,7 +541,7 @@ func (d *demoDelivery) autoRollback(failed *delivery.OperationObject, verdicts [
 		}
 	}
 	req := delivery.Request{Namespace: failed.Metadata.Namespace, Stage: failed.Spec.Stage, Type: delivery.TypeRollback,
-		Undoes: failed.Metadata.Name, Reason: "a check failed after release",
+		Undoes: failed.Metadata.Name, Reason: reason,
 		Cause: &delivery.Cause{Operation: failed.Metadata.UID, Verdict: cause}}
 	_, _, _ = d.propose(req, story.Promoter) // bound to the failed change by construction
 }
@@ -765,10 +786,15 @@ func (d *demoDelivery) Approve(_ context.Context, ns, name string, decision deli
 		Decision: decision, Note: note, By: c.User, AuthTime: c.AuthTime, Groups: c.Groups}
 	o.Status.Approvals = append(o.Status.Approvals, delivery.ApprovalRecord{Name: approval, By: c.User, Decision: decision, Note: note, AuthTime: c.AuthTime})
 	switch {
+	case decision == delivery.Reject && o.Status.Applied: // a rejected unknown: it fails and rolls back
+		o.Status.Reason = "RejectedByHuman: " + c.User + ": " + note
+		d.conclude(o, delivery.Failed, "")
+		d.autoRollback(o, nil, "a person rejected the unknown")
 	case decision == delivery.Reject:
 		o.Status.Reason = "Rejected: " + c.User + " rejected it"
 		d.conclude(o, delivery.Rejected, "")
 	case o.Status.Applied: // an accepted unknown after release
+		o.Status.Reason = "AcceptedUnknown: " + c.User + " accepted the unknown"
 		d.conclude(o, delivery.Succeeded, delivery.AcceptedUnknown)
 	default:
 		o.Status.Question = ""

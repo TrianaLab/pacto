@@ -67,7 +67,7 @@ async function playTour(page: Page, reload: boolean) {
 
   // The three gated moments, skipped: Skip performs the action, then the step
   // holds on its result until Continue.
-  for (const says of ['asks only the affected teams', 'promote checkout 1.9.0', 'Only a person on the asked team decides', 'Every step is a signed record']) {
+  for (const says of ['asks only the affected teams', 'promote checkout 1.9.0', 'Only a person on the asked team decides', 'Then Pacto could not see', 'Every step is a signed record']) {
     await expect(text).toContainText(says);
     await page.getByTestId('demo-tour-skip').click();
     await expect(next).toBeVisible({ timeout: T });
@@ -82,7 +82,7 @@ async function playTour(page: Page, reload: boolean) {
 
   // Where it ended: 3.0.0 rolled back by carol, automation on hold.
   await page.goto('/#/delivery/environments');
-  await expect(page.getByTestId('environments-board')).toContainText('Kept by a person', { timeout: T });
+  await expect(page.getByTestId('environments-board')).toContainText('Auto-hold', { timeout: T });
 }
 
 test.describe('Browser demo: the delivery story', () => {
@@ -121,16 +121,31 @@ test.describe('Browser demo: the delivery story', () => {
     await switchTo(page, 'alice');
     await expect(page.getByTestId('decide-not-team')).toBeVisible({ timeout: T });
 
-    // carol signed in half an hour ago: the decision asks her to sign in again,
-    // through the simulated sign-in rather than a page load that would lose the tab.
+    // carol signed in half an hour ago: the panel says so before she presses
+    // anything, and Approve takes her straight to the simulated sign-in rather
+    // than a page load that would lose the tab.
     await switchTo(page, 'carol');
+    await expect(page.getByTestId('decision-stale')).toBeVisible({ timeout: T });
+    // 3.0.0 is breaking: it ships only with a note saying why.
+    await expect(panel.getByRole('button', { name: 'Approve' })).toBeDisabled({ timeout: T });
+    await panel.getByLabel('Note (kept with the decision)').fill('orders 1.4 is ready for payments 3');
     await panel.getByRole('button', { name: 'Approve' }).click({ timeout: T });
-    await page.getByTestId('fresh-login').getByRole('button', { name: 'Sign in again' }).click();
     const dlg = page.getByTestId('demo-signin');
     await expect(dlg).toContainText('Simulated sign-in');
     await dlg.getByTestId('demo-signin-submit').click();
     await expect(page.getByTestId('decision-kept')).toBeVisible({ timeout: T });
-    await panel.getByRole('button', { name: 'Approve' }).click();
+    // Back from signing in, one button says it confirms, and it has focus.
+    const confirm = panel.getByRole('button', { name: /^Confirm: Approve/ });
+    await expect(confirm).toBeFocused();
+    await confirm.click();
+    await expect(page.getByTestId('decision-recorded')).toBeVisible({ timeout: T });
+
+    // B8: too little telemetry leaves 3.0.0 Unknown after it ships. The page
+    // says what Pacto could not see and how to fix it, and carol accepts it.
+    await page.goto(change);
+    await expect(page.getByTestId('verdict-unknown')).toContainText('Mira', { timeout: T });
+    await expect(page.getByTestId('decision-unknown')).toContainText('Unknown is never a yes');
+    await panel.getByRole('button', { name: /^Accept the unknown/ }).click();
     await expect(page.getByTestId('decision-recorded')).toBeVisible({ timeout: T });
 
     // 3.0.0 ships and its record reads back verified.

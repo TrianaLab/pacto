@@ -470,7 +470,9 @@ func newDeliveryExplainCommand(v *viper.Viper, d deps) *cobra.Command {
 					for _, k := range slices.Sorted(maps.Keys(x.Citation)) {
 						_, _ = fmt.Fprintf(w, "      %s: %s\n", k, x.Citation[k])
 					}
-					_, _ = fmt.Fprintf(w, "      re-run: %s\n", x.Rerun)
+					if x.Rerun != "" {
+						_, _ = fmt.Fprintf(w, "      re-run: %s\n", x.Rerun)
+					}
 				}
 				printOrder(w, e.Order)
 				printStageNow(w, e.Stage)

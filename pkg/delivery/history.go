@@ -90,7 +90,7 @@ func seqRange(from, to int64) string {
 func RecordEntry(r StoredRecord) HistoryEntry {
 	p := r.Statement.Predicate
 	e := HistoryEntry{Seq: p.Chain.Seq, Operation: p.Intent.Name, Kind: p.Kind, Record: r.ID, Finished: p.Time.Finished,
-		Phase: PhaseConcluded}
+		Phase: PhaseConcluded, Approvals: p.Approvals}
 	if p.Type != nil {
 		e.Type = p.Type.ID
 	}

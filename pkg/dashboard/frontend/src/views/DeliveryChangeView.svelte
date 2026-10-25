@@ -3,8 +3,9 @@
   import { onDestroy, tick } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { deliveryInboxUrl, deliveryHistoryUrl, serviceUrl } from '../lib/router.ts';
-  import { typeLabel, shortDigest, shortDigests, predictionLabel, decisionLabel, authTimeText } from '../lib/delivery.ts';
+  import { deliveryInboxUrl, deliveryHistoryUrl, deliveryChangeUrl, serviceUrl } from '../lib/router.ts';
+  import { typeLabel, shortDigest, shortDigests, predictionLabel, decisionLabel, authTimeText, changeSummary, actorBadge,
+    undoneBy, undoCause, versionLabel } from '../lib/delivery.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -15,7 +16,6 @@
   import DecisionPanel from '../components/DecisionPanel.svelte';
   import ProposePanel from '../components/ProposePanel.svelte';
   import RefusalNotice from '../components/RefusalNotice.svelte';
-  import MoveFirstList from '../components/MoveFirstList.svelte';
 
   // One change: the plan, what Pacto predicted next to what happened with the
   // proof behind each check, who decided, the affected services, a timeline and
@@ -33,6 +33,24 @@
   const actions = $derived(data?.actions ?? []);
   const consumers = $derived(st?.plan?.floor?.consumers ?? []);
   const me = $derived({ user: deliverySession.data?.caller?.user, name: deliverySession.data?.name });
+  const asker = $derived(actorBadge(e?.status?.actorClass));
+  // What Pacto saw after the change only exists once it applied; before that
+  // it is the plan's checks again, so it stays hidden.
+  const happened = $derived(!!st?.applied || e?.status?.phase === 'Concluded');
+  const after = $derived(st?.pointer?.after || '');
+  const blocked = $derived(!!after && (e?.stage?.failedDigests ?? []).includes(after));
+
+  // The change that undid this one, read from the environment's history.
+  let undo = $state(null);
+  $effect(() => {
+    const stage = e?.spec?.stage, finished = st?.times?.finished;
+    void refreshTick;
+    undo = null;
+    if (!stage || !after || e.status.phase !== 'Concluded') return;
+    api.deliveryHistory(namespace, stage)
+      .then((h) => { undo = undoneBy(h.histories?.[0]?.entries ?? [], name, after, finished); })
+      .catch(() => { undo = null; }); // ponytail: the line is extra; a failed read just leaves it out.
+  });
 
   const TIMES = [
     ['admitted', 'Admitted'], ['started', 'Started'], ['applied', 'Applied'], ['finished', 'Finished'],
@@ -80,7 +98,7 @@
   <PageHeader
     eyebrow="Change"
     title={e ? `${typeLabel(e.spec.type)} on ${namespace}/${e.spec.stage}` : `${namespace}/${name}`}
-    subtitle={shortDigests(e?.summary, data?.versions)}
+    subtitle={changeSummary(e, namespace, data?.versions)}
     revalidating={!!data && loader.loading}
   />
   <DeliveryNav current="" />
@@ -102,13 +120,20 @@
     </section>
 
     <dl class="cd-facts t-body-2">
-      <dt>Environment</dt><dd><a href={deliveryHistoryUrl({ namespace, stage: e.spec.stage })}>{namespace}/{e.spec.stage}</a>{#if e.stage.frozen}{' '}(paused{#if e.stage.frozenReason}: {shortDigests(e.stage.frozenReason)}{/if}){/if}</dd>
+      <dt>Environment</dt><dd><a href={deliveryHistoryUrl({ namespace, stage: e.spec.stage })}>{namespace}/{e.spec.stage}</a>{#if e.stage.frozen}{' '}(frozen{#if e.stage.frozenReason}: {shortDigests(e.stage.frozenReason)}{/if}){/if}</dd>
       {#each [['From', e.spec.params?.from], ['To', e.spec.params?.to]] as [label, d] (label)}
         {#if d}<dt>{label}</dt><dd>{#if data.versions?.[d]}{data.versions[d]}{' '}{/if}<code class="cd-digest" title={d}>{shortDigest(d)}</code>{#if !data.versions?.[d]}{' '}<span class="cd-digest">(version unknown)</span>{/if}</dd>{/if}
       {/each}
-      <dt>Asked by</dt><dd><Person user={e.spec.actor.user} people={data?.people} {me} />{#if e.status.actorClass}{` (${e.status.actorClass})`}{/if}{#if e.spec.onBehalfOf?.user}, for <Person user={e.spec.onBehalfOf.user} people={data?.people} {me} />{/if}</dd>
+      <dt>Asked by</dt><dd><Person user={e.spec.actor.user} people={data?.people} {me} />{#if asker}{' '}<span class="badge {asker.tone}" data-testid="actor-badge">{asker.label}</span>{/if}{#if e.spec.onBehalfOf?.user}, for <Person user={e.spec.onBehalfOf.user} people={data?.people} {me} />{/if}</dd>
       {#if e.spec.reason}<dt>Why</dt><dd>{e.spec.reason}</dd>{/if}
     </dl>
+
+    {#if undo || blocked}
+      <div class="cd-undone t-body-2" data-testid="change-undone">
+        {#if undo}<p>Undone by <a href={deliveryChangeUrl(namespace, undo.operation)}>{undo.operation}</a>{#if undo.actorClass === 'controller'}{@const cause = undoCause(e.status.reason, e.status.message)}{' '}(automatic{#if cause.by}: <Person user={cause.by} people={data?.people} {me} /> rejected the unknown{:else if cause.text}: {cause.text}{/if}){:else if undo.actor}, by <Person user={undo.actor} people={data?.people} {me} />{/if}.</p>{/if}
+        {#if blocked}<p>{versionLabel(after, data?.versions)} is blocked on {namespace}/{e.spec.stage}: it failed its checks here, so Pacto never promotes it here again.</p>{/if}
+      </div>
+    {/if}
 
     {#if cancelled}
       <p class="t-body-2" role="status" tabindex="-1" bind:this={doneMsg}>Cancelled. Nothing changed.</p>
@@ -141,15 +166,7 @@
 
     {#if decided}<p class="cd-decided" role="status" tabindex="-1" data-testid="decision-recorded" bind:this={doneMsg}>{decided}</p>{/if}
     {#if e.status.phase === 'Held' && !gone}
-      <DecisionPanel {op} {actions} onDecided={(msg) => { decided = msg; loader.refresh(); settleFocus(); }} />
-    {/if}
-
-    {#if e.status.phase === 'Held' && !st?.applied && st?.plan?.order?.moveFirst?.length}
-      <section aria-labelledby="cd-move-first">
-        <h2 id="cd-move-first" class="t-section-title">Update these first</h2>
-        <p class="t-body-2">Pacto keeps this list current while the change waits. Each team drops out once its service runs a version that accepts the new one, and when nobody is left the change can be approved as it is. Pacto never moves them for you.</p>
-        <MoveFirstList order={st.plan.order} />
-      </section>
+      <DecisionPanel {op} {actions} stage={e.stage} versions={data?.versions} people={data?.people} onDecided={(msg) => { decided = msg; loader.refresh(); settleFocus(); }} />
     {/if}
 
     <section aria-labelledby="cd-affected">
@@ -174,10 +191,12 @@
           <p class="t-body-2">No plan was recorded for this change.</p>
         {/if}
       </section>
-      <section aria-labelledby="cd-actual">
-        <h2 id="cd-actual" class="t-section-title">What happened</h2>
-        <VerdictList verdicts={e.verdicts ?? []} {miraURL} testid="actual-verdicts" />
-      </section>
+      {#if happened}
+        <section aria-labelledby="cd-actual">
+          <h2 id="cd-actual" class="t-section-title">What happened</h2>
+          <VerdictList verdicts={e.verdicts ?? []} {miraURL} testid="actual-verdicts" />
+        </section>
+      {/if}
     </div>
 
     <section aria-labelledby="cd-decisions">
@@ -208,6 +227,8 @@
 
 <style>
   .cd-stale { color: var(--c-err); margin: 0; }
+  .cd-undone p { margin: 0; }
+  .cd-undone a { color: var(--c-accent); text-decoration: underline; }
   .cd-decided { color: var(--c-ok); font-weight: 600; margin: 0; }
   .cd-status { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .cd-facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px var(--sp-3); margin: 0; }

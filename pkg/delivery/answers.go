@@ -101,6 +101,10 @@ func StatusEntry(o OperationObject) HistoryEntry {
 	if s.Record != nil {
 		e.UnverifiedRecord = s.Record.Digest
 	}
+	for _, a := range s.Approvals {
+		e.Approvals = append(e.Approvals, RecordApproval{By: a.By, Decision: a.Decision, Operation: o.Metadata.UID,
+			AuthTime: a.AuthTime, Note: a.Note})
+	}
 	return e
 }
 
@@ -175,11 +179,7 @@ func BlameOf(h *History, recs []StoredRecord, ops []OperationObject, digest stri
 			b.Note += ": its record could not vouch for it (" + e.Reason + ")"
 		}
 		o := ops[slices.IndexFunc(ops, func(o OperationObject) bool { return o.Metadata.Name == e.Operation })]
-		b.Verdicts, b.IntentReason = o.Status.Verdicts, o.Spec.Reason
-		for _, a := range o.Status.Approvals {
-			b.Approvals = append(b.Approvals, RecordApproval{By: a.By, Decision: a.Decision, Operation: o.Metadata.UID,
-				AuthTime: a.AuthTime, Note: a.Note})
-		}
+		b.Verdicts, b.IntentReason, b.Approvals = o.Status.Verdicts, o.Spec.Reason, StatusEntry(o).Approvals
 		if o.Spec.OnBehalfOf != nil {
 			b.OnBehalfOf = o.Spec.OnBehalfOf.User
 		}

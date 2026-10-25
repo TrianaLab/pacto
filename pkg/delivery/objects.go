@@ -113,6 +113,10 @@ type HistoryEntry struct {
 	UnverifiedRecord string `json:"unverifiedRecord,omitempty"`
 	// Pointer is the move this operation made, when it moved the Stage.
 	Pointer *PointerChange `json:"pointer,omitempty"`
+	// Approvals are the people's decisions the operation consumed. It is
+	// always sent, null when there were none, so a reader can tell "no
+	// person decided" from "not said".
+	Approvals []RecordApproval `json:"approvals"`
 }
 
 // History sources.

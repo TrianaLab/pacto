@@ -3,7 +3,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { deliveryChangeUrl } from '../lib/router.ts';
-  import { typeLabel, decisionLabel, authTimeText, versionLabel, sentence, timeLabel } from '../lib/delivery.ts';
+  import { typeLabel, decisionLabel, authTimeText, versionLabel, sentence, timeLabel, actorBadge } from '../lib/delivery.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import VerdictList from './VerdictList.svelte';
   import RefusalNotice from './RefusalNotice.svelte';
@@ -39,7 +39,7 @@
     {#if c}
       <p class="t-body" data-testid="blame-change">
         <a href={deliveryChangeUrl(namespace, c.operation)}>{typeLabel(c.type)}</a>
-        by <strong><Person user={c.actor} people={blame?.people} {me} /></strong>{#if c.actorClass}{' '}({c.actorClass}){/if}{#if blame.onBehalfOf}, for <strong><Person user={blame.onBehalfOf} people={blame?.people} {me} /></strong>{/if}{#if c.from}, from {versionLabel(c.from, blame.versions)}{/if}{#if c.finished}, finished <time datetime={c.finished}>{timeLabel(c.finished)}</time>{/if}.
+        by <strong><Person user={c.actor} people={blame?.people} {me} /></strong>{#if actorBadge(c.actorClass)}{@const ab = actorBadge(c.actorClass)}{' '}<span class="badge {ab.tone}" data-testid="actor-badge">{ab.label}</span>{/if}{#if blame.onBehalfOf}, for <strong><Person user={blame.onBehalfOf} people={blame?.people} {me} /></strong>{/if}{#if c.from}, from {versionLabel(c.from, blame.versions)}{/if}{#if c.finished}, finished <time datetime={c.finished}>{timeLabel(c.finished)}</time>{/if}.
         {#if blame.intentReason}Why: “{blame.intentReason}”.{/if}
       </p>
       {#if blame.approvals?.length}

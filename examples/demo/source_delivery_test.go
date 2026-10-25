@@ -72,7 +72,42 @@ func TestDeliveryStory(t *testing.T) {
 	storyReplayed(t, d)
 	op, decide := storyHeld(t, d, h)
 	storyApproved(t, d, h, decide)
+	storyUnknown(t, d, h, op, decide)
 	storyRolledBack(t, d, h, op)
+}
+
+// TestRejectedUnknownRollsBack: rejecting a version held Unknown after it
+// shipped fails it and rolls it back, as the decision panel says.
+func TestRejectedUnknownRollsBack(t *testing.T) {
+	d, h := demoServer(t)
+	op, decide := storyHeld(t, d, h)
+	storyApproved(t, d, h, decide)
+	if code := call(t, h, "POST", decide, `{"decision":"reject","note":"too few spans to trust it"}`, nil); code != 201 {
+		t.Fatalf("reject: %d", code)
+	}
+	got, _ := d.Get(t.Context(), story.Prod, op.Metadata.Name)
+	prod, _ := d.Stage(t.Context(), story.Prod, "payments")
+	if got.Status.Outcome != delivery.Failed || prod.Status.Pointer != digest("payments", "2.3.0") {
+		t.Fatalf("rejected unknown: %+v, pointer %s", got.Status, prod.Status.Pointer)
+	}
+}
+
+// storyUnknown is B8: too little telemetry leaves 3.0.0 Unknown after it
+// shipped, so it waits for carol to accept the unknown.
+func storyUnknown(t *testing.T, d *demoDelivery, h http.Handler, op delivery.OperationObject, decide string) {
+	t.Helper()
+	got, _ := d.Get(t.Context(), story.Prod, op.Metadata.Name)
+	if got.Status.Phase != delivery.PhaseHeld || !got.Status.Applied || got.Status.Reason != "VerifyUnknown" ||
+		!strings.Contains(got.Status.Question, "Accept the unknown") {
+		t.Fatalf("B8 hold: %+v", got.Status)
+	}
+	if code := call(t, h, "POST", decide, `{"decision":"accept-unknown","note":"spans were thin at night"}`, nil); code != 201 {
+		t.Fatalf("accept-unknown: %d", code)
+	}
+	got, _ = d.Get(t.Context(), story.Prod, op.Metadata.Name)
+	if got.Status.Outcome != delivery.Succeeded || got.Status.Verification != delivery.AcceptedUnknown {
+		t.Fatalf("B8 accepted: %+v", got.Status)
+	}
 }
 
 // storyReplayed checks the history replayed at load and what Environments offers.
@@ -203,7 +238,7 @@ func storyRecords(t *testing.T, d *demoDelivery, op delivery.OperationObject, ro
 		t.Fatalf("prod history: %+v", ph)
 	}
 	b, _ := d.Blame(t.Context(), story.Prod, "payments", digest("payments", "3.0.0"))
-	if b.Change == nil || b.Change.Operation != op.Metadata.Name || len(b.Approvals) != 1 || b.Approvals[0].By != story.Carol.User {
+	if b.Change == nil || b.Change.Operation != op.Metadata.Name || len(b.Approvals) != 2 || b.Approvals[0].By != story.Carol.User || b.Approvals[1].Decision != delivery.AcceptUnknown {
 		t.Fatalf("blame: %+v", b)
 	}
 	u, _ := d.Undo(t.Context(), story.Prod, rollback, "")
