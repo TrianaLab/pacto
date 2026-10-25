@@ -133,10 +133,19 @@ func TestDeliveryToolsWritesOnlyForAgents(t *testing.T) {
 	if strings.Contains(read+write, "approve") {
 		t.Fatal("there must be no approve tool")
 	}
-	for _, tool := range []string{"pacto_delivery_explain", "pacto_delivery_history", "pacto_delivery_blame", "pacto_delivery_undo", "pacto_delivery_record_verify"} {
+	for _, tool := range []string{"pacto_delivery_explain", "pacto_delivery_history", "pacto_delivery_blame", "pacto_delivery_undo_plan", "pacto_delivery_record_verify"} {
 		if !strings.Contains(read, tool) {
 			t.Fatalf("%s is a read tool: %s", tool, read)
 		}
+	}
+	// One tool lists and describes the static types; undo says it only plans.
+	for _, gone := range []string{"pacto_delivery_operation_describe", "pacto_delivery_undo,"} {
+		if strings.Contains(write+",", gone) {
+			t.Fatalf("%s must not be registered: %s", gone, write)
+		}
+	}
+	if n := len(strings.Split(write, ",")); n != 10 {
+		t.Fatalf("want 8 read and 2 write delivery tools, got %d: %s", n, write)
 	}
 }
 
@@ -152,11 +161,11 @@ func TestDeliveryToolCalls(t *testing.T) {
 		ID     string `json:"id"`
 		Digest string `json:"digest"`
 	}
-	decode(t, callToolOn(t, server, "pacto_delivery_operation_describe", map[string]any{"type": delivery.TypePromote}), &desc)
+	decode(t, callToolOn(t, server, "pacto_delivery_operation_types", map[string]any{"type": delivery.TypePromote}), &desc)
 	if desc.ID != delivery.TypePromote || desc.Digest == "" {
 		t.Fatalf("describe: %+v", desc)
 	}
-	if res := callToolOn(t, server, "pacto_delivery_operation_describe", map[string]any{"type": "x"}); !res.IsError {
+	if res := callToolOn(t, server, "pacto_delivery_operation_types", map[string]any{"type": "x"}); !res.IsError {
 		t.Fatal("unknown type must be an error")
 	}
 	var plan delivery.Plan
@@ -190,7 +199,7 @@ func TestDeliveryRecordToolCalls(t *testing.T) {
 		t.Fatalf("blame: %+v", b)
 	}
 	var u delivery.Undo
-	decode(t, callToolOn(t, server, "pacto_delivery_undo", map[string]any{"namespace": "prod", "name": "p1", "stage": "s"}), &u)
+	decode(t, callToolOn(t, server, "pacto_delivery_undo_plan", map[string]any{"namespace": "prod", "name": "p1", "stage": "s"}), &u)
 	if u.Operation != "prod/p1" || u.Note != "s" {
 		t.Fatalf("undo: %+v", u)
 	}
@@ -260,7 +269,7 @@ func TestDeliveryToolErrors(t *testing.T) {
 			t.Fatalf("%s must surface the error", tool)
 		}
 	}
-	if res := callToolOn(t, server, "pacto_delivery_undo", map[string]any{"namespace": "prod", "name": "p1"}); !res.IsError {
+	if res := callToolOn(t, server, "pacto_delivery_undo_plan", map[string]any{"namespace": "prod", "name": "p1"}); !res.IsError {
 		t.Fatal("undo must surface the error")
 	}
 	for _, tool := range []string{"pacto_delivery_get", "pacto_delivery_cancel", "pacto_delivery_explain"} {
