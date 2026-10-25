@@ -217,6 +217,8 @@ func publishedGate(in PlanInput) Verdict {
 		case in.Upstream == nil && c.UpstreamRecords != nil:
 			v.Message = "the records of the upstream Stage " + v.Citation["upstream"] + " cannot be read or verified (" +
 				in.UpstreamErr + "), so it offers no candidate"
+		case in.Upstream == nil && in.UpstreamErr != "":
+			v.Message = in.UpstreamErr + ", so it offers no candidate"
 		case in.Upstream == nil:
 			v.Message = "the upstream Stage " + v.Citation["upstream"] + " does not exist or cannot be read, so it offers no candidate"
 		case slices.Contains(in.Upstream.Verified, to) && slices.Contains(in.Upstream.Offered, to):

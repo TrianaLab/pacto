@@ -786,7 +786,7 @@ func TestPublishedFromUpstream(t *testing.T) {
 	e.create(bind(opObj("p1", delivery.TypePromote, dA, dB, bot), e.getStage()))
 	o := e.drive("p1")
 	wantOutcome(t, o, delivery.Rejected, "NotPublished")
-	if !strings.Contains(o.Status.Message, "does not exist or cannot be read") {
+	if !strings.Contains(o.Status.Message, "the upstream Stage prod/missing cannot be read") || !strings.Contains(o.Status.Message, "not found") {
 		t.Fatalf("message %q", o.Status.Message)
 	}
 	// An upstream Stage the promoter may not read is refused, not retried.
@@ -803,7 +803,7 @@ func TestPublishedFromUpstream(t *testing.T) {
 	op = opObj("p5", delivery.TypePromote, dA, dB, bot)
 	op.Status.ActorClass = delivery.ClassAgent
 	p, err := r.plan(context.Background(), op, e.getStage())
-	if err != nil || p.Predicted != delivery.PredictRejected || !strings.Contains(planRefusal(p), "does not exist or cannot be read") {
+	if err != nil || p.Predicted != delivery.PredictRejected || !strings.Contains(planRefusal(p), "cannot be read") || !strings.Contains(planRefusal(p), "no RBAC") {
 		t.Fatalf("a forbidden upstream Stage must be refused, not retried: %v %+v", err, p)
 	}
 }

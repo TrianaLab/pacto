@@ -411,70 +411,75 @@ func (r *OperationReconciler) newerPromote(ctx context.Context, op *dv1.Operatio
 
 // plan gathers plan()'s inputs from the cluster and the registry and runs it.
 func (r *OperationReconciler) plan(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (delivery.Plan, error) {
-	in := delivery.PlanInput{Spec: op.Spec, Stage: stage.Spec, Status: stage.Status, Class: op.Status.ActorClass,
-		From: delivery.Revision{Digest: op.Spec.Params.From}, To: delivery.Revision{Digest: op.Spec.Params.To}}
-	if op.Spec.Type == delivery.TypePromote {
-		a, err := r.Cluster.applier(ctx, op.Namespace, stage.Spec.ApplyRef)
-		if err != nil {
-			in.From.Err, in.To.Err = "the apply OCIRepository: "+err.Error(), "the apply OCIRepository: "+err.Error()
-		} else {
-			reg := r.Cluster.registryFor(a)
-			in.From = delivery.ResolveRevision(ctx, reg, a.repo, op.Spec.Params.From)
-			in.To = delivery.ResolveRevision(ctx, reg, a.repo, op.Spec.Params.To)
-		}
-		if in.Upstream, in.UpstreamErr, err = r.upstream(ctx, stage); err != nil {
-			return delivery.Plan{}, err
-		}
-		pactos, listErr := r.Cluster.pactos(ctx)
-		in.Stages, in.StagesErr = r.stages(ctx)
-		ks, ksErr := r.Cluster.kustomizations(ctx)
-		pactos, in.Misplaced = delivery.EnvironmentPactos(pactos, in.Stages, ks, errors.Join(in.StagesErr, ksErr), stage.Spec.Environment)
-		in.Candidates = r.Cluster.describe
-		snap, err := delivery.Snapshot(ctx, pactos, listErr, []delivery.Revision{in.From, in.To}, r.now())
-		if err != nil {
-			return delivery.Plan{}, err
-		}
-		in.Snapshot = snap
+	in, err := delivery.AssemblePlanInput(ctx, planSources{r}, op.Spec, stageObject(stage), op.Status.ActorClass, r.now())
+	if err != nil {
+		return delivery.Plan{}, err
 	}
 	return delivery.PlanFor(ctx, in), nil
 }
 
-// stages lists every Stage, so a blocked plan can place its consumers.
-func (r *OperationReconciler) stages(ctx context.Context) ([]delivery.StageObject, error) {
+func stageObject(s *dv1.Stage) delivery.StageObject {
+	return delivery.StageObject{Metadata: delivery.ObjectMeta{Name: s.Name, Namespace: s.Namespace, UID: string(s.UID)}, Spec: s.Spec, Status: s.Status}
+}
+
+// planSources is delivery.PlanSources over the promoter's own clients.
+type planSources struct{ r *OperationReconciler }
+
+func (p planSources) Revisions(ctx context.Context, stage delivery.StageObject, from, to string) (delivery.Revision, delivery.Revision) {
+	a, err := p.r.Cluster.applier(ctx, stage.Metadata.Namespace, stage.Spec.ApplyRef)
+	if err != nil {
+		why := "the apply OCIRepository: " + err.Error()
+		return delivery.Revision{Digest: from, Err: why}, delivery.Revision{Digest: to, Err: why}
+	}
+	reg := p.r.Cluster.registryFor(a)
+	return delivery.ResolveRevision(ctx, reg, a.repo, from), delivery.ResolveRevision(ctx, reg, a.repo, to)
+}
+
+func (p planSources) Pactos(ctx context.Context) ([]delivery.PactoView, error) { return p.r.Cluster.pactos(ctx) }
+
+func (p planSources) Kustomizations(ctx context.Context) ([]delivery.KustomizationView, error) {
+	return p.r.Cluster.kustomizations(ctx)
+}
+
+func (p planSources) Describe(ctx context.Context, stage delivery.StageObject, digest string) delivery.Revision {
+	return p.r.Cluster.describe(ctx, stage, digest)
+}
+
+// Stages lists every Stage, so a blocked plan can place its consumers.
+func (p planSources) Stages(ctx context.Context) ([]delivery.StageObject, error) {
 	list := &dv1.StageList{}
-	if err := r.List(ctx, list); err != nil {
+	if err := p.r.List(ctx, list); err != nil {
 		return nil, err
 	}
 	out := make([]delivery.StageObject, 0, len(list.Items))
-	for _, s := range list.Items {
-		out = append(out, delivery.StageObject{Metadata: delivery.ObjectMeta{Name: s.Name, Namespace: s.Namespace}, Spec: s.Spec, Status: s.Status})
+	for i := range list.Items {
+		s := stageObject(&list.Items[i])
+		s.Metadata.UID = ""
+		out = append(out, s)
 	}
 	return out, nil
 }
 
-// upstream reads the status of the Stage this one takes its candidates from.
-// It is nil when there is none, or when it does not exist or the promoter may
-// not read it: the published gate then refuses, as nothing it offers is
-// known. Any other read error is returned, so the operation is planned again.
-// A Stage in another cluster is read from its signed records, and why says
-// why that gave nothing.
-func (r *OperationReconciler) upstream(ctx context.Context, stage *dv1.Stage) (_ *delivery.StageStatus, why string, _ error) {
+// Upstream reads the status of the Stage this one takes its candidates from.
+// It is nil when there is none, and nil with why when it does not exist or
+// the promoter may not read it: the published gate then refuses, as nothing
+// it offers is known. Any other read error is returned, so the operation is
+// planned again. A Stage in another cluster is read from its signed records,
+// and why says why that gave nothing.
+func (p planSources) Upstream(ctx context.Context, stage delivery.StageObject) (*delivery.StageStatus, string, error) {
 	if rs := stage.Spec.Candidates.UpstreamRecords; rs != nil {
-		s, why := r.Cluster.remote(ctx, *rs)
+		s, why := p.r.Cluster.remote(ctx, *rs)
 		return s, why, nil
 	}
 	up := stage.Spec.Candidates.UpstreamStage
 	if up == nil {
 		return nil, "", nil
 	}
-	ns := up.Namespace
-	if ns == "" {
-		ns = stage.Namespace
-	}
+	ns := cmp.Or(up.Namespace, stage.Metadata.Namespace)
 	s := &dv1.Stage{}
-	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: up.Name}, s); err != nil {
+	if err := p.r.Get(ctx, types.NamespacedName{Namespace: ns, Name: up.Name}, s); err != nil {
 		if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
-			return nil, "", nil
+			return nil, "the upstream Stage " + ns + "/" + up.Name + " cannot be read: " + err.Error(), nil
 		}
 		return nil, "", err
 	}

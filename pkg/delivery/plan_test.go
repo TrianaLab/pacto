@@ -353,11 +353,19 @@ func TestPublishedGate(t *testing.T) {
 		{"upstream only verified", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}}), Fail, "is not offered"},
 		{"upstream only signed", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}, Published: []string{dB}}), Fail, "is not offered"},
 		// Never an unknown a person could accept.
-		{"upstream unreadable", plan(up, StageStatus{Pointer: dA}, to, nil), Fail, "does not exist or cannot be read"},
+		{"upstream unreadable", plan(up, StageStatus{Pointer: dA}, to, nil), Fail, "untrusted key, so it offers no candidate"},
 		{"remote offered", plan(remote, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}, Offered: []string{dB}}), Pass, "verified on the upstream Stage"},
 		{"remote unverifiable", plan(remote, StageStatus{Pointer: dA}, to, nil), Fail, "c2/test/payments (records in reg/streams) cannot be read or verified (untrusted key)"},
 		{"no source", plan(none, published, to, nil), Fail, "names no candidate source"},
 	}
+	snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
+	silent := PlanFor(context.Background(), PlanInput{Spec: promote(dA, dB), Stage: up, Status: StageStatus{Pointer: dA}, From: from, To: to, Snapshot: snap, Class: ClassAgent})
+	cases = append(cases, struct {
+		name   string
+		p      Plan
+		result Result
+		msg    string
+	}{"upstream unreadable, no reason", silent, Fail, "does not exist or cannot be read"})
 	for _, c := range cases {
 		v := verdict(t, c.p, GatePublished)
 		if v.Result != c.result || !strings.Contains(v.Message, c.msg) {
