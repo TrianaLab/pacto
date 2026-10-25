@@ -29,6 +29,16 @@ on:
 permissions:
   contents: read
 
+# The ONE accepted govulncheck advisory, read by the gate and the PR summary.
+# GO-2026-5932: golang.org/x/crypto/openpgp is unmaintained and has no fixed
+# version. It reaches Pacto only via sigstore-go/pkg/sign -> rekor/pkg/pki ->
+# rekor/pkg/pki/pgp, and Pacto never parses PGP. Remove it when rekor drops
+# pkg/pki/pgp or sigstore-go stops importing it; the gate prints a stale notice
+# once govulncheck stops reporting it. Every other reachable advisory still fails
+# the job. tests/release/govulncheck_exception_test.go pins this to exactly one ID.
+env:
+  IGNORED_VULN: GO-2026-5932
+
 concurrency:
   group: security-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -70,8 +80,12 @@ jobs:
         run: |
           # Only error-level results are reachable vulnerabilities; warning/note
           # are imported-but-unused and must not fail the build.
-          n=$(jq '[.runs[].results[]? | select(.level == "error")] | length' govulncheck.sarif)
-          echo "govulncheck reachable (error-level) vulnerabilities: $n"
+          ids=$(jq -r '[.runs[].results[]? | select(.level == "error") | .ruleId] | unique | .[]' govulncheck.sarif)
+          if ! grep -qxF "$IGNORED_VULN" <<<"$ids"; then
+            echo "::notice::$IGNORED_VULN is no longer reported by govulncheck; remove the stale exception from security.yml"
+          fi
+          n=$(jq --arg ign "$IGNORED_VULN" '[.runs[].results[]? | select(.level == "error" and .ruleId != $ign)] | length' govulncheck.sarif)
+          echo "govulncheck reachable (error-level) vulnerabilities, excluding $IGNORED_VULN: $n"
           [ "$n" -eq 0 ]
 
   trivy-image:
@@ -147,11 +161,11 @@ jobs:
             echo "## 🔒 Security scan"
             echo
             if [ -f "$gv" ]; then
-              n=$(jq '[.runs[].results[]? | select(.level == "error")] | length' "$gv")
+              n=$(jq --arg ign "$IGNORED_VULN" '[.runs[].results[]? | select(.level == "error" and .ruleId != $ign)] | length' "$gv")
               if [ "$n" -eq 0 ]; then
-                echo "- **govulncheck (Go):** ✅ no reachable vulnerabilities"
+                echo "- **govulncheck (Go):** ✅ no reachable vulnerabilities (accepted exception: $IGNORED_VULN)"
               else
-                ids=$(jq -r '[.runs[].results[]? | select(.level == "error") | .ruleId] | unique | join(", ")' "$gv")
+                ids=$(jq -r --arg ign "$IGNORED_VULN" '[.runs[].results[]? | select(.level == "error" and .ruleId != $ign) | .ruleId] | unique | join(", ")' "$gv")
                 echo "- **govulncheck (Go):** ❌ $n reachable — $ids"
               fi
             else

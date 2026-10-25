@@ -37,6 +37,7 @@ If you discover a security vulnerability in Pacto, please report it responsibly.
 - The operator ships as a **distroless, non-root** image (`gcr.io/distroless/static:nonroot`, UID 65532) and runs with `readOnlyRootFilesystem: true` and `allowPrivilegeEscalation: false`.
 - Contracts are distributed as **OCI artifacts** through standard container registries.
 - All dependencies are kept up to date and monitored for known vulnerabilities.
+- Every pull request runs govulncheck and Trivy, and a reachable vulnerability blocks the merge. One advisory is accepted: GO-2026-5932 (`golang.org/x/crypto/openpgp`, unmaintained with no fix). It reaches Pacto only through sigstore-go's signing package, which imports rekor's `pkg/pki/pgp`; Pacto never parses PGP. The exception lives in `.github/workflows/security.yml` and goes away once rekor drops that package or sigstore-go stops importing it.
 
 ## Scope
 
