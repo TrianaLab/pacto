@@ -139,11 +139,17 @@ views say they may be incomplete.
 
 A held change asks one question of the teams that own the affected services.
 Only their members may answer. A contract owner team `T` is the group `T`, or
-`teamGroupPrefix` followed by `T`. To decide, a person whose login is older
-than ten minutes signs in again (`prompt=login`), and the promoter ignores an
-approval more than fifteen minutes after its login. The decision takes one more
-click, never sent on its own. Agents are refused, and so is a token with no
-login time.
+`teamGroupPrefix` followed by `T`. The promoter ignores an approval given
+more than its login freshness (`promoter.authFreshness`, fifteen minutes by
+default) after its author's login, and every Stage publishes that freshness in
+`status.authFreshness`. To decide, a person whose login is older than two
+thirds of it (ten of fifteen minutes by default) signs in again
+(`prompt=login`). The decision takes one more click, never sent on its own.
+The dashboard and `pacto delivery approve` check a decision with the
+promoter's own rule before they record it, and refuse one it would not count,
+saying why. Agents are refused, and so is a token with no login time: on a
+cluster that reports none, the dashboard says approving is not possible there
+and offers no decision.
 
 ## Approve from the terminal
 
@@ -193,8 +199,10 @@ tools.
   browser could run the `pacto-approve` login itself and ride your identity
   provider's session, and it gets a login time only as old as your last real
   login there. An identity provider that ignores `prompt=login` widens this.
-- A stolen dashboard session can approve only in the ten minutes after that
-  person signed in again, and can take their other actions until it ends.
+- A stolen dashboard session can approve only in the first two thirds of the
+  promoter's login freshness (`promoter.authFreshness`, ten of fifteen minutes
+  by default) after that person signed in again, and can take their other
+  actions until it ends.
 - Sessions live in the dashboard's memory: it runs as one replica and a restart
   signs everyone out. A session ends after an hour idle or twelve in all.
 - A change's timeline shows only the Operation's own times, not Kubernetes
