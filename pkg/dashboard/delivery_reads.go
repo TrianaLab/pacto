@@ -15,8 +15,6 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
-// ── the read views: inbox, environments, published versions, history ──
-
 // ── reads ──────────────────────────────────────────────────────────────
 
 // Listing is how complete a list of delivery objects is: a namespace the
