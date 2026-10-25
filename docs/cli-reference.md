@@ -988,16 +988,24 @@ contract read from its Dockerfile and Kubernetes manifests, publish section
 included, and a list of what Pacto found and what it could not tell
 (Unknown). --delivery also writes the cluster pieces: the Pacto resource that
 checks the running service, and per environment a Stage with the Flux
-OCIRepository and Kustomization it applies through. The last environment's
-Stage asks a person to approve every promote until you add a health check
-there and delete its approval.
+OCIRepository and Kustomization it applies through. Each Stage starts at
+observe: it plans every new version and moves nothing, and the OCIRepository
+stays pinned to the tag you deploy, so GitOps keeps applying what it did. The
+last environment's Stage also asks a person to approve every promote.
+
+Several folders are each pactified, with a summary at the end. --cluster
+drafts a contract for every workload in the namespaces that no Pacto
+describes yet, in &lt;out&gt;/&lt;namespace&gt;/&lt;name&gt;: its manifests are read from the
+cluster, and the services its pods were seen calling become dependencies
+pinned to the version seen running, for you to widen. Drafts are only
+written, never published, and a draft that is not valid fails the command.
 
 It only adds files and missing .pactoignore lines; any other file already
 there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and
 changes nothing.
 
 ```
-pacto init [dir] [flags]
+pacto init [dir...] [flags]
 ```
 
 **Examples:**
@@ -1008,18 +1016,23 @@ pacto init [dir] [flags]
   pacto init --delivery --owner payments --fleet ../contracts
   pacto init --delivery --no-transparency-log --insecure-registry
   pacto init --delivery --registry-secret registry-creds
+  pacto init services/checkout services/payments --plan
+  pacto init --cluster --namespace shop --out drafts
 ```
 
 **Flags:**
 
 ```
+      --cluster                  draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context
       --delivery                 also write the cluster pieces: the Pacto resource, a Stage per environment and its Flux OCIRepository and Kustomization
       --env strings              environments for --delivery, in promotion order (default [test,prod])
       --fleet strings            folders of other services' contracts to find the services that use this one
   -h, --help                     help for init
       --insecure-registry        with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)
       --name string              service name (default: the workload's name, then the folder's)
+      --namespace strings        with --cluster: a namespace to read; repeat it for more (default: every namespace)
       --no-transparency-log      write transparencyLog: false under publish.sign, so signatures stay out of the public transparency log (offline signing, a throwaway key)
+      --out string               with --cluster: the folder the drafts go in, one <namespace>/<name> folder each
       --owner string             the team that owns the service (default: the workload's team label)
       --plan                     show what would be added and change nothing
       --registry string          where to publish, as host/path (default: read from the workload's image)
