@@ -148,10 +148,22 @@ attach one. A trusted record that stops verifying leaves a gap.
 
 The Stage remembers the newest upstream record it read in
 `status.upstreamSeen`. A later read that ends before it, or holds another
-record at its seq, is refused the same way: the newest records were removed,
-and one of them could be a failure. Every `pacto.published` verdict on such a
-Stage cites the record it relied on as `upstreamHead` and `upstreamSeq`, so an
-auditor can replay the stream up to it.
+record at its seq however far the stream has grown since, is refused the same
+way: records were removed or rewritten, and one of them could be a failure.
+Every `pacto.published` verdict on such a Stage cites the record it relied on
+as `upstreamHead` and `upstreamSeq`, so an auditor can replay the stream up to
+it.
+
+Sometimes the cut is intended: the upstream stream was recreated, or a
+`StreamConflict` repair removed its newest record. Nothing clears the mark on
+its own, so the follower stays not `Ready` until a person does. Once an
+auditor confirms the cut, clear it, with the right to patch `stages/status`.
+The next read, within 30 seconds, sets it again:
+
+```bash
+kubectl patch stage <stage> -n <namespace> --subresource=status --type=merge \
+  -p '{"status":{"upstreamSeen":null}}'
+```
 
 The promoter reads the upstream registry at most every 30 seconds for
 auto-promotion, and afresh when it plans a promote. It fetches and verifies
