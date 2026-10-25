@@ -10,6 +10,8 @@ package delivery
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -150,8 +152,23 @@ func TestFailedVerifyRollsBackOnceAndNeverRetries(t *testing.T) {
 	o := e.drive("p1")
 	wantOutcome(t, o, delivery.Failed, "VerifyFailed")
 	s := e.getStage()
-	if s.Status.FailedDigests[0] != dB || s.Status.AutoRollbacks["uid-p1"] != 1 || s.Status.Frozen {
+	if s.Status.FailedDigests[0] != dB || !slices.Equal(s.Status.RolledBack, []string{"uid-p1"}) || s.Status.Frozen {
 		t.Fatalf("stage after the failure: %+v", s.Status)
+	}
+	// The memory of raised rollbacks is bounded like the failed digests.
+	full := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	old := make([]string, delivery.MaxRolledBack)
+	for i := range old {
+		old[i] = fmt.Sprintf("uid-old-%d", i)
+	}
+	full.setStage(func(s *delivery.StageStatus) { s.RolledBack = old })
+	full.drive("p1")
+	full.apply(dB)
+	full.drive("p1")
+	full.evaluate(c2, "NonCompliant")
+	full.drive("p1")
+	if rb := full.getStage().Status.RolledBack; len(rb) != delivery.MaxRolledBack || rb[0] != "uid-old-1" || rb[len(rb)-1] != "uid-p1" {
+		t.Fatalf("raised rollbacks past the cap: %d, first %s", len(rb), rb[0])
 	}
 	rb := e.getOp("p1-rollback")
 	if rb.Spec.Type != delivery.TypeRollback || rb.Spec.Params.From != dB || rb.Spec.Params.To != dA || rb.Spec.Params.Undoes != "uid-p1" ||
@@ -189,7 +206,7 @@ func TestFailedPromoteOverAFailedVersionFreezes(t *testing.T) {
 	e.drive("p1")
 	e.evaluate(c2, "NonCompliant")
 	wantOutcome(t, e.drive("p1"), delivery.Failed, "VerifyFailed")
-	if s := e.getStage(); !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "nothing safe to roll back to") || len(s.Status.AutoRollbacks) != 0 {
+	if s := e.getStage(); !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "nothing safe to roll back to") || len(s.Status.RolledBack) != 0 {
 		t.Fatalf("want frozen with no rollback: %+v", s.Status)
 	}
 	if err := e.c.Get(context.Background(), keyOf("p1-rollback"), &dv1Op{}); err == nil {
@@ -1120,7 +1137,7 @@ func TestConclusionWriteFailureTakesOneSeq(t *testing.T) {
 	o := e.drive("p1")
 	wantOutcome(t, o, delivery.Failed, "VerifyFailed")
 	s := e.getStage()
-	if o.Status.Seq != 1 || s.Status.Stream.Seq != 1 || len(s.Status.FailedDigests) != 1 || s.Status.AutoRollbacks["uid-p1"] != 1 ||
+	if o.Status.Seq != 1 || s.Status.Stream.Seq != 1 || len(s.Status.FailedDigests) != 1 || !slices.Equal(s.Status.RolledBack, []string{"uid-p1"}) ||
 		o.Status.Policy == nil || o.Status.Policy.Environment != "prod" {
 		t.Fatalf("one conclusion must take one seq: op %+v stage %+v", o.Status, s.Status)
 	}

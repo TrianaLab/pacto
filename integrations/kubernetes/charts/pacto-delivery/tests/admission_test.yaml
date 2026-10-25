@@ -234,7 +234,7 @@ tests:
         documentIndex: 8
       - matchRegex:
           path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.autoRollbacks\\) \\? object\\.status\\.autoRollbacks : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
+          pattern: "has\\(object\\.status\\.rolledBack\\) \\? object\\.status\\.rolledBack : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
         documentIndex: 8
       - matchRegex:
           path: spec.validations[1].expression

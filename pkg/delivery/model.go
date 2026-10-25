@@ -280,9 +280,13 @@ type Concluded struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// StageStatus is written only by the promoter's operation reconciler.
+// StageStatus is written by the promoter's operation and stage reconcilers and
+// by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each
+// through a compare-and-swap on the Stage's resourceVersion.
 type StageStatus struct {
-	// Pointer is the digest the environment runs.
+	// Pointer is the digest the Stage moved the environment to. It is set
+	// when an operation holding the pointer lock starts to apply, before
+	// Flux or Argo CD runs it: Applied on that operation says when they did.
 	// +optional
 	Pointer string `json:"pointer,omitempty"`
 	// LastOp is the uid of the operation that last moved the pointer.
@@ -305,9 +309,11 @@ type StageStatus struct {
 	// AutoHold stops auto-promotion after a person chose an older version.
 	// +optional
 	AutoHold bool `json:"autoHold,omitempty"`
-	// AutoRollbacks counts the automatic rollbacks raised per cause.
+	// RolledBack holds the uids of the failed operations the promoter raised
+	// its one automatic rollback for, oldest first (cap 50). A failure listed
+	// here never gets a second one.
 	// +optional
-	AutoRollbacks map[string]int `json:"autoRollbacks,omitempty"`
+	RolledBack []string `json:"rolledBack,omitempty"`
 	// +optional
 	Stream Stream `json:"stream,omitzero"`
 	// Published holds the candidate digests Flux verified the signature of on

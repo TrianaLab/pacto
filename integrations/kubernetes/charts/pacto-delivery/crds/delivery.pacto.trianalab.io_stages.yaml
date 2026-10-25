@@ -239,18 +239,15 @@ spec:
             - service
             type: object
           status:
-            description: StageStatus is written only by the promoter's operation reconciler.
+            description: |-
+              StageStatus is written by the promoter's operation and stage reconcilers and
+              by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each
+              through a compare-and-swap on the Stage's resourceVersion.
             properties:
               autoHold:
                 description: AutoHold stops auto-promotion after a person chose an
                   older version.
                 type: boolean
-              autoRollbacks:
-                additionalProperties:
-                  type: integer
-                description: AutoRollbacks counts the automatic rollbacks raised per
-                  cause.
-                type: object
               candidate:
                 description: Candidate is the newest eligible candidate the stage
                   reconciler saw.
@@ -369,7 +366,10 @@ spec:
                   type: string
                 type: array
               pointer:
-                description: Pointer is the digest the environment runs.
+                description: |-
+                  Pointer is the digest the Stage moved the environment to. It is set
+                  when an operation holding the pointer lock starts to apply, before
+                  Flux or Argo CD runs it: Applied on that operation says when they did.
                 type: string
               published:
                 description: |-
@@ -377,6 +377,14 @@ spec:
                   the candidate OCIRepository (spec.verify naming the publisher's
                   identity), oldest first (cap 50). Only these are promoted from the
                   OCIRepository.
+                items:
+                  type: string
+                type: array
+              rolledBack:
+                description: |-
+                  RolledBack holds the uids of the failed operations the promoter raised
+                  its one automatic rollback for, oldest first (cap 50). A failure listed
+                  here never gets a second one.
                 items:
                   type: string
                 type: array

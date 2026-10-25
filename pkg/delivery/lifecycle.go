@@ -101,6 +101,7 @@ const (
 	MaxFailedDigests = 50
 	MaxPublished     = 50
 	MaxOffered       = 50
+	MaxRolledBack    = 50
 	// MaxConcluded is how many conclusions a Stage remembers: a retry of
 	// a failed status write comes long before that many more conclude.
 	MaxConcluded = 20

@@ -404,7 +404,7 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 	why := "RecheckFailed: " + f.Gate + ": " + f.Message
 	cause, before := string(shipped.UID), shipped.Status.Pointer.Before
 	chosen := shipped.Spec.Type != delivery.TypePromote || fresh.Status.AutoHold
-	rollback := !chosen && fresh.Status.AutoRollbacks[cause] == 0 && before != "" && !slices.Contains(fresh.Status.FailedDigests, before)
+	rollback := !chosen && !slices.Contains(fresh.Status.RolledBack, cause) && before != "" && !slices.Contains(fresh.Status.FailedDigests, before)
 	// The failure is recorded before the rollback is raised: raising takes the
 	// pointer lock, after which the Stage reads as moved and the record would be
 	// dropped. A rollback lost after the record is raised again by reraise.
@@ -436,10 +436,7 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 		case !rollback:
 			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release and cannot be rolled back automatically: "+why
 		default:
-			if st.Status.AutoRollbacks == nil {
-				st.Status.AutoRollbacks = map[string]int{}
-			}
-			st.Status.AutoRollbacks[cause]++
+			st.Status.RolledBack = delivery.AddDigest(st.Status.RolledBack, cause, delivery.MaxRolledBack)
 		}
 	}); err != nil || !wrote || !rollback {
 		return err
@@ -465,7 +462,7 @@ func (r *StageReconciler) raiseRollback(ctx context.Context, stage *dv1.Stage, s
 // a raised marker in status if that ever matters.
 func (r *StageReconciler) reraise(ctx context.Context, stage *dv1.Stage, shipped *dv1.Operation, ops []dv1.Operation) error {
 	s, lc := stage.Status, stage.Status.LastCheck
-	if shipped == nil || s.AutoRollbacks[s.LastOp] == 0 || lc == nil || lc.Operation != s.LastOp || lc.Digest != s.Pointer {
+	if shipped == nil || !slices.Contains(s.RolledBack, s.LastOp) || lc == nil || lc.Operation != s.LastOp || lc.Digest != s.Pointer {
 		return nil
 	}
 	f := failing(lc.Verdicts)

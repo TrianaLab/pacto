@@ -1109,10 +1109,7 @@ func applyEffects(s *delivery.StageStatus, op *dv1.Operation, c conclusion) {
 		case slices.Contains(s.FailedDigests, op.Status.Pointer.Before):
 			c.freeze, c.reason = true, "the version before it failed here too, so there is nothing safe to roll back to"
 		default:
-			if s.AutoRollbacks == nil {
-				s.AutoRollbacks = map[string]int{}
-			}
-			s.AutoRollbacks[string(op.UID)]++
+			s.RolledBack = delivery.AddDigest(s.RolledBack, string(op.UID), delivery.MaxRolledBack)
 		}
 	}
 	if c.freeze {

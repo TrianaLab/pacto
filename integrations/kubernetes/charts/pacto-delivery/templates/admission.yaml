@@ -318,7 +318,7 @@ spec:
         {{ include "pacto-delivery.celSame" (list "status.failedDigests" "[]") }} &&
         {{ include "pacto-delivery.celSame" (list "status.frozenReason" "''") }} &&
         {{ include "pacto-delivery.celSame" (list "status.autoHold" "false") }} &&
-        {{ include "pacto-delivery.celSame" (list "status.autoRollbacks" "{}") }} &&
+        {{ include "pacto-delivery.celSame" (list "status.rolledBack" "[]") }} &&
         {{ include "pacto-delivery.celSame" (list "status.stream.id" "''") }} &&
         {{ include "pacto-delivery.celSame" (list "status.stream.concluded" "[]") }} &&
         {{ include "pacto-delivery.celSame" (list "status.published" "[]") }} &&

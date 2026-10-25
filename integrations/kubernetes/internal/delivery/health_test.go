@@ -228,7 +228,7 @@ func TestRecheckAfterRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	s = e.getStage()
-	if s.Status.FailedDigests[0] != dB || len(s.Status.Verified) != 1 || s.Status.AutoRollbacks["uid-p1"] != 1 || s.Status.Frozen {
+	if s.Status.FailedDigests[0] != dB || len(s.Status.Verified) != 1 || !slices.Equal(s.Status.RolledBack, []string{"uid-p1"}) || s.Status.Frozen {
 		t.Fatalf("stage after a failed re-check: %+v", s.Status)
 	}
 	rb := e.getOp("p1-rollback")
@@ -268,7 +268,7 @@ func TestRecheckAfterRelease(t *testing.T) {
 // rollback, or a first version with nothing before it, freezes instead.
 func TestRecheckFreezesWhenItCannotRollBack(t *testing.T) {
 	for name, mutate := range map[string]func(*delivery.StageStatus){
-		"second fail for the cause": func(s *delivery.StageStatus) { s.AutoRollbacks = map[string]int{"uid-p1": 1} },
+		"second fail for the cause": func(s *delivery.StageStatus) { s.RolledBack = []string{"uid-p1"} },
 		"rollback target failed":    func(s *delivery.StageStatus) { s.FailedDigests = []string{dA} },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -301,7 +301,7 @@ func TestRecheckFreezesWhenItCannotRollBack(t *testing.T) {
 func TestRecheckRaisesTheFreezeFirst(t *testing.T) {
 	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
 	e.shipB()
-	e.setStage(func(s *delivery.StageStatus) { s.AutoRollbacks = map[string]int{"uid-p1": 1} })
+	e.setStage(func(s *delivery.StageStatus) { s.RolledBack = []string{"uid-p1"} })
 	e.health.result = delivery.Fail
 	e.fails["create/Operation"] = true
 	if err := e.reconcileStage("payments-prod"); err == nil || e.getStage().Status.Frozen {
@@ -462,7 +462,7 @@ func TestRecheckNeverUndoesAChoice(t *testing.T) {
 			}
 			s := e.getStage()
 			if !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "a person must decide") || s.Status.FailedDigests[0] != dB ||
-				len(s.Status.AutoRollbacks) != 0 || len(e.ops()) != 2 {
+				len(s.Status.RolledBack) != 0 || len(e.ops()) != 2 {
 				t.Fatalf("want frozen with no rollback: %+v ops=%d", s.Status, len(e.ops()))
 			}
 			// The freeze is how the failure reaches the records: it concludes
@@ -502,7 +502,7 @@ func TestRecheckDropsAStaleVerdict(t *testing.T) {
 					t.Fatal(err)
 				}
 				s := e.getStage()
-				if s.Status.LastCheck != nil || s.Status.Frozen || len(s.Status.FailedDigests) != 0 || len(s.Status.AutoRollbacks) != 0 || len(e.ops()) != 1 {
+				if s.Status.LastCheck != nil || s.Status.Frozen || len(s.Status.FailedDigests) != 0 || len(s.Status.RolledBack) != 0 || len(e.ops()) != 1 {
 					t.Fatalf("a stale verdict changed the Stage: %+v ops=%d", s.Status, len(e.ops()))
 				}
 			})
@@ -518,7 +518,7 @@ func TestRecheckDropsAStaleVerdict(t *testing.T) {
 	if err := e.reconcileStage("payments-prod"); err != nil {
 		t.Fatal(err)
 	}
-	if s := e.getStage(); s.Status.LastCheck != nil || s.Status.Frozen || len(s.Status.FailedDigests) != 0 || len(s.Status.AutoRollbacks) != 0 || len(e.ops()) != 1 {
+	if s := e.getStage(); s.Status.LastCheck != nil || s.Status.Frozen || len(s.Status.FailedDigests) != 0 || len(s.Status.RolledBack) != 0 || len(e.ops()) != 1 {
 		t.Fatalf("a stale verdict changed the Stage: %+v ops=%d", s.Status, len(e.ops()))
 	}
 	// A Stage that cannot be read again is an error, retried.
@@ -548,7 +548,7 @@ func TestRecheckRecordsBeforeItRaises(t *testing.T) {
 		t.Fatal("a rollback that cannot be created is an error, retried")
 	}
 	s := e.getStage()
-	if s.Status.FailedDigests[0] != dB || slices.Contains(s.Status.Verified, dB) || s.Status.AutoRollbacks["uid-p1"] != 1 || len(e.ops()) != 1 {
+	if s.Status.FailedDigests[0] != dB || slices.Contains(s.Status.Verified, dB) || !slices.Equal(s.Status.RolledBack, []string{"uid-p1"}) || len(e.ops()) != 1 {
 		t.Fatalf("the failure is recorded before the rollback: %+v ops=%d", s.Status, len(e.ops()))
 	}
 	e.fails["create/Operation"] = false
@@ -684,7 +684,7 @@ func TestRecheckSquattedNamesFreeze(t *testing.T) {
 	t.Run("freeze", func(t *testing.T) {
 		e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
 		e.shipB()
-		e.setStage(func(s *delivery.StageStatus) { s.AutoRollbacks = map[string]int{"uid-p1": 1} })
+		e.setStage(func(s *delivery.StageStatus) { s.RolledBack = []string{"uid-p1"} })
 		e.squat("p1-freeze")
 		e.health.result = delivery.Fail
 		if err := e.reconcileStage("payments-prod"); err != nil {

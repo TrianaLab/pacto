@@ -273,9 +273,8 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.service` | `object` | yes |  |  | ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified service name its contracts declare. |
 | `spec.service.domain` | `string` | no |  |  | Domain is the registry and organisation scope (empty for the default). |
 | `spec.service.name` | `string` | yes |  |  | Name is the contract's service.name. |
-| `status` | `object` | no |  |  | StageStatus is written only by the promoter's operation reconciler. |
+| `status` | `object` | no |  |  | StageStatus is written by the promoter's operation and stage reconcilers and by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each through a compare-and-swap on the Stage's resourceVersion. |
 | `status.autoHold` | `boolean` | no |  |  | AutoHold stops auto-promotion after a person chose an older version. |
-| `status.autoRollbacks` | `object` | no |  |  | AutoRollbacks counts the automatic rollbacks raised per cause. |
 | `status.candidate` | `string` | no |  |  | Candidate is the newest eligible candidate the stage reconciler saw. |
 | `status.conditions` | `[]object` | no |  |  | Conditions holds Ready. It is False, naming what is missing, when the Stage can never promote: its candidate OCIRepository does not exist or sets no spec.verify naming the publisher, or it names no candidate source at all. The recorder adds RecordStoreReady: False when the registry has no Referrers API, cannot be reached or holds a stream it refuses to fork. |
 | `status.conditions[].message` | `string` | no |  |  |  |
@@ -298,8 +297,9 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.lastOp` | `string` | no |  |  | LastOp is the uid of the operation that last moved the pointer. |
 | `status.locks` | `object` | no |  |  | Locks maps a facet to the uid of the operation holding it. |
 | `status.offered` | `[]string` | no |  |  | Offered holds the digests a promote carried through pacto.published with a pass (not an accepted unknown) and that then verified here, oldest first (cap 50). Only these are offered to a downstream Stage. |
-| `status.pointer` | `string` | no |  |  | Pointer is the digest the environment runs. |
+| `status.pointer` | `string` | no |  |  | Pointer is the digest the Stage moved the environment to. It is set when an operation holding the pointer lock starts to apply, before Flux or Argo CD runs it: Applied on that operation says when they did. |
 | `status.published` | `[]string` | no |  |  | Published holds the candidate digests Flux verified the signature of on the candidate OCIRepository (spec.verify naming the publisher's identity), oldest first (cap 50). Only these are promoted from the OCIRepository. |
+| `status.rolledBack` | `[]string` | no |  |  | RolledBack holds the uids of the failed operations the promoter raised its one automatic rollback for, oldest first (cap 50). A failure listed here never gets a second one. |
 | `status.stream` | `object` | no |  |  | Stream numbers a Stage's concluded operations. |
 | `status.stream.anchor` | `string` | no |  |  | Anchor is where the stream's records are listed: &lt;repository&gt;@<anchor digest>. Only the recorder writes it. |
 | `status.stream.concluded` | `[]object` | no |  |  | Concluded are the newest operations given a seq, each with how it concluded, written in the compare-and-swap that took the seq. An operation whose own status write then failed concludes again from here: the same seq and outcome, never a second seq. |
