@@ -13,6 +13,7 @@ import (
 
 	admissionv1 "k8s.io/api/admissionregistration/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -39,9 +40,19 @@ func unguardedBy(ctx context.Context, c client.Reader, policies []string) (strin
 			return "the binding " + name + " binds " + s.PolicyName + ", not the policy " + name, nil
 		case !slices.Contains(s.ValidationActions, admissionv1.Deny):
 			return "the binding " + name + " does not deny", nil
-		case s.MatchResources != nil || s.ParamRef != nil:
+		case narrowed(s.MatchResources) || s.ParamRef != nil:
 			return "the binding " + name + " is narrowed by matchResources or paramRef", nil
 		}
 	}
 	return "", nil
+}
+
+// narrowed reports whether m binds a policy to fewer objects than every one
+// it matches: a selector or a resource rule. An empty one, as some tools
+// write it out, narrows nothing.
+func narrowed(m *admissionv1.MatchResources) bool {
+	empty := func(s *metav1.LabelSelector) bool {
+		return s == nil || len(s.MatchLabels) == 0 && len(s.MatchExpressions) == 0
+	}
+	return m != nil && (!empty(m.NamespaceSelector) || !empty(m.ObjectSelector) || len(m.ResourceRules) > 0 || len(m.ExcludeResourceRules) > 0)
 }

@@ -1343,8 +1343,14 @@ func TestUnguardedBy(t *testing.T) {
 			b.Spec.ValidationActions = []admissionv1.ValidationAction{admissionv1.Warn, admissionv1.Audit}
 		}, want: "the binding pd-operation does not deny"},
 		"narrowed": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) {
-			b.Spec.MatchResources = &admissionv1.MatchResources{}
+			b.Spec.MatchResources = &admissionv1.MatchResources{NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"team": "a"}}}
 		}, want: "the binding pd-operation is narrowed by matchResources or paramRef"},
+		"excludes some": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) {
+			b.Spec.MatchResources = &admissionv1.MatchResources{ExcludeResourceRules: []admissionv1.NamedRuleWithOperations{{ResourceNames: []string{"x"}}}}
+		}, want: "the binding pd-operation is narrowed by matchResources or paramRef"},
+		"empty matchResources as defaulted": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) {
+			b.Spec.MatchResources = &admissionv1.MatchResources{NamespaceSelector: &metav1.LabelSelector{}, ObjectSelector: &metav1.LabelSelector{}}
+		}, want: ""},
 		"with params": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) {
 			b.Spec.ParamRef = &admissionv1.ParamRef{Name: "x"}
 		},
