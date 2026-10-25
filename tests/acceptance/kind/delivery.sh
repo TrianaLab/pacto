@@ -1479,11 +1479,19 @@ ready_is() {
   [ "$(kubectl -n "$1" get stage "$2" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}/{.status.conditions[?(@.type=="Ready")].reason}')" = "$3" ]
 }
 eventually 20 ready_is "$P" billing True/Ready || fail "the publishing Stage is not Ready: $(kubectl -n "$P" get stage billing -o jsonpath='{.status.conditions}')"
+# The applier exists and is labelled, so Ready names the candidate.
 kubectl -n "$M" apply -f - >/dev/null <<YAML
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata: {name: billing-anyone}
 spec: {interval: $CANDIDATE_INTERVAL, insecure: true, url: "oci://${REG_HOST}/apps/billing", ref: {semver: ">=0.0.0"}}
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: billing-anyone-apply
+  labels: {delivery.pacto.trianalab.io/apply-ref: billing}
+spec: {interval: 30s, insecure: true, url: "oci://${REG_HOST}/apps/billing", ref: {}}
 ---
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Stage
