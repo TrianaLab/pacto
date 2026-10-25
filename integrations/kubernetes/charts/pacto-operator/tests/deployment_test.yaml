@@ -144,6 +144,21 @@ tests:
           path: spec.template.spec.containers[0].image
           value: "ghcr.io/trianalab/pacto/operator:v1.2.3"
 
+  - it: pins the image by digest when image.digest is set
+    set:
+      image.tag: "v1.2.3"
+      image.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: "ghcr.io/trianalab/pacto/operator:v1.2.3@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+  - it: refuses an image.digest that is not a sha256 digest
+    set:
+      image.digest: "latest"
+    asserts:
+      - failedTemplate: {}
+
   - it: should disable leader election
     set:
       leaderElection.enabled: false

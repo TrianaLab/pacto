@@ -66,9 +66,8 @@ refuses it before anything is pushed. `pacto publish [dir]` takes the
 directory as `init` and `validate` do. It refuses a version too small for the
 change: a breaking change needs a major (a minor before 1.0) and a change Pacto
 cannot classify at least a minor. A refused publish is kept as a signed refusal
-in the bundle repository. `pacto diff` reports the same `requiredBump`, `pacto
-push` refuses different content under an existing reference unless `--force`,
-and `pacto validate` refuses an `sbom` on a `dockerfile` build. `--propose
+in the bundle repository. `pacto diff` reports the same `requiredBump` and
+`pacto validate` refuses an `sbom` on a `dockerfile` build. `--propose
 <namespace>/<stage>` hands the version to delivery. `pacto mcp --publish` adds
 `pacto_publish_plan` and `pacto_publish` over stdio.
 
@@ -132,4 +131,21 @@ Pacto's own code over fixed data and labels it simulated; its Wasm is about
 4 MB to download. The Compose demo has no cluster or sign-in, so it shows no
 Delivery tab; it now shows `pacto diff` and `pacto init --plan`.
 
-Adds `github.com/coreos/go-oidc/v3`.
+**Behaviour change: `pacto push` fails on a conflicting reference.** Before,
+pushing to a reference that already held a bundle printed a warning, wrote
+nothing and exited 0, whatever the bundle held. Now different content under an
+existing reference exits non-zero, so a script that relied on the old exit
+status fails; pass `--force` to overwrite the reference instead. The same
+content pushed again still exits 0 and writes nothing.
+
+**New direct dependencies:** `github.com/coreos/go-oidc/v3` (dashboard
+sign-in), `github.com/sigstore/sigstore-go`, `github.com/sigstore/sigstore`,
+`github.com/sigstore/protobuf-specs`, `github.com/theupdateframework/go-tuf/v2`,
+`github.com/go-jose/go-jose/v4` and `github.com/digitorus/timestamp` (signing
+and verifying without cosign), and `golang.org/x/oauth2` and
+`google.golang.org/protobuf` (once indirect, now direct). The four
+`github.com/sigstore/sigstore/pkg/signature/kms/{aws,azure,gcp,hashivault}`
+modules pull in the AWS, Azure, Google Cloud and Vault SDKs; they are linked
+only into builds with `-tags kms` (or `kms_aws` and the like), which the
+pacto-delivery image uses and the default pacto CLI does not. Together they
+add about 100 indirect modules.

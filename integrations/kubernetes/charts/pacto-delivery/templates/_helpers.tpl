@@ -107,3 +107,13 @@ every client (CLI, MCP server, dashboard) reads from the published ConfigMap.
 {{- $i := .Values.identities -}}
 {{- dict "agentGroups" $i.agentGroups "breakGlassGroups" $i.breakGlassGroups "teamGroupPrefix" $i.teamGroupPrefix "requireOwnerTeam" $i.requireOwnerTeam "humanGroups" ($i.humanGroups | default list) | toJson -}}
 {{- end }}
+
+{{/*
+The container image: repository:tag, pinned as repository:tag@digest when
+image.digest is set. The tag defaults to the chart appVersion.
+*/}}
+{{- define "pacto-delivery.image" -}}
+{{- $ref := printf "%s:%s" .Values.image.repository (.Values.image.tag | default .Chart.AppVersion) -}}
+{{- with .Values.image.digest }}{{ $ref = printf "%s@%s" $ref . }}{{ end -}}
+{{- $ref -}}
+{{- end }}

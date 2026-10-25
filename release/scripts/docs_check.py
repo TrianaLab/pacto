@@ -736,26 +736,66 @@ SUPPLY_CHAIN_DOC = os.path.join(REPO_ROOT, "docs", "installation.md")
 COORD = re.compile(r"ghcr\.io/[a-z0-9._/-]+")
 
 
+def expand_aliases(text: str) -> str:
+    """Inline YAML anchors textually: `key: *name` takes the lines `key: &name` owns.
+
+    release.yml shares one set of steps between the operator and delivery jobs
+    this way, so without it the delivery jobs would show no signing step.
+    """
+    lines = text.splitlines()
+    bodies = {}
+    for i, line in enumerate(lines):
+        m = re.match(r"^(\s*)[^\s#][^:]*: &([\w-]+)\s*$", line)
+        if not m:
+            continue
+        body = []
+        for b in lines[i + 1:]:
+            if b.strip() and len(b) - len(b.lstrip(" ")) <= len(m.group(1)):
+                break
+            body.append(b)
+        bodies[m.group(2)] = body
+    out = []
+    for line in lines:
+        m = re.match(r"^(\s*)([^\s#][^:]*): \*([\w-]+)\s*$", line)
+        if m and m.group(3) in bodies:
+            out.append(f"{m.group(1)}{m.group(2)}:")
+            out.extend(bodies[m.group(3)])
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def signed_coordinates() -> set[str]:
     """Coordinates the release workflow actually runs `cosign sign` against.
 
-    Signing targets are written as `${REF}` inside a job whose env sets `REF:`,
-    or as a bare literal. Track the last `REF:` seen and resolve on the way past
-    -- crude, but it is the same reading a human does, and it is grounded in the
-    workflow rather than in a second document repeating the claim.
+    Signing targets are written as `${REF}` inside a job whose env sets `REF:`
+    (itself often `${{ env.IMAGE_REPO }}:...`), as `$CHART_REPO`, or as a bare
+    literal. Track every upper-case env value seen in the current job and
+    resolve on the way past -- crude, but it is the same reading a human does,
+    and it is grounded in the workflow rather than in a second document
+    repeating the claim.
     """
-    ref = ""
+    env = {}
     found = set()
     # A signing command is routinely wrapped, and the coordinate is on the
     # continuation line. Collapse `\`-continuations before scanning.
-    text = re.sub(r"\\\n\s*", " ", read(RELEASE_YML))
+    text = re.sub(r"\\\n\s*", " ", expand_aliases(read(RELEASE_YML)))
+
+    def resolve(value: str) -> str:
+        for _ in range(3):
+            # Longest name first, so $CHART never eats the front of $CHART_REPO.
+            for k, v in sorted(env.items(), key=lambda kv: -len(kv[0])):
+                value = value.replace("${{ env.%s }}" % k, v).replace("${%s}" % k, v).replace("$" + k, v)
+        return value
+
     for line in text.splitlines():
-        m = re.match(r"\s*REF:\s*(\S+)", line)
+        if re.match(r"^  [\w-]+:\s*$", line):
+            env = {}  # a new job
+        m = re.match(r"\s*([A-Z][A-Z0-9_]*):\s*(\S.*?)\s*$", line)
         if m:
-            ref = m.group(1)
+            env[m.group(1)] = m.group(2)
         if "cosign sign" in line and not line.lstrip().startswith("#"):
-            target = line.replace("${REF}", ref).replace("$REF", ref)
-            found.update(COORD.findall(target))
+            found.update(COORD.findall(resolve(line)))
     # Drop the digest/tag suffix: the table names repositories, not releases.
     return {c.split(":")[0].split("@")[0] for c in found}
 

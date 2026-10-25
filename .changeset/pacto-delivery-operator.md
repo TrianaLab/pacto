@@ -96,6 +96,10 @@ version. Helm never updates a chart's CRDs: apply the
 delivery CRDs before every `helm upgrade pacto-delivery`. `make sync-crds`
 copies each API group into its own chart.
 
+**Both charts** gain `image.digest`: set it to a `sha256:` digest and the image
+is pulled as `tag@digest`, so the pod runs exactly that image whatever the tag
+later points at.
+
 **The `pacto-operator` chart** gains `dashboard.auth.oidc` (`issuerURL`,
 `clientID`, `clientSecretRef`, `redirectURL`, `extraScopes`),
 `dashboard.auth.required`, `dashboard.auth.deliveryNamespace` and

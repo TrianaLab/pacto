@@ -69,6 +69,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `evidence.service.type` | `ClusterIP` | Evidence exposure Service type (ClusterIP, NodePort, LoadBalancer). The operator manages an internal ClusterIP Service (pacto-evidence) for in-cluster access; this chart-managed Service provides optional external access and backs any Ingress/HTTPRoute. |
 | `evidence.trust.existingSecret` | `""` | Name of an existing Secret of trusted producer public keys, mounted read-only. Signature verification is mandatory, so this is required when evidence is enabled. |
 | `fullnameOverride` | `""` | Override the full release name |
+| `image.digest` | `""` | Pins the image by digest (sha256:...), appended to the tag as tag@digest so the runtime pulls exactly that image whatever the tag resolves to later |
 | `image.pullPolicy` | `IfNotPresent` | Image pull policy |
 | `image.repository` | `ghcr.io/trianalab/pacto/operator` | Controller image repository |
 | `image.tag` | `""` | Overrides the image tag (default is the chart appVersion) |

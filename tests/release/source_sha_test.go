@@ -19,11 +19,49 @@ import (
 // advances to B, workflow_dispatch runs from B with source_sha=A — with this gate
 // green, every job's checkout ref + every commit-bearing metadata value is A.
 
+// expandAliases inlines YAML anchors textually, so a job that reuses another
+// job's steps (`steps: *k8s-chart-steps`) carries their text in its block. An
+// anchor (`key: &name`) owns the following lines indented deeper than its own;
+// an alias line (`key: *name`) at the same indentation is replaced by them.
+func expandAliases(text string) string {
+	lines := strings.Split(text, "\n")
+	anchorRE := regexp.MustCompile(`^(\s*)[^\s#][^:]*: &([\w-]+)\s*$`)
+	aliasRE := regexp.MustCompile(`^(\s*)([^\s#][^:]*): \*([\w-]+)\s*$`)
+	bodies := map[string][]string{}
+	for i, l := range lines {
+		m := anchorRE.FindStringSubmatch(l)
+		if m == nil {
+			continue
+		}
+		var body []string
+		for _, b := range lines[i+1:] {
+			if strings.TrimSpace(b) != "" && len(b)-len(strings.TrimLeft(b, " ")) <= len(m[1]) {
+				break
+			}
+			body = append(body, b)
+		}
+		bodies[m[2]] = body
+	}
+	var out []string
+	for _, l := range lines {
+		if m := aliasRE.FindStringSubmatch(l); m != nil {
+			if body, ok := bodies[m[3]]; ok {
+				out = append(out, m[1]+m[2]+":")
+				out = append(out, body...)
+				continue
+			}
+		}
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n")
+}
+
 // jobsOf splits a workflow into top-level job blocks: name -> block text. A job
 // header is two-space-indented `  <name>:`; its block runs until the next header.
+// Anchored values reused by alias are expanded first (expandAliases).
 func jobsOf(t *testing.T, text string) map[string]string {
 	t.Helper()
-	lines := strings.Split(text, "\n")
+	lines := strings.Split(expandAliases(text), "\n")
 	header := regexp.MustCompile(`^  ([a-zA-Z0-9_-]+):\s*$`)
 	out := map[string]string{}
 	var cur string

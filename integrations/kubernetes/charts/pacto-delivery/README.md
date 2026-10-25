@@ -53,6 +53,7 @@ same version as your Pacto operator.
 | identities.humanGroups | list | `[]` | When set, only members of these groups count as people. Anyone in none of them is an agent, so an agent identity nobody enrolled in an agent group still cannot approve. Empty classifies by `agentGroups` alone. |
 | identities.requireOwnerTeam | bool | `true` | A held question whose service and consumers declare no owner team is answered by nobody, and only break-glass can override. Set false to let any person answer it, as before. |
 | identities.teamGroupPrefix | string | `""` | Only members of the teams a held question names may answer it. A contract owner team `T` is the identity-provider group `T`, or once this prefix is set only this prefix followed by `T` (for example `acme:`). A `system:` group is never a team. |
+| image.digest | string | `""` | Pins the image by digest (sha256:...), appended to the tag as tag@digest so the runtime pulls exactly that image whatever the tag resolves to later |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
 | image.repository | string | `"ghcr.io/trianalab/pacto/delivery"` | Promoter image repository (the pacto-delivery image) |
 | image.tag | string | `""` | Overrides the image tag (default is the chart appVersion) |

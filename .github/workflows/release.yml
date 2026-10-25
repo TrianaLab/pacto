@@ -643,6 +643,15 @@ jobs:
           SRC: ${{ needs.detect.outputs.source_sha }}
         run: bash release/orchestrator/publish-go-tag.sh "$TAG" "$SRC"
 
+  # The operator and pacto-delivery images and charts publish through ONE set of
+  # steps each, shared with YAML anchors: the operator job defines the steps
+  # (&k8s-image-build-steps, &k8s-image-merge-steps, &k8s-chart-steps) and the
+  # delivery job reuses them (*...). Only the job-level env differs (UNIT,
+  # IMAGE_REPO, IMAGE_TITLE, BUILD_ARGS, CHART, CHART_REPO, ARTIFACTHUB), so a
+  # release-incident fix lands once. The jobs stay separate because each is its
+  # own transaction unit with its own gate and needs. GitHub Actions resolves
+  # anchors and aliases but not merge keys (<<:), so only whole values are shared.
+
   # Per-arch NATIVE build of the operator image, pushed by digest; the operator-image
   # job below merges these children into the published multi-arch index.
   # Each arch builds on its own native runner (no QEMU) with the root context so the
@@ -655,7 +664,7 @@ jobs:
     if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'operator-image')
     permissions:
       packages: write
-    strategy:
+    strategy: &k8s-image-arches
       fail-fast: false
       matrix:
         include:
@@ -666,7 +675,13 @@ jobs:
             runner: ubuntu-24.04-arm
             arch: arm64
     runs-on: ${{ matrix.runner }}
-    steps:
+    timeout-minutes: 60
+    env:
+      UNIT: operator-image
+      IMAGE_REPO: ghcr.io/trianalab/pacto/operator
+      IMAGE_TITLE: pacto-controller
+      BUILD_ARGS: --build-arg DASHBOARD_IMAGE=ghcr.io/trianalab/pacto/dashboard:${{ needs.detect.outputs.core_version }}
+    steps: &k8s-image-build-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.detect.outputs.source_sha }}
@@ -684,7 +699,7 @@ jobs:
           # cache save can never fail the build; ignore-error keeps export non-fatal too.
           avail="$(df -Pm / 2>/dev/null | awk 'NR==2{print $4}')"
           if [ -n "$avail" ] && [ "$avail" -ge 14336 ]; then
-            echo "flags=--cache-from type=gha,scope=operator-${{ matrix.arch }} --cache-to type=gha,mode=max,ignore-error=true,scope=operator-${{ matrix.arch }}" >> "$GITHUB_OUTPUT"
+            echo "flags=--cache-from type=gha,scope=$UNIT-${{ matrix.arch }} --cache-to type=gha,mode=max,ignore-error=true,scope=$UNIT-${{ matrix.arch }}" >> "$GITHUB_OUTPUT"
           else
             echo "::warning::buildx layer cache skipped — only ${avail:-unknown} MB free on /."
             echo "flags=" >> "$GITHUB_OUTPUT"
@@ -693,25 +708,28 @@ jobs:
         env:
           VER: ${{ needs.detect.outputs.k8s_version }}
           SRC: ${{ needs.detect.outputs.source_sha }}
-          DASH: ghcr.io/trianalab/pacto/dashboard:${{ needs.detect.outputs.core_version }}
         run: |
+          # BUILD_ARGS is word-split on purpose: it holds whole flags with no spaces
+          # inside a value (the delivery target and CMD, the operator's dashboard image).
+          # shellcheck disable=SC2086
           docker buildx build --platform ${{ matrix.platform }} \
             --file integrations/kubernetes/Dockerfile \
+            $BUILD_ARGS \
             --build-arg "VERSION=v$VER" --build-arg "GIT_COMMIT=$SRC" \
-            --build-arg "DASHBOARD_IMAGE=$DASH" --build-arg RELEASE_BUILD=1 \
-            --label org.opencontainers.image.title=pacto-controller \
+            --build-arg RELEASE_BUILD=1 \
+            --label "org.opencontainers.image.title=$IMAGE_TITLE" \
             --label "org.opencontainers.image.version=$VER" \
             --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
             --label "org.opencontainers.image.revision=$SRC" \
             ${{ steps.cache.outputs.flags }} \
-            --output type=image,name=ghcr.io/trianalab/pacto/operator,push-by-digest=true,push=true \
+            --output "type=image,name=$IMAGE_REPO,push-by-digest=true,push=true" \
             --metadata-file /tmp/meta.json .
           mkdir -p /tmp/digests
           d="$(jq -r '."containerimage.digest"' /tmp/meta.json)"
           touch "/tmp/digests/${d#sha256:}"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: operator-digests-${{ matrix.arch }}
+          name: ${{ env.UNIT }}-digests-${{ matrix.arch }}
           path: /tmp/digests/*
           retention-days: 1
           if-no-files-found: error
@@ -724,6 +742,7 @@ jobs:
     needs: [detect, core-ready, ledger-init, operator-image-build]
     if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'operator-image')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       packages: write
       id-token: write
@@ -731,7 +750,10 @@ jobs:
       PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
       PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
       PACTO_ALLOW_PROD: '1'
-    steps:
+      UNIT: operator-image
+      IMAGE_REPO: ghcr.io/trianalab/pacto/operator
+      IMAGE_TITLE: pacto-controller
+    steps: &k8s-image-merge-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.detect.outputs.source_sha }}
@@ -750,12 +772,12 @@ jobs:
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
-          pattern: operator-digests-*
+          pattern: ${{ env.UNIT }}-digests-*
           merge-multiple: true
           path: /tmp/digests
       - name: Merge the per-arch children + sign (shared adapter)
         env:
-          REF: ghcr.io/trianalab/pacto/operator:${{ needs.detect.outputs.k8s_version }}
+          REF: ${{ env.IMAGE_REPO }}:${{ needs.detect.outputs.k8s_version }}
           VER: ${{ needs.detect.outputs.k8s_version }}
           SRC: ${{ needs.detect.outputs.source_sha }}
           PACTO_EXPECT_REVISION: ${{ needs.detect.outputs.source_sha }}
@@ -765,13 +787,13 @@ jobs:
           # -> record). `imagetools create` assembles the index from the pushed-by-digest
           # children; the adapter records the INDEX digest. index: annotations carry the
           # provenance verify-oci.sh adopt reads on a crash-window resume (each child also
-          # carries the same --label provenance). Operator + chart use cosign's legacy
+          # carries the same --label provenance). Images + charts use cosign's legacy
           # bundle format (Artifact Hub indexes the .sig tag). Sign only on publish/adopt.
           refs=""
-          for d in /tmp/digests/*; do refs="$refs ghcr.io/trianalab/pacto/operator@sha256:$(basename "$d")"; done
-          out="$(bash release/orchestrator/publish-oci-unit.sh operator-image "$REF" "$VER" -- \
+          for d in /tmp/digests/*; do refs="$refs $IMAGE_REPO@sha256:$(basename "$d")"; done
+          out="$(bash release/orchestrator/publish-oci-unit.sh "$UNIT" "$REF" "$VER" -- \
             docker buildx imagetools create \
-              --annotation index:org.opencontainers.image.title=pacto-controller \
+              --annotation "index:org.opencontainers.image.title=$IMAGE_TITLE" \
               --annotation "index:org.opencontainers.image.version=$VER" \
               --annotation "index:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
               --annotation "index:org.opencontainers.image.revision=$SRC" \
@@ -782,74 +804,22 @@ jobs:
               cosign sign --yes --new-bundle-format=false --use-signing-config=false "${REF}@$(crane digest "$REF")" ;;
           esac
 
-  # Per-arch NATIVE build of the opt-in delivery promoter image. Same Dockerfile,
-  # same standalone release build and same per-arch runners as operator-image-build;
-  # only CMD (the entrypoint package) and the coordinate differ. The delivery-image
-  # MERGE job assembles the multi-arch index from these children.
+  # Per-arch NATIVE build of the opt-in delivery promoter image: the operator-image-build
+  # steps, with the delivery target, CMD and coordinate in env.
   delivery-image-build:
     needs: [detect, core-ready, ledger-init]
     if: needs.detect.outputs.release == 'true' && contains(fromJSON(needs.detect.outputs.units_json), 'delivery-image')
     permissions:
       packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: linux/amd64
-            runner: ubuntu-latest
-            arch: amd64
-          - platform: linux/arm64
-            runner: ubuntu-24.04-arm
-            arch: arm64
+    strategy: *k8s-image-arches
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.detect.outputs.source_sha }}
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Log in to GHCR
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Disk-guarded buildx layer cache flags
-        id: cache
-        run: |
-          avail="$(df -Pm / 2>/dev/null | awk 'NR==2{print $4}')"
-          if [ -n "$avail" ] && [ "$avail" -ge 14336 ]; then
-            echo "flags=--cache-from type=gha,scope=delivery-${{ matrix.arch }} --cache-to type=gha,mode=max,ignore-error=true,scope=delivery-${{ matrix.arch }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "::warning::buildx layer cache skipped — only ${avail:-unknown} MB free on /."
-            echo "flags=" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Build + push by digest (native ${{ matrix.arch }})
-        env:
-          VER: ${{ needs.detect.outputs.k8s_version }}
-          SRC: ${{ needs.detect.outputs.source_sha }}
-        run: |
-          docker buildx build --platform ${{ matrix.platform }} \
-            --file integrations/kubernetes/Dockerfile \
-            --target delivery --build-arg CMD=cmd/delivery \
-            --build-arg "VERSION=v$VER" --build-arg "GIT_COMMIT=$SRC" \
-            --build-arg RELEASE_BUILD=1 \
-            --label org.opencontainers.image.title=pacto-delivery \
-            --label "org.opencontainers.image.version=$VER" \
-            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
-            --label "org.opencontainers.image.revision=$SRC" \
-            ${{ steps.cache.outputs.flags }} \
-            --output type=image,name=ghcr.io/trianalab/pacto/delivery,push-by-digest=true,push=true \
-            --metadata-file /tmp/meta.json .
-          mkdir -p /tmp/digests
-          d="$(jq -r '."containerimage.digest"' /tmp/meta.json)"
-          touch "/tmp/digests/${d#sha256:}"
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        with:
-          name: delivery-digests-${{ matrix.arch }}
-          path: /tmp/digests/*
-          retention-days: 1
-          if-no-files-found: error
+    env:
+      UNIT: delivery-image
+      IMAGE_REPO: ghcr.io/trianalab/pacto/delivery
+      IMAGE_TITLE: pacto-delivery
+      BUILD_ARGS: --target delivery --build-arg CMD=cmd/delivery
+    steps: *k8s-image-build-steps
 
   # pacto-publishes: delivery-image (MERGE the per-arch children into the index)
   delivery-image:
@@ -864,53 +834,10 @@ jobs:
       PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
       PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
       PACTO_ALLOW_PROD: '1'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.detect.outputs.source_sha }}
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Log in to GHCR
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Install crane
-        uses: ./.github/actions/setup-crane
-      - name: Install ORAS
-        uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
-        with:
-          pattern: delivery-digests-*
-          merge-multiple: true
-          path: /tmp/digests
-      - name: Merge the per-arch children + sign (shared adapter)
-        env:
-          REF: ghcr.io/trianalab/pacto/delivery:${{ needs.detect.outputs.k8s_version }}
-          VER: ${{ needs.detect.outputs.k8s_version }}
-          SRC: ${{ needs.detect.outputs.source_sha }}
-          PACTO_EXPECT_REVISION: ${{ needs.detect.outputs.source_sha }}
-          PACTO_EXPECT_VERSION: ${{ needs.detect.outputs.k8s_version }}
-        run: |
-          # Exactly the operator-image merge: shared adapter, INDEX digest recorded,
-          # index: annotations for crash-window adoption, legacy cosign bundle format
-          # so Artifact Hub indexes the .sig tag. Sign only on publish/adopt.
-          refs=""
-          for d in /tmp/digests/*; do refs="$refs ghcr.io/trianalab/pacto/delivery@sha256:$(basename "$d")"; done
-          out="$(bash release/orchestrator/publish-oci-unit.sh delivery-image "$REF" "$VER" -- \
-            docker buildx imagetools create \
-              --annotation index:org.opencontainers.image.title=pacto-delivery \
-              --annotation "index:org.opencontainers.image.version=$VER" \
-              --annotation "index:org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
-              --annotation "index:org.opencontainers.image.revision=$SRC" \
-              -t "$REF"$refs)"
-          echo "$out"
-          case "$out" in
-            *"published + recorded"*|*"adopt"*)
-              cosign sign --yes --new-bundle-format=false --use-signing-config=false "${REF}@$(crane digest "$REF")" ;;
-          esac
+      UNIT: delivery-image
+      IMAGE_REPO: ghcr.io/trianalab/pacto/delivery
+      IMAGE_TITLE: pacto-delivery
+    steps: *k8s-image-merge-steps
 
   # pacto-publishes: operator-chart
   # operator-image is a sequencing dependency, not a required one: the chart is
@@ -930,6 +857,7 @@ jobs:
       contains(fromJSON(needs.detect.outputs.units_json), 'operator-chart') &&
       !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       packages: write
       id-token: write
@@ -940,7 +868,11 @@ jobs:
       PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
       PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
       PACTO_ALLOW_PROD: '1'
-    steps:
+      UNIT: operator-chart
+      CHART: pacto-operator
+      CHART_REPO: ghcr.io/trianalab/pacto/charts/pacto-operator
+      ARTIFACTHUB: artifacthub-repo.yml
+    steps: &k8s-chart-steps
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.detect.outputs.source_sha }}
@@ -964,13 +896,13 @@ jobs:
         id: v
         working-directory: .
         run: |
-          want="$(bash release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" operator-chart)"
+          want="$(bash release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" "$UNIT")"
           # Pass the source revision + version so a push-before-record crash is
           # recoverable: on resume verify-oci.sh returns `adopt` when the already-pushed
           # chart's manifest provenance (org.opencontainers.image.revision/version)
           # matches this transaction, instead of failing closed on the un-recorded tag.
           state="$(bash release/orchestrator/verify-oci.sh \
-            "ghcr.io/trianalab/pacto/charts/pacto-operator:${{ needs.detect.outputs.k8s_version }}" \
+            "$CHART_REPO:${{ needs.detect.outputs.k8s_version }}" \
             "$want" "${{ needs.detect.outputs.source_sha }}" "${{ needs.detect.outputs.k8s_version }}")"
           echo "state=$state" >> "$GITHUB_OUTPUT"
       # Item 8: the IMMUTABLE chart and the MUTABLE Artifact Hub alias are separate
@@ -986,19 +918,19 @@ jobs:
           # Chart.yaml annotations) so a resumed run can adopt it by provenance after a
           # push-before-record crash. Inject into a copy to keep the working tree clean;
           # helm already stamps org.opencontainers.image.version from the chart version.
-          cp -r charts/pacto-operator /tmp/pacto-operator-chart
-          SHA="$SOURCE_SHA" yq -i '.annotations."org.opencontainers.image.revision" = strenv(SHA)' /tmp/pacto-operator-chart/Chart.yaml
-          helm package /tmp/pacto-operator-chart
-          out=$(helm push "pacto-operator-${VERSION}.tgz" oci://ghcr.io/trianalab/pacto/charts 2>&1)
+          cp -r "charts/$CHART" "/tmp/$CHART-chart"
+          SHA="$SOURCE_SHA" yq -i '.annotations."org.opencontainers.image.revision" = strenv(SHA)' "/tmp/$CHART-chart/Chart.yaml"
+          helm package "/tmp/$CHART-chart"
+          out=$(helm push "$CHART-${VERSION}.tgz" oci://ghcr.io/trianalab/pacto/charts 2>&1)
           echo "$out"
           digest=$(echo "$out" | grep -oE 'sha256:[a-f0-9]+')
           [ -n "$digest" ] || { echo "::error::no chart digest from helm push"; exit 1; }
           # Record the immutable chart digest NOW, before the mutable metadata step,
           # so an Artifact Hub failure can never leave a published-but-unrecorded chart.
           bash "$GITHUB_WORKSPACE/release/orchestrator/ledger.sh" record "$PACTO_RELEASE_TXN" \
-            operator-chart "ghcr.io/trianalab/pacto/charts/pacto-operator" "$VERSION" "$digest" complete
+            "$UNIT" "$CHART_REPO" "$VERSION" "$digest" complete
           cosign sign --yes --new-bundle-format=false --use-signing-config=false \
-            "ghcr.io/trianalab/pacto/charts/pacto-operator:${VERSION}@${digest}"
+            "$CHART_REPO:${VERSION}@${digest}"
       # Crash recovery: a prior run pushed this exact chart (provenance verified by
       # verify-oci.sh) but died before recording. Record its digest and sign — never
       # re-push the immutable tag.
@@ -1007,12 +939,12 @@ jobs:
         env:
           VERSION: ${{ needs.detect.outputs.k8s_version }}
         run: |
-          digest=$(crane digest "ghcr.io/trianalab/pacto/charts/pacto-operator:${VERSION}")
+          digest=$(crane digest "$CHART_REPO:${VERSION}")
           [ -n "$digest" ] || { echo "::error::no chart digest to adopt"; exit 1; }
           bash "$GITHUB_WORKSPACE/release/orchestrator/ledger.sh" record "$PACTO_RELEASE_TXN" \
-            operator-chart "ghcr.io/trianalab/pacto/charts/pacto-operator" "$VERSION" "$digest" complete
+            "$UNIT" "$CHART_REPO" "$VERSION" "$digest" complete
           cosign sign --yes --new-bundle-format=false --use-signing-config=false \
-            "ghcr.io/trianalab/pacto/charts/pacto-operator:${VERSION}@${digest}"
+            "$CHART_REPO:${VERSION}@${digest}"
       # The artifacthub.io tag is an intentional MUTABLE repo-level alias (NOT an
       # immutable SemVer chart version): Artifact Hub reads repository ownership from
       # this one well-known tag, so re-pushing + round-tripping the SAME metadata is
@@ -1022,15 +954,15 @@ jobs:
       - name: Publish + verify Artifact Hub metadata (mutable alias)
         if: steps.v.outputs.state == 'absent' || steps.v.outputs.state == 'identical' || steps.v.outputs.state == 'adopt'
         run: |
-          oras push ghcr.io/trianalab/pacto/charts/pacto-operator:artifacthub.io \
+          oras push "$CHART_REPO:artifacthub.io" \
             --config /dev/null:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml \
-            artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
+            "$ARTIFACTHUB:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml"
           bash "$GITHUB_WORKSPACE/release/orchestrator/verify-artifacthub.sh" \
-            ghcr.io/trianalab/pacto/charts/pacto-operator:artifacthub.io \
-            artifacthub-repo.yml
+            "$CHART_REPO:artifacthub.io" \
+            "$ARTIFACTHUB"
 
   # pacto-publishes: delivery-chart
-  # The opt-in delivery chart, published exactly as operator-chart is: after the
+  # The opt-in delivery chart, published with the operator-chart steps: after the
   # image it points at (a sequencing dependency, hence always() plus the
   # failure/cancelled guards, so a narrowed recovery of the chart alone still runs),
   # revision-stamped for crash-window adoption, recorded before it is signed, and
@@ -1053,94 +985,11 @@ jobs:
       PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
       PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
       PACTO_ALLOW_PROD: '1'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.detect.outputs.source_sha }}
-      - name: Install Helm
-        uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-      - name: Install ORAS
-        uses: oras-project/setup-oras@005458ad77f1c8facd38a094e4af2e69e5607ff4 # v2
-      - name: Install crane
-        uses: ./.github/actions/setup-crane
-      - name: Log in to GHCR (Helm)
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | helm registry login ghcr.io --username ${{ github.actor }} --password-stdin
-      - name: Log in to GHCR (Cosign/ORAS)
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Verify against the ledger (fail-closed on a conflicting digest)
-        id: v
-        working-directory: .
-        run: |
-          want="$(bash release/orchestrator/ledger.sh digest "$PACTO_RELEASE_TXN" delivery-chart)"
-          # Pass the source revision + version so a push-before-record crash is
-          # recoverable: on resume verify-oci.sh returns `adopt` when the already-pushed
-          # chart's manifest provenance (org.opencontainers.image.revision/version)
-          # matches this transaction, instead of failing closed on the un-recorded tag.
-          state="$(bash release/orchestrator/verify-oci.sh \
-            "ghcr.io/trianalab/pacto/charts/pacto-delivery:${{ needs.detect.outputs.k8s_version }}" \
-            "$want" "${{ needs.detect.outputs.source_sha }}" "${{ needs.detect.outputs.k8s_version }}")"
-          echo "state=$state" >> "$GITHUB_OUTPUT"
-      # Item 8: the IMMUTABLE chart and the MUTABLE Artifact Hub alias are separate
-      # publication results. Package + push + RECORD the chart digest immediately
-      # (record right after push closes the push-before-record window), then sign.
-      - name: Package + push + record the immutable chart, then sign
-        if: steps.v.outputs.state == 'absent'
-        env:
-          VERSION: ${{ needs.detect.outputs.k8s_version }}
-          SOURCE_SHA: ${{ needs.detect.outputs.source_sha }}
-        run: |
-          # Stamp the source revision onto the chart's OCI manifest (helm propagates
-          # Chart.yaml annotations) so a resumed run can adopt it by provenance after a
-          # push-before-record crash. Inject into a copy to keep the working tree clean;
-          # helm already stamps org.opencontainers.image.version from the chart version.
-          cp -r charts/pacto-delivery /tmp/pacto-delivery-chart
-          SHA="$SOURCE_SHA" yq -i '.annotations."org.opencontainers.image.revision" = strenv(SHA)' /tmp/pacto-delivery-chart/Chart.yaml
-          helm package /tmp/pacto-delivery-chart
-          out=$(helm push "pacto-delivery-${VERSION}.tgz" oci://ghcr.io/trianalab/pacto/charts 2>&1)
-          echo "$out"
-          digest=$(echo "$out" | grep -oE 'sha256:[a-f0-9]+')
-          [ -n "$digest" ] || { echo "::error::no chart digest from helm push"; exit 1; }
-          # Record the immutable chart digest NOW, before the mutable metadata step,
-          # so an Artifact Hub failure can never leave a published-but-unrecorded chart.
-          bash "$GITHUB_WORKSPACE/release/orchestrator/ledger.sh" record "$PACTO_RELEASE_TXN" \
-            delivery-chart "ghcr.io/trianalab/pacto/charts/pacto-delivery" "$VERSION" "$digest" complete
-          cosign sign --yes --new-bundle-format=false --use-signing-config=false \
-            "ghcr.io/trianalab/pacto/charts/pacto-delivery:${VERSION}@${digest}"
-      # Crash recovery: a prior run pushed this exact chart (provenance verified by
-      # verify-oci.sh) but died before recording. Record its digest and sign — never
-      # re-push the immutable tag.
-      - name: Adopt an already-published chart from an interrupted run
-        if: steps.v.outputs.state == 'adopt'
-        env:
-          VERSION: ${{ needs.detect.outputs.k8s_version }}
-        run: |
-          digest=$(crane digest "ghcr.io/trianalab/pacto/charts/pacto-delivery:${VERSION}")
-          [ -n "$digest" ] || { echo "::error::no chart digest to adopt"; exit 1; }
-          bash "$GITHUB_WORKSPACE/release/orchestrator/ledger.sh" record "$PACTO_RELEASE_TXN" \
-            delivery-chart "ghcr.io/trianalab/pacto/charts/pacto-delivery" "$VERSION" "$digest" complete
-          cosign sign --yes --new-bundle-format=false --use-signing-config=false \
-            "ghcr.io/trianalab/pacto/charts/pacto-delivery:${VERSION}@${digest}"
-      # The artifacthub.io tag is an intentional MUTABLE repo-level alias (NOT an
-      # immutable SemVer chart version): Artifact Hub reads repository ownership from
-      # this one well-known tag, so re-pushing + round-tripping the SAME metadata is
-      # expected to match byte-for-byte. Runs on absent OR identical, so a clean
-      # resume still refreshes + verifies the alias; a failure here never wedges the
-      # already-recorded immutable chart.
-      - name: Publish + verify Artifact Hub metadata (mutable alias)
-        if: steps.v.outputs.state == 'absent' || steps.v.outputs.state == 'identical' || steps.v.outputs.state == 'adopt'
-        run: |
-          oras push ghcr.io/trianalab/pacto/charts/pacto-delivery:artifacthub.io \
-            --config /dev/null:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml \
-            artifacthub-repo-delivery.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
-          bash "$GITHUB_WORKSPACE/release/orchestrator/verify-artifacthub.sh" \
-            ghcr.io/trianalab/pacto/charts/pacto-delivery:artifacthub.io \
-            artifacthub-repo-delivery.yml
+      UNIT: delivery-chart
+      CHART: pacto-delivery
+      CHART_REPO: ghcr.io/trianalab/pacto/charts/pacto-delivery
+      ARTIFACTHUB: artifacthub-repo-delivery.yml
+    steps: *k8s-chart-steps
 
   # pacto-publishes: k8s-docs
   # The versioned docs site. A transaction unit (not an independent trigger): it
