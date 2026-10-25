@@ -602,6 +602,19 @@ spec:
                             type: string
                         type: object
                     type: object
+                  records:
+                    description: |-
+                      RecordsPolicy says whether automation may move the Stage while its records
+                      cannot be written.
+                    properties:
+                      required:
+                        description: |-
+                          Required holds every promote or rollback an agent or the promoter
+                          raises for a person to approve while the recorder is not writing this
+                          Stage's records (RecordStoreReady is not True) or more than five of
+                          its operations wait for a record (MaxRecordsPending).
+                        type: boolean
+                    type: object
                   service:
                     description: |-
                       ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified

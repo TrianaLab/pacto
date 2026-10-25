@@ -351,3 +351,46 @@ func TestPublishedGate(t *testing.T) {
 		}
 	}
 }
+
+// TestRecordsRequired: a Stage that requires records holds every promote or
+// rollback automation raises for a person while records are not written, and
+// lets people, freezes and a recorder that keeps up through.
+func TestRecordsRequired(t *testing.T) {
+	ready := func(status string) []Condition {
+		return []Condition{{Type: ConditionRecordStoreReady, Status: status, Reason: "RegistryUnavailable", Message: "down"}}
+	}
+	rb := OperationSpec{Type: TypeRollback, Facet: FacetPointer, Params: Params{From: dA, To: dB}}
+	freeze := OperationSpec{Type: TypeFreeze, Facet: FacetFreeze, Params: Params{From: dA}}
+	st := stageSpec()
+	st.Records.Required = true
+	for _, c := range []struct {
+		name   string
+		spec   OperationSpec
+		stage  StageSpec
+		status StageStatus
+		class  ActorClass
+		held   string
+	}{
+		{"no recorder report", rb, st, StageStatus{Pointer: dA}, ClassController, "has not reported"},
+		{"recorder down", rb, st, StageStatus{Pointer: dA, Conditions: ready("False")}, ClassAgent, "RegistryUnavailable: down"},
+		{"backlog", rb, st, StageStatus{Pointer: dA, Conditions: ready("True"), Stream: Stream{Seq: 9, RecordedSeq: 3}}, ClassAgent, "6 operations wait"},
+		{"keeping up", rb, st, StageStatus{Pointer: dA, Conditions: ready("True"), Stream: Stream{Seq: 8, RecordedSeq: 3}}, ClassAgent, ""},
+		{"a person", rb, st, StageStatus{Pointer: dA}, ClassHuman, ""},
+		{"a freeze", freeze, st, StageStatus{Pointer: dA}, ClassController, ""},
+		{"not required", rb, stageSpec(), StageStatus{Pointer: dA}, ClassAgent, ""},
+	} {
+		p := PlanFor(context.Background(), PlanInput{Spec: c.spec, Stage: c.stage, Status: c.status, Class: c.class})
+		switch {
+		case c.held == "" && p.Predicted != PredictProceeds:
+			t.Errorf("%s: %+v", c.name, p)
+		case c.held != "" && (p.Predicted != PredictHeld || p.Floor.Decision != Approve || !strings.Contains(p.Question, c.held)):
+			t.Errorf("%s: %+v", c.name, p)
+		}
+	}
+	// A promote that already asks a person keeps its own question.
+	st.Approval.Always = true
+	p := PlanFor(context.Background(), PlanInput{Spec: promote(dA, dB), Stage: st, Status: StageStatus{Pointer: dA, Published: []string{dB}}, Class: ClassAgent})
+	if p.Predicted == PredictHeld && strings.Contains(p.Question, "requires records") {
+		t.Errorf("records replaced the promote's own question: %+v", p)
+	}
+}

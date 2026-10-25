@@ -74,6 +74,26 @@ Pacto never resolves a `StreamConflict` for you. Find the bad record with
 repository, wait for `RecordStoreReady` to turn `True`, then unfreeze. After an
 etcd restore the recorder continues from the newest record, never forking.
 
+## Require records
+
+By default automation keeps moving a Stage while the recorder cannot write,
+and the records catch up later. To stop that, set `records.required` on the
+Stage:
+
+```yaml
+spec:
+  records:
+    required: true
+```
+
+Then every promote or rollback an agent or the promoter raises waits for a
+person to approve it while `RecordStoreReady` is not `True`, or while more than
+five of the Stage's operations wait for a record. People, break-glass and
+freezes are not held. With `recorder.monitoring.enabled`, the chart scrapes the
+recorder and ships a `PrometheusRule`. `PactoDeliveryRecordsPending` fires when
+a stream has waited 15 minutes for a record, and `PactoDeliveryRecorderDown`
+when no recorder answers a scrape.
+
 ## Trust and key rotation
 
 Readers and the recorder check every signature against a trust config. To

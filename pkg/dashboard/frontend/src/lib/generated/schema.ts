@@ -1263,6 +1263,9 @@ export interface components {
             /** Format: int64 */
             seq: number;
         };
+        "Delivery.RecordsPolicy": {
+            required?: boolean;
+        };
         "Delivery.RemoteStage": {
             repository: string;
             stream: string;
@@ -1306,6 +1309,7 @@ export interface components {
             deadlines?: components["schemas"]["Delivery.Deadlines"];
             environment: string;
             gates?: components["schemas"]["Delivery.Gates"];
+            records?: components["schemas"]["Delivery.RecordsPolicy"];
             service: components["schemas"]["Delivery.ServiceRef"];
         };
         "Delivery.Times": {

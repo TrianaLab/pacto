@@ -2,6 +2,7 @@ suite: recorder tests
 templates:
   - templates/recorder.yaml
   - templates/deployment.yaml
+  - templates/monitoring.yaml
 release:
   name: d
   namespace: pacto-delivery
@@ -257,3 +258,40 @@ tests:
           path: spec.template.spec.volumes
           content: {name: trust, configMap: {name: d-pacto-delivery-recorder-trust}}
         documentSelector: {path: kind, value: Deployment}
+
+  - it: ships no monitoring unless asked
+    template: templates/monitoring.yaml
+    set:
+      recorder.enabled: true
+      recorder.streamsRepository: registry.example/pacto/streams
+      recorder.signing.ed25519.secretName: recorder-key
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: scrapes the recorder and alerts when records fall behind
+    template: templates/monitoring.yaml
+    set:
+      recorder.enabled: true
+      recorder.streamsRepository: registry.example/pacto/streams
+      recorder.signing.ed25519.secretName: recorder-key
+      recorder.monitoring.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 3
+      - equal:
+          path: spec.ports[0].targetPort
+          value: metrics
+        documentSelector: {path: kind, value: Service}
+      - equal:
+          path: spec.endpoints[0].port
+          value: metrics
+        documentSelector: {path: kind, value: ServiceMonitor}
+      - equal:
+          path: spec.groups[0].rules[0].expr
+          value: max by (stream) (pacto_delivery_records_pending) > 0
+        documentSelector: {path: kind, value: PrometheusRule}
+      - equal:
+          path: spec.groups[0].rules[1].expr
+          value: absent(up{job="d-pacto-delivery-recorder-metrics"} == 1)
+        documentSelector: {path: kind, value: PrometheusRule}

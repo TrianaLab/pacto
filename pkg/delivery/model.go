@@ -205,6 +205,17 @@ type Deadlines struct {
 	Execution string `json:"execution,omitempty"`
 }
 
+// RecordsPolicy says whether automation may move the Stage while its records
+// cannot be written.
+type RecordsPolicy struct {
+	// Required holds every promote or rollback an agent or the promoter
+	// raises for a person to approve while the recorder is not writing this
+	// Stage's records (RecordStoreReady is not True) or more than five of
+	// its operations wait for a record (MaxRecordsPending).
+	// +optional
+	Required bool `json:"required,omitempty"`
+}
+
 // StageSpec is one service in one environment.
 type StageSpec struct {
 	Service     ServiceRef `json:"service"`
@@ -224,6 +235,8 @@ type StageSpec struct {
 	Approval ApprovalPolicy `json:"approval,omitzero"`
 	// +optional
 	Deadlines Deadlines `json:"deadlines,omitzero"`
+	// +optional
+	Records RecordsPolicy `json:"records,omitzero"`
 }
 
 // Stream numbers a Stage's concluded operations.

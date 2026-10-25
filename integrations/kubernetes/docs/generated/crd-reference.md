@@ -184,6 +184,8 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.policy.gates.verify.checks[].provider` | `string` | yes |  |  | Provider is a gate provider configured in the delivery chart, or pacto.runtime. A Stage cannot name a URL: providers are operator configuration. |
 | `status.policy.gates.verify.recheck` | `string` | no |  |  | Recheck is how often the verify gates run again on the version the Stage runs once it shipped (a Go duration, default 1m). A confirmed Fail rolls it back; Unknown never does. |
 | `status.policy.gates.verify.window` | `string` | no |  |  | Window is how long the verify gates may stay Unknown before the operation is held for a human (a Go duration, default 5m). Re-checks after release judge the same length of time. |
+| `status.policy.records` | `object` | no |  |  | RecordsPolicy says whether automation may move the Stage while its records cannot be written. |
+| `status.policy.records.required` | `boolean` | no |  |  | Required holds every promote or rollback an agent or the promoter raises for a person to approve while the recorder is not writing this Stage's records (RecordStoreReady is not True) or more than five of its operations wait for a record (MaxRecordsPending). |
 | `status.policy.service` | `object` | yes |  |  | ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified service name its contracts declare. |
 | `status.policy.service.domain` | `string` | no |  |  | Domain is the registry and organisation scope (empty for the default). |
 | `status.policy.service.name` | `string` | yes |  |  | Name is the contract's service.name. |
@@ -266,6 +268,8 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.gates.verify.checks[].provider` | `string` | yes |  |  | Provider is a gate provider configured in the delivery chart, or pacto.runtime. A Stage cannot name a URL: providers are operator configuration. |
 | `spec.gates.verify.recheck` | `string` | no |  |  | Recheck is how often the verify gates run again on the version the Stage runs once it shipped (a Go duration, default 1m). A confirmed Fail rolls it back; Unknown never does. |
 | `spec.gates.verify.window` | `string` | no |  |  | Window is how long the verify gates may stay Unknown before the operation is held for a human (a Go duration, default 5m). Re-checks after release judge the same length of time. |
+| `spec.records` | `object` | no |  |  | RecordsPolicy says whether automation may move the Stage while its records cannot be written. |
+| `spec.records.required` | `boolean` | no |  |  | Required holds every promote or rollback an agent or the promoter raises for a person to approve while the recorder is not writing this Stage's records (RecordStoreReady is not True) or more than five of its operations wait for a record (MaxRecordsPending). |
 | `spec.service` | `object` | yes |  |  | ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified service name its contracts declare. |
 | `spec.service.domain` | `string` | no |  |  | Domain is the registry and organisation scope (empty for the default). |
 | `spec.service.name` | `string` | yes |  |  | Name is the contract's service.name. |

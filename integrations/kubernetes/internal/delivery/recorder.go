@@ -33,7 +33,7 @@ import (
 )
 
 // ConditionRecordStoreReady is the recorder's Stage condition.
-const ConditionRecordStoreReady = "RecordStoreReady"
+const ConditionRecordStoreReady = delivery.ConditionRecordStoreReady
 
 // statusFalse is a condition status.
 const statusFalse = "False"
