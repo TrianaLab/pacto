@@ -258,11 +258,12 @@ func TestInit_PactifiedContractPublishes(t *testing.T) {
 	if !slices.Contains(res.Found, "registry "+host+"/story, from the image "+host+"/story/images/fraud:1.0.0") {
 		t.Fatalf("found: %v", res.Found)
 	}
+	keyFiles(t, dir) // init's .pactoignore keeps it out of the bundle
 	pub, err := svc.Publish(context.Background(), PublishOptions{Path: dir, Plan: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !pub.Plan.Ready || pub.Plan.Missing != 3 || len(f.calls) != 0 {
+	if !pub.Plan.Ready || pub.Plan.Missing != 3 || !slices.Equal(f.calls, preflights) {
 		t.Fatalf("publish plan: %+v", pub.Plan)
 	}
 }

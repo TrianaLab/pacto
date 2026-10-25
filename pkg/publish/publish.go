@@ -3,7 +3,8 @@
 // existing tag. It builds nothing and runs nothing itself: builders, signing
 // and SBOMs come through Tools, and the registry through Registry. Every step
 // re-reads the registry, so a publish that stopped halfway finishes when run
-// again, and running it twice changes nothing the second time.
+// again from the same revision, and running it twice changes nothing the
+// second time.
 package publish
 
 import (
@@ -111,9 +112,22 @@ func Decide(remote *Remote, err error, digest, version, revision string) (State,
 	case revision != "" && remote.Annotations[AnnotationRevision] == revision && remote.Annotations[AnnotationVersion] == version:
 		return Adopt, "its provenance says an earlier publish of this version from this revision pushed it"
 	}
-	return Conflict, fmt.Sprintf("the tag holds %s, which this publish did not compute (version %q, revision %q); it is never overwritten",
-		remote.Digest, remote.Annotations[AnnotationVersion], remote.Annotations[AnnotationRevision])
+	why := "the tag holds " + remote.Digest + ", which this publish did not compute"
+	var prov []string // only what the manifest says: a bundle carries no provenance
+	if v := remote.Annotations[AnnotationVersion]; v != "" {
+		prov = append(prov, "version "+v)
+	}
+	if r := remote.Annotations[AnnotationRevision]; r != "" {
+		prov = append(prov, "revision "+r)
+	}
+	if len(prov) > 0 {
+		why += " (" + strings.Join(prov, ", ") + ")"
+	}
+	return Conflict, why + "; it is never overwritten" + NextVersion
 }
+
+// NextVersion is what to do about a tag publish will not write over.
+const NextVersion = ": publish a higher service.version"
 
 // MakePlan runs Pacto's checks and decides every item against the registry.
 // It writes nothing.

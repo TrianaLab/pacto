@@ -68,6 +68,15 @@ func TestPublishCommandPlan(t *testing.T) {
 	}
 	out, err = runPublish(t, publishDeps(&publish.Result{Plan: publishPlan(false)}, nil, &got), "text", "--plan")
 	wantRun(t, out, err, true, "FAIL version: needs a major bump", errPlanNotReady.Error())
+	// The directory is positional, as for init and validate; -p still works.
+	_, err = runPublish(t, publishDeps(&publish.Result{Plan: publishPlan(true)}, nil, &got), "text", "--plan", "svc")
+	if err != nil || got.Path != "svc" {
+		t.Fatalf("positional dir: %v %+v", err, got)
+	}
+	_, err = runPublish(t, publishDeps(&publish.Result{Plan: publishPlan(true)}, nil, &got), "text", "--plan", "svc", "-p", "svc")
+	wantRun(t, "", err, false)
+	_, err = runPublish(t, publishDeps(&publish.Result{Plan: publishPlan(true)}, nil, &got), "text", "--plan", "a", "-p", "b")
+	wantRun(t, "", err, true, "given twice")
 }
 
 func TestPublishCommandPublish(t *testing.T) {
@@ -136,6 +145,15 @@ func TestPublishCommandFailures(t *testing.T) {
 	wantRun(t, out, err, true, "Refusal: the refusal is kept, signed, in reg/pacto/payments")
 	if strings.Contains(out, "Nothing to publish") {
 		t.Fatalf("a refused publish claims nothing is left to publish:\n%s", out)
+	}
+	// A run that failed after pushing the deploy artifact never tagged it, so
+	// it names no Deploy: a script reading that line would deploy nothing.
+	failedRes := &publish.Result{Plan: publishPlan(true), Actions: []string{"pushed manifests reg/deploy@" + cliB}, Digests: map[string]string{},
+		Deploy: "reg/deploy@" + cliB}
+	out, err = runPublish(t, publishDeps(failedRes, errors.New("signing: open cosign.key: no such file"), &got), "text")
+	wantRun(t, out, err, true, "no such file")
+	if strings.Contains(out, "Deploy:") {
+		t.Fatalf("a failed publish names a deploy artifact:\n%s", out)
 	}
 }
 

@@ -4,9 +4,14 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 )
 
 //go:embed schema/pacto-v2.0.schema.json
@@ -20,16 +25,17 @@ var schemaV21Bytes []byte
 // descriptions from it.
 func SchemaBytes() []byte { return schemaV21Bytes }
 
-// supportedSchemaVersions lists the supported pactoVersion values.
-var supportedSchemaVersions = []string{"2.0", "2.1"}
+// schemaBytes is the embedded JSON Schema of each pactoVersion. The versions
+// supported are contract.SupportedVersions; init panics on one without a
+// schema here.
+var schemaBytes = map[string][]byte{"2.0": schemaV20Bytes, "2.1": schemaV21Bytes}
 
 // compiledSchemas maps each supported pactoVersion to its compiled JSON Schema.
-var compiledSchemas map[string]*jsonschema.Schema
+var compiledSchemas = map[string]*jsonschema.Schema{}
 
 func init() {
-	compiledSchemas = map[string]*jsonschema.Schema{
-		"2.0": mustCompileSchema(schemaV20Bytes),
-		"2.1": mustCompileSchema(schemaV21Bytes),
+	for _, v := range contract.SupportedVersions {
+		compiledSchemas[v] = mustCompileSchema(schemaBytes[v])
 	}
 }
 
@@ -92,13 +98,57 @@ func ValidateStructural(data any) ValidationResult {
 		result.AddError(
 			"pactoVersion",
 			"UNSUPPORTED_PACTO_VERSION",
-			fmt.Sprintf("unsupported pactoVersion %q; supported versions: %s", version, strings.Join(supportedSchemaVersions, ", ")),
+			fmt.Sprintf("unsupported pactoVersion %q; supported versions: %s", version, strings.Join(contract.SupportedVersions, ", ")),
 		)
 		return result
 	}
 
+	var mcp []int
+	if version == "2.0" {
+		data, mcp = needs21(&result, data)
+	}
 	addSchemaError(&result, schema.Validate(data))
+	if len(mcp) > 0 {
+		result.Errors = slices.DeleteFunc(result.Errors, func(e contract.ValidationError) bool {
+			if e.Code != "SCHEMA_VIOLATION" {
+				return false
+			}
+			for _, i := range mcp {
+				at := fmt.Sprintf("interfaces.%d", i)
+				if e.Path == at || strings.HasPrefix(e.Path, at+".") {
+					return true
+				}
+			}
+			return false
+		})
+	}
 	return result
+}
+
+// needs21 records a NEEDS_PACTO_2_1 error for each part of data only
+// pactoVersion 2.1 has (publish, agent and an mcp interface), in place of the
+// 2.0 schema's generic "not allowed". It returns data without publish and
+// agent for the rest of the 2.0 schema to check, and the indexes of the mcp
+// interfaces, whose schema errors the caller drops. The interfaces stay in
+// place so every other interface's errors keep its own index.
+func needs21(result *ValidationResult, data any) (any, []int) {
+	m, _ := data.(map[string]any) // a 2.0 pactoVersion was read from it
+	out := maps.Clone(m)
+	for _, key := range []string{"publish", "agent"} {
+		if _, ok := m[key]; ok {
+			result.AddError(key, string(finding.CodeNeedsPacto21), key+` needs pactoVersion "2.1"; set pactoVersion: "2.1", which keeps every 2.0 field`)
+			delete(out, key)
+		}
+	}
+	ifaces, _ := m["interfaces"].([]any)
+	var mcp []int
+	for i, it := range ifaces {
+		if im, _ := it.(map[string]any); im["type"] == "mcp" {
+			result.AddError(fmt.Sprintf("interfaces.%d.type", i), string(finding.CodeNeedsPacto21), `an mcp interface needs pactoVersion "2.1"; set pactoVersion: "2.1", which keeps every 2.0 field`)
+			mcp = append(mcp, i)
+		}
+	}
+	return out, mcp
 }
 
 // addSchemaError records a schema validation outcome: nothing for nil, every

@@ -19,7 +19,9 @@ contract read from its Dockerfile and Kubernetes manifests, publish section
 included, and a list of what Pacto found and what it could not tell
 (Unknown). --delivery also writes the cluster pieces: the Pacto resource that
 checks the running service, and per environment a Stage with the Flux
-OCIRepository and Kustomization it applies through.
+OCIRepository and Kustomization it applies through. The last environment's
+Stage asks a person to approve every promote until you add a health check
+there and delete its approval.
 
 It only adds files and missing .pactoignore lines; any other file already
 there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and

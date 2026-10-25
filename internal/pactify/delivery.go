@@ -55,7 +55,11 @@ func (p *planner) delivery() {
 			fmt.Fprintf(&b, candidateRepo, name, env, deployRepo, verify)
 			candidates = fmt.Sprintf("    ociRepositoryRef:\n      name: %s-candidates\n", name)
 		}
-		fmt.Fprintf(&b, envPieces, name, env, name, deployRepo, verify, name, env, name, env, name, env, name, env, name, candidates)
+		approval := ""
+		if i == len(p.envs)-1 {
+			approval = gated
+		}
+		fmt.Fprintf(&b, envPieces, name, env, name, deployRepo, verify, name, env, name, env, name, env, name, env, name, candidates, approval)
 		p.file("delivery/"+env+".yaml", b.String())
 		want := "the registry"
 		if i > 0 {
@@ -64,6 +68,9 @@ func (p *planner) delivery() {
 		p.keptSource(env, want)
 	}
 	envs := strings.Join(p.envs, ", ")
+	last := p.envs[len(p.envs)-1]
+	p.next("every promote to %s waits for a person to approve it (approval.always in delivery/%s.yaml); "+
+		"once a health check judges each version there (gates.verify.checks, see Delivery reference: health checks), delete approval to let it promote on its own", last, last)
 	p.next("create the namespaces %s, then apply each environment: kubectl apply -f delivery/%s.yaml", envs, strings.Join(p.envs, ".yaml -f delivery/"))
 	if !p.contractNew && !p.shipsPactoResource() {
 		p.next(`ship delivery/pacto.yaml with every version: add to the manifests build: sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml`)
@@ -211,6 +218,17 @@ spec:
   gates:
     verify:
       window: 5m
+%s`
+
+// gated is the end of the last environment's Stage: autonomy there is earned,
+// not granted on day one, so every promote waits for a person until a health
+// check judges the version.
+const gated = `  # Every promote here waits for a person: the contract check alone cannot
+  # see a consumer with no contract, or whether the version is healthy. Add a
+  # health check under gates.verify.checks, then delete approval to let
+  # versions that pass it move on their own.
+  approval:
+    always: true
 `
 
 // shipsPactoResource says whether a build in the contract already reads

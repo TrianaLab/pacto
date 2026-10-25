@@ -34,7 +34,7 @@ agent:
 | Field | Meaning |
 |---|---|
 | `models` | The model ids the agent calls, exactly as its code names them. A model served behind its own Pacto contract is a dependency instead, with a version range |
-| `evals` | The eval suite's file in the bundle (`FILE_NOT_FOUND` when missing). Pacto ships it with the version and never reads it: an eval runner does |
+| `evals` | The eval suite's file in the bundle (`FILE_NOT_FOUND` when missing). Pacto ships it with the version and only hashes it, to tie the eval gate's verdict to it: an eval runner runs it |
 
 `agent` needs at least one of the two.
 
@@ -60,9 +60,11 @@ Every tool needs a name, used once (`INVALID_MCP_TOOLS` otherwise).
 | A tool added | Non-breaking |
 | A tool's `inputSchema` or `outputSchema` changed | Read like an OpenAPI request and response: a new required input is breaking, a dropped output field is breaking |
 | A model added, removed or swapped | Potentially breaking: the agent can answer differently, so it needs at least a minor |
-| The eval suite changed | Non-breaking: it checks the agent and is not what callers rely on |
+| An eval suite added | Non-breaking: it only adds a check |
+| The eval suite removed, moved or edited | Potentially breaking: a release that drops the cases it fails would loosen the check it ships behind, so a person reviews it |
 
-Tool descriptions are not compared. The services the agent calls are ordinary
+`pacto diff` compares the suite's bytes, so it sees an edit but cannot tell a
+stricter suite from a weaker one: that is the reviewer's call. Tool descriptions are not compared. The services the agent calls are ordinary
 dependencies, so impact and ordering treat the agent like any other consumer.
 
 ### Delivering an agent
@@ -80,14 +82,17 @@ gates:
         params: {minPassRate: "0.95"}
 ```
 
-The eval runner runs the suite on the version under check and says how many
-cases passed. Pass and Fail work as for any check; an answer about another
-version, with no cases or with nothing to cite is Unknown, and Unknown never
-passes.
+The promoter tells the runner which contract the version ships and the suite
+in it, by path and sha256. The runner runs that suite on the version under
+check and says how many cases passed and the sha256 of the suite it ran. Pass
+and Fail work as for any check; an answer about another version or another
+suite, with no cases or with nothing to cite is Unknown, and Unknown never
+passes. `minPassRate` must be above 0.
 
 ### What Pacto does not do
 
-- It does not run evals or read the suite. The runner does both.
+- It does not run evals or read what the suite says. The runner does both;
+  Pacto only hashes the file, to tie the runner's answer to it.
 - It does not check at runtime which models the agent really calls. `models`
   is what the contract declares.
 - Model ids are matched exactly. They have no version ranges.

@@ -1148,6 +1148,7 @@ spec:
         params: {minSpans: "20", maxErrorRatio: "0.2", soak: "10s"}
       - name: claims
         provider: pacto.runtime
+        params: {soak: "10s"}
 YAML
 section "the fraud service: Pacto-managed, and in no payments contract"
 # Created once its namespace is placed (a Stage applies into it), so while

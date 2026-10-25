@@ -13,6 +13,15 @@ and the workload object and generation an evaluation read, and its
 `contractStatus` must check `evaluatedRevision` first, as the promoter does.
 The Pacto status also accepts `mcp` interfaces, so agent contracts reconcile.
 
+**Check results change for every operator user**, delivery on or off. A
+dependency that resolves to the same service in several namespaces now
+resolves to the one in the consumer's own namespace when there is one (a
+service in test calls the provider in test), where before the match was
+ambiguous (Insufficient) unless exactly one of them satisfied the declared
+range. The node agent's evidence leaves out pods being deleted, so a
+pod still shutting down no longer counts toward kernel coverage or findings,
+and a workload with no running pod has `Partial` kernel coverage.
+
 **The API.** `delivery.pacto.trianalab.io/v1alpha1` adds `Stage` (one service
 in one environment, whose pointer is the artifact digest it runs), `Operation`
 (one decision, with an immutable spec) and `Approval` (a person's decision

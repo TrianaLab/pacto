@@ -836,7 +836,7 @@
         "evals": {
           "type": "string",
           "minLength": 1,
-          "description": "Path to the eval suite file in the bundle. It ships with the version; Pacto never reads it. An eval runner behind a delivery gate does."
+          "description": "Path to the eval suite file in the bundle. It ships with the version; Pacto only hashes it, so the eval gate takes an answer only about this exact file. An eval runner behind a delivery gate runs it."
         }
       }
     },

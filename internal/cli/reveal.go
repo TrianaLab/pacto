@@ -57,7 +57,7 @@ func initLines(r *app.InitResult) []string {
 		}
 	}
 	if len(lines) == 0 {
-		return []string{"Nothing to add in " + r.Dir + "/: it is all there"}
+		return []string{"Nothing to add in " + r.Dir + "/: every file init writes is already there"}
 	}
 	return append([]string{"Created " + r.Dir + "/"}, lines...)
 }
@@ -81,7 +81,7 @@ func printInitPlan(w io.Writer, r *app.InitResult) {
 		}
 	}
 	if len(add) == 0 {
-		_, _ = fmt.Fprintln(w, "\nNothing to add: it is all there.")
+		_, _ = fmt.Fprintln(w, "\nNothing to add: every file init writes is already there.")
 		return
 	}
 	_, _ = fmt.Fprintf(w, "\nWould add\n%s\n\nRun it again without --plan to add these.\n", strings.Join(add, "\n"))

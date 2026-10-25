@@ -182,6 +182,7 @@ nav:
       - Installation: installation.md
       - Quickstart: quickstart.md
       - Pactify a service: pactify.md
+      - Decide, unfreeze and roll back: pactify-decide.md
       - Put it in your repo: ci.md
       - Example contracts: examples/index.md
   - Guides:

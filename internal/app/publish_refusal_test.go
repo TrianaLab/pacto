@@ -12,7 +12,6 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/google/go-containerregistry/pkg/authn"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/internal/testutil"
@@ -42,7 +41,7 @@ func TestPublishKeepsTheVersionRefusal(t *testing.T) {
 	srv := httptest.NewServer(testutil.NewReferrersRegistry(testutil.ReferrersOptions{}))
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
-	reg := publish.NewClient(authn.DefaultKeychain, host)
+	reg := publish.NewClient(anonymous, host)
 	ctx := context.Background()
 	dir := writePublishBundle(t, host, "workload: service\n")
 	pub := signingKey(t, dir)

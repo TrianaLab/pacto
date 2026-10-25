@@ -38,7 +38,8 @@ type Agent struct {
 	// version range.
 	Models []string `yaml:"models,omitempty" json:"models,omitempty"`
 	// Evals is the eval suite's file in the bundle. Pacto ships it with the
-	// version and never reads it: an eval runner behind a gate does.
+	// version and only hashes it, so the eval gate takes a runner's answer
+	// only about this exact file: the runner behind the gate runs it.
 	Evals string `yaml:"evals,omitempty" json:"evals,omitempty"`
 }
 

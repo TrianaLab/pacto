@@ -11,6 +11,7 @@ func TestCategoryOf(t *testing.T) {
 		CodePolicyViolation:              CategoryPolicyViolation,
 		CodeDuplicateInterfaceName:       CategoryDuplicateName,
 		CodeInvalidSemver:                CategoryInvalidVersion,
+		CodeNeedsPacto21:                 CategoryInvalidVersion,
 		CodeTagNotDigest:                 CategoryInvalidReference,
 		CodeEmptyCompatibility:           CategoryInvalidDependency,
 		CodeInvalidConfigRef:             CategoryInvalidReference,

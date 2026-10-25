@@ -2,9 +2,22 @@ package validation
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
+
+// TestSchemaPerSupportedVersion: the versions Parse accepts are the versions
+// with a schema, so a new pactoVersion is one list in pkg/contract plus its
+// schema file, and neither can be forgotten.
+func TestSchemaPerSupportedVersion(t *testing.T) {
+	if got := slices.Sorted(maps.Keys(schemaBytes)); !slices.Equal(got, contract.SupportedVersions) {
+		t.Fatalf("schemas for %v, contract.SupportedVersions %v", got, contract.SupportedVersions)
+	}
+}
 
 func TestSchemaBytes(t *testing.T) {
 	data := SchemaBytes()
@@ -547,5 +560,44 @@ func TestValidateStructural_V21Publish(t *testing.T) {
 		if r := ValidateStructuralRaw([]byte(fmt.Sprintf(head, "2.1") + doc)); r.IsValid() {
 			t.Errorf("%s: must be refused", name)
 		}
+	}
+}
+
+// TestNeeds21: a 2.0 contract using what only 2.1 has is told to set
+// pactoVersion 2.1, not given the schema's generic "not allowed", and the rest
+// of the contract is still checked.
+func TestNeeds21(t *testing.T) {
+	data := map[string]any{
+		"pactoVersion": "2.0",
+		"service":      map[string]any{"name": "svc", "version": "1.0.0"},
+		"publish":      map[string]any{},
+		"agent":        map[string]any{},
+		"interfaces":   []any{map[string]any{"name": "tools", "type": "mcp"}, map[string]any{"name": "api", "type": "bogus", "visibility": "nonsense"}},
+	}
+	res := ValidateStructural(data)
+	var got []string
+	for _, e := range res.Errors {
+		got = append(got, e.Code+" "+e.Path)
+		if strings.Contains(e.Message, "not allowed") {
+			t.Fatalf("a generic schema error: %+v", e)
+		}
+	}
+	joined := strings.Join(got, "\n")
+	for _, want := range []string{"NEEDS_PACTO_2_1 publish", "NEEDS_PACTO_2_1 agent", "NEEDS_PACTO_2_1 interfaces.0.type", "SCHEMA_VIOLATION interfaces.1.visibility"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %q in:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "SCHEMA_VIOLATION interfaces.0") {
+		t.Fatalf("the api interface's errors are reported at the mcp interface's index:\n%s", joined)
+	}
+	if _, ok := data["publish"]; !ok {
+		t.Fatal("the caller's data was changed")
+	}
+	data["interfaces"] = []any{map[string]any{"name": "api", "type": "openapi", "ref": "api.yaml"}}
+	delete(data, "publish")
+	delete(data, "agent")
+	if res := ValidateStructural(data); !res.IsValid() {
+		t.Fatalf("a plain 2.0 contract: %+v", res.Errors)
 	}
 }

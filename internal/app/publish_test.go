@@ -46,13 +46,23 @@ import (
 type fakeRun struct {
 	calls []string
 	fail  string // a call prefix that fails
+	dirty string // what git status prints
 }
+
+// preflights are the calls a plan makes to predict a refusal: no build.
+var preflights = []string{"docker buildx inspect", "git status --porcelain --untracked-files=no"}
 
 func (f *fakeRun) run(_ context.Context, dir string, env []string, name string, args ...string) ([]byte, error) {
 	call := strings.Join(append([]string{name}, args...), " ")
 	f.calls = append(f.calls, call)
 	if f.fail != "" && strings.HasPrefix(call, f.fail) {
 		return nil, errors.New("injected: " + call)
+	}
+	switch {
+	case call == preflights[0]:
+		return []byte("Driver: docker-container\n"), nil
+	case name == "git":
+		return []byte(f.dirty), nil
 	}
 	switch name {
 	case "./build-worker.sh": // an image built with its SBOM
@@ -78,12 +88,17 @@ func outOf(env []string) string {
 	return ""
 }
 
+// anonymous is a keychain that never asks the machine's docker credential
+// helper: the default one runs it for every registry call, which made these
+// tests take minutes.
+var anonymous = authn.NewMultiKeychain()
+
 func publishRegistry(t *testing.T) (string, publish.Registry) {
 	t.Helper()
 	srv := httptest.NewServer(registry.New(registry.Logger(log.New(io.Discard, "", 0))))
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
-	return host, publish.NewClient(authn.DefaultKeychain, host)
+	return host, publish.NewClient(anonymous, host)
 }
 
 func writePublishBundle(t *testing.T, host, extra string) string {
@@ -109,28 +124,130 @@ service: {name: payments, version: 1.0.0}
 }
 
 func publishService(f *fakeRun, reg publish.Registry) *Service {
-	return &Service{sys: sysDeps{run: f.run, publishRegistry: func() publish.Registry { return reg }}}
+	return &Service{sys: sysDeps{run: f.run, lookPath: func(string) (string, error) { return "", nil },
+		publishRegistry: func() publish.Registry { return reg }}}
 }
 
 // TestPublishPlan: --plan lists what is missing, reads the revision from .git
-// and runs nothing.
+// and builds nothing: it only asks buildx and git what would refuse a build.
 func TestPublishPlan(t *testing.T) {
 	host, reg := publishRegistry(t)
 	f := &fakeRun{}
 	dir := writePublishBundle(t, host, "")
+	signingKey(t, dir)
 	writeGit(t, dir, map[string]string{"HEAD": "ref: refs/heads/main\n", "refs/heads/main": commitA + "\n"})
 	res, err := publishService(f, reg).Publish(context.Background(), PublishOptions{Path: dir, Plan: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !res.Plan.Ready || res.Plan.Missing != 4 || res.Plan.Revision != commitA || len(f.calls) != 0 {
+	if !res.Plan.Ready || res.Plan.Missing != 4 || res.Plan.Revision != commitA || !slices.Equal(f.calls, preflights) {
 		t.Fatalf("plan: %+v calls %v", res.Plan, f.calls)
+	}
+}
+
+// TestPublishPreflights: the plan predicts what would fail after the first
+// push, so a ready plan is not followed by a refusal halfway: a signing key
+// that does not open, a checkout with uncommitted changes, no buildx builder
+// and a build program that is not there.
+func TestPublishPreflights(t *testing.T) {
+	host, reg := publishRegistry(t)
+	failed := func(f *fakeRun, svc *Service, dir string, opts PublishOptions) map[string]string {
+		t.Helper()
+		opts.Path, opts.Plan = dir, true
+		res, err := svc.Publish(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]string{}
+		for _, c := range res.Plan.Checks {
+			if !c.Passed {
+				got[c.Name] = c.Message
+			}
+		}
+		return got
+	}
+	dir := writePublishBundle(t, host, "")
+	writeGit(t, dir, map[string]string{"HEAD": commitA + "\n"})
+	f := &fakeRun{dirty: " M app.py\n"}
+	got := failed(f, publishService(f, reg), dir, PublishOptions{})
+	if !strings.Contains(got["signing key"], "cosign.key: no such file") ||
+		!strings.Contains(got["clean checkout"], "uncommitted changes, so revision "+commitA) || !strings.Contains(got["clean checkout"], "M app.py") {
+		t.Fatalf("missing key and a dirty checkout: %v", got)
+	}
+	// --revision names the revision, so the checkout is not asked.
+	f = &fakeRun{dirty: " M app.py\n"}
+	if got = failed(f, publishService(f, reg), dir, PublishOptions{Revision: "r1"}); got["clean checkout"] != "" || slices.Contains(f.calls, preflights[1]) {
+		t.Fatalf("--revision: %v %v", got, f.calls)
+	}
+	f = &fakeRun{fail: "git"}
+	if got = failed(f, publishService(f, reg), dir, PublishOptions{}); !strings.Contains(got["clean checkout"], "could not tell") {
+		t.Fatalf("no git: %v", got)
+	}
+	f = &fakeRun{fail: preflights[0]}
+	svc := publishService(f, reg)
+	svc.sys.lookPath = func(p string) (string, error) {
+		if p == filepath.Join(dir, "render.sh") {
+			return "", errors.New("not found")
+		}
+		return p, nil
+	}
+	got = failed(f, svc, dir, PublishOptions{})
+	if b := got["builders"]; !strings.Contains(b, "api is built from a Dockerfile, but docker buildx has no usable builder") ||
+		!strings.Contains(b, "the build of manifests runs ./render.sh, which is not an executable here") || strings.Contains(b, "worker") {
+		t.Fatalf("builders: %v", got)
+	}
+	if err := builders(context.Background(), sysDeps{}, dir, &contract.Contract{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), &contract.Contract{}); err != nil {
+		t.Fatal(err)
+	}
+	// From the contract directory with no path (the default), a bare
+	// ./render.sh is found there, not searched for in $PATH.
+	for _, sh := range []string{"render.sh", "build-worker.sh"} {
+		_ = os.WriteFile(filepath.Join(dir, sh), []byte("#!/bin/sh\n"), 0o755)
+	}
+	t.Chdir(dir)
+	f = &fakeRun{}
+	svc = publishService(f, reg)
+	svc.sys.lookPath = exec.LookPath
+	res, err := svc.Publish(context.Background(), PublishOptions{Plan: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range res.Plan.Checks {
+		if c.Name == "builders" && !c.Passed {
+			t.Fatalf("builders from the contract directory: %s", c.Message)
+		}
+	}
+	// Keyless signing reads its OIDC token only when it signs, so the plan
+	// checks a token is there to read.
+	t.Setenv("SIGSTORE_ID_TOKEN", "")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+	keyless := &contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Keyless: true}}}
+	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), keyless); err == nil || !strings.Contains(err.Error(), "no OIDC token") {
+		t.Fatalf("keyless with no token: %v", err)
+	}
+	oldRoot := publicGoodRoot
+	defer func() { publicGoodRoot = oldRoot }()
+	publicGoodRoot = func(string) (root.TrustedMaterial, error) { return nil, errors.New("tuf down") }
+	t.Setenv("SIGSTORE_ID_TOKEN", "tok")
+	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), keyless); err == nil || !strings.Contains(err.Error(), "tuf down") {
+		t.Fatalf("keyless with a token goes on to load the root: %v", err)
 	}
 }
 
 // signingKey writes a cosign key file, encrypted with COSIGN_PASSWORD, into
 // dir, keeps it out of the bundle and returns its public key.
 func signingKey(t *testing.T, dir string) crypto.PublicKey {
+	t.Helper()
+	k := keyFiles(t, dir)
+	_ = os.WriteFile(filepath.Join(dir, ".pactoignore"), []byte("sbom/\ncosign.key\ncosign.pub\n"), 0o600)
+	return k
+}
+
+// keyFiles writes cosign.key and cosign.pub into dir.
+func keyFiles(t *testing.T, dir string) crypto.PublicKey {
 	t.Helper()
 	priv, pub, err := cryptoutils.GeneratePEMEncodedECDSAKeyPair(elliptic.P256(), cryptoutils.StaticPasswordFunc([]byte("pw")))
 	if err != nil {
@@ -139,7 +256,6 @@ func signingKey(t *testing.T, dir string) crypto.PublicKey {
 	t.Setenv("COSIGN_PASSWORD", "pw")
 	_ = os.WriteFile(filepath.Join(dir, "cosign.key"), priv, 0o600)
 	_ = os.WriteFile(filepath.Join(dir, "cosign.pub"), pub, 0o600)
-	_ = os.WriteFile(filepath.Join(dir, ".pactoignore"), []byte("sbom/\ncosign.key\ncosign.pub\n"), 0o600)
 	k, _ := cryptoutils.UnmarshalPEMToPublicKey(pub)
 	return k
 }

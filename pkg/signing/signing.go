@@ -260,12 +260,20 @@ func IDToken(file string) func(context.Context) (string, error) {
 		if t := os.Getenv("SIGSTORE_ID_TOKEN"); t != "" {
 			return t, nil
 		}
-		url, bearer := os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL"), os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
-		if url == "" || bearer == "" {
-			return "", errors.New("no OIDC token: set SIGSTORE_ID_TOKEN, or run in GitHub Actions with id-token: write")
+		if err := HasIDToken(); err != nil {
+			return "", err
 		}
-		return githubToken(ctx, url+"&audience=sigstore", bearer)
+		return githubToken(ctx, os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL")+"&audience=sigstore", os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN"))
 	}
+}
+
+// HasIDToken reports, without fetching it, whether IDToken("") has a token
+// to read: SIGSTORE_ID_TOKEN, or GitHub Actions with id-token: write.
+func HasIDToken() error {
+	if os.Getenv("SIGSTORE_ID_TOKEN") != "" || (os.Getenv("ACTIONS_ID_TOKEN_REQUEST_URL") != "" && os.Getenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN") != "") {
+		return nil
+	}
+	return errors.New("no OIDC token: set SIGSTORE_ID_TOKEN, or run in GitHub Actions with id-token: write")
 }
 
 func githubToken(ctx context.Context, url, bearer string) (string, error) {

@@ -987,7 +987,9 @@ contract read from its Dockerfile and Kubernetes manifests, publish section
 included, and a list of what Pacto found and what it could not tell
 (Unknown). --delivery also writes the cluster pieces: the Pacto resource that
 checks the running service, and per environment a Stage with the Flux
-OCIRepository and Kustomization it applies through.
+OCIRepository and Kustomization it applies through. The last environment's
+Stage asks a person to approve every promote until you add a health check
+there and delete its approval.
 
 It only adds files and missing .pactoignore lines; any other file already
 there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and
@@ -1332,10 +1334,10 @@ Files matched by `.pactoignore` are excluded from the archive — see [Packaging
 
 Publishes every artifact the contract's publish section declares (pactoVersion 2.1), the contract bundle and the deploy artifact Flux applies, all tagged with service.version. Docker or the declared command builds; Pacto pushes, never over an existing tag, signs every digest with Sigstore (no cosign needed) and attaches the SBOM files the build wrote. A breaking change since the last published version is refused below a major bump (a minor before 1.0).
 
---plan shows what is missing and changes nothing. Running publish again finishes what is missing and changes nothing else. --propose hands the deploy artifact to Pacto delivery as a promote on a Stage, once the Stage recorded it as published: Flux polled the candidate OCIRepository and verified the signature. It waits up to --propose-timeout for that.
+--plan shows what is missing and changes nothing. Running publish again from the same commit finishes what is missing and changes nothing else. --propose hands the deploy artifact to Pacto delivery as a promote on a Stage, once the Stage recorded it as published: Flux polled the candidate OCIRepository and verified the signature. It waits up to --propose-timeout for that.
 
 ```
-pacto publish [flags]
+pacto publish [dir] [flags]
 ```
 
 **Examples:**
@@ -1343,6 +1345,9 @@ pacto publish [flags]
 ```
   # What would be published, and what refuses it
   pacto publish --plan
+
+  # The same, for the contract in ./payments
+  pacto publish --plan ./payments
 
   # Publish, then propose the version on the test Stage
   pacto publish --propose test/payments
@@ -1352,11 +1357,11 @@ pacto publish [flags]
 
 ```
   -h, --help                       help for publish
-  -p, --path string                path to contract directory (default: current directory)
+  -p, --path string                path to contract directory, the same as [dir] (default: current directory)
       --plan                       show what is missing and what refuses it; change nothing
       --propose string             after publishing, propose the deploy artifact on <namespace>/<stage> (needs the pacto-delivery chart)
       --propose-timeout duration   how long --propose waits for the Stage to record the version as published (default 10m0s)
-      --revision string            source revision stamped on every artifact (default: the git commit of --path, read from .git)
+      --revision string            source revision stamped on every artifact (default: the git commit of the contract directory, which must have no uncommitted changes)
       --set stringArray            set a contract value (e.g. --set service.version=2.0.0)
       --values stringArray         values file to merge into the contract (can be repeated; last wins)
 ```

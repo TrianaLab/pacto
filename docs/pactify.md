@@ -39,7 +39,9 @@ pacto init --delivery --plan
 
 `pacto init` reads what is already there, such as the Dockerfile and the
 Kubernetes files, and fills in a contract from it. It reads your registry from
-the image name in your Deployment; pass `--registry ghcr.io/acme` if it cannot.
+the image name in your Deployment; pass `--registry ghcr.io/acme` if it cannot,
+or if the image is a bare name such as `checkout`, which means a Docker Hub
+official image nobody but Docker can push to.
 `--delivery` adds the cluster files of step 4, so the first version you publish
 already carries them. With `--plan` it shows exactly what it would add and
 changes nothing. For a private registry, add `--registry-secret registry-creds`
@@ -91,13 +93,14 @@ publish:
       type: manifests
       ref: oci://ghcr.io/acme/deploy/my-service
       build:                # your Kubernetes files, the image just built, delivery/pacto.yaml
-        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed "s#ghcr\.io/acme/my-service:1\.0\.0#$PACTO_REF_API@$PACTO_DIGEST_API#" k8s/deployment.yaml > "$PACTO_OUT"/deployment.yaml && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
+        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"'']?)ghcr\.io/acme/my-service:1\.0\.0([\"'']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" k8s/deployment.yaml > "$PACTO_OUT"/deployment.yaml && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/deployment.yaml || { echo "pacto: no image: ghcr.io/acme/my-service:1.0.0 line to pin" >&2; exit 1; }; } && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
   sign: {key: cosign.key}
 ```
 
 The manifests build swaps the image in your Deployment for the one this
 version just built, pinned by its digest, so each version runs its own image.
-Your `k8s/deployment.yaml` stays as it is.
+It does the same in every other manifest that runs that image, such as a
+CronJob, and lists any file it cannot rewrite. Your `k8s/deployment.yaml` stays as it is.
 
 Fill in what the plan marked Unknown, above all the dependencies: uncomment one
 entry per service yours calls and set `compatibility` to the versions it
@@ -182,7 +185,8 @@ environment and holds which version runs there, and the Flux pieces that watch
 your registry and apply what the Stage picks. `delivery/pacto.yaml` tells the
 operator to check the service; it ships inside every version, so you never
 apply it. Within a minute or two the test Stage runs the version you published,
-with nobody asked, then prod takes it once it passed in test:
+with nobody asked. Once it passed in test, prod proposes it and waits for a
+person to approve it (see [When a change waits](pactify-decide.md#when-a-change-waits-or-an-environment-freezes)):
 
 ```bash
 kubectl get stage -A                                  # Pointer: the version it runs
@@ -194,53 +198,27 @@ kubectl -n test describe stage my-service             # if nothing moves: why, u
 
 Make a change, raise `service.version` in `pacto.yaml`, then run
 `pacto publish`. It builds the new image and the version it publishes runs it. A safe change
-moves through test to prod on its own (`auto: true` in each Stage). A version
+moves through test on its own (`auto: true` in each Stage). In prod, `init`
+also writes `approval: always: true`, so every promote waits for a person:
+the contract check cannot see a consumer that has no contract, or tell whether
+the version is healthy. Autonomy in prod is earned. Once a health check judges
+each version there (`gates.verify.checks`, see
+[Delivery reference: health checks](integrations/kubernetes/delivery-health.md)),
+delete `approval` from `delivery/prod.yaml` and apply it again: from then on a
+safe change that passes the check reaches prod with nobody involved. A version
 that fails its checks after release is rolled back once, or, with nothing to
 go back to, its Stage freezes: nothing moves there until a person unfreezes it.
 A change that would break a service using yours waits and asks that service's
 team.
 
-### When a change waits or an environment freezes
-
-A waiting change is an Operation in the phase `Held`; a frozen Stage shows
-`true` under `Frozen`. Only a person decides, never an AI agent, and never the
-person who asked for the change:
-
-```bash
-kubectl get operations -n test                        # find the held one
-pacto delivery explain -n test <operation>            # what is asked and why
-pacto delivery approve -n test <operation> --decision approve
-pacto delivery approve -n test <operation> --decision accept-unknown
-pacto delivery approve -n test <operation> --decision reject
-pacto delivery cancel -n test <operation>             # withdraw it instead
-pacto delivery propose -n test --stage my-service --type unfreeze --reason "fixed"
-```
-
-`approve` lets a change that breaks a consumer go ahead; `accept-unknown` lets
-one go ahead that Pacto could not check, recorded as accepted, never as a pass.
-To unfreeze (the dashboard calls it unpause) is to let automation move the
-Stage again; it takes effect without anyone else's approval. Each needs the
-`pacto-delivery-approver` role, and only members of the team that owns an
-affected service may answer for it:
-
-```bash
-kubectl create clusterrolebinding payments-approvers \
-  --clusterrole=pacto-delivery-approver --group=payments
-```
-
-Deciding (approve, accept-unknown or reject) also needs a company login the
-cluster trusts, done in the last 15 minutes; a cluster admin sets that up once
-with [Sign-in, approvals and agents](integrations/kubernetes/delivery-identity.md).
-Until then, cancel the change, fix what it asks about and publish again.
-In the dashboard (`pacto dashboard`), the Delivery tab's **Inbox** lists the
-changes **Waiting for your decision**: open one and press **Approve** (or
-**Accept the unknown**) or **Reject**. Its **Environments** view has an
-**Unpause** button on each frozen Stage.
+When a change waits for you, an environment freezes or you want a version
+gone, see [Decide, unfreeze and roll back](pactify-decide.md).
 
 ## Where next
 
 | Goal | Page |
 |------|------|
+| Decide on a waiting change or roll one back | [Decide, unfreeze and roll back](pactify-decide.md) |
 | Understand what happens to a change | [Delivery](integrations/kubernetes/delivery.md) |
 | Fail a commit that would break a consumer | [CI integration](ci.md) |
 | Check errors and response times after release | [Health checks](integrations/kubernetes/delivery-health.md) |

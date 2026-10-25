@@ -1,6 +1,7 @@
 package diff
 
 import (
+	"bytes"
 	"fmt"
 	"io/fs"
 	"slices"
@@ -52,8 +53,12 @@ func diffMCP(oldPath, newPath string, oldFS, newFS fs.FS) []Change {
 // diffAgent compares the agent sections. A different model changes what the
 // agent does even when every tool keeps its shape, so a model change is
 // potentially breaking: it needs at least a minor and goes through the evals.
-// The eval suite is how the agent is checked, not what callers rely on.
-func diffAgent(old, new *contract.Agent) []Change {
+// The eval suite is what earns the agent its autonomy, and a release that
+// changes it can loosen the very check it ships behind (drop the cases it
+// fails), so a suite removed, moved or edited is potentially breaking too: a
+// person reviews it. Its bytes are compared when both bundles are given; the
+// diff cannot tell a stricter suite from a weaker one.
+func diffAgent(old, new *contract.Agent, oldFS, newFS fs.FS) []Change {
 	var o, n contract.Agent
 	if old != nil {
 		o = *old
@@ -72,8 +77,17 @@ func diffAgent(old, new *contract.Agent) []Change {
 			changes = append(changes, newChange("agent.models", Added, nil, m))
 		}
 	}
-	if o.Evals != n.Evals {
+	switch {
+	case o.Evals != n.Evals:
 		changes = append(changes, newChange("agent.evals", strChangeType(o.Evals, n.Evals), o.Evals, n.Evals))
+	case o.Evals != "" && oldFS != nil && newFS != nil:
+		ob, oerr := fs.ReadFile(oldFS, o.Evals)
+		nb, nerr := fs.ReadFile(newFS, n.Evals)
+		if (oerr == nil) != (nerr == nil) || !bytes.Equal(ob, nb) {
+			c := newChange("agent.evals", Modified, o.Evals, n.Evals)
+			c.Reason = "the eval suite " + n.Evals + " changed"
+			changes = append(changes, c)
+		}
 	}
 	return changes
 }

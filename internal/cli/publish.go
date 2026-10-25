@@ -22,25 +22,34 @@ var errPlanNotReady = errors.New("publishing this version would be refused")
 
 func newPublishCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "publish",
+		Use:   "publish [dir]",
 		Short: "Publish what the contract declares, as the version it states",
 		Long: "Publishes every artifact the contract's publish section declares (pactoVersion 2.1), the contract " +
 			"bundle and the deploy artifact Flux applies, all tagged with service.version. Docker or the declared " +
 			"command builds; Pacto pushes, never over an existing tag, signs every digest with Sigstore (no cosign needed) and attaches " +
 			"the SBOM files the build wrote. A breaking change since the last published version is refused below a major bump " +
 			"(a minor before 1.0).\n\n" +
-			"--plan shows what is missing and changes nothing. Running publish again finishes what is missing and " +
-			"changes nothing else. --propose hands the deploy artifact to Pacto delivery as a promote on a Stage, " +
+			"--plan shows what is missing and changes nothing. Running publish again from the same commit finishes what is " +
+			"missing and changes nothing else. --propose hands the deploy artifact to Pacto delivery as a promote on a Stage, " +
 			"once the Stage recorded it as published: Flux polled the candidate OCIRepository and verified the " +
 			"signature. It waits up to --propose-timeout for that.",
 		Example: `  # What would be published, and what refuses it
   pacto publish --plan
 
+  # The same, for the contract in ./payments
+  pacto publish --plan ./payments
+
   # Publish, then propose the version on the test Stage
   pacto publish --propose test/payments`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
 			path, _ := cmd.Flags().GetString("path")
+			if len(args) == 1 {
+				if path != "" && path != args[0] {
+					return fmt.Errorf("the contract directory is given twice: %s and --path %s", args[0], path)
+				}
+				path = args[0]
+			}
 			plan, _ := cmd.Flags().GetBool("plan")
 			revision, _ := cmd.Flags().GetString("revision")
 			propose, _ := cmd.Flags().GetString("propose")
@@ -74,9 +83,9 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command 
 			return err
 		},
 	}
-	cmd.Flags().StringP("path", "p", "", "path to contract directory (default: current directory)")
+	cmd.Flags().StringP("path", "p", "", "path to contract directory, the same as [dir] (default: current directory)")
 	cmd.Flags().Bool("plan", false, "show what is missing and what refuses it; change nothing")
-	cmd.Flags().String("revision", "", "source revision stamped on every artifact (default: the git commit of --path, read from .git)")
+	cmd.Flags().String("revision", "", "source revision stamped on every artifact (default: the git commit of the contract directory, which must have no uncommitted changes)")
 	cmd.Flags().String("propose", "", "after publishing, propose the deploy artifact on <namespace>/<stage> (needs the pacto-delivery chart)")
 	cmd.Flags().Duration("propose-timeout", 10*time.Minute, "how long --propose waits for the Stage to record the version as published")
 	addOverrideFlagsNoShorthand(cmd)
@@ -153,7 +162,7 @@ func printPublishResult(cmd *cobra.Command, res *publish.Result, format string, 
 		case !failed:
 			_, _ = fmt.Fprintln(w, "Nothing to publish: every artifact is already published and signed.")
 		}
-		if res.Deploy != "" {
+		if res.Deploy != "" && !failed { // a failed run committed no deploy tag
 			_, _ = fmt.Fprintln(w, "Deploy: "+res.Deploy)
 		}
 		if res.Refusal != "" {

@@ -74,14 +74,17 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 			in.Revision = gitRevision(abs)
 		}
 	}
-	in.Checks = append(in.Checks, checkOf("references", rejectLocalDeps(c), rejectLocalRefs(c)),
-		checkOf("lock", s.verifyLockIfPresent(ctx, path, b)), checkOf("signing key", keyOutsideBundle(c, fsys)),
-		checkOf("build outputs", sbomsIgnored(c, path)))
 	reg := env.publishRegistry()
+	tools := newExecTools(path, env.run, reg)
+	in.Checks = append(in.Checks, checkOf("references", rejectLocalDeps(c), rejectLocalRefs(c)),
+		checkOf("lock", s.verifyLockIfPresent(ctx, path, b)), checkOf("signing key", keyOutsideBundle(c, fsys), tools.loadSigner(ctx, c)),
+		checkOf("build outputs", sbomsIgnored(c, path)), checkOf("builders", builders(ctx, env, path, c)))
+	if opts.Revision == "" && in.Revision != "" {
+		in.Checks = append(in.Checks, checkOf("clean checkout", cleanCheckout(ctx, env.run, path, in.Revision)))
+	}
 	if opts.Plan {
 		return &publish.Result{Plan: publish.MakePlan(ctx, reg, in)}, nil
 	}
-	tools := newExecTools(path, env.run, reg)
 	res, err := publish.Apply(ctx, reg, tools, in)
 	if errors.Is(err, publish.ErrNotReady) {
 		res.Refusal = keepRefusal(ctx, env, tools, b, res.Plan)
@@ -95,6 +98,68 @@ func checkOf(name string, errs ...error) publish.Check {
 		return publish.Check{Name: name, Message: err.Error()}
 	}
 	return publish.Check{Name: name, Passed: true, Message: "ok"}
+}
+
+// preflightTimeout bounds each program the plan runs to predict a refusal.
+const preflightTimeout = 30 * time.Second
+
+// cleanCheckout refuses a git checkout with uncommitted changes to tracked
+// files: the revision stamped and signed on every artifact would name a
+// commit that does not hold what was built. Passing --revision skips it, as
+// the caller then names the revision.
+//
+// ponytail: untracked files are not checked, since a build's own outputs
+// (an SBOM, say) are often untracked and would refuse every resumed run.
+func cleanCheckout(ctx context.Context, run runner, dir, rev string) error {
+	ctx, cancel := context.WithTimeout(ctx, preflightTimeout)
+	defer cancel()
+	out, err := run(ctx, dir, nil, "git", "status", "--porcelain", "--untracked-files=no")
+	if err != nil {
+		return fmt.Errorf("could not tell whether the checkout holds uncommitted changes (%w); commit them and run where git is installed, or pass --revision", err)
+	}
+	if changed := strings.TrimSpace(string(out)); changed != "" {
+		return fmt.Errorf("the checkout has uncommitted changes, so revision %s does not hold what would be built; commit them, or pass --revision:\n%s", rev, changed)
+	}
+	return nil
+}
+
+// builders predicts a build that cannot start: docker buildx for a
+// dockerfile build, and the program a command build runs. It runs no build.
+//
+// ponytail: a builder on the plain docker driver passes, though it writes an
+// OCI layout only with the containerd image store; the build says so.
+func builders(ctx context.Context, env sysDeps, dir string, c *contract.Contract) error {
+	if c.Publish == nil {
+		return nil
+	}
+	var errs []error
+	buildx := false
+	for _, a := range c.Publish.Artifacts {
+		switch {
+		case a.Build.Dockerfile != nil && !buildx:
+			buildx = true
+			ctx, cancel := context.WithTimeout(ctx, preflightTimeout)
+			_, err := env.run(ctx, dir, nil, "docker", "buildx", "inspect")
+			cancel()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("%s is built from a Dockerfile, but docker buildx has no usable builder: %w", a.Name, err))
+			}
+		case len(a.Build.Command) > 0:
+			prog := a.Build.Command[0]
+			if strings.ContainsRune(prog, '/') && !filepath.IsAbs(prog) {
+				prog = filepath.Join(dir, prog) // the build runs in the contract directory
+				if !strings.ContainsRune(prog, filepath.Separator) {
+					// Join(".", "./render.sh") is "render.sh", which LookPath
+					// would search $PATH for.
+					prog = "." + string(filepath.Separator) + prog
+				}
+			}
+			if _, err := env.lookPath(prog); err != nil {
+				errs = append(errs, fmt.Errorf("the build of %s runs %s, which is not an executable here: %w", a.Name, a.Build.Command[0], err))
+			}
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // keyOutsideBundle refuses a signing key file that would be packed into the
@@ -224,6 +289,25 @@ func (t execTools) signing(ctx context.Context, sign contract.PublishSign) (sign
 		t.signers[sign] = l
 	}
 	return l.s, l.p, l.err
+}
+
+// loadSigner opens the configured signer before anything is built: a missing
+// key file, a wrong COSIGN_PASSWORD, an unreachable KMS or keyless signing
+// with no OIDC token refuses the plan, not a publish that already pushed. The
+// signer is kept for the run.
+func (t execTools) loadSigner(ctx context.Context, c *contract.Contract) error {
+	if c.Publish == nil || c.Publish.Sign == nil {
+		return nil // the sign check refuses it
+	}
+	sign := *c.Publish.Sign
+	if sign.Key == "" && sign.KMS == "" {
+		// The token is read only when signing, so check it is there.
+		if err := signing.HasIDToken(); err != nil {
+			return err
+		}
+	}
+	_, _, err := t.signing(ctx, sign)
+	return err
 }
 
 // load builds what signing caches.
