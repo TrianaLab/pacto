@@ -37,6 +37,27 @@ type PactoStatusView struct {
 	Dependencies       []DependencyView  `json:"dependencies"`
 	EvaluatedRevision  *EvaluatedView    `json:"evaluatedRevision"`
 	Findings           []FindingView     `json:"findings"`
+	// ObservedCallers are workloads the node agent saw calling the target's
+	// Service that no Pacto describes.
+	ObservedCallers []ObservedCallerView `json:"observedCallers"`
+	// ObservedCallersCoverage says whether ObservedCallers is complete; nil
+	// when runtime observation is not configured for this Pacto.
+	ObservedCallersCoverage *CallerCoverageView `json:"observedCallersCoverage"`
+}
+
+// ObservedCallerView is one Pacto.status.observedCallers entry.
+type ObservedCallerView struct {
+	Namespace string `json:"namespace"`
+	Kind      string `json:"kind"`
+	Name      string `json:"name"`
+	Source    string `json:"source"`
+}
+
+// CallerCoverageView is Pacto.status.observedCallersCoverage.
+type CallerCoverageView struct {
+	State          string `json:"state"`
+	Reason         string `json:"reason"`
+	RefreshSeconds int32  `json:"refreshSeconds"`
 }
 
 // FindingView is one Pacto.status.findings entry.
@@ -148,10 +169,83 @@ func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Re
 			Scope: p.Metadata.Namespace, Kind: fleet.SourceKindKubernetes, Name: p.Metadata.Name,
 			Service: c.ServiceName, Domain: rev.Domain, ResolvedRef: c.ResolvedRef, Digest: digest,
 			Compliance: p.Status.ContractStatus, EvidenceAt: reconciled, ReconciledAt: reconciled,
+			Limitations: callerLimitations(p, reconciled, now),
 		})
+		col.Observed = append(col.Observed, observedEdges(p)...)
 	}
 	src := fleet.NewMemorySource(SnapshotSourceID, fleet.SourceKindKubernetes, col)
 	return fleet.Build(ctx, fleet.BuildOptions{Now: func() time.Time { return now }}, src)
+}
+
+// LimitationCallersUnseen marks a target whose runtime callers Pacto cannot
+// rule out: its caller coverage is not complete, or its status stopped
+// updating. It stays on the target, so the rest of the snapshot stays complete.
+const LimitationCallersUnseen = "OBSERVED_CALLERS_UNSEEN"
+
+// callerLimitations says when the Pacto's runtime callers cannot be ruled out.
+// A coverage the operator has not rewritten within twice its refresh interval
+// is stale whatever it says: an operator that stopped would otherwise leave a
+// complete coverage in place forever. No coverage means runtime observation is
+// not configured, which changes nothing.
+func callerLimitations(p PactoView, reconciled *time.Time, now time.Time) []fleet.Limitation {
+	cov := p.Status.ObservedCallersCoverage
+	if cov == nil {
+		return nil
+	}
+	state, reason := cov.State, cov.Reason
+	if reconciled == nil || cov.RefreshSeconds <= 0 || now.Sub(*reconciled) > 2*time.Duration(cov.RefreshSeconds)*time.Second {
+		state, reason = "unavailable", "stale-status"
+	}
+	if state == "complete" {
+		return nil
+	}
+	return []fleet.Limitation{{Code: LimitationCallersUnseen, Source: SnapshotSourceID,
+		Message: "runtime callers of " + p.Status.Contract.ServiceName + " cannot be ruled out (coverage: " + state + ", " + reason + ")"}}
+}
+
+// observedEdges are the runtime calls a Pacto's status shows: one edge per
+// DEPENDENCY_UNDECLARED finding the node agent raised, from this service to
+// the one it called, and one per uncontracted caller of this service, under a
+// k8s: name that never resolves to a contracted service. They carry no count
+// or time, so the snapshot changes only when the set of calls does.
+func observedEdges(p PactoView) []fleet.ObservedEdge {
+	svc := p.Status.Contract.ServiceName
+	var out []fleet.ObservedEdge
+	for _, f := range p.Status.Findings {
+		if f.Code == "DEPENDENCY_UNDECLARED" && slices.ContainsFunc(f.EvidenceRefs, func(r EvidenceRefView) bool { return r.Collector == "ebpf" }) {
+			out = append(out, fleet.ObservedEdge{From: svc, To: strings.TrimPrefix(f.Subject, "dependency/"), Count: 1})
+		}
+	}
+	for _, c := range p.Status.ObservedCallers {
+		out = append(out, fleet.ObservedEdge{From: CallerName(c.Namespace, c.Kind, c.Name), To: svc, Count: 1})
+	}
+	return out
+}
+
+// callersUnseen is why the runtime callers of the service cannot be ruled
+// out, one line per target of it that says so, sorted.
+func callersUnseen(snap *fleet.FleetSnapshot, service fleet.ServiceKey) []string {
+	var out []string
+	for _, t := range snap.Targets {
+		for _, l := range t.Limitations {
+			if t.ServiceKey == service && l.Code == LimitationCallersUnseen && !slices.Contains(out, l.Message) {
+				out = append(out, l.Message)
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// callerNamespace is the namespace in a CallerName.
+func callerNamespace(caller string) string {
+	ns, _, _ := strings.Cut(strings.TrimPrefix(caller, "k8s:"), "/")
+	return ns
+}
+
+// CallerName is the identity of a workload with no contract.
+func CallerName(namespace, kind, name string) string {
+	return "k8s:" + namespace + "/" + kind + "/" + name
 }
 
 // revisionFromStatus rebuilds the declared part of a contract (service, owner
