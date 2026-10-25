@@ -54,10 +54,12 @@ gates:
 ```
 
 A `mira` provider counts the service's spans in [Mira](https://github.com/trianalab/mira)
-by `service.name`. Its params:
+by `service.name`, one span kind at a time: server spans by default, so one
+span per request served. Its params:
 
 | Param | Default | Meaning |
 |---|---|---|
+| `spanKind` | `server` | The spans counted: `server`, `consumer`, `producer`, `client`, `internal`, `unspecified` or `any` |
 | `minSpans` | 20 | Fewer spans than this is Unknown |
 | `maxErrorRatio` | 0.05 | A larger share of failed spans fails |
 | `soak` | 1m | A clean result passes only after this long |
@@ -65,9 +67,12 @@ by `service.name`. Its params:
 | `maxLatencyRatio` | 0.05 | A larger share of slow spans fails |
 | `where` | none | Extra Mira terms as JSON, for example the namespace |
 
-A read that fails or stops short is Unknown. The citation holds the exact
-queries with absolute time bounds, so posting them to Mira again reads the same
-spans.
+A read that fails or stops short is Unknown. Mira's query API has no count, so
+the provider pages through the spans and stops at 200,000 per query. A window
+holding more is judged on its newest `soak` only, and the message says so; if
+even that holds more, the check is Unknown, so narrow it with `where`. The
+citation holds the exact queries with absolute time bounds, so posting them to
+Mira again reads the same spans.
 
 An `http` provider is the plug-in format for any other tool. The promoter
 posts `{"input": ..., "params": ...}`, where the input names the operation,

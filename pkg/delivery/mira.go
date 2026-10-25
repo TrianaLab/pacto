@@ -16,12 +16,20 @@ import (
 // Mira's query API: the largest page it serves, and how many pages the gate
 // reads before it gives up on an exact count.
 // ponytail: Mira's /api/v1/query refuses limit:0 (count-only) on purpose, so
-// the gate pages to the end, a ceiling of 200000 spans per window; switch to a
-// count query once Mira offers one (vision open question 3).
+// the gate pages to the end, a ceiling of 200000 spans per query. Past it the
+// gate judges only the newest soak; switch to a count query once Mira offers
+// one (vision open question 3).
 const (
 	miraPageSize = 10000
 	miraMaxPages = 20
 )
+
+// errMiraCap is a count that reached the paging ceiling.
+var errMiraCap = fmt.Errorf("more than %d spans, more than the gate counts exactly through Mira's query API; narrow the filter", miraPageSize*miraMaxPages)
+
+// spanKinds are OpenTelemetry's span kinds as Mira stores them; any counts
+// every span.
+var spanKinds = map[string]int{"unspecified": 0, "internal": 1, "server": 2, "client": 3, "producer": 4, "consumer": 5, "any": -1}
 
 // Mira is the health gate over Mira's query API: the error ratio, and
 // optionally the share of slow spans, of the service's traces in the window.
@@ -53,14 +61,14 @@ func (q miraQuery) String() string {
 }
 
 type miraParams struct {
-	minSpans                       int
+	minSpans, spanKind             int
 	maxErrorRatio, maxLatencyRatio float64
 	soak, latencyThreshold         time.Duration
 	where                          []map[string]any
 }
 
 func parseMiraParams(p map[string]string) (miraParams, error) {
-	out := miraParams{minSpans: 20, maxErrorRatio: 0.05, maxLatencyRatio: 0.05, soak: time.Minute}
+	out := miraParams{minSpans: 20, spanKind: spanKinds["server"], maxErrorRatio: 0.05, maxLatencyRatio: 0.05, soak: time.Minute}
 	ratio := func(v *float64) func(string) error {
 		return func(s string) error {
 			f, err := strconv.ParseFloat(s, 64)
@@ -90,6 +98,14 @@ func parseMiraParams(p map[string]string) (miraParams, error) {
 			out.minSpans = n
 			return nil
 		},
+		"spanKind": func(s string) error {
+			k, ok := spanKinds[s]
+			if !ok {
+				return errors.New("must be one of " + strings.Join(slices.Sorted(maps.Keys(spanKinds)), ", "))
+			}
+			out.spanKind = k
+			return nil
+		},
 		"maxErrorRatio":    ratio(&out.maxErrorRatio),
 		"maxLatencyRatio":  ratio(&out.maxLatencyRatio),
 		"soak":             duration(&out.soak),
@@ -113,9 +129,12 @@ func parseMiraParams(p map[string]string) (miraParams, error) {
 	return out, nil
 }
 
-// Check implements Gate. A read that fails or stops short is Unknown, never
-// Pass; so is a window with fewer than minSpans spans. A confirmed breach is a
-// Fail at once; a clean window passes only once it covers the soak time.
+// Check implements Gate. It counts the spans of one kind (server by default,
+// so a span per request, not per internal call). A read that fails or stops
+// short is Unknown, never Pass; so is a window with fewer than minSpans spans.
+// A window with more spans than the gate pages through is judged on its
+// newest soak only. A confirmed breach is a Fail at once; a clean window
+// passes only once it covers the soak time.
 func (m Mira) Check(ctx context.Context, in GateInput, params map[string]string) Verdict {
 	v := Verdict{Result: Unknown, Citation: map[string]string{}}
 	p, err := parseMiraParams(params)
@@ -123,14 +142,25 @@ func (m Mira) Check(ctx context.Context, in GateInput, params map[string]string)
 		v.Message = "invalid params: " + err.Error()
 		return v
 	}
+	where := []map[string]any{{"attr": "service.name", "eq": in.Service.Name}}
+	if p.spanKind >= 0 {
+		where = append(where, map[string]any{"field": "kind", "eq": p.spanKind})
+	}
 	base := miraQuery{Signal: "traces", From: in.Window.From.UnixNano(), To: in.Window.To.UnixNano(), Limit: miraPageSize,
-		Where: append([]map[string]any{{"attr": "service.name", "eq": in.Service.Name}}, p.where...)}
+		Where: append(where, p.where...)}
 	c := v.Citation
 	c["query"], c["from"], c["to"] = base.String(), ts3339(in.Window.From), ts3339(in.Window.To)
 	c["minSpans"], c["soak"] = strconv.Itoa(p.minSpans), p.soak.String()
 	c["maxErrorRatio"] = strconv.FormatFloat(p.maxErrorRatio, 'f', -1, 64)
 
 	total, err := m.count(ctx, base)
+	newest := ""
+	if from := in.Window.To.Add(-p.soak); errors.Is(err, errMiraCap) && from.After(in.Window.From) {
+		base.From = from.UnixNano()
+		c["query"], c["from"] = base.String(), ts3339(from)
+		newest = fmt.Sprintf("judged on the newest %s, the whole window holds more spans than the gate counts; ", p.soak)
+		total, err = m.count(ctx, base)
+	}
 	if err != nil {
 		v.Message = "reading spans from Mira: " + err.Error()
 		return v
@@ -163,7 +193,7 @@ func (m Mira) Check(ctx context.Context, in GateInput, params map[string]string)
 		msgs = append(msgs, share(slow, total, "took longer than "+p.latencyThreshold.String(), p.maxLatencyRatio))
 		breach = breach || ratioOf(slow, total) > p.maxLatencyRatio
 	}
-	v.Message = strings.Join(msgs, "; ")
+	v.Message = newest + strings.Join(msgs, "; ")
 	switch soaked := in.Window.To.Sub(in.Window.From); {
 	case breach:
 		v.Result = Fail
@@ -187,14 +217,15 @@ func share(n, total int, what string, limit float64) string {
 
 func ts3339(t time.Time) string { return t.UTC().Format(time.RFC3339) }
 
-// count pages through every span q matches and counts them.
+// count pages through every span q matches and counts them, or answers
+// errMiraCap past the paging ceiling.
 func (m Mira) count(ctx context.Context, q miraQuery) (int, error) {
 	u := strings.TrimSuffix(m.URL, "/") + "/api/v1/query"
 	n := 0
 	for range miraMaxPages {
 		var page struct {
-			Rows *[]json.RawMessage `json:"rows"`
-			Next string             `json:"next"`
+			Rows *[]struct{} `json:"rows"` // counted, never kept
+			Next string      `json:"next"`
 		}
 		if err := postJSON(ctx, m.Client, u, q, &page); err != nil {
 			return 0, err
@@ -208,5 +239,5 @@ func (m Mira) count(ctx context.Context, q miraQuery) (int, error) {
 		}
 		q.After = page.Next
 	}
-	return 0, fmt.Errorf("more than %d spans in the window, more than the gate counts exactly through Mira's query API; narrow the filter", miraPageSize*miraMaxPages)
+	return 0, errMiraCap
 }
