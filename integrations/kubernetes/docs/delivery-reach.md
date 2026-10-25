@@ -6,7 +6,9 @@ that follows a Stage in another cluster.
 
 !!! warning "Experimental"
     Both set-ups are experimental, within an Alpha component: they may change
-    more than the rest of delivery and have had less live testing than Flux.
+    more than the rest of delivery. Every pull request that changes delivery
+    runs each of them live once, in the delivery demo; Flux runs in every
+    delivery scenario.
 
 ## Apply through Argo CD
 
