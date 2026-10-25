@@ -106,7 +106,7 @@ func adoptOnlySigned(ctx context.Context, tools Tools, pub *contract.Publish, p 
 		if err := tools.Verify(ctx, *pub.Sign, strings.TrimSuffix(it.Ref, ":"+p.Version)+"@"+it.Digest); err != nil {
 			p.Items[i].State, p.Ready = Conflict, false
 			p.Items[i].Reason = "the tag holds " + it.Digest + " with this version's provenance, but no signature by the configured identity, " +
-				"so Pacto did not publish it; it is never signed or overwritten (" + err.Error() + ")"
+				"so Pacto did not publish it; it is never signed or overwritten (" + err.Error() + ")" + NextVersion
 		}
 	}
 }
@@ -173,7 +173,7 @@ func (r *applier) owe(deploy bool, repo, digest string) {
 		case now == nil:
 			return r.reg.Tag(r.ctx, repo, digest, r.res.Plan.Version)
 		case now.Digest != digest:
-			return fmt.Errorf("%s now holds %s, written while this publish ran; it is never overwritten", ref, now.Digest)
+			return fmt.Errorf("%s now holds %s, written while this publish ran; it is never overwritten"+NextVersion, ref, now.Digest)
 		}
 		return nil
 	}

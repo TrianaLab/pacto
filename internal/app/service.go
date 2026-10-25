@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -53,6 +54,8 @@ type sysDeps struct {
 	httpClient *http.Client
 	// run runs the program publish hands work to (docker buildx).
 	run runner
+	// lookPath finds the program a publish build runs.
+	lookPath func(file string) (string, error)
 	// publishRegistry is the registry publish reads and writes.
 	publishRegistry func() publish.Registry
 	// refusalRepo opens the repository a publish refusal is kept in.
@@ -97,6 +100,9 @@ func (s *Service) env() sysDeps {
 	}
 	if d.run == nil {
 		d.run = execRun
+	}
+	if d.lookPath == nil {
+		d.lookPath = exec.LookPath
 	}
 	if d.publishRegistry == nil {
 		d.publishRegistry = defaultPublishRegistry

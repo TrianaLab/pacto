@@ -18,10 +18,19 @@ pacto publish           # publish it
 Pacto runs no tests. It refuses to publish when one of its own checks fails:
 
 - the contract is invalid, or uses a local reference or breaks its `pacto.lock`;
-- `publish.sign` is missing, or the signing key file would end up inside the bundle;
+- `publish.sign` is missing, the signing key file would end up inside the
+  bundle, or the signer does not open: a missing key file, a wrong
+  `COSIGN_PASSWORD` or an unreachable KMS key refuses the plan, before
+  anything is built;
 - there is no source revision (run it in a git checkout, or pass `--revision`).
   Pacto reads the commit from `.git` itself, worktrees and packed refs
-  included, and needs no `git` program;
+  included;
+- the git checkout has uncommitted changes to tracked files, so the commit
+  stamped and signed on every artifact would not hold what was built. Publish
+  from a clean checkout. This check runs `git status`; `--revision` skips it,
+  since you then name the revision yourself. Untracked files are not checked;
+- a `dockerfile` build has no usable `docker buildx` builder, or a `command`
+  build's program is not an executable here;
 - two artifacts, or an artifact and the bundle, share one repository;
 - an SBOM is declared on a `dockerfile` build, which writes none, or sits in
   the contract directory without a `.pactoignore` line (`--plan` names it);
@@ -61,11 +70,20 @@ For every artifact the plan says what the registry holds for its tag:
 
 Annotations are not signed, so anyone who can push can write them. Pacto
 therefore never signs what it adopts: a tag it wrote was signed before it was
-tagged, and one without that signature is someone else's. Each tag is read
-again just before it is written, so two runs racing on one version cannot
-overwrite each other. Publishing again finishes what is missing and changes
-nothing else, so a run that stopped halfway is simply repeated. The deploy artifact is tagged last:
-once its tag exists, everything it points at exists and is signed.
+tagged, and one without that signature is someone else's.
+
+A run that stopped halfway finishes when you run it again from the same
+commit: the plan adopts what the first run pushed and writes only what is
+missing. Run it from another commit and every tag the first run wrote is a
+conflict, so that version is spent: publish a higher `service.version`.
+
+The deploy artifact is tagged last: once its tag exists, everything it points
+at exists and is signed. The other tags, the bundle's included, may already
+exist when a run stops, but no Stage takes a version without its deploy
+artifact. Each tag is read again just before it is written, which narrows the
+window in which two runs racing on one version could both write. It does not
+close it: a registry has no compare-and-swap on tags, so give each version one
+publisher.
 
 ## What gets published
 
@@ -88,8 +106,10 @@ manifests build can pin the image it deploys by digest. Pacto then:
 5. pushes the bundle and writes the tags.
 
 It needs `docker buildx` with a builder that can write an OCI layout (the
-`docker-container` driver can) for `dockerfile` builds, and nothing else: no
-`git`, `syft` or `cosign`.
+`docker-container` driver can) for `dockerfile` builds, and `git` to check that
+the checkout is clean unless you pass `--revision`. It needs no `syft` or
+`cosign`. The build commands `pacto init` writes run `sh`, `cp` and `sed`, so
+they need a POSIX shell: on Windows, publish from WSL or a Linux CI runner.
 Registry credentials and plain-HTTP registries come from the same settings as
 `pacto push`.
 

@@ -236,6 +236,14 @@ func TestApplyFinishesWhatStopped(t *testing.T) {
 	if r, _ := reg.Head(ctx, host+"/deploy/payments:1.0.0"); r != nil {
 		t.Fatal("the deploy tag is the commit point; it must not exist")
 	}
+	// Only the same revision finishes it. A run from another commit finds
+	// tags it did not compute: the version is spent, and the bundle tag is
+	// already public, though no Stage takes it without the deploy artifact.
+	other := Input{Bundle: in.Bundle, Revision: "def456"}
+	if p := MakePlan(ctx, reg, other); p.Ready || states(p) != "api=conflict chart=conflict manifests=absent bundle=identical" ||
+		!strings.Contains(p.Items[0].Reason, "(version 1.0.0, revision abc123); it is never overwritten: publish a higher service.version") {
+		t.Fatalf("a resume from another revision: %s %+v", states(p), p.Items[0])
+	}
 	p := MakePlan(ctx, reg, in)
 	if states(p) != "api=adopt chart=adopt manifests=absent bundle=identical" {
 		t.Fatalf("resume plan: %s", states(p))
@@ -275,8 +283,14 @@ func TestNeverOverwrites(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = reg.Tag(ctx, host+"/pacto/payments", bd, "2.0.0")
-	if p := MakePlan(ctx, reg, in2); p.Items[3].State != Conflict {
+	p := MakePlan(ctx, reg, in2)
+	if p.Items[3].State != Conflict {
 		t.Fatalf("bundle: %s", states(p))
+	}
+	// The refusal names the next step, and a bundle, which carries no
+	// provenance, does not print empty fields that read as corruption.
+	if why := p.Items[3].Reason; !strings.HasSuffix(why, "never overwritten: publish a higher service.version") || strings.Contains(why, "(") {
+		t.Fatalf("bundle conflict reason: %s", why)
 	}
 }
 
