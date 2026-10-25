@@ -28,11 +28,16 @@ type PlanSources interface {
 }
 
 // AssemblePlanInput gathers everything PlanFor reads for spec on stage, raised
-// by an actor of class. Only a promote reads beyond the operation itself.
+// by an actor of class. Only a promote reads beyond the operation itself,
+// apart from the To revision of any other pointer move: its contract version
+// is what a version-matching verify gate checks (Plan.ToVersion).
 func AssemblePlanInput(ctx context.Context, src PlanSources, spec OperationSpec, stage StageObject, class ActorClass, now time.Time) (PlanInput, error) {
 	in := PlanInput{Spec: spec, Stage: stage.Spec, Status: stage.Status, Class: class,
 		From: Revision{Digest: spec.Params.From}, To: Revision{Digest: spec.Params.To}}
 	if spec.Type != TypePromote {
+		if spec.Facet == FacetPointer && spec.Params.To != "" {
+			_, in.To = src.Revisions(ctx, stage, spec.Params.From, spec.Params.To)
+		}
 		return in, nil
 	}
 	var err error

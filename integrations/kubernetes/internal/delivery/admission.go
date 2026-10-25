@@ -122,8 +122,13 @@ func (r *OperationReconciler) causeRefusal(ctx context.Context, op *dv1.Operatio
 	if from.IsZero() {
 		return "CauseUnconfirmed: the running version has no applied time, so no cited " + c.Verdict.Gate + " window can be about it", nil
 	}
-	base := gateInput(op, stage, from, now)
-	base.Subjects = []string{stage.Status.Pointer}
+	// The re-run is about the running version, so its contract version comes
+	// from the operation that shipped it, never from op's own plan.
+	base := gateInput(shipped, stage, from, now)
+	base.OperationUID = string(op.UID)
+	if base.Subjects[0] != stage.Status.Pointer {
+		base.Subjects, base.Version = []string{stage.Status.Pointer}, ""
+	}
 	v := delivery.Rerun(ctx, r.Gates, stage.Spec.Gates.Verify.Checks, base, *c.Verdict)
 	if v.Result == delivery.Unknown || v.Result != c.Verdict.Result {
 		return fmt.Sprintf("CauseUnconfirmed: the cited %s verdict says %s, re-running it now says %s: %s",

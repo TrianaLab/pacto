@@ -435,6 +435,47 @@ func TestCitedCauseMustBeAboutTheRunningVersion(t *testing.T) {
 	}
 }
 
+// TestRollbackGatesKnowTheVersion: a version-matching gate (Mira's
+// matchVersion) needs the contract version of the digest it checks. The re-run
+// of a cited cause is about the running version, the rollback's verify and
+// every re-check after it about the version rolled back to.
+func TestRollbackGatesKnowTheVersion(t *testing.T) {
+	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.shipB()
+	applied := e.now
+	e.now = e.now.Add(5 * time.Minute)
+	e.setStage(func(s *delivery.StageStatus) { s.Frozen = true })
+	cited := delivery.RunChecks(context.Background(), map[string]delivery.Gate{"mira": &fakeHealth{result: delivery.Fail}},
+		healthChecks, gateInput(e.getOp("p1"), e.getStage(), applied, e.now))[0]
+	rb := opObj("rb", delivery.TypeRollback, dB, dA, bot)
+	rb.Spec.Params.Undoes = "uid-p1"
+	rb.Spec.Cause = &delivery.Cause{Verdict: &cited}
+	e.create(bind(rb, e.getStage()))
+	e.health.result = delivery.Fail
+	if o := e.drive("rb"); o.Status.Phase != delivery.PhaseRunning {
+		t.Fatalf("a confirmed cause admits the rollback: %+v", o.Status)
+	}
+	if in := e.health.inputs[len(e.health.inputs)-1]; in.Subjects[0] != dB || in.Version != "1.1.0" || in.OperationUID != "uid-rb" {
+		t.Fatalf("the cause re-run is about the running version: %+v", in)
+	}
+	e.health.result = delivery.Pass
+	e.apply(dA)
+	e.evaluate(c1, "Compliant")
+	wantOutcome(t, e.drive("rb"), delivery.Succeeded, "Verified")
+	if in := e.health.inputs[len(e.health.inputs)-1]; in.Subjects[0] != dA || in.Version != "1.0.0" {
+		t.Fatalf("the rollback's verify knows the version: %+v", in)
+	}
+	n := len(e.health.inputs)
+	e.setStage(func(s *delivery.StageStatus) { s.Frozen = false })
+	e.now = e.now.Add(10 * time.Minute)
+	if err := e.reconcileStage("payments-prod"); err != nil || len(e.health.inputs) == n {
+		t.Fatalf("re-checked: %v", err)
+	}
+	if in := e.health.inputs[len(e.health.inputs)-1]; in.Subjects[0] != dA || in.Version != "1.0.0" {
+		t.Fatalf("the re-check after a rollback knows the version: %+v", in)
+	}
+}
+
 // TestRecheckNeverUndoesAChoice: a version a person chose (a rollback, or a
 // promote while the Stage is on auto-hold) that fails after release is marked
 // failed and freezes the Stage; automation never rolls the choice back.

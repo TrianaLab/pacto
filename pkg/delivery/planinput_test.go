@@ -34,7 +34,8 @@ func (f *fakeSources) Describe(_ context.Context, _ StageObject, d string) Revis
 
 // TestAssemblePlanInput: a promote reads both sides, the upstream, the Pactos,
 // Stages and Kustomizations into one input; an upstream read that fails stops
-// planning; anything but a promote reads nothing.
+// planning; any other pointer move reads only its To side, so its plan
+// carries the version a version-matching verify gate checks.
 func TestAssemblePlanInput(t *testing.T) {
 	stage := StageObject{Metadata: ObjectMeta{Namespace: "prod", Name: "payments"}, Spec: stageSpec(), Status: StageStatus{Pointer: dA}}
 	src := &fakeSources{from: rev(dA, c1, bundle("payments", "1.0.0")), to: rev(dB, c2, bundle("payments", "1.1.0")),
@@ -52,7 +53,16 @@ func TestAssemblePlanInput(t *testing.T) {
 	}
 	rollback := promote(dB, dA)
 	rollback.Type = TypeRollback
-	if in, err := AssemblePlanInput(context.Background(), src, rollback, stage, ClassAgent, now); err != nil || in.To.Bundle != nil || in.Snapshot != nil {
-		t.Fatalf("a rollback reads nothing: %v %+v", err, in)
+	src.upErr, src.to = nil, rev(dA, c1, bundle("payments", "1.0.0"))
+	in, err = AssemblePlanInput(context.Background(), src, rollback, stage, ClassAgent, now)
+	if err != nil || in.To.Bundle == nil || in.From.Bundle != nil || in.Snapshot != nil || in.Upstream != nil {
+		t.Fatalf("a rollback reads only its To side: %v %+v", err, in)
+	}
+	if p := PlanFor(context.Background(), in); p.ToVersion != "1.0.0" {
+		t.Fatalf("a rollback's plan carries the version it rolls back to, got %q", p.ToVersion)
+	}
+	freeze := OperationSpec{Type: TypeFreeze, Facet: FacetFreeze}
+	if in, err := AssemblePlanInput(context.Background(), src, freeze, stage, ClassAgent, now); err != nil || in.To.Bundle != nil {
+		t.Fatalf("a freeze reads nothing: %v %+v", err, in)
 	}
 }
