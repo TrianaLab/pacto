@@ -101,12 +101,12 @@ func Cluster(ctx context.Context, dyn dynamic.Interface, base Options, c Cluster
 	var errs []error
 	for _, w := range cl.workloads {
 		ns, name := w.GetNamespace(), w.GetName()
-		key := ns + "/" + w.GetKind() + "/" + name
-		if described[key] {
-			b.Skipped = append(b.Skipped, key)
+		k := key(w)
+		if described[k] {
+			b.Skipped = append(b.Skipped, k)
 			continue
 		}
-		r, err := cl.draft(ctx, w, base, deps[key], c.Out, writeFile)
+		r, err := cl.draft(ctx, w, base, deps[k], c.Out, writeFile)
 		if r != nil {
 			b.Results = append(b.Results, r)
 		}
