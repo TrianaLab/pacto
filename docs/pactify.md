@@ -91,7 +91,7 @@ publish:
       type: manifests
       ref: oci://ghcr.io/acme/deploy/my-service
       build:                # your Kubernetes files, the image just built, delivery/pacto.yaml
-        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed "s#ghcr\.io/acme/my-service:1\.0\.0#$PACTO_REF_API@$PACTO_DIGEST_API#" k8s/deployment.yaml > "$PACTO_OUT"/deployment.yaml && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
+        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"'']?)ghcr\.io/acme/my-service:1\.0\.0([\"'']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" k8s/deployment.yaml > "$PACTO_OUT"/deployment.yaml && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/deployment.yaml || { echo "pacto: no image: ghcr.io/acme/my-service:1.0.0 line to pin" >&2; exit 1; }; } && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
   sign: {key: cosign.key}
 ```
 
@@ -182,7 +182,8 @@ environment and holds which version runs there, and the Flux pieces that watch
 your registry and apply what the Stage picks. `delivery/pacto.yaml` tells the
 operator to check the service; it ships inside every version, so you never
 apply it. Within a minute or two the test Stage runs the version you published,
-with nobody asked, then prod takes it once it passed in test:
+with nobody asked. Once it passed in test, prod proposes it and waits for a
+person to approve it (see [When a change waits](#when-a-change-waits-or-an-environment-freezes)):
 
 ```bash
 kubectl get stage -A                                  # Pointer: the version it runs
@@ -194,7 +195,14 @@ kubectl -n test describe stage my-service             # if nothing moves: why, u
 
 Make a change, raise `service.version` in `pacto.yaml`, then run
 `pacto publish`. It builds the new image and the version it publishes runs it. A safe change
-moves through test to prod on its own (`auto: true` in each Stage). A version
+moves through test on its own (`auto: true` in each Stage). In prod, `init`
+also writes `approval: always: true`, so every promote waits for a person:
+the contract check cannot see a consumer that has no contract, or tell whether
+the version is healthy. Autonomy in prod is earned. Once a health check judges
+each version there (`gates.verify.checks`, see
+[Delivery reference: health checks](integrations/kubernetes/delivery-health.md)),
+delete `approval` from `delivery/prod.yaml` and apply it again: from then on a
+safe change that passes the check reaches prod with nobody involved. A version
 that fails its checks after release is rolled back once, or, with nothing to
 go back to, its Stage freezes: nothing moves there until a person unfreezes it.
 A change that would break a service using yours waits and asks that service's

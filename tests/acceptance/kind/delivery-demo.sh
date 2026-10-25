@@ -634,7 +634,11 @@ story_pactify() {
   eventually 60 kubectl -n test get pacto fraud >/dev/null 2>&1 || fail "pacto init --delivery wrote no Pacto resource for fraud in test"
   local img; img="$(kubectl -n test get deploy fraud -o jsonpath='{.spec.template.spec.containers[0].image}')"
   [[ "$img" == "${REG_HOST}/story/images/fraud@sha256:"* ]] || fail "fraud runs $img in test, not the image pacto publish built, pinned by digest"
-  pass "fraud is pactified: its contract, Pacto resource and Stages come from pacto init as it wrote them, and 1.0.0 runs in test with nobody involved"
+  # Autonomy in prod is earned: init writes its Stage so every promote there
+  # waits for a person until a health check judges the version.
+  op="$(wait_op prod fraud "$d")"
+  eventually 60 held prod "$op" || fail "fraud 1.0.0 went to prod with nobody asked: $(field prod "$op" phase) $(field prod "$op" message)"
+  pass "fraud is pactified: its contract, Pacto resource and Stages come from pacto init as it wrote them, 1.0.0 runs in test with nobody involved and waits for a person in prod"
 }
 
 story_b1() {

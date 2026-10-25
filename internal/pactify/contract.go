@@ -363,11 +363,22 @@ func (p *planner) pinImage(pin, built string, kept bool) string {
 	if kept {
 		out = w.file
 	}
-	// ponytail: a plain text match on the image as written; another image that
-	// starts with the same text in that file (name:1.0 and name:1.0-debug) is
-	// rewritten too. Match on the image: field if that ever bites.
+	// The match is the whole value of an image: field, block or flow style,
+	// never a substring, so a label, a name or another image that shares the
+	// text is left alone. An image written in a form the match does not read
+	// (a JSON manifest, say) is not pinned, and init says so; a build that
+	// pinned nothing, as the file changed since, fails rather than ship the
+	// tag unpinned.
+	img := strings.ReplaceAll(w.image, ".", `\.`)
+	raw, _ := os.ReadFile(filepath.Join(p.r.Dir, w.file))
+	if !regexp.MustCompile(`(?m)(^|[{,\s])image:\s*["']?` + img + `["']?\s*([,}#]|$)`).Match(raw) {
+		p.next("%s names %s in a form pacto init cannot rewrite (write it as `image: %s`), so its image is published as written, not pinned to the one each version builds", w.file, w.image, w.image)
+		return ""
+	}
 	p.found("the published %s deploys the image each version builds, pinned by digest", w.file)
-	return fmt.Sprintf(` && sed "s#%s#$PACTO_REF_API@$PACTO_DIGEST_API#" %s > "$PACTO_OUT"/%s`, strings.ReplaceAll(w.image, ".", `\.`), shq(w.file), shq(out))
+	return fmt.Sprintf(` && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"']?)%s([\"']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" %s > "$PACTO_OUT"/%s`+
+		` && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/%s || { echo "pacto: no image: %s line to pin" >&2; exit 1; }; }`,
+		img, shq(w.file), shq(out), shq(out), w.image)
 }
 
 // copyManifests is the build command that copies the manifests into

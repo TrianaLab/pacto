@@ -108,6 +108,9 @@ func TestPactifyFraud(t *testing.T) {
 		t.Fatalf("the Pacto resource does not name the contract and fraud's Service:\n%s", res)
 	}
 	checkStages(t, file(t, r, "delivery/test.yaml").Content, file(t, r, "delivery/prod.yaml").Content)
+	if !hasLine(r.Next, "every promote to prod waits for a person") || !hasLine(r.Next, "delete approval to let it promote on its own") {
+		t.Fatalf("init does not say how prod earns autonomy: %+v", r.Next)
+	}
 
 	opts.Plan = false
 	if r, err = Init(context.Background(), opts, os.WriteFile); err != nil || !r.Applied {
@@ -162,7 +165,7 @@ publish:
       type: manifests
       ref: oci://registry.example/story/deploy/fraud
       build:
-        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed "s#registry\.example/story/images/fraud:1\.0\.0#$PACTO_REF_API@$PACTO_DIGEST_API#" k8s/deployment.yaml > "$PACTO_OUT"/deployment.yaml && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
+        command: [sh, -c, 'cp k8s/deployment.yaml k8s/service.yaml "$PACTO_OUT"/ && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"'']?)registry\.example/story/images/fraud:1\.0\.0([\"'']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" k8s/deployment.yaml > "$PACTO_OUT"/deployment.yaml && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/deployment.yaml || { echo "pacto: no image: registry.example/story/images/fraud:1.0.0 line to pin" >&2; exit 1; }; } && sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml']
   sign:
     key: cosign.key
 `
@@ -180,6 +183,11 @@ func checkStages(t *testing.T, test, prod string) {
 	}
 	if ps.Candidates.UpstreamStage == nil || *ps.Candidates.UpstreamStage != (delivery.StageRef{Name: "fraud", Namespace: "test"}) {
 		t.Fatalf("prod Stage: %+v", ps)
+	}
+	// Autonomy in prod is earned: every promote there waits for a person
+	// until a health check exists; test promotes on its own.
+	if !ps.Approval.Always || ts.Approval.Always {
+		t.Fatalf("approval: test %+v prod %+v", ts.Approval, ps.Approval)
 	}
 	if !tk["OCIRepository"] || !tk["Kustomization"] || !pk["Kustomization"] || !strings.Contains(test, "delivery.pacto.trianalab.io/apply-ref: fraud") {
 		t.Fatalf("pieces: test %v prod %v", tk, pk)
@@ -301,7 +309,7 @@ metadata: {name: db}
 	text := file(t, r, "pacto.yaml").Content
 	for _, s := range []string{"#   - name: payments\n#     ref: oci://ghcr.io/acme/contracts/payments", "version: 1.9.0", "team: shop", "ref: oci://ghcr.io/acme/checkout\n",
 		"bundle: oci://ghcr.io/acme/contracts/checkout\n",
-		`command: [sh, -c, 'cp deploy/app.yaml "$PACTO_OUT"/ && sed "s#ghcr\.io/acme/checkout:v1\.9\.0#$PACTO_REF_API@$PACTO_DIGEST_API#" deploy/app.yaml > "$PACTO_OUT"/app.yaml']`, "from Dockerfile, deploy/app.yaml.\n"} {
+		`command: [sh, -c, 'cp deploy/app.yaml "$PACTO_OUT"/ && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"'']?)ghcr\.io/acme/checkout:v1\.9\.0([\"'']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" deploy/app.yaml > "$PACTO_OUT"/app.yaml && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/app.yaml || { echo "pacto: no image: ghcr.io/acme/checkout:v1.9.0 line to pin" >&2; exit 1; }; }']`, "from Dockerfile, deploy/app.yaml.\n"} {
 		if !strings.Contains(text, s) {
 			t.Errorf("pacto.yaml lacks %q:\n%s", s, text)
 		}
@@ -437,7 +445,7 @@ func TestPactifyKustomizeLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	cmd := c.Publish.Artifacts[len(c.Publish.Artifacts)-1].Build.Command[2]
-	if strings.Contains(cmd, "*") || strings.Contains(cmd, "overlays/dev/kustomization.yaml") {
+	if strings.Contains(cmd, "/*") || strings.Contains(cmd, " *") || strings.Contains(cmd, "overlays/dev/kustomization.yaml") {
 		t.Fatalf("command: %s", cmd)
 	}
 	if !hasLine(r.Next, "deploy/overlays/dev/kustomization.yaml holds a Secret's values") || !hasLine(r.Unknown, "the folder Flux builds") {
@@ -790,5 +798,73 @@ func TestPrivateRegistry(t *testing.T) {
 		if _, err := Init(context.Background(), opts, os.WriteFile); err == nil {
 			t.Errorf("%+v was accepted", opts)
 		}
+	}
+}
+
+// TestPinImageRewritesOnlyTheImage: an untagged image named like its labels
+// and its container (image: checkout) is pinned in its image: field only,
+// and an image that starts with the same text is left alone. An image
+// written in a form the match cannot read is not pinned, and init says so;
+// a build whose manifest no longer names the image fails instead of
+// shipping it unpinned.
+func TestPinImageRewritesOnlyTheImage(t *testing.T) {
+	deploy := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+  labels:
+    app: checkout
+spec:
+  selector:
+    matchLabels:
+      app: checkout
+  template:
+    metadata:
+      labels:
+        app: checkout
+    spec:
+      containers:
+        - name: checkout
+          image: checkout
+        - name: debug
+          image: checkout-debug
+`
+	dir := writeTree(t, t.TempDir(), map[string]string{"Dockerfile": "FROM scratch\n", "k8s/deployment.yaml": deploy})
+	r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := contract.Parse(strings.NewReader(file(t, r, "pacto.yaml").Content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := c.Publish.Artifacts[1].Build.Command
+	out := t.TempDir()
+	build := exec.Command(cmd[0], cmd[1:]...)
+	build.Dir, build.Env = dir, buildEnv(out)
+	if b, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("%s: %v", b, err)
+	}
+	want := strings.Replace(deploy, "image: checkout\n", "image: "+pinnedImage+"\n", 1)
+	if d, _ := os.ReadFile(filepath.Join(out, "deployment.yaml")); string(d) != want {
+		t.Fatalf("published Deployment:\n%s", d)
+	}
+
+	// The manifest changed after init: the build fails, it does not ship it.
+	_ = os.WriteFile(filepath.Join(dir, "k8s/deployment.yaml"), []byte(strings.Replace(deploy, "image: checkout\n", "image: other\n", 1)), 0o644)
+	build = exec.Command(cmd[0], cmd[1:]...)
+	build.Dir, build.Env = dir, buildEnv(t.TempDir())
+	if b, err := build.CombinedOutput(); err == nil || !strings.Contains(string(b), "no image: checkout line to pin") {
+		t.Fatalf("a build that pinned nothing passed: %s %v", b, err)
+	}
+
+	// A JSON manifest: init does not claim to pin it.
+	dir = writeTree(t, t.TempDir(), map[string]string{"Dockerfile": "FROM scratch\n",
+		"k8s/deployment.yaml": `{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": {"name": "checkout"}, "spec": {"template": {"spec": {"containers": [{"name": "checkout", "image": "checkout"}]}}}}` + "\n"})
+	if r, err = Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); err != nil {
+		t.Fatal(err)
+	}
+	if !hasLine(r.Next, "in a form pacto init cannot rewrite") || hasLine(r.Found, "pinned by digest") || strings.Contains(file(t, r, "pacto.yaml").Content, "PACTO_DIGEST_API") {
+		t.Fatalf("findings: %+v", r)
 	}
 }

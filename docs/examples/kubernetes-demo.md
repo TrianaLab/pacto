@@ -43,7 +43,8 @@ in the order the story plays them:
   `--no-transparency-log` keeps the demo's throwaway key out of the public
   transparency log, and `--insecure-registry` lets Flux read its plain HTTP
   registry. The demo uses the files as init wrote them. fraud ships to test,
-  running the image `pacto publish` built, pinned by digest.
+  running the image `pacto publish` built, pinned by digest. In prod it waits
+  for a person: init gates the last environment until a health check exists.
 - **A safe change ships on its own.** payments 2.4.0 adds an endpoint and
   reaches prod with nobody involved, because checkout and orders accept
   payments ^2.
