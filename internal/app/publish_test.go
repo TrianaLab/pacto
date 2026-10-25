@@ -78,12 +78,17 @@ func outOf(env []string) string {
 	return ""
 }
 
+// anonymous is a keychain that never asks the machine's docker credential
+// helper: the default one runs it for every registry call, which made these
+// tests take minutes.
+var anonymous = authn.NewMultiKeychain()
+
 func publishRegistry(t *testing.T) (string, publish.Registry) {
 	t.Helper()
 	srv := httptest.NewServer(registry.New(registry.Logger(log.New(io.Discard, "", 0))))
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
-	return host, publish.NewClient(authn.DefaultKeychain, host)
+	return host, publish.NewClient(anonymous, host)
 }
 
 func writePublishBundle(t *testing.T, host, extra string) string {

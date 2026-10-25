@@ -124,12 +124,17 @@ func chartTGZ(files map[string]string) []byte {
 	return buf.Bytes()
 }
 
+// anonymous is a keychain that never asks the machine's docker credential
+// helper: the default one runs it for every registry call, which made these
+// tests take minutes.
+var anonymous = authn.NewMultiKeychain()
+
 func newRegistry(t *testing.T) (string, *Client) {
 	t.Helper()
 	srv := httptest.NewServer(registry.New(registry.WithReferrersSupport(true), registry.Logger(log.New(io.Discard, "", 0))))
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
-	return host, NewClient(authn.DefaultKeychain, host)
+	return host, NewClient(anonymous, host)
 }
 
 const workloadService = "service"
@@ -633,7 +638,7 @@ func TestClient(t *testing.T) {
 	expect(t, err != nil, "write of an artifact with no digest")
 	_, err = c.Write(ctx, host+"/x", hashOnly{})
 	expect(t, err != nil, "write of an unknown artifact kind")
-	secure := NewClient(authn.DefaultKeychain)
+	secure := NewClient(anonymous)
 	r, err := secure.parse("ghcr.io/acme/x:1")
 	expect(t, err == nil && r.Context().Scheme() == "https", "a secure host: %v", err)
 }
@@ -647,7 +652,7 @@ func TestClientTagsAndReferrers(t *testing.T) {
 	expect(t, c.Tag(ctx, host+"/x", d, "1.0.0+build") != nil, "a tag Docker refuses")
 	_, err := c.Referrers(ctx, "BAD REF", d, SPDXType)
 	expect(t, err != nil, "referrers of a bad ref")
-	gone := NewClient(authn.DefaultKeychain, "127.0.0.1:1")
+	gone := NewClient(anonymous, "127.0.0.1:1")
 	_, err = gone.Head(ctx, "127.0.0.1:1/x:1")
 	expect(t, err != nil, "an unreachable registry is never absent")
 	_, err = gone.Referrers(ctx, "127.0.0.1:1/x", d, SPDXType)
