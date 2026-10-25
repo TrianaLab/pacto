@@ -2,26 +2,69 @@
 
 # Pacto
 
-**Pacto is an operational contract system for services.**
+**Pacto is continuous delivery for the GitlessOps era.**
 
-A service's operational facts are scattered. Ownership is in a wiki. The API is
-an OpenAPI file in another repository. What it depends on is implied by Helm
-values and a Service name. What breaks if you change it is in someone's memory.
+Describe your services once, as contracts. Pacto works out what each change
+does to the services that depend on it. It starts by watching, and once a
+person has confirmed each step it ships the changes the contract graph clears.
+It asks only the teams a change affects. Flux or Argo CD still apply every
+version, and your code stays in git.
 
-Pacto puts those facts in one YAML file, published to the container registry you
-already run. With the opt-in delivery component, Pacto also turns them into
-delivery decisions. A change is promoted on its own only when its
-compatibility, its impact on the declared consumers and its health checks back
-it. When Pacto cannot see enough (Unknown), it holds the change and asks only
-the teams concerned, never an agent. Each decision can end in a signed record
-you verify with cosign and oras, on top of your IDP and GitOps (Flux, Argo CD),
-without replacing them.
+The contracts are the foundation. A contract is one YAML file per service:
+who owns it, what it offers, which services it calls and which of their
+versions it accepts. It is published to the container registry you already
+run, and it is useful on its own, without delivery.
 
 **[Documentation](https://pacto.run)** · **[Quickstart](https://pacto.run/latest/quickstart)** · **[Specification](https://pacto.run/latest/contract-reference)** · **[Examples](https://pacto.run/latest/examples)** · **[Live demo](https://pacto.run/latest/demo/#/fleet)**
 
 > **Why Pacto exists** — [MANIFEST.md](MANIFEST.md)
 
 ---
+
+## Delivery: from watching to shipping on its own
+
+Install the opt-in delivery component and each environment of each service (a
+Stage) climbs a ladder of four rungs:
+
+| Rung | What Pacto does |
+| --- | --- |
+| observe | Works out what it would do for every change and moves nothing; GitOps keeps control |
+| advise | Shows each new version and its plan; a person asks for or approves every change |
+| auto for non-breaking | Ships the changes that break no one on its own |
+| autonomous | Ships every change the contract graph clears on its own |
+
+A new Stage starts on observe. Pacto proposes the next rung after enough good
+changes, a person other than the one who asked confirms it, and a raise to an
+automatic rung needs the recorder, so it leaves a signed record. When a
+version Pacto shipped on its own fails its checks, Pacto rolls it back once if
+that is safe and otherwise freezes the Stage; after an automatic rollback the
+Stage also drops one rung.
+
+No rung skips the safety rules. A change that would break a consumer waits and
+asks only that consumer's team, and the plan says which service to ship first.
+When Pacto cannot see enough (Unknown), the change waits for a person. A
+service seen calling yours at runtime with no contract counts as a consumer
+Pacto cannot judge, so a breaking change waits too. AI agents may propose
+changes and only people may approve. With the recorder on and a registry that
+serves OCI Referrers (zot does, GitHub's does not), every change leaves a
+signed record you verify with cosign and oras. Without the component, Pacto
+never changes what runs.
+
+Delivery synthesizes two ideas from others and adds one of ours:
+
+- **[ConfigHub](https://confighub.com)**: configuration as data behind an API,
+  instead of files in git. Pacto keeps only "which version runs where" that way.
+- **Anthropic's [Scion](https://www.anthropic.com/engineering/redesigning-source-control)**:
+  source control for agent-scale change. Content stored by its hash, a pointer
+  moved with one compare-and-swap and tests after a change merges, before it
+  deploys.
+- **Ours, the contract graph**: which services depend on which and which
+  versions each accepts. That decides whether a change is safe, who must agree
+  and what ships first.
+
+Start with [Pactify a service](https://pacto.run/latest/pactify/), read
+[the autonomy ladder](https://pacto.run/latest/autonomy/) and
+[what GitlessOps means](MANIFEST.md#what-gitlessops-means).
 
 ## Who breaks when a dependency ships a new version
 
@@ -84,36 +127,6 @@ when it cannot see it says "don't know" instead of guessing. Run it three ways:
 `pacto run` wraps one command (a laptop, a CI job), `pacto agent` watches a
 Docker host or a server and the Kubernetes operator deploys the same agent on
 every node. See [Runtime conformance](https://pacto.run/latest/runtime-conformance/).
-
-## Ship with the contract graph (opt-in)
-
-Install the delivery component and Pacto promotes versions from test to prod.
-A change that breaks nothing Pacto can see goes ahead on its own, unless the
-Stage asks a person to approve every promote; one that would break a consumer
-waits and asks only that consumer's team, and the plan says which service to
-ship first. A breaking change that no contract depends on waits for a person
-too, because a service without a contract may still call it. Autonomy is gated by the evidence for each change, not earned
-from past ones. A promoted version that fails its checks after release is
-rolled back once; otherwise the Stage freezes until a person decides. AI
-agents may propose changes and only people may approve, which needs a cluster
-that trusts your company login. With the recorder turned on and a registry
-that serves OCI Referrers (zot does, GitHub's does not), every change leaves a
-signed record. Flux applies the version, or Argo CD as an experimental option.
-Without the component, Pacto never changes what runs.
-
-Delivery synthesizes two ideas from others and adds one of ours:
-
-- **[ConfigHub](https://confighub.com)**: desired state as data with an API,
-  the step beyond GitOps. Pacto keeps only "which version runs where" that way.
-- **Anthropic's [Scion](https://www.anthropic.com/engineering/redesigning-source-control)**:
-  principles for agent-scale change. Content stored once and never changed,
-  a pointer only one writer can move and checks after a change lands, before
-  it deploys.
-- **Ours, the contract graph**: which services depend on which and which
-  versions each accepts. That decides whether a change is safe, who must agree
-  and what ships first.
-
-Start with [Pactify a service](https://pacto.run/latest/pactify/).
 
 ## What a contract declares
 
@@ -204,21 +217,19 @@ installing without `sudo` and uninstalling.
 
 Full documentation at **[pacto.run](https://pacto.run)**.
 
-| Guide | Description |
-|-------|-------------|
-| [Quickstart](https://pacto.run/latest/quickstart) | From zero to a validated contract and a breaking change caught, in about 5 minutes |
-| [Contract Reference](https://pacto.run/latest/contract-reference) | Every field, validation rule and change classification |
-| [For Developers](https://pacto.run/latest/developers) | Write and maintain contracts alongside your code |
-| [For Platform Engineers](https://pacto.run/latest/platform-engineers) | Consume contracts for deployment, policies and graphs |
-| [CLI Reference](https://pacto.run/latest/cli-reference) | All commands, flags and output formats |
-| [Dashboard](https://pacto.run/latest/dashboard-docker) | Deploy the dashboard container alongside the operator |
-| [Runtime conformance](https://pacto.run/latest/runtime-conformance/) | Check what running services do on the network, on any Linux host |
-| [Kubernetes Operator](https://pacto.run/latest/integrations/kubernetes/overview/) | Runtime contract tracking and verification |
-| [Pactify a service](https://pacto.run/latest/pactify/) | From a plain service to its first release Pacto checks before prod |
-| [Delivery](https://pacto.run/latest/integrations/kubernetes/delivery/) | What happens to a change, who is asked and why |
-| [MCP Integration](https://pacto.run/latest/mcp-integration) | Connect AI tools (Claude, Cursor, Copilot) to Pacto via MCP |
-| [Plugin Development](https://pacto.run/latest/plugins) | Build plugins to generate artifacts from contracts |
-| [Examples](https://pacto.run/latest/examples) | PostgreSQL, Redis, RabbitMQ, NGINX, gRPC and more |
+Pick the path that matches what you came to do:
+
+| You want to | Start here |
+|-------------|------------|
+| Know what Pacto is and whether it fits | [Delivery](https://pacto.run/latest/integrations/kubernetes/delivery/), [the autonomy ladder](https://pacto.run/latest/autonomy/) and the [live demo](https://pacto.run/latest/demo/#/fleet) |
+| Pactify your first service | [Quickstart](https://pacto.run/latest/quickstart), then [Pactify a service](https://pacto.run/latest/pactify/) |
+| Approve or unblock a change | [Decide, unfreeze and roll back](https://pacto.run/latest/pactify-decide/) |
+| Verify a record | [Signed records and history](https://pacto.run/latest/integrations/kubernetes/delivery-records/) |
+| Drive Pacto from an AI agent | [MCP integration](https://pacto.run/latest/mcp-integration) |
+| Write and check contracts | [For developers](https://pacto.run/latest/developers) and the [contract reference](https://pacto.run/latest/contract-reference) |
+
+Every term is in the [glossary](https://pacto.run/latest/glossary/), and every
+command in the [CLI reference](https://pacto.run/latest/cli-reference).
 
 ---
 

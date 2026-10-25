@@ -5,19 +5,24 @@
 template: home.html
 ---
 
-<h1 hidden>One versioned contract per service</h1>
+<h1 hidden>Describe your services once. Pacto decides what ships.</h1>
 
 ## What is Pacto? { #what-is-pacto }
 
-A service's operational facts are scattered. Ownership is in a wiki. The API is
-an OpenAPI file in another repository. What it depends on is implied by Helm
-values and a Service name. What breaks if you change it is in someone's memory.
+Pacto is continuous delivery for the GitlessOps era. You describe each service
+once, in a contract. Pacto works out what each change does to the services
+that depend on it, and decides which version runs in each environment. Flux
+or Argo CD still apply the version, and your code stays in git.
 
-Pacto is an operational contract system. It puts those facts in one YAML file,
-published to the container registry you already run. With the opt-in
-[delivery](integrations/kubernetes/delivery.md) component, Pacto also acts on
-them: it decides which version of each service runs in each environment, and
-[pactifying a service](pactify.md) sets it up.
+Pacto starts by watching. It earns the right to ship on its own one step at a
+time, and a person confirms every step: that is
+[the autonomy ladder](autonomy.md). It asks only the teams a change affects,
+and when it cannot see enough it says Unknown and waits for a person.
+
+Contracts are the foundation. A contract is one YAML file that says who owns
+a service, what it offers, which services it calls and which of their
+versions it accepts. It lives in the container registry you already run, and
+it is useful on its own, before you turn on delivery:
 
 ```yaml title="pacto.yaml"
 pactoVersion: "2.0"
@@ -105,11 +110,19 @@ every node. See [Runtime conformance](runtime-conformance.md).
 
 ## Where to start
 
-- [What the live demo shows](examples/dashboard-demo.md) — the dashboard runs
-  in your browser against a fixture fleet, nothing to install
-- [Quickstart](quickstart.md) — an empty directory to a validated contract, a
-  breaking change and the consumers it reaches, about five minutes
-- [Put it in your repository](ci.md) — validate and diff on every
-  pull request
-- [Contract reference](contract-reference/index.md) — every field and every
-  validation rule
+| You want to | Read |
+|---|---|
+| Know what Pacto is and whether it fits | [Delivery](integrations/kubernetes/delivery.md), [the autonomy ladder](autonomy.md), [What GitlessOps means](manifesto.md#what-gitlessops-means) and the [live demo](examples/dashboard-demo.md) |
+| Pactify your first service | [Quickstart](quickstart.md), then [Pactify a service](pactify.md) |
+| Approve or unblock a change | [Decide, unfreeze and roll back](pactify-decide.md) |
+| Verify a record | [Signed records and history](integrations/kubernetes/delivery-records.md) |
+| Drive Pacto from an AI agent | [AI assistants (MCP)](mcp-integration.md) |
+| Write and check contracts | [For developers](developers.md) and the [contract reference](contract-reference/index.md) |
+
+New words are explained in the [glossary](glossary.md).
+
+Pacto delivery builds on two ideas from others:
+[ConfigHub](https://confighub.com)'s configuration as data and Anthropic's
+[Scion](https://www.anthropic.com/engineering/redesigning-source-control).
+The contract graph is ours, and all of Pacto is open source under the MIT
+licence.

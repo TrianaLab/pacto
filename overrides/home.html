@@ -23,22 +23,20 @@
         </svg>
         <span class="pacto-hero__wordmark">pacto</span>
       </div>
-      {# The categorising noun. Not "standard": that word promises governance, a
-         conformance suite and a second implementation, and the evidence is one
-         schema file in this repository. #}
-      <p class="pacto-hero__eyebrow">Operational contract system</p>
+      {# The category. Not "standard": that word promises governance, a
+         conformance suite and a second implementation. #}
+      <p class="pacto-hero__eyebrow">Continuous delivery, GitlessOps</p>
       {# This is the page's only <h1>. Material injects one when the rendered markdown
          has no h1, and here that lands as a meaningless "Home" below the hero.
          docs/index.md therefore opens with a `hidden` h1 whose only job is to suppress
          it. Change the headline here and there together. #}
-      <h1 class="pacto-hero__title">One versioned contract per service</h1>
-      {# Both halves of the product, in order: the contract is declared AND it is
-         checked against reality. A tagline that stops at "published" sells a YAML file. #}
+      <h1 class="pacto-hero__title">Describe your services once. Pacto decides what ships.</h1>
+      {# "Decides", never "delivers" or "deploys": Flux or Argo CD apply, Pacto
+         writes a digest. The graph is the reason it is safe, so it stays in the tagline. #}
       <p class="pacto-hero__tagline">
-        Ownership, interfaces, version-ranged dependencies, policies and
-        readiness go in one file. Pacto publishes it to any container registry,
-        then compares it against the last revision and against what is actually
-        running.
+        Pacto reads the contract graph to see which services a change affects.
+        It starts by watching, earns autonomy one confirmed step at a time and
+        asks only the teams a change affects. Flux or Argo CD still apply.
       </p>
       {# Each label names its true destination: "Live demo" opens the running dashboard
          at /demo/ (built into the docs tree by `make docs`), not the page describing it.
@@ -46,8 +44,8 @@
          account; Quickstart is for someone who has already decided. #}
       <div class="pacto-hero__actions">
         <a href="{{ 'demo/' | url }}#/fleet" class="md-button md-button--primary">Try the live demo</a>
+        <a href="{{ 'pactify/' | url }}" class="md-button">Pactify a service</a>
         <a href="{{ 'quickstart/' | url }}" class="md-button">Quickstart</a>
-        <a href="{{ 'contract-reference/' | url }}" class="md-button">Contract reference</a>
       </div>
       {# Name the cost next to the button that spends it: the primary CTA fires an
          ~5 MB download (4.3 MB of gzipped Wasm plus the UI). The second sentence points at the definition, not at the

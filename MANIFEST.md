@@ -57,8 +57,38 @@ controller or an agent needs before it concludes anything.
   carry container images. No new distribution plane.
 
 - **Act only on what each change can show.** The opt-in delivery component
-  lets a version move on its own only when this change's compatibility, its
-  impact on the declared consumers and its checks back it. Autonomy is gated
-  by evidence per change, not granted for a good track record. When Pacto
+  moves a version on its own only when this change's compatibility, its
+  impact on the consumers and its checks back it. A Stage earns the right to
+  move on its own one rung at a time, and a person confirms each rung; a good
+  track record never replaces the evidence for the next change. When Pacto
   cannot see enough it holds the change and asks the teams concerned, never an
-  agent, and each decision can end in a signed record.
+  agent.
+
+## What GitlessOps means
+
+Pacto delivery is continuous delivery for the GitlessOps era. Contracts are
+the foundation: describe your services once, and Pacto decides what ships.
+GitlessOps is three principles, each true only under its condition:
+
+1. **Desired versions are immutable artifacts in a registry.** Every version
+   Pacto promotes is an OCI digest that `pacto publish` signed. Which digest
+   runs where is a pointer Pacto writes onto a Flux OCIRepository or an
+   OCI-sourced Argo CD Application. Source code and manifests stay in git, and
+   Flux or Argo CD still apply them.
+2. **Evidence, not a pull request, moves a change**, on a Stage a person has
+   raised to an automatic rung. A person is asked when the graph cannot clear
+   the change (Unknown), when a consumer's range rejects it (that consumer's
+   owners), when the Stage asks for every promote or after an automatic
+   rollback freezes it. Only the affected team is asked.
+3. **Every decision can be verified without Pacto.** With the recorder on,
+   each finished operation leaves a signed in-toto record as an OCI referrer,
+   checkable with `oras` and `cosign`. That needs a registry with the
+   Referrers API, which GitHub's does not serve today.
+
+Two ideas came first. [ConfigHub](https://confighub.com) treats configuration
+as data behind an API instead of files in git; Pacto keeps only "which version
+runs where" that way. Anthropic's
+[Scion](https://www.anthropic.com/engineering/redesigning-source-control)
+stores content by its hash, moves a pointer with one compare-and-swap and
+tests after a change merges and before it deploys. The contract graph is
+ours, and all of it is open source under the MIT licence.
