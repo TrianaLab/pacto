@@ -1119,6 +1119,7 @@ export interface components {
         "Delivery.HistoryEntry": {
             actor: string;
             actorClass?: string;
+            approvals: components["schemas"]["Delivery.RecordApproval"][] | null;
             finished?: string;
             from?: string;
             kind?: string;

@@ -46,12 +46,14 @@ func TestAssembleHistoryFromStatus(t *testing.T) {
 	inflight := ansOp("c", "u3", 0, ansB, ansC)
 	first := ansOp("a", "u1", 1, "", ansA)
 	first.Status.Record = &RecordRef{Digest: "sha256:rec"}
+	first.Status.Approvals = []ApprovalRecord{{Name: "ap", By: "carol", Decision: Approve, AuthTime: "1", Note: "ok"}}
 	h, ops := AssembleHistory(st, []OperationObject{inflight, other, first}, nil, errors.New("registry down"), "now")
 	if len(ops) != 2 || ops[0].Metadata.Name != "a" || h.Source != SourceStatus || h.Completeness != "partial" ||
 		h.Unreadable[0] != "registry down" || !strings.HasPrefix(h.Note, "the records could not be read") {
 		t.Fatalf("history = %+v ops %v", h, ops)
 	}
-	if e := h.Entries[0]; e.Pointer == nil || e.Pointer.After != ansA || e.UnverifiedRecord != "sha256:rec" {
+	if e := h.Entries[0]; e.Pointer == nil || e.Pointer.After != ansA || e.UnverifiedRecord != "sha256:rec" ||
+		len(e.Approvals) != 1 || e.Approvals[0] != (RecordApproval{By: "carol", Decision: Approve, Operation: "u1", AuthTime: "1", Note: "ok"}) {
 		t.Fatalf("status entry = %+v", e)
 	}
 }
