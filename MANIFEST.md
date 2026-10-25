@@ -75,8 +75,8 @@ GitlessOps is three principles, each true only under its condition:
    runs where is a pointer Pacto writes onto a Flux OCIRepository or an
    OCI-sourced Argo CD Application. Source code and manifests stay in git, and
    Flux or Argo CD still apply them.
-2. **Evidence, not a pull request, moves a change**, on a Stage a person has
-   raised to an automatic rung. A person is asked when the graph cannot clear
+2. **Evidence, not a pull request, moves a change**, on a Stage set to an
+   automatic rung. A person is asked when the graph cannot clear
    the change (Unknown), when a consumer's range rejects it (that consumer's
    owners), when the Stage asks for every promote or after an automatic
    rollback freezes it. Only the affected team is asked.

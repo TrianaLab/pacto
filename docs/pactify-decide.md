@@ -33,6 +33,8 @@ kubectl create clusterrolebinding payments-approvers \
   --clusterrole=pacto-delivery-approver --group=payments
 ```
 
+### Signing in to decide
+
 Deciding (approve, accept-unknown or reject) also needs a company login the
 cluster trusts, done in the last 15 minutes. A cluster admin sets that up once
 with [Sign-in, approvals and agents](integrations/kubernetes/delivery-identity.md),
