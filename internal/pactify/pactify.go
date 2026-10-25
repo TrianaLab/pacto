@@ -47,6 +47,18 @@ type Options struct {
 	// namespace, that Delivery's Flux OCIRepositories and Pacto resource log
 	// in to a private registry with.
 	RegistrySecret string
+	// Inferred are dependencies seen at runtime (pacto init --cluster). One
+	// with a Version is written as an entry pinned to exactly that version;
+	// one without is only a comment, like a dependency read from the env.
+	Inferred []Inferred
+}
+
+// Inferred is a service this one was seen calling at runtime.
+type Inferred struct {
+	Name    string `json:"name"`
+	Ref     string `json:"ref,omitempty"`
+	Version string `json:"version,omitempty"`
+	Where   string `json:"where"`
 }
 
 // File actions.
