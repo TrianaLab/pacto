@@ -23,7 +23,7 @@ func NewPublishServer(version string, run PublishFunc, validate Validator) *mcps
 	server := newServer(version, baseInstructions+"\n\n"+publishInstructions, validate)
 	schema := inputSchema(map[string]property{
 		"path":     {Type: "string", Description: "Contract directory (default: the server's working directory)"},
-		"revision": {Type: "string", Description: "Source revision to stamp (default: the git commit of path)"},
+		"revision": {Type: "string", Description: "Source revision to stamp (default: the git commit of path, whose checkout must have no uncommitted changes)"},
 	}, nil)
 	type args struct {
 		Path     string `json:"path"`
