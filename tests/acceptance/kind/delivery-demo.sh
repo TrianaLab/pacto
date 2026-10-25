@@ -11,7 +11,7 @@
 #   story    play the story: pactify fraud, then B1 to B5, checking every beat
 #            against examples/story; it stops with payments 3.0.0 held.
 #   browser  B6, then B7 to B9 in Chromium with the cluster checked between
-#            beats, then History, then B10 (a tampered record freezes
+#            beats, then History, then B10 (a missing record freezes
 #            payments in prod, a break-glass edit is a witnessed record),
 #            then the agent beat (pay-agent ships behind its evals); it runs
 #            once per cluster.
@@ -827,50 +827,61 @@ rec() { reg "$PACTO" delivery "$@" --trust "$KEYS/recorder.pub"; }
 condition() { kubectl -n prod get stage payments -o jsonpath="{.status.conditions[?(@.type==\"RecordStoreReady\")].$1}"; }
 frozen() { [ "$(kubectl -n prod get stage payments -o jsonpath='{.status.frozen}')" = true ]; }
 
-# b10 — someone changes a signed record of the payments prod stream: the
-# recorder refuses to write after it and the promoter freezes the Stage. The
-# agent cannot unfreeze it; once the forged record is gone alice does. Then
-# ops edits the pointer by hand under break-glass, which the promoter adopts
-# as a witnessed override record and freezes the Stage again.
+# b10 — the newest signed record of the payments prod stream goes missing
+# from the registry: the recorder refuses to write after a stream whose head
+# is gone and the promoter freezes the Stage. A changed copy of a record, which
+# anyone who can push may attach, is ignored instead. The agent cannot
+# unfreeze the Stage; once the record is restored alice does. Then ops edits
+# the pointer by hand under break-glass, which the promoter adopts as a
+# witnessed override record and freezes the Stage again.
 b10() {
   beat B10
-  local tmp streams="127.0.0.1:${LOCAL_REG_PORT}/pacto-delivery-streams" m l forged out
+  local tmp streams="127.0.0.1:${LOCAL_REG_PORT}/pacto-delivery-streams" m l anchor forged out
   tmp="$(mktemp -d)"
   m="$(rec record verify -n prod --stage payments --output-format json | jq -r '.records[-1].manifest')"
   l="$(oras manifest fetch --plain-http "$streams@$m" | jq -r '.layers[0].digest')"
   oras blob fetch --plain-http --output "$tmp/head.json" "$streams@$l" >/dev/null || fail "oras could not read the newest payments prod record"
+  anchor="$streams@$(kubectl -n prod get stage payments -o jsonpath='{.status.stream.anchor}' | sed 's/.*@//')"
+  # attach FILE — attach a bundle to the stream's anchor the way the recorder does; prints its manifest.
+  attach() {
+    (cd "$tmp" && oras attach --plain-http --artifact-type application/vnd.dev.sigstore.bundle.v0.3+json \
+      --annotation dev.sigstore.bundle.predicateType=pacto.dev/operation/v1 --annotation dev.sigstore.bundle.content=dsse-envelope \
+      --format go-template='{{.digest}}' "$anchor" "$1:application/vnd.dev.sigstore.bundle.v0.3+json")
+  }
   # The newest record, with the time it finished changed and its signature kept.
   jq --arg p "$(jq -r .dsseEnvelope.payload "$tmp/head.json" | base64 -d | jq -cj '.predicate.time.finished = "2000-01-01T00:00:00Z"' | base64 | tr -d '\n')" \
     '.dsseEnvelope.payload = $p' "$tmp/head.json" > "$tmp/tampered.json"
-  forged="$(cd "$tmp" && oras attach --plain-http --artifact-type application/vnd.dev.sigstore.bundle.v0.3+json \
-    --annotation dev.sigstore.bundle.predicateType=pacto.dev/operation/v1 --annotation dev.sigstore.bundle.content=dsse-envelope \
-    --format go-template='{{.digest}}' "$streams@$(kubectl -n prod get stage payments -o jsonpath='{.status.stream.anchor}' | sed 's/.*@//')" \
-    "tampered.json:application/vnd.dev.sigstore.bundle.v0.3+json")" || fail "oras could not attach the tampered record"
+  forged="$(attach tampered.json)" || fail "oras could not attach the changed record"
   echo "  a changed copy of the newest record is attached to the payments prod stream: $forged"
   out="$(rec record verify -n prod --stage payments 2>&1 || true)"
-  grep -q "unreadable: $forged: signature" <<<"$out" || fail "record verify did not refuse the tampered record: $out"
+  grep -q "unreadable: $forged: signature" <<<"$out" || fail "record verify did not refuse the changed record: $out"
   echo "  pacto delivery record verify: $(grep -m1 "$forged" <<<"$out" | sed 's/^ *//')"
+  echo "  anyone who can push could attach that, so the recorder ignores it; then the newest real record is deleted: $m"
+  oras manifest delete --plain-http --force "$streams@$m" >/dev/null || fail "oras could not delete the newest record"
   # The next record the recorder writes reads the stream first, and stops there.
   propose -n prod --stage payments --to "$(digest_of payments oras-copy)" --name payments-b10 --reason "B10: anything the recorder must write"
   conflict() { [ "$(condition reason)" = StreamConflict ]; }
-  eventually 60 conflict || fail "the recorder did not stop on the tampered record: $(condition message)"
-  eventually 30 frozen || fail "the payments prod Stage did not freeze on the tampered record"
+  eventually 60 conflict || fail "the recorder did not stop on the missing record: $(condition message)"
+  eventually 30 frozen || fail "the payments prod Stage did not freeze on the missing record"
   out="$(KUBECONFIG="$AGENT_KC" "$PACTO" delivery propose -n prod --stage payments --type unfreeze --name b10-agent-unfreeze --reason "B10" 2>&1 || true)"
   grep -q "only a person or break-glass may unfreeze" <<<"$out" || fail "pay-agent's unfreeze was not refused: $out"
   echo "  pay-agent tries to unfreeze it: refused, only a person or break-glass may unfreeze a Stage"
-  oras manifest delete --plain-http --force "$streams@$forged" >/dev/null || fail "oras could not remove the tampered record"
+  # The same signed bundle restores the record: its id is the digest of its
+  # payload, whatever manifest carries it.
+  attach head.json >/dev/null || fail "oras could not restore the deleted record"
+  oras manifest delete --plain-http --force "$streams@$forged" >/dev/null || fail "oras could not remove the changed record"
   sound() { [ "$(condition status)" = True ]; }
-  eventually 60 sound || fail "the recorder did not resume once the tampered record was gone: $(condition message)"
+  eventually 60 sound || fail "the recorder did not resume once the record was restored: $(condition message)"
   frozen || fail "the Stage unfroze on its own"
-  echo "  the tampered record is removed and the recorder resumes; payments prod stays frozen until a person says so"
+  echo "  the record is restored and the recorder resumes; payments prod stays frozen until a person says so"
   KUBECONFIG="$(person alice@example.com team-payments)" "$PACTO" delivery propose -n prod --stage payments --type unfreeze \
-    --name b10-unfreeze --reason "B10: the tampered record is gone" >/dev/null || fail "alice could not propose the unfreeze"
+    --name b10-unfreeze --reason "B10: the missing record is restored" >/dev/null || fail "alice could not propose the unfreeze"
   echo "  alice unfreezes it (alice and, below, ops act through admin impersonation with a sign-in time the script makes up; B7 signs in through Dex)"
   eventually 60 concluded prod b10-unfreeze || fail "alice's unfreeze never concluded: $(field prod b10-unfreeze message)"
   # The promoter plans no unfreeze; the story says what it concludes instead.
   same B10 "the unfreeze" "$(outcome prod b10-unfreeze)" "$(expect B10 Concluded | jq -r .)"
   ! frozen || fail "payments prod stayed frozen after alice unfroze it"
-  pass "the tampered record froze payments in prod; pay-agent could not unfreeze it, alice did once the record was gone"
+  pass "a missing record froze payments in prod and a changed copy was ignored; pay-agent could not unfreeze it, alice did once the record was back"
 
   echo "  ops pins payments 2.4.0 in prod by hand, under break-glass, outside Pacto"
   mode prod.2.4.0 ok

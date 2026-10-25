@@ -111,8 +111,8 @@ func (r *StageReconciler) updateStatus(ctx context.Context, stage *dv1.Stage, fn
 }
 
 // streamConflict freezes a Stage whose records the recorder refuses to
-// extend: a stream that forked or broke, or holds a record no trusted key
-// signed. A person unfreezes it once the stream is repaired; while the
+// extend: a stream that forked or broke, or lost the record the Stage names
+// as its head. A person unfreezes it once the stream is repaired; while the
 // conflict lasts, it freezes again.
 func (r *StageReconciler) streamConflict(ctx context.Context, stage *dv1.Stage) error {
 	i := slices.IndexFunc(stage.Status.Conditions, func(c delivery.Condition) bool {
