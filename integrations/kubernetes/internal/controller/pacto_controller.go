@@ -266,6 +266,10 @@ func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alp
 	if e := pacto.Status.EvaluatedRevision; e != nil {
 		e.KernelCoverage = obs.KernelCoverage()
 	}
+	pacto.Status.ObservedCallers, pacto.Status.ObservedCallersCoverage = obs.ObservedCallers(pacto.Status.ObservedCallers)
+	if c := pacto.Status.ObservedCallersCoverage; c != nil {
+		c.RefreshSeconds = int32(r.requeueInterval(pacto) / time.Second)
+	}
 
 	// Apply window updates (spec section 9.5): upsert by (Kind, Subject); nil resets the entry; windows for
 	// assertions no longer declared by the effective contract are pruned.
@@ -335,6 +339,7 @@ func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effe
 		KernelEvidence:                    r.KernelEvidence,
 		KernelEvidenceNamespace:           r.KernelEvidenceNamespace,
 		KernelEvidenceStaleness:           r.KernelEvidenceStaleness,
+		CallerWindow:                      r.requeueInterval(pacto),
 	}
 }
 
@@ -429,6 +434,11 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	pacto.Status.Findings = nil
 	pacto.Status.Capabilities = nil
 	pacto.Status.EvaluationCoverage = nil
+	// Callers are kept for their FirstSeen; until a runtime evaluation rewrites them, a coverage that was
+	// reported reads unavailable, never as the complete list of an older evaluation.
+	if pacto.Status.ObservedCallersCoverage != nil {
+		pacto.Status.ObservedCallersCoverage = &pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageUnavailable, Reason: "not-evaluated"}
+	}
 	// Preserve: CurrentRevision (set in step 7), ObservationWindows (temporal state, spec 9.5), LastReconciledAt/ObservedGeneration (set in finish)
 }
 
