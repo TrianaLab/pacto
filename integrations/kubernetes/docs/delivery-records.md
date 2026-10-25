@@ -60,7 +60,8 @@ Each Stage gets a `RecordStoreReady` condition:
 |---|---|
 | `ReferrersSupported` | Records are being written |
 | `ReferrersUnsupported` | The registry has no Referrers API |
-| `RegistryUnavailable` | The registry or signer did not answer; it tries again |
+| `RegistryUnavailable` | The registry did not answer; it tries again |
+| `SignerUnavailable` | The signer (KMS key, keyless token, Fulcio or timestamp authority) failed; it tries again |
 | `StreamConflict` | Two records with one number, a broken chain or an untrusted signature. The recorder stops and the Stage freezes |
 
 Pacto never resolves a `StreamConflict` for you. Find the bad record with

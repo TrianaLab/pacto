@@ -31,6 +31,7 @@ import (
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 )
 
@@ -266,6 +267,24 @@ func TestRecorderUnrecordable(t *testing.T) {
 				t.Fatalf("record ref = %+v", got)
 			}
 		})
+	}
+}
+
+// TestRecorderTooLargeIsUnrecordable: a record larger than a reader fetches
+// is signed as unrecordable, so the stream stays readable.
+func TestRecorderTooLargeIsUnrecordable(t *testing.T) {
+	re := newRecEnv(t)
+	re.stage(1)
+	re.concluded("ship", 1, delivery.Succeeded, func(o *dv1.Operation) {
+		o.Spec.Reason = strings.Repeat("x", int(deliveryrecord.MaxBytes))
+	})
+	re.reconcile()
+	recs := re.records()
+	if len(recs) != 1 || recs[0].Statement.Predicate.Unrecordable == nil || recs[0].Statement.Predicate.Unrecordable.Check != delivery.CheckSize {
+		t.Fatalf("records = %+v", recs)
+	}
+	if got := re.getOp("ship").Status.Record; got == nil || !strings.HasPrefix(got.Refused, "size: ") {
+		t.Fatalf("record ref = %+v", got)
 	}
 }
 
@@ -508,7 +527,7 @@ func TestRecorderStoreFailures(t *testing.T) {
 		re.concluded("ship", 1, delivery.Succeeded)
 		re.rec.Signer = failingSigner{}
 		re.reconcile()
-		if c := condition(re.getStage()); c.Reason != ReasonRegistryUnavailable || !strings.Contains(c.Message, "kms") {
+		if c := condition(re.getStage()); c.Reason != ReasonSignerUnavailable || !strings.Contains(c.Message, "kms") {
 			t.Fatalf("condition %+v", c)
 		}
 	})
@@ -708,7 +727,7 @@ func TestRecorderEdgeCases(t *testing.T) {
 		re.setStage(func(s *delivery.StageStatus) { s.Stream.Seq = 2 })
 		re.rec.Signer = failingSigner{}
 		re.reconcile()
-		if c := condition(re.getStage()); c.Reason != ReasonRegistryUnavailable {
+		if c := condition(re.getStage()); c.Reason != ReasonSignerUnavailable {
 			t.Fatalf("condition %+v", c)
 		}
 	})

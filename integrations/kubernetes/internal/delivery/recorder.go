@@ -42,6 +42,7 @@ const statusFalse = "False"
 const (
 	ReasonReferrersUnsupported = "ReferrersUnsupported"
 	ReasonRegistryUnavailable  = "RegistryUnavailable"
+	ReasonSignerUnavailable    = "SignerUnavailable"
 	ReasonStreamConflict       = "StreamConflict"
 )
 
@@ -280,10 +281,17 @@ func conflict(recs []stored, head string) string {
 	return ""
 }
 
-// storeReason names a registry failure for the condition.
+// errSigner marks a failure of the signer (a KMS key, a keyless token), so
+// on-call is not sent to the registry for it.
+var errSigner = errors.New("signing failed")
+
+// storeReason names a registry or signer failure for the condition.
 func storeReason(err error) string {
-	if errors.Is(err, errUnsupported) {
+	switch {
+	case errors.Is(err, errUnsupported):
 		return ReasonReferrersUnsupported
+	case errors.Is(err, errSigner):
+		return ReasonSignerUnavailable
 	}
 	return ReasonRegistryUnavailable
 }
@@ -436,17 +444,25 @@ func (w *writer) write(ctx context.Context, op *dv1.Operation) (*stored, error) 
 	if check, msg := delivery.CheckRecord(in, st); check != "" {
 		st, l = delivery.NewUnrecordable(in, check, msg), locations{anchor: w.anchor}
 	}
-	rec, err := w.sign(ctx, st, l)
+	rec, err := w.sign(ctx, st, l, &in)
 	if err == nil {
-		w.Events.emit(ctx, w.stage, st, rec.ID, op.Status.Applied)
+		w.Events.emit(ctx, w.stage, rec.Statement, rec.ID, op.Status.Applied)
 	}
 	return rec, err
 }
 
-func (w *writer) sign(ctx context.Context, st delivery.Statement, l locations) (*stored, error) {
+// sign signs st and attaches it at l. A record of in whose bundle is larger
+// than a reader fetches is signed as unrecordable instead, on the anchor only:
+// a record no reader can read would stop the stream.
+func (w *writer) sign(ctx context.Context, st delivery.Statement, l locations, in *delivery.RecordInput) (*stored, error) {
 	bundle, id, err := delivery.SignRecord(ctx, w.Signer, st)
+	if n := int64(len(bundle)); err == nil && in != nil && n > deliveryrecord.MaxBytes {
+		st, l = delivery.NewUnrecordable(*in, delivery.CheckSize,
+			fmt.Sprintf("the signed record is %d bytes, more than the %d a reader fetches", n, deliveryrecord.MaxBytes)), locations{anchor: w.anchor}
+		bundle, id, err = delivery.SignRecord(ctx, w.Signer, st)
+	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", errSigner, err)
 	}
 	if err := w.Store.write(ctx, bundle, st, l); err != nil {
 		return nil, err
@@ -505,7 +521,7 @@ func (w *writer) gap(ctx context.Context, seq int64) (time.Duration, error) {
 		chain := delivery.Chain{Stream: w.stage.Status.Stream.ID, Seq: h.Statement.Predicate.Chain.Seq + 1, Parent: h.ID}
 		st := delivery.NewGap(w.ClusterID, meta, seq, chain, w.anchor.desc.Digest.String(), w.Now().UTC().Format(time.RFC3339))
 		st.Predicate.Trust = w.Trust
-		if _, err := w.sign(ctx, st, locations{anchor: w.anchor}); err != nil {
+		if _, err := w.sign(ctx, st, locations{anchor: w.anchor}, nil); err != nil {
 			return 0, err
 		}
 	}

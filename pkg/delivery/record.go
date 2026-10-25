@@ -249,6 +249,9 @@ const (
 	CheckSchema    = "schema"
 	CheckSensitive = "sensitive-value"
 	CheckApproval  = "approval-binding"
+	// CheckSize fails a record whose signed bundle is larger than a reader
+	// fetches; the recorder runs it after signing.
+	CheckSize = "size"
 )
 
 // CheckRecord runs the deterministic pre-sign checks on a record of in. It
