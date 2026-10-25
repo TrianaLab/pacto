@@ -33,7 +33,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec` | `object` | yes |  |  | ApprovalSpec is a human decision bound to one operation uid and intent digest. |
 | `spec.authTime` | `string` | no |  |  | AuthTime is the login time the apiserver reported for that user (userInfo.extra["pacto.dev/auth-time"], RFC 3339 or Unix seconds). |
 | `spec.by` | `string` | yes |  |  | By must equal the apiserver username of whoever created the Approval. |
-| `spec.decision` | `string` | yes |  |  | Decision is what a human approval says. |
+| `spec.decision` | `string` | yes |  | `approve`, `reject`, `accept-unknown` | Decision is what a human approval says. |
 | `spec.groups` | `[]string` | no |  |  | Groups must equal the groups of whoever created the Approval. The promoter accepts it only when one of them names a team the question was routed to. |
 | `spec.intentDigest` | `string` | yes |  |  |  |
 | `spec.note` | `string` | no |  |  |  |

@@ -841,6 +841,17 @@ metadata: {name: forged}
 spec: {operation: $OPF, operationUID: x, intentDigest: x, decision: approve, by: alice}
 YAML
 then fail "an agent created an Approval"; fi
+# A decision that is not approve, reject or accept-unknown is refused by the
+# schema, never stored to be silently ignored.
+OUT="$(kubectl -n test create -f - 2>&1 <<YAML || true
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Approval
+metadata: {name: typo}
+spec: {operation: $OPF, operationUID: x, intentDigest: x, decision: aprove, by: carol}
+YAML
+)"
+grep -q 'Unsupported value: "aprove"' <<<"$OUT" || fail "an Approval with a misspelt decision was stored: $OUT"
+pass "an Approval's decision must be approve, reject or accept-unknown"
 # A person without a login time is refused by admission.
 if kubectl --as carol --as-group humans -n test create -f - 2>/dev/null <<YAML
 apiVersion: delivery.pacto.trianalab.io/v1alpha1

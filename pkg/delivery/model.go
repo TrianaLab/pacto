@@ -704,10 +704,11 @@ type RecordRef struct {
 // ApprovalSpec is a human decision bound to one operation uid and intent digest.
 type ApprovalSpec struct {
 	// Operation is the operation's name, for people. Matching uses the uid.
-	Operation    string   `json:"operation"`
-	OperationUID string   `json:"operationUID"`
-	IntentDigest string   `json:"intentDigest"`
-	Decision     Decision `json:"decision"`
+	Operation    string `json:"operation"`
+	OperationUID string `json:"operationUID"`
+	IntentDigest string `json:"intentDigest"`
+	// +kubebuilder:validation:Enum=approve;reject;accept-unknown
+	Decision Decision `json:"decision"`
 	// +optional
 	Note string `json:"note,omitempty"`
 	// By must equal the apiserver username of whoever created the Approval.
