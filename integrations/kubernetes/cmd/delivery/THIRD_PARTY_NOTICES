@@ -332,10 +332,10 @@ google.golang.org/api v0.287.1: BSD, text 72
   source https://proxy.golang.org/google.golang.org/api/@v/v0.287.1.zip
 google.golang.org/genproto v0.0.0-20260319201613-d00831a3d3e7: Apache-2.0, text 2
   source https://proxy.golang.org/google.golang.org/genproto/@v/v0.0.0-20260319201613-d00831a3d3e7.zip
-google.golang.org/genproto/googleapis/api v0.0.0-20260727163830-6c54dddc4772: Apache-2.0, text 2
-  source https://proxy.golang.org/google.golang.org/genproto/googleapis/api/@v/v0.0.0-20260727163830-6c54dddc4772.zip
-google.golang.org/genproto/googleapis/rpc v0.0.0-20260720155508-bb71a54f79dc: Apache-2.0, text 2
-  source https://proxy.golang.org/google.golang.org/genproto/googleapis/rpc/@v/v0.0.0-20260720155508-bb71a54f79dc.zip
+google.golang.org/genproto/googleapis/api v0.0.0-20260803160001-6ac0973c030d: Apache-2.0, text 2
+  source https://proxy.golang.org/google.golang.org/genproto/googleapis/api/@v/v0.0.0-20260803160001-6ac0973c030d.zip
+google.golang.org/genproto/googleapis/rpc v0.0.0-20260803160001-6ac0973c030d: Apache-2.0, text 2
+  source https://proxy.golang.org/google.golang.org/genproto/googleapis/rpc/@v/v0.0.0-20260803160001-6ac0973c030d.zip
 google.golang.org/grpc v1.83.2: Apache-2.0, text 73
   source https://proxy.golang.org/google.golang.org/grpc/@v/v1.83.2.zip
 google.golang.org/protobuf v1.36.12: BSD, text 74
