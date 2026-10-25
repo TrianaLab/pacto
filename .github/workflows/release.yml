@@ -643,14 +643,15 @@ jobs:
           SRC: ${{ needs.detect.outputs.source_sha }}
         run: bash release/orchestrator/publish-go-tag.sh "$TAG" "$SRC"
 
-  # The operator and pacto-delivery images and charts publish through ONE set of
-  # steps each, shared with YAML anchors: the operator job defines the steps
-  # (&k8s-image-build-steps, &k8s-image-merge-steps, &k8s-chart-steps) and the
-  # delivery job reuses them (*...). Only the job-level env differs (UNIT,
-  # IMAGE_REPO, IMAGE_TITLE, BUILD_ARGS, CHART, CHART_REPO, ARTIFACTHUB), so a
-  # release-incident fix lands once. The jobs stay separate because each is its
-  # own transaction unit with its own gate and needs. GitHub Actions resolves
-  # anchors and aliases but not merge keys (<<:), so only whole values are shared.
+  # The operator and pacto-delivery images publish through ONE set of steps each,
+  # shared with YAML anchors: the operator jobs define the steps
+  # (&k8s-image-build-steps, &k8s-image-merge-steps) and the delivery jobs reuse
+  # them (*...). Only the job-level env differs (UNIT, IMAGE_REPO, IMAGE_TITLE,
+  # BUILD_ARGS), so a release-incident fix lands once. The jobs stay separate
+  # because each is its own transaction unit with its own gate and needs. GitHub
+  # Actions resolves anchors and aliases but not merge keys (<<:), so only whole
+  # values are shared. One chart, pacto-operator, installs both images (delivery
+  # behind delivery.enabled).
 
   # Per-arch NATIVE build of the operator image, pushed by digest; the operator-image
   # job below merges these children into the published multi-arch index.
@@ -840,9 +841,9 @@ jobs:
     steps: *k8s-image-merge-steps
 
   # pacto-publishes: operator-chart
-  # operator-image is a sequencing dependency, not a required one: the chart is
-  # published after the image it points at, but a recovery that republishes only the
-  # chart against an already-published image is legitimate. Without always() that
+  # operator-image and delivery-image are sequencing dependencies, not required
+  # ones: the chart is published after the images it points at, but a recovery
+  # that republishes only the chart against already-published images is legitimate. Without always() that
   # recovery skips instead — operator-image is gated on its own unit, so narrowing
   # the dispatch to `operator-chart` skips the image and the skip lands here. The
   # failure/cancelled guards keep the sequencing: a chart never publishes ahead of an
@@ -851,7 +852,7 @@ jobs:
   # only its direct needs, so a failed operator-image-build would arrive here as a
   # skip and pass the guards (TestFailureGuardedJobsNeedEveryAncestor).
   operator-chart:
-    needs: [detect, core-tag, core-ready, ledger-init, operator-image-build, operator-image]
+    needs: [detect, core-tag, core-ready, ledger-init, operator-image-build, operator-image, delivery-image-build, delivery-image]
     if: >-
       always() && needs.detect.outputs.release == 'true' &&
       contains(fromJSON(needs.detect.outputs.units_json), 'operator-chart') &&
@@ -872,7 +873,7 @@ jobs:
       CHART: pacto-operator
       CHART_REPO: ghcr.io/trianalab/pacto/charts/pacto-operator
       ARTIFACTHUB: artifacthub-repo.yml
-    steps: &k8s-chart-steps
+    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.detect.outputs.source_sha }}
@@ -961,36 +962,6 @@ jobs:
             "$CHART_REPO:artifacthub.io" \
             "$ARTIFACTHUB"
 
-  # pacto-publishes: delivery-chart
-  # The opt-in delivery chart, published with the operator-chart steps: after the
-  # image it points at (a sequencing dependency, hence always() plus the
-  # failure/cancelled guards, so a narrowed recovery of the chart alone still runs),
-  # revision-stamped for crash-window adoption, recorded before it is signed, and
-  # with its own Artifact Hub metadata alias.
-  delivery-chart:
-    needs: [detect, core-tag, core-ready, ledger-init, delivery-image-build, delivery-image]
-    if: >-
-      always() && needs.detect.outputs.release == 'true' &&
-      contains(fromJSON(needs.detect.outputs.units_json), 'delivery-chart') &&
-      !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled')
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      packages: write
-      id-token: write
-    defaults:
-      run:
-        working-directory: integrations/kubernetes
-    env:
-      PACTO_LEDGER_REPO: ghcr.io/trianalab/pacto-release-ledger
-      PACTO_RELEASE_TXN: ${{ needs.detect.outputs.transaction_id }}
-      PACTO_ALLOW_PROD: '1'
-      UNIT: delivery-chart
-      CHART: pacto-delivery
-      CHART_REPO: ghcr.io/trianalab/pacto/charts/pacto-delivery
-      ARTIFACTHUB: artifacthub-repo-delivery.yml
-    steps: *k8s-chart-steps
-
   # pacto-publishes: k8s-docs
   # The versioned docs site. A transaction unit (not an independent trigger): it
   # receives the exact core + k8s versions + source SHA from the plan and deploys
@@ -1061,7 +1032,7 @@ jobs:
   # advertises missing assets. Binaries are reproducible: the build date is derived
   # from the source commit, so a re-run produces byte-identical artifacts.
   release:
-    needs: [detect, core-tag, core-ready, ledger-init, dashboard-image-build, dashboard-image, dashboard-contract-bundle, demo-bundles, demo-compose, k8s-module, operator-image-build, operator-image, operator-chart, delivery-image-build, delivery-image, delivery-chart, docs]
+    needs: [detect, core-tag, core-ready, ledger-init, dashboard-image-build, dashboard-image, dashboard-contract-bundle, demo-bundles, demo-compose, k8s-module, operator-image-build, operator-image, operator-chart, delivery-image-build, delivery-image, docs]
     if: >-
       always() && needs.detect.outputs.release == 'true' &&
       contains(fromJSON(needs.detect.outputs.units_json), 'cli') &&
@@ -1133,7 +1104,6 @@ jobs:
       - operator-image
       - operator-chart
       - delivery-image
-      - delivery-chart
       - docs
       - release
     if: always() && needs.detect.outputs.release == 'true'

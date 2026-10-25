@@ -56,7 +56,7 @@ groups (a group releases together or not at all):
 | Group | Units | Coordinate kind |
 |-------|-------|-----------------|
 | **`core`** | `core`, `cli`, `dashboard-image`, `dashboard-contract-bundle`, `demo-bundles`, `demo-compose` | Go module tag, GitHub Release binaries, OCI image, OCI contract bundle, OCI bundles, OCI demo artifact |
-| **`kubernetes`** | `k8s-module`, `operator-image`, `operator-chart`, `delivery-image`, `delivery-chart`, `k8s-docs` | Go module tag, OCI images, Helm/OCI charts, versioned docs |
+| **`kubernetes`** | `k8s-module`, `operator-image`, `operator-chart`, `delivery-image`, `k8s-docs` | Go module tag, OCI images, Helm/OCI charts, versioned docs |
 
 ## The release transaction and source-SHA binding
 

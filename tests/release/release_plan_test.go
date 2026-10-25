@@ -126,14 +126,14 @@ func TestReleasePlanVersionPropagation(t *testing.T) {
 	if k8sArt.Tag != wantK8sTag {
 		t.Errorf("k8s-module tag = %q, want %s", k8sArt.Tag, wantK8sTag)
 	}
-	// The delivery image and chart move with the operator's, so one Kubernetes
+	// The delivery image moves with the operator chart that installs it, so one Kubernetes
 	// release always ships a matching pair.
 	for _, img := range []string{"operator-image", "delivery-image"} {
 		if a, ok := artifactByUnit(k8s, img); !ok || a.Tag != k8s.Version {
 			t.Errorf("%s tag = %q, want %s", img, a.Tag, k8s.Version)
 		}
 	}
-	for _, chart := range []string{"operator-chart", "delivery-chart"} {
+	for _, chart := range []string{"operator-chart"} {
 		if a, ok := artifactByUnit(k8s, chart); !ok {
 			t.Errorf("missing %s artifact", chart)
 		} else if a.ChartVersion != k8s.Version || a.AppVersion != k8s.Version || a.DefaultImageTag != k8s.Version {
@@ -168,7 +168,7 @@ func TestReleasePlanVersionPropagation(t *testing.T) {
 
 	// The manifest each unit records must agree with the plan's group versions.
 	m := loadManifestVersions(t, root)
-	for unit, wantVer := range map[string]string{"core": core.Version, "cli": core.Version, "k8s-module": k8s.Version, "operator-chart": k8s.Version, "delivery-image": k8s.Version, "delivery-chart": k8s.Version} {
+	for unit, wantVer := range map[string]string{"core": core.Version, "cli": core.Version, "k8s-module": k8s.Version, "operator-chart": k8s.Version, "delivery-image": k8s.Version} {
 		if got := m[unit]; got != wantVer {
 			t.Errorf("manifest unit %q version = %q, want %q (plan drift)", unit, got, wantVer)
 		}

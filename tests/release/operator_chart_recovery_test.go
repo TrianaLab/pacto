@@ -28,8 +28,7 @@ func TestOperatorChartCrashRecoveryWiring(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read release.yml: %v", err)
 	}
-	// The delivery chart is published the same way, so it carries the same wiring.
-	for _, job := range []string{"operator-chart", "delivery-chart"} {
+	for _, job := range []string{"operator-chart"} {
 		chart, ok := jobsOf(t, string(wf))[job]
 		if !ok {
 			t.Errorf("release.yml has no %s job", job)

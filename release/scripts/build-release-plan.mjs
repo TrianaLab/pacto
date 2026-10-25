@@ -128,10 +128,9 @@ function buildPlan(u) {
           { unit: 'k8s-module', kind: 'go-module', coordinate: u['k8s-module'].coordinate, tag: k8sModuleTag },
           { unit: 'operator-image', kind: 'oci-image', coordinate: u['operator-image'].coordinate, tag: k8s },
           { unit: 'operator-chart', kind: 'helm-chart', coordinate: u['operator-chart'].coordinate, chartVersion: k8s, appVersion: k8s, defaultImageTag: k8s },
-          // The opt-in delivery promoter: its own image and chart, versioned with the
-          // operator so one Kubernetes release always ships a matching pair.
+          // The opt-in delivery promoter: its own image, installed by the operator
+          // chart (delivery.enabled) and versioned with it.
           { unit: 'delivery-image', kind: 'oci-image', coordinate: u['delivery-image'].coordinate, tag: k8s },
-          { unit: 'delivery-chart', kind: 'helm-chart', coordinate: u['delivery-chart'].coordinate, chartVersion: k8s, appVersion: k8s, defaultImageTag: k8s },
           { unit: 'k8s-docs', kind: 'docs', version: k8s },
         ],
         compatibility: { pactoCore: `>=${compatMajor}.0.0` },
@@ -143,7 +142,7 @@ function buildPlan(u) {
       'core:go-module', 'core:dashboard-image', 'core:dashboard-contract-bundle',
       'core:cli', 'core:demo-bundles', 'core:demo-compose',
       'kubernetes:go-mod-pin', 'kubernetes:go-module', 'kubernetes:operator-image',
-      'kubernetes:operator-chart', 'kubernetes:delivery-image', 'kubernetes:delivery-chart',
+      'kubernetes:operator-chart', 'kubernetes:delivery-image',
       'kubernetes:docs',
     ],
   };

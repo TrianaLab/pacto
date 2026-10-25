@@ -193,8 +193,8 @@ func TestReleaseDAGSelection(t *testing.T) {
 	dag, publisher := loadReleaseDAG(t)
 
 	core := []string{"core", "cli", "dashboard-image", "dashboard-contract-bundle", "demo-bundles", "demo-compose"}
-	k8s := []string{"k8s-module", "operator-image", "operator-chart", "delivery-image", "delivery-chart", "k8s-docs"}
-	k8sPublishers := []string{"k8s-module", "operator-image", "operator-chart", "delivery-image", "delivery-chart"}
+	k8s := []string{"k8s-module", "operator-image", "operator-chart", "delivery-image", "k8s-docs"}
+	k8sPublishers := []string{"k8s-module", "operator-image", "operator-chart", "delivery-image"}
 
 	// The invariant every scenario below is really testing: a release that fires for
 	// a set of units must run the publisher of each one. Two releases shipped nothing
@@ -321,7 +321,7 @@ func contains(s []string, v string) bool {
 // arrives as a skip: the job in between is skipped, not failed. So a job that runs
 // under always() and guards on `!contains(needs.*.result, 'failure')` is blind to
 // any failure it does not need directly. That is how a failed delivery-image-build
-// would have let delivery-chart push a chart for an image that never published,
+// would have let operator-chart push a chart for an image that never published,
 // and the GitHub Release go out after it. Every ancestor of such a job must
 // therefore be one of its direct needs.
 func TestFailureGuardedJobsNeedEveryAncestor(t *testing.T) {
