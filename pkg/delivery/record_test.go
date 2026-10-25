@@ -160,7 +160,7 @@ func (plainSigner) Sign(_ context.Context, payloadType string, payload []byte) (
 		"payload": payload, "payloadType": payloadType, "signatures": []map[string]any{{"sig": "c2ln"}}}})
 }
 
-func accept(string, []byte) error { return nil }
+func accept(string, int64, []byte) error { return nil }
 
 func TestSignAndOpenRecord(t *testing.T) {
 	st := NewOperationRecord(recordInput())
@@ -173,14 +173,15 @@ func TestSignAndOpenRecord(t *testing.T) {
 		t.Fatalf("id %s is not the payload digest", id)
 	}
 	var stream string
-	got, gotID, err := OpenRecord(b, func(s string, bundle []byte) error { stream = s; return nil })
-	if err != nil || gotID != id || got.Predicate.Intent.UID != "3b1e" || stream != st.Predicate.Chain.Stream {
+	var seq int64
+	got, gotID, err := OpenRecord(b, func(s string, n int64, bundle []byte) error { stream, seq = s, n; return nil })
+	if err != nil || gotID != id || got.Predicate.Intent.UID != "3b1e" || stream != st.Predicate.Chain.Stream || seq != st.Predicate.Chain.Seq {
 		t.Fatalf("open = %+v %s %q %v", got.Predicate.Intent, gotID, stream, err)
 	}
 	if _, _, err := SignRecord(t.Context(), failingSigner{}, st); err == nil {
 		t.Fatal("a failing signer signed")
 	}
-	if _, _, err := OpenRecord(b, func(string, []byte) error { return errors.New("untrusted") }); err == nil {
+	if _, _, err := OpenRecord(b, func(string, int64, []byte) error { return errors.New("untrusted") }); err == nil {
 		t.Fatal("opened a record the verifier refused")
 	}
 	edit := func(f func(*envelope)) []byte {

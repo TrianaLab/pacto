@@ -76,7 +76,7 @@ func (s selfChecked) Sign(ctx context.Context, payloadType string, payload []byt
 	if err != nil {
 		return nil, err
 	}
-	if err := s.verify("", b); err != nil {
+	if err := s.verify("", 0, b); err != nil {
 		return nil, fmt.Errorf("the recorder's own trust entry rejects its signature: %w", err)
 	}
 	return b, nil

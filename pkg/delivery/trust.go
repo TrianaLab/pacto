@@ -39,6 +39,11 @@ type TrustedKey struct {
 	// (<cluster>/<namespace>/<stage>), such as "*/prod/*". Empty means every
 	// stream.
 	Streams []string `json:"streams,omitempty" yaml:"streams,omitempty"`
+	// UntilSeq revokes the key after a seq: it verifies only records whose
+	// seq is at most UntilSeq, so the history it signed stays readable and
+	// anything it signs later is refused. Zero means no limit. Seqs count per
+	// stream, so a key revoked on several streams gets one entry per stream.
+	UntilSeq int64 `json:"untilSeq,omitempty" yaml:"untilSeq,omitempty"`
 }
 
 // ParseTrust reads a trust config: YAML or JSON, or a bare PEM public key,
@@ -72,11 +77,15 @@ func (t TrustConfig) Digest() string {
 // stream; open turns one key into the check of a bundle (pkg/signing does).
 func (t TrustConfig) Verifier(open func(TrustedKey) (func(bundle []byte) error, error)) (Verifier, error) {
 	type entry struct {
-		streams []string
-		verify  func([]byte) error
+		streams  []string
+		untilSeq int64
+		verify   func([]byte) error
 	}
 	var entries []entry
 	for i, k := range t.Keys {
+		if k.UntilSeq < 0 {
+			return nil, fmt.Errorf("trust config key %d (%s): untilSeq %d is negative", i, k.Name, k.UntilSeq)
+		}
 		for _, p := range k.Streams {
 			if _, err := path.Match(p, ""); err != nil {
 				return nil, fmt.Errorf("trust config key %d (%s): stream pattern %q: %w", i, k.Name, p, err)
@@ -86,17 +95,25 @@ func (t TrustConfig) Verifier(open func(TrustedKey) (func(bundle []byte) error, 
 		if err != nil {
 			return nil, fmt.Errorf("trust config key %d (%s): %w", i, k.Name, err)
 		}
-		entries = append(entries, entry{k.Streams, v})
+		entries = append(entries, entry{k.Streams, k.UntilSeq, v})
 	}
-	return func(stream string, bundle []byte) error {
-		err := fmt.Errorf("no trusted key may sign records of stream %q", stream)
+	return func(stream string, seq int64, bundle []byte) error {
+		var err, revoked error = fmt.Errorf("no trusted key may sign records of stream %q", stream), nil
 		for _, e := range entries {
 			if !covers(e.streams, stream) {
 				continue
 			}
-			if err = e.verify(bundle); err == nil {
-				return nil
+			if err = e.verify(bundle); err != nil {
+				continue
 			}
+			if e.untilSeq > 0 && seq > e.untilSeq {
+				revoked = fmt.Errorf("signed by a key revoked after seq %d of stream %q, and this record is seq %d", e.untilSeq, stream, seq)
+				continue
+			}
+			return nil
+		}
+		if revoked != nil {
+			return revoked
 		}
 		return err
 	}, nil

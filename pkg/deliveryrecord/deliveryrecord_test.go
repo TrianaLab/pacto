@@ -212,7 +212,7 @@ func edSigner(key ed25519.PrivateKey) delivery.Signer {
 }
 
 func keyVerifier(pub ed25519.PublicKey) delivery.Verifier {
-	return func(_ string, b []byte) error { _, err := signing.Policy{Key: pub}.Verify(b, nil); return err }
+	return func(_ string, _ int64, b []byte) error { _, err := signing.Policy{Key: pub}.Verify(b, nil); return err }
 }
 
 // TestUpstream: a downstream reads what the upstream verified from its
@@ -237,9 +237,18 @@ func TestUpstream(t *testing.T) {
 	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(pub)); why != "" || len(s.Offered) != 1 || s.Offered[0] != to {
 		t.Fatalf("offered = %+v %q", s, why)
 	}
-	other, _, _ := ed25519.GenerateKey(rand.Reader)
-	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(other)); s != nil || !strings.Contains(why, "could not be verified") {
+	other, mallory, _ := ed25519.GenerateKey(rand.Reader)
+	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(other)); why != "" || len(s.Offered) != 0 {
 		t.Fatalf("an untrusted key offers nothing: %+v %q", s, why)
+	}
+	// A record another key signed, attached by anyone with push access, does
+	// not blind the follower: it is skipped.
+	forged := st
+	forged.Predicate.Chain.Seq = 2
+	fb, _, _ := delivery.SignRecord(t.Context(), edSigner(mallory), forged)
+	attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, fb, map[string]string{AnnPredicateType: delivery.PredicateOperation})
+	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(pub)); why != "" || len(s.Offered) != 1 {
+		t.Fatalf("a forged referrer blinds the follower: %+v %q", s, why)
 	}
 	_, path = setup(t, testutil.ReferrersOptions{Unsupported: true})
 	repo, _ = ocireferrer.Open(path, ocireferrer.Options{})

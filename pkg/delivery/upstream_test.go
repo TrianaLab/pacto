@@ -31,14 +31,11 @@ func TestUpstreamFromRecords(t *testing.T) {
 	recs[6].Statement.Predicate.Intent.Cause = &Cause{Verdict: &Verdict{Gate: "smoke", Result: Fail}}
 	recs = append(recs, StoredRecord{ID: "r6", Statement: Statement{Predicate: RecordPredicate{Kind: RecordOperation,
 		Chain: Chain{Stream: "c2/test/payments", Seq: 10, Parent: "r9"}}}}) // no outcome
-	s, why := UpstreamFromRecords(recs, nil)
+	s, why := UpstreamFromRecords(recs)
 	if why != "" || !slices.Equal(s.Verified, []string{dC}) || !slices.Equal(s.Offered, []string{dA, c1}) || !slices.Equal(s.FailedDigests, []string{dA, c1, c2}) {
 		t.Fatalf("got %+v %q", s, why)
 	}
-	if s, why := UpstreamFromRecords(recs, []string{"m: bad signature"}); s != nil || !strings.Contains(why, "bad signature") {
-		t.Fatalf("an unverifiable record offers nothing: %+v %q", s, why)
-	}
-	if s, why := UpstreamFromRecords(recs[1:], nil); s != nil || !strings.Contains(why, "not whole") {
+	if s, why := UpstreamFromRecords(recs[1:]); s != nil || !strings.Contains(why, "not whole") {
 		t.Fatalf("a stream with a hole offers nothing: %+v %q", s, why)
 	}
 }
@@ -56,7 +53,7 @@ func TestUpstreamFoldsAFailedFreeze(t *testing.T) {
 	recs[2].Statement.Predicate.Intent.Params.From = dA // a person paused on dA, no failed check
 	recs[3].Statement.Predicate.Intent.Params.From = dB
 	recs[3].Statement.Predicate.Intent.Cause = &Cause{Verdict: &Verdict{Gate: "smoke", Result: Fail}}
-	s, why := UpstreamFromRecords(recs, nil)
+	s, why := UpstreamFromRecords(recs)
 	if why != "" || !slices.Equal(s.Verified, []string{dA}) || !slices.Equal(s.FailedDigests, []string{dB}) {
 		t.Fatalf("got %+v %q", s, why)
 	}
@@ -65,7 +62,7 @@ func TestUpstreamFoldsAFailedFreeze(t *testing.T) {
 		Cause: &Cause{Operation: "uid-p1", Verdict: &Verdict{Gate: "smoke", Result: Fail}}},
 		Status: OperationStatus{Outcome: Succeeded, Verification: Unverified}}
 	rec := NewOperationRecord(RecordInput{Operation: fz, Chain: Chain{Stream: "c2/test/payments", Seq: 5, Parent: "r4"}})
-	s, why = UpstreamFromRecords(append(recs, StoredRecord{ID: "r5", Statement: rec}), nil)
+	s, why = UpstreamFromRecords(append(recs, StoredRecord{ID: "r5", Statement: rec}))
 	if why != "" || len(s.Verified) != 0 || !slices.Equal(s.FailedDigests, []string{dB, dA}) {
 		t.Fatalf("a recorded freeze: %+v %q", s, why)
 	}

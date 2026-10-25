@@ -21,9 +21,10 @@ type Signer interface {
 	Sign(ctx context.Context, payloadType string, payload []byte) (bundle []byte, err error)
 }
 
-// Verifier checks a record's bundle, for a record of stream: a trust config
-// trusts each key for some streams only. pkg/signing.TrustVerifier builds one.
-type Verifier func(stream string, bundle []byte) error
+// Verifier checks a record's bundle, for the record at seq of stream: a trust
+// config trusts each key for some streams only, and a revoked key up to a seq.
+// pkg/signing.TrustVerifier builds one.
+type Verifier func(stream string, seq int64, bundle []byte) error
 
 // SignRecord signs st and returns the bundle and the record id: the sha256 of
 // the DSSE payload, so the id does not depend on a signature that a KMS makes
@@ -62,7 +63,7 @@ func OpenRecord(bundle []byte, verify Verifier) (Statement, string, error) {
 	if err != nil {
 		return Statement{}, "", err
 	}
-	if err := verify(st.Predicate.Chain.Stream, bundle); err != nil {
+	if err := verify(st.Predicate.Chain.Stream, st.Predicate.Chain.Seq, bundle); err != nil {
 		return Statement{}, "", fmt.Errorf("signature: %w", err)
 	}
 	return st, sha256Hex(payload), nil

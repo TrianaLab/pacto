@@ -141,17 +141,17 @@ func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 	if err != nil {
 		return r.notReady(ctx, stage, storeReason(err), err)
 	}
-	recs, err := r.Store.list(ctx, anchor)
+	recs, ignored, err := r.Store.list(ctx, anchor)
 	if err != nil {
-		if errors.Is(err, errUnverifiable) {
-			return r.notReady(ctx, stage, ReasonStreamConflict, err)
-		}
 		return r.notReady(ctx, stage, storeReason(err), err)
 	}
 	if msg := conflict(recs, stream.Head); msg != "" {
 		return r.notReady(ctx, stage, ReasonStreamConflict, errors.New(msg))
 	}
-	if err := r.ready(ctx, stage); err != nil {
+	if len(ignored) > 0 {
+		ctrl.LoggerFrom(ctx).Info("ignoring records no trusted key signed", "stage", stage.Name, "records", ignored)
+	}
+	if err := r.ready(ctx, stage, ignored); err != nil {
 		return reconcile.Result{}, err
 	}
 	w := &writer{Recorder: r, stage: stage, anchor: anchor, recs: recs}
@@ -310,10 +310,15 @@ func hasCondition(stage *dv1.Stage, typ, status string) bool {
 	return slices.ContainsFunc(stage.Status.Conditions, func(c delivery.Condition) bool { return c.Type == typ && c.Status == status })
 }
 
-// ready marks the stream writable and names where its records are listed.
-func (r *Recorder) ready(ctx context.Context, stage *dv1.Stage) error {
+// ready marks the stream writable and names where its records are listed,
+// and the first of the records it ignored because no trusted key signed them.
+func (r *Recorder) ready(ctx context.Context, stage *dv1.Stage, ignored []string) error {
 	want := delivery.Condition{Type: ConditionRecordStoreReady, Status: "True",
 		Reason: "ReferrersSupported", Message: "records are written to " + r.Store.Streams}
+	if len(ignored) > 0 {
+		want.Message += fmt.Sprintf("; %d record(s) on the anchor are ignored because no key trusted for this stream signed them, the first: %s",
+			len(ignored), ignored[0])
+	}
 	ref := deliveryrecord.AnchorRef(r.Store.Streams, stage.Status.Stream.ID)
 	if slices.Contains(stage.Status.Conditions, want) && stage.Status.Stream.Anchor == ref {
 		return nil

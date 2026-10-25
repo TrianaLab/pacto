@@ -33,6 +33,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
 // testRegistry is an in-process OCI registry with the Referrers API, seeded
@@ -163,7 +164,7 @@ func (re *recEnv) records() []stored {
 	if err != nil {
 		re.t.Fatal(err)
 	}
-	recs, err := re.rec.Store.list(context.Background(), a)
+	recs, _, err := re.rec.Store.list(context.Background(), a)
 	if err != nil {
 		re.t.Fatal(err)
 	}
@@ -449,7 +450,7 @@ func TestRecorderRefusesToFork(t *testing.T) {
 			t.Fatalf("condition %+v", c)
 		}
 	})
-	t.Run("a record of another stream on the anchor", func(t *testing.T) {
+	t.Run("a record of another stream on the anchor is ignored", func(t *testing.T) {
 		re := newRecEnv(t)
 		re.stage(1)
 		re.concluded("ship", 1, delivery.Succeeded)
@@ -467,8 +468,38 @@ func TestRecorderRefusesToFork(t *testing.T) {
 		re.setStage(func(s *delivery.StageStatus) { s.Stream.Seq = 2 })
 		re.concluded("next", 2, delivery.Succeeded)
 		re.reconcile()
-		if c := condition(re.getStage()); c.Reason != ReasonStreamConflict || !strings.Contains(c.Message, `names stream "cid/dev/x"`) {
+		if c := condition(re.getStage()); c.Status != "True" || !strings.Contains(c.Message, `names stream "cid/dev/x"`) {
 			t.Fatalf("condition %+v", c)
+		}
+		if recs := re.records(); len(recs) != 2 || re.getStage().Status.Stream.RecordedSeq != 2 {
+			t.Fatalf("records = %+v", recs)
+		}
+	})
+	// Anyone with push access to the streams repository can attach a
+	// referrer. One no trusted key signed is not the stream's history, so it
+	// neither freezes the Stage nor stops the recorder.
+	t.Run("a record another key signed is ignored", func(t *testing.T) {
+		re := newRecEnv(t)
+		re.stage(1)
+		re.concluded("ship", 1, delivery.Succeeded)
+		re.reconcile()
+		ctx := context.Background()
+		a, _ := re.rec.Store.anchor(ctx, "cid/prod/payments-prod")
+		_, mallory, _ := ed25519.GenerateKey(rand.Reader)
+		st := delivery.NewGap("cid", delivery.ObjectMeta{Name: "x"}, 9, delivery.Chain{Stream: "cid/prod/payments-prod", Seq: 2,
+			Parent: re.getStage().Status.Stream.Head}, a.desc.Digest.String(), "t")
+		bundle, _, _ := delivery.SignRecord(ctx, edSigner(mallory), st)
+		if err := re.rec.Store.write(ctx, bundle, st, locations{anchor: a}); err != nil {
+			t.Fatal(err)
+		}
+		re.setStage(func(s *delivery.StageStatus) { s.Stream.Seq = 2 })
+		re.concluded("next", 2, delivery.Succeeded)
+		re.reconcile()
+		if c := condition(re.getStage()); c.Status != "True" || !strings.Contains(c.Message, "1 record(s) on the anchor are ignored") {
+			t.Fatalf("condition %+v", c)
+		}
+		if recs := re.records(); len(recs) != 2 || re.getStage().Status.Stream.RecordedSeq != 2 {
+			t.Fatalf("records = %+v", recs)
 		}
 	})
 }
@@ -859,5 +890,44 @@ func TestRecorderGapsWaitOneGraceTogether(t *testing.T) {
 	}
 	if recs := re.records(); len(recs) != 3 {
 		t.Fatalf("records = %d, want two gaps and the operation", len(recs))
+	}
+}
+
+// TestRecorderRevokesAKeyWithoutFreezing: rotating to a new key and revoking
+// the old one after the last seq it signed keeps the stream writable and its
+// history readable, and a record the revoked key signs later is ignored.
+func TestRecorderRevokesAKeyWithoutFreezing(t *testing.T) {
+	re := newRecEnv(t)
+	re.stage(1)
+	re.concluded("ship", 1, delivery.Succeeded)
+	re.reconcile()
+	oldPEM, _ := delivery.PublicKeyPEM(re.key.Public())
+	_, next, _ := ed25519.GenerateKey(rand.Reader)
+	nextPEM, _ := delivery.PublicKeyPEM(next.Public())
+	v, err := signing.TrustVerifier(delivery.TrustConfig{Keys: []delivery.TrustedKey{
+		{Name: "old", PublicKey: oldPEM, Streams: []string{"cid/prod/payments-prod"}, UntilSeq: 1},
+		{Name: "next", PublicKey: nextPEM},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	re.rec.Store.Verify, re.rec.Signer = v, edSigner(next)
+	// The compromised key signs a record after its revocation.
+	ctx := context.Background()
+	a, _ := re.rec.Store.anchor(ctx, "cid/prod/payments-prod")
+	st := delivery.NewGap("cid", delivery.ObjectMeta{Name: "x"}, 9, delivery.Chain{Stream: "cid/prod/payments-prod", Seq: 2,
+		Parent: re.getStage().Status.Stream.Head}, a.desc.Digest.String(), "t")
+	bundle, _, _ := delivery.SignRecord(ctx, edSigner(re.key), st)
+	if err := re.rec.Store.write(ctx, bundle, st, locations{anchor: a}); err != nil {
+		t.Fatal(err)
+	}
+	re.setStage(func(s *delivery.StageStatus) { s.Stream.Seq = 2 })
+	re.concluded("next", 2, delivery.Succeeded)
+	re.reconcile()
+	if c := condition(re.getStage()); c.Status != "True" || !strings.Contains(c.Message, "revoked after seq 1") {
+		t.Fatalf("condition %+v", c)
+	}
+	if recs := re.records(); len(recs) != 2 || recs[1].Statement.Predicate.Intent.Name != "next" || re.getStage().Status.Frozen {
+		t.Fatalf("records = %+v", recs)
 	}
 }

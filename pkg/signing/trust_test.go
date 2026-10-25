@@ -61,7 +61,7 @@ func TestTrustVerifier(t *testing.T) {
 		{"keyless recorder, its stream", "c/ci/p", keyless, true},
 		{"keyless recorder, prod stream", "c/prod/p", keyless, false},
 	} {
-		if err := v(c.stream, c.bundle); (err == nil) != c.ok {
+		if err := v(c.stream, 1, c.bundle); (err == nil) != c.ok {
 			t.Errorf("%s: %v", c.name, err)
 		}
 	}

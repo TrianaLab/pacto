@@ -62,7 +62,12 @@ Each Stage gets a `RecordStoreReady` condition:
 | `ReferrersUnsupported` | The registry has no Referrers API |
 | `RegistryUnavailable` | The registry did not answer; it tries again |
 | `SignerUnavailable` | The signer (KMS key, keyless token, Fulcio or timestamp authority) failed; it tries again |
-| `StreamConflict` | Two records with one number, a broken chain or an untrusted signature. The recorder stops and the Stage freezes |
+| `StreamConflict` | Two trusted records with one number, a broken chain, or the head the Stage names is missing. The recorder stops and the Stage freezes |
+
+A record no key trusted for the stream signed is not part of its history.
+The recorder and followers skip it, and the `True` condition message names
+the first one. Anyone who can push to the streams repository can attach a
+referrer, so an untrusted one never freezes a Stage.
 
 Pacto never resolves a `StreamConflict` for you. Find the bad record with
 `pacto delivery record verify`, delete its referrer manifest from the streams
@@ -88,10 +93,43 @@ recorder:
 
 `streams` are patterns over stream ids (`<cluster>/<namespace>/<stage>`), so a
 dev key cannot sign prod history. A keyless entry names `identity`, `issuer`
-and the required `trustedRoot`. Pass the same file (or the recorder's PEM
+and the required `trustedRoot`. The recorder's own key is always trusted. List
+the old key before the recorder signs with a new one, including when a KMS
+alias moves to a new key. Otherwise the records the old key signed no longer
+verify, the head the Stage names goes missing and the Stage freezes. Pass the same file (or the recorder's PEM
 public key) to the CLI with `--trust` or `PACTO_DELIVERY_TRUST`, and to
 `pacto mcp --delivery` and `pacto dashboard` with `--delivery-trust`. Without
 it, records are read unchecked and every answer says it is partial.
+
+## Revoke a key
+
+When a key leaks, rotate the recorder to a new key first. Then keep the old
+key listed with `untilSeq`, the last seq it signed on that stream. Records up
+to that seq still verify, so the history stays readable. Anything the old key
+signs after it is skipped as untrusted, so a forgery neither extends the
+stream nor freezes the Stage:
+
+```yaml
+keys:
+  - name: leaked
+    publicKey: |
+      -----BEGIN PUBLIC KEY-----
+      ...
+      -----END PUBLIC KEY-----
+    streams: ["<cluster>/prod/payments"]
+    untilSeq: 41
+```
+
+Seqs count per stream, so give a key that signed several streams one entry
+per stream. The last seq of each is in the Stage's
+`status.stream.recordedSeq`, or in `pacto delivery record verify`. A record
+the leaked key signs at a seq it already used forks the stream, and the Stage
+freezes as a `StreamConflict` until a person deletes the forgery. Followers
+need the same trust config. A follower that does not trust the new key sees
+the stream end at the last record it can verify.
+
+Removing the key instead makes every record it signed unverifiable. The
+recorder then stops on the missing head and every follower sees a hole.
 
 ## History, blame and undo
 

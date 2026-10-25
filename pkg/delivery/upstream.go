@@ -14,14 +14,13 @@ import (
 // takes it out of Verified. A rollback raised on a Fail verdict, the one a
 // failed post-release re-check raises, marks the version it leaves failed the
 // same way, and so does the freeze such a re-check raises when it cannot roll
-// back: that freeze names the failed version it stays on. unreadable names the
-// records that failed verification. Any of those, or a gap or fork inside the
-// stream, offers nothing: a downstream never promotes on history it cannot
-// check, so the result is nil with the reason.
-func UpstreamFromRecords(recs []StoredRecord, unreadable []string) (*StageStatus, string) {
-	if len(unreadable) > 0 {
-		return nil, "records that could not be verified: " + strings.Join(unreadable, "; ")
-	}
+// back: that freeze names the failed version it stays on. A gap or fork
+// inside the stream offers nothing: a downstream never promotes on history it
+// cannot check, so the result is nil with the reason. A record that failed
+// verification is not passed in at all: it is not the stream's history, and
+// anyone who can push to the registry could otherwise blind every follower. A
+// trusted record that stops verifying leaves a hole, which offers nothing.
+func UpstreamFromRecords(recs []StoredRecord) (*StageStatus, string) {
 	f := FoldStream(recs)
 	if len(f.Problems) > 0 {
 		return nil, "the stream is not whole: " + strings.Join(f.Problems, "; ")
