@@ -177,6 +177,21 @@ func (plainSigner) Sign(_ context.Context, payloadType string, payload []byte) (
 
 func accept(string, int64, []byte) error { return nil }
 
+// TestOpenRecordSignedByARevokedKey: a record only a revoked key signs comes
+// back with its statement and id, so the stream's reader can tell whether it
+// is history.
+func TestOpenRecordSignedByARevokedKey(t *testing.T) {
+	b, id, err := SignRecord(t.Context(), plainSigner{}, NewOperationRecord(recordInput()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, gotID, err := OpenRecord(b, func(string, int64, []byte) error { return &HistoryOnly{Until: "r41"} })
+	if h := (*HistoryOnly)(nil); !errors.As(err, &h) || gotID != id || got.Predicate.Intent.UID != "3b1e" ||
+		!strings.Contains(err.Error(), "history that ends at its last record r41") {
+		t.Fatalf("a revoked key's record = %+v %s %v", got.Predicate.Intent, gotID, err)
+	}
+}
+
 func TestSignAndOpenRecord(t *testing.T) {
 	st := NewOperationRecord(recordInput())
 	b, id, err := SignRecord(t.Context(), plainSigner{}, st)

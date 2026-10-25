@@ -89,6 +89,11 @@ func TestRecordEntry(t *testing.T) {
 	if e := RecordEntry(a); len(e.Approvals) != 1 || e.Approvals[0].By != "carol" {
 		t.Fatalf("approved entry = %+v", e)
 	}
+}
+
+// TestRecordEntryOtherKinds: an unrecordable operation and a gap say so in
+// their reason and move no pointer.
+func TestRecordEntryOtherKinds(t *testing.T) {
 	u := rec("2", 2, "1", "", "")
 	u.Statement.Predicate = RecordPredicate{Kind: RecordUnrecordable, Chain: u.Statement.Predicate.Chain,
 		Unrecordable: &Refusal{Check: CheckSensitive, Message: "looks like a secret"}}

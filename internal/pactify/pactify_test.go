@@ -100,6 +100,21 @@ func TestPactifyFraud(t *testing.T) {
 	if !slices.Equal(r.Found, wantFound) || !slices.Equal(r.Unknown, wantUnknown) || len(r.Dependencies) != 0 {
 		t.Fatalf("findings: %+v", r)
 	}
+	checkFraudDelivery(t, r)
+
+	opts.Plan = false
+	if r, err = Init(context.Background(), opts, os.WriteFile); err != nil || !r.Applied {
+		t.Fatalf("apply: %+v %v", r, err)
+	}
+	c, _ := contract.Parse(strings.NewReader(fraudContract))
+	runManifestsBuild(t, dir, c.Publish.Artifacts[1].Build.Command)
+	checkSecondRunAddsNothing(t, opts)
+}
+
+// checkFraudDelivery checks the files --delivery plans for fraud and how
+// init says prod earns its autonomy.
+func checkFraudDelivery(t *testing.T, r *Result) {
+	t.Helper()
 	if ig := file(t, r, ".pactoignore"); ig.Content != "cosign.key\ndelivery/\n" {
 		t.Fatalf(".pactoignore: %+v", ig)
 	}
@@ -111,14 +126,6 @@ func TestPactifyFraud(t *testing.T) {
 	if !hasLine(r.Next, "every promote to prod waits for a person") || !hasLine(r.Next, "delete approval to let it promote on its own") {
 		t.Fatalf("init does not say how prod earns autonomy: %+v", r.Next)
 	}
-
-	opts.Plan = false
-	if r, err = Init(context.Background(), opts, os.WriteFile); err != nil || !r.Applied {
-		t.Fatalf("apply: %+v %v", r, err)
-	}
-	c, _ := contract.Parse(strings.NewReader(fraudContract))
-	runManifestsBuild(t, dir, c.Publish.Artifacts[1].Build.Command)
-	checkSecondRunAddsNothing(t, opts)
 }
 
 // checkSecondRunAddsNothing runs init again: every file is kept, and the

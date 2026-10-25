@@ -98,6 +98,13 @@ func (s *Service) env() sysDeps {
 	if d.httpClient == nil {
 		d.httpClient = evidenceClient
 	}
+	publishDefaults(&d)
+	return d
+}
+
+// publishDefaults sets the publish path's unset fields of d to their
+// production defaults.
+func publishDefaults(d *sysDeps) {
 	if d.run == nil {
 		d.run = execRun
 	}
@@ -110,7 +117,6 @@ func (s *Service) env() sysDeps {
 	if d.refusalRepo == nil {
 		d.refusalRepo = defaultRefusalRepo
 	}
-	return d
 }
 
 // NewService creates a new application service with the given dependencies.

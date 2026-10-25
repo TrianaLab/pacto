@@ -50,9 +50,15 @@ func TestEval(t *testing.T) {
 		Input GateInput `json:"input"`
 	}
 	_ = json.Unmarshal(*body, &sent)
-	if v.Result != Pass || v.Citation["run"] != "https://evals.example/runs/7" || v.Citation["subject"] != dA ||
-		v.Citation["passed"] != "50" || v.Citation["total"] != "50" || v.Citation["suite"] != suiteDigest || v.Citation["suitePath"] != "evals/suite.yaml" || v.Citation["contract"] != "oci://r/pay-agent@sha256:c0" ||
-		sent.Input.Subjects[0] != dA || sent.Input.Contract != "oci://r/pay-agent@sha256:c0" || *sent.Input.Evals != (Suite{Path: "evals/suite.yaml", Digest: suiteDigest}) {
+	want := map[string]string{"run": "https://evals.example/runs/7", "subject": dA, "passed": "50", "total": "50",
+		"suite": suiteDigest, "suitePath": "evals/suite.yaml", "contract": "oci://r/pay-agent@sha256:c0"}
+	for k, w := range want {
+		if v.Citation[k] != w {
+			t.Errorf("citation %s = %q, want %q", k, v.Citation[k], w)
+		}
+	}
+	if v.Result != Pass || sent.Input.Subjects[0] != dA || sent.Input.Contract != "oci://r/pay-agent@sha256:c0" ||
+		*sent.Input.Evals != (Suite{Path: "evals/suite.yaml", Digest: suiteDigest}) {
 		t.Fatalf("all pass: %+v sent=%s", v, *body)
 	}
 	*answer = evalRan(48, 50)

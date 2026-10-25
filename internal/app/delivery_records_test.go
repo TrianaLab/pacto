@@ -439,6 +439,17 @@ func TestVerifyRecordsKeylessCommand(t *testing.T) {
 	}
 }
 
+// TestVerifyRecordsGuarded: each record says whether admission checked who
+// asked and who approved, as its predicate does.
+func TestVerifyRecordsGuarded(t *testing.T) {
+	e := newRecordEnv(t)
+	e.twoRecords()
+	v, err := e.d.VerifyRecords(context.Background(), "prod", "payments-prod")
+	if err != nil || len(v.Records) != 2 || !v.Records[1].Guarded || v.Records[0].Guarded {
+		t.Fatalf("guarded = %+v %v", v, err)
+	}
+}
+
 func TestVerifyRecords(t *testing.T) {
 	e := newRecordEnv(t)
 	ctx := context.Background()
@@ -447,7 +458,6 @@ func TestVerifyRecords(t *testing.T) {
 	_, r2 := e.twoRecords()
 	v, err := e.d.VerifyRecords(ctx, "prod", "payments-prod")
 	if err != nil || !v.OK || v.Head != r2 || len(v.Records) != 2 || v.Records[1].Operation != "ship" || v.Records[0].Manifest == "" ||
-		!v.Records[1].Guarded || v.Records[0].Guarded ||
 		!strings.Contains(v.Cosign, "cosign verify-blob-attestation") || !strings.Contains(v.Cosign, v.Records[0].Manifest) {
 		t.Fatalf("verification = %+v %v", v, err)
 	}

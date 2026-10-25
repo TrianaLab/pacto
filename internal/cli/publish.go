@@ -43,20 +43,12 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command 
   pacto publish --propose test/payments`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path, _ := cmd.Flags().GetString("path")
-			if len(args) == 1 {
-				if path != "" && path != args[0] {
-					return fmt.Errorf("the contract directory is given twice: %s and --path %s", args[0], path)
-				}
-				path = args[0]
+			path, propose, ns, stage, err := publishArgs(cmd, args)
+			if err != nil {
+				return err
 			}
 			plan, _ := cmd.Flags().GetBool("plan")
 			revision, _ := cmd.Flags().GetString("revision")
-			propose, _ := cmd.Flags().GetString("propose")
-			ns, stage, ok := strings.Cut(propose, "/")
-			if propose != "" && (!ok || ns == "" || stage == "") {
-				return fmt.Errorf("--propose takes <namespace>/<stage>, not %q", propose)
-			}
 			format := v.GetString(outputFormatKey)
 			start := time.Now()
 			sp := startSpinner(cmd, format, "Publishing")
@@ -90,6 +82,24 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command 
 	cmd.Flags().Duration("propose-timeout", 10*time.Minute, "how long --propose waits for the Stage to record the version as published")
 	addOverrideFlagsNoShorthand(cmd)
 	return cmd
+}
+
+// publishArgs reads the contract directory, given as [dir] or --path, and
+// the <namespace>/<stage> --propose names.
+func publishArgs(cmd *cobra.Command, args []string) (path, propose, ns, stage string, err error) {
+	path, _ = cmd.Flags().GetString("path")
+	if len(args) == 1 {
+		if path != "" && path != args[0] {
+			return "", "", "", "", fmt.Errorf("the contract directory is given twice: %s and --path %s", args[0], path)
+		}
+		path = args[0]
+	}
+	propose, _ = cmd.Flags().GetString("propose")
+	ns, stage, ok := strings.Cut(propose, "/")
+	if propose != "" && (!ok || ns == "" || stage == "") {
+		return "", "", "", "", fmt.Errorf("--propose takes <namespace>/<stage>, not %q", propose)
+	}
+	return path, propose, ns, stage, nil
 }
 
 // publishPoll is how often --propose reads the Stage while it waits.

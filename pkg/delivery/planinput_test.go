@@ -51,10 +51,17 @@ func TestAssemblePlanInput(t *testing.T) {
 	if _, err := AssemblePlanInput(context.Background(), src, promote(dA, dB), stage, ClassAgent, now); err == nil {
 		t.Fatal("a failed upstream read must stop planning")
 	}
+}
+
+// TestAssemblePlanInputOtherTypes: a rollback reads only its To side, and an
+// operation that moves no pointer reads nothing.
+func TestAssemblePlanInputOtherTypes(t *testing.T) {
+	stage := StageObject{Metadata: ObjectMeta{Namespace: "prod", Name: "payments"}, Spec: stageSpec(), Status: StageStatus{Pointer: dA}}
+	src := &fakeSources{from: rev(dA, c1, bundle("payments", "1.0.0")), to: rev(dA, c1, bundle("payments", "1.0.0")),
+		upstream: &StageStatus{Offered: []string{dB}}, stages: []StageObject{stage}}
 	rollback := promote(dB, dA)
 	rollback.Type = TypeRollback
-	src.upErr, src.to = nil, rev(dA, c1, bundle("payments", "1.0.0"))
-	in, err = AssemblePlanInput(context.Background(), src, rollback, stage, ClassAgent, now)
+	in, err := AssemblePlanInput(context.Background(), src, rollback, stage, ClassAgent, now)
 	if err != nil || in.To.Bundle == nil || in.From.Bundle != nil || in.Snapshot != nil || in.Upstream != nil {
 		t.Fatalf("a rollback reads only its To side: %v %+v", err, in)
 	}

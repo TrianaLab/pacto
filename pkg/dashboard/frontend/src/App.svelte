@@ -23,8 +23,6 @@
   import LegacyEntityRedirect from './views/LegacyEntityRedirect.svelte';
   import DeliveryInboxView from './views/DeliveryInboxView.svelte';
   import DeliveryEnvironmentsView from './views/DeliveryEnvironmentsView.svelte';
-  import DeliveryChangeView from './views/DeliveryChangeView.svelte';
-  import DeliveryHistoryView from './views/DeliveryHistoryView.svelte';
   import DeliveryPublishView from './views/DeliveryPublishView.svelte';
 
   // The views that carry cytoscape, d3 and the charts load on first use.
@@ -37,6 +35,8 @@
   const loadFleetEntityView = once(() => import('./views/FleetEntityView.svelte'));
   const loadChangeAnalysisView = once(() => import('./views/ChangeAnalysisView.svelte'));
   const loadOwnerDetailView = once(() => import('./views/OwnerDetailView.svelte'));
+  const loadDeliveryChangeView = once(() => import('./views/DeliveryChangeView.svelte'));
+  const loadDeliveryHistoryView = once(() => import('./views/DeliveryHistoryView.svelte'));
 
   let route = $state(parseHash(location.hash));
   let services = $state([]);
@@ -405,10 +405,10 @@
         <DeliveryEnvironmentsView {refreshTick} miraURL={capabilities.miraURL || ''} />
       {:else if route.view === 'delivery-change'}
         {#key route.params.namespace + '/' + route.params.name}
-          <DeliveryChangeView namespace={route.params.namespace} name={route.params.name} {refreshTick} miraURL={capabilities.miraURL || ''} />
+          <LazyView load={loadDeliveryChangeView} namespace={route.params.namespace} name={route.params.name} {refreshTick} miraURL={capabilities.miraURL || ''} />
         {/key}
       {:else if route.view === 'delivery-history'}
-        <DeliveryHistoryView namespace={route.params.namespace || ''} stage={route.params.stage || ''} {refreshTick} miraURL={capabilities.miraURL || ''} />
+        <LazyView load={loadDeliveryHistoryView} namespace={route.params.namespace || ''} stage={route.params.stage || ''} {refreshTick} miraURL={capabilities.miraURL || ''} />
       {:else}
         <DeliveryPublishView {refreshTick} />
       {/if}

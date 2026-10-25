@@ -573,15 +573,9 @@ func TestListsDropNamespacesTheCallerCannotRead(t *testing.T) {
 	}
 }
 
-func TestHistoryAndOperation(t *testing.T) {
-	a := &authed{state: AuthState{SignedIn: true}}
-	succeeded := delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Succeeded, Applied: true,
-		Pointer: delivery.PointerChange{Before: dRun, After: dNext}}
-	f := &fakeDelivery{caller: person("acme:team-checkout"),
-		stages: []delivery.StageObject{stage("prod", "payments", "payments", delivery.StageStatus{})},
-		ops: []delivery.OperationObject{operation("prod", "held", "payments", held("team-checkout")), operation("prod", "done", "payments", succeeded),
-			operation("prod", "unknown", "payments", delivery.OperationStatus{Phase: delivery.PhaseHeld, Applied: true})}}
-	base := startDelivery(t, f, a.auth(false, true), true, nil)
+// checkHistory reads the history of every Stage and of one, and a failed read.
+func checkHistory(t *testing.T, base string, f *fakeDelivery) {
+	t.Helper()
 	_, h := call(t, http.MethodGet, base+"/api/delivery/history", nil)
 	if hs := h["histories"].([]any); len(hs) != 1 || hs[0].(map[string]any)["stage"].(map[string]any)["name"] != "prod/payments" ||
 		hs[0].(map[string]any)["namespace"] != "prod" {
@@ -594,6 +588,18 @@ func TestHistoryAndOperation(t *testing.T) {
 	if code, _ := call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments", nil); code != http.StatusInternalServerError {
 		t.Fatalf("history error: %d", code)
 	}
+}
+
+func TestHistoryAndOperation(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	succeeded := delivery.OperationStatus{Phase: delivery.PhaseConcluded, Outcome: delivery.Succeeded, Applied: true,
+		Pointer: delivery.PointerChange{Before: dRun, After: dNext}}
+	f := &fakeDelivery{caller: person("acme:team-checkout"),
+		stages: []delivery.StageObject{stage("prod", "payments", "payments", delivery.StageStatus{})},
+		ops: []delivery.OperationObject{operation("prod", "held", "payments", held("team-checkout")), operation("prod", "done", "payments", succeeded),
+			operation("prod", "unknown", "payments", delivery.OperationStatus{Phase: delivery.PhaseHeld, Applied: true})}}
+	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	checkHistory(t, base, f)
 	actions := func(name string) string {
 		_, out := call(t, http.MethodGet, base+"/api/delivery/operations/prod/"+name, nil)
 		return strings.Join(toStrings(out["actions"]), ",")
@@ -671,16 +677,11 @@ func TestPlanProposeCancel(t *testing.T) {
 	}
 }
 
-func TestDecide(t *testing.T) {
-	a := &authed{state: AuthState{SignedIn: true, Fresh: true}}
-	f := &fakeDelivery{caller: person("acme:team-checkout"), ops: []delivery.OperationObject{operation("prod", "held", "payments", held("team-checkout"))}}
-	decide := func(base string) (int, map[string]any) {
-		return call(t, http.MethodPost, base+"/api/delivery/operations/prod/held/decision", map[string]string{"decision": "approve", "note": "ok"})
-	}
-	base := startDelivery(t, f, a.auth(false, true), true, nil)
-	if code, out := decide(base); code != http.StatusCreated || out["approval"] != "held-x" || f.approved[0] != "prod/held=approve" {
-		t.Fatalf("a fresh member of the named team decides: %d %v", code, out)
-	}
+// checkDecideFollowsThePromoter: a decision the promoter would not count is
+// refused with its reason, and the sign-in margin follows the login freshness
+// the Stage publishes.
+func checkDecideFollowsThePromoter(t *testing.T, base string, f *fakeDelivery, decide func(string) (int, map[string]any)) {
+	t.Helper()
 	// accept-unknown on a change that needs an approval is refused with the
 	// promoter's own reason: it would never count.
 	if code, out := call(t, http.MethodPost, base+"/api/delivery/operations/prod/held/decision", map[string]string{"decision": "accept-unknown"}); code != http.StatusForbidden ||
@@ -702,6 +703,19 @@ func TestDecide(t *testing.T) {
 		t.Fatalf("a login inside the published freshness decides: %d %v", code, out)
 	}
 	f.stages, f.caller = nil, person("acme:team-checkout")
+}
+
+func TestDecide(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true, Fresh: true}}
+	f := &fakeDelivery{caller: person("acme:team-checkout"), ops: []delivery.OperationObject{operation("prod", "held", "payments", held("team-checkout"))}}
+	decide := func(base string) (int, map[string]any) {
+		return call(t, http.MethodPost, base+"/api/delivery/operations/prod/held/decision", map[string]string{"decision": "approve", "note": "ok"})
+	}
+	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	if code, out := decide(base); code != http.StatusCreated || out["approval"] != "held-x" || f.approved[0] != "prod/held=approve" {
+		t.Fatalf("a fresh member of the named team decides: %d %v", code, out)
+	}
+	checkDecideFollowsThePromoter(t, base, f, decide)
 	cases := []struct {
 		name  string
 		setup func() string

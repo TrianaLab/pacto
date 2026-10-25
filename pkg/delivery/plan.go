@@ -259,50 +259,64 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 // accept an unknown source. A Stage with no candidate source promotes nothing.
 func publishedGate(in PlanInput) Verdict {
 	v := Verdict{Gate: GatePublished, Phase: "pre", Result: Fail, Citation: map[string]string{}}
-	to, c := in.Spec.Params.To, in.Stage.Candidates
+	c := in.Stage.Candidates
 	switch {
 	case c.UpstreamStage != nil || c.UpstreamRecords != nil:
-		v.Citation["upstream"] = upstreamName(c)
-		if in.Upstream != nil && c.UpstreamRecords != nil {
-			// The upstream records this verdict relied on: an auditor replays
-			// the stream up to this record and gets the same answer.
-			v.Citation["upstreamHead"], v.Citation["upstreamSeq"] = in.Upstream.Stream.Head, strconv.FormatInt(in.Upstream.Stream.Seq, 10)
-		}
-		switch {
-		case in.Upstream == nil && c.UpstreamRecords != nil:
-			v.Message = "the records of the upstream Stage " + v.Citation["upstream"] + " cannot be read or verified (" +
-				in.UpstreamErr + "), so it offers no candidate"
-		case in.Upstream == nil && in.UpstreamErr != "":
-			v.Message = in.UpstreamErr + ", so it offers no candidate"
-		case in.Upstream == nil:
-			v.Message = "the upstream Stage " + v.Citation["upstream"] + " does not exist or cannot be read, so it offers no candidate"
-		case slices.Contains(in.Upstream.Verified, to) && slices.Contains(in.Upstream.Offered, to):
-			v.Result, v.Message = Pass, short(to)+" passed pacto.published and verified on the upstream Stage"
-		case slices.Contains(in.Upstream.FailedDigests, to):
-			v.Message = short(to) + " failed after release on the upstream Stage " + v.Citation["upstream"] + ", so it is not a candidate here"
-		default:
-			v.Message = short(to) + " is not offered by the upstream Stage " + v.Citation["upstream"] +
-				": it never passed pacto.published there or never verified, so it is not a candidate here"
-		}
+		upstreamOffers(in, &v)
 	case c.OCIRepositoryRef != nil:
-		v.Citation["source"] = c.OCIRepositoryRef.Name
-		switch {
-		case !slices.Contains(in.Status.Published, to):
-			v.Message = "Flux never verified a signature of " + short(to) + " on the candidate OCIRepository " + c.OCIRepositoryRef.Name +
-				": only versions pacto publish published and signed are promoted, and the OCIRepository must set spec.verify " +
-				"with a secretRef or matchOIDCIdentity naming the publisher"
-		case in.To.NoContract:
-			v.Message = short(to) + " names no digest-pinned " + ContractAnnotation + " annotation, so pacto publish did not publish it"
-		case in.To.ContractRef == "":
-			v.Result, v.Message = Unknown, "the artifact "+short(to)+" could not be read: "+in.To.Err
-		default:
-			v.Result, v.Message = Pass, short(to)+" is signed and names its contract"
-			v.Citation["contract"] = in.To.ContractRef
-		}
+		candidatePublished(in, &v)
 	default:
 		v.Message = "this Stage names no candidate source, so nothing it could promote was verified as published by pacto publish"
 	}
 	return v
+}
+
+// upstreamOffers judges the published gate for a Stage that takes its
+// candidates from an upstream Stage, here or in another cluster.
+func upstreamOffers(in PlanInput, v *Verdict) {
+	to, c := in.Spec.Params.To, in.Stage.Candidates
+	v.Citation["upstream"] = upstreamName(c)
+	if in.Upstream != nil && c.UpstreamRecords != nil {
+		// The upstream records this verdict relied on: an auditor replays
+		// the stream up to this record and gets the same answer.
+		v.Citation["upstreamHead"], v.Citation["upstreamSeq"] = in.Upstream.Stream.Head, strconv.FormatInt(in.Upstream.Stream.Seq, 10)
+	}
+	switch {
+	case in.Upstream == nil && c.UpstreamRecords != nil:
+		v.Message = "the records of the upstream Stage " + v.Citation["upstream"] + " cannot be read or verified (" +
+			in.UpstreamErr + "), so it offers no candidate"
+	case in.Upstream == nil && in.UpstreamErr != "":
+		v.Message = in.UpstreamErr + ", so it offers no candidate"
+	case in.Upstream == nil:
+		v.Message = "the upstream Stage " + v.Citation["upstream"] + " does not exist or cannot be read, so it offers no candidate"
+	case slices.Contains(in.Upstream.Verified, to) && slices.Contains(in.Upstream.Offered, to):
+		v.Result, v.Message = Pass, short(to)+" passed pacto.published and verified on the upstream Stage"
+	case slices.Contains(in.Upstream.FailedDigests, to):
+		v.Message = short(to) + " failed after release on the upstream Stage " + v.Citation["upstream"] + ", so it is not a candidate here"
+	default:
+		v.Message = short(to) + " is not offered by the upstream Stage " + v.Citation["upstream"] +
+			": it never passed pacto.published there or never verified, so it is not a candidate here"
+	}
+}
+
+// candidatePublished judges the published gate for a Stage whose candidates
+// come from an OCIRepository Flux verifies.
+func candidatePublished(in PlanInput, v *Verdict) {
+	to, ref := in.Spec.Params.To, in.Stage.Candidates.OCIRepositoryRef
+	v.Citation["source"] = ref.Name
+	switch {
+	case !slices.Contains(in.Status.Published, to):
+		v.Message = "Flux never verified a signature of " + short(to) + " on the candidate OCIRepository " + ref.Name +
+			": only versions pacto publish published and signed are promoted, and the OCIRepository must set spec.verify " +
+			"with a secretRef or matchOIDCIdentity naming the publisher"
+	case in.To.NoContract:
+		v.Message = short(to) + " names no digest-pinned " + ContractAnnotation + " annotation, so pacto publish did not publish it"
+	case in.To.ContractRef == "":
+		v.Result, v.Message = Unknown, "the artifact "+short(to)+" could not be read: "+in.To.Err
+	default:
+		v.Result, v.Message = Pass, short(to)+" is signed and names its contract"
+		v.Citation["contract"] = in.To.ContractRef
+	}
 }
 
 func diffGate(ctx context.Context, in PlanInput) Verdict {

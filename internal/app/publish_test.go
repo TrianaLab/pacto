@@ -183,7 +183,30 @@ func TestPublishPreflights(t *testing.T) {
 	if got = failed(f, publishService(f, reg), dir, PublishOptions{}); !strings.Contains(got["clean checkout"], "could not tell") {
 		t.Fatalf("no git: %v", got)
 	}
-	f = &fakeRun{fail: preflights[0]}
+}
+
+// TestPublishPlanChecksTheBuilders: the plan says which build cannot run
+// here before anything is built or pushed.
+func TestPublishPlanChecksTheBuilders(t *testing.T) {
+	host, reg := publishRegistry(t)
+	failed := func(_ *fakeRun, svc *Service, dir string, opts PublishOptions) map[string]string {
+		t.Helper()
+		opts.Path, opts.Plan = dir, true
+		res, err := svc.Publish(context.Background(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := map[string]string{}
+		for _, c := range res.Plan.Checks {
+			if !c.Passed {
+				got[c.Name] = c.Message
+			}
+		}
+		return got
+	}
+	dir := writePublishBundle(t, host, "")
+	writeGit(t, dir, map[string]string{"HEAD": commitA + "\n"})
+	f := &fakeRun{fail: preflights[0]}
 	svc := publishService(f, reg)
 	svc.sys.lookPath = func(p string) (string, error) {
 		if p == filepath.Join(dir, "render.sh") {
@@ -191,7 +214,7 @@ func TestPublishPreflights(t *testing.T) {
 		}
 		return p, nil
 	}
-	got = failed(f, svc, dir, PublishOptions{})
+	got := failed(f, svc, dir, PublishOptions{})
 	if b := got["builders"]; !strings.Contains(b, "api is built from a Dockerfile, but docker buildx has no usable builder") ||
 		!strings.Contains(b, "the build of manifests runs ./render.sh, which is not an executable here") || strings.Contains(b, "worker") {
 		t.Fatalf("builders: %v", got)
@@ -202,14 +225,21 @@ func TestPublishPreflights(t *testing.T) {
 	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), &contract.Contract{}); err != nil {
 		t.Fatal(err)
 	}
-	// From the contract directory with no path (the default), a bare
-	// ./render.sh is found there, not searched for in $PATH.
+}
+
+// TestPublishPlanFromTheContractDirectory: from the contract directory with
+// no path (the default), a bare ./render.sh is found there, not searched for
+// in $PATH.
+func TestPublishPlanFromTheContractDirectory(t *testing.T) {
+	host, reg := publishRegistry(t)
+	dir := writePublishBundle(t, host, "")
+	writeGit(t, dir, map[string]string{"HEAD": commitA + "\n"})
 	for _, sh := range []string{"render.sh", "build-worker.sh"} {
 		_ = os.WriteFile(filepath.Join(dir, sh), []byte("#!/bin/sh\n"), 0o755)
 	}
 	t.Chdir(dir)
-	f = &fakeRun{}
-	svc = publishService(f, reg)
+	f := &fakeRun{}
+	svc := publishService(f, reg)
 	svc.sys.lookPath = exec.LookPath
 	res, err := svc.Publish(context.Background(), PublishOptions{Plan: true})
 	if err != nil {
@@ -220,8 +250,12 @@ func TestPublishPreflights(t *testing.T) {
 			t.Fatalf("builders from the contract directory: %s", c.Message)
 		}
 	}
-	// Keyless signing reads its OIDC token only when it signs, so the plan
-	// checks a token is there to read.
+}
+
+// TestPublishPlanChecksTheKeylessToken: keyless signing reads its OIDC token
+// only when it signs, so the plan checks a token is there to read.
+func TestPublishPlanChecksTheKeylessToken(t *testing.T) {
+	dir := t.TempDir()
 	t.Setenv("SIGSTORE_ID_TOKEN", "")
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
 	keyless := &contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Keyless: true}}}

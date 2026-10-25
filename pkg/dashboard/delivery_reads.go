@@ -203,17 +203,21 @@ func (s *Server) deliveryInbox(ctx context.Context, _ *struct{}) (*inboxOutput, 
 	for _, o := range ops {
 		it := inboxItem(o)
 		switch {
-		// Held waits on whoever the promoter would count. A question that
-		// names no team is also break-glass's: under requireOwnerTeam nobody
-		// else can resolve it.
-		case it.Phase == delivery.PhaseHeld && (answerRefusal(&o, caller, it.Decision) == "" ||
-			len(it.Owners) == 0 && caller.Class == delivery.ClassBreakGlass && caller.User != o.Spec.Actor.User):
+		case it.Phase == delivery.PhaseHeld && waitsOn(&o, it, caller):
 			out.Body.Held = append(out.Body.Held, withVersions(ctx, api, byStage[it.Namespace+"/"+it.Stage], it))
 		case it.Outcome == delivery.Errored && frozen[it.Namespace+"/"+it.Stage]:
 			out.Body.Errored = append(out.Body.Errored, it)
 		}
 	}
 	return out, nil
+}
+
+// waitsOn: held op it waits on caller, whose decision the promoter would
+// count. A question that names no team is also break-glass's: under
+// requireOwnerTeam nobody else can resolve it.
+func waitsOn(op *delivery.OperationObject, it InboxItem, caller delivery.Caller) bool {
+	return answerRefusal(op, caller, it.Decision) == "" ||
+		len(it.Owners) == 0 && caller.Class == delivery.ClassBreakGlass && caller.User != op.Spec.Actor.User
 }
 
 // stagesByName indexes Stages by namespace/name.
