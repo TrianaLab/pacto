@@ -52,27 +52,21 @@ type Cluster struct {
 	Registry func(insecureHosts ...string) delivery.Registry
 	// Upstream reads what a Stage in another cluster verified from its signed
 	// records (deliveryrecord.Upstream with the promoter's upstream trust
-	// config). Nil when the promoter trusts no upstream key: such a Stage is
-	// not Ready and offers nothing.
-	Upstream func(ctx context.Context, r delivery.RemoteStage) (*delivery.StageStatus, string)
+	// config), refusing a stream that no longer holds seen. Nil when the
+	// promoter trusts no upstream key: such a Stage is not Ready and offers
+	// nothing.
+	Upstream func(ctx context.Context, r delivery.RemoteStage, seen delivery.RecordMark) (*delivery.StageStatus, string)
 }
 
 // remote reads the upstream Stage in another cluster that stage follows, or
 // says why it cannot: no trusted key, records that cannot be read or verified,
-// a stream that is not whole, or one that ends before the newest record the
-// Stage already read (status.upstreamSeen).
+// a stream that is not whole, or one that no longer holds the newest record
+// the Stage already read (status.upstreamSeen).
 func (c Cluster) remote(ctx context.Context, stage *dv1.Stage) (*delivery.StageStatus, string) {
 	if c.Upstream == nil {
 		return nil, noUpstreamTrust
 	}
-	up, why := c.Upstream(ctx, *stage.Spec.Candidates.UpstreamRecords)
-	if up == nil {
-		return nil, why
-	}
-	if why := delivery.UpstreamTruncated(stage.Status.UpstreamSeen, up.Stream); why != "" {
-		return nil, why
-	}
-	return up, ""
+	return c.Upstream(ctx, *stage.Spec.Candidates.UpstreamRecords, stage.Status.UpstreamSeen)
 }
 
 const noUpstreamTrust = "the promoter trusts no key for the records of other clusters (promoter.upstreamTrust)"

@@ -272,16 +272,18 @@ func Unchecked(string, int64, []byte) error { return nil }
 // that stream). It is nil, with the reason, when the registry cannot be read
 // or the verified stream is not whole: a downstream Stage never promotes on
 // history it cannot check. A record that does not verify is skipped, so a
-// referrer anyone with push access attaches cannot blind the follower.
-func Upstream(ctx context.Context, repo *remote.Repository, stream string, verify delivery.Verifier) (*delivery.StageStatus, string) {
-	return (&Reader{Verify: verify}).Upstream(ctx, repo, stream)
+// referrer anyone with push access attaches cannot blind the follower. It is
+// nil too when the stream no longer holds seen, the newest record the
+// following Stage already read (delivery.UpstreamTruncated).
+func Upstream(ctx context.Context, repo *remote.Repository, stream string, verify delivery.Verifier, seen delivery.RecordMark) (*delivery.StageStatus, string) {
+	return (&Reader{Verify: verify}).Upstream(ctx, repo, stream, seen)
 }
 
 // Upstream is the package Upstream through r's cache.
-func (r *Reader) Upstream(ctx context.Context, repo *remote.Repository, stream string) (*delivery.StageStatus, string) {
+func (r *Reader) Upstream(ctx context.Context, repo *remote.Repository, stream string, seen delivery.RecordMark) (*delivery.StageStatus, string) {
 	l, err := r.ListStream(ctx, repo, stream)
 	if err != nil {
 		return nil, "reading the records: " + err.Error()
 	}
-	return delivery.UpstreamFromRecords(l.Records)
+	return delivery.UpstreamFromRecords(l.Records, seen)
 }

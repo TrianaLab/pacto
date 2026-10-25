@@ -235,15 +235,9 @@ func (d *Delivery) upstream(ctx context.Context, stage *delivery.StageObject) (*
 		}
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		s, why := deliveryrecord.Upstream(ctx, repo, r.Stream, d.verifier())
-		if s != nil {
-			// The promoter refuses a stream that ends before what the Stage
-			// already read, and so does the plan that predicts it.
-			if why = delivery.UpstreamTruncated(stage.Status.UpstreamSeen, s.Stream); why != "" {
-				s = nil
-			}
-		}
-		return s, why
+		// The promoter refuses a stream that no longer holds what the Stage
+		// already read, and so does the plan that predicts it.
+		return deliveryrecord.Upstream(ctx, repo, r.Stream, d.verifier(), stage.Status.UpstreamSeen)
 	}
 	up := stage.Spec.Candidates.UpstreamStage
 	if up == nil {
