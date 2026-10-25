@@ -334,6 +334,9 @@ func TestNeverACandidateUnlessPublished(t *testing.T) {
 	s.Status.Conditions = []delivery.Condition{{Type: "Ready", Status: "True", Reason: "Ready", Message: "the Stage can promote published versions"}}
 	s.Status.AuthFreshness = "15m0s"
 	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB))
+	a, _ := e.st.Cluster.applier(context.Background(), ns, e.getStage().Spec.ApplyRef)
+	med, _ := e.st.Cluster.mediated(context.Background(), ns, a)
+	e.setStage(func(s *delivery.StageStatus) { s.Conditions = append(s.Conditions, med) })
 	e.fails["status/Stage"] = true
 	if e.reconcileStage("payments-prod") == nil {
 		t.Fatal("a failed write of the published memory must surface")
@@ -431,8 +434,8 @@ func TestApplyRefUnlabelled(t *testing.T) {
 	if err := e.reconcileStage("payments-prod"); err != nil {
 		t.Fatal(err)
 	}
-	c := e.getStage().Status.Conditions
-	if len(c) != 1 || c[0].Status != statusFalse || c[0].Reason != "ApplyRefUnlabelled" || !strings.Contains(c[0].Message, ApplyRefLabel) {
+	c := conditionOf(e.getStage().Status.Conditions, "Ready")
+	if c.Status != statusFalse || c.Reason != "ApplyRefUnlabelled" || !strings.Contains(c.Message, ApplyRefLabel) {
 		t.Fatalf("want Ready=False ApplyRefUnlabelled, got %+v", c)
 	}
 	e.fails["get/OCIRepository/payments"] = true
@@ -452,7 +455,7 @@ func TestReadyObservesTheGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := e.getStage()
-	c := s.Status.Conditions[0]
+	c := *conditionOf(s.Status.Conditions, "Ready")
 	if s.Generation != 3 || s.Status.ObservedGeneration != 3 || c.ObservedGeneration != 3 || c.LastTransitionTime != ts(e.now) || c.Status != "True" ||
 		s.Status.AuthFreshness != "15m0s" {
 		t.Fatalf("status %d, condition %+v, generation %d", s.Status.ObservedGeneration, c, s.Generation)
@@ -470,7 +473,7 @@ func TestReadyObservesTheGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	s = e.getStage()
-	c = s.Status.Conditions[0]
+	c = *conditionOf(s.Status.Conditions, "Ready")
 	if s.Status.ObservedGeneration != 4 || c.ObservedGeneration != 4 || c.LastTransitionTime != created {
 		t.Fatalf("after the spec change: status %d, condition %+v", s.Status.ObservedGeneration, c)
 	}
@@ -486,7 +489,7 @@ func TestReadyObservesTheGeneration(t *testing.T) {
 	if err := e.reconcileStage("payments-prod"); err != nil {
 		t.Fatal(err)
 	}
-	if c = e.getStage().Status.Conditions[0]; c.Status != statusFalse || c.LastTransitionTime != ts(e.now) {
+	if c = *conditionOf(e.getStage().Status.Conditions, "Ready"); c.Status != statusFalse || c.LastTransitionTime != ts(e.now) {
 		t.Fatalf("a transition: %+v", c)
 	}
 }

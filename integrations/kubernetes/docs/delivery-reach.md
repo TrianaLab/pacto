@@ -24,7 +24,10 @@ The Application must:
   [Applications in any namespace](https://argo-cd.readthedocs.io/en/stable/operator-manual/app-any-namespace/).
   Add the namespace to `application.namespaces` and to the project's
   `sourceNamespaces`.
-- have one OCI source (`spec.source.repoURL: oci://…`), not `spec.sources`.
+- have one OCI source (`spec.source.repoURL: oci://…`), not `spec.sources`, and
+  set no Kustomize images, patches or components, Helm parameters, values or
+  value files, or plugin. Otherwise the Stage's `Mediated` condition is
+  `False`: something besides the digest decides what runs.
 - sync on its own (`syncPolicy.automated`), because the promoter never runs a sync.
 - carry the `delivery.pacto.trianalab.io/apply-ref` label. Without it the Stage
   has `Ready` `False` with the reason `ApplyRefUnlabelled`.
@@ -67,7 +70,8 @@ promote and starts the usual rollback.
 
 Argo CD does not check signatures, but the candidate source still does, and the
 promoter only ever writes a digest, so Argo CD fetches exactly the checked
-bytes. An Argo CD Stage places no consumers, so label the Pactos it runs with
+bytes. Admission keeps the rest of `spec.source`, `spec.sources` and the label
+to break-glass, so nobody else changes what those bytes become. An Argo CD Stage places no consumers, so label the Pactos it runs with
 `delivery.pacto.trianalab.io/environment`.
 
 ## Follow a Stage in another cluster

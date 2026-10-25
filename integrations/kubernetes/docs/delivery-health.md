@@ -56,6 +56,8 @@ gates:
     - {name: mira, type: mira, url: "http://mira.observability:4318"}
 ```
 
+## Mira
+
 A `mira` provider counts the service's spans in [Mira](https://github.com/trianalab/mira)
 by `service.name`, one span kind at a time: server spans by default, so one
 span per request served. Its params:
@@ -86,6 +88,8 @@ holding more is judged on its newest `soak` only, and the message says so; if
 even that holds more, the check is Unknown, so narrow it with `where`. The
 citation holds the exact queries with absolute time bounds, so posting them to
 Mira again reads the same spans.
+
+## HTTP and eval providers
 
 An `http` provider is the plug-in format for any other tool. The promoter
 posts `{"input": ..., "params": ...}`, where the input names the operation,

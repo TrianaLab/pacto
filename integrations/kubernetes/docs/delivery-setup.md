@@ -72,8 +72,8 @@ Upgrading the operator never touches these CRDs; see
 ## How a change moves
 
 A **Stage** names the Flux `OCIRepository` that applies it, and its
-`status.pointer` is the digest the environment runs. Only the promoter moves
-it, and the only field it writes on an object it does not own is that
+`status.pointer` is the digest it moved the environment to. Only the promoter
+moves it, and the only field it writes on an object it does not own is that
 repository's `spec.ref.digest`. Every change is an **Operation** whose spec
 never changes:
 
@@ -113,6 +113,30 @@ Only five built-in operation types exist: promote, rollback, override, freeze
 and unfreeze. A freeze stops automation on the version the Stage runs until a
 person unfreezes it; the promoter raises one when a check after release fails
 and it cannot roll back. Stage approval policy is `approval.always`, not an expression.
+
+## What the pointer guarantees
+
+Pacto mediates the pointer, and signed records name it. The pointer is all
+that decides what runs only when nothing else can change it, and the Stage's
+`Mediated` condition says whether that holds. It is `True` when exactly one
+Flux Kustomization applies the apply `OCIRepository`, carries the
+`delivery.pacto.trianalab.io/apply-ref` label and sets none of `images`,
+`patches`, `components`, `postBuild`, `namePrefix` or `nameSuffix`. On
+Argo CD it is `True` when the Application has one source and sets no
+Kustomize images, patches or components, Helm parameters, values or value
+files, or plugin. Otherwise it is `False` and the reason
+(`NoApplier`, `SeveralAppliers`, `ApplierUnguarded`, `ApplierOverrides`,
+`SeveralSources`) names what else decides what runs.
+
+On labelled objects, admission keeps the following to break-glass: removing
+the label, the `OCIRepository`'s `spec.url` and `spec.layerSelector`, the rest
+of an Application's `spec.source` and its `spec.sources`, and a Kustomization's
+`sourceRef`, `path`, `images`, `patches`, `components`, `postBuild`,
+`namePrefix`, `nameSuffix` and `targetNamespace`. A GitOps tool that applies
+those objects must leave these fields alone, or run in a break-glass group.
+`kubectl set image` on the workload itself is not mediated: Flux puts it back
+on its next reconcile, and Argo CD does with `selfHeal`; until then it runs
+beside the pointer.
 
 ## Set up a Stage
 

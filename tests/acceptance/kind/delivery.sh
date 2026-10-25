@@ -921,12 +921,32 @@ fi
 # The promoter's RBAC reaches every OCIRepository; admission holds it to the
 # pointer field of a labelled one.
 OUT="$(kubectl --as "system:serviceaccount:${DELIVERY_NS}:pacto-delivery" -n prod patch ocirepository payments --type merge \
-  -p '{"spec":{"url":"oci://elsewhere.example/payments"}}' 2>&1 || true)"
+  -p '{"spec":{"interval":"7m"}}' 2>&1 || true)"
 if grep -q "the promoter may change only spec.ref.digest" <<<"$OUT"; then
   pass "the promoter cannot change anything but the pointer"
 else
-  fail "the promoter changed an OCIRepository's url: $OUT"
+  fail "the promoter changed an OCIRepository's interval: $OUT"
 fi
+# Only the pointer decides what runs once the applier is labelled too: the
+# Stage says so, and nobody but break-glass changes what the Kustomization
+# applies, the OCIRepository's url or either label.
+mediated_is() {
+  [ "$(kubectl -n "$1" get stage "$2" -o jsonpath='{.status.conditions[?(@.type=="Mediated")].status}/{.status.conditions[?(@.type=="Mediated")].reason}')" = "$3" ]
+}
+eventually 20 mediated_is prod payments False/ApplierUnguarded \
+  || fail "an unlabelled Kustomization is not reported: $(kubectl -n prod get stage payments -o jsonpath='{.status.conditions}')"
+kubectl -n prod label kustomization payments delivery.pacto.trianalab.io/apply-ref=payments >/dev/null
+eventually 20 mediated_is prod payments True/PointerOnly \
+  || fail "a labelled Kustomization is not reported as mediated: $(kubectl -n prod get stage payments -o jsonpath='{.status.conditions}')"
+OUT="$(kubectl -n prod patch kustomization payments --type merge -p '{"spec":{"images":[{"name":"payments","newTag":"evil"}]}}' 2>&1 || true)"
+grep -q "only break-glass changes them" <<<"$OUT" || fail "a labelled Kustomization's images were changed: $OUT"
+OUT="$(kubectl -n prod patch ocirepository payments --type merge -p '{"spec":{"url":"oci://elsewhere.example/payments"}}' 2>&1 || true)"
+grep -q "spec.url and spec.layerSelector decide" <<<"$OUT" || fail "a labelled OCIRepository's url was changed: $OUT"
+OUT="$(kubectl -n prod label ocirepository payments delivery.pacto.trianalab.io/apply-ref- 2>&1 || true)"
+grep -q "only break-glass removes it" <<<"$OUT" || fail "the apply-ref label was removed without break-glass: $OUT"
+OUT="$(kubectl -n prod label kustomization payments delivery.pacto.trianalab.io/apply-ref- 2>&1 || true)"
+grep -q "only break-glass removes it" <<<"$OUT" || fail "a Kustomization's apply-ref label was removed without break-glass: $OUT"
+pass "the prod Stage is Mediated, and only break-glass changes its applier, url or labels"
 # The recorder's RBAC reaches every Stage status; admission allows it its
 # record fields and RecordStoreReady condition alone.
 OUT="$(kubectl --as "system:serviceaccount:${DELIVERY_NS}:pacto-delivery-recorder" -n prod patch stage payments --subresource=status --type merge \
@@ -1551,7 +1571,8 @@ ready_is() {
 eventually 20 ready_is "$P" billing True/Ready || fail "the publishing Stage is not Ready: $(kubectl -n "$P" get stage billing -o jsonpath='{.status.conditions}')"
 # Without the apply-ref label admission guards nothing and the promoter may not
 # write the pointer, so the Stage says so instead of promoting into a refusal.
-kubectl -n "$P" label ocirepository billing delivery.pacto.trianalab.io/apply-ref- >/dev/null
+# Only break-glass may remove the label (admission), so it is the one to.
+KUBECONFIG="$(person_kubeconfig ops pacto:break-glass)" kubectl -n "$P" label ocirepository billing delivery.pacto.trianalab.io/apply-ref- >/dev/null
 eventually 20 ready_is "$P" billing False/ApplyRefUnlabelled \
   || fail "an unlabelled apply OCIRepository is not reported: $(kubectl -n "$P" get stage billing -o jsonpath='{.status.conditions}')"
 kubectl -n "$P" label ocirepository billing delivery.pacto.trianalab.io/apply-ref=billing >/dev/null

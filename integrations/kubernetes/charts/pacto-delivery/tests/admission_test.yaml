@@ -5,13 +5,13 @@ release:
   name: d
   namespace: pacto-delivery
 tests:
-  - it: installs five policies, each bound with Deny
+  - it: installs six policies, each bound with Deny
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     asserts:
       - hasDocuments:
-          count: 10
+          count: 12
       - equal:
           path: spec.validationActions
           value: [Deny]
@@ -118,7 +118,7 @@ tests:
       argocd.enabled: true
     asserts:
       - hasDocuments:
-          count: 14
+          count: 16
       - equal:
           path: spec.matchConstraints.resourceRules[0].resources
           value: [applications]
@@ -131,6 +131,56 @@ tests:
           path: spec.validations[0].expression
           pattern: "request\\.userInfo\\.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
         documentIndex: 8
+
+  - it: keeps the label, the url and the layer selector of a labelled OCIRepository to break-glass
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    documentIndex: 6
+    asserts:
+      - equal:
+          path: spec.validations[1].expression
+          value: "variables.breakGlass || has(object.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in object.metadata.labels"
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "object\\.spec\\.url.*object\\.spec\\.layerSelector"
+
+  - it: keeps the rest of an Argo CD Application's source and its label to break-glass
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      argocd.enabled: true
+    documentIndex: 8
+    asserts:
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "'delivery\\.pacto\\.trianalab\\.io/apply-ref' in object\\.metadata\\.labels"
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "k == 'targetRevision' \\|\\| \\(k in variables\\.oldSource.*object\\.spec\\.sources"
+
+  - it: keeps what a labelled Kustomization applies, and its label, to break-glass
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    documentIndex: 8
+    asserts:
+      - equal:
+          path: metadata.name
+          value: d-pacto-delivery-applier
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources
+          value: [kustomizations]
+      - equal:
+          path: spec.matchConstraints.objectSelector.matchExpressions[0].key
+          value: delivery.pacto.trianalab.io/apply-ref
+      - equal:
+          path: spec.variables[1].expression
+          value: "['sourceRef', 'path', 'images', 'patches', 'components', 'postBuild', 'namePrefix', 'nameSuffix', 'targetNamespace']"
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "variables\\.guarded\\.all\\(f,"
 
   - it: renders nothing when disabled on purpose
     set:
@@ -162,19 +212,19 @@ tests:
       - equal:
           path: spec.matchConditions[0].expression
           value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
-        documentIndex: 10
+        documentIndex: 12
       - matchRegex:
           path: spec.validations[1].expression
           pattern: "k == 'digest'"
-        documentIndex: 10
+        documentIndex: 12
       - equal:
           path: spec.matchConstraints.resourceRules[0].resources
           value: [applications]
-        documentIndex: 12
+        documentIndex: 14
       - matchRegex:
           path: spec.validations[1].expression
           pattern: "k == 'targetRevision'"
-        documentIndex: 12
+        documentIndex: 14
 
   - it: keeps the record fields to the recorder, and the recorder away from what runs
     capabilities:
@@ -184,32 +234,32 @@ tests:
       recorder.enabled: true
     asserts:
       - hasDocuments:
-          count: 12
+          count: 14
       - equal:
           path: spec.variables[0].expression
           value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery-recorder'"
-        documentIndex: 8
+        documentIndex: 10
       - matchRegex:
           path: spec.validations[0].expression
           pattern: "has\\(object.status.stream.head\\) \\? object.status.stream.head : ''\\) == \\(has\\(oldObject.status\\)"
-        documentIndex: 8
+        documentIndex: 10
       - matchRegex:
           path: spec.validations[1].expression
           pattern: "^!variables.recorder \\|\\|"
-        documentIndex: 8
+        documentIndex: 10
       - matchRegex:
           path: spec.validations[1].expression
           pattern: "variables\\.status\\.all\\(k, k in \\['record', 'stream', 'conditions'\\] \\|\\|"
-        documentIndex: 8
+        documentIndex: 10
       - matchRegex:
           path: spec.validations[1].expression
           pattern: "variables\\.stream\\.all\\(k, k in \\['recordedSeq', 'head', 'anchor'\\] \\|\\|"
-        documentIndex: 8
+        documentIndex: 10
       - matchRegex:
           path: spec.validations[1].expression
           pattern: "variables\\.conditions == variables\\.oldConditions\\)$"
-        documentIndex: 8
+        documentIndex: 10
       - matchRegex:
           path: spec.variables[5].expression
           pattern: "filter\\(c, c\\.type != 'RecordStoreReady'\\)"
-        documentIndex: 8
+        documentIndex: 10

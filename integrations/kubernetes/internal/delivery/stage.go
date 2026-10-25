@@ -270,13 +270,19 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 	case c.UpstreamStage == nil && c.UpstreamRecords == nil:
 		want = notReady("NoCandidateSource", "the Stage names no candidates.ociRepositoryRef, candidates.upstreamStage or candidates.upstreamRecords, so it never promotes")
 	}
-	if want.Status == statusTrue {
-		a, err := r.Cluster.applier(ctx, stage.Namespace, stage.Spec.ApplyRef)
-		switch {
-		case apierrors.IsNotFound(err):
-		case err != nil:
+	conds := []delivery.Condition{}
+	a, err := r.Cluster.applier(ctx, stage.Namespace, stage.Spec.ApplyRef)
+	switch {
+	case apierrors.IsNotFound(err):
+	case err != nil:
+		return nil, err
+	default:
+		med, err := r.Cluster.mediated(ctx, stage.Namespace, a)
+		if err != nil {
 			return nil, err
-		case !labelled(a.obj):
+		}
+		conds = append(conds, med)
+		if want.Status == statusTrue && !labelled(a.obj) {
 			want = notReady("ApplyRefUnlabelled", "the apply object "+a.obj.GetName()+" has no "+ApplyRefLabel+
 				" label, so admission does not guard its pointer and the promoter may not write it")
 		}
@@ -290,14 +296,22 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 			want = notReady(ReasonUnguarded, why+", so the promoter admits no operation and counts no approval")
 		}
 	}
-	want.ObservedGeneration = stage.Generation
+	conds = append(conds, want)
+	changed, cur := false, stage.Status.Conditions
+	for i := range conds {
+		conds[i].ObservedGeneration = stage.Generation
+		var c bool
+		cur, c = delivery.SetCondition(cur, conds[i], r.Now())
+		changed = changed || c
+	}
 	fresh := cmp.Or(r.Freshness, delivery.AuthFreshness).String()
-	if _, changed := delivery.SetCondition(stage.Status.Conditions, want, r.Now()); !changed &&
-		stage.Status.ObservedGeneration == stage.Generation && stage.Status.AuthFreshness == fresh {
+	if !changed && stage.Status.ObservedGeneration == stage.Generation && stage.Status.AuthFreshness == fresh {
 		return cand, nil
 	}
 	set := func(s *dv1.Stage) {
-		s.Status.Conditions, _ = delivery.SetCondition(s.Status.Conditions, want, r.Now())
+		for _, c := range conds {
+			s.Status.Conditions, _ = delivery.SetCondition(s.Status.Conditions, c, r.Now())
+		}
 		s.Status.ObservedGeneration, s.Status.AuthFreshness = stage.Generation, fresh
 	}
 	if err := r.updateStatus(ctx, stage, set); err != nil {
