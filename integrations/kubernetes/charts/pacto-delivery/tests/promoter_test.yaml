@@ -15,6 +15,7 @@ tests:
             - promoter
             - --leader-elect=true
             - --poll=3s
+            - --workers=4
             - --auth-freshness=15m
             - --controller-user=system:serviceaccount:pacto-delivery:d-pacto-delivery
             - --agent-groups=pacto:agents

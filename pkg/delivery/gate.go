@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -102,14 +103,17 @@ func NewGates(configs []ProviderConfig, client *http.Client) (map[string]Gate, e
 	return gates, nil
 }
 
-// RunChecks runs a Stage's verify checks. Every verdict cites its provider,
-// the exact input and the params, so it can be run again. A Pass that cites
-// nothing is Unknown: a verdict counts only if it can be re-run.
+// RunChecks runs a Stage's verify checks at once, so they take as long as
+// the slowest one, not their sum. Every verdict cites its provider, the exact
+// input and the params, so it can be run again. A Pass that cites nothing is
+// Unknown: a verdict counts only if it can be re-run.
 func RunChecks(ctx context.Context, gates map[string]Gate, checks []GateCheck, in GateInput) []Verdict {
-	out := make([]Verdict, 0, len(checks))
-	for _, c := range checks {
-		out = append(out, runCheck(ctx, gates, c, in))
+	out := make([]Verdict, len(checks))
+	var wg sync.WaitGroup
+	for i, c := range checks {
+		wg.Go(func() { out[i] = runCheck(ctx, gates, c, in) })
 	}
+	wg.Wait()
 	return out
 }
 

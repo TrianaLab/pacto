@@ -27,6 +27,8 @@ serviceAccount:
 promoter:
   # -- How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration)
   poll: 3s
+  # -- How many operations and Stages the promoter reconciles at once, so one slow health provider does not hold up the rest
+  workers: 4
   # -- How old a person's login may be when their approval is given; an older one is ignored (a Go duration)
   authFreshness: 15m
   # -- Elect one active promoter

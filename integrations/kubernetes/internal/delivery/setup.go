@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -27,6 +28,7 @@ import (
 func (r *OperationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.heldChecks = &sync.Map{}
 	return ctrl.NewControllerManagedBy(mgr).Named("delivery-operation").For(&dv1.Operation{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: r.Workers}).
 		Watches(&dv1.Approval{}, handler.EnqueueRequestsFromMapFunc(approvalToOperation)).
 		Complete(r)
 }
@@ -34,6 +36,7 @@ func (r *OperationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 // SetupWithManager registers the stage reconciler. An Operation wakes its Stage.
 func (r *StageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).Named("delivery-stage").For(&dv1.Stage{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: r.Workers}).
 		Watches(&dv1.Operation{}, handler.EnqueueRequestsFromMapFunc(operationToStage)).
 		Complete(r)
 }

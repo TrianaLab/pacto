@@ -49,6 +49,7 @@ spec:
             - promoter
             - --leader-elect={{ .Values.promoter.leaderElect }}
             - --poll={{ .Values.promoter.poll }}
+            - --workers={{ .Values.promoter.workers }}
             - --auth-freshness={{ .Values.promoter.authFreshness }}
             - --controller-user={{ include "pacto-delivery.controllerUser" . }}
             - --agent-groups={{ join "," .Values.identities.agentGroups }}

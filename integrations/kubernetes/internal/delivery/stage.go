@@ -35,6 +35,9 @@ type StageReconciler struct {
 	APIReader client.Reader
 	Cluster   Cluster
 	Policy    delivery.ClassPolicy
+	// Workers is how many reconciles run at once (0 is one), so one slow
+	// health provider does not hold up every other Stage.
+	Workers int
 	// ClusterID is the kube-system namespace uid, the cluster half of a stream id.
 	ClusterID string
 	// Gates are the gates a Stage may name (NewGates).

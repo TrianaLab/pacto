@@ -54,6 +54,9 @@ type OperationReconciler struct {
 	APIReader client.Reader
 	Cluster   Cluster
 	Policy    delivery.ClassPolicy
+	// Workers is how many reconciles run at once (0 is one), so one slow
+	// health provider does not hold up every other Stage.
+	Workers int
 	// Gates are the gates a Stage may name (NewGates).
 	Gates map[string]delivery.Gate
 	Now   func() time.Time

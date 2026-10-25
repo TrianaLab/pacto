@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -67,6 +68,29 @@ func TestParseProviders(t *testing.T) {
 	}
 	if _, err := ParseProviders(`{`); err == nil {
 		t.Fatal("bad JSON accepted")
+	}
+}
+
+// TestRunChecksRunsAtOnce: every check waits until the other started, so run
+// one after another they would time out; at once they both pass.
+func TestRunChecksRunsAtOnce(t *testing.T) {
+	var started sync.WaitGroup
+	started.Add(2)
+	both := gateFunc(func(ctx context.Context, in GateInput, _ map[string]string) Verdict {
+		started.Done()
+		done := make(chan struct{})
+		go func() { started.Wait(); close(done) }()
+		select {
+		case <-done:
+			return Verdict{Result: Pass, Citation: map[string]string{"query": in.Service.Name}}
+		case <-time.After(5 * time.Second):
+			return Verdict{Result: Unknown, Message: "ran alone"}
+		}
+	})
+	vs := RunChecks(context.Background(), map[string]Gate{"g": both},
+		[]GateCheck{{Name: "a", Provider: "g"}, {Name: "b", Provider: "g"}}, gateIn())
+	if len(vs) != 2 || vs[0].Gate != "a" || vs[1].Gate != "b" || vs[0].Result != Pass || vs[1].Result != Pass {
+		t.Fatalf("want both checks to pass, in order: %+v", vs)
 	}
 }
 
