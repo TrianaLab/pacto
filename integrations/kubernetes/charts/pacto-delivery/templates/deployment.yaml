@@ -32,6 +32,9 @@ spec:
       labels:
         app.kubernetes.io/component: promoter
         {{- include "pacto-delivery.labels" . | nindent 8 }}
+      annotations:
+        # The promoter reads its identity policy once: a change restarts it.
+        checksum/identities: {{ include "pacto-delivery.identitiesJSON" . | sha256sum }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
@@ -52,17 +55,13 @@ spec:
             - --workers={{ .Values.promoter.workers }}
             - --auth-freshness={{ .Values.promoter.authFreshness }}
             - --controller-user={{ include "pacto-delivery.controllerUser" . }}
-            - --agent-groups={{ join "," .Values.identities.agentGroups }}
-            - --break-glass-groups={{ join "," .Values.identities.breakGlassGroups }}
+            - --identities=/etc/pacto/identities/policy.json
             {{- if .Values.admissionPolicies.enabled }}
             {{- $fullname := include "pacto-delivery.fullname" . }}
             {{- $policies := list "operation" "cancel" "approval" "pointer" "applier" "promoter-writes" }}
             {{- if .Values.argocd.enabled }}{{ $policies = concat $policies (list "pointer-argocd" "promoter-writes-argocd") }}{{ end }}
             {{- if .Values.recorder.enabled }}{{ $policies = append $policies "records" }}{{ end }}
             - --admission-policies={{ range $i, $p := $policies }}{{ if $i }},{{ end }}{{ $fullname }}-{{ $p }}{{ end }}
-            {{- end }}
-            {{- with .Values.identities.teamGroupPrefix }}
-            - {{ printf "--team-group-prefix=%s" . | quote }}
             {{- end }}
             {{- if .Values.recorder.enabled }}
             - --records
@@ -111,7 +110,6 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- $creds := .Values.promoter.registryCredentials.secretName }}
-          {{- if or .Values.promoter.upstreamTrust $creds }}
           volumeMounts:
             {{- if .Values.promoter.upstreamTrust }}
             - name: upstream-trust
@@ -123,6 +121,9 @@ spec:
               mountPath: /etc/pacto/registry
               readOnly: true
             {{- end }}
+            - name: identities
+              mountPath: /etc/pacto/identities
+              readOnly: true
       volumes:
         {{- if .Values.promoter.upstreamTrust }}
         - name: upstream-trust
@@ -137,7 +138,9 @@ spec:
               - key: .dockerconfigjson
                 path: config.json
         {{- end }}
-          {{- end }}
+        - name: identities
+          configMap:
+            name: pacto-delivery-identities
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

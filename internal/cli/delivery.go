@@ -15,9 +15,11 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"k8s.io/client-go/dynamic"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
@@ -76,8 +78,7 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 			"There is no approve tool for agents. `approve` is for people, with a fresh login.",
 	}
 	cmd.PersistentFlags().StringP("namespace", "n", "default", "namespace of the Stage and its Operations")
-	cmd.PersistentFlags().StringSlice("agent-groups", []string{"pacto:agents"}, "groups whose members are agents")
-	cmd.PersistentFlags().StringSlice("break-glass-groups", []string{"pacto:break-glass"}, "groups that may override")
+	cmd.PersistentFlags().String("delivery-namespace", delivery.PolicyNamespace, "namespace of the pacto-delivery chart, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.PersistentFlags().String("trust", "", "the trust config delivery records are verified with: the recorder's PEM public key, "+
 		"or a YAML file of keys and the streams each may sign (default $"+trustEnv+")")
 	cmd.AddCommand(
@@ -87,7 +88,7 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 		newDeliveryProposeCommand(v, d),
 		newDeliveryGetCommand(v, d),
 		newDeliveryCancelCommand(d),
-		newDeliveryApproveCommand(d),
+		newDeliveryApproveCommand(v, d),
 		newDeliveryExplainCommand(v, d),
 		newDeliveryHistoryCommand(v, d),
 		newDeliveryBlameCommand(v, d),
@@ -103,9 +104,13 @@ func deliveryClient(cmd *cobra.Command, d deps) (*app.Delivery, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+	return deliveryClientFor(cmd, d, dyn)
+}
+
+// deliveryClientFor builds the delivery client over dyn.
+func deliveryClientFor(cmd *cobra.Command, d deps, dyn dynamic.Interface) (*app.Delivery, string, error) {
 	ns, _ := cmd.Flags().GetString("namespace")
-	agents, _ := cmd.Flags().GetStringSlice("agent-groups")
-	breakGlass, _ := cmd.Flags().GetStringSlice("break-glass-groups")
+	policyNS, _ := cmd.Flags().GetString("delivery-namespace")
 	path, _ := cmd.Flags().GetString("trust")
 	if path == "" {
 		path, _ = cmd.Flags().GetString("delivery-trust")
@@ -115,7 +120,7 @@ func deliveryClient(cmd *cobra.Command, d deps) (*app.Delivery, string, error) {
 		return nil, "", err
 	}
 	return &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry, Records: d.newRecordRepo, Trust: trust,
-		Policy: delivery.ClassPolicy{AgentGroups: agents, BreakGlassGroups: breakGlass}, Now: time.Now}, ns, nil
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now}, ns, nil
 }
 
 func newDeliveryTypesCommand(v *viper.Viper) *cobra.Command {
@@ -373,17 +378,48 @@ func newDeliveryCancelCommand(d deps) *cobra.Command {
 
 var deliveryDecisions = []string{string(delivery.Approve), string(delivery.Reject), string(delivery.AcceptUnknown)}
 
-func newDeliveryApproveCommand(d deps) *cobra.Command {
+// newDeliveryApproveCommand records a person's decision. It never uses the
+// kubeconfig's credentials, which any process in the person's shell (an agent
+// included) can reuse: it logs the person in again in their browser and sends
+// the Approval with that login's token, then drops it.
+func newDeliveryApproveCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "approve <operation>",
 		Short: "Record your decision on a held operation (people only, with a fresh login)",
-		Args:  cobra.ExactArgs(1),
+		Long: "Record your decision on a held operation. The command makes you log in again in your browser " +
+			"(prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's " +
+			"token, never your kubeconfig's: an agent running in your shell cannot approve as you without you " +
+			"typing your password at that moment. The token is not stored.",
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			decision, _ := cmd.Flags().GetString("decision")
 			if !slices.Contains(deliveryDecisions, decision) {
 				return fmt.Errorf("--decision must be one of %s", strings.Join(deliveryDecisions, ", "))
 			}
-			c, ns, err := deliveryClient(cmd, d)
+			issuer := v.GetString("delivery.oidc-issuer-url")
+			if issuer == "" {
+				return errors.New("approving needs a fresh login of your own: set --oidc-issuer-url (or " +
+					"PACTO_DELIVERY_OIDC_ISSUER_URL) to the identity provider the cluster trusts")
+			}
+			cluster, err := d.clusterConfig()
+			if err != nil {
+				return err
+			}
+			ns, _ := cmd.Flags().GetString("namespace")
+			token, err := d.freshLogin(cmd.Context(), authn.FreshConfig{IssuerURL: issuer,
+				ClientID: v.GetString("delivery.oidc-client-id"), ClientSecret: v.GetString("delivery.oidc-client-secret"),
+				ExtraScopes: v.GetStringSlice("delivery.oidc-extra-scopes"), Port: v.GetInt("delivery.oidc-redirect-port"),
+				Prompt: func(u string) {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "To record %s on %s/%s, log in again in your browser:\n\n  %s\n\n", decision, ns, args[0], u)
+				}})
+			if err != nil {
+				return err
+			}
+			dyn, err := d.dynamicFor(authn.RESTConfig(cluster, token))
+			if err != nil {
+				return err
+			}
+			c, ns, err := deliveryClientFor(cmd, d, dyn)
 			if err != nil {
 				return err
 			}
@@ -398,6 +434,16 @@ func newDeliveryApproveCommand(d deps) *cobra.Command {
 	}
 	cmd.Flags().String("decision", string(delivery.Approve), "approve, reject or accept-unknown")
 	cmd.Flags().String("note", "", "why, for the record")
+	cmd.Flags().String("oidc-issuer-url", "", "OpenID Connect issuer the cluster trusts, to log in again with (also PACTO_DELIVERY_OIDC_ISSUER_URL)")
+	cmd.Flags().String("oidc-client-id", "pacto-approve", "OpenID Connect client used only for approvals, never by a kubeconfig "+
+		"(a confidential client's secret comes from PACTO_DELIVERY_OIDC_CLIENT_SECRET)")
+	cmd.Flags().StringSlice("oidc-extra-scopes", nil, "scopes to ask for beyond openid, profile and groups")
+	cmd.Flags().Int("oidc-redirect-port", 0, "loopback port the identity provider sends the browser back to (default: a free port)")
+	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-extra-scopes", "oidc-redirect-port"} {
+		_ = v.BindPFlag("delivery."+f, cmd.Flags().Lookup(f))
+	}
+	// A secret never goes on a command line, where any process can read it.
+	_ = v.BindEnv("delivery.oidc-client-secret", "PACTO_DELIVERY_OIDC_CLIENT_SECRET")
 	_ = cmd.RegisterFlagCompletionFunc("decision", staticCompletions(deliveryDecisions...))
 	return cmd
 }

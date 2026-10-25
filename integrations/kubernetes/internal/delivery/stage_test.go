@@ -10,6 +10,8 @@ package delivery
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -582,5 +584,24 @@ func TestStageReadyApplier(t *testing.T) {
 	e.fails["get/OCIRepository/payments"] = true
 	if _, _, err := e.st.ready(context.Background(), e.getStage()); err == nil {
 		t.Fatal("a failed read of the applier must surface")
+	}
+}
+
+func TestLoadClassPolicy(t *testing.T) {
+	p, err := LoadClassPolicy("", "me")
+	if err != nil || p.ControllerUser != "me" || !p.RequireOwnerTeam || p.AgentGroups[0] != "pacto:agents" {
+		t.Fatalf("defaults: %+v %v", p, err)
+	}
+	dir := t.TempDir()
+	good, bad := filepath.Join(dir, "good.json"), filepath.Join(dir, "bad.json")
+	_ = os.WriteFile(good, []byte(`{"agentGroups":["bots"],"teamGroupPrefix":"acme:","requireOwnerTeam":false}`), 0o600)
+	_ = os.WriteFile(bad, []byte("{"), 0o600)
+	if p, err = LoadClassPolicy(good, "me"); err != nil || p.ControllerUser != "me" || p.RequireOwnerTeam || p.TeamGroupPrefix != "acme:" || p.AgentGroups[0] != "bots" {
+		t.Fatalf("published: %+v %v", p, err)
+	}
+	for _, path := range []string{bad, filepath.Join(dir, "missing")} {
+		if _, err := LoadClassPolicy(path, "me"); err == nil {
+			t.Fatalf("%s must be an error", path)
+		}
 	}
 }

@@ -52,6 +52,8 @@ type deps struct {
 	// dynamicFor builds a client from a caller's own config; newMCPAuth reads the remote MCP issuer.
 	dynamicFor func(*rest.Config) (dynamic.Interface, error)
 	newMCPAuth func(authn.MCPConfig) (mcpAuth, error)
+	// freshLogin makes the person log in again for `pacto delivery approve`.
+	freshLogin func(context.Context, authn.FreshConfig) (string, error)
 	// newDeliveryRegistry is the read-only registry `pacto delivery` resolves artifacts through.
 	newDeliveryRegistry func(insecureHosts ...string) app.DeliveryRegistry
 	// newRecordRepo opens a repository delivery records are read from.
@@ -90,6 +92,7 @@ func defaultDeps() deps {
 		served:              k8sclient.Served,
 		dynamicFor:          newDynamicForConfig,
 		newMCPAuth:          newMCPAuth,
+		freshLogin:          authn.FreshIDToken,
 		newDeliveryRegistry: newDeliveryRegistry,
 		newRecordRepo:       newRecordRepo,
 		runAgent:            runtimewatch.Run,

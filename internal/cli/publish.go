@@ -104,7 +104,7 @@ func proposePublished(cmd *cobra.Command, d deps, ns, stage string, res *publish
 		return err
 	}
 	c := &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry, Now: time.Now,
-		Policy: delivery.ClassPolicy{AgentGroups: []string{"pacto:agents"}, BreakGlassGroups: []string{"pacto:break-glass"}}}
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: delivery.PolicyNamespace}
 	_, digest, _ := strings.Cut(res.Deploy, "@")
 	if err := waitPublished(cmd, c, ns, stage, digest, timeout); err != nil {
 		return fmt.Errorf("published, but not proposed on %s/%s: %w", ns, stage, err)

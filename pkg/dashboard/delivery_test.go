@@ -28,6 +28,8 @@ const (
 
 // fakeDelivery is a cluster as one caller sees it.
 type fakeDelivery struct {
+	// policy is the published policy; nil is the acme one most tests use.
+	policy    *delivery.ClassPolicy
 	caller    delivery.Caller
 	callerErr error
 	stages    []delivery.StageObject
@@ -77,7 +79,15 @@ func (f *fakeDelivery) PublishRefusals(context.Context, string) (*PublishRefusal
 	return f.refusals, f.refusalsErr
 }
 
-func (f *fakeDelivery) WhoAmI(context.Context) (delivery.Caller, error) { return f.caller, f.callerErr }
+// WhoAmI answers with the published policy the apiserver-backed client reads.
+func (f *fakeDelivery) WhoAmI(context.Context) (delivery.Caller, error) {
+	c := f.caller
+	c.Policy = delivery.ClassPolicy{AgentGroups: []string{"pacto:agents"}, TeamGroupPrefix: "acme:"}
+	if f.policy != nil {
+		c.Policy = *f.policy
+	}
+	return c, f.callerErr
+}
 
 func (f *fakeDelivery) refuse(ns string) error {
 	if ns == "" && f.forbidAll || f.forbid[ns] {
@@ -187,7 +197,7 @@ func TestVersionsLogWhyTheyAreUnknown(t *testing.T) {
 	if v := versions(ctx, f, &st, nil, dRun, "sha256:unreadable", dNext); len(v) != 1 || v[dRun] != "1.0.0" {
 		t.Fatalf("versions = %v", v)
 	}
-	if got := buf.String(); !strings.Contains(got, "digest=sha256:unreadable") || !strings.Contains(got, `err="registry down"`) ||
+	if got := buf.String(); !strings.Contains(got, "digest=sha256:unreadable") || !strings.Contains(got, `error="registry down"`) ||
 		strings.Contains(got, dNext) || strings.Contains(got, dRun) {
 		t.Fatalf("log = %q", got)
 	}
@@ -196,7 +206,7 @@ func TestVersionsLogWhyTheyAreUnknown(t *testing.T) {
 		t.Fatalf("versions = %v, log = %q", v, buf.String())
 	}
 	f.stageErr = errors.New("forbidden")
-	if v := stageVersions(ctx, f, "prod", "payments", dRun); v != nil || !strings.Contains(buf.String(), "stage=payments err=forbidden") {
+	if v := stageVersions(ctx, f, "prod", "payments", dRun); v != nil || !strings.Contains(buf.String(), "stage=payments error=forbidden") {
 		t.Fatalf("versions = %v, log = %q", v, buf.String())
 	}
 }
@@ -250,7 +260,6 @@ func (a *authed) auth(local, login bool) *Auth {
 func startDelivery(t *testing.T, f *fakeDelivery, auth *Auth, installed bool, factoryErr error) string {
 	t.Helper()
 	return startServer(t, NewServer(Options{UI: testUI(), Fleet: ownedFleet(t), Auth: auth, MiraURL: "http://mira",
-		DeliveryPolicy:    delivery.ClassPolicy{AgentGroups: []string{"pacto:agents"}, TeamGroupPrefix: "acme:"},
 		DeliveryInstalled: func(context.Context) (bool, error) { return installed, nil },
 		Delivery: func(r *http.Request) (DeliveryAPI, error) {
 			if r == nil {
@@ -304,6 +313,11 @@ func TestCapabilitiesAndSessionSignedIn(t *testing.T) {
 	caller, _ := sess["caller"].(map[string]any)
 	expect(t, sess["mode"] == "shared" && sess["fresh"] == true, "session %v", sess)
 	expect(t, sess["csrf"] == "c" && caller["user"] == "https://idp#carol", "session %v", sess)
+	expect(t, sess["requireOwnerTeam"] == nil, "an ownerless question is anyone's without the rule: %v", sess)
+	f.policy = &delivery.ClassPolicy{RequireOwnerTeam: true}
+	_, sess = call(t, http.MethodGet, base+"/api/session", nil)
+	expect(t, sess["requireOwnerTeam"] == true, "the session says when an ownerless question is nobody's: %v", sess)
+	f.policy = nil
 	code, _ := call(t, http.MethodGet, base+"/auth/login", nil)
 	expect(t, code == http.StatusTeapot, "/auth/* goes to the identity layer: %d", code)
 	f.callerErr = errors.New("apiserver down")
@@ -445,6 +459,17 @@ func TestInbox(t *testing.T) {
 	f.caller = delivery.Caller{Identity: delivery.Identity{User: "bot", Groups: []string{"acme:team-checkout", "pacto:agents"}}, Class: delivery.ClassAgent}
 	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
 	expect(t, len(inbox["held"].([]any)) == 0, "an agent is asked nothing: %v", inbox["held"])
+	// Under requireOwnerTeam an ownerless question is nobody's but
+	// break-glass's, so it is in front of break-glass only.
+	f.ops[0].Spec.Actor.User = "someone-else"
+	f.policy = &delivery.ClassPolicy{TeamGroupPrefix: "acme:", BreakGlassGroups: []string{"pacto:break-glass"}, RequireOwnerTeam: true}
+	f.caller = person("acme:team-checkout")
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	expect(t, names(inbox["held"]) == "for-checkout:approve", "a person cannot answer an ownerless question: %v", inbox["held"])
+	f.caller = person("pacto:break-glass")
+	f.caller.Class = delivery.ClassBreakGlass
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	expect(t, names(inbox["held"]) == "anyone:accept-unknown", "break-glass sees what only it can resolve: %v", inbox["held"])
 }
 
 func TestEnvironments(t *testing.T) {
@@ -679,7 +704,13 @@ func TestDecide(t *testing.T) {
 			return base
 		}, http.StatusUnauthorized, "FreshLoginRequired"},
 		{"not my team", func() string { f.caller = person("acme:team-payments"); return base }, http.StatusForbidden, "NotYourTeam"},
+		{"no team declared", func() string {
+			f.policy = &delivery.ClassPolicy{RequireOwnerTeam: true}
+			f.ops[0].Status = held()
+			return base
+		}, http.StatusForbidden, "NoOwnerTeam"},
 		{"my own change", func() string {
+			f.policy, f.ops[0].Status = nil, held("team-checkout")
 			f.caller = person("acme:team-checkout")
 			f.ops[0].Spec.Actor.User = f.caller.User
 			return base
@@ -736,6 +767,7 @@ func TestCompareVersions(t *testing.T) {
 
 func TestDeliveryNamespaceScope(t *testing.T) {
 	f := sampleCluster("acme:team-checkout")
+	f.policy = &delivery.ClassPolicy{} // no team prefix: acme:team-checkout is no team here
 	a := &authed{state: AuthState{SignedIn: true, Fresh: true}}
 	base := startServer(t, NewServer(Options{UI: testUI(), Fleet: ownedFleet(t), Auth: a.auth(false, true), DeliveryNamespace: "prod",
 		Delivery: func(*http.Request) (DeliveryAPI, error) { return f, nil }}))

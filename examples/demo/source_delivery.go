@@ -314,7 +314,7 @@ func (d *demoDelivery) store(stage *delivery.StageObject, st delivery.Statement,
 func (d *demoDelivery) caller() delivery.Caller {
 	p := personas[d.persona]
 	return delivery.Caller{Identity: delivery.Identity{User: p.User, Groups: p.Groups}, Class: p.Class(),
-		AuthTime: stamp(d.authAt[d.persona])}
+		AuthTime: stamp(d.authAt[d.persona]), Policy: story.Policy}
 }
 
 // spec turns a request into the intent, as the CLI and the cluster
@@ -815,13 +815,12 @@ func (d *demoDelivery) PublishRefusals(context.Context, string) (*dashboard.Publ
 			Reason: fmt.Sprintf("the change is %s, so it needs a %s bump from 2.4.2", c, bump)}}}, nil
 }
 
-// wire serves d from opts: the delivery views, the simulated signed-in
-// session and the story's policy (team-orders is team orders; service
-// accounts are agents).
+// wire serves d from opts: the delivery views and the simulated signed-in
+// session. Callers carry the story's policy (team-orders is team orders;
+// service accounts are agents).
 func (d *demoDelivery) wire(opts *dashboard.Options) {
 	opts.Delivery = func(*http.Request) (dashboard.DeliveryAPI, error) { return d, nil }
 	opts.Auth = &dashboard.Auth{Login: true, State: d.State}
-	opts.DeliveryPolicy = story.Policy
 }
 
 // pactifyPlan is what `pacto init --plan --owner risk` plans for the story's

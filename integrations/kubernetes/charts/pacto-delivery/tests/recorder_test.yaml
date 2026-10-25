@@ -71,8 +71,10 @@ tests:
       recorder.registryCredentials.secretName: recorder-push
     template: templates/deployment.yaml
     asserts:
-      - notExists:
+      - equal:
           path: spec.template.spec.volumes
+          value:
+            - {name: identities, configMap: {name: pacto-delivery-identities}}
       - notContains:
           path: spec.template.spec.containers[0].env
           content: {name: DOCKER_CONFIG, value: /etc/pacto/registry}

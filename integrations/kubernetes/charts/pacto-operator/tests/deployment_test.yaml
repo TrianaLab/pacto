@@ -188,15 +188,31 @@ tests:
     asserts:
       - notMatchRegex:
           path: spec.template.spec.containers[0].args[*]
-          pattern: "--dashboard-oidc|--dashboard-mira|--dashboard-team|--dashboard-agent|--dashboard-break"
+          pattern: "--dashboard-oidc|--dashboard-mira|--dashboard-delivery|--dashboard-auth"
+
+  - it: should gate the whole dashboard behind sign-in when asked
+    set:
+      dashboard.enabled: true
+      dashboard.auth.required: true
+      dashboard.auth.oidc: {issuerURL: https://idp.example, clientID: pacto-dashboard, redirectURL: https://dash.example/auth/callback}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-auth-required
+
+  - it: should refuse to gate the dashboard behind a sign-in that is not configured
+    set:
+      dashboard.enabled: true
+      dashboard.auth.required: true
+    asserts:
+      - failedTemplate:
+          errorMessage: "dashboard.auth.required needs sign-in: set dashboard.auth.oidc.issuerURL"
 
   - it: should pass the dashboard sign-in, the client secret by reference only
     set:
       dashboard.enabled: true
       dashboard.miraURL: http://mira.observability:4318
-      dashboard.auth.teamGroupPrefix: "acme:"
-      dashboard.auth.agentGroups: ["acme:bots", "acme:ci"]
-      dashboard.auth.breakGlassGroups: ["acme:sre"]
+      dashboard.auth.deliveryNamespace: delivery
       dashboard.auth.oidc:
         issuerURL: https://idp.example
         clientID: pacto-dashboard
@@ -224,13 +240,7 @@ tests:
           content: --dashboard-oidc-client-secret-key=client-secret
       - contains:
           path: spec.template.spec.containers[0].args
-          content: "--dashboard-team-group-prefix=acme:"
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: "--dashboard-agent-groups=acme:bots,acme:ci"
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: "--dashboard-break-glass-groups=acme:sre"
+          content: --dashboard-delivery-namespace=delivery
       - contains:
           path: spec.template.spec.containers[0].args
           content: --dashboard-mira-url=http://mira.observability:4318

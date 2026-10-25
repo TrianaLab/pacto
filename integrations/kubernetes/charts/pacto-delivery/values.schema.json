@@ -140,7 +140,9 @@
       "properties": {
         "agentGroups": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "breakGlassGroups": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-        "teamGroupPrefix": { "type": "string" }
+        "teamGroupPrefix": { "type": "string" },
+        "requireOwnerTeam": { "type": "boolean" },
+        "humanGroups": { "type": "array", "items": { "type": "string", "minLength": 1 } }
       }
     },
     "insecureRegistries": { "type": "array", "items": { "type": "string", "minLength": 1 } },

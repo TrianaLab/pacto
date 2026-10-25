@@ -10,6 +10,15 @@
       "description": "With OIDC sign-in, gate the fleet views and the whole API behind it too",
       "type": "boolean"
     },
+    "PACTO_DASHBOARD_DELIVERY_NAMESPACE": {
+      "default": "pacto-delivery",
+      "description": "Namespace of the pacto-delivery chart, whose published identity policy the dashboard reads",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_DELIVERY_TRUST": {
+      "description": "Trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config)",
+      "type": "string"
+    },
     "PACTO_DASHBOARD_HOST": {
       "default": "127.0.0.1",
       "description": "Bind address for the server",
@@ -51,10 +60,6 @@
     },
     "PACTO_DASHBOARD_REPO": {
       "description": "Comma-separated OCI repositories to scan",
-      "type": "string"
-    },
-    "PACTO_DASHBOARD_TEAM_GROUP_PREFIX": {
-      "description": "A contract owner team T is group T or this prefix plus T",
       "type": "string"
     },
     "PACTO_NO_CACHE": {

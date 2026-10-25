@@ -20,11 +20,16 @@
   const canDecide = $derived(actions.includes('approve') || actions.includes('accept-unknown'));
   const s = $derived(deliverySession.data);
   const caller = $derived(s?.caller);
+  // Who may answer a question that names no team depends on the published
+  // policy, which the session carries with the caller.
+  const ownerless = $derived(!caller ? 'No team is declared.'
+    : s?.requireOwnerTeam ? 'No team is declared, so nobody may answer; only break-glass can override.'
+    : 'Any person may answer.');
 
   // A decision kept across the fresh sign-in, if this is the change it was for.
   // Read once: the page is keyed by the change, so it never needs re-reading.
   let kept = $state(untrack(() => pendingFor(op.metadata.namespace || '', op.metadata.name)));
-  let note = $state(kept?.note ?? '');
+  let note = $state(untrack(() => kept?.note ?? ''));
   let busy = $state(false);
   let refusal = $state(null);
   let needsFresh = $state(null);
@@ -63,7 +68,7 @@
 <section class="dp" aria-labelledby="dp-title" data-testid="decision-panel">
   <h2 id="dp-title" class="t-section-title">The decision</h2>
   {#if op.status?.question}<p class="dp-question t-body">{shortDigests(op.status.question)}</p>{/if}
-  <p class="t-body-2">Asked: <strong>{decisionLabel(asked)}</strong> or reject. {owners.length ? `Only ${owners.join(' or ')} may answer.` : 'Any person may answer.'}</p>
+  <p class="t-body-2">Asked: <strong>{decisionLabel(asked)}</strong> or reject. {owners.length ? `Only ${owners.join(' or ')} may answer.` : ownerless}</p>
 
   {#if decided}
     <p class="dp-ok" role="status">{decided}</p>
@@ -96,9 +101,13 @@
     <p class="t-body-2" data-testid="decide-own">You asked for this change, so someone else must decide it.</p>
   {:else if caller?.class === 'agent' || caller?.class === 'controller'}
     <p class="t-body-2" data-testid="decide-agent">The cluster says you are an agent ({caller.user}), and agents may not decide.</p>
+  {:else if !owners.length}
+    <p class="t-body-2" data-testid="decide-no-owner">
+      No team is declared for this service, so only break-glass can override, from the command line. Declare service.owner so a team can answer.
+    </p>
   {:else}
     <p class="t-body-2" data-testid="decide-not-team">
-      Only {owners.join(' or ') || 'the named team'} may answer this question{#if caller?.groups?.length}; you are in {caller.groups.join(', ')}{/if}.
+      Only {owners.join(' or ')} may answer this question{#if caller?.groups?.length}; you are in {caller.groups.join(', ')}{/if}.
     </p>
   {/if}
   {#if refusal}<RefusalNotice error={refusal} />{/if}

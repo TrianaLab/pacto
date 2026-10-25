@@ -65,6 +65,9 @@ type PlanInput struct {
 	Snapshot *fleet.FleetSnapshot
 	// Class is the actor class of whoever raises the operation.
 	Class ActorClass
+	// RequireOwnerTeam is the promoter's ClassPolicy.RequireOwnerTeam: the
+	// question then says nobody may answer when no team is declared.
+	RequireOwnerTeam bool
 	// Upstream is the upstream Stage's status when the Stage takes its
 	// candidates from one; nil when it could not be read.
 	Upstream *StageStatus
@@ -177,22 +180,28 @@ func RecordsUnavailable(spec StageSpec, st StageStatus) string {
 // first version, with nothing running, is routed to its own team. It is set
 // even when nothing is asked yet: a version that stays Unknown after it shipped
 // is held for that same team. Only the named teams may answer (the promoter
-// ignores anyone else); with no team declared anywhere, any person may.
+// ignores anyone else); with no team declared anywhere, any person may, or
+// nobody when the promoter requires an owner team.
 func routeToServiceTeam(in PlanInput, p *Plan) {
-	if len(p.Floor.Owners) > 0 {
-		return
+	if len(p.Floor.Owners) == 0 {
+		p.Floor.Owners = serviceTeam(in)
 	}
+	if p.Floor.Human && !strings.Contains(p.Question, "Asked of: ") {
+		p.Question += " Asked of: " + ownersOrAnyone(p.Floor.Owners, in.RequireOwnerTeam)
+	}
+}
+
+// serviceTeam is the owner team the Stage's service declares, the running
+// contract first; nil when neither side declares one.
+func serviceTeam(in PlanInput) []string {
 	for _, r := range []Revision{in.From, in.To} {
 		if r.Bundle != nil && r.Bundle.Contract != nil {
 			if team := r.Bundle.Contract.Service.Owner.DisplayString(); team != "" {
-				p.Floor.Owners = []string{team}
-				break
+				return []string{team}
 			}
 		}
 	}
-	if p.Floor.Human && !strings.Contains(p.Question, "Asked of: ") {
-		p.Question += " Asked of: " + ownersOrAnyone(p.Floor.Owners)
-	}
+	return nil
 }
 
 // predict turns verdicts, floor and Stage state into the expected outcome.
@@ -369,10 +378,13 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 	switch {
 	case len(incompatible) > 0:
 		names, owners := consumerNamesOwners(incompatible)
+		if len(owners) == 0 {
+			owners = serviceTeam(in)
+		}
 		v.Message = "breaks " + strings.Join(names, ", ")
 		p.Floor = Floor{Human: true, Decision: Approve, Owners: owners, Consumers: names}
 		p.Question = fmt.Sprintf("%s %s is not accepted by %s. Approve shipping it anyway? Asked of: %s",
-			in.Stage.Service.Name, res.NewVersion, describeRanges(incompatible), ownersOrAnyone(owners))
+			in.Stage.Service.Name, res.NewVersion, describeRanges(incompatible), ownersOrAnyone(owners, in.RequireOwnerTeam))
 		p.Order = orderFor(ctx, in, res, incompatible, unseenConsumers)
 		p.Question += orderQuestion(p.Order)
 	case len(unseen) > 0:
@@ -458,11 +470,17 @@ func describeRanges(cs []impact.AffectedConsumer) string {
 	return strings.Join(parts, ", ")
 }
 
-func ownersOrAnyone(owners []string) string {
-	if len(owners) == 0 {
-		return "any person (no team is declared)"
+// ownersOrAnyone names who may answer, and says plainly when no team is
+// declared: then any person may, or nobody but break-glass.
+func ownersOrAnyone(owners []string, requireOwnerTeam bool) string {
+	switch {
+	case len(owners) > 0:
+		return strings.Join(owners, ", ")
+	case requireOwnerTeam:
+		return "nobody. No team is declared and only an owner team may answer, so only break-glass can override. Declare service.owner"
+	default:
+		return "any person, because no team is declared. Declare service.owner to limit who may answer"
 	}
-	return strings.Join(owners, ", ")
 }
 
 func limitationCodes(ls []fleet.Limitation) string {

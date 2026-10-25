@@ -74,9 +74,10 @@ func NewMCP(cfg MCPConfig) (*MCP, error) {
 // Verify is the bearer check every request goes through (go-sdk's
 // auth.TokenVerifier): signature, issuer, audience and expiry. The user id is
 // issuer#sub, the apiserver's own username form.
-func (m *MCP) Verify(ctx context.Context, token string, _ *http.Request) (*auth.TokenInfo, error) {
+func (m *MCP) Verify(ctx context.Context, token string, r *http.Request) (*auth.TokenInfo, error) {
 	id, err := m.verifier.Verify(ctx, token)
 	if err != nil {
+		Refused(ctx, r, "remote MCP refused a bearer token", "issuer", m.cfg.IssuerURL, "audience", m.cfg.Audience, "reason", err.Error())
 		return nil, fmt.Errorf("%w: %v", auth.ErrInvalidToken, err)
 	}
 	var c struct {

@@ -301,12 +301,29 @@ async function csrfHeaders(): Promise<Record<string, string>> {
   return csrf ? { 'X-Pacto-CSRF': csrf } : {};
 }
 
+// A mutating request kept unsent, so a refusal for a stale token can be retried.
+const unsent = new WeakMap<Request, Request>();
+
 client.use({
   async onRequest({ request }) {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       for (const [k, v] of Object.entries(await csrfHeaders())) request.headers.set(k, v);
+      unsent.set(request, request.clone());
     }
     return request;
+  },
+  // Signing in again (in another tab too) issues a new session token, and the
+  // server then refuses the one cached here. Read the session again and retry
+  // once, only when it has a different token: any other 403 stands.
+  async onResponse({ request, response }) {
+    const retry = unsent.get(request);
+    if (response.status !== 403 || !retry) return response;
+    const sent = request.headers.get('X-Pacto-CSRF') ?? '';
+    csrf = '';
+    const fresh = (await csrfHeaders())['X-Pacto-CSRF'];
+    if (!fresh || fresh === sent) return response;
+    retry.headers.set('X-Pacto-CSRF', fresh);
+    return dashboardFetch(retry);
   },
 });
 

@@ -166,14 +166,14 @@ Controller arguments derived from values
 {{- end }}
 {{- end }}
 {{- end }}
-{{- with .teamGroupPrefix }}
-- {{ printf "--dashboard-team-group-prefix=%s" . | quote }}
+{{- if .required }}
+{{- if not .oidc.issuerURL }}
+{{- fail "dashboard.auth.required needs sign-in: set dashboard.auth.oidc.issuerURL" }}
 {{- end }}
-{{- with .agentGroups }}
-- {{ printf "--dashboard-agent-groups=%s" (join "," .) | quote }}
+- --dashboard-auth-required
 {{- end }}
-{{- with .breakGlassGroups }}
-- {{ printf "--dashboard-break-glass-groups=%s" (join "," .) | quote }}
+{{- with .deliveryNamespace }}
+- --dashboard-delivery-namespace={{ . }}
 {{- end }}
 {{- end }}
 {{- with .Values.dashboard.miraURL }}

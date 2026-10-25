@@ -233,6 +233,7 @@
      restore. It is only in the DOM while open, so its navigation is never present
      in the accessibility tree when collapsed. -->
 {#if mobileMenuOpen}
+  <!-- svelte-ignore a11y_no_static_element_interactions (the drawer is no widget: its keydown only traps focus among the links inside and closes on Escape) -->
   <div class="mobile-drawer" id="mobile-drawer" bind:this={drawerEl} onkeydown={onDrawerKeydown}>
     <nav class="mobile-nav" aria-label="Primary">
       {#each nav as item}
@@ -282,7 +283,7 @@
   }
   .navbar-brand:hover { text-decoration: none; color: var(--c-text); }
   .navbar-brand svg { color: var(--c-accent); transform-origin: 50% 50%; }
-  .navbar-brand svg.spin { animation: brand-spin 0.6s ease; }
+  .navbar-brand :global(svg.spin) { animation: brand-spin 0.6s ease; }
   @keyframes brand-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
   .version-tag {
     font-size: var(--text-xs); font-weight: 500; color: var(--c-text-3);

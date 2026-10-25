@@ -22,15 +22,14 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `controller.kernelEvidence.staleness` | `""` | How old a node's heartbeat may be before its evidence reads stale. Empty uses three times the node agent's publish interval. Accepts a Go duration (e.g. "2m"). |
 | `controller.stabilizationWindow` | `""` | Stabilization window: how long a sustained NEGATIVE observation must persist before it converts to a confirmed violation (a transient blip reads Unknown meanwhile). Empty string uses the controller default (2m). Accepts a Go duration (e.g. "30s", "5m"). |
 | `controller.watchNamespace` | `""` | Restrict the controller's observation scope to a single namespace. Empty string (default) means cluster-wide: the controller watches all namespaces. The dashboard inherits this scope automatically. |
-| `dashboard.auth.agentGroups` | `[]` | Groups whose members are agents, as the delivery chart's `identities.agentGroups` (empty: `pacto:agents`) |
-| `dashboard.auth.breakGlassGroups` | `[]` | Groups that may override, as the delivery chart's `identities.breakGlassGroups` (empty: `pacto:break-glass`) |
+| `dashboard.auth.deliveryNamespace` | `""` | Namespace of the pacto-delivery chart. The dashboard reads the identity policy it publishes there (agent, break-glass and human groups, team prefix), so it is never configured twice (empty: `pacto-delivery`) |
 | `dashboard.auth.oidc.clientID` | `""` | The dashboard's client id at the issuer |
 | `dashboard.auth.oidc.clientSecretRef.key` | `client-secret` | Key of the client secret in that Secret |
 | `dashboard.auth.oidc.clientSecretRef.name` | `""` | Secret in the operator namespace holding the client secret (passed by secretKeyRef) |
 | `dashboard.auth.oidc.extraScopes` | `[]` | Scopes asked for beyond openid, profile and groups (for example a cross-client audience scope) |
 | `dashboard.auth.oidc.issuerURL` | `""` | OpenID Connect issuer URL people sign in with (empty: no sign-in) |
 | `dashboard.auth.oidc.redirectURL` | `""` | The dashboard's `/auth/callback` URL as browsers reach it |
-| `dashboard.auth.teamGroupPrefix` | `""` | A contract owner team `T` is the group `T`, or once this prefix is set only this prefix followed by `T`, as the delivery chart is configured |
+| `dashboard.auth.required` | `false` | Gate the fleet views and the whole API behind sign-in too, not only delivery (needs `oidc.issuerURL`) |
 | `dashboard.enabled` | `true` | Enable the operator-managed dashboard deployment. The dashboard image is controlled by the operator and derived from the bundled Pacto library version. It is not user-configurable. |
 | `dashboard.httpRoute.enabled` | `false` | Enable Gateway API HTTPRoute for the dashboard |
 | `dashboard.httpRoute.hostnames` | `[]` | Hostnames for the HTTPRoute |

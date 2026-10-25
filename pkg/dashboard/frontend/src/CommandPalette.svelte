@@ -62,7 +62,8 @@
 </script>
 
 {#if open}
-  <div class="cp-backdrop" data-motion onclick={onClose} role="presentation">
+  <!-- Only a click on the backdrop itself closes: one inside the panel targets the panel. -->
+  <div class="cp-backdrop" data-motion onclick={(e) => { if (e.target === e.currentTarget) onClose(); }} role="presentation">
     <div
       class="cp-panel"
       data-motion
@@ -70,7 +71,6 @@
       aria-modal="true"
       aria-label="Command palette"
       tabindex="-1"
-      onclick={(e) => e.stopPropagation()}
     >
       <div class="cp-input-row">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>

@@ -223,23 +223,21 @@ pacto dashboard [sources...] [flags]
 **Flags:**
 
 ```
-      --agent-groups strings         groups whose members are agents, as the delivery promoter is configured (default [pacto:agents])
-      --auth-required                with OIDC sign-in, gate the fleet views and the whole API behind it too, not only delivery (also PACTO_DASHBOARD_AUTH_REQUIRED)
-      --break-glass-groups strings   groups that may override, as the delivery promoter is configured (default [pacto:break-glass])
-      --cors-origin string           explicit cross-origin allowed to call the API (default: same-origin only)
-      --delivery-trust string        the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
-  -h, --help                         help for dashboard
-      --host string                  bind address for the dashboard server (default "127.0.0.1")
-      --mira-url string              Mira's address, to link the health-check citations of delivery verdicts
-      --namespace string             Kubernetes namespace (empty = all namespaces)
-      --oidc-client-id string        OpenID Connect client id of the dashboard
-      --oidc-extra-scopes strings    scopes to ask for beyond openid, profile and groups
-      --oidc-issuer-url string       OpenID Connect issuer people sign in with; delivery views and actions then run as the signed-in person (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)
-      --oidc-redirect-url string     the dashboard's /auth/callback as browsers reach it (https)
-      --port int                     port for the dashboard server (default 3000)
-      --team-group-prefix string     a contract owner team T is group T, or with this prefix set only this prefix plus T, as the delivery promoter is configured
-      --trace-source stringArray     named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)
-      --traces stringArray           OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
+      --auth-required               with OIDC sign-in, gate the fleet views and the whole API behind it too, not only delivery (also PACTO_DASHBOARD_AUTH_REQUIRED)
+      --cors-origin string          explicit cross-origin allowed to call the API (default: same-origin only)
+      --delivery-namespace string   namespace of the pacto-delivery chart, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
+      --delivery-trust string       the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
+  -h, --help                        help for dashboard
+      --host string                 bind address for the dashboard server (default "127.0.0.1")
+      --mira-url string             Mira's address, to link the health-check citations of delivery verdicts
+      --namespace string            Kubernetes namespace (empty = all namespaces)
+      --oidc-client-id string       OpenID Connect client id of the dashboard
+      --oidc-extra-scopes strings   scopes to ask for beyond openid, profile and groups
+      --oidc-issuer-url string      OpenID Connect issuer people sign in with; delivery views and actions then run as the signed-in person (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)
+      --oidc-redirect-url string    the dashboard's /auth/callback as browsers reach it (https)
+      --port int                    port for the dashboard server (default 3000)
+      --trace-source stringArray    named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)
+      --traces stringArray          OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)
 ```
 
 It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached).
@@ -261,16 +259,15 @@ pacto delivery [flags]
 **Flags:**
 
 ```
-      --agent-groups strings         groups whose members are agents (default [pacto:agents])
-      --break-glass-groups strings   groups that may override (default [pacto:break-glass])
-  -h, --help                         help for delivery
-  -n, --namespace string             namespace of the Stage and its Operations (default "default")
-      --trust string                 the trust config delivery records are verified with: the recorder's PEM public key, or a YAML file of keys and the streams each may sign (default $PACTO_DELIVERY_TRUST)
+      --delivery-namespace string   namespace of the pacto-delivery chart, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
+  -h, --help                        help for delivery
+  -n, --namespace string            namespace of the Stage and its Operations (default "default")
+      --trust string                the trust config delivery records are verified with: the recorder's PEM public key, or a YAML file of keys and the streams each may sign (default $PACTO_DELIVERY_TRUST)
 ```
 
 ### `pacto delivery approve`
 
-Record your decision on a held operation (people only, with a fresh login)
+Record your decision on a held operation. The command makes you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot approve as you without you typing your password at that moment. The token is not stored.
 
 ```
 pacto delivery approve <operation> [flags]
@@ -279,9 +276,13 @@ pacto delivery approve <operation> [flags]
 **Flags:**
 
 ```
-      --decision string   approve, reject or accept-unknown (default "approve")
-  -h, --help              help for approve
-      --note string       why, for the record
+      --decision string             approve, reject or accept-unknown (default "approve")
+  -h, --help                        help for approve
+      --note string                 why, for the record
+      --oidc-client-id string       OpenID Connect client used only for approvals, never by a kubeconfig (a confidential client's secret comes from PACTO_DELIVERY_OIDC_CLIENT_SECRET) (default "pacto-approve")
+      --oidc-extra-scopes strings   scopes to ask for beyond openid, profile and groups
+      --oidc-issuer-url string      OpenID Connect issuer the cluster trusts, to log in again with (also PACTO_DELIVERY_OIDC_ISSUER_URL)
+      --oidc-redirect-port int      loopback port the identity provider sends the browser back to (default: a free port)
 ```
 
 ### `pacto delivery blame`
@@ -1154,7 +1155,7 @@ With --root, the server instead exposes a read-only contract catalog: the given 
 
 With --fleet, the server instead exposes the read-only operational-graph query tools over one snapshot. The shared fleet source flags — --local, --target-state, --evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness — compose that snapshot and are read in --fleet mode only.
 
-With --delivery, the server instead exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, describe, plan and get, plus propose and cancel only when the apiserver says the caller is an agent (a service account or an --agent-groups member). There is no approve tool.
+With --delivery, the server instead exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy the delivery chart publishes). There is no approve tool.
 
 Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies (issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback needs them and refuses --auth and --allow-writes, which would lend this process's service credential to every caller. With --delivery the server then exchanges each caller's token for one the apiserver accepts (RFC 8693, --exchange-client-id) and builds the tools for that caller on every request, so an agent proposes as itself and a person gets the read-only tools.
 
@@ -1189,34 +1190,33 @@ pacto mcp [bundle-ref] [flags]
 **Flags:**
 
 ```
-      --agent-groups strings         in --delivery mode: groups whose members are agents (default [pacto:agents])
-      --allow-writes                 expose mutating operations (POST/PUT/PATCH/DELETE) as tools
-      --audience string              with --auth-issuer: the audience incoming tokens must carry (default --resource)
-      --auth stringArray             credential for a security scheme as name=value (repeatable)
-      --auth-issuer string           OpenID issuer whose bearer tokens every HTTP request must carry
-      --base-url string              base URL for live invocation (overrides the OpenAPI servers[] URL)
-      --break-glass-groups strings   in --delivery mode: groups that may override (default [pacto:break-glass])
-      --cache                        include every bundle in the local OCI cache as an offline baseline revision
-      --delivery                     expose the Pacto delivery tools over the ambient cluster
-      --delivery-trust string        in --delivery mode: the trust config delivery records are verified with (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
-      --evidence-url stringArray     base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --exchange-audience string     with --delivery over HTTP: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
-      --exchange-client-id string    with --delivery over HTTP: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
-      --fleet                        expose read-only operational-graph (fleet) query tools
-      --freshness duration           mark target evidence older than this as stale (0 disables)
-  -h, --help                         help for mcp
-      --host string                  bind address for HTTP transport; beyond loopback it needs --auth-issuer (default "127.0.0.1")
-      --k8s                          include live Pacto CRs from the current Kubernetes cluster as targets
-      --local stringArray            local bundle root(s) to scan (repeatable) (default [.])
-      --namespace string             namespace to read Pacto CRs from with --k8s (empty = all namespaces)
-      --oci stringArray              registry reference to include as a published-baseline revision (repeatable)
-      --port int                     port for HTTP transport (default 8585)
-      --publish                      expose pacto_publish_plan and pacto_publish beside the authoring tools
-      --resource string              with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)
-      --root stringArray             contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
-      --target-state stringArray     offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
-      --traces stringArray           OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
-  -t, --transport string             transport type: stdio or http (default "stdio")
+      --allow-writes                expose mutating operations (POST/PUT/PATCH/DELETE) as tools
+      --audience string             with --auth-issuer: the audience incoming tokens must carry (default --resource)
+      --auth stringArray            credential for a security scheme as name=value (repeatable)
+      --auth-issuer string          OpenID issuer whose bearer tokens every HTTP request must carry
+      --base-url string             base URL for live invocation (overrides the OpenAPI servers[] URL)
+      --cache                       include every bundle in the local OCI cache as an offline baseline revision
+      --delivery                    expose the Pacto delivery tools over the ambient cluster
+      --delivery-namespace string   in --delivery mode: namespace of the pacto-delivery chart, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
+      --delivery-trust string       in --delivery mode: the trust config delivery records are verified with (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
+      --evidence-url stringArray    base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --exchange-audience string    with --delivery over HTTP: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
+      --exchange-client-id string   with --delivery over HTTP: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
+      --fleet                       expose read-only operational-graph (fleet) query tools
+      --freshness duration          mark target evidence older than this as stale (0 disables)
+  -h, --help                        help for mcp
+      --host string                 bind address for HTTP transport; beyond loopback it needs --auth-issuer (default "127.0.0.1")
+      --k8s                         include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray           local bundle root(s) to scan (repeatable) (default [.])
+      --namespace string            namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --oci stringArray             registry reference to include as a published-baseline revision (repeatable)
+      --port int                    port for HTTP transport (default 8585)
+      --publish                     expose pacto_publish_plan and pacto_publish beside the authoring tools
+      --resource string             with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)
+      --root stringArray            contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
+      --target-state stringArray    offline target-state fixture file(s) supplying targets — a demo/test adapter, not the signed EvidenceSet protocol (repeatable)
+      --traces stringArray          OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+  -t, --transport string            transport type: stdio or http (default "stdio")
 ```
 
 The **default** server exposes the four authoring tools below. Three flags select a different server, each with its own tools -- see [Server modes](#server-modes) immediately after this table:

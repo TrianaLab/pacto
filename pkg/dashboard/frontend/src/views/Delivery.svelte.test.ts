@@ -446,6 +446,69 @@ describe('change detail', () => {
     r.destroy();
   });
 
+  it('tells an ownerless held change apart under the owner-team rule: break-glass only, else any person', async () => {
+    const ownerless = () => {
+      const op = heldOperation({ actions: ['cancel'] });
+      op.operation.status.plan.floor.owners = [];
+      return op;
+    };
+    fns.operation.mockResolvedValue(ownerless());
+    fns.session.mockResolvedValue(shared({ requireOwnerTeam: true }));
+    let r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    let panel = text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement);
+    expect(panel).toContain('No team is declared, so nobody may answer; only break-glass can override.');
+    expect(panel).not.toContain('Any person may answer');
+    expect(panel).not.toContain('the named team');
+    expect(text(r.target.querySelector('[data-testid="decide-no-owner"]') as HTMLElement)).toContain('only break-glass can override');
+    r.destroy();
+
+    deliverySession.loaded = false;
+    fns.operation.mockResolvedValue({ ...ownerless(), actions: ['approve', 'reject'] });
+    fns.session.mockResolvedValue(shared());
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement)).toContain('Any person may answer.');
+    r.destroy();
+
+    deliverySession.loaded = false;
+    fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: false, fresh: false });
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    panel = text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement);
+    expect(panel).toContain('No team is declared.');
+    expect(panel).not.toContain('Any person');
+    r.destroy();
+
+    deliverySession.loaded = false;
+    fns.session.mockResolvedValue(shared());
+    fns.operation.mockResolvedValue({ ...ownerless(), actions: ['approve', 'reject'] });
+    fns.decide.mockRejectedValue(new ApiError(403, 'no team is declared for this service, so only break-glass can override; declare service.owner', 'NoOwnerTeam'));
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    [...r.target.querySelectorAll<HTMLButtonElement>('[data-testid="decision-panel"] button')].find((b) => b.textContent === 'Reject')!.click();
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="refusal"]') as HTMLElement)).toContain('No team is declared, so only break-glass can override.');
+    r.destroy();
+  });
+
+  it('shows break-glass an ownerless held change as nobody else’s to answer', async () => {
+    fns.session.mockResolvedValue(shared({ requireOwnerTeam: true }));
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
+      held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'pacto.dev/promote', to: D2, phase: 'Held', decision: 'approve' }] });
+    let r = render(DeliveryInboxView);
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="inbox-held"]') as HTMLElement)).toContain('Nobody: no team is declared, so only break-glass can override');
+    r.destroy();
+    deliverySession.loaded = false;
+    deliverySession.data = null;
+    fns.session.mockResolvedValue(shared());
+    r = render(DeliveryInboxView);
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="inbox-held"]') as HTMLElement)).toContain('Any person');
+    r.destroy();
+  });
+
   it('cancels after a confirmation and rolls back through a plan', async () => {
     fns.operation.mockResolvedValue(heldOperation({ actions: ['cancel', 'rollback'] }));
     fns.cancel.mockRejectedValueOnce(new ApiError(409, 'the pointer already moved')).mockResolvedValueOnce({ cancelled: 'prod/op1' });

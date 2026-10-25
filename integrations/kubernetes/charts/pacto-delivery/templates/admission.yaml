@@ -6,6 +6,11 @@
 {{- $controller := include "pacto-delivery.controllerUser" . }}
 {{- $agents := include "pacto-delivery.celList" .Values.identities.agentGroups }}
 {{- $breakGlass := include "pacto-delivery.celList" .Values.identities.breakGlassGroups }}
+{{- /* With identities.humanGroups set, anyone in none of them is an agent too. */}}
+{{- $unenrolled := "" }}
+{{- with .Values.identities.humanGroups }}
+{{- $unenrolled = printf " ||\n        !request.userInfo.groups.exists(g, g in %s)" (include "pacto-delivery.celList" .) }}
+{{- end }}
 # An operation states who asked, and admission holds it to that: the actor is
 # the requesting user, only the promoter may set witnessed, override, unfreeze
 # and freeze are limited to their raisers, and the record finalizer is required.
@@ -36,7 +41,7 @@ spec:
     - name: agent
       expression: >-
         request.userInfo.username.startsWith('system:serviceaccount:') ||
-        request.userInfo.groups.exists(g, g in {{ $agents }})
+        request.userInfo.groups.exists(g, g in {{ $agents }}){{ $unenrolled }}
   validations:
     - expression: "object.spec.actor.user == request.userInfo.username"
       message: "spec.actor.user must be the user creating the operation"
@@ -155,8 +160,8 @@ spec:
       message: "spec.by must be the user creating the approval"
       reason: Forbidden
     - expression: >-
-        !request.userInfo.username.startsWith('system:serviceaccount:') &&
-        !request.userInfo.groups.exists(g, g in {{ $agents }})
+        !(request.userInfo.username.startsWith('system:serviceaccount:') ||
+        request.userInfo.groups.exists(g, g in {{ $agents }}){{ $unenrolled }})
       message: "agents and service accounts may not approve"
       reason: Forbidden
     - expression: >-

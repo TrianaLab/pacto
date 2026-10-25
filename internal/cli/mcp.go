@@ -22,6 +22,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/catalog"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
@@ -44,8 +45,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"--evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness — compose " +
 			"that snapshot and are read in --fleet mode only.\n\n" +
 			"With --delivery, the server instead exposes the Pacto delivery tools (pacto_delivery_*) over the " +
-			"ambient cluster: operation types, describe, plan and get, plus propose and cancel only when the " +
-			"apiserver says the caller is an agent (a service account or an --agent-groups member). There is " +
+			"ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the " +
+			"apiserver says the caller is an agent (a service account, or an agent by the identity policy the delivery chart publishes). There is " +
 			"no approve tool.\n\n" +
 			"Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies " +
 			"(issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback " +
@@ -118,8 +119,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().Bool("fleet", false, "expose read-only operational-graph (fleet) query tools")
 	cmd.Flags().Bool("delivery", false, "expose the Pacto delivery tools over the ambient cluster")
 	cmd.Flags().Bool("publish", false, "expose pacto_publish_plan and pacto_publish beside the authoring tools")
-	cmd.Flags().StringSlice("agent-groups", []string{"pacto:agents"}, "in --delivery mode: groups whose members are agents")
-	cmd.Flags().StringSlice("break-glass-groups", []string{"pacto:break-glass"}, "in --delivery mode: groups that may override")
+	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "in --delivery mode: "+"namespace of the pacto-delivery chart, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.Flags().String("delivery-trust", "", "in --delivery mode: the trust config delivery records are verified with "+
 		"(the recorder's PEM public key or a YAML trust config; default $"+trustEnv+")")
 	// Declared before the shared set so this spelling wins: here --root selects a
@@ -358,7 +358,9 @@ func runMCPServer(ctx context.Context, s mcpServe, stderr io.Writer) error {
 }
 
 func serveHTTP(ctx context.Context, handler http.Handler, listener net.Listener) error {
-	srv := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	// Requests log through the command's logger, not the process default.
+	base := logging.WithLogger(context.Background(), logging.LoggerFromContext(ctx))
+	srv := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, BaseContext: func(net.Listener) context.Context { return base }}
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(listener) }()

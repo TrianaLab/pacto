@@ -3,6 +3,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryChangeUrl, deliveryHistoryUrl, serviceUrl } from '../lib/router.ts';
+  import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import { typeLabel, decisionLabel, shortDigest, shortDigests } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
@@ -64,7 +65,7 @@
                 <MoveFirstList order={it.order} testid="inbox-move-first" />
                 <dl class="dl-facts t-body-2">
                   <dt>Decision asked</dt><dd>{decisionLabel(it.decision) || 'A decision'}</dd>
-                  <dt>Who may answer</dt><dd>{it.owners?.length ? it.owners.join(', ') : 'Any person'}</dd>
+                  <dt>Who may answer</dt><dd>{it.owners?.length ? it.owners.join(', ') : deliverySession.data?.requireOwnerTeam ? 'Nobody: no team is declared, so only break-glass can override' : 'Any person'}</dd>
                   {#if it.consumers?.length}
                     <dt>Affected services</dt>
                     <dd>{#each it.consumers as c, i}{#if i > 0},{' '}{/if}<a href={serviceUrl(c)}>{c}</a>{/each}</dd>

@@ -143,3 +143,34 @@ func TestUsage(t *testing.T) {
 		t.Fatal("an unreachable dashboard")
 	}
 }
+
+func TestOpen(t *testing.T) {
+	idp := fakeIdP(t)
+	var got url.Values
+	listener := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query()
+		if got.Get("code") != "c1" {
+			http.Error(w, "not this login", http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte("Logged in.\n"))
+	}))
+	t.Cleanup(listener.Close)
+	login := idp.URL + "/auth?prompt=login&state=s1&redirect_uri=" + url.QueryEscape(listener.URL+"/callback")
+	out, err := runOut(t, "open", "-url", login, "-user", "alice", "-password", "pw")
+	if err != nil || out != "Logged in." || got.Get("state") != "s1" {
+		t.Fatalf("open: %q %v %v", out, err, got)
+	}
+	// The single sign-on code is not the one the listener wants: its refusal is reported.
+	jar := filepath.Join(t.TempDir(), "jar")
+	_, _ = runOut(t, "open", "-url", login, "-user", "alice", "-password", "pw", "-jar", jar)
+	if _, err := runOut(t, "open", "-url", strings.Replace(login, "prompt=login&", "", 1), "-jar", jar); err == nil ||
+		!strings.Contains(err.Error(), "the command refused the login") {
+		t.Fatalf("a refused login: %v", err)
+	}
+	for _, bad := range []string{"%zz", "http://x/?redirect_uri=%zz", idp.URL + "/auth?redirect_uri=" + url.QueryEscape("http://127.0.0.1:1/cb") + "&x=1"} {
+		if _, err := runOut(t, "open", "-url", bad, "-user", "alice", "-password", "wrong"); err == nil {
+			t.Fatalf("%s: no error", bad)
+		}
+	}
+}

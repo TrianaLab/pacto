@@ -30,9 +30,9 @@
   // uses '' for empty. Mirror the store into three writable locals for StatsBar and
   // bridge both directions with an equality guard (setting an equal value is a
   // no-op, so the pair converges rather than looping).
-  let statusFilter = $state(f.contractStatus || 'all');
-  let sourceFilter = $state(f.source || 'all');
-  let nameFilter = $state(f.search || '');
+  let statusFilter = $state(untrack(() => f.contractStatus || 'all'));
+  let sourceFilter = $state(untrack(() => f.source || 'all'));
+  let nameFilter = $state(untrack(() => f.search || ''));
 
   // local (StatsBar) → store/hash. Track ONLY the local: the store side is read via
   // untrack so an external store change (back/forward nav) does not re-run this effect

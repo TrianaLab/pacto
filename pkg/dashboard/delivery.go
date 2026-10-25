@@ -154,6 +154,10 @@ type sessionOutput struct {
 		// installed and the caller is signed in.
 		Caller      *delivery.Caller `json:"caller,omitempty"`
 		CallerError string           `json:"callerError,omitempty"`
+		// RequireOwnerTeam is the published policy's rule for a question
+		// that names no team: nobody may answer it, only break-glass
+		// overrides. Known only with the caller.
+		RequireOwnerTeam bool `json:"requireOwnerTeam,omitempty" doc:"A question that names no team has nobody who may answer it; only break-glass can override"`
 	}
 }
 
@@ -178,7 +182,7 @@ func (s *Server) session(ctx context.Context, _ *struct{}) (*sessionOutput, erro
 	if err == nil {
 		var c delivery.Caller
 		if c, err = api.WhoAmI(ctx); err == nil {
-			out.Body.Caller = &c
+			out.Body.Caller, out.Body.RequireOwnerTeam = &c, c.Policy.RequireOwnerTeam
 			s.remember(c.User, st.Name)
 		}
 	}
@@ -368,7 +372,7 @@ type InboxItem struct {
 	Reason      string            `json:"reason,omitempty"`
 	Question    string            `json:"question,omitempty"`
 	Decision    delivery.Decision `json:"decision,omitempty" doc:"The decision asked for: approve, or accept-unknown"`
-	Owners      []string          `json:"owners,omitempty" doc:"The teams that may answer; empty means any person"`
+	Owners      []string          `json:"owners,omitempty" doc:"The teams that may answer; empty means no team is declared: nobody may answer when identities.requireOwnerTeam is true (the default), else any person"`
 	Consumers   []string          `json:"consumers,omitempty" doc:"The services that made a person necessary"`
 	Order       *delivery.Order   `json:"order,omitempty" doc:"What must move first: the consumers whose declared range does not accept the new version, their Stages and any verified version upstream that can go first"`
 }
@@ -392,7 +396,7 @@ func inboxItem(o delivery.OperationObject) InboxItem {
 type inboxOutput struct {
 	Body struct {
 		Listing
-		Held    []InboxItem      `json:"held" doc:"Held operations whose question names one of the caller's teams"`
+		Held    []InboxItem      `json:"held" doc:"Held operations whose question names one of the caller's teams; for break-glass also those that name no team"`
 		Frozen  []EnvironmentRow `json:"frozen" doc:"Frozen Stages of the caller's services"`
 		Errored []InboxItem      `json:"errored" doc:"Errored operations of the caller's services whose Stage is still frozen"`
 	}
@@ -416,7 +420,7 @@ func (s *Server) deliveryInbox(ctx context.Context, _ *struct{}) (*inboxOutput, 
 	// that hides what it cannot attribute hides work.
 	mine := func(service string) bool {
 		o, known := owners[service]
-		return !known || s.opts.DeliveryPolicy.InTeams(caller.Groups, []string{o})
+		return !known || caller.Policy.InTeams(caller.Groups, []string{o})
 	}
 	// frozen holds the caller's Stages that are paused now. Concluded
 	// operations are never deleted, so an Errored one waits on someone only
@@ -431,13 +435,15 @@ func (s *Server) deliveryInbox(ctx context.Context, _ *struct{}) (*inboxOutput, 
 		}
 	}
 	// Held waits on a person who may answer: not an agent, never its asker.
-	decider := s.opts.DeliveryPolicy.IsHuman(caller.Identity)
+	decider := caller.Policy.IsHuman(caller.Identity)
 	byStage := stagesByName(stages)
 	for _, o := range ops {
 		it := inboxItem(o)
 		switch {
-		case it.Phase == delivery.PhaseHeld && decider && !ownChange(&o, caller.User) &&
-			s.opts.DeliveryPolicy.InTeams(caller.Groups, it.Owners):
+		// A question that names no team is also break-glass's: under
+		// requireOwnerTeam nobody else can resolve it.
+		case it.Phase == delivery.PhaseHeld && !ownChange(&o, caller.User) &&
+			(decider && caller.Policy.InTeams(caller.Groups, it.Owners) || len(it.Owners) == 0 && caller.Class == delivery.ClassBreakGlass):
 			out.Body.Held = append(out.Body.Held, withVersions(ctx, api, byStage[it.Namespace+"/"+it.Stage], it))
 		case it.Outcome == delivery.Errored && frozen[it.Namespace+"/"+it.Stage]:
 			out.Body.Errored = append(out.Body.Errored, it)
@@ -730,7 +736,7 @@ func versions(ctx context.Context, api DeliveryAPI, stage *delivery.StageObject,
 func version(ctx context.Context, r delivery.Revision) string {
 	if r.Bundle == nil {
 		if r.Err != "" && !r.NoContract {
-			logging.LoggerFromContext(ctx).Warn("reading the version of a digest", "digest", r.Digest, "err", r.Err)
+			logging.LoggerFromContext(ctx).Warn("reading the version of a digest", "digest", r.Digest, "error", r.Err)
 		}
 		return ""
 	}
@@ -742,7 +748,7 @@ func version(ctx context.Context, r delivery.Revision) string {
 func stageVersions(ctx context.Context, api DeliveryAPI, namespace, stage string, digests ...string) map[string]string {
 	st, err := api.Stage(ctx, namespace, stage)
 	if err != nil {
-		logging.LoggerFromContext(ctx).Warn("reading a Stage to name versions", "namespace", namespace, "stage", stage, "err", err)
+		logging.LoggerFromContext(ctx).Warn("reading a Stage to name versions", "namespace", namespace, "stage", stage, "error", err)
 		return nil
 	}
 	return versions(ctx, api, st, nil, digests...)
@@ -979,8 +985,8 @@ func refusedAt(s string) time.Time {
 func (s *Server) actions(ctx context.Context, op *delivery.OperationObject, stage delivery.StageNow, caller delivery.Caller) []string {
 	acts := []string{}
 	st := op.Status
-	if st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && s.opts.DeliveryPolicy.IsHuman(caller.Identity) &&
-		!ownChange(op, caller.User) && s.opts.DeliveryPolicy.InTeams(caller.Groups, inboxItem(*op).Owners) {
+	if st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && caller.Policy.IsHuman(caller.Identity) &&
+		!ownChange(op, caller.User) && caller.Policy.InTeams(caller.Groups, inboxItem(*op).Owners) {
 		if inboxItem(*op).Decision == delivery.Approve {
 			acts = append(acts, string(delivery.Approve))
 		} else {
@@ -1120,7 +1126,11 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 	if ownChange(op, caller.User) {
 		return nil, Refuse(http.StatusForbidden, "OwnChange", "you asked for this change, so someone else must decide it")
 	}
-	if owners := inboxItem(*op).Owners; !s.opts.DeliveryPolicy.InTeams(caller.Groups, owners) {
+	owners := inboxItem(*op).Owners
+	if len(owners) == 0 && caller.Policy.RequireOwnerTeam {
+		return nil, Refuse(http.StatusForbidden, "NoOwnerTeam", "no team is declared for this service, so only break-glass can override; declare service.owner")
+	}
+	if !caller.Policy.InTeams(caller.Groups, owners) {
 		return nil, Refuse(http.StatusForbidden, "NotYourTeam", fmt.Sprintf("only %v may answer this question", owners))
 	}
 	name, err := api.Approve(ctx, in.Namespace, in.Name, in.Body.Decision, in.Body.Note)
@@ -1137,7 +1147,7 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 func (s *Server) mayDecide(caller delivery.Caller) error {
 	at, ok := delivery.ParseAuthTime(caller.AuthTime)
 	switch {
-	case !s.opts.DeliveryPolicy.IsHuman(caller.Identity):
+	case !caller.Policy.IsHuman(caller.Identity):
 		return Refuse(http.StatusForbidden, "AgentsMayNotApprove", "the apiserver says "+caller.User+" is an agent; agents may not decide")
 	case caller.AuthTime == "":
 		return Refuse(http.StatusForbidden, "AuthTimeUnavailable",

@@ -9,30 +9,34 @@
   import { api } from './lib/api.ts';
   import { loadSession } from './lib/deliverySession.svelte.ts';
   import Navbar from './Navbar.svelte';
+  import LazyView from './components/LazyView.svelte';
   import CommandPalette from './CommandPalette.svelte';
   import EntitySearch from './EntitySearch.svelte';
   import ServiceListView from './views/ServiceListView.svelte';
-  import ServiceDetailView from './views/ServiceDetailView.svelte';
-  import GraphPageView from './views/GraphPageView.svelte';
-  import DiffView from './views/DiffView.svelte';
   import OwnersView from './views/OwnersView.svelte';
-  import OwnerDetailView from './views/OwnerDetailView.svelte';
-  import ReadinessView from './views/ReadinessView.svelte';
-  import GraphView from './views/GraphView.svelte';
   import FleetOverview from './views/FleetOverview.svelte';
   import FleetServicesView from './views/FleetServicesView.svelte';
   import FleetOwnersView from './views/FleetOwnersView.svelte';
   import FleetSourcesView from './views/FleetSourcesView.svelte';
   import FleetEntityListView from './views/FleetEntityListView.svelte';
-  import FleetEntityView from './views/FleetEntityView.svelte';
   import FleetAttentionView from './views/FleetAttentionView.svelte';
-  import ChangeAnalysisView from './views/ChangeAnalysisView.svelte';
   import LegacyEntityRedirect from './views/LegacyEntityRedirect.svelte';
   import DeliveryInboxView from './views/DeliveryInboxView.svelte';
   import DeliveryEnvironmentsView from './views/DeliveryEnvironmentsView.svelte';
   import DeliveryChangeView from './views/DeliveryChangeView.svelte';
   import DeliveryHistoryView from './views/DeliveryHistoryView.svelte';
   import DeliveryPublishView from './views/DeliveryPublishView.svelte';
+
+  // The views that carry cytoscape, d3 and the charts load on first use.
+  const once = (f) => { let p; return () => (p ??= f()); };
+  const loadServiceDetailView = once(() => import('./views/ServiceDetailView.svelte'));
+  const loadGraphPageView = once(() => import('./views/GraphPageView.svelte'));
+  const loadDiffView = once(() => import('./views/DiffView.svelte'));
+  const loadReadinessView = once(() => import('./views/ReadinessView.svelte'));
+  const loadGraphView = once(() => import('./views/GraphView.svelte'));
+  const loadFleetEntityView = once(() => import('./views/FleetEntityView.svelte'));
+  const loadChangeAnalysisView = once(() => import('./views/ChangeAnalysisView.svelte'));
+  const loadOwnerDetailView = once(() => import('./views/OwnerDetailView.svelte'));
 
   let route = $state(parseHash(location.hash));
   let services = $state([]);
@@ -291,7 +295,7 @@
          Product API); the legacy view only on a non-Fleet host, where it is the only UI. -->
     {#if legacyHost}
       {#key route.params.name + '@@' + (route.params.version || '')}
-        <ServiceDetailView name={route.params.name} version={route.params.version || null} {services} {refreshTick} onServiceResolved={loadGlobal} />
+        <LazyView load={loadServiceDetailView} name={route.params.name} version={route.params.version || null} {services} {refreshTick} onServiceResolved={loadGlobal} />
       {/key}
     {:else if fleetHost}
       {#key route.params.name + '@@' + (route.params.version || '')}
@@ -305,7 +309,7 @@
          canonical Change analysis workspace (redirected via the effect). It remains the
          only compare screen on the non-Fleet doc export. -->
     {#if legacyHost}
-      <DiffView
+      <LazyView load={loadDiffView}
         name={route.params.name || ''}
         initialFrom={route.params.fromVer || route.params.from || ''}
         initialTo={route.params.toVer || route.params.to || ''}
@@ -320,7 +324,7 @@
     <!-- Legacy standalone graph: superseded by the Operational Graph on a Fleet host
          (redirected via the effect); retained for the non-Fleet doc export deep link. -->
     {#if legacyHost}
-      <GraphPageView {services} {sourcesInfo} />
+      <LazyView load={loadGraphPageView} {services} {sourcesInfo} />
     {:else}
       {@render migrating()}
     {/if}
@@ -331,7 +335,7 @@
          assessed population, filterable by assessment -- rather than mounting a competing
          screen keyed by a unit that does not own the fact. -->
     {#if legacyHost}
-      <ReadinessView {services} {initialLoading} />
+      <LazyView load={loadReadinessView} {services} {initialLoading} />
     {:else}
       {@render migrating()}
     {/if}
@@ -370,7 +374,7 @@
     />
   {:else if route.view === 'fleet-entity'}
     {#key route.params.kind + '@@' + route.params.key}
-      <FleetEntityView kind={route.params.kind} entityKey={route.params.key} {refreshTick} />
+      <LazyView load={loadFleetEntityView} kind={route.params.kind} entityKey={route.params.key} {refreshTick} />
     {/key}
   {:else if route.view === 'fleet-attention'}
     <FleetAttentionView
@@ -386,9 +390,11 @@
       {refreshTick}
     />
   {:else if route.view === 'fleet'}
-    <GraphView params={route.params} {refreshTick} />
+    <LazyView load={loadGraphView} params={route.params} {refreshTick} />
   {:else if route.view === 'changes'}
-    <ChangeAnalysisView params={route.params} />
+    {#key JSON.stringify(route.params)}
+      <LazyView load={loadChangeAnalysisView} params={route.params} />
+    {/key}
   {:else if route.view.startsWith('delivery-')}
     <!-- Delivery: only where the cluster serves the delivery API and the dashboard
          knows who the caller is. Anywhere else the views say why they are absent. -->
@@ -425,7 +431,7 @@
   {:else if route.view === 'owner-detail'}
     {#if legacyHost}
       {#key route.params.owner}
-        <OwnerDetailView owner={route.params.owner} {services} {initialLoading} />
+        <LazyView load={loadOwnerDetailView} owner={route.params.owner} {services} {initialLoading} />
       {/key}
     {:else if fleetHost}
       {#key route.params.owner}

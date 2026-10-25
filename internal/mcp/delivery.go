@@ -33,12 +33,12 @@ type DeliveryAPI interface {
 const noApprove = " There is no approve tool: when a person must decide, the plan names who, and they approve themselves."
 
 const deliveryInstructions = "Pacto delivery decides which version each environment (a Stage) runs. Use " +
-	"pacto_delivery_operation_types and pacto_delivery_operation_describe to learn what you may propose, " +
+	"pacto_delivery_operation_types to learn what you may propose (with a type, what it checks), " +
 	"pacto_delivery_operation_plan to see what the promoter will do (verdicts, whether a person is needed, " +
 	"the one question they are asked), then propose with the plan's intent digest and follow it with " +
 	"pacto_delivery_get. pacto_delivery_explain shows every verdict with the citation behind it and how to run it " +
 	"again, and pacto_delivery_history what happened on a Stage, read from its signed records when the recorder runs. " +
-	"pacto_delivery_blame says who put a version in place, pacto_delivery_undo returns the plan that would undo an operation " +
+	"pacto_delivery_blame says who put a version in place, pacto_delivery_undo_plan returns the plan that would undo an operation " +
 	"(it proposes nothing) and pacto_delivery_record_verify checks every record's signature and the chain. Every history answer " +
 	"carries asOf and completeness: when it is partial, a change missing from it may still have happened. A plan's precedent " +
 	"says what the records attached to the version say happened to it on other Stages. Unknown is never Pass: an operation Pacto cannot " +
@@ -55,20 +55,17 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Validator) *mcpsdk.Server {
 	server := newServer(version, baseInstructions+"\n\n"+deliveryInstructions, validate)
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "pacto_delivery_operation_types",
-		Description: "List the operation types you may propose, with their facet and who may raise them. Read-only." + noApprove,
-		InputSchema: inputSchema(map[string]property{}, nil),
-	}, func(context.Context, *mcpsdk.CallToolRequest, struct{}) (*mcpsdk.CallToolResult, any, error) {
-		r, err := jsonResult(delivery.Types())
-		return r, nil, err
-	})
-	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name:        "pacto_delivery_operation_describe",
-		Description: "Describe one operation type: what it checks, when a person is needed and how it is undone. Read-only." + noApprove,
-		InputSchema: inputSchema(map[string]property{"type": {Type: "string", Description: "Type id, e.g. pacto.dev/promote"}}, []string{"type"}),
+		Name: "pacto_delivery_operation_types",
+		Description: "List the operation types you may propose, with their facet and who may raise them, or with type set " +
+			"describe that one: what it checks, when a person is needed, how it is undone and its digest. Read-only." + noApprove,
+		InputSchema: inputSchema(map[string]property{"type": {Type: "string", Description: "Type id to describe, e.g. pacto.dev/promote; empty lists them all"}}, nil),
 	}, func(_ context.Context, _ *mcpsdk.CallToolRequest, a struct {
 		Type string `json:"type"`
 	}) (*mcpsdk.CallToolResult, any, error) {
+		if a.Type == "" {
+			r, err := jsonResult(delivery.Types())
+			return r, nil, err
+		}
 		t, ok := delivery.TypeByID(a.Type)
 		if !ok {
 			return errorResult(fmt.Errorf("unknown operation type %q", a.Type)), nil, nil
@@ -139,7 +136,7 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Va
 		return resultOrError(b, err)
 	})
 	mcpsdk.AddTool(server, &mcpsdk.Tool{
-		Name: "pacto_delivery_undo",
+		Name: "pacto_delivery_undo_plan",
 		Description: "Plan how to undo an operation and propose nothing: a rollback bound to it when it is the change the Stage " +
 			"runs now, a promote back to the version it replaced when something changed since (every gate runs), or nothing " +
 			"when it moved nothing. To act, review the plan and propose it yourself with its intent digest. Read-only." + noApprove,

@@ -20,6 +20,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/logging"
@@ -192,9 +193,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().StringSlice("oidc-extra-scopes", nil, "scopes to ask for beyond openid, profile and groups")
 	cmd.Flags().Bool("auth-required", false, "with OIDC sign-in, gate the fleet views and the whole API behind it too, not only delivery (also PACTO_DASHBOARD_AUTH_REQUIRED)")
 	cmd.Flags().String("mira-url", "", "Mira's address, to link the health-check citations of delivery verdicts")
-	cmd.Flags().StringSlice("agent-groups", []string{"pacto:agents"}, "groups whose members are agents, as the delivery promoter is configured")
-	cmd.Flags().StringSlice("break-glass-groups", []string{"pacto:break-glass"}, "groups that may override, as the delivery promoter is configured")
-	cmd.Flags().String("team-group-prefix", "", "a contract owner team T is group T, or with this prefix set only this prefix plus T, as the delivery promoter is configured")
+	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "namespace of the pacto-delivery chart, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.Flags().String("delivery-trust", "", "the trust config delivery records are verified with, so History reads signed records "+
 		"(the recorder's PEM public key or a YAML trust config; default $"+trustEnv+")")
 
@@ -206,7 +205,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.traces", cmd.Flags().Lookup("traces"))
 	_ = v.BindPFlag("dashboard.trace-sources", cmd.Flags().Lookup("trace-source"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-extra-scopes", "auth-required", "mira-url",
-		"agent-groups", "break-glass-groups", "team-group-prefix", "delivery-trust"} {
+		"delivery-namespace", "delivery-trust"} {
 		_ = v.BindPFlag("dashboard."+f, cmd.Flags().Lookup(f))
 	}
 	// A secret never goes on a command line, where any process can read it.

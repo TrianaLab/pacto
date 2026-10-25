@@ -97,8 +97,8 @@ func TestDeploymentAC_WithWatchNamespace(t *testing.T) {
 func TestDeploymentAC_Auth(t *testing.T) {
 	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "ns", MiraURL: "http://mira:8080",
 		Auth: AuthConfig{IssuerURL: "https://idp", ClientID: "pacto-dashboard", RedirectURL: "https://dash/auth/callback",
-			ExtraScopes: []string{"a", "b"}, ClientSecretName: "oidc", TeamGroupPrefix: "acme:",
-			AgentGroups: []string{"acme:bots", "acme:ci"}, BreakGlassGroups: []string{"acme:sre"}}}
+			ExtraScopes: []string{"a", "b"}, ClientSecretName: "oidc", Required: true,
+			DeliveryNamespace: "delivery"}}
 	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
 	env := map[string]corev1ac.EnvVarApplyConfiguration{}
 	for _, e := range deploy.Spec.Template.Spec.Containers[0].Env {
@@ -106,8 +106,8 @@ func TestDeploymentAC_Auth(t *testing.T) {
 	}
 	for name, want := range map[string]string{"PACTO_DASHBOARD_OIDC_ISSUER_URL": "https://idp", "PACTO_DASHBOARD_OIDC_CLIENT_ID": "pacto-dashboard",
 		"PACTO_DASHBOARD_OIDC_REDIRECT_URL": "https://dash/auth/callback", "PACTO_DASHBOARD_OIDC_EXTRA_SCOPES": "a b",
-		"PACTO_DASHBOARD_TEAM_GROUP_PREFIX": "acme:", "PACTO_DASHBOARD_MIRA_URL": "http://mira:8080",
-		"PACTO_DASHBOARD_AGENT_GROUPS": "acme:bots,acme:ci", "PACTO_DASHBOARD_BREAK_GLASS_GROUPS": "acme:sre"} {
+		"PACTO_DASHBOARD_MIRA_URL": "http://mira:8080", "PACTO_DASHBOARD_DELIVERY_NAMESPACE": "delivery",
+		"PACTO_DASHBOARD_AUTH_REQUIRED": "true"} {
 		if e, ok := env[name]; !ok || *e.Value != want {
 			t.Errorf("%s: want %q, got %+v", name, want, e)
 		}
@@ -123,7 +123,7 @@ func TestDeploymentAC_Auth(t *testing.T) {
 		}
 	}
 	for _, e := range deploymentAC(Config{Image: "i", Namespace: "n"}).(*appsv1ac.DeploymentApplyConfiguration).Spec.Template.Spec.Containers[0].Env {
-		if strings.Contains(*e.Name, "OIDC") || strings.Contains(*e.Name, "MIRA") {
+		if strings.Contains(*e.Name, "OIDC") || strings.Contains(*e.Name, "MIRA") || strings.Contains(*e.Name, "AUTH_REQUIRED") {
 			t.Errorf("no sign-in configured, no %s", *e.Name)
 		}
 	}

@@ -193,12 +193,10 @@ dashboard:
       redirectURL: ""
       # -- Scopes asked for beyond openid, profile and groups (for example a cross-client audience scope)
       extraScopes: []
-    # -- A contract owner team `T` is the group `T`, or once this prefix is set only this prefix followed by `T`, as the delivery chart is configured
-    teamGroupPrefix: ""
-    # -- Groups whose members are agents, as the delivery chart's `identities.agentGroups` (empty: `pacto:agents`)
-    agentGroups: []
-    # -- Groups that may override, as the delivery chart's `identities.breakGlassGroups` (empty: `pacto:break-glass`)
-    breakGlassGroups: []
+    # -- Gate the fleet views and the whole API behind sign-in too, not only delivery (needs `oidc.issuerURL`)
+    required: false
+    # -- Namespace of the pacto-delivery chart. The dashboard reads the identity policy it publishes there (agent, break-glass and human groups, team prefix), so it is never configured twice (empty: `pacto-delivery`)
+    deliveryNamespace: ""
   # -- Mira's address, to link the health-check citations in delivery views
   miraURL: ""
   service:

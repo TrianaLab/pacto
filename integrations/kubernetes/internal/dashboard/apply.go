@@ -78,10 +78,11 @@ func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	add("PACTO_DASHBOARD_OIDC_CLIENT_ID", a.ClientID)
 	add("PACTO_DASHBOARD_OIDC_REDIRECT_URL", a.RedirectURL)
 	add("PACTO_DASHBOARD_OIDC_EXTRA_SCOPES", strings.Join(a.ExtraScopes, " "))
-	add("PACTO_DASHBOARD_TEAM_GROUP_PREFIX", a.TeamGroupPrefix)
-	add("PACTO_DASHBOARD_AGENT_GROUPS", strings.Join(a.AgentGroups, ","))
-	add("PACTO_DASHBOARD_BREAK_GLASS_GROUPS", strings.Join(a.BreakGlassGroups, ","))
+	add("PACTO_DASHBOARD_DELIVERY_NAMESPACE", a.DeliveryNamespace)
 	add("PACTO_DASHBOARD_MIRA_URL", cfg.MiraURL)
+	if a.Required {
+		add("PACTO_DASHBOARD_AUTH_REQUIRED", "true")
+	}
 	if a.ClientSecretName != "" {
 		key := a.ClientSecretKey
 		if key == "" {

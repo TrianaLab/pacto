@@ -26,6 +26,8 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	"k8s.io/client-go/rest"
+
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
 // RESTConfig is the cluster config a caller's request runs with: the
@@ -35,6 +37,19 @@ func RESTConfig(cluster *rest.Config, token string) *rest.Config {
 	c := rest.AnonymousClientConfig(cluster)
 	c.BearerToken = token
 	return c
+}
+
+// Refused logs a request authn turned away, so an operator can tell a
+// misconfigured issuer or audience from someone guessing. It names where the
+// request came from and why, never a token. r may be nil.
+func Refused(ctx context.Context, r *http.Request, what string, args ...any) {
+	if r != nil {
+		args = append(args, "remote", r.RemoteAddr, "method", r.Method, "path", r.URL.Path)
+		if id := r.Header.Get("X-Request-Id"); id != "" {
+			args = append(args, "request", id)
+		}
+	}
+	logging.LoggerFromContext(ctx).Warn(what, args...)
 }
 
 // random returns n random bytes, hex encoded.

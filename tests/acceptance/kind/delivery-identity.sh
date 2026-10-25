@@ -6,8 +6,9 @@
 # authentication: Dex for people (the dashboard signs them in) and Keycloak for
 # agents reaching Pacto's MCP server over HTTP (it supports RFC 8693 token
 # exchange). Both map auth_time to userInfo.extra["pacto.dev/auth-time"], but
-# only for tokens issued to the interactive clients (azp pacto-dashboard or
-# pacto-cli), so client-credentials and exchanged tokens never carry it.
+# only for tokens issued to the clients that make a person log in again (azp
+# pacto-dashboard or pacto-approve), so client-credentials and exchanged
+# tokens, and a kubeconfig login (pacto-cli), never carry it.
 #
 # One address has to work for three parties: the apiserver (inside the
 # control-plane node), the dashboard and MCP servers, and this script's test
@@ -24,7 +25,10 @@
 #   - a decision needs a fresh login; the promoter ignores an approval whose
 #     login is older than its login freshness (15 minutes unless set); a token
 #     without the interactive azp gets no auth-time and admission refuses its
-#     approval
+#     approval; a kubeconfig login has none either, so an agent in the
+#     person's shell cannot approve with it
+#   - `pacto delivery approve` logs the person in again with its own client and
+#     records the approval as them
 #   - only the named team may approve; the promoter ignores anyone else
 #   - an agent reaches Pacto over HTTP as itself (token exchange) and cannot
 #     approve through the dashboard, the MCP server or the apiserver
@@ -41,7 +45,7 @@ DASH_URL="http://127.0.0.1:3300"
 MCP_URL="http://127.0.0.1:8585"
 DASH_SECRET="dashboard-secret"
 IDP_FIXTURES="$(dirname "${BASH_SOURCE[0]}")/fixtures/identity"
-IDP_CONTAINERS=(pacto-e2e-dex pacto-e2e-keycloak pacto-e2e-dashboard pacto-e2e-mcp)
+IDP_CONTAINERS=(pacto-e2e-dex pacto-e2e-keycloak pacto-e2e-dashboard pacto-e2e-mcp pacto-e2e-approve)
 
 # A failed run in CI keeps the containers: scripts/ci/kind-diagnostics.sh runs
 # after the scenario exits and saves their full logs (rc is the EXIT trap's).
@@ -89,7 +93,7 @@ $ca
     groups: {claim: groups, prefix: ""}
     extra:
     - key: pacto.dev/auth-time
-      valueExpression: "has(claims.auth_time) && has(claims.azp) && claims.azp in ['pacto-dashboard', 'pacto-cli'] ? string(int(claims.auth_time)) : ''"
+      valueExpression: "has(claims.auth_time) && has(claims.azp) && claims.azp in ['pacto-dashboard', 'pacto-approve'] ? string(int(claims.auth_time)) : ''"
 YAML
     done
   } > "$IDP_DIR/authn.yaml"
@@ -142,6 +146,11 @@ identity_start() {
     --https-certificate-file=/etc/x509/tls.crt --https-certificate-key-file=/etc/x509/tls.key --hostname="https://127.0.0.1:8443"
   OIDC_BIN="$(mktemp -d)/oidclogin"
   ( cd "$_PACTO_ROOT" && go build -o "$OIDC_BIN" ./tests/acceptance/kind/oidclogin ) || fail "building the login helper failed"
+  # The same helper for the node: `pacto delivery approve` listens on the
+  # node's loopback, which only a process in its network namespace reaches.
+  OIDC_NODE_BIN="$IDP_DIR/oidclogin-node"
+  ( cd "$_PACTO_ROOT" && CGO_ENABLED=0 GOOS=linux GOARCH="$(docker version -f '{{.Server.Arch}}')" \
+      go build -o "$OIDC_NODE_BIN" ./tests/acceptance/kind/oidclogin ) || fail "building the node's login helper failed"
 }
 identity_up() {
   up() { curl -sf --cacert "$IDP_DIR/tls.crt" "$1/.well-known/openid-configuration" >/dev/null; }
@@ -280,6 +289,25 @@ identity_scenario() {
     || fail "an exchanged agent token is not an agent without auth-time: $who"
   local AGENT_USER; AGENT_USER="$(jq -r .status.userInfo.username <<<"$who")"
   pass "a token without azp, and an exchanged agent token, authenticate with no auth-time"
+  # A kubeconfig login: the CLI client's own token, with azp pacto-cli. Any
+  # process in the person's shell can reuse it, so it never carries the login
+  # time an approval needs.
+  local kubelogin
+  kubelogin="$(oidc token -issuer "$DEX_ISSUER" -client pacto-cli -redirect http://127.0.0.1:8000 \
+    -scope "openid profile groups audience:server:client_id:pacto-dashboard" -user alice@example.com -password password)" \
+    || fail "alice could not log in as a kubeconfig would"
+  who="$(whoami_json "$kubelogin")"
+  jq -e '.status.userInfo.username != null and (.status.userInfo.extra["pacto.dev/auth-time"] == null)' <<<"$who" >/dev/null \
+    || fail "a kubeconfig login got an auth-time, so anything in the shell could approve with it: $who"
+  pass "a kubeconfig login authenticates with no auth-time"
+  # Every client reads the one identity policy the delivery chart publishes,
+  # with the person's own token: nothing is configured twice.
+  local policy
+  policy="$(as_token "$kubelogin" -n "$DELIVERY_NS" get configmap pacto-delivery-identities -o jsonpath='{.data.policy\.json}')" \
+    || fail "a signed-in person cannot read the published identity policy"
+  jq -e '.teamGroupPrefix == "team-" and .requireOwnerTeam == true and (.agentGroups | index("pacto:agents"))' <<<"$policy" >/dev/null \
+    || fail "the published identity policy is not the chart's: $policy"
+  pass "a signed-in person reads the identity policy the promoter runs with"
 
   # --- identities and rights ---
   kubectl create clusterrolebinding delivery-oidc-approvers --clusterrole=pacto-delivery-approver \
@@ -511,5 +539,28 @@ YAML
     || fail "F2 was not rejected by carol: $(field prod idp-f2 reason): $(field prod idp-f2 message)"
   has_pointer prod "$from" || fail "a rejected F moved prod"
   pass "carol rolled F back and rejected it again from the dashboard, each as herself"
+
+  # --- approve from the CLI, as carol, with the command's own fresh login ---
+  out="$(mcp "$(kc_agent_token)" tools/call "{\"name\":\"pacto_delivery_operation_propose\",\"arguments\":{\"namespace\":\"prod\",\"stage\":\"payments\",\"to\":\"$F\",\"from\":\"$from\",\"name\":\"idp-f3\",\"reason\":\"phase 4, from the CLI\"}}")"
+  eventually 30 held prod idp-f3 || fail "F was not held for the CLI: $out $(field prod idp-f3 phase) $(field prod idp-f3 message)"
+  # The command runs in the node with a kubeconfig that holds no credentials
+  # at all: the token it sends is the one the fresh login gives it.
+  in_node pacto-e2e-approve -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp \
+    -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" -v "$mcpkc:/kube/config:ro" -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" \
+    "$DASH_IMG" delivery approve -n prod idp-f3 --note "from the terminal" --oidc-issuer-url "$DEX_ISSUER" \
+    --oidc-extra-scopes audience:server:client_id:pacto-cli --oidc-redirect-port 8001
+  local login_url=""
+  asked() { login_url="$(docker logs pacto-e2e-approve 2>&1 | grep -o 'https://127.0.0.1:5556/dex/auth[^ ]*' | head -1)"; [ -n "$login_url" ]; }
+  eventually 30 asked || { docker logs pacto-e2e-approve 2>&1 | tail; fail "pacto delivery approve did not ask for a login"; }
+  grep -q "prompt=login" <<<"$login_url" && grep -q "max_age=0" <<<"$login_url" || fail "the CLI's login is not forced: $login_url"
+  docker run --rm --network "container:${CLUSTER}-control-plane" -v "$OIDC_NODE_BIN:/oidclogin:ro" -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" \
+    --entrypoint /oidclogin "$DASH_IMG" open -url "$login_url" -user carol@example.com -password password -ca /ca/tls.crt >/dev/null \
+    || fail "carol could not log in for the CLI"
+  [ "$(docker wait pacto-e2e-approve)" = 0 ] || { docker logs pacto-e2e-approve 2>&1 | tail; fail "pacto delivery approve failed"; }
+  approval="$(docker logs pacto-e2e-approve 2>/dev/null | sed -n 's/^recorded approve on prod\/idp-f3 as Approval //p')"
+  kubectl -n prod get approval "$approval" -o json | jq -e --arg u "$CAROL" '.spec.by == $u and .spec.note == "from the terminal"' >/dev/null \
+    || fail "the CLI's Approval is not carol's: $(docker logs pacto-e2e-approve 2>&1 | tail -3)"
+  wait_concluded prod idp-f3 Succeeded/Verified
+  pass "carol approved from the CLI after the command's own fresh login; F shipped"
 
 }

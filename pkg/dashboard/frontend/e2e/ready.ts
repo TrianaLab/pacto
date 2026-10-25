@@ -41,3 +41,31 @@ export async function settle(page: Page): Promise<void> {
     await page.waitForTimeout(200); // the sampling interval, not a guess at an end
   }
 }
+
+// The demo's payments-service v2.1.1 overview carries a flowchart fence.
+//
+// The row is picked by canonical key, never by label: the demo publishes same-named
+// services in two domains, so matching on the visible name alone can silently open
+// whichever of them happens to sort first.
+export async function openMermaidDoc(page: Page) {
+  await page.goto('/#/fleet/services');
+  await expect(page.getByRole('heading', { name: 'Services' })).toBeVisible({ timeout: 20_000 });
+  await page.locator('.sv-item a.entity-link[href$="/fleet/services/payments-service"]').first().click();
+  await expect(page).toHaveURL(/#\/fleet\/services\/payments-service$/);
+  // 2.1.1 is published but not deployed, so it is not in the in-use list the page
+  // opens with -- it is in the exhaustive "All revisions" disclosure, which is
+  // collapsed. A revision nobody runs still has documentation worth reading.
+  await page
+    .locator('details.ps-collapsible')
+    .filter({ has: page.getByRole('heading', { name: 'All revisions' }) })
+    .locator('summary')
+    .first()
+    .click();
+  await page.locator('a.entity-link[href*="/fleet/revisions/"]', { hasText: '2.1.1' }).first().click();
+  await expect(page).toHaveURL(/#\/fleet\/revisions\//);
+
+  const doc = page.locator('details.rd-doc', { hasText: 'overview' }).first();
+  await expect(doc).toBeVisible({ timeout: 20_000 });
+  await doc.locator('summary').click();
+  return doc;
+}

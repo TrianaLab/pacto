@@ -200,6 +200,35 @@ func TestPlanRoutesEveryOtherQuestionToTheServiceTeam(t *testing.T) {
 	}
 }
 
+// TestPlanSaysWhoAnswersWithNoTeam: a breaking change whose consumer declares
+// no team asks the service's team, never "any person" while owners name one;
+// with no team anywhere the question warns who may answer.
+func TestPlanSaysWhoAnswersWithNoTeam(t *testing.T) {
+	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "2.0.0"))
+	ownerless := checkoutPacto("^1.0.0")
+	ownerless.Status.Contract.Owner = nil
+	p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, from, to, ownerless)
+	if strings.Join(p.Floor.Owners, ",") != "team-payments" || !strings.Contains(p.Question, "Asked of: team-payments") {
+		t.Fatalf("an ownerless consumer's break asks the service's team: %+v", p)
+	}
+	anon := bundle("payments", "1.1.0")
+	anon.Contract.Service.Owner = contract.Owner{}
+	stage := stageSpec()
+	stage.Approval.Always = true
+	first := Revision{Digest: dB, ContractRef: "oci://reg.example/pactos/payments@" + c2, Bundle: anon}
+	snap, err := Snapshot(context.Background(), nil, nil, []Revision{first}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for require, want := range map[bool]string{false: "Asked of: any person", true: "Asked of: nobody"} {
+		p := PlanFor(context.Background(), PlanInput{Spec: promote("", dB), Stage: stage, Status: StageStatus{Published: []string{dB}},
+			To: first, Snapshot: snap, Class: ClassAgent, RequireOwnerTeam: require})
+		if !p.Floor.Human || len(p.Floor.Owners) != 0 || !strings.Contains(p.Question, want) || !strings.Contains(p.Question, "service.owner") {
+			t.Fatalf("require=%v: %+v", require, p)
+		}
+	}
+}
+
 func TestPlanUnreadableContractWaitsForAPerson(t *testing.T) {
 	from := rev(dA, c1, bundle("payments", "1.0.0"))
 	to := Revision{Digest: dB, ContractRef: "oci://reg.example/pactos/payments@" + c2, Err: "pull failed"}
@@ -296,7 +325,8 @@ func TestShortAndHelpers(t *testing.T) {
 	if short("") != "(none)" || short("abc") != "abc" || short(dA) != "sha256:aaaaaaaaaaaa" {
 		t.Fatal("short")
 	}
-	if ownersOrAnyone(nil) == "" || limitationCodes(nil) != "a source is not available" {
+	if !strings.HasPrefix(ownersOrAnyone(nil, false), "any person") || !strings.HasPrefix(ownersOrAnyone(nil, true), "nobody") ||
+		limitationCodes(nil) != "a source is not available" {
 		t.Fatal("helpers")
 	}
 }

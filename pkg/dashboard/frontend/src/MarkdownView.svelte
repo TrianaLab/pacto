@@ -1,5 +1,5 @@
 <script>
-  import { renderMarkdown } from './lib/markdown.ts';
+  import { renderMarkdown, MERMAID_CONFIG } from './lib/markdown.ts';
   import DOMPurify from 'dompurify';
 
   let { content = '', truncated = false } = $props();
@@ -13,17 +13,7 @@
     if (!mermaidPromise) {
       mermaidPromise = import('mermaid').then((m) => {
         const mermaid = m.default;
-        mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: 'strict', // no JS, no click handlers
-          // Render labels as native SVG <text> rather than HTML in <foreignObject>:
-          // the sanitized-SVG output keeps <text>/<tspan>, but would strip foreignObject
-          // HTML, leaving empty shapes. htmlLabels:false also keeps <br/> as line breaks.
-          htmlLabels: false,
-          flowchart: { htmlLabels: false },
-          theme: 'neutral',
-          fontFamily: 'inherit',
-        });
+        mermaid.initialize(MERMAID_CONFIG);
         return mermaid;
       });
     }

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -46,11 +47,10 @@ func identityFor(t *testing.T, v *viper.Viper, host string, cluster *rest.Config
 
 func TestDashboardIdentityModes(t *testing.T) {
 	v := viper.New()
-	v.Set("dashboard.agent-groups", []string{"pacto:agents,bots"})
-	v.Set("dashboard.team-group-prefix", "acme:")
+	v.Set("dashboard.delivery-namespace", "delivery")
 	local := identityFor(t, v, "127.0.0.1", &rest.Config{Host: "https://k"})
-	if !local.auth.Local() || len(local.policy.AgentGroups) != 2 || local.policy.TeamGroupPrefix != "acme:" {
-		t.Fatalf("loopback without OIDC is local: %+v", local.policy)
+	if !local.auth.Local() || local.policyNS != "delivery" {
+		t.Fatalf("loopback without OIDC is local, reading the policy published in delivery: %+v", local)
 	}
 	if !identityFor(t, v, "localhost", nil).auth.Local() {
 		t.Fatal("localhost is loopback")
@@ -284,5 +284,37 @@ func TestDashboardIdentityRefusesABadTrustConfig(t *testing.T) {
 	v.Set("dashboard.delivery-trust", filepath.Join(t.TempDir(), "absent"))
 	if _, err := newDashboardIdentity(v, "127.0.0.1", nil, defaultDeps()); err == nil || !strings.Contains(err.Error(), "trust config") {
 		t.Fatalf("a missing trust config must fail at start: %v", err)
+	}
+}
+
+// The published config schema names only variables the dashboard reads: every
+// PACTO_DASHBOARD_* property is a bound flag (or one of the env-only settings),
+// and the delivery settings are in it.
+func TestDashboardConfigSchemaMatchesTheFlags(t *testing.T) {
+	cmd := newDashboardCommand(app.NewService(nil, nil), viper.New(), "test", defaultDeps())
+	data, err := dashboard.ExportConfigSchema()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var s struct {
+		Properties map[string]any `json:"properties"`
+	}
+	if err := json.Unmarshal(data, &s); err != nil {
+		t.Fatal(err)
+	}
+	envOnly := map[string]bool{"PACTO_DASHBOARD_REPO": true, "PACTO_DASHBOARD_OIDC_CLIENT_SECRET": true}
+	for k := range s.Properties {
+		rest, ok := strings.CutPrefix(k, "PACTO_DASHBOARD_")
+		if !ok || envOnly[k] {
+			continue
+		}
+		if cmd.Flags().Lookup(strings.ToLower(strings.ReplaceAll(rest, "_", "-"))) == nil {
+			t.Errorf("schema lists %s but the dashboard reads no such setting", k)
+		}
+	}
+	for _, k := range []string{"PACTO_DASHBOARD_DELIVERY_NAMESPACE", "PACTO_DASHBOARD_DELIVERY_TRUST"} {
+		if s.Properties[k] == nil {
+			t.Errorf("schema leaves out %s", k)
+		}
 	}
 }

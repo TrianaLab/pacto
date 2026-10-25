@@ -38,9 +38,6 @@ const (
 	loginTimeout    = 10 * time.Minute
 	// refreshMargin: an ID token this close to expiry is refreshed first.
 	refreshMargin = time.Minute
-	// FreshLogin is how old a login may be when its owner decides, leaving a
-	// margin under the promoter's 15 minutes.
-	FreshLogin = 10 * time.Minute
 	// skew is the clock difference tolerated on auth_time.
 	skew = time.Minute
 )
@@ -243,43 +240,47 @@ func authTime(id *oidc.IDToken) (time.Time, bool) {
 // auth_time) and creates the session. A fresh login also rotates the session
 // id: the old session is gone and a new cookie is set.
 func (o *OIDC) Callback(w http.ResponseWriter, r *http.Request) {
+	refuse := func(code int, msg string) {
+		Refused(r.Context(), r, "dashboard refused a sign-in", "issuer", o.cfg.IssuerURL, "client", o.cfg.ClientID, "reason", msg)
+		http.Error(w, msg, code)
+	}
 	st, ok := o.readLogin(r)
 	http.SetCookie(w, &http.Cookie{Name: loginCookie, Path: "/", MaxAge: -1, Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	q := r.URL.Query()
 	switch {
 	case !ok || q.Get("state") != st.State:
-		http.Error(w, "this sign-in was not started here or took too long; sign in again", http.StatusBadRequest)
+		refuse(http.StatusBadRequest, "this sign-in was not started here or took too long; sign in again")
 		return
 	case q.Get("error") != "":
-		http.Error(w, "the identity provider refused the sign-in: "+q.Get("error")+" "+q.Get("error_description"), http.StatusUnauthorized)
+		refuse(http.StatusUnauthorized, "the identity provider refused the sign-in: "+q.Get("error")+" "+q.Get("error_description"))
 		return
 	}
 	p, err := o.provider()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+		refuse(http.StatusBadGateway, err.Error())
 		return
 	}
 	tok, err := p.oauth.Exchange(o.ctx(r), q.Get("code"), oauth2.VerifierOption(st.Verifier))
 	if err != nil {
-		http.Error(w, "exchanging the sign-in code failed: "+err.Error(), http.StatusUnauthorized)
+		refuse(http.StatusUnauthorized, "exchanging the sign-in code failed: "+err.Error())
 		return
 	}
 	raw, _ := tok.Extra("id_token").(string)
 	id, err := p.verifier.Verify(r.Context(), raw)
 	if err != nil {
-		http.Error(w, "the identity provider's ID token does not verify: "+err.Error(), http.StatusUnauthorized)
+		refuse(http.StatusUnauthorized, "the identity provider's ID token does not verify: "+err.Error())
 		return
 	}
 	at, hasAuthTime := authTime(id)
 	switch {
 	case id.Nonce != st.Nonce:
-		http.Error(w, "the ID token is not for this sign-in", http.StatusUnauthorized)
+		refuse(http.StatusUnauthorized, "the ID token is not for this sign-in")
 		return
 	case !hasAuthTime:
-		http.Error(w, "the ID token carries no auth_time, which the dashboard needs to tell a fresh login", http.StatusUnauthorized)
+		refuse(http.StatusUnauthorized, "the ID token carries no auth_time, which the dashboard needs to tell a fresh login")
 		return
 	case st.Fresh && at.Before(time.Unix(st.Started, 0).Add(-skew)):
-		http.Error(w, "the identity provider did not ask you to log in again; a decision needs a fresh login", http.StatusUnauthorized)
+		refuse(http.StatusUnauthorized, "the identity provider did not ask you to log in again; a decision needs a fresh login")
 		return
 	}
 	if old, err := r.Cookie(SessionCookie); err == nil {

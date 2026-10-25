@@ -374,6 +374,33 @@ func TestDeliveryWhoAmIAndApprove(t *testing.T) {
 	}
 }
 
+// TestDeliveryReadsThePublishedPolicy: the caller is classified with the
+// policy the delivery chart publishes, and a client without it falls back to
+// the one it was given.
+func TestDeliveryReadsThePublishedPolicy(t *testing.T) {
+	ctx := context.Background()
+	cm := obj("v1", "ConfigMap", "pacto-delivery", delivery.PolicyConfigMap, map[string]any{
+		"data": map[string]any{delivery.PolicyKey: `{"agentGroups":["acme:bots"],"teamGroupPrefix":"acme:","requireOwnerTeam":true}`},
+	})
+	d, _, _ := deliveryFixture(t, "carol", []string{"acme:bots"}, nil, cm)
+	d.PolicyNamespace = "pacto-delivery"
+	who, err := d.WhoAmI(ctx)
+	if err != nil || who.Class != delivery.ClassAgent || who.Policy.TeamGroupPrefix != "acme:" || !who.Policy.RequireOwnerTeam {
+		t.Fatalf("the published agent group makes carol an agent: %+v %v", who, err)
+	}
+	for name, objs := range map[string][]runtime.Object{
+		"missing": nil,
+		"broken": {obj("v1", "ConfigMap", "pacto-delivery", delivery.PolicyConfigMap, map[string]any{
+			"data": map[string]any{delivery.PolicyKey: "{"}})},
+	} {
+		d, _, _ := deliveryFixture(t, "carol", []string{"acme:bots"}, nil, objs...)
+		d.PolicyNamespace = "pacto-delivery"
+		if who, err := d.WhoAmI(ctx); err != nil || who.Class != delivery.ClassHuman || len(who.Policy.AgentGroups) != 1 || who.Policy.AgentGroups[0] != "pacto:agents" {
+			t.Fatalf("%s: falls back to the given policy: %+v %v", name, who, err)
+		}
+	}
+}
+
 func TestDeliveryApproveRefusals(t *testing.T) {
 	op := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p1", map[string]any{
 		"spec": map[string]any{"intentDigest": "sha256:i"},

@@ -25,11 +25,33 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
-	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 )
+
+// ContentSecurityPolicy is sent with every answer. The page holds sessions and
+// the Approve button and renders Markdown from any registry, so it backs the
+// sanitiser: no inline or foreign script, no plugins, no <base> rewrite, forms
+// post only here and nothing may frame the page (the Approve button must not
+// be clickjacked). Inline styles stay allowed because Svelte and Mermaid set
+// them; the sanitiser refuses them in Markdown. Remote images are refused too,
+// so a doc cannot track who reads it.
+const ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; " +
+	"base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+
+// securityHeaders sets the headers every answer carries, signed in or not.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", ContentSecurityPolicy)
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "same-origin")
+		next.ServeHTTP(w, r)
+	})
+}
 
 // Options configures a [Server]. Every field is optional.
 type Options struct {
@@ -70,9 +92,6 @@ type Options struct {
 	// DeliveryInstalled reports whether the cluster serves the delivery API
 	// group; an error means the cluster could not be asked. Nil means it does.
 	DeliveryInstalled func(context.Context) (bool, error)
-	// DeliveryPolicy classifies callers and maps owner teams to groups, the
-	// way the promoter does.
-	DeliveryPolicy delivery.ClassPolicy
 	// DeliveryNamespace, when set, is the only namespace delivery reads and
 	// acts in, as the fleet views are scoped to it.
 	DeliveryNamespace string
@@ -204,7 +223,7 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 	defer cancelBase()
 
 	srv := &http.Server{
-		Handler:           s.corsMiddleware(handler),
+		Handler:           securityHeaders(s.corsMiddleware(handler)),
 		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,

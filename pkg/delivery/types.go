@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -187,18 +188,52 @@ type Identity struct {
 	Groups []string `json:"groups,omitempty"`
 }
 
-// ClassPolicy names the identities the promoter treats specially.
+// ClassPolicy names the identities the promoter treats specially. The
+// delivery chart publishes it as JSON in the PolicyConfigMap, which the
+// promoter runs with and every client reads, so they cannot drift.
 type ClassPolicy struct {
 	// ControllerUser is the promoter's own service account username.
-	ControllerUser string
+	ControllerUser string `json:"-"`
 	// AgentGroups mark agents running under a person-like identity.
-	AgentGroups []string
+	AgentGroups []string `json:"agentGroups,omitempty"`
 	// BreakGlassGroups may override and edit the pointer directly.
-	BreakGlassGroups []string
+	BreakGlassGroups []string `json:"breakGlassGroups,omitempty"`
 	// TeamGroupPrefix maps a contract owner team to an identity-provider group:
 	// a member of group TeamGroupPrefix+team belongs to the team. A group named
 	// exactly like the team always counts.
-	TeamGroupPrefix string
+	TeamGroupPrefix string `json:"teamGroupPrefix,omitempty"`
+	// RequireOwnerTeam leaves a question that names no team to nobody: only
+	// break-glass can then override. Off, any person may answer it.
+	RequireOwnerTeam bool `json:"requireOwnerTeam"`
+	// HumanGroups, when set, is the only way to count as a person: anyone in
+	// none of them is an agent. Empty classifies by AgentGroups alone, so an
+	// agent identity left out of every agent group counts as a person.
+	HumanGroups []string `json:"humanGroups,omitempty"`
+}
+
+// PolicyConfigMap is the ConfigMap, in the delivery chart's namespace, that
+// holds the ClassPolicy as JSON under PolicyKey. Every authenticated user may
+// read it.
+const (
+	PolicyConfigMap = "pacto-delivery-identities"
+	PolicyKey       = "policy.json"
+	// PolicyNamespace is the namespace the delivery chart's docs install in.
+	PolicyNamespace = "pacto-delivery"
+)
+
+// DefaultClassPolicy is the delivery chart's default: what a client assumes
+// when the policy is not published.
+func DefaultClassPolicy() ClassPolicy {
+	return ClassPolicy{AgentGroups: []string{"pacto:agents"}, BreakGlassGroups: []string{"pacto:break-glass"}, RequireOwnerTeam: true}
+}
+
+// ParseClassPolicy reads a published ClassPolicy.
+func ParseClassPolicy(b []byte) (ClassPolicy, error) {
+	var p ClassPolicy
+	if err := json.Unmarshal(b, &p); err != nil {
+		return ClassPolicy{}, fmt.Errorf("the delivery identity policy: %w", err)
+	}
+	return p, nil
 }
 
 // Caller is who the apiserver says is calling (a SelfSubjectReview), the class
@@ -207,15 +242,18 @@ type Caller struct {
 	Identity
 	Class    ActorClass `json:"class"`
 	AuthTime string     `json:"authTime,omitempty"`
+	// Policy is the published ClassPolicy the caller was classified with,
+	// for the teams and person checks a client makes before it offers.
+	Policy ClassPolicy `json:"-"`
 }
 
 // InTeams reports whether groups name one of the teams: the group T, or with
 // a TeamGroupPrefix only that prefix plus T. A Kubernetes system: group is
 // never a team, as every user carries one. No teams means the question names
-// nobody, so any person may answer it.
+// nobody: any person may answer it, or nobody with RequireOwnerTeam.
 func (p ClassPolicy) InTeams(groups, teams []string) bool {
 	if len(teams) == 0 {
-		return true
+		return !p.RequireOwnerTeam
 	}
 	for _, t := range teams {
 		if g := p.TeamGroupPrefix + t; !strings.HasPrefix(g, "system:") && slices.Contains(groups, g) {
@@ -234,17 +272,22 @@ func (p ClassPolicy) Classify(id Identity) ActorClass {
 		return ClassController
 	case intersects(id.Groups, p.BreakGlassGroups):
 		return ClassBreakGlass
-	case isServiceAccount(id.User) || intersects(id.Groups, p.AgentGroups):
+	case isServiceAccount(id.User) || intersects(id.Groups, p.AgentGroups) || p.unenrolled(id):
 		return ClassAgent
 	default:
 		return ClassHuman
 	}
 }
 
-// IsHuman reports whether id may approve: not a service account and in no agent
-// or controller group.
+// IsHuman reports whether id may approve: not a service account, in no agent
+// or controller group and, when HumanGroups is set, in one of them.
 func (p ClassPolicy) IsHuman(id Identity) bool {
-	return id.User != p.ControllerUser && !isServiceAccount(id.User) && !intersects(id.Groups, p.AgentGroups)
+	return id.User != p.ControllerUser && !isServiceAccount(id.User) && !intersects(id.Groups, p.AgentGroups) && !p.unenrolled(id)
+}
+
+// unenrolled: a human allowlist is set and id is in none of it.
+func (p ClassPolicy) unenrolled(id Identity) bool {
+	return len(p.HumanGroups) > 0 && !intersects(id.Groups, p.HumanGroups)
 }
 
 func isServiceAccount(user string) bool { return strings.HasPrefix(user, "system:serviceaccount:") }

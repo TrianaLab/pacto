@@ -70,6 +70,32 @@ tests:
           path: spec.validations[1].expression
           pattern: "g in \\['pacto:agents'\\]"
 
+  - it: counts nobody outside identities.humanGroups as a person
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      identities.humanGroups: [staff]
+    asserts:
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "!request.userInfo.groups.exists\\(g, g in \\['staff'\\]\\)\\)$"
+        documentIndex: 4
+      - matchRegex:
+          path: spec.variables[3].expression
+          pattern: "!request.userInfo.groups.exists\\(g, g in \\['staff'\\]\\)$"
+        documentIndex: 0
+
+  - it: adds no human allowlist by default
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - notMatchRegex:
+          path: spec.validations[1].expression
+          pattern: "!request.userInfo.groups.exists"
+        documentIndex: 4
+
   - it: binds an approval's groups to the approving user's groups
     capabilities:
       apiVersions:

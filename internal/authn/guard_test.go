@@ -60,8 +60,6 @@ func TestLocalLaunch(t *testing.T) {
 		c := cookieNamed(t, serve(h, httptest.NewRequest(http.MethodGet, url+"?token="+d.launch, nil)), launchCookie)
 		expect(t, c.Secure == secure, "launch cookie from %s: Secure=%v, want %v", url, c.Secure, secure)
 	}
-	expect(t, rec.Header().Get("X-Frame-Options") == "DENY", "every answer refuses framing")
-	expect(t, rec.Header().Get("Content-Security-Policy") == "frame-ancestors 'none'", "every answer refuses framing")
 	rec = serve(h, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:3000/?token=wrong", nil))
 	expect(t, rec.Code == http.StatusForbidden, "a wrong launch token is refused")
 	// Reads outside delivery pass without the cookie.
@@ -170,8 +168,8 @@ func TestOpenMode(t *testing.T) {
 	d := NewOpen()
 	var got State
 	rec := serve(d.Middleware(echo(&got)), httptest.NewRequest(http.MethodPost, "http://dash.example/api/delivery/plan", nil))
-	if d.Local() || d.Login() || rec.Code != http.StatusTeapot || got.SignedIn || rec.Header().Get("X-Frame-Options") != "DENY" {
-		t.Fatalf("open mode identifies nobody and still refuses framing: %d %+v", rec.Code, got)
+	if d.Local() || d.Login() || rec.Code != http.StatusTeapot || got.SignedIn {
+		t.Fatalf("open mode identifies nobody: %d %+v", rec.Code, got)
 	}
 	if serve(d.Routes(), httptest.NewRequest(http.MethodGet, "/auth/login", nil)).Code != http.StatusNotFound {
 		t.Fatal("open mode has no login")

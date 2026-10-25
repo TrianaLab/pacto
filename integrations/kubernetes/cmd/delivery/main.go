@@ -67,13 +67,9 @@ func runPromoter(args []string) error {
 	leaderElect := fs.Bool("leader-elect", true, "Elect one active promoter.")
 	controllerUser := fs.String("controller-user", "",
 		"The promoter's own apiserver username. Empty derives it from POD_NAMESPACE and SERVICE_ACCOUNT.")
-	agentGroups := fs.String("agent-groups", "pacto:agents",
-		"Comma-separated groups whose members are agents, never humans.")
-	breakGlassGroups := fs.String("break-glass-groups", "pacto:break-glass",
-		"Comma-separated groups that may override and edit the pointer.")
-	teamGroupPrefix := fs.String("team-group-prefix", "",
-		"A contract owner team T is identity-provider group T, or with this prefix set only this prefix plus T. "+
-			"Only members of the teams a question names may answer it.")
+	identities := fs.String("identities", "",
+		"The identity policy (agent, break-glass and human groups, the team group prefix and whether an owner team "+
+			"is required) as JSON, mounted from the ConfigMap the chart publishes for clients. Empty keeps the defaults.")
 	workers := fs.Int("workers", 4,
 		"How many operations and Stages the promoter reconciles at once, "+
 			"so one slow health provider does not hold up the rest.")
@@ -108,8 +104,10 @@ func runPromoter(args []string) error {
 	if user == "" {
 		user = delivery.ServiceAccountUser(os.Getenv("POD_NAMESPACE"), os.Getenv("SERVICE_ACCOUNT"))
 	}
-	policy := core.ClassPolicy{ControllerUser: user, AgentGroups: delivery.SplitList(*agentGroups),
-		BreakGlassGroups: delivery.SplitList(*breakGlassGroups), TeamGroupPrefix: *teamGroupPrefix}
+	policy, err := delivery.LoadClassPolicy(*identities, user)
+	if err != nil {
+		return err
+	}
 
 	clusterID, err := readClusterID(mgr)
 	if err != nil {

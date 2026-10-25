@@ -8,6 +8,10 @@
 //	    current session the fresh login rotates.
 //	oidclogin token -issuer URL -client ID -secret S -redirect URL -scope "..." -user U -password P
 //	    runs the authorization code flow as that client and prints the ID token.
+//	oidclogin open -url URL -user U -password P
+//	    opens a login address a command printed (`pacto delivery approve`),
+//	    logs in and follows the provider back to the command's loopback
+//	    listener, then prints what the listener answered.
 //
 // The provider's own cookies (its session) are kept in -jar between runs, so a
 // second plain login is single sign-on and keeps the first login's auth_time,
@@ -55,7 +59,7 @@ type browser struct {
 
 func run(args []string, out io.Writer) error {
 	if len(args) == 0 {
-		return errors.New("usage: oidclogin dashboard|token [flags]")
+		return errors.New("usage: oidclogin dashboard|token|open [flags]")
 	}
 	fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 	ca := fs.String("ca", "", "CA certificate the provider's TLS chains to")
@@ -70,6 +74,7 @@ func run(args []string, out io.Writer) error {
 	secret := fs.String("secret", "", "client secret")
 	redirect := fs.String("redirect", "", "registered redirect URL")
 	scope := fs.String("scope", "openid", "scopes")
+	open := fs.String("url", "", "login address to open")
 	if err := fs.Parse(args[1:]); err != nil {
 		return err
 	}
@@ -83,6 +88,8 @@ func run(args []string, out io.Writer) error {
 		v, err = b.dashboard(*dash, *fresh, *session)
 	case "token":
 		v, err = b.token(*issuer, *clientID, *secret, *redirect, *scope)
+	case "open":
+		v, err = b.open(*open)
 	default:
 		err = fmt.Errorf("unknown command %q", args[0])
 	}
@@ -284,4 +291,29 @@ func (b *browser) token(issuer, clientID, secret, redirect, scope string) (strin
 		return "", fmt.Errorf("the token endpoint gave no ID token: %s %s", resp.Status, tok.Error)
 	}
 	return tok.IDToken, nil
+}
+
+// open logs in at a login address and delivers the answer to the loopback
+// listener its redirect_uri names, as the person's browser would.
+func (b *browser) open(raw string) (string, error) {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	back, err := url.Parse(u.Query().Get("redirect_uri"))
+	if err != nil {
+		return "", err
+	}
+	callback, err := b.follow(raw, back.Host)
+	if err != nil {
+		return "", err
+	}
+	resp, body, err := b.do(http.MethodGet, callback.String(), nil)
+	if err != nil {
+		return "", err
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("the command refused the login: %s %s", resp.Status, strings.TrimSpace(body))
+	}
+	return strings.TrimSpace(body), nil
 }

@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -12,9 +13,11 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/rest"
 	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
@@ -83,6 +86,24 @@ func deliveryDeps(user string, dynErr error) deps {
 			return true, o, nil
 		})
 		return c, dynErr
+	}
+	return d
+}
+
+// approveDeps is deliveryDeps for `approve`, which never uses the ambient
+// credentials: it logs in again and builds its client from that token alone.
+func approveDeps(user string, dynErr error) deps {
+	d := deliveryDeps(user, dynErr)
+	d.clusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://k8s", BearerToken: "ambient"}, dynErr }
+	d.freshLogin = func(_ context.Context, c authn.FreshConfig) (string, error) {
+		c.Prompt("https://idp/auth?prompt=login")
+		return "fresh-" + c.ClientID, nil
+	}
+	d.dynamicFor = func(c *rest.Config) (dynamic.Interface, error) {
+		if c.BearerToken != "fresh-pacto-approve" || c.Host != "https://k8s" {
+			return nil, fmt.Errorf("approve ran with bearer %q on %q", c.BearerToken, c.Host)
+		}
+		return d.newDynamic()
 	}
 	return d
 }
@@ -159,19 +180,72 @@ func TestDeliveryCommandReadVerbs(t *testing.T) {
 
 func TestDeliveryCommandWriteVerbs(t *testing.T) {
 	propose := []string{"propose", "-n", "prod", "--stage", "payments-prod", "--to", cliB}
-	checkDeliveryRuns(t, deliveryDeps("system:serviceaccount:agents:bot", nil), []deliveryRun{
+	checkDeliveryRuns(t, approveDeps("system:serviceaccount:agents:bot", nil), []deliveryRun{
 		{"text", append(propose, "--name", "p1", "--type", "promote"), false, []string{"proposed prod/p1"}},
 		{"json", append(propose, "--name", "p2"), false, []string{`"operation"`}},
 		{"text", append(propose, "--intent-digest", "sha256:old"), true, []string{"PlanStale"}},
 		{"text", []string{"cancel", "-n", "prod", "held"}, false, []string{"cancel requested for prod/held"}},
 		{"text", []string{"cancel", "-n", "prod", "gone"}, true, nil},
-		{"text", []string{"approve", "-n", "prod", "held"}, true, []string{"agents may not approve"}},
+		{"text", []string{"approve", "-n", "prod", "held", "--oidc-issuer-url", "https://idp"}, true, []string{"agents may not approve"}},
 	})
-	checkDeliveryRuns(t, deliveryDeps("alice", nil), []deliveryRun{
-		{"text", []string{"approve", "-n", "prod", "held", "--decision", "accept-unknown", "--note", "ok"}, false,
+	checkDeliveryRuns(t, approveDeps("alice", nil), []deliveryRun{
+		{"text", []string{"approve", "-n", "prod", "held", "--decision", "accept-unknown", "--note", "ok", "--oidc-issuer-url", "https://idp"}, false,
 			[]string{"recorded accept-unknown on prod/held as Approval held-1"}},
 		{"text", []string{"approve", "-n", "prod", "held", "--decision", "maybe"}, true, []string{"--decision must be one of"}},
+		{"text", []string{"approve", "-n", "prod", "held"}, true, []string{"approving needs a fresh login of your own", "--oidc-issuer-url"}},
 	})
+}
+
+// approve logs the person in again with its own client and sends the
+// Approval with that token, never the kubeconfig's.
+func TestDeliveryApproveFreshLogin(t *testing.T) {
+	d := approveDeps("alice", nil)
+	var got authn.FreshConfig
+	login := d.freshLogin
+	d.freshLogin = func(ctx context.Context, c authn.FreshConfig) (string, error) {
+		got = c
+		return login(ctx, c)
+	}
+	t.Setenv("PACTO_DELIVERY_OIDC_CLIENT_SECRET", "s3cret")
+	v := viper.New()
+	v.SetEnvPrefix("PACTO")
+	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
+	v.AutomaticEnv()
+	cmd := newDeliveryCommand(v, d)
+	out, errOut := &strings.Builder{}, &strings.Builder{}
+	cmd.SetOut(out)
+	cmd.SetErr(errOut)
+	cmd.SetArgs([]string{"approve", "-n", "prod", "held", "--oidc-issuer-url", "https://idp", "--oidc-extra-scopes", "a,b", "--oidc-redirect-port", "8000"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if got.IssuerURL != "https://idp" || got.ClientID != "pacto-approve" || got.ClientSecret != "s3cret" ||
+		strings.Join(got.ExtraScopes, ",") != "a,b" || got.Port != 8000 {
+		t.Fatalf("login config %+v", got)
+	}
+	if !strings.Contains(errOut.String(), "To record approve on prod/held, log in again in your browser") ||
+		!strings.Contains(errOut.String(), "https://idp/auth?prompt=login") || !strings.Contains(out.String(), "as Approval held-1") {
+		t.Fatalf("stderr %q stdout %q", errOut.String(), out.String())
+	}
+
+	fail := func(mod func(*deps), want string) {
+		t.Helper()
+		d := approveDeps("alice", nil)
+		mod(&d)
+		if _, err := runDelivery(t, d, "text", "approve", "-n", "prod", "held", "--oidc-issuer-url", "https://idp"); err == nil || !strings.Contains(err.Error(), want) {
+			t.Fatalf("want %q, got %v", want, err)
+		}
+	}
+	fail(func(d *deps) {
+		d.freshLogin = func(context.Context, authn.FreshConfig) (string, error) { return "", errors.New("login refused") }
+	}, "login refused")
+	fail(func(d *deps) {
+		d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) { return nil, errors.New("bad config") }
+	}, "bad config")
+	fail(func(d *deps) {
+		d.clusterConfig = func() (*rest.Config, error) { return nil, errors.New("no kubeconfig") }
+	}, "no kubeconfig")
+	fail(func(d *deps) { t.Setenv(trustEnv, "/nonexistent/trust.pem") }, "trust")
 }
 
 func TestPrintPlanQuestion(t *testing.T) {
@@ -183,9 +257,10 @@ func TestPrintPlanQuestion(t *testing.T) {
 }
 
 func TestDeliveryCommandClusterUnreachable(t *testing.T) {
-	d := deliveryDeps("alice", errors.New("no kubeconfig"))
+	d := approveDeps("alice", errors.New("no kubeconfig"))
 	for _, args := range [][]string{
-		{"plan", "--stage", "s", "--to", cliB}, {"propose", "--stage", "s", "--to", cliB}, {"get", "x"}, {"cancel", "x"}, {"approve", "x"},
+		{"plan", "--stage", "s", "--to", cliB}, {"propose", "--stage", "s", "--to", cliB}, {"get", "x"}, {"cancel", "x"},
+		{"approve", "x", "--oidc-issuer-url", "https://idp"},
 		{"explain", "x"}, {"history", "--stage", "s"}, {"blame", "--stage", "s"}, {"undo", "x"}, {"record", "verify", "--stage", "s"},
 	} {
 		if _, err := runDelivery(t, d, "text", args...); err == nil || !strings.Contains(err.Error(), "no kubeconfig") {

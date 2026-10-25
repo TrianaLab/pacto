@@ -36,6 +36,10 @@ kubectl create clusterrolebinding payments-approvers \
 Deciding (approve, accept-unknown or reject) also needs a company login the
 cluster trusts, done in the last 15 minutes; a cluster admin sets that up once
 with [Sign-in, approvals and agents](integrations/kubernetes/delivery-identity.md).
+`pacto delivery approve` does that login itself: it prints an address, you log
+in again in your browser, and it records the decision with that login, never
+your kubeconfig's (set `PACTO_DELIVERY_OIDC_ISSUER_URL` to your identity
+provider).
 Until then, cancel the change, fix what it asks about and publish again.
 In the dashboard (`pacto dashboard`), the Delivery tab's **Inbox** lists the
 changes **Waiting for your decision**: open one and press **Approve** (or
