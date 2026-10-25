@@ -2,9 +2,22 @@ package validation
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
+
+// TestSchemaPerSupportedVersion: the versions Parse accepts are the versions
+// with a schema, so a new pactoVersion is one list in pkg/contract plus its
+// schema file, and neither can be forgotten.
+func TestSchemaPerSupportedVersion(t *testing.T) {
+	if got := slices.Sorted(maps.Keys(schemaBytes)); !slices.Equal(got, contract.SupportedVersions) {
+		t.Fatalf("schemas for %v, contract.SupportedVersions %v", got, contract.SupportedVersions)
+	}
+}
 
 func TestSchemaBytes(t *testing.T) {
 	data := SchemaBytes()

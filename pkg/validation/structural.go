@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 //go:embed schema/pacto-v2.0.schema.json
@@ -20,16 +22,17 @@ var schemaV21Bytes []byte
 // descriptions from it.
 func SchemaBytes() []byte { return schemaV21Bytes }
 
-// supportedSchemaVersions lists the supported pactoVersion values.
-var supportedSchemaVersions = []string{"2.0", "2.1"}
+// schemaBytes is the embedded JSON Schema of each pactoVersion. The versions
+// supported are contract.SupportedVersions; init panics on one without a
+// schema here.
+var schemaBytes = map[string][]byte{"2.0": schemaV20Bytes, "2.1": schemaV21Bytes}
 
 // compiledSchemas maps each supported pactoVersion to its compiled JSON Schema.
-var compiledSchemas map[string]*jsonschema.Schema
+var compiledSchemas = map[string]*jsonschema.Schema{}
 
 func init() {
-	compiledSchemas = map[string]*jsonschema.Schema{
-		"2.0": mustCompileSchema(schemaV20Bytes),
-		"2.1": mustCompileSchema(schemaV21Bytes),
+	for _, v := range contract.SupportedVersions {
+		compiledSchemas[v] = mustCompileSchema(schemaBytes[v])
 	}
 }
 
@@ -92,7 +95,7 @@ func ValidateStructural(data any) ValidationResult {
 		result.AddError(
 			"pactoVersion",
 			"UNSUPPORTED_PACTO_VERSION",
-			fmt.Sprintf("unsupported pactoVersion %q; supported versions: %s", version, strings.Join(supportedSchemaVersions, ", ")),
+			fmt.Sprintf("unsupported pactoVersion %q; supported versions: %s", version, strings.Join(contract.SupportedVersions, ", ")),
 		)
 		return result
 	}
