@@ -12,9 +12,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"slices"
+	"strings"
+	"sync"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -40,7 +43,28 @@ type StageReconciler struct {
 	Gates map[string]delivery.Gate
 	Now   func() time.Time
 	Poll  time.Duration
+
+	mu    sync.Mutex
+	reads map[string]upstreamRead // remote upstream reads by Stage and stream
 }
+
+// upstreamRead is one read of a remote upstream, kept for UpstreamPoll.
+type upstreamRead struct {
+	at  time.Time
+	up  *delivery.StageStatus
+	why string
+}
+
+// UpstreamPoll is how long the stage reconciler reuses a read of an upstream
+// in another cluster before it reads the registry again. The Stage itself is
+// polled every few seconds; a registry is not, so a follower lags its
+// upstream by up to this long. A promote reads the records afresh when it is
+// planned, so it never relies on a read this old.
+const UpstreamPoll = 30 * time.Second
+
+// ApplyRefLabel marks the objects a Stage applies through. The admission
+// policy lets the promoter write only to objects that carry it.
+const ApplyRefLabel = "delivery.pacto.trianalab.io/apply-ref"
 
 // Reconcile implements reconcile.Reconciler.
 func (r *StageReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -62,14 +86,14 @@ func (r *StageReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 	if err := r.recheck(ctx, stage); err != nil {
 		return reconcile.Result{}, err
 	}
-	cand, err := r.ready(ctx, stage)
+	cand, up, err := r.ready(ctx, stage)
 	if err != nil {
 		return reconcile.Result{}, err
 	}
 	if err := r.recordPublished(ctx, stage, cand); err != nil {
 		return reconcile.Result{}, err
 	}
-	if err := r.autoPromote(ctx, stage); err != nil {
+	if err := r.autoPromote(ctx, stage, up); err != nil {
 		return reconcile.Result{}, err
 	}
 	return reconcile.Result{RequeueAfter: r.Poll}, nil
@@ -129,8 +153,9 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 }
 
 // autoPromote raises a promote of the newest eligible candidate, unless the
-// Stage is frozen, on auto-hold or already has an operation in flight.
-func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) error {
+// Stage is frozen, on auto-hold or already has an operation in flight. up is
+// what the upstream in another cluster offers, nil when it offers nothing.
+func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage, up *delivery.StageStatus) error {
 	if !stage.Spec.Auto || stage.Status.Frozen || stage.Status.AutoHold {
 		return nil
 	}
@@ -143,7 +168,7 @@ func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) err
 			return nil
 		}
 	}
-	cand, err := r.candidate(ctx, stage)
+	cand, err := r.candidate(ctx, stage, up)
 	if err != nil || cand == "" {
 		return err
 	}
@@ -157,12 +182,47 @@ func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) err
 }
 
 // ready sets the Ready condition and returns the candidate OCIRepository, if
-// the Stage names one that exists. Ready is False, naming what is missing,
-// when the Stage can never promote: nothing is published without a candidate
-// OCIRepository whose spec.verify names the publisher (design M2).
-func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRef, error) {
+// the Stage names one that exists, and what an upstream in another cluster
+// offers. Ready is False, naming what is missing, when the Stage cannot
+// promote: nothing is published without a candidate OCIRepository whose
+// spec.verify names the publisher (design M2), nothing is offered by records
+// that cannot be read, and nothing is applied through an applier the promoter
+// cannot write. It also remembers the newest upstream record read, which the
+// next read must extend.
+func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRef, *delivery.StageStatus, error) {
+	applier, err := r.applierReady(ctx, stage)
+	if err != nil {
+		return nil, nil, err
+	}
+	cand, up, want, err := r.candidateReady(ctx, stage)
+	if err != nil {
+		return nil, nil, err
+	}
+	if applier != nil {
+		want = *applier
+	}
+	seen := up != nil && up.Stream.ID != "" && (up.Stream.ID != stage.Status.UpstreamSeen.Stream || up.Stream.Seq > stage.Status.UpstreamSeen.Seq)
+	if slices.Contains(stage.Status.Conditions, want) && !seen {
+		return cand, up, nil
+	}
+	set := func(s *dv1.Stage) {
+		s.Status.Conditions = append(slices.DeleteFunc(s.Status.Conditions, func(x delivery.Condition) bool { return x.Type == want.Type }), want)
+		if seen {
+			s.Status.UpstreamSeen = delivery.RecordMark{Stream: up.Stream.ID, Seq: up.Stream.Seq, Record: up.Stream.Head}
+		}
+	}
+	if err := r.updateStatus(ctx, stage, set); err != nil {
+		return nil, nil, err
+	}
+	set(stage)
+	return cand, up, nil
+}
+
+// candidateReady reads the Stage's candidate source and says whether it can
+// offer anything: the candidate OCIRepository, what the upstream in another
+// cluster offers, and the Ready condition.
+func (r *StageReconciler) candidateReady(ctx context.Context, stage *dv1.Stage) (*applyRef, *delivery.StageStatus, delivery.Condition, error) {
 	want := delivery.Condition{Type: conditionReady, Status: statusTrue, Reason: conditionReady, Message: "the Stage can promote published versions"}
-	var cand *applyRef
 	c := stage.Spec.Candidates
 	switch {
 	case c.OCIRepositoryRef != nil:
@@ -171,28 +231,87 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 		case apierrors.IsNotFound(err):
 			want = notReady("CandidateNotFound", "the candidate OCIRepository "+c.OCIRepositoryRef.Name+" does not exist")
 		case err != nil:
-			return nil, err
+			return nil, nil, want, err
 		case !pinsIdentity(a.obj.Object):
 			want = notReady("CandidateUnverified", "the candidate OCIRepository "+c.OCIRepositoryRef.Name+
 				" sets no spec.verify with a secretRef or matchOIDCIdentity naming the publisher, so no version is published and the Stage never promotes")
 		}
-		cand = a
+		return a, nil, want, nil
 	case c.UpstreamRecords != nil && r.Cluster.Upstream == nil:
-		want = notReady("UpstreamUntrusted", noUpstreamTrust+", so the Stage never promotes")
-	case c.UpstreamStage == nil && c.UpstreamRecords == nil:
+		return nil, nil, notReady("UpstreamUntrusted", noUpstreamTrust+", so the Stage never promotes"), nil
+	case c.UpstreamRecords != nil:
+		up, why := r.remote(ctx, stage)
+		if up == nil {
+			want = notReady("UpstreamUnreadable", "the records of the upstream Stage "+c.UpstreamRecords.Stream+" in "+c.UpstreamRecords.Repository+
+				" cannot be read or verified ("+why+"), so the Stage promotes nothing until they can")
+		}
+		return nil, up, want, nil
+	case c.UpstreamStage == nil:
 		want = notReady("NoCandidateSource", "the Stage names no candidates.ociRepositoryRef, candidates.upstreamStage or candidates.upstreamRecords, so it never promotes")
 	}
-	if slices.Contains(stage.Status.Conditions, want) {
-		return cand, nil
+	return nil, nil, want, nil
+}
+
+// remote reads the Stage's upstream in another cluster, reusing a read
+// younger than UpstreamPoll.
+func (r *StageReconciler) remote(ctx context.Context, stage *dv1.Stage) (*delivery.StageStatus, string) {
+	rs, now := stage.Spec.Candidates.UpstreamRecords, r.Now()
+	key := stage.Namespace + "/" + stage.Name + "|" + rs.Repository + "|" + rs.Stream
+	r.mu.Lock()
+	last, ok := r.reads[key]
+	r.mu.Unlock()
+	if ok && now.Sub(last.at) < UpstreamPoll {
+		return last.up, last.why
 	}
-	set := func(s *dv1.Stage) {
-		s.Status.Conditions = append(slices.DeleteFunc(s.Status.Conditions, func(x delivery.Condition) bool { return x.Type == want.Type }), want)
+	up, why := r.Cluster.remote(ctx, stage)
+	r.mu.Lock()
+	if r.reads == nil {
+		r.reads = map[string]upstreamRead{}
 	}
-	if err := r.updateStatus(ctx, stage, set); err != nil {
+	r.reads[key] = upstreamRead{at: now, up: up, why: why}
+	r.mu.Unlock()
+	return up, why
+}
+
+// applierReady says what keeps the Stage's applier from taking a version, nil
+// when nothing does: it cannot be read, it lacks ApplyRefLabel (the admission
+// policy then refuses every promoter write) or, on Argo CD, it has no single
+// OCI spec.source or no automated sync (the promoter never runs a sync).
+func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*delivery.Condition, error) {
+	ref := stage.Spec.ApplyRef
+	kind := ref.Kind
+	if kind == "" {
+		kind = delivery.ApplierFlux
+	}
+	what := "the " + kind + " " + ref.Name
+	a, err := r.Cluster.applier(ctx, stage.Namespace, ref)
+	switch {
+	case apierrors.IsNotFound(err) || apierrors.IsForbidden(err):
+		c := notReady("ApplierUnreadable", what+" the Stage applies through cannot be read: "+err.Error())
+		return &c, nil
+	case err != nil:
 		return nil, err
 	}
-	set(stage)
-	return cand, nil
+	var c delivery.Condition
+	_, labelled := a.obj.GetLabels()[ApplyRefLabel]
+	_, multi, _ := unstructured.NestedFieldNoCopy(a.obj.Object, "spec", "sources")
+	url, _, _ := unstructured.NestedString(a.obj.Object, "spec", "source", "repoURL")
+	_, automated, _ := unstructured.NestedFieldNoCopy(a.obj.Object, "spec", "syncPolicy", "automated")
+	switch {
+	case !labelled:
+		c = notReady("ApplierUnlabelled", what+" has no "+ApplyRefLabel+" label, so admission refuses every version the promoter writes to it")
+	case !a.argo:
+		return nil, nil
+	case multi:
+		c = notReady("ApplierMultiSource", what+" sets spec.sources; the promoter writes only the one OCI spec.source")
+	case !strings.HasPrefix(url, "oci://"):
+		c = notReady("ApplierNotOCI", what+" has no OCI spec.source.repoURL (oci://...), so it cannot fetch a version by digest")
+	case !automated:
+		c = notReady("ApplierNotAutomated", what+" sets no spec.syncPolicy.automated; the promoter never runs a sync, so a version it writes is never applied")
+	default:
+		return nil, nil
+	}
+	return &c, nil
 }
 
 func notReady(reason, msg string) delivery.Condition {
@@ -220,7 +339,7 @@ func (r *StageReconciler) recordPublished(ctx context.Context, stage *dv1.Stage,
 	return nil
 }
 
-func (r *StageReconciler) candidate(ctx context.Context, stage *dv1.Stage) (string, error) {
+func (r *StageReconciler) candidate(ctx context.Context, stage *dv1.Stage, remote *delivery.StageStatus) (string, error) {
 	c := stage.Spec.Candidates
 	switch {
 	case c.OCIRepositoryRef != nil:
@@ -238,14 +357,10 @@ func (r *StageReconciler) candidate(ctx context.Context, stage *dv1.Stage) (stri
 			return "", client.IgnoreNotFound(err)
 		}
 		return delivery.NewestCandidate(stage.Status, "", &up.Status), nil
-	case c.UpstreamRecords != nil:
-		up, _ := r.Cluster.remote(ctx, *c.UpstreamRecords)
-		if up == nil {
-			return "", nil // nothing it cannot verify is ever a candidate
-		}
-		return delivery.NewestCandidate(stage.Status, "", up), nil
+	case remote != nil:
+		return delivery.NewestCandidate(stage.Status, "", remote), nil
 	}
-	return "", nil
+	return "", nil // nothing it cannot verify is ever a candidate
 }
 
 // raise creates a controller-class operation. Its name is derived from the

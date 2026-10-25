@@ -41,7 +41,7 @@ func (e *env) upstreamReads(status *delivery.StageStatus, why string) {
 // TestRemoteUpstreamReady: a Stage fed by another cluster's records is not
 // Ready while the promoter trusts no upstream key.
 func TestRemoteUpstreamReady(t *testing.T) {
-	e := newEnv(t, remoteStage(dA))
+	e := newEnv(t, remoteStage(dA), ociRepo("payments", dA, "", false))
 	if err := e.reconcileStage("payments-prod"); err != nil {
 		t.Fatal(err)
 	}
@@ -57,6 +57,70 @@ func TestRemoteUpstreamReady(t *testing.T) {
 	}
 }
 
+// TestRemoteUpstreamUnreadable: records that cannot be read make the Stage
+// not Ready, naming why, instead of stalling silently; Ready returns once a
+// read succeeds. The registry is read again only every UpstreamPoll, and the
+// newest record read is remembered, so a stream cut at its tail is refused.
+func TestRemoteUpstreamUnreadable(t *testing.T) {
+	s := remoteStage(dA)
+	s.Spec.Auto = true
+	e := newEnv(t, s, ociRepo("payments", dA, "", false))
+	reads := 0
+	view := func(seq int64, head string, verified ...string) *delivery.StageStatus {
+		return &delivery.StageStatus{Verified: verified, Offered: verified, Stream: delivery.Stream{ID: remoteTest.Stream, Seq: seq, Head: head}}
+	}
+	var up *delivery.StageStatus
+	why := "reading the records: registry down"
+	f := func(context.Context, delivery.RemoteStage) (*delivery.StageStatus, string) { reads++; return up, why }
+	e.op.Cluster.Upstream, e.st.Cluster.Upstream = f, f
+	ready := func() delivery.Condition {
+		t.Helper()
+		if err := e.reconcileStage("payments-prod"); err != nil {
+			t.Fatal(err)
+		}
+		return e.getStage().Status.Conditions[0]
+	}
+	if c := ready(); c.Reason != "UpstreamUnreadable" || !strings.Contains(c.Message, "registry down") || !strings.Contains(c.Message, remoteTest.Stream) {
+		t.Fatalf("unreadable: %+v", c)
+	}
+	up, why = view(3, "r3", dB), ""
+	if c := ready(); c.Reason != "UpstreamUnreadable" || reads != 1 || len(e.ops()) != 0 {
+		t.Fatalf("a read younger than UpstreamPoll is reused: %+v reads=%d", c, reads)
+	}
+	e.now = e.now.Add(UpstreamPoll)
+	if c := ready(); c.Reason != "Ready" || reads != 2 {
+		t.Fatalf("readable again: %+v reads=%d", c, reads)
+	}
+	if got := e.getStage().Status.UpstreamSeen; got.Stream != remoteTest.Stream || got.Seq != 3 || got.Record != "r3" {
+		t.Fatalf("the newest record read is remembered: %+v", got)
+	}
+	if ops := e.ops(); len(ops) != 1 || ops[0].Spec.Params.To != dB {
+		t.Fatalf("auto-promotes what the read offers: %+v", ops)
+	}
+	// The newest records disappear: the shorter stream offers nothing, not
+	// the version a removed record failed.
+	up = view(2, "r2", dB, dC)
+	e.now = e.now.Add(UpstreamPoll)
+	if c := ready(); c.Reason != "UpstreamUnreadable" || !strings.Contains(c.Message, "newest records were removed") {
+		t.Fatalf("a cut stream: %+v", c)
+	}
+	// Planning reads afresh and refuses the cut stream too.
+	if s, why, err := e.op.upstream(context.Background(), e.getStage()); s != nil || err != nil || !strings.Contains(why, "newest records were removed") {
+		t.Fatalf("plan read of a cut stream: %+v %q %v", s, why, err)
+	}
+	// The same seq is not rewritten in place, and a read that extends it moves the mark.
+	up = view(3, "x3", dB)
+	e.now = e.now.Add(UpstreamPoll)
+	if c := ready(); c.Reason != "UpstreamUnreadable" || !strings.Contains(c.Message, "rewritten") {
+		t.Fatalf("a rewritten stream: %+v", c)
+	}
+	up = view(4, "r4", dB)
+	e.now = e.now.Add(UpstreamPoll)
+	if c := ready(); c.Reason != "Ready" || e.getStage().Status.UpstreamSeen.Seq != 4 {
+		t.Fatalf("extended: %+v %+v", c, e.getStage().Status.UpstreamSeen)
+	}
+}
+
 // TestRemoteUpstreamAutoPromote: auto-promotion ships the newest version the
 // remote upstream verified and offered, and nothing when its records cannot be
 // verified.
@@ -69,6 +133,7 @@ func TestRemoteUpstreamAutoPromote(t *testing.T) {
 		t.Fatalf("unverifiable records raise nothing: %v %d", err, len(e.ops()))
 	}
 	e.upstreamReads(&delivery.StageStatus{Verified: []string{dB, dC}, Offered: []string{dB}}, "")
+	e.now = e.now.Add(UpstreamPoll)
 	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 1 || e.ops()[0].Spec.Params.To != dB {
 		t.Fatalf("remote candidate: %v %+v", err, e.ops())
 	}

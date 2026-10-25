@@ -286,6 +286,8 @@ func upstreamReader(file string, keychain authn.Keychain) (
 	}
 	insecure := delivery.SplitList(os.Getenv(loader.InsecureRegistriesEnvVar))
 	opts := ocireferrer.Options{Keychain: keychain, Insecure: insecure}
+	// One Reader for the process: every record it verified is fetched once.
+	reader := &deliveryrecord.Reader{Verify: verify}
 	return func(ctx context.Context, r core.RemoteStage) (*core.StageStatus, string) {
 		repo, err := ocireferrer.Open(r.Repository, opts)
 		if err != nil {
@@ -293,6 +295,6 @@ func upstreamReader(file string, keychain authn.Keychain) (
 		}
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		return deliveryrecord.Upstream(ctx, repo, r.Stream, verify)
+		return reader.Upstream(ctx, repo, r.Stream)
 	}, nil
 }

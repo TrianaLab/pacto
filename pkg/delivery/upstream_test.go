@@ -74,20 +74,20 @@ func TestUpstreamFoldsAFailedFreeze(t *testing.T) {
 // TestUpstreamTruncated: a read that does not extend what a Stage already read
 // is refused, so removing the newest records of a stream never goes unseen.
 func TestUpstreamTruncated(t *testing.T) {
-	seen := Stream{ID: "c2/test/payments", Seq: 4, Head: "r4"}
+	seen := RecordMark{Stream: "c2/test/payments", Seq: 4, Record: "r4"}
 	cases := []struct {
 		name string
-		seen Stream
+		seen RecordMark
 		got  Stream
 		want string
 	}{
-		{"extends", seen, Stream{ID: seen.ID, Seq: 5, Head: "r5"}, ""},
-		{"same", seen, seen, ""},
-		{"nothing seen yet", Stream{}, Stream{ID: seen.ID, Seq: 1, Head: "r1"}, ""},
+		{"extends", seen, Stream{ID: seen.Stream, Seq: 5, Head: "r5"}, ""},
+		{"same", seen, Stream{ID: seen.Stream, Seq: 4, Head: "r4"}, ""},
+		{"nothing seen yet", RecordMark{}, Stream{ID: seen.Stream, Seq: 1, Head: "r1"}, ""},
 		{"another stream", seen, Stream{ID: "c2/test/other", Seq: 1, Head: "x1"}, ""},
-		{"cut", seen, Stream{ID: seen.ID, Seq: 2, Head: "r2"}, "ends at seq 2, but this Stage already read it up to seq 4"},
+		{"cut", seen, Stream{ID: seen.Stream, Seq: 2, Head: "r2"}, "ends at seq 2, but this Stage already read it up to seq 4"},
 		{"emptied", seen, Stream{}, "ends at seq 0"},
-		{"rewritten", seen, Stream{ID: seen.ID, Seq: 4, Head: "x4"}, "the stream was rewritten"},
+		{"rewritten", seen, Stream{ID: seen.Stream, Seq: 4, Head: "x4"}, "the stream was rewritten"},
 	}
 	for _, c := range cases {
 		got := UpstreamTruncated(c.seen, c.got)

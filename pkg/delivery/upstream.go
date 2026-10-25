@@ -43,14 +43,14 @@ func UpstreamFromRecords(recs []StoredRecord) (*StageStatus, string) {
 // whose newest record is gone, so a stream that does not extend seen lost its
 // newest records: a Fail or a rollback among them would otherwise go unseen.
 // Empty when got extends seen, or seen is of another stream.
-func UpstreamTruncated(seen, got Stream) string {
+func UpstreamTruncated(seen RecordMark, got Stream) string {
 	switch {
-	case seen.ID != got.ID && got.ID != "" || seen.Seq == 0:
+	case seen.Stream != got.ID && got.ID != "" || seen.Seq == 0:
 		return ""
 	case got.Seq < seen.Seq:
-		return fmt.Sprintf("the stream ends at seq %d, but this Stage already read it up to seq %d (record %s): its newest records were removed", got.Seq, seen.Seq, short(seen.Head))
-	case got.Seq == seen.Seq && got.Head != seen.Head:
-		return fmt.Sprintf("seq %d is record %s, but this Stage read %s there: the stream was rewritten", got.Seq, short(got.Head), short(seen.Head))
+		return fmt.Sprintf("the stream ends at seq %d, but this Stage already read it up to seq %d (record %s): its newest records were removed", got.Seq, seen.Seq, short(seen.Record))
+	case got.Seq == seen.Seq && got.Head != seen.Record:
+		return fmt.Sprintf("seq %d is record %s, but this Stage read %s there: the stream was rewritten", got.Seq, short(got.Head), short(seen.Record))
 	}
 	return ""
 }

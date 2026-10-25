@@ -438,8 +438,8 @@ func (r *OperationReconciler) stages(ctx context.Context) ([]delivery.StageObjec
 // A Stage in another cluster is read from its signed records, and why says
 // why that gave nothing.
 func (r *OperationReconciler) upstream(ctx context.Context, stage *dv1.Stage) (_ *delivery.StageStatus, why string, _ error) {
-	if rs := stage.Spec.Candidates.UpstreamRecords; rs != nil {
-		s, why := r.Cluster.remote(ctx, *rs)
+	if stage.Spec.Candidates.UpstreamRecords != nil {
+		s, why := r.Cluster.remote(ctx, stage)
 		return s, why, nil
 	}
 	up := stage.Spec.Candidates.UpstreamStage

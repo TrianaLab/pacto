@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
@@ -56,12 +57,22 @@ type Cluster struct {
 	Upstream func(ctx context.Context, r delivery.RemoteStage) (*delivery.StageStatus, string)
 }
 
-// remote reads an upstream Stage in another cluster, or says why it cannot.
-func (c Cluster) remote(ctx context.Context, r delivery.RemoteStage) (*delivery.StageStatus, string) {
+// remote reads the upstream Stage in another cluster that stage follows, or
+// says why it cannot: no trusted key, records that cannot be read or verified,
+// a stream that is not whole, or one that ends before the newest record the
+// Stage already read (status.upstreamSeen).
+func (c Cluster) remote(ctx context.Context, stage *dv1.Stage) (*delivery.StageStatus, string) {
 	if c.Upstream == nil {
 		return nil, noUpstreamTrust
 	}
-	return c.Upstream(ctx, r)
+	up, why := c.Upstream(ctx, *stage.Spec.Candidates.UpstreamRecords)
+	if up == nil {
+		return nil, why
+	}
+	if why := delivery.UpstreamTruncated(stage.Status.UpstreamSeen, up.Stream); why != "" {
+		return nil, why
+	}
+	return up, ""
 }
 
 const noUpstreamTrust = "the promoter trusts no key for the records of other clusters (promoter.upstreamTrust)"

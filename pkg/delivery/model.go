@@ -112,7 +112,10 @@ type ApplyRef struct {
 	Name string `json:"name"`
 }
 
-// Candidates says where new versions come from. Exactly one is set.
+// Candidates says where new versions come from. At most one is set, so the
+// version offered and the version judged come from the same source; a Stage
+// that sets none is not Ready and never promotes.
+// +kubebuilder:validation:XValidation:rule="(has(self.ociRepositoryRef) ? 1 : 0) + (has(self.upstreamStage) ? 1 : 0) + (has(self.upstreamRecords) ? 1 : 0) <= 1",message="set at most one of candidates.ociRepositoryRef, candidates.upstreamStage and candidates.upstreamRecords"
 type Candidates struct {
 	// OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the
 	// candidate is the @sha256: part of its status.artifact.revision.
@@ -267,6 +270,15 @@ type Stream struct {
 	Concluded []Concluded `json:"concluded,omitempty"`
 }
 
+// RecordMark names one record of a stream.
+type RecordMark struct {
+	// Stream is the stream id.
+	Stream string `json:"stream"`
+	Seq    int64  `json:"seq"`
+	// Record is the record's id, the digest of its signed payload.
+	Record string `json:"record"`
+}
+
 // Concluded is one operation's seq and conclusion, as the Stage holds it.
 type Concluded struct {
 	UID string `json:"uid"`
@@ -322,15 +334,23 @@ type StageStatus struct {
 	// +optional
 	Offered []string `json:"offered,omitempty"`
 	// Conditions holds Ready. It is False, naming what is missing, when the
-	// Stage can never promote: its candidate OCIRepository does not exist or
-	// sets no spec.verify naming the publisher, or it names no candidate
-	// source at all. The recorder adds RecordStoreReady: False when the
-	// registry has no Referrers API, cannot be reached or holds a stream it
-	// refuses to fork.
+	// Stage cannot promote: its applier cannot be read, lacks the apply-ref
+	// label or (on Argo CD) has no single OCI source or no automated sync; its
+	// candidate OCIRepository does not exist or sets no spec.verify naming the
+	// publisher; the records of its upstream in another cluster are not
+	// trusted or cannot be read; or it names no candidate source at all. The
+	// recorder adds RecordStoreReady: False when the registry has no
+	// Referrers API, cannot be reached or holds a stream it refuses to fork.
 	// +optional
 	// +listType=map
 	// +listMapKey=type
 	Conditions []Condition `json:"conditions,omitempty"`
+	// UpstreamSeen is the newest record this Stage read from the upstream
+	// stream it follows (candidates.upstreamRecords). A later read that ends
+	// before it, or holds another record at its seq, offers nothing, so
+	// records removed from the upstream's tail never go unseen.
+	// +optional
+	UpstreamSeen RecordMark `json:"upstreamSeen,omitzero"`
 	// Candidate is the newest eligible candidate the stage reconciler saw.
 	// +optional
 	Candidate string `json:"candidate,omitempty"`

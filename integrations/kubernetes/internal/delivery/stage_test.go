@@ -9,12 +9,16 @@ package delivery
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
@@ -275,7 +279,7 @@ func TestStageReady(t *testing.T) {
 	for _, c := range cases {
 		s := stageObj(dA)
 		s.Spec.Candidates = c.cands
-		e := newEnv(t, append(c.objs, s)...)
+		e := newEnv(t, append(c.objs, s, ociRepo("payments", dA, "", false))...)
 		if err := e.reconcileStage("payments-prod"); err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
@@ -290,18 +294,18 @@ func TestStageReady(t *testing.T) {
 		}
 	}
 	// A failed read of the candidate OCIRepository or a failed write surfaces.
-	e := newEnv(t, stageObj(dA))
+	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "", false))
 	e.fails["status/Stage"] = true
 	if e.reconcileStage("payments-prod") == nil {
 		t.Fatal("a failed write of Ready must surface")
 	}
-	e.fails = fails{"get/OCIRepository": true}
-	if _, err := e.st.ready(context.Background(), e.getStage()); err == nil {
+	e.fails = fails{"get/OCIRepository/payments-candidates": true}
+	if _, _, err := e.st.ready(context.Background(), e.getStage()); err == nil {
 		t.Fatal("a failed read of the candidate OCIRepository must surface")
 	}
 	// Ready follows the OCIRepository: dropping spec.verify flips it to False.
 	repo := verifiedRepo("payments-candidates", "latest@"+dB)
-	e = newEnv(t, stageObj(dA), repo)
+	e = newEnv(t, stageObj(dA), repo, ociRepo("payments", dA, "", false))
 	if err := e.reconcileStage("payments-prod"); err != nil {
 		t.Fatal(err)
 	}
@@ -317,5 +321,72 @@ func TestStageReady(t *testing.T) {
 	}
 	if c := e.getStage().Status.Conditions; len(c) != 1 || c[0].Reason != "CandidateUnverified" {
 		t.Fatalf("Ready did not follow the OCIRepository: %+v", c)
+	}
+}
+
+// TestStageReadyApplier: a Stage whose applier the promoter cannot write
+// through is not Ready, and Ready names why: the applier is missing or
+// unreadable, lacks the apply-ref label or, on Argo CD, has no single OCI
+// source or no automated sync.
+func TestStageReadyApplier(t *testing.T) {
+	unlabelled := ociRepo("payments", dA, "", false)
+	unlabelled.SetLabels(nil)
+	app := func(edit func(u *unstructured.Unstructured)) *unstructured.Unstructured {
+		u := argoApp(dA, dA, "Synced", "Healthy")
+		edit(u)
+		return u
+	}
+	cases := []struct {
+		name    string
+		argo    bool
+		applier client.Object
+		reason  string
+	}{
+		{"flux ready", false, ociRepo("payments", dA, "", false), "Ready"},
+		{"flux missing", false, nil, "ApplierUnreadable"},
+		{"flux unlabelled", false, unlabelled, "ApplierUnlabelled"},
+		{"argo ready", true, app(func(*unstructured.Unstructured) {}), "Ready"},
+		{"argo missing", true, nil, "ApplierUnreadable"},
+		{"argo unlabelled", true, app(func(u *unstructured.Unstructured) { u.SetLabels(nil) }), "ApplierUnlabelled"},
+		{"argo multi-source", true, app(func(u *unstructured.Unstructured) {
+			_ = unstructured.SetNestedSlice(u.Object, []any{map[string]any{"repoURL": "oci://" + repo}}, "spec", "sources")
+		}), "ApplierMultiSource"},
+		{"argo git", true, app(func(u *unstructured.Unstructured) {
+			_ = unstructured.SetNestedField(u.Object, "https://git.example/deploy", "spec", "source", "repoURL")
+		}), "ApplierNotOCI"},
+		{"argo manual sync", true, app(func(u *unstructured.Unstructured) { unstructured.RemoveNestedField(u.Object, "spec", "syncPolicy") }), "ApplierNotAutomated"},
+	}
+	for _, c := range cases {
+		s := stageObj(dA)
+		if c.argo {
+			s = argoStage(dA)
+		}
+		objs := []client.Object{s, verifiedRepo("payments-candidates", "latest@"+dB)}
+		if c.applier != nil {
+			objs = append(objs, c.applier)
+		}
+		e := newEnv(t, objs...)
+		if err := e.reconcileStage("payments-prod"); err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if conds := e.getStage().Status.Conditions; len(conds) != 1 || conds[0].Reason != c.reason || conds[0].Message == "" {
+			t.Errorf("%s: conditions %+v", c.name, conds)
+		}
+	}
+	// A read the promoter is not allowed is named; any other failed read surfaces.
+	e := newEnv(t, argoStage(dA))
+	e.st.Cluster.Client = interceptor.NewClient(e.c, interceptor.Funcs{Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+		if kindOf(obj) == "Application" {
+			return apierrors.NewForbidden(schema.GroupResource{Group: "argoproj.io", Resource: "applications"}, key.Name, errors.New("no RBAC"))
+		}
+		return c.Get(ctx, key, obj, opts...)
+	}})
+	if c, err := e.st.applierReady(context.Background(), argoStage(dA)); err != nil || c == nil || c.Reason != "ApplierUnreadable" || !strings.Contains(c.Message, "no RBAC") {
+		t.Fatalf("forbidden: %+v %v", c, err)
+	}
+	e = newEnv(t, stageObj(dA), ociRepo("payments", dA, "", false))
+	e.fails["get/OCIRepository/payments"] = true
+	if _, _, err := e.st.ready(context.Background(), e.getStage()); err == nil {
+		t.Fatal("a failed read of the applier must surface")
 	}
 }
