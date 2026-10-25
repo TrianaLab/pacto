@@ -24,6 +24,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/delivery/autonomy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The path to autonomy
+         * @description How many of the services Pacto has seen have a contract, how many promotions in each Stage's window no person asked for or approved, each Stage's rung with the next rung Pacto proposes and its newest would-have decision, and the blockers with a fix to copy. It only reads: a rung moves through a proposed and approved operation.
+         */
+        get: operations["delivery-autonomy"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/delivery/blame": {
         parameters: {
             query?: never;
@@ -801,6 +821,43 @@ export interface components {
             name: string;
             sources: components["schemas"]["ServiceSourceData"][] | null;
         };
+        AutonomyBlocker: {
+            fix?: components["schemas"]["BlockerFix"];
+            /** @description missing-contract, undeclared-range, unlabelled-apply-ref, no-observed-digest, no-record-store, needs-verified, needs-cleared-breaking, incident or partial-graph */
+            kind: string;
+            message?: string;
+            stages?: string[] | null;
+            /** @description The service, consumer or caller it is about */
+            subject: string;
+        };
+        AutonomyOutputBody: {
+            asOf: string;
+            blockers: components["schemas"]["AutonomyBlocker"][] | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            contracted?: components["schemas"]["ContractShare"];
+            promotionsWithoutPerson: components["schemas"]["PromotionCount"];
+            stages: components["schemas"]["AutonomyStage"][] | null;
+            /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
+            unreadable?: string[] | null;
+        };
+        AutonomyProposal: {
+            blockers?: components["schemas"]["AutonomyBlocker"][] | null;
+            /** @description The digests or operations that earned it */
+            evidence?: string[] | null;
+            /** @description Empty: nothing to propose yet */
+            rung?: string;
+        };
+        AutonomyStage: {
+            environment: string;
+            lastShadow?: components["schemas"]["ShadowDecision"];
+            namespace: string;
+            proposal?: components["schemas"]["AutonomyProposal"];
+            /** @description observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one */
+            rung?: string;
+            service: string;
+            stage: string;
+        };
         BlameOutputBody: {
             approvals?: components["schemas"]["Delivery.RecordApproval"][] | null;
             asOf: string;
@@ -823,6 +880,12 @@ export interface components {
             versions?: {
                 [key: string]: string;
             };
+        };
+        BlockerFix: {
+            /** @description A shell command to run */
+            command?: string;
+            /** @description YAML to add to a contract */
+            snippet?: string;
         };
         CancelOutputBody: {
             cancelled: string;
@@ -1017,6 +1080,18 @@ export interface components {
             dataCriticality: string;
             persistence: components["schemas"]["Contract.Persistence"];
             type: string;
+        };
+        ContractShare: {
+            /**
+             * Format: int64
+             * @description Services with a contract
+             */
+            services: number;
+            /**
+             * Format: int64
+             * @description Distinct workloads seen calling a contracted service with no contract of their own
+             */
+            uncontractedCallers: number;
         };
         CrossReference: {
             contractStatus?: string;
@@ -1412,7 +1487,11 @@ export interface components {
             pointer?: string;
             /** @description The Ready condition: True, or False with the reason the Stage cannot promote */
             ready?: string;
+            /** @description observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one */
+            rung?: string;
             service: string;
+            /** @description On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed */
+            shadow?: components["schemas"]["ShadowDecision"][] | null;
             stage: string;
             /** @description The running digest passed its verify gates here */
             verified: boolean;
@@ -2479,6 +2558,8 @@ export interface components {
             people?: {
                 [key: string]: string;
             };
+            /** @description The Stage's rung now: observe, advise, auto-nonbreaking or autonomous */
+            rung?: string;
             /** @description The version each digest named here carries, when its artifact could be read */
             versions?: {
                 [key: string]: string;
@@ -2911,6 +2992,15 @@ export interface components {
             requestedRef?: string;
             sourceRevision?: string;
         };
+        PromotionCount: {
+            /** Format: int64 */
+            count: number;
+            /**
+             * Format: int64
+             * @description Succeeded promotions in the windows: the last 20 operations per Stage
+             */
+            of: number;
+        };
         ProposeOutputBody: {
             operation: components["schemas"]["Delivery.OperationObject"];
             plan: components["schemas"]["Delivery.Plan"];
@@ -3188,6 +3278,21 @@ export interface components {
             /** @description The caller has a live session (shared) or the launch cookie (local) */
             signedIn: boolean;
         };
+        ShadowDecision: {
+            candidate: string;
+            /** @description The decision a person would have been asked: approve or accept-unknown */
+            decision?: string;
+            from?: string;
+            intentDigest?: string;
+            /** @description When GitOps' source reported this candidate; not when it rolled out */
+            observedAt?: string;
+            owners?: string[] | null;
+            plannedAt?: string;
+            /** @description Proceeds, Held, Rejected or Waits, as a fully automatic Stage would have */
+            predicted: string;
+            question?: string;
+            verification?: string;
+        };
         SkillInfo: {
             content?: string;
             name: string;
@@ -3321,6 +3426,71 @@ export interface operations {
             };
             /** @description Error */
             default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "delivery-autonomy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AutonomyOutputBody"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };
