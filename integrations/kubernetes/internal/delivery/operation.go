@@ -828,9 +828,13 @@ func preempted(op *dv1.Operation, stage *dv1.Stage) bool {
 	return stage.Status.Locks[op.Spec.Facet] != string(op.UID)
 }
 
+// preemptedBy is how an applied operation a rollback or override preempted
+// concludes.
+var preemptedBy = conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified, reason: "Preempted: a rollback or override took the Stage"}
+
 func (r *OperationReconciler) verifying(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, error) {
 	if preempted(op, stage) {
-		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified, reason: "Preempted: a rollback or override took the Stage"})
+		return r.finish(ctx, op, stage, preemptedBy)
 	}
 	vs := r.verdicts(ctx, op, stage)
 	op.Status.Verdicts = slices.DeleteFunc(op.Status.Verdicts, func(x delivery.Verdict) bool { return x.Phase == "verify" })
@@ -884,7 +888,7 @@ func verdictMessages(vs []delivery.Verdict, r delivery.Result) string {
 // keeps the lock, but a rollback or override may preempt it.
 func (r *OperationReconciler) heldAfterApply(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, error) {
 	if preempted(op, stage) {
-		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified, reason: "Preempted: a rollback or override took the Stage"})
+		return r.finish(ctx, op, stage, preemptedBy)
 	}
 	if r.passed(op.Status.Times.ApprovalDeadline) {
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Errored, freeze: true, reason: "VerifyUndecided: nobody accepted or rejected the unknown in time"})
@@ -930,7 +934,11 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 			if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(stage), cur); err != nil {
 				return reconcile.Result{}, err
 			}
-			if concludedOn(cur.Status, op.UID) == nil && !slices.Contains(cur.Status.FailedDigests, op.Status.Pointer.Before) {
+			// Nor when a rollback or override took the Stage while the gates
+			// ran: the compare-and-swap below concludes it Preempted.
+			// ponytail: a lock taken between this read and that swap still
+			// gets the rollback raised, which is then refused and freezes.
+			if concludedOn(cur.Status, op.UID) == nil && !preempted(op, cur) && !slices.Contains(cur.Status.FailedDigests, op.Status.Pointer.Before) {
 				var err error
 				if squat, err = raiseRollback(ctx, r.Client, r.Policy, op, stage, code+": "+msg, c.cause); err != nil {
 					return reconcile.Result{}, err
@@ -938,6 +946,9 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 			}
 		}
 		if err := r.casStage(ctx, stage, func(s *dv1.Stage) error {
+			// Decided on the fresh Stage: a verdict reached on a cached one
+			// never concludes an operation whose lock was taken meanwhile.
+			taken := op.Status.Applied && preempted(op, s)
 			if s.Status.Locks[op.Spec.Facet] == string(op.UID) {
 				delete(s.Status.Locks, op.Spec.Facet)
 			}
@@ -950,6 +961,9 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 				// This operation took its seq and its status write failed.
 				op.Status.Seq, c = done.Seq, conclusion{outcome: done.Outcome, verification: done.Verification, reason: done.Reason}
 				return nil
+			}
+			if taken {
+				c = preemptedBy
 			}
 			s.Status.Stream.Seq++
 			op.Status.Seq = s.Status.Stream.Seq

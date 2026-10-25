@@ -104,6 +104,40 @@ func TestSquattedRollbackNameFreezes(t *testing.T) {
 	}
 }
 
+// TestStaleFailAfterAHumanRollbackIsPreempted: a promote whose gates ran on
+// a cached Stage that did not yet show a person's rollback taking its lock
+// concludes Preempted. It raises no rollback of its own and freezes nothing.
+func TestStaleFailAfterAHumanRollbackIsPreempted(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.drive("p1")
+	e.apply(dB)
+	e.drive("p1")
+	stale := e.getStage()
+	rb := opObj("undo", delivery.TypeRollback, dB, dA, "alice")
+	rb.Spec.Params.Undoes = "uid-p1"
+	rb.Spec.IntentDigest = delivery.IntentDigest(rb.Spec, stageObj("").Spec)
+	e.create(rb)
+	if o := e.drive("undo"); o.Status.Phase != delivery.PhaseRunning {
+		t.Fatalf("undo not running: %s", o.Status.Phase)
+	}
+	e.evaluate(c2, "NonCompliant")
+	if _, err := e.op.verifying(context.Background(), e.getOp("p1"), stale); err != nil {
+		t.Fatal(err)
+	}
+	p1 := e.getOp("p1")
+	if p1.Status.Outcome != delivery.Succeeded || p1.Status.Verification != delivery.Unverified || p1.Status.Reason != "Preempted" {
+		t.Fatalf("want Preempted, got %s/%s %s", p1.Status.Outcome, p1.Status.Verification, p1.Status.Reason)
+	}
+	for _, o := range e.ops() {
+		if o.Name == "p1-rollback" {
+			t.Fatal("a preempted promote raised its own rollback")
+		}
+	}
+	if s := e.getStage(); s.Status.Frozen || s.Status.Locks[delivery.FacetPointer] != "uid-undo" || len(s.Status.FailedDigests) != 0 {
+		t.Fatalf("the person's rollback keeps the Stage: %+v", s.Status)
+	}
+}
+
 // TestFailedVerifyRollsBackOnceAndNeverRetries is acceptance item 2: the
 // broken version fails its check, is remembered as failed, and exactly one
 // bound rollback returns the Stage to the version it ran before.
