@@ -1221,6 +1221,7 @@ export interface components {
             predicted: string;
             question?: string;
             to?: string;
+            toVersion?: string;
             type: string;
             verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
         };

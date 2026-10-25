@@ -239,6 +239,25 @@ func TestMiraJudgesTheNewestSoakPastTheCap(t *testing.T) {
 	}
 }
 
+// TestMiraMatchesTheVersion: with matchVersion the gate counts only the
+// spans of the version under check, so old pods still serving neither hide a
+// breach nor fail a clean version; without a contract version it is Unknown.
+func TestMiraMatchesTheVersion(t *testing.T) {
+	in := gateIn()
+	in.Version = "1.4.0"
+	v := miraCheck(t, &fakeMira{spans: shop(100, 0, 0)}, in, map[string]string{"matchVersion": "true"})
+	if v.Result != Pass || !strings.Contains(v.Citation["query"], `{"attr":"service.version","eq":"1.4.0"}`) {
+		t.Fatalf("matched: %s %s", v.Result, v.Citation["query"])
+	}
+	if v := miraCheck(t, &fakeMira{spans: shop(100, 0, 0)}, in, map[string]string{"matchVersion": "false"}); strings.Contains(v.Citation["query"], "service.version") {
+		t.Fatalf("not asked to match: %s", v.Citation["query"])
+	}
+	in.Version = ""
+	if v := miraCheck(t, &fakeMira{spans: shop(100, 0, 0)}, in, map[string]string{"matchVersion": "true"}); v.Result != Unknown || !strings.Contains(v.Message, "no readable contract version") {
+		t.Fatalf("no version: %+v", v)
+	}
+}
+
 func TestMiraParams(t *testing.T) {
 	for name, p := range map[string]map[string]string{
 		"minSpans":            {"minSpans": "-1"},
@@ -250,6 +269,7 @@ func TestMiraParams(t *testing.T) {
 		"maxLatencyRatio":     {"latencyThreshold": "1s", "maxLatencyRatio": "x"},
 		"where":               {"where": "{"},
 		"spanKind":            {"spanKind": "servers"},
+		"matchVersion":        {"matchVersion": "yes please"},
 		"unknown":             {"minspans": "3"},
 	} {
 		v := miraCheck(t, &fakeMira{spans: shop(100, 0, 0)}, gateIn(), p)

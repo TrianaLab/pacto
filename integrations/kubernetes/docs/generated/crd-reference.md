@@ -147,6 +147,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.plan.predicted` | `string` | yes |  |  | Prediction is what plan() expects the promoter to do. |
 | `status.plan.question` | `string` | no |  |  | Question is the one question a human would be asked. |
 | `status.plan.to` | `string` | no |  |  |  |
+| `status.plan.toVersion` | `string` | no |  |  | ToVersion is the contract service.version of To, when it could be read. |
 | `status.plan.type` | `string` | yes |  |  |  |
 | `status.plan.verdicts` | `[]object` | no |  |  |  |
 | `status.plan.verdicts[].citation` | `object` | no |  |  |  |

@@ -69,6 +69,16 @@ span per request served. Its params:
 | `latencyThreshold` | off | Spans slower than this count as slow |
 | `maxLatencyRatio` | 0.05 | A larger share of slow spans fails |
 | `where` | none | Extra Mira terms as JSON, for example the namespace |
+| `matchVersion` | `false` | Count only spans whose `service.version` is the contract's `service.version` |
+
+By default the provider counts every span of the service in the window, so
+while a rollout is still replacing pods the old version's spans count too:
+they can hide a breach or fail a clean version. The window starts when Flux or
+Argo CD reports the version applied, not when the rollout finished. Set
+`matchVersion: "true"` to judge only the version under check, once the service
+sets the `service.version` resource attribute to its contract's
+`service.version` (for example through `OTEL_RESOURCE_ATTRIBUTES`). Without a
+contract version to match, the check is Unknown.
 
 A read that fails or stops short is Unknown. Mira's query API has no count, so
 the provider pages through the spans and stops at 200,000 per query. A window

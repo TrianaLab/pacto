@@ -65,6 +65,7 @@ type miraParams struct {
 	maxErrorRatio, maxLatencyRatio float64
 	soak, latencyThreshold         time.Duration
 	where                          []map[string]any
+	matchVersion                   bool
 }
 
 func parseMiraParams(p map[string]string) (miraParams, error) {
@@ -106,6 +107,14 @@ func parseMiraParams(p map[string]string) (miraParams, error) {
 			out.spanKind = k
 			return nil
 		},
+		"matchVersion": func(s string) error {
+			b, err := strconv.ParseBool(s)
+			if err != nil {
+				return errors.New("must be true or false")
+			}
+			out.matchVersion = b
+			return nil
+		},
 		"maxErrorRatio":    ratio(&out.maxErrorRatio),
 		"maxLatencyRatio":  ratio(&out.maxLatencyRatio),
 		"soak":             duration(&out.soak),
@@ -143,6 +152,14 @@ func (m Mira) Check(ctx context.Context, in GateInput, params map[string]string)
 		return v
 	}
 	where := []map[string]any{{"attr": "service.name", "eq": in.Service.Name}}
+	if p.matchVersion {
+		// Only the version under check, not old pods still serving.
+		if in.Version == "" {
+			v.Message = "matchVersion is set but the version under check has no readable contract version to match service.version against"
+			return v
+		}
+		where = append(where, map[string]any{"attr": "service.version", "eq": in.Version})
+	}
 	if p.spanKind >= 0 {
 		where = append(where, map[string]any{"field": "kind", "eq": p.spanKind})
 	}

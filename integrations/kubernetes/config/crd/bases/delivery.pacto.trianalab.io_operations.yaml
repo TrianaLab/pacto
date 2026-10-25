@@ -414,6 +414,10 @@ spec:
                     type: string
                   to:
                     type: string
+                  toVersion:
+                    description: ToVersion is the contract service.version of To,
+                      when it could be read.
+                    type: string
                   type:
                     type: string
                   verdicts:

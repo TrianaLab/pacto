@@ -36,6 +36,9 @@ type GateInput struct {
 	Facet        string     `json:"facet"`
 	// Subjects are the digests under check: the version the operation applied.
 	Subjects []string `json:"subjects"`
+	// Version is the contract service.version of the version under check,
+	// when the plan could read it.
+	Version string `json:"version,omitempty"`
 	Window   Window   `json:"window"`
 }
 

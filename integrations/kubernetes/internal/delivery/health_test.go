@@ -72,7 +72,7 @@ func TestHealthGateVerifies(t *testing.T) {
 	o := e.shipB()
 	wantOutcome(t, o, delivery.Succeeded, "Verified")
 	in := e.health.inputs[len(e.health.inputs)-1]
-	if in.OperationUID != "uid-p1" || in.Subjects[0] != dB || in.Service.Name != "payments" || in.Stage.Name != "payments-prod" ||
+	if in.OperationUID != "uid-p1" || in.Subjects[0] != dB || in.Version != "1.1.0" || in.Service.Name != "payments" || in.Stage.Name != "payments-prod" ||
 		!in.Window.From.Equal(e.now) || !in.Window.To.Equal(e.now) {
 		t.Fatalf("gate input: %+v", in)
 	}

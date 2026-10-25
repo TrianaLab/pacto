@@ -101,6 +101,9 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 		From:         in.Spec.Params.From,
 		To:           in.Spec.Params.To,
 	}
+	if in.To.Bundle != nil && in.To.Bundle.Contract != nil {
+		p.ToVersion = in.To.Bundle.Contract.Service.Version
+	}
 	rejected := ""
 	switch {
 	case !MayRaise(in.Spec.Type, in.Class, in.Spec.Witnessed):

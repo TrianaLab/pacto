@@ -497,6 +497,9 @@ type Plan struct {
 	From string `json:"from,omitempty"`
 	// +optional
 	To string `json:"to,omitempty"`
+	// ToVersion is the contract service.version of To, when it could be read.
+	// +optional
+	ToVersion string `json:"toVersion,omitempty"`
 	// +optional
 	Verdicts []Verdict `json:"verdicts,omitempty"`
 	// +optional

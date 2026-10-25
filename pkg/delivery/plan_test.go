@@ -89,6 +89,9 @@ func TestPlanCompatibleChangeShipsWithNoPerson(t *testing.T) {
 	if p.IntentDigest != IntentDigest(promote(dA, dB), stageSpec()) {
 		t.Fatal("plan must bind to the intent digest")
 	}
+	if p.ToVersion != "1.1.0" {
+		t.Fatalf("the plan names the contract version it moves to: %q", p.ToVersion)
+	}
 }
 
 // TestPlanMisplacedConsumerAsksToAcceptTheUnknown: a Pacto labelled for an
