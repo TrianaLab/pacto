@@ -718,7 +718,11 @@ func newDeliveryRecordCommand(v *viper.Viper, d deps) *cobra.Command {
 func printVerification(w io.Writer, res *delivery.StreamVerification) {
 	_, _ = fmt.Fprintf(w, "stream %s at %s, trust config %s\n", res.Stream, res.Anchor, res.Trust)
 	for _, r := range res.Records {
-		_, _ = fmt.Fprintf(w, "  seq %-4d %-13s %s %s\n", r.Seq, r.Kind, r.Record, r.Operation)
+		unguarded := ""
+		if r.Kind == delivery.RecordOperation && !r.Guarded {
+			unguarded = "  (unguarded: actor and approvers not checked by admission)"
+		}
+		_, _ = fmt.Fprintf(w, "  seq %-4d %-13s %s %s%s\n", r.Seq, r.Kind, r.Record, r.Operation, unguarded)
 	}
 	printAnswerNotes(w, res.Problems, res.Unreadable)
 	_, _ = fmt.Fprintf(w, "check one record without Pacto:\n  %s\n", res.Cosign)

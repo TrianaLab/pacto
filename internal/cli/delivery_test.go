@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -72,14 +74,16 @@ func deliveryDeps(user string, dynErr error) deps {
 			u("delivery.pacto.trianalab.io/v1alpha1", "Operation", "held", map[string]any{
 				"spec": map[string]any{"type": delivery.TypePromote, "stage": "payments-prod", "intentDigest": "sha256:i"},
 				"status": map[string]any{"phase": "Held", "question": "Approve?", "reason": "AwaitingHuman", "message": "m",
-					"plan": map[string]any{"intentDigest": "sha256:i", "type": delivery.TypePromote, "predicted": "Held", "order": map[string]any{
+					"plan": map[string]any{"intentDigest": "sha256:i", "type": delivery.TypePromote, "predicted": "Held",
+						"floor": map[string]any{"human": true, "decision": "accept-unknown", "owners": []any{"team-payments"}}, "order": map[string]any{
 						"moveFirst": []any{map[string]any{"service": "orders", "message": "Ship orders first."}}, "unknown": []any{"the graph is partial"}}},
 					"verdicts": []any{map[string]any{"gate": "pacto.diff", "phase": "pre", "result": "Pass", "citation": map[string]any{"query": "{}"}},
 						map[string]any{"gate": "x", "phase": "pre", "result": "Pass"}}}}),
 		)
 		c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"userInfo": map[string]any{
-				"username": user, "extra": map[string]any{"pacto.dev/auth-time": []any{"1800000000"}}}}}}, nil
+				"username": user, "groups": []any{"team-payments"},
+				"extra": map[string]any{"pacto.dev/auth-time": []any{strconv.FormatInt(time.Now().Unix(), 10)}}}}}}, nil
 		})
 		c.PrependReactor("create", "approvals", func(a k8stesting.Action) (bool, runtime.Object, error) {
 			o := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured)

@@ -22,11 +22,17 @@ const (
 // approves with is still fresh when the promoter counts it. An empty or
 // unreadable one is AuthFreshness.
 func DecisionFreshnessFor(published string) time.Duration {
+	return PublishedFreshness(published) * 2 / 3
+}
+
+// PublishedFreshness is the promoter's login freshness as a Stage publishes
+// it in status.authFreshness; AuthFreshness when empty or unreadable.
+func PublishedFreshness(published string) time.Duration {
 	d, err := time.ParseDuration(published)
 	if err != nil || d <= 0 {
-		d = AuthFreshness
+		return AuthFreshness
 	}
-	return d * 2 / 3
+	return d
 }
 
 // ParseAuthTime reads a login time as the apiserver reports it in
@@ -96,6 +102,8 @@ func approverMay(spec OperationSpec, st OperationStatus, a ApprovalSpec, created
 		return a.By + " asked for this change, so someone else must decide it"
 	case !p.IsHuman(Identity{User: a.By, Groups: a.Groups}):
 		return a.By + " is not a person, and only people decide"
+	case len(owners) == 0 && p.RequireOwnerTeam:
+		return "no team is declared for this service, so nobody may answer and only break-glass can override; declare service.owner"
 	case !p.InTeams(a.Groups, owners):
 		return fmt.Sprintf("%s is not in a team this question is asked of (%s)", a.By, strings.Join(owners, ", "))
 	case created.Before(held):

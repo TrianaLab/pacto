@@ -190,7 +190,7 @@ func TestDashDeliveryAcceptUnknownApproval(t *testing.T) {
 	n, err := api.Approve(context.Background(), "prod", "held", delivery.AcceptUnknown, "gates stay Unknown, ship it")
 	expect(t, err == nil && n == "held-1", "accept-unknown %q %v", n, err)
 	expect(t, spec["decision"] == "accept-unknown" && spec["operation"] == "held" && spec["intentDigest"] == "sha256:i" &&
-		spec["by"] == "alice" && spec["authTime"] == "1800000000" && spec["note"] == "gates stay Unknown, ship it",
+		spec["by"] == "alice" && spec["authTime"] != "" && spec["note"] == "gates stay Unknown, ship it",
 		"the Approval the promoter reads: %v", spec)
 }
 

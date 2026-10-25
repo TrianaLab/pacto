@@ -56,6 +56,10 @@ func TestApprovalEligible(t *testing.T) {
 	if ok, _ := ApprovalEligible(spec, OperationStatus{Phase: PhaseHeld}, "u1", good, at, policy, AuthFreshness); !ok {
 		t.Error("a held operation with no plan asks no team in particular")
 	}
+	policy.RequireOwnerTeam = true
+	if ok, why := ApprovalEligible(spec, OperationStatus{Phase: PhaseHeld}, "u1", good, at, policy, AuthFreshness); ok || !strings.Contains(why, "only break-glass can override") {
+		t.Errorf("with an owner team required, an ownerless question has nobody to answer it: %v %q", ok, why)
+	}
 }
 
 func TestSetCondition(t *testing.T) {
@@ -88,6 +92,9 @@ func TestDecisionFreshnessFor(t *testing.T) {
 		if got := DecisionFreshnessFor(in); got != want {
 			t.Errorf("%q: %s, want %s", in, got, want)
 		}
+	}
+	if PublishedFreshness("6m") != 6*time.Minute || PublishedFreshness("") != AuthFreshness {
+		t.Error("PublishedFreshness")
 	}
 }
 

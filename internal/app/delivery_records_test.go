@@ -120,6 +120,7 @@ func (e *recordEnv) twoRecords() (string, string) {
 	ship.Actor.OnBehalfOf = &delivery.OnBehalfOf{User: "carol", Asserted: true}
 	ship.Approvals = []delivery.RecordApproval{{By: "alice", Decision: delivery.Approve}}
 	ship.Verdicts = []delivery.Verdict{{Gate: delivery.GateContract, Result: delivery.Pass}}
+	ship.Guarded = true
 	r2 := e.attach("delivery/streams", e.anchor, ship)
 	e.setStream(map[string]any{"lastOp": "uid-ship", "stream": map[string]any{"id": recStream, "seq": int64(2),
 		"recordedSeq": int64(2), "head": r2, "anchor": deliveryrecord.AnchorRef(e.host+"/delivery/streams", recStream)}})
@@ -446,6 +447,7 @@ func TestVerifyRecords(t *testing.T) {
 	_, r2 := e.twoRecords()
 	v, err := e.d.VerifyRecords(ctx, "prod", "payments-prod")
 	if err != nil || !v.OK || v.Head != r2 || len(v.Records) != 2 || v.Records[1].Operation != "ship" || v.Records[0].Manifest == "" ||
+		!v.Records[1].Guarded || v.Records[0].Guarded ||
 		!strings.Contains(v.Cosign, "cosign verify-blob-attestation") || !strings.Contains(v.Cosign, v.Records[0].Manifest) {
 		t.Fatalf("verification = %+v %v", v, err)
 	}
@@ -712,21 +714,21 @@ func TestDeliveryUpstreamRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	stage.Spec.Candidates = delivery.Candidates{UpstreamRecords: &delivery.RemoteStage{Repository: e.host + "/delivery/streams", Stream: recStream}}
-	if up, why := e.d.upstream(ctx, stage); why != "" || len(up.Offered) != 1 || up.Offered[0] != dlB {
+	if up, why := upstreamOf(ctx, e.d, stage); why != "" || len(up.Offered) != 1 || up.Offered[0] != dlB {
 		t.Fatalf("offered: %+v %q", up, why)
 	}
 	stage.Status.UpstreamSeen = delivery.RecordMark{Stream: recStream, Seq: 5, Record: "sha256:gone"}
-	if up, why := e.d.upstream(ctx, stage); up != nil || !strings.Contains(why, "newest records were removed") {
+	if up, why := upstreamOf(ctx, e.d, stage); up != nil || !strings.Contains(why, "newest records were removed") {
 		t.Fatalf("a stream cut before what the Stage read offers nothing: %+v %q", up, why)
 	}
 	stage.Status.UpstreamSeen = delivery.RecordMark{}
 	records := e.d.Records
 	e.d.Records = func(string, ...string) (*remote.Repository, error) { return nil, errors.New("bad reference") }
-	if up, why := e.d.upstream(ctx, stage); up != nil || why != "bad reference" {
+	if up, why := upstreamOf(ctx, e.d, stage); up != nil || why != "bad reference" {
 		t.Fatalf("an unopenable repository offers nothing: %+v %q", up, why)
 	}
 	e.d.Records, e.d.Trust = records, nil
-	if up, why := e.d.upstream(ctx, stage); up != nil || !strings.Contains(why, "no trust config") {
+	if up, why := upstreamOf(ctx, e.d, stage); up != nil || !strings.Contains(why, "no trust config") {
 		t.Fatalf("without trust nothing is read: %+v %q", up, why)
 	}
 }

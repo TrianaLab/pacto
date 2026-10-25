@@ -197,7 +197,7 @@ func (d *Delivery) VerifyRecords(ctx context.Context, ns, stage string) (*delive
 	for _, rec := range r.Fold.Records {
 		p := rec.Statement.Predicate
 		v.Records = append(v.Records, delivery.RecordCheck{Seq: p.Chain.Seq, Record: rec.ID, Manifest: rec.Manifest, Kind: p.Kind,
-			Operation: p.Intent.Name})
+			Operation: p.Intent.Name, Guarded: p.Guarded})
 	}
 	repo, anchor, _ := strings.Cut(r.anchor, "@")
 	manifest := "<record manifest>"

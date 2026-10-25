@@ -115,7 +115,7 @@ func TestDeliveryRecordVerbs(t *testing.T) {
 			"asked by:  bot (agent)", "for:       carol (asserted)", "why:       ship it", "decided:   alice approve fine",
 			"pacto.contract", "from records, complete"}},
 		{"json", append([]string{"blame", "--trust", trust}, stage...), false, []string{`"onBehalfOf": "carol"`}},
-		{"text", append([]string{"record", "verify", "--trust", trust}, stage...), false, []string{"seq 1", "ship", "cosign verify-blob-attestation"}},
+		{"text", append([]string{"record", "verify", "--trust", trust}, stage...), false, []string{"seq 1", "ship", "(unguarded: actor and approvers not checked by admission)", "cosign verify-blob-attestation"}},
 		{"text", append([]string{"record", "verify", "--trust", wrong}, stage...), true, []string{"do not verify"}},
 		{"text", append([]string{"record", "verify"}, stage...), true, []string{"needs a trust config"}},
 		{"text", []string{"record", "verify", "-n", "prod", "--stage", "missing", "--trust", trust}, true, nil},

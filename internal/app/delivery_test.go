@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -348,18 +349,19 @@ func TestDeliverySecureRegistry(t *testing.T) {
 
 func TestDeliveryWhoAmIAndApprove(t *testing.T) {
 	op := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p1", map[string]any{
-		"spec": map[string]any{"intentDigest": "sha256:i"},
+		"spec":   map[string]any{"intentDigest": "sha256:i", "stage": "payments-prod", "actor": map[string]any{"user": "bot"}},
+		"status": map[string]any{"phase": "Held", "times": map[string]any{"held": "2027-01-15T07:00:00Z"}},
 	})
 	ctx := context.Background()
-	d, c, _ := deliveryFixture(t, "alice", []string{"devs"}, map[string]any{authTimeExtra: []any{"2026-10-20T10:00:00Z"}}, op)
+	d, c, _ := deliveryFixture(t, "alice", []string{"devs"}, map[string]any{authTimeExtra: []any{"2027-01-15T07:55:00Z"}}, op)
 	who, err := d.WhoAmI(ctx)
-	if err != nil || who.User != "alice" || who.Class != delivery.ClassHuman || who.AuthTime != "2026-10-20T10:00:00Z" {
+	if err != nil || who.User != "alice" || who.Class != delivery.ClassHuman || who.AuthTime != "2027-01-15T07:55:00Z" {
 		t.Fatalf("whoami: %+v %v", who, err)
 	}
 	c.PrependReactor("create", "approvals", func(a k8stesting.Action) (bool, runtime.Object, error) {
 		u := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured)
 		spec := u.Object["spec"].(map[string]any)
-		if spec["by"] != "alice" || spec["operationUID"] != "uid-p1" || spec["intentDigest"] != "sha256:i" || spec["authTime"] != "2026-10-20T10:00:00Z" ||
+		if spec["by"] != "alice" || spec["operationUID"] != "uid-p1" || spec["intentDigest"] != "sha256:i" || spec["authTime"] != "2027-01-15T07:55:00Z" ||
 			fmt.Sprint(spec["groups"]) != "[devs]" {
 			t.Errorf("approval spec %+v", spec)
 		}
@@ -403,7 +405,8 @@ func TestDeliveryReadsThePublishedPolicy(t *testing.T) {
 
 func TestDeliveryApproveRefusals(t *testing.T) {
 	op := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p1", map[string]any{
-		"spec": map[string]any{"intentDigest": "sha256:i"},
+		"spec":   map[string]any{"intentDigest": "sha256:i", "stage": "payments-prod", "actor": map[string]any{"user": "bot"}},
+		"status": map[string]any{"phase": "Held", "times": map[string]any{"held": "2027-01-15T07:00:00Z"}},
 	})
 	ctx := context.Background()
 	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", nil, nil, op)
@@ -412,7 +415,20 @@ func TestDeliveryApproveRefusals(t *testing.T) {
 	d, _, _ = deliveryFixture(t, "bob", nil, nil, op)
 	_, err = d.Approve(ctx, "prod", "p1", delivery.Approve, "")
 	wantErrContaining(t, err, "fresh interactive login")
-	d, c, _ := deliveryFixture(t, "bob", nil, map[string]any{authTimeExtra: []any{"1"}}, op)
+	// The promoter's own rule decides before anything is created: a login
+	// too old, the asker deciding their own change, an operation not held.
+	d, _, _ = deliveryFixture(t, "bob", nil, map[string]any{authTimeExtra: []any{"1"}}, op)
+	_, err = d.Approve(ctx, "prod", "p1", delivery.Approve, "")
+	wantErrContaining(t, err, "would not count this decision, so none was recorded: bob's login was not within 15m0s")
+	d, _, _ = deliveryFixture(t, "bot", nil, map[string]any{authTimeExtra: []any{"1800000000"}}, op)
+	_, err = d.Approve(ctx, "prod", "p1", delivery.Approve, "")
+	wantErrContaining(t, err, "bot asked for this change")
+	running := op.DeepCopy()
+	_ = unstructured.SetNestedField(running.Object, "Running", "status", "phase")
+	d, _, _ = deliveryFixture(t, "bob", nil, map[string]any{authTimeExtra: []any{"1800000000"}}, running)
+	_, err = d.Approve(ctx, "prod", "p1", delivery.Approve, "")
+	wantErrContaining(t, err, "not waiting for a decision")
+	d, c, _ := deliveryFixture(t, "bob", nil, map[string]any{authTimeExtra: []any{"1800000000"}}, op)
 	c.PrependReactor("create", "approvals", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("denied")
 	})
@@ -442,27 +458,40 @@ func TestDeliveryUpstreamStage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if up, _ := d.upstream(ctx, stage); up == nil || up.Verified[0] != dlB {
+	if up, _ := upstreamOf(ctx, d, stage); up == nil || up.Verified[0] != dlB {
 		t.Fatalf("upstream: %+v", up)
 	}
 	stage.Spec.Candidates.UpstreamStage.Namespace = ""
-	if up, _ := d.upstream(ctx, stage); up != nil {
+	if up, _ := upstreamOf(ctx, d, stage); up != nil {
 		t.Fatalf("an upstream in prod does not exist: %+v", up)
 	}
 	stage.Spec.Candidates = delivery.Candidates{}
-	if up, _ := d.upstream(ctx, stage); up != nil {
+	if up, _ := upstreamOf(ctx, d, stage); up != nil {
 		t.Fatal("no upstream")
 	}
+	readErr := error(apierrors.NewForbidden(schema.GroupResource{Group: "delivery.pacto.trianalab.io", Resource: "stages"}, "payments-test", errors.New("no RBAC")))
 	c.PrependReactor("get", "stages", func(a k8stesting.Action) (bool, runtime.Object, error) {
 		if a.GetNamespace() == "test" {
-			return true, nil, errors.New("forbidden")
+			return true, nil, readErr
 		}
 		return false, nil, nil
 	})
 	p, _, err := d.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB})
-	if err != nil || p.Verdicts[0].Gate != delivery.GatePublished || p.Verdicts[0].Result != delivery.Fail {
+	if err != nil || p.Verdicts[0].Gate != delivery.GatePublished || p.Verdicts[0].Result != delivery.Fail || !strings.Contains(p.Verdicts[0].Message, "cannot be read") {
 		t.Fatalf("an unreadable upstream: %+v %v", p.Verdicts, err)
 	}
+	// Any other failed read stops the plan, as it stops the promoter's,
+	// instead of predicting a refusal the promoter would not make.
+	readErr = errors.New("connection reset")
+	if _, _, err := d.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB}); err == nil || !strings.Contains(err.Error(), "connection reset") {
+		t.Fatalf("a failed upstream read must fail the plan: %v", err)
+	}
+}
+
+// upstreamOf is the upstream a plan reads for stage.
+func upstreamOf(ctx context.Context, d *Delivery, stage *delivery.StageObject) (*delivery.StageStatus, string) {
+	s, why, _ := planSources{d}.Upstream(ctx, *stage)
+	return s, why
 }
 
 func TestDeliveryLists(t *testing.T) {

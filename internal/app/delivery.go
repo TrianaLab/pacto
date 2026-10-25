@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -219,28 +220,11 @@ func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.Pla
 	if err != nil {
 		return delivery.Plan{}, delivery.OperationSpec{}, err
 	}
-	in := delivery.PlanInput{Spec: spec, Stage: stage.Spec, Status: stage.Status, Class: caller.Class,
-		RequireOwnerTeam: caller.Policy.RequireOwnerTeam, From: delivery.Revision{Digest: spec.Params.From}, To: delivery.Revision{Digest: spec.Params.To}}
-	if spec.Type == delivery.TypePromote {
-		repo, reg, err := d.applyRegistry(ctx, stage)
-		if err != nil {
-			in.From.Err, in.To.Err = err.Error(), err.Error()
-		} else {
-			in.From = delivery.ResolveRevision(ctx, reg, repo, spec.Params.From)
-			in.To = delivery.ResolveRevision(ctx, reg, repo, spec.Params.To)
-		}
-		in.Upstream, in.UpstreamErr = d.upstream(ctx, stage)
-		pactos, listErr := d.pactos(ctx)
-		in.Stages, in.StagesErr = d.Stages(ctx, "")
-		in.Candidates = func(ctx context.Context, s delivery.StageObject, digest string) delivery.Revision {
-			return d.Describe(ctx, &s, digest)
-		}
-		ks, ksErr := d.kustomizations(ctx)
-		pactos, in.Misplaced = delivery.EnvironmentPactos(pactos, in.Stages, ks, errors.Join(in.StagesErr, ksErr), stage.Spec.Environment)
-		if in.Snapshot, err = delivery.Snapshot(ctx, pactos, listErr, []delivery.Revision{in.From, in.To}, d.Now()); err != nil {
-			return delivery.Plan{}, delivery.OperationSpec{}, err
-		}
+	in, err := delivery.AssemblePlanInput(ctx, planSources{d}, spec, *stage, caller.Class, d.Now())
+	if err != nil {
+		return delivery.Plan{}, delivery.OperationSpec{}, err
 	}
+	in.RequireOwnerTeam = caller.Policy.RequireOwnerTeam
 	plan := delivery.PlanFor(ctx, in)
 	if spec.Facet == delivery.FacetPointer && spec.Params.To != "" {
 		plan.Precedent = d.precedent(ctx, stage, spec.Params.To)
@@ -248,39 +232,69 @@ func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.Pla
 	return plan, spec, nil
 }
 
-// upstream reads the status of the Stage this one takes its candidates from;
-// nil when there is none or it cannot be read, which the published gate
-// refuses. An upstream in another cluster is read from its signed records,
-// and only with a trust config: unverified history never admits a version,
-// and neither does a stream cut before the newest record the Stage read.
-func (d *Delivery) upstream(ctx context.Context, stage *delivery.StageObject) (*delivery.StageStatus, string) {
+// planSources is delivery.PlanSources over the client's own reads, so a plan
+// gathers its input exactly as the promoter does.
+type planSources struct{ d *Delivery }
+
+func (p planSources) Revisions(ctx context.Context, stage delivery.StageObject, from, to string) (delivery.Revision, delivery.Revision) {
+	repo, reg, err := p.d.applyRegistry(ctx, &stage)
+	if err != nil {
+		return delivery.Revision{Digest: from, Err: err.Error()}, delivery.Revision{Digest: to, Err: err.Error()}
+	}
+	return delivery.ResolveRevision(ctx, reg, repo, from), delivery.ResolveRevision(ctx, reg, repo, to)
+}
+
+func (p planSources) Pactos(ctx context.Context) ([]delivery.PactoView, error) {
+	return p.d.pactos(ctx)
+}
+
+func (p planSources) Stages(ctx context.Context) ([]delivery.StageObject, error) {
+	return p.d.Stages(ctx, "")
+}
+
+func (p planSources) Kustomizations(ctx context.Context) ([]delivery.KustomizationView, error) {
+	return p.d.kustomizations(ctx)
+}
+
+func (p planSources) Describe(ctx context.Context, stage delivery.StageObject, digest string) delivery.Revision {
+	return p.d.Describe(ctx, &stage, digest)
+}
+
+// Upstream reads the status of the Stage this one takes its candidates from,
+// as the promoter does: nil with why when it does not exist or may not be
+// read, which the published gate refuses, and any other read error returned,
+// so the plan fails instead of predicting without it. An upstream in another
+// cluster is read from its signed records, and only with a trust config:
+// unverified history never admits a version, and neither does a stream cut
+// before the newest record the Stage read.
+func (p planSources) Upstream(ctx context.Context, stage delivery.StageObject) (*delivery.StageStatus, string, error) {
+	d := p.d
 	if r := stage.Spec.Candidates.UpstreamRecords; r != nil {
 		if d.Records == nil || d.Trust == nil {
-			return nil, "no trust config was given (pass --trust with the key of the upstream recorder), so its records are not read"
+			return nil, "no trust config was given (pass --trust with the key of the upstream recorder), so its records are not read", nil
 		}
 		repo, err := d.Records(r.Repository)
 		if err != nil {
-			return nil, err.Error()
+			return nil, err.Error(), nil
 		}
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		// The promoter refuses a stream that no longer holds what the Stage
-		// already read, and so does the plan that predicts it.
-		return deliveryrecord.Upstream(ctx, repo, r.Stream, d.verifier(), stage.Status.UpstreamSeen)
+		s, why := deliveryrecord.Upstream(ctx, repo, r.Stream, d.verifier(), stage.Status.UpstreamSeen)
+		return s, why, nil
 	}
 	up := stage.Spec.Candidates.UpstreamStage
 	if up == nil {
-		return nil, ""
+		return nil, "", nil
 	}
-	ns := up.Namespace
-	if ns == "" {
-		ns = stage.Metadata.Namespace
-	}
+	ns := cmp.Or(up.Namespace, stage.Metadata.Namespace)
 	s, err := d.Stage(ctx, ns, up.Name)
-	if err != nil {
-		return nil, ""
+	switch {
+	case apierrors.IsNotFound(err) || apierrors.IsForbidden(err):
+		return nil, "the upstream Stage " + ns + "/" + up.Name + " cannot be read: " + err.Error(), nil
+	case err != nil:
+		return nil, "", err
 	}
-	return &s.Status, ""
+	return &s.Status, "", nil
 }
 
 // spec turns a request into the intent the promoter will admit.
@@ -426,7 +440,8 @@ func (d *Delivery) Propose(ctx context.Context, req delivery.Request) (*delivery
 }
 
 // Cancel deletes an Operation. The promoter concludes it Cancelled if nothing
-// moved yet; admission refuses once the pointer moved.
+// moved yet. Admission refuses once the pointer moved, and refuses an agent
+// cancelling an operation it did not propose itself.
 func (d *Delivery) Cancel(ctx context.Context, ns, name string) error {
 	if err := d.Dynamic.Resource(gvrOperations).Namespace(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 		return fmt.Errorf("cancelling Operation %s/%s: %w", ns, name, err)
@@ -452,6 +467,15 @@ func (d *Delivery) Approve(ctx context.Context, ns, name string, decision delive
 	if caller.AuthTime == "" {
 		return "", errors.New("approving needs a fresh interactive login, and the apiserver reports no login time " +
 			"(userInfo.extra[" + authTimeExtra + "]); log in again through your identity provider")
+	}
+	spec := delivery.ApprovalSpec{Operation: name, OperationUID: op.Metadata.UID, IntentDigest: op.Spec.IntentDigest,
+		Decision: decision, Note: note, By: caller.User, AuthTime: caller.AuthTime, Groups: caller.Groups}
+	freshness := delivery.AuthFreshness
+	if st, err := d.Stage(ctx, ns, op.Spec.Stage); err == nil {
+		freshness = delivery.PublishedFreshness(st.Status.AuthFreshness)
+	}
+	if ok, why := delivery.ApprovalEligible(op.Spec, op.Status, op.Metadata.UID, spec, d.Now(), caller.Policy, freshness); !ok {
+		return "", errors.New("the promoter would not count this decision, so none was recorded: " + why)
 	}
 	obj := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "delivery.pacto.trianalab.io/v1alpha1", "kind": "Approval",
