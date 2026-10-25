@@ -16,6 +16,7 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -189,6 +190,17 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 	case c.UpstreamStage == nil && c.UpstreamRecords == nil:
 		want = notReady("NoCandidateSource", "the Stage names no candidates.ociRepositoryRef, candidates.upstreamStage or candidates.upstreamRecords, so it never promotes")
 	}
+	if want.Status == "True" {
+		a, err := r.Cluster.applier(ctx, stage.Namespace, stage.Spec.ApplyRef)
+		switch {
+		case apierrors.IsNotFound(err):
+		case err != nil:
+			return nil, err
+		case !labelled(a.obj):
+			want = notReady("ApplyRefUnlabelled", "the apply object "+a.obj.GetName()+" has no "+ApplyRefLabel+
+				" label, so admission does not guard its pointer and the promoter may not write it")
+		}
+	}
 	if slices.Contains(stage.Status.Conditions, want) {
 		return cand, nil
 	}
@@ -200,6 +212,11 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 	}
 	set(stage)
 	return cand, nil
+}
+
+func labelled(o *unstructured.Unstructured) bool {
+	_, ok := o.GetLabels()[ApplyRefLabel]
+	return ok
 }
 
 func notReady(reason, msg string) delivery.Condition {

@@ -1259,3 +1259,17 @@ func TestUnguardedAdmitsNothingAndCountsNoApproval(t *testing.T) {
 		}
 	})
 }
+
+// TestRefusedPointerWriteIsShown: a pointer write the apiserver refuses (a
+// missing apply-ref label, RBAC) is written to the operation, not only to
+// the promoter's log.
+func TestRefusedPointerWriteIsShown(t *testing.T) {
+	e := at(t, delivery.PhaseRunning)
+	e.fails["patch/OCIRepository"] = true
+	if err := e.reconcileOpErr("p1"); err != nil {
+		t.Fatal(err)
+	}
+	if m := e.getOp("p1").Status.Message; m != "writing spec.ref.digest of OCIRepository payments: injected patch failure" {
+		t.Fatalf("message %q", m)
+	}
+}

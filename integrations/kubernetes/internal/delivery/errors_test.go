@@ -64,7 +64,6 @@ func TestReconcileSurfacesEveryWriteFailure(t *testing.T) {
 		{"lock CAS read", delivery.PhasePending, "status/Stage", nil},
 		{"running CAS", delivery.PhaseRunning, "status/Stage", nil},
 		{"running applied write", delivery.PhaseRunning, "status/Operation", nil},
-		{"digest patch", delivery.PhaseRunning, "patch/OCIRepository", nil},
 		{"kustomization list", delivery.PhaseRunning, "list/Kustomization", func(e *env) {
 			e.reconcileOp("p1")
 			e.reconcileOp("p1")

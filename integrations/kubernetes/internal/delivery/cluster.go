@@ -80,6 +80,11 @@ type applyRef struct {
 	verified bool
 }
 
+// ApplyRefLabel marks the object a Stage applies through. Admission guards
+// the pointer of a labelled object only, and lets the promoter write nothing
+// else.
+const ApplyRefLabel = "delivery.pacto.trianalab.io/apply-ref"
+
 // applier reads the Stage's applier object.
 func (c Cluster) applier(ctx context.Context, ns string, ref delivery.ApplyRef) (*applyRef, error) {
 	if ref.Kind != delivery.ApplierArgoCD {

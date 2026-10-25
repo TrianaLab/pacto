@@ -1511,6 +1511,14 @@ ready_is() {
   [ "$(kubectl -n "$1" get stage "$2" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}/{.status.conditions[?(@.type=="Ready")].reason}')" = "$3" ]
 }
 eventually 20 ready_is "$P" billing True/Ready || fail "the publishing Stage is not Ready: $(kubectl -n "$P" get stage billing -o jsonpath='{.status.conditions}')"
+# Without the apply-ref label admission guards nothing and the promoter may not
+# write the pointer, so the Stage says so instead of promoting into a refusal.
+kubectl -n "$P" label ocirepository billing delivery.pacto.trianalab.io/apply-ref- >/dev/null
+eventually 20 ready_is "$P" billing False/ApplyRefUnlabelled \
+  || fail "an unlabelled apply OCIRepository is not reported: $(kubectl -n "$P" get stage billing -o jsonpath='{.status.conditions}')"
+kubectl -n "$P" label ocirepository billing delivery.pacto.trianalab.io/apply-ref=billing >/dev/null
+eventually 20 ready_is "$P" billing True/Ready || fail "the Stage is not Ready again once relabelled"
+pass "a Stage whose apply OCIRepository lost its apply-ref label is Ready=False with ApplyRefUnlabelled until it is relabelled"
 kubectl -n "$M" apply -f - >/dev/null <<YAML
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository

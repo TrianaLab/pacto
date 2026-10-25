@@ -112,9 +112,12 @@ spec:
   # keyless: matchOIDCIdentity with the issuer and subject of publish.sign
 ```
 
-Label the `OCIRepository` that applies the Stage, so admission keeps everyone
-but the promoter and break-glass off its digest, and give it the same
-`spec.verify`. A downstream Stage takes only what its upstream lists in
+Label the `OCIRepository` that applies the Stage with
+`delivery.pacto.trianalab.io/apply-ref`, so admission keeps everyone but the
+promoter and break-glass off its digest, and give it the same `spec.verify`.
+Without the label the promoter may not write the digest either: the Stage has
+`Ready` `False` with the reason `ApplyRefUnlabelled`, and a refused write shows
+in the operation's `status.message`. A downstream Stage takes only what its upstream lists in
 `status.offered`: versions that passed the published gate and were verified
 there, never one let through on an accepted unknown.
 

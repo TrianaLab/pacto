@@ -26,7 +26,8 @@ The Application must:
   `sourceNamespaces`.
 - have one OCI source (`spec.source.repoURL: oci://…`), not `spec.sources`.
 - sync on its own (`syncPolicy.automated`), because the promoter never runs a sync.
-- carry the `delivery.pacto.trianalab.io/apply-ref` label.
+- carry the `delivery.pacto.trianalab.io/apply-ref` label. Without it the Stage
+  has `Ready` `False` with the reason `ApplyRefUnlabelled`.
 - start with `targetRevision` empty or at the digest the Stage runs. Any other
   value is a write the promoter did not make, so the first promote freezes the
   Stage.

@@ -419,3 +419,23 @@ func TestCreateRaised(t *testing.T) {
 		t.Fatal("a failed read of the taken name must be an error")
 	}
 }
+
+// TestApplyRefUnlabelled: a Stage whose apply object lacks the apply-ref
+// label is not Ready, naming the label, since admission neither guards its
+// pointer nor lets the promoter write it.
+func TestApplyRefUnlabelled(t *testing.T) {
+	apply := ociRepo("payments", "", "", false)
+	apply.SetLabels(nil)
+	e := newEnv(t, stageObj(""), apply, verifiedRepo("payments-candidates", "latest@"+dB))
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	c := e.getStage().Status.Conditions
+	if len(c) != 1 || c[0].Status != statusFalse || c[0].Reason != "ApplyRefUnlabelled" || !strings.Contains(c[0].Message, ApplyRefLabel) {
+		t.Fatalf("want Ready=False ApplyRefUnlabelled, got %+v", c)
+	}
+	e.fails["get/OCIRepository/payments"] = true
+	if e.reconcileStage("payments-prod") == nil {
+		t.Fatal("a failed apply object read must surface")
+	}
+}
