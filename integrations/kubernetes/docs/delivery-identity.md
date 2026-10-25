@@ -9,8 +9,11 @@ audit log names the person. There is no impersonation.
 
 Approving needs the login time, read by the apiserver itself. Structured
 authentication maps the OIDC `auth_time` claim to
-`userInfo.extra["pacto.dev/auth-time"]`, only for tokens issued to the
-interactive clients, so a client-credentials or exchanged token never has it:
+`userInfo.extra["pacto.dev/auth-time"]`, only for tokens issued to the two
+clients that make a person log in again: the dashboard and `pacto delivery
+approve`'s own client, `pacto-approve`. A client-credentials or exchanged
+token never has it, and neither does a kubeconfig login (`pacto-cli`): any
+process in your shell, an agent included, can reuse that one.
 
 ```yaml
 apiVersion: apiserver.config.k8s.io/v1
@@ -23,15 +26,18 @@ jwt:
     extra:
     - key: pacto.dev/auth-time
       valueExpression: >-
-        has(claims.auth_time) && has(claims.azp) && claims.azp in ['pacto-dashboard', 'pacto-cli']
+        has(claims.auth_time) && has(claims.azp) && claims.azp in ['pacto-dashboard', 'pacto-approve']
         ? string(int(claims.auth_time)) : ''
 ```
 
-The identity provider must put `azp` on interactive tokens. Dex sets it only
-on a token with two audiences, so give the dashboard the extra scope
-`audience:server:client_id:pacto-cli` and make `pacto-cli` trust
-`pacto-dashboard`. A cluster that cannot trust your identity provider keeps the
-read-only dashboard and the CLI, and nobody can approve there.
+The identity provider must put `azp` on these tokens. Dex sets it only on a
+token with two audiences, so give the dashboard and `pacto delivery approve`
+the extra scope `audience:server:client_id:pacto-cli` and make `pacto-cli`
+trust `pacto-dashboard` and `pacto-approve`. Register `pacto-approve` as a
+public client (PKCE, no secret) whose redirect is the loopback address
+`http://127.0.0.1:<port>/callback`, and use it for nothing else. A cluster that
+cannot trust your identity provider keeps the read-only dashboard and the CLI,
+and nobody can approve there.
 
 ## Sign in to the dashboard
 
@@ -82,6 +88,23 @@ approval more than fifteen minutes after its login. The decision takes one more
 click, never sent on its own. Agents are refused, and so is a token with no
 login time.
 
+## Approve from the terminal
+
+```bash
+export PACTO_DELIVERY_OIDC_ISSUER_URL=https://idp.example.com
+pacto delivery approve -n prod <operation> --decision approve \
+  --oidc-extra-scopes audience:server:client_id:pacto-cli --oidc-redirect-port 8001
+```
+
+The command never sends your kubeconfig's credentials. It prints an address
+with `prompt=login` and `max_age=0`, waits up to ten minutes on the loopback
+port for you to log in again in your browser, refuses a token whose
+`auth_time` is older than the command, and sends the Approval with that token
+alone. The token is not stored. `--oidc-client-id` defaults to
+`pacto-approve`; a confidential client's secret comes from
+`PACTO_DELIVERY_OIDC_CLIENT_SECRET`. Without `--oidc-redirect-port` it picks a
+free port, which suits a provider that allows any loopback port (RFC 8252).
+
 ## Agents over the network
 
 ```bash
@@ -102,7 +125,11 @@ HTTP.
 
 - An agent holding a person's credentials, session or refresh token is that
   person to the cluster. Fresh sign-in raises the bar; it does not close the
-  gap.
+  gap. `pacto delivery approve` asks for the login with `prompt=login`, but
+  the cluster cannot see what a login asked for: a process that drives your
+  browser could run the `pacto-approve` login itself and ride your identity
+  provider's session, and it gets a login time only as old as your last real
+  login there. An identity provider that ignores `prompt=login` widens this.
 - A stolen dashboard session can approve only in the ten minutes after that
   person signed in again, and can take their other actions until it ends.
 - Sessions live in the dashboard's memory: it runs as one replica and a restart

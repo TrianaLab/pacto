@@ -31,11 +31,20 @@ staticClients:
 - id: pacto-dashboard
   secret: dashboard-secret
   name: Pacto dashboard
+  # Trusts the CLI only so the e2e can mint a kubeconfig login with azp.
+  trustedPeers: [pacto-cli]
   redirectURIs: [http://127.0.0.1:3300/auth/callback]
-# The CLI client trusts the dashboard, so the dashboard can ask for a token
-# naming both: Dex sets azp only on a token with more than one audience.
+# The CLI client trusts the dashboard and `pacto delivery approve`, so each can
+# ask for a token naming both: Dex sets azp only on a token with more than one
+# audience.
 - id: pacto-cli
   name: Pacto CLI
   public: true
-  trustedPeers: [pacto-dashboard]
+  trustedPeers: [pacto-dashboard, pacto-approve]
   redirectURIs: [http://127.0.0.1:8000]
+# `pacto delivery approve` logs the person in again with this client, which no
+# kubeconfig uses.
+- id: pacto-approve
+  name: Pacto approvals
+  public: true
+  redirectURIs: [http://127.0.0.1:8001/callback]

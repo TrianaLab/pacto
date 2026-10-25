@@ -270,7 +270,7 @@ pacto delivery [flags]
 
 ### `pacto delivery approve`
 
-Record your decision on a held operation (people only, with a fresh login)
+Record your decision on a held operation. The command makes you log in again in your browser (prompt=login, max_age=0) with its own OpenID Connect client and sends the Approval with that login's token, never your kubeconfig's: an agent running in your shell cannot approve as you without you typing your password at that moment. The token is not stored.
 
 ```
 pacto delivery approve <operation> [flags]
@@ -279,9 +279,13 @@ pacto delivery approve <operation> [flags]
 **Flags:**
 
 ```
-      --decision string   approve, reject or accept-unknown (default "approve")
-  -h, --help              help for approve
-      --note string       why, for the record
+      --decision string             approve, reject or accept-unknown (default "approve")
+  -h, --help                        help for approve
+      --note string                 why, for the record
+      --oidc-client-id string       OpenID Connect client used only for approvals, never by a kubeconfig (a confidential client's secret comes from PACTO_DELIVERY_OIDC_CLIENT_SECRET) (default "pacto-approve")
+      --oidc-extra-scopes strings   scopes to ask for beyond openid, profile and groups
+      --oidc-issuer-url string      OpenID Connect issuer the cluster trusts, to log in again with (also PACTO_DELIVERY_OIDC_ISSUER_URL)
+      --oidc-redirect-port int      loopback port the identity provider sends the browser back to (default: a free port)
 ```
 
 ### `pacto delivery blame`
