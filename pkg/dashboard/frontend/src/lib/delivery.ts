@@ -297,9 +297,12 @@ export interface AutonomyEntry {
  * autonomyOf counts how far delivery runs on its own: of the promotions that
  * ended, how many no person asked for or decided, and how many waited for a
  * person only because a check was Unknown (what more visibility would remove).
+ * It is null when a promotion's line does not say who approved it (no
+ * approvals key at all): a person may have, so nothing can be counted.
  */
-export function autonomyOf(entries: AutonomyEntry[]): { total: number; noPerson: number; onlyUnknown: number } {
+export function autonomyOf(entries: AutonomyEntry[]): { total: number; noPerson: number; onlyUnknown: number } | null {
   const done = entries.filter((e) => e.type === 'pacto.dev/promote' && e.kind !== 'gap' && e.kind !== 'unrecordable' && e.phase === 'Concluded');
+  if (done.some((e) => e.approvals === undefined)) return null;
   const unknown = (e: AutonomyEntry) => e.verification === 'AcceptedUnknown' || (e.approvals ?? []).some((a) => a.decision === 'accept-unknown');
   return {
     total: done.length,
@@ -316,18 +319,23 @@ export interface UndoEntry {
   finished?: string;
   actor?: string;
   actorClass?: string;
+  pointer?: { after?: string } | null;
 }
 
 /**
  * undoneBy finds the rollback that undid the change `name`, which moved its
- * Stage to `after`: a rollback starts from the version the change it undoes
- * put there, so it is the first rollback from `after` that did not end
- * before the change did.
+ * Stage to `after`: the first change after it that moved the Stage off
+ * `after` (one that did not move it, failed or still running, undid
+ * nothing). That is the undo only if it is a rollback; anything else means the
+ * Stage moved on, and a later rollback from `after` undid that, not this.
+ * Lines are in the order the history keeps them, oldest first.
  */
-// ponytail: matched by version and time, because history lines do not name what a rollback undoes; read params.undoes if they ever do.
+// ponytail: matched by version, order and time, because history lines do not name what a rollback undoes; read params.undoes if they ever do.
 export function undoneBy<T extends UndoEntry>(entries: T[], name: string, after: string, finished?: string): T | null {
-  return entries.find((en) => en.type === 'pacto.dev/rollback' && en.operation && en.operation !== name && en.from === after
-    && (!finished || !en.finished || en.finished >= finished)) ?? null;
+  const i = entries.findIndex((en) => en.operation === name);
+  const next = entries.slice(i + 1).find((en) => en.operation && en.from === after && en.pointer?.after
+    && (!finished || !en.finished || en.finished >= finished));
+  return next?.type === 'pacto.dev/rollback' ? next : null;
 }
 
 /**

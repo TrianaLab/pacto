@@ -243,7 +243,7 @@ describe('what a change says about itself', () => {
   });
 
   it('counts how far delivery ran with no person, and what only Unknown held', () => {
-    const p = (over: Record<string, unknown>) => ({ type: 'pacto.dev/promote', phase: 'Concluded', actorClass: 'agent', ...over });
+    const p = (over: Record<string, unknown>) => ({ type: 'pacto.dev/promote', phase: 'Concluded', actorClass: 'agent', approvals: null, ...over });
     expect(autonomyOf([
       p({}), p({ actorClass: 'controller' }),
       p({ approvals: [{ decision: 'approve' }] }),
@@ -253,19 +253,34 @@ describe('what a change says about itself', () => {
       p({ phase: 'Held' }), p({ type: 'pacto.dev/rollback' }), p({ kind: 'gap' }), p({ kind: 'unrecordable' }),
     ])).toEqual({ total: 6, noPerson: 2, onlyUnknown: 1 });
     expect(autonomyOf([])).toEqual({ total: 0, noPerson: 0, onlyUnknown: 0 });
+    // A promotion whose line does not say who approved it cannot be counted:
+    // a person may have approved it.
+    expect(autonomyOf([p({ approvals: null }), { type: 'pacto.dev/promote', phase: 'Concluded', actorClass: 'agent' }])).toBeNull();
   });
 
   it('finds the rollback that undid a change', () => {
-    const rb = (over: Record<string, string>) => ({ operation: 'rb', type: 'pacto.dev/rollback', from: D2, finished: '2026-10-21T11:00:00Z', ...over });
-    const promoteLine = { operation: 'op1', type: 'pacto.dev/promote', from: D1, finished: '2026-10-21T10:00:00Z' };
+    const rb = (over: Record<string, unknown>) => ({ operation: 'rb', type: 'pacto.dev/rollback', from: D2, finished: '2026-10-21T11:00:00Z', pointer: { after: D1 }, ...over });
+    const promoteLine = { operation: 'op1', type: 'pacto.dev/promote', from: D1, finished: '2026-10-21T10:00:00Z', pointer: { after: D2 } };
     expect(undoneBy([promoteLine, rb({})], 'op1', D2, '2026-10-21T10:00:00Z')?.operation).toBe('rb');
     expect(undoneBy([rb({ finished: '' })], 'op1', D2, '2026-10-21T10:00:00Z')?.operation).toBe('rb');
     expect(undoneBy([rb({})], 'op1', D2)?.operation).toBe('rb');
-    // An earlier rollback, one from another version or the change itself undid nothing here.
+    // An earlier rollback, one from another version, the change itself or a
+    // rollback that moved nothing undid nothing here.
     expect(undoneBy([rb({ finished: '2026-10-21T09:00:00Z' })], 'op1', D2, '2026-10-21T10:00:00Z')).toBeNull();
     expect(undoneBy([rb({ from: D1 })], 'op1', D2)).toBeNull();
     expect(undoneBy([rb({ operation: 'op1' })], 'op1', D2)).toBeNull();
     expect(undoneBy([rb({ operation: '' })], 'op1', D2)).toBeNull();
+    expect(undoneBy([promoteLine, rb({ pointer: null })], 'op1', D2)).toBeNull();
+    // A moves to 2.4, B moves on to 2.5, C rolls B back to 2.4 and D rolls C
+    // back to 2.5: D starts from 2.4 but undid C, and A was never undone.
+    const v = (n: string) => 'sha256:' + n.repeat(64);
+    const line = (operation: string, type: string, from: string, to: string, finished: string) =>
+      ({ operation, type: `pacto.dev/${type}`, from: v(from), finished, pointer: { before: v(from), after: v(to) } });
+    const abcd = [line('A', 'promote', '3', '4', 't1'), line('B', 'promote', '4', '5', 't2'),
+      line('C', 'rollback', '5', '4', 't3'), line('D', 'rollback', '4', '5', 't4')];
+    expect(undoneBy(abcd, 'A', v('4'), 't1')).toBeNull();
+    expect(undoneBy(abcd, 'B', v('5'), 't2')?.operation).toBe('C');
+    expect(undoneBy(abcd, 'C', v('4'), 't3')?.operation).toBe('D');
   });
 
   it('leaves out a re-run line with nothing to run', () => {

@@ -698,7 +698,7 @@ describe('history and published', () => {
     fns.history.mockResolvedValue({ ...listing, people: { 'https://idp#carol': 'Carol' }, histories: [
       { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', source: 'records', verified: true, note: '', stage: { name: 'pay', pointer: D2 },
         entries: [
-          { seq: 1, operation: 'op1', type: 'pacto.dev/promote', to: D1, actor: 'bot', actorClass: 'agent', outcome: 'Succeeded', kind: 'operation', record: 'sha256:' + 'a'.repeat(64) },
+          { seq: 1, operation: 'op1', type: 'pacto.dev/promote', to: D1, actor: 'bot', actorClass: 'agent', outcome: 'Succeeded', kind: 'operation', record: 'sha256:' + 'a'.repeat(64), approvals: null },
           { seq: 2, operation: 'op2', type: 'pacto.dev/promote', from: D1, to: D2, actor: 'bot', actorClass: 'agent', outcome: 'Succeeded', kind: 'operation', record: 'sha256:' + 'b'.repeat(64),
             approvals: [{ by: 'https://idp#carol', decision: 'approve', operation: 'u' }, { decision: 'approve' }] },
           { seq: 3, operation: '', type: '', actor: '', kind: 'gap', record: 'sha256:' + 'c'.repeat(64) },
@@ -862,7 +862,7 @@ describe('history blame and undo', () => {
       entries: [
         { seq: 1, operation: 'op1', type: 'pacto.dev/promote', from: D1, to: D2, actor: 'https://idp#carol', actorClass: 'human', outcome: 'Succeeded',
           finished: '2026-10-21T11:00:05Z', kind: 'operation', record: REC, pointer: { before: D1, after: D2 } },
-        { seq: 2, operation: 'op2', type: 'pacto.dev/promote', to: D1, actor: 'system:serviceaccount:agents:pay-agent', actorClass: 'agent', outcome: 'Failed', finished: 'soon' },
+        { seq: 2, operation: 'op2', type: 'pacto.dev/promote', to: D1, actor: 'system:serviceaccount:agents:pay-agent', actorClass: 'agent', outcome: 'Failed', finished: 'soon', approvals: null },
       ] },
     { namespace: 'test', asOf: listing.asOf, completeness: 'partial', source: 'status', note: '', stage: { name: 'pay', pointer: D1 }, entries: [] },
   ] });
@@ -1091,7 +1091,7 @@ describe('Unknown, proof, undo and autonomy', () => {
     fns.operation.mockResolvedValue(op);
     fns.history.mockResolvedValue({ ...listing, histories: [{ namespace: 'prod', stage: { name: 'pay' }, entries: [
       { operation: 'op1', type: 'pacto.dev/promote', from: D1, to: D2, finished: '2026-10-21T10:00:00Z' },
-      { operation: 'rb1', type: 'pacto.dev/rollback', from: D2, to: D1, actor: 'system:serviceaccount:pacto:promoter', actorClass: 'controller', finished: '2026-10-21T10:05:00Z' },
+      { operation: 'rb1', type: 'pacto.dev/rollback', from: D2, to: D1, actor: 'system:serviceaccount:pacto:promoter', actorClass: 'controller', finished: '2026-10-21T10:05:00Z', pointer: { before: D2, after: D1 } },
     ] }] });
     let r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
@@ -1105,7 +1105,7 @@ describe('Unknown, proof, undo and autonomy', () => {
 
     // A person's rollback names the person; a history that cannot be read leaves the line out.
     fns.history.mockResolvedValue({ ...listing, histories: [{ namespace: 'prod', stage: { name: 'pay' }, entries: [
-      { operation: 'rb2', type: 'pacto.dev/rollback', from: D2, to: D1, actor: 'https://idp#carol', actorClass: 'human' }] }] });
+      { operation: 'rb2', type: 'pacto.dev/rollback', from: D2, to: D1, actor: 'https://idp#carol', actorClass: 'human', pointer: { before: D2, after: D1 } }] }] });
     op.explanation.stage = { name: 'pay' } as unknown as typeof op.explanation.stage;
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
@@ -1154,8 +1154,23 @@ describe('Unknown, proof, undo and autonomy', () => {
     destroy();
   });
 
+  it('never says no person decided when a line does not say who approved it', async () => {
+    // Server-shaped but with no approvals key: a person may have approved it.
+    fns.history.mockResolvedValue({ ...listing, histories: [
+      { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', source: 'records', note: '', stage: { name: 'pay' },
+        entries: [{ seq: 1, operation: 'op1', type: 'pacto.dev/promote', from: D1, to: D2, actor: 'system:serviceaccount:agents:pay-agent',
+          actorClass: 'agent', phase: 'Concluded', outcome: 'Succeeded', kind: 'operation', record: 'sha256:' + 'a'.repeat(64), pointer: { before: D1, after: D2 } }] },
+    ] });
+    const { target, destroy } = render(DeliveryHistoryView);
+    await settle();
+    expect(text(target.querySelector('[data-testid="history-decided"]') as HTMLElement)).toBe('Not recorded');
+    expect(text(target)).not.toContain('No person');
+    expect(target.querySelector('[data-testid="history-autonomy"]')).toBeNull();
+    destroy();
+  });
+
   it('shows how many promotions needed no person, and what only Unknown held', async () => {
-    const p = (over: Record<string, unknown>) => ({ operation: 'o', type: 'pacto.dev/promote', actor: 'bot', actorClass: 'agent', phase: 'Concluded', outcome: 'Succeeded', ...over });
+    const p = (over: Record<string, unknown>) => ({ operation: 'o', type: 'pacto.dev/promote', actor: 'bot', actorClass: 'agent', phase: 'Concluded', outcome: 'Succeeded', approvals: null, ...over });
     fns.history.mockResolvedValue({ ...listing, histories: [
       { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', note: '', stage: { name: 'pay' },
         entries: [p({ seq: 1 }), p({ seq: 2, verification: 'AcceptedUnknown' }), p({ seq: 3, approvals: [{ by: 'carol', decision: 'approve' }] })] },

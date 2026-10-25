@@ -54,7 +54,8 @@
     return typeLabel(en.type);
   }
 
-  // How far delivery ran on its own, over every line shown here.
+  // How far delivery ran on its own, over every line shown here; null (and
+  // hidden) when a line does not say who approved it.
   const autonomy = $derived(autonomyOf(histories.flatMap((h) => h.entries ?? [])));
   const partial = $derived(histories.some((h) => h.completeness !== 'complete'));
 
@@ -78,7 +79,7 @@
     <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
-    {#if autonomy.total}
+    {#if autonomy?.total}
       <p class="t-body-2 hv-autonomy" data-testid="history-autonomy">
         <strong>{autonomy.noPerson} of {autonomy.total} promotion{autonomy.total === 1 ? '' : 's'} needed no person</strong>{#if autonomy.onlyUnknown}; {autonomy.onlyUnknown} waited for one only because a check was Unknown, which more visibility removes (<a class="hv-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">how</a>){/if}.{#if partial}{' '}Counted from what these histories show, and some are partial.{/if}
       </p>
@@ -124,7 +125,7 @@
                       <td>{#if en.operation}<a href={deliveryChangeUrl(h.namespace, en.operation)}>{changeLabel(en)}</a>{:else}{changeLabel(en)}{/if}</td>
                       <td class="hv-nowrap" title={[en.from, en.to].filter(Boolean).join(' → ')}>{version(en.from) || '–'} → {version(en.to) || '–'}</td>
                       <td>{#if en.actor}<Person user={en.actor} people={data.people} {me} />{:else}–{/if}{#if actorBadge(en.actorClass)}{@const ab = actorBadge(en.actorClass)}{' '}<span class="badge {ab.tone}" data-testid="actor-badge">{ab.label}</span>{/if}</td>
-                      <td data-testid="history-decided">{#if en.kind === 'gap' || en.kind === 'unrecordable'}–{:else if deciders(en).length}{#each deciders(en) as a, i (a.by + i)}{#if i}, {/if}<Person user={a.by} people={data.people} {me} /> <span class="hv-class">({decisionLabel(a.decision)})</span>{/each}{:else if en.phase === 'Held'}<span class="hv-class">Waiting for a person</span>{:else if en.actorClass === 'human'}<span class="hv-class">The person who asked</span>{:else}<span class="hv-class">No person</span>{/if}</td>
+                      <td data-testid="history-decided">{#if en.kind === 'gap' || en.kind === 'unrecordable'}–{:else if deciders(en).length}{#each deciders(en) as a, i (a.by + i)}{#if i}, {/if}<Person user={a.by} people={data.people} {me} /> <span class="hv-class">({decisionLabel(a.decision)})</span>{/each}{:else if en.phase === 'Held'}<span class="hv-class">Waiting for a person</span>{:else if en.actorClass === 'human'}<span class="hv-class">The person who asked</span>{:else if en.approvals === undefined}<span class="hv-class">Not recorded</span>{:else}<span class="hv-class">No person</span>{/if}</td>
                       <td>{en.outcome || en.phase}{#if en.verification}, {en.verification}{/if}{#if en.reason}: {shortDigests(en.reason)}{/if}</td>
                       <td class="hv-nowrap">{#if en.finished}<time datetime={en.finished}>{timeLabel(en.finished)}</time>{/if}</td>
                       <td class="hv-nowrap">{#if en.record}<code title={en.record}>{shortDigest(en.record)}</code>{' '}{#if h.verified}<span class="badge badge-ok" data-testid="history-signature">Signature verified</span>{:else}<span class="badge badge-warn" data-testid="history-signature">Signature not verified</span>{/if}{:else if en.unverifiedRecord}<span title={en.unverifiedRecord}>Recorded, not verified</span>{:else if h.source === 'records'}Not recorded yet{:else}–{/if}</td>
