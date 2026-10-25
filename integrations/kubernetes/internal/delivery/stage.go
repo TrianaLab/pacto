@@ -45,6 +45,10 @@ type StageReconciler struct {
 	Gates map[string]delivery.Gate
 	Now   func() time.Time
 	Poll  time.Duration
+	// AdmissionPolicies are the policies the operation reconciler waits on
+	// (OperationReconciler.AdmissionPolicies); while they do not guard, the
+	// Stage is not Ready.
+	AdmissionPolicies []string
 }
 
 // Reconcile implements reconcile.Reconciler.
@@ -199,6 +203,15 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 		case !labelled(a.obj):
 			want = notReady("ApplyRefUnlabelled", "the apply object "+a.obj.GetName()+" has no "+ApplyRefLabel+
 				" label, so admission does not guard its pointer and the promoter may not write it")
+		}
+	}
+	if want.Status == "True" {
+		why, err := unguardedBy(ctx, r.Client, r.AdmissionPolicies)
+		if err != nil {
+			return nil, err
+		}
+		if why != "" {
+			want = notReady(ReasonUnguarded, why+", so the promoter admits no operation and counts no approval")
 		}
 	}
 	if slices.Contains(stage.Status.Conditions, want) {

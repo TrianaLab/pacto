@@ -21,9 +21,12 @@ approve.
 It needs Kubernetes 1.30 or later. The admission policies are what make the
 actor of an Operation and the person behind an Approval true, so the chart
 renders them even offline and refuses `admissionPolicies.enabled=false` unless
-you also set `admissionPolicies.allowUnguarded=true`. While its operation or
-approval policy is missing, the promoter admits no operation and counts no
-approval: the operation shows the reason `Unguarded`.
+you also set `admissionPolicies.allowUnguarded=true`. The promoter checks every
+policy the chart rendered. While one is missing, does not fail closed or has a
+binding that does not deny, binds another policy or is narrowed by
+`matchResources` or `paramRef`, it admits no operation and counts no approval.
+The operation shows the reason `Unguarded` and so does the Stage's `Ready`
+condition, which is `False`.
 
 To run an unreleased change, from the repository root:
 

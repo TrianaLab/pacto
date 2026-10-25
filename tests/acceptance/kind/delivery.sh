@@ -1528,6 +1528,15 @@ eventually 20 ready_is "$P" billing False/ApplyRefUnlabelled \
 kubectl -n "$P" label ocirepository billing delivery.pacto.trianalab.io/apply-ref=billing >/dev/null
 eventually 20 ready_is "$P" billing True/Ready || fail "the Stage is not Ready again once relabelled"
 pass "a Stage whose apply OCIRepository lost its apply-ref label is Ready=False with ApplyRefUnlabelled until it is relabelled"
+# A binding that only warns guards nothing the promoter can count on: the
+# Stage is not Ready until it denies again.
+kubectl patch validatingadmissionpolicybinding pacto-delivery-pointer --type merge -p '{"spec":{"validationActions":["Warn"]}}' >/dev/null
+eventually 20 ready_is "$P" billing False/Unguarded \
+  || { kubectl patch validatingadmissionpolicybinding pacto-delivery-pointer --type merge -p '{"spec":{"validationActions":["Deny"]}}' >/dev/null
+       fail "a pointer binding set to Warn is not reported: $(kubectl -n "$P" get stage billing -o jsonpath='{.status.conditions}')"; }
+kubectl patch validatingadmissionpolicybinding pacto-delivery-pointer --type merge -p '{"spec":{"validationActions":["Deny"]}}' >/dev/null
+eventually 20 ready_is "$P" billing True/Ready || fail "the Stage is not Ready again once the binding denies"
+pass "a Stage is Ready=False with Unguarded while the pointer binding only warns"
 kubectl -n "$M" apply -f - >/dev/null <<YAML
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository

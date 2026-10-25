@@ -18,7 +18,6 @@ import (
 	"sync"
 	"time"
 
-	admissionv1 "k8s.io/api/admissionregistration/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
@@ -337,25 +336,18 @@ func (r *OperationReconciler) pending(ctx context.Context, op *dv1.Operation, st
 // ReasonUnguarded holds an operation while an admission policy is missing.
 const ReasonUnguarded = "Unguarded"
 
-// unguarded parks op while an admission policy or binding in
-// r.AdmissionPolicies is not installed. A failed read is an error, so an
-// unreadable policy never reads as installed.
+// unguarded parks op while the admission policies in r.AdmissionPolicies do
+// not guard (unguardedBy). A failed read is an error, so an unreadable policy
+// never reads as installed.
 func (r *OperationReconciler) unguarded(ctx context.Context, op *dv1.Operation) (reconcile.Result, bool, error) {
-	for _, name := range r.AdmissionPolicies {
-		for _, obj := range []client.Object{&admissionv1.ValidatingAdmissionPolicy{}, &admissionv1.ValidatingAdmissionPolicyBinding{}} {
-			err := r.Get(ctx, client.ObjectKey{Name: name}, obj)
-			if apierrors.IsNotFound(err) {
-				op.Status.Reason = ReasonUnguarded
-				op.Status.Message = "the admission policy " + name + " is not installed, so who wrote an operation or approval cannot be trusted; waiting for it"
-				res, err := r.save(ctx, op)
-				return res, true, err
-			}
-			if err != nil {
-				return reconcile.Result{}, true, err
-			}
-		}
+	why, err := unguardedBy(ctx, r.Client, r.AdmissionPolicies)
+	if err != nil || why == "" {
+		return reconcile.Result{}, err != nil, err
 	}
-	return reconcile.Result{}, false, nil
+	op.Status.Reason = ReasonUnguarded
+	op.Status.Message = why + ", so who wrote an operation or approval cannot be trusted; waiting for it"
+	res, err := r.save(ctx, op)
+	return res, true, err
 }
 
 // preApplyExits handles the ways an operation that has not moved anything can

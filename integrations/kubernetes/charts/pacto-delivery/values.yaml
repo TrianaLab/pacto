@@ -151,7 +151,7 @@ insecureRegistries: []
 # and an agent cancels only its own operations,
 # approvals come from people and spec.ref.digest is edited only by the promoter or
 # break-glass. The promoter admits no operation and counts no approval while
-# its operation and approval policies are missing.
+# any of them is missing or does not deny.
 admissionPolicies:
   enabled: true
   # -- Render without the policies (enabled=false) anyway. Without them anyone who

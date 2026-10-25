@@ -1221,21 +1221,18 @@ func TestStaleOperationIsNotConcludedAgain(t *testing.T) {
 // that check who wrote a spec are missing, no operation is admitted and no
 // approval counts; once they are installed the operation goes on.
 func TestUnguardedAdmitsNothingAndCountsNoApproval(t *testing.T) {
-	guard := func(e *env) {
-		e.create(&admissionv1.ValidatingAdmissionPolicy{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"}},
-			&admissionv1.ValidatingAdmissionPolicyBinding{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"}})
-	}
+	guard := func(e *env) { e.create(guardPolicy(), guardBinding()) }
 	t.Run("admission waits for the policy and its binding", func(t *testing.T) {
 		e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
 		e.op.AdmissionPolicies = []string{"pd-operation"}
 		if o := e.drive("p1"); o.Status.Phase != "" || o.Status.Reason != ReasonUnguarded || o.Status.ActorClass != "" {
 			t.Fatalf("want parked before admission: %q %s %s", o.Status.Phase, o.Status.Reason, o.Status.ActorClass)
 		}
-		e.create(&admissionv1.ValidatingAdmissionPolicy{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"}})
+		e.create(guardPolicy())
 		if o := e.drive("p1"); o.Status.Reason != ReasonUnguarded {
 			t.Fatalf("a policy with no binding guards nothing: %s", o.Status.Reason)
 		}
-		e.create(&admissionv1.ValidatingAdmissionPolicyBinding{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"}})
+		e.create(guardBinding())
 		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning {
 			t.Fatalf("guarded, it moves: %s %s", o.Status.Phase, o.Status.Message)
 		}
@@ -1326,5 +1323,83 @@ func TestRefusalRereadsTheStage(t *testing.T) {
 	stale(e, true)
 	if err := e.reconcileOpErr("p1"); err == nil {
 		t.Fatal("a failed re-read must surface, not refuse")
+	}
+}
+
+func guardPolicy() *admissionv1.ValidatingAdmissionPolicy {
+	return &admissionv1.ValidatingAdmissionPolicy{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"}}
+}
+
+func guardBinding() *admissionv1.ValidatingAdmissionPolicyBinding {
+	return &admissionv1.ValidatingAdmissionPolicyBinding{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"},
+		Spec: admissionv1.ValidatingAdmissionPolicyBindingSpec{PolicyName: "pd-operation",
+			ValidationActions: []admissionv1.ValidationAction{admissionv1.Deny}}}
+}
+
+// TestUnguardedBy: a policy guards only when it fails closed and its binding
+// binds it with Deny to every object; anything weaker parks operations and
+// makes the Stage not Ready.
+func TestUnguardedBy(t *testing.T) {
+	ignore, fail := admissionv1.Ignore, admissionv1.Fail
+	for name, c := range map[string]struct {
+		policy  func(*admissionv1.ValidatingAdmissionPolicy)
+		binding func(*admissionv1.ValidatingAdmissionPolicyBinding)
+		want    string
+	}{
+		"guarded": {want: ""},
+		"fails closed explicitly": {policy: func(p *admissionv1.ValidatingAdmissionPolicy) { p.Spec.FailurePolicy = &fail }, want: ""},
+		"fails open": {policy: func(p *admissionv1.ValidatingAdmissionPolicy) { p.Spec.FailurePolicy = &ignore },
+			want: "the admission policy pd-operation does not fail closed"},
+		"binds another policy": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) { b.Spec.PolicyName = "other" },
+			want: "the binding pd-operation binds other, not the policy pd-operation"},
+		"warns only": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) {
+			b.Spec.ValidationActions = []admissionv1.ValidationAction{admissionv1.Warn, admissionv1.Audit}
+		}, want: "the binding pd-operation does not deny"},
+		"narrowed": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) {
+			b.Spec.MatchResources = &admissionv1.MatchResources{}
+		}, want: "the binding pd-operation is narrowed by matchResources or paramRef"},
+		"with params": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) { b.Spec.ParamRef = &admissionv1.ParamRef{Name: "x"} },
+			want: "the binding pd-operation is narrowed by matchResources or paramRef"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p, b := guardPolicy(), guardBinding()
+			if c.policy != nil {
+				c.policy(p)
+			}
+			if c.binding != nil {
+				c.binding(b)
+			}
+			e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+			e.create(p, b, verifiedRepo("payments-candidates", "latest@"+dB))
+			e.op.AdmissionPolicies, e.st.AdmissionPolicies = []string{"pd-operation"}, []string{"pd-operation"}
+			if why, err := unguardedBy(context.Background(), e.c, e.op.AdmissionPolicies); why != c.want || err != nil {
+				t.Fatalf("got %q %v", why, err)
+			}
+			if err := e.reconcileStage("payments-prod"); err != nil {
+				t.Fatal(err)
+			}
+			ready := e.getStage().Status.Conditions
+			if c.want == "" {
+				if o := e.drive("p1"); o.Status.Reason == ReasonUnguarded {
+					t.Fatalf("guarded, parked: %s", o.Status.Message)
+				}
+				return
+			}
+			if o := e.drive("p1"); o.Status.Reason != ReasonUnguarded || !strings.HasPrefix(o.Status.Message, c.want+", so") {
+				t.Fatalf("parked: %s %s", o.Status.Reason, o.Status.Message)
+			}
+			if !slices.ContainsFunc(ready, func(x delivery.Condition) bool {
+				return x.Type == "Ready" && x.Status == statusFalse && x.Reason == ReasonUnguarded && strings.HasPrefix(x.Message, c.want+", so")
+			}) {
+				t.Fatalf("Ready: %+v", ready)
+			}
+		})
+	}
+	e := baseEnv(t, nil)
+	e.create(verifiedRepo("payments-candidates", "latest@"+dB))
+	e.st.AdmissionPolicies = []string{"pd-operation"}
+	e.fails["get/*v1.ValidatingAdmissionPolicy"] = true
+	if err := e.reconcileStage("payments-prod"); err == nil {
+		t.Fatal("a failed policy read must surface on the Stage")
 	}
 }

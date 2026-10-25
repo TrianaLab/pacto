@@ -56,7 +56,10 @@ spec:
             - --break-glass-groups={{ join "," .Values.identities.breakGlassGroups }}
             {{- if .Values.admissionPolicies.enabled }}
             {{- $fullname := include "pacto-delivery.fullname" . }}
-            - --admission-policies={{ $fullname }}-operation,{{ $fullname }}-approval
+            {{- $policies := list "operation" "cancel" "approval" "pointer" "promoter-writes" }}
+            {{- if .Values.argocd.enabled }}{{ $policies = concat $policies (list "pointer-argocd" "promoter-writes-argocd") }}{{ end }}
+            {{- if .Values.recorder.enabled }}{{ $policies = append $policies "records" }}{{ end }}
+            - --admission-policies={{ range $i, $p := $policies }}{{ if $i }},{{ end }}{{ $fullname }}-{{ $p }}{{ end }}
             {{- end }}
             {{- with .Values.identities.teamGroupPrefix }}
             - {{ printf "--team-group-prefix=%s" . | quote }}

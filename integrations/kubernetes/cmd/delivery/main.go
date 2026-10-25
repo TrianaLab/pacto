@@ -92,8 +92,9 @@ func runPromoter(args []string) error {
 		"A trust config (YAML) of the recorder keys of other clusters, per stream glob. "+
 			"Stages with candidates.upstreamRecords promote only on records these keys signed.")
 	admissionPolicies := fs.String("admission-policies", "",
-		"Comma-separated ValidatingAdmissionPolicies (each with a binding of the same name) that check who wrote an "+
-			"operation or approval. While one is missing no operation is admitted and no approval counts.")
+		"Comma-separated ValidatingAdmissionPolicies (each with a binding of the same name) the promoter trusts. "+
+			"While one is missing, fails open or is not bound with Deny to every object, no operation is admitted, "+
+			"no approval counts and every Stage is not Ready.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -142,7 +143,7 @@ func runPromoter(args []string) error {
 	}
 	if err := (&delivery.StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Workers: *workers, ClusterID: clusterID, Gates: gates, Now: time.Now,
-		Poll: *poll}).SetupWithManager(mgr); err != nil {
+		Poll: *poll, AdmissionPolicies: delivery.SplitList(*admissionPolicies)}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
