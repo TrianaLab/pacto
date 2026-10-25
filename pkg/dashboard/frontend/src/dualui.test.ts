@@ -6,7 +6,7 @@
  * legacy detail view. On a non-Fleet host, the legacy UI is the only UI and stays. If a
  * future change re-mounts a superseded legacy view on a Fleet host, these fail.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { mount, unmount } from 'svelte';
 
 const { capabilitiesFn, entitiesFn, overviewFn, neighborhoodFn, servicesFn } = vi.hoisted(() => ({
@@ -110,6 +110,13 @@ describe('dual-UI guard — Fleet host canonicalizes legacy routes to the produc
 });
 
 describe('dual-UI guard — non-Fleet host keeps the legacy UI as its only UI', () => {
+  // The legacy screens load on first use. A cold run transforms each module
+  // on its first import, which can outlast a test's timeout on a busy
+  // machine, so load them once here, under a hook timeout that allows it.
+  beforeAll(async () => {
+    await Promise.all([import('./views/ReadinessView.svelte'), import('./views/DiffView.svelte')]);
+  }, 120_000);
+
   beforeEach(() => {
     servicesFn.mockReset();
     servicesFn.mockResolvedValue([]);
