@@ -246,22 +246,19 @@ test.describe('Delivery views', () => {
     await page.goto('/#/delivery/changes/prod/op1');
     const panel = page.getByTestId('decision-panel');
     await expect(panel).toBeVisible({ timeout: T });
+    // Said before anything is pressed: pressing a button is choosing to leave and sign in.
+    await expect(page.getByTestId('decision-stale')).toContainText('takes you to sign in again');
     await panel.getByLabel('Note (kept with the decision)').fill('checkout 3.1 reads the new field');
     await panel.getByRole('button', { name: 'Approve' }).click();
-    const fresh = page.getByTestId('fresh-login');
-    await expect(fresh).toContainText('Deciding needs a fresh sign-in.');
-    // Detected, not acted on: the page waits for the person to choose to leave.
-    await page.waitForTimeout(500);
-    await expect(page).toHaveURL(/#\/delivery\/changes\/prod\/op1$/);
-
-    await fresh.getByRole('button', { name: 'Sign in again' }).click();
     await expect(page).toHaveURL(/#\/delivery\/changes\/prod\/op1$/, { timeout: T });
     await expect(page.getByTestId('decision-kept')).toContainText('Your choice was Approve', { timeout: T });
     await expect(panel.getByLabel('Note (kept with the decision)')).toHaveValue('checkout 3.1 reads the new field');
     await page.waitForTimeout(500);
     await expect(page.getByTestId('decision-recorded')).toHaveCount(0); // never sent on its own
 
-    await panel.getByRole('button', { name: 'Approve' }).click();
+    const confirm = panel.getByRole('button', { name: /^Confirm: Approve .* \(signed in at / });
+    await expect(confirm).toBeFocused();
+    await confirm.click();
     await expect(page.getByTestId('decision-recorded')).toContainText('recorded as op1-approve-x7k2');
     await page.goto('/#/delivery/inbox');
     await expect(page.getByTestId('inbox-empty')).toBeVisible({ timeout: T });
@@ -322,7 +319,7 @@ test.describe('Delivery views', () => {
     await page.goto('/#/delivery/history');
     const prod = page.getByRole('region', { name: 'History of prod/payments-prod' });
     await expect(prod.getByRole('row', { name: /^3 Promote/ })).toContainText('1.4.0 → 2.0.0', { timeout: T });
-    await expect(prod.getByRole('row', { name: /^1 Promote/ })).toContainText('promoter (system:serviceaccount:pacto-delivery:promoter) (controller)');
+    await expect(prod.getByRole('row', { name: /^1 Promote/ })).toContainText('pacto-delivery/promoter Controller');
     await prod.getByRole('button', { name: 'Who put 2.0.0 here?' }).click();
     const blame = page.getByTestId('blame-panel');
     await expect(blame).toContainText('Approve by Dave Lee', { timeout: T });

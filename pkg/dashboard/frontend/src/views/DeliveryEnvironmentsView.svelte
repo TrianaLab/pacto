@@ -12,7 +12,7 @@
   import ProposePanel from '../components/ProposePanel.svelte';
 
   // Every service in every environment: the version it runs and whether that
-  // version is verified, failed, paused or waiting. Promote and unpause start
+  // version is verified, failed, frozen or waiting. Promote and unfreeze start
   // from here, through a plan.
   let { refreshTick = 0, miraURL = '' } = $props();
 
@@ -34,15 +34,15 @@
   let opener = null;
   function open(e, req, version = '') { opener = e.currentTarget; proposingVersion = version; proposing = req; }
   function promote(r, e) { open(e, { namespace: r.namespace, stage: r.stage, type: 'pacto.dev/promote', to: r.candidate, from: r.pointer || undefined }, r.candidateVersion); }
-  function unpause(r, e) { open(e, { namespace: r.namespace, stage: r.stage, type: 'pacto.dev/unfreeze' }); }
+  function unfreeze(r, e) { open(e, { namespace: r.namespace, stage: r.stage, type: 'pacto.dev/unfreeze' }); }
   function closePlan() { proposing = null; opener?.focus(); }
 </script>
 
 <div class="product-page">
   <PageHeader
     title="Environments"
-    subtitle="Every service in every environment: the version it runs and whether that version is verified, failed, paused or waiting."
-    count={data ? `${rows.length} environment${rows.length === 1 ? '' : 's'}` : ''}
+    subtitle="Every service in every environment: the version it runs and whether that version is verified, failed, frozen or waiting. A Stage is one service in one environment."
+    count={data ? `${environments.length} environment${environments.length === 1 ? '' : 's'}, ${rows.length} Stage${rows.length === 1 ? '' : 's'}` : ''}
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
   />
@@ -85,8 +85,8 @@
                         <span class="ev-badges">
                           {#if r.verified}<span class="badge badge-ok">Verified</span>{/if}
                           {#if r.failed}<span class="badge badge-err">Failed</span>{/if}
-                          {#if r.frozen}<span class="badge badge-warn" title={r.frozenReason || undefined}>Paused</span>{/if}
-                          {#if r.autoHold}<span class="badge badge-info">Kept by a person</span>{/if}
+                          {#if r.frozen}<span class="badge badge-warn" title={r.frozenReason || 'Nothing moves here until a person unfreezes it'}>Frozen</span>{/if}
+                          {#if r.autoHold}<span class="badge badge-info" title="Someone rolled back or chose an older version here, so automation does not promote here until a person promotes a newer one or unfreezes it">Auto-hold</span>{/if}
                           {#if r.held}<span class="badge badge-warn">{r.held} waiting</span>{/if}
                           {#if r.pointer && !r.verified && !r.failed}<span class="badge badge-neutral">Not verified</span>{/if}
                         </span>
@@ -97,7 +97,7 @@
                               <button type="button" class="btn btn-sm" onclick={(e) => promote(r, e)} aria-label={`Promote ${svc} in ${env} to ${r.candidateVersion || shortDigest(r.candidate)}`}>Promote {r.candidateVersion || shortDigest(r.candidate)}</button>
                             {/if}
                             {#if r.actions.includes('unfreeze')}
-                              <button type="button" class="btn btn-sm" onclick={(e) => unpause(r, e)} aria-label={`Unpause ${svc} in ${env}`}>Unpause</button>
+                              <button type="button" class="btn btn-sm" onclick={(e) => unfreeze(r, e)} aria-label={`Unfreeze ${svc} in ${env}`}>Unfreeze</button>
                             {/if}
                           </span>
                         {/if}

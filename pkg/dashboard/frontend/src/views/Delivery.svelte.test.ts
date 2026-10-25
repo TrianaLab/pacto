@@ -45,7 +45,7 @@ const D1 = 'sha256:' + '1'.repeat(64);
 const D2 = 'sha256:' + '2'.repeat(64);
 const listing = { asOf: '2026-10-21T10:00:00Z', completeness: 'complete' };
 const human = (groups: string[]) => ({ user: 'https://idp#carol', class: 'human', groups, authTime: '1792560000' });
-const shared = (over = {}) => ({ mode: 'shared', login: true, signedIn: true, fresh: false, csrf: 'c', caller: human(['team-checkout']), ...over });
+const shared = (over = {}) => ({ mode: 'shared', login: true, signedIn: true, fresh: true, csrf: 'c', caller: human(['team-checkout']), ...over });
 
 async function settle() {
   for (let i = 0; i < 6; i++) { await tick(); await Promise.resolve(); }
@@ -86,7 +86,8 @@ describe('inbox', () => {
     expect(text(held as HTMLElement)).toContain('team-checkout');
     expect(held.querySelector('a[href="#/delivery/changes/prod/op1"]')).not.toBeNull();
     expect(held.querySelector('a[href="#/services/checkout"]')).not.toBeNull();
-    expect(text(target)).toContain('Paused: Errored');
+    expect(text(target)).toContain('Frozen: Errored. Nothing moves here until a person unfreezes it.');
+    expect(text(target)).not.toMatch(/pause/i);
     expect(text(target.querySelector('[data-testid="inbox-errored"]') as HTMLElement)).toContain('Pacto could not tell how it ended');
     // The person's subject and, printed next to it, the username the cluster uses. Never only in a tooltip.
     expect(text(target)).toContain('Signed in as carol (https://idp#carol), in team-checkout');
@@ -176,7 +177,11 @@ describe('environments', () => {
     await settle();
     const board = target.querySelector('[data-testid="environments-board"]')!;
     expect(text(board as HTMLElement)).toContain('Verified');
-    expect(text(board as HTMLElement)).toContain('Paused');
+    expect(text(board as HTMLElement)).toContain('Frozen');
+    expect(text(board as HTMLElement)).toContain('Auto-hold');
+    expect(text(board as HTMLElement)).not.toMatch(/pause|kept by a person/i);
+    // Two environments hold two Stages: the count names both, not one as the other.
+    expect(text(target)).toContain('2 environments, 2 Stages');
     expect(text(board as HTMLElement)).toContain('1 waiting');
     expect(text(board as HTMLElement)).toContain('Cannot promote: CandidateUnverified');
     expect(text(board as HTMLElement)).toContain('Nothing yet');
@@ -198,12 +203,12 @@ describe('environments', () => {
     destroy();
   });
 
-  it('unpauses through a plan and shows refusals verbatim', async () => {
+  it('unfreezes through a plan and shows refusals verbatim', async () => {
     fns.environments.mockResolvedValue({ ...listing, environments: [row] });
     fns.plan.mockRejectedValueOnce(new ApiError(403, 'operations is forbidden: User cannot create'));
     const { target, destroy } = render(DeliveryEnvironmentsView);
     await settle();
-    (target.querySelector('button[aria-label="Unpause payments in prod"]') as HTMLButtonElement).click();
+    (target.querySelector('button[aria-label="Unfreeze payments in prod"]') as HTMLButtonElement).click();
     await settle();
     expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'pacto.dev/unfreeze' });
     const refusal = target.querySelector('[data-testid="refusal"]')!;
@@ -223,8 +228,8 @@ describe('environments', () => {
     await settle();
     (target.querySelector('button[aria-label^="Promote payments in prod"]') as HTMLButtonElement).click();
     await settle();
-    const unpauseLedger = target.querySelector('button[aria-label="Unpause ledger in prod"]') as HTMLButtonElement;
-    unpauseLedger.click();
+    const unfreezeLedger = target.querySelector('button[aria-label="Unfreeze ledger in prod"]') as HTMLButtonElement;
+    unfreezeLedger.click();
     await settle();
     expect(fns.plan).toHaveBeenLastCalledWith({ namespace: 'prod', stage: 'led', type: 'pacto.dev/unfreeze' });
     const panel = target.querySelector('[data-testid="propose-panel"]') as HTMLElement;
@@ -234,12 +239,12 @@ describe('environments', () => {
     await settle();
     expect(fns.propose).toHaveBeenLastCalledWith(expect.objectContaining({ stage: 'led', intentDigest: 'sha256:led' }));
     location.hash = '#/delivery';
-    unpauseLedger.click();
+    unfreezeLedger.click();
     await settle();
     (target.querySelector('[data-testid="propose-panel"]') as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     await settle();
     expect(target.querySelector('[data-testid="propose-panel"]')).toBeNull();
-    expect(document.activeElement).toBe(unpauseLedger);
+    expect(document.activeElement).toBe(unfreezeLedger);
     destroy();
   });
 
@@ -281,11 +286,24 @@ function heldOperation(over: Record<string, unknown> = {}) {
 
 describe('change detail', () => {
   it('shows the plan, predicted next to actual verdicts, decisions, the timeline and a Mira link', async () => {
+    // Before it applies, what happened is the plan's checks again, so it is not shown.
     fns.operation.mockResolvedValue(heldOperation());
-    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1', miraURL: 'https://mira.example' });
+    let r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1', miraURL: 'https://mira.example' });
+    await settle();
+    expect(r.target.querySelector('[data-testid="predicted-verdicts"]')).not.toBeNull();
+    expect(r.target.querySelector('[data-testid="actual-verdicts"]')).toBeNull();
+    r.destroy();
+    const op = heldOperation();
+    op.operation.status = { ...op.operation.status, applied: true } as typeof op.operation.status;
+    fns.operation.mockResolvedValue(op);
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1', miraURL: 'https://mira.example' });
+    const { target, destroy } = r;
     await settle();
     expect(text(target)).toContain('Promote on prod/pay');
-    expect(text(target)).toContain('agent-bot (agent), for erin');
+    expect(text(target)).toContain('agent-bot Agent, for erin');
+    expect(target.querySelector('[data-testid="actor-badge"]')?.className).toContain('badge');
+    // One sentence with only the parts it has: no raw type id, no empty fields.
+    expect(target.querySelector('.page-hd-sub')?.textContent).toBe('Promote pay in prod from 111111111111 to 222222222222 waits for a person.');
     expect(text(target.querySelector('[data-testid="predicted-verdicts"]') as HTMLElement)).toContain('pacto.impact');
     const actual = target.querySelector('[data-testid="actual-verdicts"]')!;
     expect(actual.querySelector('[data-testid="mira-link"]')?.getAttribute('href')).toContain('https://mira.example/#/traces?q=');
@@ -812,14 +830,13 @@ describe('names, versions and one clear sentence', () => {
   it('names versions and people on a change', async () => {
     fns.session.mockResolvedValue(shared({ name: 'Carol Diaz' }));
     const op = heldOperation({ versions: { [D1]: '2.4.0', [D2]: '3.0.0' }, people: { 'https://idp#dave': 'Dave Lee' } });
-    op.explanation.summary = `promote payments to ${D2}`;
     op.operation.status.question = `Ship ${D2}?`;
     fns.operation.mockResolvedValue(op);
     const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     expect(text(target)).toContain('From2.4.0 111111111111To3.0.0 222222222222');
     expect(text(target)).toContain('Reject by Dave Lee');
-    expect(text(target)).toContain('promote payments to 3.0.0 (222222222222)');
+    expect(target.querySelector('.page-hd-sub')?.textContent).toBe('Promote pay in prod from 2.4.0 to 3.0.0 waits for a person.');
     expect(text(target)).toContain('Ship sha256:222222222222?');
     expect(text(target)).not.toContain('2'.repeat(64));
     destroy();
@@ -857,9 +874,11 @@ describe('history blame and undo', () => {
     await settle();
     const prod = target.querySelector('section[aria-label="History of prod/pay"]') as HTMLElement;
     const rows = [...prod.querySelectorAll('tbody tr')].map((r) => [...r.querySelectorAll('td')].map((td) => text(td as HTMLElement).trim()));
-    expect(rows[0].slice(2, 7)).toEqual(['2.4.0 → 3.0.0', 'Carol Diaz (https://idp#carol) (human)', 'The person who asked', 'Succeeded', '2026-10-21 11:00 UTC']);
-    expect(rows[1].slice(2, 7)).toEqual(['– → 2.4.0', 'pay-agent (system:serviceaccount:agents:pay-agent) (agent)', 'No person', 'Failed', 'soon']);
+    expect(rows[0].slice(2, 7)).toEqual(['2.4.0 → 3.0.0', 'Carol Diaz (https://idp#carol) Person', 'The person who asked', 'Succeeded', '2026-10-21 11:00 UTC']);
+    expect(rows[1].slice(2, 7)).toEqual(['– → 2.4.0', 'agents/pay-agent Agent', 'No person', 'Failed', 'soon']);
     expect(text(prod)).toContain('Runs 3.0.0 222222222222');
+    // A service account reads as namespace/name; its username is on hover.
+    expect(prod.querySelector('span[title="system:serviceaccount:agents:pay-agent"]')?.textContent).toBe('agents/pay-agent');
     // Only a change that moved the environment can be undone.
     expect(prod.querySelectorAll('button[aria-label^="Undo"]').length).toBe(1);
 
@@ -870,7 +889,7 @@ describe('history blame and undo', () => {
     expect(fns.blame).toHaveBeenCalledWith('prod', 'pay');
     const panel = target.querySelector('[data-testid="blame-panel"]') as HTMLElement;
     expect(text(panel)).toContain('Who put 3.0.0 here');
-    expect(text(panel.querySelector('[data-testid="blame-change"]') as HTMLElement)).toContain('Promote by pay-agent (system:serviceaccount:agents:pay-agent) (agent), for erin (https://idp#erin), from 2.4.0, finished 2026-10-21 11:00 UTC. Why: “ship the fix”.');
+    expect(text(panel.querySelector('[data-testid="blame-change"]') as HTMLElement)).toContain('Promote by agents/pay-agent Agent, for erin (https://idp#erin), from 2.4.0, finished 2026-10-21 11:00 UTC. Why: “ship the fix”.');
     expect(text(panel)).toContain('Approve by Carol Diaz (https://idp#carol)');
     expect(text(panel.querySelector('[data-testid="blame-verdicts"]') as HTMLElement)).toContain('pacto.diff');
     expect(text(panel.querySelector('[data-testid="blame-source"]') as HTMLElement).trim()).toBe('Read from its signed record. The newest change that moved the Stage to sha256:222222222222.');
@@ -995,7 +1014,7 @@ describe('refused publishes', () => {
     const sec = target.querySelector('[data-testid="refused-publishes"]') as HTMLElement;
     expect(text(sec.querySelector('[data-testid="refused-partial"]') as HTMLElement).trim()).toBe('This list may be incomplete: one registry could not be read. Could not read: registry.example: timeout.');
     const rows = [...sec.querySelectorAll('li')].map((li) => text(li as HTMLElement).trim());
-    expect(rows[0]).toBe('payments 2.4.3 Needs a major version Signed record Removing a field is a breaking change. Compared with 2.4.2. By pay-agent (system:serviceaccount:agents:pay-agent), 2026-10-22 09:00 UTC');
+    expect(rows[0]).toBe('payments 2.4.3 Needs a major version Signed record Removing a field is a breaking change. Compared with 2.4.2. By agents/pay-agent, 2026-10-22 09:00 UTC');
     expect(rows[1]).toBe('orders 1.5.0 Refused: sign Publish.sign is not configured. 2026-10-22 08:00 UTC');
     expect(rows[2]).toContain('Needs odd');
     destroy();
@@ -1024,5 +1043,125 @@ describe('refused publishes', () => {
     await settle();
     expect(text(sec)).toContain('No publish was refused.');
     r.destroy();
+  });
+});
+
+describe('Unknown, proof, undo and autonomy', () => {
+  it('explains an Unknown with how to resolve it, and folds the proof', async () => {
+    const op = heldOperation({ actions: ['accept-unknown', 'reject'] });
+    op.operation.status = { ...op.operation.status, applied: true, plan: { ...op.operation.status.plan, floor: { decision: 'accept-unknown' } } } as unknown as typeof op.operation.status;
+    op.explanation.verdicts = [
+      { gate: 'health', phase: 'verify', result: 'Unknown', message: 'too few spans', citation: { provider: 'mira', contract: 'oci://r/p@sha256:' + 'c'.repeat(64) }, rerun: 'POST query' },
+      { gate: 'pacto.published', phase: 'pre', result: 'Pass', citation: { upstream: 'test/pay' }, rerun: 'no citation to run again' },
+      { gate: 'x', phase: 'pre', result: 'Pass' },
+    ] as unknown as typeof op.explanation.verdicts;
+    fns.operation.mockResolvedValue(op);
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    const actual = target.querySelector('[data-testid="actual-verdicts"]') as HTMLElement;
+    const why = actual.querySelectorAll('[data-testid="verdict-unknown"]');
+    expect(why.length).toBe(1);
+    expect(text(why[0] as HTMLElement)).toContain('Send the service\'s spans to Mira');
+    expect(why[0].querySelector('a')?.getAttribute('href')).toContain('#what-unknown-means');
+    // The decision says why a person is asked at all.
+    const ask = target.querySelector('[data-testid="decision-unknown"]') as HTMLElement;
+    expect(text(ask)).toContain('Unknown is never a yes');
+    expect(ask.querySelector('a')?.getAttribute('href')).toContain('#what-unknown-means');
+    // The proof is folded, its digests short, and a check with nothing to run again says nothing about it.
+    const proofs = actual.querySelectorAll('details');
+    expect(proofs.length).toBe(2);
+    expect([...proofs].every((d) => !d.open)).toBe(true);
+    expect(text(proofs[0] as HTMLElement)).toContain('cccccccccccc');
+    expect(text(proofs[0] as HTMLElement)).not.toContain('c'.repeat(64));
+    expect(text(proofs[0] as HTMLElement)).toContain('Run it again');
+    expect(text(proofs[1] as HTMLElement)).not.toContain('Run it again');
+    expect(text(actual)).not.toContain('no citation to run again');
+    destroy();
+  });
+
+  it('says which change undid a failed one and that its version is blocked here', async () => {
+    const op = heldOperation({ actions: [], versions: { [D1]: '2.3.0', [D2]: '2.4.0' } });
+    op.explanation.status = { phase: 'Concluded', outcome: 'Failed', verification: 'Unverified' } as unknown as typeof op.explanation.status;
+    op.explanation.stage = { name: 'pay', failedDigests: [D2] } as unknown as typeof op.explanation.stage;
+    op.operation.status = { phase: 'Concluded', applied: true, pointer: { before: D1, after: D2 }, times: { finished: '2026-10-21T10:00:00Z' } } as unknown as typeof op.operation.status;
+    fns.operation.mockResolvedValue(op);
+    fns.history.mockResolvedValue({ ...listing, histories: [{ namespace: 'prod', stage: { name: 'pay' }, entries: [
+      { operation: 'op1', type: 'pacto.dev/promote', from: D1, to: D2, finished: '2026-10-21T10:00:00Z' },
+      { operation: 'rb1', type: 'pacto.dev/rollback', from: D2, to: D1, actor: 'system:serviceaccount:pacto:promoter', actorClass: 'controller', finished: '2026-10-21T10:05:00Z' },
+    ] }] });
+    let r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(fns.history).toHaveBeenCalledWith('prod', 'pay');
+    let undone = r.target.querySelector('[data-testid="change-undone"]') as HTMLElement;
+    expect(text(undone)).toContain('Undone by rb1 (automatic: a check failed after release).');
+    expect(undone.querySelector('a')?.getAttribute('href')).toBe('#/delivery/changes/prod/rb1');
+    expect(text(undone)).toContain('2.4.0 is blocked on prod/pay');
+    expect(r.target.querySelector('.page-hd-sub')?.textContent).toBe('Promote pay in prod from 2.3.0 to 2.4.0 ended: it failed, not verified.');
+    r.destroy();
+
+    // A person's rollback names the person; a history that cannot be read leaves the line out.
+    fns.history.mockResolvedValue({ ...listing, histories: [{ namespace: 'prod', stage: { name: 'pay' }, entries: [
+      { operation: 'rb2', type: 'pacto.dev/rollback', from: D2, to: D1, actor: 'https://idp#carol', actorClass: 'human' }] }] });
+    op.explanation.stage = { name: 'pay' } as unknown as typeof op.explanation.stage;
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    undone = r.target.querySelector('[data-testid="change-undone"]') as HTMLElement;
+    expect(text(undone)).toContain('Undone by rb2, by carol');
+    expect(text(undone)).not.toContain('blocked');
+    r.destroy();
+    fns.history.mockRejectedValue(new ApiError(500, 'boom'));
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(r.target.querySelector('[data-testid="change-undone"]')).toBeNull();
+    r.destroy();
+  });
+
+  it('sends a stale sign-in to sign in first, then offers one confirm button', async () => {
+    fns.session.mockResolvedValue(shared({ fresh: false }));
+    fns.operation.mockResolvedValue(heldOperation());
+    const assign = vi.fn();
+    const orig = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...orig, hash: '#/delivery/changes/prod/op1', assign } });
+    try {
+      const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+      await settle();
+      expect(text(target.querySelector('[data-testid="decision-stale"]') as HTMLElement)).toContain('takes you to sign in again');
+      (target.querySelector('[data-testid="decide-approve"]') as HTMLButtonElement).click();
+      await settle();
+      // No press that only says to sign in: it goes there at once, keeping the choice.
+      expect(fns.decide).not.toHaveBeenCalled();
+      expect(assign).toHaveBeenCalledWith('/auth/login?return=%2F%23%2Fdelivery%2Fchanges%2Fprod%2Fop1&fresh=1');
+      expect(JSON.parse(sessionStorage.getItem('pacto.delivery.pending')!).decision).toBe('approve');
+      destroy();
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: orig });
+    }
+
+    deliverySession.loaded = false;
+    fns.session.mockResolvedValue(shared({ fresh: true }));
+    keepPending({ namespace: 'prod', name: 'op1', decision: 'reject', note: '' });
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    const reject = target.querySelector('[data-testid="decide-reject"]') as HTMLButtonElement;
+    expect(reject.textContent).toBe(`Confirm: Reject: nothing moves (signed in at ${new Date(1792560000 * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC)`);
+    expect(target.querySelector('[data-testid="decide-approve"]')?.textContent).toBe('Approve shipping this change to prod/pay');
+    expect(document.activeElement).toBe(reject);
+    expect(target.querySelector('[data-testid="decision-stale"]')).toBeNull();
+    destroy();
+  });
+
+  it('shows how many promotions needed no person, and what only Unknown held', async () => {
+    const p = (over: Record<string, unknown>) => ({ operation: 'o', type: 'pacto.dev/promote', actor: 'bot', actorClass: 'agent', phase: 'Concluded', outcome: 'Succeeded', ...over });
+    fns.history.mockResolvedValue({ ...listing, histories: [
+      { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', note: '', stage: { name: 'pay' },
+        entries: [p({ seq: 1 }), p({ seq: 2, verification: 'AcceptedUnknown' }), p({ seq: 3, approvals: [{ by: 'carol', decision: 'approve' }] })] },
+      { namespace: 'test', asOf: listing.asOf, completeness: 'partial', note: '', stage: { name: 'pay' }, entries: [p({ seq: 1 })] },
+    ] });
+    const { target, destroy } = render(DeliveryHistoryView);
+    await settle();
+    const line = target.querySelector('[data-testid="history-autonomy"]') as HTMLElement;
+    expect(text(line)).toContain('2 of 4 promotions needed no person; 1 waited for one only because a check was Unknown');
+    expect(text(line)).toContain('some are partial');
+    destroy();
   });
 });

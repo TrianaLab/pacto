@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import { decisionAsked, decisionLabel, cliDecision, loginUrl, signIn, hostSignsIn, keepPending, pendingFor, dropPending, shortDigests,
-    versionLabel, personLabel, isBreaking, andList } from '../lib/delivery.ts';
+    versionLabel, personLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS } from '../lib/delivery.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import RefusalNotice from './RefusalNotice.svelte';
   import MoveFirstList from './MoveFirstList.svelte';
@@ -70,8 +70,26 @@
   let needsFresh = $state(null);
   let decided = $state('');
   const noteMissing = $derived(breaking && !note.trim());
+  // A session the server already calls stale goes to sign in first, instead of
+  // pressing a button only to be told to; back here, the kept choice is the
+  // one button to press, and it says so.
+  const stale = $derived(s?.fresh === false);
+  const confirming = $derived(!!kept && !!s?.fresh);
+  const signedInAt = $derived(caller?.authTime ? timeLabel(authTimeText(caller.authTime)) : '');
+  const label = (decision, text) => (confirming && kept.decision === decision
+    ? `Confirm: ${text}${signedInAt ? ` (signed in at ${signedInAt})` : ''}` : text);
+
+  // Back from signing in, focus lands on the one button left to press.
+  let approveBtn = $state(null);
+  let rejectBtn = $state(null);
+  $effect(() => { if (confirming) (kept.decision === 'reject' ? rejectBtn : approveBtn)?.focus(); });
 
   async function decide(decision) {
+    if (stale) {
+      needsFresh = { decision, message: '' };
+      signInAgain();
+      return;
+    }
     busy = true;
     refusal = null;
     needsFresh = null;
@@ -104,6 +122,9 @@
 <section class="dp" aria-labelledby="dp-title" data-testid="decision-panel">
   <h2 id="dp-title" class="t-section-title">The decision</h2>
   {#if op.status?.question}<p class="dp-question t-body">{shortDigests(op.status.question)}</p>{/if}
+  {#if asked === 'accept-unknown'}
+    <p class="t-body-2" data-testid="decision-unknown">Pacto is asking because a check ended Unknown: it could not see enough to say yes or no, and Unknown is never a yes. Accepting the unknown is recorded as accepted, never as a pass. <a class="dp-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">What Unknown means and how to resolve it</a></p>
+  {/if}
   <p class="t-body-2">Asked: <strong>{decisionLabel(asked)}</strong> or reject. {owners.length ? `Only ${owners.join(' or ')} may answer.` : 'Any person may answer.'}{#if breaking}{' '}<span class="badge badge-warn" data-testid="decision-breaking">Breaking</span>{/if}</p>
 
   {#if !decided}
@@ -136,7 +157,7 @@
     <a class="btn btn-sm btn-primary" href={loginUrl(location.hash)}>Sign in</a>
   {:else if canDecide}
     {#if kept && s?.fresh}
-      <p class="dp-kept t-body-2" role="status" data-testid="decision-kept">You signed in again. Your choice was <strong>{decisionLabel(kept.decision)}</strong>; press it again to send it.</p>
+      <p class="dp-kept t-body-2" role="status" data-testid="decision-kept">You signed in again. Your choice was <strong>{decisionLabel(kept.decision)}</strong>, and nothing was sent yet: confirm it below to send it.</p>
     {/if}
     {#if needsFresh}
       <div class="dp-fresh" role="alert" data-testid="fresh-login">
@@ -149,10 +170,11 @@
       <span>Note (kept with the decision){#if breaking}, required to approve a breaking change{/if}</span>
       <textarea class="input" rows="2" maxlength="500" bind:value={note} aria-describedby={noteMissing ? 'dp-note-why' : undefined}></textarea>
     </label>
+    {#if stale && !needsFresh}<p class="t-body-2" data-testid="decision-stale">A decision needs a recent sign-in, and yours is older. Pressing a button below takes you to sign in again; your choice and note are kept, and you confirm it once you are back.</p>{/if}
     {#if noteMissing}<p id="dp-note-why" class="t-body-2" data-testid="decision-note-required">This change is breaking: say why it should ship anyway before you approve it.</p>{/if}
     <div class="dp-btns">
-      <button type="button" class="btn" data-testid="decide-approve" class:dp-was={kept?.decision === asked} disabled={busy || noteMissing} onclick={() => decide(asked)}>{approveLabel}</button>
-      <button type="button" class="btn" data-testid="decide-reject" class:dp-was={kept?.decision === 'reject'} disabled={busy} onclick={() => decide('reject')}>{rejectLabel}</button>
+      <button type="button" class="btn" data-testid="decide-approve" bind:this={approveBtn} class:dp-was={kept?.decision === asked} disabled={busy || noteMissing} onclick={() => decide(asked)}>{label(asked, approveLabel)}</button>
+      <button type="button" class="btn" data-testid="decide-reject" bind:this={rejectBtn} class:dp-was={kept?.decision === 'reject'} disabled={busy} onclick={() => decide('reject')}>{label('reject', rejectLabel)}</button>
     </div>
   {:else if caller?.user && (caller.user === op.spec?.actor?.user || caller.user === op.spec?.onBehalfOf?.user)}
     <p class="t-body-2" data-testid="decide-own">You asked for this change, so someone else must decide it.</p>
@@ -178,6 +200,7 @@
   .dp-outcome h3, .dp-safer h3 { margin: 0; font-weight: 600; }
   .dp-outcome ul { margin: 0; padding-left: var(--sp-5); }
   .dp-was { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+  .dp-link { color: var(--c-accent); text-decoration: underline; }
   .dp-ok { color: var(--c-ok); font-weight: 600; }
   .dp-fresh { border: 1px solid var(--c-accent-border); background: var(--c-surface); border-radius: var(--radius-sm); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); align-items: flex-start; }
 </style>

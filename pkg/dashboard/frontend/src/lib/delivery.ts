@@ -9,8 +9,8 @@ const TYPE_LABELS: Record<string, string> = {
   'pacto.dev/promote': 'Promote',
   'pacto.dev/rollback': 'Roll back',
   'pacto.dev/override': 'Override',
-  'pacto.dev/unfreeze': 'Unpause',
-  'pacto.dev/freeze': 'Pause',
+  'pacto.dev/unfreeze': 'Unfreeze',
+  'pacto.dev/freeze': 'Freeze',
 };
 
 /** typeLabel names an operation type in plain words. */
@@ -23,6 +23,29 @@ const DECISION_LABELS: Record<string, string> = {
   reject: 'Reject',
   'accept-unknown': 'Accept the unknown',
 };
+
+/** Where the docs say what Unknown means and how a person resolves it. */
+export const UNKNOWN_DOCS = 'https://pacto.run/latest/integrations/kubernetes/delivery/#what-unknown-means';
+
+/**
+ * unknownHelp says, for a check that ended Unknown, what Pacto could not see
+ * and what makes it see it next time. Unknown is never a yes: until it can
+ * see, a person accepts the unknown or rejects the change.
+ */
+export function unknownHelp(v: { gate?: string; citation?: Record<string, string> }): string {
+  if (v.citation?.provider === 'mira') {
+    return 'Pacto could not read enough traces to judge the release. Send the service\'s spans to Mira and keep the verify window long enough to collect them.';
+  }
+  switch (v.gate) {
+    case 'pacto.contract':
+    case 'pacto.runtime':
+      return 'Pacto could not read the service\'s contract status. Check that the operator evaluates the Pacto for this service and that its runtime agent reports.';
+    case 'pacto.impact':
+      return 'Pacto could not tell which services this affects. Publish a contract for each service that calls this one, with the versions it accepts.';
+    default:
+      return 'Pacto could not get an answer from this check. Check that it is configured and reachable.';
+  }
+}
 
 export function decisionLabel(d: string | undefined): string {
   return DECISION_LABELS[d ?? ''] ?? (d || '');
@@ -219,6 +242,103 @@ export function miraLink(citation: Record<string, string> | undefined, miraURL: 
   }
   const base = miraURL.replace(/\/+$/, '');
   return `${base}/#/${q.signal}?q=${encodeURIComponent(terms.join(' '))}&range=all`;
+}
+
+const OUTCOMES: Record<string, string> = { Succeeded: 'succeeded', Failed: 'failed', Rejected: 'was rejected', Errored: 'could not finish' };
+const VERIFICATIONS: Record<string, string> = { Verified: 'verified', Unverified: 'not verified', AcceptedUnknown: 'a person accepted the unknown' };
+const PHASES: Record<string, string> = { Held: 'waits for a person', Pending: 'waits its turn', Running: 'is running', Verifying: 'is being checked', '': 'is not admitted yet' };
+
+/** The fields changeSummary reads from an explanation. */
+export interface ChangeFacts {
+  spec?: { type?: string; stage?: string; params?: { from?: string; to?: string } | null };
+  status?: { phase?: string; outcome?: string; verification?: string };
+}
+
+/**
+ * changeSummary says in one sentence what a change asked and where it stands,
+ * with only the parts it has: no empty fields and no raw machine words.
+ */
+export function changeSummary(e: ChangeFacts | null | undefined, namespace: string, versions?: Record<string, string> | null): string {
+  if (!e) return '';
+  const p = e.spec?.params ?? {};
+  const v = (d: string | undefined) => (d ? versionLabel(d, versions) : '');
+  const move = p.from && p.to ? ` from ${v(p.from)} to ${v(p.to)}` : p.to ? ` to ${v(p.to)}` : '';
+  const what = `${typeLabel(e.spec?.type)} ${e.spec?.stage ?? ''} in ${namespace}${move}`;
+  const st = e.status ?? {};
+  if (st.phase === 'Concluded') {
+    const end = [OUTCOMES[st.outcome ?? ''] ?? st.outcome, VERIFICATIONS[st.verification ?? ''] ?? st.verification].filter(Boolean).join(', ');
+    return `${what} ${end ? `ended: it ${end}` : 'ended'}.`;
+  }
+  return `${what} ${PHASES[st.phase ?? ''] ?? `is ${(st.phase ?? '').toLowerCase()}`}.`;
+}
+
+const ACTOR_BADGES: Record<string, { label: string; tone: string }> = {
+  human: { label: 'Person', tone: 'badge-ok' },
+  agent: { label: 'Agent', tone: 'badge-info' },
+  controller: { label: 'Controller', tone: 'badge-neutral' },
+};
+
+/** actorBadge is the chip that says whether a person, an agent or Pacto's own controller acted. */
+export function actorBadge(cls: string | undefined): { label: string; tone: string } | null {
+  return ACTOR_BADGES[cls ?? ''] ?? null;
+}
+
+/** One line of a history, as autonomyOf reads it. */
+export interface AutonomyEntry {
+  type?: string;
+  kind?: string;
+  phase?: string;
+  actorClass?: string;
+  verification?: string;
+  approvals?: { decision?: string }[] | null;
+}
+
+/**
+ * autonomyOf counts how far delivery runs on its own: of the promotions that
+ * ended, how many no person asked for or decided, and how many waited for a
+ * person only because a check was Unknown (what more visibility would remove).
+ */
+export function autonomyOf(entries: AutonomyEntry[]): { total: number; noPerson: number; onlyUnknown: number } {
+  const done = entries.filter((e) => e.type === 'pacto.dev/promote' && e.kind !== 'gap' && e.kind !== 'unrecordable' && e.phase === 'Concluded');
+  const unknown = (e: AutonomyEntry) => e.verification === 'AcceptedUnknown' || (e.approvals ?? []).some((a) => a.decision === 'accept-unknown');
+  return {
+    total: done.length,
+    noPerson: done.filter((e) => e.actorClass !== 'human' && !(e.approvals ?? []).length && !unknown(e)).length,
+    onlyUnknown: done.filter((e) => unknown(e) && !(e.approvals ?? []).some((a) => a.decision === 'approve')).length,
+  };
+}
+
+/** The fields of a history line undoneBy reads. */
+export interface UndoEntry {
+  operation?: string;
+  type?: string;
+  from?: string;
+  finished?: string;
+  actor?: string;
+  actorClass?: string;
+}
+
+/**
+ * undoneBy finds the rollback that undid the change `name`, which moved its
+ * Stage to `after`: a rollback starts from the version the change it undoes
+ * put there, so it is the first rollback from `after` that did not end
+ * before the change did.
+ */
+// ponytail: matched by version and time, because history lines do not name what a rollback undoes; read params.undoes if they ever do.
+export function undoneBy<T extends UndoEntry>(entries: T[], name: string, after: string, finished?: string): T | null {
+  return entries.find((en) => en.type === 'pacto.dev/rollback' && en.operation && en.operation !== name && en.from === after
+    && (!finished || !en.finished || en.finished >= finished)) ?? null;
+}
+
+/**
+ * NO_RERUN is what the server says for a check with nothing to run again
+ * (pkg/delivery RerunHint); the dashboard leaves that line out.
+ */
+const NO_RERUN = 'no citation to run again';
+
+/** rerunHint is the command that runs a check again, or '' when there is none. */
+export function rerunHint(rerun: string | undefined): string {
+  return rerun && rerun !== NO_RERUN ? rerun : '';
 }
 
 const PREDICTIONS: Record<string, string> = {

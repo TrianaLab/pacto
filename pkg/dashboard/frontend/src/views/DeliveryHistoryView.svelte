@@ -4,7 +4,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryChangeUrl, deliveryHistoryUrl } from '../lib/router.ts';
-  import { typeLabel, shortDigest, shortDigests, versionLabel, timeLabel, decisionLabel } from '../lib/delivery.ts';
+  import { typeLabel, shortDigest, shortDigests, versionLabel, timeLabel, decisionLabel, actorBadge, autonomyOf, UNKNOWN_DOCS } from '../lib/delivery.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import BlamePanel from '../components/BlamePanel.svelte';
   import UndoPanel from '../components/UndoPanel.svelte';
@@ -54,6 +54,10 @@
     return typeLabel(en.type);
   }
 
+  // How far delivery ran on its own, over every line shown here.
+  const autonomy = $derived(autonomyOf(histories.flatMap((h) => h.entries ?? [])));
+  const partial = $derived(histories.some((h) => h.completeness !== 'complete'));
+
   /** The people who decided a change: an approval or a rejection, never only who asked. */
   const deciders = (en) => (en.approvals ?? []).filter((a) => a.by);
 </script>
@@ -74,6 +78,11 @@
     <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
+    {#if autonomy.total}
+      <p class="t-body-2 hv-autonomy" data-testid="history-autonomy">
+        <strong>{autonomy.noPerson} of {autonomy.total} promotion{autonomy.total === 1 ? '' : 's'} needed no person</strong>{#if autonomy.onlyUnknown}; {autonomy.onlyUnknown} waited for one only because a check was Unknown, which more visibility removes (<a class="hv-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">how</a>){/if}.{#if partial}{' '}Counted from what these histories show, and some are partial.{/if}
+      </p>
+    {/if}
     {#if histories.length === 0}
       <div class="state-box"><h2>No history yet</h2><p>No environment you can see has a change on record.</p></div>
     {:else}
@@ -82,7 +91,7 @@
           <h2 class="t-section-title">{h.namespace}/{h.stage.name}</h2>
           <p class="t-body-2">
             <span class="hv-source" class:hv-partial={h.completeness !== 'complete'} data-testid="history-source">{sourceLabel(h)}</span>
-            Runs {#if h.stage.pointer}<strong>{version(h.stage.pointer)}</strong>{#if data.versions?.[h.stage.pointer]}{' '}<code class="hv-digest" title={h.stage.pointer}>{shortDigest(h.stage.pointer)}</code>{/if}{:else}nothing yet{/if}{#if h.stage.frozen}, paused{/if}. {h.note}
+            Runs {#if h.stage.pointer}<strong>{version(h.stage.pointer)}</strong>{#if data.versions?.[h.stage.pointer]}{' '}<code class="hv-digest" title={h.stage.pointer}>{shortDigest(h.stage.pointer)}</code>{/if}{:else}nothing yet{/if}{#if h.stage.frozen}, frozen{/if}. {h.note}
           </p>
           {#if h.stage.pointer}
             <div><button type="button" class="btn btn-sm" onclick={(e) => show(e, { kind: 'blame', ns: h.namespace, key: h.stage.name })}>Who put {version(h.stage.pointer)} here?</button></div>
@@ -114,7 +123,7 @@
                       <td>{en.seq ?? ''}</td>
                       <td>{#if en.operation}<a href={deliveryChangeUrl(h.namespace, en.operation)}>{changeLabel(en)}</a>{:else}{changeLabel(en)}{/if}</td>
                       <td class="hv-nowrap" title={[en.from, en.to].filter(Boolean).join(' → ')}>{version(en.from) || '–'} → {version(en.to) || '–'}</td>
-                      <td>{#if en.actor}<Person user={en.actor} people={data.people} {me} />{:else}–{/if}{#if en.actorClass}{' '}<span class="hv-class">({en.actorClass})</span>{/if}</td>
+                      <td>{#if en.actor}<Person user={en.actor} people={data.people} {me} />{:else}–{/if}{#if actorBadge(en.actorClass)}{@const ab = actorBadge(en.actorClass)}{' '}<span class="badge {ab.tone}" data-testid="actor-badge">{ab.label}</span>{/if}</td>
                       <td data-testid="history-decided">{#if en.kind === 'gap' || en.kind === 'unrecordable'}–{:else if deciders(en).length}{#each deciders(en) as a, i (a.by + i)}{#if i}, {/if}<Person user={a.by} people={data.people} {me} /> <span class="hv-class">({decisionLabel(a.decision)})</span>{/each}{:else if en.phase === 'Held'}<span class="hv-class">Waiting for a person</span>{:else if en.actorClass === 'human'}<span class="hv-class">The person who asked</span>{:else}<span class="hv-class">No person</span>{/if}</td>
                       <td>{en.outcome || en.phase}{#if en.verification}, {en.verification}{/if}{#if en.reason}: {shortDigests(en.reason)}{/if}</td>
                       <td class="hv-nowrap">{#if en.finished}<time datetime={en.finished}>{timeLabel(en.finished)}</time>{/if}</td>
