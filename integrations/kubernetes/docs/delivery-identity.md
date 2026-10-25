@@ -51,8 +51,8 @@ still promotes every change that needs no decision, people can still freeze,
 unfreeze, roll back and cancel, and the dashboard and the CLI still read
 everything. A held change then ends one of three ways: it expires, someone
 cancels it and publishes a version that asks nothing, or a member of the
-break-glass group raises an override (`pacto delivery propose --type override
---to <digest>`). An override moves the version at once with no checks, is kept
+break-glass group raises an override with
+`pacto delivery propose --type override --to sha256:...`. An override moves the version at once with no checks, is kept
 in the history like any change and freezes the Stage until a person unfreezes
 it.
 
