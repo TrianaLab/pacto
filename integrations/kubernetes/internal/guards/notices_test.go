@@ -33,7 +33,11 @@ func TestDeliveryImageCarriesEveryLinkedLicense(t *testing.T) {
 	if err != nil {
 		t.Fatalf("go list: %v", err)
 	}
-	want, err := render(out)
+	goroot, err := exec.CommandContext(ctx, "go", "env", "GOROOT").Output()
+	if err != nil {
+		t.Fatalf("go env GOROOT: %v", err)
+	}
+	want, err := render(out, strings.TrimSpace(string(goroot)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,12 +57,17 @@ func TestDeliveryImageCarriesEveryLinkedLicense(t *testing.T) {
 	if !bytes.Contains(dockerfile, []byte("COPY integrations/kubernetes/cmd/delivery/THIRD_PARTY_NOTICES /THIRD_PARTY_NOTICES")) {
 		t.Error("the delivery image must copy THIRD_PARTY_NOTICES")
 	}
+	// Every Go binary links the runtime and standard library, which go list
+	// reports with no module, so they need their own entry.
+	if !bytes.Contains(got, []byte("\nGo standard library and runtime: BSD, text ")) {
+		t.Error("THIRD_PARTY_NOTICES must carry the Go standard library's license")
+	}
 	if !bytes.Equal(got, want) {
 		t.Fatalf("%s is stale for what cmd/delivery links with -tags kms: run UPDATE_NOTICES=1 go test ./internal/guards/", notices)
 	}
 }
 
-func render(list []byte) ([]byte, error) {
+func render(list []byte, goroot string) ([]byte, error) {
 	type mod struct{ path, version, dir string }
 	seen := map[string]mod{}
 	for line := range strings.SplitSeq(strings.TrimSpace(string(list)), "\n") {
@@ -76,11 +85,21 @@ func render(list []byte) ([]byte, error) {
 	sort.Strings(paths)
 	var b, texts bytes.Buffer
 	b.WriteString("Third-party software in the Pacto delivery image\n\n" +
-		"The delivery binary links the Go modules below. Each entry gives the module,\n" +
-		"its version, its license, where its source is and which of the license\n" +
-		"texts that follow it carries; modules with identical texts share one.\n" +
+		"The delivery binary links the Go standard library and the Go modules\n" +
+		"below. Each entry gives the module, its version, its license, where its\n" +
+		"source is and which of the license texts that follow it carries; modules\n" +
+		"with identical texts share one.\n" +
 		"MPL-2.0 modules are used unmodified, and their source is at the address given.\n\n")
 	index := map[string]int{}
+	// The Go LICENSE text does not change between releases, so the entry names
+	// no version and stays the same whichever toolchain renders it.
+	text, kind, err := licenseOf(goroot)
+	if err != nil {
+		return nil, fmt.Errorf("go standard library: %w", err)
+	}
+	index[text] = 1
+	fmt.Fprintf(&texts, "\n================================================================\nText 1\n\n%s", text)
+	fmt.Fprintf(&b, "Go standard library and runtime: %s, text 1\n  source https://go.dev/dl/\n", kind)
 	for _, p := range paths {
 		m := seen[p]
 		text, kind, err := licenseOf(m.dir)
