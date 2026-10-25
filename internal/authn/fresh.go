@@ -60,30 +60,8 @@ func FreshIDToken(ctx context.Context, c FreshConfig) (string, error) {
 	state, nonce, verifier := random(16), random(16), oauth2.GenerateVerifier()
 	started := now()
 
-	codes := make(chan string, 1)
-	refused := make(chan error, 1)
-	srv := &http.Server{ReadHeaderTimeout: 10 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		q := r.URL.Query()
-		// Anything else on this port (another local process guessing) is
-		// refused without ending the wait.
-		if r.URL.Path != "/callback" || q.Get("state") != state {
-			http.Error(w, "this is not the login pacto started", http.StatusBadRequest)
-			return
-		}
-		if e := q.Get("error"); e != "" {
-			http.Error(w, "the identity provider refused the login", http.StatusUnauthorized)
-			select {
-			case refused <- fmt.Errorf("the identity provider refused the login: %s %s", e, q.Get("error_description")):
-			default:
-			}
-			return
-		}
-		_, _ = fmt.Fprintln(w, "Logged in. Go back to the terminal.")
-		select {
-		case codes <- q.Get("code"):
-		default:
-		}
-	})}
+	codes, refused := make(chan string, 1), make(chan error, 1)
+	srv := &http.Server{ReadHeaderTimeout: 10 * time.Second, Handler: answer(state, codes, refused)}
 	go func() { _ = srv.Serve(ln) }()
 	defer func() { _ = srv.Close() }()
 
@@ -109,14 +87,49 @@ func FreshIDToken(ctx context.Context, c FreshConfig) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("the identity provider's ID token does not verify: %w", err)
 	}
+	if err := fresh(id, nonce, started); err != nil {
+		return "", err
+	}
+	return raw, nil
+}
+
+// answer is the loopback listener: it hands the login's code, or the
+// identity provider's refusal, to FreshIDToken. Anything else on the port
+// (another local process guessing) is refused without ending the wait.
+func answer(state string, codes chan<- string, refused chan<- error) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if r.URL.Path != "/callback" || q.Get("state") != state {
+			http.Error(w, "this is not the login pacto started", http.StatusBadRequest)
+			return
+		}
+		if e := q.Get("error"); e != "" {
+			http.Error(w, "the identity provider refused the login", http.StatusUnauthorized)
+			select {
+			case refused <- fmt.Errorf("the identity provider refused the login: %s %s", e, q.Get("error_description")):
+			default:
+			}
+			return
+		}
+		_, _ = fmt.Fprintln(w, "Logged in. Go back to the terminal.")
+		select {
+		case codes <- q.Get("code"):
+		default:
+		}
+	})
+}
+
+// fresh checks the ID token is this login's and the login happened after
+// started.
+func fresh(id *oidc.IDToken, nonce string, started time.Time) error {
 	at, ok := authTime(id)
 	switch {
 	case id.Nonce != nonce:
-		return "", errors.New("the ID token is not for this login")
+		return errors.New("the ID token is not for this login")
 	case !ok:
-		return "", errors.New("the ID token carries no auth_time, so it cannot show the login is fresh")
+		return errors.New("the ID token carries no auth_time, so it cannot show the login is fresh")
 	case at.Before(started.Add(-skew)):
-		return "", errors.New("the identity provider did not ask you to log in again; an approval needs a fresh login")
+		return errors.New("the identity provider did not ask you to log in again; an approval needs a fresh login")
 	}
-	return raw, nil
+	return nil
 }

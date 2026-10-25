@@ -194,6 +194,22 @@ func alwaysOpen(path string) bool {
 	return path == "/health" || path == "/api/session" || strings.HasPrefix(path, "/auth/")
 }
 
+// refuseShared says why a shared dashboard refuses a request, or "". With a
+// session cookie the browser holds rights: a mutating request must prove it
+// comes from this dashboard's own page.
+func refuseShared(r *http.Request, st State, hasCookie bool) string {
+	if !hasCookie || !isMutating(r.Method) || (!strings.HasPrefix(r.URL.Path, "/api/") && r.URL.Path != "/auth/logout") {
+		return ""
+	}
+	switch {
+	case r.Header.Get("Origin") == "" || !sameOrigin(r):
+		return "a signed-in request must come from the dashboard's own origin"
+	case st.SignedIn && !equal(r.Header.Get(CSRFHeader), st.CSRF):
+		return "missing or wrong " + CSRFHeader + " header"
+	}
+	return ""
+}
+
 func (d *Dashboard) shared(w http.ResponseWriter, r *http.Request) (State, bool) {
 	_, hasCookie := r.Cookie(SessionCookie)
 	var st State
@@ -208,21 +224,10 @@ func (d *Dashboard) shared(w http.ResponseWriter, r *http.Request) (State, bool)
 		}
 		return State{}, false
 	}
-	// With a session cookie the browser holds rights: a mutating request must
-	// prove it comes from this dashboard's own page.
-	if hasCookie == nil && isMutating(r.Method) && (strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/auth/logout") {
-		why := ""
-		switch {
-		case r.Header.Get("Origin") == "" || !sameOrigin(r):
-			why = "a signed-in request must come from the dashboard's own origin"
-		case st.SignedIn && !equal(r.Header.Get(CSRFHeader), st.CSRF):
-			why = "missing or wrong " + CSRFHeader + " header"
-		}
-		if why != "" {
-			Refused(r.Context(), r, "dashboard refused a signed-in request", "reason", why, "origin", r.Header.Get("Origin"))
-			http.Error(w, why, http.StatusForbidden)
-			return State{}, false
-		}
+	if why := refuseShared(r, st, hasCookie == nil); why != "" {
+		Refused(r.Context(), r, "dashboard refused a signed-in request", "reason", why, "origin", r.Header.Get("Origin"))
+		http.Error(w, why, http.StatusForbidden)
+		return State{}, false
 	}
 	return st, true
 }
