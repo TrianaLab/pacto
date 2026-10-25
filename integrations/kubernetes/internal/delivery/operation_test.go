@@ -261,8 +261,8 @@ func TestBreakingChangeWaitsForTheConsumersTeam(t *testing.T) {
 	e.create(wrong)
 	e.approve(o, "au", "alice", delivery.AcceptUnknown)
 	o = e.drive("p1")
-	if o.Status.Phase != delivery.PhaseHeld || !strings.Contains(o.Status.Message, "needs an approval") {
-		t.Fatalf("none of those may move it: %s %s", o.Status.Phase, o.Status.Message)
+	if o.Status.Phase != delivery.PhaseHeld || !strings.Contains(o.Status.Message, "does not count") || len(o.Status.Approvals) != 0 {
+		t.Fatalf("none of those may move it, and the operation says why: %s %s %+v", o.Status.Phase, o.Status.Message, o.Status.Approvals)
 	}
 	// Nor may a person outside the named team, or one in an agent group.
 	e.approveAs(o, "notteam", "dave", []string{"team-payments"}, delivery.Approve)
@@ -272,7 +272,7 @@ func TestBreakingChangeWaitsForTheConsumersTeam(t *testing.T) {
 	}
 	e.approveAs(o, "ok", "bob", []string{"team-checkout"}, delivery.Approve)
 	o = e.drive("p1")
-	if o.Status.Phase != delivery.PhaseRunning || len(o.Status.Approvals) != 2 || o.Status.Approvals[1].By != "bob" {
+	if o.Status.Phase != delivery.PhaseRunning || len(o.Status.Approvals) != 1 || o.Status.Approvals[0].By != "bob" {
 		t.Fatalf("an owner's approval must move it: %s %+v", o.Status.Phase, o.Status.Approvals)
 	}
 }
@@ -712,15 +712,6 @@ func TestVerdictUnknownReasons(t *testing.T) {
 	e.fails["get/Stage"] = true
 	if m := check(); !strings.Contains(m, "reading the Stage") {
 		t.Fatal(m)
-	}
-}
-
-func TestFresh(t *testing.T) {
-	at := time.Unix(1_000_000, 0)
-	f := delivery.AuthFreshness
-	if !fresh("999990", at, f) || fresh("990000", at, f) || fresh("nope", at, f) || !fresh(at.Format(time.RFC3339), at, f) || fresh(at.Add(time.Hour).Format(time.RFC3339), at, f) ||
-		fresh("999990", at, time.Second) {
-		t.Fatal("fresh")
 	}
 }
 

@@ -481,19 +481,20 @@ func (r *OperationReconciler) held(ctx context.Context, op *dv1.Operation, stage
 	// when it was admitted. A Reject needs no plan, so a re-plan that fails
 	// still lets one through.
 	refreshed, err := r.refreshOrder(ctx, op, stage)
-	a := r.approval(ctx, op, delivery.Approve, delivery.AcceptUnknown, delivery.Reject)
+	a, skipped := r.approval(ctx, op)
+	newSkip := skipped != "" && skipped != op.Status.Message
+	if newSkip {
+		op.Status.Message = skipped
+	}
 	switch {
 	case a != nil && a.Decision == delivery.Reject:
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Rejected, reason: "RejectedByHuman: " + a.By + ": " + a.Note})
 	case err != nil:
 		return reconcile.Result{}, err
-	case a == nil && refreshed:
+	case a == nil && (refreshed || newSkip):
 		return r.save(ctx, op)
 	case a == nil:
 		return r.requeue()
-	case a.Decision == delivery.AcceptUnknown && op.Status.Plan != nil && op.Status.Plan.Floor.Decision == delivery.Approve:
-		op.Status.Message = a.By + " accepted the unknown, but this operation needs an approval"
-		return r.save(ctx, op)
 	}
 	return r.lock(ctx, op, stage, true)
 }
@@ -541,48 +542,35 @@ func (r *OperationReconciler) refreshOrder(ctx context.Context, op *dv1.Operatio
 	return true, nil
 }
 
-// approval consumes the first valid, not yet consumed Approval for op. A valid
-// one is bound to this uid and intent digest, comes from a person who is
-// neither the actor nor whoever the actor acts for, belongs to a team the
-// question was routed to (floor.owners) and was given within r.Freshness of
-// that person's login. The groups are the ones admission bound to the user.
-// It answers the question asked now: it was created no earlier than the
-// operation was last held, and its decision is one of decisions.
+// approval consumes the first Approval for op that delivery.ApprovalEligible
+// counts and op has not consumed yet. The groups are the ones admission bound
+// to the user. It also says why the newest Approval for op it passed over does
+// not count, so the person who gave it is not left waiting on nothing.
 // ponytail: times are whole seconds, so an approval created in the same
 // second as a new hold still counts.
-func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation, decisions ...delivery.Decision) *delivery.ApprovalRecord {
-	var owners []string
-	if op.Status.Plan != nil {
-		owners = op.Status.Plan.Floor.Owners
-	}
-	held := parseOr(op.Status.Times.Held)
+func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) (*delivery.ApprovalRecord, string) {
 	list := &dv1.ApprovalList{}
 	if err := r.List(ctx, list, client.InNamespace(op.Namespace)); err != nil {
-		return nil
+		return nil, ""
 	}
 	slices.SortFunc(list.Items, func(a, b dv1.Approval) int { return a.CreationTimestamp.Compare(b.CreationTimestamp.Time) })
+	skipped := ""
 	for _, a := range list.Items {
 		s := a.Spec
-		consumed := slices.ContainsFunc(op.Status.Approvals, func(x delivery.ApprovalRecord) bool { return x.Name == a.Name })
-		if consumed || a.CreationTimestamp.Time.Before(held) || !slices.Contains(decisions, s.Decision) || s.OperationUID != string(op.UID) || s.IntentDigest != op.Spec.IntentDigest ||
-			s.By == op.Spec.Actor.User || op.Spec.OnBehalfOf != nil && s.By == op.Spec.OnBehalfOf.User ||
-			!r.Policy.IsHuman(delivery.Identity{User: s.By, Groups: s.Groups}) || !r.Policy.InTeams(s.Groups, owners) ||
-			!fresh(s.AuthTime, a.CreationTimestamp.Time, cmp.Or(r.Freshness, delivery.AuthFreshness)) {
+		if s.OperationUID != string(op.UID) || slices.ContainsFunc(op.Status.Approvals, func(x delivery.ApprovalRecord) bool { return x.Name == a.Name }) {
+			continue
+		}
+		ok, why := delivery.ApprovalEligible(op.Spec, op.Status, string(op.UID), s, a.CreationTimestamp.Time, r.Policy,
+			cmp.Or(r.Freshness, delivery.AuthFreshness))
+		if !ok {
+			skipped = "Approval " + a.Name + " by " + s.By + " does not count: " + why
 			continue
 		}
 		rec := delivery.ApprovalRecord{Name: a.Name, By: s.By, Decision: s.Decision, Note: s.Note, AuthTime: s.AuthTime}
 		op.Status.Approvals = append(op.Status.Approvals, rec)
-		return &rec
+		return &rec, ""
 	}
-	return nil
-}
-
-// fresh reports whether a login at authTime (RFC 3339 or Unix seconds) was at
-// most limit before at.
-func fresh(authTime string, at time.Time, limit time.Duration) bool {
-	t, ok := delivery.ParseAuthTime(authTime)
-	age := at.Sub(t)
-	return ok && age >= -time.Minute && age <= limit
+	return nil, skipped
 }
 
 // lock takes the Stage's facet lock with one compare-and-swap. An approved
@@ -906,10 +894,10 @@ func (r *OperationReconciler) heldAfterApply(ctx context.Context, op *dv1.Operat
 	}
 	// An Approve answers the question asked before the version shipped, not
 	// this one, so only an accept or a reject counts here.
-	a := r.approval(ctx, op, delivery.AcceptUnknown, delivery.Reject)
+	a, skipped := r.approval(ctx, op)
 	switch {
 	case a == nil:
-		return r.recheckHeld(ctx, op, stage)
+		return r.recheckHeld(ctx, op, stage, skipped)
 	case a.Decision == delivery.Reject:
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Failed, reason: "RejectedByHuman: " + a.By + ": " + a.Note})
 	}
@@ -919,10 +907,14 @@ func (r *OperationReconciler) heldAfterApply(ctx context.Context, op *dv1.Operat
 // recheckHeld runs the verify gates again, every recheck interval, on a
 // version held for a person after it shipped: a Fail rolls it back as a
 // verify Fail does, all Pass verifies it, and Unknown keeps asking with the
-// fresh verdicts.
-func (r *OperationReconciler) recheckHeld(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, error) {
+// fresh verdicts and why an Approval passed over does not count (skipped).
+func (r *OperationReconciler) recheckHeld(ctx context.Context, op *dv1.Operation, stage *dv1.Stage, skipped string) (reconcile.Result, error) {
 	now := r.now()
 	if last, ok := r.heldChecks.Load(op.UID); ok && now.Before(last.(time.Time).Add(delivery.RecheckInterval(stage.Spec))) {
+		if msg := heldMessage(op.Status.Verdicts, skipped); skipped != "" && msg != op.Status.Message {
+			op.Status.Message = msg
+			return r.save(ctx, op)
+		}
 		return r.requeue()
 	}
 	r.heldChecks.Store(op.UID, now)
@@ -936,8 +928,14 @@ func (r *OperationReconciler) recheckHeld(ctx context.Context, op *dv1.Operation
 		f := failing(vs)
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Failed, reason: "VerifyFailed: " + f.Gate + ": " + f.Message, cause: f})
 	}
-	op.Status.Message = verdictMessages(vs, delivery.Unknown)
+	op.Status.Message = heldMessage(vs, skipped)
 	return r.save(ctx, op)
+}
+
+// heldMessage is what a version held on an unknown says: the Unknown
+// verdicts and why an Approval passed over does not count.
+func heldMessage(vs []delivery.Verdict, skipped string) string {
+	return strings.Join(slices.DeleteFunc([]string{verdictMessages(vs, delivery.Unknown), skipped}, func(m string) bool { return m == "" }), "; ")
 }
 
 // finish concludes op: one Stage compare-and-swap releases the lock (only if

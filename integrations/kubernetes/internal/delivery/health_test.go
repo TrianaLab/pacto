@@ -156,6 +156,19 @@ func TestHeldOnUnknownKeepsChecking(t *testing.T) {
 		e.health.result = delivery.Pass
 		wantOutcome(t, e.drive("p1"), delivery.Succeeded, "Verified")
 	})
+	t.Run("an approval that does not count says why", func(t *testing.T) {
+		e := held(t)
+		o := e.drive("p1")
+		e.approve(o, "late", "alice", delivery.Approve)
+		const want = "health: error ratio Unknown; Approval late by alice does not count: the version already shipped"
+		if o = e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || !strings.HasPrefix(o.Status.Message, want) || len(o.Status.Approvals) != 0 {
+			t.Fatalf("an Approve after the version shipped is passed over, and the operation says why: %+v", o.Status)
+		}
+		e.now = e.now.Add(time.Minute)
+		if o = e.drive("p1"); !strings.HasPrefix(o.Status.Message, want) {
+			t.Fatalf("the recheck keeps saying why: %q", o.Status.Message)
+		}
+	})
 }
 
 // TestRuntimeClaimGate: a version the node agent saw calling a service its
