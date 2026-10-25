@@ -21,64 +21,73 @@ tests:
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
-    documentIndex: 0
+    documentSelector:
+      path: 'spec.validations[?(@.message == "spec.actor.user must be the user creating the operation")].message'
+      value: "spec.actor.user must be the user creating the operation"
     asserts:
       - equal:
-          path: spec.validations[0].expression
+          path: 'spec.validations[?(@.message == "spec.actor.user must be the user creating the operation")].expression'
           value: object.spec.actor.user == request.userInfo.username
 
   - it: lets only the promoter set witnessed
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
-    documentIndex: 0
+    documentSelector:
+      path: 'spec.validations[?(@.message == "only the Pacto delivery promoter may raise a witnessed operation")].message'
+      value: "only the Pacto delivery promoter may raise a witnessed operation"
     asserts:
       - equal:
-          path: spec.validations[3].expression
+          path: 'spec.validations[?(@.message == "only the Pacto delivery promoter may raise a witnessed operation")].expression'
           value: "!variables.witnessed || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
 
   - it: lets a person, break-glass or the promoter freeze, never an agent
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
-    documentIndex: 0
+    documentSelector:
+      path: 'spec.validations[?(@.message == "only a person, break-glass or the promoter may freeze a Stage; agents may not")].message'
+      value: "only a person, break-glass or the promoter may freeze a Stage; agents may not"
     asserts:
       - equal:
-          path: spec.validations[6].expression
+          path: 'spec.validations[?(@.message == "only a person, break-glass or the promoter may freeze a Stage; agents may not")].expression'
           value: "object.spec.type != 'pacto.dev/freeze' || variables.breakGlass || !variables.agent || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
 
   - it: refuses approvals from agents and service accounts
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
-    documentIndex: 4
+    documentSelector:
+      path: 'spec.validations[?(@.message == "agents and service accounts may not approve")].message'
+      value: "agents and service accounts may not approve"
     asserts:
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "agents and service accounts may not approve")].expression'
           pattern: "g in \\['pacto:agents'\\]"
 
   - it: binds an approval's groups to the approving user's groups
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
-    documentIndex: 4
+    documentSelector:
+      path: 'spec.validations[?(@.message == "spec.groups must be the groups of the user creating the approval")].message'
+      value: "spec.groups must be the groups of the user creating the approval"
     asserts:
-      - equal:
-          path: spec.validations[3].message
-          value: "spec.groups must be the groups of the user creating the approval"
       # Both directions: no group the user lacks, and none of theirs left out.
       - matchRegex:
-          path: spec.validations[3].expression
+          path: 'spec.validations[?(@.message == "spec.groups must be the groups of the user creating the approval")].expression'
           pattern: "variables\\.groups\\.all\\(g, g in request\\.userInfo\\.groups\\) &&"
       - matchRegex:
-          path: spec.validations[3].expression
+          path: 'spec.validations[?(@.message == "spec.groups must be the groups of the user creating the approval")].expression'
           pattern: "request\\.userInfo\\.groups\\.all\\(g, g in variables\\.groups\\)"
 
   - it: protects only labelled OCIRepositories
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
-    documentIndex: 6
+    documentSelector:
+      path: 'spec.validations[?(@.message == "spec.ref.digest is the Pacto delivery pointer: propose a promote, or use break-glass")].message'
+      value: "spec.ref.digest is the Pacto delivery pointer: propose a promote, or use break-glass"
     asserts:
       - equal:
           path: spec.matchConstraints.objectSelector.matchExpressions[0].key
@@ -96,15 +105,21 @@ tests:
       - equal:
           path: spec.matchConstraints.resourceRules[0].resources
           value: [applications]
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass")].message'
+          value: "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass"
       - equal:
           path: spec.matchConstraints.objectSelector.matchExpressions[0].key
           value: delivery.pacto.trianalab.io/apply-ref
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass")].message'
+          value: "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass"
       - matchRegex:
-          path: spec.validations[0].expression
+          path: 'spec.validations[?(@.message == "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass")].expression'
           pattern: "request\\.userInfo\\.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass")].message'
+          value: "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass"
 
   - it: renders nothing when disabled on purpose
     set:
@@ -134,21 +149,29 @@ tests:
       argocd.enabled: true
     asserts:
       - equal:
-          path: spec.matchConditions[0].expression
+          path: 'spec.matchConditions[?(@.name == "promoter")].expression'
           value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
-        documentIndex: 10
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the promoter may change only spec.ref.digest")].message'
+          value: "the promoter may change only spec.ref.digest"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the promoter may change only spec.ref.digest")].expression'
           pattern: "k == 'digest'"
-        documentIndex: 10
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the promoter may change only spec.ref.digest")].message'
+          value: "the promoter may change only spec.ref.digest"
       - equal:
           path: spec.matchConstraints.resourceRules[0].resources
           value: [applications]
-        documentIndex: 12
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the promoter may change only spec.source.targetRevision")].message'
+          value: "the promoter may change only spec.source.targetRevision"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the promoter may change only spec.source.targetRevision")].expression'
           pattern: "k == 'targetRevision'"
-        documentIndex: 12
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the promoter may change only spec.source.targetRevision")].message'
+          value: "the promoter may change only spec.source.targetRevision"
 
   - it: keeps the record fields to the recorder, and the recorder away from what runs
     capabilities:
@@ -160,138 +183,206 @@ tests:
       - hasDocuments:
           count: 12
       - equal:
-          path: spec.variables[0].expression
+          path: 'spec.variables[?(@.name == "recorder")].expression'
           value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery-recorder'"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[0].expression
+          path: 'spec.validations[?(@.message == "status.record and status.stream.{recordedSeq,head,anchor} are written only by the Pacto delivery recorder")].expression'
           pattern: "has\\(object.status.stream.head\\) \\? object.status.stream.head : ''\\) == \\(has\\(oldObject.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "^!variables.recorder \\|\\|"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.pointer\\) \\? object\\.status\\.pointer : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.frozen\\) \\? object\\.status\\.frozen : false\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.lastOp\\) \\? object\\.status\\.lastOp : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.stream\\.seq\\) \\? object\\.status\\.stream\\.seq : 0\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.phase\\) \\? object\\.status\\.phase : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.outcome\\) \\? object\\.status\\.outcome : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.seq\\) \\? object\\.status\\.seq : 0\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.locks\\) \\? object\\.status\\.locks : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.verified\\) \\? object\\.status\\.verified : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.failedDigests\\) \\? object\\.status\\.failedDigests : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.frozenReason\\) \\? object\\.status\\.frozenReason : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.autoHold\\) \\? object\\.status\\.autoHold : false\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.autoRollbacks\\) \\? object\\.status\\.autoRollbacks : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.stream\\.id\\) \\? object\\.status\\.stream\\.id : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.stream\\.concluded\\) \\? object\\.status\\.stream\\.concluded : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.published\\) \\? object\\.status\\.published : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.offered\\) \\? object\\.status\\.offered : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.candidate\\) \\? object\\.status\\.candidate : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.lastCheck\\) \\? object\\.status\\.lastCheck : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.verdicts\\) \\? object\\.status\\.verdicts : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.approvals\\) \\? object\\.status\\.approvals : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.policy\\) \\? object\\.status\\.policy : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.verification\\) \\? object\\.status\\.verification : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.reason\\) \\? object\\.status\\.reason : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.times\\) \\? object\\.status\\.times : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.applied\\) \\? object\\.status\\.applied : false\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.stageUID\\) \\? object\\.status\\.stageUID : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.plan\\) \\? object\\.status\\.plan : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.actorClass\\) \\? object\\.status\\.actorClass : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.question\\) \\? object\\.status\\.question : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "has\\(object\\.status\\.message\\) \\? object\\.status\\.message : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
