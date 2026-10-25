@@ -22,6 +22,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/catalog"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 )
 
@@ -358,7 +359,9 @@ func runMCPServer(ctx context.Context, s mcpServe, stderr io.Writer) error {
 }
 
 func serveHTTP(ctx context.Context, handler http.Handler, listener net.Listener) error {
-	srv := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second}
+	// Requests log through the command's logger, not the process default.
+	base := logging.WithLogger(context.Background(), logging.LoggerFromContext(ctx))
+	srv := &http.Server{Handler: handler, ReadHeaderTimeout: 10 * time.Second, BaseContext: func(net.Listener) context.Context { return base }}
 
 	errCh := make(chan error, 1)
 	go func() { errCh <- srv.Serve(listener) }()

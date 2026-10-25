@@ -121,6 +121,12 @@ gets the read tools, an agent also propose and cancel, nobody an approve tool. P
 your agent group). Without token exchange the server refuses `--delivery` over
 HTTP.
 
+Both servers log every refused token, sign-in and signed-in request as a
+warning with the issuer, audience or client, the reason and where it came from
+(`X-Request-Id` too, when a proxy sets it), never the token. With `--verbose`
+the MCP server also logs each caller's class and whether it got the write
+tools.
+
 ## Limits
 
 - An agent holding a person's credentials, session or refresh token is that

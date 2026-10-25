@@ -138,6 +138,7 @@ func delivery(path string) bool {
 func (d *Dashboard) local(w http.ResponseWriter, r *http.Request) (State, bool) {
 	if r.Method == http.MethodGet && r.URL.Query().Get("token") != "" {
 		if !equal(r.URL.Query().Get("token"), d.launch) {
+			Refused(r.Context(), r, "local dashboard refused a launch token", "reason", "not the token printed at start")
 			http.Error(w, "this is not the token this dashboard printed when it started", http.StatusForbidden)
 			return State{}, false
 		}
@@ -162,6 +163,7 @@ func (d *Dashboard) local(w http.ResponseWriter, r *http.Request) (State, bool) 
 		return st, true
 	}
 	if why := d.refuseLocal(r, st); why != "" {
+		Refused(r.Context(), r, "local dashboard refused a delivery request", "reason", why)
 		http.Error(w, why, http.StatusForbidden)
 		return State{}, false
 	}
@@ -209,12 +211,16 @@ func (d *Dashboard) shared(w http.ResponseWriter, r *http.Request) (State, bool)
 	// With a session cookie the browser holds rights: a mutating request must
 	// prove it comes from this dashboard's own page.
 	if hasCookie == nil && isMutating(r.Method) && (strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/auth/logout") {
+		why := ""
 		switch {
 		case r.Header.Get("Origin") == "" || !sameOrigin(r):
-			http.Error(w, "a signed-in request must come from the dashboard's own origin", http.StatusForbidden)
-			return State{}, false
+			why = "a signed-in request must come from the dashboard's own origin"
 		case st.SignedIn && !equal(r.Header.Get(CSRFHeader), st.CSRF):
-			http.Error(w, "missing or wrong "+CSRFHeader+" header", http.StatusForbidden)
+			why = "missing or wrong " + CSRFHeader + " header"
+		}
+		if why != "" {
+			Refused(r.Context(), r, "dashboard refused a signed-in request", "reason", why, "origin", r.Header.Get("Origin"))
+			http.Error(w, why, http.StatusForbidden)
 			return State{}, false
 		}
 	}

@@ -730,7 +730,7 @@ func versions(ctx context.Context, api DeliveryAPI, stage *delivery.StageObject,
 func version(ctx context.Context, r delivery.Revision) string {
 	if r.Bundle == nil {
 		if r.Err != "" && !r.NoContract {
-			logging.LoggerFromContext(ctx).Warn("reading the version of a digest", "digest", r.Digest, "err", r.Err)
+			logging.LoggerFromContext(ctx).Warn("reading the version of a digest", "digest", r.Digest, "error", r.Err)
 		}
 		return ""
 	}
@@ -742,7 +742,7 @@ func version(ctx context.Context, r delivery.Revision) string {
 func stageVersions(ctx context.Context, api DeliveryAPI, namespace, stage string, digests ...string) map[string]string {
 	st, err := api.Stage(ctx, namespace, stage)
 	if err != nil {
-		logging.LoggerFromContext(ctx).Warn("reading a Stage to name versions", "namespace", namespace, "stage", stage, "err", err)
+		logging.LoggerFromContext(ctx).Warn("reading a Stage to name versions", "namespace", namespace, "stage", stage, "error", err)
 		return nil
 	}
 	return versions(ctx, api, st, nil, digests...)

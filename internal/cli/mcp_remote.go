@@ -20,6 +20,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/authn"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
 // mcpAuth is the remote MCP server's identity layer: *authn.MCP.
@@ -108,23 +109,31 @@ type remoteDelivery struct {
 
 func (rd remoteDelivery) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		tok, err := rd.auth.Exchange(r.Context(), auth.TokenInfoFromContext(r.Context()))
+		info := auth.TokenInfoFromContext(r.Context())
+		refuse := func(code int, what string, err error) {
+			authn.Refused(r.Context(), r, what, "user", info.UserID, "reason", err.Error())
+			http.Error(w, err.Error(), code)
+		}
+		tok, err := rd.auth.Exchange(r.Context(), info)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
+			refuse(http.StatusForbidden, "remote MCP could not exchange a caller's token", err)
 			return
 		}
 		dyn, err := rd.newClient(authn.RESTConfig(rd.cluster, tok))
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			refuse(http.StatusInternalServerError, "remote MCP could not build a caller's client", err)
 			return
 		}
 		c := &app.Delivery{Dynamic: dyn, Registry: rd.registry, Records: rd.records, Trust: rd.trust, Policy: rd.policy, Now: time.Now}
 		caller, err := c.WhoAmI(r.Context())
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusForbidden)
+			refuse(http.StatusForbidden, "remote MCP: the apiserver did not say who a caller is", err)
 			return
 		}
-		srv := rd.build(mcpDelivery{c}, caller.Class == delivery.ClassAgent)
+		writes := caller.Class == delivery.ClassAgent
+		logging.LoggerFromContext(r.Context()).Info("remote MCP delivery request", "user", info.UserID, "as", caller.User,
+			"class", caller.Class, "writeTools", writes)
+		srv := rd.build(mcpDelivery{c}, writes)
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), mcpServerKey{}, srv)))
 	})
 }

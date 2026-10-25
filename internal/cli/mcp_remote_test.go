@@ -20,6 +20,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
 // fakeMCPAuth accepts the bearer "good" and exchanges it unless told not to.
@@ -104,7 +105,14 @@ func TestMCPRemoteRefusals(t *testing.T) {
 // post sends one JSON-RPC request through h and returns the answer.
 func post(t *testing.T, h http.Handler, bearer, body string) *httptest.ResponseRecorder {
 	t.Helper()
+	return postLogged(t, h, bearer, body, &strings.Builder{})
+}
+
+// postLogged is post with the request's log written to logs.
+func postLogged(t *testing.T, h http.Handler, bearer, body string, logs *strings.Builder) *httptest.ResponseRecorder {
+	t.Helper()
 	r := httptest.NewRequest(http.MethodPost, "http://mcp.example/mcp", strings.NewReader(body))
+	r = r.WithContext(logging.WithLogger(r.Context(), logging.New(logs, true)))
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Accept", "application/json, text/event-stream")
 	r.Header.Set("Mcp-Protocol-Version", "2025-06-18")
@@ -193,14 +201,27 @@ func TestRemoteMCPToolsPerCaller(t *testing.T) {
 func TestRemoteMCPFailuresSayWhy(t *testing.T) {
 	w := newRemoteWorld(t)
 	w.fa.exchangeErr = errors.New("the IdP refused the exchange")
-	rec := post(t, w.h, "good", listTools)
+	logs := &strings.Builder{}
+	rec := postLogged(t, w.h, "good", listTools, logs)
 	expect(t, rec.Code == http.StatusForbidden && strings.Contains(rec.Body.String(), "refused the exchange"), "exchange refused: %d %s", rec.Code, rec.Body)
 	w.fa.exchangeErr, w.clientErr = nil, errors.New("bad config")
-	rec = post(t, w.h, "good", listTools)
+	rec = postLogged(t, w.h, "good", listTools, logs)
 	expect(t, rec.Code == http.StatusInternalServerError, "client error: %d", rec.Code)
 	w.clientErr, w.whoAmIFails = nil, true
-	rec = post(t, w.h, "good", listTools)
+	rec = postLogged(t, w.h, "good", listTools, logs)
 	expect(t, rec.Code == http.StatusForbidden && strings.Contains(rec.Body.String(), "token rejected"), "whoami refused: %d %s", rec.Code, rec.Body)
+	// Every refusal is logged with the caller and the reason, never the token.
+	for _, want := range []string{"could not exchange a caller's token", "could not build a caller's client", "did not say who a caller is",
+		"user=https://idp#agent", "refused the exchange", "bad config", "token rejected", "path=/mcp"} {
+		expect(t, strings.Contains(logs.String(), want), "the log lacks %q:\n%s", want, logs)
+	}
+	expect(t, !strings.Contains(logs.String(), "good"), "the log carries the token:\n%s", logs)
+	// A served request logs who it is for and whether it got the write tools.
+	w.whoAmIFails = false
+	logs.Reset()
+	postLogged(t, w.h, "good", listTools, logs)
+	expect(t, strings.Contains(logs.String(), "remote MCP delivery request") && strings.Contains(logs.String(), "class=agent") &&
+		strings.Contains(logs.String(), "writeTools=true"), "the grant is not logged:\n%s", logs)
 }
 
 func TestRemoteDeliveryRefusesABadTrustConfig(t *testing.T) {

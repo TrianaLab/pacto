@@ -187,7 +187,7 @@ func TestVersionsLogWhyTheyAreUnknown(t *testing.T) {
 	if v := versions(ctx, f, &st, nil, dRun, "sha256:unreadable", dNext); len(v) != 1 || v[dRun] != "1.0.0" {
 		t.Fatalf("versions = %v", v)
 	}
-	if got := buf.String(); !strings.Contains(got, "digest=sha256:unreadable") || !strings.Contains(got, `err="registry down"`) ||
+	if got := buf.String(); !strings.Contains(got, "digest=sha256:unreadable") || !strings.Contains(got, `error="registry down"`) ||
 		strings.Contains(got, dNext) || strings.Contains(got, dRun) {
 		t.Fatalf("log = %q", got)
 	}
@@ -196,7 +196,7 @@ func TestVersionsLogWhyTheyAreUnknown(t *testing.T) {
 		t.Fatalf("versions = %v, log = %q", v, buf.String())
 	}
 	f.stageErr = errors.New("forbidden")
-	if v := stageVersions(ctx, f, "prod", "payments", dRun); v != nil || !strings.Contains(buf.String(), "stage=payments err=forbidden") {
+	if v := stageVersions(ctx, f, "prod", "payments", dRun); v != nil || !strings.Contains(buf.String(), "stage=payments error=forbidden") {
 		t.Fatalf("versions = %v, log = %q", v, buf.String())
 	}
 }
