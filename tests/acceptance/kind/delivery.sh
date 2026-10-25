@@ -876,7 +876,7 @@ owned() { [ "$(unowned)" = 0 ]; }
 eventually 20 owned || fail "$(unowned) Approvals of $OPF are not owned by it"
 APF="$(kubectl -n test get approvals -o json | jq -r --arg u "$OPF_UID" '[.items[] | select(.spec.operationUID == $u)][0].metadata.name')"
 OUT="$(kubectl -n test patch approval "$APF" --type merge -p '{"spec":{"decision":"reject"}}' 2>&1 || true)"
-grep -q "cannot change once it is given" <<<"$OUT" || fail "an Approval's decision was edited after it was given: $OUT"
+grep -q "an approval is immutable" <<<"$OUT" || fail "an Approval's decision was edited after it was given: $OUT"
 pass "F's Approvals are owned by F and cannot be edited"
 pass "item 4: F held for team-checkout only, answered only by a team-checkout member, verified in test"
 OPFP="$(wait_op prod "$F")"

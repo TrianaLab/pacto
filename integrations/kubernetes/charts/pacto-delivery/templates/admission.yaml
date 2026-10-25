@@ -131,8 +131,8 @@ spec:
 # userInfo.extra["pacto.dev/auth-time"]). The promoter refuses a login older
 # than 15 minutes, which forces a fresh interactive login to approve. An agent
 # holding a person's credentials still cannot be told apart from that person.
-# Once given, an Approval's spec never changes: the promoter only adds its
-# operation as owner.
+# Once given, an Approval's spec never changes (a CRD rule); the promoter only
+# adds its operation as owner.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -145,36 +145,28 @@ spec:
     resourceRules:
       - apiGroups: [delivery.pacto.trianalab.io]
         apiVersions: ["*"]
-        operations: [CREATE, UPDATE]
+        operations: [CREATE]
         resources: [approvals]
   variables:
-    - name: create
-      expression: "request.operation == 'CREATE'"
     - name: groups
       expression: "has(object.spec.groups) ? object.spec.groups : []"
   validations:
-    - expression: "variables.create || object.spec == oldObject.spec"
-      message: "an Approval's spec cannot change once it is given"
-      reason: Forbidden
-    - expression: "!variables.create || object.spec.by == request.userInfo.username"
+    - expression: "object.spec.by == request.userInfo.username"
       message: "spec.by must be the user creating the approval"
       reason: Forbidden
     - expression: >-
-        !variables.create || (
         !request.userInfo.username.startsWith('system:serviceaccount:') &&
-        !request.userInfo.groups.exists(g, g in {{ $agents }}))
+        !request.userInfo.groups.exists(g, g in {{ $agents }})
       message: "agents and service accounts may not approve"
       reason: Forbidden
     - expression: >-
-        !variables.create || (
         'pacto.dev/auth-time' in request.userInfo.extra &&
-        has(object.spec.authTime) && object.spec.authTime == request.userInfo.extra['pacto.dev/auth-time'][0])
+        has(object.spec.authTime) && object.spec.authTime == request.userInfo.extra['pacto.dev/auth-time'][0]
       message: "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[pacto.dev/auth-time]"
       reason: Forbidden
     - expression: >-
-        !variables.create || (
         variables.groups.all(g, g in request.userInfo.groups) &&
-        request.userInfo.groups.all(g, g in variables.groups))
+        request.userInfo.groups.all(g, g in variables.groups)
       message: "spec.groups must be the groups of the user creating the approval"
       reason: Forbidden
 ---

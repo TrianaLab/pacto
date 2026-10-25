@@ -31,7 +31,7 @@ rules:
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [approvals]
     # patch: it makes each Approval's operation its owner, so they are
-    # garbage collected together; admission keeps the spec as it was given.
+    # garbage collected together; the CRD keeps the spec as it was given.
     verbs: [get, list, watch, patch]
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [operations]

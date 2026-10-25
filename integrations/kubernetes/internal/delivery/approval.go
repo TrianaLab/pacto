@@ -136,7 +136,7 @@ func (r *OperationReconciler) approvalsOf(ctx context.Context, op *dv1.Operation
 }
 
 // adopt makes op the owner of every Approval that answers it, so they are
-// garbage collected with it instead of piling up. Admission keeps an
+// garbage collected with it instead of piling up. The CRD keeps an
 // Approval's spec as it was given, so owning one changes nothing it says.
 // ponytail: an Approval naming no operation that exists is never adopted;
 // delete it by hand.
