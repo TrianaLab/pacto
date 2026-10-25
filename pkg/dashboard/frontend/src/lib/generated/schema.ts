@@ -1055,6 +1055,10 @@ export interface components {
             name: string;
             note?: string;
         };
+        "Delivery.AutonomyPolicy": {
+            /** Format: int64 */
+            proposeAfter?: number;
+        };
         "Delivery.Caller": {
             authTime?: string;
             class: string;
@@ -1311,13 +1315,14 @@ export interface components {
         "Delivery.StageSpec": {
             applyRef: components["schemas"]["Delivery.ApplyRef"];
             approval?: components["schemas"]["Delivery.ApprovalPolicy"];
-            auto?: boolean;
+            autonomy?: components["schemas"]["Delivery.AutonomyPolicy"];
             candidates?: components["schemas"]["Delivery.Candidates"];
             deadlines?: components["schemas"]["Delivery.Deadlines"];
             environment: string;
             gates?: components["schemas"]["Delivery.Gates"];
             records?: components["schemas"]["Delivery.RecordsPolicy"];
             service: components["schemas"]["Delivery.ServiceRef"];
+            startRung?: string;
         };
         "Delivery.Times": {
             admitted?: string;
