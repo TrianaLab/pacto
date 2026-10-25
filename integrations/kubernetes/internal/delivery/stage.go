@@ -17,6 +17,7 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -135,8 +136,11 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 		return nil
 	}
 	a, err := r.Cluster.applier(ctx, stage.Namespace, stage.Spec.ApplyRef)
-	if err != nil {
-		return client.IgnoreNotFound(err)
+	switch {
+	case apierrors.IsNotFound(err) || apierrors.IsForbidden(err) || meta.IsNoMatchError(err):
+		return nil // ready names it (applierReady)
+	case err != nil:
+		return err
 	}
 	if _, err := delivery.ParseDigest(a.digest); err != nil || a.digest == stage.Status.Pointer {
 		return nil
@@ -274,7 +278,8 @@ func (r *StageReconciler) remote(ctx context.Context, stage *dv1.Stage) (*delive
 }
 
 // applierReady says what keeps the Stage's applier from taking a version, nil
-// when nothing does: it cannot be read, it lacks ApplyRefLabel (the admission
+// when nothing does: it cannot be read (missing, forbidden or a kind whose
+// CRD the cluster lacks), it lacks ApplyRefLabel (the admission
 // policy then refuses every promoter write) or, on Argo CD, it has no single
 // OCI spec.source or no automated sync (the promoter never runs a sync).
 func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*delivery.Condition, error) {
@@ -288,6 +293,9 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 	switch {
 	case apierrors.IsNotFound(err) || apierrors.IsForbidden(err):
 		c := notReady("ApplierUnreadable", what+" the Stage applies through cannot be read: "+err.Error())
+		return &c, nil
+	case meta.IsNoMatchError(err):
+		c := notReady("ApplierUnreadable", what+" the Stage applies through cannot be read: its CRD is not installed in this cluster ("+err.Error()+")")
 		return &c, nil
 	case err != nil:
 		return nil, err

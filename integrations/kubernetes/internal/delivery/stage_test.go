@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -383,6 +384,24 @@ func TestStageReadyApplier(t *testing.T) {
 	}})
 	if c, err := e.st.applierReady(context.Background(), argoStage(dA)); err != nil || c == nil || c.Reason != "ApplierUnreadable" || !strings.Contains(c.Message, "no RBAC") {
 		t.Fatalf("forbidden: %+v %v", c, err)
+	}
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatalf("a forbidden applier must not fail the reconcile: %v", err)
+	}
+	// An applier kind whose CRD the cluster lacks (Argo CD not installed) is
+	// named too, not retried as an error.
+	e = newEnv(t, argoStage(dA), verifiedRepo("payments-candidates", "latest@"+dB))
+	e.st.Cluster.Client = interceptor.NewClient(e.c, interceptor.Funcs{Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+		if kindOf(obj) == "Application" {
+			return &meta.NoKindMatchError{GroupKind: schema.GroupKind{Group: "argoproj.io", Kind: "Application"}, SearchedVersions: []string{"v1alpha1"}}
+		}
+		return c.Get(ctx, key, obj, opts...)
+	}})
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatalf("no CRD: %v", err)
+	}
+	if conds := e.getStage().Status.Conditions; len(conds) != 1 || conds[0].Reason != "ApplierUnreadable" || !strings.Contains(conds[0].Message, "CRD is not installed") {
+		t.Fatalf("no CRD: conditions %+v", conds)
 	}
 	e = newEnv(t, stageObj(dA), ociRepo("payments", dA, "", false))
 	e.fails["get/OCIRepository/payments"] = true

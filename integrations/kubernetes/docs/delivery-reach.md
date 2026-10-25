@@ -32,8 +32,9 @@ The Application must:
   Stage.
 
 The Stage is not `Ready` while the Application breaks one of these, and the
-reason names which: `ApplierUnreadable` (missing, or the promoter may not read
-it), `ApplierUnlabelled`, `ApplierMultiSource`, `ApplierNotOCI` or
+reason names which: `ApplierUnreadable` (missing, the promoter may not read
+it, or its CRD is not installed, such as Argo CD in a Flux-only cluster),
+`ApplierUnlabelled`, `ApplierMultiSource`, `ApplierNotOCI` or
 `ApplierNotAutomated`. A Flux `OCIRepository` the Stage applies through needs
 the same label, so `ApplierUnreadable` and `ApplierUnlabelled` apply to it too.
 
