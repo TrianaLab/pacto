@@ -906,6 +906,15 @@ if grep -q "the promoter may change only spec.ref.digest" <<<"$OUT"; then
 else
   fail "the promoter changed an OCIRepository's url: $OUT"
 fi
+# The recorder's RBAC reaches every Stage status; admission allows it its
+# record fields and RecordStoreReady condition alone.
+OUT="$(kubectl --as "system:serviceaccount:${DELIVERY_NS}:pacto-delivery-recorder" -n prod patch stage payments --subresource=status --type merge \
+  -p '{"status":{"conditions":[{"type":"Ready","status":"False","reason":"Forged","message":"forged"}]}}' 2>&1 || true)"
+if grep -q "the Pacto delivery recorder writes records, never what runs" <<<"$OUT"; then
+  pass "the recorder cannot write a Stage condition other than its own"
+else
+  fail "the recorder rewrote a Stage's Ready condition: $OUT"
+fi
 KUBECONFIG="$(person_kubeconfig ops pacto:break-glass)" kubectl -n prod patch ocirepository payments --type merge \
   -p "{\"spec\":{\"ref\":{\"digest\":\"$B\"}}}" >/dev/null
 OPW2="$(wait_op prod "$B" pacto.dev/override)"
