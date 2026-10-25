@@ -88,6 +88,34 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+// TestOwnerTeamAndHumanGroups: a required owner team leaves an ownerless
+// question to nobody, and a human allowlist makes everyone outside it an agent.
+func TestOwnerTeamAndHumanGroups(t *testing.T) {
+	if (ClassPolicy{RequireOwnerTeam: true}).InTeams([]string{"devs"}, nil) {
+		t.Error("with an owner team required, a question naming no team has nobody to answer it")
+	}
+	pol := ClassPolicy{HumanGroups: []string{"staff"}, BreakGlassGroups: []string{"pacto:break-glass"}}
+	cases := map[string]struct {
+		id    Identity
+		class ActorClass
+		human bool
+	}{
+		"member":          {Identity{User: "alice", Groups: []string{"staff"}}, ClassHuman, true},
+		"not enrolled":    {Identity{User: "bot", Groups: []string{"devs"}}, ClassAgent, false},
+		"no groups":       {Identity{User: "bot"}, ClassAgent, false},
+		"break-glass":     {Identity{User: "ops", Groups: []string{"pacto:break-glass"}}, ClassBreakGlass, false},
+		"service account": {Identity{User: "system:serviceaccount:a:b", Groups: []string{"staff"}}, ClassAgent, false},
+	}
+	for name, c := range cases {
+		if got := pol.Classify(c.id); got != c.class {
+			t.Errorf("%s: Classify = %s, want %s", name, got, c.class)
+		}
+		if got := pol.IsHuman(c.id); got != c.human {
+			t.Errorf("%s: IsHuman = %v, want %v", name, got, c.human)
+		}
+	}
+}
+
 func TestInTeams(t *testing.T) {
 	pol := ClassPolicy{TeamGroupPrefix: "acme:"}
 	cases := []struct {
@@ -244,5 +272,18 @@ func TestResolveRevisionGivesUpOnARegistryThatNeverAnswers(t *testing.T) {
 	defer done()
 	if dl, ok := ctx.Deadline(); !ok || time.Until(dl) > registryTimeout {
 		t.Fatalf("WithRegistryTimeout sets no bound: %v %v", dl, ok)
+	}
+}
+
+func TestParseClassPolicy(t *testing.T) {
+	p, err := ParseClassPolicy([]byte(`{"agentGroups":["bots"],"breakGlassGroups":["sre"],"teamGroupPrefix":"acme:","requireOwnerTeam":true,"humanGroups":["staff"]}`))
+	if err != nil || p.TeamGroupPrefix != "acme:" || !p.RequireOwnerTeam || p.HumanGroups[0] != "staff" || p.AgentGroups[0] != "bots" || p.BreakGlassGroups[0] != "sre" {
+		t.Fatalf("%+v %v", p, err)
+	}
+	if _, err := ParseClassPolicy([]byte("{")); err == nil {
+		t.Fatal("a broken policy is an error")
+	}
+	if d := DefaultClassPolicy(); !d.RequireOwnerTeam || d.AgentGroups[0] != "pacto:agents" || d.BreakGlassGroups[0] != "pacto:break-glass" {
+		t.Fatalf("defaults: %+v", d)
 	}
 }

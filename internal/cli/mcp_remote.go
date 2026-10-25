@@ -103,7 +103,7 @@ type remoteDelivery struct {
 	registry  func(...string) app.DeliveryRegistry
 	records   app.RecordRepo
 	trust     *delivery.TrustConfig
-	policy    delivery.ClassPolicy
+	policyNS  string
 	build     func(api pactomcp.DeliveryAPI, writes bool) *mcpsdk.Server
 }
 
@@ -124,7 +124,8 @@ func (rd remoteDelivery) middleware(next http.Handler) http.Handler {
 			refuse(http.StatusInternalServerError, "remote MCP could not build a caller's client", err)
 			return
 		}
-		c := &app.Delivery{Dynamic: dyn, Registry: rd.registry, Records: rd.records, Trust: rd.trust, Policy: rd.policy, Now: time.Now}
+		c := &app.Delivery{Dynamic: dyn, Registry: rd.registry, Records: rd.records, Trust: rd.trust,
+			Policy: delivery.DefaultClassPolicy(), PolicyNamespace: rd.policyNS, Now: time.Now}
 		caller, err := c.WhoAmI(r.Context())
 		if err != nil {
 			refuse(http.StatusForbidden, "remote MCP: the apiserver did not say who a caller is", err)
@@ -189,8 +190,7 @@ func remoteDeliveryFor(cmd *cobra.Command, svc *app.Service, version string, d d
 	if err != nil {
 		return fmt.Errorf("remote delivery needs the cluster's address: %w", err)
 	}
-	agents, _ := cmd.Flags().GetStringSlice("agent-groups")
-	breakGlass, _ := cmd.Flags().GetStringSlice("break-glass-groups")
+	policyNS, _ := cmd.Flags().GetString("delivery-namespace")
 	path, _ := cmd.Flags().GetString("delivery-trust")
 	trust, err := deliveryTrust(path)
 	if err != nil {
@@ -198,7 +198,7 @@ func remoteDeliveryFor(cmd *cobra.Command, svc *app.Service, version string, d d
 	}
 	rd := remoteDelivery{auth: s.auth, cluster: cluster, registry: d.newDeliveryRegistry, newClient: d.dynamicFor,
 		records: d.newRecordRepo, trust: trust,
-		policy: delivery.ClassPolicy{AgentGroups: agents, BreakGlassGroups: breakGlass},
+		policyNS: policyNS,
 		build: func(api pactomcp.DeliveryAPI, writes bool) *mcpsdk.Server {
 			return pactomcp.NewDeliveryServer(version, api, writes, svc.ValidationReport)
 		}}

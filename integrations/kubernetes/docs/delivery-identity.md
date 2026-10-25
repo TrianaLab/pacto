@@ -39,6 +39,38 @@ public client (PKCE, no secret) whose redirect is the loopback address
 cannot trust your identity provider keeps the read-only dashboard and the CLI,
 and nobody can approve there.
 
+## Who counts as a person, an agent or a team
+
+Set the groups once, on the delivery chart:
+
+```yaml
+identities:
+  agentGroups: [pacto:agents]          # agents propose, never approve or unfreeze
+  breakGlassGroups: [pacto:break-glass]
+  teamGroupPrefix: ""                  # owner team T is group T, or this prefix plus T
+  requireOwnerTeam: true               # a question naming no team is answered by nobody
+  humanGroups: []                      # when set, everyone outside these groups is an agent
+```
+
+The chart renders the admission policies from these values and publishes them
+in the ConfigMap `pacto-delivery-identities`, which every signed-in user may
+read. The promoter mounts that ConfigMap and runs with it, and restarts when it
+changes. `pacto delivery`, `pacto mcp --delivery` and the dashboard read it
+too, from `--delivery-namespace` (default `pacto-delivery`), so what they
+offer matches what admission and the promoter decide. A client that cannot read
+it falls back to the defaults above; admission and the promoter still decide.
+
+A held question goes to the teams that own the affected services. When neither
+the service nor its consumers declare an owner, nobody may answer it with
+`requireOwnerTeam: true`, and only break-glass can override. The plan says so
+in its question. Set it to `false` to let any person answer instead.
+
+Service accounts are always agents, but a person-like agent identity is an
+agent only while it is in an agent group. Left out by mistake, it counts as a
+person: it is still refused an approval, because its token carries no login
+time, but records name it a person. Set `humanGroups` to the groups your people
+are in, and anyone outside them is an agent.
+
 ## Sign in to the dashboard
 
 Set the sign-in on the operator chart. The client secret stays in a Secret in
@@ -55,9 +87,7 @@ dashboard:
       redirectURL: https://pacto.example.com/auth/callback
       extraScopes: [audience:server:client_id:pacto-cli]
     required: true             # sign-in for the fleet views and the whole API too, not only delivery
-    teamGroupPrefix: ""        # the same value as the delivery chart's identities.teamGroupPrefix
-    agentGroups: []            # the same as identities.agentGroups; empty means pacto:agents
-    breakGlassGroups: []       # the same as identities.breakGlassGroups; empty means pacto:break-glass
+    deliveryNamespace: ""      # where the delivery chart publishes its identity policy; empty means pacto-delivery
   miraURL: http://mira.observability:4318
 ```
 
@@ -121,7 +151,7 @@ where to get one at `/.well-known/oauth-protected-resource`. It exchanges each
 caller's token at the identity provider (RFC 8693) for one the apiserver
 accepts and asks the apiserver who the caller is on every request. Everyone
 gets the read tools, an agent also propose and cancel, nobody an approve tool. Put agent clients in `pacto:agents` (or
-your agent group). Without token exchange the server refuses `--delivery` over
+your agent group), or set `humanGroups`. Without token exchange the server refuses `--delivery` over
 HTTP.
 
 Both servers log every refused token, sign-in and signed-in request as a

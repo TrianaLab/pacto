@@ -172,14 +172,8 @@ Controller arguments derived from values
 {{- end }}
 - --dashboard-auth-required
 {{- end }}
-{{- with .teamGroupPrefix }}
-- {{ printf "--dashboard-team-group-prefix=%s" . | quote }}
-{{- end }}
-{{- with .agentGroups }}
-- {{ printf "--dashboard-agent-groups=%s" (join "," .) | quote }}
-{{- end }}
-{{- with .breakGlassGroups }}
-- {{ printf "--dashboard-break-glass-groups=%s" (join "," .) | quote }}
+{{- with .deliveryNamespace }}
+- --dashboard-delivery-namespace={{ . }}
 {{- end }}
 {{- end }}
 {{- with .Values.dashboard.miraURL }}

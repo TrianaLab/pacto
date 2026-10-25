@@ -28,8 +28,12 @@ and offered (`status.published`, `status.offered`). Anything else is refused as
 declared range, holds for a person when a consumer in the Stage's environment
 would break or Pacto cannot see enough and writes to `status.plan.order` which
 consumer must move first, planned again while the change waits. It accepts an
-approval only from a person in a team the question names (`--team-group-prefix`,
-chart `identities.teamGroupPrefix`). It takes the Stage lock with one
+approval only from a person in a team the question names (chart
+`identities.teamGroupPrefix`); a question that names no team is answered by
+nobody unless `identities.requireOwnerTeam` is false, and with
+`identities.humanGroups` set only those groups count as people. The chart
+publishes these identities in the ConfigMap `pacto-delivery-identities`, which
+the promoter runs with and the CLI, the MCP server and the dashboard read. It takes the Stage lock with one
 compare-and-swap, moves the pointer, waits for the apply and runs the verify
 checks the Stage lists in `spec.gates.verify.checks`: the Pacto contract check,
 providers from `gates.providers` (`mira`, `http` or `eval`) and the built-in
@@ -81,7 +85,7 @@ copies each API group into its own chart.
 
 **The `pacto-operator` chart** gains `dashboard.auth.oidc` (`issuerURL`,
 `clientID`, `clientSecretRef`, `redirectURL`, `extraScopes`),
-`dashboard.auth.teamGroupPrefix` and `dashboard.miraURL` for the managed
-dashboard's sign-in. The dashboard's role gains no delivery right and no
+`dashboard.auth.required`, `dashboard.auth.deliveryNamespace` and
+`dashboard.miraURL` for the managed dashboard's sign-in. The dashboard's role gains no delivery right and no
 impersonation. The operator now passes the managed dashboard its namespace
 scope in `PACTO_DASHBOARD_NAMESPACE`, the variable the dashboard reads.

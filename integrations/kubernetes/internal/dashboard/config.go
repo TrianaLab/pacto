@@ -94,16 +94,13 @@ type AuthConfig struct {
 	// secretKeyRef, never as a literal value.
 	ClientSecretName string
 	ClientSecretKey  string
-	// TeamGroupPrefix maps a contract owner team to a group, as the delivery
-	// promoter is configured.
-	TeamGroupPrefix string
 	// Required gates the fleet views and the whole API behind sign-in too,
 	// not only delivery.
 	Required bool
-	// AgentGroups and BreakGlassGroups are the promoter's identity groups;
-	// empty keeps the dashboard's defaults, which are the delivery chart's.
-	AgentGroups      []string
-	BreakGlassGroups []string
+	// DeliveryNamespace is where the pacto-delivery chart publishes the
+	// promoter's identity policy, which the dashboard reads; empty means
+	// pacto-delivery.
+	DeliveryNamespace string
 }
 
 // ResourcesConfig holds optional resource quantity overrides for the dashboard container.

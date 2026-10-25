@@ -51,9 +51,10 @@ func isLoopback(host string) bool {
 
 // dashboardIdentity is how the dashboard identifies callers and acts for them.
 type dashboardIdentity struct {
-	auth      *authn.Dashboard
-	cluster   *rest.Config // nil: no cluster, so no delivery
-	policy    delivery.ClassPolicy
+	auth    *authn.Dashboard
+	cluster *rest.Config // nil: no cluster, so no delivery
+	// policyNS is where the promoter's identity policy is published.
+	policyNS  string
 	registry  func(...string) app.DeliveryRegistry
 	records   app.RecordRepo
 	trust     *delivery.TrustConfig
@@ -91,10 +92,7 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 	}
 	id := &dashboardIdentity{cluster: cluster, registry: d.newDeliveryRegistry, now: time.Now, served: d.served, state: authn.StateFrom,
 		newClient: d.dynamicFor, records: d.newRecordRepo, trust: trust,
-		revisions: map[string]delivery.Revision{},
-		policy: delivery.ClassPolicy{AgentGroups: splitList(v.GetStringSlice("dashboard.agent-groups")),
-			BreakGlassGroups: splitList(v.GetStringSlice("dashboard.break-glass-groups")),
-			TeamGroupPrefix:  v.GetString("dashboard.team-group-prefix")}}
+		revisions: map[string]delivery.Revision{}, policyNS: v.GetString("dashboard.delivery-namespace")}
 	switch issuer := v.GetString("dashboard.oidc-issuer-url"); {
 	case issuer != "":
 		o, err := authn.NewOIDC(authn.Config{IssuerURL: issuer, ClientID: v.GetString("dashboard.oidc-client-id"),
@@ -124,7 +122,6 @@ func (id *dashboardIdentity) options(o *dashboard.Options) {
 			st := id.state(r.Context())
 			return dashboard.AuthState{SignedIn: st.SignedIn, Fresh: st.Fresh, CSRF: st.CSRF, Name: tokenName(st.Token)}
 		}}
-	o.DeliveryPolicy = id.policy
 	if id.cluster != nil {
 		o.Delivery = id.delivery
 		o.DeliveryInstalled = id.deliveryInstalled
@@ -193,7 +190,7 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 		return nil, err
 	}
 	return dashDelivery{d: &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
-		Policy: id.policy, Now: id.now}, id: id}, nil
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now}, id: id}, nil
 }
 
 // describe caches what a digest carries: a digest never changes.

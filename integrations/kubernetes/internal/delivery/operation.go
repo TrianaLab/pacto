@@ -390,7 +390,7 @@ func (r *OperationReconciler) newerPromote(ctx context.Context, op *dv1.Operatio
 
 // plan gathers plan()'s inputs from the cluster and the registry and runs it.
 func (r *OperationReconciler) plan(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (delivery.Plan, error) {
-	in := delivery.PlanInput{Spec: op.Spec, Stage: stage.Spec, Status: stage.Status, Class: op.Status.ActorClass,
+	in := delivery.PlanInput{Spec: op.Spec, Stage: stage.Spec, Status: stage.Status, Class: op.Status.ActorClass, RequireOwnerTeam: r.Policy.RequireOwnerTeam,
 		From: delivery.Revision{Digest: op.Spec.Params.From}, To: delivery.Revision{Digest: op.Spec.Params.To}}
 	if op.Spec.Type == delivery.TypePromote {
 		a, err := r.Cluster.applier(ctx, op.Namespace, stage.Spec.ApplyRef)

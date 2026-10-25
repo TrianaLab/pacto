@@ -416,7 +416,7 @@ func (s *Server) deliveryInbox(ctx context.Context, _ *struct{}) (*inboxOutput, 
 	// that hides what it cannot attribute hides work.
 	mine := func(service string) bool {
 		o, known := owners[service]
-		return !known || s.opts.DeliveryPolicy.InTeams(caller.Groups, []string{o})
+		return !known || caller.Policy.InTeams(caller.Groups, []string{o})
 	}
 	// frozen holds the caller's Stages that are paused now. Concluded
 	// operations are never deleted, so an Errored one waits on someone only
@@ -431,13 +431,13 @@ func (s *Server) deliveryInbox(ctx context.Context, _ *struct{}) (*inboxOutput, 
 		}
 	}
 	// Held waits on a person who may answer: not an agent, never its asker.
-	decider := s.opts.DeliveryPolicy.IsHuman(caller.Identity)
+	decider := caller.Policy.IsHuman(caller.Identity)
 	byStage := stagesByName(stages)
 	for _, o := range ops {
 		it := inboxItem(o)
 		switch {
 		case it.Phase == delivery.PhaseHeld && decider && !ownChange(&o, caller.User) &&
-			s.opts.DeliveryPolicy.InTeams(caller.Groups, it.Owners):
+			caller.Policy.InTeams(caller.Groups, it.Owners):
 			out.Body.Held = append(out.Body.Held, withVersions(ctx, api, byStage[it.Namespace+"/"+it.Stage], it))
 		case it.Outcome == delivery.Errored && frozen[it.Namespace+"/"+it.Stage]:
 			out.Body.Errored = append(out.Body.Errored, it)
@@ -979,8 +979,8 @@ func refusedAt(s string) time.Time {
 func (s *Server) actions(ctx context.Context, op *delivery.OperationObject, stage delivery.StageNow, caller delivery.Caller) []string {
 	acts := []string{}
 	st := op.Status
-	if st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && s.opts.DeliveryPolicy.IsHuman(caller.Identity) &&
-		!ownChange(op, caller.User) && s.opts.DeliveryPolicy.InTeams(caller.Groups, inboxItem(*op).Owners) {
+	if st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && caller.Policy.IsHuman(caller.Identity) &&
+		!ownChange(op, caller.User) && caller.Policy.InTeams(caller.Groups, inboxItem(*op).Owners) {
 		if inboxItem(*op).Decision == delivery.Approve {
 			acts = append(acts, string(delivery.Approve))
 		} else {
@@ -1120,7 +1120,7 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 	if ownChange(op, caller.User) {
 		return nil, Refuse(http.StatusForbidden, "OwnChange", "you asked for this change, so someone else must decide it")
 	}
-	if owners := inboxItem(*op).Owners; !s.opts.DeliveryPolicy.InTeams(caller.Groups, owners) {
+	if owners := inboxItem(*op).Owners; !caller.Policy.InTeams(caller.Groups, owners) {
 		return nil, Refuse(http.StatusForbidden, "NotYourTeam", fmt.Sprintf("only %v may answer this question", owners))
 	}
 	name, err := api.Approve(ctx, in.Namespace, in.Name, in.Body.Decision, in.Body.Note)
@@ -1137,7 +1137,7 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 func (s *Server) mayDecide(caller delivery.Caller) error {
 	at, ok := delivery.ParseAuthTime(caller.AuthTime)
 	switch {
-	case !s.opts.DeliveryPolicy.IsHuman(caller.Identity):
+	case !caller.Policy.IsHuman(caller.Identity):
 		return Refuse(http.StatusForbidden, "AgentsMayNotApprove", "the apiserver says "+caller.User+" is an agent; agents may not decide")
 	case caller.AuthTime == "":
 		return Refuse(http.StatusForbidden, "AuthTimeUnavailable",

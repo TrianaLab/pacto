@@ -9,6 +9,7 @@ package delivery
 
 import (
 	"context"
+	"os"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -69,4 +70,22 @@ func SplitList(v string) []string {
 		}
 	}
 	return out
+}
+
+// LoadClassPolicy reads the ClassPolicy the delivery chart publishes, mounted
+// from its ConfigMap, and makes controllerUser its own; an empty path keeps
+// the defaults. The promoter runs with exactly what clients read.
+func LoadClassPolicy(path, controllerUser string) (delivery.ClassPolicy, error) {
+	p := delivery.DefaultClassPolicy()
+	if path != "" {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			return delivery.ClassPolicy{}, err
+		}
+		if p, err = delivery.ParseClassPolicy(b); err != nil {
+			return delivery.ClassPolicy{}, err
+		}
+	}
+	p.ControllerUser = controllerUser
+	return p, nil
 }

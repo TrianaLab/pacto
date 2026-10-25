@@ -25,7 +25,6 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
-	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/logging"
@@ -93,9 +92,6 @@ type Options struct {
 	// DeliveryInstalled reports whether the cluster serves the delivery API
 	// group; an error means the cluster could not be asked. Nil means it does.
 	DeliveryInstalled func(context.Context) (bool, error)
-	// DeliveryPolicy classifies callers and maps owner teams to groups, the
-	// way the promoter does.
-	DeliveryPolicy delivery.ClassPolicy
 	// DeliveryNamespace, when set, is the only namespace delivery reads and
 	// acts in, as the fleet views are scoped to it.
 	DeliveryNamespace string

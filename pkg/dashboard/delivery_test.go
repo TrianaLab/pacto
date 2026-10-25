@@ -28,6 +28,8 @@ const (
 
 // fakeDelivery is a cluster as one caller sees it.
 type fakeDelivery struct {
+	// policy is the published policy; nil is the acme one most tests use.
+	policy *delivery.ClassPolicy
 	caller    delivery.Caller
 	callerErr error
 	stages    []delivery.StageObject
@@ -77,7 +79,15 @@ func (f *fakeDelivery) PublishRefusals(context.Context, string) (*PublishRefusal
 	return f.refusals, f.refusalsErr
 }
 
-func (f *fakeDelivery) WhoAmI(context.Context) (delivery.Caller, error) { return f.caller, f.callerErr }
+// WhoAmI answers with the published policy the apiserver-backed client reads.
+func (f *fakeDelivery) WhoAmI(context.Context) (delivery.Caller, error) {
+	c := f.caller
+	c.Policy = delivery.ClassPolicy{AgentGroups: []string{"pacto:agents"}, TeamGroupPrefix: "acme:"}
+	if f.policy != nil {
+		c.Policy = *f.policy
+	}
+	return c, f.callerErr
+}
 
 func (f *fakeDelivery) refuse(ns string) error {
 	if ns == "" && f.forbidAll || f.forbid[ns] {
@@ -250,7 +260,6 @@ func (a *authed) auth(local, login bool) *Auth {
 func startDelivery(t *testing.T, f *fakeDelivery, auth *Auth, installed bool, factoryErr error) string {
 	t.Helper()
 	return startServer(t, NewServer(Options{UI: testUI(), Fleet: ownedFleet(t), Auth: auth, MiraURL: "http://mira",
-		DeliveryPolicy:    delivery.ClassPolicy{AgentGroups: []string{"pacto:agents"}, TeamGroupPrefix: "acme:"},
 		DeliveryInstalled: func(context.Context) (bool, error) { return installed, nil },
 		Delivery: func(r *http.Request) (DeliveryAPI, error) {
 			if r == nil {
@@ -736,6 +745,7 @@ func TestCompareVersions(t *testing.T) {
 
 func TestDeliveryNamespaceScope(t *testing.T) {
 	f := sampleCluster("acme:team-checkout")
+	f.policy = &delivery.ClassPolicy{} // no team prefix: acme:team-checkout is no team here
 	a := &authed{state: AuthState{SignedIn: true, Fresh: true}}
 	base := startServer(t, NewServer(Options{UI: testUI(), Fleet: ownedFleet(t), Auth: a.auth(false, true), DeliveryNamespace: "prod",
 		Delivery: func(*http.Request) (DeliveryAPI, error) { return f, nil }}))

@@ -46,11 +46,10 @@ func identityFor(t *testing.T, v *viper.Viper, host string, cluster *rest.Config
 
 func TestDashboardIdentityModes(t *testing.T) {
 	v := viper.New()
-	v.Set("dashboard.agent-groups", []string{"pacto:agents,bots"})
-	v.Set("dashboard.team-group-prefix", "acme:")
+	v.Set("dashboard.delivery-namespace", "delivery")
 	local := identityFor(t, v, "127.0.0.1", &rest.Config{Host: "https://k"})
-	if !local.auth.Local() || len(local.policy.AgentGroups) != 2 || local.policy.TeamGroupPrefix != "acme:" {
-		t.Fatalf("loopback without OIDC is local: %+v", local.policy)
+	if !local.auth.Local() || local.policyNS != "delivery" {
+		t.Fatalf("loopback without OIDC is local, reading the policy published in delivery: %+v", local)
 	}
 	if !identityFor(t, v, "localhost", nil).auth.Local() {
 		t.Fatal("localhost is loopback")

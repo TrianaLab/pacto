@@ -263,9 +263,7 @@
               }
             },
             "required": { "type": "boolean" },
-            "teamGroupPrefix": { "type": "string" },
-            "agentGroups": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-            "breakGlassGroups": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+            "deliveryNamespace": { "type": "string" }
           }
         },
         "miraURL": { "type": "string" },

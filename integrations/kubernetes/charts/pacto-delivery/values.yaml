@@ -59,6 +59,13 @@ identities:
   # is the identity-provider group `T`, or once this prefix is set only this prefix followed by `T`
   # (for example `acme:`). A `system:` group is never a team.
   teamGroupPrefix: ""
+  # -- A held question whose service and consumers declare no owner team is answered by nobody,
+  # and only break-glass can override. Set false to let any person answer it, as before.
+  requireOwnerTeam: true
+  # -- When set, only members of these groups count as people. Anyone in none of them is an agent,
+  # so an agent identity nobody enrolled in an agent group still cannot approve. Empty classifies
+  # by `agentGroups` alone.
+  humanGroups: []
 
 recorder:
   # -- Run the recorder, which writes a signed record of every concluded operation to the registry

@@ -98,3 +98,12 @@ A CEL expression that is true when a field is the same in object and oldObject.
 {{- define "pacto-delivery.celSame" -}}
 {{- printf "%s == %s" (include "pacto-delivery.celField" (list "object" (index . 0) (index . 1))) (include "pacto-delivery.celField" (list "oldObject" (index . 0) (index . 1))) }}
 {{- end }}
+
+{{/*
+The promoter's identity policy as JSON: the one copy the promoter runs with and
+every client (CLI, MCP server, dashboard) reads from the published ConfigMap.
+*/}}
+{{- define "pacto-delivery.identitiesJSON" -}}
+{{- $i := .Values.identities -}}
+{{- dict "agentGroups" $i.agentGroups "breakGlassGroups" $i.breakGlassGroups "teamGroupPrefix" $i.teamGroupPrefix "requireOwnerTeam" $i.requireOwnerTeam "humanGroups" ($i.humanGroups | default list) | toJson -}}
+{{- end }}

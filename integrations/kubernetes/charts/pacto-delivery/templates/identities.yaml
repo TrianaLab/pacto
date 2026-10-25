@@ -1,0 +1,44 @@
+# The promoter's identity policy, published for clients. The promoter mounts
+# this ConfigMap and runs with it; `pacto delivery`, `pacto mcp --delivery` and
+# the dashboard read it, so what they offer matches what the promoter and
+# admission decide. Every authenticated user may read it: it names groups, no
+# secret. The name is fixed so clients find it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pacto-delivery-identities
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: promoter
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+data:
+  policy.json: {{ include "pacto-delivery.identitiesJSON" . | quote }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pacto-delivery.fullname" . }}-identities-reader
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [pacto-delivery-identities]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "pacto-delivery.fullname" . }}-identities-reader
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "pacto-delivery.fullname" . }}-identities-reader
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: Group
+    name: system:authenticated

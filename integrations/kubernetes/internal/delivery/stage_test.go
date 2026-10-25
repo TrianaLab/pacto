@@ -9,6 +9,8 @@ package delivery
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -317,5 +319,24 @@ func TestStageReady(t *testing.T) {
 	}
 	if c := e.getStage().Status.Conditions; len(c) != 1 || c[0].Reason != "CandidateUnverified" {
 		t.Fatalf("Ready did not follow the OCIRepository: %+v", c)
+	}
+}
+
+func TestLoadClassPolicy(t *testing.T) {
+	p, err := LoadClassPolicy("", "me")
+	if err != nil || p.ControllerUser != "me" || !p.RequireOwnerTeam || p.AgentGroups[0] != "pacto:agents" {
+		t.Fatalf("defaults: %+v %v", p, err)
+	}
+	dir := t.TempDir()
+	good, bad := filepath.Join(dir, "good.json"), filepath.Join(dir, "bad.json")
+	_ = os.WriteFile(good, []byte(`{"agentGroups":["bots"],"teamGroupPrefix":"acme:","requireOwnerTeam":false}`), 0o600)
+	_ = os.WriteFile(bad, []byte("{"), 0o600)
+	if p, err = LoadClassPolicy(good, "me"); err != nil || p.ControllerUser != "me" || p.RequireOwnerTeam || p.TeamGroupPrefix != "acme:" || p.AgentGroups[0] != "bots" {
+		t.Fatalf("published: %+v %v", p, err)
+	}
+	for _, path := range []string{bad, filepath.Join(dir, "missing")} {
+		if _, err := LoadClassPolicy(path, "me"); err == nil {
+			t.Fatalf("%s must be an error", path)
+		}
 	}
 }

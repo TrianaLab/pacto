@@ -16,6 +16,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
 // Delivery resources the client reads and writes.
@@ -28,6 +29,7 @@ var (
 	gvrKustomization = schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}
 	gvrSelfReview    = schema.GroupVersionResource{Group: "authentication.k8s.io", Version: "v1", Resource: "selfsubjectreviews"}
 	gvrNamespaces    = schema.GroupVersionResource{Version: "v1", Resource: "namespaces"}
+	gvrConfigMaps    = schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}
 )
 
 // recordFinalizer is the finalizer admission requires on every Operation.
@@ -53,9 +55,13 @@ type Delivery struct {
 	Dynamic dynamic.Interface
 	// Registry returns a registry client that reaches insecureHosts over HTTP.
 	Registry func(insecureHosts ...string) DeliveryRegistry
-	// Policy classifies the caller; ControllerUser is unused on the client.
+	// Policy classifies the caller when the promoter's policy is not
+	// published; ControllerUser is unused on the client.
 	Policy delivery.ClassPolicy
-	Now    func() time.Time
+	// PolicyNamespace is where the delivery chart publishes the promoter's
+	// ClassPolicy (delivery.PolicyConfigMap); empty uses Policy as is.
+	PolicyNamespace string
+	Now             func() time.Time
 	// Records opens repositories to read operation records from; nil reads
 	// none, and history comes from the cluster only.
 	Records RecordRepo
@@ -88,12 +94,35 @@ func (d *Delivery) WhoAmI(ctx context.Context) (Caller, error) {
 	b, _ := out.MarshalJSON()
 	_ = json.Unmarshal(b, &r)
 	ui := r.Status.UserInfo
-	c := Caller{Identity: delivery.Identity{User: ui.Username, Groups: ui.Groups}}
-	c.Class = d.Policy.Classify(c.Identity)
+	c := Caller{Identity: delivery.Identity{User: ui.Username, Groups: ui.Groups}, Policy: d.classPolicy(ctx)}
+	c.Class = c.Policy.Classify(c.Identity)
 	if v := ui.Extra[authTimeExtra]; len(v) > 0 {
 		c.AuthTime = v[0]
 	}
 	return c, nil
+}
+
+// classPolicy is the promoter's published ClassPolicy, or Policy when it is
+// not published or cannot be read. Admission and the promoter decide anyway;
+// this only shapes what a client offers.
+// ponytail: read on every WhoAmI; cache it if the extra GET ever shows up.
+func (d *Delivery) classPolicy(ctx context.Context) delivery.ClassPolicy {
+	if d.PolicyNamespace == "" {
+		return d.Policy
+	}
+	var cm struct {
+		Data map[string]string `json:"data"`
+	}
+	err := getInto(ctx, d.Dynamic.Resource(gvrConfigMaps).Namespace(d.PolicyNamespace), delivery.PolicyConfigMap, &cm)
+	if err == nil {
+		var p delivery.ClassPolicy
+		if p, err = delivery.ParseClassPolicy([]byte(cm.Data[delivery.PolicyKey])); err == nil {
+			return p
+		}
+	}
+	logging.LoggerFromContext(ctx).Warn("the delivery identity policy is not readable; classifying with the defaults",
+		"namespace", d.PolicyNamespace, "configMap", delivery.PolicyConfigMap, "error", err)
+	return d.Policy
 }
 
 func anySlice(ss []string) []any {
@@ -191,7 +220,7 @@ func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.Pla
 		return delivery.Plan{}, delivery.OperationSpec{}, err
 	}
 	in := delivery.PlanInput{Spec: spec, Stage: stage.Spec, Status: stage.Status, Class: caller.Class,
-		From: delivery.Revision{Digest: spec.Params.From}, To: delivery.Revision{Digest: spec.Params.To}}
+		RequireOwnerTeam: caller.Policy.RequireOwnerTeam, From: delivery.Revision{Digest: spec.Params.From}, To: delivery.Revision{Digest: spec.Params.To}}
 	if spec.Type == delivery.TypePromote {
 		repo, reg, err := d.applyRegistry(ctx, stage)
 		if err != nil {

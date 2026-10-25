@@ -142,12 +142,12 @@ servers() {
     -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" -v "$IDP_DIR/recorder.pub:/trust/recorder.pub:ro" \
     "$DASH_IMG" dashboard --host 0.0.0.0 --port 3300 --oidc-issuer-url "$DEX_ISSUER" --oidc-client-id pacto-dashboard \
     --oidc-redirect-url "$DASH_URL/auth/callback" --oidc-extra-scopes audience:server:client_id:pacto-cli \
-    --team-group-prefix team- --delivery-trust /trust/recorder.pub
+    --delivery-namespace "$DELIVERY_NS" --delivery-trust /trust/recorder.pub
   in_node pacto-e2e-mcp -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \
     -e PACTO_MCP_EXCHANGE_CLIENT_SECRET=mcp-secret -e PACTO_INSECURE_REGISTRIES="$REG_HOST" -v "$mcpkc:/kube/config:ro" \
     -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" -v "$IDP_DIR/recorder.pub:/trust/recorder.pub:ro" \
     "$DASH_IMG" mcp --delivery -t http --host 0.0.0.0 --port 8585 --auth-issuer "$KC_ISSUER" \
-    --resource "$MCP_URL/mcp" --audience pacto-mcp --exchange-client-id pacto-mcp --delivery-trust /trust/recorder.pub
+    --resource "$MCP_URL/mcp" --audience pacto-mcp --exchange-client-id pacto-mcp --delivery-namespace "$DELIVERY_NS" --delivery-trust /trust/recorder.pub
   dash_up() { curl -sf "$DASH_URL/health" >/dev/null; }
   eventually 40 dash_up || { docker logs pacto-e2e-dashboard 2>&1 | tail; fail "the dashboard did not start"; }
   mcp_up() { [ "$(curl -s -o /dev/null -w '%{http_code}' "$MCP_URL/mcp")" = 401 ]; }

@@ -78,8 +78,7 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 			"There is no approve tool for agents. `approve` is for people, with a fresh login.",
 	}
 	cmd.PersistentFlags().StringP("namespace", "n", "default", "namespace of the Stage and its Operations")
-	cmd.PersistentFlags().StringSlice("agent-groups", []string{"pacto:agents"}, "groups whose members are agents")
-	cmd.PersistentFlags().StringSlice("break-glass-groups", []string{"pacto:break-glass"}, "groups that may override")
+	cmd.PersistentFlags().String("delivery-namespace", delivery.PolicyNamespace, "namespace of the pacto-delivery chart, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.PersistentFlags().String("trust", "", "the trust config delivery records are verified with: the recorder's PEM public key, "+
 		"or a YAML file of keys and the streams each may sign (default $"+trustEnv+")")
 	cmd.AddCommand(
@@ -111,8 +110,7 @@ func deliveryClient(cmd *cobra.Command, d deps) (*app.Delivery, string, error) {
 // deliveryClientFor builds the delivery client over dyn.
 func deliveryClientFor(cmd *cobra.Command, d deps, dyn dynamic.Interface) (*app.Delivery, string, error) {
 	ns, _ := cmd.Flags().GetString("namespace")
-	agents, _ := cmd.Flags().GetStringSlice("agent-groups")
-	breakGlass, _ := cmd.Flags().GetStringSlice("break-glass-groups")
+	policyNS, _ := cmd.Flags().GetString("delivery-namespace")
 	path, _ := cmd.Flags().GetString("trust")
 	if path == "" {
 		path, _ = cmd.Flags().GetString("delivery-trust")
@@ -122,7 +120,7 @@ func deliveryClientFor(cmd *cobra.Command, d deps, dyn dynamic.Interface) (*app.
 		return nil, "", err
 	}
 	return &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry, Records: d.newRecordRepo, Trust: trust,
-		Policy: delivery.ClassPolicy{AgentGroups: agents, BreakGlassGroups: breakGlass}, Now: time.Now}, ns, nil
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now}, ns, nil
 }
 
 func newDeliveryTypesCommand(v *viper.Viper) *cobra.Command {

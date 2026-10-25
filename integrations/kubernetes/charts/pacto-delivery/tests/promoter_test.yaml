@@ -2,6 +2,7 @@ suite: promoter tests
 templates:
   - templates/deployment.yaml
   - templates/rbac.yaml
+  - templates/identities.yaml
 tests:
   - it: runs the promoter subcommand with the derived controller identity
     template: templates/deployment.yaml
@@ -17,8 +18,7 @@ tests:
             - --poll=3s
             - --auth-freshness=15m
             - --controller-user=system:serviceaccount:pacto-delivery:d-pacto-delivery
-            - --agent-groups=pacto:agents
-            - --break-glass-groups=pacto:break-glass
+            - --identities=/etc/pacto/identities/policy.json
             - --admission-policies=d-pacto-delivery-operation,d-pacto-delivery-approval
 
   - it: names no admission policies when they are off on purpose
@@ -31,14 +31,51 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --admission-policies=RELEASE-NAME-pacto-delivery-operation,RELEASE-NAME-pacto-delivery-approval
 
-  - it: passes the team group prefix only when set
-    template: templates/deployment.yaml
+  - it: publishes the identity policy the promoter mounts, readable by every signed-in user
+    template: templates/identities.yaml
     set:
       identities.teamGroupPrefix: "acme:"
+      identities.agentGroups: [acme:bots]
+      identities.humanGroups: [acme:staff]
+    asserts:
+      - equal:
+          path: data["policy.json"]
+          value: '{"agentGroups":["acme:bots"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":["acme:staff"],"requireOwnerTeam":true,"teamGroupPrefix":"acme:"}'
+        documentIndex: 0
+      - equal:
+          path: metadata.name
+          value: pacto-delivery-identities
+        documentIndex: 0
+      - equal:
+          path: rules[0]
+          value: {apiGroups: [""], resources: [configmaps], resourceNames: [pacto-delivery-identities], verbs: [get]}
+        documentIndex: 1
+      - equal:
+          path: subjects[0].name
+          value: system:authenticated
+        documentIndex: 2
+
+  - it: lets an ownerless question go to any person only when asked
+    template: templates/identities.yaml
+    set:
+      identities.requireOwnerTeam: false
+    asserts:
+      - matchRegex:
+          path: data["policy.json"]
+          pattern: '"requireOwnerTeam":false'
+        documentIndex: 0
+
+  - it: mounts the published policy and restarts when it changes
+    template: templates/deployment.yaml
     asserts:
       - contains:
-          path: spec.template.spec.containers[0].args
-          content: "--team-group-prefix=acme:"
+          path: spec.template.spec.volumes
+          content: {name: identities, configMap: {name: pacto-delivery-identities}}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: identities, mountPath: /etc/pacto/identities, readOnly: true}
+      - exists:
+          path: spec.template.metadata.annotations["checksum/identities"]
 
   - it: passes the gate providers as one JSON flag
     template: templates/deployment.yaml
@@ -120,6 +157,7 @@ tests:
           value:
             - {name: upstream-trust, mountPath: /etc/pacto/upstream-trust, readOnly: true}
             - {name: registry, mountPath: /etc/pacto/registry, readOnly: true}
+            - {name: identities, mountPath: /etc/pacto/identities, readOnly: true}
         documentIndex: 1
       - equal:
           path: spec.template.spec.volumes[1]
@@ -140,15 +178,17 @@ tests:
           value: promoter-pull
       - lengthEqual:
           path: spec.template.spec.volumes
-          count: 1
+          count: 2
 
   - it: passes no upstream trust config by default
     template: templates/deployment.yaml
     asserts:
       - hasDocuments:
           count: 1
-      - notExists:
+      - equal:
           path: spec.template.spec.volumes
+          value:
+            - {name: identities, configMap: {name: pacto-delivery-identities}}
       - notContains:
           path: spec.template.spec.containers[0].env
           content: {name: DOCKER_CONFIG, value: /etc/pacto/registry}
