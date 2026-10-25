@@ -183,7 +183,9 @@ func TestObservedCallers_Coverage(t *testing.T) {
 		callersAfter int
 	}{
 		{name: "node list fails", state: pactoapi.CallerCoverageUnavailable, reason: "agent-data-unreadable",
-			setup: func(f *kernelFixture) { f.funcs = interceptor.Funcs{List: failList[*pactoapi.NodeRuntimeObservationList]()} }},
+			setup: func(f *kernelFixture) {
+				f.funcs = interceptor.Funcs{List: failList[*pactoapi.NodeRuntimeObservationList]()}
+			}},
 		{name: "no agent data", state: pactoapi.CallerCoverageUnavailable, reason: "no-agent-data",
 			setup: func(f *kernelFixture) { f.node = nil }},
 		{name: "Service missing", state: pactoapi.CallerCoverageUnavailable, reason: "service-unreadable",

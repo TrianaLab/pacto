@@ -25,7 +25,9 @@ func paymentsPacto(cov *CallerCoverageView, callers ...ObservedCallerView) Pacto
 	return p
 }
 
-func complete() *CallerCoverageView { return &CallerCoverageView{State: "complete", RefreshSeconds: 300} }
+func complete() *CallerCoverageView {
+	return &CallerCoverageView{State: "complete", RefreshSeconds: 300}
+}
 
 var legacy = ObservedCallerView{Namespace: "prod", Kind: "Deployment", Name: "legacy", Source: "ebpf"}
 
