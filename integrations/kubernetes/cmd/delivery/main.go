@@ -75,7 +75,8 @@ func runPromoter(args []string) error {
 		"A contract owner team T is identity-provider group T, or with this prefix set only this prefix plus T. "+
 			"Only members of the teams a question names may answer it.")
 	workers := fs.Int("workers", 4,
-		"How many operations and Stages the promoter reconciles at once, so one slow health provider does not hold up the rest.")
+		"How many operations and Stages the promoter reconciles at once, "+
+			"so one slow health provider does not hold up the rest.")
 	poll := fs.Duration("poll", 3*time.Second, "How often an operation waiting on Flux, Pacto or a person is looked at.")
 	authFreshness := fs.Duration("auth-freshness", core.AuthFreshness,
 		"How old a person's login may be when their approval is given; an older one is ignored.")
@@ -133,7 +134,8 @@ func runPromoter(args []string) error {
 	}
 	gates := delivery.NewGates(cluster, configured)
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
-		Policy: policy, Workers: *workers, Gates: gates, Now: time.Now, Poll: *poll, Records: *records, Freshness: *authFreshness,
+		Policy: policy, Workers: *workers, Gates: gates, Now: time.Now, Poll: *poll, Records: *records,
+		Freshness:         *authFreshness,
 		RecordedTTL:       *recordedTTL,
 		AdmissionPolicies: delivery.SplitList(*admissionPolicies)}).SetupWithManager(mgr); err != nil {
 		return err
