@@ -5,7 +5,8 @@
 Add Pacto delivery, the opt-in part of Pacto that decides which version each
 environment runs, plus `pacto publish`, contract format 2.1 and a `pacto init`
 that pactifies an existing service. Nothing changes for a project that does not
-use them.
+use them, with one exception: a consumer on an older Pacto or operator cannot
+read a provider's contract once the provider moves to format 2.1 (see below).
 
 **Pactify a service.** `pacto init [dir]` now reads a folder that already holds
 a service instead of failing. It fills in the contract from the Dockerfile and
@@ -13,7 +14,7 @@ Kubernetes manifests: name, version and registry from the workload and its
 image, the owner from `--owner` or a `team` label, the interface from an
 OpenAPI file and a `publish` section that builds the image and ships the
 manifests with the workload's image swapped for the one each version builds,
-pinned by digest, so nobody raises the image tag by hand. Services the workload's environment points at are listed as
+pinned by digest in every manifest that runs it, so nobody raises the image tag by hand. A bare image name such as `checkout`, a Docker Hub official image, leaves the registry Unknown. On a folder whose own contract has no `publish` section, init says how to add one. Services the workload's environment points at are listed as
 dependencies, commented out until you set the versions you accept; `--fleet
 <dir>` also lists the services that declare this one. Anything it cannot tell
 is reported as Unknown, never guessed. A file holding Secret values, or a
@@ -40,20 +41,29 @@ publishes, how each is built and signed and the deploy artifact Flux applies)
 and lets a contract describe an AI agent: an `mcp` interface lists the tools it
 exposes and an `agent` section lists the models it calls and the eval suite in
 its bundle. `pacto diff` compares tools one by one and treats a model change,
-and an eval suite removed, moved or edited, as needing at least a minor. A 2.0 contract keeps working unchanged; `publish` or
-`agent` in a 2.0 contract fails validation, and older Pacto versions reject a
-2.1 contract.
+and an eval suite removed, moved or edited, as needing at least a minor. A 2.0 contract keeps working unchanged; `publish`,
+`agent` or an `mcp` interface in a 2.0 contract fails validation with
+`NEEDS_PACTO_2_1`, which says to set `pactoVersion: "2.1"`. Older Pacto
+versions reject a 2.1 contract, and that reaches consumers too: once a provider
+publishes a 2.1 bundle, a consumer whose Pacto or operator predates 2.1 fails to
+resolve it as a dependency, though the consumer changed nothing. Upgrade the
+consumers' Pacto and operator before a provider moves to 2.1.
 
 **`pacto publish`** publishes what the contract declares as the version it
 states. `--plan` shows, for every artifact, whether its tag is absent,
 identical, adoptable, in conflict or unreadable and which checks refuse the
 publish. A publish builds what is absent (`docker buildx` or a command writing
 to `$PACTO_OUT`), pushes by digest with the version and the git commit (read
-from `.git` without running git, or `--revision`), attaches the SBOM file the
+from `.git`, or `--revision`; it refuses a checkout with uncommitted changes
+unless `--revision` names the revision), attaches the SBOM file the
 build wrote (Pacto never makes one), signs every digest and checks each new
 signature against the configured identity before any tag is written. It never
 overwrites a tag, so a second run changes nothing and a run that stopped
-halfway finishes when run again. It refuses a version too small for the
+halfway finishes when run again from the same commit; a conflict says to publish
+a higher `service.version`. The plan also opens the signer and checks for a
+`docker buildx` builder and each build program, so a missing key or builder
+refuses it before anything is pushed. `pacto publish [dir]` takes the
+directory as `init` and `validate` do. It refuses a version too small for the
 change: a breaking change needs a major (a minor before 1.0) and a change Pacto
 cannot classify at least a minor. A refused publish is kept as a signed refusal
 in the bundle repository. `pacto diff` reports the same `requiredBump`, `pacto

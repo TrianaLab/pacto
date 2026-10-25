@@ -13,6 +13,11 @@ pacto publish --plan    # what is missing, and what would refuse it; writes noth
 pacto publish           # publish it
 ```
 
+`publish` needs contract format 2.1, which earlier Pacto releases
+cannot read. Before your first publish, make sure the services that depend
+on yours run a Pacto and operator that read 2.1: see
+[`publish`](contract-reference/publish.md#publish).
+
 ## What it checks
 
 Pacto runs no tests. It refuses to publish when one of its own checks fails:
