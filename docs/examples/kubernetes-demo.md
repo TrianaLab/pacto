@@ -46,8 +46,8 @@ in the order the story plays them:
   running the image `pacto publish` built, pinned by digest. In prod it waits
   for a person: init gates the last environment until a health check exists.
 - **A safe change ships on its own.** payments 2.4.0 adds an endpoint and
-  reaches prod with nobody involved, because checkout and orders accept
-  payments ^2.
+  reaches prod with nobody involved, because checkout and orders accept any
+  payments 2.x.
 - **A bad release is caught and rolled back.** The prod error ratio rises after
   2.4.0, so the health check fails, cites its query and payments rolls back.
   2.4.2 calls fraud, which its contract never names, so it fails in test and

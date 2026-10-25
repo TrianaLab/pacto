@@ -60,6 +60,21 @@ recorded trace file, not from watching the containers. Follow the graph from `or
 `checkout`, open a revision to read its contract and compare `checkout` 1.0.0
 with 1.1.0 to see a change analysed.
 
+### The cold start, step by step
+
+Every Pacto rollout starts the same way, and this demo shows its first half:
+
+1. **Watch what runs.** Pacto reads the contracts it has and what it sees
+   running, and changes nothing.
+2. **Find who has no contract.** `checkout` calls `payments`, but no contract
+   says so. The graph marks that call as observed but not declared.
+3. **Pactify it.** `pacto init` writes a first contract from what a service
+   already has (see [Try the CLI in the demo](#try-the-cli-in-the-demo)).
+
+The second half is delivery, where Pacto ships changes and a person confirms
+what it may do on its own. Delivery runs on Kubernetes only; the
+[Kubernetes demo](kubernetes-demo.md) shows it.
+
 For the same moves at the command line — six user stories from "what is out
 there" to "an agent reading the same server" — follow the
 [guided tour](demo-tour.md).
