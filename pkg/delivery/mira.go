@@ -64,7 +64,7 @@ func parseMiraParams(p map[string]string) (miraParams, error) {
 	ratio := func(v *float64) func(string) error {
 		return func(s string) error {
 			f, err := strconv.ParseFloat(s, 64)
-			if err != nil || f < 0 || f > 1 {
+			if err != nil || !(f >= 0 && f <= 1) { // the negated form refuses NaN
 				return errors.New("must be a ratio between 0 and 1")
 			}
 			*v = f

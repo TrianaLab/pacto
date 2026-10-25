@@ -198,16 +198,18 @@ func TestMiraFailedReadsAreUnknown(t *testing.T) {
 
 func TestMiraParams(t *testing.T) {
 	for name, p := range map[string]map[string]string{
-		"minSpans":         {"minSpans": "-1"},
-		"maxErrorRatio":    {"maxErrorRatio": "2"},
-		"soak":             {"soak": "soon"},
-		"latencyThreshold": {"latencyThreshold": "fast"},
-		"maxLatencyRatio":  {"latencyThreshold": "1s", "maxLatencyRatio": "x"},
-		"where":            {"where": "{"},
-		"unknown":          {"minspans": "3"},
+		"minSpans":            {"minSpans": "-1"},
+		"maxErrorRatio":       {"maxErrorRatio": "2"},
+		"maxErrorRatio NaN":   {"maxErrorRatio": "NaN"},
+		"maxLatencyRatio NaN": {"latencyThreshold": "1s", "maxLatencyRatio": "nan"},
+		"soak":                {"soak": "soon"},
+		"latencyThreshold":    {"latencyThreshold": "fast"},
+		"maxLatencyRatio":     {"latencyThreshold": "1s", "maxLatencyRatio": "x"},
+		"where":               {"where": "{"},
+		"unknown":             {"minspans": "3"},
 	} {
 		v := miraCheck(t, &fakeMira{spans: shop(100, 0, 0)}, gateIn(), p)
-		if v.Result != Unknown || !strings.Contains(v.Message, name) {
+		if v.Result != Unknown || !strings.Contains(v.Message, strings.Fields(name)[0]) {
 			t.Errorf("%s: %+v", name, v)
 		}
 	}
