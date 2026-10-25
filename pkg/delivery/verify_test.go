@@ -210,12 +210,12 @@ func TestRuntimeVerdict(t *testing.T) {
 		want Result
 		msg  string
 	}{
-		{"observed and clean", check(true, observed("Complete")), Pass, "the node agent saw nothing the contract does not declare"},
+		{"observed and clean", check(true, observed("Complete")), Pass, "the node agent saw no call to a Pacto-managed service the contract does not name"},
 		{"undeclared call", check(true, observed("Complete", undeclared)), Fail, "calls or listens contrary to its contract: DEPENDENCY_UNDECLARED dependency/fraud"},
 		{"contradiction under partial coverage", check(true, observed("Partial", undeclared)), Fail, "dependency/fraud"},
 		{"port not listening", check(true, observed("Complete", kernelFinding("INTERFACE_ABSENT", "interface/api", "k8s-observer+ebpf"))), Fail, "INTERFACE_ABSENT"},
-		{"api-only absence is not a claim", check(true, observed("Complete", kernelFinding("INTERFACE_ABSENT", "interface/api", "k8s-observer"))), Pass, "saw nothing"},
-		{"other findings are not claims", check(true, observed("Complete", kernelFinding("DEPENDENCY_VERSION_MISMATCH", "dependency/x", "ebpf"))), Pass, "saw nothing"},
+		{"api-only absence is not a claim", check(true, observed("Complete", kernelFinding("INTERFACE_ABSENT", "interface/api", "k8s-observer"))), Pass, "saw no call"},
+		{"other findings are not claims", check(true, observed("Complete", kernelFinding("DEPENDENCY_VERSION_MISMATCH", "dependency/x", "ebpf"))), Pass, "saw no call"},
 		{"kernel evidence off", check(true, observed("")), Unknown, "not observing"},
 		{"partial coverage", check(true, observed("Partial")), Unknown, "coverage is Partial"},
 		{"stale result", check(true, func() PactoView {
@@ -251,5 +251,26 @@ func TestDecodeKustomizations(t *testing.T) {
 	}
 	if _, err := DecodeKustomizations([]byte("{")); err == nil {
 		t.Fatal("want a decode error")
+	}
+}
+
+// TestRuntimeSoak: a pacto.runtime Pass right after a rollout is Unknown until
+// the version ran for the soak (default 1m); a Fail stands at once.
+func TestRuntimeSoak(t *testing.T) {
+	pass := func() Verdict { return Verdict{Result: Pass, Message: "clean", Citation: map[string]string{}} }
+	in := GateInput{Window: Window{From: t0, To: t0.Add(10 * time.Second)}}
+	if v := RuntimeSoak(pass(), in, nil); v.Result != Unknown || v.Message != "soaking: judged after 1m0s, 10s so far (clean)" || v.Citation["soak"] != "1m0s" {
+		t.Fatalf("first look: %+v", v)
+	}
+	if v := RuntimeSoak(Verdict{Result: Fail, Citation: map[string]string{}}, in, nil); v.Result != Fail {
+		t.Fatalf("a contradiction seen fails at once: %+v", v)
+	}
+	if v := RuntimeSoak(pass(), in, map[string]string{"soak": "5s"}); v.Result != Pass {
+		t.Fatalf("soaked: %+v", v)
+	}
+	for _, bad := range []string{"soon", "-1s"} {
+		if v := RuntimeSoak(pass(), in, map[string]string{"soak": bad}); v.Result != Unknown {
+			t.Errorf("soak %q: %+v", bad, v)
+		}
 	}
 }

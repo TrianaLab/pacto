@@ -296,13 +296,20 @@ func evals(t *testing.T, passed, total int) delivery.Verdict {
 			Input delivery.GateInput `json:"input"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&q)
-		_ = json.NewEncoder(w).Encode(map[string]any{"subject": q.Input.Subjects[0], "suite": "evals/suite.yaml",
+		_ = json.NewEncoder(w).Encode(map[string]any{"subject": q.Input.Subjects[0], "suite": q.Input.Evals.Digest,
 			"run": "run-1", "passed": passed, "total": total})
 	}))
 	t.Cleanup(srv.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return delivery.Eval{URL: srv.URL, Client: srv.Client()}.Check(ctx, delivery.GateInput{
+	ship := func(context.Context, delivery.GateInput) delivery.Revision {
+		b, err := Bundle("pay-agent", "1.1.0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return delivery.Revision{ContractRef: "oci://registry.example/story/pay-agent@sha256:c0", Bundle: b}
+	}
+	return delivery.Eval{URL: srv.URL, Client: srv.Client(), Revision: ship}.Check(ctx, delivery.GateInput{
 		Service: delivery.ServiceRef{Name: "pay-agent"}, Subjects: []string{ArtifactDigest("pay-agent", "1.1.0")},
 	}, map[string]string{"minPassRate": "0.95"})
 }

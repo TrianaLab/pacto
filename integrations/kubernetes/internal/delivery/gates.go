@@ -23,20 +23,42 @@ import (
 func NewGates(c Cluster, providers map[string]delivery.Gate) map[string]delivery.Gate {
 	gates := map[string]delivery.Gate{
 		delivery.GateContract: clusterGate{c: c, judge: delivery.ContractVerdict},
-		delivery.GateRuntime:  clusterGate{c: c, judge: delivery.RuntimeVerdict},
+		delivery.GateRuntime:  clusterGate{c: c, judge: delivery.RuntimeVerdict, soak: true},
 	}
 	maps.Copy(gates, providers)
+	for name, g := range providers {
+		if e, ok := g.(delivery.Eval); ok {
+			e.Revision = c.revision
+			gates[name] = e
+		}
+	}
 	return gates
+}
+
+// revision reads the contract the version under check ships on its Stage,
+// for the eval gate to tie its runner's answer to the suite in it.
+func (c Cluster) revision(ctx context.Context, in delivery.GateInput) delivery.Revision {
+	stage := &dv1.Stage{}
+	if err := c.Client.Get(ctx, types.NamespacedName{Namespace: in.Stage.Namespace, Name: in.Stage.Name}, stage); err != nil {
+		return delivery.Revision{Err: "reading the Stage: " + err.Error()}
+	}
+	a, err := c.applier(ctx, stage.Namespace, stage.Spec.ApplyRef)
+	if err != nil {
+		return delivery.Revision{Err: "reading the apply OCIRepository: " + err.Error()}
+	}
+	return delivery.ResolveRevision(ctx, c.registryFor(a), a.repo, in.Subjects[0])
 }
 
 // clusterGate judges the Pacto evaluation of the version under check.
 type clusterGate struct {
 	c     Cluster
 	judge func(delivery.ContractCheck) delivery.Verdict
+	// soak holds a Pass until the version ran for the soak param.
+	soak bool
 }
 
 // Check implements delivery.Gate.
-func (g clusterGate) Check(ctx context.Context, in delivery.GateInput, _ map[string]string) delivery.Verdict {
+func (g clusterGate) Check(ctx context.Context, in delivery.GateInput, params map[string]string) delivery.Verdict {
 	unknown := delivery.Verdict{Result: delivery.Unknown}
 	stage := &dv1.Stage{}
 	if err := g.c.Client.Get(ctx, types.NamespacedName{Namespace: in.Stage.Namespace, Name: in.Stage.Name}, stage); err != nil {
@@ -47,6 +69,9 @@ func (g clusterGate) Check(ctx context.Context, in delivery.GateInput, _ map[str
 	if msg != "" {
 		unknown.Message = msg
 		return unknown
+	}
+	if g.soak {
+		return delivery.RuntimeSoak(g.judge(check), in, params)
 	}
 	return g.judge(check)
 }

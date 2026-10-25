@@ -74,16 +74,22 @@ answers `{"result": "Pass|Fail|Unknown", "message": "...", "citation": {...}}`.
 
 An `eval` provider is an eval runner, the check an AI agent ships behind (see
 [agents](../../contract-reference/agent.md)). The promoter posts the
-same `{"input": ..., "params": ...}`; the runner runs the agent's eval suite
-on the version under check and answers how many cases passed:
+same `{"input": ..., "params": ...}`, the input also naming the contract the
+version ships and the suite in it:
+`"contract": "oci://...@sha256:...", "evals": {"path": "evals/suite.yaml", "digest": "sha256:..."}`.
+The runner runs that suite on the version under check and answers how many
+cases passed, with `suite` the sha256 of the suite it ran:
 `{"subject": "sha256:...", "suite": "sha256:...", "run": "...", "passed": 48, "total": 50}`.
 The Stage decides, not the runner:
 
 | Param | Default | Meaning |
 |---|---|---|
-| `minPassRate` | 1 | The share of cases that must pass, from 0 to 1. Fewer fails |
+| `minPassRate` | 1 | The share of cases that must pass, above 0 and up to 1. Fewer fails |
 
-An answer about another version, with no cases or nothing to cite is Unknown.
+An answer about another version or another suite, with no cases or nothing to
+cite is Unknown, and so is a version whose contract cannot be read or ships no
+suite (`agent.evals`). The verdict cites the contract, the suite's path and
+digest and the run.
 
 ## Claims against the running service
 
@@ -91,8 +97,11 @@ An answer about another version, with no cases or nothing to cite is Unknown.
 version the kernel saw calling a Pacto-managed service its contract never
 declares, or not listening on a port it declares. It reads the Pacto
 evaluation of exactly this version and passes only when
-`status.evaluatedRevision.kernelCoverage` is `Complete`; otherwise the answer
-is Unknown.
+`status.evaluatedRevision.kernelCoverage` is `Complete` and the version has run
+for `soak` (a Go duration, default 1m); otherwise the answer is Unknown. A Pass
+means only that the node agent saw neither of those two things: right after a
+rollout the version may not have handled traffic yet, which is what the soak
+is for. A contradiction the kernel saw fails at once.
 
 ## After release
 

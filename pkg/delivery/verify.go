@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/catalog"
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -155,7 +156,7 @@ func RuntimeVerdict(in ContractCheck) Verdict {
 		}
 		switch cov := p.Status.EvaluatedRevision.KernelCoverage; cov {
 		case "Complete":
-			return Pass, "the node agent saw nothing the contract does not declare"
+			return Pass, "the node agent saw no call to a Pacto-managed service the contract does not name and no declared port nothing listens on"
 		case "":
 			return Unknown, "the node agent is not observing this workload (kernel evidence is off)"
 		default:
@@ -169,6 +170,27 @@ func RuntimeVerdict(in ContractCheck) Verdict {
 			c[p.Metadata.Name+".findings"] = strings.Join(seen, "; ")
 		}
 	})
+}
+
+// RuntimeSoak holds a pacto.runtime Pass as Unknown until the version has run
+// for the soak param (a Go duration, default 1m). Complete coverage with
+// nothing seen right after a rollout means nothing has happened yet, not
+// that nothing is wrong. A Fail stands at once: it was seen.
+func RuntimeSoak(v Verdict, in GateInput, params map[string]string) Verdict {
+	soak := time.Minute
+	if s, ok := params["soak"]; ok {
+		d, err := time.ParseDuration(s)
+		if err != nil || d < 0 {
+			return Verdict{Gate: v.Gate, Phase: v.Phase, Result: Unknown, Message: fmt.Sprintf("soak %q is not a duration of 0 or more", s)}
+		}
+		soak = d
+	}
+	v.Citation["soak"] = soak.String()
+	if ran := in.Window.To.Sub(in.Window.From); v.Result == Pass && ran < soak {
+		v.Result = Unknown
+		v.Message = fmt.Sprintf("soaking: judged after %s, %s so far (%s)", soak, ran.Truncate(time.Second), v.Message)
+	}
+	return v
 }
 
 // contradictions lists the claim findings the kernel backs, with the evidence.

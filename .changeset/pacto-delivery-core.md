@@ -20,7 +20,9 @@ is reported as Unknown, never guessed. A file holding Secret values, or a
 kustomization with a `secretGenerator`, is never shipped. `--delivery` also
 writes the cluster pieces: the Pacto resource and, for each environment
 (`--env`, default test and prod), the Flux `OCIRepository` objects, a
-Kustomization that waits for the rollout and the Stage; `--insecure-registry`
+Kustomization that waits for the rollout and the Stage. The last
+environment's Stage asks a person to approve every promote until you add a
+health check there and delete its `approval`; `--insecure-registry`
 marks those Flux objects for a plain-HTTP registry, `--registry-secret <name>`
 gives them and the Pacto resource the login for a private registry
 (`secretRef` and `pullSecretRef`) and `--no-transparency-log`
@@ -37,8 +39,8 @@ contract bundle repository, the image, chart or manifests the service
 publishes, how each is built and signed and the deploy artifact Flux applies)
 and lets a contract describe an AI agent: an `mcp` interface lists the tools it
 exposes and an `agent` section lists the models it calls and the eval suite in
-its bundle. `pacto diff` compares tools one by one and treats a model change as
-needing at least a minor. A 2.0 contract keeps working unchanged; `publish` or
+its bundle. `pacto diff` compares tools one by one and treats a model change,
+and an eval suite removed, moved or edited, as needing at least a minor. A 2.0 contract keeps working unchanged; `publish` or
 `agent` in a 2.0 contract fails validation, and older Pacto versions reject a
 2.1 contract.
 
@@ -83,8 +85,9 @@ fields or endpoints a consumer uses. Anything Pacto cannot see holds the change
 for a person to accept the unknown; Unknown never passes. Health checks keep
 running after release: a `mira` provider judges the error ratio of the
 service's traces, `http` is the plug-in format for any other tool, `eval`
-checks an agent with its eval suite and `pacto.runtime` fails a version the
-node agent saw calling a service it never declared. A confirmed failure rolls
+checks an agent with the eval suite its bundle ships, a verdict counting only
+about that suite's sha256, and `pacto.runtime` fails a version the node agent
+saw calling a service it never declared and passes only after a soak. A confirmed failure rolls
 back once, then freezes the Stage.
 
 Every operation that ends becomes a signed record: an in-toto statement in a
