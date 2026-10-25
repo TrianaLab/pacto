@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
@@ -71,17 +72,7 @@ type Listing struct {
 // are trusted per stream by the stream a record names, so without this check a
 // key trusted only for dev could sign a record and attach it to prod.
 func ListStream(ctx context.Context, repo *remote.Repository, stream string, verify delivery.Verifier) (Listing, error) {
-	l, err := List(ctx, repo, Anchor(stream).ManifestDesc, verify)
-	ours := l.Records[:0]
-	for _, r := range l.Records {
-		if got := r.Statement.Predicate.Chain.Stream; got != stream {
-			l.Unreadable = append(l.Unreadable, fmt.Sprintf("%s: names stream %q, read from the anchor of %q", r.Manifest, got, stream))
-			continue
-		}
-		ours = append(ours, r)
-	}
-	l.Records = ours
-	return l, err
+	return (&Reader{Verify: verify}).ListStream(ctx, repo, stream)
 }
 
 // List reads every record attached to subject in repo and verifies each.
@@ -90,6 +81,46 @@ func ListStream(ctx context.Context, repo *remote.Repository, stream string, ver
 // signature). A listing or fetch failure is an error: the registry could not
 // be read, which is never the same as no record.
 func List(ctx context.Context, repo *remote.Repository, subject ocispec.Descriptor, verify delivery.Verifier) (Listing, error) {
+	return (&Reader{Verify: verify}).List(ctx, repo, subject)
+}
+
+// Reader reads records verified with Verify and remembers what each referrer
+// manifest read as, by digest: a manifest never changes, so a later read of
+// the same subject lists its referrers and fetches and verifies only the new
+// ones. It forgets a manifest the subject no longer lists, so it holds no more
+// than the registry does. Use one Reader per trust config; it is safe for
+// concurrent use.
+type Reader struct {
+	Verify delivery.Verifier
+
+	mu   sync.Mutex
+	read map[string]map[string]referrer // subject digest -> manifest digest -> what it read as
+}
+
+// referrer is what one referrer manifest read as: a record, why it is
+// unreadable, or neither (another tool's referrer, or one too large).
+type referrer struct {
+	rec *delivery.StoredRecord
+	bad string
+}
+
+// ListStream is the package ListStream through r's cache.
+func (r *Reader) ListStream(ctx context.Context, repo *remote.Repository, stream string) (Listing, error) {
+	l, err := r.List(ctx, repo, Anchor(stream).ManifestDesc)
+	ours := l.Records[:0]
+	for _, rec := range l.Records {
+		if got := rec.Statement.Predicate.Chain.Stream; got != stream {
+			l.Unreadable = append(l.Unreadable, fmt.Sprintf("%s: names stream %q, read from the anchor of %q", rec.Manifest, got, stream))
+			continue
+		}
+		ours = append(ours, rec)
+	}
+	l.Records = ours
+	return l, err
+}
+
+// List is the package List through r's cache.
+func (r *Reader) List(ctx context.Context, repo *remote.Repository, subject ocispec.Descriptor) (Listing, error) {
 	var descs []ocispec.Descriptor
 	if err := repo.Referrers(ctx, subject, "", func(page []ocispec.Descriptor) error {
 		descs = append(descs, page...)
@@ -97,31 +128,56 @@ func List(ctx context.Context, repo *remote.Repository, subject ocispec.Descript
 	}); err != nil {
 		return Listing{}, err
 	}
+	key := subject.Digest.String()
+	r.mu.Lock()
+	known := r.read[key]
+	r.mu.Unlock()
+	now := make(map[string]referrer, len(descs))
 	var out Listing
 	seen := map[string]bool{}
 	for _, d := range descs {
-		bundle, bad, err := fetchBundle(ctx, repo, d, delivery.PredicateOperation)
+		got, ok := known[d.Digest.String()]
+		if !ok {
+			var err error
+			if got, err = r.readOne(ctx, repo, d); err != nil {
+				return Listing{}, err
+			}
+		}
+		now[d.Digest.String()] = got
 		switch {
-		case err != nil:
-			return Listing{}, err
-		case bad != "":
-			out.Unreadable = append(out.Unreadable, bad)
-			continue
-		case bundle == nil:
-			continue // another tool's referrer
+		case got.bad != "":
+			out.Unreadable = append(out.Unreadable, got.bad)
+		case got.rec != nil && !seen[got.rec.ID]:
+			seen[got.rec.ID] = true
+			out.Records = append(out.Records, *got.rec)
 		}
-		st, id, err := delivery.OpenRecord(bundle, verify)
-		if err != nil {
-			out.Unreadable = append(out.Unreadable, d.Digest.String()+": "+err.Error())
-			continue
-		}
-		if seen[id] {
-			continue
-		}
-		seen[id] = true
-		out.Records = append(out.Records, delivery.StoredRecord{ID: id, Manifest: d.Digest.String(), Statement: st})
 	}
+	r.mu.Lock()
+	if r.read == nil {
+		r.read = map[string]map[string]referrer{}
+	}
+	r.read[key] = now
+	r.mu.Unlock()
 	return out, nil
+}
+
+// readOne fetches and verifies the referrer d. An error is a registry
+// failure, which is never remembered.
+func (r *Reader) readOne(ctx context.Context, repo *remote.Repository, d ocispec.Descriptor) (referrer, error) {
+	bundle, bad, err := fetchBundle(ctx, repo, d, delivery.PredicateOperation)
+	switch {
+	case err != nil:
+		return referrer{}, err
+	case bad != "":
+		return referrer{bad: bad}, nil
+	case bundle == nil:
+		return referrer{}, nil // another tool's referrer
+	}
+	st, id, err := delivery.OpenRecord(bundle, r.Verify)
+	if err != nil {
+		return referrer{bad: d.Digest.String() + ": " + err.Error()}, nil
+	}
+	return referrer{rec: &delivery.StoredRecord{ID: id, Manifest: d.Digest.String(), Statement: st}}, nil
 }
 
 // fetchBundle reads the sigstore bundle a referrer manifest d carries when the
@@ -157,7 +213,12 @@ func Unchecked(string, int64, []byte) error { return nil }
 // history it cannot check. A record that does not verify is skipped, so a
 // referrer anyone with push access attaches cannot blind the follower.
 func Upstream(ctx context.Context, repo *remote.Repository, stream string, verify delivery.Verifier) (*delivery.StageStatus, string) {
-	l, err := ListStream(ctx, repo, stream, verify)
+	return (&Reader{Verify: verify}).Upstream(ctx, repo, stream)
+}
+
+// Upstream is the package Upstream through r's cache.
+func (r *Reader) Upstream(ctx context.Context, repo *remote.Repository, stream string) (*delivery.StageStatus, string) {
+	l, err := r.ListStream(ctx, repo, stream)
 	if err != nil {
 		return nil, "reading the records: " + err.Error()
 	}

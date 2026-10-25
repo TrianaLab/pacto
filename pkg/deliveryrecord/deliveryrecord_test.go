@@ -123,7 +123,20 @@ func TestList(t *testing.T) {
 		t.Fatalf("unchecked records = %d", len(l.Records))
 	}
 
+	// A Reader fetches and verifies each referrer once: with every manifest
+	// and blob read refused, it still lists what it read before, while a
+	// fresh read fails.
+	cached := &Reader{Verify: verify}
+	if _, err := cached.List(t.Context(), repo, anchor.ManifestDesc); err != nil {
+		t.Fatal(err)
+	}
 	f.blobs.Store(true)
+	f.manifest.Store(true)
+	if l, err := cached.List(t.Context(), repo, anchor.ManifestDesc); err != nil || len(l.Records) != 1 || len(l.Unreadable) != 1 {
+		t.Fatalf("a cached read fetched again: %+v %v", l, err)
+	}
+	f.manifest.Store(false)
+
 	if _, err := List(t.Context(), repo, anchor.ManifestDesc, verify); err == nil {
 		t.Fatal("a bundle that could not be fetched was not an error")
 	}
