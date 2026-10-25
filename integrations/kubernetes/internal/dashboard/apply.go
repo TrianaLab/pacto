@@ -82,6 +82,9 @@ func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	add("PACTO_DASHBOARD_AGENT_GROUPS", strings.Join(a.AgentGroups, ","))
 	add("PACTO_DASHBOARD_BREAK_GLASS_GROUPS", strings.Join(a.BreakGlassGroups, ","))
 	add("PACTO_DASHBOARD_MIRA_URL", cfg.MiraURL)
+	if a.Required {
+		add("PACTO_DASHBOARD_AUTH_REQUIRED", "true")
+	}
 	if a.ClientSecretName != "" {
 		key := a.ClientSecretKey
 		if key == "" {

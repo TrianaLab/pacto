@@ -166,6 +166,12 @@ Controller arguments derived from values
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if .required }}
+{{- if not .oidc.issuerURL }}
+{{- fail "dashboard.auth.required needs sign-in: set dashboard.auth.oidc.issuerURL" }}
+{{- end }}
+- --dashboard-auth-required
+{{- end }}
 {{- with .teamGroupPrefix }}
 - {{ printf "--dashboard-team-group-prefix=%s" . | quote }}
 {{- end }}

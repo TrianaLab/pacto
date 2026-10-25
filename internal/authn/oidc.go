@@ -38,9 +38,6 @@ const (
 	loginTimeout    = 10 * time.Minute
 	// refreshMargin: an ID token this close to expiry is refreshed first.
 	refreshMargin = time.Minute
-	// FreshLogin is how old a login may be when its owner decides, leaving a
-	// margin under the promoter's 15 minutes.
-	FreshLogin = 10 * time.Minute
 	// skew is the clock difference tolerated on auth_time.
 	skew = time.Minute
 )

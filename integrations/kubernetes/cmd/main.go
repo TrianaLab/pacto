@@ -166,6 +166,8 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"Secret in the operator namespace holding the client secret, passed to the dashboard by secretKeyRef.")
 	fs.StringVar(&o.dashboardAuth.ClientSecretKey, "dashboard-oidc-client-secret-key", "client-secret",
 		"Key of the client secret in that Secret.")
+	fs.BoolVar(&o.dashboardAuth.Required, "dashboard-auth-required", false,
+		"With OIDC sign-in, gate the fleet views and the whole API behind it too, not only delivery.")
 	fs.StringVar(&o.dashboardAuth.TeamGroupPrefix, "dashboard-team-group-prefix", "",
 		"A contract owner team T is group T, or with this prefix set only this prefix plus T, "+
 			"as the delivery promoter is configured.")

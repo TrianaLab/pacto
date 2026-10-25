@@ -193,6 +193,8 @@ dashboard:
       redirectURL: ""
       # -- Scopes asked for beyond openid, profile and groups (for example a cross-client audience scope)
       extraScopes: []
+    # -- Gate the fleet views and the whole API behind sign-in too, not only delivery (needs `oidc.issuerURL`)
+    required: false
     # -- A contract owner team `T` is the group `T`, or once this prefix is set only this prefix followed by `T`, as the delivery chart is configured
     teamGroupPrefix: ""
     # -- Groups whose members are agents, as the delivery chart's `identities.agentGroups` (empty: `pacto:agents`)

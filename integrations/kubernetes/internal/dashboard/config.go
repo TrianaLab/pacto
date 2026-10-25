@@ -97,6 +97,9 @@ type AuthConfig struct {
 	// TeamGroupPrefix maps a contract owner team to a group, as the delivery
 	// promoter is configured.
 	TeamGroupPrefix string
+	// Required gates the fleet views and the whole API behind sign-in too,
+	// not only delivery.
+	Required bool
 	// AgentGroups and BreakGlassGroups are the promoter's identity groups;
 	// empty keeps the dashboard's defaults, which are the delivery chart's.
 	AgentGroups      []string

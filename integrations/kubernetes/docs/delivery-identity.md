@@ -54,14 +54,17 @@ dashboard:
       clientSecretRef: {name: dashboard-oidc, key: client-secret}
       redirectURL: https://pacto.example.com/auth/callback
       extraScopes: [audience:server:client_id:pacto-cli]
+    required: true             # sign-in for the fleet views and the whole API too, not only delivery
     teamGroupPrefix: ""        # the same value as the delivery chart's identities.teamGroupPrefix
     agentGroups: []            # the same as identities.agentGroups; empty means pacto:agents
     breakGlassGroups: []       # the same as identities.breakGlassGroups; empty means pacto:break-glass
   miraURL: http://mira.observability:4318
 ```
 
-`pacto dashboard` takes the same settings as `--oidc-*` flags, with the secret
-in `PACTO_DASHBOARD_OIDC_CLIENT_SECRET`. The dashboard's ServiceAccount stays
+Without `required`, anyone who reaches the dashboard sees the fleet views; only
+delivery asks for sign-in. `pacto dashboard` takes the same settings as
+`--oidc-*` flags and `--auth-required`, with the secret in
+`PACTO_DASHBOARD_OIDC_CLIENT_SECRET`. The dashboard's ServiceAccount stays
 read-only: it gains nothing in delivery and cannot impersonate.
 
 Without sign-in, a dashboard bound beyond loopback shows no delivery data and
