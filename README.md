@@ -88,10 +88,11 @@ every node. See [Runtime conformance](https://pacto.run/latest/runtime-conforman
 ## Ship with the contract graph (opt-in)
 
 Install the delivery component and Pacto promotes versions from test to prod.
-A change that breaks no declared consumer goes ahead on its own, unless the
+A change that breaks nothing Pacto can see goes ahead on its own, unless the
 Stage asks a person to approve every promote; one that would break a consumer
 waits and asks only that consumer's team, and the plan says which service to
-ship first. Autonomy is gated by the evidence for each change, not earned
+ship first. A breaking change that no contract depends on waits for a person
+too, because a service without a contract may still call it. Autonomy is gated by the evidence for each change, not earned
 from past ones. A promoted version that fails its checks after release is
 rolled back once; otherwise the Stage freezes until a person decides. AI
 agents may propose changes and only people may approve, which needs a cluster

@@ -75,6 +75,11 @@ Say payments 3.0.0 removes a field. In prod, checkout and orders still accept
 only payments 2.x. The change waits, and Pacto asks the checkout and orders
 teams, because theirs are the services it would break. Nobody else is asked.
 
+Pacto sees only the consumers that have a contract. A breaking change that no
+contract depends on still waits for a person, who can accept the unknown,
+because a service without a contract may call it. A Stage whose every consumer
+has a contract can say so with `gates.impact.declaredConsumersOnly: true`.
+
 Pacto also says what to update first. If checkout 1.9.0 accepts both payments
 2.x and 3.0.0 and already passed in test, Pacto's plan for the change says to
 ship it first. Once
@@ -112,6 +117,8 @@ pass.
 | Promote | Move a Stage to a newer version |
 | Operation | One requested change to a Stage, from request to outcome |
 | Held | An Operation waiting for a person to decide |
+| Unknown | A check that could not see enough to say Pass or Fail; see [What Unknown means](#what-unknown-means) |
+| Accept the unknown | A person's decision to let a change with an Unknown check go ahead, recorded as accepted, never as a pass |
 | Approval | A person's decision on one held Operation |
 | Freeze, unfreeze | Stop automation moving a Stage, and let it move again |
 | Auto-hold | Set when a person or agent rolls back a Stage, or promotes it back to a version this Stage already verified: automation stops promoting there until a person unfreezes it or promotes a version it has not verified yet |
