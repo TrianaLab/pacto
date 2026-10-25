@@ -160,9 +160,11 @@ insecureRegistries: []
 # actor is the requesting user, only the promoter may set witnessed, override and
 # unfreeze are limited to their raisers, cancel is refused once the pointer moved
 # and an agent cancels only its own operations,
-# approvals come from people and spec.ref.digest is edited only by the promoter or
-# break-glass. The promoter admits no operation and counts no approval while
-# any of them is missing or does not deny.
+# approvals come from people and never change, spec.ref.digest is edited only by the
+# promoter or break-glass, and on objects labelled delivery.pacto.trianalab.io/apply-ref
+# the label, the source and what a Kustomization applies change only by break-glass.
+# The promoter admits no operation and counts no approval while any of them is
+# missing or does not deny.
 admissionPolicies:
   enabled: true
   # -- Render without the policies (enabled=false) anyway. Without them anyone who
