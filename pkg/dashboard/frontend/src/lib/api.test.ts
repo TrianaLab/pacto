@@ -418,6 +418,28 @@ describe('delivery endpoints', () => {
     expect(await mutating[3].json()).toEqual({ decision: 'reject' });
   });
 
+  it('reads the session again and retries once when a new sign-in replaced the token', async () => {
+    let token = 'old';
+    mockFetch.mockImplementation((req: Request) => {
+      const path = new URL(req.url).pathname;
+      if (path === '/api/session') return Promise.resolve(jsonResponse({ mode: 'shared', login: true, signedIn: true, fresh: true, csrf: token }));
+      return Promise.resolve(req.headers.get('X-Pacto-CSRF') === token
+        ? jsonResponse({ approval: 'a1' }, 201) : new Response('missing or wrong X-Pacto-CSRF header', { status: 403 }));
+    });
+    await api.session();
+    token = 'new'; // signed in again in another tab
+    expect(await api.deliveryDecide('prod', 'op1', 'approve', 'ok')).toEqual({ approval: 'a1' });
+    const posts = mockFetch.mock.calls.map((c) => c[0] as Request).filter((r) => r.method === 'POST');
+    expect(posts.map((r) => r.headers.get('X-Pacto-CSRF'))).toEqual(['old', 'new']);
+    expect(await posts[1].json()).toEqual({ decision: 'approve', note: 'ok' });
+    // A 403 that a fresh token does not explain is not retried.
+    mockFetch.mockClear();
+    mockFetch.mockImplementation((req: Request) => Promise.resolve(new URL(req.url).pathname === '/api/session'
+      ? jsonResponse({ csrf: 'new' }) : jsonResponse({ status: 403, code: 'NotYourTeam', detail: 'only team-a' }, 403)));
+    await expect(api.deliveryDecide('prod', 'op1', 'approve')).rejects.toMatchObject({ status: 403, code: 'NotYourTeam' });
+    expect(mockFetch.mock.calls.map((c) => (c[0] as Request).method)).toEqual(['POST', 'GET']);
+  });
+
   it('sends a mutating call without the token when the session cannot be read', async () => {
     mockFetch.mockImplementationOnce(() => Promise.resolve(jsonResponse({})));
     await api.session(); // forget any token an earlier test left
