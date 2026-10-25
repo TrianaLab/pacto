@@ -108,7 +108,8 @@ func TestPactifyFraud(t *testing.T) {
 		t.Fatalf("the Pacto resource does not name the contract and fraud's Service:\n%s", res)
 	}
 	checkStages(t, file(t, r, "delivery/test.yaml").Content, file(t, r, "delivery/prod.yaml").Content)
-	if !hasLine(r.Next, "every promote to prod waits for a person") || !hasLine(r.Next, "delete approval to let it promote on its own") {
+	if !hasLine(r.Next, "every promote to prod waits for a person") || !hasLine(r.Next, "so it promotes on its own at a rung above advise") ||
+		!hasLine(r.Next, "When Pacto proposes advise, label that OCIRepository delivery.pacto.trianalab.io/apply-ref=fraud and approve the raise") {
 		t.Fatalf("init does not say how prod earns autonomy: %+v", r.Next)
 	}
 
@@ -178,7 +179,7 @@ func checkStages(t *testing.T, test, prod string) {
 	stage := func(text string) (delivery.StageSpec, map[string]bool) { return decodeStage(t, text) }
 	ts, tk := stage(test)
 	ps, pk := stage(prod)
-	if ts.Candidates.OCIRepositoryRef == nil || ts.Candidates.OCIRepositoryRef.Name != "fraud-candidates" || ts.Environment != "test" || !ts.Auto || ts.ApplyRef.Name != "fraud" {
+	if ts.Candidates.OCIRepositoryRef == nil || ts.Candidates.OCIRepositoryRef.Name != "fraud-candidates" || ts.Environment != "test" || ts.ApplyRef.Name != "fraud" {
 		t.Fatalf("test Stage: %+v", ts)
 	}
 	if ps.Candidates.UpstreamStage == nil || *ps.Candidates.UpstreamStage != (delivery.StageRef{Name: "fraud", Namespace: "test"}) {
@@ -189,8 +190,15 @@ func checkStages(t *testing.T, test, prod string) {
 	if !ps.Approval.Always || ts.Approval.Always {
 		t.Fatalf("approval: test %+v prod %+v", ts.Approval, ps.Approval)
 	}
-	if !tk["OCIRepository"] || !tk["Kustomization"] || !pk["Kustomization"] || !strings.Contains(test, "delivery.pacto.trianalab.io/apply-ref: fraud") {
+	if !tk["OCIRepository"] || !tk["Kustomization"] || !pk["Kustomization"] {
 		t.Fatalf("pieces: test %v prod %v", tk, pk)
+	}
+	// Observe by default: GitOps keeps writing the applyRef, pinned to the tag
+	// the team deploys, and nothing labels it for Pacto to write.
+	for _, text := range []string{test, prod} {
+		if strings.Contains(text, "apply-ref:") || strings.Contains(text, "labels:") || !strings.Contains(text, "  ref:\n    tag: 1.0.0\n") || !strings.Contains(text, "  startRung: observe\n") || strings.Contains(text, "auto:") {
+			t.Fatalf("not observe by default:\n%s", text)
+		}
 	}
 	// Flux must not report a version applied before it rolls out, or the
 	// verify gates judge the old pods.
@@ -217,6 +225,9 @@ func decodeStage(t *testing.T, text string) (delivery.StageSpec, map[string]bool
 		if doc["kind"] != "Stage" {
 			continue
 		}
+		// ponytail: StageSpec gains StartRung with the ladder; until then the
+		// strict decode skips it and checkStages reads it from the text.
+		delete(doc["spec"].(map[string]any), "startRung")
 		raw, _ := json.Marshal(doc["spec"])
 		jd := json.NewDecoder(bytes.NewReader(raw))
 		jd.DisallowUnknownFields()
@@ -373,7 +384,7 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 		"node_modules/x/Dockerfile": "FROM scratch\n",
 		".github/ci.yaml":           "apiVersion: v1\nkind: ConfigMap\n",
 		"delivery/test.yaml":        "apiVersion: v1\nkind: Stage\n",
-		"my k8s/cron.yaml":          "apiVersion: batch/v1\nkind: CronJob\nmetadata: {name: report}\nspec:\n  jobTemplate:\n    spec:\n      template:\n        spec:\n          containers: [{name: report, image: 'reg.io/r:latest'}]\n",
+		"my k8s/cron.yaml":          "apiVersion: batch/v1\nkind: CronJob\nmetadata: {name: report}\nspec:\n  jobTemplate:\n    spec:\n      template:\n        spec:\n          containers: [{name: report, image: 'reg.io/r:v1.2.0'}]\n",
 		"my k8s/kustomization.yaml": "apiVersion: kustomize.config.k8s.io/v1beta1\nkind: Kustomization\nresources: [cron.yaml]\n",
 		"mixed/a.yaml":              "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: a}\n",
 		"mixed/b.yml":               "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: b}\n",
@@ -400,7 +411,8 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 		t.Fatalf("findings: %+v", r)
 	}
 	// No Service in the folder, so the target names none: workloadRef follows target directly.
-	if !strings.Contains(file(t, r, "delivery/pacto.yaml").Content, "  target:\n    workloadRef:\n      name: report\n      kind: CronJob\n") || !strings.Contains(file(t, r, "delivery/dev.yaml").Content, "ociRepositoryRef") {
+	if !strings.Contains(file(t, r, "delivery/pacto.yaml").Content, "  target:\n    workloadRef:\n      name: report\n      kind: CronJob\n") || !strings.Contains(file(t, r, "delivery/dev.yaml").Content, "ociRepositoryRef") ||
+		!strings.Contains(file(t, r, "delivery/dev.yaml").Content, "  ref:\n    tag: 1.2.0\n") {
 		t.Fatal("delivery pieces")
 	}
 	if ig := file(t, r, ".pactoignore"); ig.Action != Append || ig.Content != "delivery/\n" {
@@ -502,18 +514,40 @@ publish:
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			dir := writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": contractWith(tc.sign)})
+			dir := writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": contractWith(tc.sign), "k8s/deploy.yaml": payments200})
 			r, err := Init(context.Background(), Options{Dir: dir, Delivery: true, Plan: true}, os.WriteFile)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if r.Mode != modeBlank || r.Service != "payments" || file(t, r, "pacto.yaml").Action != Keep || !hasLine(r.Next, "ship delivery/pacto.yaml") ||
+			if r.Mode != modePactify || r.Service != "payments" || file(t, r, "pacto.yaml").Action != Keep || !hasLine(r.Next, "ship delivery/pacto.yaml") ||
 				!strings.Contains(file(t, r, "delivery/test.yaml").Content, "url: oci://ghcr.io/acme/deploy/payments") || !tc.check(r) {
 				t.Fatalf("plan: %+v", r)
 			}
 		})
 	}
 
+}
+
+const payments200 = "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: payments}\nspec:\n  template:\n    spec:\n      containers: [{name: payments, image: ghcr.io/acme/payments:2.0.0}]\n"
+
+// TestDeliveryWithoutADeployedTag: with no image tag that is a version,
+// nothing says what the team deploys, and an OCIRepository with no ref
+// follows latest, so no environment's pieces are written.
+func TestDeliveryWithoutADeployedTag(t *testing.T) {
+	for _, files := range []map[string]string{
+		{"pacto.yaml": "pactoVersion: \"2.1\"\nservice: {name: payments, version: 2.0.0}\npublish:\n  bundle: oci://ghcr.io/acme/payments\n  deploy: manifests\n  sign: {key: cosign.key}\n  artifacts:\n    - {name: manifests, type: manifests, ref: oci://ghcr.io/acme/deploy/payments, build: {command: [make, manifests]}}\n"},
+		{"k8s/deploy.yaml": strings.Replace(payments200, ":2.0.0", ":latest", 1)},
+	} {
+		r, err := Init(context.Background(), Options{Dir: writeTree(t, t.TempDir(), files), Delivery: true, Plan: true}, os.WriteFile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !hasLine(r.Next, "delivery/test.yaml, delivery/prod.yaml was not written: no workload image tag is a version") ||
+			slices.ContainsFunc(r.Files, func(f File) bool { return f.Path == "delivery/test.yaml" || f.Path == "delivery/prod.yaml" }) ||
+			file(t, r, "delivery/pacto.yaml").Action != Add {
+			t.Fatalf("plan: %+v", r)
+		}
+	}
 }
 
 // TestDeliveryEnvironmentAdded: adding an environment in front of kept ones
