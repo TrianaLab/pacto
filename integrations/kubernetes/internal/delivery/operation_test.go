@@ -1422,3 +1422,37 @@ func TestApprovalsAreOwnedByTheirOperation(t *testing.T) {
 		t.Fatalf("adopted twice: %+v", refs)
 	}
 }
+
+// TestNoStageNeedsTheAPIServer: NoStage is final, so a cache that has not
+// seen a new Stage yet never decides it. Only the apiserver's NotFound
+// refuses; any other failed read is retried.
+func TestNoStageNeedsTheAPIServer(t *testing.T) {
+	stale := func(e *env) {
+		r := *e.op
+		missed := false
+		r.Client = interceptor.NewClient(e.c, interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*dv1.Stage); ok && !missed {
+					missed = true
+					return apierrors.NewNotFound(schema.GroupResource{Group: dv1.GroupVersion.Group, Resource: "stages"}, key.Name)
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		})
+		e.op = &r
+	}
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	stale(e)
+	if o := e.drive("p1"); o.Status.Outcome == delivery.Rejected || strings.Contains(o.Status.Message, "NoStage") {
+		t.Fatalf("a stale cache refused the operation: %+v", o.Status)
+	}
+	e = baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	stale(e)
+	e.op.APIReader = failingReader{}
+	if err := e.reconcileOpErr("p1"); !errors.Is(err, errTest) {
+		t.Fatalf("a failed apiserver read is retried, got %v", err)
+	}
+	if o := e.getOp("p1"); o.Status.Phase == delivery.PhaseConcluded {
+		t.Fatalf("concluded on a failed read: %+v", o.Status)
+	}
+}

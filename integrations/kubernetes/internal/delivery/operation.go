@@ -107,7 +107,14 @@ func (r *OperationReconciler) Reconcile(ctx context.Context, req reconcile.Reque
 		return r.expire(ctx, op)
 	}
 	stage := &dv1.Stage{}
-	if err := r.Get(ctx, types.NamespacedName{Namespace: op.Namespace, Name: op.Spec.Stage}, stage); err != nil {
+	key := types.NamespacedName{Namespace: op.Namespace, Name: op.Spec.Stage}
+	err := r.Get(ctx, key, stage)
+	if apierrors.IsNotFound(err) {
+		// NoStage is final, so a cache that has not seen a new Stage yet
+		// never decides it: only the apiserver's NotFound does.
+		err = r.APIReader.Get(ctx, key, stage)
+	}
+	if err != nil {
 		if !apierrors.IsNotFound(err) {
 			return reconcile.Result{}, err
 		}
