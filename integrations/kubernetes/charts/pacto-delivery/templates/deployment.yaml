@@ -43,7 +43,7 @@ spec:
       terminationGracePeriodSeconds: 10
       containers:
         - name: promoter
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "pacto-delivery.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args:
             - promoter

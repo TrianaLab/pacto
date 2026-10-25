@@ -244,3 +244,13 @@ Whether kernel evidence is on: either switch turns it on.
 {{- define "pacto-operator.kernelEvidence" -}}
 {{- if or .Values.controller.kernelEvidence.enabled .Values.nodeAgent.enabled }}true{{ end }}
 {{- end }}
+
+{{/*
+The container image: repository:tag, pinned as repository:tag@digest when
+image.digest is set. The tag defaults to the chart appVersion.
+*/}}
+{{- define "pacto-operator.image" -}}
+{{- $ref := printf "%s:%s" .Values.image.repository (.Values.image.tag | default .Chart.AppVersion) -}}
+{{- with .Values.image.digest }}{{ $ref = printf "%s@%s" $ref . }}{{ end -}}
+{{- $ref -}}
+{{- end }}

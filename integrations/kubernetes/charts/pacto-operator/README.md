@@ -402,6 +402,7 @@ cosign verify \
 | evidence.service.type | string | `"ClusterIP"` | Evidence exposure Service type (ClusterIP, NodePort, LoadBalancer). The operator manages an internal ClusterIP Service (pacto-evidence) for in-cluster access; this chart-managed Service provides optional external access and backs any Ingress/HTTPRoute. |
 | evidence.trust.existingSecret | string | `""` | Name of an existing Secret of trusted producer public keys, mounted read-only. Signature verification is mandatory, so this is required when evidence is enabled. |
 | fullnameOverride | string | `""` | Override the full release name |
+| image.digest | string | `""` | Pins the image by digest (sha256:...), appended to the tag as tag@digest so the runtime pulls exactly that image whatever the tag resolves to later |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy |
 | image.repository | string | `"ghcr.io/trianalab/pacto/operator"` | Controller image repository |
 | image.tag | string | `""` | Overrides the image tag (default is the chart appVersion) |

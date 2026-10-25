@@ -98,3 +98,13 @@ A CEL expression that is true when a field is the same in object and oldObject.
 {{- define "pacto-delivery.celSame" -}}
 {{- printf "%s == %s" (include "pacto-delivery.celField" (list "object" (index . 0) (index . 1))) (include "pacto-delivery.celField" (list "oldObject" (index . 0) (index . 1))) }}
 {{- end }}
+
+{{/*
+The container image: repository:tag, pinned as repository:tag@digest when
+image.digest is set. The tag defaults to the chart appVersion.
+*/}}
+{{- define "pacto-delivery.image" -}}
+{{- $ref := printf "%s:%s" .Values.image.repository (.Values.image.tag | default .Chart.AppVersion) -}}
+{{- with .Values.image.digest }}{{ $ref = printf "%s@%s" $ref . }}{{ end -}}
+{{- $ref -}}
+{{- end }}
