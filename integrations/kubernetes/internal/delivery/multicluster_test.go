@@ -73,7 +73,7 @@ func TestRemoteUpstreamUnreadable(t *testing.T) {
 	// verified and published promote of the next version in verified.
 	var up []delivery.StoredRecord
 	view := func(ids []string, verified ...string) []delivery.StoredRecord {
-		var recs []delivery.StoredRecord
+		recs := make([]delivery.StoredRecord, 0, len(ids))
 		for i, id := range ids {
 			parent := ""
 			if i > 0 {
