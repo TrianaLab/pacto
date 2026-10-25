@@ -434,16 +434,15 @@ func (s *Server) deliveryInbox(ctx context.Context, _ *struct{}) (*inboxOutput, 
 			out.Body.Frozen = append(out.Body.Frozen, s.environmentRow(ctx, api, st, nil, caller))
 		}
 	}
-	// Held waits on a person who may answer: not an agent, never its asker.
-	decider := caller.Policy.IsHuman(caller.Identity)
 	byStage := stagesByName(stages)
 	for _, o := range ops {
 		it := inboxItem(o)
 		switch {
-		// A question that names no team is also break-glass's: under
-		// requireOwnerTeam nobody else can resolve it.
-		case it.Phase == delivery.PhaseHeld && !ownChange(&o, caller.User) &&
-			(decider && caller.Policy.InTeams(caller.Groups, it.Owners) || len(it.Owners) == 0 && caller.Class == delivery.ClassBreakGlass):
+		// Held waits on whoever the promoter would count. A question that
+		// names no team is also break-glass's: under requireOwnerTeam nobody
+		// else can resolve it.
+		case it.Phase == delivery.PhaseHeld && (answerRefusal(&o, caller, it.Decision) == "" ||
+			len(it.Owners) == 0 && caller.Class == delivery.ClassBreakGlass && caller.User != o.Spec.Actor.User):
 			out.Body.Held = append(out.Body.Held, withVersions(ctx, api, byStage[it.Namespace+"/"+it.Stage], it))
 		case it.Outcome == delivery.Errored && frozen[it.Namespace+"/"+it.Stage]:
 			out.Body.Errored = append(out.Body.Errored, it)
@@ -985,14 +984,8 @@ func refusedAt(s string) time.Time {
 func (s *Server) actions(ctx context.Context, op *delivery.OperationObject, stage delivery.StageNow, caller delivery.Caller) []string {
 	acts := []string{}
 	st := op.Status
-	if st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && caller.Policy.IsHuman(caller.Identity) &&
-		!ownChange(op, caller.User) && caller.Policy.InTeams(caller.Groups, inboxItem(*op).Owners) {
-		if inboxItem(*op).Decision == delivery.Approve {
-			acts = append(acts, string(delivery.Approve))
-		} else {
-			acts = append(acts, string(delivery.AcceptUnknown))
-		}
-		acts = append(acts, string(delivery.Reject))
+	if d := inboxItem(*op).Decision; st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && mayOffer(op, caller, d) {
+		acts = append(acts, string(d), string(delivery.Reject))
 	}
 	if st.Phase != delivery.PhaseConcluded && !st.Applied {
 		acts = append(acts, "cancel")
@@ -1004,10 +997,22 @@ func (s *Server) actions(ctx context.Context, op *delivery.OperationObject, stag
 	return acts
 }
 
-// ownChange: user asked for op, directly or as the one it acts for. The
-// promoter ignores their decision on it, so the dashboard does not take it.
-func ownChange(op *delivery.OperationObject, user string) bool {
-	return user == op.Spec.Actor.User || op.Spec.OnBehalfOf != nil && user == op.Spec.OnBehalfOf.User
+// mayOffer: the promoter would count caller's decision on op, apart from how
+// old their login is (deciding asks for a fresh one). A cluster that reports
+// no login time (userInfo.extra[pacto.dev/auth-time]) counts nobody's, so it
+// offers nothing.
+func mayOffer(op *delivery.OperationObject, caller delivery.Caller, decision delivery.Decision) bool {
+	return caller.AuthTime != "" && answerRefusal(op, caller, decision) == ""
+}
+
+// answerRefusal is why the promoter would not count caller's decision on op
+// as a code, apart from how old their login is; "" when it would.
+func answerRefusal(op *delivery.OperationObject, caller delivery.Caller, decision delivery.Decision) string {
+	now := time.Now()
+	a := approvalOf(op, caller, decision)
+	a.AuthTime = now.UTC().Format(time.RFC3339)
+	code, _ := delivery.ApprovalRefusal(op.Spec, op.Status, op.Metadata.UID, a, now, caller.Policy, delivery.AuthFreshness)
+	return code
 }
 
 // decisionsServed: decisions only in shared mode, from a signed-in browser.
@@ -1085,9 +1090,10 @@ type decideOutput struct {
 
 // deliveryDecide is the fresh-login decision flow: local mode never decides,
 // a decision needs a session from a login the person repeated with an
-// auth-time under DecisionFreshness, agents are refused and only the teams
-// the question names may answer. The promoter checks the 15 minutes and the
-// team again.
+// auth-time under DecisionFreshnessFor the Stage's published freshness, and
+// the decision must be one the promoter counts (delivery.ApprovalRefusal):
+// never the asker's, never an agent's, only from the teams the question
+// names. The promoter checks it all again.
 func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOutput, error) {
 	a := s.opts.Auth
 	cli := fmt.Sprintf("pacto delivery approve -n %s %s --decision %s", in.Namespace, in.Name, in.Body.Decision)
@@ -1116,22 +1122,25 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 	if err != nil {
 		return nil, err
 	}
-	if err := s.mayDecide(caller); err != nil {
-		return nil, err
-	}
 	op, err := api.Get(ctx, in.Namespace, in.Name)
 	if err != nil {
 		return nil, err
 	}
-	if ownChange(op, caller.User) {
-		return nil, Refuse(http.StatusForbidden, "OwnChange", "you asked for this change, so someone else must decide it")
+	published := "" // the promoter's login freshness, as the Stage publishes it
+	if stage, err := api.Stage(ctx, in.Namespace, op.Spec.Stage); err == nil {
+		published = stage.Status.AuthFreshness
 	}
-	owners := inboxItem(*op).Owners
-	if len(owners) == 0 && caller.Policy.RequireOwnerTeam {
-		return nil, Refuse(http.StatusForbidden, "NoOwnerTeam", "no team is declared for this service, so only break-glass can override; declare service.owner")
+	if err := s.mayDecide(caller, published); err != nil {
+		return nil, err
 	}
-	if !caller.Policy.InTeams(caller.Groups, owners) {
-		return nil, Refuse(http.StatusForbidden, "NotYourTeam", fmt.Sprintf("only %v may answer this question", owners))
+	// The promoter's own rule: the dashboard records only a decision it counts.
+	approval := approvalOf(op, caller, in.Body.Decision)
+	if code, why := delivery.ApprovalRefusal(op.Spec, op.Status, op.Metadata.UID, approval, time.Now(), caller.Policy, delivery.PublishedFreshness(published)); code != "" {
+		status := http.StatusForbidden
+		if code == "FreshLoginRequired" {
+			status = http.StatusUnauthorized
+		}
+		return nil, Refuse(status, code, why)
 	}
 	name, err := api.Approve(ctx, in.Namespace, in.Name, in.Body.Decision, in.Body.Note)
 	if err != nil {
@@ -1142,9 +1151,16 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 	return out, nil
 }
 
+// approvalOf is the Approval caller would create for decision on op.
+func approvalOf(op *delivery.OperationObject, caller delivery.Caller, decision delivery.Decision) delivery.ApprovalSpec {
+	return delivery.ApprovalSpec{Operation: op.Metadata.Name, OperationUID: op.Metadata.UID, IntentDigest: op.Spec.IntentDigest,
+		Decision: decision, By: caller.User, Groups: caller.Groups, AuthTime: caller.AuthTime}
+}
+
 // mayDecide refuses a caller the apiserver names an agent, or whose login is
-// unknown or older than DecisionFreshness.
-func (s *Server) mayDecide(caller delivery.Caller) error {
+// unknown or older than two thirds of the login freshness the Stage
+// publishes (delivery.DecisionFreshnessFor), so the promoter still counts it.
+func (s *Server) mayDecide(caller delivery.Caller, published string) error {
 	at, ok := delivery.ParseAuthTime(caller.AuthTime)
 	switch {
 	case !caller.Policy.IsHuman(caller.Identity):
@@ -1152,8 +1168,9 @@ func (s *Server) mayDecide(caller delivery.Caller) error {
 	case caller.AuthTime == "":
 		return Refuse(http.StatusForbidden, "AuthTimeUnavailable",
 			"this cluster does not map auth_time to userInfo.extra[pacto.dev/auth-time]; nobody can approve here")
-	case !ok || time.Since(at) > delivery.DecisionFreshness:
-		return Refuse(http.StatusUnauthorized, "FreshLoginRequired", "your login is older than ten minutes: sign in again")
+	case !ok || time.Since(at) > delivery.DecisionFreshnessFor(published):
+		return Refuse(http.StatusUnauthorized, "FreshLoginRequired",
+			fmt.Sprintf("your login is older than %s: sign in again", delivery.DecisionFreshnessFor(published)))
 	}
 	return nil
 }

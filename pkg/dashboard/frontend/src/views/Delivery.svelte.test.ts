@@ -95,6 +95,18 @@ describe('inbox', () => {
     destroy();
   });
 
+  it('says up front that approving is not possible on a cluster that reports no login time', async () => {
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
+      held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'pacto.dev/promote', to: D2, phase: 'Held', question: 'ship?', decision: 'approve', owners: ['team-checkout'] }] });
+    fns.session.mockResolvedValue(shared({ caller: { ...human(['team-checkout']), authTime: '' } }));
+    const { target, destroy } = render(DeliveryInboxView);
+    await settle();
+    const note = target.querySelector('[data-testid="inbox-no-auth-time"]') as HTMLElement;
+    expect(text(note)).toContain('Approving is not possible on this cluster');
+    expect(note.querySelector('a')?.getAttribute('href')).toContain('delivery-identity/#where-approving-works');
+    destroy();
+  });
+
   it('says which service to update first, with links to its Stage and its verified version', async () => {
     fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
       held: [{ namespace: 'prod', name: 'op1', stage: 'payments-prod', type: 'pacto.dev/promote', to: D2, phase: 'Held', question: 'ship?', decision: 'approve', owners: ['team-checkout'], consumers: ['orders', 'billing'], order: ORDER }] });
@@ -541,6 +553,15 @@ describe('change detail', () => {
     expect(text(r.target.querySelector('[data-testid="decide-agent"]') as HTMLElement)).toContain('agents may not decide');
     r.destroy();
 
+    // A person on a cluster that reports no login time is offered nothing and told why.
+    deliverySession.loaded = false;
+    fns.session.mockResolvedValue(shared({ caller: { ...human(['team-checkout']), authTime: '' } }));
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="decide-no-auth-time"]') as HTMLElement)).toContain('Approving is not possible on this cluster');
+    expect(r.target.querySelector('[data-testid="decide-approve"]')).toBeNull();
+    r.destroy();
+
     const own = heldOperation({ actions: ['cancel'] });
     own.operation.spec = { ...own.operation.spec, actor: { user: 'agent-bot' }, onBehalfOf: { user: 'https://idp#carol' } } as typeof own.operation.spec;
     fns.operation.mockResolvedValueOnce(own);
@@ -617,7 +638,7 @@ describe('change detail', () => {
     fns.decide.mockRejectedValue(new ApiError(403, 'no team is declared for this service, so only break-glass can override; declare service.owner', 'NoOwnerTeam'));
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
-    [...r.target.querySelectorAll<HTMLButtonElement>('[data-testid="decision-panel"] button')].find((b) => b.textContent === 'Reject')!.click();
+    r.target.querySelector<HTMLButtonElement>('[data-testid="decide-reject"]')!.click();
     await settle();
     expect(text(r.target.querySelector('[data-testid="refusal"]') as HTMLElement)).toContain('No team is declared, so only break-glass can override.');
     r.destroy();

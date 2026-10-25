@@ -26,6 +26,10 @@ const DECISION_LABELS: Record<string, string> = {
 
 /** Where the docs say what Unknown means and how a person resolves it. */
 export const UNKNOWN_DOCS = 'https://pacto.run/latest/integrations/kubernetes/delivery/#what-unknown-means';
+/** Where approving works: a cluster must map the login time for anyone to decide. */
+export const APPROVING_DOCS = 'https://pacto.run/latest/integrations/kubernetes/delivery-identity/#where-approving-works';
+/** The caller is a person on a cluster that reports no login time, so nobody's decision counts here. */
+export const cannotApproveHere = (caller?: { class?: string; authTime?: string }) => !!caller && caller.class === 'human' && !caller.authTime;
 
 /**
  * unknownHelp says, for a check that ended Unknown, what Pacto could not see

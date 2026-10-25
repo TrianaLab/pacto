@@ -618,6 +618,12 @@ func TestHistoryAndOperation(t *testing.T) {
 		t.Fatalf("a change made on my behalf: %s", got)
 	}
 	f.ops[0].Spec.OnBehalfOf = nil
+	// A cluster that reports no login time counts nobody's decision, so it
+	// offers none (the UI says approving is not possible here).
+	f.caller.AuthTime = ""
+	if got := actions("held"); got != "cancel" {
+		t.Fatalf("no login time on this cluster: %s", got)
+	}
 	f.caller = person("acme:team-ledger")
 	if got := actions("held"); got != "cancel" {
 		t.Fatalf("not my team: %s", got)
@@ -675,11 +681,27 @@ func TestDecide(t *testing.T) {
 	if code, out := decide(base); code != http.StatusCreated || out["approval"] != "held-x" || f.approved[0] != "prod/held=approve" {
 		t.Fatalf("a fresh member of the named team decides: %d %v", code, out)
 	}
+	// accept-unknown on a change that needs an approval is refused with the
+	// promoter's own reason: it would never count.
+	if code, out := call(t, http.MethodPost, base+"/api/delivery/operations/prod/held/decision", map[string]string{"decision": "accept-unknown"}); code != http.StatusForbidden ||
+		out["code"] != "NeedsApproval" || len(f.approved) != 1 {
+		t.Fatalf("an accepted unknown where an approval is needed: %d %v %v", code, out, f.approved)
+	}
 	// accept-unknown takes the same path to an Approval as approve and reject.
+	f.ops[0].Status.Plan.Floor.Decision = delivery.AcceptUnknown
 	if code, out := call(t, http.MethodPost, base+"/api/delivery/operations/prod/held/decision", map[string]string{"decision": "accept-unknown"}); code != http.StatusCreated ||
 		f.approved[1] != "prod/held=accept-unknown" {
 		t.Fatalf("accept-unknown reaches the Approval as the person's decision: %d %v %v", code, out, f.approved)
 	}
+	f.ops[0].Status.Plan.Floor.Decision = delivery.Approve
+	// The margin follows the login freshness the Stage publishes: two thirds
+	// of 30 minutes keeps an 11-minute-old login fresh enough.
+	f.stages = []delivery.StageObject{{Metadata: delivery.ObjectMeta{Namespace: "prod", Name: "payments"}, Status: delivery.StageStatus{AuthFreshness: "30m0s"}}}
+	f.caller.AuthTime = strconv.FormatInt(time.Now().Add(-11*time.Minute).Unix(), 10)
+	if code, out := decide(base); code != http.StatusCreated {
+		t.Fatalf("a login inside the published freshness decides: %d %v", code, out)
+	}
+	f.stages, f.caller = nil, person("acme:team-checkout")
 	cases := []struct {
 		name  string
 		setup func() string
@@ -701,6 +723,10 @@ func TestDecide(t *testing.T) {
 		{"no auth-time", func() string { f.caller = person("acme:team-checkout"); f.caller.AuthTime = ""; return base }, http.StatusForbidden, "AuthTimeUnavailable"},
 		{"stale auth-time", func() string {
 			f.caller.AuthTime = strconv.FormatInt(time.Now().Add(-11*time.Minute).Unix(), 10)
+			return base
+		}, http.StatusUnauthorized, "FreshLoginRequired"},
+		{"a login from the future", func() string {
+			f.caller.AuthTime = strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
 			return base
 		}, http.StatusUnauthorized, "FreshLoginRequired"},
 		{"not my team", func() string { f.caller = person("acme:team-payments"); return base }, http.StatusForbidden, "NotYourTeam"},

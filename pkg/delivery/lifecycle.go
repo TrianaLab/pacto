@@ -60,36 +60,43 @@ func ParseAuthTime(v string) (time.Time, bool) {
 // accept or a reject, and a change that needs an approval is not cleared by
 // an accepted unknown.
 func ApprovalEligible(spec OperationSpec, st OperationStatus, uid string, a ApprovalSpec, created time.Time, p ClassPolicy, freshness time.Duration) (bool, string) {
-	why := approvalAnswers(spec, st, uid, a)
-	if why == "" {
-		why = approverMay(spec, st, a, created, p, freshness)
-	}
+	_, why := ApprovalRefusal(spec, st, uid, a, created, p, freshness)
 	return why == "", why
 }
 
+// ApprovalRefusal is ApprovalEligible's answer as a code a client can show
+// (OwnChange, NotYourTeam, NoOwnerTeam and so on) and the reason; both empty
+// when the approval counts.
+func ApprovalRefusal(spec OperationSpec, st OperationStatus, uid string, a ApprovalSpec, created time.Time, p ClassPolicy, freshness time.Duration) (code, why string) {
+	if code, why = approvalAnswers(spec, st, uid, a); code == "" {
+		code, why = approverMay(spec, st, a, created, p, freshness)
+	}
+	return code, why
+}
+
 // approvalAnswers says why a does not answer the question op asks now.
-func approvalAnswers(spec OperationSpec, st OperationStatus, uid string, a ApprovalSpec) string {
+func approvalAnswers(spec OperationSpec, st OperationStatus, uid string, a ApprovalSpec) (string, string) {
 	floor := Decision("")
 	if st.Plan != nil {
 		floor = st.Plan.Floor.Decision
 	}
 	switch {
 	case st.Phase != PhaseHeld:
-		return "the operation is not waiting for a decision"
+		return "NotHeld", "the operation is not waiting for a decision"
 	case a.OperationUID != uid || a.IntentDigest != spec.IntentDigest:
-		return "it answers another operation or an older intent"
+		return "OtherIntent", "it answers another operation or an older intent"
 	case !slices.Contains([]Decision{Approve, AcceptUnknown, Reject}, a.Decision):
-		return fmt.Sprintf("%q is not a decision", a.Decision)
+		return "NotADecision", fmt.Sprintf("%q is not a decision", a.Decision)
 	case st.Applied && a.Decision == Approve:
-		return "the version already shipped, so only accept-unknown or reject answers the question now"
+		return "AlreadyShipped", "the version already shipped, so only accept-unknown or reject answers the question now"
 	case !st.Applied && a.Decision == AcceptUnknown && floor == Approve:
-		return "this change needs an approval, not an accepted unknown"
+		return "NeedsApproval", "this change needs an approval, not an accepted unknown"
 	}
-	return ""
+	return "", ""
 }
 
 // approverMay says why whoever gave a may not decide op.
-func approverMay(spec OperationSpec, st OperationStatus, a ApprovalSpec, created time.Time, p ClassPolicy, freshness time.Duration) string {
+func approverMay(spec OperationSpec, st OperationStatus, a ApprovalSpec, created time.Time, p ClassPolicy, freshness time.Duration) (string, string) {
 	var owners []string
 	if st.Plan != nil {
 		owners = st.Plan.Floor.Owners
@@ -99,19 +106,19 @@ func approverMay(spec OperationSpec, st OperationStatus, a ApprovalSpec, created
 	age := created.Sub(login)
 	switch {
 	case a.By == spec.Actor.User || spec.OnBehalfOf != nil && a.By == spec.OnBehalfOf.User:
-		return a.By + " asked for this change, so someone else must decide it"
+		return "OwnChange", a.By + " asked for this change, so someone else must decide it"
 	case !p.IsHuman(Identity{User: a.By, Groups: a.Groups}):
-		return a.By + " is not a person, and only people decide"
+		return "AgentsMayNotApprove", a.By + " is not a person, and only people decide"
 	case len(owners) == 0 && p.RequireOwnerTeam:
-		return "no team is declared for this service, so nobody may answer and only break-glass can override; declare service.owner"
+		return "NoOwnerTeam", "no team is declared for this service, so nobody may answer and only break-glass can override; declare service.owner"
 	case !p.InTeams(a.Groups, owners):
-		return fmt.Sprintf("%s is not in a team this question is asked of (%s)", a.By, strings.Join(owners, ", "))
+		return "NotYourTeam", fmt.Sprintf("%s is not in a team this question is asked of (%s)", a.By, strings.Join(owners, ", "))
 	case created.Before(held):
-		return "it was given before the question was last asked"
+		return "AskedAgain", "it was given before the question was last asked"
 	case !ok || age < -time.Minute || age > freshness:
-		return fmt.Sprintf("%s's login was not within %s of the decision; sign in again", a.By, freshness)
+		return "FreshLoginRequired", fmt.Sprintf("%s's login was not within %s of the decision; sign in again", a.By, freshness)
 	}
-	return ""
+	return "", ""
 }
 
 // Caps on the Stage's digest memories.

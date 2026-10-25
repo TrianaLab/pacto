@@ -4,7 +4,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryChangeUrl, deliveryHistoryUrl, serviceUrl } from '../lib/router.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
-  import { typeLabel, decisionLabel, shortDigest, shortDigests } from '../lib/delivery.ts';
+  import { typeLabel, decisionLabel, shortDigest, shortDigests, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
@@ -52,6 +52,9 @@
     {:else}
       <section aria-labelledby="inbox-held">
         <h2 id="inbox-held" class="t-section-title">Waiting for your decision</h2>
+        {#if held.length && cannotApproveHere(deliverySession.data?.caller)}
+          <p class="t-body-2" data-testid="inbox-no-auth-time">Approving is not possible on this cluster: it does not report when you signed in, so these changes can only be cancelled, left to expire or overridden by break-glass. <a href={APPROVING_DOCS} target="_blank" rel="noopener noreferrer">Where approving works</a></p>
+        {/if}
         {#if held.length === 0}
           <p class="t-body-2 dl-none">No change is held for your teams.</p>
         {:else}

@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import { decisionAsked, decisionLabel, cliDecision, loginUrl, signIn, hostSignsIn, keepPending, pendingFor, dropPending, shortDigests,
-    versionLabel, personLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS } from '../lib/delivery.ts';
+    versionLabel, personLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import RefusalNotice from './RefusalNotice.svelte';
   import MoveFirstList from './MoveFirstList.svelte';
@@ -193,6 +193,8 @@
     <p class="t-body-2" data-testid="decide-own">You asked for this change, so someone else must decide it.</p>
   {:else if caller?.class === 'agent' || caller?.class === 'controller'}
     <p class="t-body-2" data-testid="decide-agent">The cluster says you are an agent ({caller.user}), and agents may not decide.</p>
+  {:else if cannotApproveHere(caller)}
+    <p class="t-body-2" data-testid="decide-no-auth-time">Approving is not possible on this cluster: it does not report when you signed in, so Pacto cannot count a decision here. <a class="dp-link" href={APPROVING_DOCS} target="_blank" rel="noopener noreferrer">Where approving works</a></p>
   {:else if !owners.length}
     <p class="t-body-2" data-testid="decide-no-owner">
       No team is declared for this service, so only break-glass can override, from the command line. Declare service.owner so a team can answer.

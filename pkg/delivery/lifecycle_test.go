@@ -56,6 +56,9 @@ func TestApprovalEligible(t *testing.T) {
 	if ok, _ := ApprovalEligible(spec, OperationStatus{Phase: PhaseHeld}, "u1", good, at, policy, AuthFreshness); !ok {
 		t.Error("a held operation with no plan asks no team in particular")
 	}
+	if code, _ := ApprovalRefusal(spec, held, "u1", with(func(a *ApprovalSpec) { a.Groups = []string{"team-ledger"} }), at, policy, AuthFreshness); code != "NotYourTeam" {
+		t.Errorf("a refusal carries its code: %q", code)
+	}
 	policy.RequireOwnerTeam = true
 	if ok, why := ApprovalEligible(spec, OperationStatus{Phase: PhaseHeld}, "u1", good, at, policy, AuthFreshness); ok || !strings.Contains(why, "only break-glass can override") {
 		t.Errorf("with an owner team required, an ownerless question has nobody to answer it: %v %q", ok, why)
