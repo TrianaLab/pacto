@@ -400,7 +400,7 @@ func TestSchemaTool(t *testing.T) {
 	if err := json.Unmarshal([]byte(text), &parsed); err != nil {
 		t.Fatalf("expected valid JSON: %v", err)
 	}
-	if !strings.Contains(parsed.Description, "operational contract format") {
+	if !strings.Contains(parsed.Description, "continuous delivery driven by service contracts") {
 		t.Errorf("expected description to mention Pacto, got: %s", parsed.Description)
 	}
 	if parsed.Docs == "" {

@@ -12,7 +12,8 @@ import (
 )
 
 // baseInstructions describe the always-present contract-authoring tools.
-const baseInstructions = "Pacto is an operational contract format for cloud-native services. " +
+const baseInstructions = "Pacto is continuous delivery driven by service contracts. " +
+	"A contract (pacto.yaml) is an operational contract for one cloud-native service. " +
 	"Use pacto_create to generate new contracts from intent-level descriptions. " +
 	"Use pacto_edit to modify existing contracts. Use pacto_check to validate " +
 	"and get actionable improvement suggestions. Call pacto_schema first if you " +

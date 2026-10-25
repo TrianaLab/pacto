@@ -274,7 +274,7 @@ type schemaResult struct {
 func schemaHandler() mcpsdk.ToolHandlerFor[struct{}, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, _ struct{}) (*mcpsdk.CallToolResult, any, error) {
 		result := schemaResult{
-			Description: "Pacto is an operational contract format for cloud-native services. " +
+			Description: "Pacto is continuous delivery driven by service contracts. " +
 				"A pacto.yaml file describes the service itself — interfaces, dependencies, " +
 				"configuration, workload and state semantics, and policies. Use pacto_create to generate new contracts and pacto_edit to " +
 				"modify existing ones. Use pacto_check to validate and get improvement suggestions.",
