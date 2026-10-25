@@ -148,6 +148,11 @@ func builders(ctx context.Context, env sysDeps, dir string, c *contract.Contract
 			prog := a.Build.Command[0]
 			if strings.ContainsRune(prog, '/') && !filepath.IsAbs(prog) {
 				prog = filepath.Join(dir, prog) // the build runs in the contract directory
+				if !strings.ContainsRune(prog, filepath.Separator) {
+					// Join(".", "./render.sh") is "render.sh", which LookPath
+					// would search $PATH for.
+					prog = "." + string(filepath.Separator) + prog
+				}
 			}
 			if _, err := env.lookPath(prog); err != nil {
 				errs = append(errs, fmt.Errorf("the build of %s runs %s, which is not an executable here: %w", a.Name, a.Build.Command[0], err))
@@ -287,13 +292,21 @@ func (t execTools) signing(ctx context.Context, sign contract.PublishSign) (sign
 }
 
 // loadSigner opens the configured signer before anything is built: a missing
-// key file, a wrong COSIGN_PASSWORD or an unreachable KMS refuses the plan,
-// not a publish that already pushed. The signer is kept for the run.
+// key file, a wrong COSIGN_PASSWORD, an unreachable KMS or keyless signing
+// with no OIDC token refuses the plan, not a publish that already pushed. The
+// signer is kept for the run.
 func (t execTools) loadSigner(ctx context.Context, c *contract.Contract) error {
 	if c.Publish == nil || c.Publish.Sign == nil {
 		return nil // the sign check refuses it
 	}
-	_, _, err := t.signing(ctx, *c.Publish.Sign)
+	sign := *c.Publish.Sign
+	if sign.Key == "" && sign.KMS == "" {
+		// The token is read only when signing, so check it is there.
+		if err := signing.HasIDToken(); err != nil {
+			return err
+		}
+	}
+	_, _, err := t.signing(ctx, sign)
 	return err
 }
 
