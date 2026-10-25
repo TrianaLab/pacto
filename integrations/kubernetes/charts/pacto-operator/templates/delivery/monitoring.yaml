@@ -1,17 +1,18 @@
-{{- if and .Values.recorder.enabled .Values.recorder.monitoring.enabled }}
-{{- $name := printf "%s-recorder" (include "pacto-delivery.fullname" .) }}
+{{- if .Values.delivery.enabled }}
+{{- if and .Values.delivery.recorder.enabled .Values.delivery.recorder.monitoring.enabled }}
+{{- $name := printf "%s-recorder" (include "pacto-operator.delivery.fullname" .) }}
 apiVersion: v1
 kind: Service
 metadata:
   name: {{ $name }}-metrics
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/component: recorder
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    app.kubernetes.io/component: delivery-recorder
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   selector:
-    app.kubernetes.io/component: recorder
-    {{- include "pacto-delivery.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: delivery-recorder
+    {{- include "pacto-operator.delivery.selectorLabels" . | nindent 4 }}
   ports:
     - name: metrics
       port: 8080
@@ -24,13 +25,13 @@ metadata:
   name: {{ $name }}
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/component: recorder
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    app.kubernetes.io/component: delivery-recorder
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/component: recorder
-      {{- include "pacto-delivery.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: delivery-recorder
+      {{- include "pacto-operator.delivery.selectorLabels" . | nindent 6 }}
   endpoints:
     - port: metrics
       path: /metrics
@@ -43,8 +44,8 @@ metadata:
   name: {{ $name }}
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/component: recorder
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    app.kubernetes.io/component: delivery-recorder
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   groups:
     - name: pacto.delivery.records
@@ -71,4 +72,5 @@ spec:
             description: >-
               No recorder answered a scrape for 15 minutes, so no record is being written and the
               pending alert cannot fire.
+{{- end }}
 {{- end }}

@@ -1,12 +1,13 @@
-{{- if .Values.serviceAccount.create }}
+{{- if .Values.delivery.enabled }}
+{{- if .Values.delivery.serviceAccount.create }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ include "pacto-delivery.serviceAccountName" . }}
+  name: {{ include "pacto-operator.delivery.serviceAccountName" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
-  {{- with .Values.serviceAccount.annotations }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+  {{- with .Values.delivery.serviceAccount.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -21,9 +22,9 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "pacto-delivery.fullname" . }}-promoter
+  name: {{ include "pacto-operator.delivery.fullname" . }}-promoter
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 rules:
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [stages]
@@ -36,11 +37,11 @@ rules:
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [operations]
     # delete: with the recorder, a recorded operation is deleted after recorder.operationTTL.
-    verbs: [get, list, watch, create, update, patch{{ if .Values.recorder.enabled }}, delete{{ end }}]
+    verbs: [get, list, watch, create, update, patch{{ if .Values.delivery.recorder.enabled }}, delete{{ end }}]
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [stages/status, operations/status]
     verbs: [get, update, patch]
-  {{- if .Values.admissionPolicies.enabled }}
+  {{- if .Values.delivery.admissionPolicies.enabled }}
   # It checks its own admission policies are installed before trusting a spec.
   - apiGroups: [admissionregistration.k8s.io]
     resources: [validatingadmissionpolicies, validatingadmissionpolicybindings]
@@ -54,7 +55,7 @@ rules:
   - apiGroups: [""]
     resources: [events]
     verbs: [create, patch]
-  {{- if .Values.argocd.enabled }}
+  {{- if .Values.delivery.argocd.enabled }}
   - apiGroups: [argoproj.io]
     resources: [applications]
     verbs: [get, list, watch, patch]
@@ -79,25 +80,25 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: {{ include "pacto-delivery.fullname" . }}-promoter
+  name: {{ include "pacto-operator.delivery.fullname" . }}-promoter
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ include "pacto-delivery.fullname" . }}-promoter
+  name: {{ include "pacto-operator.delivery.fullname" . }}-promoter
 subjects:
   - kind: ServiceAccount
-    name: {{ include "pacto-delivery.serviceAccountName" . }}
+    name: {{ include "pacto-operator.delivery.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: {{ include "pacto-delivery.fullname" . }}-leader-election
+  name: {{ include "pacto-operator.delivery.fullname" . }}-leader-election
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 rules:
   - apiGroups: [coordination.k8s.io]
     resources: [leases]
@@ -109,17 +110,17 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ include "pacto-delivery.fullname" . }}-leader-election
+  name: {{ include "pacto-operator.delivery.fullname" . }}-leader-election
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "pacto-delivery.fullname" . }}-leader-election
+  name: {{ include "pacto-operator.delivery.fullname" . }}-leader-election
 subjects:
   - kind: ServiceAccount
-    name: {{ include "pacto-delivery.serviceAccountName" . }}
+    name: {{ include "pacto-operator.delivery.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 ---
 # Bind this to agents (their own service accounts, or the agent group): they
@@ -130,9 +131,9 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "pacto-delivery.fullname" . }}-agent
+  name: {{ include "pacto-operator.delivery.fullname" . }}-agent
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 rules:
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [operations]
@@ -143,7 +144,7 @@ rules:
   - apiGroups: [source.toolkit.fluxcd.io]
     resources: [ocirepositories]
     verbs: [get]
-  {{- if .Values.argocd.enabled }}
+  {{- if .Values.delivery.argocd.enabled }}
   - apiGroups: [argoproj.io]
     resources: [applications]
     verbs: [get]
@@ -161,9 +162,9 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: {{ include "pacto-delivery.fullname" . }}-approver
+  name: {{ include "pacto-operator.delivery.fullname" . }}-approver
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 rules:
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [operations]
@@ -177,7 +178,7 @@ rules:
   - apiGroups: [source.toolkit.fluxcd.io]
     resources: [ocirepositories]
     verbs: [get]
-  {{- if .Values.argocd.enabled }}
+  {{- if .Values.delivery.argocd.enabled }}
   - apiGroups: [argoproj.io]
     resources: [applications]
     verbs: [get]
@@ -188,3 +189,4 @@ rules:
   - apiGroups: [pacto.trianalab.io]
     resources: [pactos]
     verbs: [get, list]
+{{- end }}

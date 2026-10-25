@@ -172,7 +172,7 @@ Controller arguments derived from values
 {{- end }}
 - --dashboard-auth-required
 {{- end }}
-{{- with .deliveryNamespace }}
+{{- with (.deliveryNamespace | default (ternary $.Release.Namespace "" $.Values.delivery.enabled)) }}
 - --dashboard-delivery-namespace={{ . }}
 {{- end }}
 {{- end }}

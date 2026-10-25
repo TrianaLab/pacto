@@ -1,6 +1,11 @@
 suite: metrics tests
 templates:
-  - templates/metrics.yaml
+  - templates/delivery/metrics.yaml
+set:
+  delivery.enabled: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
 tests:
   - it: serves the promoter's and recorder's metrics through a Service
     asserts:
@@ -14,8 +19,8 @@ tests:
 
   - it: creates a ServiceMonitor only when asked
     set:
-      metrics.serviceMonitor.enabled: true
-      metrics.serviceMonitor.interval: 30s
+      delivery.metrics.serviceMonitor.enabled: true
+      delivery.metrics.serviceMonitor.interval: 30s
     asserts:
       - hasDocuments:
           count: 2
@@ -28,13 +33,13 @@ tests:
         documentIndex: 1
       - equal:
           path: spec.selector.matchLabels["app.kubernetes.io/component"]
-          value: metrics
+          value: delivery-metrics
         documentIndex: 1
 
   - it: renders nothing when metrics are off
     set:
-      metrics.enabled: false
-      metrics.serviceMonitor.enabled: true
+      delivery.metrics.enabled: false
+      delivery.metrics.serviceMonitor.enabled: true
     asserts:
       - hasDocuments:
           count: 0

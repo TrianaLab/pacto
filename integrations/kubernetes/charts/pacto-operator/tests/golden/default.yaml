@@ -1,0 +1,392 @@
+---
+# Source: pacto-operator/templates/serviceaccount.yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pacto-operator
+  namespace: default
+  labels:
+    helm.sh/chart: pacto-operator-VERSION
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/managed-by: Helm
+automountServiceAccountToken: true
+---
+# Source: pacto-operator/templates/clusterrole.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pacto-operator-manager
+  labels:
+    helm.sh/chart: pacto-operator-VERSION
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  # Core controller permissions
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, list, watch]
+  # ConfigMap-backed configuration collection (required-configurations dimension).
+  # Read through the manager's cache, whose informer needs list and watch to sync.
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch]
+  # Target pods, mapped onto the node agent's kernel observations (kernel evidence).
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  # Kernel evidence published by the node agent, one object per node, read
+  # through the cache in the kernel evidence namespace only. The objects are
+  # named after nodes, so they cannot be scoped by resourceNames: the prunes
+  # find them by label (list) and remove them (delete). The resource is the
+  # operator's own CRD and carries no secrets.
+  - apiGroups: [pacto.trianalab.io]
+    resources: [noderuntimeobservations]
+    verbs: [delete, get, list, watch]
+  # Interface exposure: an Ingress or Gateway API HTTPRoute that routes to the port.
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [httproutes]
+    verbs: [get, list, watch]
+  # EndpointSlice readiness for interface availability + dependency reachability.
+  - apiGroups: [discovery.k8s.io]
+    resources: [endpointslices]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, replicasets, statefulsets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [cronjobs, jobs]
+    verbs: [get, list, watch]
+  # Pacto CRDs
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos]
+    verbs: [create, delete, get, list, patch, update, watch]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos/status]
+    verbs: [get, patch, update]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos/finalizers]
+    verbs: [update]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactorevisions]
+    verbs: [create, get, list, watch]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactorevisions/status]
+    verbs: [get, patch, update]
+  # Dashboard teardown, cluster-scoped half: ALWAYS granted, so an operator
+  # upgraded from enabled -> disabled can still remove the ClusterRole and
+  # binding it created. get + delete by name only, read through the uncached API
+  # reader: list/watch here would start a cluster-scoped informer that cannot
+  # sync while the dashboard is disabled and crashloop the operator. Everything
+  # namespaced the components manage is granted by the Roles in role.yaml and
+  # nodeagent-namespace.yaml, in the namespaces they live in.
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles, clusterrolebindings]
+    verbs: [get, delete]
+    resourceNames: [pacto-dashboard]
+  # Dashboard lifecycle management, cluster-scoped half: the ClusterRole and
+  # binding that let the dashboard read Pactos across namespaces.
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles, clusterrolebindings]
+    verbs: [create, delete, get, list, patch, update, watch]
+---
+# Source: pacto-operator/templates/clusterrolebinding.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pacto-operator-manager
+  labels:
+    helm.sh/chart: pacto-operator-VERSION
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pacto-operator-manager
+subjects:
+  - kind: ServiceAccount
+    name: pacto-operator
+    namespace: default
+---
+# Source: pacto-operator/templates/leader-election-role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pacto-operator-leader-election
+  namespace: default
+  labels:
+    helm.sh/chart: pacto-operator-VERSION
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [coordination.k8s.io]
+    resources: [leases]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
+---
+# Source: pacto-operator/templates/role.yaml
+# The operator's lifecycle permissions in its own namespace, where the dashboard
+# and the Evidence Server run. Namespaced on purpose: the operator can create a
+# Deployment, Service, ServiceAccount or Secret here and nowhere else.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pacto-operator-manager
+  namespace: default
+  labels:
+    helm.sh/chart: pacto-operator-VERSION
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/managed-by: Helm
+rules:
+  # Teardown -- ALWAYS granted, even with every component disabled, so an
+  # operator upgraded from enabled -> disabled can still remove what it created.
+  # get + delete by the fixed names only, read through the uncached API reader:
+  # no list/watch, so no informer can start and fail to sync. The node agent
+  # names are what releases before the dedicated agent namespace ran here; the
+  # operator removes them on every sync.
+  - apiGroups: [""]
+    resources: [serviceaccounts, services]
+    verbs: [get, delete]
+    resourceNames: [pacto-dashboard]
+  - apiGroups: [""]
+    resources: [secrets]
+    verbs: [get, delete]
+    resourceNames: [pacto-dashboard-oci-creds]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, delete]
+    resourceNames: [pacto-dashboard]
+  # The Evidence Server's whole footprint is its Deployment and Service: the
+  # accepted evidence is in the registry and is not touched by removing it.
+  - apiGroups: [""]
+    resources: [services]
+    verbs: [get, delete]
+    resourceNames: [pacto-evidence]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get, delete]
+    resourceNames: [pacto-evidence]
+  - apiGroups: [apps]
+    resources: [daemonsets]
+    verbs: [get, delete]
+    resourceNames: [pacto-node-agent]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [roles, rolebindings]
+    verbs: [get, delete]
+    resourceNames: [pacto-node-agent]
+  - apiGroups: [""]
+    resources: [serviceaccounts]
+    verbs: [get, delete]
+    resourceNames: [pacto-node-agent]
+  # Dashboard lifecycle: its ServiceAccount, Service, merged OCI credentials
+  # Secret and Deployment.
+  - apiGroups: [""]
+    resources: [secrets, serviceaccounts, services]
+    verbs: [create, delete, get, patch, update]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [create, delete, get, patch, update]
+---
+# Source: pacto-operator/templates/leader-election-role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pacto-operator-leader-election
+  namespace: default
+  labels:
+    helm.sh/chart: pacto-operator-VERSION
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pacto-operator-leader-election
+subjects:
+  - kind: ServiceAccount
+    name: pacto-operator
+    namespace: default
+---
+# Source: pacto-operator/templates/role.yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pacto-operator-manager
+  namespace: default
+  labels:
+    helm.sh/chart: pacto-operator-VERSION
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/managed-by: Helm
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pacto-operator-manager
+subjects:
+  - kind: ServiceAccount
+    name: pacto-operator
+    namespace: default
+---
+# Source: pacto-operator/templates/dashboard-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: pacto-operator-dashboard
+  namespace: default
+  labels:
+    helm.sh/chart: pacto-operator-VERSION
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: dashboard
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 3000
+      targetPort: 3000
+      protocol: TCP
+  selector:
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/name: pacto-dashboard
+---
+# Source: pacto-operator/templates/metrics-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: pacto-operator-metrics
+  namespace: default
+  labels:
+    helm.sh/chart: pacto-operator-VERSION
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  ports:
+    - name: metrics
+      port: 8443
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    control-plane: controller-manager
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+---
+# Source: pacto-operator/templates/deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pacto-operator
+  namespace: default
+  labels:
+    control-plane: controller-manager
+    helm.sh/chart: pacto-operator-VERSION
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/managed-by: Helm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      control-plane: controller-manager
+      app.kubernetes.io/name: pacto-operator
+      app.kubernetes.io/instance: pacto-operator
+  template:
+    metadata:
+      labels:
+        control-plane: controller-manager
+        helm.sh/chart: pacto-operator-VERSION
+        app.kubernetes.io/name: pacto-operator
+        app.kubernetes.io/instance: pacto-operator
+        app.kubernetes.io/version: "VERSION"
+        app.kubernetes.io/managed-by: Helm
+    spec:
+      serviceAccountName: pacto-operator
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: manager
+          image: "ghcr.io/trianalab/pacto/operator:VERSION"
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: OPERATOR_DEPLOYMENT_NAME
+              value: pacto-operator
+          args:
+            - --leader-elect=true
+            - --health-probe-bind-address=:8081
+            - --metrics-bind-address=:8443
+            - --metrics-secure=true
+            - --node-agent-namespace=pacto-node-agent
+            - --enable-dashboard
+            - --dashboard-cpu-request=50m
+            - --dashboard-memory-request=128Mi
+            - --dashboard-memory-limit=512Mi
+          ports:
+            - name: metrics
+              containerPort: 8443
+              protocol: TCP
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: health
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: health
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+          resources:
+            limits:
+              cpu: 500m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 64Mi

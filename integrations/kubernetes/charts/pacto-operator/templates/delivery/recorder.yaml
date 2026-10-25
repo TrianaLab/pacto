@@ -1,5 +1,6 @@
-{{- if .Values.recorder.enabled }}
-{{- $r := .Values.recorder }}
+{{- if .Values.delivery.enabled }}
+{{- if .Values.delivery.recorder.enabled }}
+{{- $r := .Values.delivery.recorder }}
 {{- if not $r.streamsRepository }}
 {{- fail "recorder.streamsRepository is required when the recorder is enabled" }}
 {{- end }}
@@ -14,16 +15,16 @@
 {{- if and $k.enabled (or (not $k.identity) (not $k.issuer) (not $k.fulcioURL) (not $k.timestampURL) (not $k.trustedRoot)) }}
 {{- fail "recorder.signing.keyless needs identity, issuer, fulcioURL, timestampURL and trustedRoot" }}
 {{- end }}
-{{- $name := printf "%s-recorder" (include "pacto-delivery.fullname" .) }}
+{{- $name := printf "%s-recorder" (include "pacto-operator.delivery.fullname" .) }}
 {{- if $r.serviceAccount.create }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: {{ include "pacto-delivery.recorderServiceAccountName" . }}
+  name: {{ include "pacto-operator.delivery.recorderServiceAccountName" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/component: recorder
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    app.kubernetes.io/component: delivery-recorder
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
   {{- with $r.serviceAccount.annotations }}
   annotations:
     {{- toYaml . | nindent 4 }}
@@ -40,8 +41,8 @@ kind: ClusterRole
 metadata:
   name: {{ $name }}
   labels:
-    app.kubernetes.io/component: recorder
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    app.kubernetes.io/component: delivery-recorder
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 rules:
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [stages, approvals]
@@ -55,7 +56,7 @@ rules:
   - apiGroups: [source.toolkit.fluxcd.io]
     resources: [ocirepositories]
     verbs: [get]
-  {{- if .Values.argocd.enabled }}
+  {{- if .Values.delivery.argocd.enabled }}
   - apiGroups: [argoproj.io]
     resources: [applications]
     verbs: [get]
@@ -70,15 +71,15 @@ kind: ClusterRoleBinding
 metadata:
   name: {{ $name }}
   labels:
-    app.kubernetes.io/component: recorder
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    app.kubernetes.io/component: delivery-recorder
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
   name: {{ $name }}
 subjects:
   - kind: ServiceAccount
-    name: {{ include "pacto-delivery.recorderServiceAccountName" . }}
+    name: {{ include "pacto-operator.delivery.recorderServiceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -87,15 +88,15 @@ metadata:
   name: {{ $name }}-leader-election
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/component: recorder
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    app.kubernetes.io/component: delivery-recorder
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ include "pacto-delivery.fullname" . }}-leader-election
+  name: {{ include "pacto-operator.delivery.fullname" . }}-leader-election
 subjects:
   - kind: ServiceAccount
-    name: {{ include "pacto-delivery.recorderServiceAccountName" . }}
+    name: {{ include "pacto-operator.delivery.recorderServiceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 ---
 {{- if $r.trust }}
@@ -107,8 +108,8 @@ metadata:
   name: {{ $name }}-trust
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/component: recorder
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    app.kubernetes.io/component: delivery-recorder
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 data:
   trust.yaml: {{ $r.trust | quote }}
 ---
@@ -122,8 +123,8 @@ metadata:
   name: {{ $name }}-keyless
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/component: recorder
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    app.kubernetes.io/component: delivery-recorder
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 data:
   trusted_root.json: {{ $r.signing.keyless.trustedRoot | quote }}
 ---
@@ -134,8 +135,8 @@ metadata:
   name: {{ $name }}
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/component: recorder
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    app.kubernetes.io/component: delivery-recorder
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   # One writer per stream: the leader writes, a second replica only waits.
   replicas: 1
@@ -143,26 +144,26 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/component: recorder
-      {{- include "pacto-delivery.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: delivery-recorder
+      {{- include "pacto-operator.delivery.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/component: recorder
-        {{- include "pacto-delivery.labels" . | nindent 8 }}
+        app.kubernetes.io/component: delivery-recorder
+        {{- include "pacto-operator.delivery.labels" . | nindent 8 }}
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- with .Values.delivery.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "pacto-delivery.recorderServiceAccountName" . }}
+      serviceAccountName: {{ include "pacto-operator.delivery.recorderServiceAccountName" . }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- toYaml .Values.delivery.podSecurityContext | nindent 8 }}
       terminationGracePeriodSeconds: 10
       containers:
         - name: recorder
-          image: {{ include "pacto-delivery.image" . | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ include "pacto-operator.delivery.image" . | quote }}
+          imagePullPolicy: {{ .Values.delivery.image.pullPolicy }}
           args:
             - recorder
             - --leader-elect={{ $r.leaderElect }}
@@ -194,7 +195,7 @@ spec:
             - name: DOCKER_CONFIG
               value: /etc/pacto/registry
             {{- end }}
-            {{- with .Values.insecureRegistries }}
+            {{- with .Values.delivery.insecureRegistries }}
             - name: PACTO_INSECURE_REGISTRIES
               value: {{ join "," . | quote }}
             {{- end }}
@@ -222,7 +223,7 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 15
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- toYaml .Values.delivery.securityContext | nindent 12 }}
           resources:
             {{- toYaml $r.resources | nindent 12 }}
           volumeMounts:
@@ -288,16 +289,17 @@ spec:
               - key: .dockerconfigjson
                 path: config.json
         {{- end }}
-      {{- with .Values.nodeSelector }}
+      {{- with .Values.delivery.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.tolerations }}
+      {{- with .Values.delivery.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
+      {{- with .Values.delivery.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+{{- end }}
 {{- end }}

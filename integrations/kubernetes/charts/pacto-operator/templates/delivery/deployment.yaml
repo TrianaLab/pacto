@@ -1,14 +1,15 @@
-{{- with .Values.promoter.upstreamTrust }}
+{{- if .Values.delivery.enabled }}
+{{- with .Values.delivery.promoter.upstreamTrust }}
 # The recorder keys of other clusters whose records an upstreamRecords Stage
 # promotes on, per stream glob. Public keys only.
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "pacto-delivery.fullname" $ }}-upstream-trust
+  name: {{ include "pacto-operator.delivery.fullname" $ }}-upstream-trust
   namespace: {{ $.Release.Namespace }}
   labels:
-    app.kubernetes.io/component: promoter
-    {{- include "pacto-delivery.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: delivery-promoter
+    {{- include "pacto-operator.delivery.labels" $ | nindent 4 }}
 data:
   trust.yaml: {{ . | quote }}
 ---
@@ -16,61 +17,61 @@ data:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "pacto-delivery.fullname" . }}
+  name: {{ include "pacto-operator.delivery.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/component: promoter
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    app.kubernetes.io/component: delivery-promoter
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: {{ .Values.delivery.replicaCount }}
   selector:
     matchLabels:
-      app.kubernetes.io/component: promoter
-      {{- include "pacto-delivery.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: delivery-promoter
+      {{- include "pacto-operator.delivery.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app.kubernetes.io/component: promoter
-        {{- include "pacto-delivery.labels" . | nindent 8 }}
+        app.kubernetes.io/component: delivery-promoter
+        {{- include "pacto-operator.delivery.labels" . | nindent 8 }}
       annotations:
         # The promoter reads its identity policy once: a change restarts it.
-        checksum/identities: {{ include "pacto-delivery.identitiesJSON" . | sha256sum }}
+        checksum/identities: {{ include "pacto-operator.delivery.identitiesJSON" . | sha256sum }}
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- with .Values.delivery.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "pacto-delivery.serviceAccountName" . }}
+      serviceAccountName: {{ include "pacto-operator.delivery.serviceAccountName" . }}
       securityContext:
-        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- toYaml .Values.delivery.podSecurityContext | nindent 8 }}
       terminationGracePeriodSeconds: 10
       containers:
         - name: promoter
-          image: {{ include "pacto-delivery.image" . | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: {{ include "pacto-operator.delivery.image" . | quote }}
+          imagePullPolicy: {{ .Values.delivery.image.pullPolicy }}
           args:
             - promoter
-            - --leader-elect={{ .Values.promoter.leaderElect }}
-            - --poll={{ .Values.promoter.poll }}
-            - --workers={{ .Values.promoter.workers }}
-            - --auth-freshness={{ .Values.promoter.authFreshness }}
-            - --controller-user={{ include "pacto-delivery.controllerUser" . }}
+            - --leader-elect={{ .Values.delivery.promoter.leaderElect }}
+            - --poll={{ .Values.delivery.promoter.poll }}
+            - --workers={{ .Values.delivery.promoter.workers }}
+            - --auth-freshness={{ .Values.delivery.promoter.authFreshness }}
+            - --controller-user={{ include "pacto-operator.delivery.controllerUser" . }}
             - --identities=/etc/pacto/identities/policy.json
-            {{- if .Values.admissionPolicies.enabled }}
-            {{- $fullname := include "pacto-delivery.fullname" . }}
+            {{- if .Values.delivery.admissionPolicies.enabled }}
+            {{- $fullname := include "pacto-operator.delivery.fullname" . }}
             {{- $policies := list "operation" "cancel" "approval" "pointer" "applier" "promoter-writes" }}
-            {{- if .Values.argocd.enabled }}{{ $policies = concat $policies (list "pointer-argocd" "promoter-writes-argocd") }}{{ end }}
-            {{- if .Values.recorder.enabled }}{{ $policies = append $policies "records" }}{{ end }}
+            {{- if .Values.delivery.argocd.enabled }}{{ $policies = concat $policies (list "pointer-argocd" "promoter-writes-argocd") }}{{ end }}
+            {{- if .Values.delivery.recorder.enabled }}{{ $policies = append $policies "records" }}{{ end }}
             - --admission-policies={{ range $i, $p := $policies }}{{ if $i }},{{ end }}{{ $fullname }}-{{ $p }}{{ end }}
             {{- end }}
-            {{- if .Values.recorder.enabled }}
+            {{- if .Values.delivery.recorder.enabled }}
             - --records
-            - --recorded-ttl={{ .Values.recorder.operationTTL }}
+            - --recorded-ttl={{ .Values.delivery.recorder.operationTTL }}
             {{- end }}
-            {{- with .Values.gates.providers }}
+            {{- with .Values.delivery.gates.providers }}
             - {{ printf "--gate-providers=%s" (toJson .) | quote }}
             {{- end }}
-            {{- if .Values.promoter.upstreamTrust }}
+            {{- if .Values.delivery.promoter.upstreamTrust }}
             - --upstream-trust-config=/etc/pacto/upstream-trust/trust.yaml
             {{- end }}
           env:
@@ -78,11 +79,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            {{- if .Values.promoter.registryCredentials.secretName }}
+            {{- if .Values.delivery.promoter.registryCredentials.secretName }}
             - name: DOCKER_CONFIG
               value: /etc/pacto/registry
             {{- end }}
-            {{- with .Values.insecureRegistries }}
+            {{- with .Values.delivery.insecureRegistries }}
             - name: PACTO_INSECURE_REGISTRIES
               value: {{ join "," . | quote }}
             {{- end }}
@@ -106,12 +107,12 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
           securityContext:
-            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- toYaml .Values.delivery.securityContext | nindent 12 }}
           resources:
-            {{- toYaml .Values.resources | nindent 12 }}
-          {{- $creds := .Values.promoter.registryCredentials.secretName }}
+            {{- toYaml .Values.delivery.resources | nindent 12 }}
+          {{- $creds := .Values.delivery.promoter.registryCredentials.secretName }}
           volumeMounts:
-            {{- if .Values.promoter.upstreamTrust }}
+            {{- if .Values.delivery.promoter.upstreamTrust }}
             - name: upstream-trust
               mountPath: /etc/pacto/upstream-trust
               readOnly: true
@@ -125,10 +126,10 @@ spec:
               mountPath: /etc/pacto/identities
               readOnly: true
       volumes:
-        {{- if .Values.promoter.upstreamTrust }}
+        {{- if .Values.delivery.promoter.upstreamTrust }}
         - name: upstream-trust
           configMap:
-            name: {{ include "pacto-delivery.fullname" . }}-upstream-trust
+            name: {{ include "pacto-operator.delivery.fullname" . }}-upstream-trust
         {{- end }}
         {{- if $creds }}
         - name: registry
@@ -141,15 +142,16 @@ spec:
         - name: identities
           configMap:
             name: pacto-delivery-identities
-      {{- with .Values.nodeSelector }}
+      {{- with .Values.delivery.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.tolerations }}
+      {{- with .Values.delivery.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
+      {{- with .Values.delivery.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+{{- end }}

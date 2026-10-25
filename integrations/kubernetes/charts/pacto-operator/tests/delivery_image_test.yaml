@@ -1,13 +1,18 @@
 suite: image tests
 templates:
-  - templates/deployment.yaml
-  - templates/recorder.yaml
+  - templates/delivery/deployment.yaml
+  - templates/delivery/recorder.yaml
 release:
   name: d
   namespace: pacto-delivery
+set:
+  delivery.enabled: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
 tests:
   - it: runs the promoter from the delivery image at the chart appVersion
-    template: templates/deployment.yaml
+    template: templates/delivery/deployment.yaml
     chart:
       appVersion: 9.9.9
     asserts:
@@ -16,36 +21,36 @@ tests:
           value: "ghcr.io/trianalab/pacto/delivery:9.9.9"
 
   - it: pins the promoter image by digest when image.digest is set
-    template: templates/deployment.yaml
+    template: templates/delivery/deployment.yaml
     chart:
       appVersion: 9.9.9
     set:
-      image.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      delivery.image.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
           value: "ghcr.io/trianalab/pacto/delivery:9.9.9@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
   - it: pins the recorder image by the same digest
-    template: templates/recorder.yaml
+    template: templates/delivery/recorder.yaml
     documentSelector:
       path: kind
       value: Deployment
     chart:
       appVersion: 9.9.9
     set:
-      recorder.enabled: true
-      recorder.streamsRepository: registry.example/pacto/streams
-      recorder.signing.ed25519.secretName: recorder-key
-      image.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.signing.ed25519.secretName: recorder-key
+      delivery.image.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     asserts:
       - equal:
           path: spec.template.spec.containers[0].image
           value: "ghcr.io/trianalab/pacto/delivery:9.9.9@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
   - it: refuses an image.digest that is not a sha256 digest
-    template: templates/deployment.yaml
+    template: templates/delivery/deployment.yaml
     set:
-      image.digest: "latest"
+      delivery.image.digest: "latest"
     asserts:
       - failedTemplate: {}

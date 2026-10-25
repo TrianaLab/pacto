@@ -1,15 +1,16 @@
-{{- if not (or .Values.admissionPolicies.enabled .Values.admissionPolicies.allowUnguarded) }}
+{{- if .Values.delivery.enabled }}
+{{- if not (or .Values.delivery.admissionPolicies.enabled .Values.delivery.admissionPolicies.allowUnguarded) }}
 {{- fail "admissionPolicies.enabled=false leaves every actor, approver and the pointer unguarded: anyone who may create an Operation or an Approval can claim to be anyone. Set admissionPolicies.allowUnguarded=true only if you accept that." }}
 {{- end }}
-{{- if .Values.admissionPolicies.enabled }}
-{{- $fullname := include "pacto-delivery.fullname" . }}
-{{- $controller := include "pacto-delivery.controllerUser" . }}
-{{- $agents := include "pacto-delivery.celList" .Values.identities.agentGroups }}
-{{- $breakGlass := include "pacto-delivery.celList" .Values.identities.breakGlassGroups }}
+{{- if .Values.delivery.admissionPolicies.enabled }}
+{{- $fullname := include "pacto-operator.delivery.fullname" . }}
+{{- $controller := include "pacto-operator.delivery.controllerUser" . }}
+{{- $agents := include "pacto-operator.delivery.celList" .Values.delivery.identities.agentGroups }}
+{{- $breakGlass := include "pacto-operator.delivery.celList" .Values.delivery.identities.breakGlassGroups }}
 {{- /* With identities.humanGroups set, anyone in none of them is an agent too. */}}
 {{- $unenrolled := "" }}
-{{- with .Values.identities.humanGroups }}
-{{- $unenrolled = printf " ||\n        !request.userInfo.groups.exists(g, g in %s)" (include "pacto-delivery.celList" .) }}
+{{- with .Values.delivery.identities.humanGroups }}
+{{- $unenrolled = printf " ||\n        !request.userInfo.groups.exists(g, g in %s)" (include "pacto-operator.delivery.celList" .) }}
 {{- end }}
 # An operation states who asked, and admission holds it to that: the actor is
 # the requesting user, only the promoter may set witnessed, override, unfreeze
@@ -22,7 +23,7 @@ kind: ValidatingAdmissionPolicy
 metadata:
   name: {{ $fullname }}-operation
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   failurePolicy: Fail
   matchConstraints:
@@ -80,7 +81,7 @@ kind: ValidatingAdmissionPolicyBinding
 metadata:
   name: {{ $fullname }}-operation
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   policyName: {{ $fullname }}-operation
   validationActions: [Deny]
@@ -95,7 +96,7 @@ kind: ValidatingAdmissionPolicy
 metadata:
   name: {{ $fullname }}-cancel
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   failurePolicy: Fail
   matchConstraints:
@@ -125,7 +126,7 @@ kind: ValidatingAdmissionPolicyBinding
 metadata:
   name: {{ $fullname }}-cancel
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   policyName: {{ $fullname }}-cancel
   validationActions: [Deny]
@@ -143,7 +144,7 @@ kind: ValidatingAdmissionPolicy
 metadata:
   name: {{ $fullname }}-approval
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   failurePolicy: Fail
   matchConstraints:
@@ -180,7 +181,7 @@ kind: ValidatingAdmissionPolicyBinding
 metadata:
   name: {{ $fullname }}-approval
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   policyName: {{ $fullname }}-approval
   validationActions: [Deny]
@@ -196,7 +197,7 @@ kind: ValidatingAdmissionPolicy
 metadata:
   name: {{ $fullname }}-pointer
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   failurePolicy: Fail
   matchConstraints:
@@ -240,11 +241,11 @@ kind: ValidatingAdmissionPolicyBinding
 metadata:
   name: {{ $fullname }}-pointer
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   policyName: {{ $fullname }}-pointer
   validationActions: [Deny]
-{{- if .Values.argocd.enabled }}
+{{- if .Values.delivery.argocd.enabled }}
 ---
 # The pointer on Argo CD: on an Application a Stage applies through (label it
 # delivery.pacto.trianalab.io/apply-ref), spec.source.targetRevision changes
@@ -256,7 +257,7 @@ kind: ValidatingAdmissionPolicy
 metadata:
   name: {{ $fullname }}-pointer-argocd
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   failurePolicy: Fail
   matchConstraints:
@@ -305,7 +306,7 @@ kind: ValidatingAdmissionPolicyBinding
 metadata:
   name: {{ $fullname }}-pointer-argocd
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   policyName: {{ $fullname }}-pointer-argocd
   validationActions: [Deny]
@@ -321,7 +322,7 @@ kind: ValidatingAdmissionPolicy
 metadata:
   name: {{ $fullname }}-applier
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   failurePolicy: Fail
   matchConstraints:
@@ -356,12 +357,12 @@ kind: ValidatingAdmissionPolicyBinding
 metadata:
   name: {{ $fullname }}-applier
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   policyName: {{ $fullname }}-applier
   validationActions: [Deny]
-{{- if .Values.recorder.enabled }}
-{{- $recorder := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "pacto-delivery.recorderServiceAccountName" .) }}
+{{- if .Values.delivery.recorder.enabled }}
+{{- $recorder := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "pacto-operator.delivery.recorderServiceAccountName" .) }}
 ---
 # The record fields belong to the recorder: status.record on an Operation and
 # status.stream.{recordedSeq,head,anchor} on a Stage change only when the
@@ -374,7 +375,7 @@ kind: ValidatingAdmissionPolicy
 metadata:
   name: {{ $fullname }}-records
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   failurePolicy: Fail
   matchConstraints:
@@ -401,11 +402,11 @@ spec:
   validations:
     - expression: >-
         variables.recorder || (
-        {{ include "pacto-delivery.celSame" (list "status.record.digest" "''") }} &&
-        {{ include "pacto-delivery.celSame" (list "status.record.refused" "''") }} &&
-        {{ include "pacto-delivery.celSame" (list "status.stream.head" "''") }} &&
-        {{ include "pacto-delivery.celSame" (list "status.stream.recordedSeq" "0") }} &&
-        {{ include "pacto-delivery.celSame" (list "status.stream.anchor" "''") }})
+        {{ include "pacto-operator.delivery.celSame" (list "status.record.digest" "''") }} &&
+        {{ include "pacto-operator.delivery.celSame" (list "status.record.refused" "''") }} &&
+        {{ include "pacto-operator.delivery.celSame" (list "status.stream.head" "''") }} &&
+        {{ include "pacto-operator.delivery.celSame" (list "status.stream.recordedSeq" "0") }} &&
+        {{ include "pacto-operator.delivery.celSame" (list "status.stream.anchor" "''") }})
       message: "status.record and status.stream.{recordedSeq,head,anchor} are written only by the Pacto delivery recorder"
       reason: Forbidden
     - expression: >-
@@ -423,7 +424,7 @@ kind: ValidatingAdmissionPolicyBinding
 metadata:
   name: {{ $fullname }}-records
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   policyName: {{ $fullname }}-records
   validationActions: [Deny]
@@ -437,7 +438,7 @@ kind: ValidatingAdmissionPolicy
 metadata:
   name: {{ $fullname }}-promoter-writes
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   failurePolicy: Fail
   matchConstraints:
@@ -473,11 +474,11 @@ kind: ValidatingAdmissionPolicyBinding
 metadata:
   name: {{ $fullname }}-promoter-writes
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   policyName: {{ $fullname }}-promoter-writes
   validationActions: [Deny]
-{{- if .Values.argocd.enabled }}
+{{- if .Values.delivery.argocd.enabled }}
 ---
 # The promoter on Argo CD: only an Application a Stage applies through, and
 # only spec.source.targetRevision in its spec.
@@ -486,7 +487,7 @@ kind: ValidatingAdmissionPolicy
 metadata:
   name: {{ $fullname }}-promoter-writes-argocd
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   failurePolicy: Fail
   matchConstraints:
@@ -522,9 +523,10 @@ kind: ValidatingAdmissionPolicyBinding
 metadata:
   name: {{ $fullname }}-promoter-writes-argocd
   labels:
-    {{- include "pacto-delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:
   policyName: {{ $fullname }}-promoter-writes-argocd
   validationActions: [Deny]
+{{- end }}
 {{- end }}
 {{- end }}

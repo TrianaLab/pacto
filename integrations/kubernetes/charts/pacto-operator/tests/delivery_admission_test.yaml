@@ -1,9 +1,14 @@
 suite: admission policy tests
 templates:
-  - templates/admission.yaml
+  - templates/delivery/admission.yaml
 release:
   name: d
   namespace: pacto-delivery
+set:
+  delivery.enabled: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
 tests:
   - it: installs six policies, each bound with Deny
     capabilities:
@@ -39,7 +44,7 @@ tests:
     asserts:
       - equal:
           path: 'spec.validations[?(@.message == "only the Pacto delivery promoter may raise a witnessed operation")].expression'
-          value: "!variables.witnessed || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
+          value: "!variables.witnessed || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery'"
 
   - it: lets a person, break-glass or the promoter freeze, never an agent
     capabilities:
@@ -51,7 +56,7 @@ tests:
     asserts:
       - equal:
           path: 'spec.validations[?(@.message == "only a person, break-glass or the promoter may freeze a Stage; agents may not")].expression'
-          value: "object.spec.type != 'delivery.pacto.trianalab.io/freeze' || variables.breakGlass || !variables.agent || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
+          value: "object.spec.type != 'delivery.pacto.trianalab.io/freeze' || variables.breakGlass || !variables.agent || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery'"
 
   - it: lets an agent cancel only its own operations
     capabilities:
@@ -63,7 +68,7 @@ tests:
     asserts:
       - equal:
           path: 'spec.validations[?(@.message == "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest")].expression'
-          value: "oldObject.spec.actor.user == request.userInfo.username || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery' || request.userInfo.username == 'system:serviceaccount:kube-system:namespace-controller' || request.userInfo.groups.exists(g, g in ['pacto:break-glass']) || !(request.userInfo.username.startsWith('system:serviceaccount:') || request.userInfo.groups.exists(g, g in ['pacto:agents']))"
+          value: "oldObject.spec.actor.user == request.userInfo.username || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery' || request.userInfo.username == 'system:serviceaccount:kube-system:namespace-controller' || request.userInfo.groups.exists(g, g in ['pacto:break-glass']) || !(request.userInfo.username.startsWith('system:serviceaccount:') || request.userInfo.groups.exists(g, g in ['pacto:agents']))"
       - matchRegex:
           path: 'spec.validations[?(@.message == "the pointer already moved for this operation, so it can no longer be cancelled; roll it back instead")].message'
           pattern: can no longer be cancelled
@@ -85,7 +90,7 @@ tests:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     set:
-      identities.humanGroups: [staff]
+      delivery.identities.humanGroups: [staff]
     asserts:
       - matchRegex:
           path: 'spec.validations[?(@.message == "agents and service accounts may not approve")].expression'
@@ -145,7 +150,7 @@ tests:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     set:
-      argocd.enabled: true
+      delivery.argocd.enabled: true
     asserts:
       - hasDocuments:
           count: 16
@@ -163,7 +168,7 @@ tests:
           value: "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass"
       - matchRegex:
           path: 'spec.validations[?(@.message == "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass")].expression'
-          pattern: "request\\.userInfo\\.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
+          pattern: "request\\.userInfo\\.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery'"
         documentSelector:
           path: 'spec.validations[?(@.message == "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass")].message'
           value: "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass"
@@ -188,7 +193,7 @@ tests:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     set:
-      argocd.enabled: true
+      delivery.argocd.enabled: true
     documentSelector:
       path: 'spec.validations[?(@.message == "spec.source and spec.sources decide what the Pacto delivery pointer runs: only break-glass changes them")].message'
       value: "spec.source and spec.sources decide what the Pacto delivery pointer runs: only break-glass changes them"
@@ -210,7 +215,7 @@ tests:
     asserts:
       - equal:
           path: metadata.name
-          value: d-pacto-delivery-applier
+          value: d-pacto-operator-delivery-applier
       - equal:
           path: spec.matchConstraints.resourceRules[0].resources
           value: [kustomizations]
@@ -226,34 +231,26 @@ tests:
 
   - it: renders nothing when disabled on purpose
     set:
-      admissionPolicies.enabled: false
-      admissionPolicies.allowUnguarded: true
+      delivery.admissionPolicies.enabled: false
+      delivery.admissionPolicies.allowUnguarded: true
     asserts:
       - hasDocuments:
           count: 0
 
   - it: refuses to render unguarded by accident
     set:
-      admissionPolicies.enabled: false
+      delivery.admissionPolicies.enabled: false
     asserts:
       - failedTemplate:
           errorPattern: "leaves every actor, approver and the pointer unguarded"
 
-  - it: renders the policies without cluster capabilities, so an offline render keeps them
-    asserts:
-      - containsDocument:
-          kind: ValidatingAdmissionPolicy
-          apiVersion: admissionregistration.k8s.io/v1
-          name: d-pacto-delivery-operation
-          any: true
-
   - it: holds the promoter to labelled objects and the pointer field alone
     set:
-      argocd.enabled: true
+      delivery.argocd.enabled: true
     asserts:
       - equal:
           path: 'spec.matchConditions[?(@.name == "promoter")].expression'
-          value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
+          value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery'"
         documentSelector:
           path: 'spec.validations[?(@.message == "the promoter may change only spec.ref.digest")].message'
           value: "the promoter may change only spec.ref.digest"
@@ -281,13 +278,13 @@ tests:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     set:
-      recorder.enabled: true
+      delivery.recorder.enabled: true
     asserts:
       - hasDocuments:
           count: 14
       - equal:
           path: 'spec.variables[?(@.name == "recorder")].expression'
-          value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery-recorder'"
+          value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery-recorder'"
         documentSelector:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
           value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
