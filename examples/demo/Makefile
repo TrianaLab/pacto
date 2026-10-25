@@ -24,6 +24,11 @@ DOC_DIST    ?= .doc-export
 DOC_BUNDLE  ?= bundles/payments-service/v2.0.1
 GOROOT      := $(shell go env GOROOT)
 SERVE_PORT  ?= 8088
+# The dashboard's Content-Security-Policy (pkg/dashboard.ContentSecurityPolicy) as
+# a <meta> tag, since a static host sends no headers: plus 'wasm-unsafe-eval' for
+# the engine, minus frame-ancestors, which browsers ignore in a <meta> tag.
+# TestDemoCSPMatchesDashboard keeps the two in step.
+DEMO_CSP    := default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'
 FRONTEND    := $(abspath ../../pkg/dashboard/frontend)
 UI_BUILD    := $(abspath .ui-build)
 # Pacto CORE version this demo is built from — the latest core release tag,
@@ -94,7 +99,11 @@ wasmexec:
 inject:
 	@bust=$$(git hash-object $(DIST)/app.wasm | cut -c1-12); \
 	  sed "s|\"app.wasm\"|\"app.wasm?v=$$bust\"|" boot.js > $(DIST)/boot.js; \
-	  grep -q 'boot.js' $(DIST)/index.html || { awk -v base="$(BASE)" -v bust="$$bust" '\
+	  grep -q 'boot.js' $(DIST)/index.html || { awk -v base="$(BASE)" -v bust="$$bust" -v csp="$(DEMO_CSP)" '\
+	    /<meta name="viewport"/ && !csp_done { \
+	      print "  <meta http-equiv=\"Content-Security-Policy\" content=\"" csp "\" />"; \
+	      csp_done=1 \
+	    } \
 	    /<script type="module"/ && !done { \
 	      print "  <script src=\"" base "wasm_exec.js?v=" bust "\"></script>"; \
 	      print "  <script src=\"" base "boot.js?v=" bust "\"></script>"; \

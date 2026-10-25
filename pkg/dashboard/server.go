@@ -31,6 +31,29 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
+// ContentSecurityPolicy is sent with every answer. The page holds sessions and
+// the Approve button and renders Markdown from any registry, so it backs the
+// sanitiser: no inline or foreign script, no plugins, no <base> rewrite, forms
+// post only here and nothing may frame the page (the Approve button must not
+// be clickjacked). Inline styles stay allowed because Svelte and Mermaid set
+// them; the sanitiser refuses them in Markdown. Remote images are refused too,
+// so a doc cannot track who reads it.
+const ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; " +
+	"img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; " +
+	"base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+
+// securityHeaders sets the headers every answer carries, signed in or not.
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", ContentSecurityPolicy)
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "same-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
 // Options configures a [Server]. Every field is optional.
 type Options struct {
 	// UI is the filesystem holding the web UI assets; nil serves no UI.
@@ -204,7 +227,7 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 	defer cancelBase()
 
 	srv := &http.Server{
-		Handler:           s.corsMiddleware(handler),
+		Handler:           securityHeaders(s.corsMiddleware(handler)),
 		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,

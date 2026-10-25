@@ -50,6 +50,28 @@ func TestServerHealth(t *testing.T) {
 	}
 }
 
+// Every answer, API or UI, carries the policy that backs the Markdown
+// sanitiser and refuses framing, with or without sign-in configured.
+func TestServerSecurityHeaders(t *testing.T) {
+	base := startServer(t, NewServer(Options{UI: testUI()}))
+	for _, path := range []string{"/", "/health", "/missing"} {
+		resp, err := http.Get(base + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+		csp := resp.Header.Get("Content-Security-Policy")
+		for _, want := range []string{"script-src 'self';", "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'", "default-src 'self'"} {
+			if !strings.Contains(csp, want) {
+				t.Errorf("%s: CSP %q lacks %q", path, csp, want)
+			}
+		}
+		if resp.Header.Get("X-Frame-Options") != "DENY" || resp.Header.Get("X-Content-Type-Options") != "nosniff" {
+			t.Errorf("%s: headers %v", path, resp.Header)
+		}
+	}
+}
+
 func TestServerMetrics(t *testing.T) {
 	q := demoFleetQuery(t)
 	srv := NewServer(Options{UI: testUI(), Fleet: func(context.Context) (*fleet.Query, error) { return q, nil }})

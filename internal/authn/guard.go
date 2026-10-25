@@ -112,13 +112,10 @@ func sameOrigin(r *http.Request) bool {
 
 func equal(a, b string) bool { return a != "" && subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1 }
 
-// Middleware frames nothing, resolves the caller and refuses what the mode
-// does not allow.
+// Middleware resolves the caller and refuses what the mode does not allow.
+// The dashboard server sets the framing and content policy headers.
 func (d *Dashboard) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// The Approve button must not be clickjacked.
-		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
-		w.Header().Set("X-Frame-Options", "DENY")
 		st, ok := State{}, true
 		switch {
 		case d.Local():
