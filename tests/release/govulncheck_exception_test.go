@@ -15,8 +15,9 @@ import (
 // (golang.org/x/crypto/openpgp, reached only through sigstore-go -> rekor's
 // pkg/pki/pgp, never used by Pacto). An exception list only ever grows unless
 // something stops it, so this test pins the list to that one ID and runs the
-// real gate script against synthetic SARIF: the accepted ID alone passes, any
-// other reachable ID still fails, and an absent ID prints the stale notice.
+// real gate script against synthetic SARIF from both modules: the accepted ID
+// passes only on init or interface traces, any other reachable ID still fails,
+// and an absent ID fails so the stale exception has to be deleted.
 func TestGovulncheckExceptionIsExactlyOneAdvisory(t *testing.T) {
 	const accepted = "GO-2026-5932"
 	b, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "security.yml"))
@@ -39,13 +40,23 @@ func TestGovulncheckExceptionIsExactlyOneAdvisory(t *testing.T) {
 	if got := wf.Env["IGNORED_VULN"]; got != accepted {
 		t.Fatalf("security.yml IGNORED_VULN = %q; the only accepted exception is %s", got, accepted)
 	}
-	var script string
+	var script, scan string
 	for _, s := range wf.Jobs["govulncheck"].Steps {
 		if len(s.Env) > 0 {
 			t.Errorf("step %q sets its own env; keep the exception in the single workflow-level IGNORED_VULN", s.Name)
 		}
 		if s.Name == "Fail on reachable vulnerabilities" {
 			script = s.Run
+		}
+		if s.Name == "Run govulncheck (SARIF)" {
+			scan = s.Run
+		}
+	}
+	// What ships is scanned: the operator module (the pacto-delivery and
+	// operator images) and the kms-tagged signing providers both.
+	for _, want := range []string{"-tags kms ./... > govulncheck.sarif", "cd integrations/kubernetes && govulncheck -format sarif -tags kms ./..."} {
+		if !strings.Contains(scan, want) {
+			t.Errorf("govulncheck scan step does not run %q:\n%s", want, scan)
 		}
 	}
 	if script == "" {
@@ -55,29 +66,42 @@ func TestGovulncheckExceptionIsExactlyOneAdvisory(t *testing.T) {
 		t.Fatal("jq is required to exercise the govulncheck gate script")
 	}
 
+	// One result per entry: "file|ruleId|level|terminal frame" ("" frame = no trace).
+	type res struct{ file, id, level, frame string }
+	const initFrame = "golang.org/x/crypto/openpgp.init"
 	cases := []struct {
-		name     string
-		results  []string // "ruleId:level"
-		wantPass bool
-		wantOut  string
+		name      string
+		results   []res
+		wantPass  bool
+		wantStale bool
 	}{
-		{"accepted only", []string{accepted + ":error"}, true, ""},
-		{"other reachable", []string{accepted + ":error", "GO-2099-0001:error"}, false, ""},
-		{"other reachable alone", []string{"GO-2099-0001:error"}, false, "no longer reported"},
-		{"clean is stale", nil, true, "no longer reported"},
-		{"unreachable ignored", []string{"GO-2099-0001:warning"}, true, "no longer reported"},
+		{"accepted init trace", []res{{"govulncheck.sarif", accepted, "error", initFrame}}, true, false},
+		{"accepted interface trace", []res{{"govulncheck.sarif", accepted, "error", "golang.org/x/crypto/openpgp/armor.*openpgpReader.Read"}}, true, false},
+		{"accepted only in the operator module", []res{{"govulncheck-k8s.sarif", accepted, "error", "golang.org/x/crypto/openpgp/errors.StructuralError.Error"}}, true, false},
+		{"direct openpgp call", []res{{"govulncheck.sarif", accepted, "error", "golang.org/x/crypto/openpgp.ReadArmoredKeyRing"}}, false, false},
+		{"accepted without a trace", []res{{"govulncheck.sarif", accepted, "error", ""}}, false, false},
+		{"other reachable", []res{{"govulncheck.sarif", accepted, "error", initFrame}, {"govulncheck.sarif", "GO-2099-0001", "error", "x.F"}}, false, false},
+		{"other reachable in the operator module", []res{{"govulncheck.sarif", accepted, "error", initFrame}, {"govulncheck-k8s.sarif", "GO-2099-0001", "error", "x.F"}}, false, false},
+		{"other reachable alone", []res{{"govulncheck.sarif", "GO-2099-0001", "error", "x.F"}}, false, true},
+		{"clean is stale and fails", nil, false, true},
+		{"unreachable ignored but stale", []res{{"govulncheck.sarif", "GO-2099-0001", "warning", "x.F"}}, false, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			var rs []string
-			for _, r := range c.results {
-				id, lvl, _ := strings.Cut(r, ":")
-				rs = append(rs, fmt.Sprintf(`{"ruleId":%q,"level":%q}`, id, lvl))
-			}
 			dir := t.TempDir()
-			sarif := `{"runs":[{"results":[` + strings.Join(rs, ",") + `]}]}`
-			if err := os.WriteFile(filepath.Join(dir, "govulncheck.sarif"), []byte(sarif), 0o600); err != nil {
-				t.Fatal(err)
+			files := map[string][]string{"govulncheck.sarif": nil, "govulncheck-k8s.sarif": nil}
+			for _, r := range c.results {
+				flows := `[]`
+				if r.frame != "" {
+					flows = fmt.Sprintf(`[{"threadFlows":[{"locations":[{"location":{"message":{"text":"github.com/trianalab/pacto/v4/pkg/x.F"}}},{"location":{"message":{"text":%q}}}]}]}]`, r.frame)
+				}
+				files[r.file] = append(files[r.file], fmt.Sprintf(`{"ruleId":%q,"level":%q,"codeFlows":%s}`, r.id, r.level, flows))
+			}
+			for name, rs := range files {
+				sarif := `{"runs":[{"results":[` + strings.Join(rs, ",") + `]}]}`
+				if err := os.WriteFile(filepath.Join(dir, name), []byte(sarif), 0o600); err != nil {
+					t.Fatal(err)
+				}
 			}
 			cmd := exec.Command("bash", "-e", "-c", script)
 			cmd.Dir = dir
@@ -87,9 +111,49 @@ func TestGovulncheckExceptionIsExactlyOneAdvisory(t *testing.T) {
 				t.Fatalf("pass=%v, want %v; output:\n%s", err == nil, c.wantPass, out)
 			}
 			stale := strings.Contains(string(out), "no longer reported")
-			if stale != (c.wantOut != "") {
-				t.Fatalf("stale notice printed=%v, want %v; output:\n%s", stale, c.wantOut != "", out)
+			if stale != c.wantStale {
+				t.Fatalf("stale error printed=%v, want %v; output:\n%s", stale, c.wantStale, out)
 			}
 		})
+	}
+}
+
+// Every image the release ships gets a Trivy leg, the pacto-delivery recorder
+// included. It is built from the same Dockerfile target and CMD the release
+// uses, with no GO_TAGS override, so the scan sees the KMS SDKs the shipped
+// image links by default.
+func TestTrivyScansEveryShippedImage(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "security.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wf struct {
+		Jobs map[string]struct {
+			Strategy struct {
+				Matrix struct {
+					Include []map[string]string `yaml:"include"`
+				} `yaml:"matrix"`
+			} `yaml:"strategy"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(b, &wf); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, leg := range wf.Jobs["trivy-image"].Strategy.Matrix.Include {
+		got[leg["image"]] = leg["build"]
+	}
+	want := map[string]string{
+		"cli":      ".",
+		"operator": "--file integrations/kubernetes/Dockerfile .",
+		"delivery": "--file integrations/kubernetes/Dockerfile --target delivery --build-arg CMD=cmd/delivery .",
+	}
+	for img, build := range want {
+		if got[img] != build {
+			t.Errorf("trivy-image leg %q builds %q, want %q", img, got[img], build)
+		}
+	}
+	if strings.Contains(got["delivery"], "GO_TAGS") {
+		t.Error("the delivery scan overrides GO_TAGS; it must scan the default (kms) image the release ships")
 	}
 }
