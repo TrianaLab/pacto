@@ -187,10 +187,19 @@ jobs:
               - 'internal/app/delivery*.go'
               - 'internal/cli/delivery*.go'
               - 'pkg/dashboard/delivery*.go'
+              # The journeys drive the delivery views and the served bundle,
+              # and server.go wires the approval guard they run against.
+              - 'pkg/dashboard/server.go'
+              - 'pkg/dashboard/frontend/src/**/*[Dd]elivery*'
+              - 'pkg/dashboard/ui/**'
               - 'pkg/dashboard/frontend/e2e-live/**'
               - 'examples/story/**'
+              # delivery-demo.sh sources lib.sh and delivery-identity.sh, and
+              # delivery-demo.yml runs it through kind-run.sh.
+              - 'tests/acceptance/kind/lib.sh'
               - 'tests/acceptance/kind/delivery-demo.sh'
               - 'tests/acceptance/kind/delivery-identity.sh'
+              - 'scripts/ci/kind-run.sh'
               - 'tests/acceptance/kind/fixtures/delivery-demo/**'
               - '.github/workflows/delivery-demo.yml'
 
