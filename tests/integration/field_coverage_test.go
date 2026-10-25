@@ -81,6 +81,7 @@ func warns(name, code string, ops ...fcOp) fcCase {
 const (
 	schemaViolation = "SCHEMA_VIOLATION"
 	parseError      = "PARSE_ERROR"
+	needs21         = "NEEDS_PACTO_2_1" // a 2.1-only part in a 2.0 contract
 )
 
 var fieldCoverageCases = []fcCase{
@@ -136,6 +137,8 @@ var fieldCoverageCases = []fcCase{
 	valid("interfaces[].type=grpc", set("interfaces.0.type", "grpc"), set("interfaces.0.ref", "interfaces/orders.proto")),
 	valid("interfaces[].type=mcp", set("interfaces.0.type", "mcp"), set("interfaces.0.ref", "interfaces/tools.json")),
 	invalid("interfaces[].type=mcp/no-tools", "INVALID_MCP_TOOLS", set("interfaces.0.type", "mcp")),
+	invalid("interfaces[].type=mcp/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("publish"), del("agent"),
+		set("interfaces.0.type", "mcp"), set("interfaces.0.ref", "interfaces/tools.json")),
 	valid("interfaces[].ref/valid", set("interfaces.0.ref", "interfaces/asyncapi.yaml")),
 	invalid("interfaces[].ref/invalid", "FILE_NOT_FOUND", set("interfaces.0.ref", "interfaces/missing.yaml")),
 	valid("interfaces[].visibility/valid", del("interfaces.0.visibility")),
@@ -302,7 +305,7 @@ var fieldCoverageCases = []fcCase{
 
 	valid("publish/valid"),
 	invalid("publish/invalid", parseError, set("publish", "ghcr.io")),
-	invalid("publish/invalid-2.0", schemaViolation, set("pactoVersion", "2.0")),
+	invalid("publish/invalid-2.0", needs21, set("pactoVersion", "2.0")),
 	valid("publish.bundle/valid", set("publish.bundle", "oci://registry.example.com:5000/acme/pacto/orders")),
 	invalid("publish.bundle/invalid", schemaViolation, set("publish.bundle", "oci://ghcr.io/acme/pacto/orders:1.0.0")),
 	valid("publish.deploy/valid", del("publish.deploy")),
@@ -359,7 +362,7 @@ var fieldCoverageCases = []fcCase{
 	valid("agent/valid"),
 	invalid("agent/invalid", parseError, set("agent", "yes")),
 	invalid("agent/invalid-empty", schemaViolation, set("agent", map[string]any{})),
-	invalid("agent/invalid-2.0", schemaViolation, set("pactoVersion", "2.0"), del("publish")),
+	invalid("agent/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("publish")),
 	valid("agent.models/valid", del("agent.models")),
 	invalid("agent.models/invalid", schemaViolation, set("agent.models", []any{"m", "m"})),
 	valid("agent.models[]/valid", set("agent.models", []any{"openai/gpt-5", "anthropic/claude-sonnet-4-5"})),
