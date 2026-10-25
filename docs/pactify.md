@@ -32,7 +32,7 @@ You need:
   `go install github.com/sigstore/cosign/v2/cmd/cosign@latest`;
 - for step 4, a Kubernetes cluster (1.30 or later), `kubectl` and `helm`. For
   a person to approve a held change, the cluster must trust your company
-  login, which most managed clusters cannot yet do: see step 5.
+  login, which is not verified on managed clusters (EKS, GKE, AKS): see step 5.
 
 You do not write the contract by hand: Pacto writes it from your service.
 

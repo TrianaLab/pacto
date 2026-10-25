@@ -86,8 +86,8 @@ but that tells it only which service calls which, not what each call uses.
 AI agents can plan, ask for and cancel changes, but only people can approve.
 To approve, a person must have signed in to the dashboard (or the cluster)
 with their own company login in the last 15 minutes, and the record names them.
-That needs a cluster that trusts your company login, which most managed
-clusters cannot yet do; [Sign-in, approvals and agents](delivery-identity.md#where-approving-works)
+That needs a cluster that trusts your company login, which is not verified on
+managed clusters (EKS, GKE, AKS); [Sign-in, approvals and agents](delivery-identity.md#where-approving-works)
 says how to check and what to do without it.
 
 ## What Unknown means
@@ -111,7 +111,7 @@ pass.
 | Held | An Operation waiting for a person to decide |
 | Approval | A person's decision on one held Operation |
 | Freeze, unfreeze | Stop automation moving a Stage, and let it move again |
-| Auto-hold | Set when a person rolls back a Stage that promotes on its own: automation stops promoting there until a person unfreezes it |
+| Auto-hold | Set when a person or agent rolls back a Stage, or promotes it back to a version it ran before: automation stops promoting there until a person unfreezes it or promotes a newer version |
 | Break-glass | A group, `pacto:break-glass` by default, that may force a version past every check |
 | Record | The signed account of one finished Operation |
 
