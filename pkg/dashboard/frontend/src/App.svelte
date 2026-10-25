@@ -21,11 +21,6 @@
   import FleetEntityListView from './views/FleetEntityListView.svelte';
   import FleetAttentionView from './views/FleetAttentionView.svelte';
   import LegacyEntityRedirect from './views/LegacyEntityRedirect.svelte';
-  import DeliveryInboxView from './views/DeliveryInboxView.svelte';
-  import DeliveryEnvironmentsView from './views/DeliveryEnvironmentsView.svelte';
-  import DeliveryChangeView from './views/DeliveryChangeView.svelte';
-  import DeliveryHistoryView from './views/DeliveryHistoryView.svelte';
-  import DeliveryPublishView from './views/DeliveryPublishView.svelte';
 
   // The views that carry cytoscape, d3 and the charts load on first use.
   const once = (f) => { let p; return () => (p ??= f()); };
@@ -37,7 +32,13 @@
   const loadFleetEntityView = once(() => import('./views/FleetEntityView.svelte'));
   const loadChangeAnalysisView = once(() => import('./views/ChangeAnalysisView.svelte'));
   const loadOwnerDetailView = once(() => import('./views/OwnerDetailView.svelte'));
+  // Delivery views load on first use too: most visitors never open them.
+  const loadDeliveryInboxView = once(() => import('./views/DeliveryInboxView.svelte'));
+  const loadDeliveryEnvironmentsView = once(() => import('./views/DeliveryEnvironmentsView.svelte'));
   const loadDeliveryAutonomyView = once(() => import('./views/DeliveryAutonomyView.svelte'));
+  const loadDeliveryChangeView = once(() => import('./views/DeliveryChangeView.svelte'));
+  const loadDeliveryHistoryView = once(() => import('./views/DeliveryHistoryView.svelte'));
+  const loadDeliveryPublishView = once(() => import('./views/DeliveryPublishView.svelte'));
 
   let route = $state(parseHash(location.hash));
   let services = $state([]);
@@ -401,19 +402,19 @@
          knows who the caller is. Anywhere else the views say why they are absent. -->
     {#if capabilities?.delivery === true}
       {#if route.view === 'delivery-inbox'}
-        <DeliveryInboxView {refreshTick} />
+        <LazyView load={loadDeliveryInboxView} {refreshTick} />
       {:else if route.view === 'delivery-environments'}
-        <DeliveryEnvironmentsView {refreshTick} miraURL={capabilities.miraURL || ''} />
+        <LazyView load={loadDeliveryEnvironmentsView} {refreshTick} miraURL={capabilities.miraURL || ''} />
       {:else if route.view === 'delivery-autonomy'}
         <LazyView load={loadDeliveryAutonomyView} {refreshTick} miraURL={capabilities.miraURL || ''} />
       {:else if route.view === 'delivery-change'}
         {#key route.params.namespace + '/' + route.params.name}
-          <DeliveryChangeView namespace={route.params.namespace} name={route.params.name} {refreshTick} miraURL={capabilities.miraURL || ''} />
+          <LazyView load={loadDeliveryChangeView} namespace={route.params.namespace} name={route.params.name} {refreshTick} miraURL={capabilities.miraURL || ''} />
         {/key}
       {:else if route.view === 'delivery-history'}
-        <DeliveryHistoryView namespace={route.params.namespace || ''} stage={route.params.stage || ''} {refreshTick} miraURL={capabilities.miraURL || ''} />
+        <LazyView load={loadDeliveryHistoryView} namespace={route.params.namespace || ''} stage={route.params.stage || ''} {refreshTick} miraURL={capabilities.miraURL || ''} />
       {:else}
-        <DeliveryPublishView {refreshTick} />
+        <LazyView load={loadDeliveryPublishView} {refreshTick} />
       {/if}
     {:else if capabilities}
       <div class="product-page" data-testid="delivery-unavailable">

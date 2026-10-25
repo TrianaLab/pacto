@@ -53,17 +53,16 @@ describe('App — delivery gate', () => {
     const { target, destroy } = await renderAt('#/delivery/inbox');
     expect(target.querySelector('[data-testid="delivery-unavailable"]')).not.toBeNull();
     (target.querySelector('button[aria-label="Refresh"]') as HTMLButtonElement).click();
-    for (let i = 0; i < 12; i++) { await tick(); await Promise.resolve(); }
-    flushSync();
-    expect(fns.inbox).toHaveBeenCalled();
+    // The delivery views load on first use.
+    await vi.waitFor(() => expect(fns.inbox).toHaveBeenCalled());
     destroy();
   });
 
   it('mounts the inbox where it does', async () => {
     fns.capabilities.mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: true, auth: { mode: 'shared', login: true, signedIn: true } });
     const { target, destroy } = await renderAt('#/delivery/inbox');
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="inbox-empty"]')).not.toBeNull());
     expect(fns.inbox).toHaveBeenCalled();
-    expect(target.querySelector('[data-testid="inbox-empty"]')).not.toBeNull();
     destroy();
   });
 });
