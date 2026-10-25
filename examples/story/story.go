@@ -371,7 +371,9 @@ func (b Beat) PlanInput(ctx context.Context) (delivery.PlanInput, error) {
 		Spec: delivery.OperationSpec{Type: b.Type, Stage: b.Service, Facet: delivery.FacetPointer,
 			Params: delivery.Params{From: from.Digest, To: to.Digest}, Actor: delivery.Actor{User: b.Actor.User}},
 		Stage: stage(b.Service, b.Environment), From: from, To: to, Class: b.Actor.Class(),
-		Status: delivery.StageStatus{Pointer: from.Digest, Frozen: b.Frozen},
+		// The story's Stages have been raised to autonomous, one approved
+		// rung at a time, so each beat shows what the graph alone decides.
+		Status: delivery.StageStatus{Rung: delivery.RungAutonomous, Pointer: from.Digest, Frozen: b.Frozen},
 	}
 	switch b.Type {
 	case "":

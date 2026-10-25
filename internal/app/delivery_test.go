@@ -80,7 +80,7 @@ func deliveryFixture(t *testing.T, user string, groups []string, extra map[strin
 	stage := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "prod", "payments-prod", map[string]any{
 		"spec": map[string]any{"service": map[string]any{"name": "payments"}, "environment": "prod", "applyRef": map[string]any{"name": "payments"},
 			"candidates": map[string]any{"upstreamStage": map[string]any{"name": "payments-test", "namespace": "test"}}},
-		"status": map[string]any{"pointer": dlA, "verified": []any{dlA}},
+		"status": map[string]any{"rung": "autonomous", "pointer": dlA, "verified": []any{dlA}},
 	})
 	// The upstream Stage offers B (it passed pacto.published there and
 	// verified), so B passes the published gate here.
