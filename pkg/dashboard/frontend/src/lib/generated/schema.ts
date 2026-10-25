@@ -2330,7 +2330,7 @@ export interface components {
             /** @description What must move first: the consumers whose declared range does not accept the new version, their Stages and any verified version upstream that can go first */
             order?: components["schemas"]["Delivery.Order"];
             outcome?: string;
-            /** @description The teams that may answer; empty means any person */
+            /** @description The teams that may answer; empty means no team is declared: nobody may answer when identities.requireOwnerTeam is true (the default), else any person */
             owners?: string[] | null;
             phase: string;
             question?: string;
@@ -2348,7 +2348,7 @@ export interface components {
             errored: components["schemas"]["InboxItem"][] | null;
             /** @description Frozen Stages of the caller's services */
             frozen: components["schemas"]["EnvironmentRow"][] | null;
-            /** @description Held operations whose question names one of the caller's teams */
+            /** @description Held operations whose question names one of the caller's teams; for break-glass also those that name no team */
             held: components["schemas"]["InboxItem"][] | null;
             /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
             unreadable?: string[] | null;
@@ -3172,6 +3172,8 @@ export interface components {
             mode: "local" | "shared" | "none";
             /** @description The signed-in person's name from their ID token (name, else email) */
             name?: string;
+            /** @description A question that names no team has nobody who may answer it; only break-glass can override */
+            requireOwnerTeam?: boolean;
             /** @description The caller has a live session (shared) or the launch cookie (local) */
             signedIn: boolean;
         };

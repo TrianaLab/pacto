@@ -438,7 +438,8 @@ type Floor struct {
 	// Owners are the teams the question is routed to and the only ones whose
 	// members may answer it: the owners of the consumers that made the floor,
 	// or else the team of the Stage's own service. Empty means no team is
-	// declared, and any person may answer.
+	// declared: nobody may answer when identities.requireOwnerTeam is true
+	// (the default), else any person.
 	// +optional
 	Owners []string `json:"owners,omitempty"`
 	// Consumers are the services that made the floor.

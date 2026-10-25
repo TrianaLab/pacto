@@ -313,6 +313,11 @@ func TestCapabilitiesAndSessionSignedIn(t *testing.T) {
 	caller, _ := sess["caller"].(map[string]any)
 	expect(t, sess["mode"] == "shared" && sess["fresh"] == true, "session %v", sess)
 	expect(t, sess["csrf"] == "c" && caller["user"] == "https://idp#carol", "session %v", sess)
+	expect(t, sess["requireOwnerTeam"] == nil, "an ownerless question is anyone's without the rule: %v", sess)
+	f.policy = &delivery.ClassPolicy{RequireOwnerTeam: true}
+	_, sess = call(t, http.MethodGet, base+"/api/session", nil)
+	expect(t, sess["requireOwnerTeam"] == true, "the session says when an ownerless question is nobody's: %v", sess)
+	f.policy = nil
 	code, _ := call(t, http.MethodGet, base+"/auth/login", nil)
 	expect(t, code == http.StatusTeapot, "/auth/* goes to the identity layer: %d", code)
 	f.callerErr = errors.New("apiserver down")
@@ -454,6 +459,17 @@ func TestInbox(t *testing.T) {
 	f.caller = delivery.Caller{Identity: delivery.Identity{User: "bot", Groups: []string{"acme:team-checkout", "pacto:agents"}}, Class: delivery.ClassAgent}
 	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
 	expect(t, len(inbox["held"].([]any)) == 0, "an agent is asked nothing: %v", inbox["held"])
+	// Under requireOwnerTeam an ownerless question is nobody's but
+	// break-glass's, so it is in front of break-glass only.
+	f.ops[0].Spec.Actor.User = "someone-else"
+	f.policy = &delivery.ClassPolicy{TeamGroupPrefix: "acme:", BreakGlassGroups: []string{"pacto:break-glass"}, RequireOwnerTeam: true}
+	f.caller = person("acme:team-checkout")
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	expect(t, names(inbox["held"]) == "for-checkout:approve", "a person cannot answer an ownerless question: %v", inbox["held"])
+	f.caller = person("pacto:break-glass")
+	f.caller.Class = delivery.ClassBreakGlass
+	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	expect(t, names(inbox["held"]) == "anyone:accept-unknown", "break-glass sees what only it can resolve: %v", inbox["held"])
 }
 
 func TestEnvironments(t *testing.T) {
@@ -688,7 +704,13 @@ func TestDecide(t *testing.T) {
 			return base
 		}, http.StatusUnauthorized, "FreshLoginRequired"},
 		{"not my team", func() string { f.caller = person("acme:team-payments"); return base }, http.StatusForbidden, "NotYourTeam"},
+		{"no team declared", func() string {
+			f.policy = &delivery.ClassPolicy{RequireOwnerTeam: true}
+			f.ops[0].Status = held()
+			return base
+		}, http.StatusForbidden, "NoOwnerTeam"},
 		{"my own change", func() string {
+			f.policy, f.ops[0].Status = nil, held("team-checkout")
 			f.caller = person("acme:team-checkout")
 			f.ops[0].Spec.Actor.User = f.caller.User
 			return base
