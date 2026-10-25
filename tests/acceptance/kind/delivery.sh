@@ -712,7 +712,9 @@ always 7 stale_ignored || fail "a Compliant result for A's contract was used for
 pass "item 8: with A's Compliant verdict still in the Pacto status, B stays unverified (Unknown)"
 # Each refusal is captured before it is grepped: under pipefail, `kubectl ... |
 # grep -q` reports kubectl's own non-zero exit even when grep matched.
-OUT="$(KUBECONFIG="$AGENT_A" kubectl -n test delete operation "$OPB" --wait=false 2>&1 || true)"
+# A person, who may cancel anyone's operation before it moves (an agent may
+# not cancel the promoter's own auto promote at all).
+OUT="$(KUBECONFIG="$(person_kubeconfig alice humans)" kubectl -n test delete operation "$OPB" --wait=false 2>&1 || true)"
 if grep -q "can no longer be cancelled" <<<"$OUT"; then
   pass "cancel is refused once the pointer moved"
 else
