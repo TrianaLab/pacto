@@ -39,6 +39,30 @@ public client (PKCE, no secret) whose redirect is the loopback address
 cannot trust your identity provider keeps the read-only dashboard and the CLI,
 and nobody can approve there.
 
+## Where approving works
+
+The apiserver must load this file (flag `--authentication-config`), and its
+`claimMappings` must be able to set `extra`. That is in your hands wherever you
+set the apiserver's flags, as with kind, kubeadm or k3s; Pacto's own tests run
+it on kind. Managed clusters mostly decide it for you:
+
+| Cluster | Can it map `pacto.dev/auth-time`? |
+|---|---|
+| kind, kubeadm, k3s and others where you set apiserver flags | Yes, tested on kind |
+| AKS | Not verified: structured authentication is in preview |
+| EKS, GKE | Not verified |
+
+To check a cluster, sign in again and run `kubectl auth whoami -o yaml`. If
+`extra` holds no `pacto.dev/auth-time`, nobody can approve there. Delivery
+still promotes every change that needs no decision, people can still freeze,
+unfreeze, roll back and cancel, and the dashboard and the CLI still read
+everything. A held change then ends one of three ways: it expires, someone
+cancels it and publishes a version that asks nothing, or a member of the
+break-glass group raises an override with
+`pacto delivery propose --type override --to sha256:...`. An override moves the version at once with no checks, is kept
+in the history like any change and freezes the Stage until a person unfreezes
+it.
+
 ## Who counts as a person, an agent or a team
 
 Set the groups once, on the delivery chart:

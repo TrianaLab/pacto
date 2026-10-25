@@ -55,3 +55,10 @@ controller or an agent needs before it concludes anything.
 - **Distributed through existing infrastructure.** Contracts are OCI artifacts.
   They travel through the registries, the auth and the tooling that already
   carry container images. No new distribution plane.
+
+- **Act only on what each change can show.** The opt-in delivery component
+  lets a version move on its own only when this change's compatibility, its
+  impact on the declared consumers and its checks back it. Autonomy is gated
+  by evidence per change, not granted for a good track record. When Pacto
+  cannot see enough it holds the change and asks the teams concerned, never an
+  agent, and each decision can end in a signed record.

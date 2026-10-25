@@ -179,6 +179,10 @@ honestly uncertain.
 
 ## What Pacto is not
 
+These hold for the contract engine and the operator. The opt-in
+[delivery component](integrations/kubernetes/delivery.md) is the one exception,
+named in the two items it changes.
+
 - **Not a developer portal or an internal developer platform (IDP).** There is
   nothing to onboard into, no scaffolding templates and no golden paths. A portal
   decides what people see; Pacto records what a revision guarantees.
@@ -190,9 +194,12 @@ honestly uncertain.
   service's operational intent, not your databases, queues and networks.
 - **It grants no permission.** Pacto validates a contract against policy
   schemas. Whether an action is *permitted* stays with the runtime controls you
-  already run — OPA, Kyverno, admission, IAM.
+  already run — OPA, Kyverno, admission, IAM. Delivery adds its own admission
+  policies, which decide who may move or approve a change to a Stage.
 - **It does not observe or act.** The engine only reasons over `Contract` and
   `EvidenceSet`. Observing is a collector's job; acting is an external actor's.
+  Delivery is such an actor: it picks the version a Stage runs, rolls back and
+  freezes, and Flux or Argo CD applies it.
 - **Discovery is not authorization.** Being able to find and read a contract
   grants no permission to change anything and performs no action.
 

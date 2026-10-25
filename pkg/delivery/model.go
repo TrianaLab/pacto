@@ -3,7 +3,15 @@
 // promoter, the CLI and the MCP tools all call to decide whether a change may
 // move, whether a person must agree and who.
 //
-// It holds no Kubernetes, registry or clock dependency. The wire types below are
+// Experimental: not covered by semantic versioning. Delivery is Alpha, and
+// this API may change in a minor release.
+//
+// The decision path (plan, the verdict mappings and the intent digest) holds no
+// Kubernetes, registry or clock dependency: what it reads arrives in PlanInput
+// and through the Registry interface. The package also holds the gate
+// providers that call out over HTTP (http, mira and eval, in gate.go, mira.go
+// and eval.go); they run only where the promoter is configured with them, and
+// CheckTimeout bounds each check. The wire types below are
 // embedded verbatim by the delivery CRDs (delivery.pacto.trianalab.io/v1alpha1 in
 // integrations/kubernetes), so a client decoding a Stage or an Operation reads
 // exactly the struct the controller wrote, and the intent digest a client
@@ -331,7 +339,8 @@ type StageStatus struct {
 	Frozen bool `json:"frozen,omitempty"`
 	// +optional
 	FrozenReason string `json:"frozenReason,omitempty"`
-	// AutoHold stops auto-promotion after a person chose an older version.
+	// AutoHold stops auto-promotion after a person or agent rolled back or
+	// promoted back to a version the Stage already verified.
 	// +optional
 	AutoHold bool `json:"autoHold,omitempty"`
 	// RolledBack holds the uids of the failed operations the promoter raised

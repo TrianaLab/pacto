@@ -4,6 +4,10 @@
 page covers the two other set-ups: a Stage applied by Argo CD, and a Stage
 that follows a Stage in another cluster.
 
+!!! warning "Experimental"
+    Both set-ups are experimental, within an Alpha component: they may change
+    more than the rest of delivery and have had less live testing than Flux.
+
 ## Apply through Argo CD
 
 A Stage can point at an Argo CD `Application` instead of a Flux

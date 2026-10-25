@@ -714,6 +714,13 @@ func TestVerdictUnknownReasons(t *testing.T) {
 	e.drive("p1")
 	in := gateInput(e.getOp("p1"), e.getStage(), e.now, e.now)
 	check := func() string { return e.op.Gates[delivery.GateContract].Check(context.Background(), in, nil).Message }
+	// Why the version is not confirmed applied reaches the verdict, so an
+	// RBAC gap does not read as an applier that is merely slow.
+	e.fails["list/Kustomization"] = true
+	if m := check(); !strings.Contains(m, "not confirmed applied: reading the Kustomizations") {
+		t.Fatal(m)
+	}
+	delete(e.fails, "list/Kustomization")
 	e.fails["list/Pacto"] = true
 	if m := check(); !strings.Contains(m, "listing Pactos") {
 		t.Fatal(m)

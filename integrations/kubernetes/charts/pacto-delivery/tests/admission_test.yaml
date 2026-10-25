@@ -21,53 +21,63 @@ tests:
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
-    documentIndex: 0
+    documentSelector:
+      path: 'spec.validations[?(@.message == "spec.actor.user must be the user creating the operation")].message'
+      value: "spec.actor.user must be the user creating the operation"
     asserts:
       - equal:
-          path: spec.validations[0].expression
+          path: 'spec.validations[?(@.message == "spec.actor.user must be the user creating the operation")].expression'
           value: object.spec.actor.user == request.userInfo.username
 
   - it: lets only the promoter set witnessed
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
-    documentIndex: 0
+    documentSelector:
+      path: 'spec.validations[?(@.message == "only the Pacto delivery promoter may raise a witnessed operation")].message'
+      value: "only the Pacto delivery promoter may raise a witnessed operation"
     asserts:
       - equal:
-          path: spec.validations[3].expression
+          path: 'spec.validations[?(@.message == "only the Pacto delivery promoter may raise a witnessed operation")].expression'
           value: "!variables.witnessed || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
 
   - it: lets a person, break-glass or the promoter freeze, never an agent
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
-    documentIndex: 0
+    documentSelector:
+      path: 'spec.validations[?(@.message == "only a person, break-glass or the promoter may freeze a Stage; agents may not")].message'
+      value: "only a person, break-glass or the promoter may freeze a Stage; agents may not"
     asserts:
       - equal:
-          path: spec.validations[6].expression
+          path: 'spec.validations[?(@.message == "only a person, break-glass or the promoter may freeze a Stage; agents may not")].expression'
           value: "object.spec.type != 'pacto.dev/freeze' || variables.breakGlass || !variables.agent || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
 
   - it: lets an agent cancel only its own operations
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
-    documentIndex: 2
+    documentSelector:
+      path: 'spec.validations[?(@.message == "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest")].message'
+      value: "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest"
     asserts:
       - equal:
-          path: spec.validations[0].expression
+          path: 'spec.validations[?(@.message == "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest")].expression'
           value: "oldObject.spec.actor.user == request.userInfo.username || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery' || request.userInfo.username == 'system:serviceaccount:kube-system:namespace-controller' || request.userInfo.groups.exists(g, g in ['pacto:break-glass']) || !(request.userInfo.username.startsWith('system:serviceaccount:') || request.userInfo.groups.exists(g, g in ['pacto:agents']))"
       - matchRegex:
-          path: spec.validations[1].message
+          path: 'spec.validations[?(@.message == "the pointer already moved for this operation, so it can no longer be cancelled; roll it back instead")].message'
           pattern: can no longer be cancelled
 
   - it: refuses approvals from agents and service accounts
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
-    documentIndex: 4
+    documentSelector:
+      path: 'spec.validations[?(@.message == "agents and service accounts may not approve")].message'
+      value: "agents and service accounts may not approve"
     asserts:
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "agents and service accounts may not approve")].expression'
           pattern: "g in \\['pacto:agents'\\]"
 
   - it: counts nobody outside identities.humanGroups as a person
@@ -78,13 +88,17 @@ tests:
       identities.humanGroups: [staff]
     asserts:
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "agents and service accounts may not approve")].expression'
           pattern: "!request.userInfo.groups.exists\\(g, g in \\['staff'\\]\\)\\)$"
-        documentIndex: 4
+        documentSelector:
+          path: 'spec.validations[?(@.message == "agents and service accounts may not approve")].message'
+          value: "agents and service accounts may not approve"
       - matchRegex:
-          path: spec.variables[3].expression
+          path: 'spec.variables[?(@.name == "agent")].expression'
           pattern: "!request.userInfo.groups.exists\\(g, g in \\['staff'\\]\\)$"
-        documentIndex: 0
+        documentSelector:
+          path: 'spec.validations[?(@.message == "spec.actor.user must be the user creating the operation")].message'
+          value: "spec.actor.user must be the user creating the operation"
 
   - it: adds no human allowlist by default
     capabilities:
@@ -92,32 +106,35 @@ tests:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     asserts:
       - notMatchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "agents and service accounts may not approve")].expression'
           pattern: "!request.userInfo.groups.exists"
-        documentIndex: 4
+        documentSelector:
+          path: 'spec.validations[?(@.message == "agents and service accounts may not approve")].message'
+          value: "agents and service accounts may not approve"
 
   - it: binds an approval's groups to the approving user's groups
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
-    documentIndex: 4
+    documentSelector:
+      path: 'spec.validations[?(@.message == "spec.groups must be the groups of the user creating the approval")].message'
+      value: "spec.groups must be the groups of the user creating the approval"
     asserts:
-      - equal:
-          path: spec.validations[3].message
-          value: "spec.groups must be the groups of the user creating the approval"
       # Both directions: no group the user lacks, and none of theirs left out.
       - matchRegex:
-          path: spec.validations[3].expression
+          path: 'spec.validations[?(@.message == "spec.groups must be the groups of the user creating the approval")].expression'
           pattern: "variables\\.groups\\.all\\(g, g in request\\.userInfo\\.groups\\) &&"
       - matchRegex:
-          path: spec.validations[3].expression
+          path: 'spec.validations[?(@.message == "spec.groups must be the groups of the user creating the approval")].expression'
           pattern: "request\\.userInfo\\.groups\\.all\\(g, g in variables\\.groups\\)"
 
   - it: protects only labelled OCIRepositories
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
-    documentIndex: 6
+    documentSelector:
+      path: 'spec.validations[?(@.message == "spec.ref.digest is the Pacto delivery pointer: propose a promote, or use break-glass")].message'
+      value: "spec.ref.digest is the Pacto delivery pointer: propose a promote, or use break-glass"
     asserts:
       - equal:
           path: spec.matchConstraints.objectSelector.matchExpressions[0].key
@@ -135,27 +152,35 @@ tests:
       - equal:
           path: spec.matchConstraints.resourceRules[0].resources
           value: [applications]
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass")].message'
+          value: "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass"
       - equal:
           path: spec.matchConstraints.objectSelector.matchExpressions[0].key
           value: delivery.pacto.trianalab.io/apply-ref
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass")].message'
+          value: "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass"
       - matchRegex:
-          path: spec.validations[0].expression
+          path: 'spec.validations[?(@.message == "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass")].expression'
           pattern: "request\\.userInfo\\.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
-        documentIndex: 8
+        documentSelector:
+          path: 'spec.validations[?(@.message == "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass")].message'
+          value: "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass"
 
   - it: keeps the label, the url and the layer selector of a labelled OCIRepository to break-glass
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
-    documentIndex: 6
+    documentSelector:
+      path: 'spec.validations[?(@.message == "spec.url and spec.layerSelector decide what the Pacto delivery pointer runs: only break-glass changes them")].message'
+      value: "spec.url and spec.layerSelector decide what the Pacto delivery pointer runs: only break-glass changes them"
     asserts:
       - equal:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the delivery.pacto.trianalab.io/apply-ref label guards the Pacto delivery pointer: only break-glass removes it")].expression'
           value: "variables.breakGlass || has(object.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in object.metadata.labels"
       - matchRegex:
-          path: spec.validations[2].expression
+          path: 'spec.validations[?(@.message == "spec.url and spec.layerSelector decide what the Pacto delivery pointer runs: only break-glass changes them")].expression'
           pattern: "object\\.spec\\.url.*object\\.spec\\.layerSelector"
 
   - it: keeps the rest of an Argo CD Application's source and its label to break-glass
@@ -164,20 +189,24 @@ tests:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     set:
       argocd.enabled: true
-    documentIndex: 8
+    documentSelector:
+      path: 'spec.validations[?(@.message == "spec.source and spec.sources decide what the Pacto delivery pointer runs: only break-glass changes them")].message'
+      value: "spec.source and spec.sources decide what the Pacto delivery pointer runs: only break-glass changes them"
     asserts:
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the delivery.pacto.trianalab.io/apply-ref label guards the Pacto delivery pointer: only break-glass removes it")].expression'
           pattern: "'delivery\\.pacto\\.trianalab\\.io/apply-ref' in object\\.metadata\\.labels"
       - matchRegex:
-          path: spec.validations[2].expression
+          path: 'spec.validations[?(@.message == "spec.source and spec.sources decide what the Pacto delivery pointer runs: only break-glass changes them")].expression'
           pattern: "k == 'targetRevision' \\|\\| \\(k in variables\\.oldSource.*object\\.spec\\.sources"
 
   - it: keeps what a labelled Kustomization applies, and its label, to break-glass
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
-    documentIndex: 8
+    documentSelector:
+      path: 'spec.validations[?(@.message == "sourceRef, path, images, patches, components, postBuild, namePrefix, nameSuffix and targetNamespace decide what the Pacto delivery pointer runs: only break-glass changes them")].message'
+      value: "sourceRef, path, images, patches, components, postBuild, namePrefix, nameSuffix and targetNamespace decide what the Pacto delivery pointer runs: only break-glass changes them"
     asserts:
       - equal:
           path: metadata.name
@@ -189,10 +218,10 @@ tests:
           path: spec.matchConstraints.objectSelector.matchExpressions[0].key
           value: delivery.pacto.trianalab.io/apply-ref
       - equal:
-          path: spec.variables[1].expression
+          path: 'spec.variables[?(@.name == "guarded")].expression'
           value: "['sourceRef', 'path', 'images', 'patches', 'components', 'postBuild', 'namePrefix', 'nameSuffix', 'targetNamespace']"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "sourceRef, path, images, patches, components, postBuild, namePrefix, nameSuffix and targetNamespace decide what the Pacto delivery pointer runs: only break-glass changes them")].expression'
           pattern: "variables\\.guarded\\.all\\(f,"
 
   - it: renders nothing when disabled on purpose
@@ -223,21 +252,29 @@ tests:
       argocd.enabled: true
     asserts:
       - equal:
-          path: spec.matchConditions[0].expression
+          path: 'spec.matchConditions[?(@.name == "promoter")].expression'
           value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
-        documentIndex: 12
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the promoter may change only spec.ref.digest")].message'
+          value: "the promoter may change only spec.ref.digest"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the promoter may change only spec.ref.digest")].expression'
           pattern: "k == 'digest'"
-        documentIndex: 12
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the promoter may change only spec.ref.digest")].message'
+          value: "the promoter may change only spec.ref.digest"
       - equal:
           path: spec.matchConstraints.resourceRules[0].resources
           value: [applications]
-        documentIndex: 14
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the promoter may change only spec.source.targetRevision")].message'
+          value: "the promoter may change only spec.source.targetRevision"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the promoter may change only spec.source.targetRevision")].expression'
           pattern: "k == 'targetRevision'"
-        documentIndex: 14
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the promoter may change only spec.source.targetRevision")].message'
+          value: "the promoter may change only spec.source.targetRevision"
 
   - it: keeps the record fields to the recorder, and the recorder away from what runs
     capabilities:
@@ -249,30 +286,44 @@ tests:
       - hasDocuments:
           count: 14
       - equal:
-          path: spec.variables[0].expression
+          path: 'spec.variables[?(@.name == "recorder")].expression'
           value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery-recorder'"
-        documentIndex: 10
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[0].expression
+          path: 'spec.validations[?(@.message == "status.record and status.stream.{recordedSeq,head,anchor} are written only by the Pacto delivery recorder")].expression'
           pattern: "has\\(object.status.stream.head\\) \\? object.status.stream.head : ''\\) == \\(has\\(oldObject.status\\)"
-        documentIndex: 10
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "^!variables.recorder \\|\\|"
-        documentIndex: 10
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "variables\\.status\\.all\\(k, k in \\['record', 'stream', 'conditions'\\] \\|\\|"
-        documentIndex: 10
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "variables\\.stream\\.all\\(k, k in \\['recordedSeq', 'head', 'anchor'\\] \\|\\|"
-        documentIndex: 10
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.validations[1].expression
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].expression'
           pattern: "variables\\.conditions == variables\\.oldConditions\\)$"
-        documentIndex: 10
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
       - matchRegex:
-          path: spec.variables[5].expression
+          path: 'spec.variables[?(@.name == "conditions")].expression'
           pattern: "filter\\(c, c\\.type != 'RecordStoreReady'\\)"
-        documentIndex: 10
+        documentSelector:
+          path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
+          value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"

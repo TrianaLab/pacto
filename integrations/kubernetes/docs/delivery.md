@@ -6,7 +6,8 @@ change from a risky one, asks a person only when it must and rolls back a
 version that fails its checks. A contract is the file, `pacto.yaml`, in which
 each service says what it offers and which other services it calls. Flux, a
 tool that keeps your Kubernetes cluster running what your files say, does the
-actual switch from one version to the next (Argo CD can do it instead).
+actual switch from one version to the next (Argo CD can do it instead, as an
+experimental option).
 
 Delivery is opt-in. It is a separate install, and without it Pacto never
 changes what runs. To set it up for a service, [pactify it](../../pactify.md):
@@ -60,7 +61,9 @@ own or wait to be asked.
 **Every change that ends**, refusals included, can leave a signed record in
 your container registry, the place your images are stored. The signature shows
 the record was not changed later. Anyone can check who asked for what, who
-approved and what each check said.
+approved and what each check said. Records are off until you turn them on, and
+they need a registry that serves OCI Referrers, such as zot; GitHub's registry
+does not.
 
 ## Who is asked and why
 
@@ -84,6 +87,9 @@ but that tells it only which service calls which, not what each call uses.
 AI agents can plan, ask for and cancel the changes they asked for, but only people can approve.
 To approve, a person must have signed in to the dashboard (or the cluster)
 with their own company login in the last 15 minutes, and the record names them.
+That needs a cluster that trusts your company login, which is not verified on
+managed clusters (EKS, GKE, AKS); [Sign-in, approvals and agents](delivery-identity.md#where-approving-works)
+says how to check and what to do without it.
 
 ## What Unknown means
 
@@ -97,6 +103,21 @@ Unknown never counts as yes. The change waits for a person, who can reject it
 or accept the unknown. An accepted unknown is recorded as accepted, never as a
 pass.
 
+## Words used here
+
+| Word | Meaning |
+|---|---|
+| Environment | A namespace, such as `test` or `prod` |
+| Stage | One service in one environment, and the version it runs there |
+| Promote | Move a Stage to a newer version |
+| Operation | One requested change to a Stage, from request to outcome |
+| Held | An Operation waiting for a person to decide |
+| Approval | A person's decision on one held Operation |
+| Freeze, unfreeze | Stop automation moving a Stage, and let it move again |
+| Auto-hold | Set when a person or agent rolls back a Stage, or promotes it back to a version this Stage already verified: automation stops promoting there until a person unfreezes it or promotes a version it has not verified yet |
+| Break-glass | A group, `pacto:break-glass` by default, that may force a version past every check |
+| Record | The signed account of one finished Operation |
+
 ## Where you follow it
 
 - **The dashboard**, the web page `pacto dashboard` starts, gains a Delivery
@@ -105,6 +126,9 @@ pass.
   with who asked and who approved, and the publishes Pacto refused.
 - **The command line**: `pacto delivery plan` shows what would happen before
   you ask, and `pacto delivery history` what already did.
+  `kubectl get pacto-delivery -A` lists every Stage, Operation and Approval;
+  name a kind in full, such as `stages.delivery.pacto.trianalab.io`, where
+  another tool also defines a Stage.
 - **AI agents** get the same tools through `pacto mcp --delivery`. MCP is the
   common way AI agents call tools. There is no approve tool.
 
@@ -119,7 +143,7 @@ None of these is required reading:
 - [Sign-in, approvals and agents](delivery-identity.md)
 - [Signed records and history](delivery-records.md): records, key rotation,
   blame, undo and verification
-- [Argo CD and several clusters](delivery-reach.md)
+- [Argo CD and several clusters](delivery-reach.md) (experimental)
 - [Publishing details](../../publishing.md) and the contract's
   [`publish` section](../../contract-reference/publish.md)
 

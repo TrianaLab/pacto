@@ -5,7 +5,9 @@ new version before it runs. A contract is one file, `pacto.yaml`, kept next to
 your code. It says what the service offers, which other services it calls and
 how it is built and run. This guide takes a plain service to its first gated
 release: one Pacto checks before it reaches production. Every command of that
-path is on this page; the links are reference.
+path is on this page; the links are reference. To see where it leads first,
+with nothing to install, press **Play the delivery story** in the
+[live dashboard demo](examples/dashboard-demo.md); it runs in your browser.
 
 In the cluster, [Flux](https://fluxcd.io) does the deploying: it is a tool that
 keeps the cluster running what your files say. Pacto tells it which version.
@@ -22,10 +24,15 @@ You need:
   the image there and pushes it itself:
   `docker buildx create --use --driver docker-container`;
 - a container registry, and a login to it:
-  `pacto login ghcr.io -u <user>` (or `docker login`);
+  `pacto login ghcr.io -u <user>` (or `docker login`). Any registry works
+  for this page. The optional signed record of each change also needs one
+  that serves OCI Referrers, such as [zot](https://zotregistry.dev); GitHub's
+  registry does not, so on `ghcr.io` you get no records;
 - `cosign`, once, to make a signing key: `brew install cosign`, or
   `go install github.com/sigstore/cosign/v2/cmd/cosign@latest`;
-- for step 4, a Kubernetes cluster (1.30 or later), `kubectl` and `helm`.
+- for step 4, a Kubernetes cluster (1.30 or later), `kubectl` and `helm`. For
+  a person to approve a held change, the cluster must trust your company
+  login, which is not verified on managed clusters (EKS, GKE, AKS): see step 5.
 
 You do not write the contract by hand: Pacto writes it from your service.
 
@@ -189,9 +196,9 @@ with nobody asked. Once it passed in test, prod proposes it and waits for a
 person to approve it (see [When a change waits](pactify-decide.md#when-a-change-waits-or-an-environment-freezes)):
 
 ```bash
-kubectl get stage -A                                  # Pointer: the version it runs
+kubectl get stages.delivery.pacto.trianalab.io -A    # Pointer: the version it runs
 pacto delivery history -n test --stage my-service     # what happened in test
-kubectl -n test describe stage my-service             # if nothing moves: why, under Ready
+kubectl -n test describe stages.delivery.pacto.trianalab.io my-service  # if nothing moves: why, under Ready
 ```
 
 ## 5. Ship the next version

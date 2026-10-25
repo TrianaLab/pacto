@@ -8,6 +8,8 @@ metadata:
 spec:
   group: delivery.pacto.trianalab.io
   names:
+    categories:
+    - pacto-delivery
     kind: Stage
     listKind: StageList
     plural: stages
@@ -271,8 +273,9 @@ spec:
                   (DecisionFreshnessFor).
                 type: string
               autoHold:
-                description: AutoHold stops auto-promotion after a person chose an
-                  older version.
+                description: |-
+                  AutoHold stops auto-promotion after a person or agent rolled back or
+                  promoted back to a version the Stage already verified.
                 type: boolean
               candidate:
                 description: Candidate is the newest eligible candidate the stage

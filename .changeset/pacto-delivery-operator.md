@@ -22,7 +22,8 @@ range. The node agent's evidence leaves out pods being deleted, so a
 pod still shutting down no longer counts toward kernel coverage or findings,
 and a workload with no running pod has `Partial` kernel coverage.
 
-**The API.** `delivery.pacto.trianalab.io/v1alpha1` adds `Stage` (one service
+**The API.** `delivery.pacto.trianalab.io/v1alpha1` (Alpha, in the kubectl
+category `pacto-delivery`) adds `Stage` (one service
 in one environment, whose pointer is the artifact digest it runs), `Operation`
 (one decision, with an immutable spec) and `Approval` (a person's decision
 bound to an operation's uid and intent digest and to the approver's groups).
@@ -55,16 +56,17 @@ that cannot be established or an edit of the pointer the promoter did not make
 freezes the Stage. Stages with `auto: true` promote the newest eligible
 candidate.
 
-**Reach.** A Stage applies through a Flux `OCIRepository` by default, or
-through an Argo CD Application with an OCI source (`applyRef.kind:
-Application`, chart `argocd.enabled`). `candidates.upstreamRecords` lets a
+**Reach (experimental).** A Stage applies through a Flux `OCIRepository` by
+default, or, as an experimental option, through an Argo CD Application with an
+OCI source (`applyRef.kind: Application`, chart `argocd.enabled`). `candidates.upstreamRecords` lets a
 Stage follow a Stage in another cluster from that cluster's signed records,
 read with `promoter.upstreamTrust`; without it the Stage is not Ready
 (`UpstreamUntrusted`), and while those records cannot be read or lost their
 newest entries it is not Ready either (`UpstreamUnreadable`). Ready also names
 an applier the promoter cannot write through. Only a Flux `OCIRepository` with
 `spec.verify` admits a new version, so the first Stage of a service needs Flux
-even when Argo CD applies it. A freeze is local: it does not stop followers.
+even when Argo CD applies it. A freeze is local: it does not stop followers. Argo CD and cross-cluster reach
+may change more than the rest of delivery.
 
 **The recorder** (subcommand `recorder`, chart `recorder.*`, off by default)
 is the only holder of the signing key and the registry push credentials. It

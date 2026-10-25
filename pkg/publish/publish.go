@@ -5,6 +5,9 @@
 // re-reads the registry, so a publish that stopped halfway finishes when run
 // again from the same revision, and running it twice changes nothing the
 // second time.
+//
+// Experimental: not covered by semantic versioning. Delivery is Alpha, and
+// this API may change in a minor release.
 package publish
 
 import (

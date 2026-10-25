@@ -422,7 +422,7 @@ func (s *Server) deliveryInbox(ctx context.Context, _ *struct{}) (*inboxOutput, 
 		o, known := owners[service]
 		return !known || caller.Policy.InTeams(caller.Groups, []string{o})
 	}
-	// frozen holds the caller's Stages that are paused now. Concluded
+	// frozen holds the caller's Stages that are frozen now. Concluded
 	// operations are never deleted, so an Errored one waits on someone only
 	// while the pause it caused lasts; after that it is history.
 	frozen := map[string]bool{}

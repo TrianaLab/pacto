@@ -81,7 +81,7 @@ func (g clusterGate) Check(ctx context.Context, in delivery.GateInput, params ma
 }
 
 // contractCheck gathers what the Pacto gates read about digest on the Stage:
-// the contract the artifact names, whether Flux applied it, the service's
+// the contract the artifact names, whether it was applied and why not, the service's
 // Pactos and the live workloads they evaluated. msg says why it could not.
 func (c Cluster) contractCheck(ctx context.Context, stage *dv1.Stage, digest string) (delivery.ContractCheck, string) {
 	a, err := c.applier(ctx, stage.Namespace, stage.Spec.ApplyRef)
@@ -92,13 +92,16 @@ func (c Cluster) contractCheck(ctx context.Context, stage *dv1.Stage, digest str
 	if err != nil {
 		return delivery.ContractCheck{}, "reading the artifact: " + err.Error()
 	}
-	ok, _, _, _ := c.applied(ctx, stage.Namespace, a, digest)
+	ok, _, why, err := c.applied(ctx, stage.Namespace, a, digest)
+	if err != nil {
+		why = "reading the Kustomizations: " + err.Error()
+	}
 	pactos, err := c.pactos(ctx)
 	if err != nil {
 		return delivery.ContractCheck{}, "listing Pactos: " + err.Error()
 	}
 	return delivery.ContractCheck{
-		ContractRef: ann[delivery.ContractAnnotation], Applied: ok,
+		ContractRef: ann[delivery.ContractAnnotation], Applied: ok, AppliedWhy: why,
 		Pactos:   delivery.PactosFor(pactos, stage.Namespace, stage.Spec.Service.Name),
 		Workload: c.workload(ctx, stage.Namespace),
 	}, ""
