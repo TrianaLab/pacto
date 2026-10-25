@@ -111,7 +111,7 @@ pass.
 | Held | An Operation waiting for a person to decide |
 | Approval | A person's decision on one held Operation |
 | Freeze, unfreeze | Stop automation moving a Stage, and let it move again |
-| Auto-hold | Set when a person or agent rolls back a Stage, or promotes it back to a version it ran before: automation stops promoting there until a person unfreezes it or promotes a newer version |
+| Auto-hold | Set when a person or agent rolls back a Stage, or promotes it back to a version this Stage already verified: automation stops promoting there until a person unfreezes it or promotes a version it has not verified yet |
 | Break-glass | A group, `pacto:break-glass` by default, that may force a version past every check |
 | Record | The signed account of one finished Operation |
 

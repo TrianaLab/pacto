@@ -180,11 +180,11 @@ describe('environments', () => {
     expect(text(board as HTMLElement)).toContain('1 waiting');
     expect(text(board as HTMLElement)).toContain('Cannot promote: CandidateUnverified');
     expect(text(board as HTMLElement)).toContain('Nothing yet');
-    // Auto-hold comes from an agent's rollback or a promote back to a version the Stage ran, too, and a promote clears it.
+    // Auto-hold comes from an agent's rollback or a promote back to a version the Stage verified, too, and a person's promote of an unverified version clears it.
     const hold = [...board.querySelectorAll('.badge')].find((b) => b.textContent === 'Auto-hold')!.getAttribute('title')!;
     expect(hold).toContain('person or agent');
-    expect(hold).toContain('a version it ran before');
-    expect(hold).toContain('promotes a newer version');
+    expect(hold).toContain('back to a version it already verified');
+    expect(hold).toContain('promotes a version it has not verified yet');
     (board.querySelector('button[aria-label^="Promote payments in prod"]') as HTMLButtonElement).click();
     await settle();
     expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'pacto.dev/promote', to: D2, from: D1 });

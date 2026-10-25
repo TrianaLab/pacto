@@ -232,8 +232,9 @@ spec:
             description: StageStatus is written only by the promoter's operation reconciler.
             properties:
               autoHold:
-                description: AutoHold stops auto-promotion after a person chose an
-                  older version.
+                description: |-
+                  AutoHold stops auto-promotion after a person or agent rolled back or
+                  promoted back to a version the Stage already verified.
                 type: boolean
               autoRollbacks:
                 additionalProperties:

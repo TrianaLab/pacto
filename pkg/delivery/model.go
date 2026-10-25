@@ -297,7 +297,8 @@ type StageStatus struct {
 	Frozen bool `json:"frozen,omitempty"`
 	// +optional
 	FrozenReason string `json:"frozenReason,omitempty"`
-	// AutoHold stops auto-promotion after a person chose an older version.
+	// AutoHold stops auto-promotion after a person or agent rolled back or
+	// promoted back to a version the Stage already verified.
 	// +optional
 	AutoHold bool `json:"autoHold,omitempty"`
 	// AutoRollbacks counts the automatic rollbacks raised per cause.

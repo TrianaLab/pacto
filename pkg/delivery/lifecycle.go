@@ -73,8 +73,9 @@ func AdmitRollback(spec OperationSpec, status StageStatus, cited *CitedOp, class
 
 // SetsAutoHold reports whether concluding this operation should put an
 // auto-hold on the Stage: a rollback a person or agent chose, or a promote of a
-// digest the Stage already ran (an older version). Either way automation must
-// not undo the choice.
+// digest the Stage already verified, older or newer. Either way automation
+// must not undo the choice. A person's promote of a digest the Stage has not
+// verified clears it.
 func SetsAutoHold(spec OperationSpec, class ActorClass, status StageStatus) bool {
 	if class == ClassController {
 		return false
