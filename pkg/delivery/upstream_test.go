@@ -35,6 +35,9 @@ func TestUpstreamFromRecords(t *testing.T) {
 	if why != "" || !slices.Equal(s.Verified, []string{dC}) || !slices.Equal(s.Offered, []string{dA, c1}) || !slices.Equal(s.FailedDigests, []string{dA, c1, c2}) {
 		t.Fatalf("got %+v %q", s, why)
 	}
+	if st := s.Stream; st.ID != "c2/test/payments" || st.Seq != 10 || st.Head != "r6" {
+		t.Fatalf("the view names its newest record: %+v", s.Stream)
+	}
 	if s, why := UpstreamFromRecords(recs[1:]); s != nil || !strings.Contains(why, "not whole") {
 		t.Fatalf("a stream with a hole offers nothing: %+v %q", s, why)
 	}
@@ -65,5 +68,31 @@ func TestUpstreamFoldsAFailedFreeze(t *testing.T) {
 	s, why = UpstreamFromRecords(append(recs, StoredRecord{ID: "r5", Statement: rec}))
 	if why != "" || len(s.Verified) != 0 || !slices.Equal(s.FailedDigests, []string{dB, dA}) {
 		t.Fatalf("a recorded freeze: %+v %q", s, why)
+	}
+}
+
+// TestUpstreamTruncated: a read that does not extend what a Stage already read
+// is refused, so removing the newest records of a stream never goes unseen.
+func TestUpstreamTruncated(t *testing.T) {
+	seen := Stream{ID: "c2/test/payments", Seq: 4, Head: "r4"}
+	cases := []struct {
+		name string
+		seen Stream
+		got  Stream
+		want string
+	}{
+		{"extends", seen, Stream{ID: seen.ID, Seq: 5, Head: "r5"}, ""},
+		{"same", seen, seen, ""},
+		{"nothing seen yet", Stream{}, Stream{ID: seen.ID, Seq: 1, Head: "r1"}, ""},
+		{"another stream", seen, Stream{ID: "c2/test/other", Seq: 1, Head: "x1"}, ""},
+		{"cut", seen, Stream{ID: seen.ID, Seq: 2, Head: "r2"}, "ends at seq 2, but this Stage already read it up to seq 4"},
+		{"emptied", seen, Stream{}, "ends at seq 0"},
+		{"rewritten", seen, Stream{ID: seen.ID, Seq: 4, Head: "x4"}, "the stream was rewritten"},
+	}
+	for _, c := range cases {
+		got := UpstreamTruncated(c.seen, c.got)
+		if c.want == "" && got != "" || c.want != "" && !strings.Contains(got, c.want) {
+			t.Errorf("%s: %q", c.name, got)
+		}
 	}
 }

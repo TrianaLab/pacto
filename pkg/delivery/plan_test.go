@@ -350,6 +350,15 @@ func TestPublishedGate(t *testing.T) {
 			t.Errorf("%s: Unknown holds for a person: %+v", c.name, c.p)
 		}
 	}
+	// A verdict on a remote upstream cites the newest record it read.
+	view := &StageStatus{Verified: []string{dB}, Offered: []string{dB}, Stream: Stream{ID: "c2/test/payments", Seq: 7, Head: "sha256:r7"}}
+	v := verdict(t, plan(remote, StageStatus{Pointer: dA}, to, view), GatePublished)
+	if v.Citation["upstreamHead"] != "sha256:r7" || v.Citation["upstreamSeq"] != "7" {
+		t.Errorf("remote citation: %+v", v.Citation)
+	}
+	if v := verdict(t, plan(up, StageStatus{Pointer: dA}, to, view), GatePublished); v.Citation["upstreamHead"] != "" {
+		t.Errorf("a local upstream has no records to cite: %+v", v.Citation)
+	}
 }
 
 // TestRecordsRequired: a Stage that requires records holds every promote or

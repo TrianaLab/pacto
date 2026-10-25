@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -250,6 +251,11 @@ func publishedGate(in PlanInput) Verdict {
 	switch {
 	case c.UpstreamStage != nil || c.UpstreamRecords != nil:
 		v.Citation["upstream"] = upstreamName(c)
+		if in.Upstream != nil && c.UpstreamRecords != nil {
+			// The upstream records this verdict relied on: an auditor replays
+			// the stream up to this record and gets the same answer.
+			v.Citation["upstreamHead"], v.Citation["upstreamSeq"] = in.Upstream.Stream.Head, strconv.FormatInt(in.Upstream.Stream.Seq, 10)
+		}
 		switch {
 		case in.Upstream == nil && c.UpstreamRecords != nil:
 			v.Message = "the records of the upstream Stage " + v.Citation["upstream"] + " cannot be read or verified (" +

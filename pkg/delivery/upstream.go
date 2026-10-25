@@ -20,6 +20,8 @@ import (
 // verification is not passed in at all: it is not the stream's history, and
 // anyone who can push to the registry could otherwise blind every follower. A
 // trusted record that stops verifying leaves a hole, which offers nothing.
+// Stream.Seq and Stream.Head name the newest record read: what a decision on
+// this view cites, and what the next read must extend (UpstreamTruncated).
 func UpstreamFromRecords(recs []StoredRecord) (*StageStatus, string) {
 	f := FoldStream(recs)
 	if len(f.Problems) > 0 {
@@ -28,8 +30,29 @@ func UpstreamFromRecords(recs []StoredRecord) (*StageStatus, string) {
 	s := &StageStatus{}
 	for _, r := range f.Records {
 		s.foldUpstream(r.Statement.Predicate)
+		s.Stream.ID, s.Stream.Seq = r.Statement.Predicate.Chain.Stream, r.Statement.Predicate.Chain.Seq
 	}
+	s.Stream.Head = f.Head
 	return s, ""
+}
+
+// UpstreamTruncated says why a read of an upstream stream that ends at got
+// cannot be trusted by a Stage that already read the stream up to seen: the
+// stream now ends before seen, or holds another record at seen's seq. Records
+// are only ever appended, and the upstream recorder never extends a stream
+// whose newest record is gone, so a stream that does not extend seen lost its
+// newest records: a Fail or a rollback among them would otherwise go unseen.
+// Empty when got extends seen, or seen is of another stream.
+func UpstreamTruncated(seen, got Stream) string {
+	switch {
+	case seen.ID != got.ID && got.ID != "" || seen.Seq == 0:
+		return ""
+	case got.Seq < seen.Seq:
+		return fmt.Sprintf("the stream ends at seq %d, but this Stage already read it up to seq %d (record %s): its newest records were removed", got.Seq, seen.Seq, short(seen.Head))
+	case got.Seq == seen.Seq && got.Head != seen.Head:
+		return fmt.Sprintf("seq %d is record %s, but this Stage read %s there: the stream was rewritten", got.Seq, short(got.Head), short(seen.Head))
+	}
+	return ""
 }
 
 // foldUpstream applies one verified record to the remote view
