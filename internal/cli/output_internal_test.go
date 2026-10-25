@@ -111,7 +111,7 @@ Run it again without --plan to add these.
 	if err := printInitResult(cmd, &app.InitResult{Dir: "x", Service: "x", Files: []pactify.File{{Path: "pacto.yaml", Action: pactify.Keep}}}, "text"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasSuffix(buf.String(), "\nNothing to add: it is all there.\n") {
+	if !strings.HasSuffix(buf.String(), "\nNothing to add: every file init writes is already there.\n") {
 		t.Fatalf("nothing-to-add plan:\n%s", buf.String())
 	}
 }

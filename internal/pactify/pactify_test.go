@@ -556,7 +556,18 @@ func TestDeliveryWithoutManifests(t *testing.T) {
 			t.Fatalf("plan: %+v %v", r, err)
 		}
 	}
-	dir := writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "not: [a contract"})
+	// A 2.0 contract, the installed base: init says how to reach pacto
+	// publish instead of that there is nothing to add.
+	dir := writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "pactoVersion: \"2.0\"\nservice: {name: p, version: 1.0.0}\n"})
+	if r, _ := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); !hasLine(r.Next, `pacto.yaml has no publish section, so pacto publish refuses it: set pactoVersion: "2.1"`) {
+		t.Fatalf("next: %v", r.Next)
+	}
+	dir = writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "pactoVersion: \"2.1\"\nservice: {name: p, version: 1.0.0}\n" +
+		"publish: {bundle: oci://r/p, deploy: m, artifacts: [{name: m, type: manifests, ref: oci://r/d, build: {command: [make]}}]}\n"})
+	if r, _ := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); hasLine(r.Next, "no publish section") {
+		t.Fatalf("a contract with publish: %v", r.Next)
+	}
+	dir = writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "not: [a contract"})
 	if r, _ := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); !hasLine(r.Unknown, "pacto.yaml could not be read") {
 		t.Fatalf("unknown: %v", r.Unknown)
 	}

@@ -50,7 +50,7 @@ func TestInitLines(t *testing.T) {
 	if !reflect.DeepEqual(got, []string{"Created svc/", "  svc/.pactoignore (lines added)"}) {
 		t.Fatalf("got %#v", got)
 	}
-	if got := initLines(&app.InitResult{Dir: "svc"}); !reflect.DeepEqual(got, []string{"Nothing to add in svc/: it is all there"}) {
+	if got := initLines(&app.InitResult{Dir: "svc"}); !reflect.DeepEqual(got, []string{"Nothing to add in svc/: every file init writes is already there"}) {
 		t.Fatalf("got %#v", got)
 	}
 }

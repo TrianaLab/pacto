@@ -165,6 +165,10 @@ func (p *planner) existing(data []byte) {
 		return
 	}
 	p.r.Service, p.pub = c.Service.Name, c.Publish
+	if c.Publish == nil {
+		p.next("pacto.yaml has no publish section, so pacto publish refuses it: set pactoVersion: \"2.1\" and add publish " +
+			"(see Pactify a service in the docs), or move pacto.yaml aside and run pacto init again to have one written")
+	}
 }
 
 func validate(text, openapi string) error {
