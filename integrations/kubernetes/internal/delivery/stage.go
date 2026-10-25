@@ -70,6 +70,9 @@ func (r *StageReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 	if err := r.recordPublished(ctx, stage, cand); err != nil {
 		return reconcile.Result{}, err
 	}
+	if err := r.showCandidate(ctx, stage); err != nil {
+		return reconcile.Result{}, err
+	}
 	if err := r.autoPromote(ctx, stage); err != nil {
 		return reconcile.Result{}, err
 	}
@@ -144,9 +147,9 @@ func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) err
 			return nil
 		}
 	}
-	cand, err := r.candidate(ctx, stage)
-	if err != nil || cand == "" {
-		return err
+	cand := stage.Status.Candidate
+	if cand == "" {
+		return nil
 	}
 	spec := delivery.OperationSpec{
 		Type: delivery.TypePromote, Stage: stage.Name, Facet: delivery.FacetPointer,
@@ -218,6 +221,20 @@ func (r *StageReconciler) recordPublished(ctx context.Context, stage *dv1.Stage,
 		return err
 	}
 	stage.Status.Published = delivery.AddDigest(stage.Status.Published, d, delivery.MaxPublished)
+	return nil
+}
+
+// showCandidate writes the newest eligible candidate to status.candidate, so
+// the CLI and the dashboard can offer to promote it on a Stage without auto.
+func (r *StageReconciler) showCandidate(ctx context.Context, stage *dv1.Stage) error {
+	cand, err := r.candidate(ctx, stage)
+	if err != nil || cand == stage.Status.Candidate {
+		return err
+	}
+	if err := r.updateStatus(ctx, stage, func(s *dv1.Stage) { s.Status.Candidate = cand }); err != nil {
+		return err
+	}
+	stage.Status.Candidate = cand
 	return nil
 }
 

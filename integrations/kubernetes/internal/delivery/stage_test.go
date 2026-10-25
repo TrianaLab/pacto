@@ -71,6 +71,41 @@ func TestAutoPromoteFromOCIRepository(t *testing.T) {
 	}
 }
 
+// TestCandidateShownOnAManualStage: the stage reconciler writes the newest
+// eligible candidate to status.candidate on a Stage without auto, which is
+// what the CLI and the dashboard offer to promote, and promotes nothing.
+func TestCandidateShownOnAManualStage(t *testing.T) {
+	up := stageObj(dB)
+	up.Name = "up"
+	up.Status.Verified, up.Status.Offered = []string{dB}, []string{dB}
+	s := stageObj(dA)
+	s.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "up"}}
+	e := newEnv(t, s, up)
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.getStage().Status.Candidate; got != dB || len(e.ops()) != 0 {
+		t.Fatalf("want candidate B and no operation, got %q %d", got, len(e.ops()))
+	}
+	e.fails["get/Stage/up"] = true
+	if e.reconcileStage("payments-prod") == nil {
+		t.Fatal("a failed upstream read must surface")
+	}
+	e.fails = fails{}
+	u := &dv1.Stage{}
+	if err := e.c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "up"}, u); err != nil {
+		t.Fatal(err)
+	}
+	u.Status.Verified, u.Status.Offered = []string{dB, dC}, []string{dB, dC}
+	if err := e.c.Status().Update(context.Background(), u); err != nil {
+		t.Fatal(err)
+	}
+	e.fails = fails{"status/Stage": true}
+	if e.reconcileStage("payments-prod") == nil {
+		t.Fatal("a failed candidate write must surface")
+	}
+}
+
 // TestAutoPromoteAgainAfterAConclusion: the same move is proposed again once
 // an earlier automatic promote of it concluded without shipping (here it
 // expired), because the stream seq the name carries moved on.
