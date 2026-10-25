@@ -103,6 +103,10 @@ type Beat struct {
 	Tried string
 	// Running is what else runs in Environment: service to version.
 	Running map[string]string
+	// Uncontracted are services that run in Environment with no contract yet
+	// (the cold start). While there are any, the Stage cannot claim it knows
+	// every consumer, so it does not set declaredConsumersOnly.
+	Uncontracted []string
 	// Verified is what each consumer's test Stage verified, oldest first:
 	// where a version that can move first comes from.
 	Verified map[string][]string
@@ -150,6 +154,17 @@ var (
 
 // Beats is the story, in the order every demo plays it.
 var Beats = []Beat{
+	// cold-start: only payments has a contract. That a caller the node agent
+	// saw is named in the question comes with observed callers (ledger L.1);
+	// until then the plan says a service with no contract can still call it.
+	{
+		ID:      "cold-start",
+		Says:    "Before orders has a contract, a breaking payments 3.0.0 waits for the payments team, because a service with no contract may still call it.",
+		Why:     "No contract says who depends on payments yet, and what Pacto cannot see is never a yes.",
+		Service: "payments", Environment: Prod, Actor: PayAgent, From: "2.3.0", To: "3.0.0", Uncontracted: []string{"orders"},
+		Expect: Outcome{Classification: "BREAKING", RequiredBump: diff.BumpMajor, Predicted: delivery.PredictHeld,
+			Decision: delivery.AcceptUnknown, Asked: []string{"payments"}},
+	},
 	// The pactify input, contracts/fraud/1.0.0, is what pacto init writes in
 	// plain/fraud (TestPactifyWritesTheFraudContract), and a first version
 	// ships with nobody.
@@ -341,7 +356,7 @@ func pacto(env string, r delivery.Revision) delivery.PactoView {
 
 func stage(service, env string) delivery.StageSpec {
 	s := delivery.StageSpec{Service: delivery.ServiceRef{Name: service}, Environment: env, ApplyRef: delivery.ApplyRef{Name: service}}
-	s.Gates.Impact.DeclaredConsumersOnly = true // every service in the story has a contract
+	s.Gates.Impact.DeclaredConsumersOnly = true // every service the beat runs has a contract
 	if env == Test {
 		s.Candidates.OCIRepositoryRef = &delivery.LocalRef{Name: service + "-candidates"}
 	} else {
@@ -373,6 +388,7 @@ func (b Beat) PlanInput(ctx context.Context) (delivery.PlanInput, error) {
 		Stage: stage(b.Service, b.Environment), From: from, To: to, Class: b.Actor.Class(),
 		Status: delivery.StageStatus{Pointer: from.Digest, Frozen: b.Frozen},
 	}
+	in.Stage.Gates.Impact.DeclaredConsumersOnly = len(b.Uncontracted) == 0
 	switch b.Type {
 	case "":
 		in.Spec.Type = delivery.TypePromote

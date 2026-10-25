@@ -470,3 +470,18 @@ func TestPactifyWritesTheFraudContract(t *testing.T) {
 		t.Fatalf("pacto init wrote\n%s\nwhich differs from contracts/fraud/1.0.0", r.Files[i].Content)
 	}
 }
+
+// TestColdStartAsksToAcceptTheUnknown: with a service still uncontracted, the
+// breaking change waits because Pacto cannot rule out an undeclared caller,
+// and the same change with every service contracted (B5) asks the consumers.
+func TestColdStartAsksToAcceptTheUnknown(t *testing.T) {
+	b := beat(t, "cold-start")
+	for _, s := range b.Uncontracted {
+		if _, ok := b.Running[s]; ok {
+			t.Errorf("%s runs with a contract and without one", s)
+		}
+	}
+	if q := plan(t, b).Question; !strings.Contains(q, "a service with no contract can still call it") {
+		t.Fatalf("question %q", q)
+	}
+}
