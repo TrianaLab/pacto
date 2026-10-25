@@ -202,6 +202,39 @@ func TestPublishPreflights(t *testing.T) {
 	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), &contract.Contract{}); err != nil {
 		t.Fatal(err)
 	}
+	// From the contract directory with no path (the default), a bare
+	// ./render.sh is found there, not searched for in $PATH.
+	for _, sh := range []string{"render.sh", "build-worker.sh"} {
+		_ = os.WriteFile(filepath.Join(dir, sh), []byte("#!/bin/sh\n"), 0o755)
+	}
+	t.Chdir(dir)
+	f = &fakeRun{}
+	svc = publishService(f, reg)
+	svc.sys.lookPath = exec.LookPath
+	res, err := svc.Publish(context.Background(), PublishOptions{Plan: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range res.Plan.Checks {
+		if c.Name == "builders" && !c.Passed {
+			t.Fatalf("builders from the contract directory: %s", c.Message)
+		}
+	}
+	// Keyless signing reads its OIDC token only when it signs, so the plan
+	// checks a token is there to read.
+	t.Setenv("SIGSTORE_ID_TOKEN", "")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+	keyless := &contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Keyless: true}}}
+	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), keyless); err == nil || !strings.Contains(err.Error(), "no OIDC token") {
+		t.Fatalf("keyless with no token: %v", err)
+	}
+	oldRoot := publicGoodRoot
+	defer func() { publicGoodRoot = oldRoot }()
+	publicGoodRoot = func(string) (root.TrustedMaterial, error) { return nil, errors.New("tuf down") }
+	t.Setenv("SIGSTORE_ID_TOKEN", "tok")
+	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), keyless); err == nil || !strings.Contains(err.Error(), "tuf down") {
+		t.Fatalf("keyless with a token goes on to load the root: %v", err)
+	}
 }
 
 // signingKey writes a cosign key file, encrypted with COSIGN_PASSWORD, into

@@ -323,6 +323,15 @@ func TestIDToken(t *testing.T) {
 	if _, err := IDToken("")(ctx); err == nil {
 		t.Error("no token source")
 	}
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "req-token")
+	if HasIDToken() == nil {
+		t.Error("a request token with no request URL is no token source")
+	}
+	t.Setenv("SIGSTORE_ID_TOKEN", "x")
+	if HasIDToken() != nil {
+		t.Error("SIGSTORE_ID_TOKEN is a token source")
+	}
+	t.Setenv("SIGSTORE_ID_TOKEN", "")
 	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Query().Get("audience") != "sigstore" || r.Header.Get("Authorization") != "Bearer req-token" {
 			http.Error(w, "no", http.StatusForbidden)
