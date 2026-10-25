@@ -433,7 +433,7 @@ func TestVerifyRecordsKeylessCommand(t *testing.T) {
 	}}
 	v, err := e.d.VerifyRecords(context.Background(), "prod", "payments-prod")
 	if err != nil || strings.Contains(v.Cosign, "--key") || !strings.Contains(v.Cosign,
-		"--trusted-root trusted_root.json --certificate-identity 'https://recorder.example' --certificate-oidc-issuer 'https://issuer.example' --use-signed-timestamps") {
+		"--trusted-root trusted_root.json --certificate-identity 'https://recorder.example' --certificate-oidc-issuer 'https://issuer.example' --use-signed-timestamps --insecure-ignore-sct") {
 		t.Fatalf("keyless command = %+v %v", v, err)
 	}
 }

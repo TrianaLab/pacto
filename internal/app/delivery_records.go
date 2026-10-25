@@ -208,6 +208,9 @@ func (d *Delivery) VerifyRecords(ctx context.Context, ns, stage string) (*delive
 	if k, ok := d.Trust.For(v.Stream); ok && k.Identity != "" {
 		signer = fmt.Sprintf("--trusted-root trusted_root.json --certificate-identity '%s' --certificate-oidc-issuer '%s' --use-signed-timestamps",
 			k.Identity, k.Issuer)
+		if signing.WithoutSCT(k.TrustedRoot) {
+			signer += " --insecure-ignore-sct"
+		}
 	}
 	v.Cosign = fmt.Sprintf("oras blob fetch --output record.json %[1]s@$(oras manifest fetch %[1]s@%[2]s | jq -r '.layers[0].digest') && "+
 		"cosign verify-blob-attestation --bundle record.json %[5]s --type %[3]s --insecure-ignore-tlog "+

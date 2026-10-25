@@ -140,8 +140,13 @@ with the entry's `trustedRoot` saved as `trusted_root.json`:
 
 ```bash
 --trusted-root trusted_root.json --certificate-identity <identity> \
-  --certificate-oidc-issuer <issuer> --use-signed-timestamps
+  --certificate-oidc-issuer <issuer> --use-signed-timestamps \
+  --insecure-ignore-sct
 ```
+
+`--insecure-ignore-sct` is there only when the trusted root lists no
+certificate transparency log, as a private Sigstore often does. A certificate
+from such a root has no timestamp to check, and cosign fails without the flag.
 
 `oras discover` on a version lists the records attached to it. The record
 itself is a DSSE envelope: `jq -r .dsseEnvelope.payload record.json | base64 -d`
@@ -161,5 +166,6 @@ referrers out of them. With `recorder.cdeventsSink` set, the recorder posts a
   Stage; `record verify` checks any time.
 - Deleting a Stage while a change runs leaves that change unrecorded. Wait for
   its changes to conclude first.
-- Without Rekor a keyless record has no signed time, so its chain is checked at
-  the moment the certificate was issued.
+- A keyless record writes no transparency log entry. Its signed time comes
+  from the timestamp authority the recorder must name, and the certificate is
+  checked at that time.
