@@ -518,6 +518,7 @@ spec:
   candidates: $CANDS
   auto: $4
   gates:
+    impact: {declaredConsumersOnly: true}
     verify:
       window: 3m
 ${5:-}
@@ -1076,6 +1077,7 @@ spec:
   applyRef: {kind: Application, name: payments}
   candidates: {upstreamRecords: {repository: "${REG_HOST}/pacto-delivery-streams", stream: "$stream"}}
   auto: true
+  gates: {impact: {declaredConsumersOnly: true}}
 YAML
   d="$(digest_of payments 2.3.0)"
   us_runs() { [ "$(us kubectl -n prod get stage payments -o jsonpath='{.status.pointer}')" = "$d" ]; }
@@ -1165,6 +1167,7 @@ spec:
   applyRef: {kind: Application, name: payments-eu}
   candidates: {upstreamRecords: {repository: "${REG_HOST}/pacto-delivery-streams", stream: "$eu"}}
   auto: true
+  gates: {impact: {declaredConsumersOnly: true}}
 YAML
   us_empty() { [ -z "$(us kubectl -n prod get stage payments-eu -o jsonpath='{.status.pointer}')" ]; }
   always 10 us_empty || fail "prod-us took a version prod-eu failed: $(us kubectl -n prod get stage payments-eu -o jsonpath='{.status.pointer}')"

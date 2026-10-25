@@ -15,11 +15,22 @@ tests:
             - promoter
             - --leader-elect=true
             - --poll=3s
+            - --workers=4
             - --auth-freshness=15m
             - --controller-user=system:serviceaccount:pacto-delivery:d-pacto-delivery
             - --agent-groups=pacto:agents
             - --break-glass-groups=pacto:break-glass
-            - --admission-policies=d-pacto-delivery-operation,d-pacto-delivery-approval
+            - --admission-policies=d-pacto-delivery-operation,d-pacto-delivery-cancel,d-pacto-delivery-approval,d-pacto-delivery-pointer,d-pacto-delivery-applier,d-pacto-delivery-promoter-writes
+
+  - it: names every rendered admission policy, so the self-check covers them all
+    template: templates/deployment.yaml
+    set:
+      argocd.enabled: true
+      recorder.enabled: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --admission-policies=RELEASE-NAME-pacto-delivery-operation,RELEASE-NAME-pacto-delivery-cancel,RELEASE-NAME-pacto-delivery-approval,RELEASE-NAME-pacto-delivery-pointer,RELEASE-NAME-pacto-delivery-applier,RELEASE-NAME-pacto-delivery-promoter-writes,RELEASE-NAME-pacto-delivery-pointer-argocd,RELEASE-NAME-pacto-delivery-promoter-writes-argocd,RELEASE-NAME-pacto-delivery-records
 
   - it: names no admission policies when they are off on purpose
     template: templates/deployment.yaml
@@ -29,7 +40,7 @@ tests:
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].args
-          content: --admission-policies=RELEASE-NAME-pacto-delivery-operation,RELEASE-NAME-pacto-delivery-approval
+          content: --admission-policies=RELEASE-NAME-pacto-delivery-operation,RELEASE-NAME-pacto-delivery-cancel,RELEASE-NAME-pacto-delivery-approval,RELEASE-NAME-pacto-delivery-pointer,RELEASE-NAME-pacto-delivery-applier,RELEASE-NAME-pacto-delivery-promoter-writes
 
   - it: passes the team group prefix only when set
     template: templates/deployment.yaml
@@ -78,6 +89,20 @@ tests:
             apiGroups: [source.toolkit.fluxcd.io]
             resources: [ocirepositories]
             verbs: [get, list, watch, patch]
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups: [delivery.pacto.trianalab.io]
+            resources: [approvals]
+            verbs: [get, list, watch, patch]
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
+            apiGroups: [""]
+            resources: [events]
+            verbs: [create, patch]
         documentIndex: 1
       - contains:
           path: rules

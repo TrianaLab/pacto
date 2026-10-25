@@ -184,7 +184,20 @@ type GateCheck struct {
 // type; the Pacto contract check always verifies, beside the Stage's checks.
 type Gates struct {
 	// +optional
+	Impact ImpactGate `json:"impact,omitzero"`
+	// +optional
 	Verify VerifyGates `json:"verify,omitzero"`
+}
+
+// ImpactGate tunes pacto.impact.
+type ImpactGate struct {
+	// DeclaredConsumersOnly says every consumer of the service has a
+	// contract Pacto can see, so a breaking change no Pacto depends on ships
+	// without a person. Off by default: a service with no contract can still call it, so
+	// a breaking change with no consumer in sight waits for a person to accept
+	// the unknown.
+	// +optional
+	DeclaredConsumersOnly bool `json:"declaredConsumersOnly,omitempty"`
 }
 
 // ponytail: one switch, not the design's CEL predicate; add CEL when a team
@@ -267,9 +280,13 @@ type Concluded struct {
 	Reason string `json:"reason,omitempty"`
 }
 
-// StageStatus is written only by the promoter's operation reconciler.
+// StageStatus is written by the promoter's operation and stage reconcilers and
+// by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each
+// through a compare-and-swap on the Stage's resourceVersion.
 type StageStatus struct {
-	// Pointer is the digest the environment runs.
+	// Pointer is the digest the Stage moved the environment to. It is set
+	// when an operation holding the pointer lock starts to apply, before
+	// Flux or Argo CD runs it: Applied on that operation says when they did.
 	// +optional
 	Pointer string `json:"pointer,omitempty"`
 	// LastOp is the uid of the operation that last moved the pointer.
@@ -292,9 +309,11 @@ type StageStatus struct {
 	// AutoHold stops auto-promotion after a person chose an older version.
 	// +optional
 	AutoHold bool `json:"autoHold,omitempty"`
-	// AutoRollbacks counts the automatic rollbacks raised per cause.
+	// RolledBack holds the uids of the failed operations the promoter raised
+	// its one automatic rollback for, oldest first (cap 50). A failure listed
+	// here never gets a second one.
 	// +optional
-	AutoRollbacks map[string]int `json:"autoRollbacks,omitempty"`
+	RolledBack []string `json:"rolledBack,omitempty"`
 	// +optional
 	Stream Stream `json:"stream,omitzero"`
 	// Published holds the candidate digests Flux verified the signature of on
@@ -324,12 +343,20 @@ type StageStatus struct {
 	// LastCheck is the newest re-check of the running version after it shipped.
 	// +optional
 	LastCheck *Recheck `json:"lastCheck,omitempty"`
+	// AuthFreshness is how old a login the promoter accepts on an approval
+	// (a Go duration). Clients ask for a fresh login with a margin under it
+	// (DecisionFreshnessFor).
+	// +optional
+	AuthFreshness string `json:"authFreshness,omitempty"`
+	// ObservedGeneration is the Stage generation the stage reconciler last
+	// judged Ready from.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // Condition is a Kubernetes status condition, so `kubectl wait
-// --for=condition=Ready` and status tooling read it.
-// ponytail: no lastTransitionTime; add it when a reader needs to know when
-// readiness changed.
+// --for=condition=Ready`, kstatus and Argo CD read it. Write it with
+// SetCondition.
 type Condition struct {
 	Type string `json:"type"`
 	// +kubebuilder:validation:Enum=True;False;Unknown
@@ -338,6 +365,12 @@ type Condition struct {
 	Reason string `json:"reason,omitempty"`
 	// +optional
 	Message string `json:"message,omitempty"`
+	// LastTransitionTime is when Status last changed (RFC 3339).
+	// +optional
+	LastTransitionTime string `json:"lastTransitionTime,omitempty"`
+	// ObservedGeneration is the Stage generation the condition was set from.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // Recheck is one run of the verify gates on a version that already shipped.
@@ -464,6 +497,9 @@ type Plan struct {
 	From string `json:"from,omitempty"`
 	// +optional
 	To string `json:"to,omitempty"`
+	// ToVersion is the contract service.version of To, when it could be read.
+	// +optional
+	ToVersion string `json:"toVersion,omitempty"`
 	// +optional
 	Verdicts []Verdict `json:"verdicts,omitempty"`
 	// +optional
@@ -617,6 +653,12 @@ type Times struct {
 type OperationStatus struct {
 	// +optional
 	Phase Phase `json:"phase,omitempty"`
+	// Guarded says the promoter checked its admission policies guarded the
+	// cluster when it admitted this operation. False when the chart runs
+	// without them (admissionPolicies.allowUnguarded): the actor and the
+	// approvers are then only what their writers claimed.
+	// +optional
+	Guarded bool `json:"guarded,omitempty"`
 	// +optional
 	Outcome Outcome `json:"outcome,omitempty"`
 	// +optional
@@ -679,10 +721,11 @@ type RecordRef struct {
 // ApprovalSpec is a human decision bound to one operation uid and intent digest.
 type ApprovalSpec struct {
 	// Operation is the operation's name, for people. Matching uses the uid.
-	Operation    string   `json:"operation"`
-	OperationUID string   `json:"operationUID"`
-	IntentDigest string   `json:"intentDigest"`
-	Decision     Decision `json:"decision"`
+	Operation    string `json:"operation"`
+	OperationUID string `json:"operationUID"`
+	IntentDigest string `json:"intentDigest"`
+	// +kubebuilder:validation:Enum=approve;reject;accept-unknown
+	Decision Decision `json:"decision"`
 	// +optional
 	Note string `json:"note,omitempty"`
 	// By must equal the apiserver username of whoever created the Approval.

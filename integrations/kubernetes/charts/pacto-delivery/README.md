@@ -16,7 +16,7 @@ What the chart installs:
 
 - The promoter `Deployment` (the `pacto-delivery` image, subcommand `promoter`), leader-elected
 - CRDs: `Stage`, `Operation` and `Approval` in `delivery.pacto.trianalab.io/v1alpha1` (from the `crds/` directory)
-- RBAC: the promoter's `ServiceAccount`, `ClusterRole` and leader-election `Role`, plus two roles to bind: `<release>-agent` (propose, read and cancel operations) and `<release>-approver` (the same, plus approvals)
+- RBAC: the promoter's `ServiceAccount`, `ClusterRole` and leader-election `Role`, plus two roles to bind: `<release>-agent` (propose and read operations, and cancel its own) and `<release>-approver` (the same, plus approvals)
 - `ValidatingAdmissionPolicy` objects (Kubernetes 1.30 or later, `admissionPolicies.enabled`)
 
 It needs Flux (source and kustomize controllers) and the Pacto operator. The
@@ -42,7 +42,7 @@ same version as your Pacto operator.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| admissionPolicies | object | `{"allowUnguarded":false,"enabled":true}` | Install the ValidatingAdmissionPolicies (Kubernetes 1.30 or later): an operation's actor is the requesting user, only the promoter may set witnessed, override and unfreeze are limited to their raisers, cancel is refused once the pointer moved, approvals come from people and spec.ref.digest is edited only by the promoter or break-glass. The promoter admits no operation and counts no approval while its operation and approval policies are missing. |
+| admissionPolicies | object | `{"allowUnguarded":false,"enabled":true}` | Install the ValidatingAdmissionPolicies (Kubernetes 1.30 or later): an operation's actor is the requesting user, only the promoter may set witnessed, override and unfreeze are limited to their raisers, cancel is refused once the pointer moved and an agent cancels only its own operations, approvals come from people and never change, spec.ref.digest is edited only by the promoter or break-glass, and on objects labelled delivery.pacto.trianalab.io/apply-ref the label, the source and what a Kustomization applies change only by break-glass. The promoter admits no operation and counts no approval while any of them is missing or does not deny. |
 | admissionPolicies.allowUnguarded | bool | `false` | Render without the policies (enabled=false) anyway. Without them anyone who may create an Operation or an Approval can claim to be anyone, so the chart refuses enabled=false unless this is set. |
 | affinity | object | `{}` | Affinity for the promoter pod |
 | argocd.enabled | bool | `false` | Let Stages name an Argo CD Application as their applier (`spec.applyRef.kind: Application`). Grants the promoter patch on `argoproj.io` Applications (it only sets `spec.source.targetRevision`, and the pointer admission policy holds it to that) and read access to the agent, approver and recorder roles. Off by default. |
@@ -56,15 +56,20 @@ same version as your Pacto operator.
 | image.tag | string | `""` | Overrides the image tag (default is the chart appVersion) |
 | imagePullSecrets | list | `[]` | Image pull secrets for private registries |
 | insecureRegistries | list | `[]` | Registry hosts (`host:port`) the promoter and the recorder reach over plain HTTP. An OCIRepository with `spec.insecure: true` is read over HTTP anyway. |
+| metrics.enabled | bool | `true` | Expose the promoter's and the recorder's metrics (plain HTTP, port 8080) through a Service |
+| metrics.serviceMonitor.enabled | bool | `false` | Create a Prometheus Operator ServiceMonitor for that Service |
+| metrics.serviceMonitor.interval | string | `""` | Scrape interval (empty uses Prometheus' default) |
+| metrics.serviceMonitor.scrapeTimeout | string | `""` | Scrape timeout (empty uses Prometheus' default) |
 | nameOverride | string | `""` | Override the chart name |
 | nodeSelector | object | `{}` | Node selector for the promoter pod |
 | podSecurityContext.runAsNonRoot | bool | `true` | Run pod as non-root |
 | podSecurityContext.seccompProfile.type | string | `"RuntimeDefault"` | Seccomp profile type |
-| promoter.authFreshness | string | `"15m"` | How old a person's login may be when their approval is given; an older one is ignored (a Go duration) |
+| promoter.authFreshness | string | `"15m"` | How old a person's login may be when their approval is given; an older one is ignored (a Go duration). Every Stage publishes it in `status.authFreshness` |
 | promoter.leaderElect | bool | `true` | Elect one active promoter |
 | promoter.poll | string | `"3s"` | How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration) |
 | promoter.registryCredentials.secretName | string | `""` | A `kubernetes.io/dockerconfigjson` Secret with read access to the contract and deploy repositories, for a private registry. Without it the promoter reads only public ones. |
 | promoter.upstreamTrust | string | `""` | The recorder keys of other clusters, as a trust config in YAML (keys per stream glob). A Stage with `candidates.upstreamRecords` promotes only on records one of these keys signed for that stream; without it such a Stage is not Ready. Public keys only. |
+| promoter.workers | int | `4` | How many operations and Stages the promoter reconciles at once, so one slow health provider does not hold up the rest |
 | recorder.cdeventsSink | string | `""` | A URL the recorder POSTs a CDEvent (CloudEvents, structured mode) to for every record, best effort. Empty sends none. |
 | recorder.enabled | bool | `false` | Run the recorder, which writes a signed record of every concluded operation to the registry as OCI referrers. Off by default. When on, the promoter leaves the record finalizer to it. The registry must support the OCI Referrers API natively (GHCR and released `distribution` do not). |
 | recorder.extraEnv | list | `[]` | Extra environment for the recorder (for example the credentials a KMS client reads) |

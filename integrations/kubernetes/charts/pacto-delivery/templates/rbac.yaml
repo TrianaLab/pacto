@@ -26,8 +26,13 @@ metadata:
     {{- include "pacto-delivery.labels" . | nindent 4 }}
 rules:
   - apiGroups: [delivery.pacto.trianalab.io]
-    resources: [stages, approvals]
+    resources: [stages]
     verbs: [get, list, watch]
+  - apiGroups: [delivery.pacto.trianalab.io]
+    resources: [approvals]
+    # patch: it makes each Approval's operation its owner, so they are
+    # garbage collected together; the CRD keeps the spec as it was given.
+    verbs: [get, list, watch, patch]
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [operations]
     # delete: with the recorder, a recorded operation is deleted after recorder.operationTTL.
@@ -44,6 +49,11 @@ rules:
   - apiGroups: [source.toolkit.fluxcd.io]
     resources: [ocirepositories]
     verbs: [get, list, watch, patch]
+  # It emits Events on the operations and Stages it holds, concludes, rolls
+  # back and freezes.
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
   {{- if .Values.argocd.enabled }}
   - apiGroups: [argoproj.io]
     resources: [applications]
@@ -113,7 +123,8 @@ subjects:
     namespace: {{ .Release.Namespace }}
 ---
 # Bind this to agents (their own service accounts, or the agent group): they
-# may propose, read and cancel operations and read Stages. Planning reads the
+# may propose and read operations, cancel the ones they proposed (admission
+# refuses the rest) and read Stages. Planning reads the
 # Pactos and the Kustomizations, which place each consumer. No approvals, no
 # status, no pointer.
 apiVersion: rbac.authorization.k8s.io/v1

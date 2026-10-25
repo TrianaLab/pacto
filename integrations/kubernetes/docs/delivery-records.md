@@ -13,7 +13,10 @@ An [in-toto](https://in-toto.io) statement of predicate type
 policy, every check result with its proof, every approval and the outcome. It
 holds references, never secrets. It is a sigstore bundle attached as an OCI
 referrer to the version moved to, the one moved from, the new contract and the
-Stage's stream anchor.
+Stage's stream anchor. `guarded: true` says the admission policies checked who
+asked and who approved. A record without it was written while the chart ran
+without them (`admissionPolicies.allowUnguarded`), so those names are only what
+their writers claimed.
 
 Each Stage has one stream: records are numbered (`seq`) and each names the one
 before (`parent`). An **unrecordable** record stands in for an operation that

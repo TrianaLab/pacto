@@ -33,7 +33,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec` | `object` | yes |  |  | ApprovalSpec is a human decision bound to one operation uid and intent digest. |
 | `spec.authTime` | `string` | no |  |  | AuthTime is the login time the apiserver reported for that user (userInfo.extra["pacto.dev/auth-time"], RFC 3339 or Unix seconds). |
 | `spec.by` | `string` | yes |  |  | By must equal the apiserver username of whoever created the Approval. |
-| `spec.decision` | `string` | yes |  |  | Decision is what a human approval says. |
+| `spec.decision` | `string` | yes |  | `approve`, `reject`, `accept-unknown` | Decision is what a human approval says. |
 | `spec.groups` | `[]string` | no |  |  | Groups must equal the groups of whoever created the Approval. The promoter accepts it only when one of them names a team the question was routed to. |
 | `spec.intentDigest` | `string` | yes |  |  |  |
 | `spec.note` | `string` | no |  |  |  |
@@ -99,6 +99,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.approvals[].decision` | `string` | yes |  |  | Decision is what a human approval says. |
 | `status.approvals[].name` | `string` | yes |  |  |  |
 | `status.approvals[].note` | `string` | no |  |  |  |
+| `status.guarded` | `boolean` | no |  |  | Guarded says the promoter checked its admission policies guarded the cluster when it admitted this operation. False when the chart runs without them (admissionPolicies.allowUnguarded): the actor and the approvers are then only what their writers claimed. |
 | `status.message` | `string` | no |  |  |  |
 | `status.outcome` | `string` | no |  |  | Outcome is how a concluded operation ended. |
 | `status.phase` | `string` | no |  |  | Phase is where an operation is in its lifecycle. |
@@ -146,6 +147,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.plan.predicted` | `string` | yes |  |  | Prediction is what plan() expects the promoter to do. |
 | `status.plan.question` | `string` | no |  |  | Question is the one question a human would be asked. |
 | `status.plan.to` | `string` | no |  |  |  |
+| `status.plan.toVersion` | `string` | no |  |  | ToVersion is the contract service.version of To, when it could be read. |
 | `status.plan.type` | `string` | yes |  |  |  |
 | `status.plan.verdicts` | `[]object` | no |  |  |  |
 | `status.plan.verdicts[].citation` | `object` | no |  |  |  |
@@ -177,6 +179,8 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.policy.deadlines.execution` | `string` | no |  |  |  |
 | `status.policy.environment` | `string` | yes |  |  |  |
 | `status.policy.gates` | `object` | no |  |  | Gates configures the Stage's gates. The pre-gates are fixed by the operation type; the Pacto contract check always verifies, beside the Stage's checks. |
+| `status.policy.gates.impact` | `object` | no |  |  | ImpactGate tunes pacto.impact. |
+| `status.policy.gates.impact.declaredConsumersOnly` | `boolean` | no |  |  | DeclaredConsumersOnly says every consumer of the service has a contract Pacto can see, so a breaking change no Pacto depends on ships without a person. Off by default: a service with no contract can still call it, so a breaking change with no consumer in sight waits for a person to accept the unknown. |
 | `status.policy.gates.verify` | `object` | no |  |  | VerifyGates configures what runs after a version is applied. |
 | `status.policy.gates.verify.checks` | `[]object` | no |  |  | Checks are this Stage's own verify gates, run beside the Pacto contract check: a health provider the delivery chart configures, or the built-in pacto.runtime claim gate. |
 | `status.policy.gates.verify.checks[].name` | `string` | yes |  |  | Name is the gate id its verdicts carry, unique on the Stage. |
@@ -259,6 +263,8 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.deadlines.execution` | `string` | no |  |  |  |
 | `spec.environment` | `string` | yes |  |  |  |
 | `spec.gates` | `object` | no |  |  | Gates configures the Stage's gates. The pre-gates are fixed by the operation type; the Pacto contract check always verifies, beside the Stage's checks. |
+| `spec.gates.impact` | `object` | no |  |  | ImpactGate tunes pacto.impact. |
+| `spec.gates.impact.declaredConsumersOnly` | `boolean` | no |  |  | DeclaredConsumersOnly says every consumer of the service has a contract Pacto can see, so a breaking change no Pacto depends on ships without a person. Off by default: a service with no contract can still call it, so a breaking change with no consumer in sight waits for a person to accept the unknown. |
 | `spec.gates.verify` | `object` | no |  |  | VerifyGates configures what runs after a version is applied. |
 | `spec.gates.verify.checks` | `[]object` | no |  |  | Checks are this Stage's own verify gates, run beside the Pacto contract check: a health provider the delivery chart configures, or the built-in pacto.runtime claim gate. |
 | `spec.gates.verify.checks[].name` | `string` | yes |  |  | Name is the gate id its verdicts carry, unique on the Stage. |
@@ -269,12 +275,14 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.service` | `object` | yes |  |  | ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified service name its contracts declare. |
 | `spec.service.domain` | `string` | no |  |  | Domain is the registry and organisation scope (empty for the default). |
 | `spec.service.name` | `string` | yes |  |  | Name is the contract's service.name. |
-| `status` | `object` | no |  |  | StageStatus is written only by the promoter's operation reconciler. |
+| `status` | `object` | no |  |  | StageStatus is written by the promoter's operation and stage reconcilers and by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each through a compare-and-swap on the Stage's resourceVersion. |
+| `status.authFreshness` | `string` | no |  |  | AuthFreshness is how old a login the promoter accepts on an approval (a Go duration). Clients ask for a fresh login with a margin under it (DecisionFreshnessFor). |
 | `status.autoHold` | `boolean` | no |  |  | AutoHold stops auto-promotion after a person chose an older version. |
-| `status.autoRollbacks` | `object` | no |  |  | AutoRollbacks counts the automatic rollbacks raised per cause. |
 | `status.candidate` | `string` | no |  |  | Candidate is the newest eligible candidate the stage reconciler saw. |
 | `status.conditions` | `[]object` | no |  |  | Conditions holds Ready. It is False, naming what is missing, when the Stage can never promote: its candidate OCIRepository does not exist or sets no spec.verify naming the publisher, or it names no candidate source at all. The recorder adds RecordStoreReady: False when the registry has no Referrers API, cannot be reached or holds a stream it refuses to fork. |
+| `status.conditions[].lastTransitionTime` | `string` | no |  |  | LastTransitionTime is when Status last changed (RFC 3339). |
 | `status.conditions[].message` | `string` | no |  |  |  |
+| `status.conditions[].observedGeneration` | `integer` | no |  |  | ObservedGeneration is the Stage generation the condition was set from. |
 | `status.conditions[].reason` | `string` | no |  |  |  |
 | `status.conditions[].status` | `string` | yes |  | `True`, `False`, `Unknown` |  |
 | `status.conditions[].type` | `string` | yes |  |  |  |
@@ -293,9 +301,11 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.lastCheck.verdicts[].result` | `string` | yes |  | `Pass`, `Fail`, `Unknown` | Result is a gate verdict. |
 | `status.lastOp` | `string` | no |  |  | LastOp is the uid of the operation that last moved the pointer. |
 | `status.locks` | `object` | no |  |  | Locks maps a facet to the uid of the operation holding it. |
+| `status.observedGeneration` | `integer` | no |  |  | ObservedGeneration is the Stage generation the stage reconciler last judged Ready from. |
 | `status.offered` | `[]string` | no |  |  | Offered holds the digests a promote carried through pacto.published with a pass (not an accepted unknown) and that then verified here, oldest first (cap 50). Only these are offered to a downstream Stage. |
-| `status.pointer` | `string` | no |  |  | Pointer is the digest the environment runs. |
+| `status.pointer` | `string` | no |  |  | Pointer is the digest the Stage moved the environment to. It is set when an operation holding the pointer lock starts to apply, before Flux or Argo CD runs it: Applied on that operation says when they did. |
 | `status.published` | `[]string` | no |  |  | Published holds the candidate digests Flux verified the signature of on the candidate OCIRepository (spec.verify naming the publisher's identity), oldest first (cap 50). Only these are promoted from the OCIRepository. |
+| `status.rolledBack` | `[]string` | no |  |  | RolledBack holds the uids of the failed operations the promoter raised its one automatic rollback for, oldest first (cap 50). A failure listed here never gets a second one. |
 | `status.stream` | `object` | no |  |  | Stream numbers a Stage's concluded operations. |
 | `status.stream.anchor` | `string` | no |  |  | Anchor is where the stream's records are listed: &lt;repository&gt;@<anchor digest>. Only the recorder writes it. |
 | `status.stream.concluded` | `[]object` | no |  |  | Concluded are the newest operations given a seq, each with how it concluded, written in the compare-and-swap that took the seq. An operation whose own status write then failed concludes again from here: the same seq and outcome, never a second seq. |

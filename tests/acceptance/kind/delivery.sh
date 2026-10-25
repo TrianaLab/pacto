@@ -676,7 +676,7 @@ spec:
   applyRef: {name: payments}
   candidates: {ociRepositoryRef: {name: payments-candidates}}
   auto: true
-  gates: {verify: {window: 3m}}
+  gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 kubectl -n prod apply -f - >/dev/null <<YAML
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
@@ -688,7 +688,7 @@ spec:
   applyRef: {name: payments}
   candidates: {upstreamStage: {name: payments, namespace: test}}
   auto: true
-  gates: {verify: {window: 3m}}
+  gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 
 section "bootstrap: A reaches test, then prod, by itself"
@@ -712,7 +712,9 @@ always 7 stale_ignored || fail "a Compliant result for A's contract was used for
 pass "item 8: with A's Compliant verdict still in the Pacto status, B stays unverified (Unknown)"
 # Each refusal is captured before it is grepped: under pipefail, `kubectl ... |
 # grep -q` reports kubectl's own non-zero exit even when grep matched.
-OUT="$(KUBECONFIG="$AGENT_A" kubectl -n test delete operation "$OPB" --wait=false 2>&1 || true)"
+# A person, who may cancel anyone's operation before it moves (an agent may
+# not cancel the promoter's own auto promote at all).
+OUT="$(KUBECONFIG="$(person_kubeconfig alice humans)" kubectl -n test delete operation "$OPB" --wait=false 2>&1 || true)"
 if grep -q "can no longer be cancelled" <<<"$OUT"; then
   pass "cancel is refused once the pointer moved"
 else
@@ -763,13 +765,22 @@ always 5 stays_on_b || fail "E moved while Pacto could not judge it"
 candidate B
 candidate_is_b() { [ "$(kubectl -n test get ocirepository payments-candidates -o jsonpath='{.status.artifact.revision}')" = "candidate@$B" ]; }
 eventually 30 candidate_is_b || fail "the candidate OCIRepository never saw the tag move back to B"
-as_agent "$AGENT_A" cancel -n test "$OPE" >/dev/null
+# E is the promoter's, so an agent may not cancel it: an agent that could
+# would also cancel a rollback the promoter raised before it applies.
+OUT="$(as_agent "$AGENT_A" cancel -n test "$OPE" 2>&1 || true)"
+if grep -q "an agent may cancel only an operation it proposed itself" <<<"$OUT"; then
+  pass "an agent cannot cancel an operation the promoter raised"
+else
+  fail "an agent cancelled the promoter's operation: $OUT"
+fi
+held test "$OPE" || fail "E is gone after the refused cancel: $(field test "$OPE" phase)"
+as_person alice humans cancel -n test "$OPE" >/dev/null
 # A cancelled operation that never moved anything concludes Cancelled and is
 # let go once the recorder has recorded it.
 cancelled() { ! kubectl -n test get operation "$OPE" >/dev/null 2>&1 || [ "$(outcome test "$OPE")" = Cancelled/ ]; }
 eventually 20 cancelled || fail "E was not cancelled: $(field test "$OPE" phase) $(field test "$OPE" outcome)"
 always 5 has_pointer test "$B" || fail "cancelling E moved the pointer"
-pass "item 5: E held for accept-unknown and cancelled by the agent; nothing moved"
+pass "item 5: E held for accept-unknown, refused to the agent and cancelled by a person; nothing moved"
 
 section "item 6: two agents propose at once; exactly one wins"
 G="$(publish G "$C130")"
@@ -832,6 +843,17 @@ metadata: {name: forged}
 spec: {operation: $OPF, operationUID: x, intentDigest: x, decision: approve, by: alice}
 YAML
 then fail "an agent created an Approval"; fi
+# A decision that is not approve, reject or accept-unknown is refused by the
+# schema, never stored to be silently ignored.
+OUT="$(kubectl -n test create -f - 2>&1 <<YAML || true
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Approval
+metadata: {name: typo}
+spec: {operation: $OPF, operationUID: x, intentDigest: x, decision: aprove, by: carol}
+YAML
+)"
+grep -q 'Unsupported value: "aprove"' <<<"$OUT" || fail "an Approval with a misspelt decision was stored: $OUT"
+pass "an Approval's decision must be approve, reject or accept-unknown"
 # A person without a login time is refused by admission.
 if kubectl --as carol --as-group humans -n test create -f - 2>/dev/null <<YAML
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
@@ -846,6 +868,16 @@ always 3 waits_for_f || fail "an approval from outside team-checkout moved F"
 as_person alice team-checkout approve -n test "$OPF" --decision approve --note "checkout migrates next sprint" >/dev/null
 wait_concluded test "$OPF" Succeeded/Verified
 [ "$(kubectl -n test get operation "$OPF" -o jsonpath='{.status.approvals[*].by}')" = alice ] || fail "the approval is not recorded, or the one from outside the team was"
+# Every Approval of F is owned by F, so it is garbage collected with it, and
+# none can be edited once given.
+OPF_UID="$(kubectl -n test get operation "$OPF" -o jsonpath='{.metadata.uid}')"
+unowned() { kubectl -n test get approvals -o json | jq --arg u "$OPF_UID" '[.items[] | select(.spec.operationUID == $u) | select(any(.metadata.ownerReferences[]?; .uid == $u) | not)] | length'; }
+owned() { [ "$(unowned)" = 0 ]; }
+eventually 20 owned || fail "$(unowned) Approvals of $OPF are not owned by it"
+APF="$(kubectl -n test get approvals -o json | jq -r --arg u "$OPF_UID" '[.items[] | select(.spec.operationUID == $u)][0].metadata.name')"
+OUT="$(kubectl -n test patch approval "$APF" --type merge -p '{"spec":{"decision":"reject"}}' 2>&1 || true)"
+grep -q "an approval is immutable" <<<"$OUT" || fail "an Approval's decision was edited after it was given: $OUT"
+pass "F's Approvals are owned by F and cannot be edited"
 pass "item 4: F held for team-checkout only, answered only by a team-checkout member, verified in test"
 OPFP="$(wait_op prod "$F")"
 eventually 30 held prod "$OPFP" || fail "F was not held in prod"
@@ -891,11 +923,46 @@ fi
 # The promoter's RBAC reaches every OCIRepository; admission holds it to the
 # pointer field of a labelled one.
 OUT="$(kubectl --as "system:serviceaccount:${DELIVERY_NS}:pacto-delivery" -n prod patch ocirepository payments --type merge \
-  -p '{"spec":{"url":"oci://elsewhere.example/payments"}}' 2>&1 || true)"
+  -p '{"spec":{"interval":"7m"}}' 2>&1 || true)"
 if grep -q "the promoter may change only spec.ref.digest" <<<"$OUT"; then
   pass "the promoter cannot change anything but the pointer"
 else
-  fail "the promoter changed an OCIRepository's url: $OUT"
+  fail "the promoter changed an OCIRepository's interval: $OUT"
+fi
+# Only the pointer decides what runs once the applier is labelled too: the
+# Stage says so, and nobody but break-glass changes what the Kustomization
+# applies, the OCIRepository's url or either label.
+mediated_is() {
+  [ "$(kubectl -n "$1" get stage "$2" -o jsonpath='{.status.conditions[?(@.type=="Mediated")].status}/{.status.conditions[?(@.type=="Mediated")].reason}')" = "$3" ]
+}
+eventually 20 mediated_is prod payments False/ApplierUnguarded \
+  || fail "an unlabelled Kustomization is not reported: $(kubectl -n prod get stage payments -o jsonpath='{.status.conditions}')"
+kubectl -n prod label kustomization payments delivery.pacto.trianalab.io/apply-ref=payments >/dev/null
+eventually 20 mediated_is prod payments True/PointerOnly \
+  || fail "a labelled Kustomization is not reported as mediated: $(kubectl -n prod get stage payments -o jsonpath='{.status.conditions}')"
+OUT="$(kubectl -n prod patch kustomization payments --type merge -p '{"spec":{"images":[{"name":"payments","newTag":"evil"}]}}' 2>&1 || true)"
+grep -q "only break-glass changes them" <<<"$OUT" || fail "a labelled Kustomization's images were changed: $OUT"
+OUT="$(kubectl -n prod patch ocirepository payments --type merge -p '{"spec":{"url":"oci://elsewhere.example/payments"}}' 2>&1 || true)"
+grep -q "spec.url and spec.layerSelector decide" <<<"$OUT" || fail "a labelled OCIRepository's url was changed: $OUT"
+OUT="$(kubectl -n prod label ocirepository payments delivery.pacto.trianalab.io/apply-ref- 2>&1 || true)"
+grep -q "only break-glass removes it" <<<"$OUT" || fail "the apply-ref label was removed without break-glass: $OUT"
+OUT="$(kubectl -n prod label kustomization payments delivery.pacto.trianalab.io/apply-ref- 2>&1 || true)"
+grep -q "only break-glass removes it" <<<"$OUT" || fail "a Kustomization's apply-ref label was removed without break-glass: $OUT"
+pass "the prod Stage is Mediated, and only break-glass changes its applier, url or labels"
+# The recorder's RBAC reaches every Stage status; admission allows it its
+# record fields and RecordStoreReady condition alone.
+# The recorder may update (not patch) status; a write that races the promoter
+# conflicts before admission, so try again.
+forge_ready() {
+  OUT="$(kubectl -n prod get stage payments -o json |
+    jq '.status.conditions = [{"type":"Ready","status":"False","reason":"Forged","message":"forged"}]' |
+    kubectl --as "system:serviceaccount:${DELIVERY_NS}:pacto-delivery-recorder" replace --subresource=status -f - 2>&1 || true)"
+  grep -q "the Pacto delivery recorder writes records, never what runs" <<<"$OUT"
+}
+if eventually 20 forge_ready; then
+  pass "the recorder cannot write a Stage condition other than its own"
+else
+  fail "the recorder rewrote a Stage's Ready condition: $OUT"
 fi
 KUBECONFIG="$(person_kubeconfig ops pacto:break-glass)" kubectl -n prod patch ocirepository payments --type merge \
   -p "{\"spec\":{\"ref\":{\"digest\":\"$B\"}}}" >/dev/null
@@ -911,6 +978,14 @@ WITNESSED="$(kubectl get operations -A -o json | jq '[.items[] | select(.spec.wi
 PROMOTES="$(kubectl get operations -A -o json | jq '[.items[] | select(.spec.type == "pacto.dev/promote")] | length')"
 [ "$WITNESSED" = 1 ] || fail "$WITNESSED witnessed overrides, want exactly the one break-glass edit"
 pass "$PROMOTES promotes, 0 witnessed overrides of their own"
+section "the promoter counts what it concluded and says so in Events"
+PROMOTER_POD="$(kubectl -n "$DELIVERY_NS" get pods -l app.kubernetes.io/component=promoter -o jsonpath='{.items[0].metadata.name}')"
+METRICS="$(kubectl get --raw "/api/v1/namespaces/${DELIVERY_NS}/pods/${PROMOTER_POD}:8080/proxy/metrics")" || fail "the promoter serves no metrics on port 8080"
+grep -q '^pacto_delivery_operations_total{.*type="pacto.dev/promote"' <<<"$METRICS" || fail "no concluded promote is counted: $(grep pacto_delivery <<<"$METRICS")"
+grep -q '^pacto_delivery_stage_frozen{namespace="prod",stage="payments"} 1' <<<"$METRICS" || fail "the frozen prod Stage is not in the frozen gauge"
+kubectl -n prod get events --field-selector involvedObject.kind=Stage,reason=Frozen -o name | grep -q . || fail "the prod Stage froze without an Event"
+kubectl -n test get events --field-selector involvedObject.kind=Operation,reason=Held -o name | grep -q . || fail "no held operation emitted an Event"
+pass "concluded operations are counted, the frozen Stage is in its gauge and holds and freezes emit Events"
 share B C F OPC OPF C120
 
 echo "DELIVERY CORE PASS"
@@ -1027,6 +1102,7 @@ H2="$(publish_health h2)"; mode h2 errors
 Q="$(publish_health q)"; mode q silent
 H5="$(publish_health h5)"
 R="$(publish_health r calls)"
+S="$(publish_health s)"; mode s errors
 
 kubectl -n "$H" apply -f - >/dev/null <<YAML
 apiVersion: source.toolkit.fluxcd.io/v1
@@ -1062,6 +1138,7 @@ spec:
   applyRef: {name: payments}
   candidates: {ociRepositoryRef: {name: payments-candidates}}
   gates:
+    impact: {declaredConsumersOnly: true}
     verify:
       window: 1m
       recheck: 5s
@@ -1212,6 +1289,27 @@ jq -e '.completeness == "partial" and ([.entries[] | select(.type == "pacto.dev/
   || fail "history does not list the four rollbacks: $HIST"
 pass "explain cites how to re-run, history lists every rollback"
 
+section "S: an agent takes the name of S's rollback first; S fails and the Stage freezes instead of keeping S"
+# agent-a creates promote-s-rollback before proposing promote-s, the name the
+# promoter gives S's one rollback. It is not the promoter's rollback, so it
+# never stands in for one.
+KUBECONFIG="$AGENT_A" kubectl -n "$H" create -f - >/dev/null <<YAML
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Operation
+metadata: {name: promote-s-rollback, finalizers: [delivery.pacto.trianalab.io/record]}
+spec: {type: pacto.dev/promote, stage: payments, facet: pointer, params: {from: "$H1", to: "$H1"}, actor: {user: "system:serviceaccount:agents:agent-a", groups: [system:serviceaccounts, "system:serviceaccounts:agents", system:authenticated]}, reason: squat}
+YAML
+eventually 60 concluded "$H" promote-s-rollback || fail "the squatting operation never concluded: $(field "$H" promote-s-rollback phase)"
+OPS="$(ship s "$S")"
+wait_concluded "$H" "$OPS" Failed/
+squat_frozen() {
+  kubectl -n "$H" get stage payments -o json |
+    jq -e '.status.frozen == true and (.status.frozenReason | contains("promote-s-rollback is taken by a pacto.dev/promote system:serviceaccount:agents:agent-a"))' >/dev/null
+}
+eventually 30 squat_frozen || fail "a squatted rollback name did not freeze the Stage: $(kubectl -n "$H" get stage payments -o jsonpath='{.status.frozen} {.status.frozenReason}')"
+[ "$(rollbacks_of "$OPS")" = 0 ] || fail "a rollback of S was raised under another name"
+pass "S failed with its rollback's name taken; the Stage froze naming the squatter"
+
 kill "$GEN_PID" "$MIRA_PF_PID" 2>/dev/null || true
 echo "DELIVERY HEALTH PASS"
 }
@@ -1342,7 +1440,7 @@ spec:
   applyRef: {name: billing}
   candidates: {ociRepositoryRef: {name: billing-candidates}}
   auto: true
-  gates: {verify: {window: 3m}}
+  gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 
 section "--plan lists what is missing and writes nothing"
@@ -1436,7 +1534,7 @@ spec:
   environment: publish-manual
   applyRef: {name: billing}
   candidates: {ociRepositoryRef: {name: billing-candidates}}
-  gates: {verify: {window: 3m}}
+  gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 billing_contract 1.0.1 service
 git -C "$PUB" -c user.email=ci@e.com -c user.name=ci commit -qam "billing 1.0.1"
@@ -1479,6 +1577,24 @@ ready_is() {
   [ "$(kubectl -n "$1" get stage "$2" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}/{.status.conditions[?(@.type=="Ready")].reason}')" = "$3" ]
 }
 eventually 20 ready_is "$P" billing True/Ready || fail "the publishing Stage is not Ready: $(kubectl -n "$P" get stage billing -o jsonpath='{.status.conditions}')"
+# Without the apply-ref label admission guards nothing and the promoter may not
+# write the pointer, so the Stage says so instead of promoting into a refusal.
+# Only break-glass may remove the label (admission), so it is the one to.
+KUBECONFIG="$(person_kubeconfig ops pacto:break-glass)" kubectl -n "$P" label ocirepository billing delivery.pacto.trianalab.io/apply-ref- >/dev/null
+eventually 20 ready_is "$P" billing False/ApplyRefUnlabelled \
+  || fail "an unlabelled apply OCIRepository is not reported: $(kubectl -n "$P" get stage billing -o jsonpath='{.status.conditions}')"
+kubectl -n "$P" label ocirepository billing delivery.pacto.trianalab.io/apply-ref=billing >/dev/null
+eventually 20 ready_is "$P" billing True/Ready || fail "the Stage is not Ready again once relabelled"
+pass "a Stage whose apply OCIRepository lost its apply-ref label is Ready=False with ApplyRefUnlabelled until it is relabelled"
+# A binding that only warns guards nothing the promoter can count on: the
+# Stage is not Ready until it denies again.
+kubectl patch validatingadmissionpolicybinding pacto-delivery-pointer --type merge -p '{"spec":{"validationActions":["Warn"]}}' >/dev/null
+eventually 20 ready_is "$P" billing False/Unguarded \
+  || { kubectl patch validatingadmissionpolicybinding pacto-delivery-pointer --type merge -p '{"spec":{"validationActions":["Deny"]}}' >/dev/null
+       fail "a pointer binding set to Warn is not reported: $(kubectl -n "$P" get stage billing -o jsonpath='{.status.conditions}')"; }
+kubectl patch validatingadmissionpolicybinding pacto-delivery-pointer --type merge -p '{"spec":{"validationActions":["Deny"]}}' >/dev/null
+eventually 20 ready_is "$P" billing True/Ready || fail "the Stage is not Ready again once the binding denies"
+pass "a Stage is Ready=False with Unguarded while the pointer binding only warns"
 kubectl -n "$M" apply -f - >/dev/null <<YAML
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
@@ -1494,6 +1610,7 @@ spec:
   applyRef: {name: billing-anyone-apply}
   candidates: {ociRepositoryRef: {name: billing-anyone}}
   auto: true
+  gates: {impact: {declaredConsumersOnly: true}}
 YAML
 eventually 20 ready_is "$M" billing-anyone False/CandidateUnverified \
   || fail "a Stage whose candidate sets no spec.verify is not reported: $(kubectl -n "$M" get stage billing-anyone -o jsonpath='{.status.conditions}')"
@@ -1554,7 +1671,7 @@ spec:
   applyRef: {name: $1}
   candidates: $3
   auto: ${4:-true}
-  gates: {verify: {window: 3m}}
+  gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 }
 candidates_yaml() { # SERVICE

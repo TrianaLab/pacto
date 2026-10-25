@@ -72,7 +72,7 @@ func TestHealthGateVerifies(t *testing.T) {
 	o := e.shipB()
 	wantOutcome(t, o, delivery.Succeeded, "Verified")
 	in := e.health.inputs[len(e.health.inputs)-1]
-	if in.OperationUID != "uid-p1" || in.Subjects[0] != dB || in.Service.Name != "payments" || in.Stage.Name != "payments-prod" ||
+	if in.OperationUID != "uid-p1" || in.Subjects[0] != dB || in.Version != "1.1.0" || in.Service.Name != "payments" || in.Stage.Name != "payments-prod" ||
 		!in.Window.From.Equal(e.now) || !in.Window.To.Equal(e.now) {
 		t.Fatalf("gate input: %+v", in)
 	}
@@ -119,6 +119,56 @@ func TestHealthUnknownHolds(t *testing.T) {
 			t.Fatal("Unknown must not roll back")
 		}
 	}
+}
+
+// TestHeldOnUnknownKeepsChecking: while a shipped version waits for a person
+// to accept the unknown, the gates run again every recheck interval. A Fail
+// rolls it back without waiting for the person, and all Pass verifies it.
+func TestHeldOnUnknownKeepsChecking(t *testing.T) {
+	held := func(t *testing.T) *env {
+		e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+		e.health.result = delivery.Unknown
+		e.shipB()
+		e.now = e.now.Add(2 * time.Minute)
+		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseHeld {
+			t.Fatalf("want Held: %+v", o.Status)
+		}
+		return e
+	}
+	t.Run("fail", func(t *testing.T) {
+		e := held(t)
+		asked := len(e.health.inputs)
+		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || o.Status.Message != "health: error ratio Unknown" {
+			t.Fatalf("Unknown keeps asking with the fresh verdicts: %+v", o.Status)
+		}
+		e.health.result = delivery.Fail
+		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || len(e.health.inputs) != asked+1 {
+			t.Fatalf("the gates run once per recheck interval: %s asked=%d", o.Status.Phase, len(e.health.inputs)-asked)
+		}
+		e.now = e.now.Add(time.Minute)
+		wantOutcome(t, e.drive("p1"), delivery.Failed, "VerifyFailed")
+		if rb := e.getOp("p1-rollback"); rb.Spec.Cause.Verdict == nil || rb.Spec.Cause.Verdict.Gate != "health" {
+			t.Fatalf("the rollback cites the Fail: %+v", rb.Spec.Cause)
+		}
+	})
+	t.Run("pass", func(t *testing.T) {
+		e := held(t)
+		e.health.result = delivery.Pass
+		wantOutcome(t, e.drive("p1"), delivery.Succeeded, "Verified")
+	})
+	t.Run("an approval that does not count says why", func(t *testing.T) {
+		e := held(t)
+		o := e.drive("p1")
+		e.approve(o, "late", "alice", delivery.Approve)
+		const want = "health: error ratio Unknown; Approval late by alice does not count: the version already shipped"
+		if o = e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || !strings.HasPrefix(o.Status.Message, want) || len(o.Status.Approvals) != 0 {
+			t.Fatalf("an Approve after the version shipped is passed over, and the operation says why: %+v", o.Status)
+		}
+		e.now = e.now.Add(time.Minute)
+		if o = e.drive("p1"); !strings.HasPrefix(o.Status.Message, want) {
+			t.Fatalf("the recheck keeps saying why: %q", o.Status.Message)
+		}
+	})
 }
 
 // TestRuntimeClaimGate: a version the node agent saw calling a service its
@@ -178,7 +228,7 @@ func TestRecheckAfterRelease(t *testing.T) {
 		t.Fatal(err)
 	}
 	s = e.getStage()
-	if s.Status.FailedDigests[0] != dB || len(s.Status.Verified) != 1 || s.Status.AutoRollbacks["uid-p1"] != 1 || s.Status.Frozen {
+	if s.Status.FailedDigests[0] != dB || len(s.Status.Verified) != 1 || !slices.Equal(s.Status.RolledBack, []string{"uid-p1"}) || s.Status.Frozen {
 		t.Fatalf("stage after a failed re-check: %+v", s.Status)
 	}
 	rb := e.getOp("p1-rollback")
@@ -218,7 +268,7 @@ func TestRecheckAfterRelease(t *testing.T) {
 // rollback, or a first version with nothing before it, freezes instead.
 func TestRecheckFreezesWhenItCannotRollBack(t *testing.T) {
 	for name, mutate := range map[string]func(*delivery.StageStatus){
-		"second fail for the cause": func(s *delivery.StageStatus) { s.AutoRollbacks = map[string]int{"uid-p1": 1} },
+		"second fail for the cause": func(s *delivery.StageStatus) { s.RolledBack = []string{"uid-p1"} },
 		"rollback target failed":    func(s *delivery.StageStatus) { s.FailedDigests = []string{dA} },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -251,7 +301,7 @@ func TestRecheckFreezesWhenItCannotRollBack(t *testing.T) {
 func TestRecheckRaisesTheFreezeFirst(t *testing.T) {
 	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
 	e.shipB()
-	e.setStage(func(s *delivery.StageStatus) { s.AutoRollbacks = map[string]int{"uid-p1": 1} })
+	e.setStage(func(s *delivery.StageStatus) { s.RolledBack = []string{"uid-p1"} })
 	e.health.result = delivery.Fail
 	e.fails["create/Operation"] = true
 	if err := e.reconcileStage("payments-prod"); err == nil || e.getStage().Status.Frozen {
@@ -385,6 +435,73 @@ func TestCitedCauseMustBeAboutTheRunningVersion(t *testing.T) {
 	}
 }
 
+// TestRollbackGatesKnowTheVersion: a version-matching gate (Mira's
+// matchVersion) needs the contract version of the digest it checks. The re-run
+// of a cited cause is about the running version, the rollback's verify and
+// every re-check after it about the version rolled back to.
+func TestRollbackGatesKnowTheVersion(t *testing.T) {
+	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.shipB()
+	applied := e.now
+	e.now = e.now.Add(5 * time.Minute)
+	e.setStage(func(s *delivery.StageStatus) { s.Frozen = true })
+	cited := delivery.RunChecks(context.Background(), map[string]delivery.Gate{"mira": &fakeHealth{result: delivery.Fail}},
+		healthChecks, gateInput(e.getOp("p1"), e.getStage(), applied, e.now))[0]
+	rb := opObj("rb", delivery.TypeRollback, dB, dA, bot)
+	rb.Spec.Params.Undoes = "uid-p1"
+	rb.Spec.Cause = &delivery.Cause{Verdict: &cited}
+	e.create(bind(rb, e.getStage()))
+	e.health.result = delivery.Fail
+	if o := e.drive("rb"); o.Status.Phase != delivery.PhaseRunning {
+		t.Fatalf("a confirmed cause admits the rollback: %+v", o.Status)
+	}
+	if in := e.health.inputs[len(e.health.inputs)-1]; in.Subjects[0] != dB || in.Version != "1.1.0" || in.OperationUID != "uid-rb" {
+		t.Fatalf("the cause re-run is about the running version: %+v", in)
+	}
+	e.health.result = delivery.Pass
+	e.apply(dA)
+	e.evaluate(c1, "Compliant")
+	wantOutcome(t, e.drive("rb"), delivery.Succeeded, "Verified")
+	if in := e.health.inputs[len(e.health.inputs)-1]; in.Subjects[0] != dA || in.Version != "1.0.0" {
+		t.Fatalf("the rollback's verify knows the version: %+v", in)
+	}
+	n := len(e.health.inputs)
+	e.setStage(func(s *delivery.StageStatus) { s.Frozen = false })
+	e.now = e.now.Add(10 * time.Minute)
+	if err := e.reconcileStage("payments-prod"); err != nil || len(e.health.inputs) == n {
+		t.Fatalf("re-checked: %v", err)
+	}
+	if in := e.health.inputs[len(e.health.inputs)-1]; in.Subjects[0] != dA || in.Version != "1.0.0" {
+		t.Fatalf("the re-check after a rollback knows the version: %+v", in)
+	}
+}
+
+// TestCitedCauseOnAMovedPointer: when the pointer moved past the operation
+// that shipped (a break-glass edit), the re-run is about the digest the Stage
+// runs and claims no contract version for it.
+func TestCitedCauseOnAMovedPointer(t *testing.T) {
+	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.shipB()
+	applied := e.now
+	e.now = e.now.Add(5 * time.Minute)
+	e.setStage(func(s *delivery.StageStatus) { s.Frozen, s.Pointer = true, dC })
+	cited := delivery.RunChecks(context.Background(), map[string]delivery.Gate{"mira": &fakeHealth{result: delivery.Fail}},
+		healthChecks, gateInput(e.getOp("p1"), e.getStage(), applied, e.now))[0]
+	rb := opObj("rb", delivery.TypeRollback, dC, dA, bot)
+	rb.Spec.Params.Undoes = "uid-p1"
+	rb.Spec.Cause = &delivery.Cause{Verdict: &cited}
+	e.create(bind(rb, e.getStage()))
+	n := len(e.health.inputs)
+	e.health.result = delivery.Fail
+	e.drive("rb")
+	if len(e.health.inputs) == n {
+		t.Fatal("the cited cause was not re-run")
+	}
+	if in := e.health.inputs[n]; in.Subjects[0] != dC || in.Version != "" {
+		t.Fatalf("the re-run is about the running digest, with no version: %+v", in)
+	}
+}
+
 // TestRecheckNeverUndoesAChoice: a version a person chose (a rollback, or a
 // promote while the Stage is on auto-hold) that fails after release is marked
 // failed and freezes the Stage; automation never rolls the choice back.
@@ -412,7 +529,7 @@ func TestRecheckNeverUndoesAChoice(t *testing.T) {
 			}
 			s := e.getStage()
 			if !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "a person must decide") || s.Status.FailedDigests[0] != dB ||
-				len(s.Status.AutoRollbacks) != 0 || len(e.ops()) != 2 {
+				len(s.Status.RolledBack) != 0 || len(e.ops()) != 2 {
 				t.Fatalf("want frozen with no rollback: %+v ops=%d", s.Status, len(e.ops()))
 			}
 			// The freeze is how the failure reaches the records: it concludes
@@ -452,7 +569,7 @@ func TestRecheckDropsAStaleVerdict(t *testing.T) {
 					t.Fatal(err)
 				}
 				s := e.getStage()
-				if s.Status.LastCheck != nil || s.Status.Frozen || len(s.Status.FailedDigests) != 0 || len(s.Status.AutoRollbacks) != 0 || len(e.ops()) != 1 {
+				if s.Status.LastCheck != nil || s.Status.Frozen || len(s.Status.FailedDigests) != 0 || len(s.Status.RolledBack) != 0 || len(e.ops()) != 1 {
 					t.Fatalf("a stale verdict changed the Stage: %+v ops=%d", s.Status, len(e.ops()))
 				}
 			})
@@ -468,14 +585,14 @@ func TestRecheckDropsAStaleVerdict(t *testing.T) {
 	if err := e.reconcileStage("payments-prod"); err != nil {
 		t.Fatal(err)
 	}
-	if s := e.getStage(); s.Status.LastCheck != nil || s.Status.Frozen || len(s.Status.FailedDigests) != 0 || len(s.Status.AutoRollbacks) != 0 || len(e.ops()) != 1 {
+	if s := e.getStage(); s.Status.LastCheck != nil || s.Status.Frozen || len(s.Status.FailedDigests) != 0 || len(s.Status.RolledBack) != 0 || len(e.ops()) != 1 {
 		t.Fatalf("a stale verdict changed the Stage: %+v ops=%d", s.Status, len(e.ops()))
 	}
 	// A Stage that cannot be read again is an error, retried.
 	e = healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
 	e.shipB()
 	e.health.result = delivery.Fail
-	e.health.during = func() { e.fails["get/Stage"] = true }
+	e.health.during = func() { e.setFail("get/Stage", true) }
 	if err := e.reconcileStage("payments-prod"); err == nil {
 		t.Fatal("want the read error")
 	}
@@ -498,7 +615,7 @@ func TestRecheckRecordsBeforeItRaises(t *testing.T) {
 		t.Fatal("a rollback that cannot be created is an error, retried")
 	}
 	s := e.getStage()
-	if s.Status.FailedDigests[0] != dB || slices.Contains(s.Status.Verified, dB) || s.Status.AutoRollbacks["uid-p1"] != 1 || len(e.ops()) != 1 {
+	if s.Status.FailedDigests[0] != dB || slices.Contains(s.Status.Verified, dB) || !slices.Equal(s.Status.RolledBack, []string{"uid-p1"}) || len(e.ops()) != 1 {
 		t.Fatalf("the failure is recorded before the rollback: %+v ops=%d", s.Status, len(e.ops()))
 	}
 	e.fails["create/Operation"] = false
@@ -600,4 +717,65 @@ func TestCitedCauseNeedsAnAppliedTime(t *testing.T) {
 			}
 		})
 	}
+}
+
+// squat creates a concluded operation bot names like one the promoter raises.
+func (e *env) squat(name string) {
+	e.t.Helper()
+	o := opObj(name, delivery.TypePromote, dC, dC, bot)
+	e.create(o)
+	o = e.getOp(name)
+	o.Status.Phase, o.Status.Outcome = delivery.PhaseConcluded, delivery.Rejected
+	if err := e.c.Status().Update(context.Background(), o); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
+// TestRecheckSquattedNamesFreeze: an operation someone else created under the
+// name of the rollback or freeze a failed re-check raises never stands in for
+// it: the Stage freezes and says whose operation took the name.
+func TestRecheckSquattedNamesFreeze(t *testing.T) {
+	taken := "is taken by a " + delivery.TypePromote + " " + bot
+	t.Run("rollback", func(t *testing.T) {
+		e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+		e.shipB()
+		e.squat("p1-rollback")
+		e.health.result = delivery.Fail
+		if err := e.reconcileStage("payments-prod"); err != nil {
+			t.Fatal(err)
+		}
+		if s := e.getStage(); !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "p1-rollback "+taken) {
+			t.Fatalf("want frozen: %+v", s.Status)
+		}
+	})
+	t.Run("freeze", func(t *testing.T) {
+		e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+		e.shipB()
+		e.setStage(func(s *delivery.StageStatus) { s.RolledBack = []string{"uid-p1"} })
+		e.squat("p1-freeze")
+		e.health.result = delivery.Fail
+		if err := e.reconcileStage("payments-prod"); err != nil {
+			t.Fatal(err)
+		}
+		if s := e.getStage(); !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "p1-freeze "+taken) {
+			t.Fatalf("want the squat in the freeze reason: %+v", s.Status)
+		}
+	})
+	t.Run("reraise", func(t *testing.T) {
+		e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+		e.shipB()
+		e.health.result = delivery.Fail
+		e.fails["create/Operation"] = true
+		if err := e.reconcileStage("payments-prod"); err == nil {
+			t.Fatal("a rollback that cannot be created is an error")
+		}
+		e.fails["create/Operation"] = false
+		e.squat("p1-rollback")
+		if err := e.reconcileStage("payments-prod"); err != nil {
+			t.Fatal(err)
+		}
+		if s := e.getStage(); !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "p1-rollback "+taken) {
+			t.Fatalf("want frozen: %+v", s.Status)
+		}
+	})
 }

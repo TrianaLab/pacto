@@ -10,6 +10,8 @@ package delivery
 import (
 	"context"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -84,6 +86,60 @@ func TestPromoteShipsAndVerifies(t *testing.T) {
 	}
 }
 
+// TestSquattedRollbackNameFreezes: an operation someone else created under the
+// name of the rollback a failed promote raises never stands in for it. The
+// failed version is not left running unwatched: the Stage freezes, naming the
+// squatter.
+func TestSquattedRollbackNameFreezes(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	squat := opObj("p1-rollback", delivery.TypePromote, dC, dC, bot)
+	e.create(squat)
+	wantOutcome(t, e.drive("p1-rollback"), delivery.Rejected, "")
+	e.drive("p1")
+	e.apply(dB)
+	e.drive("p1")
+	e.evaluate(c2, "NonCompliant")
+	wantOutcome(t, e.drive("p1"), delivery.Failed, "VerifyFailed")
+	s := e.getStage()
+	if !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "p1-rollback is taken by a "+delivery.TypePromote+" "+bot) {
+		t.Fatalf("a squatted rollback name must freeze the Stage: %+v", s.Status)
+	}
+}
+
+// TestStaleFailAfterAHumanRollbackIsPreempted: a promote whose gates ran on
+// a cached Stage that did not yet show a person's rollback taking its lock
+// concludes Preempted. It raises no rollback of its own and freezes nothing.
+func TestStaleFailAfterAHumanRollbackIsPreempted(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.drive("p1")
+	e.apply(dB)
+	e.drive("p1")
+	stale := e.getStage()
+	rb := opObj("undo", delivery.TypeRollback, dB, dA, "alice")
+	rb.Spec.Params.Undoes = "uid-p1"
+	rb.Spec.IntentDigest = delivery.IntentDigest(rb.Spec, stageObj("").Spec)
+	e.create(rb)
+	if o := e.drive("undo"); o.Status.Phase != delivery.PhaseRunning {
+		t.Fatalf("undo not running: %s", o.Status.Phase)
+	}
+	e.evaluate(c2, "NonCompliant")
+	if _, err := e.op.verifying(context.Background(), e.getOp("p1"), stale); err != nil {
+		t.Fatal(err)
+	}
+	p1 := e.getOp("p1")
+	if p1.Status.Outcome != delivery.Succeeded || p1.Status.Verification != delivery.Unverified || p1.Status.Reason != "Preempted" {
+		t.Fatalf("want Preempted, got %s/%s %s", p1.Status.Outcome, p1.Status.Verification, p1.Status.Reason)
+	}
+	for _, o := range e.ops() {
+		if o.Name == "p1-rollback" {
+			t.Fatal("a preempted promote raised its own rollback")
+		}
+	}
+	if s := e.getStage(); s.Status.Frozen || s.Status.Locks[delivery.FacetPointer] != "uid-undo" || len(s.Status.FailedDigests) != 0 {
+		t.Fatalf("the person's rollback keeps the Stage: %+v", s.Status)
+	}
+}
+
 // TestFailedVerifyRollsBackOnceAndNeverRetries is acceptance item 2: the
 // broken version fails its check, is remembered as failed, and exactly one
 // bound rollback returns the Stage to the version it ran before.
@@ -96,8 +152,23 @@ func TestFailedVerifyRollsBackOnceAndNeverRetries(t *testing.T) {
 	o := e.drive("p1")
 	wantOutcome(t, o, delivery.Failed, "VerifyFailed")
 	s := e.getStage()
-	if s.Status.FailedDigests[0] != dB || s.Status.AutoRollbacks["uid-p1"] != 1 || s.Status.Frozen {
+	if s.Status.FailedDigests[0] != dB || !slices.Equal(s.Status.RolledBack, []string{"uid-p1"}) || s.Status.Frozen {
 		t.Fatalf("stage after the failure: %+v", s.Status)
+	}
+	// The memory of raised rollbacks is bounded like the failed digests.
+	full := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	old := make([]string, delivery.MaxRolledBack)
+	for i := range old {
+		old[i] = fmt.Sprintf("uid-old-%d", i)
+	}
+	full.setStage(func(s *delivery.StageStatus) { s.RolledBack = old })
+	full.drive("p1")
+	full.apply(dB)
+	full.drive("p1")
+	full.evaluate(c2, "NonCompliant")
+	full.drive("p1")
+	if rb := full.getStage().Status.RolledBack; len(rb) != delivery.MaxRolledBack || rb[0] != "uid-old-1" || rb[len(rb)-1] != "uid-p1" {
+		t.Fatalf("raised rollbacks past the cap: %d, first %s", len(rb), rb[0])
 	}
 	rb := e.getOp("p1-rollback")
 	if rb.Spec.Type != delivery.TypeRollback || rb.Spec.Params.From != dB || rb.Spec.Params.To != dA || rb.Spec.Params.Undoes != "uid-p1" ||
@@ -105,8 +176,8 @@ func TestFailedVerifyRollsBackOnceAndNeverRetries(t *testing.T) {
 		t.Fatalf("rollback spec: %+v", rb.Spec)
 	}
 	// Raising again is a no-op: one rollback per cause.
-	if err := raiseRollback(context.Background(), e.c, e.op.Policy, o, s, "again", nil); err != nil {
-		t.Fatal(err)
+	if squat, err := raiseRollback(context.Background(), e.c, e.op.Policy, o, s, "again", nil); err != nil || squat != "" {
+		t.Fatal(squat, err)
 	}
 	rb = e.drive("p1-rollback")
 	if rb.Status.Phase != delivery.PhaseRunning || e.ociDigest("payments") != dA {
@@ -135,7 +206,7 @@ func TestFailedPromoteOverAFailedVersionFreezes(t *testing.T) {
 	e.drive("p1")
 	e.evaluate(c2, "NonCompliant")
 	wantOutcome(t, e.drive("p1"), delivery.Failed, "VerifyFailed")
-	if s := e.getStage(); !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "nothing safe to roll back to") || len(s.Status.AutoRollbacks) != 0 {
+	if s := e.getStage(); !s.Status.Frozen || !strings.Contains(s.Status.FrozenReason, "nothing safe to roll back to") || len(s.Status.RolledBack) != 0 {
 		t.Fatalf("want frozen with no rollback: %+v", s.Status)
 	}
 	if err := e.c.Get(context.Background(), keyOf("p1-rollback"), &dv1Op{}); err == nil {
@@ -207,8 +278,8 @@ func TestBreakingChangeWaitsForTheConsumersTeam(t *testing.T) {
 	e.create(wrong)
 	e.approve(o, "au", "alice", delivery.AcceptUnknown)
 	o = e.drive("p1")
-	if o.Status.Phase != delivery.PhaseHeld || !strings.Contains(o.Status.Message, "needs an approval") {
-		t.Fatalf("none of those may move it: %s %s", o.Status.Phase, o.Status.Message)
+	if o.Status.Phase != delivery.PhaseHeld || !strings.Contains(o.Status.Message, "does not count") || len(o.Status.Approvals) != 0 {
+		t.Fatalf("none of those may move it, and the operation says why: %s %s %+v", o.Status.Phase, o.Status.Message, o.Status.Approvals)
 	}
 	// Nor may a person outside the named team, or one in an agent group.
 	e.approveAs(o, "notteam", "dave", []string{"team-payments"}, delivery.Approve)
@@ -218,7 +289,7 @@ func TestBreakingChangeWaitsForTheConsumersTeam(t *testing.T) {
 	}
 	e.approveAs(o, "ok", "bob", []string{"team-checkout"}, delivery.Approve)
 	o = e.drive("p1")
-	if o.Status.Phase != delivery.PhaseRunning || len(o.Status.Approvals) != 2 || o.Status.Approvals[1].By != "bob" {
+	if o.Status.Phase != delivery.PhaseRunning || len(o.Status.Approvals) != 1 || o.Status.Approvals[0].By != "bob" {
 		t.Fatalf("an owner's approval must move it: %s %+v", o.Status.Phase, o.Status.Approvals)
 	}
 }
@@ -661,15 +732,6 @@ func TestVerdictUnknownReasons(t *testing.T) {
 	}
 }
 
-func TestFresh(t *testing.T) {
-	at := time.Unix(1_000_000, 0)
-	f := delivery.AuthFreshness
-	if !fresh("999990", at, f) || fresh("990000", at, f) || fresh("nope", at, f) || !fresh(at.Format(time.RFC3339), at, f) || fresh(at.Add(time.Hour).Format(time.RFC3339), at, f) ||
-		fresh("999990", at, time.Second) {
-		t.Fatal("fresh")
-	}
-}
-
 // TestNotPublishedIsRefused: a version pacto publish did not publish (no
 // contract annotation, or a digest Flux never verified on the candidate
 // source) is refused with NotPublished, before any other gate.
@@ -724,7 +786,7 @@ func TestPublishedFromUpstream(t *testing.T) {
 	e.create(bind(opObj("p1", delivery.TypePromote, dA, dB, bot), e.getStage()))
 	o := e.drive("p1")
 	wantOutcome(t, o, delivery.Rejected, "NotPublished")
-	if !strings.Contains(o.Status.Message, "does not exist or cannot be read") {
+	if !strings.Contains(o.Status.Message, "the upstream Stage prod/missing cannot be read") || !strings.Contains(o.Status.Message, "not found") {
 		t.Fatalf("message %q", o.Status.Message)
 	}
 	// An upstream Stage the promoter may not read is refused, not retried.
@@ -741,27 +803,8 @@ func TestPublishedFromUpstream(t *testing.T) {
 	op = opObj("p5", delivery.TypePromote, dA, dB, bot)
 	op.Status.ActorClass = delivery.ClassAgent
 	p, err := r.plan(context.Background(), op, e.getStage())
-	if err != nil || p.Predicted != delivery.PredictRejected || !strings.Contains(planRefusal(p), "does not exist or cannot be read") {
+	if err != nil || p.Predicted != delivery.PredictRejected || !strings.Contains(planRefusal(p), "cannot be read") || !strings.Contains(planRefusal(p), "no RBAC") {
 		t.Fatalf("a forbidden upstream Stage must be refused, not retried: %v %+v", err, p)
-	}
-}
-
-// TestVerifiedPromoteIsOffered: a promote that passed the published gate here
-// and verified is offered to a downstream Stage. One a person accepted on an
-// unknown published verdict is not, and nothing but a promote is.
-func TestVerifiedPromoteIsOffered(t *testing.T) {
-	published := func(name, to string, r delivery.Result) *dv1Op {
-		o := opObj(name, delivery.TypePromote, dA, to, bot)
-		o.Status.Verdicts = []delivery.Verdict{{Gate: delivery.GatePublished, Phase: "pre", Result: r}, {Gate: delivery.GateDiff, Phase: "pre", Result: delivery.Pass}}
-		return o
-	}
-	s := delivery.StageStatus{}
-	verified := conclusion{outcome: delivery.Succeeded, verification: delivery.Verified}
-	applyEffects(&s, published("p", dB, delivery.Pass), verified)
-	applyEffects(&s, published("u", dC, delivery.Unknown), verified)
-	applyEffects(&s, opObj("o", delivery.TypeOverride, dB, dC, bot), verified)
-	if len(s.Offered) != 1 || s.Offered[0] != dB || len(s.Published) != 0 {
-		t.Fatalf("offered %v published %v", s.Offered, s.Published)
 	}
 }
 
@@ -1075,7 +1118,7 @@ func TestConclusionWriteFailureTakesOneSeq(t *testing.T) {
 	o := e.drive("p1")
 	wantOutcome(t, o, delivery.Failed, "VerifyFailed")
 	s := e.getStage()
-	if o.Status.Seq != 1 || s.Status.Stream.Seq != 1 || len(s.Status.FailedDigests) != 1 || s.Status.AutoRollbacks["uid-p1"] != 1 ||
+	if o.Status.Seq != 1 || s.Status.Stream.Seq != 1 || len(s.Status.FailedDigests) != 1 || !slices.Equal(s.Status.RolledBack, []string{"uid-p1"}) ||
 		o.Status.Policy == nil || o.Status.Policy.Environment != "prod" {
 		t.Fatalf("one conclusion must take one seq: op %+v stage %+v", o.Status, s.Status)
 	}
@@ -1159,23 +1202,26 @@ func TestStaleOperationIsNotConcludedAgain(t *testing.T) {
 // that check who wrote a spec are missing, no operation is admitted and no
 // approval counts; once they are installed the operation goes on.
 func TestUnguardedAdmitsNothingAndCountsNoApproval(t *testing.T) {
-	guard := func(e *env) {
-		e.create(&admissionv1.ValidatingAdmissionPolicy{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"}},
-			&admissionv1.ValidatingAdmissionPolicyBinding{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"}})
-	}
+	guard := func(e *env) { e.create(guardPolicy(), guardBinding()) }
 	t.Run("admission waits for the policy and its binding", func(t *testing.T) {
 		e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
 		e.op.AdmissionPolicies = []string{"pd-operation"}
 		if o := e.drive("p1"); o.Status.Phase != "" || o.Status.Reason != ReasonUnguarded || o.Status.ActorClass != "" {
 			t.Fatalf("want parked before admission: %q %s %s", o.Status.Phase, o.Status.Reason, o.Status.ActorClass)
 		}
-		e.create(&admissionv1.ValidatingAdmissionPolicy{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"}})
+		e.create(guardPolicy())
 		if o := e.drive("p1"); o.Status.Reason != ReasonUnguarded {
 			t.Fatalf("a policy with no binding guards nothing: %s", o.Status.Reason)
 		}
-		e.create(&admissionv1.ValidatingAdmissionPolicyBinding{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"}})
-		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning {
-			t.Fatalf("guarded, it moves: %s %s", o.Status.Phase, o.Status.Message)
+		e.create(guardBinding())
+		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning || !o.Status.Guarded {
+			t.Fatalf("guarded, it moves and says so: %s %s %v", o.Status.Phase, o.Status.Message, o.Status.Guarded)
+		}
+		// Without admission policies (allowUnguarded) the operation runs, and
+		// its record says admission never checked who asked.
+		e = baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning || o.Status.Guarded {
+			t.Fatalf("unguarded on purpose: %s %v", o.Status.Phase, o.Status.Guarded)
 		}
 	})
 	t.Run("a held operation counts no approval", func(t *testing.T) {
@@ -1213,4 +1259,238 @@ func TestUnguardedAdmitsNothingAndCountsNoApproval(t *testing.T) {
 			t.Fatal("a failed policy read must surface")
 		}
 	})
+}
+
+// TestRefusedPointerWriteIsShown: a pointer write the apiserver refuses (a
+// missing apply-ref label, RBAC) is written to the operation, not only to
+// the promoter's log.
+func TestRefusedPointerWriteIsShown(t *testing.T) {
+	e := at(t, delivery.PhaseRunning)
+	e.fails["patch/OCIRepository"] = true
+	if err := e.reconcileOpErr("p1"); err != nil {
+		t.Fatal(err)
+	}
+	if m := e.getOp("p1").Status.Message; m != "writing spec.ref.digest of OCIRepository payments: injected patch failure" {
+		t.Fatalf("message %q", m)
+	}
+}
+
+// TestRefusalRereadsTheStage: a refusal is final, so admission never refuses
+// on a cached Stage that lags a pointer move: it reads the Stage again, and an
+// operation planned against the pointer that really runs is admitted. A failed
+// re-read surfaces instead of refusing.
+func TestRefusalRereadsTheStage(t *testing.T) {
+	stale := func(e *env, fail bool) {
+		r := *e.op
+		r.Client = interceptor.NewClient(e.c, interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if err := c.Get(ctx, key, obj, opts...); err != nil {
+					return err
+				}
+				if s, ok := obj.(*dv1.Stage); ok {
+					s.Status.Pointer = dA // the cache has not seen the move to dB yet
+				}
+				return nil
+			},
+		})
+		if fail {
+			r.APIReader = failingReader{}
+		}
+		e.op = &r
+	}
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dB, dC, bot))
+	e.setStage(func(s *delivery.StageStatus) { s.Pointer, s.Verified = dB, []string{dA, dB} })
+	stale(e, false)
+	e.reconcileOp("p1")
+	if o := e.getOp("p1"); o.Status.Phase != delivery.PhasePending {
+		t.Fatalf("refused on a stale Stage: %+v", o.Status)
+	}
+	e = baseEnv(t, opObj("p1", delivery.TypePromote, dB, dC, bot))
+	e.setStage(func(s *delivery.StageStatus) { s.Pointer = dB })
+	stale(e, true)
+	if err := e.reconcileOpErr("p1"); err == nil {
+		t.Fatal("a failed re-read must surface, not refuse")
+	}
+}
+
+func guardPolicy() *admissionv1.ValidatingAdmissionPolicy {
+	return &admissionv1.ValidatingAdmissionPolicy{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"}}
+}
+
+func guardBinding() *admissionv1.ValidatingAdmissionPolicyBinding {
+	return &admissionv1.ValidatingAdmissionPolicyBinding{ObjectMeta: metav1.ObjectMeta{Name: "pd-operation"},
+		Spec: admissionv1.ValidatingAdmissionPolicyBindingSpec{PolicyName: "pd-operation",
+			ValidationActions: []admissionv1.ValidationAction{admissionv1.Deny}}}
+}
+
+// TestUnguardedBy: a policy guards only when it fails closed and its binding
+// binds it with Deny to every object; anything weaker parks operations and
+// makes the Stage not Ready.
+func TestUnguardedBy(t *testing.T) {
+	ignore, fail := admissionv1.Ignore, admissionv1.Fail
+	for name, c := range map[string]struct {
+		policy  func(*admissionv1.ValidatingAdmissionPolicy)
+		binding func(*admissionv1.ValidatingAdmissionPolicyBinding)
+		want    string
+	}{
+		"guarded":                 {want: ""},
+		"fails closed explicitly": {policy: func(p *admissionv1.ValidatingAdmissionPolicy) { p.Spec.FailurePolicy = &fail }, want: ""},
+		"fails open": {policy: func(p *admissionv1.ValidatingAdmissionPolicy) { p.Spec.FailurePolicy = &ignore },
+			want: "the admission policy pd-operation does not fail closed"},
+		"binds another policy": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) { b.Spec.PolicyName = "other" },
+			want: "the binding pd-operation binds other, not the policy pd-operation"},
+		"warns only": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) {
+			b.Spec.ValidationActions = []admissionv1.ValidationAction{admissionv1.Warn, admissionv1.Audit}
+		}, want: "the binding pd-operation does not deny"},
+		"narrowed": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) {
+			b.Spec.MatchResources = &admissionv1.MatchResources{NamespaceSelector: &metav1.LabelSelector{MatchLabels: map[string]string{"team": "a"}}}
+		}, want: "the binding pd-operation is narrowed by matchResources or paramRef"},
+		"excludes some": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) {
+			b.Spec.MatchResources = &admissionv1.MatchResources{ExcludeResourceRules: []admissionv1.NamedRuleWithOperations{{ResourceNames: []string{"x"}}}}
+		}, want: "the binding pd-operation is narrowed by matchResources or paramRef"},
+		"empty matchResources as defaulted": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) {
+			b.Spec.MatchResources = &admissionv1.MatchResources{NamespaceSelector: &metav1.LabelSelector{}, ObjectSelector: &metav1.LabelSelector{}}
+		}, want: ""},
+		"with params": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) {
+			b.Spec.ParamRef = &admissionv1.ParamRef{Name: "x"}
+		},
+			want: "the binding pd-operation is narrowed by matchResources or paramRef"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			p, b := guardPolicy(), guardBinding()
+			if c.policy != nil {
+				c.policy(p)
+			}
+			if c.binding != nil {
+				c.binding(b)
+			}
+			e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+			e.create(p, b, verifiedRepo("payments-candidates", "latest@"+dB))
+			e.op.AdmissionPolicies, e.st.AdmissionPolicies = []string{"pd-operation"}, []string{"pd-operation"}
+			if why, err := unguardedBy(context.Background(), e.c, e.op.AdmissionPolicies); why != c.want || err != nil {
+				t.Fatalf("got %q %v", why, err)
+			}
+			if err := e.reconcileStage("payments-prod"); err != nil {
+				t.Fatal(err)
+			}
+			ready := e.getStage().Status.Conditions
+			if c.want == "" {
+				if o := e.drive("p1"); o.Status.Reason == ReasonUnguarded {
+					t.Fatalf("guarded, parked: %s", o.Status.Message)
+				}
+				return
+			}
+			if o := e.drive("p1"); o.Status.Reason != ReasonUnguarded || !strings.HasPrefix(o.Status.Message, c.want+", so") {
+				t.Fatalf("parked: %s %s", o.Status.Reason, o.Status.Message)
+			}
+			if !slices.ContainsFunc(ready, func(x delivery.Condition) bool {
+				return x.Type == "Ready" && x.Status == statusFalse && x.Reason == ReasonUnguarded && strings.HasPrefix(x.Message, c.want+", so")
+			}) {
+				t.Fatalf("Ready: %+v", ready)
+			}
+		})
+	}
+	e := baseEnv(t, nil)
+	e.create(verifiedRepo("payments-candidates", "latest@"+dB))
+	e.st.AdmissionPolicies = []string{"pd-operation"}
+	e.fails["get/*v1.ValidatingAdmissionPolicy"] = true
+	if err := e.reconcileStage("payments-prod"); err == nil {
+		t.Fatal("a failed policy read must surface on the Stage")
+	}
+}
+
+// TestApprovalsAreOwnedByTheirOperation: the promoter makes an operation the
+// owner of every Approval that answers it, so the garbage collector deletes
+// them with it. A failed write surfaces and is retried.
+func TestApprovalsAreOwnedByTheirOperation(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	delete(e.reg.bundles, contractRef(c2))
+	o := e.drive("p1")
+	e.approve(o, "ok", "alice", delivery.AcceptUnknown)
+	e.fails["patch/Approval"] = true
+	if err := e.reconcileOpErr("p1"); err == nil {
+		t.Fatal("a failed adoption must surface")
+	}
+	delete(e.fails, "patch/Approval")
+	e.drive("p1")
+	refs := e.getApproval("ok").OwnerReferences
+	if len(refs) != 1 || refs[0].UID != o.UID || refs[0].Kind != "Operation" || refs[0].Name != "p1" || refs[0].APIVersion != dv1.GroupVersion.String() {
+		t.Fatalf("owner references: %+v", refs)
+	}
+	e.drive("p1") // owned already: nothing to write
+	if refs := e.getApproval("ok").OwnerReferences; len(refs) != 1 {
+		t.Fatalf("adopted twice: %+v", refs)
+	}
+}
+
+// TestNoStageNeedsTheAPIServer: NoStage is final, so a cache that has not
+// seen a new Stage yet never decides it. Only the apiserver's NotFound
+// refuses; any other failed read is retried.
+func TestNoStageNeedsTheAPIServer(t *testing.T) {
+	stale := func(e *env) {
+		r := *e.op
+		missed := false
+		r.Client = interceptor.NewClient(e.c, interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*dv1.Stage); ok && !missed {
+					missed = true
+					return apierrors.NewNotFound(schema.GroupResource{Group: dv1.GroupVersion.Group, Resource: "stages"}, key.Name)
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		})
+		e.op = &r
+	}
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	stale(e)
+	if o := e.drive("p1"); o.Status.Outcome == delivery.Rejected || strings.Contains(o.Status.Message, "NoStage") {
+		t.Fatalf("a stale cache refused the operation: %+v", o.Status)
+	}
+	e = baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	stale(e)
+	e.op.APIReader = failingReader{}
+	if err := e.reconcileOpErr("p1"); !errors.Is(err, errTest) {
+		t.Fatalf("a failed apiserver read is retried, got %v", err)
+	}
+	if o := e.getOp("p1"); o.Status.Phase == delivery.PhaseConcluded {
+		t.Fatalf("concluded on a failed read: %+v", o.Status)
+	}
+}
+
+// TestARefusalNeedsTheAPIServer: a refusal is final, so a cache that lags a
+// pointer move never decides PointerMoved. The plan reads the Stage uncached
+// and plans again on it; a failed uncached read is retried.
+func TestARefusalNeedsTheAPIServer(t *testing.T) {
+	lag := func(e *env) {
+		r := *e.op
+		r.Client = interceptor.NewClient(e.c, interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				err := c.Get(ctx, key, obj, opts...)
+				if s, ok := obj.(*dv1.Stage); ok && err == nil {
+					s.Status.Pointer, s.ResourceVersion = dC, "0" // a cache one move behind
+				}
+				return err
+			},
+		})
+		e.op = &r
+	}
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	lag(e)
+	if o := e.drive("p1"); o.Status.Outcome == delivery.Rejected || strings.Contains(o.Status.Message, "PointerMoved") {
+		t.Fatalf("a lagging cache refused the operation: %+v", o.Status)
+	}
+	if s := e.getStage(); s.Status.Pointer != dB {
+		t.Fatalf("the operation did not ship on the apiserver's Stage: %s", s.Status.Pointer)
+	}
+	e = baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	planner := *e.op
+	planner.APIReader = failingReader{}
+	stage := &dv1.Stage{}
+	if err := e.c.Get(context.Background(), keyOf("payments-prod"), stage); err != nil {
+		t.Fatal(err)
+	}
+	stage.Status.Pointer = dC
+	if _, err := planner.plan(context.Background(), e.getOp("p1"), stage); !errors.Is(err, errTest) {
+		t.Fatalf("a failed uncached read is retried, got %v", err)
+	}
 }

@@ -35,9 +35,14 @@ spec:
           provider: pacto.runtime
 ```
 
-The checks run on the time since Flux applied the version. Any Fail rolls it
+The checks run on the time since Flux applied the version, all at once, and
+one that takes longer than a minute is Unknown. The promoter works on
+`promoter.workers` (4 by default) operations and Stages at a time, so a slow
+provider does not hold up the others. Any Fail rolls it
 back, all Pass verifies it and anything else waits; when `window` runs out a
-person is asked to accept the unknown or reject the version.
+person is asked to accept the unknown or reject the version. While that
+question waits, the checks run again every `recheck`: a Fail still rolls the
+version back and all Pass verifies it without the person.
 
 ## Providers
 
@@ -51,21 +56,40 @@ gates:
     - {name: mira, type: mira, url: "http://mira.observability:4318"}
 ```
 
+## Mira
+
 A `mira` provider counts the service's spans in [Mira](https://github.com/trianalab/mira)
-by `service.name`. Its params:
+by `service.name`, one span kind at a time: server spans by default, so one
+span per request served. Its params:
 
 | Param | Default | Meaning |
 |---|---|---|
+| `spanKind` | `server` | The spans counted: `server`, `consumer`, `producer`, `client`, `internal`, `unspecified` or `any` |
 | `minSpans` | 20 | Fewer spans than this is Unknown |
 | `maxErrorRatio` | 0.05 | A larger share of failed spans fails |
 | `soak` | 1m | A clean result passes only after this long |
 | `latencyThreshold` | off | Spans slower than this count as slow |
 | `maxLatencyRatio` | 0.05 | A larger share of slow spans fails |
 | `where` | none | Extra Mira terms as JSON, for example the namespace |
+| `matchVersion` | `false` | Count only spans whose `service.version` is the contract's `service.version` |
 
-A read that fails or stops short is Unknown. The citation holds the exact
-queries with absolute time bounds, so posting them to Mira again reads the same
-spans.
+By default the provider counts every span of the service in the window, so
+while a rollout is still replacing pods the old version's spans count too:
+they can hide a breach or fail a clean version. The window starts when Flux or
+Argo CD reports the version applied, not when the rollout finished. Set
+`matchVersion: "true"` to judge only the version under check, once the service
+sets the `service.version` resource attribute to its contract's
+`service.version` (for example through `OTEL_RESOURCE_ATTRIBUTES`). Without a
+contract version to match, the check is Unknown.
+
+A read that fails or stops short is Unknown. Mira's query API has no count, so
+the provider pages through the spans and stops at 200,000 per query. A window
+holding more is judged on its newest `soak` only, and the message says so; if
+even that holds more, the check is Unknown, so narrow it with `where`. The
+citation holds the exact queries with absolute time bounds, so posting them to
+Mira again reads the same spans.
+
+## HTTP and eval providers
 
 An `http` provider is the plug-in format for any other tool. The promoter
 posts `{"input": ..., "params": ...}`, where the input names the operation,
@@ -100,10 +124,18 @@ After release the checks run again every `recheck` (default 1m) on the last
 `window`. A confirmed Fail marks the version failed and raises one rollback
 citing the check. The Stage freezes instead when that cause already had its
 rollback, when there is nothing to roll back to, or when a person or an agent
-chose the running version (a rollback, or a promote during auto-hold).
+chose the running version (a rollback, or a promote during auto-hold). It also
+freezes, naming the operation, when an operation Pacto did not raise holds the
+name of the rollback or freeze it raises (`<operation>-rollback`,
+`<operation>-freeze`).
 Unknown after release never rolls back, and a result about a version the Stage
 stopped running is dropped. The newest result is in `status.lastCheck`, which
-also says when the operation that shipped the running version is gone.
+also says when the operation that shipped the running version is gone. The
+Stage's `Watched` condition is `True` while that result passed. It turns
+`False` with reason `RecheckUnknown` while nothing watches the running version
+(a provider down, too many spans, no coverage) and `RecheckFailed` after a
+Fail. The promoter emits an Event when it turns `False`, and the
+`pacto_delivery_stage_watched` gauge drops to 0, so you can alert on it.
 
 ## Explain
 

@@ -89,6 +89,9 @@ func TestPlanCompatibleChangeShipsWithNoPerson(t *testing.T) {
 	if p.IntentDigest != IntentDigest(promote(dA, dB), stageSpec()) {
 		t.Fatal("plan must bind to the intent digest")
 	}
+	if p.ToVersion != "1.1.0" {
+		t.Fatalf("the plan names the contract version it moves to: %q", p.ToVersion)
+	}
 }
 
 // TestPlanMisplacedConsumerAsksToAcceptTheUnknown: a Pacto labelled for an
@@ -128,11 +131,28 @@ func TestPlanMisplacedConsumerAsksToAcceptTheUnknown(t *testing.T) {
 	}
 }
 
-func TestPlanNoConsumersShipsEvenWhenBreaking(t *testing.T) {
-	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "2.0.0"))
-	p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, from, to)
-	if p.Predicted != PredictProceeds {
-		t.Fatalf("a change nothing depends on must ship: %+v", p)
+func TestPlanNoConsumersHoldsABreakingChangeUnlessTheGraphIsDeclaredComplete(t *testing.T) {
+	old, breaking := bundle("payments", "1.0.0"), bundle("payments", "2.0.0")
+	old.Contract.Workload, breaking.Contract.Workload = "service", "job" // a modified workload is BREAKING
+	from, to := rev(dA, c1, old), rev(dB, c2, breaking)
+	snap, err := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
+		From: from, To: to, Snapshot: snap, Class: ClassAgent}
+	p := PlanFor(context.Background(), in)
+	if v := verdict(t, p, GateImpact); v.Result != Unknown || p.Floor.Decision != AcceptUnknown || !strings.Contains(v.Message, "no contract can still call it") {
+		t.Fatalf("a breaking change no Pacto depends on can still break a service with no contract: %+v", p)
+	}
+	in.Stage.Gates.Impact.DeclaredConsumersOnly = true
+	if p := PlanFor(context.Background(), in); p.Predicted != PredictProceeds {
+		t.Fatalf("a Stage that declares its graph complete ships it: %+v", p)
+	}
+	in.Stage.Gates.Impact.DeclaredConsumersOnly = false
+	in.To = rev(dB, c2, bundle("payments", "1.0.1"))
+	if p := PlanFor(context.Background(), in); p.Predicted != PredictProceeds {
+		t.Fatalf("a non-breaking change ships with no consumers: %+v", p)
 	}
 }
 
@@ -333,11 +353,19 @@ func TestPublishedGate(t *testing.T) {
 		{"upstream only verified", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}}), Fail, "is not offered"},
 		{"upstream only signed", plan(up, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}, Published: []string{dB}}), Fail, "is not offered"},
 		// Never an unknown a person could accept.
-		{"upstream unreadable", plan(up, StageStatus{Pointer: dA}, to, nil), Fail, "does not exist or cannot be read"},
+		{"upstream unreadable", plan(up, StageStatus{Pointer: dA}, to, nil), Fail, "untrusted key, so it offers no candidate"},
 		{"remote offered", plan(remote, StageStatus{Pointer: dA}, to, &StageStatus{Verified: []string{dB}, Offered: []string{dB}}), Pass, "verified on the upstream Stage"},
 		{"remote unverifiable", plan(remote, StageStatus{Pointer: dA}, to, nil), Fail, "c2/test/payments (records in reg/streams) cannot be read or verified (untrusted key)"},
 		{"no source", plan(none, published, to, nil), Fail, "names no candidate source"},
 	}
+	snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
+	silent := PlanFor(context.Background(), PlanInput{Spec: promote(dA, dB), Stage: up, Status: StageStatus{Pointer: dA}, From: from, To: to, Snapshot: snap, Class: ClassAgent})
+	cases = append(cases, struct {
+		name   string
+		p      Plan
+		result Result
+		msg    string
+	}{"upstream unreadable, no reason", silent, Fail, "does not exist or cannot be read"})
 	for _, c := range cases {
 		v := verdict(t, c.p, GatePublished)
 		if v.Result != c.result || !strings.Contains(v.Message, c.msg) {
@@ -349,5 +377,42 @@ func TestPublishedGate(t *testing.T) {
 		if c.result == Unknown && (c.p.Predicted != PredictHeld || c.p.Floor.Decision != AcceptUnknown || !strings.Contains(c.p.Question, "cannot tell")) {
 			t.Errorf("%s: Unknown holds for a person: %+v", c.name, c.p)
 		}
+	}
+}
+
+func TestStillPasses(t *testing.T) {
+	pass := Verdict{Gate: "g", Result: Pass}
+	unknown := Verdict{Gate: "u", Result: Unknown}
+	prev := Plan{Verdicts: []Verdict{pass, unknown}, Floor: Floor{Human: true, Decision: AcceptUnknown}}
+	if !StillPasses(prev, Plan{Verdicts: []Verdict{pass}}) {
+		t.Fatal("same passes, no new floor")
+	}
+	if StillPasses(prev, Plan{Verdicts: []Verdict{{Gate: "g", Result: Unknown}}}) {
+		t.Fatal("a pass that came back Unknown")
+	}
+	if StillPasses(prev, Plan{Verdicts: []Verdict{pass}, Floor: Floor{Human: true, Decision: Approve}}) {
+		t.Fatal("an approval-needing floor accept-unknown never answered")
+	}
+	// An approval routed to one team does not answer a question for another.
+	approved := Plan{Verdicts: []Verdict{pass}, Floor: Floor{Human: true, Decision: Approve, Owners: []string{"team-payments"}}}
+	if !StillPasses(approved, approved) {
+		t.Fatal("the same question is answered")
+	}
+	if StillPasses(approved, Plan{Verdicts: []Verdict{pass}, Floor: Floor{Human: true, Decision: Approve, Owners: []string{"team-checkout"}, Consumers: []string{"checkout"}}}) {
+		t.Fatal("a question now routed to the consumer's team needs that team")
+	}
+	if StillPasses(approved, Plan{Verdicts: []Verdict{pass}, Floor: Floor{Human: true, Decision: Approve, Owners: []string{"team-payments"}, Consumers: []string{"checkout"}}}) {
+		t.Fatal("a consumer nobody was asked about needs a new answer")
+	}
+	// Accepting one unknown does not accept a different one.
+	seen := Verdict{Gate: GateImpact, Result: Unknown, Message: "the graph is partial"}
+	au := Plan{Verdicts: []Verdict{seen}, Floor: Floor{Human: true, Decision: AcceptUnknown}}
+	if !StillPasses(au, au) {
+		t.Fatal("the same unknown is accepted")
+	}
+	other := seen
+	other.Message = "orders cannot be seen"
+	if StillPasses(au, Plan{Verdicts: []Verdict{other}, Floor: au.Floor}) {
+		t.Fatal("a different unknown needs a new answer")
 	}
 }

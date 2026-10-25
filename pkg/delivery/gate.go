@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -35,7 +36,10 @@ type GateInput struct {
 	Facet        string     `json:"facet"`
 	// Subjects are the digests under check: the version the operation applied.
 	Subjects []string `json:"subjects"`
-	Window   Window   `json:"window"`
+	// Version is the contract service.version of the version under check,
+	// when the plan could read it.
+	Version string `json:"version,omitempty"`
+	Window  Window `json:"window"`
 }
 
 // Gate answers Pass, Fail or Unknown for one input, with a citation that can
@@ -102,14 +106,17 @@ func NewGates(configs []ProviderConfig, client *http.Client) (map[string]Gate, e
 	return gates, nil
 }
 
-// RunChecks runs a Stage's verify checks. Every verdict cites its provider,
-// the exact input and the params, so it can be run again. A Pass that cites
-// nothing is Unknown: a verdict counts only if it can be re-run.
+// RunChecks runs a Stage's verify checks at once, so they take as long as
+// the slowest one, not their sum. Every verdict cites its provider, the exact
+// input and the params, so it can be run again. A Pass that cites nothing is
+// Unknown: a verdict counts only if it can be re-run.
 func RunChecks(ctx context.Context, gates map[string]Gate, checks []GateCheck, in GateInput) []Verdict {
-	out := make([]Verdict, 0, len(checks))
-	for _, c := range checks {
-		out = append(out, runCheck(ctx, gates, c, in))
+	out := make([]Verdict, len(checks))
+	var wg sync.WaitGroup
+	for i, c := range checks {
+		wg.Go(func() { out[i] = runCheck(ctx, gates, c, in) })
 	}
+	wg.Wait()
 	return out
 }
 
@@ -118,12 +125,20 @@ func RunChecks(ctx context.Context, gates map[string]Gate, checks []GateCheck, i
 var CheckTimeout = time.Minute
 
 // checkWithin runs one check, giving up on it after CheckTimeout even when the
-// gate ignores its context.
+// gate ignores its context. A gate that panics is Unknown: a bug in one
+// provider must not take the whole promoter down.
 func checkWithin(ctx context.Context, g Gate, in GateInput, params map[string]string) Verdict {
 	ctx, cancel := context.WithTimeout(ctx, CheckTimeout)
 	defer cancel()
 	done := make(chan Verdict, 1)
-	go func() { done <- g.Check(ctx, in, params) }()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- Verdict{Result: Unknown, Message: fmt.Sprintf("the check failed: %v", r)}
+			}
+		}()
+		done <- g.Check(ctx, in, params)
+	}()
 	select {
 	case v := <-done:
 		return v

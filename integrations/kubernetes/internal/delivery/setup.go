@@ -9,11 +9,14 @@ package delivery
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -22,16 +25,26 @@ import (
 )
 
 // SetupWithManager registers the operation reconciler. An Approval wakes the
-// operation it names.
+// operation it names, and Approvals are indexed by that operation's uid.
 func (r *OperationReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).Named("delivery-operation").For(&dv1.Operation{}).
+	r.heldChecks = &sync.Map{}
+	err := mgr.GetFieldIndexer().IndexField(context.Background(), &dv1.Approval{}, approvalOperationUID, approvalUID)
+	return errors.Join(err, ctrl.NewControllerManagedBy(mgr).Named("delivery-operation").For(&dv1.Operation{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: r.Workers}).
 		Watches(&dv1.Approval{}, handler.EnqueueRequestsFromMapFunc(approvalToOperation)).
-		Complete(r)
+		Complete(r))
 }
+
+// approvalOperationUID indexes Approvals by the uid of the operation they answer.
+const approvalOperationUID = "spec.operationUID"
+
+func approvalUID(obj client.Object) []string { return []string{obj.(*dv1.Approval).Spec.OperationUID} }
 
 // SetupWithManager registers the stage reconciler. An Operation wakes its Stage.
 func (r *StageReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.seen = &sync.Map{}
 	return ctrl.NewControllerManagedBy(mgr).Named("delivery-stage").For(&dv1.Stage{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: r.Workers}).
 		Watches(&dv1.Operation{}, handler.EnqueueRequestsFromMapFunc(operationToStage)).
 		Complete(r)
 }

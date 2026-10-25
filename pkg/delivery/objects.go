@@ -220,6 +220,8 @@ type RecordCheck struct {
 	Manifest  string `json:"manifest"`
 	Kind      string `json:"kind"`
 	Operation string `json:"operation,omitempty"`
+	// Guarded says admission checked the record's actor and approvers.
+	Guarded bool `json:"guarded,omitempty"`
 }
 
 // StreamVerification is `record verify`'s answer: every record of a Stage's

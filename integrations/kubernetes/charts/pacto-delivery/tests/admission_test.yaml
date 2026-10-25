@@ -5,13 +5,13 @@ release:
   name: d
   namespace: pacto-delivery
 tests:
-  - it: installs five policies, each bound with Deny
+  - it: installs six policies, each bound with Deny
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     asserts:
       - hasDocuments:
-          count: 10
+          count: 12
       - equal:
           path: spec.validationActions
           value: [Deny]
@@ -46,6 +46,19 @@ tests:
       - equal:
           path: spec.validations[6].expression
           value: "object.spec.type != 'pacto.dev/freeze' || variables.breakGlass || !variables.agent || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
+
+  - it: lets an agent cancel only its own operations
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    documentIndex: 2
+    asserts:
+      - equal:
+          path: spec.validations[0].expression
+          value: "oldObject.spec.actor.user == request.userInfo.username || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery' || request.userInfo.username == 'system:serviceaccount:kube-system:namespace-controller' || request.userInfo.groups.exists(g, g in ['pacto:break-glass']) || !(request.userInfo.username.startsWith('system:serviceaccount:') || request.userInfo.groups.exists(g, g in ['pacto:agents']))"
+      - matchRegex:
+          path: spec.validations[1].message
+          pattern: can no longer be cancelled
 
   - it: refuses approvals from agents and service accounts
     capabilities:
@@ -92,7 +105,7 @@ tests:
       argocd.enabled: true
     asserts:
       - hasDocuments:
-          count: 14
+          count: 16
       - equal:
           path: spec.matchConstraints.resourceRules[0].resources
           value: [applications]
@@ -105,6 +118,56 @@ tests:
           path: spec.validations[0].expression
           pattern: "request\\.userInfo\\.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
         documentIndex: 8
+
+  - it: keeps the label, the url and the layer selector of a labelled OCIRepository to break-glass
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    documentIndex: 6
+    asserts:
+      - equal:
+          path: spec.validations[1].expression
+          value: "variables.breakGlass || has(object.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in object.metadata.labels"
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "object\\.spec\\.url.*object\\.spec\\.layerSelector"
+
+  - it: keeps the rest of an Argo CD Application's source and its label to break-glass
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      argocd.enabled: true
+    documentIndex: 8
+    asserts:
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "'delivery\\.pacto\\.trianalab\\.io/apply-ref' in object\\.metadata\\.labels"
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "k == 'targetRevision' \\|\\| \\(k in variables\\.oldSource.*object\\.spec\\.sources"
+
+  - it: keeps what a labelled Kustomization applies, and its label, to break-glass
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    documentIndex: 8
+    asserts:
+      - equal:
+          path: metadata.name
+          value: d-pacto-delivery-applier
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].resources
+          value: [kustomizations]
+      - equal:
+          path: spec.matchConstraints.objectSelector.matchExpressions[0].key
+          value: delivery.pacto.trianalab.io/apply-ref
+      - equal:
+          path: spec.variables[1].expression
+          value: "['sourceRef', 'path', 'images', 'patches', 'components', 'postBuild', 'namePrefix', 'nameSuffix', 'targetNamespace']"
+      - matchRegex:
+          path: spec.validations[1].expression
+          pattern: "variables\\.guarded\\.all\\(f,"
 
   - it: renders nothing when disabled on purpose
     set:
@@ -136,19 +199,19 @@ tests:
       - equal:
           path: spec.matchConditions[0].expression
           value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery'"
-        documentIndex: 10
+        documentIndex: 12
       - matchRegex:
           path: spec.validations[1].expression
           pattern: "k == 'digest'"
-        documentIndex: 10
+        documentIndex: 12
       - equal:
           path: spec.matchConstraints.resourceRules[0].resources
           value: [applications]
-        documentIndex: 12
+        documentIndex: 14
       - matchRegex:
           path: spec.validations[1].expression
           pattern: "k == 'targetRevision'"
-        documentIndex: 12
+        documentIndex: 14
 
   - it: keeps the record fields to the recorder, and the recorder away from what runs
     capabilities:
@@ -158,140 +221,32 @@ tests:
       recorder.enabled: true
     asserts:
       - hasDocuments:
-          count: 12
+          count: 14
       - equal:
           path: spec.variables[0].expression
           value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery-recorder'"
-        documentIndex: 8
+        documentIndex: 10
       - matchRegex:
           path: spec.validations[0].expression
           pattern: "has\\(object.status.stream.head\\) \\? object.status.stream.head : ''\\) == \\(has\\(oldObject.status\\)"
-        documentIndex: 8
+        documentIndex: 10
       - matchRegex:
           path: spec.validations[1].expression
           pattern: "^!variables.recorder \\|\\|"
-        documentIndex: 8
+        documentIndex: 10
       - matchRegex:
           path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.pointer\\) \\? object\\.status\\.pointer : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+          pattern: "variables\\.status\\.all\\(k, k in \\['record', 'stream', 'conditions'\\] \\|\\|"
+        documentIndex: 10
       - matchRegex:
           path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.frozen\\) \\? object\\.status\\.frozen : false\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+          pattern: "variables\\.stream\\.all\\(k, k in \\['recordedSeq', 'head', 'anchor'\\] \\|\\|"
+        documentIndex: 10
       - matchRegex:
           path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.lastOp\\) \\? object\\.status\\.lastOp : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+          pattern: "variables\\.conditions == variables\\.oldConditions\\)$"
+        documentIndex: 10
       - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.stream\\.seq\\) \\? object\\.status\\.stream\\.seq : 0\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.phase\\) \\? object\\.status\\.phase : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.outcome\\) \\? object\\.status\\.outcome : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.seq\\) \\? object\\.status\\.seq : 0\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.locks\\) \\? object\\.status\\.locks : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.verified\\) \\? object\\.status\\.verified : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.failedDigests\\) \\? object\\.status\\.failedDigests : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.frozenReason\\) \\? object\\.status\\.frozenReason : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.autoHold\\) \\? object\\.status\\.autoHold : false\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.autoRollbacks\\) \\? object\\.status\\.autoRollbacks : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.stream\\.id\\) \\? object\\.status\\.stream\\.id : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.stream\\.concluded\\) \\? object\\.status\\.stream\\.concluded : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.published\\) \\? object\\.status\\.published : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.offered\\) \\? object\\.status\\.offered : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.candidate\\) \\? object\\.status\\.candidate : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.lastCheck\\) \\? object\\.status\\.lastCheck : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.verdicts\\) \\? object\\.status\\.verdicts : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.approvals\\) \\? object\\.status\\.approvals : \\[\\]\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.policy\\) \\? object\\.status\\.policy : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.verification\\) \\? object\\.status\\.verification : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.reason\\) \\? object\\.status\\.reason : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.times\\) \\? object\\.status\\.times : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.applied\\) \\? object\\.status\\.applied : false\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.stageUID\\) \\? object\\.status\\.stageUID : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.plan\\) \\? object\\.status\\.plan : \\{\\}\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.actorClass\\) \\? object\\.status\\.actorClass : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.question\\) \\? object\\.status\\.question : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
-      - matchRegex:
-          path: spec.validations[1].expression
-          pattern: "has\\(object\\.status\\.message\\) \\? object\\.status\\.message : ''\\) == \\(has\\(oldObject\\.status\\)"
-        documentIndex: 8
+          path: spec.variables[5].expression
+          pattern: "filter\\(c, c\\.type != 'RecordStoreReady'\\)"
+        documentIndex: 10

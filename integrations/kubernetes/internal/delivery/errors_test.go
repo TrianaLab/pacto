@@ -12,7 +12,10 @@ import (
 	"strings"
 	"testing"
 
+	"net/http"
+
 	batchv1 "k8s.io/api/batch/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	ctrlrt "sigs.k8s.io/controller-runtime"
@@ -20,6 +23,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
@@ -64,7 +68,6 @@ func TestReconcileSurfacesEveryWriteFailure(t *testing.T) {
 		{"lock CAS read", delivery.PhasePending, "status/Stage", nil},
 		{"running CAS", delivery.PhaseRunning, "status/Stage", nil},
 		{"running applied write", delivery.PhaseRunning, "status/Operation", nil},
-		{"digest patch", delivery.PhaseRunning, "patch/OCIRepository", nil},
 		{"kustomization list", delivery.PhaseRunning, "list/Kustomization", func(e *env) {
 			e.reconcileOp("p1")
 			e.reconcileOp("p1")
@@ -160,43 +163,6 @@ func TestLockDirectly(t *testing.T) {
 	}
 }
 
-func TestStillPasses(t *testing.T) {
-	pass := delivery.Verdict{Gate: "g", Result: delivery.Pass}
-	unknown := delivery.Verdict{Gate: "u", Result: delivery.Unknown}
-	prev := delivery.Plan{Verdicts: []delivery.Verdict{pass, unknown}, Floor: delivery.Floor{Human: true, Decision: delivery.AcceptUnknown}}
-	if !stillPasses(prev, delivery.Plan{Verdicts: []delivery.Verdict{pass}}) {
-		t.Fatal("same passes, no new floor")
-	}
-	if stillPasses(prev, delivery.Plan{Verdicts: []delivery.Verdict{{Gate: "g", Result: delivery.Unknown}}}) {
-		t.Fatal("a pass that came back Unknown")
-	}
-	if stillPasses(prev, delivery.Plan{Verdicts: []delivery.Verdict{pass}, Floor: delivery.Floor{Human: true, Decision: delivery.Approve}}) {
-		t.Fatal("an approval-needing floor accept-unknown never answered")
-	}
-	// An approval routed to one team does not answer a question for another.
-	approved := delivery.Plan{Verdicts: []delivery.Verdict{pass}, Floor: delivery.Floor{Human: true, Decision: delivery.Approve, Owners: []string{"team-payments"}}}
-	if !stillPasses(approved, approved) {
-		t.Fatal("the same question is answered")
-	}
-	if stillPasses(approved, delivery.Plan{Verdicts: []delivery.Verdict{pass}, Floor: delivery.Floor{Human: true, Decision: delivery.Approve, Owners: []string{"team-checkout"}, Consumers: []string{"checkout"}}}) {
-		t.Fatal("a question now routed to the consumer's team needs that team")
-	}
-	if stillPasses(approved, delivery.Plan{Verdicts: []delivery.Verdict{pass}, Floor: delivery.Floor{Human: true, Decision: delivery.Approve, Owners: []string{"team-payments"}, Consumers: []string{"checkout"}}}) {
-		t.Fatal("a consumer nobody was asked about needs a new answer")
-	}
-	// Accepting one unknown does not accept a different one.
-	seen := delivery.Verdict{Gate: delivery.GateImpact, Result: delivery.Unknown, Message: "the graph is partial"}
-	au := delivery.Plan{Verdicts: []delivery.Verdict{seen}, Floor: delivery.Floor{Human: true, Decision: delivery.AcceptUnknown}}
-	if !stillPasses(au, au) {
-		t.Fatal("the same unknown is accepted")
-	}
-	other := seen
-	other.Message = "orders cannot be seen"
-	if stillPasses(au, delivery.Plan{Verdicts: []delivery.Verdict{other}, Floor: au.Floor}) {
-		t.Fatal("a different unknown needs a new answer")
-	}
-}
-
 func TestFirstVersionFailureFreezes(t *testing.T) {
 	e := newEnv(t, stageObj(""), ociRepo("payments", "", "", false), deployment("payments", 2, 2),
 		pactoObj("payments", "payments", c1, "Compliant", 2))
@@ -251,8 +217,11 @@ func TestWorkloadLookup(t *testing.T) {
 }
 
 func TestSetupWithManager(t *testing.T) {
+	mapper := meta.NewDefaultRESTMapper(nil)
+	mapper.Add(dv1.GroupVersion.WithKind("Approval"), meta.RESTScopeNamespace)
 	mgr, err := ctrlrt.NewManager(&rest.Config{Host: "https://127.0.0.1:1"}, ctrlrt.Options{Scheme: newScheme(),
-		Metrics: metricsserver.Options{BindAddress: "0"}})
+		Metrics:        metricsserver.Options{BindAddress: "0"},
+		MapperProvider: func(*rest.Config, *http.Client) (meta.RESTMapper, error) { return mapper, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

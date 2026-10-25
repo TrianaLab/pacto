@@ -1,18 +1,33 @@
 package delivery
 
 import (
+	"fmt"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 )
 
 // Login freshness. The promoter ignores an approval given more than
-// AuthFreshness after its author's login; the dashboard asks for a new login
-// once one is older than DecisionFreshness, leaving a margin under it.
+// AuthFreshness (or its --auth-freshness) after its author's login; the
+// dashboard asks for a new login once one is older than DecisionFreshness,
+// leaving a margin under it.
 const (
 	AuthFreshness     = 15 * time.Minute
 	DecisionFreshness = 10 * time.Minute
 )
+
+// DecisionFreshnessFor is DecisionFreshness for the login freshness a Stage
+// publishes in status.authFreshness: two thirds of it, so a login a person
+// approves with is still fresh when the promoter counts it. An empty or
+// unreadable one is AuthFreshness.
+func DecisionFreshnessFor(published string) time.Duration {
+	d, err := time.ParseDuration(published)
+	if err != nil || d <= 0 {
+		d = AuthFreshness
+	}
+	return d * 2 / 3
+}
 
 // ParseAuthTime reads a login time as the apiserver reports it in
 // userInfo.extra["pacto.dev/auth-time"]: Unix seconds (what structured
@@ -25,6 +40,72 @@ func ParseAuthTime(v string) (time.Time, bool) {
 	return time.Unix(secs, 0), err == nil
 }
 
+// ApprovalEligible says whether the promoter counts approval a, created at
+// created, on the operation (spec, status and uid), and if not, why. The
+// promoter asks it before it takes an Approval and writes the reason it
+// passed one over to the operation; the CLI and the dashboard ask it before
+// they create one, and refuse with the reason.
+//
+// It counts only on a held operation, for its uid and intent, from a person
+// who neither asked for the change nor is whoever the asker acts for, in a
+// team the question was routed to (floor.owners), given within freshness of
+// that person's login and no earlier than the operation was last held. Its
+// decision answers the question asked: once the version shipped only an
+// accept or a reject, and a change that needs an approval is not cleared by
+// an accepted unknown.
+func ApprovalEligible(spec OperationSpec, st OperationStatus, uid string, a ApprovalSpec, created time.Time, p ClassPolicy, freshness time.Duration) (bool, string) {
+	why := approvalAnswers(spec, st, uid, a)
+	if why == "" {
+		why = approverMay(spec, st, a, created, p, freshness)
+	}
+	return why == "", why
+}
+
+// approvalAnswers says why a does not answer the question op asks now.
+func approvalAnswers(spec OperationSpec, st OperationStatus, uid string, a ApprovalSpec) string {
+	floor := Decision("")
+	if st.Plan != nil {
+		floor = st.Plan.Floor.Decision
+	}
+	switch {
+	case st.Phase != PhaseHeld:
+		return "the operation is not waiting for a decision"
+	case a.OperationUID != uid || a.IntentDigest != spec.IntentDigest:
+		return "it answers another operation or an older intent"
+	case !slices.Contains([]Decision{Approve, AcceptUnknown, Reject}, a.Decision):
+		return fmt.Sprintf("%q is not a decision", a.Decision)
+	case st.Applied && a.Decision == Approve:
+		return "the version already shipped, so only accept-unknown or reject answers the question now"
+	case !st.Applied && a.Decision == AcceptUnknown && floor == Approve:
+		return "this change needs an approval, not an accepted unknown"
+	}
+	return ""
+}
+
+// approverMay says why whoever gave a may not decide op.
+func approverMay(spec OperationSpec, st OperationStatus, a ApprovalSpec, created time.Time, p ClassPolicy, freshness time.Duration) string {
+	var owners []string
+	if st.Plan != nil {
+		owners = st.Plan.Floor.Owners
+	}
+	held, _ := time.Parse(time.RFC3339, st.Times.Held)
+	login, ok := ParseAuthTime(a.AuthTime)
+	age := created.Sub(login)
+	switch {
+	case a.By == spec.Actor.User || spec.OnBehalfOf != nil && a.By == spec.OnBehalfOf.User:
+		return a.By + " asked for this change, so someone else must decide it"
+	case !p.IsHuman(Identity{User: a.By, Groups: a.Groups}):
+		return a.By + " is not a person, and only people decide"
+	case !p.InTeams(a.Groups, owners):
+		return fmt.Sprintf("%s is not in a team this question is asked of (%s)", a.By, strings.Join(owners, ", "))
+	case created.Before(held):
+		return "it was given before the question was last asked"
+	case !ok || age < -time.Minute || age > freshness:
+		return fmt.Sprintf("%s's login was not within %s of the decision; sign in again", a.By, freshness)
+	}
+	return ""
+}
+
 // Caps on the Stage's digest memories.
 // ponytail: bounded caches, ceiling 10 verified and 50 failed digests per Stage;
 // derive both from history once records exist (M5).
@@ -33,6 +114,7 @@ const (
 	MaxFailedDigests = 50
 	MaxPublished     = 50
 	MaxOffered       = 50
+	MaxRolledBack    = 50
 	// MaxConcluded is how many conclusions a Stage remembers: a retry of
 	// a failed status write comes long before that many more conclude.
 	MaxConcluded = 20
@@ -138,4 +220,110 @@ func VerifyWindow(spec StageSpec) time.Duration {
 // version, defaulting to DefaultRecheck.
 func RecheckInterval(spec StageSpec) time.Duration {
 	return durationOr(spec.Gates.Verify.Recheck, DefaultRecheck)
+}
+
+// SetCondition puts c in conds in place of the condition of its type, keeping
+// that one's transition time while the status is the same, and says whether
+// anything changed. It never edits conds.
+func SetCondition(conds []Condition, c Condition, now time.Time) ([]Condition, bool) {
+	c.LastTransitionTime = now.UTC().Format(time.RFC3339)
+	for i, x := range conds {
+		if x.Type != c.Type {
+			continue
+		}
+		if x.Status == c.Status {
+			c.LastTransitionTime = x.LastTransitionTime
+		}
+		if x == c {
+			return conds, false
+		}
+		out := slices.Clone(conds)
+		out[i] = c
+		return out, true
+	}
+	return append(slices.Clone(conds), c), true
+}
+
+// passedPublished reports whether pacto.published passed: a version a person
+// accepted on an unknown published verdict is never offered downstream.
+func passedPublished(vs []Verdict) bool {
+	return slices.ContainsFunc(vs, func(v Verdict) bool {
+		return v.Gate == GatePublished && v.Result == Pass
+	})
+}
+
+// Conclusion is how an operation ended, as ApplyEffects needs it.
+type Conclusion struct {
+	Outcome      Outcome
+	Verification Verification
+	// Reason is "Code: message".
+	Reason string
+	// Freeze says the conclusion itself freezes the Stage, for Reason.
+	Freeze bool
+}
+
+// ApplyEffects updates a Stage's memories for the operation name (uid, spec,
+// status) that concluded as c: what verified, failed, is offered downstream,
+// auto-hold and freezes. The promoter applies it in the compare-and-swap that
+// concludes, and the WASM demo applies the same rules.
+func ApplyEffects(s *StageStatus, name, uid string, spec OperationSpec, st OperationStatus, c Conclusion) {
+	to := spec.Params.To
+	if st.Applied {
+		switch {
+		case SetsAutoHold(spec, st.ActorClass, *s):
+			s.AutoHold = true
+		case spec.Type == TypePromote && st.ActorClass == ClassHuman:
+			s.AutoHold = false
+		}
+	}
+	switch c.Outcome {
+	case Succeeded:
+		succeeded(s, name, spec, st, c)
+	case Rejected:
+		// A refused automatic rollback must not leave the failed version
+		// running unwatched: a person decides.
+		if spec.Type == TypeRollback && st.ActorClass == ClassController {
+			c.Freeze, c.Reason = true, "the automatic rollback was refused: "+c.Reason
+		}
+	case Failed:
+		s.FailedDigests = AddDigest(s.FailedDigests, to, MaxFailedDigests)
+		s.Verified = RemoveDigest(s.Verified, to)
+		c = failed(s, uid, spec, st, c)
+	}
+	if c.Freeze {
+		s.Frozen, s.FrozenReason = true, name+": "+c.Reason
+	}
+}
+
+func succeeded(s *StageStatus, name string, spec OperationSpec, st OperationStatus, c Conclusion) {
+	if c.Verification == Verified {
+		s.Verified = AddDigest(s.Verified, spec.Params.To, MaxVerified)
+		if spec.Type == TypePromote && passedPublished(st.Verdicts) {
+			s.Offered = AddDigest(s.Offered, spec.Params.To, MaxOffered)
+		}
+	}
+	switch {
+	case spec.Type == TypeUnfreeze:
+		s.Frozen, s.FrozenReason, s.AutoHold = false, "", false
+	case spec.Type == TypeFreeze && !s.Frozen:
+		// A freeze a failed re-check raised finds the Stage frozen already,
+		// with that check's reason, which it keeps.
+		s.Frozen, s.FrozenReason = true, name+": frozen: "+spec.Reason
+	}
+}
+
+// failed is how a failed operation ends on the Stage: its one automatic
+// rollback counted, or a freeze when nothing can be rolled back to.
+func failed(s *StageStatus, uid string, spec OperationSpec, st OperationStatus, c Conclusion) Conclusion {
+	switch {
+	case spec.Type != TypePromote:
+		c.Freeze, c.Reason = true, "a "+spec.Type+" failed: "+c.Reason
+	case st.Pointer.Before == "":
+		c.Freeze, c.Reason = true, "the first version failed, so there is nothing to roll back to"
+	case slices.Contains(s.FailedDigests, st.Pointer.Before):
+		c.Freeze, c.Reason = true, "the version before it failed here too, so there is nothing safe to roll back to"
+	default:
+		s.RolledBack = AddDigest(s.RolledBack, uid, MaxRolledBack)
+	}
+	return c
 }

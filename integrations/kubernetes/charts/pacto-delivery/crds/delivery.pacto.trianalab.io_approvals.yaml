@@ -66,6 +66,10 @@ spec:
                 type: string
               decision:
                 description: Decision is what a human approval says.
+                enum:
+                - approve
+                - reject
+                - accept-unknown
                 type: string
               groups:
                 description: |-

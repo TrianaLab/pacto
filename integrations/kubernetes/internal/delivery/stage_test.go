@@ -11,6 +11,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -67,6 +68,89 @@ func TestAutoPromoteFromOCIRepository(t *testing.T) {
 	// An operation in flight blocks the next automatic one.
 	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 1 {
 		t.Fatalf("in flight: %v %d", err, len(e.ops()))
+	}
+}
+
+// TestCandidateShownOnAManualStage: the stage reconciler writes the newest
+// eligible candidate to status.candidate on a Stage without auto, which is
+// what the CLI and the dashboard offer to promote, and promotes nothing.
+func TestCandidateShownOnAManualStage(t *testing.T) {
+	up := stageObj(dB)
+	up.Name = "up"
+	up.Status.Verified, up.Status.Offered = []string{dB}, []string{dB}
+	s := stageObj(dA)
+	s.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "up"}}
+	e := newEnv(t, s, up)
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.getStage().Status.Candidate; got != dB || len(e.ops()) != 0 {
+		t.Fatalf("want candidate B and no operation, got %q %d", got, len(e.ops()))
+	}
+	e.fails["get/Stage/up"] = true
+	if e.reconcileStage("payments-prod") == nil {
+		t.Fatal("a failed upstream read must surface")
+	}
+	e.fails = fails{}
+	u := &dv1.Stage{}
+	if err := e.c.Get(context.Background(), client.ObjectKey{Namespace: ns, Name: "up"}, u); err != nil {
+		t.Fatal(err)
+	}
+	u.Status.Verified, u.Status.Offered = []string{dB, dC}, []string{dB, dC}
+	if err := e.c.Status().Update(context.Background(), u); err != nil {
+		t.Fatal(err)
+	}
+	e.fails = fails{"status/Stage": true}
+	if e.reconcileStage("payments-prod") == nil {
+		t.Fatal("a failed candidate write must surface")
+	}
+}
+
+// TestAutoPromoteAgainAfterAConclusion: the same move is proposed again once
+// an earlier automatic promote of it concluded without shipping (here it
+// expired), because the stream seq the name carries moved on.
+func TestAutoPromoteAgainAfterAConclusion(t *testing.T) {
+	s := stageObj(dA)
+	s.Spec.Auto = true
+	s.Spec.Approval.Always = true
+	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB),
+		kustomization("payments", "payments", "True", "ReconciliationSucceeded", "latest@"+dA, "latest@"+dA),
+		deployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
+	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 1 {
+		t.Fatalf("want one automatic promote: %v %d", err, len(e.ops()))
+	}
+	first := e.ops()[0].Name
+	e.drive(first)
+	e.now = e.now.Add(25 * time.Hour)
+	wantOutcome(t, e.drive(first), delivery.Expired, "Expired")
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	var open []string
+	for _, o := range e.ops() {
+		if o.Status.Phase != delivery.PhaseConcluded {
+			open = append(open, o.Name)
+		}
+	}
+	if len(open) != 1 || open[0] == first {
+		t.Fatalf("B is still eligible, so it is proposed again: open=%v", open)
+	}
+}
+
+// TestRaisedNameSquatted: an operation someone else created under the name
+// the promoter would raise its automatic promote or witnessed override with
+// freezes the Stage instead of silently skipping the decision.
+func TestRaisedNameSquatted(t *testing.T) {
+	s := stageObj(dA)
+	s.Spec.Auto = true
+	s.Spec.Candidates.OCIRepositoryRef = &delivery.LocalRef{Name: "payments-candidates"}
+	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB))
+	e.squat(raisedName(s, "auto", delivery.Params{From: dA, To: dB}))
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if st := e.getStage(); !st.Status.Frozen || !strings.Contains(st.Status.FrozenReason, "is taken by a "+delivery.TypePromote+" "+bot) {
+		t.Fatalf("want frozen: %+v", st.Status)
 	}
 }
 
@@ -248,7 +332,11 @@ func TestNeverACandidateUnlessPublished(t *testing.T) {
 	s := stageObj(dA)
 	s.Status.Published = nil
 	s.Status.Conditions = []delivery.Condition{{Type: "Ready", Status: "True", Reason: "Ready", Message: "the Stage can promote published versions"}}
+	s.Status.AuthFreshness = "15m0s"
 	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB))
+	a, _ := e.st.Cluster.applier(context.Background(), ns, e.getStage().Spec.ApplyRef)
+	med, _ := e.st.Cluster.mediated(context.Background(), ns, a)
+	e.setStage(func(s *delivery.StageStatus) { s.Conditions = append(s.Conditions, med) })
 	e.fails["status/Stage"] = true
 	if e.reconcileStage("payments-prod") == nil {
 		t.Fatal("a failed write of the published memory must surface")
@@ -317,5 +405,91 @@ func TestStageReady(t *testing.T) {
 	}
 	if c := e.getStage().Status.Conditions; len(c) != 1 || c[0].Reason != "CandidateUnverified" {
 		t.Fatalf("Ready did not follow the OCIRepository: %+v", c)
+	}
+}
+
+// TestCreateRaised: raising the promoter's own operation again is a no-op,
+// and a read that fails after the name was found taken is an error, retried.
+func TestCreateRaised(t *testing.T) {
+	e := newEnv(t, stageObj(dA))
+	op := opObj("raised", delivery.TypePromote, dA, dB, promoterSA)
+	for range 2 {
+		if squat, err := createRaised(context.Background(), e.c, op.DeepCopy()); err != nil || squat != "" {
+			t.Fatalf("raising twice: %q %v", squat, err)
+		}
+	}
+	e.fails["get/Operation/raised"] = true
+	if _, err := createRaised(context.Background(), e.c, op.DeepCopy()); err == nil {
+		t.Fatal("a failed read of the taken name must be an error")
+	}
+}
+
+// TestApplyRefUnlabelled: a Stage whose apply object lacks the apply-ref
+// label is not Ready, naming the label, since admission neither guards its
+// pointer nor lets the promoter write it.
+func TestApplyRefUnlabelled(t *testing.T) {
+	apply := ociRepo("payments", "", "", false)
+	apply.SetLabels(nil)
+	e := newEnv(t, stageObj(""), apply, verifiedRepo("payments-candidates", "latest@"+dB))
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	c := conditionOf(e.getStage().Status.Conditions, "Ready")
+	if c.Status != statusFalse || c.Reason != "ApplyRefUnlabelled" || !strings.Contains(c.Message, ApplyRefLabel) {
+		t.Fatalf("want Ready=False ApplyRefUnlabelled, got %+v", c)
+	}
+	e.fails["get/OCIRepository/payments"] = true
+	if e.reconcileStage("payments-prod") == nil {
+		t.Fatal("a failed apply object read must surface")
+	}
+}
+
+// TestReadyObservesTheGeneration: Ready and the Stage status name the
+// generation they were judged from, and the transition time moves only when
+// Ready's status does, so kstatus and Argo CD can tell a stale status.
+func TestReadyObservesTheGeneration(t *testing.T) {
+	st := stageObj("")
+	st.Generation = 3
+	e := newEnv(t, st, ociRepo("payments", "", "", false), verifiedRepo("payments-candidates", "latest@"+dB))
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	s := e.getStage()
+	c := *conditionOf(s.Status.Conditions, "Ready")
+	if s.Generation != 3 || s.Status.ObservedGeneration != 3 || c.ObservedGeneration != 3 || c.LastTransitionTime != ts(e.now) || c.Status != "True" ||
+		s.Status.AuthFreshness != "15m0s" {
+		t.Fatalf("status %d, condition %+v, generation %d", s.Status.ObservedGeneration, c, s.Generation)
+	}
+	// A spec change: the apiserver bumps the generation (the fake client
+	// keeps what it is given). Ready is judged again; its status did not
+	// change, so neither does its transition time.
+	s.Generation = 4
+	if err := e.c.Update(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	created := c.LastTransitionTime
+	e.now = e.now.Add(time.Minute)
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	s = e.getStage()
+	c = *conditionOf(s.Status.Conditions, "Ready")
+	if s.Status.ObservedGeneration != 4 || c.ObservedGeneration != 4 || c.LastTransitionTime != created {
+		t.Fatalf("after the spec change: status %d, condition %+v", s.Status.ObservedGeneration, c)
+	}
+	// The promoter's own login freshness is what the Stage publishes.
+	e.st.Freshness = 6 * time.Minute
+	if err := e.reconcileStage("payments-prod"); err != nil || e.getStage().Status.AuthFreshness != "6m0s" {
+		t.Fatalf("published freshness: %v %q", err, e.getStage().Status.AuthFreshness)
+	}
+	// Ready turning False is a transition.
+	if err := e.c.Delete(context.Background(), verifiedRepo("payments-candidates", "")); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if c = *conditionOf(e.getStage().Status.Conditions, "Ready"); c.Status != statusFalse || c.LastTransitionTime != ts(e.now) {
+		t.Fatalf("a transition: %+v", c)
 	}
 }

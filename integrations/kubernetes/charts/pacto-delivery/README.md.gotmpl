@@ -16,7 +16,7 @@ What the chart installs:
 
 - The promoter `Deployment` (the `pacto-delivery` image, subcommand `promoter`), leader-elected
 - CRDs: `Stage`, `Operation` and `Approval` in `delivery.pacto.trianalab.io/v1alpha1` (from the `crds/` directory)
-- RBAC: the promoter's `ServiceAccount`, `ClusterRole` and leader-election `Role`, plus two roles to bind: `<release>-agent` (propose, read and cancel operations) and `<release>-approver` (the same, plus approvals)
+- RBAC: the promoter's `ServiceAccount`, `ClusterRole` and leader-election `Role`, plus two roles to bind: `<release>-agent` (propose and read operations, and cancel its own) and `<release>-approver` (the same, plus approvals)
 - `ValidatingAdmissionPolicy` objects (Kubernetes 1.30 or later, `admissionPolicies.enabled`)
 
 It needs Flux (source and kustomize controllers) and the Pacto operator. The

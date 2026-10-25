@@ -1114,6 +1114,7 @@ export interface components {
             provider: string;
         };
         "Delivery.Gates": {
+            impact?: components["schemas"]["Delivery.ImpactGate"];
             verify?: components["schemas"]["Delivery.VerifyGates"];
         };
         "Delivery.HistoryEntry": {
@@ -1134,6 +1135,9 @@ export interface components {
             type: string;
             unverifiedRecord?: string;
             verification?: string;
+        };
+        "Delivery.ImpactGate": {
+            declaredConsumersOnly?: boolean;
         };
         "Delivery.LocalRef": {
             name: string;
@@ -1180,6 +1184,7 @@ export interface components {
             actorClass?: string;
             applied?: boolean;
             approvals?: components["schemas"]["Delivery.ApprovalRecord"][] | null;
+            guarded?: boolean;
             message?: string;
             outcome?: string;
             phase?: string;
@@ -1216,6 +1221,7 @@ export interface components {
             predicted: string;
             question?: string;
             to?: string;
+            toVersion?: string;
             type: string;
             verdicts?: components["schemas"]["Delivery.Verdict"][] | null;
         };

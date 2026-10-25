@@ -74,6 +74,9 @@ func runPromoter(args []string) error {
 	teamGroupPrefix := fs.String("team-group-prefix", "",
 		"A contract owner team T is identity-provider group T, or with this prefix set only this prefix plus T. "+
 			"Only members of the teams a question names may answer it.")
+	workers := fs.Int("workers", 4,
+		"How many operations and Stages the promoter reconciles at once, "+
+			"so one slow health provider does not hold up the rest.")
 	poll := fs.Duration("poll", 3*time.Second, "How often an operation waiting on Flux, Pacto or a person is looked at.")
 	authFreshness := fs.Duration("auth-freshness", core.AuthFreshness,
 		"How old a person's login may be when their approval is given; an older one is ignored.")
@@ -89,8 +92,9 @@ func runPromoter(args []string) error {
 		"A trust config (YAML) of the recorder keys of other clusters, per stream glob. "+
 			"Stages with candidates.upstreamRecords promote only on records these keys signed.")
 	admissionPolicies := fs.String("admission-policies", "",
-		"Comma-separated ValidatingAdmissionPolicies (each with a binding of the same name) that check who wrote an "+
-			"operation or approval. While one is missing no operation is admitted and no approval counts.")
+		"Comma-separated ValidatingAdmissionPolicies (each with a binding of the same name) the promoter trusts. "+
+			"While one is missing, fails open or is not bound with Deny to every object, no operation is admitted, "+
+			"no approval counts and every Stage is not Ready.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
@@ -131,14 +135,19 @@ func runPromoter(args []string) error {
 	}
 	gates := delivery.NewGates(cluster, configured)
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
-		Policy: policy, Gates: gates, Now: time.Now, Poll: *poll, Records: *records, Freshness: *authFreshness,
-		RecordedTTL:       *recordedTTL,
+		Policy: policy, Workers: *workers, Gates: gates, Now: time.Now, Poll: *poll, Records: *records,
+		Freshness:   *authFreshness,
+		RecordedTTL: *recordedTTL,
+		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
+		Events:            mgr.GetEventRecorderFor("pacto-delivery"),
 		AdmissionPolicies: delivery.SplitList(*admissionPolicies)}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := (&delivery.StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
-		Policy: policy, ClusterID: clusterID, Gates: gates, Now: time.Now,
-		Poll: *poll}).SetupWithManager(mgr); err != nil {
+		Policy: policy, Workers: *workers, ClusterID: clusterID, Gates: gates, Now: time.Now,
+		Poll: *poll, AdmissionPolicies: delivery.SplitList(*admissionPolicies), Freshness: *authFreshness,
+		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
+		Events: mgr.GetEventRecorderFor("pacto-delivery")}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

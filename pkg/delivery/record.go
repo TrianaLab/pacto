@@ -56,6 +56,9 @@ type RecordPredicate struct {
 	// Trust is the digest of the trust config the recorder verified the
 	// stream with before it extended it.
 	Trust string `json:"trust,omitempty"`
+	// Guarded says admission checked who asked and who approved. Absent, the
+	// actor and approvals are only what their writers claimed.
+	Guarded bool `json:"guarded,omitempty"`
 }
 
 // RecordType cites the operation type by digest.
@@ -177,9 +180,10 @@ func NewOperationRecord(in RecordInput) Statement {
 		Verdicts: st.Verdicts,
 		Outcome: &RecordOutcome{Result: st.Outcome, Verification: st.Verification, Reason: st.Reason,
 			Message: st.Message, Pointer: st.Pointer},
-		Chain: in.Chain,
-		Time:  RecordTime{Finished: st.Times.Finished},
-		Trust: in.Trust,
+		Chain:   in.Chain,
+		Time:    RecordTime{Finished: st.Times.Finished},
+		Trust:   in.Trust,
+		Guarded: st.Guarded,
 	}
 	params := spec.Params
 	p.Intent.Params, p.Intent.Reason, p.Intent.CorrelationID = &params, spec.Reason, spec.CorrelationID

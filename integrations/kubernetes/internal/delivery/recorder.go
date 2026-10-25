@@ -35,8 +35,11 @@ import (
 // ConditionRecordStoreReady is the recorder's Stage condition.
 const ConditionRecordStoreReady = "RecordStoreReady"
 
-// statusFalse is a condition status.
-const statusFalse = "False"
+// statusFalse and statusTrue are condition statuses.
+const (
+	statusFalse = "False"
+	statusTrue  = "True"
+)
 
 // Reasons RecordStoreReady is False.
 const (
@@ -133,7 +136,7 @@ func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 		return reconcile.Result{}, err
 	}
 	RecordsPending.WithLabelValues(stream.ID).Set(float64(len(items)))
-	if len(items) == 0 && hasCondition(stage, ConditionRecordStoreReady, "True") {
+	if len(items) == 0 && hasCondition(stage, ConditionRecordStoreReady, statusTrue) {
 		return reconcile.Result{}, nil
 	}
 	anchor, err := r.Store.anchor(ctx, stream.ID)
@@ -304,25 +307,27 @@ func hasCondition(stage *dv1.Stage, typ, status string) bool {
 
 // ready marks the stream writable and names where its records are listed.
 func (r *Recorder) ready(ctx context.Context, stage *dv1.Stage) error {
-	want := delivery.Condition{Type: ConditionRecordStoreReady, Status: "True",
+	want := delivery.Condition{Type: ConditionRecordStoreReady, Status: statusTrue,
 		Reason: "ReferrersSupported", Message: "records are written to " + r.Store.Streams}
 	ref := deliveryrecord.AnchorRef(r.Store.Streams, stage.Status.Stream.ID)
-	if slices.Contains(stage.Status.Conditions, want) && stage.Status.Stream.Anchor == ref {
+	want.ObservedGeneration = stage.Generation
+	if _, changed := delivery.SetCondition(stage.Status.Conditions, want, r.Now()); !changed && stage.Status.Stream.Anchor == ref {
 		return nil
 	}
 	return r.casStage(ctx, stage, func(s *dv1.Stage) {
 		s.Status.Stream.Anchor = ref
-		s.Status.Conditions = append(slices.DeleteFunc(s.Status.Conditions, func(x delivery.Condition) bool { return x.Type == want.Type }), want)
+		s.Status.Conditions, _ = delivery.SetCondition(s.Status.Conditions, want, r.Now())
 	})
 }
 
 // setCondition writes the recorder's condition when it changed.
 func (r *Recorder) setCondition(ctx context.Context, stage *dv1.Stage, want delivery.Condition) error {
-	if slices.Contains(stage.Status.Conditions, want) {
+	want.ObservedGeneration = stage.Generation
+	if _, changed := delivery.SetCondition(stage.Status.Conditions, want, r.Now()); !changed {
 		return nil
 	}
 	return r.casStage(ctx, stage, func(s *dv1.Stage) {
-		s.Status.Conditions = append(slices.DeleteFunc(s.Status.Conditions, func(x delivery.Condition) bool { return x.Type == want.Type }), want)
+		s.Status.Conditions, _ = delivery.SetCondition(s.Status.Conditions, want, r.Now())
 	})
 }
 

@@ -101,6 +101,9 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 		From:         in.Spec.Params.From,
 		To:           in.Spec.Params.To,
 	}
+	if in.To.Bundle != nil && in.To.Bundle.Contract != nil {
+		p.ToVersion = in.To.Bundle.Contract.Service.Version
+	}
 	rejected := ""
 	switch {
 	case !MayRaise(in.Spec.Type, in.Class, in.Spec.Witnessed):
@@ -214,6 +217,8 @@ func publishedGate(in PlanInput) Verdict {
 		case in.Upstream == nil && c.UpstreamRecords != nil:
 			v.Message = "the records of the upstream Stage " + v.Citation["upstream"] + " cannot be read or verified (" +
 				in.UpstreamErr + "), so it offers no candidate"
+		case in.Upstream == nil && in.UpstreamErr != "":
+			v.Message = in.UpstreamErr + ", so it offers no candidate"
 		case in.Upstream == nil:
 			v.Message = "the upstream Stage " + v.Citation["upstream"] + " does not exist or cannot be read, so it offers no candidate"
 		case slices.Contains(in.Upstream.Verified, to) && slices.Contains(in.Upstream.Offered, to):
@@ -308,6 +313,9 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 	}
 	unseenConsumers := unseenConsumersOf(in, res, unknown)
 	unseen := slices.Clone(unseenConsumers)
+	if len(res.Consumers) == 0 && res.Classification != diff.NonBreaking.String() && !in.Stage.Gates.Impact.DeclaredConsumersOnly {
+		unseen = append(unseen, "no Pacto depends on "+in.Stage.Service.Name+", but a service with no contract can still call it")
+	}
 	if in.From.Digest != "" && !slices.Contains(in.Status.Verified, in.From.Digest) {
 		unseen = append(unseen, "the version a rollback would return to ("+short(in.From.Digest)+") was never verified here")
 	}
@@ -433,4 +441,43 @@ func short(d string) string {
 		return d[:i+13]
 	}
 	return d
+}
+
+// StillPasses reports whether an approval given on prev still covers cur:
+// every gate that passed still passes (a Pass that comes back empty is Unknown,
+// and Unknown never passes), and cur asks for nothing the approval did not
+// answer: it is routed to no team and names no consumer the approval was not
+// asked about, and the impact gate is unknown for the reason the person saw.
+func StillPasses(prev, cur Plan) bool {
+	for _, v := range prev.Verdicts {
+		if v.Result != Pass {
+			continue
+		}
+		if !slices.ContainsFunc(cur.Verdicts, func(c Verdict) bool { return c.Gate == v.Gate && c.Result == Pass }) {
+			return false
+		}
+	}
+	if !cur.Floor.Human {
+		return true
+	}
+	if !subset(cur.Floor.Owners, prev.Floor.Owners) || !subset(cur.Floor.Consumers, prev.Floor.Consumers) {
+		return false
+	}
+	// ponytail: only the impact gate's message is compared, as it lists what
+	// Pacto cannot see; other gates' Unknown messages carry error text that
+	// changes from one read to the next.
+	for _, v := range cur.Verdicts {
+		if v.Gate == GateImpact && v.Result == Unknown &&
+			!slices.ContainsFunc(prev.Verdicts, func(p Verdict) bool {
+				return p.Gate == v.Gate && p.Result == v.Result && p.Message == v.Message
+			}) {
+			return false
+		}
+	}
+	return cur.Floor.Decision == prev.Floor.Decision || prev.Floor.Decision == Approve
+}
+
+// subset reports whether every element of a is in b.
+func subset(a, b []string) bool {
+	return !slices.ContainsFunc(a, func(x string) bool { return !slices.Contains(b, x) })
 }

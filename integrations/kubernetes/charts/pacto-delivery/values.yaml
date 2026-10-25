@@ -27,7 +27,9 @@ serviceAccount:
 promoter:
   # -- How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration)
   poll: 3s
-  # -- How old a person's login may be when their approval is given; an older one is ignored (a Go duration)
+  # -- How many operations and Stages the promoter reconciles at once, so one slow health provider does not hold up the rest
+  workers: 4
+  # -- How old a person's login may be when their approval is given; an older one is ignored (a Go duration). Every Stage publishes it in `status.authFreshness`
   authFreshness: 15m
   # -- Elect one active promoter
   leaderElect: true
@@ -39,6 +41,17 @@ promoter:
     # -- A `kubernetes.io/dockerconfigjson` Secret with read access to the contract and deploy
     # repositories, for a private registry. Without it the promoter reads only public ones.
     secretName: ""
+
+metrics:
+  # -- Expose the promoter's and the recorder's metrics (plain HTTP, port 8080) through a Service
+  enabled: true
+  serviceMonitor:
+    # -- Create a Prometheus Operator ServiceMonitor for that Service
+    enabled: false
+    # -- Scrape interval (empty uses Prometheus' default)
+    interval: ""
+    # -- Scrape timeout (empty uses Prometheus' default)
+    scrapeTimeout: ""
 
 gates:
   # -- Health gate providers a Stage may name in `spec.gates.verify.checks[].provider`, each
@@ -145,10 +158,13 @@ insecureRegistries: []
 
 # -- Install the ValidatingAdmissionPolicies (Kubernetes 1.30 or later): an operation's
 # actor is the requesting user, only the promoter may set witnessed, override and
-# unfreeze are limited to their raisers, cancel is refused once the pointer moved,
-# approvals come from people and spec.ref.digest is edited only by the promoter or
-# break-glass. The promoter admits no operation and counts no approval while
-# its operation and approval policies are missing.
+# unfreeze are limited to their raisers, cancel is refused once the pointer moved
+# and an agent cancels only its own operations,
+# approvals come from people and never change, spec.ref.digest is edited only by the
+# promoter or break-glass, and on objects labelled delivery.pacto.trianalab.io/apply-ref
+# the label, the source and what a Kustomization applies change only by break-glass.
+# The promoter admits no operation and counts no approval while any of them is
+# missing or does not deny.
 admissionPolicies:
   enabled: true
   # -- Render without the policies (enabled=false) anyway. Without them anyone who

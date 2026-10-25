@@ -196,18 +196,84 @@ func TestMiraFailedReadsAreUnknown(t *testing.T) {
 	}
 }
 
+// TestMiraCountsOneSpanKind: the gate counts server spans by default, a
+// request each, so internal and client spans do not fill the paging ceiling.
+func TestMiraCountsOneSpanKind(t *testing.T) {
+	for kind, want := range map[string]string{"": `{"eq":2,"field":"kind"}`, "consumer": `{"eq":5,"field":"kind"}`, "any": ""} {
+		p := map[string]string{}
+		if kind != "" {
+			p["spanKind"] = kind
+		}
+		v := miraCheck(t, &fakeMira{spans: shop(100, 0, 0)}, gateIn(), p)
+		if got := v.Citation["query"]; v.Result != Pass || want != "" && !strings.Contains(got, want) || want == "" && strings.Contains(got, `"kind"`) {
+			t.Errorf("spanKind %q: %s %s", kind, v.Result, got)
+		}
+	}
+}
+
+// TestMiraJudgesTheNewestSoakPastTheCap: a window with more spans than the
+// gate pages through is judged on its newest soak, so a busy service still
+// gets a verdict, and the citation names the window it judged.
+func TestMiraJudgesTheNewestSoakPastTheCap(t *testing.T) {
+	in := gateIn() // ten minutes
+	busy := func(errs int) func(map[string]any) int {
+		return func(q map[string]any) int {
+			if int64(q["from"].(float64)) == in.Window.From.UnixNano() {
+				return miraPageSize*miraMaxPages + 1
+			}
+			return shop(1000, errs, 0)(q)
+		}
+	}
+	for errs, want := range map[int]Result{10: Pass, 500: Fail} {
+		v := miraCheck(t, &fakeMira{spans: busy(errs)}, in, map[string]string{"soak": "2m"})
+		if v.Result != want || !strings.Contains(v.Message, "judged on the newest 2m0s") || v.Citation["from"] != ts3339(in.Window.To.Add(-2*time.Minute)) ||
+			!strings.Contains(v.Citation["query"], fmt.Sprint(in.Window.To.Add(-2*time.Minute).UnixNano())) {
+			t.Errorf("%d errors: %s %q %v", errs, v.Result, v.Message, v.Citation)
+		}
+	}
+	// A window no longer than the soak has nothing newer to judge.
+	short := gateIn()
+	short.Window.To = short.Window.From.Add(time.Minute)
+	if v := miraCheck(t, &fakeMira{spans: busy(0)}, short, nil); v.Result != Unknown || !strings.Contains(v.Message, "more than 200000 spans") {
+		t.Errorf("short window: %+v", v)
+	}
+}
+
+// TestMiraMatchesTheVersion: with matchVersion the gate counts only the
+// spans of the version under check, so old pods still serving neither hide a
+// breach nor fail a clean version; without a contract version it is Unknown.
+func TestMiraMatchesTheVersion(t *testing.T) {
+	in := gateIn()
+	in.Version = "1.4.0"
+	v := miraCheck(t, &fakeMira{spans: shop(100, 0, 0)}, in, map[string]string{"matchVersion": "true"})
+	if v.Result != Pass || !strings.Contains(v.Citation["query"], `{"attr":"service.version","eq":"1.4.0"}`) {
+		t.Fatalf("matched: %s %s", v.Result, v.Citation["query"])
+	}
+	if v := miraCheck(t, &fakeMira{spans: shop(100, 0, 0)}, in, map[string]string{"matchVersion": "false"}); strings.Contains(v.Citation["query"], "service.version") {
+		t.Fatalf("not asked to match: %s", v.Citation["query"])
+	}
+	in.Version = ""
+	if v := miraCheck(t, &fakeMira{spans: shop(100, 0, 0)}, in, map[string]string{"matchVersion": "true"}); v.Result != Unknown || !strings.Contains(v.Message, "no readable contract version") {
+		t.Fatalf("no version: %+v", v)
+	}
+}
+
 func TestMiraParams(t *testing.T) {
 	for name, p := range map[string]map[string]string{
-		"minSpans":         {"minSpans": "-1"},
-		"maxErrorRatio":    {"maxErrorRatio": "2"},
-		"soak":             {"soak": "soon"},
-		"latencyThreshold": {"latencyThreshold": "fast"},
-		"maxLatencyRatio":  {"latencyThreshold": "1s", "maxLatencyRatio": "x"},
-		"where":            {"where": "{"},
-		"unknown":          {"minspans": "3"},
+		"minSpans":            {"minSpans": "-1"},
+		"maxErrorRatio":       {"maxErrorRatio": "2"},
+		"maxErrorRatio NaN":   {"maxErrorRatio": "NaN"},
+		"maxLatencyRatio NaN": {"latencyThreshold": "1s", "maxLatencyRatio": "nan"},
+		"soak":                {"soak": "soon"},
+		"latencyThreshold":    {"latencyThreshold": "fast"},
+		"maxLatencyRatio":     {"latencyThreshold": "1s", "maxLatencyRatio": "x"},
+		"where":               {"where": "{"},
+		"spanKind":            {"spanKind": "servers"},
+		"matchVersion":        {"matchVersion": "yes please"},
+		"unknown":             {"minspans": "3"},
 	} {
 		v := miraCheck(t, &fakeMira{spans: shop(100, 0, 0)}, gateIn(), p)
-		if v.Result != Unknown || !strings.Contains(v.Message, name) {
+		if v.Result != Unknown || !strings.Contains(v.Message, strings.Fields(name)[0]) {
 			t.Errorf("%s: %+v", name, v)
 		}
 	}

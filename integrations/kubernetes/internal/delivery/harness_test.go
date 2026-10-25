@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -95,6 +96,21 @@ type env struct {
 	now    time.Time
 	fails  fails
 	health *fakeHealth
+	// mu guards fails and reg.hosts: RunChecks runs the gates concurrently.
+	mu sync.Mutex
+}
+
+// setFail sets a fails entry from inside a running gate.
+func (e *env) setFail(key string, v bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.fails[key] = v
+}
+
+func (e *env) failing(key string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.fails[key]
 }
 
 // fakeHealth is a health provider whose answer the test sets; it records
@@ -103,10 +119,13 @@ type fakeHealth struct {
 	result delivery.Result
 	inputs []delivery.GateInput
 	during func() // runs while the check is in progress, as another writer would
+	mu     sync.Mutex
 }
 
 func (f *fakeHealth) Check(_ context.Context, in delivery.GateInput, _ map[string]string) delivery.Verdict {
+	f.mu.Lock()
 	f.inputs = append(f.inputs, in)
+	f.mu.Unlock()
 	if f.during != nil {
 		f.during()
 	}
@@ -140,20 +159,21 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 		bundles:   map[string]*contract.Bundle{contractRef(c1): bundle("1.0.0"), contractRef(c2): bundle("1.1.0"), contractRef(c3): bundle("2.0.0")},
 	}
 	fail := func(verb string, obj runtime.Object) error {
-		if e.fails[verb+"/"+kindOf(obj)] {
+		if e.failing(verb + "/" + kindOf(obj)) {
 			return errors.New("injected " + verb + " failure")
 		}
 		return nil
 	}
 	e.c = fake.NewClientBuilder().WithScheme(newScheme()).
 		WithStatusSubresource(&dv1.Stage{}, &dv1.Operation{}).
+		WithIndex(&dv1.Approval{}, approvalOperationUID, approvalUID).
 		WithObjects(objs...).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
 				if err := fail("get", obj); err != nil {
 					return err
 				}
-				if e.fails["get/"+kindOf(obj)+"/"+key.Name] {
+				if e.failing("get/" + kindOf(obj) + "/" + key.Name) {
 					return errors.New("injected get failure")
 				}
 				return c.Get(ctx, key, obj, opts...)
@@ -193,6 +213,8 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 			},
 		}).Build()
 	cluster := Cluster{Client: e.c, Registry: func(hosts ...string) delivery.Registry {
+		e.mu.Lock()
+		defer e.mu.Unlock()
 		e.reg.hosts = hosts
 		return e.reg
 	}}
@@ -200,8 +222,8 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 	clock := func() time.Time { return e.now }
 	e.health = &fakeHealth{result: delivery.Pass}
 	gates := NewGates(cluster, map[string]delivery.Gate{"mira": e.health})
-	e.op = &OperationReconciler{Client: e.c, APIReader: e.c, Cluster: cluster, Policy: policy, Gates: gates, Now: clock, Poll: time.Second}
-	e.st = &StageReconciler{Client: e.c, APIReader: e.c, Cluster: cluster, Policy: policy, ClusterID: "cid", Gates: gates, Now: clock, Poll: time.Second}
+	e.op = &OperationReconciler{Client: e.c, APIReader: e.c, Cluster: cluster, Policy: policy, Gates: gates, Now: clock, Poll: time.Second, heldChecks: &sync.Map{}}
+	e.st = &StageReconciler{Client: e.c, APIReader: e.c, Cluster: cluster, Policy: policy, ClusterID: "cid", Gates: gates, Now: clock, Poll: time.Second, seen: &sync.Map{}}
 	return e
 }
 
@@ -221,7 +243,7 @@ func stageObj(pointer string) *dv1.Stage {
 
 func ociRepo(name, digest, revision string, insecure bool) *unstructured.Unstructured {
 	u := &unstructured.Unstructured{Object: map[string]any{
-		"metadata": map[string]any{"namespace": ns, "name": name},
+		"metadata": map[string]any{"namespace": ns, "name": name, "labels": map[string]any{ApplyRefLabel: name}},
 		"spec":     map[string]any{"url": "oci://" + repo, "insecure": insecure, "ref": map[string]any{}},
 	}}
 	if digest != "" {

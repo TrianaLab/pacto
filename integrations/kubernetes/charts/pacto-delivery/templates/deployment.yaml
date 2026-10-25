@@ -49,13 +49,17 @@ spec:
             - promoter
             - --leader-elect={{ .Values.promoter.leaderElect }}
             - --poll={{ .Values.promoter.poll }}
+            - --workers={{ .Values.promoter.workers }}
             - --auth-freshness={{ .Values.promoter.authFreshness }}
             - --controller-user={{ include "pacto-delivery.controllerUser" . }}
             - --agent-groups={{ join "," .Values.identities.agentGroups }}
             - --break-glass-groups={{ join "," .Values.identities.breakGlassGroups }}
             {{- if .Values.admissionPolicies.enabled }}
             {{- $fullname := include "pacto-delivery.fullname" . }}
-            - --admission-policies={{ $fullname }}-operation,{{ $fullname }}-approval
+            {{- $policies := list "operation" "cancel" "approval" "pointer" "applier" "promoter-writes" }}
+            {{- if .Values.argocd.enabled }}{{ $policies = concat $policies (list "pointer-argocd" "promoter-writes-argocd") }}{{ end }}
+            {{- if .Values.recorder.enabled }}{{ $policies = append $policies "records" }}{{ end }}
+            - --admission-policies={{ range $i, $p := $policies }}{{ if $i }},{{ end }}{{ $fullname }}-{{ $p }}{{ end }}
             {{- end }}
             {{- with .Values.identities.teamGroupPrefix }}
             - {{ printf "--team-group-prefix=%s" . | quote }}
@@ -86,6 +90,9 @@ spec:
           ports:
             - name: health
               containerPort: 8081
+              protocol: TCP
+            - name: metrics
+              containerPort: 8080
               protocol: TCP
           livenessProbe:
             httpGet:

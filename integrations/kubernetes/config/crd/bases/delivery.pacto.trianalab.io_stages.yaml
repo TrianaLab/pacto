@@ -156,6 +156,18 @@ spec:
                   Gates configures the Stage's gates. The pre-gates are fixed by the operation
                   type; the Pacto contract check always verifies, beside the Stage's checks.
                 properties:
+                  impact:
+                    description: ImpactGate tunes pacto.impact.
+                    properties:
+                      declaredConsumersOnly:
+                        description: |-
+                          DeclaredConsumersOnly says every consumer of the service has a
+                          contract Pacto can see, so a breaking change no Pacto depends on ships
+                          without a person. Off by default: a service with no contract can still call it, so
+                          a breaking change with no consumer in sight waits for a person to accept
+                          the unknown.
+                        type: boolean
+                    type: object
                   verify:
                     description: VerifyGates configures what runs after a version
                       is applied.
@@ -227,18 +239,21 @@ spec:
             - service
             type: object
           status:
-            description: StageStatus is written only by the promoter's operation reconciler.
+            description: |-
+              StageStatus is written by the promoter's operation and stage reconcilers and
+              by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each
+              through a compare-and-swap on the Stage's resourceVersion.
             properties:
+              authFreshness:
+                description: |-
+                  AuthFreshness is how old a login the promoter accepts on an approval
+                  (a Go duration). Clients ask for a fresh login with a margin under it
+                  (DecisionFreshnessFor).
+                type: string
               autoHold:
                 description: AutoHold stops auto-promotion after a person chose an
                   older version.
                 type: boolean
-              autoRollbacks:
-                additionalProperties:
-                  type: integer
-                description: AutoRollbacks counts the automatic rollbacks raised per
-                  cause.
-                type: object
               candidate:
                 description: Candidate is the newest eligible candidate the stage
                   reconciler saw.
@@ -254,12 +269,20 @@ spec:
                 items:
                   description: |-
                     Condition is a Kubernetes status condition, so `kubectl wait
-                    --for=condition=Ready` and status tooling read it.
-                    ponytail: no lastTransitionTime; add it when a reader needs to know when
-                    readiness changed.
+                    --for=condition=Ready`, kstatus and Argo CD read it. Write it with
+                    SetCondition.
                   properties:
+                    lastTransitionTime:
+                      description: LastTransitionTime is when Status last changed
+                        (RFC 3339).
+                      type: string
                     message:
                       type: string
+                    observedGeneration:
+                      description: ObservedGeneration is the Stage generation the
+                        condition was set from.
+                      format: int64
+                      type: integer
                     reason:
                       type: string
                     status:
@@ -348,6 +371,12 @@ spec:
                 description: Locks maps a facet to the uid of the operation holding
                   it.
                 type: object
+              observedGeneration:
+                description: |-
+                  ObservedGeneration is the Stage generation the stage reconciler last
+                  judged Ready from.
+                format: int64
+                type: integer
               offered:
                 description: |-
                   Offered holds the digests a promote carried through pacto.published
@@ -357,7 +386,10 @@ spec:
                   type: string
                 type: array
               pointer:
-                description: Pointer is the digest the environment runs.
+                description: |-
+                  Pointer is the digest the Stage moved the environment to. It is set
+                  when an operation holding the pointer lock starts to apply, before
+                  Flux or Argo CD runs it: Applied on that operation says when they did.
                 type: string
               published:
                 description: |-
@@ -365,6 +397,14 @@ spec:
                   the candidate OCIRepository (spec.verify naming the publisher's
                   identity), oldest first (cap 50). Only these are promoted from the
                   OCIRepository.
+                items:
+                  type: string
+                type: array
+              rolledBack:
+                description: |-
+                  RolledBack holds the uids of the failed operations the promoter raised
+                  its one automatic rollback for, oldest first (cap 50). A failure listed
+                  here never gets a second one.
                 items:
                   type: string
                 type: array

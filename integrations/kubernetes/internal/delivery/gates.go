@@ -38,6 +38,10 @@ type clusterGate struct {
 // Check implements delivery.Gate.
 func (g clusterGate) Check(ctx context.Context, in delivery.GateInput, _ map[string]string) delivery.Verdict {
 	unknown := delivery.Verdict{Result: delivery.Unknown}
+	if len(in.Subjects) == 0 {
+		unknown.Message = "no version to check"
+		return unknown
+	}
 	stage := &dv1.Stage{}
 	if err := g.c.Client.Get(ctx, types.NamespacedName{Namespace: in.Stage.Namespace, Name: in.Stage.Name}, stage); err != nil {
 		unknown.Message = "reading the Stage: " + err.Error()
@@ -84,9 +88,13 @@ func verifyChecks(stage *dv1.Stage) []delivery.GateCheck {
 // gateInput is the gate protocol input for op's version on the Stage over
 // [from, to].
 func gateInput(op *dv1.Operation, stage *dv1.Stage, from, to time.Time) delivery.GateInput {
-	return delivery.GateInput{OperationUID: string(op.UID), Stage: delivery.StageRef{Namespace: stage.Namespace, Name: stage.Name},
+	in := delivery.GateInput{OperationUID: string(op.UID), Stage: delivery.StageRef{Namespace: stage.Namespace, Name: stage.Name},
 		Service: stage.Spec.Service, Facet: op.Spec.Facet, Subjects: []string{op.Spec.Params.To},
 		Window: delivery.Window{From: from, To: to}}
+	if p := op.Status.Plan; p != nil && p.To == op.Spec.Params.To {
+		in.Version = p.ToVersion
+	}
+	return in
 }
 
 // failing returns the first Fail among vs.

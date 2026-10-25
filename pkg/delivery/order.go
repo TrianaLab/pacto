@@ -29,6 +29,9 @@ func orderFor(ctx context.Context, in PlanInput, res *impact.Result, blocked []i
 	defer cancel()
 	o := &Order{MoveFirst: []MoveFirst{}, Unknown: unseen}
 	provider := fleet.NewServiceKeyDomain(contract.OCIDomain(in.To.ContractRef), in.Stage.Service.Name)
+	// An empty From is a first version: nothing runs here to accept. A From
+	// whose contract could not be read never gets this far: the diff gate is
+	// Unknown and the plan stops before the impact gate (PlanFor).
 	running := ""
 	if in.From.Bundle != nil {
 		running = in.From.Bundle.Contract.Service.Version
@@ -199,9 +202,13 @@ func canMoveFirst(in PlanInput, c *contract.Contract, consumer fleet.ServiceKey,
 // acceptedHere checks the declared range every Pacto running here holds on the
 // consumer against a candidate version of it, so moving it first does not
 // break its own consumers. It says why one of them rejects the version, or
-// errors when Pacto cannot tell: a range or a version it cannot read. Observed
-// calls carry no range and are not judged here.
+// errors when Pacto cannot tell: a partial graph, which may hide a consumer
+// that rejects it, or a range or a version it cannot read. Observed calls
+// carry no range and are not judged here.
 func acceptedHere(snap *fleet.FleetSnapshot, consumer fleet.ServiceKey, c *contract.Contract) (string, error) {
+	if snap.Completeness == fleet.CompletenessPartial {
+		return "", fmt.Errorf("the operational graph is partial, so Pacto cannot tell whether something that rejects %s %s runs here", c.Service.Name, c.Service.Version)
+	}
 	for _, r := range snap.Relationships {
 		if r.Type != fleet.RelationshipDependency || r.Provenance != fleet.ProvenanceDeclared ||
 			r.ToService != consumer || r.FromService == consumer {

@@ -23,7 +23,7 @@ import (
 // sync revision rev with the given sync and health status.
 func argoApp(target, rev, sync, health string) *unstructured.Unstructured {
 	u := &unstructured.Unstructured{Object: map[string]any{
-		"metadata": map[string]any{"namespace": ns, "name": "payments"},
+		"metadata": map[string]any{"namespace": ns, "name": "payments", "labels": map[string]any{ApplyRefLabel: "payments"}},
 		"spec":     map[string]any{"source": map[string]any{"repoURL": "oci://" + repo, "targetRevision": target}},
 		"status": map[string]any{"sync": map[string]any{"revision": rev, "status": sync},
 			"health": map[string]any{"status": health, "message": "pod crashloop"}},

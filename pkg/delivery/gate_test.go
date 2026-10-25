@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -70,6 +71,29 @@ func TestParseProviders(t *testing.T) {
 	}
 }
 
+// TestRunChecksRunsAtOnce: every check waits until the other started, so run
+// one after another they would time out; at once they both pass.
+func TestRunChecksRunsAtOnce(t *testing.T) {
+	var started sync.WaitGroup
+	started.Add(2)
+	both := gateFunc(func(ctx context.Context, in GateInput, _ map[string]string) Verdict {
+		started.Done()
+		done := make(chan struct{})
+		go func() { started.Wait(); close(done) }()
+		select {
+		case <-done:
+			return Verdict{Result: Pass, Citation: map[string]string{"query": in.Service.Name}}
+		case <-time.After(5 * time.Second):
+			return Verdict{Result: Unknown, Message: "ran alone"}
+		}
+	})
+	vs := RunChecks(context.Background(), map[string]Gate{"g": both},
+		[]GateCheck{{Name: "a", Provider: "g"}, {Name: "b", Provider: "g"}}, gateIn())
+	if len(vs) != 2 || vs[0].Gate != "a" || vs[1].Gate != "b" || vs[0].Result != Pass || vs[1].Result != Pass {
+		t.Fatalf("want both checks to pass, in order: %+v", vs)
+	}
+}
+
 func TestRunChecks(t *testing.T) {
 	pass := gateFunc(func(_ context.Context, in GateInput, p map[string]string) Verdict {
 		return Verdict{Result: Pass, Message: "ok " + p["k"], Citation: map[string]string{"query": in.Service.Name}}
@@ -111,6 +135,15 @@ func TestCheckTimeout(t *testing.T) {
 	v := RunChecks(context.Background(), map[string]Gate{"slow": slow}, []GateCheck{{Name: "health", Provider: "slow"}}, gateIn())[0]
 	if v.Result != Unknown || !strings.Contains(v.Message, "did not answer within 10ms") || v.Citation["provider"] != "slow" {
 		t.Fatalf("a timed-out check: %+v", v)
+	}
+}
+
+// TestCheckPanic: a gate that panics is Unknown, not a crashed promoter.
+func TestCheckPanic(t *testing.T) {
+	boom := gateFunc(func(context.Context, GateInput, map[string]string) Verdict { panic("index out of range") })
+	v := RunChecks(context.Background(), map[string]Gate{"boom": boom}, []GateCheck{{Name: "health", Provider: "boom"}}, gateIn())[0]
+	if v.Result != Unknown || !strings.Contains(v.Message, "the check failed: index out of range") {
+		t.Fatalf("a panicking check: %+v", v)
 	}
 }
 

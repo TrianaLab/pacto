@@ -41,6 +41,7 @@ func recordInput() RecordInput {
 
 func TestNewOperationRecord(t *testing.T) {
 	in := recordInput()
+	in.Operation.Status.Guarded = true
 	st := NewOperationRecord(in)
 	if st.Type != StatementType || st.PredicateType != PredicateOperation || len(st.Subject) != 4 {
 		t.Fatalf("statement = %+v", st)
@@ -60,6 +61,7 @@ func TestNewOperationRecord(t *testing.T) {
 		"outcome":    p.Outcome.Pointer.After == rTo,
 		"time":       p.Time.Finished == "2026-10-19T10:12:40Z",
 		"policy":     p.Policy.Environment == "prod",
+		"guarded":    p.Guarded,
 	} {
 		if !ok {
 			t.Errorf("predicate %s is wrong: %+v", field, p)
@@ -83,6 +85,19 @@ func TestNewOperationRecord(t *testing.T) {
 	}
 	if len(st.Subject) != 1 {
 		t.Fatalf("subjects = %+v", st.Subject)
+	}
+}
+
+// TestRecordSaysWhetherItWasGuarded: a record says admission checked who
+// asked and who approved only when the promoter found its policies enforcing.
+func TestRecordSaysWhetherItWasGuarded(t *testing.T) {
+	in := recordInput()
+	if NewOperationRecord(in).Predicate.Guarded {
+		t.Fatal("an unguarded operation's record says it was guarded")
+	}
+	in.Operation.Status.Guarded = true
+	if !NewOperationRecord(in).Predicate.Guarded {
+		t.Fatal("a guarded operation's record does not say so")
 	}
 }
 
