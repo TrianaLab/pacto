@@ -165,7 +165,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.policy.approval` | `object` | no |  |  | ApprovalPolicy can only raise the approval floor, never lower it. |
 | `status.policy.approval.always` | `boolean` | no |  |  | Always holds every promote for a human, whatever the contracts say. |
 | `status.policy.auto` | `boolean` | no |  |  | Auto promotes the newest eligible candidate without anyone asking. |
-| `status.policy.candidates` | `object` | no |  |  | Candidates says where new versions come from. Exactly one is set. |
+| `status.policy.candidates` | `object` | no |  |  | Candidates says where new versions come from. At most one is set, so the version offered and the version judged come from the same source; a Stage that sets none is not Ready and never promotes. |
 | `status.policy.candidates.ociRepositoryRef` | `object` | no |  |  | OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the candidate is the @sha256: part of its status.artifact.revision. |
 | `status.policy.candidates.ociRepositoryRef.name` | `string` | yes |  |  |  |
 | `status.policy.candidates.upstreamRecords` | `object` | no |  |  | UpstreamRecords offers what a Stage in another cluster verified, read from its signed records: the promoter must trust the key that signs that stream (promoter.upstreamTrust), or it offers nothing. |
@@ -188,6 +188,8 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.policy.gates.verify.checks[].provider` | `string` | yes |  |  | Provider is a gate provider configured in the delivery chart, or pacto.runtime. A Stage cannot name a URL: providers are operator configuration. |
 | `status.policy.gates.verify.recheck` | `string` | no |  |  | Recheck is how often the verify gates run again on the version the Stage runs once it shipped (a Go duration, default 1m). A confirmed Fail rolls it back; Unknown never does. |
 | `status.policy.gates.verify.window` | `string` | no |  |  | Window is how long the verify gates may stay Unknown before the operation is held for a human (a Go duration, default 5m). Re-checks after release judge the same length of time. |
+| `status.policy.records` | `object` | no |  |  | RecordsPolicy says whether automation may move the Stage while its records cannot be written. |
+| `status.policy.records.required` | `boolean` | no |  |  | Required holds every promote or rollback an agent or the promoter raises for a person to approve while the recorder is not writing this Stage's records (RecordStoreReady is not True) or more than five of its operations wait for a record (MaxRecordsPending). |
 | `status.policy.service` | `object` | yes |  |  | ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified service name its contracts declare. |
 | `status.policy.service.domain` | `string` | no |  |  | Domain is the registry and organisation scope (empty for the default). |
 | `status.policy.service.name` | `string` | yes |  |  | Name is the contract's service.name. |
@@ -249,7 +251,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.approval` | `object` | no |  |  | ApprovalPolicy can only raise the approval floor, never lower it. |
 | `spec.approval.always` | `boolean` | no |  |  | Always holds every promote for a human, whatever the contracts say. |
 | `spec.auto` | `boolean` | no |  |  | Auto promotes the newest eligible candidate without anyone asking. |
-| `spec.candidates` | `object` | no |  |  | Candidates says where new versions come from. Exactly one is set. |
+| `spec.candidates` | `object` | no |  |  | Candidates says where new versions come from. At most one is set, so the version offered and the version judged come from the same source; a Stage that sets none is not Ready and never promotes. |
 | `spec.candidates.ociRepositoryRef` | `object` | no |  |  | OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the candidate is the @sha256: part of its status.artifact.revision. |
 | `spec.candidates.ociRepositoryRef.name` | `string` | yes |  |  |  |
 | `spec.candidates.upstreamRecords` | `object` | no |  |  | UpstreamRecords offers what a Stage in another cluster verified, read from its signed records: the promoter must trust the key that signs that stream (promoter.upstreamTrust), or it offers nothing. |
@@ -272,14 +274,16 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.gates.verify.checks[].provider` | `string` | yes |  |  | Provider is a gate provider configured in the delivery chart, or pacto.runtime. A Stage cannot name a URL: providers are operator configuration. |
 | `spec.gates.verify.recheck` | `string` | no |  |  | Recheck is how often the verify gates run again on the version the Stage runs once it shipped (a Go duration, default 1m). A confirmed Fail rolls it back; Unknown never does. |
 | `spec.gates.verify.window` | `string` | no |  |  | Window is how long the verify gates may stay Unknown before the operation is held for a human (a Go duration, default 5m). Re-checks after release judge the same length of time. |
+| `spec.records` | `object` | no |  |  | RecordsPolicy says whether automation may move the Stage while its records cannot be written. |
+| `spec.records.required` | `boolean` | no |  |  | Required holds every promote or rollback an agent or the promoter raises for a person to approve while the recorder is not writing this Stage's records (RecordStoreReady is not True) or more than five of its operations wait for a record (MaxRecordsPending). |
 | `spec.service` | `object` | yes |  |  | ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified service name its contracts declare. |
 | `spec.service.domain` | `string` | no |  |  | Domain is the registry and organisation scope (empty for the default). |
 | `spec.service.name` | `string` | yes |  |  | Name is the contract's service.name. |
 | `status` | `object` | no |  |  | StageStatus is written by the promoter's operation and stage reconcilers and by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each through a compare-and-swap on the Stage's resourceVersion. |
 | `status.authFreshness` | `string` | no |  |  | AuthFreshness is how old a login the promoter accepts on an approval (a Go duration). Clients ask for a fresh login with a margin under it (DecisionFreshnessFor). |
-| `status.autoHold` | `boolean` | no |  |  | AutoHold stops auto-promotion after a person chose an older version. |
+| `status.autoHold` | `boolean` | no |  |  | AutoHold stops auto-promotion after a person or agent rolled back or promoted back to a version the Stage already verified. |
 | `status.candidate` | `string` | no |  |  | Candidate is the newest eligible candidate the stage reconciler saw. |
-| `status.conditions` | `[]object` | no |  |  | Conditions holds Ready. It is False, naming what is missing, when the Stage can never promote: its candidate OCIRepository does not exist or sets no spec.verify naming the publisher, or it names no candidate source at all. The recorder adds RecordStoreReady: False when the registry has no Referrers API, cannot be reached or holds a stream it refuses to fork. |
+| `status.conditions` | `[]object` | no |  |  | Conditions holds Ready. It is False, naming what is missing, when the Stage cannot promote: its applier cannot be read, lacks the apply-ref label or (on Argo CD) has no single OCI source or no automated sync; its candidate OCIRepository does not exist or sets no spec.verify naming the publisher; the records of its upstream in another cluster are not trusted or cannot be read; or it names no candidate source at all. The recorder adds RecordStoreReady: False when the registry has no Referrers API, cannot be reached or holds a stream it refuses to fork. |
 | `status.conditions[].lastTransitionTime` | `string` | no |  |  | LastTransitionTime is when Status last changed (RFC 3339). |
 | `status.conditions[].message` | `string` | no |  |  |  |
 | `status.conditions[].observedGeneration` | `integer` | no |  |  | ObservedGeneration is the Stage generation the condition was set from. |
@@ -318,6 +322,10 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.stream.id` | `string` | no |  |  | ID is &lt;clusterID&gt;/&lt;namespace&gt;/&lt;name&gt;; the cluster id is the kube-system namespace uid. |
 | `status.stream.recordedSeq` | `integer` | no |  |  | RecordedSeq is the newest local seq the recorder wrote or adopted a record for. Only the recorder writes it. |
 | `status.stream.seq` | `integer` | no |  |  |  |
+| `status.upstreamSeen` | `object` | no |  |  | UpstreamSeen is the newest record this Stage read from the upstream stream it follows (candidates.upstreamRecords). A later read that ends before it, or holds another record at its seq, offers nothing, so records removed from the upstream's tail never go unseen. |
+| `status.upstreamSeen.record` | `string` | yes |  |  | Record is the record's id, the digest of its signed payload. |
+| `status.upstreamSeen.seq` | `integer` | yes |  |  |  |
+| `status.upstreamSeen.stream` | `string` | yes |  |  | Stream is the stream id. |
 | `status.verified` | `[]string` | no |  |  | Verified holds the newest verified digests, oldest first (cap 10). |
 
 
