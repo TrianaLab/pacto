@@ -122,6 +122,9 @@ pass.
   with who asked and who approved, and the publishes Pacto refused.
 - **The command line**: `pacto delivery plan` shows what would happen before
   you ask, and `pacto delivery history` what already did.
+  `kubectl get pacto-delivery -A` lists every Stage, Operation and Approval;
+  name a kind in full, such as `stages.delivery.pacto.trianalab.io`, where
+  another tool also defines a Stage.
 - **AI agents** get the same tools through `pacto mcp --delivery`. MCP is the
   common way AI agents call tools. There is no approve tool.
 

@@ -21,6 +21,7 @@ const RecordFinalizer = "delivery.pacto.trianalab.io/record"
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:categories=pacto-delivery
 // +kubebuilder:printcolumn:name="Service",type=string,JSONPath=`.spec.service.name`
 // +kubebuilder:printcolumn:name="Env",type=string,JSONPath=`.spec.environment`
 // +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=`.status.conditions[?(@.type=="Ready")].status`
@@ -52,6 +53,7 @@ type StageList struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:resource:categories=pacto-delivery
 // +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.type`
 // +kubebuilder:printcolumn:name="Stage",type=string,JSONPath=`.spec.stage`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
@@ -83,6 +85,7 @@ type OperationList struct {
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:resource:categories=pacto-delivery
 // +kubebuilder:printcolumn:name="Operation",type=string,JSONPath=`.spec.operation`
 // +kubebuilder:printcolumn:name="Decision",type=string,JSONPath=`.spec.decision`
 // +kubebuilder:printcolumn:name="By",type=string,JSONPath=`.spec.by`

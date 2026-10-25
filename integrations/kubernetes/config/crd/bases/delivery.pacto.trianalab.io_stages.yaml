@@ -8,6 +8,8 @@ metadata:
 spec:
   group: delivery.pacto.trianalab.io
   names:
+    categories:
+    - pacto-delivery
     kind: Stage
     listKind: StageList
     plural: stages
