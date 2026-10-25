@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
@@ -102,18 +103,35 @@ func ValidateStructural(data any) ValidationResult {
 		return result
 	}
 
+	var mcp []int
 	if version == "2.0" {
-		data = needs21(&result, data)
+		data, mcp = needs21(&result, data)
 	}
 	addSchemaError(&result, schema.Validate(data))
+	if len(mcp) > 0 {
+		result.Errors = slices.DeleteFunc(result.Errors, func(e contract.ValidationError) bool {
+			if e.Code != "SCHEMA_VIOLATION" {
+				return false
+			}
+			for _, i := range mcp {
+				at := fmt.Sprintf("interfaces.%d", i)
+				if e.Path == at || strings.HasPrefix(e.Path, at+".") {
+					return true
+				}
+			}
+			return false
+		})
+	}
 	return result
 }
 
 // needs21 records a NEEDS_PACTO_2_1 error for each part of data only
 // pactoVersion 2.1 has (publish, agent and an mcp interface), in place of the
-// 2.0 schema's generic "not allowed", and returns data without them for the
-// rest of the 2.0 schema to check.
-func needs21(result *ValidationResult, data any) any {
+// 2.0 schema's generic "not allowed". It returns data without publish and
+// agent for the rest of the 2.0 schema to check, and the indexes of the mcp
+// interfaces, whose schema errors the caller drops. The interfaces stay in
+// place so every other interface's errors keep its own index.
+func needs21(result *ValidationResult, data any) (any, []int) {
 	m, _ := data.(map[string]any) // a 2.0 pactoVersion was read from it
 	out := maps.Clone(m)
 	for _, key := range []string{"publish", "agent"} {
@@ -123,18 +141,14 @@ func needs21(result *ValidationResult, data any) any {
 		}
 	}
 	ifaces, _ := m["interfaces"].([]any)
-	kept := make([]any, 0, len(ifaces))
+	var mcp []int
 	for i, it := range ifaces {
 		if im, _ := it.(map[string]any); im["type"] == "mcp" {
 			result.AddError(fmt.Sprintf("interfaces.%d.type", i), string(finding.CodeNeedsPacto21), `an mcp interface needs pactoVersion "2.1"; set pactoVersion: "2.1", which keeps every 2.0 field`)
-			continue
+			mcp = append(mcp, i)
 		}
-		kept = append(kept, it)
 	}
-	if len(kept) < len(ifaces) {
-		out["interfaces"] = kept
-	}
-	return out
+	return out, mcp
 }
 
 // addSchemaError records a schema validation outcome: nothing for nil, every

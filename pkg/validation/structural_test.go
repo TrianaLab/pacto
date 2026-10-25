@@ -572,7 +572,7 @@ func TestNeeds21(t *testing.T) {
 		"service":      map[string]any{"name": "svc", "version": "1.0.0"},
 		"publish":      map[string]any{},
 		"agent":        map[string]any{},
-		"interfaces":   []any{map[string]any{"name": "tools", "type": "mcp"}, map[string]any{"name": "api", "type": "bogus"}},
+		"interfaces":   []any{map[string]any{"name": "tools", "type": "mcp"}, map[string]any{"name": "api", "type": "bogus", "visibility": "nonsense"}},
 	}
 	res := ValidateStructural(data)
 	var got []string
@@ -583,10 +583,13 @@ func TestNeeds21(t *testing.T) {
 		}
 	}
 	joined := strings.Join(got, "\n")
-	for _, want := range []string{"NEEDS_PACTO_2_1 publish", "NEEDS_PACTO_2_1 agent", "NEEDS_PACTO_2_1 interfaces.0.type", "SCHEMA_VIOLATION"} {
+	for _, want := range []string{"NEEDS_PACTO_2_1 publish", "NEEDS_PACTO_2_1 agent", "NEEDS_PACTO_2_1 interfaces.0.type", "SCHEMA_VIOLATION interfaces.1.visibility"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing %q in:\n%s", want, joined)
 		}
+	}
+	if strings.Contains(joined, "SCHEMA_VIOLATION interfaces.0") {
+		t.Fatalf("the api interface's errors are reported at the mcp interface's index:\n%s", joined)
 	}
 	if _, ok := data["publish"]; !ok {
 		t.Fatal("the caller's data was changed")
