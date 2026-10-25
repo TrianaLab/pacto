@@ -592,7 +592,7 @@ func TestRecheckDropsAStaleVerdict(t *testing.T) {
 	e = healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
 	e.shipB()
 	e.health.result = delivery.Fail
-	e.health.during = func() { e.fails["get/Stage"] = true }
+	e.health.during = func() { e.setFail("get/Stage", true) }
 	if err := e.reconcileStage("payments-prod"); err == nil {
 		t.Fatal("want the read error")
 	}

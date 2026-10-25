@@ -96,6 +96,21 @@ type env struct {
 	now    time.Time
 	fails  fails
 	health *fakeHealth
+	// mu guards fails and reg.hosts: RunChecks runs the gates concurrently.
+	mu sync.Mutex
+}
+
+// setFail sets a fails entry from inside a running gate.
+func (e *env) setFail(key string, v bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.fails[key] = v
+}
+
+func (e *env) failing(key string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.fails[key]
 }
 
 // fakeHealth is a health provider whose answer the test sets; it records
@@ -104,10 +119,13 @@ type fakeHealth struct {
 	result delivery.Result
 	inputs []delivery.GateInput
 	during func() // runs while the check is in progress, as another writer would
+	mu     sync.Mutex
 }
 
 func (f *fakeHealth) Check(_ context.Context, in delivery.GateInput, _ map[string]string) delivery.Verdict {
+	f.mu.Lock()
 	f.inputs = append(f.inputs, in)
+	f.mu.Unlock()
 	if f.during != nil {
 		f.during()
 	}
@@ -141,7 +159,7 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 		bundles:   map[string]*contract.Bundle{contractRef(c1): bundle("1.0.0"), contractRef(c2): bundle("1.1.0"), contractRef(c3): bundle("2.0.0")},
 	}
 	fail := func(verb string, obj runtime.Object) error {
-		if e.fails[verb+"/"+kindOf(obj)] {
+		if e.failing(verb + "/" + kindOf(obj)) {
 			return errors.New("injected " + verb + " failure")
 		}
 		return nil
@@ -155,7 +173,7 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 				if err := fail("get", obj); err != nil {
 					return err
 				}
-				if e.fails["get/"+kindOf(obj)+"/"+key.Name] {
+				if e.failing("get/" + kindOf(obj) + "/" + key.Name) {
 					return errors.New("injected get failure")
 				}
 				return c.Get(ctx, key, obj, opts...)
@@ -195,6 +213,8 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 			},
 		}).Build()
 	cluster := Cluster{Client: e.c, Registry: func(hosts ...string) delivery.Registry {
+		e.mu.Lock()
+		defer e.mu.Unlock()
 		e.reg.hosts = hosts
 		return e.reg
 	}}
