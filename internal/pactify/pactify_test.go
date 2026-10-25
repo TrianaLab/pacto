@@ -919,4 +919,17 @@ func TestPinImageInEveryManifest(t *testing.T) {
 			t.Fatalf("published %s:\n%s", name, d)
 		}
 	}
+	// A Service that only shares a bare image's text names no image, so init
+	// does not tell anyone to rewrite it.
+	dir = writeTree(t, t.TempDir(), map[string]string{"Dockerfile": "FROM scratch\n",
+		"k8s/deployment.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: checkout}\nspec: {template: {spec: {containers: [{name: checkout, image: checkout}]}}}\n",
+		"k8s/service.yaml":    "apiVersion: v1\nkind: Service\nmetadata: {name: checkout}\nspec: {selector: {app: checkout}, ports: [{port: 80}]}\n"})
+	if r, err = Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range r.Next {
+		if strings.Contains(l, "service.yaml") {
+			t.Fatalf("a Service with no image is told to rewrite it: %q", l)
+		}
+	}
 }

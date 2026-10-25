@@ -379,12 +379,16 @@ func (p *planner) pinImage(pin, built string, kept bool) string {
 	// tag unpinned.
 	img := strings.ReplaceAll(w.image, ".", `\.`)
 	field := regexp.MustCompile(`(?m)(^|[{,\s])image:\s*["']?` + img + `["']?\s*([,}#]|$)`)
+	// named is any image field, YAML or JSON, that holds the image: a file
+	// that has one the match does not read is told it is not pinned; a file
+	// that only shares the text (a Service's name, a label) is not.
+	named := regexp.MustCompile(`image["']?\s*:\s*["']?` + regexp.QuoteMeta(w.image) + `(["'\s,}#]|$)`)
 	var cmd string
 	var pinned []string
 	for _, m := range p.sc.manifests {
 		raw, _ := os.ReadFile(filepath.Join(p.r.Dir, m))
 		if !field.Match(raw) {
-			if bytes.Contains(raw, []byte(w.image)) {
+			if named.Match(raw) {
 				p.next("%s names %s in a form pacto init cannot rewrite (write it as `image: %s`), so its image is published as written, not pinned to the one each version builds", m, w.image, w.image)
 			}
 			continue
