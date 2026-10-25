@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryHistoryUrl, serviceUrl } from '../lib/router.ts';
-  import { shortDigest } from '../lib/delivery.ts';
+  import { shortDigest, rungLabel, rungHelp, shadowLabel, heldButRan, timeLabel } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
@@ -25,6 +25,8 @@
   const environments = $derived([...new Set(rows.map((r) => r.environment))].sort());
   const services = $derived([...new Set(rows.map((r) => r.service))].sort());
   const cell = (svc, env) => rows.filter((r) => r.service === svc && r.environment === env);
+  const observing = $derived(rows.filter((r) => r.rung === 'observe' && r.shadow?.length));
+  const VERIFICATION = { Verified: 'Verified', Unverified: 'Not verified', AcceptedUnknown: 'A person accepted the unknown' };
 
   // The plan being looked at: one request at a time.
   // Each request is a new object, so a second click re-plans in a new panel;
@@ -63,7 +65,7 @@
     {#if rows.length === 0}
       <div class="state-box" data-testid="environments-empty">
         <h2>No environments yet</h2>
-        <p>No Stage exists {data.completeness === 'partial' ? 'that you can see' : 'in this cluster'}. A Stage is one service in one environment, created with the pacto-delivery chart.</p>
+        <p>No Stage exists {data.completeness === 'partial' ? 'that you can see' : 'in this cluster'}. A Stage is one service in one environment. Install pacto-operator with <code>delivery.enabled=true</code>, then create one.</p>
       </div>
     {:else}
       <div class="ev-scroll">
@@ -83,6 +85,7 @@
                         <a class="ev-version" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })}
                           title={r.pointer || 'nothing deployed yet'}>{r.version || shortDigest(r.pointer) || 'Nothing yet'}</a>
                         <span class="ev-badges">
+                          {#if r.rung}<span class="badge badge-neutral" data-testid="rung" title={rungHelp(r.rung)}>{rungLabel(r.rung)}</span>{/if}
                           {#if r.verified}<span class="badge badge-ok">Verified</span>{/if}
                           {#if r.failed}<span class="badge badge-err">Failed</span>{/if}
                           {#if r.frozen}<span class="badge badge-warn" title={r.frozenReason || 'Nothing moves here until a person unfreezes it'}>Frozen</span>{/if}
@@ -112,6 +115,32 @@
           </tbody>
         </table>
       </div>
+      {#each observing as r (r.namespace + '/' + r.stage)}
+        <section class="ev-shadow" aria-labelledby={`shadow-${r.namespace}-${r.stage}`} data-testid="shadow" data-stage={`${r.namespace}/${r.stage}`}>
+          <h2 id={`shadow-${r.namespace}-${r.stage}`} class="t-section-title">{r.service} in {r.environment}: what Pacto would have done</h2>
+          <p class="t-body-2">This Stage observes: GitOps applies and Pacto moves nothing. Each row is what Pacto would have done with a candidate on Autonomous, next to what happened. It is advisory and unsigned: status, not a record.</p>
+          <div class="ev-scroll">
+            <table class="ev-table">
+              <caption class="visually-hidden">What Pacto would have done with each candidate on {r.service} in {r.environment}, newest first</caption>
+              <thead><tr><th scope="col">Candidate</th><th scope="col">On Autonomous, Pacto would have</th><th scope="col">Source reported at</th><th scope="col">Verification</th></tr></thead>
+              <tbody>
+                {#each r.shadow as sh (sh.candidate + (sh.intentDigest ?? ''))}
+                  <tr class:ev-attention={heldButRan(sh)} data-testid="shadow-row">
+                    <td><code title={sh.candidate}>{shortDigest(sh.candidate)}</code></td>
+                    <td>
+                      {shadowLabel(sh)}
+                      {#if heldButRan(sh)}<span class="badge badge-warn" data-testid="held-but-ran">GitOps ran it anyway</span>{/if}
+                    </td>
+                    <td>{sh.observedAt ? timeLabel(sh.observedAt) : 'Not reported yet'}</td>
+                    <td>{VERIFICATION[sh.verification] ?? 'Not checked yet'}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+          <p class="t-meta">"Source reported at" is when GitOps' source showed the candidate, not when it rolled out.</p>
+        </section>
+      {/each}
     {/if}
   {/if}
 </div>
@@ -127,6 +156,8 @@
   .ev-version { font-weight: 600; }
   .ev-badges, .ev-actions { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
   .ev-ready { color: var(--c-warn); }
+  .ev-shadow { margin-top: var(--sp-6); display: flex; flex-direction: column; gap: var(--sp-2); }
+  .ev-attention td:first-child { box-shadow: inset 3px 0 0 var(--c-warn); }
   .state-box { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8) var(--sp-4); text-align: center; color: var(--c-text-3); }
   .state-box h2 { color: var(--c-text-2); }
 </style>

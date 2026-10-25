@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api } from '../lib/api.ts';
   import { deliverySession, loadSession } from '../lib/deliverySession.svelte.ts';
-  import { deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryHistoryUrl, deliveryPublishUrl } from '../lib/router.ts';
+  import { deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryPublishUrl } from '../lib/router.ts';
   import { loginUrl, signIn, hostSignsIn } from '../lib/delivery.ts';
   import Person from './Person.svelte';
 
@@ -14,6 +14,7 @@
   const tabs = [
     { view: 'delivery-inbox', label: 'Inbox', href: deliveryInboxUrl() },
     { view: 'delivery-environments', label: 'Environments', href: deliveryEnvironmentsUrl() },
+    { view: 'delivery-autonomy', label: 'Autonomy', href: deliveryAutonomyUrl() },
     { view: 'delivery-history', label: 'History', href: deliveryHistoryUrl() },
     { view: 'delivery-publish', label: 'Published', href: deliveryPublishUrl() },
   ];

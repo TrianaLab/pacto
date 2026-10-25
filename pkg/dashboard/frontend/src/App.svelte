@@ -37,6 +37,7 @@
   const loadFleetEntityView = once(() => import('./views/FleetEntityView.svelte'));
   const loadChangeAnalysisView = once(() => import('./views/ChangeAnalysisView.svelte'));
   const loadOwnerDetailView = once(() => import('./views/OwnerDetailView.svelte'));
+  const loadDeliveryAutonomyView = once(() => import('./views/DeliveryAutonomyView.svelte'));
 
   let route = $state(parseHash(location.hash));
   let services = $state([]);
@@ -403,6 +404,8 @@
         <DeliveryInboxView {refreshTick} />
       {:else if route.view === 'delivery-environments'}
         <DeliveryEnvironmentsView {refreshTick} miraURL={capabilities.miraURL || ''} />
+      {:else if route.view === 'delivery-autonomy'}
+        <LazyView load={loadDeliveryAutonomyView} {refreshTick} miraURL={capabilities.miraURL || ''} />
       {:else if route.view === 'delivery-change'}
         {#key route.params.namespace + '/' + route.params.name}
           <DeliveryChangeView namespace={route.params.namespace} name={route.params.name} {refreshTick} miraURL={capabilities.miraURL || ''} />
@@ -415,7 +418,7 @@
     {:else if capabilities}
       <div class="product-page" data-testid="delivery-unavailable">
         <h1 class="t-page-title">Delivery is not available here</h1>
-        <p class="t-body">Delivery views appear where the pacto-delivery chart is installed and the dashboard knows who you are: <code>pacto dashboard</code> on your own machine, or a shared dashboard people sign in to.</p>
+        <p class="t-body">Delivery views appear where pacto-operator is installed with <code>delivery.enabled=true</code> and the dashboard knows who you are: <code>pacto dashboard</code> on your own machine, or a shared dashboard people sign in to.</p>
       </div>
     {:else}
       {@render migrating()}
