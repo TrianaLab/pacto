@@ -228,10 +228,12 @@ func (r *OperationReconciler) preApplyExits(ctx context.Context, op *dv1.Operati
 }
 
 // lock takes the Stage's facet lock with one compare-and-swap. An approved
-// promote re-checks its gates first: every gate that passed must still pass,
-// and a floor the approval did not cover sends it back to a person.
+// promote or rung change re-checks its gates first: every gate that passed
+// must still pass, and a floor the approval did not cover sends it back to a
+// person. A rung change takes no lock: it concludes at once, and the
+// compare-and-swap that takes its seq moves the rung (RungRefusal).
 func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage *dv1.Stage, recheck bool) (reconcile.Result, error) {
-	if recheck && op.Spec.Type == delivery.TypePromote {
+	if recheck && (op.Spec.Type == delivery.TypePromote || op.Spec.Type == delivery.TypeAutonomy) {
 		cur, err := r.plan(ctx, op, stage)
 		if err != nil {
 			return reconcile.Result{}, err
@@ -246,6 +248,10 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 			return r.saveHeld(ctx, op)
 		}
 		op.Status.Verdicts = mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
+	}
+	if op.Spec.Facet == delivery.FacetRung {
+		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified,
+			reason: "RungChanged: " + op.Spec.Stage + " moved from " + op.Spec.Params.From + " to " + op.Spec.Params.To})
 	}
 	facet, uid := op.Spec.Facet, string(op.UID)
 	waiting := ""

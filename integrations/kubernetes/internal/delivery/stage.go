@@ -151,6 +151,16 @@ func (r *StageReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 	r.observe(stage)
+	if stage.Status.Rung == "" {
+		// The one rung write not done through an operation: startRung is
+		// observe or advise, so a Stage whose status was lost seeds back to a
+		// rung on which Pacto ships nothing without a person.
+		return reconcile.Result{RequeueAfter: immediately}, r.updateStatus(ctx, stage, func(s *dv1.Stage) {
+			if s.Status.Rung == "" {
+				s.Status.Rung = delivery.CurrentRung(s.Spec, s.Status)
+			}
+		})
+	}
 	if stage.Status.Stream.ID == "" {
 		return reconcile.Result{RequeueAfter: immediately}, r.updateStatus(ctx, stage, func(s *dv1.Stage) {
 			s.Status.Stream.ID = r.ClusterID + "/" + s.Namespace + "/" + s.Name
@@ -223,6 +233,9 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 	case err != nil:
 		return err
 	}
+	if delivery.CurrentRung(stage.Spec, stage.Status) == delivery.RungObserve && !labelled(a.obj) {
+		return nil // observing an unguarded applyRef: GitOps moves it
+	}
 	if _, err := delivery.ParseDigest(a.digest); err != nil || a.digest == stage.Status.Pointer {
 		return nil
 	}
@@ -237,10 +250,11 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 	return r.raise(ctx, stage, "witnessed", spec)
 }
 
-// autoPromote raises a promote of the newest eligible candidate, unless the
-// Stage is frozen, on auto-hold or already has an operation in flight.
+// autoPromote raises a promote of the newest eligible candidate on an
+// automatic rung, unless the Stage is frozen, on auto-hold or already has an
+// operation in flight.
 func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) error {
-	if !stage.Spec.Auto || stage.Status.Frozen || stage.Status.AutoHold {
+	if !delivery.CurrentRung(stage.Spec, stage.Status).Automatic() || stage.Status.Frozen || stage.Status.AutoHold {
 		return nil
 	}
 	ops, err := stageOps(ctx, r.Client, stage.Namespace, stage.Name)
@@ -291,7 +305,9 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 		}
 		conds = append(conds, med)
 	}
-	if blocked != nil {
+	observing := delivery.CurrentRung(stage.Spec, stage.Status) == delivery.RungObserve
+	unlabelled := blocked != nil && blocked.Reason == reasonApplierUnlabelled
+	if blocked != nil && !(observing && unlabelled) {
 		want = *blocked
 	}
 	if want.Status == statusTrue {
@@ -301,6 +317,13 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 		}
 		if why != "" {
 			want = notReady(ReasonUnguarded, why+", so the promoter admits no operation and counts no approval")
+		}
+	}
+	if observing && want.Status == statusTrue {
+		want.Reason, want.Message = delivery.ReasonObservingGuarded, "the Stage observes, and the applyRef carries "+ApplyRefLabel+
+			", so GitOps cannot write the pointer until a person removes the label or the Stage leaves observe"
+		if unlabelled {
+			want.Reason, want.Message = delivery.ReasonObserving, "the Stage observes: GitOps owns the applyRef and Pacto plans what it would do"
 		}
 	}
 	conds = append(conds, want)
@@ -416,7 +439,7 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 	_, automated, _ := unstructured.NestedFieldNoCopy(a.obj.Object, "spec", "syncPolicy", "automated")
 	switch {
 	case !labelled(a.obj):
-		c = notReady("ApplierUnlabelled", what+" has no "+ApplyRefLabel+" label, so admission refuses every version the promoter writes to it")
+		c = notReady(reasonApplierUnlabelled, what+" has no "+ApplyRefLabel+" label, so admission refuses every version the promoter writes to it")
 	case !a.argo:
 		return nil, a, nil
 	case multi:
@@ -430,6 +453,10 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 	}
 	return &c, a, nil
 }
+
+// reasonApplierUnlabelled is the Ready reason of an applyRef without
+// ApplyRefLabel, which is no fault while the Stage observes.
+const reasonApplierUnlabelled = "ApplierUnlabelled"
 
 func labelled(o *unstructured.Unstructured) bool {
 	_, ok := o.GetLabels()[ApplyRefLabel]

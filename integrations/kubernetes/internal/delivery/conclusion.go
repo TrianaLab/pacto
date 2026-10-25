@@ -84,13 +84,28 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 			if taken {
 				c = preemptedBy
 			}
+			if op.Spec.Type == delivery.TypeAutonomy && c.outcome == delivery.Succeeded {
+				if why := delivery.RungRefusal(op.Spec, s.Spec, s.Status); why != "" {
+					c = conclusion{outcome: delivery.Rejected, reason: why}
+				}
+			}
+			before := s.Status.Pointer
 			s.Status.Stream.Seq++
 			op.Status.Seq = s.Status.Stream.Seq
-			done := delivery.Concluded{UID: string(op.UID), Seq: op.Status.Seq, Outcome: c.outcome, Verification: c.verification, Reason: c.reason}
+			done := delivery.Concluded{UID: string(op.UID), Seq: op.Status.Seq, Outcome: c.outcome, Verification: c.verification, Reason: c.reason,
+				Type: op.Spec.Type, Person: len(op.Status.Approvals) > 0 || op.Status.ActorClass == delivery.ClassHuman,
+				ClearedBreaking: delivery.ClearedBreaking(op.Status.Plan)}
 			s.Status.Stream.Concluded = append(s.Status.Stream.Concluded, done)
 			s.Status.Stream.Concluded = s.Status.Stream.Concluded[max(0, len(s.Status.Stream.Concluded)-delivery.MaxConcluded):]
 			delivery.ApplyEffects(&s.Status, op.Name, string(op.UID), op.Spec, op.Status,
 				delivery.Conclusion{Outcome: c.outcome, Verification: c.verification, Reason: c.reason, Freeze: c.freeze})
+			if op.Spec.Type == delivery.TypeAutonomy {
+				// Leaving observe adopts the pointer; the record shows it.
+				op.Status.Pointer = delivery.PointerChange{}
+				if s.Status.Pointer != before {
+					op.Status.Pointer = delivery.PointerChange{Before: before, After: s.Status.Pointer}
+				}
+			}
 			if squat != "" {
 				s.Status.Frozen, s.Status.FrozenReason = true, op.Name+": "+squat
 			}

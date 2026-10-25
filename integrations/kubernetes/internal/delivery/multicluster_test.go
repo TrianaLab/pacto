@@ -66,7 +66,6 @@ func TestRemoteUpstreamReady(t *testing.T) {
 // newest record read is remembered, so a stream cut at its tail is refused.
 func TestRemoteUpstreamUnreadable(t *testing.T) {
 	s := remoteStage(dA)
-	s.Spec.Auto = true
 	e := newEnv(t, s, ociRepo("payments", dA, "", false))
 	reads := 0
 	// view is the upstream stream holding ids at seqs 1, 2 and so on, each a
@@ -171,7 +170,6 @@ func TestRemoteUpstreamUnreadable(t *testing.T) {
 // verified.
 func TestRemoteUpstreamAutoPromote(t *testing.T) {
 	s := remoteStage(dA)
-	s.Spec.Auto = true
 	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false))
 	e.upstreamReads(nil, "records that could not be verified")
 	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 0 {

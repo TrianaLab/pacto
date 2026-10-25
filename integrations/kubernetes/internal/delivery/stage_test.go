@@ -48,7 +48,6 @@ func (e *env) ops() []dv1.Operation {
 func TestAutoPromoteFromOCIRepository(t *testing.T) {
 	s := stageObj(dA)
 	s.Status.Stream.ID = ""
-	s.Spec.Auto = true
 	s.Spec.Candidates.OCIRepositoryRef = &delivery.LocalRef{Name: "payments-candidates"}
 	s.Status.Published = nil
 	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB))
@@ -79,13 +78,15 @@ func TestAutoPromoteFromOCIRepository(t *testing.T) {
 }
 
 // TestCandidateShownOnAManualStage: the stage reconciler writes the newest
-// eligible candidate to status.candidate on a Stage without auto, which is
-// what the CLI and the dashboard offer to promote, and promotes nothing.
+// eligible candidate to status.candidate on a Stage that advises or
+// observes, which is what the CLI and the dashboard offer to promote, and
+// promotes nothing.
 func TestCandidateShownOnAManualStage(t *testing.T) {
 	up := stageObj(dB)
 	up.Name = "up"
 	up.Status.Verified, up.Status.Offered = []string{dB}, []string{dB}
 	s := stageObj(dA)
+	s.Status.Rung = delivery.RungAdvise
 	s.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "up"}}
 	e := newEnv(t, s, up)
 	if err := e.reconcileStage("payments-prod"); err != nil {
@@ -93,6 +94,10 @@ func TestCandidateShownOnAManualStage(t *testing.T) {
 	}
 	if got := e.getStage().Status.Candidate; got != dB || len(e.ops()) != 0 {
 		t.Fatalf("want candidate B and no operation, got %q %d", got, len(e.ops()))
+	}
+	e.setStage(func(st *delivery.StageStatus) { st.Rung = delivery.RungObserve })
+	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 0 {
+		t.Fatalf("observe promotes nothing: %v %d", err, len(e.ops()))
 	}
 	e.fails["get/Stage/up"] = true
 	if e.reconcileStage("payments-prod") == nil {
@@ -118,7 +123,6 @@ func TestCandidateShownOnAManualStage(t *testing.T) {
 // expired), because the stream seq the name carries moved on.
 func TestAutoPromoteAgainAfterAConclusion(t *testing.T) {
 	s := stageObj(dA)
-	s.Spec.Auto = true
 	s.Spec.Approval.Always = true
 	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB),
 		kustomization("payments", "payments", "True", "ReconciliationSucceeded", "latest@"+dA, "latest@"+dA),
@@ -149,7 +153,6 @@ func TestAutoPromoteAgainAfterAConclusion(t *testing.T) {
 // freezes the Stage instead of silently skipping the decision.
 func TestRaisedNameSquatted(t *testing.T) {
 	s := stageObj(dA)
-	s.Spec.Auto = true
 	s.Spec.Candidates.OCIRepositoryRef = &delivery.LocalRef{Name: "payments-candidates"}
 	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB))
 	e.squat(raisedName(s, "auto", delivery.Params{From: dA, To: dB}))
@@ -168,7 +171,6 @@ func TestAutoPromoteFromUpstreamAndHolds(t *testing.T) {
 	up.Name = "payments-test"
 	up.Status.Verified, up.Status.Offered = []string{dA, dB, dC}, []string{dA, dB}
 	s := stageObj(dA)
-	s.Spec.Auto = true
 	s.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "payments-test", Namespace: ns}}
 	e := newEnv(t, up, s, ociRepo("payments", dA, "latest@"+dA, false))
 	for _, mut := range []func(*delivery.StageStatus){
@@ -195,7 +197,7 @@ func TestAutoPromoteSourcesMissing(t *testing.T) {
 		{},
 	} {
 		s := stageObj(dA)
-		s.Spec.Auto, s.Spec.Candidates = true, c
+		s.Spec.Candidates = c
 		e := newEnv(t, s, ociRepo("payments", dA, "", false))
 		if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 0 {
 			t.Fatalf("%+v: %v %d", c, err, len(e.ops()))
@@ -277,7 +279,7 @@ func TestStageReconcileErrors(t *testing.T) {
 	up.Name = "up"
 	up.Status.Verified, up.Status.Offered = []string{dB}, []string{dB}
 	s = stageObj(dA)
-	s.Spec.Auto, s.Spec.Candidates = true, delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "up"}}
+	s.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "up"}}
 	e = newEnv(t, s, up)
 	e.fails["create/Operation"] = true
 	if e.reconcileStage("payments-prod") == nil {
@@ -319,7 +321,7 @@ func TestNeverACandidateUnlessPublished(t *testing.T) {
 	unstructured.RemoveNestedField(anyone.Object, "spec", "verify", "secretRef")
 	for name, repo := range map[string]*unstructured.Unstructured{"unsigned": unsigned, "no spec.verify": noVerify, "no identity": anyone} {
 		s := stageObj(dA)
-		s.Spec.Auto, s.Status.Published = true, nil
+		s.Status.Published = nil
 		e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), repo)
 		for range 3 {
 			if err := e.reconcileStage("payments-prod"); err != nil {
