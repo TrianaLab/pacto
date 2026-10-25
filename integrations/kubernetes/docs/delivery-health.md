@@ -37,7 +37,9 @@ spec:
 
 The checks run on the time since Flux applied the version. Any Fail rolls it
 back, all Pass verifies it and anything else waits; when `window` runs out a
-person is asked to accept the unknown or reject the version.
+person is asked to accept the unknown or reject the version. While that
+question waits, the checks run again every `recheck`: a Fail still rolls the
+version back and all Pass verifies it without the person.
 
 ## Providers
 

@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	admissionv1 "k8s.io/api/admissionregistration/v1"
@@ -72,6 +73,10 @@ type OperationReconciler struct {
 	// approval's identity. While one is missing the promoter admits nothing
 	// and counts no approval: the spec says only what its writer claimed.
 	AdmissionPolicies []string
+	// heldChecks is when the verify gates last ran for each operation held on
+	// a running version, by uid.
+	// ponytail: in memory, so a restart runs them once early.
+	heldChecks *sync.Map
 }
 
 // conclusion is how an operation ends.
@@ -901,11 +906,35 @@ func (r *OperationReconciler) heldAfterApply(ctx context.Context, op *dv1.Operat
 	a := r.approval(ctx, op, delivery.AcceptUnknown, delivery.Reject)
 	switch {
 	case a == nil:
-		return r.requeue()
+		return r.recheckHeld(ctx, op, stage)
 	case a.Decision == delivery.Reject:
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Failed, reason: "RejectedByHuman: " + a.By + ": " + a.Note})
 	}
 	return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.AcceptedUnknown, reason: "AcceptedUnknown: " + a.By + " accepted the unknown"})
+}
+
+// recheckHeld runs the verify gates again, every recheck interval, on a
+// version held for a person after it shipped: a Fail rolls it back as a
+// verify Fail does, all Pass verifies it, and Unknown keeps asking with the
+// fresh verdicts.
+func (r *OperationReconciler) recheckHeld(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, error) {
+	now := r.now()
+	if last, ok := r.heldChecks.Load(op.UID); ok && now.Before(last.(time.Time).Add(delivery.RecheckInterval(stage.Spec))) {
+		return r.requeue()
+	}
+	r.heldChecks.Store(op.UID, now)
+	vs := r.verdicts(ctx, op, stage)
+	op.Status.Verdicts = slices.DeleteFunc(op.Status.Verdicts, func(x delivery.Verdict) bool { return x.Phase == "verify" })
+	op.Status.Verdicts = append(op.Status.Verdicts, vs...)
+	switch delivery.Worst(vs) {
+	case delivery.Pass:
+		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Verified, reason: "Verified: " + verdictMessages(vs, delivery.Pass)})
+	case delivery.Fail:
+		f := failing(vs)
+		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Failed, reason: "VerifyFailed: " + f.Gate + ": " + f.Message, cause: f})
+	}
+	op.Status.Message = verdictMessages(vs, delivery.Unknown)
+	return r.save(ctx, op)
 }
 
 // finish concludes op: one Stage compare-and-swap releases the lock (only if
@@ -986,6 +1015,7 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 	if err := r.writeConcluded(ctx, op); err != nil {
 		return reconcile.Result{}, err
 	}
+	r.heldChecks.Delete(op.UID)
 	return reconcile.Result{RequeueAfter: immediately}, nil
 }
 

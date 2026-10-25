@@ -10,6 +10,7 @@ package delivery
 import (
 	"context"
 	"strings"
+	"sync"
 
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -24,6 +25,7 @@ import (
 // SetupWithManager registers the operation reconciler. An Approval wakes the
 // operation it names.
 func (r *OperationReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.heldChecks = &sync.Map{}
 	return ctrl.NewControllerManagedBy(mgr).Named("delivery-operation").For(&dv1.Operation{}).
 		Watches(&dv1.Approval{}, handler.EnqueueRequestsFromMapFunc(approvalToOperation)).
 		Complete(r)

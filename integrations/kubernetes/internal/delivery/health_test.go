@@ -121,6 +121,43 @@ func TestHealthUnknownHolds(t *testing.T) {
 	}
 }
 
+// TestHeldOnUnknownKeepsChecking: while a shipped version waits for a person
+// to accept the unknown, the gates run again every recheck interval. A Fail
+// rolls it back without waiting for the person, and all Pass verifies it.
+func TestHeldOnUnknownKeepsChecking(t *testing.T) {
+	held := func(t *testing.T) *env {
+		e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+		e.health.result = delivery.Unknown
+		e.shipB()
+		e.now = e.now.Add(2 * time.Minute)
+		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseHeld {
+			t.Fatalf("want Held: %+v", o.Status)
+		}
+		return e
+	}
+	t.Run("fail", func(t *testing.T) {
+		e := held(t)
+		asked := len(e.health.inputs)
+		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || o.Status.Message != "health: error ratio Unknown" {
+			t.Fatalf("Unknown keeps asking with the fresh verdicts: %+v", o.Status)
+		}
+		e.health.result = delivery.Fail
+		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseHeld || len(e.health.inputs) != asked+1 {
+			t.Fatalf("the gates run once per recheck interval: %s asked=%d", o.Status.Phase, len(e.health.inputs)-asked)
+		}
+		e.now = e.now.Add(time.Minute)
+		wantOutcome(t, e.drive("p1"), delivery.Failed, "VerifyFailed")
+		if rb := e.getOp("p1-rollback"); rb.Spec.Cause.Verdict == nil || rb.Spec.Cause.Verdict.Gate != "health" {
+			t.Fatalf("the rollback cites the Fail: %+v", rb.Spec.Cause)
+		}
+	})
+	t.Run("pass", func(t *testing.T) {
+		e := held(t)
+		e.health.result = delivery.Pass
+		wantOutcome(t, e.drive("p1"), delivery.Succeeded, "Verified")
+	})
+}
+
 // TestRuntimeClaimGate: a version the node agent saw calling a service its
 // contract never declares fails the claim gate, citing what was seen, though
 // Pacto's own contract status for it is only a Warning.
