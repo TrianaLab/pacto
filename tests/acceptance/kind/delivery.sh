@@ -951,9 +951,15 @@ grep -q "only break-glass removes it" <<<"$OUT" || fail "a Kustomization's apply
 pass "the prod Stage is Mediated, and only break-glass changes its applier, url or labels"
 # The recorder's RBAC reaches every Stage status; admission allows it its
 # record fields and RecordStoreReady condition alone.
-OUT="$(kubectl --as "system:serviceaccount:${DELIVERY_NS}:pacto-delivery-recorder" -n prod patch stage payments --subresource=status --type merge \
-  -p '{"status":{"conditions":[{"type":"Ready","status":"False","reason":"Forged","message":"forged"}]}}' 2>&1 || true)"
-if grep -q "the Pacto delivery recorder writes records, never what runs" <<<"$OUT"; then
+# The recorder may update (not patch) status; a write that races the promoter
+# conflicts before admission, so try again.
+forge_ready() {
+  OUT="$(kubectl -n prod get stage payments -o json |
+    jq '.status.conditions = [{"type":"Ready","status":"False","reason":"Forged","message":"forged"}]' |
+    kubectl --as "system:serviceaccount:${DELIVERY_NS}:pacto-delivery-recorder" replace --subresource=status -f - 2>&1 || true)"
+  grep -q "the Pacto delivery recorder writes records, never what runs" <<<"$OUT"
+}
+if eventually 20 forge_ready; then
   pass "the recorder cannot write a Stage condition other than its own"
 else
   fail "the recorder rewrote a Stage's Ready condition: $OUT"
