@@ -93,6 +93,13 @@ tests:
       - contains:
           path: rules
           content:
+            apiGroups: [delivery.pacto.trianalab.io]
+            resources: [approvals]
+            verbs: [get, list, watch, patch]
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
             apiGroups: [apps]
             resources: [deployments, statefulsets, replicasets, daemonsets]
             verbs: [get]

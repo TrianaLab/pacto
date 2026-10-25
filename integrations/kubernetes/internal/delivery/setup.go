@@ -9,6 +9,7 @@ package delivery
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 
@@ -24,14 +25,20 @@ import (
 )
 
 // SetupWithManager registers the operation reconciler. An Approval wakes the
-// operation it names.
+// operation it names, and Approvals are indexed by that operation's uid.
 func (r *OperationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	r.heldChecks = &sync.Map{}
-	return ctrl.NewControllerManagedBy(mgr).Named("delivery-operation").For(&dv1.Operation{}).
+	err := mgr.GetFieldIndexer().IndexField(context.Background(), &dv1.Approval{}, approvalOperationUID, approvalUID)
+	return errors.Join(err, ctrl.NewControllerManagedBy(mgr).Named("delivery-operation").For(&dv1.Operation{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: r.Workers}).
 		Watches(&dv1.Approval{}, handler.EnqueueRequestsFromMapFunc(approvalToOperation)).
-		Complete(r)
+		Complete(r))
 }
+
+// approvalOperationUID indexes Approvals by the uid of the operation they answer.
+const approvalOperationUID = "spec.operationUID"
+
+func approvalUID(obj client.Object) []string { return []string{obj.(*dv1.Approval).Spec.OperationUID} }
 
 // SetupWithManager registers the stage reconciler. An Operation wakes its Stage.
 func (r *StageReconciler) SetupWithManager(mgr ctrl.Manager) error {

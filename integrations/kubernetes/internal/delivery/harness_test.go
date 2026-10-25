@@ -148,6 +148,7 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 	}
 	e.c = fake.NewClientBuilder().WithScheme(newScheme()).
 		WithStatusSubresource(&dv1.Stage{}, &dv1.Operation{}).
+		WithIndex(&dv1.Approval{}, approvalOperationUID, approvalUID).
 		WithObjects(objs...).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {

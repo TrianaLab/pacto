@@ -20,6 +20,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -96,6 +97,9 @@ func (r *OperationReconciler) Reconcile(ctx context.Context, req reconcile.Reque
 	op := &dv1.Operation{}
 	if err := r.Get(ctx, req.NamespacedName, op); err != nil {
 		return reconcile.Result{}, client.IgnoreNotFound(err)
+	}
+	if err := r.adopt(ctx, op); err != nil {
+		return reconcile.Result{}, err
 	}
 	if op.Status.Phase == delivery.PhaseConcluded {
 		if err := r.releaseFinalizer(ctx, op); err != nil {
@@ -548,15 +552,14 @@ func (r *OperationReconciler) refreshOrder(ctx context.Context, op *dv1.Operatio
 // ponytail: times are whole seconds, so an approval created in the same
 // second as a new hold still counts.
 func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) (*delivery.ApprovalRecord, string) {
-	list := &dv1.ApprovalList{}
-	if err := r.List(ctx, list, client.InNamespace(op.Namespace)); err != nil {
+	approvals, err := r.approvalsOf(ctx, op)
+	if err != nil {
 		return nil, ""
 	}
-	slices.SortFunc(list.Items, func(a, b dv1.Approval) int { return a.CreationTimestamp.Compare(b.CreationTimestamp.Time) })
 	skipped := ""
-	for _, a := range list.Items {
+	for _, a := range approvals {
 		s := a.Spec
-		if s.OperationUID != string(op.UID) || slices.ContainsFunc(op.Status.Approvals, func(x delivery.ApprovalRecord) bool { return x.Name == a.Name }) {
+		if slices.ContainsFunc(op.Status.Approvals, func(x delivery.ApprovalRecord) bool { return x.Name == a.Name }) {
 			continue
 		}
 		ok, why := delivery.ApprovalEligible(op.Spec, op.Status, string(op.UID), s, a.CreationTimestamp.Time, r.Policy,
@@ -570,6 +573,37 @@ func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) (
 		return &rec, ""
 	}
 	return nil, skipped
+}
+
+// approvalsOf lists the Approvals that answer op, oldest first.
+func (r *OperationReconciler) approvalsOf(ctx context.Context, op *dv1.Operation) ([]dv1.Approval, error) {
+	list := &dv1.ApprovalList{}
+	if err := r.List(ctx, list, client.InNamespace(op.Namespace), client.MatchingFields{approvalOperationUID: string(op.UID)}); err != nil {
+		return nil, err
+	}
+	slices.SortFunc(list.Items, func(a, b dv1.Approval) int { return a.CreationTimestamp.Compare(b.CreationTimestamp.Time) })
+	return list.Items, nil
+}
+
+// adopt makes op the owner of every Approval that answers it, so they are
+// garbage collected with it instead of piling up. Admission keeps an
+// Approval's spec as it was given, so owning one changes nothing it says.
+// ponytail: an Approval naming no operation that exists is never adopted;
+// delete it by hand.
+func (r *OperationReconciler) adopt(ctx context.Context, op *dv1.Operation) error {
+	approvals, _ := r.approvalsOf(ctx, op) // an unlistable Approval is adopted on a later reconcile
+	for i := range approvals {
+		a := &approvals[i]
+		if slices.ContainsFunc(a.OwnerReferences, func(o metav1.OwnerReference) bool { return o.UID == op.UID }) {
+			continue
+		}
+		patch := client.MergeFrom(a.DeepCopy())
+		a.OwnerReferences = append(a.OwnerReferences, metav1.OwnerReference{APIVersion: dv1.GroupVersion.String(), Kind: "Operation", Name: op.Name, UID: op.UID})
+		if err := r.Patch(ctx, a, patch); client.IgnoreNotFound(err) != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // lock takes the Stage's facet lock with one compare-and-swap. An approved

@@ -190,5 +190,7 @@ a login older than 15 minutes, an approval from the operation's own actor or
 whoever it acts for, one from outside the teams asked, one given before the
 question was last asked, an accepted unknown where an approval is needed or an
 approval once the version shipped. The operation's `status.message` names the
-Approval and why it does not count. A break-glass edit of the pointer is never undone: it
+Approval and why it does not count. Once given, an Approval's spec cannot
+change; the promoter makes its operation its owner, so deleting the operation
+deletes its Approvals. A break-glass edit of the pointer is never undone: it
 is recorded as a witnessed override and the Stage freezes.

@@ -12,7 +12,10 @@ import (
 	"strings"
 	"testing"
 
+	"net/http"
+
 	batchv1 "k8s.io/api/batch/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/rest"
 	ctrlrt "sigs.k8s.io/controller-runtime"
@@ -20,6 +23,7 @@ import (
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
@@ -250,8 +254,11 @@ func TestWorkloadLookup(t *testing.T) {
 }
 
 func TestSetupWithManager(t *testing.T) {
+	mapper := meta.NewDefaultRESTMapper(nil)
+	mapper.Add(dv1.GroupVersion.WithKind("Approval"), meta.RESTScopeNamespace)
 	mgr, err := ctrlrt.NewManager(&rest.Config{Host: "https://127.0.0.1:1"}, ctrlrt.Options{Scheme: newScheme(),
-		Metrics: metricsserver.Options{BindAddress: "0"}})
+		Metrics:        metricsserver.Options{BindAddress: "0"},
+		MapperProvider: func(*rest.Config, *http.Client) (meta.RESTMapper, error) { return mapper, nil }})
 	if err != nil {
 		t.Fatal(err)
 	}

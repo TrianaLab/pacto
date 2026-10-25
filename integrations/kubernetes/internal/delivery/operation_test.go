@@ -1411,3 +1411,27 @@ func TestUnguardedBy(t *testing.T) {
 		t.Fatal("a failed policy read must surface on the Stage")
 	}
 }
+
+// TestApprovalsAreOwnedByTheirOperation: the promoter makes an operation the
+// owner of every Approval that answers it, so the garbage collector deletes
+// them with it. A failed write surfaces and is retried.
+func TestApprovalsAreOwnedByTheirOperation(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	delete(e.reg.bundles, contractRef(c2))
+	o := e.drive("p1")
+	e.approve(o, "ok", "alice", delivery.AcceptUnknown)
+	e.fails["patch/Approval"] = true
+	if err := e.reconcileOpErr("p1"); err == nil {
+		t.Fatal("a failed adoption must surface")
+	}
+	delete(e.fails, "patch/Approval")
+	e.drive("p1")
+	refs := e.getApproval("ok").OwnerReferences
+	if len(refs) != 1 || refs[0].UID != o.UID || refs[0].Kind != "Operation" || refs[0].Name != "p1" || refs[0].APIVersion != dv1.GroupVersion.String() {
+		t.Fatalf("owner references: %+v", refs)
+	}
+	e.drive("p1") // owned already: nothing to write
+	if refs := e.getApproval("ok").OwnerReferences; len(refs) != 1 {
+		t.Fatalf("adopted twice: %+v", refs)
+	}
+}
