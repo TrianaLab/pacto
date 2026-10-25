@@ -36,7 +36,9 @@ permissions:
 # rekor/pkg/pki/pgp, and Pacto never parses PGP. The exception is scoped, not
 # module-wide: the gate accepts a trace only when it ends in a package init or in
 # a Read or Error method (an io.Reader or error interface call govulncheck cannot
-# resolve). A trace ending anywhere else, such as a direct openpgp call, fails.
+# resolve), meaning a receiver type sits between the package and the name. A trace
+# ending anywhere else, such as a direct openpgp call or the package-level
+# packet.Read parser, fails.
 # Removal is enforced, not remembered: the gate fails once govulncheck stops
 # reporting the ID, so the stale exception has to be deleted in that same run.
 # Every other reachable advisory still fails the job.
@@ -106,7 +108,7 @@ jobs:
           # The exception covers only traces ending in an init or a Read/Error
           # interface call. Any other terminal frame is a real call into the
           # vulnerable package and fails like any other advisory.
-          bad=$(jq -rs --arg ign "$IGNORED_VULN" '[.[].runs[].results[]? | select(.level == "error" and .ruleId == $ign) | (.codeFlows // []) as $cf | if ($cf | length) == 0 then "(no trace)" else ($cf[].threadFlows[].locations[-1].location.message.text | select(test("\\.(init|Read|Error)$") | not)) end] | unique | .[]' "${sarifs[@]}")
+          bad=$(jq -rs --arg ign "$IGNORED_VULN" '[.[].runs[].results[]? | select(.level == "error" and .ruleId == $ign) | (.codeFlows // []) as $cf | if ($cf | length) == 0 then "(no trace)" else ($cf[].threadFlows[].locations[-1].location.message.text | select(test("/[^/]+\\.(init|[^./]+\\.(Read|Error))$") | not)) end] | unique | .[]' "${sarifs[@]}")
           if [ -n "$bad" ]; then
             echo "::error::$IGNORED_VULN is reached outside the accepted init and interface traces:"
             echo "$bad"
