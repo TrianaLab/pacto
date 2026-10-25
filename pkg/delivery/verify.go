@@ -53,8 +53,10 @@ type WorkloadState struct {
 type ContractCheck struct {
 	// ContractRef is the contract the applied artifact names.
 	ContractRef string
-	// Applied is true once Flux confirmed the artifact is applied.
-	Applied bool
+	// Applied is true once the applier (Flux or Argo CD) confirmed the
+	// artifact is applied, and AppliedWhy says why it has not when it has not.
+	Applied    bool
+	AppliedWhy string
 	// Pactos are the Pacto objects for this service in the Stage's namespace.
 	Pactos []PactoView
 	// Workload looks up the live workload a Pacto evaluated (nil when absent).
@@ -63,7 +65,7 @@ type ContractCheck struct {
 
 // ContractVerdict maps the Pacto contract check onto a verdict, but only when
 // the check provably evaluated THIS version: the evaluated contract digest is
-// the contract of the applied artifact, Flux applied it, the workload controller
+// the contract of the applied artifact, the applier applied it, the workload controller
 // observed the current workload generation and Pacto evaluated at least that
 // generation of that very object. Anything else is Unknown, so a result for an
 // old version is never read as the answer for a new one.
@@ -84,7 +86,10 @@ func eachPacto(in ContractCheck, gate string, judge func(PactoView) (Result, str
 		v.Message = "the applied artifact names no digest-pinned contract"
 		return v
 	case !in.Applied:
-		v.Message = "Flux has not confirmed the version is applied"
+		v.Message = "the version is not confirmed applied"
+		if in.AppliedWhy != "" {
+			v.Message += ": " + in.AppliedWhy
+		}
 		return v
 	case len(in.Pactos) == 0:
 		v.Message = "no Pacto checks this service in this namespace"

@@ -41,7 +41,7 @@ func TestContractVerdict(t *testing.T) {
 		{"unrecognised", check([]PactoView{pactoAt("p", c2, "Reference", 2)}, true, live("w1", 2, 2)), Unknown, "Reference"},
 		{"old contract", check([]PactoView{pactoAt("p", c1, "Compliant", 2)}, true, live("w1", 2, 2)), Unknown, "last evaluated contract"},
 		{"never evaluated", check([]PactoView{{Status: PactoStatusView{ContractStatus: "Compliant"}}}, true, live("w1", 2, 2)), Unknown, "last evaluated contract (none)"},
-		{"not applied", check([]PactoView{pactoAt("p", c2, "Compliant", 2)}, false, live("w1", 2, 2)), Unknown, "Flux"},
+		{"not applied", check([]PactoView{pactoAt("p", c2, "Compliant", 2)}, false, live("w1", 2, 2)), Unknown, "not confirmed applied"},
 		{"no pacto", check(nil, true, live("w1", 2, 2)), Unknown, "no Pacto"},
 		{"workload gone", check([]PactoView{pactoAt("p", c2, "Compliant", 2)}, true, func(string, string) *WorkloadState { return nil }), Unknown, "gone"},
 		{"workload replaced", check([]PactoView{pactoAt("p", c2, "Compliant", 2)}, true, live("w2", 2, 2)), Unknown, "replaced"},
@@ -56,6 +56,10 @@ func TestContractVerdict(t *testing.T) {
 	}
 	if v := ContractVerdict(ContractCheck{ContractRef: "oci://r/p:1.0.0", Applied: true}); v.Result != Unknown || !strings.Contains(v.Message, "digest-pinned") {
 		t.Errorf("tag contract: %+v", v)
+	}
+	why := ContractVerdict(ContractCheck{ContractRef: ref, AppliedWhy: "listing Kustomizations: forbidden"})
+	if why.Result != Unknown || why.Message != "the version is not confirmed applied: listing Kustomizations: forbidden" {
+		t.Errorf("the reason it is not applied must reach the verdict, whichever tool applies: %+v", why)
 	}
 	noWorkload := pactoAt("p", c2, "Compliant", 0)
 	noWorkload.Status.EvaluatedRevision.Workload = WorkloadView{}
