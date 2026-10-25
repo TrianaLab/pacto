@@ -250,6 +250,27 @@ changes **Waiting for your decision**: open one and press **Approve** (or
 **Accept the unknown**) or **Reject**. Its **Environments** view has an
 **Unpause** button on each frozen Stage.
 
+### Roll back by hand
+
+Pacto rolls a failed version back on its own. To roll back a version that
+passed its checks but you still do not want, name the change that put it in
+place, then undo it:
+
+```bash
+pacto delivery blame -n prod --stage my-service   # its change: line names the operation
+pacto delivery undo -n prod <operation>           # plans the undo and prints the command; proposes nothing
+pacto delivery propose -n prod --stage my-service --type rollback --undoes <operation> --reason "why"
+```
+
+`undo` prints the exact `propose` command for the case at hand. A rollback can
+only undo the change the Stage runs now. If the Stage has moved since, or that
+Operation was deleted, `undo` plans a promote to the earlier version instead,
+and every gate runs. A rollback on a Stage with `auto: true` puts it on
+auto-hold, so automation does not undo your choice. In the dashboard, the
+Delivery tab's **History** has an **Undo** button on each change that moved a
+Stage. More in
+[Signed records: history, blame and undo](integrations/kubernetes/delivery-records.md#history-blame-and-undo).
+
 ## Where next
 
 | Goal | Page |

@@ -154,3 +154,6 @@ the contract annotation. So `--propose` first waits until the Stage records the
 version as published, which happens once Flux polls the new tag and verifies
 its signature. It waits up to `--propose-timeout` (10 minutes by default), then
 gives up and says so.
+
+To take a version back out of an environment, see
+[Roll back by hand](pactify.md#roll-back-by-hand).
