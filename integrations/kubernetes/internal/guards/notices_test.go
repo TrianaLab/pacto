@@ -29,6 +29,9 @@ func TestDeliveryImageCarriesEveryLinkedLicense(t *testing.T) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "go", "list", "-deps", "-tags", "kms",
 		"-f", "{{with .Module}}{{.Path}}\t{{.Version}}\t{{.Dir}}{{end}}", "../../cmd/delivery")
+	// The image is linux (amd64 and arm64 link the same modules); pin it so a
+	// darwin host renders what the image links, not what the host links.
+	cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64")
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("go list: %v", err)
@@ -61,6 +64,10 @@ func TestDeliveryImageCarriesEveryLinkedLicense(t *testing.T) {
 	// reports with no module, so they need their own entry.
 	if !bytes.Contains(got, []byte("\nGo standard library and runtime: BSD, text ")) {
 		t.Error("THIRD_PARTY_NOTICES must carry the Go standard library's license")
+	}
+	// procfs is linked on linux only, so it proves the list is the image's.
+	if !bytes.Contains(got, []byte("\ngithub.com/prometheus/procfs ")) {
+		t.Error("THIRD_PARTY_NOTICES must list what the linux image links, including github.com/prometheus/procfs")
 	}
 	if !bytes.Equal(got, want) {
 		t.Fatalf("%s is stale for what cmd/delivery links with -tags kms: run UPDATE_NOTICES=1 go test ./internal/guards/", notices)
