@@ -1,0 +1,16 @@
+suite: install notes
+templates:
+  - templates/NOTES.txt
+release:
+  name: d
+  namespace: pacto-delivery
+tests:
+  - it: names the Stage kind in full so Kargo's Stage cannot answer
+    set:
+      recorder.enabled: true
+      recorder.streamsRepository: registry.example/pacto/streams
+    asserts:
+      - matchRegexRaw:
+          pattern: kubectl get stages\.delivery\.pacto\.trianalab\.io -A
+      - notMatchRegexRaw:
+          pattern: kubectl get stages -A

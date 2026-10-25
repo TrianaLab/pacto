@@ -16,5 +16,5 @@ The recorder writes a signed record of every concluded operation to
 {{ .Values.recorder.streamsRepository }} and to the versions it touched. Check that
 records are being written:
 
-  kubectl get stages -A -o custom-columns=NAME:.metadata.name,RECORDS:.status.conditions[?(@.type=="RecordStoreReady")].reason
+  kubectl get stages.delivery.pacto.trianalab.io -A -o custom-columns=NAME:.metadata.name,RECORDS:.status.conditions[?(@.type=="RecordStoreReady")].reason
 {{- end }}
