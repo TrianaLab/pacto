@@ -39,6 +39,27 @@ type TrustedKey struct {
 	// (<cluster>/<namespace>/<stage>), such as "*/prod/*". Empty means every
 	// stream.
 	Streams []string `json:"streams,omitempty" yaml:"streams,omitempty"`
+	// UntilSeq and UntilRecord revoke the key: UntilRecord is the id of the
+	// last record it signed on the stream and UntilSeq that record's seq. It
+	// verifies only that record and the records it chains from, so the
+	// history it signed stays readable and a record it signs later, or
+	// backdates to a seq it already used, is refused. Both or neither: zero
+	// means no limit. Seqs count per stream, so a key revoked on several
+	// streams gets one entry per stream.
+	UntilSeq    int64  `json:"untilSeq,omitempty" yaml:"untilSeq,omitempty"`
+	UntilRecord string `json:"untilRecord,omitempty" yaml:"untilRecord,omitempty"`
+}
+
+// HistoryOnly is the error of a record that only a revoked key signs, at or
+// below the seq it was revoked after: the record is history only if Until,
+// the last record the key signed, is it or chains from it. A per-record check
+// cannot tell, so the reader of the whole stream decides (pkg/deliveryrecord).
+type HistoryOnly struct {
+	Until string
+}
+
+func (e *HistoryOnly) Error() string {
+	return "signed by a revoked key, and not in the history that ends at its last record " + e.Until
 }
 
 // ParseTrust reads a trust config: YAML or JSON, or a bare PEM public key,
@@ -72,11 +93,19 @@ func (t TrustConfig) Digest() string {
 // stream; open turns one key into the check of a bundle (pkg/signing does).
 func (t TrustConfig) Verifier(open func(TrustedKey) (func(bundle []byte) error, error)) (Verifier, error) {
 	type entry struct {
-		streams []string
-		verify  func([]byte) error
+		streams  []string
+		untilSeq int64
+		until    string
+		verify   func([]byte) error
 	}
 	var entries []entry
 	for i, k := range t.Keys {
+		if k.UntilSeq < 0 {
+			return nil, fmt.Errorf("trust config key %d (%s): untilSeq %d is negative", i, k.Name, k.UntilSeq)
+		}
+		if (k.UntilSeq > 0) != (k.UntilRecord != "") {
+			return nil, fmt.Errorf("trust config key %d (%s): untilSeq and untilRecord go together", i, k.Name)
+		}
 		for _, p := range k.Streams {
 			if _, err := path.Match(p, ""); err != nil {
 				return nil, fmt.Errorf("trust config key %d (%s): stream pattern %q: %w", i, k.Name, p, err)
@@ -86,17 +115,32 @@ func (t TrustConfig) Verifier(open func(TrustedKey) (func(bundle []byte) error, 
 		if err != nil {
 			return nil, fmt.Errorf("trust config key %d (%s): %w", i, k.Name, err)
 		}
-		entries = append(entries, entry{k.Streams, v})
+		entries = append(entries, entry{k.Streams, k.UntilSeq, k.UntilRecord, v})
 	}
-	return func(stream string, bundle []byte) error {
-		err := fmt.Errorf("no trusted key may sign records of stream %q", stream)
+	return func(stream string, seq int64, bundle []byte) error {
+		var err, revoked, history error = fmt.Errorf("no trusted key may sign records of stream %q", stream), nil, nil
 		for _, e := range entries {
 			if !covers(e.streams, stream) {
 				continue
 			}
-			if err = e.verify(bundle); err == nil {
-				return nil
+			if err = e.verify(bundle); err != nil {
+				continue
 			}
+			if e.untilSeq > 0 && seq > e.untilSeq {
+				revoked = fmt.Errorf("signed by a key revoked after seq %d of stream %q, and this record is seq %d", e.untilSeq, stream, seq)
+				continue
+			}
+			if e.untilSeq > 0 {
+				history = &HistoryOnly{Until: e.until}
+				continue
+			}
+			return nil
+		}
+		if history != nil {
+			return history
+		}
+		if revoked != nil {
+			return revoked
 		}
 		return err
 	}, nil

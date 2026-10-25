@@ -75,22 +75,24 @@ records_store() {
     || fail "after the restart the stream has gaps or duplicates: $out"
   pass "with the recorder down $r1 and $r2 waited; back up, each was recorded once, with no gap"
 
-  # break NAME — the recorder refuses publish-manual/billing's stream and the
-  # promoter freezes the Stage: a new refusal stays unrecorded until the
-  # forged record is gone, then is recorded, and a person unfreezes.
+  # stopped_until_repaired WHAT REPAIR... — the recorder refuses
+  # publish-manual/billing's stream and the promoter freezes the Stage: a new
+  # refusal stays unrecorded until REPAIR mends the stream, then is recorded,
+  # and a person unfreezes.
   conflict() { [ "$(kubectl -n "$M" get stage billing -o jsonpath='{.status.conditions[?(@.type=="RecordStoreReady")].reason}')" = StreamConflict ]; }
   sound() { [ "$(kubectl -n "$M" get stage billing -o jsonpath='{.status.conditions[?(@.type=="RecordStoreReady")].status}')" = True ]; }
   frozen() { [ "$(kubectl -n "$M" get stage billing -o jsonpath='{.status.frozen}')" = true ]; }
   local unfreezes=0
-  stopped_until_repaired() { # WHAT FORGED_MANIFEST
-    local held="records-$1"
+  stopped_until_repaired() { # WHAT REPAIR...
+    local held="records-$1" what="$1"
+    shift
     refuse "$held"
-    eventually 40 conflict || fail "the recorder did not stop on the $1 record: $(kubectl -n "$M" get stage billing -o jsonpath='{.status.conditions}')"
-    eventually 20 frozen || fail "the Stage was not frozen on the $1 record"
+    eventually 40 conflict || fail "the recorder did not stop on the $what record: $(kubectl -n "$M" get stage billing -o jsonpath='{.status.conditions}')"
+    eventually 20 frozen || fail "the Stage was not frozen on the $what record"
     kubectl -n "$M" get stage billing -o jsonpath='{.status.frozenReason}' | grep -q StreamConflict || fail "the freeze does not say StreamConflict"
     always 2 unrecorded "$held" || fail "$held was recorded on a stream in conflict"
-    oras manifest delete --plain-http --force "$streams_local@$2" >/dev/null
-    eventually 40 sound || fail "the recorder did not resume once the $1 record was gone"
+    "$@" >/dev/null || fail "could not repair the stream after the $what record"
+    eventually 40 sound || fail "the recorder did not resume once the stream was repaired after the $what record"
     eventually 40 recorded "$held" || fail "$held was not recorded once the stream was repaired"
     unfreezes=$((unfreezes + 1))
     local unfreeze="records-unfreeze-$unfreezes"
@@ -100,7 +102,7 @@ records_store() {
     ! frozen || fail "the Stage stayed frozen after a person unfroze it"
     # The next forgery reads the head: the unfreeze must be in the stream first.
     eventually 40 recorded "$unfreeze" || fail "$unfreeze was not recorded"
-    rec record verify -n "$M" --stage billing >/dev/null 2>&1 || fail "record verify fails after the $1 record was removed"
+    rec record verify -n "$M" --stage billing >/dev/null 2>&1 || fail "record verify fails after the stream was repaired after the $what record"
   }
   # attach_forged FILE — attach a bundle to the Stage's anchor the way the recorder does; prints its manifest.
   attach_forged() {
@@ -116,7 +118,10 @@ records_store() {
     oras blob fetch --plain-http --output "$tmp/head.json" "$streams_local@$l" >/dev/null
   }
 
-  section "a record whose payload was changed is refused"
+  section "a record whose payload was changed is ignored"
+  # Anyone who can push to the streams repository can attach a record, so one
+  # no trusted key signed is not the stream's history: the recorder names it
+  # and keeps recording, and nothing freezes.
   head_bundle
   jq --arg p "$(jq -r .dsseEnvelope.payload "$tmp/head.json" | base64 -d | jq -cj '.predicate.time.finished = "2000-01-01T00:00:00Z"' | base64 | tr -d '\n')" \
     '.dsseEnvelope.payload = $p' "$tmp/head.json" > "$tmp/tampered.json"
@@ -124,8 +129,23 @@ records_store() {
   forged="$(attach_forged tampered.json)"
   out="$(rec record verify -n "$M" --stage billing 2>&1 || true)"
   grep -q "unreadable: $forged: signature" <<<"$out" || fail "record verify did not refuse the changed record: $out"
-  stopped_until_repaired tampered "$forged"
-  pass "the changed record failed its signature; the recorder stopped and the Stage froze until it was removed and alice unfroze it"
+  refuse records-ignored
+  eventually 40 recorded records-ignored || fail "the recorder stopped on a record no trusted key signed"
+  kubectl -n "$M" get stage billing -o jsonpath='{.status.conditions[?(@.type=="RecordStoreReady")].message}' | grep -q "$forged" \
+    || fail "RecordStoreReady does not name the ignored record"
+  ! frozen || fail "a record no trusted key signed froze the Stage"
+  oras manifest delete --plain-http --force "$streams_local@$forged" >/dev/null
+  pass "the changed record failed its signature and was ignored: the recorder named it, kept recording and nothing froze"
+
+  section "a trusted record that goes missing stops the recorder"
+  head_bundle
+  local head
+  head="$(rec record verify -n "$M" --stage billing --output-format json 2>/dev/null | jq -r '.records[-1].manifest')"
+  oras manifest delete --plain-http --force "$streams_local@$head" >/dev/null
+  # Attaching the same signed bundle again restores the record: its id is the
+  # digest of its payload, whatever manifest carries it.
+  stopped_until_repaired missing attach_forged head.json
+  pass "the newest record went missing; the recorder stopped and the Stage froze until the record was restored and alice unfroze it"
 
   section "a validly signed record that breaks the chain is refused"
   head_bundle
@@ -135,7 +155,7 @@ records_store() {
   forged="$(attach_forged fork.json)"
   out="$(rec record verify -n "$M" --stage billing 2>&1 || true)"
   grep -q "does not chain from" <<<"$out" || fail "record verify did not refuse the broken chain: $out"
-  stopped_until_repaired fork "$forged"
+  stopped_until_repaired fork oras manifest delete --plain-http --force "$streams_local@$forged"
   pass "the forged record broke the chain; the recorder stopped and the Stage froze until it was removed and alice unfroze it"
 }
 

@@ -74,6 +74,7 @@ same version as your Pacto operator.
 | recorder.enabled | bool | `false` | Run the recorder, which writes a signed record of every concluded operation to the registry as OCI referrers. Off by default. When on, the promoter leaves the record finalizer to it. The registry must support the OCI Referrers API natively (GHCR and released `distribution` do not). |
 | recorder.extraEnv | list | `[]` | Extra environment for the recorder (for example the credentials a KMS client reads) |
 | recorder.leaderElect | bool | `true` | Elect one active recorder |
+| recorder.monitoring.enabled | bool | `false` | Scrape the recorder's metrics and alert when records fall behind: a metrics Service, a ServiceMonitor and a PrometheusRule. Needs the Prometheus Operator CRDs. |
 | recorder.operationTTL | string | `"168h"` | Keep a recorded operation this long after it concluded, then delete it: its record holds what happened. The operation a Stage runs is never deleted. `0s` keeps them all (a Go duration). |
 | recorder.poll | string | `"30s"` | How long a registry or signer failure backs off (a Go duration) |
 | recorder.registryCredentials.secretName | string | `""` | A `kubernetes.io/dockerconfigjson` Secret with push access to the streams, apply and contract repositories. Only the recorder mounts it. |
@@ -94,7 +95,7 @@ same version as your Pacto operator.
 | recorder.signing.keyless.trustedRoot | string | `""` | The Sigstore trusted root (`trusted_root.json`) naming that Fulcio and timestamp authority. Required with keyless: without it a self-signed certificate could name the recorder's identity. |
 | recorder.signing.kms | string | `""` | A KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`). The default image includes every provider; an image built with `--build-arg GO_TAGS=` has none, and one built with `GO_TAGS=kms_aws` (or `kms_gcp`, `kms_azure`, `kms_hashivault`) has only that one |
 | recorder.streamsRepository | string | `""` | Repository (`host/path`) that holds one anchor per Stage stream. Required when enabled. |
-| recorder.trust | string | `""` | Other keys whose records the recorder accepts, as a trust config in YAML (`keys: [{publicKey: <PEM>, streams: ["*/prod/*"]}]`): list the old key here while you rotate to a new one. The recorder's own key is always trusted. A record no listed key signed stops the stream. |
+| recorder.trust | string | `""` | Other keys whose records the recorder accepts, as a trust config in YAML (`keys: [{publicKey: <PEM>, streams: ["*/prod/*"]}]`): list the old key here while you rotate to a new one, and set `untilSeq` and `untilRecord` on a leaked key to revoke it after the last record it signed. The recorder's own key is always trusted. A record no listed key signed is skipped as untrusted. |
 | replicaCount | int | `1` | Number of promoter replicas. Only the elected leader acts. |
 | resources.limits.cpu | string | `"500m"` | CPU limit |
 | resources.limits.memory | string | `"256Mi"` | Memory limit |

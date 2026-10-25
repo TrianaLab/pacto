@@ -272,7 +272,7 @@ func (s edSigner) Sign(_ context.Context, payloadType string, payload []byte) ([
 }
 
 // verifier checks a bundle was signed by the tab's key.
-func (d *demoDelivery) verifier(_ string, bundle []byte) error {
+func (d *demoDelivery) verifier(_ string, _ int64, bundle []byte) error {
 	var b struct {
 		DSSEEnvelope struct {
 			Payload     []byte `json:"payload"`

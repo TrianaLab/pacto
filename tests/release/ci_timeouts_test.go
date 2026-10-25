@@ -18,6 +18,14 @@ func TestEveryCIJobHasATimeout(t *testing.T) {
 	for _, file := range []string{"ci.yml", "delivery-demo.yml"} {
 		jobs := workflowJobs(t, root, file)
 		for _, name := range slices.Sorted(maps.Keys(jobs)) {
+			// A job that calls a reusable workflow cannot set a timeout; the
+			// called workflow's jobs carry theirs, and this test reads them.
+			if u := jobs[name].Uses; u != "" {
+				if !slices.Contains([]string{"ci.yml", "delivery-demo.yml"}, strings.TrimPrefix(u, "./.github/workflows/")) {
+					t.Errorf("%s job %q calls %s, whose job timeouts this test does not read", file, name, u)
+				}
+				continue
+			}
 			if jobs[name].TimeoutMinutes == nil {
 				t.Errorf("%s job %q has no timeout-minutes, so a wedged runner holds it for six hours", file, name)
 			}

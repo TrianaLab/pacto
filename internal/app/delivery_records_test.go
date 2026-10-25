@@ -433,7 +433,7 @@ func TestVerifyRecordsKeylessCommand(t *testing.T) {
 	}}
 	v, err := e.d.VerifyRecords(context.Background(), "prod", "payments-prod")
 	if err != nil || strings.Contains(v.Cosign, "--key") || !strings.Contains(v.Cosign,
-		"--trusted-root trusted_root.json --certificate-identity 'https://recorder.example' --certificate-oidc-issuer 'https://issuer.example' --use-signed-timestamps") {
+		"--trusted-root trusted_root.json --certificate-identity 'https://recorder.example' --certificate-oidc-issuer 'https://issuer.example' --use-signed-timestamps --insecure-ignore-sct") {
 		t.Fatalf("keyless command = %+v %v", v, err)
 	}
 }
@@ -715,6 +715,11 @@ func TestDeliveryUpstreamRecords(t *testing.T) {
 	if up, why := e.d.upstream(ctx, stage); why != "" || len(up.Offered) != 1 || up.Offered[0] != dlB {
 		t.Fatalf("offered: %+v %q", up, why)
 	}
+	stage.Status.UpstreamSeen = delivery.RecordMark{Stream: recStream, Seq: 5, Record: "sha256:gone"}
+	if up, why := e.d.upstream(ctx, stage); up != nil || !strings.Contains(why, "newest records were removed") {
+		t.Fatalf("a stream cut before what the Stage read offers nothing: %+v %q", up, why)
+	}
+	stage.Status.UpstreamSeen = delivery.RecordMark{}
 	records := e.d.Records
 	e.d.Records = func(string, ...string) (*remote.Repository, error) { return nil, errors.New("bad reference") }
 	if up, why := e.d.upstream(ctx, stage); up != nil || why != "bad reference" {

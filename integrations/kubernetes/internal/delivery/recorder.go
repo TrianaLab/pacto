@@ -33,18 +33,20 @@ import (
 )
 
 // ConditionRecordStoreReady is the recorder's Stage condition.
-const ConditionRecordStoreReady = "RecordStoreReady"
+const ConditionRecordStoreReady = delivery.ConditionRecordStoreReady
 
-// statusFalse and statusTrue are condition statuses.
+// Condition statuses, and the Ready condition type.
 const (
-	statusFalse = "False"
-	statusTrue  = "True"
+	statusTrue     = "True"
+	statusFalse    = "False"
+	conditionReady = "Ready"
 )
 
 // Reasons RecordStoreReady is False.
 const (
 	ReasonReferrersUnsupported = "ReferrersUnsupported"
 	ReasonRegistryUnavailable  = "RegistryUnavailable"
+	ReasonSignerUnavailable    = "SignerUnavailable"
 	ReasonStreamConflict       = "StreamConflict"
 )
 
@@ -143,17 +145,17 @@ func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 	if err != nil {
 		return r.notReady(ctx, stage, storeReason(err), err)
 	}
-	recs, err := r.Store.list(ctx, anchor)
+	recs, ignored, err := r.Store.list(ctx, anchor)
 	if err != nil {
-		if errors.Is(err, errUnverifiable) {
-			return r.notReady(ctx, stage, ReasonStreamConflict, err)
-		}
 		return r.notReady(ctx, stage, storeReason(err), err)
 	}
 	if msg := conflict(recs, stream.Head); msg != "" {
 		return r.notReady(ctx, stage, ReasonStreamConflict, errors.New(msg))
 	}
-	if err := r.ready(ctx, stage); err != nil {
+	if len(ignored) > 0 {
+		ctrl.LoggerFrom(ctx).Info("ignoring records no trusted key signed", "stage", stage.Name, "records", ignored)
+	}
+	if err := r.ready(ctx, stage, ignored); err != nil {
 		return reconcile.Result{}, err
 	}
 	w := &writer{Recorder: r, stage: stage, anchor: anchor, recs: recs}
@@ -283,10 +285,17 @@ func conflict(recs []stored, head string) string {
 	return ""
 }
 
-// storeReason names a registry failure for the condition.
+// errSigner marks a failure of the signer (a KMS key, a keyless token), so
+// on-call is not sent to the registry for it.
+var errSigner = errors.New("signing failed")
+
+// storeReason names a registry or signer failure for the condition.
 func storeReason(err error) string {
-	if errors.Is(err, errUnsupported) {
+	switch {
+	case errors.Is(err, errUnsupported):
 		return ReasonReferrersUnsupported
+	case errors.Is(err, errSigner):
+		return ReasonSignerUnavailable
 	}
 	return ReasonRegistryUnavailable
 }
@@ -305,10 +314,15 @@ func hasCondition(stage *dv1.Stage, typ, status string) bool {
 	return slices.ContainsFunc(stage.Status.Conditions, func(c delivery.Condition) bool { return c.Type == typ && c.Status == status })
 }
 
-// ready marks the stream writable and names where its records are listed.
-func (r *Recorder) ready(ctx context.Context, stage *dv1.Stage) error {
+// ready marks the stream writable and names where its records are listed,
+// and the first of the records it ignored because no trusted key signed them.
+func (r *Recorder) ready(ctx context.Context, stage *dv1.Stage, ignored []string) error {
 	want := delivery.Condition{Type: ConditionRecordStoreReady, Status: statusTrue,
 		Reason: "ReferrersSupported", Message: "records are written to " + r.Store.Streams}
+	if len(ignored) > 0 {
+		want.Message += fmt.Sprintf("; %d record(s) on the anchor are ignored because no key trusted for this stream signed them, the first: %s",
+			len(ignored), ignored[0])
+	}
 	ref := deliveryrecord.AnchorRef(r.Store.Streams, stage.Status.Stream.ID)
 	want.ObservedGeneration = stage.Generation
 	if _, changed := delivery.SetCondition(stage.Status.Conditions, want, r.Now()); !changed && stage.Status.Stream.Anchor == ref {
@@ -441,17 +455,25 @@ func (w *writer) write(ctx context.Context, op *dv1.Operation) (*stored, error) 
 	if check, msg := delivery.CheckRecord(in, st); check != "" {
 		st, l = delivery.NewUnrecordable(in, check, msg), locations{anchor: w.anchor}
 	}
-	rec, err := w.sign(ctx, st, l)
+	rec, err := w.sign(ctx, st, l, &in)
 	if err == nil {
-		w.Events.emit(ctx, w.stage, st, rec.ID, op.Status.Applied)
+		w.Events.emit(ctx, w.stage, rec.Statement, rec.ID, op.Status.Applied)
 	}
 	return rec, err
 }
 
-func (w *writer) sign(ctx context.Context, st delivery.Statement, l locations) (*stored, error) {
+// sign signs st and attaches it at l. A record of in whose bundle is larger
+// than a reader fetches is signed as unrecordable instead, on the anchor only:
+// a record no reader can read would stop the stream.
+func (w *writer) sign(ctx context.Context, st delivery.Statement, l locations, in *delivery.RecordInput) (*stored, error) {
 	bundle, id, err := delivery.SignRecord(ctx, w.Signer, st)
+	if n := int64(len(bundle)); err == nil && in != nil && n > deliveryrecord.MaxBytes {
+		st, l = delivery.NewUnrecordable(*in, delivery.CheckSize,
+			fmt.Sprintf("the signed record is %d bytes, more than the %d a reader fetches", n, deliveryrecord.MaxBytes)), locations{anchor: w.anchor}
+		bundle, id, err = delivery.SignRecord(ctx, w.Signer, st)
+	}
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", errSigner, err)
 	}
 	if err := w.Store.write(ctx, bundle, st, l); err != nil {
 		return nil, err
@@ -510,7 +532,7 @@ func (w *writer) gap(ctx context.Context, seq int64) (time.Duration, error) {
 		chain := delivery.Chain{Stream: w.stage.Status.Stream.ID, Seq: h.Statement.Predicate.Chain.Seq + 1, Parent: h.ID}
 		st := delivery.NewGap(w.ClusterID, meta, seq, chain, w.anchor.desc.Digest.String(), w.Now().UTC().Format(time.RFC3339))
 		st.Predicate.Trust = w.Trust
-		if _, err := w.sign(ctx, st, locations{anchor: w.anchor}); err != nil {
+		if _, err := w.sign(ctx, st, locations{anchor: w.anchor}, nil); err != nil {
 			return 0, err
 		}
 	}

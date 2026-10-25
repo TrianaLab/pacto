@@ -73,6 +73,23 @@ func TestReleaseDryRunIsGatedOnAFilterWatchingChangesets(t *testing.T) {
 // whose path list includes a '.changeset/' pattern.
 func filtersWatchingChangesets(t *testing.T, root string) []string {
 	t.Helper()
+	var out []string
+	for name, patterns := range pathFilters(t, root) {
+		for _, p := range patterns {
+			if strings.Contains(p, ".changeset/") {
+				out = append(out, name)
+				break
+			}
+		}
+	}
+	slices.Sort(out) // map iteration order is random; the failure message is not
+	return out
+}
+
+// pathFilters parses ci.yml's dorny/paths-filter block: filter name -> path
+// patterns.
+func pathFilters(t *testing.T, root string) map[string][]string {
+	t.Helper()
 	var doc struct {
 		Jobs map[string]struct {
 			Steps []struct {
@@ -95,17 +112,7 @@ func filtersWatchingChangesets(t *testing.T, root string) []string {
 			if err := yaml.Unmarshal([]byte(step.With.Filters), &filters); err != nil {
 				t.Fatalf("parse paths-filter filters block: %v", err)
 			}
-			var out []string
-			for name, patterns := range filters {
-				for _, p := range patterns {
-					if strings.Contains(p, ".changeset/") {
-						out = append(out, name)
-						break
-					}
-				}
-			}
-			slices.Sort(out) // map iteration order is random; the failure message is not
-			return out
+			return filters
 		}
 	}
 	t.Fatal("ci.yml has no dorny/paths-filter step with a `filters:` block")

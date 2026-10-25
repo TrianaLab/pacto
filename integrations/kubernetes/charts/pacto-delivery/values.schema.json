@@ -90,6 +90,11 @@
         "operationTTL": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$" },
         "trust": { "type": "string" },
         "cdeventsSink": { "type": "string" },
+        "monitoring": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "enabled": { "type": "boolean" } }
+        },
         "extraEnv": { "type": "array" },
         "resources": { "type": "object" }
       }

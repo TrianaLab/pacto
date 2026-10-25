@@ -1,9 +1,10 @@
 name: Delivery demo
 
-# The heavy Kubernetes delivery demo: every night and on demand, never per PR and
-# never a required check. The demo script checks each story step itself and fails
-# loudly on drift; a nightly failure opens (or comments on) one issue, so it is
-# seen without anyone watching the Actions tab.
+# The heavy Kubernetes delivery demo: every night, on demand, and on every pull
+# request that changes delivery, where ci.yml calls it (job delivery-demo, which
+# the required check aggregates). The demo script checks each story step itself
+# and fails loudly on drift; a nightly failure opens (or comments on) one issue,
+# so it is seen without anyone watching the Actions tab.
 # It runs `make e2e-delivery-demo`: up, story, the dashboard journeys with B10
 # and the agent beat, reach (a second cluster applied by Argo CD) and down
 # (tests/acceptance/kind/delivery-demo.sh).
@@ -12,6 +13,7 @@ on:
   schedule:
     - cron: '30 3 * * *'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read

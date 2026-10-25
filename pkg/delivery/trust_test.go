@@ -53,7 +53,7 @@ func TestTrustScopesKeysToStreams(t *testing.T) {
 		{"a stream no key covers", "prod", "c/test/payments", false},
 		{"keyless", "ci", "c/ci/payments", true},
 	} {
-		if err := v(c.stream, []byte(c.key)); (err == nil) != c.ok {
+		if err := v(c.stream, 1, []byte(c.key)); (err == nil) != c.ok {
 			t.Errorf("%s: err = %v", c.name, err)
 		}
 	}
@@ -75,7 +75,7 @@ func TestTrustScopesKeysToStreams(t *testing.T) {
 		t.Fatal(err)
 	}
 	bv, _ := bare.Verifier(byName)
-	if bv("any/stream/at-all", []byte("")) != nil {
+	if bv("any/stream/at-all", 1, []byte("")) != nil {
 		t.Fatal("a bare public key does not cover every stream")
 	}
 }
@@ -103,5 +103,57 @@ func TestParseTrustRefuses(t *testing.T) {
 	}
 	if _, err := PublicKeyPEM(struct{}{}); err == nil {
 		t.Fatal("an unsupported key marshalled")
+	}
+}
+
+// TestTrustRevokesAKeyAfterASeq: a key with untilSeq refuses what it signs
+// after it, on its own stream only, and holds what it signed up to it for the
+// stream's chain to vouch for (HistoryOnly), while the key that replaced it
+// signs on.
+func TestTrustRevokesAKeyAfterASeq(t *testing.T) {
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	raw := "keys:\n" +
+		"  - {name: old, publicKey: " + quoteYAML(pubPEM(t, pub)) + ", streams: ['c/prod/payments'], untilSeq: 41, untilRecord: r41}\n" +
+		"  - {name: new, publicKey: " + quoteYAML(pubPEM(t, pub)) + ", streams: ['*/prod/*']}\n"
+	trust, err := ParseTrust([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v, _ := trust.Verifier(byName)
+	for _, c := range []struct {
+		key, stream string
+		seq         int64
+		ok          bool
+	}{
+		{"old", "c/prod/payments", 41, false},
+		{"old", "c/prod/payments", 42, false},
+		{"old", "c/prod/orders", 1, false},
+		{"new", "c/prod/payments", 42, true},
+	} {
+		err := v(c.stream, c.seq, []byte(c.key))
+		if (err == nil) != c.ok {
+			t.Errorf("%s at %s seq %d: err = %v", c.key, c.stream, c.seq, err)
+		}
+	}
+	var h *HistoryOnly
+	if err := v("c/prod/payments", 30, []byte("old")); !errors.As(err, &h) || h.Until != "r41" {
+		t.Errorf("a revoked key's backdated record = %v, want held for r41's chain", err)
+	}
+	only := TrustConfig{Keys: trust.Keys[:1]}
+	ov, _ := only.Verifier(byName)
+	if err := ov("c/prod/payments", 42, []byte("old")); err == nil || !strings.Contains(err.Error(), "revoked after seq 41") {
+		t.Errorf("a revoked key's refusal = %v", err)
+	}
+	// The revocation is named even when a later key fails to verify too.
+	if err := v("c/prod/payments", 42, []byte("old")); err == nil || !strings.Contains(err.Error(), "revoked after seq 41") {
+		t.Errorf("refusal = %v", err)
+	}
+	if _, err := ParseTrust([]byte("keys:\n  - {publicKey: " + quoteYAML(pubPEM(t, pub)) + ", untilSeq: -1}\n")); err == nil {
+		t.Error("a negative untilSeq parsed")
+	}
+	for _, half := range []string{"untilSeq: 3", "untilRecord: r3"} {
+		if _, err := ParseTrust([]byte("keys:\n  - {publicKey: " + quoteYAML(pubPEM(t, pub)) + ", " + half + "}\n")); err == nil || !strings.Contains(err.Error(), "go together") {
+			t.Errorf("%s alone: err = %v", half, err)
+		}
 	}
 }

@@ -49,6 +49,8 @@ type wfStep struct {
 type wfJob struct {
 	TimeoutMinutes any      `yaml:"timeout-minutes"`
 	Steps          []wfStep `yaml:"steps"`
+	// Uses is the reusable workflow a job calls instead of running steps.
+	Uses string `yaml:"uses"`
 }
 
 // runs is every shell body the job executes, joined.

@@ -36,6 +36,7 @@ jobs:
       kubernetes: ${{ steps.filter.outputs.kubernetes }}
       release: ${{ steps.filter.outputs.release }}
       e2e: ${{ steps.filter.outputs.e2e }}
+      delivery: ${{ steps.filter.outputs.delivery }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
@@ -168,6 +169,39 @@ jobs:
               - 'pkg/skills/**'
               - 'pkg/strictjson/**'
               - 'pkg/validation/**'
+            # The delivery demo (delivery-demo below) proves what only a live run
+            # can: Argo CD applying a digest, a second cluster following the first
+            # through its signed records, and the dashboard's delivery journeys
+            # signed in through the real guard. It is heavy, so it runs only for
+            # changes to delivery itself, to the guard or to the demo.
+            delivery:
+              - 'integrations/kubernetes/api/delivery/**'
+              - 'integrations/kubernetes/cmd/delivery/**'
+              - 'integrations/kubernetes/internal/delivery/**'
+              - 'integrations/kubernetes/charts/pacto-delivery/**'
+              - 'pkg/delivery/**'
+              - 'pkg/deliveryrecord/**'
+              - 'pkg/ocireferrer/**'
+              - 'pkg/signing/**'
+              - 'internal/authn/**'
+              - 'internal/app/delivery*.go'
+              - 'internal/cli/delivery*.go'
+              - 'pkg/dashboard/delivery*.go'
+              # The journeys drive the delivery views and the served bundle,
+              # and server.go wires the approval guard they run against.
+              - 'pkg/dashboard/server.go'
+              - 'pkg/dashboard/frontend/src/**/*[Dd]elivery*'
+              - 'pkg/dashboard/ui/**'
+              - 'pkg/dashboard/frontend/e2e-live/**'
+              - 'examples/story/**'
+              # delivery-demo.sh sources lib.sh and delivery-identity.sh, and
+              # delivery-demo.yml runs it through kind-run.sh.
+              - 'tests/acceptance/kind/lib.sh'
+              - 'tests/acceptance/kind/delivery-demo.sh'
+              - 'tests/acceptance/kind/delivery-identity.sh'
+              - 'scripts/ci/kind-run.sh'
+              - 'tests/acceptance/kind/fixtures/delivery-demo/**'
+              - '.github/workflows/delivery-demo.yml'
 
   ci-static:
     needs: changes
@@ -462,6 +496,20 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # The whole delivery demo on a pull request that changes delivery: the reach
+  # phase (Argo CD applying by digest, a second cluster following the first
+  # through its signed records) and the browser journeys against the real
+  # sign-in guard run only here and in the nightly schedule of the same
+  # workflow. The called workflow's report job needs issues: write, which only
+  # its own schedule uses.
+  delivery-demo:
+    needs: changes
+    if: needs.changes.outputs.delivery == 'true' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      issues: write
+    uses: ./.github/workflows/delivery-demo.yml
+
   # The same product vertical on the OTHER surface, proved the way a stranger meets
   # it: the demo application is published to a local registry with `docker compose
   # publish` and then executed straight out of it BY DIGEST. Nothing on the
@@ -656,6 +704,7 @@ jobs:
       - ci-e2e-kind
       - delivery-images
       - ci-e2e-kind-delivery
+      - delivery-demo
       - ci-e2e-compose
       - release-dry-run
       - release-version-test

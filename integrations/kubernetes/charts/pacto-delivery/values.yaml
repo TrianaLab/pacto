@@ -126,11 +126,17 @@ recorder:
   operationTTL: 168h
   # -- Other keys whose records the recorder accepts, as a trust config in YAML
   # (`keys: [{publicKey: <PEM>, streams: ["*/prod/*"]}]`): list the old key here while you rotate to a
-  # new one. The recorder's own key is always trusted. A record no listed key signed stops the stream.
+  # new one, and set `untilSeq` and `untilRecord` on a leaked key to revoke it after the last record it
+  # signed. The recorder's own key is always trusted. A record no listed key signed is skipped as
+  # untrusted.
   trust: ""
   # -- A URL the recorder POSTs a CDEvent (CloudEvents, structured mode) to for every record, best
   # effort. Empty sends none.
   cdeventsSink: ""
+  monitoring:
+    # -- Scrape the recorder's metrics and alert when records fall behind: a metrics Service, a
+    # ServiceMonitor and a PrometheusRule. Needs the Prometheus Operator CRDs.
+    enabled: false
   # -- Extra environment for the recorder (for example the credentials a KMS client reads)
   extraEnv: []
   resources:

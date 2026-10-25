@@ -108,7 +108,7 @@ func TestRecordStoreList(t *testing.T) {
 	}
 	// Another tool's referrer is skipped.
 	pushOnAnchor(t, a, map[string]string{"other": "tool"}, []byte("x"))
-	if recs, err := s.list(ctx, a); err != nil || len(recs) != 0 {
+	if recs, _, err := s.list(ctx, a); err != nil || len(recs) != 0 {
 		t.Fatalf("foreign referrer: %v %v", recs, err)
 	}
 	// A real record reads back.
@@ -117,7 +117,7 @@ func TestRecordStoreList(t *testing.T) {
 	if err := s.write(ctx, bundle, st, locations{anchor: a}); err != nil {
 		t.Fatal(err)
 	}
-	if recs, err := s.list(ctx, a); err != nil || len(recs) != 1 || recs[0].ID != id {
+	if recs, _, err := s.list(ctx, a); err != nil || len(recs) != 1 || recs[0].ID != id {
 		t.Fatalf("record: %v %v", recs, err)
 	}
 	for name, fault := range map[string]func(*http.Request) bool{
@@ -126,15 +126,15 @@ func TestRecordStoreList(t *testing.T) {
 		"bundle":   from(1, http.MethodGet, "/blobs/"),
 	} {
 		reg.fault = fault
-		if _, err := s.list(ctx, a); err == nil {
+		if _, _, err := s.list(ctx, a); err == nil {
 			t.Errorf("%s: a failed read listed", name)
 		}
 	}
 	reg.fault = nil
-	// A record manifest with two layers cannot be accounted for.
+	// A record manifest with two layers is ignored, and named.
 	pushOnAnchor(t, a, map[string]string{deliveryrecord.AnnPredicateType: delivery.PredicateOperation}, bundle, []byte("y"))
-	if _, err := s.list(ctx, a); !errors.Is(err, errUnverifiable) {
-		t.Fatalf("two layers: %v", err)
+	if recs, ignored, err := s.list(ctx, a); err != nil || len(recs) != 1 || len(ignored) != 1 || !strings.Contains(ignored[0], "not one bundle layer") {
+		t.Fatalf("two layers: %v %v %v", recs, ignored, err)
 	}
 }
 

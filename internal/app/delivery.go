@@ -222,7 +222,8 @@ func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.Pla
 // upstream reads the status of the Stage this one takes its candidates from;
 // nil when there is none or it cannot be read, which the published gate
 // refuses. An upstream in another cluster is read from its signed records,
-// and only with a trust config: unverified history never admits a version.
+// and only with a trust config: unverified history never admits a version,
+// and neither does a stream cut before the newest record the Stage read.
 func (d *Delivery) upstream(ctx context.Context, stage *delivery.StageObject) (*delivery.StageStatus, string) {
 	if r := stage.Spec.Candidates.UpstreamRecords; r != nil {
 		if d.Records == nil || d.Trust == nil {
@@ -234,7 +235,9 @@ func (d *Delivery) upstream(ctx context.Context, stage *delivery.StageObject) (*
 		}
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		return deliveryrecord.Upstream(ctx, repo, r.Stream, d.verifier())
+		// The promoter refuses a stream that no longer holds what the Stage
+		// already read, and so does the plan that predicts it.
+		return deliveryrecord.Upstream(ctx, repo, r.Stream, d.verifier(), stage.Status.UpstreamSeen)
 	}
 	up := stage.Spec.Candidates.UpstreamStage
 	if up == nil {

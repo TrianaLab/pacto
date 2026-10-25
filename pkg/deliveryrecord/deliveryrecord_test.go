@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -142,6 +143,36 @@ func TestList(t *testing.T) {
 	MaxBytes = old
 }
 
+// TestReaderFetchesEachReferrerOnce: a Reader remembers what each referrer
+// read as. With every manifest and blob read refused, it still lists what it
+// read before, while a fresh read fails.
+func TestReaderFetchesEachReferrerOnce(t *testing.T) {
+	f, path := setup(t, testutil.ReferrersOptions{})
+	repo, _ := ocireferrer.Open(path, ocireferrer.Options{})
+	anchor := Anchor(stream)
+	if err := ocireferrer.Push(t.Context(), repo, anchor); err != nil {
+		t.Fatal(err)
+	}
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	_, other, _ := ed25519.GenerateKey(rand.Reader)
+	ann := map[string]string{AnnPredicateType: delivery.PredicateOperation}
+	attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, signed(t, key, 1), ann)
+	attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, signed(t, other, 2), ann)
+	attach(t, path, anchor.ManifestDesc, "application/x-other", []byte("not ours"), nil)
+	cached := &Reader{Verify: keyVerifier(pub)}
+	if l, err := cached.List(t.Context(), repo, anchor.ManifestDesc); err != nil || len(l.Records) != 1 || len(l.Unreadable) != 1 {
+		t.Fatalf("first read: %+v %v", l, err)
+	}
+	f.blobs.Store(true)
+	f.manifest.Store(true)
+	if l, err := cached.List(t.Context(), repo, anchor.ManifestDesc); err != nil || len(l.Records) != 1 || len(l.Unreadable) != 1 {
+		t.Fatalf("a cached read fetched again: %+v %v", l, err)
+	}
+	if _, err := List(t.Context(), repo, anchor.ManifestDesc, keyVerifier(pub)); err == nil {
+		t.Fatal("a fresh read with every fetch refused must fail")
+	}
+}
+
 func TestListRefusesOddRecords(t *testing.T) {
 	_, path := setup(t, testutil.ReferrersOptions{})
 	repo, _ := ocireferrer.Open(path, ocireferrer.Options{})
@@ -212,7 +243,7 @@ func edSigner(key ed25519.PrivateKey) delivery.Signer {
 }
 
 func keyVerifier(pub ed25519.PublicKey) delivery.Verifier {
-	return func(_ string, b []byte) error { _, err := signing.Policy{Key: pub}.Verify(b, nil); return err }
+	return func(_ string, _ int64, b []byte) error { _, err := signing.Policy{Key: pub}.Verify(b, nil); return err }
 }
 
 // TestUpstream: a downstream reads what the upstream verified from its
@@ -234,16 +265,95 @@ func TestUpstream(t *testing.T) {
 	b, _, _ := delivery.SignRecord(t.Context(), edSigner(key), st)
 	attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, b, map[string]string{AnnPredicateType: delivery.PredicateOperation})
 
-	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(pub)); why != "" || len(s.Offered) != 1 || s.Offered[0] != to {
+	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(pub), delivery.RecordMark{}); why != "" || len(s.Offered) != 1 || s.Offered[0] != to {
 		t.Fatalf("offered = %+v %q", s, why)
 	}
-	other, _, _ := ed25519.GenerateKey(rand.Reader)
-	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(other)); s != nil || !strings.Contains(why, "could not be verified") {
+	other, mallory, _ := ed25519.GenerateKey(rand.Reader)
+	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(other), delivery.RecordMark{}); why != "" || len(s.Offered) != 0 {
 		t.Fatalf("an untrusted key offers nothing: %+v %q", s, why)
+	}
+	// A record another key signed, attached by anyone with push access, does
+	// not blind the follower: it is skipped.
+	forged := st
+	forged.Predicate.Chain.Seq = 2
+	fb, _, _ := delivery.SignRecord(t.Context(), edSigner(mallory), forged)
+	attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, fb, map[string]string{AnnPredicateType: delivery.PredicateOperation})
+	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(pub), delivery.RecordMark{}); why != "" || len(s.Offered) != 1 {
+		t.Fatalf("a forged referrer blinds the follower: %+v %q", s, why)
 	}
 	_, path = setup(t, testutil.ReferrersOptions{Unsupported: true})
 	repo, _ = ocireferrer.Open(path, ocireferrer.Options{})
-	if s, why := Upstream(t.Context(), repo, stream, Unchecked); s != nil || !strings.HasPrefix(why, "reading the records") {
+	if s, why := Upstream(t.Context(), repo, stream, Unchecked, delivery.RecordMark{}); s != nil || !strings.HasPrefix(why, "reading the records") {
 		t.Fatalf("an unreadable registry offers nothing: %+v %q", s, why)
+	}
+}
+
+// TestListStreamHoldsARevokedKeyToItsHistory: a leaked key revoked at its last
+// record verifies that record and the ones it chains from, while a record it
+// backdates to a seq it already used is unreadable rather than a fork. A
+// per-subject List cannot walk the chain, so it holds back all it signed.
+func TestListStreamHoldsARevokedKeyToItsHistory(t *testing.T) {
+	_, path := setup(t, testutil.ReferrersOptions{})
+	repo, _ := ocireferrer.Open(path, ocireferrer.Options{})
+	anchor := Anchor(stream)
+	_ = ocireferrer.Push(t.Context(), repo, anchor)
+	oldPub, old, _ := ed25519.GenerateKey(rand.Reader)
+	newPub, next, _ := ed25519.GenerateKey(rand.Reader)
+	ann := map[string]string{AnnPredicateType: delivery.PredicateOperation}
+	put := func(key ed25519.PrivateKey, seq int64, parent, name string) string {
+		st := delivery.Statement{Type: delivery.StatementType, PredicateType: delivery.PredicateOperation,
+			Predicate: delivery.RecordPredicate{Kind: delivery.RecordOperation, Intent: delivery.RecordIntent{Name: name},
+				Chain: delivery.Chain{Stream: stream, Seq: seq, Parent: parent}}}
+		b, id, err := delivery.SignRecord(t.Context(), edSigner(key), st)
+		if err != nil {
+			t.Fatal(err)
+		}
+		attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, b, ann)
+		return id
+	}
+	r1 := put(old, 1, "", "r1")
+	r2 := put(old, 2, r1, "r2")
+	put(next, 3, r2, "r3")
+	put(old, 1, "", "forged") // backdated to a seq the key used
+	put(old, 4, r2, "late")   // after its revocation
+	pem := func(p ed25519.PublicKey) string { s, _ := delivery.PublicKeyPEM(p); return s }
+	trust := func(until string) delivery.Verifier {
+		v, err := signing.TrustVerifier(delivery.TrustConfig{Keys: []delivery.TrustedKey{
+			{Name: "old", PublicKey: pem(oldPub), UntilSeq: 2, UntilRecord: until},
+			{Name: "new", PublicKey: pem(newPub)},
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	names := func(recs []delivery.StoredRecord) []string {
+		var out []string
+		for _, r := range recs {
+			out = append(out, r.Statement.Predicate.Intent.Name)
+		}
+		slices.Sort(out)
+		return out
+	}
+	l, err := ListStream(t.Context(), repo, stream, trust(r2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := names(l.Records); !slices.Equal(got, []string{"r1", "r2", "r3"}) {
+		t.Fatalf("records = %v", got)
+	}
+	if len(l.Unreadable) != 2 || !slices.ContainsFunc(l.Unreadable, func(s string) bool { return strings.Contains(s, "not in the history that ends at its last record "+r2) }) {
+		t.Fatalf("unreadable = %v", l.Unreadable)
+	}
+	if f := delivery.FoldStream(l.Records); len(f.Problems) != 0 {
+		t.Fatalf("the forgery forked the stream: %v", f.Problems)
+	}
+	// A last record the registry no longer holds vouches for nothing.
+	if l, _ := ListStream(t.Context(), repo, stream, trust(strings.Repeat("0", 64))); !slices.Equal(names(l.Records), []string{"r3"}) {
+		t.Fatalf("records = %v", names(l.Records))
+	}
+	l, err = List(t.Context(), repo, anchor.ManifestDesc, trust(r2))
+	if err != nil || !slices.Equal(names(l.Records), []string{"r3"}) || len(l.Unreadable) != 4 {
+		t.Fatalf("list = %v %v %v", names(l.Records), l.Unreadable, err)
 	}
 }

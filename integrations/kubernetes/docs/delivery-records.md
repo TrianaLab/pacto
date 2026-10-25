@@ -63,13 +63,39 @@ Each Stage gets a `RecordStoreReady` condition:
 |---|---|
 | `ReferrersSupported` | Records are being written |
 | `ReferrersUnsupported` | The registry has no Referrers API |
-| `RegistryUnavailable` | The registry or signer did not answer; it tries again |
-| `StreamConflict` | Two records with one number, a broken chain or an untrusted signature. The recorder stops and the Stage freezes |
+| `RegistryUnavailable` | The registry did not answer; it tries again |
+| `SignerUnavailable` | The signer (KMS key, keyless token, Fulcio or timestamp authority) failed; it tries again |
+| `StreamConflict` | Two trusted records with one number, a broken chain, or the head the Stage names is missing. The recorder stops and the Stage freezes |
+
+A record no key trusted for the stream signed is not part of its history.
+The recorder and followers skip it, and the `True` condition message names
+the first one. Anyone who can push to the streams repository can attach a
+referrer, so an untrusted one never freezes a Stage.
 
 Pacto never resolves a `StreamConflict` for you. Find the bad record with
 `pacto delivery record verify`, delete its referrer manifest from the streams
 repository, wait for `RecordStoreReady` to turn `True`, then unfreeze. After an
 etcd restore the recorder continues from the newest record, never forking.
+
+## Require records
+
+By default automation keeps moving a Stage while the recorder cannot write,
+and the records catch up later. To stop that, set `records.required` on the
+Stage:
+
+```yaml
+spec:
+  records:
+    required: true
+```
+
+Then every promote or rollback an agent or the promoter raises waits for a
+person to approve it while `RecordStoreReady` is not `True`, or while more than
+five of the Stage's operations wait for a record. People, break-glass and
+freezes are not held. With `recorder.monitoring.enabled`, the chart scrapes the
+recorder and ships a `PrometheusRule`. `PactoDeliveryRecordsPending` fires when
+a stream has waited 15 minutes for a record, and `PactoDeliveryRecorderDown`
+when no recorder answers a scrape.
 
 ## Trust and key rotation
 
@@ -90,10 +116,48 @@ recorder:
 
 `streams` are patterns over stream ids (`<cluster>/<namespace>/<stage>`), so a
 dev key cannot sign prod history. A keyless entry names `identity`, `issuer`
-and the required `trustedRoot`. Pass the same file (or the recorder's PEM
+and the required `trustedRoot`. The recorder's own key is always trusted. List
+the old key before the recorder signs with a new one, including when a KMS
+alias moves to a new key. Otherwise the records the old key signed no longer
+verify, the head the Stage names goes missing and the Stage freezes. Pass the same file (or the recorder's PEM
 public key) to the CLI with `--trust` or `PACTO_DELIVERY_TRUST`, and to
 `pacto mcp --delivery` and `pacto dashboard` with `--delivery-trust`. Without
 it, records are read unchecked and every answer says it is partial.
+
+## Revoke a key
+
+When a key leaks, rotate the recorder to a new key first. Then keep the old
+key listed with `untilRecord`, the id of the last record it signed on that
+stream, and `untilSeq`, that record's seq. The old key then verifies only that
+record and the records it chains from, so the history stays readable.
+Anything else the old key signs is skipped as untrusted: a record after
+`untilSeq`, and a forgery backdated to a seq the key already used. So a
+forgery neither extends the stream nor forks it, and the Stage does not
+freeze:
+
+```yaml
+keys:
+  - name: leaked
+    publicKey: |
+      -----BEGIN PUBLIC KEY-----
+      ...
+      -----END PUBLIC KEY-----
+    streams: ["<cluster>/prod/payments"]
+    untilSeq: 41
+    untilRecord: 3f9c...e1 # the record at seq 41
+```
+
+Seqs count per stream, so give a key that signed several streams one entry
+per stream. The last seq and record of each are in the Stage's
+`status.stream.recordedSeq` and `status.stream.head`, or in
+`pacto delivery record verify`. Set both fields or neither. A read of one
+version's records, not the whole stream, cannot walk the chain, so it shows
+what the old key signed as not verified. Followers
+need the same trust config. A follower that does not trust the new key sees
+the stream end at the last record it can verify.
+
+Removing the key instead makes every record it signed unverifiable. The
+recorder then stops on the missing head and every follower sees a hole.
 
 ## History, blame and undo
 
@@ -143,8 +207,13 @@ with the entry's `trustedRoot` saved as `trusted_root.json`:
 
 ```bash
 --trusted-root trusted_root.json --certificate-identity <identity> \
-  --certificate-oidc-issuer <issuer> --use-signed-timestamps
+  --certificate-oidc-issuer <issuer> --use-signed-timestamps \
+  --insecure-ignore-sct
 ```
+
+`--insecure-ignore-sct` is there only when the trusted root lists no
+certificate transparency log, as a private Sigstore often does. A certificate
+from such a root has no timestamp to check, and cosign fails without the flag.
 
 `oras discover` on a version lists the records attached to it. The record
 itself is a DSSE envelope: `jq -r .dsseEnvelope.payload record.json | base64 -d`
@@ -164,5 +233,9 @@ referrers out of them. With `recorder.cdeventsSink` set, the recorder posts a
   Stage; `record verify` checks any time.
 - Deleting a Stage while a change runs leaves that change unrecorded. Wait for
   its changes to conclude first.
-- Without Rekor a keyless record has no signed time, so its chain is checked at
-  the moment the certificate was issued.
+- A follower in another cluster notices records removed from a stream's tail
+  only against the newest record it already read
+  ([details](delivery-reach.md#when-the-records-cannot-be-trusted)).
+- A keyless record writes no transparency log entry. Its signed time comes
+  from the timestamp authority the recorder must name, and the certificate is
+  checked at that time.

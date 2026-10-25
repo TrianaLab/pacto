@@ -60,7 +60,7 @@ func edSigner(key ed25519.PrivateKey) delivery.Signer {
 
 // edVerifier verifies records signed by pub, for any stream.
 func edVerifier(pub crypto.PublicKey) delivery.Verifier {
-	return func(_ string, b []byte) error { _, err := signing.Policy{Key: pub}.Verify(b, nil); return err }
+	return func(_ string, _ int64, b []byte) error { _, err := signing.Policy{Key: pub}.Verify(b, nil); return err }
 }
 
 func gap() delivery.Statement {
@@ -203,7 +203,7 @@ func TestNewSignerKeyless(t *testing.T) {
 }
 
 func TestSelfCheckedPassesSigningErrors(t *testing.T) {
-	s := selfChecked{Signer: failingSigner{}, verify: func(string, []byte) error { return nil }}
+	s := selfChecked{Signer: failingSigner{}, verify: func(string, int64, []byte) error { return nil }}
 	if _, err := s.Sign(context.Background(), delivery.PayloadType, nil); err == nil {
 		t.Fatal("a signing error was swallowed")
 	}

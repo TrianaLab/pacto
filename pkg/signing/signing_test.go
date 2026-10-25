@@ -272,6 +272,11 @@ func TestKeylessRoundTrip(t *testing.T) {
 	if _, err := (Policy{Identity: ok.Identity, Issuer: ok.Issuer, Root: withCT}).Verify(b, nil); err == nil {
 		t.Error("a certificate without an SCT verified under a root with a CT log")
 	}
+	// cosign must be told to skip the SCT exactly when the root lists no CT log.
+	ctJSON, _ := withCT.MarshalJSON()
+	if !WithoutSCT(string(ss.RootJSON)) || WithoutSCT(string(ctJSON)) || WithoutSCT("{") {
+		t.Error("WithoutSCT misreads which roots list a CT log")
+	}
 	// The statement's subject is checked when a digest is given.
 	zero := make([]byte, sha256.Size)
 	if _, err := ok.Verify(b, zero); err != nil {

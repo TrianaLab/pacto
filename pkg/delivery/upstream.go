@@ -14,23 +14,52 @@ import (
 // takes it out of Verified. A rollback raised on a Fail verdict, the one a
 // failed post-release re-check raises, marks the version it leaves failed the
 // same way, and so does the freeze such a re-check raises when it cannot roll
-// back: that freeze names the failed version it stays on. unreadable names the
-// records that failed verification. Any of those, or a gap or fork inside the
-// stream, offers nothing: a downstream never promotes on history it cannot
-// check, so the result is nil with the reason.
-func UpstreamFromRecords(recs []StoredRecord, unreadable []string) (*StageStatus, string) {
-	if len(unreadable) > 0 {
-		return nil, "records that could not be verified: " + strings.Join(unreadable, "; ")
-	}
+// back: that freeze names the failed version it stays on. A gap or fork
+// inside the stream offers nothing: a downstream never promotes on history it
+// cannot check, so the result is nil with the reason. A record that failed
+// verification is not passed in at all: it is not the stream's history, and
+// anyone who can push to the registry could otherwise blind every follower. A
+// trusted record that stops verifying leaves a hole, which offers nothing.
+// Stream.Seq and Stream.Head name the newest record read: what a decision on
+// this view cites. seen is the newest record the Stage already read
+// (status.upstreamSeen), which the stream must still hold (UpstreamTruncated).
+func UpstreamFromRecords(recs []StoredRecord, seen RecordMark) (*StageStatus, string) {
 	f := FoldStream(recs)
 	if len(f.Problems) > 0 {
 		return nil, "the stream is not whole: " + strings.Join(f.Problems, "; ")
 	}
 	s := &StageStatus{}
+	at := map[int64]string{}
 	for _, r := range f.Records {
 		s.foldUpstream(r.Statement.Predicate)
+		s.Stream.ID, s.Stream.Seq = r.Statement.Predicate.Chain.Stream, r.Statement.Predicate.Chain.Seq
+		at[s.Stream.Seq] = r.ID
+	}
+	s.Stream.Head = f.Head
+	if why := UpstreamTruncated(seen, s.Stream, at); why != "" {
+		return nil, why
 	}
 	return s, ""
+}
+
+// UpstreamTruncated says why a read of an upstream stream that ends at got,
+// holding the record at[seq] at each seq, cannot be trusted by a Stage that
+// already read the stream up to seen: the stream now ends before seen, or
+// holds another record at seen's seq, however far it grew since. Records are
+// only ever appended, and the upstream recorder never extends a stream whose
+// newest record is gone, so a stream that does not hold seen lost records: a
+// Fail or a rollback among them would otherwise go unseen. Empty when got
+// holds seen, or seen is of another stream.
+func UpstreamTruncated(seen RecordMark, got Stream, at map[int64]string) string {
+	switch {
+	case seen.Stream != got.ID && got.ID != "" || seen.Seq == 0:
+		return ""
+	case got.Seq < seen.Seq:
+		return fmt.Sprintf("the stream ends at seq %d, but this Stage already read it up to seq %d (record %s): its newest records were removed", got.Seq, seen.Seq, short(seen.Record))
+	case at[seen.Seq] != seen.Record:
+		return fmt.Sprintf("seq %d is record %s, but this Stage read %s there: the stream was rewritten", seen.Seq, short(at[seen.Seq]), short(seen.Record))
+	}
+	return ""
 }
 
 // foldUpstream applies one verified record to the remote view

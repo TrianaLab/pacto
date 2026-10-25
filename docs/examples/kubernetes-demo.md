@@ -74,9 +74,11 @@ Chromium) against `examples/story`, once per cluster: the agent ships checkout 1
 and the held change then asks only orders; carol approves after signing in
 again; 3.0.0 sends too little telemetry, so its check says Unknown until carol
 accepts that; she rolls 3.0.0 back and automation holds off. Last comes B10:
-a changed copy of a signed record freezes payments in prod. pay-agent cannot
-unfreeze it; alice does once the copy is gone. The promoter plans no unfreeze,
-so the demo checks how it concludes (Succeeded/Unverified, as the story says). Then ops pins a version by hand
+the newest signed record of payments in prod is deleted from the registry, and
+the Stage freezes. A changed copy of a record is ignored, since anyone who can
+push could attach one. pay-agent cannot unfreeze the Stage; alice does once the
+record is restored. The promoter plans no unfreeze, so the demo checks how it
+concludes (Succeeded/Unverified, as the story says). Then ops pins a version by hand
 under break-glass, which shows as a witnessed record and freezes the Stage
 again. Then pay-agent ships as a service of its own, with its eval suite as
 the check: 1.0.0 passes, and 1.1.0 swaps its model, passes 1 of its 2 evals and

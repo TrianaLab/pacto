@@ -96,8 +96,10 @@ spec:
                   asking.
                 type: boolean
               candidates:
-                description: Candidates says where new versions come from. Exactly
-                  one is set.
+                description: |-
+                  Candidates says where new versions come from. At most one is set, so the
+                  version offered and the version judged come from the same source; a Stage
+                  that sets none is not Ready and never promotes.
                 properties:
                   ociRepositoryRef:
                     description: |-
@@ -140,6 +142,11 @@ spec:
                     - name
                     type: object
                 type: object
+                x-kubernetes-validations:
+                - message: set at most one of candidates.ociRepositoryRef, candidates.upstreamStage
+                    and candidates.upstreamRecords
+                  rule: '(has(self.ociRepositoryRef) ? 1 : 0) + (has(self.upstreamStage)
+                    ? 1 : 0) + (has(self.upstreamRecords) ? 1 : 0) <= 1'
               deadlines:
                 description: Deadlines override the operation type's defaults (Go
                   durations).
@@ -218,6 +225,19 @@ spec:
                         type: string
                     type: object
                 type: object
+              records:
+                description: |-
+                  RecordsPolicy says whether automation may move the Stage while its records
+                  cannot be written.
+                properties:
+                  required:
+                    description: |-
+                      Required holds every promote or rollback an agent or the promoter
+                      raises for a person to approve while the recorder is not writing this
+                      Stage's records (RecordStoreReady is not True) or more than five of
+                      its operations wait for a record (MaxRecordsPending).
+                    type: boolean
+                type: object
               service:
                 description: |-
                   ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified
@@ -261,11 +281,13 @@ spec:
               conditions:
                 description: |-
                   Conditions holds Ready. It is False, naming what is missing, when the
-                  Stage can never promote: its candidate OCIRepository does not exist or
-                  sets no spec.verify naming the publisher, or it names no candidate
-                  source at all. The recorder adds RecordStoreReady: False when the
-                  registry has no Referrers API, cannot be reached or holds a stream it
-                  refuses to fork.
+                  Stage cannot promote: its applier cannot be read, lacks the apply-ref
+                  label or (on Argo CD) has no single OCI source or no automated sync; its
+                  candidate OCIRepository does not exist or sets no spec.verify naming the
+                  publisher; the records of its upstream in another cluster are not
+                  trusted or cannot be read; or it names no candidate source at all. The
+                  recorder adds RecordStoreReady: False when the registry has no
+                  Referrers API, cannot be reached or holds a stream it refuses to fork.
                 items:
                   description: |-
                     Condition is a Kubernetes status condition, so `kubectl wait
@@ -464,6 +486,28 @@ spec:
                   seq:
                     format: int64
                     type: integer
+                type: object
+              upstreamSeen:
+                description: |-
+                  UpstreamSeen is the newest record this Stage read from the upstream
+                  stream it follows (candidates.upstreamRecords). A later read that ends
+                  before it, or holds another record at its seq, offers nothing, so
+                  records removed from the upstream's tail never go unseen.
+                properties:
+                  record:
+                    description: Record is the record's id, the digest of its signed
+                      payload.
+                    type: string
+                  seq:
+                    format: int64
+                    type: integer
+                  stream:
+                    description: Stream is the stream id.
+                    type: string
+                required:
+                - record
+                - seq
+                - stream
                 type: object
               verified:
                 description: Verified holds the newest verified digests, oldest first

@@ -30,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
@@ -51,17 +52,21 @@ type Cluster struct {
 	Registry func(insecureHosts ...string) delivery.Registry
 	// Upstream reads what a Stage in another cluster verified from its signed
 	// records (deliveryrecord.Upstream with the promoter's upstream trust
-	// config). Nil when the promoter trusts no upstream key: such a Stage is
-	// not Ready and offers nothing.
-	Upstream func(ctx context.Context, r delivery.RemoteStage) (*delivery.StageStatus, string)
+	// config), refusing a stream that no longer holds seen. Nil when the
+	// promoter trusts no upstream key: such a Stage is not Ready and offers
+	// nothing.
+	Upstream func(ctx context.Context, r delivery.RemoteStage, seen delivery.RecordMark) (*delivery.StageStatus, string)
 }
 
-// remote reads an upstream Stage in another cluster, or says why it cannot.
-func (c Cluster) remote(ctx context.Context, r delivery.RemoteStage) (*delivery.StageStatus, string) {
+// remote reads the upstream Stage in another cluster that stage follows, or
+// says why it cannot: no trusted key, records that cannot be read or verified,
+// a stream that is not whole, or one that no longer holds the newest record
+// the Stage already read (status.upstreamSeen).
+func (c Cluster) remote(ctx context.Context, stage *dv1.Stage) (*delivery.StageStatus, string) {
 	if c.Upstream == nil {
 		return nil, noUpstreamTrust
 	}
-	return c.Upstream(ctx, r)
+	return c.Upstream(ctx, *stage.Spec.Candidates.UpstreamRecords, stage.Status.UpstreamSeen)
 }
 
 const noUpstreamTrust = "the promoter trusts no key for the records of other clusters (promoter.upstreamTrust)"
@@ -251,7 +256,7 @@ func readyCondition(obj map[string]any) (status, reason, message string) {
 	conds, _, _ := unstructured.NestedSlice(obj, "status", "conditions")
 	for _, c := range conds {
 		m, _ := c.(map[string]any)
-		if m["type"] == "Ready" {
+		if m["type"] == conditionReady {
 			status, _ = m["status"].(string)
 			reason, _ = m["reason"].(string)
 			message, _ = m["message"].(string)

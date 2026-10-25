@@ -136,7 +136,7 @@ of an Application's `spec.source` and its `spec.sources`, and a Kustomization's
 those objects must leave these fields alone, or run in a break-glass group.
 Admission guards updates only. Whoever may delete and create these objects can
 delete one and create it again without the label: nothing refuses that, but the
-Stage shows it as `Ready` `False` with the reason `ApplyRefUnlabelled` and
+Stage shows it as `Ready` `False` with the reason `ApplierUnlabelled` and
 `Mediated` `False` with the reason `ApplyRefUnguarded`. Keep delete and create
 on them to the people you would put in break-glass.
 `kubectl set image` on the workload itself is not mediated: Flux puts it back
@@ -168,7 +168,7 @@ Label the `OCIRepository` that applies the Stage with
 `delivery.pacto.trianalab.io/apply-ref`, so admission keeps everyone but the
 promoter and break-glass off its digest, and give it the same `spec.verify`.
 Without the label the promoter may not write the digest either: the Stage has
-`Ready` `False` with the reason `ApplyRefUnlabelled`, and a refused write shows
+`Ready` `False` with the reason `ApplierUnlabelled`, and a refused write shows
 in the operation's `status.message`. A downstream Stage takes only what its upstream lists in
 `status.offered`: versions that passed the published gate and were verified
 there, never one let through on an accepted unknown.

@@ -243,7 +243,7 @@ func stageObj(pointer string) *dv1.Stage {
 
 func ociRepo(name, digest, revision string, insecure bool) *unstructured.Unstructured {
 	u := &unstructured.Unstructured{Object: map[string]any{
-		"metadata": map[string]any{"namespace": ns, "name": name, "labels": map[string]any{ApplyRefLabel: name}},
+		"metadata": map[string]any{"namespace": ns, "name": name, "labels": map[string]any{ApplyRefLabel: "true"}},
 		"spec":     map[string]any{"url": "oci://" + repo, "insecure": insecure, "ref": map[string]any{}},
 	}}
 	if digest != "" {

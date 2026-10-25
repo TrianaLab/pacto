@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -126,8 +127,48 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 		}
 		routeToServiceTeam(in, &p)
 	}
+	holdForRecords(in, &p)
 	p.Predicted = predict(in, &p)
 	return p
+}
+
+// holdForRecords asks a person to approve a promote or rollback an agent or
+// the promoter raised while a Stage that requires records cannot have them
+// written. A plan that already asks a person keeps its own question.
+func holdForRecords(in PlanInput, p *Plan) {
+	why := RecordsUnavailable(in.Stage, in.Status)
+	if why == "" || in.Class == ClassHuman || in.Class == ClassBreakGlass || p.Floor.Human ||
+		in.Spec.Type != TypePromote && in.Spec.Type != TypeRollback {
+		return
+	}
+	p.Floor.Human, p.Floor.Decision = true, Approve
+	p.Question = "This Stage requires records, and " + why + ". Approve the " + in.Spec.Type + " to " + short(p.To) + " without a record yet?"
+}
+
+// ConditionRecordStoreReady is the recorder's Stage condition.
+const ConditionRecordStoreReady = "RecordStoreReady"
+
+// MaxRecordsPending is how many concluded operations may wait for a record
+// before a Stage that requires records stops moving on its own.
+// ponytail: a constant; make it a Stage field if one size does not fit.
+const MaxRecordsPending = 5
+
+// RecordsUnavailable says why a Stage that requires records cannot have them
+// written now, or "" when it does not require them or they are being written.
+func RecordsUnavailable(spec StageSpec, st StageStatus) string {
+	if !spec.Records.Required {
+		return ""
+	}
+	i := slices.IndexFunc(st.Conditions, func(c Condition) bool { return c.Type == ConditionRecordStoreReady })
+	switch {
+	case i < 0:
+		return "the recorder has not reported on it"
+	case st.Conditions[i].Status != "True":
+		return "the recorder is not writing its records (" + st.Conditions[i].Reason + ": " + st.Conditions[i].Message + ")"
+	case st.Stream.Seq-st.Stream.RecordedSeq > MaxRecordsPending:
+		return fmt.Sprintf("%d operations wait for a record, more than %d", st.Stream.Seq-st.Stream.RecordedSeq, MaxRecordsPending)
+	}
+	return ""
 }
 
 // routeToServiceTeam sends a question that names no consumer's owner to the
@@ -213,6 +254,11 @@ func publishedGate(in PlanInput) Verdict {
 	switch {
 	case c.UpstreamStage != nil || c.UpstreamRecords != nil:
 		v.Citation["upstream"] = upstreamName(c)
+		if in.Upstream != nil && c.UpstreamRecords != nil {
+			// The upstream records this verdict relied on: an auditor replays
+			// the stream up to this record and gets the same answer.
+			v.Citation["upstreamHead"], v.Citation["upstreamSeq"] = in.Upstream.Stream.Head, strconv.FormatInt(in.Upstream.Stream.Seq, 10)
+		}
 		switch {
 		case in.Upstream == nil && c.UpstreamRecords != nil:
 			v.Message = "the records of the upstream Stage " + v.Citation["upstream"] + " cannot be read or verified (" +

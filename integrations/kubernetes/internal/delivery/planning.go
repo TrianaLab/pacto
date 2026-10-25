@@ -128,8 +128,8 @@ func (p planSources) Stages(ctx context.Context) ([]delivery.StageObject, error)
 // planned again. A Stage in another cluster is read from its signed records,
 // and why says why that gave nothing.
 func (p planSources) Upstream(ctx context.Context, stage delivery.StageObject) (*delivery.StageStatus, string, error) {
-	if rs := stage.Spec.Candidates.UpstreamRecords; rs != nil {
-		s, why := p.r.Cluster.remote(ctx, *rs)
+	if stage.Spec.Candidates.UpstreamRecords != nil {
+		s, why := p.r.Cluster.remote(ctx, &dv1.Stage{Spec: stage.Spec, Status: stage.Status})
 		return s, why, nil
 	}
 	up := stage.Spec.Candidates.UpstreamStage

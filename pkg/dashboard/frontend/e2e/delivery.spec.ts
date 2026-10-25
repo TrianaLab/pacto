@@ -138,9 +138,10 @@ function installDelivery(persona: Persona): void {
 
   const wrapped: Serve = (method, path, body, headers = {}) => {
     const route = path.split('?')[0];
-    // Like the dashboard's guard: a signed-in session's mutating call carries
-    // the session's CSRF token, or it is refused.
-    if (route.startsWith('/api/delivery/') && method !== 'GET' && persona !== 'signed-out' && headers['x-pacto-csrf'] !== 't') {
+    // Like the dashboard's guard (internal/authn/guard.go): with a session,
+    // every mutating call under /api/ and to /auth/logout carries the
+    // session's CSRF token, or it is refused.
+    if ((route.startsWith('/api/') || route === '/auth/logout') && method !== 'GET' && persona !== 'signed-out' && headers['x-pacto-csrf'] !== 't') {
       return json(403, { status: 403, code: 'Forbidden', detail: 'missing or wrong X-Pacto-CSRF header' });
     }
     if (route === '/api/capabilities') {

@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"slices"
 	"strconv"
-	"strings"
 
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
@@ -34,8 +33,6 @@ var (
 	// errUnsupported: the registry has no native Referrers API. Records are
 	// unsupported there; there is no tag fallback.
 	errUnsupported = errors.New("the registry has no Referrers API")
-	// errUnverifiable: the anchor holds a record the recorder cannot verify.
-	errUnverifiable = errors.New("the stream holds a record the recorder cannot verify")
 )
 
 // RecordStore writes operation records as OCI referrers and reads a stream
@@ -123,18 +120,19 @@ func (s *RecordStore) Probe(ctx context.Context) error {
 	return err
 }
 
-// list reads every record on the anchor. Referrers that are not records are
-// skipped; a record that will not verify fails the read, because a stream with
-// a record the recorder cannot account for is one it must not extend.
-func (s *RecordStore) list(ctx context.Context, anchor *place) ([]stored, error) {
+// list reads every record on the anchor that a key trusted for the stream
+// signed. Referrers that are not records are skipped, and so is a record that
+// will not verify: it is not the stream's history, and anyone who can push to
+// the streams repository could otherwise freeze any Stage by attaching one.
+// ignored names those records, with why, for the condition to show. A
+// trusted record that went missing still stops the recorder: the head the
+// Stage names is then not among the records (conflict).
+func (s *RecordStore) list(ctx context.Context, anchor *place) (recs []stored, ignored []string, err error) {
 	l, err := deliveryrecord.ListStream(ctx, anchor.repo, anchor.stream, s.Verify)
 	if err != nil {
-		return nil, classify(err)
+		return nil, nil, classify(err)
 	}
-	if len(l.Unreadable) > 0 {
-		return nil, fmt.Errorf("%w: %s", errUnverifiable, strings.Join(l.Unreadable, "; "))
-	}
-	return l.Records, nil
+	return l.Records, l.Unreadable, nil
 }
 
 // locate finds where a record of a move from→to goes: to and from in the

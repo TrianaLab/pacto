@@ -99,6 +99,15 @@ func TrustVerifier(t delivery.TrustConfig) (delivery.Verifier, error) {
 	})
 }
 
+// WithoutSCT reports whether a keyless record under trustedRoot carries no
+// signed certificate timestamp to check: the root lists no CT log, as a private
+// Sigstore without one does. cosign checks an SCT unless it is told not to
+// (--insecure-ignore-sct), where Verify only checks one the root can vouch for.
+func WithoutSCT(trustedRoot string) bool {
+	tr, err := root.NewTrustedRootFromJSON([]byte(trustedRoot))
+	return err == nil && len(tr.CTLogs()) == 0
+}
+
 func policyOf(k delivery.TrustedKey) (Policy, error) {
 	switch {
 	case k.PublicKey != "" && k.Identity == "" && k.Issuer == "" && k.TrustedRoot == "":

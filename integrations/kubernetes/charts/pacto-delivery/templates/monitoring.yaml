@@ -1,0 +1,74 @@
+{{- if and .Values.recorder.enabled .Values.recorder.monitoring.enabled }}
+{{- $name := printf "%s-recorder" (include "pacto-delivery.fullname" .) }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: recorder
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  selector:
+    app.kubernetes.io/component: recorder
+    {{- include "pacto-delivery.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+      protocol: TCP
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: recorder
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: recorder
+      {{- include "pacto-delivery.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: metrics
+      path: /metrics
+---
+# A Stage with spec.records.required stops moving on its own once more than
+# five operations wait for a record; this alert fires before anyone is asked.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ $name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: recorder
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  groups:
+    - name: pacto.delivery.records
+      rules:
+        - alert: PactoDeliveryRecordsPending
+          expr: max by (stream) (pacto_delivery_records_pending) > 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Stream {{ "{{ $labels.stream }}" }} has operations with no signed record"
+            description: >-
+              {{ "{{ $value }}" }} concluded operation(s) of stream {{ "{{ $labels.stream }}" }} have waited
+              more than 15 minutes for a record. Check the Stage's RecordStoreReady condition: the
+              registry or the signer may be down. A Stage with spec.records.required asks a person
+              before automation moves it again.
+        - alert: PactoDeliveryRecorderDown
+          expr: absent(up{job="{{ $name }}-metrics"} == 1)
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "The Pacto delivery recorder is not scraped"
+            description: >-
+              No recorder answered a scrape for 15 minutes, so no record is being written and the
+              pending alert cannot fire.
+{{- end }}
