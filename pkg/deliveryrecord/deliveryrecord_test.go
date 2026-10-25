@@ -123,20 +123,7 @@ func TestList(t *testing.T) {
 		t.Fatalf("unchecked records = %d", len(l.Records))
 	}
 
-	// A Reader fetches and verifies each referrer once: with every manifest
-	// and blob read refused, it still lists what it read before, while a
-	// fresh read fails.
-	cached := &Reader{Verify: verify}
-	if _, err := cached.List(t.Context(), repo, anchor.ManifestDesc); err != nil {
-		t.Fatal(err)
-	}
 	f.blobs.Store(true)
-	f.manifest.Store(true)
-	if l, err := cached.List(t.Context(), repo, anchor.ManifestDesc); err != nil || len(l.Records) != 1 || len(l.Unreadable) != 1 {
-		t.Fatalf("a cached read fetched again: %+v %v", l, err)
-	}
-	f.manifest.Store(false)
-
 	if _, err := List(t.Context(), repo, anchor.ManifestDesc, verify); err == nil {
 		t.Fatal("a bundle that could not be fetched was not an error")
 	}
@@ -153,6 +140,36 @@ func TestList(t *testing.T) {
 		t.Fatalf("oversized manifests were read: %+v", l)
 	}
 	MaxBytes = old
+}
+
+// TestReaderFetchesEachReferrerOnce: a Reader remembers what each referrer
+// read as. With every manifest and blob read refused, it still lists what it
+// read before, while a fresh read fails.
+func TestReaderFetchesEachReferrerOnce(t *testing.T) {
+	f, path := setup(t, testutil.ReferrersOptions{})
+	repo, _ := ocireferrer.Open(path, ocireferrer.Options{})
+	anchor := Anchor(stream)
+	if err := ocireferrer.Push(t.Context(), repo, anchor); err != nil {
+		t.Fatal(err)
+	}
+	pub, key, _ := ed25519.GenerateKey(rand.Reader)
+	_, other, _ := ed25519.GenerateKey(rand.Reader)
+	ann := map[string]string{AnnPredicateType: delivery.PredicateOperation}
+	attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, signed(t, key, 1), ann)
+	attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, signed(t, other, 2), ann)
+	attach(t, path, anchor.ManifestDesc, "application/x-other", []byte("not ours"), nil)
+	cached := &Reader{Verify: keyVerifier(pub)}
+	if l, err := cached.List(t.Context(), repo, anchor.ManifestDesc); err != nil || len(l.Records) != 1 || len(l.Unreadable) != 1 {
+		t.Fatalf("first read: %+v %v", l, err)
+	}
+	f.blobs.Store(true)
+	f.manifest.Store(true)
+	if l, err := cached.List(t.Context(), repo, anchor.ManifestDesc); err != nil || len(l.Records) != 1 || len(l.Unreadable) != 1 {
+		t.Fatalf("a cached read fetched again: %+v %v", l, err)
+	}
+	if _, err := List(t.Context(), repo, anchor.ManifestDesc, keyVerifier(pub)); err == nil {
+		t.Fatal("a fresh read with every fetch refused must fail")
+	}
 }
 
 func TestListRefusesOddRecords(t *testing.T) {
