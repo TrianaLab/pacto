@@ -13,6 +13,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -49,7 +50,26 @@ func (r *OperationReconciler) newerPromote(ctx context.Context, op *dv1.Operatio
 }
 
 // plan gathers plan()'s inputs from the cluster and the registry and runs it.
+// A refusal is final, so it is never decided on a cached Stage that lags the
+// apiserver: a refused plan reads the Stage uncached and, if it moved, plans
+// again on it, updating stage in place.
 func (r *OperationReconciler) plan(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (delivery.Plan, error) {
+	p, err := r.planOn(ctx, op, stage)
+	if err != nil || p.Predicted != delivery.PredictRejected {
+		return p, err
+	}
+	fresh := &dv1.Stage{}
+	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(stage), fresh); err != nil {
+		return delivery.Plan{}, err
+	}
+	if fresh.ResourceVersion == stage.ResourceVersion {
+		return p, nil
+	}
+	*stage = *fresh
+	return r.planOn(ctx, op, stage)
+}
+
+func (r *OperationReconciler) planOn(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (delivery.Plan, error) {
 	in, err := delivery.AssemblePlanInput(ctx, planSources{r}, op.Spec, stageObject(stage), op.Status.ActorClass, r.now())
 	if err != nil {
 		return delivery.Plan{}, err

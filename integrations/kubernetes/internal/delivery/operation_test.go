@@ -1456,3 +1456,41 @@ func TestNoStageNeedsTheAPIServer(t *testing.T) {
 		t.Fatalf("concluded on a failed read: %+v", o.Status)
 	}
 }
+
+// TestARefusalNeedsTheAPIServer: a refusal is final, so a cache that lags a
+// pointer move never decides PointerMoved. The plan reads the Stage uncached
+// and plans again on it; a failed uncached read is retried.
+func TestARefusalNeedsTheAPIServer(t *testing.T) {
+	lag := func(e *env) {
+		r := *e.op
+		r.Client = interceptor.NewClient(e.c, interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				err := c.Get(ctx, key, obj, opts...)
+				if s, ok := obj.(*dv1.Stage); ok && err == nil {
+					s.Status.Pointer, s.ResourceVersion = dC, "0" // a cache one move behind
+				}
+				return err
+			},
+		})
+		e.op = &r
+	}
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	lag(e)
+	if o := e.drive("p1"); o.Status.Outcome == delivery.Rejected || strings.Contains(o.Status.Message, "PointerMoved") {
+		t.Fatalf("a lagging cache refused the operation: %+v", o.Status)
+	}
+	if s := e.getStage(); s.Status.Pointer != dB {
+		t.Fatalf("the operation did not ship on the apiserver's Stage: %s", s.Status.Pointer)
+	}
+	e = baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	planner := *e.op
+	planner.APIReader = failingReader{}
+	stage := &dv1.Stage{}
+	if err := e.c.Get(context.Background(), keyOf("payments-prod"), stage); err != nil {
+		t.Fatal(err)
+	}
+	stage.Status.Pointer = dC
+	if _, err := planner.plan(context.Background(), e.getOp("p1"), stage); !errors.Is(err, errTest) {
+		t.Fatalf("a failed uncached read is retried, got %v", err)
+	}
+}
