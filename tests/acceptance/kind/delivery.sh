@@ -1297,7 +1297,7 @@ KUBECONFIG="$AGENT_A" kubectl -n "$H" create -f - >/dev/null <<YAML
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Operation
 metadata: {name: promote-s-rollback, finalizers: [delivery.pacto.trianalab.io/record]}
-spec: {type: pacto.dev/promote, stage: payments, facet: pointer, params: {from: "$H1", to: "$H1"}, actor: {user: "system:serviceaccount:agents:agent-a"}, reason: squat}
+spec: {type: pacto.dev/promote, stage: payments, facet: pointer, params: {from: "$H1", to: "$H1"}, actor: {user: "system:serviceaccount:agents:agent-a", groups: [system:serviceaccounts, "system:serviceaccounts:agents", system:authenticated]}, reason: squat}
 YAML
 eventually 60 concluded "$H" promote-s-rollback || fail "the squatting operation never concluded: $(field "$H" promote-s-rollback phase)"
 OPS="$(ship s "$S")"
