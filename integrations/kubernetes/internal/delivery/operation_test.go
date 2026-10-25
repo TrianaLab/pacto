@@ -1273,3 +1273,41 @@ func TestRefusedPointerWriteIsShown(t *testing.T) {
 		t.Fatalf("message %q", m)
 	}
 }
+
+// TestRefusalRereadsTheStage: a refusal is final, so admission never refuses
+// on a cached Stage that lags a pointer move: it reads the Stage again, and an
+// operation planned against the pointer that really runs is admitted. A failed
+// re-read surfaces instead of refusing.
+func TestRefusalRereadsTheStage(t *testing.T) {
+	stale := func(e *env, fail bool) {
+		r := *e.op
+		r.Client = interceptor.NewClient(e.c, interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if err := c.Get(ctx, key, obj, opts...); err != nil {
+					return err
+				}
+				if s, ok := obj.(*dv1.Stage); ok {
+					s.Status.Pointer = dA // the cache has not seen the move to dB yet
+				}
+				return nil
+			},
+		})
+		if fail {
+			r.APIReader = failingReader{}
+		}
+		e.op = &r
+	}
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dB, dC, bot))
+	e.setStage(func(s *delivery.StageStatus) { s.Pointer, s.Verified = dB, []string{dA, dB} })
+	stale(e, false)
+	e.reconcileOp("p1")
+	if o := e.getOp("p1"); o.Status.Phase != delivery.PhasePending {
+		t.Fatalf("refused on a stale Stage: %+v", o.Status)
+	}
+	e = baseEnv(t, opObj("p1", delivery.TypePromote, dB, dC, bot))
+	e.setStage(func(s *delivery.StageStatus) { s.Pointer = dB })
+	stale(e, true)
+	if err := e.reconcileOpErr("p1"); err == nil {
+		t.Fatal("a failed re-read must surface, not refuse")
+	}
+}

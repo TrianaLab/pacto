@@ -165,6 +165,12 @@ func (r *OperationReconciler) admit(ctx context.Context, op *dv1.Operation, stag
 	if res, done, err := r.unguarded(ctx, op); done {
 		return res, err
 	}
+	// A refusal is final, so admission never judges a cached Stage that may
+	// lag a pointer move or a policy edit: it reads the Stage uncached, once.
+	stage = &dv1.Stage{}
+	if err := r.APIReader.Get(ctx, types.NamespacedName{Namespace: op.Namespace, Name: op.Spec.Stage}, stage); err != nil {
+		return reconcile.Result{}, err
+	}
 	now := r.now()
 	class := r.Policy.Classify(delivery.Identity{User: op.Spec.Actor.User, Groups: op.Spec.Actor.Groups})
 	op.Status.ActorClass = class
