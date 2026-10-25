@@ -89,8 +89,8 @@ func TestMediatedArgo(t *testing.T) {
 		status string
 		reason string
 	}{
-		"plain":   {nil, statusTrue, "PointerOnly"},
-		"sources": {func(a map[string]any) { a["spec"].(map[string]any)["sources"] = []any{map[string]any{"repoURL": "x"}} }, statusFalse, "SeveralSources"},
+		"plain":      {nil, statusTrue, "PointerOnly"},
+		"sources":    {func(a map[string]any) { a["spec"].(map[string]any)["sources"] = []any{map[string]any{"repoURL": "x"}} }, statusFalse, "SeveralSources"},
 		"unlabelled": {func(a map[string]any) { delete(a["metadata"].(map[string]any), "labels") }, statusFalse, "ApplyRefUnguarded"},
 		"helm values": {func(a map[string]any) {
 			a["spec"].(map[string]any)["source"].(map[string]any)["helm"] = map[string]any{"values": "image: evil"}
