@@ -291,23 +291,39 @@ func TestOrderPlacesTheConsumerOrSaysWhy(t *testing.T) {
 
 func TestOrderOnAFirstVersionAndAPartialGraph(t *testing.T) {
 	in, pactos := ordersWorld(map[string]*contract.Bundle{o2: bundle("orders", "1.9.0", paymentsDep("^3.0.0"))})
-	// An unreconciled Pacto in prod: Pacto cannot see every consumer, so the
-	// order says the list may be short.
-	var ghost PactoView
-	ghost.Metadata.Namespace, ghost.Metadata.Name = "prod", "ghost"
-	pactos = append(pactos, ghost)
 	p := orderPlan(t, in, pactos, Revision{}, payments3)
 	m := onlyMove(t, p)
 	// Nothing runs here yet, so only 3.0.0 has to be accepted.
 	if m.Candidate == nil || m.Candidate.Digest != o2 {
 		t.Fatalf("first version: %+v", m)
 	}
+	// An unreconciled Pacto in prod: Pacto cannot see every consumer, so the
+	// order says the list may be short, and it cannot tell whether moving
+	// orders first breaks something of its own that it cannot see.
+	var ghost PactoView
+	ghost.Metadata.Namespace, ghost.Metadata.Name = "prod", "ghost"
+	partial := append(slices.Clone(pactos), ghost)
+	p = orderPlan(t, in, partial, Revision{}, payments3)
 	if len(p.Order.Unknown) != 1 || !strings.Contains(p.Order.Unknown[0], "PACTO_NOT_RECONCILED") {
 		t.Fatalf("partial graph: %v", p.Order.Unknown)
+	}
+	if m := onlyMove(t, p); m.Candidate != nil || !strings.Contains(m.Unknown, "the operational graph is partial") {
+		t.Fatalf("a partial graph places nothing: %+v", m)
 	}
 	in.Stages[2].Status.Offered = nil
 	if m := onlyMove(t, orderPlan(t, in, pactos, Revision{}, payments3)); !strings.HasSuffix(m.Message, "verified accepts 3.0.0 yet. Ship one that does first.") {
 		t.Fatalf("first version, no candidate: %+v", m)
+	}
+}
+
+// TestOrderRunningContractUnreadable: an unreadable running contract never
+// reaches the order, so no candidate is placed against a version Pacto
+// cannot read.
+func TestOrderRunningContractUnreadable(t *testing.T) {
+	in, pactos := ordersWorld(map[string]*contract.Bundle{o2: bundle("orders", "1.9.0", paymentsDep(">=2.0.0 <4.0.0"))})
+	p := orderPlan(t, in, pactos, Revision{Digest: dA, ContractRef: c1, Err: "registry down"}, payments3)
+	if p.Order != nil || p.Predicted == PredictProceeds {
+		t.Fatalf("unreadable running contract: %+v", p)
 	}
 }
 
