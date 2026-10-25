@@ -39,7 +39,9 @@ pacto init --delivery --plan
 
 `pacto init` reads what is already there, such as the Dockerfile and the
 Kubernetes files, and fills in a contract from it. It reads your registry from
-the image name in your Deployment; pass `--registry ghcr.io/acme` if it cannot.
+the image name in your Deployment; pass `--registry ghcr.io/acme` if it cannot,
+or if the image is a bare name such as `checkout`, which means a Docker Hub
+official image nobody but Docker can push to.
 `--delivery` adds the cluster files of step 4, so the first version you publish
 already carries them. With `--plan` it shows exactly what it would add and
 changes nothing. For a private registry, add `--registry-secret registry-creds`
@@ -97,7 +99,10 @@ publish:
 
 The manifests build swaps the image in your Deployment for the one this
 version just built, pinned by its digest, so each version runs its own image.
-Your `k8s/deployment.yaml` stays as it is.
+It does the same in every other manifest that runs that image, such as a
+CronJob or a migration Job, so one version never deploys two images. A file
+that names the image in a form it cannot rewrite (a JSON manifest, say) is
+listed under what is left to do. Your `k8s/deployment.yaml` stays as it is.
 
 Fill in what the plan marked Unknown, above all the dependencies: uncomment one
 entry per service yours calls and set `compatibility` to the versions it

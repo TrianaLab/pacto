@@ -856,6 +856,12 @@ spec:
 	if b, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("%s: %v", b, err)
 	}
+	// checkout is a Docker Hub official image: nobody else pushes there, so
+	// the registry is Unknown, not docker.io/library.
+	if !hasLine(r.Unknown, "registry: the image checkout is a Docker Hub official image") || hasLine(r.Found, "docker.io/library") ||
+		strings.Contains(file(t, r, "pacto.yaml").Content, "docker.io") {
+		t.Fatalf("registry: %+v", r)
+	}
 	want := strings.Replace(deploy, "image: checkout\n", "image: "+pinnedImage+"\n", 1)
 	if d, _ := os.ReadFile(filepath.Join(out, "deployment.yaml")); string(d) != want {
 		t.Fatalf("published Deployment:\n%s", d)
@@ -877,5 +883,40 @@ spec:
 	}
 	if !hasLine(r.Next, "in a form pacto init cannot rewrite") || hasLine(r.Found, "pinned by digest") || strings.Contains(file(t, r, "pacto.yaml").Content, "PACTO_DIGEST_API") {
 		t.Fatalf("findings: %+v", r)
+	}
+}
+
+// TestPinImageInEveryManifest: a CronJob beside the Deployment that runs the
+// same image is pinned too, so one version never deploys two images; a file
+// that names the image in a form init cannot rewrite is named in Next.
+func TestPinImageInEveryManifest(t *testing.T) {
+	deploy := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: checkout}\nspec: {template: {spec: {containers: [{name: checkout, image: ghcr.io/acme/checkout:1.0.0}]}}}\n"
+	cron := "apiVersion: batch/v1\nkind: CronJob\nmetadata: {name: cleanup}\nspec:\n  jobTemplate:\n    spec:\n      template:\n        spec:\n          containers:\n            - name: cleanup\n              image: ghcr.io/acme/checkout:1.0.0\n"
+	job := `{"apiVersion": "batch/v1", "kind": "Job", "metadata": {"name": "migrate"}, "spec": {"template": {"spec": {"containers": [{"name": "m", "image": "ghcr.io/acme/checkout:1.0.0"}]}}}}` + "\n"
+	dir := writeTree(t, t.TempDir(), map[string]string{"Dockerfile": "FROM scratch\n", "k8s/deployment.yaml": deploy, "k8s/cronjob.yaml": cron, "k8s/job.yaml": job})
+	r, err := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasLine(r.Found, "k8s/cronjob.yaml, k8s/deployment.yaml deploy the image each version builds") ||
+		!hasLine(r.Next, "k8s/job.yaml names ghcr.io/acme/checkout:1.0.0 in a form pacto init cannot rewrite") {
+		t.Fatalf("findings: %+v", r)
+	}
+	c, err := contract.Parse(strings.NewReader(file(t, r, "pacto.yaml").Content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := c.Publish.Artifacts[1].Build.Command
+	out := t.TempDir()
+	build := exec.Command(cmd[0], cmd[1:]...)
+	build.Dir, build.Env = dir, buildEnv(out)
+	if b, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("%s: %v", b, err)
+	}
+	for name, src := range map[string]string{"deployment.yaml": deploy, "cronjob.yaml": cron} {
+		want := strings.Replace(src, "ghcr.io/acme/checkout:1.0.0", pinnedImage, 1)
+		if d, _ := os.ReadFile(filepath.Join(out, name)); string(d) != want {
+			t.Fatalf("published %s:\n%s", name, d)
+		}
 	}
 }

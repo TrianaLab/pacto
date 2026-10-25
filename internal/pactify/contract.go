@@ -220,15 +220,22 @@ func (p *planner) versionAndRegistry(w *workload, name string) (version, registr
 	registry = strings.Trim(strings.TrimPrefix(p.opts.Registry, "oci://"), "/")
 	switch {
 	case registry != "":
-	case imgRepo != "":
+	case imgRepo != "" && !hubLibrary(imgRepo):
 		registry = strings.TrimSuffix(path.Dir(imgRepo), "/images")
 		p.found("registry %s, from the image %s", registry, w.image)
+	case imgRepo != "":
+		registry = "registry.example"
+		p.unknown("registry: the image %s is a Docker Hub official image, which only Docker publishes, so registry.example is a placeholder; pass --registry", w.image)
 	default:
 		registry = "registry.example"
 		p.unknown("registry: no image says where %s is published, so registry.example is a placeholder; pass --registry", name)
 	}
 	return version, registry, imgRepo
 }
+
+// hubLibrary reports whether repo is a Docker Hub official image
+// (docker.io/library/...), which nobody but Docker can push to.
+func hubLibrary(repo string) bool { return strings.HasPrefix(repo, "docker.io/library/") }
 
 // pactified writes the contract the folder describes. Every value it could
 // not read is left out or marked, and named in Unknown.
@@ -315,7 +322,7 @@ func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string)
 	b.WriteString("  artifacts:\n")
 	pin := imgRepo
 	if df := sc.dockerfile; df != "" {
-		if imgRepo == "" {
+		if imgRepo == "" || hubLibrary(imgRepo) {
 			imgRepo = registry + "/images/" + name
 		}
 		fmt.Fprintf(b, "    - name: api\n      type: image\n      ref: oci://%s\n      build:\n        dockerfile:\n          context: %s\n", imgRepo, yq(path.Dir(df)))
@@ -348,12 +355,13 @@ func (p *planner) publish(b *strings.Builder, bundles, registry, imgRepo string)
 	}
 }
 
-// pinImage is the build step that rewrites, in the published copy of the
-// workload's manifest, the image it names to the image this publish built,
-// by digest (PACTO_REF_API@PACTO_DIGEST_API). Each version then deploys its
-// own image and nobody raises the tag by hand. pin is the workload's image
-// repository, "" when it names none Pacto can push to; built is the image
-// the Dockerfile builds; kept says the manifests keep their folders.
+// pinImage is the build step that rewrites, in the published copy of every
+// manifest that deploys the workload's image (the workload's own, and a Job
+// or CronJob beside it), that image to the image this publish built, by
+// digest (PACTO_REF_API@PACTO_DIGEST_API). Each version then deploys its own
+// image, all of it, and nobody raises the tag by hand. pin is the workload's
+// image repository, "" when it names none Pacto can push to; built is the
+// image the Dockerfile builds; kept says the manifests keep their folders.
 func (p *planner) pinImage(pin, built string, kept bool) string {
 	w := p.sc.workload
 	if p.sc.dockerfile == "" || w == nil {
@@ -363,10 +371,6 @@ func (p *planner) pinImage(pin, built string, kept bool) string {
 		p.next("%s does not deploy %s, the image the Dockerfile builds, so its image is published as written, not pinned to the one each version builds", w.file, built)
 		return ""
 	}
-	out := path.Base(w.file)
-	if kept {
-		out = w.file
-	}
 	// The match is the whole value of an image: field, block or flow style,
 	// never a substring, so a label, a name or another image that shares the
 	// text is left alone. An image written in a form the match does not read
@@ -374,15 +378,34 @@ func (p *planner) pinImage(pin, built string, kept bool) string {
 	// pinned nothing, as the file changed since, fails rather than ship the
 	// tag unpinned.
 	img := strings.ReplaceAll(w.image, ".", `\.`)
-	raw, _ := os.ReadFile(filepath.Join(p.r.Dir, w.file))
-	if !regexp.MustCompile(`(?m)(^|[{,\s])image:\s*["']?` + img + `["']?\s*([,}#]|$)`).Match(raw) {
-		p.next("%s names %s in a form pacto init cannot rewrite (write it as `image: %s`), so its image is published as written, not pinned to the one each version builds", w.file, w.image, w.image)
-		return ""
+	field := regexp.MustCompile(`(?m)(^|[{,\s])image:\s*["']?` + img + `["']?\s*([,}#]|$)`)
+	var cmd string
+	var pinned []string
+	for _, m := range p.sc.manifests {
+		raw, _ := os.ReadFile(filepath.Join(p.r.Dir, m))
+		if !field.Match(raw) {
+			if bytes.Contains(raw, []byte(w.image)) {
+				p.next("%s names %s in a form pacto init cannot rewrite (write it as `image: %s`), so its image is published as written, not pinned to the one each version builds", m, w.image, w.image)
+			}
+			continue
+		}
+		out := path.Base(m)
+		if kept {
+			out = m
+		}
+		pinned = append(pinned, m)
+		cmd += fmt.Sprintf(` && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"']?)%s([\"']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" %s > "$PACTO_OUT"/%s`+
+			` && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/%s || { echo "pacto: no image: %s line to pin" >&2; exit 1; }; }`,
+			img, shq(m), shq(out), shq(out), w.image)
 	}
-	p.found("the published %s deploys the image each version builds, pinned by digest", w.file)
-	return fmt.Sprintf(` && sed -E "s,(^|[{,[:space:]])(image:[[:space:]]*[\"']?)%s([\"']?[[:space:]]*([,}#]|$)),\1\2$PACTO_REF_API@$PACTO_DIGEST_API\3,g" %s > "$PACTO_OUT"/%s`+
-		` && { grep -qF "$PACTO_DIGEST_API" "$PACTO_OUT"/%s || { echo "pacto: no image: %s line to pin" >&2; exit 1; }; }`,
-		img, shq(w.file), shq(out), shq(out), w.image)
+	if len(pinned) > 0 {
+		verb := "deploys"
+		if len(pinned) > 1 {
+			verb = "deploy"
+		}
+		p.found("the published %s %s the image each version builds, pinned by digest", strings.Join(pinned, ", "), verb)
+	}
+	return cmd
 }
 
 // copyManifests is the build command that copies the manifests into
