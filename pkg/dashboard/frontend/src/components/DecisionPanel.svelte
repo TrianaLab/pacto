@@ -34,7 +34,8 @@
   const fromV = $derived(from ? versionLabel(from, versions) : '');
   const consumers = $derived(st.plan?.floor?.consumers ?? []);
   const moveFirst = $derived(!applied && (st.plan?.order?.moveFirst?.length ?? 0) > 0);
-  const breaking = $derived(isBreaking(st.plan?.verdicts));
+  // Breaking matters before it ships: once applied, the question is only the Unknown.
+  const breaking = $derived(!applied && isBreaking(st.plan?.verdicts));
   const asker = $derived(op.spec?.actor?.user ? personLabel(op.spec.actor.user, people) : 'whoever asked');
   // A rejected promote that already shipped fails, and a failed promote rolls back.
   const rollsBack = $derived(applied && op.spec?.type === 'pacto.dev/promote' && !!fromV);

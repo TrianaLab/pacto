@@ -483,7 +483,8 @@ describe('change detail', () => {
 
   it('accepts an unknown on a change held after it shipped', async () => {
     const op = heldOperation({ actions: ['accept-unknown', 'reject'], versions: { [D1]: '1.0.0', [D2]: '2.0.0' } });
-    op.operation.status = { ...op.operation.status, applied: true } as typeof op.operation.status;
+    op.operation.status = { ...op.operation.status, applied: true,
+      plan: { ...op.operation.status.plan, verdicts: [{ gate: 'pacto.diff', phase: 'pre', result: 'Pass', citation: { classification: 'BREAKING' } }] } } as unknown as typeof op.operation.status;
     op.operation.spec = { ...op.operation.spec, params: { from: D1, to: D2 } } as typeof op.operation.spec;
     fns.operation.mockResolvedValue(op);
     fns.decide.mockResolvedValue({ approval: 'op1-acc' });
@@ -491,6 +492,9 @@ describe('change detail', () => {
     await settle();
     const accept = target.querySelector<HTMLButtonElement>('[data-testid="decide-approve"]')!;
     expect(accept.textContent).toBe('Accept the unknown and keep 2.0.0');
+    // What was breaking was decided before it shipped: accepting the unknown asks no note.
+    expect(accept.disabled).toBe(false);
+    expect(target.querySelector('[data-testid="decision-breaking"]')).toBeNull();
     // Rejecting a promote that already shipped rolls it back.
     expect(target.querySelector('[data-testid="decide-reject"]')?.textContent).toBe('Reject and roll back to 1.0.0');
     expect(text(target.querySelector('[data-testid="decision-consequences"]') as HTMLElement)).toContain('2.0.0 stays on prod/pay, and the checks that ended Unknown count as accepted.');
