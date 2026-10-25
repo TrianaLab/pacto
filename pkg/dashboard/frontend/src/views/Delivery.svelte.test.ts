@@ -305,9 +305,13 @@ describe('change detail', () => {
     fns.operation.mockResolvedValue(held);
     let { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
-    expect(target.querySelector('h2#cd-move-first')?.textContent).toBe('Update these first');
+    const safer = target.querySelector('[data-testid="decision-safer"]') as HTMLElement;
+    expect(safer.querySelector('h3')?.textContent).toBe('Safer: update these first');
+    // The safer way out is read before either button.
+    const approveBtn = target.querySelector('[data-testid="decide-approve"]')!;
+    expect(safer.compareDocumentPosition(approveBtn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The promoter re-plans a held change while it waits, but it still needs a person once nothing holds it.
-    const intro = target.querySelector('h2#cd-move-first')?.nextElementSibling?.textContent ?? '';
+    const intro = safer.querySelector('h3')?.nextElementSibling?.textContent ?? '';
     expect(intro).toContain('Pacto keeps this list current while the change waits');
     expect(intro).not.toContain('propose this change again');
     expect(intro).not.toContain('no longer holds');
@@ -334,6 +338,83 @@ describe('change detail', () => {
     destroy();
   });
 
+  it('says what each answer does, weighs both buttons alike and asks why before a breaking change ships', async () => {
+    const held = heldOperation({ versions: { [D1]: '2.3.0', [D2]: '3.0.0' }, people: { 'agent-bot': 'pay-agent' } });
+    held.operation.spec = { ...held.operation.spec, params: { from: D1, to: D2 } } as typeof held.operation.spec;
+    held.operation.status.plan = { ...held.operation.status.plan, floor: { decision: 'approve', owners: ['team-checkout'], consumers: ['checkout', 'orders', 'billing'] },
+      verdicts: [
+        { gate: 'pacto.published', phase: 'pre', result: 'Pass' },
+        { gate: 'pacto.diff', phase: 'pre', result: 'Pass', message: 'BREAKING: 3 contract changes', citation: { classification: 'BREAKING' } },
+        { gate: 'pacto.impact', phase: 'pre', result: 'Pass', message: 'breaks checkout, orders', citation: { classification: 'BREAKING' } },
+      ] } as typeof held.operation.status.plan;
+    fns.operation.mockResolvedValue(held);
+    fns.decide.mockResolvedValue({ approval: 'op1-abc' });
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    const panel = target.querySelector('[data-testid="decision-panel"]') as HTMLElement;
+    const outcomes = text(panel.querySelector('[data-testid="decision-consequences"]') as HTMLElement);
+    expect(outcomes).toContain('If you approve');
+    expect(outcomes).toContain('3.0.0 goes to prod/pay now.');
+    expect(outcomes).toContain('checkout, orders and billing do not accept it and may break until they are updated.');
+    expect(outcomes).toContain('It is kept as your decision, with your name, your note and when you signed in.');
+    expect(outcomes).toContain('You can undo it from the history of the environment.');
+    expect(outcomes).toContain('If you reject');
+    expect(outcomes).toContain('Nothing moves: prod/pay keeps running 2.3.0.');
+    expect(outcomes).toContain('pay-agent sees your name and note as the reason.');
+    expect(panel.querySelector('[data-testid="decision-breaking"]')?.textContent).toBe('Breaking');
+    const approve = panel.querySelector('[data-testid="decide-approve"]') as HTMLButtonElement;
+    const reject = panel.querySelector('[data-testid="decide-reject"]') as HTMLButtonElement;
+    expect(approve.textContent).toBe('Approve shipping 3.0.0 to prod/pay');
+    expect(reject.textContent).toBe('Reject: nothing moves');
+    // Same weight: neither answer is the primary one.
+    expect(approve.className).toBe(reject.className);
+    expect(approve.classList.contains('btn-primary')).toBe(false);
+    // A breaking change ships only with a note saying why; rejecting needs none.
+    expect(approve.disabled).toBe(true);
+    expect(reject.disabled).toBe(false);
+    expect(text(panel)).toContain('required to approve a breaking change');
+    expect(panel.querySelector('textarea')?.getAttribute('aria-describedby')).toBe('dp-note-why');
+    const area = panel.querySelector('textarea') as HTMLTextAreaElement;
+    area.value = '   ';
+    area.dispatchEvent(new Event('input'));
+    flushSync();
+    expect(approve.disabled).toBe(true);
+    area.value = 'orders 1.4 is ready for payments 3';
+    area.dispatchEvent(new Event('input'));
+    flushSync();
+    expect(approve.disabled).toBe(false);
+    expect(panel.querySelector('[data-testid="decision-note-required"]')).toBeNull();
+    // The plan's evidence checks say what they found, never a green Pass on a breaking change.
+    const predicted = target.querySelector('[data-testid="predicted-verdicts"]') as HTMLElement;
+    const badges = [...predicted.querySelectorAll('[data-testid="verdict-badge"]')].map((b) => b.textContent);
+    expect(badges).toEqual(['Pass', 'Checked', 'Checked']);
+    expect([...predicted.querySelectorAll('[data-testid="verdict-chip"]')].map((b) => b.textContent)).toEqual(['Breaking', 'Breaking']);
+    expect(predicted.querySelectorAll('.badge-ok').length).toBe(1);
+    approve.click();
+    await settle();
+    expect(fns.decide).toHaveBeenCalledWith('prod', 'op1', 'approve', 'orders 1.4 is ready for payments 3');
+    destroy();
+  });
+
+  it('names the change itself when the operation names no version, and asks no note when nothing breaks', async () => {
+    const held = heldOperation({ actions: ['accept-unknown', 'reject'] });
+    held.operation.status.plan = { ...held.operation.status.plan, floor: { decision: 'accept-unknown', consumers: ['orders'] } } as typeof held.operation.status.plan;
+    held.operation.spec = { ...held.operation.spec, actor: undefined } as unknown as typeof held.operation.spec;
+    fns.operation.mockResolvedValue(held);
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    const panel = target.querySelector('[data-testid="decision-panel"]') as HTMLElement;
+    expect(panel.querySelector('[data-testid="decide-approve"]')?.textContent).toBe('Accept the unknown and ship this change');
+    expect((panel.querySelector('[data-testid="decide-approve"]') as HTMLButtonElement).disabled).toBe(false);
+    const outcomes = text(panel.querySelector('[data-testid="decision-consequences"]') as HTMLElement);
+    expect(outcomes).toContain('this change goes to prod/pay now.');
+    expect(outcomes).toContain('Pacto could not tell whether orders accept it.');
+    expect(outcomes).toContain('Nothing moves: prod/pay keeps running what it runs now.');
+    expect(outcomes).toContain('whoever asked sees your name and note as the reason.');
+    expect(panel.querySelector('[data-testid="decision-breaking"]')).toBeNull();
+    destroy();
+  });
+
   it('sends a decision, and after a refused stale login keeps it for a fresh sign-in', async () => {
     fns.operation.mockResolvedValue(heldOperation());
     fns.decide.mockRejectedValueOnce(new ApiError(401, 'your login is older than ten minutes: sign in again', 'FreshLoginRequired'));
@@ -347,7 +428,7 @@ describe('change detail', () => {
       const panel = target.querySelector('[data-testid="decision-panel"]')!;
       (panel.querySelector('textarea') as HTMLTextAreaElement).value = 'checkout is ready';
       panel.querySelector('textarea')!.dispatchEvent(new Event('input'));
-      [...panel.querySelectorAll('button')].find((b) => b.textContent === 'Approve')!.click();
+      (panel.querySelector('[data-testid="decide-approve"]') as HTMLButtonElement).click();
       await settle();
       expect(fns.decide).toHaveBeenCalledWith('prod', 'op1', 'approve', 'checkout is ready');
       const fresh = target.querySelector('[data-testid="fresh-login"]')!;
@@ -372,7 +453,7 @@ describe('change detail', () => {
     expect(text(target.querySelector('[data-testid="decision-kept"]') as HTMLElement)).toContain('Your choice was Approve');
     expect(fns.decide).not.toHaveBeenCalled();
     expect((target.querySelector('[data-testid="decision-panel"] textarea') as HTMLTextAreaElement).value).toBe('kept note');
-    [...target.querySelectorAll<HTMLButtonElement>('[data-testid="decision-panel"] button')].find((b) => b.textContent === 'Approve')!.click();
+    target.querySelector<HTMLButtonElement>('[data-testid="decide-approve"]')!.click();
     await settle();
     expect(fns.decide).toHaveBeenCalledWith('prod', 'op1', 'approve', 'kept note');
     expect(text(target.querySelector('[data-testid="decision-recorded"]') as HTMLElement)).toContain('recorded as op1-abc');
@@ -383,13 +464,20 @@ describe('change detail', () => {
   });
 
   it('accepts an unknown on a change held after it shipped', async () => {
-    const op = heldOperation({ actions: ['accept-unknown', 'reject'] });
+    const op = heldOperation({ actions: ['accept-unknown', 'reject'], versions: { [D1]: '1.0.0', [D2]: '2.0.0' } });
     op.operation.status = { ...op.operation.status, applied: true } as typeof op.operation.status;
+    op.operation.spec = { ...op.operation.spec, params: { from: D1, to: D2 } } as typeof op.operation.spec;
     fns.operation.mockResolvedValue(op);
     fns.decide.mockResolvedValue({ approval: 'op1-acc' });
     const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
-    [...target.querySelectorAll<HTMLButtonElement>('[data-testid="decision-panel"] button')].find((b) => b.textContent === 'Accept the unknown')!.click();
+    const accept = target.querySelector<HTMLButtonElement>('[data-testid="decide-approve"]')!;
+    expect(accept.textContent).toBe('Accept the unknown and keep 2.0.0');
+    // Rejecting a promote that already shipped rolls it back.
+    expect(target.querySelector('[data-testid="decide-reject"]')?.textContent).toBe('Reject and roll back to 1.0.0');
+    expect(text(target.querySelector('[data-testid="decision-consequences"]') as HTMLElement)).toContain('2.0.0 stays on prod/pay, and the checks that ended Unknown count as accepted.');
+    expect(text(target.querySelector('[data-testid="decision-consequences"]') as HTMLElement)).toContain('prod/pay rolls back to 1.0.0.');
+    accept.click();
     await settle();
     expect(fns.decide).toHaveBeenCalledWith('prod', 'op1', 'accept-unknown', '');
     destroy();
@@ -438,7 +526,7 @@ describe('change detail', () => {
     fns.decide.mockRejectedValue(new ApiError(403, 'only [team-checkout] may answer this question', 'NotYourTeam'));
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
-    [...r.target.querySelectorAll<HTMLButtonElement>('[data-testid="decision-panel"] button')].find((b) => b.textContent === 'Reject')!.click();
+    r.target.querySelector<HTMLButtonElement>('[data-testid="decide-reject"]')!.click();
     await settle();
     const refusal = r.target.querySelector('[data-testid="refusal"]')!;
     expect(refusal.getAttribute('data-code')).toBe('NotYourTeam');
@@ -581,6 +669,30 @@ describe('history and published', () => {
     expect(text(target)).toContain('Not recorded yet');
     // A record that exists but did not verify is never "not recorded yet".
     expect(text(target)).toContain('Recorded, not verified');
+    destroy();
+  });
+
+  it('says who decided each change, or that no person did, and whether its signature verified', async () => {
+    fns.history.mockResolvedValue({ ...listing, people: { 'https://idp#carol': 'Carol' }, histories: [
+      { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', source: 'records', verified: true, note: '', stage: { name: 'pay', pointer: D2 },
+        entries: [
+          { seq: 1, operation: 'op1', type: 'pacto.dev/promote', to: D1, actor: 'bot', actorClass: 'agent', outcome: 'Succeeded', kind: 'operation', record: 'sha256:' + 'a'.repeat(64) },
+          { seq: 2, operation: 'op2', type: 'pacto.dev/promote', from: D1, to: D2, actor: 'bot', actorClass: 'agent', outcome: 'Succeeded', kind: 'operation', record: 'sha256:' + 'b'.repeat(64),
+            approvals: [{ by: 'https://idp#carol', decision: 'approve', operation: 'u' }, { decision: 'approve' }] },
+          { seq: 3, operation: '', type: '', actor: '', kind: 'gap', record: 'sha256:' + 'c'.repeat(64) },
+          { operation: 'op4', type: 'pacto.dev/promote', actor: 'bot', phase: 'Held' },
+        ] },
+      { namespace: 'stage', asOf: listing.asOf, completeness: 'partial', source: 'records', note: '', stage: { name: 'pay' },
+        entries: [{ seq: 1, operation: 'op5', type: 'pacto.dev/promote', actor: 'bot', outcome: 'Rejected', kind: 'operation', record: 'sha256:' + 'd'.repeat(64),
+          approvals: [{ by: 'dave', decision: 'reject', operation: 'u' }] }] },
+    ] });
+    const { target, destroy } = render(DeliveryHistoryView);
+    await settle();
+    expect([...target.querySelectorAll('th')].map((t) => t.textContent)).toContain('Decided by');
+    const decided = [...target.querySelectorAll('[data-testid="history-decided"]')].map((e) => text(e as HTMLElement));
+    expect(decided).toEqual(['No person', 'Carol (https://idp#carol) (Approve)', '–', 'Waiting for a person', 'dave (Reject)']);
+    const sigs = [...target.querySelectorAll('[data-testid="history-signature"]')].map((e) => e.textContent);
+    expect(sigs).toEqual(['Signature verified', 'Signature verified', 'Signature verified', 'Signature not verified']);
     destroy();
   });
 
@@ -745,8 +857,8 @@ describe('history blame and undo', () => {
     await settle();
     const prod = target.querySelector('section[aria-label="History of prod/pay"]') as HTMLElement;
     const rows = [...prod.querySelectorAll('tbody tr')].map((r) => [...r.querySelectorAll('td')].map((td) => text(td as HTMLElement).trim()));
-    expect(rows[0].slice(2, 6)).toEqual(['2.4.0 → 3.0.0', 'Carol Diaz (https://idp#carol) (human)', 'Succeeded', '2026-10-21 11:00 UTC']);
-    expect(rows[1].slice(2, 6)).toEqual(['– → 2.4.0', 'pay-agent (system:serviceaccount:agents:pay-agent) (agent)', 'Failed', 'soon']);
+    expect(rows[0].slice(2, 7)).toEqual(['2.4.0 → 3.0.0', 'Carol Diaz (https://idp#carol) (human)', 'The person who asked', 'Succeeded', '2026-10-21 11:00 UTC']);
+    expect(rows[1].slice(2, 7)).toEqual(['– → 2.4.0', 'pay-agent (system:serviceaccount:agents:pay-agent) (agent)', 'No person', 'Failed', 'soon']);
     expect(text(prod)).toContain('Runs 3.0.0 222222222222');
     // Only a change that moved the environment can be undone.
     expect(prod.querySelectorAll('button[aria-label^="Undo"]').length).toBe(1);

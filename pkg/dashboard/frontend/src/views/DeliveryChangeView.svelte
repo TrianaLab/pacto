@@ -15,7 +15,6 @@
   import DecisionPanel from '../components/DecisionPanel.svelte';
   import ProposePanel from '../components/ProposePanel.svelte';
   import RefusalNotice from '../components/RefusalNotice.svelte';
-  import MoveFirstList from '../components/MoveFirstList.svelte';
 
   // One change: the plan, what Pacto predicted next to what happened with the
   // proof behind each check, who decided, the affected services, a timeline and
@@ -141,15 +140,7 @@
 
     {#if decided}<p class="cd-decided" role="status" tabindex="-1" data-testid="decision-recorded" bind:this={doneMsg}>{decided}</p>{/if}
     {#if e.status.phase === 'Held' && !gone}
-      <DecisionPanel {op} {actions} onDecided={(msg) => { decided = msg; loader.refresh(); settleFocus(); }} />
-    {/if}
-
-    {#if e.status.phase === 'Held' && !st?.applied && st?.plan?.order?.moveFirst?.length}
-      <section aria-labelledby="cd-move-first">
-        <h2 id="cd-move-first" class="t-section-title">Update these first</h2>
-        <p class="t-body-2">Pacto keeps this list current while the change waits. Each team drops out once its service runs a version that accepts the new one, and when nobody is left the change can be approved as it is. Pacto never moves them for you.</p>
-        <MoveFirstList order={st.plan.order} />
-      </section>
+      <DecisionPanel {op} {actions} versions={data?.versions} people={data?.people} onDecided={(msg) => { decided = msg; loader.refresh(); settleFocus(); }} />
     {/if}
 
     <section aria-labelledby="cd-affected">

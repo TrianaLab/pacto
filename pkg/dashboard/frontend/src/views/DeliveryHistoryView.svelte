@@ -4,7 +4,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryChangeUrl, deliveryHistoryUrl } from '../lib/router.ts';
-  import { typeLabel, shortDigest, shortDigests, versionLabel, timeLabel } from '../lib/delivery.ts';
+  import { typeLabel, shortDigest, shortDigests, versionLabel, timeLabel, decisionLabel } from '../lib/delivery.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import BlamePanel from '../components/BlamePanel.svelte';
   import UndoPanel from '../components/UndoPanel.svelte';
@@ -53,6 +53,9 @@
     if (en.kind === 'unrecordable') return 'Unrecordable';
     return typeLabel(en.type);
   }
+
+  /** The people who decided a change: an approval or a rejection, never only who asked. */
+  const deciders = (en) => (en.approvals ?? []).filter((a) => a.by);
 </script>
 
 <div class="product-page">
@@ -104,7 +107,7 @@
           {:else}
             <div class="hv-scroll">
               <table class="hv-table">
-                <thead><tr><th scope="col">#</th><th scope="col">Change</th><th scope="col">Version</th><th scope="col">By</th><th scope="col">How it ended</th><th scope="col">When</th><th scope="col">Record</th><th scope="col"><span class="visually-hidden">Undo</span></th></tr></thead>
+                <thead><tr><th scope="col">#</th><th scope="col">Change</th><th scope="col">Version</th><th scope="col">Asked by</th><th scope="col">Decided by</th><th scope="col">How it ended</th><th scope="col">When</th><th scope="col">Record</th><th scope="col"><span class="visually-hidden">Undo</span></th></tr></thead>
                 <tbody>
                   {#each h.entries as en (`${en.seq ?? ''}/${en.record ?? ''}/${en.operation}`)}
                     <tr>
@@ -112,9 +115,10 @@
                       <td>{#if en.operation}<a href={deliveryChangeUrl(h.namespace, en.operation)}>{changeLabel(en)}</a>{:else}{changeLabel(en)}{/if}</td>
                       <td class="hv-nowrap" title={[en.from, en.to].filter(Boolean).join(' → ')}>{version(en.from) || '–'} → {version(en.to) || '–'}</td>
                       <td>{#if en.actor}<Person user={en.actor} people={data.people} {me} />{:else}–{/if}{#if en.actorClass}{' '}<span class="hv-class">({en.actorClass})</span>{/if}</td>
+                      <td data-testid="history-decided">{#if en.kind === 'gap' || en.kind === 'unrecordable'}–{:else if deciders(en).length}{#each deciders(en) as a, i (a.by + i)}{#if i}, {/if}<Person user={a.by} people={data.people} {me} /> <span class="hv-class">({decisionLabel(a.decision)})</span>{/each}{:else if en.phase === 'Held'}<span class="hv-class">Waiting for a person</span>{:else if en.actorClass === 'human'}<span class="hv-class">The person who asked</span>{:else}<span class="hv-class">No person</span>{/if}</td>
                       <td>{en.outcome || en.phase}{#if en.verification}, {en.verification}{/if}{#if en.reason}: {shortDigests(en.reason)}{/if}</td>
                       <td class="hv-nowrap">{#if en.finished}<time datetime={en.finished}>{timeLabel(en.finished)}</time>{/if}</td>
-                      <td class="hv-nowrap">{#if en.record}<code title={en.record}>{shortDigest(en.record)}</code>{:else if en.unverifiedRecord}<span title={en.unverifiedRecord}>Recorded, not verified</span>{:else if h.source === 'records'}Not recorded yet{:else}–{/if}</td>
+                      <td class="hv-nowrap">{#if en.record}<code title={en.record}>{shortDigest(en.record)}</code>{' '}{#if h.verified}<span class="badge badge-ok" data-testid="history-signature">Signature verified</span>{:else}<span class="badge badge-warn" data-testid="history-signature">Signature not verified</span>{/if}{:else if en.unverifiedRecord}<span title={en.unverifiedRecord}>Recorded, not verified</span>{:else if h.source === 'records'}Not recorded yet{:else}–{/if}</td>
                       <td>{#if en.operation && en.pointer?.after}<button type="button" class="btn btn-sm" aria-label={`Undo ${en.operation}`} onclick={(e) => show(e, { kind: 'undo', ns: h.namespace, key: en.operation })}>Undo</button>{/if}</td>
                     </tr>
                   {/each}

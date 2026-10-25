@@ -1,13 +1,12 @@
 <script>
   import CopyableIdentifier from './CopyableIdentifier.svelte';
-  import { miraLink } from '../lib/delivery.ts';
+  import { miraLink, verdictBadge } from '../lib/delivery.ts';
 
   // Verdicts with the proof behind each: the citation, a link into Mira for a
   // health check when Mira's address is known (else the query to copy) and the
   // command that runs the check again.
   let { verdicts = [], miraURL = '', testid = 'verdicts' } = $props();
 
-  const TONE = { Pass: 'badge-ok', Fail: 'badge-err', Unknown: 'badge-warn' };
   // Keys shown elsewhere in the row, or as their own control.
   const SHOWN = new Set(['query', 'errorQuery']);
 </script>
@@ -17,9 +16,11 @@
 {:else}
   <ul class="vl-list" data-testid={testid}>
     {#each verdicts as v, i (v.gate + v.phase + i)}
+      {@const b = verdictBadge(v)}
       <li class="vl-item">
         <div class="vl-head">
-          <span class="badge {TONE[v.result] || 'badge-neutral'}"><span class="badge-dot"></span>{v.result}</span>
+          <span class="badge {b.tone}" data-testid="verdict-badge"><span class="badge-dot"></span>{b.label}</span>
+          {#if b.chip}<span class="badge badge-warn" data-testid="verdict-chip">{b.chip}</span>{/if}
           <strong>{v.gate}</strong>
           <span class="t-meta">{v.phase === 'pre' ? 'before the change' : v.phase === 'verify' ? 'after the change' : v.phase}</span>
         </div>

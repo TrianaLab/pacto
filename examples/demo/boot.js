@@ -322,7 +322,7 @@
       gate: function () { return row("prod", "checkout").version === "1.9.0" && fact().question.indexOf("Asked of: orders") >= 0; },
       skip: function () { propose({ namespace: "prod", stage: "checkout", to: digestOf("checkout", "1.9.0") }); }
     }, {
-      text: "Only a person on the asked team decides: press Switch person, pick Carol from team orders and approve, and she signs in again first, because a decision needs a fresh login.",
+      text: "Only a person on the asked team decides: press Switch person, pick Carol from team orders, read what each answer does, write why 3.0.0 should ship anyway (it is breaking, so a note is required) and approve. She signs in again first, because a decision needs a fresh login.",
       hash: changeHash,
       target: ['[data-testid="delivery-identity"]', '[data-testid="decision-panel"]'],
       wait: "Waiting for Carol to approve and 3.0.0 to ship.",
@@ -331,7 +331,7 @@
       skip: function () {
         var name = fact().held;
         setPersona("carol", true);
-        serve("POST", "/api/delivery/operations/prod/" + name + "/decision", { decision: "approve" });
+        serve("POST", "/api/delivery/operations/prod/" + name + "/decision", { decision: "approve", note: "orders 1.4 is ready for payments 3" });
         refreshViews();
       }
     }, {

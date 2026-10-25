@@ -238,3 +238,39 @@ export function authTimeText(s: string | undefined): string {
   const n = Number(s);
   return s && Number.isFinite(n) && n > 0 ? new Date(n * 1000).toISOString() : (s ?? '');
 }
+
+// ── What a check concluded ──────────────────────────────────────────────────
+
+/** The checks that gather evidence: they pass once they ran, whatever they found. */
+const EVIDENCE_GATES = new Set(['pacto.diff', 'pacto.impact']);
+
+const CLASSIFICATION_CHIPS: Record<string, string> = { BREAKING: 'Breaking', POTENTIAL_BREAKING: 'May break' };
+
+export interface VerdictBadge {
+  label: string;
+  tone: string;
+  /** chip names what an evidence check found that a person must weigh, else ''. */
+  chip: string;
+}
+
+/**
+ * verdictBadge says what a check concluded. A diff or impact check passes as
+ * soon as it ran, so its Pass reads Checked, never a green Pass, and what it
+ * found that can break a consumer gets its own warning chip.
+ */
+export function verdictBadge(v: { gate?: string; result?: string; citation?: Record<string, string> }): VerdictBadge {
+  const chip = CLASSIFICATION_CHIPS[v.citation?.classification ?? ''] ?? '';
+  if (v.result === 'Pass' && EVIDENCE_GATES.has(v.gate ?? '')) return { label: 'Checked', tone: 'badge-neutral', chip };
+  const tone = ({ Pass: 'badge-ok', Fail: 'badge-err', Unknown: 'badge-warn' } as Record<string, string>)[v.result ?? ''] ?? 'badge-neutral';
+  return { label: v.result ?? '', tone, chip };
+}
+
+/** isBreaking says whether a plan's checks classified the change as breaking. */
+export function isBreaking(verdicts: { citation?: Record<string, string> }[] | null | undefined): boolean {
+  return (verdicts ?? []).some((v) => v.citation?.classification === 'BREAKING');
+}
+
+/** andList joins names the way a sentence does, with no serial comma. */
+export function andList(names: string[]): string {
+  return names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}

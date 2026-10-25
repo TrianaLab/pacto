@@ -124,6 +124,9 @@ test.describe('Browser demo: the delivery story', () => {
     // carol signed in half an hour ago: the decision asks her to sign in again,
     // through the simulated sign-in rather than a page load that would lose the tab.
     await switchTo(page, 'carol');
+    // 3.0.0 is breaking: it ships only with a note saying why.
+    await expect(panel.getByRole('button', { name: 'Approve' })).toBeDisabled({ timeout: T });
+    await panel.getByLabel('Note (kept with the decision)').fill('orders 1.4 is ready for payments 3');
     await panel.getByRole('button', { name: 'Approve' }).click({ timeout: T });
     await page.getByTestId('fresh-login').getByRole('button', { name: 'Sign in again' }).click();
     const dlg = page.getByTestId('demo-signin');
