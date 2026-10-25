@@ -86,7 +86,7 @@ install -tags kms ...`, or `kms_aws`, `kms_gcp`, `kms_azure`,
 `kms_hashivault`).
 
 **Delivery.** `pkg/delivery` holds the operations (`delivery.pacto.trianalab.io/promote`,
-`rollback`, `override` and `unfreeze`) and `PlanFor`, the one planning function
+`rollback`, `override`, `freeze` and `unfreeze`) and `PlanFor`, the one planning function
 the promoter, the CLI, the MCP tools and the dashboard call. A promote is
 refused as `NotPublished` unless `pacto publish` published it and Flux verified
 its signature, or its upstream Stage verified and offered it. It then compares
@@ -95,7 +95,8 @@ consumer's declared range. A consumer the change breaks holds it, asks only
 that consumer's owners and says which service must move first and to which
 verified version. Compatibility comes from the declared ranges, not from which
 fields or endpoints a consumer uses. Anything Pacto cannot see holds the change
-for a person to accept the unknown; Unknown never passes. Health checks keep
+for a person to accept the unknown, a breaking change no contract depends on
+included; Unknown never passes. Health checks keep
 running after release: a `mira` provider judges the error ratio of the
 service's traces, `http` is the plug-in format for any other tool, `eval`
 checks an agent with the eval suite its bundle ships, a verdict counting only
@@ -111,7 +112,10 @@ referrer-write paths; the Evidence Server uses the latter.
 
 `pacto delivery types`, `describe`, `plan`, `propose`, `get`, `cancel`,
 `approve`, `explain`, `history`, `blame`, `undo` and `record verify` drive and
-read delivery over the ambient cluster. `history` and `record verify` read the
+read delivery over the ambient cluster, except `approve`: it logs the person
+in again in the browser and records the decision with that login alone, and
+only a decision the promoter would count, or it says why not. `plan` gathers
+its input as the promoter does, so it predicts what the promoter will do. `history` and `record verify` read the
 signed records, say `asOf`, `source` and `completeness` and list forks, gaps
 and anything unreadable; `--all` walks every Stage you can list. `pacto mcp
 --delivery` serves the read tools to anyone and propose and cancel only to
@@ -126,7 +130,9 @@ page per change with its plan, verdicts and proof, history with blame and undo
 and published versions with recent refused publishes. Promote, roll back,
 unfreeze, cancel and decisions run there under the person's own token. A
 decision needs a recent login and membership of a team the question names, and
-is never taken from an agent. `--auth-required` puts the whole dashboard
+is never taken from an agent; the dashboard offers and records only a decision
+the promoter would count, and says up front when a cluster reports no login
+time, so nobody can approve there. `--auth-required` puts the whole dashboard
 behind sign-in. The dashboard also takes a new look: serif titles and numbers,
 a grouped data-sources menu and labelled status bars.
 

@@ -54,7 +54,18 @@ a second failure, a version a person chose, nothing safe to go back to, a
 refused automatic rollback, an outcome
 that cannot be established or an edit of the pointer the promoter did not make
 freezes the Stage. Stages with `auto: true` promote the newest eligible
-candidate.
+candidate. A breaking change no contract depends on also waits for a person,
+since a service without a contract may call it, unless the Stage sets
+`gates.impact.declaredConsumersOnly`.
+
+The promoter emits Events when it holds, concludes, rolls back or freezes and
+exports `pacto_delivery_operations_total`, `pacto_delivery_verdicts_total`,
+`pacto_delivery_stage_frozen` and `pacto_delivery_stage_watched` (chart
+`metrics.*`). Each Stage says in `Watched` whether its running version passed
+its latest re-check and in `Mediated` whether its pointer alone decides what
+runs, gives every condition an observed generation and publishes the
+promoter's login freshness in `status.authFreshness`. An approval the promoter
+passes over is named on the operation with the reason.
 
 **Reach (experimental).** A Stage applies through a Flux `OCIRepository` by
 default, or, as an experimental option, through an Argo CD Application with an
@@ -86,7 +97,8 @@ never the one a Stage runs.
 their CRDs, ServiceAccounts, RBAC, the `pacto-delivery-agent` and
 `pacto-delivery-approver` roles and ValidatingAdmissionPolicies (Kubernetes
 1.30 or later) that bind an operation's actor to the requesting user, keep
-approvals to people with a login time, keep the pointer to the promoter or
+approvals to people with a login time (the apiserver maps the login time to
+`userInfo.extra["delivery.pacto.trianalab.io/auth-time"]`), keep the pointer to the promoter or
 break-glass, keep the promoter itself to the pointer field and keep the record
 fields to the recorder. The chart renders them even offline and refuses to
 render without them unless `admissionPolicies.allowUnguarded` is set; the
