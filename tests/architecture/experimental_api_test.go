@@ -14,19 +14,21 @@ import (
 func TestAlphaPackagesSayTheyAreExperimental(t *testing.T) {
 	root := docsRoot(t)
 	for _, pkg := range []string{"delivery", "publish", "signing", "signing/testutil", "deliveryrecord", "ocireferrer"} {
-		pkgs, err := parser.ParseDir(token.NewFileSet(), filepath.Join(root, "pkg", pkg), nil, parser.PackageClauseOnly|parser.ParseComments)
+		files, err := filepath.Glob(filepath.Join(root, "pkg", pkg, "*.go"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		doc := ""
-		for name, p := range pkgs {
-			if strings.HasSuffix(name, "_test") {
+		for _, path := range files {
+			if strings.HasSuffix(path, "_test.go") {
 				continue
 			}
-			for _, f := range p.Files {
-				if f.Doc != nil {
-					doc += f.Doc.Text()
-				}
+			f, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.PackageClauseOnly|parser.ParseComments)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if f.Doc != nil {
+				doc += f.Doc.Text()
 			}
 		}
 		if !strings.Contains(doc, "Experimental: not covered by semantic versioning") {

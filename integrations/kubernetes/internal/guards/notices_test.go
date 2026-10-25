@@ -61,7 +61,7 @@ func TestDeliveryImageCarriesEveryLinkedLicense(t *testing.T) {
 func render(list []byte) ([]byte, error) {
 	type mod struct{ path, version, dir string }
 	seen := map[string]mod{}
-	for _, line := range strings.Split(strings.TrimSpace(string(list)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(list)), "\n") {
 		f := strings.Split(line, "\t")
 		// No version is a workspace module: Pacto's own, under its MIT LICENSE.
 		if len(f) != 3 || f[1] == "" {
