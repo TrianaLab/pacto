@@ -70,8 +70,11 @@ flowchart LR
   [`pacto publish`](../../publishing.md) published, `pacto.diff` compares the
   contracts and `pacto.impact` checks every consumer in the environment that
   declares a range on the service. A broken consumer holds the change for its
-  owners; anything unseen (no contract, an unreadable Pacto, a registry silent
-  for 10 seconds) holds it for a person to accept the unknown.
+  owners; anything unseen (an unreadable Pacto, a registry silent for 10
+  seconds) holds it for a person to accept the unknown. Pacto sees only
+  consumers with a contract, so a breaking change that no Pacto depends on also
+  waits for a person, unless the Stage sets
+  `gates.impact.declaredConsumersOnly: true` to say every consumer has one.
 - After: the Pacto contract check counts only when
   `status.evaluatedRevision` names this version's contract digest and the
   current workload generation. `Compliant` and `Warning` pass, `NonCompliant`

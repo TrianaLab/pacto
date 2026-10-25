@@ -88,8 +88,10 @@ with their own company login in the last 15 minutes, and the record names them.
 ## What Unknown means
 
 Every check answers Pass, Fail or Unknown. Unknown means Pacto could not see
-enough to say: a service with no contract, too little monitoring data, a
-registry that did not answer.
+enough to say: too little monitoring data, a registry that did not answer, a
+breaking change that no contract depends on. Pacto sees only the consumers
+that have a contract, so a service with no contract may still call the one
+that changed.
 
 Unknown never counts as yes. The change waits for a person, who can reject it
 or accept the unknown. An accepted unknown is recorded as accepted, never as a

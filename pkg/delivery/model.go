@@ -184,7 +184,20 @@ type GateCheck struct {
 // type; the Pacto contract check always verifies, beside the Stage's checks.
 type Gates struct {
 	// +optional
+	Impact ImpactGate `json:"impact,omitzero"`
+	// +optional
 	Verify VerifyGates `json:"verify,omitzero"`
+}
+
+// ImpactGate tunes pacto.impact.
+type ImpactGate struct {
+	// DeclaredConsumersOnly says every consumer of the service has a
+	// contract Pacto can see, so a breaking change no Pacto depends on ships
+	// without a person. Off by default: a service with no contract can still call it, so
+	// a breaking change with no consumer in sight waits for a person to accept
+	// the unknown.
+	// +optional
+	DeclaredConsumersOnly bool `json:"declaredConsumersOnly,omitempty"`
 }
 
 // ponytail: one switch, not the design's CEL predicate; add CEL when a team

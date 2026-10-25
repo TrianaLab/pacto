@@ -156,6 +156,18 @@ spec:
                   Gates configures the Stage's gates. The pre-gates are fixed by the operation
                   type; the Pacto contract check always verifies, beside the Stage's checks.
                 properties:
+                  impact:
+                    description: ImpactGate tunes pacto.impact.
+                    properties:
+                      declaredConsumersOnly:
+                        description: |-
+                          DeclaredConsumersOnly says every consumer of the service has a
+                          contract Pacto can see, so a breaking change no Pacto depends on ships
+                          without a person. Off by default: a service with no contract can still call it, so
+                          a breaking change with no consumer in sight waits for a person to accept
+                          the unknown.
+                        type: boolean
+                    type: object
                   verify:
                     description: VerifyGates configures what runs after a version
                       is applied.

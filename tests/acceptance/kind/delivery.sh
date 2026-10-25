@@ -676,7 +676,7 @@ spec:
   applyRef: {name: payments}
   candidates: {ociRepositoryRef: {name: payments-candidates}}
   auto: true
-  gates: {verify: {window: 3m}}
+  gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 kubectl -n prod apply -f - >/dev/null <<YAML
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
@@ -688,7 +688,7 @@ spec:
   applyRef: {name: payments}
   candidates: {upstreamStage: {name: payments, namespace: test}}
   auto: true
-  gates: {verify: {window: 3m}}
+  gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 
 section "bootstrap: A reaches test, then prod, by itself"
@@ -1072,6 +1072,7 @@ spec:
   applyRef: {name: payments}
   candidates: {ociRepositoryRef: {name: payments-candidates}}
   gates:
+    impact: {declaredConsumersOnly: true}
     verify:
       window: 1m
       recheck: 5s
@@ -1373,7 +1374,7 @@ spec:
   applyRef: {name: billing}
   candidates: {ociRepositoryRef: {name: billing-candidates}}
   auto: true
-  gates: {verify: {window: 3m}}
+  gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 
 section "--plan lists what is missing and writes nothing"
@@ -1467,7 +1468,7 @@ spec:
   environment: publish-manual
   applyRef: {name: billing}
   candidates: {ociRepositoryRef: {name: billing-candidates}}
-  gates: {verify: {window: 3m}}
+  gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 billing_contract 1.0.1 service
 git -C "$PUB" -c user.email=ci@e.com -c user.name=ci commit -qam "billing 1.0.1"
@@ -1525,6 +1526,7 @@ spec:
   applyRef: {name: billing-anyone-apply}
   candidates: {ociRepositoryRef: {name: billing-anyone}}
   auto: true
+  gates: {impact: {declaredConsumersOnly: true}}
 YAML
 eventually 20 ready_is "$M" billing-anyone False/CandidateUnverified \
   || fail "a Stage whose candidate sets no spec.verify is not reported: $(kubectl -n "$M" get stage billing-anyone -o jsonpath='{.status.conditions}')"
@@ -1585,7 +1587,7 @@ spec:
   applyRef: {name: $1}
   candidates: $3
   auto: ${4:-true}
-  gates: {verify: {window: 3m}}
+  gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 }
 candidates_yaml() { # SERVICE

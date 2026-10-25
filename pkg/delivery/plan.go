@@ -308,6 +308,9 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 	}
 	unseenConsumers := unseenConsumersOf(in, res, unknown)
 	unseen := slices.Clone(unseenConsumers)
+	if len(res.Consumers) == 0 && res.Classification != diff.NonBreaking.String() && !in.Stage.Gates.Impact.DeclaredConsumersOnly {
+		unseen = append(unseen, "no Pacto depends on "+in.Stage.Service.Name+", but a service with no contract can still call it")
+	}
 	if in.From.Digest != "" && !slices.Contains(in.Status.Verified, in.From.Digest) {
 		unseen = append(unseen, "the version a rollback would return to ("+short(in.From.Digest)+") was never verified here")
 	}

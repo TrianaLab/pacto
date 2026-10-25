@@ -128,11 +128,28 @@ func TestPlanMisplacedConsumerAsksToAcceptTheUnknown(t *testing.T) {
 	}
 }
 
-func TestPlanNoConsumersShipsEvenWhenBreaking(t *testing.T) {
-	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "2.0.0"))
-	p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, from, to)
-	if p.Predicted != PredictProceeds {
-		t.Fatalf("a change nothing depends on must ship: %+v", p)
+func TestPlanNoConsumersHoldsABreakingChangeUnlessTheGraphIsDeclaredComplete(t *testing.T) {
+	old, breaking := bundle("payments", "1.0.0"), bundle("payments", "2.0.0")
+	old.Contract.Workload, breaking.Contract.Workload = "service", "job" // a modified workload is BREAKING
+	from, to := rev(dA, c1, old), rev(dB, c2, breaking)
+	snap, err := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
+		From: from, To: to, Snapshot: snap, Class: ClassAgent}
+	p := PlanFor(context.Background(), in)
+	if v := verdict(t, p, GateImpact); v.Result != Unknown || p.Floor.Decision != AcceptUnknown || !strings.Contains(v.Message, "no contract can still call it") {
+		t.Fatalf("a breaking change no Pacto depends on can still break a service with no contract: %+v", p)
+	}
+	in.Stage.Gates.Impact.DeclaredConsumersOnly = true
+	if p := PlanFor(context.Background(), in); p.Predicted != PredictProceeds {
+		t.Fatalf("a Stage that declares its graph complete ships it: %+v", p)
+	}
+	in.Stage.Gates.Impact.DeclaredConsumersOnly = false
+	in.To = rev(dB, c2, bundle("payments", "1.0.1"))
+	if p := PlanFor(context.Background(), in); p.Predicted != PredictProceeds {
+		t.Fatalf("a non-breaking change ships with no consumers: %+v", p)
 	}
 }
 

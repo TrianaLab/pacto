@@ -177,6 +177,8 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.policy.deadlines.execution` | `string` | no |  |  |  |
 | `status.policy.environment` | `string` | yes |  |  |  |
 | `status.policy.gates` | `object` | no |  |  | Gates configures the Stage's gates. The pre-gates are fixed by the operation type; the Pacto contract check always verifies, beside the Stage's checks. |
+| `status.policy.gates.impact` | `object` | no |  |  | ImpactGate tunes pacto.impact. |
+| `status.policy.gates.impact.declaredConsumersOnly` | `boolean` | no |  |  | DeclaredConsumersOnly says every consumer of the service has a contract Pacto can see, so a breaking change no Pacto depends on ships without a person. Off by default: a service with no contract can still call it, so a breaking change with no consumer in sight waits for a person to accept the unknown. |
 | `status.policy.gates.verify` | `object` | no |  |  | VerifyGates configures what runs after a version is applied. |
 | `status.policy.gates.verify.checks` | `[]object` | no |  |  | Checks are this Stage's own verify gates, run beside the Pacto contract check: a health provider the delivery chart configures, or the built-in pacto.runtime claim gate. |
 | `status.policy.gates.verify.checks[].name` | `string` | yes |  |  | Name is the gate id its verdicts carry, unique on the Stage. |
@@ -259,6 +261,8 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.deadlines.execution` | `string` | no |  |  |  |
 | `spec.environment` | `string` | yes |  |  |  |
 | `spec.gates` | `object` | no |  |  | Gates configures the Stage's gates. The pre-gates are fixed by the operation type; the Pacto contract check always verifies, beside the Stage's checks. |
+| `spec.gates.impact` | `object` | no |  |  | ImpactGate tunes pacto.impact. |
+| `spec.gates.impact.declaredConsumersOnly` | `boolean` | no |  |  | DeclaredConsumersOnly says every consumer of the service has a contract Pacto can see, so a breaking change no Pacto depends on ships without a person. Off by default: a service with no contract can still call it, so a breaking change with no consumer in sight waits for a person to accept the unknown. |
 | `spec.gates.verify` | `object` | no |  |  | VerifyGates configures what runs after a version is applied. |
 | `spec.gates.verify.checks` | `[]object` | no |  |  | Checks are this Stage's own verify gates, run beside the Pacto contract check: a health provider the delivery chart configures, or the built-in pacto.runtime claim gate. |
 | `spec.gates.verify.checks[].name` | `string` | yes |  |  | Name is the gate id its verdicts carry, unique on the Stage. |
