@@ -1233,8 +1233,14 @@ func TestUnguardedAdmitsNothingAndCountsNoApproval(t *testing.T) {
 			t.Fatalf("a policy with no binding guards nothing: %s", o.Status.Reason)
 		}
 		e.create(guardBinding())
-		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning {
-			t.Fatalf("guarded, it moves: %s %s", o.Status.Phase, o.Status.Message)
+		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning || !o.Status.Guarded {
+			t.Fatalf("guarded, it moves and says so: %s %s %v", o.Status.Phase, o.Status.Message, o.Status.Guarded)
+		}
+		// Without admission policies (allowUnguarded) the operation runs, and
+		// its record says admission never checked who asked.
+		e = baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+		if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning || o.Status.Guarded {
+			t.Fatalf("unguarded on purpose: %s %v", o.Status.Phase, o.Status.Guarded)
 		}
 	})
 	t.Run("a held operation counts no approval", func(t *testing.T) {
@@ -1346,7 +1352,7 @@ func TestUnguardedBy(t *testing.T) {
 		binding func(*admissionv1.ValidatingAdmissionPolicyBinding)
 		want    string
 	}{
-		"guarded": {want: ""},
+		"guarded":                 {want: ""},
 		"fails closed explicitly": {policy: func(p *admissionv1.ValidatingAdmissionPolicy) { p.Spec.FailurePolicy = &fail }, want: ""},
 		"fails open": {policy: func(p *admissionv1.ValidatingAdmissionPolicy) { p.Spec.FailurePolicy = &ignore },
 			want: "the admission policy pd-operation does not fail closed"},
@@ -1358,7 +1364,9 @@ func TestUnguardedBy(t *testing.T) {
 		"narrowed": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) {
 			b.Spec.MatchResources = &admissionv1.MatchResources{}
 		}, want: "the binding pd-operation is narrowed by matchResources or paramRef"},
-		"with params": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) { b.Spec.ParamRef = &admissionv1.ParamRef{Name: "x"} },
+		"with params": {binding: func(b *admissionv1.ValidatingAdmissionPolicyBinding) {
+			b.Spec.ParamRef = &admissionv1.ParamRef{Name: "x"}
+		},
 			want: "the binding pd-operation is narrowed by matchResources or paramRef"},
 	} {
 		t.Run(name, func(t *testing.T) {

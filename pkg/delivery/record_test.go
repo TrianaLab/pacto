@@ -41,6 +41,7 @@ func recordInput() RecordInput {
 
 func TestNewOperationRecord(t *testing.T) {
 	in := recordInput()
+	in.Operation.Status.Guarded = true
 	st := NewOperationRecord(in)
 	if st.Type != StatementType || st.PredicateType != PredicateOperation || len(st.Subject) != 4 {
 		t.Fatalf("statement = %+v", st)
@@ -60,6 +61,7 @@ func TestNewOperationRecord(t *testing.T) {
 		"outcome":    p.Outcome.Pointer.After == rTo,
 		"time":       p.Time.Finished == "2026-10-19T10:12:40Z",
 		"policy":     p.Policy.Environment == "prod",
+		"guarded":    p.Guarded,
 	} {
 		if !ok {
 			t.Errorf("predicate %s is wrong: %+v", field, p)
@@ -75,10 +77,10 @@ func TestNewOperationRecord(t *testing.T) {
 		t.Fatal("the record payload is not reproducible")
 	}
 
-	in.Operation.Spec.Type, in.Operation.Spec.OnBehalfOf = "pacto.dev/scale", nil
+	in.Operation.Spec.Type, in.Operation.Spec.OnBehalfOf, in.Operation.Status.Guarded = "pacto.dev/scale", nil, false
 	in.Subjects = RecordSubjects{Anchor: rAnc}
 	st = NewOperationRecord(in)
-	if got := st.Predicate; got.Type.ID != "pacto.dev/scale" || got.Type.Digest != "" || got.Actor.OnBehalfOf != nil {
+	if got := st.Predicate; got.Type.ID != "pacto.dev/scale" || got.Type.Digest != "" || got.Actor.OnBehalfOf != nil || got.Guarded {
 		t.Fatalf("unknown type record = %+v", st)
 	}
 	if len(st.Subject) != 1 {

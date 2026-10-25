@@ -1184,6 +1184,7 @@ export interface components {
             actorClass?: string;
             applied?: boolean;
             approvals?: components["schemas"]["Delivery.ApprovalRecord"][] | null;
+            guarded?: boolean;
             message?: string;
             outcome?: string;
             phase?: string;

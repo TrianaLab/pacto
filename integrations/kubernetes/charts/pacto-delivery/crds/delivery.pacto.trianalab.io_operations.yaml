@@ -208,6 +208,13 @@ spec:
                   - name
                   type: object
                 type: array
+              guarded:
+                description: |-
+                  Guarded says the promoter checked its admission policies guarded the
+                  cluster when it admitted this operation. False when the chart runs
+                  without them (admissionPolicies.allowUnguarded): the actor and the
+                  approvers are then only what their writers claimed.
+                type: boolean
               message:
                 type: string
               outcome:

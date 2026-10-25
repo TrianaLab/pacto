@@ -173,6 +173,7 @@ func (r *OperationReconciler) admit(ctx context.Context, op *dv1.Operation, stag
 	now := r.now()
 	class := r.Policy.Classify(delivery.Identity{User: op.Spec.Actor.User, Groups: op.Spec.Actor.Groups})
 	op.Status.ActorClass = class
+	op.Status.Guarded = len(r.AdmissionPolicies) > 0 // unguarded() just found them enforcing
 	op.Status.Times.Admitted = ts(now)
 	t, known := delivery.TypeByID(op.Spec.Type)
 	approval, _ := t.Deadlines(stage.Spec.Deadlines)

@@ -99,6 +99,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.approvals[].decision` | `string` | yes |  |  | Decision is what a human approval says. |
 | `status.approvals[].name` | `string` | yes |  |  |  |
 | `status.approvals[].note` | `string` | no |  |  |  |
+| `status.guarded` | `boolean` | no |  |  | Guarded says the promoter checked its admission policies guarded the cluster when it admitted this operation. False when the chart runs without them (admissionPolicies.allowUnguarded): the actor and the approvers are then only what their writers claimed. |
 | `status.message` | `string` | no |  |  |  |
 | `status.outcome` | `string` | no |  |  | Outcome is how a concluded operation ended. |
 | `status.phase` | `string` | no |  |  | Phase is where an operation is in its lifecycle. |
