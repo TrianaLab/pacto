@@ -89,6 +89,9 @@ type AffectedConsumer struct {
 	Confidence           Confidence `json:"confidence"`
 	Status               string     `json:"status,omitempty"`
 	Targets              []string   `json:"targets,omitempty"`
+	// Uncontracted marks a runtime caller no contract describes: Service is its
+	// raw observed identity, and it has no range a change could be checked against.
+	Uncontracted bool `json:"uncontracted,omitempty"`
 }
 
 // Result is the deterministic impact answer.
@@ -238,6 +241,17 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		}
 		for _, tk := range c.Targets {
 			targets[tk] = true
+		}
+	}
+	if opts.IncludeObserved {
+		for _, u := range snap.UncontractedCallers {
+			if u.ToService == changed {
+				res.Consumers = append(res.Consumers, AffectedConsumer{
+					Service: u.Caller, Depth: 1, Direct: true, Path: []string{u.Caller, string(changed)},
+					CompatibilityVerdict: CompatibilityUnknown, Provenance: fleet.ProvenanceObserved,
+					Confidence: ConfidenceObserved, Uncontracted: true,
+				})
+			}
 		}
 	}
 	res.Owners = sortedKeys(owners)

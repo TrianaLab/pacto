@@ -2269,6 +2269,7 @@ export interface components {
             service: string;
             status?: string;
             targets?: string[] | null;
+            uncontracted?: boolean;
         };
         "Impact.ChangesPreview": {
             /** Format: int64 */
