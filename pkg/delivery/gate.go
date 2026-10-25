@@ -122,12 +122,20 @@ func RunChecks(ctx context.Context, gates map[string]Gate, checks []GateCheck, i
 var CheckTimeout = time.Minute
 
 // checkWithin runs one check, giving up on it after CheckTimeout even when the
-// gate ignores its context.
+// gate ignores its context. A gate that panics is Unknown: a bug in one
+// provider must not take the whole promoter down.
 func checkWithin(ctx context.Context, g Gate, in GateInput, params map[string]string) Verdict {
 	ctx, cancel := context.WithTimeout(ctx, CheckTimeout)
 	defer cancel()
 	done := make(chan Verdict, 1)
-	go func() { done <- g.Check(ctx, in, params) }()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- Verdict{Result: Unknown, Message: fmt.Sprintf("the check failed: %v", r)}
+			}
+		}()
+		done <- g.Check(ctx, in, params)
+	}()
 	select {
 	case v := <-done:
 		return v

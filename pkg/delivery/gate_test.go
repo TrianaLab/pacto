@@ -138,6 +138,15 @@ func TestCheckTimeout(t *testing.T) {
 	}
 }
 
+// TestCheckPanic: a gate that panics is Unknown, not a crashed promoter.
+func TestCheckPanic(t *testing.T) {
+	boom := gateFunc(func(context.Context, GateInput, map[string]string) Verdict { panic("index out of range") })
+	v := RunChecks(context.Background(), map[string]Gate{"boom": boom}, []GateCheck{{Name: "health", Provider: "boom"}}, gateIn())[0]
+	if v.Result != Unknown || !strings.Contains(v.Message, "the check failed: index out of range") {
+		t.Fatalf("a panicking check: %+v", v)
+	}
+}
+
 func TestWorst(t *testing.T) {
 	vs := []Verdict{{Result: Pass}, {Result: Unknown}}
 	if Worst(vs) != Unknown || Worst(nil) != Pass || Worst([]Verdict{{Result: Pass}, {Result: Fail}}) != Fail {

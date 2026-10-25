@@ -38,6 +38,10 @@ type clusterGate struct {
 // Check implements delivery.Gate.
 func (g clusterGate) Check(ctx context.Context, in delivery.GateInput, _ map[string]string) delivery.Verdict {
 	unknown := delivery.Verdict{Result: delivery.Unknown}
+	if len(in.Subjects) == 0 {
+		unknown.Message = "no version to check"
+		return unknown
+	}
 	stage := &dv1.Stage{}
 	if err := g.c.Client.Get(ctx, types.NamespacedName{Namespace: in.Stage.Namespace, Name: in.Stage.Name}, stage); err != nil {
 		unknown.Message = "reading the Stage: " + err.Error()
