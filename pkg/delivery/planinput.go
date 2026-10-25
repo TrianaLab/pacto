@@ -34,6 +34,20 @@ type PlanSources interface {
 func AssemblePlanInput(ctx context.Context, src PlanSources, spec OperationSpec, stage StageObject, class ActorClass, now time.Time) (PlanInput, error) {
 	in := PlanInput{Spec: spec, Stage: stage.Spec, Status: stage.Status, Class: class,
 		From: Revision{Digest: spec.Params.From}, To: Revision{Digest: spec.Params.To}}
+	if spec.Type == TypeAutonomy {
+		// A raise asks the team of the contract running now: the pointer,
+		// or what GitOps' source reports while the Stage observes. Rung
+		// names are not digests, so nothing else is read.
+		in.From, in.To = Revision{}, Revision{}
+		running := stage.Status.Pointer
+		if running == "" && stage.Status.ObservedRevision != nil {
+			running = stage.Status.ObservedRevision.Digest
+		}
+		if running != "" && Rung(spec.Params.To).level() > Rung(spec.Params.From).level() {
+			in.From, _ = src.Revisions(ctx, stage, running, running)
+		}
+		return in, nil
+	}
 	if spec.Type != TypePromote {
 		if spec.Facet == FacetPointer && spec.Params.To != "" {
 			_, in.To = src.Revisions(ctx, stage, spec.Params.From, spec.Params.To)

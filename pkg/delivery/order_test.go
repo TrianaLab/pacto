@@ -166,7 +166,7 @@ func orderPlan(t *testing.T, in PlanInput, pactos []PactoView, from, to Revision
 	}
 	in.Spec, in.Stage, in.From, in.To, in.Snapshot, in.Class = promote(from.Digest, to.Digest), stageSpec(), from, to, snap, ClassAgent
 	in.Status = StageStatus{Pointer: from.Digest, Verified: []string{from.Digest}, Published: []string{to.Digest}}
-	return PlanFor(context.Background(), in)
+	return autonomousPlan(in)
 }
 
 func onlyMove(t *testing.T, p Plan) MoveFirst {
