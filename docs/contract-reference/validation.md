@@ -24,7 +24,9 @@ Validates against the embedded schema of the contract's version, `pacto-v2.0.sch
 - Discriminated shapes hold — a `configurations[]` entry has exactly one of `schema`/`ref`; a `capabilities[]` `extension` requires a namespaced `ref` while `health`/`metrics` must not set `ref`
 - State invariants hold (`stateless` requires `ephemeral` durability)
 
-Structural failures report `SCHEMA_VIOLATION`.
+Structural failures report `SCHEMA_VIOLATION`. A `"2.0"` contract that uses
+`publish`, `agent` or an `mcp` interface reports `NEEDS_PACTO_2_1` for each
+instead: set `pactoVersion: "2.1"`, which keeps every 2.0 field.
 
 A contract that cannot be **loaded** at all — malformed YAML, an unknown field or a
 `pactoVersion` other than `"2.0"` or `"2.1"` — fails before any layer runs and reports

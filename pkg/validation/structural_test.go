@@ -562,3 +562,39 @@ func TestValidateStructural_V21Publish(t *testing.T) {
 		}
 	}
 }
+
+// TestNeeds21: a 2.0 contract using what only 2.1 has is told to set
+// pactoVersion 2.1, not given the schema's generic "not allowed", and the rest
+// of the contract is still checked.
+func TestNeeds21(t *testing.T) {
+	data := map[string]any{
+		"pactoVersion": "2.0",
+		"service":      map[string]any{"name": "svc", "version": "1.0.0"},
+		"publish":      map[string]any{},
+		"agent":        map[string]any{},
+		"interfaces":   []any{map[string]any{"name": "tools", "type": "mcp"}, map[string]any{"name": "api", "type": "bogus"}},
+	}
+	res := ValidateStructural(data)
+	var got []string
+	for _, e := range res.Errors {
+		got = append(got, e.Code+" "+e.Path)
+		if strings.Contains(e.Message, "not allowed") {
+			t.Fatalf("a generic schema error: %+v", e)
+		}
+	}
+	joined := strings.Join(got, "\n")
+	for _, want := range []string{"NEEDS_PACTO_2_1 publish", "NEEDS_PACTO_2_1 agent", "NEEDS_PACTO_2_1 interfaces.0.type", "SCHEMA_VIOLATION"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("missing %q in:\n%s", want, joined)
+		}
+	}
+	if _, ok := data["publish"]; !ok {
+		t.Fatal("the caller's data was changed")
+	}
+	data["interfaces"] = []any{map[string]any{"name": "api", "type": "openapi", "ref": "api.yaml"}}
+	delete(data, "publish")
+	delete(data, "agent")
+	if res := ValidateStructural(data); !res.IsValid() {
+		t.Fatalf("a plain 2.0 contract: %+v", res.Errors)
+	}
+}

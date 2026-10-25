@@ -4,11 +4,13 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 )
 
 //go:embed schema/pacto-v2.0.schema.json
@@ -100,8 +102,39 @@ func ValidateStructural(data any) ValidationResult {
 		return result
 	}
 
+	if version == "2.0" {
+		data = needs21(&result, data)
+	}
 	addSchemaError(&result, schema.Validate(data))
 	return result
+}
+
+// needs21 records a NEEDS_PACTO_2_1 error for each part of data only
+// pactoVersion 2.1 has (publish, agent and an mcp interface), in place of the
+// 2.0 schema's generic "not allowed", and returns data without them for the
+// rest of the 2.0 schema to check.
+func needs21(result *ValidationResult, data any) any {
+	m, _ := data.(map[string]any) // a 2.0 pactoVersion was read from it
+	out := maps.Clone(m)
+	for _, key := range []string{"publish", "agent"} {
+		if _, ok := m[key]; ok {
+			result.AddError(key, string(finding.CodeNeedsPacto21), key+` needs pactoVersion "2.1"; set pactoVersion: "2.1", which keeps every 2.0 field`)
+			delete(out, key)
+		}
+	}
+	ifaces, _ := m["interfaces"].([]any)
+	kept := make([]any, 0, len(ifaces))
+	for i, it := range ifaces {
+		if im, _ := it.(map[string]any); im["type"] == "mcp" {
+			result.AddError(fmt.Sprintf("interfaces.%d.type", i), string(finding.CodeNeedsPacto21), `an mcp interface needs pactoVersion "2.1"; set pactoVersion: "2.1", which keeps every 2.0 field`)
+			continue
+		}
+		kept = append(kept, it)
+	}
+	if len(kept) < len(ifaces) {
+		out["interfaces"] = kept
+	}
+	return out
 }
 
 // addSchemaError records a schema validation outcome: nothing for nil, every
