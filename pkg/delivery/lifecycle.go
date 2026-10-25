@@ -278,20 +278,7 @@ func ApplyEffects(s *StageStatus, name, uid string, spec OperationSpec, st Opera
 	}
 	switch c.Outcome {
 	case Succeeded:
-		if c.Verification == Verified {
-			s.Verified = AddDigest(s.Verified, to, MaxVerified)
-			if spec.Type == TypePromote && passedPublished(st.Verdicts) {
-				s.Offered = AddDigest(s.Offered, to, MaxOffered)
-			}
-		}
-		switch {
-		case spec.Type == TypeUnfreeze:
-			s.Frozen, s.FrozenReason, s.AutoHold = false, "", false
-		case spec.Type == TypeFreeze && !s.Frozen:
-			// A freeze a failed re-check raised finds the Stage frozen already,
-			// with that check's reason, which it keeps.
-			s.Frozen, s.FrozenReason = true, name+": frozen: "+spec.Reason
-		}
+		succeeded(s, name, spec, st, c)
 	case Rejected:
 		// A refused automatic rollback must not leave the failed version
 		// running unwatched: a person decides.
@@ -301,18 +288,42 @@ func ApplyEffects(s *StageStatus, name, uid string, spec OperationSpec, st Opera
 	case Failed:
 		s.FailedDigests = AddDigest(s.FailedDigests, to, MaxFailedDigests)
 		s.Verified = RemoveDigest(s.Verified, to)
-		switch {
-		case spec.Type != TypePromote:
-			c.Freeze, c.Reason = true, "a "+spec.Type+" failed: "+c.Reason
-		case st.Pointer.Before == "":
-			c.Freeze, c.Reason = true, "the first version failed, so there is nothing to roll back to"
-		case slices.Contains(s.FailedDigests, st.Pointer.Before):
-			c.Freeze, c.Reason = true, "the version before it failed here too, so there is nothing safe to roll back to"
-		default:
-			s.RolledBack = AddDigest(s.RolledBack, uid, MaxRolledBack)
-		}
+		c = failed(s, uid, spec, st, c)
 	}
 	if c.Freeze {
 		s.Frozen, s.FrozenReason = true, name+": "+c.Reason
 	}
+}
+
+func succeeded(s *StageStatus, name string, spec OperationSpec, st OperationStatus, c Conclusion) {
+	if c.Verification == Verified {
+		s.Verified = AddDigest(s.Verified, spec.Params.To, MaxVerified)
+		if spec.Type == TypePromote && passedPublished(st.Verdicts) {
+			s.Offered = AddDigest(s.Offered, spec.Params.To, MaxOffered)
+		}
+	}
+	switch {
+	case spec.Type == TypeUnfreeze:
+		s.Frozen, s.FrozenReason, s.AutoHold = false, "", false
+	case spec.Type == TypeFreeze && !s.Frozen:
+		// A freeze a failed re-check raised finds the Stage frozen already,
+		// with that check's reason, which it keeps.
+		s.Frozen, s.FrozenReason = true, name+": frozen: "+spec.Reason
+	}
+}
+
+// failed is how a failed operation ends on the Stage: its one automatic
+// rollback counted, or a freeze when nothing can be rolled back to.
+func failed(s *StageStatus, uid string, spec OperationSpec, st OperationStatus, c Conclusion) Conclusion {
+	switch {
+	case spec.Type != TypePromote:
+		c.Freeze, c.Reason = true, "a "+spec.Type+" failed: "+c.Reason
+	case st.Pointer.Before == "":
+		c.Freeze, c.Reason = true, "the first version failed, so there is nothing to roll back to"
+	case slices.Contains(s.FailedDigests, st.Pointer.Before):
+		c.Freeze, c.Reason = true, "the version before it failed here too, so there is nothing safe to roll back to"
+	default:
+		s.RolledBack = AddDigest(s.RolledBack, uid, MaxRolledBack)
+	}
+	return c
 }

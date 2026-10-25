@@ -77,14 +77,27 @@ func TestNewOperationRecord(t *testing.T) {
 		t.Fatal("the record payload is not reproducible")
 	}
 
-	in.Operation.Spec.Type, in.Operation.Spec.OnBehalfOf, in.Operation.Status.Guarded = "pacto.dev/scale", nil, false
+	in.Operation.Spec.Type, in.Operation.Spec.OnBehalfOf = "pacto.dev/scale", nil
 	in.Subjects = RecordSubjects{Anchor: rAnc}
 	st = NewOperationRecord(in)
-	if got := st.Predicate; got.Type.ID != "pacto.dev/scale" || got.Type.Digest != "" || got.Actor.OnBehalfOf != nil || got.Guarded {
+	if got := st.Predicate; got.Type.ID != "pacto.dev/scale" || got.Type.Digest != "" || got.Actor.OnBehalfOf != nil {
 		t.Fatalf("unknown type record = %+v", st)
 	}
 	if len(st.Subject) != 1 {
 		t.Fatalf("subjects = %+v", st.Subject)
+	}
+}
+
+// TestRecordSaysWhetherItWasGuarded: a record says admission checked who
+// asked and who approved only when the promoter found its policies enforcing.
+func TestRecordSaysWhetherItWasGuarded(t *testing.T) {
+	in := recordInput()
+	if NewOperationRecord(in).Predicate.Guarded {
+		t.Fatal("an unguarded operation's record says it was guarded")
+	}
+	in.Operation.Status.Guarded = true
+	if !NewOperationRecord(in).Predicate.Guarded {
+		t.Fatal("a guarded operation's record does not say so")
 	}
 }
 
