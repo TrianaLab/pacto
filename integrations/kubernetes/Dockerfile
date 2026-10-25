@@ -23,7 +23,9 @@ ARG CMD=cmd
 # a cloud KMS key (--kms-key). The operator image does not link the signing
 # package, so the tag changes nothing there. Pass --build-arg GO_TAGS= for a
 # delivery image without KMS (key file and keyless signing only) or, say,
-# GO_TAGS=kms_aws for one provider.
+# GO_TAGS=kms_aws for one provider. security.yml scans this default (Trivy on
+# the built delivery image, govulncheck with -tags kms), so the SDKs it links
+# are checked as shipped; change the default there too if it ever changes here.
 ARG GO_TAGS=kms
 # RELEASE_BUILD=1 (set by the release publisher) builds the operator module
 # STANDALONE with GOWORK=off, so it resolves the engine core from the PUBLISHED
