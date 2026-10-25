@@ -201,6 +201,8 @@
   .dp-outcome h3, .dp-safer h3 { margin: 0; font-weight: 600; }
   .dp-outcome ul { margin: 0; padding-left: var(--sp-5); }
   .dp-was { outline: 2px solid var(--c-accent); outline-offset: 2px; }
+  /* The warn tint is translucent: on the panel's own warn tint it loses contrast, so lay it on the surface. */
+  .dp .badge-warn { background: linear-gradient(var(--c-warn-bg), var(--c-warn-bg)), var(--c-surface); }
   .dp-link { color: var(--c-accent); text-decoration: underline; }
   .dp-ok { color: var(--c-ok); font-weight: 600; }
   .dp-fresh { border: 1px solid var(--c-accent-border); background: var(--c-surface); border-radius: var(--radius-sm); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); align-items: flex-start; }

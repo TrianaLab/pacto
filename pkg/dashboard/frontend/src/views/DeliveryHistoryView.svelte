@@ -163,6 +163,11 @@
   /* Versions, arrows, times and record ids read as one unit each. */
   .hv-nowrap { white-space: nowrap; }
   .hv-class, .hv-digest { color: var(--c-text-2); }
+  /* The tints are translucent, so on a hovered row a chip loses contrast; lay each on the surface. */
+  .hv-table .badge-ok { background: linear-gradient(var(--c-ok-bg), var(--c-ok-bg)), var(--c-surface); }
+  .hv-table .badge-warn { background: linear-gradient(var(--c-warn-bg), var(--c-warn-bg)), var(--c-surface); }
+  .hv-table .badge-info { background: linear-gradient(var(--c-info-bg), var(--c-info-bg)), var(--c-surface); }
+  .hv-table .badge-neutral { background: linear-gradient(var(--c-neutral-bg), var(--c-neutral-bg)), var(--c-surface); }
   .state-box { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8) var(--sp-4); text-align: center; color: var(--c-text-3); }
   .state-box h2 { color: var(--c-text-2); }
 </style>

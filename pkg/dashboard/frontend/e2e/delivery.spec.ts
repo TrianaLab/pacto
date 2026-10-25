@@ -210,7 +210,9 @@ test.describe('Delivery views', () => {
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(/#\/delivery\/changes\/prod\/op1$/);
     await expect(page.getByTestId('decision-panel')).toContainText('Ship it?', { timeout: T });
-    await expect(page.getByTestId('actual-verdicts')).toContainText('pacto delivery explain -n prod op1');
+    // Held before it applies: what happened would only repeat the plan, so it waits.
+    await expect(page.getByTestId('predicted-verdicts')).toBeVisible();
+    await expect(page.getByTestId('actual-verdicts')).toHaveCount(0);
     await audit(page, 'change detail');
   });
 
@@ -224,7 +226,7 @@ test.describe('Delivery views', () => {
     await expect(page.getByTestId('inbox-move-first-unknown')).toContainText('This list may be incomplete');
 
     await page.goto('/#/delivery/changes/prod/op1');
-    const section = page.getByRole('region', { name: 'Update these first' });
+    const section = page.getByTestId('decision-safer');
     await expect(section).toContainText('Pacto never moves them for you.', { timeout: T });
     const candidate = section.getByRole('link', { name: 'checkout 3.1.0, verified on test/checkout-test' });
     await candidate.focus();
@@ -345,7 +347,7 @@ test.describe('Delivery views', () => {
     const refused = page.getByTestId('refused-publishes');
     await expect(refused).toContainText('payments 2.4.3', { timeout: T });
     await expect(refused).toContainText('Needs a major version');
-    await expect(refused).toContainText('By pay-agent');
+    await expect(refused).toContainText('By agents/pay-agent');
     await expect(refused.getByTestId('refused-note')).toContainText('Read from each service');
     await audit(page, 'published with refusals');
   });
