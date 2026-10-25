@@ -100,7 +100,7 @@ ENTRYPOINT ["/manager"]
 # The delivery image (`--target delivery`, with CMD=cmd/delivery) is the same
 # single binary: the recorder signs with sigstore-go, so it needs no cosign.
 # It carries the license text and source location of every module the
-# binary links with GO_TAGS=kms, MPL-2.0 ones included; test/licenses keeps
+# binary links with GO_TAGS=kms, MPL-2.0 ones included; internal/guards keeps
 # the file current.
 FROM operator AS delivery
 COPY integrations/kubernetes/cmd/delivery/THIRD_PARTY_NOTICES /THIRD_PARTY_NOTICES

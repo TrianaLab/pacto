@@ -227,7 +227,7 @@ func TestRuntimeVerdict(t *testing.T) {
 			p.Status.EvaluatedRevision.ContractDigest = c1
 			return p
 		}()), Unknown, "last evaluated contract"},
-		{"not applied", check(false, observed("Complete")), Unknown, "Flux"},
+		{"not applied", check(false, observed("Complete")), Unknown, "not confirmed applied"},
 		{"no pacto", check(true), Unknown, "no Pacto"},
 	}
 	for _, c := range cases {

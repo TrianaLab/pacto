@@ -1,6 +1,6 @@
-// Package licenses keeps the delivery image's third-party notices in step with
-// what the delivery binary links.
-package licenses
+// Package guards holds checks on files the module ships but does not compile:
+// the delivery image's license notices and the generated CRDs.
+package guards
 
 import (
 	"bytes"
@@ -16,7 +16,7 @@ import (
 )
 
 // notices is copied into the delivery image. Regenerate it with
-// UPDATE_NOTICES=1 go test ./test/licenses/.
+// UPDATE_NOTICES=1 go test ./internal/guards/.
 const notices = "../../cmd/delivery/THIRD_PARTY_NOTICES"
 
 // The delivery image builds with GO_TAGS=kms (see the Dockerfile), which links
@@ -54,7 +54,7 @@ func TestDeliveryImageCarriesEveryLinkedLicense(t *testing.T) {
 		t.Error("the delivery image must copy THIRD_PARTY_NOTICES")
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatalf("%s is stale for what cmd/delivery links with -tags kms: run UPDATE_NOTICES=1 go test ./test/licenses/", notices)
+		t.Fatalf("%s is stale for what cmd/delivery links with -tags kms: run UPDATE_NOTICES=1 go test ./internal/guards/", notices)
 	}
 }
 
