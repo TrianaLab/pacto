@@ -343,12 +343,15 @@ type StageStatus struct {
 	// LastCheck is the newest re-check of the running version after it shipped.
 	// +optional
 	LastCheck *Recheck `json:"lastCheck,omitempty"`
+	// ObservedGeneration is the Stage generation the stage reconciler last
+	// judged Ready from.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // Condition is a Kubernetes status condition, so `kubectl wait
-// --for=condition=Ready` and status tooling read it.
-// ponytail: no lastTransitionTime; add it when a reader needs to know when
-// readiness changed.
+// --for=condition=Ready`, kstatus and Argo CD read it. Write it with
+// SetCondition.
 type Condition struct {
 	Type string `json:"type"`
 	// +kubebuilder:validation:Enum=True;False;Unknown
@@ -357,6 +360,12 @@ type Condition struct {
 	Reason string `json:"reason,omitempty"`
 	// +optional
 	Message string `json:"message,omitempty"`
+	// LastTransitionTime is when Status last changed (RFC 3339).
+	// +optional
+	LastTransitionTime string `json:"lastTransitionTime,omitempty"`
+	// ObservedGeneration is the Stage generation the condition was set from.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
 }
 
 // Recheck is one run of the verify gates on a version that already shipped.

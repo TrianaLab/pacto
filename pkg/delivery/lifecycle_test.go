@@ -57,3 +57,28 @@ func TestApprovalEligible(t *testing.T) {
 		t.Error("a held operation with no plan asks no team in particular")
 	}
 }
+
+func TestSetCondition(t *testing.T) {
+	ready := Condition{Type: "Ready", Status: "True", Reason: "Ready", ObservedGeneration: 1}
+	other := Condition{Type: "Other", Status: "True"}
+	conds, changed := SetCondition([]Condition{other}, ready, t0)
+	if !changed || len(conds) != 2 || conds[1].LastTransitionTime != "2026-10-20T10:00:00Z" {
+		t.Fatalf("added: %v %+v", changed, conds)
+	}
+	if again, changed := SetCondition(conds, ready, t1); changed || again[1].LastTransitionTime != "2026-10-20T10:00:00Z" {
+		t.Fatalf("the same condition is no change: %v %+v", changed, again)
+	}
+	moved := ready
+	moved.Message, moved.ObservedGeneration = "now with a message", 2
+	same, changed := SetCondition(conds, moved, t1)
+	if !changed || same[1].LastTransitionTime != "2026-10-20T10:00:00Z" || same[1].ObservedGeneration != 2 {
+		t.Fatalf("a new message keeps the transition time: %v %+v", changed, same)
+	}
+	flipped, changed := SetCondition(conds, Condition{Type: "Ready", Status: "False", Reason: "X"}, t1)
+	if !changed || flipped[1].LastTransitionTime != "2026-10-20T10:10:00Z" || flipped[0] != other {
+		t.Fatalf("a new status is a transition: %v %+v", changed, flipped)
+	}
+	if conds[1].Status != "True" {
+		t.Fatal("SetCondition edited its input")
+	}
+}

@@ -208,3 +208,25 @@ func VerifyWindow(spec StageSpec) time.Duration {
 func RecheckInterval(spec StageSpec) time.Duration {
 	return durationOr(spec.Gates.Verify.Recheck, DefaultRecheck)
 }
+
+// SetCondition puts c in conds in place of the condition of its type, keeping
+// that one's transition time while the status is the same, and says whether
+// anything changed. It never edits conds.
+func SetCondition(conds []Condition, c Condition, now time.Time) ([]Condition, bool) {
+	c.LastTransitionTime = now.UTC().Format(time.RFC3339)
+	for i, x := range conds {
+		if x.Type != c.Type {
+			continue
+		}
+		if x.Status == c.Status {
+			c.LastTransitionTime = x.LastTransitionTime
+		}
+		if x == c {
+			return conds, false
+		}
+		out := slices.Clone(conds)
+		out[i] = c
+		return out, true
+	}
+	return append(slices.Clone(conds), c), true
+}

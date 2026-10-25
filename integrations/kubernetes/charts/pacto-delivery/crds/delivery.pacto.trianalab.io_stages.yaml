@@ -263,12 +263,20 @@ spec:
                 items:
                   description: |-
                     Condition is a Kubernetes status condition, so `kubectl wait
-                    --for=condition=Ready` and status tooling read it.
-                    ponytail: no lastTransitionTime; add it when a reader needs to know when
-                    readiness changed.
+                    --for=condition=Ready`, kstatus and Argo CD read it. Write it with
+                    SetCondition.
                   properties:
+                    lastTransitionTime:
+                      description: LastTransitionTime is when Status last changed
+                        (RFC 3339).
+                      type: string
                     message:
                       type: string
+                    observedGeneration:
+                      description: ObservedGeneration is the Stage generation the
+                        condition was set from.
+                      format: int64
+                      type: integer
                     reason:
                       type: string
                     status:
@@ -357,6 +365,12 @@ spec:
                 description: Locks maps a facet to the uid of the operation holding
                   it.
                 type: object
+              observedGeneration:
+                description: |-
+                  ObservedGeneration is the Stage generation the stage reconciler last
+                  judged Ready from.
+                format: int64
+                type: integer
               offered:
                 description: |-
                   Offered holds the digests a promote carried through pacto.published

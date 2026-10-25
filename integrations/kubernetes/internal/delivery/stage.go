@@ -214,11 +214,13 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 			want = notReady(ReasonUnguarded, why+", so the promoter admits no operation and counts no approval")
 		}
 	}
-	if slices.Contains(stage.Status.Conditions, want) {
+	want.ObservedGeneration = stage.Generation
+	if _, changed := delivery.SetCondition(stage.Status.Conditions, want, r.Now()); !changed && stage.Status.ObservedGeneration == stage.Generation {
 		return cand, nil
 	}
 	set := func(s *dv1.Stage) {
-		s.Status.Conditions = append(slices.DeleteFunc(s.Status.Conditions, func(x delivery.Condition) bool { return x.Type == want.Type }), want)
+		s.Status.Conditions, _ = delivery.SetCondition(s.Status.Conditions, want, r.Now())
+		s.Status.ObservedGeneration = stage.Generation
 	}
 	if err := r.updateStatus(ctx, stage, set); err != nil {
 		return nil, err

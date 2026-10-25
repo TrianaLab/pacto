@@ -439,3 +439,47 @@ func TestApplyRefUnlabelled(t *testing.T) {
 		t.Fatal("a failed apply object read must surface")
 	}
 }
+
+// TestReadyObservesTheGeneration: Ready and the Stage status name the
+// generation they were judged from, and the transition time moves only when
+// Ready's status does, so kstatus and Argo CD can tell a stale status.
+func TestReadyObservesTheGeneration(t *testing.T) {
+	st := stageObj("")
+	st.Generation = 3
+	e := newEnv(t, st, ociRepo("payments", "", "", false), verifiedRepo("payments-candidates", "latest@"+dB))
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	s := e.getStage()
+	c := s.Status.Conditions[0]
+	if s.Generation != 3 || s.Status.ObservedGeneration != 3 || c.ObservedGeneration != 3 || c.LastTransitionTime != ts(e.now) || c.Status != "True" {
+		t.Fatalf("status %d, condition %+v, generation %d", s.Status.ObservedGeneration, c, s.Generation)
+	}
+	// A spec change: the apiserver bumps the generation (the fake client
+	// keeps what it is given). Ready is judged again; its status did not
+	// change, so neither does its transition time.
+	s.Generation = 4
+	if err := e.c.Update(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	created := c.LastTransitionTime
+	e.now = e.now.Add(time.Minute)
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	s = e.getStage()
+	c = s.Status.Conditions[0]
+	if s.Status.ObservedGeneration != 4 || c.ObservedGeneration != 4 || c.LastTransitionTime != created {
+		t.Fatalf("after the spec change: status %d, condition %+v", s.Status.ObservedGeneration, c)
+	}
+	// Ready turning False is a transition.
+	if err := e.c.Delete(context.Background(), verifiedRepo("payments-candidates", "")); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if c = e.getStage().Status.Conditions[0]; c.Status != statusFalse || c.LastTransitionTime != ts(e.now) {
+		t.Fatalf("a transition: %+v", c)
+	}
+}
