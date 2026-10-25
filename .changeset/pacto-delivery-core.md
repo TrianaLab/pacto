@@ -7,6 +7,10 @@ environment runs, plus `pacto publish`, contract format 2.1 and a `pacto init`
 that pactifies an existing service. Nothing changes for a project that does not
 use them.
 
+Delivery is Alpha. The new packages (`pkg/delivery`, `pkg/publish`,
+`pkg/signing`, `pkg/deliveryrecord` and `pkg/ocireferrer`) are experimental and
+not covered by semantic versioning, so their API may change in a minor release.
+
 **Pactify a service.** `pacto init [dir]` now reads a folder that already holds
 a service instead of failing. It fills in the contract from the Dockerfile and
 Kubernetes manifests: name, version and registry from the workload and its

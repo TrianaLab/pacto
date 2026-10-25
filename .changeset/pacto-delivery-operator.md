@@ -13,7 +13,8 @@ and the workload object and generation an evaluation read, and its
 `contractStatus` must check `evaluatedRevision` first, as the promoter does.
 The Pacto status also accepts `mcp` interfaces, so agent contracts reconcile.
 
-**The API.** `delivery.pacto.trianalab.io/v1alpha1` adds `Stage` (one service
+**The API.** `delivery.pacto.trianalab.io/v1alpha1` (Alpha, in the kubectl
+category `pacto-delivery`) adds `Stage` (one service
 in one environment, whose pointer is the artifact digest it runs), `Operation`
 (one decision, with an immutable spec) and `Approval` (a person's decision
 bound to an operation's uid and intent digest and to the approver's groups).
@@ -42,12 +43,12 @@ that cannot be established or an edit of the pointer the promoter did not make
 freezes the Stage. Stages with `auto: true` promote the newest eligible
 candidate.
 
-**Reach.** A Stage applies through a Flux `OCIRepository` by default, or
-through an Argo CD Application with an OCI source (`applyRef.kind:
-Application`, chart `argocd.enabled`). `candidates.upstreamRecords` lets a
+**Reach (experimental).** A Stage applies through a Flux `OCIRepository` by
+default, or, as an experimental option, through an Argo CD Application with an
+OCI source (`applyRef.kind: Application`, chart `argocd.enabled`). `candidates.upstreamRecords` lets a
 Stage follow a Stage in another cluster from that cluster's signed records,
 read with `promoter.upstreamTrust`; without it the Stage is not Ready
-(`UpstreamUntrusted`).
+(`UpstreamUntrusted`). Both may change more than the rest of delivery.
 
 **The recorder** (subcommand `recorder`, chart `recorder.*`, off by default)
 is the only holder of the signing key and the registry push credentials. It
