@@ -36,7 +36,7 @@ func PublishedFreshness(published string) time.Duration {
 }
 
 // ParseAuthTime reads a login time as the apiserver reports it in
-// userInfo.extra["pacto.dev/auth-time"]: Unix seconds (what structured
+// userInfo.extra["delivery.pacto.trianalab.io/auth-time"]: Unix seconds (what structured
 // authentication maps from auth_time) or RFC 3339.
 func ParseAuthTime(v string) (time.Time, bool) {
 	if t, err := time.Parse(time.RFC3339, v); err == nil {

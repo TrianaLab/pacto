@@ -98,7 +98,7 @@ manifests build can pin the image it deploys by digest. Pacto then:
 
 1. pushes each artifact by digest, with `org.opencontainers.image.version` and
    `org.opencontainers.image.revision` on its manifest;
-2. packages the deploy artifact as a Flux artifact whose `pacto.dev/contract`
+2. packages the deploy artifact as a Flux artifact whose `delivery.pacto.trianalab.io/contract`
    annotation names the digest-pinned contract bundle;
 3. attaches the SBOM file the build wrote to each image that declares one, and
    signs it, unless one signed by the configured identity is already there.

@@ -281,7 +281,7 @@ func (c *Client) ListTags(ctx context.Context, repo string) ([]string, error) {
 }
 
 // Annotations returns the manifest annotations of ref (a tag or digest
-// reference). Delivery reads an artifact's pacto.dev/contract annotation through
+// reference). Delivery reads an artifact's delivery.pacto.trianalab.io/contract annotation through
 // it, so a deployable artifact can name the contract it was built from.
 func (c *Client) Annotations(ctx context.Context, ref string) (map[string]string, error) {
 	r, err := c.parseRef(ref)

@@ -33,8 +33,8 @@
   let proposingVersion = $state('');
   let opener = null;
   function open(e, req, version = '') { opener = e.currentTarget; proposingVersion = version; proposing = req; }
-  function promote(r, e) { open(e, { namespace: r.namespace, stage: r.stage, type: 'pacto.dev/promote', to: r.candidate, from: r.pointer || undefined }, r.candidateVersion); }
-  function unfreeze(r, e) { open(e, { namespace: r.namespace, stage: r.stage, type: 'pacto.dev/unfreeze' }); }
+  function promote(r, e) { open(e, { namespace: r.namespace, stage: r.stage, type: 'delivery.pacto.trianalab.io/promote', to: r.candidate, from: r.pointer || undefined }, r.candidateVersion); }
+  function unfreeze(r, e) { open(e, { namespace: r.namespace, stage: r.stage, type: 'delivery.pacto.trianalab.io/unfreeze' }); }
   function closePlan() { proposing = null; opener?.focus(); }
 </script>
 

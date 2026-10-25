@@ -12,8 +12,8 @@ import {
 describe('delivery labels', () => {
   it('names types, decisions and predictions in plain words', () => {
     // The CRD, the CLI and the docs say freeze; so does the dashboard.
-    expect(typeLabel('pacto.dev/unfreeze')).toBe('Unfreeze');
-    expect(typeLabel('pacto.dev/freeze')).toBe('Freeze');
+    expect(typeLabel('delivery.pacto.trianalab.io/unfreeze')).toBe('Unfreeze');
+    expect(typeLabel('delivery.pacto.trianalab.io/freeze')).toBe('Freeze');
     expect(typeLabel('example.com/migrate')).toBe('example.com/migrate');
     expect(typeLabel(undefined)).toBe('Change');
     expect(decisionLabel('accept-unknown')).toBe('Accept the unknown');
@@ -205,7 +205,7 @@ describe('what a check concluded', () => {
 describe('what a change says about itself', () => {
   const D1 = 'sha256:' + '1'.repeat(64);
   const D2 = 'sha256:' + '2'.repeat(64);
-  const promote = (status: Record<string, string>) => ({ spec: { type: 'pacto.dev/promote', stage: 'payments', params: { from: D1, to: D2 } }, status });
+  const promote = (status: Record<string, string>) => ({ spec: { type: 'delivery.pacto.trianalab.io/promote', stage: 'payments', params: { from: D1, to: D2 } }, status });
 
   it('says what a change asked and where it stands, with no empty fields or raw words', () => {
     const versions = { [D1]: '2.3.0', [D2]: '2.4.0' };
@@ -218,11 +218,11 @@ describe('what a change says about itself', () => {
     expect(changeSummary(promote({ phase: 'Held' }), 'prod')).toBe('Promote payments in prod from 111111111111 to 222222222222 waits for a person.');
     expect(changeSummary(promote({ phase: '' }), 'prod', versions)).toBe('Promote payments in prod from 2.3.0 to 2.4.0 is not admitted yet.');
     expect(changeSummary(promote({ phase: 'Odd' }), 'prod', versions)).toBe('Promote payments in prod from 2.3.0 to 2.4.0 is odd.');
-    expect(changeSummary({ spec: { type: 'pacto.dev/rollback', stage: 'payments', params: { to: D1 } }, status: { phase: 'Running' } }, 'prod', versions))
+    expect(changeSummary({ spec: { type: 'delivery.pacto.trianalab.io/rollback', stage: 'payments', params: { to: D1 } }, status: { phase: 'Running' } }, 'prod', versions))
       .toBe('Roll back payments in prod to 2.3.0 is running.');
-    expect(changeSummary({ spec: { type: 'pacto.dev/unfreeze', stage: 'payments' } }, 'prod')).toBe('Unfreeze payments in prod is not admitted yet.');
+    expect(changeSummary({ spec: { type: 'delivery.pacto.trianalab.io/unfreeze', stage: 'payments' } }, 'prod')).toBe('Unfreeze payments in prod is not admitted yet.');
     expect(changeSummary(null, 'prod')).toBe('');
-    expect(changeSummary(promote({ phase: 'Concluded', outcome: 'Failed', verification: 'Unverified' }), 'prod')).not.toMatch(/: :|pacto\.dev|->/);
+    expect(changeSummary(promote({ phase: 'Concluded', outcome: 'Failed', verification: 'Unverified' }), 'prod')).not.toMatch(/: :|pacto\.trianalab\.io|->/);
   });
 
   it('names a person, an agent or the controller with a chip', () => {
@@ -243,24 +243,24 @@ describe('what a change says about itself', () => {
   });
 
   it('counts how far delivery ran with no person, and what only Unknown held', () => {
-    const p = (over: Record<string, unknown>) => ({ type: 'pacto.dev/promote', phase: 'Concluded', actorClass: 'agent', approvals: null, ...over });
+    const p = (over: Record<string, unknown>) => ({ type: 'delivery.pacto.trianalab.io/promote', phase: 'Concluded', actorClass: 'agent', approvals: null, ...over });
     expect(autonomyOf([
       p({}), p({ actorClass: 'controller' }),
       p({ approvals: [{ decision: 'approve' }] }),
       p({ verification: 'AcceptedUnknown', approvals: [{ decision: 'accept-unknown' }] }),
       p({ approvals: [{ decision: 'approve' }, { decision: 'accept-unknown' }] }),
       p({ actorClass: 'human' }),
-      p({ phase: 'Held' }), p({ type: 'pacto.dev/rollback' }), p({ kind: 'gap' }), p({ kind: 'unrecordable' }),
+      p({ phase: 'Held' }), p({ type: 'delivery.pacto.trianalab.io/rollback' }), p({ kind: 'gap' }), p({ kind: 'unrecordable' }),
     ])).toEqual({ total: 6, noPerson: 2, onlyUnknown: 1 });
     expect(autonomyOf([])).toEqual({ total: 0, noPerson: 0, onlyUnknown: 0 });
     // A promotion whose line does not say who approved it cannot be counted:
     // a person may have approved it.
-    expect(autonomyOf([p({ approvals: null }), { type: 'pacto.dev/promote', phase: 'Concluded', actorClass: 'agent' }])).toBeNull();
+    expect(autonomyOf([p({ approvals: null }), { type: 'delivery.pacto.trianalab.io/promote', phase: 'Concluded', actorClass: 'agent' }])).toBeNull();
   });
 
   it('finds the rollback that undid a change', () => {
-    const rb = (over: Record<string, unknown>) => ({ operation: 'rb', type: 'pacto.dev/rollback', from: D2, finished: '2026-10-21T11:00:00Z', pointer: { after: D1 }, ...over });
-    const promoteLine = { operation: 'op1', type: 'pacto.dev/promote', from: D1, finished: '2026-10-21T10:00:00Z', pointer: { after: D2 } };
+    const rb = (over: Record<string, unknown>) => ({ operation: 'rb', type: 'delivery.pacto.trianalab.io/rollback', from: D2, finished: '2026-10-21T11:00:00Z', pointer: { after: D1 }, ...over });
+    const promoteLine = { operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', from: D1, finished: '2026-10-21T10:00:00Z', pointer: { after: D2 } };
     expect(undoneBy([promoteLine, rb({})], 'op1', D2, '2026-10-21T10:00:00Z')?.operation).toBe('rb');
     expect(undoneBy([rb({ finished: '' })], 'op1', D2, '2026-10-21T10:00:00Z')?.operation).toBe('rb');
     expect(undoneBy([rb({})], 'op1', D2)?.operation).toBe('rb');
@@ -275,7 +275,7 @@ describe('what a change says about itself', () => {
     // back to 2.5: D starts from 2.4 but undid C, and A was never undone.
     const v = (n: string) => 'sha256:' + n.repeat(64);
     const line = (operation: string, type: string, from: string, to: string, finished: string) =>
-      ({ operation, type: `pacto.dev/${type}`, from: v(from), finished, pointer: { before: v(from), after: v(to) } });
+      ({ operation, type: `delivery.pacto.trianalab.io/${type}`, from: v(from), finished, pointer: { before: v(from), after: v(to) } });
     const abcd = [line('A', 'promote', '3', '4', 't1'), line('B', 'promote', '4', '5', 't2'),
       line('C', 'rollback', '5', '4', 't3'), line('D', 'rollback', '4', '5', 't4')];
     expect(undoneBy(abcd, 'A', v('4'), 't1')).toBeNull();

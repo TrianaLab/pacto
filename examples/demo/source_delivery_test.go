@@ -216,7 +216,7 @@ func storyRolledBack(t *testing.T, d *demoDelivery, h http.Handler, op delivery.
 		Operation delivery.OperationObject `json:"operation"`
 	}
 	// B9: carol rolls it back; automation holds off.
-	body := `{"namespace":"prod","stage":"payments","type":"pacto.dev/rollback","undoes":"` + op.Metadata.Name + `"}`
+	body := `{"namespace":"prod","stage":"payments","type":"delivery.pacto.trianalab.io/rollback","undoes":"` + op.Metadata.Name + `"}`
 	if code := call(t, h, "POST", "/api/delivery/operations", body, &proposed); code != 201 {
 		t.Fatalf("rollback %d", code)
 	}

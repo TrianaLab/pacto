@@ -79,7 +79,7 @@ func (s *Server) actions(ctx context.Context, op *delivery.OperationObject, stag
 
 // mayOffer: the promoter would count caller's decision on op, apart from how
 // old their login is (deciding asks for a fresh one). A cluster that reports
-// no login time (userInfo.extra[pacto.dev/auth-time]) counts nobody's, so it
+// no login time (userInfo.extra[delivery.pacto.trianalab.io/auth-time]) counts nobody's, so it
 // offers nothing.
 func mayOffer(op *delivery.OperationObject, caller delivery.Caller, decision delivery.Decision) bool {
 	return caller.AuthTime != "" && answerRefusal(op, caller, decision) == ""

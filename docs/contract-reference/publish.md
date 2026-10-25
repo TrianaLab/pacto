@@ -40,7 +40,7 @@ publish:
 | Field | Meaning |
 |---|---|
 | `bundle` | Required. The repository the contract bundle goes to, as `oci://host/path` with no tag |
-| `deploy` | The name of the `manifests` artifact a Flux Kustomization applies. Pacto adds the `pacto.dev/contract` annotation to it and tags it last |
+| `deploy` | The name of the `manifests` artifact a Flux Kustomization applies. Pacto adds the `delivery.pacto.trianalab.io/contract` annotation to it and tags it last |
 | `artifacts[].name` | Unique. Later builds see the digest as `PACTO_DIGEST_<NAME>` (upper case, `-` becomes `_`) |
 | `artifacts[].type` | `image`, `chart` or `manifests` |
 | `artifacts[].ref` | The repository, as `oci://host/path` with no tag |

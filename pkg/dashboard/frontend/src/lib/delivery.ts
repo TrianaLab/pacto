@@ -6,11 +6,11 @@
 import type { DeliveryDecision, DeliveryOperation } from './api.ts';
 
 const TYPE_LABELS: Record<string, string> = {
-  'pacto.dev/promote': 'Promote',
-  'pacto.dev/rollback': 'Roll back',
-  'pacto.dev/override': 'Override',
-  'pacto.dev/unfreeze': 'Unfreeze',
-  'pacto.dev/freeze': 'Freeze',
+  'delivery.pacto.trianalab.io/promote': 'Promote',
+  'delivery.pacto.trianalab.io/rollback': 'Roll back',
+  'delivery.pacto.trianalab.io/override': 'Override',
+  'delivery.pacto.trianalab.io/unfreeze': 'Unfreeze',
+  'delivery.pacto.trianalab.io/freeze': 'Freeze',
 };
 
 /** typeLabel names an operation type in plain words. */
@@ -305,7 +305,7 @@ export interface AutonomyEntry {
  * approvals key at all): a person may have, so nothing can be counted.
  */
 export function autonomyOf(entries: AutonomyEntry[]): { total: number; noPerson: number; onlyUnknown: number } | null {
-  const done = entries.filter((e) => e.type === 'pacto.dev/promote' && e.kind !== 'gap' && e.kind !== 'unrecordable' && e.phase === 'Concluded');
+  const done = entries.filter((e) => e.type === 'delivery.pacto.trianalab.io/promote' && e.kind !== 'gap' && e.kind !== 'unrecordable' && e.phase === 'Concluded');
   if (done.some((e) => e.approvals === undefined)) return null;
   const unknown = (e: AutonomyEntry) => e.verification === 'AcceptedUnknown' || (e.approvals ?? []).some((a) => a.decision === 'accept-unknown');
   return {
@@ -339,7 +339,7 @@ export function undoneBy<T extends UndoEntry>(entries: T[], name: string, after:
   const i = entries.findIndex((en) => en.operation === name);
   const next = entries.slice(i + 1).find((en) => en.operation && en.from === after && en.pointer?.after
     && (!finished || !en.finished || en.finished >= finished));
-  return next?.type === 'pacto.dev/rollback' ? next : null;
+  return next?.type === 'delivery.pacto.trianalab.io/rollback' ? next : null;
 }
 
 /**

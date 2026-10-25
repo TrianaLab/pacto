@@ -20,7 +20,7 @@ func TestTier0Types(t *testing.T) {
 	if p, _ := TypeByID(TypePromote); p.ID != TypePromote {
 		t.Fatal("Types must return a copy")
 	}
-	if _, ok := TypeByID("pacto.dev/scale"); ok {
+	if _, ok := TypeByID("delivery.pacto.trianalab.io/scale"); ok {
 		t.Fatal("unknown type resolved")
 	}
 	p, _ := TypeByID(TypePromote)
@@ -57,7 +57,7 @@ func TestMayRaise(t *testing.T) {
 		{TypeFreeze, ClassAgent, false, false},
 		{TypeFreeze, ClassHuman, false, true},
 		{TypeFreeze, ClassController, false, true},
-		{"pacto.dev/scale", ClassHuman, false, false},
+		{"delivery.pacto.trianalab.io/scale", ClassHuman, false, false},
 	}
 	for _, c := range cases {
 		if got := MayRaise(c.id, c.class, c.witnessed); got != c.want {

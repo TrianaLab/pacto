@@ -42,7 +42,7 @@ function installDelivery(persona: Persona): void {
   const caller = callers[persona] as { groups: string[]; class: string } | undefined;
   const mayDecide = persona === 'carol';
   const listing = { asOf: '2026-10-21T10:00:00Z', completeness: 'complete' };
-  const plan = { intentDigest: 'sha256:intent', type: 'pacto.dev/promote', from: D1, to: D2, predicted: 'Held',
+  const plan = { intentDigest: 'sha256:intent', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, predicted: 'Held',
     question: 'payments 2.0.0 removes a field checkout reads. Ship it?',
     floor: { human: true, decision: 'approve', owners: ['team-checkout'], consumers: ['checkout'] },
     verdicts: [{ gate: 'pacto.diff', phase: 'pre', result: 'Unknown', citation: { classification: 'BREAKING' } }],
@@ -54,7 +54,7 @@ function installDelivery(persona: Persona): void {
     unknown: ['the operational graph is partial (unresolved-reference)'] } };
   const op = () => ({
     metadata: { name: 'op1', namespace: 'prod' },
-    spec: { type: 'pacto.dev/promote', stage: 'payments-prod', facet: 'pointer', actor: { user: 'system:serviceaccount:agents:release-bot' }, params: { from: D1, to: D2 } },
+    spec: { type: 'delivery.pacto.trianalab.io/promote', stage: 'payments-prod', facet: 'pointer', actor: { user: 'system:serviceaccount:agents:release-bot' }, params: { from: D1, to: D2 } },
     status: decided()
       ? { phase: 'Running', plan, approvals: [{ name: decided(), by: 'https://idp#carol', decision: 'approve', authTime: '1792560000' }] }
       : { phase: 'Held', reason: 'ApprovalRequired', question: plan.question, plan, times: { admitted: '2026-10-21T10:00:00Z' } },
@@ -69,7 +69,7 @@ function installDelivery(persona: Persona): void {
     if (persona === 'signed-out') return json(401, { status: 401, code: 'LoginRequired', detail: 'sign in to see delivery' });
     if (route === '/api/delivery/inbox') {
       return json(200, { ...listing, held: decided() || !caller?.groups.includes('team-checkout') ? [] : [{
-        namespace: 'prod', name: 'op1', stage: 'payments-prod', type: 'pacto.dev/promote', from: D1, to: D2, phase: 'Held',
+        namespace: 'prod', name: 'op1', stage: 'payments-prod', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, phase: 'Held',
         question: plan.question, decision: 'approve', owners: ['team-checkout'], consumers: ['checkout'], order: plan.order }], frozen: [], errored: [] });
     }
     if (route === '/api/delivery/environments') {
@@ -92,24 +92,24 @@ function installDelivery(persona: Persona): void {
           problems: ['seq 3 moved the Stage from ' + D1 + ', but the change before it left ' + D2 + ': something moved it with no record'],
           unreadable: [rec('d') + ': signature: signed by a key that is not trusted here'],
           entries: [
-            { seq: 1, operation: 'op0', type: 'pacto.dev/promote', from: '', to: D1, actor: 'system:serviceaccount:pacto-delivery:promoter', actorClass: 'controller',
+            { seq: 1, operation: 'op0', type: 'delivery.pacto.trianalab.io/promote', from: '', to: D1, actor: 'system:serviceaccount:pacto-delivery:promoter', actorClass: 'controller',
               phase: 'Concluded', outcome: 'Succeeded', verification: 'Verified', finished: '2026-10-20T09:00:00Z', kind: 'operation', record: rec('a') },
             { seq: 2, operation: '', type: '', actor: '', phase: 'Concluded', kind: 'gap', reason: 'Gap: the operation with local seq 2 was gone before it was recorded',
               finished: '2026-10-20T10:00:00Z', record: rec('b') },
-            { seq: 3, operation: 'op1', type: 'pacto.dev/promote', from: D1, to: D2, actor: 'https://idp#carol', actorClass: 'human', phase: 'Concluded',
+            { seq: 3, operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'https://idp#carol', actorClass: 'human', phase: 'Concluded',
               outcome: 'Succeeded', verification: 'Verified', finished: '2026-10-21T10:00:00Z', kind: 'operation', record: rec('c'), pointer: { before: D1, after: D2 } },
-            { operation: 'op2', type: 'pacto.dev/promote', from: D2, to: D1, actor: 'system:serviceaccount:agents:release-bot', phase: 'Verifying' },
+            { operation: 'op2', type: 'delivery.pacto.trianalab.io/promote', from: D2, to: D1, actor: 'system:serviceaccount:agents:release-bot', phase: 'Verifying' },
           ] },
         { namespace: 'test', stage: { name: 'payments-test', pointer: D2 }, asOf: listing.asOf, completeness: 'partial', source: 'status',
           note: 'read from the Operation objects that still exist; an operation deleted from the cluster is missing',
-          entries: [{ seq: 4, operation: 'op5', type: 'pacto.dev/rollback', from: D2, to: D1, actor: 'https://idp#alice', actorClass: 'human',
+          entries: [{ seq: 4, operation: 'op5', type: 'delivery.pacto.trianalab.io/rollback', from: D2, to: D1, actor: 'https://idp#alice', actorClass: 'human',
             phase: 'Concluded', outcome: 'Succeeded', verification: 'Verified', finished: '2026-10-21T09:00:00Z' }] },
       ] });
     }
     if (route === '/api/delivery/blame') {
       return json(200, { stage: { name: 'payments-prod', pointer: D2 }, digest: D2, asOf: listing.asOf, completeness: 'complete', source: 'records',
         note: 'the newest change that moved the Stage to ' + D2, intentReason: 'ship the fix',
-        change: { operation: 'op1', type: 'pacto.dev/promote', from: D1, to: D2, actor: 'https://idp#carol', actorClass: 'human', finished: '2026-10-21T10:00:00Z' },
+        change: { operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'https://idp#carol', actorClass: 'human', finished: '2026-10-21T10:00:00Z' },
         approvals: [{ by: 'https://idp#dave', decision: 'approve', operation: 'u1', authTime: '1792560000' }],
         verdicts: [{ gate: 'pacto.diff', phase: 'pre', result: 'Pass' }], versions: { [D1]: '1.4.0', [D2]: '2.0.0' }, people: { 'https://idp#dave': 'Dave Lee' } });
     }

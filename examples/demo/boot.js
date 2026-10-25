@@ -256,7 +256,7 @@
       var h = serve("GET", "/api/delivery/history?namespace=prod&stage=payments");
       var entries = (h && h.body && h.body.histories && h.body.histories[0] && h.body.histories[0].entries) || [];
       entries.forEach(function (e) {
-        if (e.type === "pacto.dev/promote" && e.operation) { facts.latest = e.operation; facts.accepted = e.verification === "AcceptedUnknown"; }
+        if (e.type === "delivery.pacto.trianalab.io/promote" && e.operation) { facts.latest = e.operation; facts.accepted = e.verification === "AcceptedUnknown"; }
         if (e.phase === "Held") { facts.held = e.operation; }
       });
       if (facts.held) {
@@ -358,7 +358,7 @@
       gate: function () { return !!row("prod", "payments").autoHold && row("prod", "payments").version === "2.3.0"; },
       skip: function () {
         setPersona("carol", false);
-        propose({ namespace: "prod", stage: "payments", type: "pacto.dev/rollback", undoes: fact().latest });
+        propose({ namespace: "prod", stage: "payments", type: "delivery.pacto.trianalab.io/rollback", undoes: fact().latest });
       }
     }, {
       text: "History reads every step back from records signed in this tab, blame names Carol's approval, and payments in test shows a deliberate gap and a record signed by a key nobody trusts.",

@@ -12,11 +12,11 @@ import (
 
 // Operation type ids: the four Tier 0 types and freeze.
 const (
-	TypePromote  = "pacto.dev/promote"
-	TypeRollback = "pacto.dev/rollback"
-	TypeOverride = "pacto.dev/override"
-	TypeUnfreeze = "pacto.dev/unfreeze"
-	TypeFreeze   = "pacto.dev/freeze"
+	TypePromote  = "delivery.pacto.trianalab.io/promote"
+	TypeRollback = "delivery.pacto.trianalab.io/rollback"
+	TypeOverride = "delivery.pacto.trianalab.io/override"
+	TypeUnfreeze = "delivery.pacto.trianalab.io/unfreeze"
+	TypeFreeze   = "delivery.pacto.trianalab.io/freeze"
 )
 
 // Gate ids.

@@ -47,7 +47,7 @@
   // already failed on this Stage (operation.go finish).
   const before = $derived(st.pointer?.before || '');
   const beforeFailed = $derived(!!before && (stage?.failedDigests ?? []).includes(before));
-  const rollsBack = $derived(applied && op.spec?.type === 'pacto.dev/promote' && !!before && !beforeFailed);
+  const rollsBack = $derived(applied && op.spec?.type === 'delivery.pacto.trianalab.io/promote' && !!before && !beforeFailed);
   const backV = $derived(before ? versionLabel(before, versions) : '');
 
   // What each answer does, as the promoter acts on it.

@@ -76,8 +76,8 @@ beforeEach(() => {
 describe('inbox', () => {
   it('shows held changes with the question, the decision asked and the affected services', async () => {
     fns.inbox.mockResolvedValue({ ...listing, frozen: [{ namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', frozenReason: 'Errored', verified: false, failed: false, frozen: true, autoHold: false, held: 0, actions: [] }],
-      errored: [{ namespace: 'prod', name: 'e1', stage: 'pay', type: 'pacto.dev/promote', phase: 'Concluded', outcome: 'Errored' }],
-      held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'pacto.dev/promote', to: D2, phase: 'Held', question: 'checkout accepts only 1.x: ship?', decision: 'approve', owners: ['team-checkout'], consumers: ['checkout'] }] });
+      errored: [{ namespace: 'prod', name: 'e1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', phase: 'Concluded', outcome: 'Errored' }],
+      held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', question: 'checkout accepts only 1.x: ship?', decision: 'approve', owners: ['team-checkout'], consumers: ['checkout'] }] });
     const { target, destroy } = render(DeliveryInboxView);
     await settle();
     const held = target.querySelector('[data-testid="inbox-held"]')!;
@@ -97,7 +97,7 @@ describe('inbox', () => {
 
   it('says up front that approving is not possible on a cluster that reports no login time', async () => {
     fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
-      held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'pacto.dev/promote', to: D2, phase: 'Held', question: 'ship?', decision: 'approve', owners: ['team-checkout'] }] });
+      held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', question: 'ship?', decision: 'approve', owners: ['team-checkout'] }] });
     fns.session.mockResolvedValue(shared({ caller: { ...human(['team-checkout']), authTime: '' } }));
     const { target, destroy } = render(DeliveryInboxView);
     await settle();
@@ -109,7 +109,7 @@ describe('inbox', () => {
 
   it('says which service to update first, with links to its Stage and its verified version', async () => {
     fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
-      held: [{ namespace: 'prod', name: 'op1', stage: 'payments-prod', type: 'pacto.dev/promote', to: D2, phase: 'Held', question: 'ship?', decision: 'approve', owners: ['team-checkout'], consumers: ['orders', 'billing'], order: ORDER }] });
+      held: [{ namespace: 'prod', name: 'op1', stage: 'payments-prod', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', question: 'ship?', decision: 'approve', owners: ['team-checkout'], consumers: ['orders', 'billing'], order: ORDER }] });
     const { target, destroy } = render(DeliveryInboxView);
     await settle();
     const mf = target.querySelector('[data-testid="inbox-move-first"]') as HTMLElement;
@@ -182,8 +182,8 @@ describe('environments', () => {
 
   it('shows each service in each environment and plans before proposing', async () => {
     fns.environments.mockResolvedValue({ ...listing, environments: [row, { ...row, environment: 'test', stage: 'pay-test', version: '', pointer: '', verified: false, frozen: false, autoHold: false, held: 0, ready: 'True', actions: [] }] });
-    fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'pacto.dev/promote', predicted: 'Held', question: 'ok?', floor: { owners: ['team-checkout'] }, conflicts: ['other'], verdicts: [{ gate: 'pacto.diff', phase: 'pre', result: 'Unknown', citation: { classification: 'POTENTIAL_BREAKING' } }] });
-    fns.propose.mockRejectedValueOnce(new ApiError(409, 'moved', 'PlanStale', { intentDigest: 'sha256:j', type: 'pacto.dev/promote', predicted: 'Proceeds' }));
+    fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'delivery.pacto.trianalab.io/promote', predicted: 'Held', question: 'ok?', floor: { owners: ['team-checkout'] }, conflicts: ['other'], verdicts: [{ gate: 'pacto.diff', phase: 'pre', result: 'Unknown', citation: { classification: 'POTENTIAL_BREAKING' } }] });
+    fns.propose.mockRejectedValueOnce(new ApiError(409, 'moved', 'PlanStale', { intentDigest: 'sha256:j', type: 'delivery.pacto.trianalab.io/promote', predicted: 'Proceeds' }));
     fns.propose.mockResolvedValueOnce({ operation: { metadata: { name: 'new-op', namespace: 'prod' } } });
     const { target, destroy } = render(DeliveryEnvironmentsView);
     await settle();
@@ -204,7 +204,7 @@ describe('environments', () => {
     expect(hold).toContain('promotes a version it has not verified yet');
     (board.querySelector('button[aria-label^="Promote payments in prod"]') as HTMLButtonElement).click();
     await settle();
-    expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'pacto.dev/promote', to: D2, from: D1 });
+    expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, from: D1 });
     const panel = target.querySelector('[data-testid="propose-panel"]')!;
     expect(text(panel as HTMLElement)).toContain('It would wait for a person to decide.');
     expect(text(panel as HTMLElement)).toContain('Only team-checkout may answer it.');
@@ -227,7 +227,7 @@ describe('environments', () => {
     await settle();
     (target.querySelector('button[aria-label="Unfreeze payments in prod"]') as HTMLButtonElement).click();
     await settle();
-    expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'pacto.dev/unfreeze' });
+    expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/unfreeze' });
     const refusal = target.querySelector('[data-testid="refusal"]')!;
     expect(text(refusal as HTMLElement)).toContain('The cluster refused.');
     expect(text(refusal as HTMLElement)).toContain('operations is forbidden: User cannot create');
@@ -239,7 +239,7 @@ describe('environments', () => {
 
   it('plans again when another row is clicked, and gives focus back when the plan closes', async () => {
     fns.environments.mockResolvedValue({ ...listing, environments: [row, { ...row, service: 'ledger', stage: 'led', candidate: D1, pointer: D2 }] });
-    fns.plan.mockImplementation(async (req: { stage: string }) => ({ intentDigest: 'sha256:' + req.stage, type: 'pacto.dev/promote', predicted: 'Proceeds' }));
+    fns.plan.mockImplementation(async (req: { stage: string }) => ({ intentDigest: 'sha256:' + req.stage, type: 'delivery.pacto.trianalab.io/promote', predicted: 'Proceeds' }));
     fns.propose.mockResolvedValue({ operation: { metadata: { name: 'n', namespace: 'prod' } } });
     const { target, destroy } = render(DeliveryEnvironmentsView);
     await settle();
@@ -248,7 +248,7 @@ describe('environments', () => {
     const unfreezeLedger = target.querySelector('button[aria-label="Unfreeze ledger in prod"]') as HTMLButtonElement;
     unfreezeLedger.click();
     await settle();
-    expect(fns.plan).toHaveBeenLastCalledWith({ namespace: 'prod', stage: 'led', type: 'pacto.dev/unfreeze' });
+    expect(fns.plan).toHaveBeenLastCalledWith({ namespace: 'prod', stage: 'led', type: 'delivery.pacto.trianalab.io/unfreeze' });
     const panel = target.querySelector('[data-testid="propose-panel"]') as HTMLElement;
     expect(text(panel)).toContain('prod/led');
     expect(document.activeElement?.id).toBe('pp-title');
@@ -286,16 +286,16 @@ const ORDER = { moveFirst: [
 
 function heldOperation(over: Record<string, unknown> = {}) {
   const status = { phase: 'Held', question: 'checkout accepts only 1.x: ship?', reason: 'ApprovalRequired',
-    plan: { intentDigest: 'sha256:i', type: 'pacto.dev/promote', predicted: 'Held', floor: { decision: 'approve', owners: ['team-checkout'], consumers: ['checkout'] },
+    plan: { intentDigest: 'sha256:i', type: 'delivery.pacto.trianalab.io/promote', predicted: 'Held', floor: { decision: 'approve', owners: ['team-checkout'], consumers: ['checkout'] },
       verdicts: [{ gate: 'pacto.impact', phase: 'pre', result: 'Unknown' }] },
     approvals: [{ name: 'a1', by: 'https://idp#dave', decision: 'reject', authTime: '1792560000', note: 'not yet' }],
     times: { admitted: '2026-10-21T10:00:00Z', approvalDeadline: '2026-10-22T10:00:00Z' } };
   return {
-    explanation: { operation: 'prod/op1', summary: 'promote payments to 2.0.0', spec: { type: 'pacto.dev/promote', stage: 'pay', facet: 'pointer', actor: { user: 'agent-bot' }, params: { from: D1, to: D2 }, reason: 'ship', onBehalfOf: { user: 'https://idp#erin' } },
+    explanation: { operation: 'prod/op1', summary: 'promote payments to 2.0.0', spec: { type: 'delivery.pacto.trianalab.io/promote', stage: 'pay', facet: 'pointer', actor: { user: 'agent-bot' }, params: { from: D1, to: D2 }, reason: 'ship', onBehalfOf: { user: 'https://idp#erin' } },
       status: { phase: 'Held', reason: 'ApprovalRequired', actorClass: 'agent' },
       verdicts: [{ gate: 'mira.health', phase: 'verify', result: 'Pass', rerun: 'pacto delivery explain op1', citation: { query: JSON.stringify({ signal: 'traces', where: [{ attr: 'service.name', eq: 'payments' }] }), from: 'a', to: 'b', spans: '40' } }],
       stage: { name: 'pay', frozen: true, frozenReason: 'Errored' } },
-    operation: { metadata: { name: 'op1', namespace: 'prod' }, spec: { type: 'pacto.dev/promote', stage: 'pay', facet: 'pointer', actor: { user: 'agent-bot' } }, status },
+    operation: { metadata: { name: 'op1', namespace: 'prod' }, spec: { type: 'delivery.pacto.trianalab.io/promote', stage: 'pay', facet: 'pointer', actor: { user: 'agent-bot' } }, status },
     actions: ['approve', 'reject', 'cancel'],
     ...over,
   };
@@ -647,7 +647,7 @@ describe('change detail', () => {
   it('shows break-glass an ownerless held change as nobody else’s to answer', async () => {
     fns.session.mockResolvedValue(shared({ requireOwnerTeam: true }));
     fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
-      held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'pacto.dev/promote', to: D2, phase: 'Held', decision: 'approve' }] });
+      held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', decision: 'approve' }] });
     let r = render(DeliveryInboxView);
     await settle();
     expect(text(r.target.querySelector('[data-testid="inbox-held"]') as HTMLElement)).toContain('Nobody: no team is declared, so only break-glass can override');
@@ -664,7 +664,7 @@ describe('change detail', () => {
   it('cancels after a confirmation and rolls back through a plan', async () => {
     fns.operation.mockResolvedValue(heldOperation({ actions: ['cancel', 'rollback'] }));
     fns.cancel.mockRejectedValueOnce(new ApiError(409, 'the pointer already moved')).mockResolvedValueOnce({ cancelled: 'prod/op1' });
-    fns.plan.mockResolvedValue({ intentDigest: 'sha256:r', type: 'pacto.dev/rollback', predicted: 'Proceeds' });
+    fns.plan.mockResolvedValue({ intentDigest: 'sha256:r', type: 'delivery.pacto.trianalab.io/rollback', predicted: 'Proceeds' });
     const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     const btn = (label: string) => [...target.querySelectorAll('button')].find((b) => b.textContent === label)!;
@@ -686,7 +686,7 @@ describe('change detail', () => {
 
   it('moves focus into the confirmation and back, and rolls back through a plan', async () => {
     fns.operation.mockResolvedValue(heldOperation({ actions: ['cancel', 'rollback'] }));
-    fns.plan.mockResolvedValue({ intentDigest: 'sha256:r', type: 'pacto.dev/rollback', predicted: 'Proceeds' });
+    fns.plan.mockResolvedValue({ intentDigest: 'sha256:r', type: 'delivery.pacto.trianalab.io/rollback', predicted: 'Proceeds' });
     const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     const btn = (label: string) => [...target.querySelectorAll('button')].find((b) => b.textContent === label)!;
@@ -695,7 +695,7 @@ describe('change detail', () => {
     btn('Keep it').click(); await settle();
     expect(document.activeElement).toBe(btn('Cancel this change'));
     btn('Roll back this change').click(); await settle();
-    expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'pacto.dev/rollback', undoes: 'op1' });
+    expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/rollback', undoes: 'op1' });
     [...target.querySelectorAll<HTMLButtonElement>('[data-testid="propose-panel"] button')].find((b) => b.textContent === 'Cancel')!.click();
     await settle();
     expect(target.querySelector('[data-testid="propose-panel"]')).toBeNull();
@@ -741,7 +741,7 @@ describe('history and published', () => {
   it('lists what happened per environment, with its namespace', async () => {
     fns.history.mockResolvedValue({ ...listing, histories: [
       { namespace: 'prod', asOf: listing.asOf, completeness: 'partial', note: 'Partial until records exist.', stage: { name: 'pay', pointer: D1 },
-        entries: [{ seq: 3, operation: 'op1', type: 'pacto.dev/rollback', from: D2, to: D1, actor: 'carol', actorClass: 'human', outcome: 'Succeeded', verification: 'Verified', finished: '2026-10-21T11:00:00Z' }] },
+        entries: [{ seq: 3, operation: 'op1', type: 'delivery.pacto.trianalab.io/rollback', from: D2, to: D1, actor: 'carol', actorClass: 'human', outcome: 'Succeeded', verification: 'Verified', finished: '2026-10-21T11:00:00Z' }] },
       { namespace: 'test', asOf: listing.asOf, completeness: 'partial', note: '', stage: { name: 'pay', frozen: true }, entries: [] },
     ] });
     const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
@@ -761,16 +761,16 @@ describe('history and published', () => {
           'the record at seq 3 does not chain from sha256:bbbbbbbbbbbb at seq 2'],
         unreadable: ['sha256:bad: signature: signed by a key that is not trusted here', `sha256:${'e'.repeat(64)}: not trusted here`],
         entries: [
-          { seq: 1, operation: 'op1', type: 'pacto.dev/promote', to: D1, actor: 'bot', actorClass: 'agent', outcome: 'Succeeded', kind: 'operation', record: 'sha256:' + 'a'.repeat(64) },
+          { seq: 1, operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', to: D1, actor: 'bot', actorClass: 'agent', outcome: 'Succeeded', kind: 'operation', record: 'sha256:' + 'a'.repeat(64) },
           { seq: 2, operation: '', type: '', actor: '', kind: 'gap', reason: 'Gap: gone', record: 'sha256:' + 'b'.repeat(64) },
           { seq: 3, operation: 'op3', type: '', actor: 'bot', kind: 'unrecordable', reason: 'Unrecordable: sensitive-value', record: 'sha256:' + 'c'.repeat(64) },
-          { operation: 'op4', type: 'pacto.dev/promote', actor: 'bot', phase: 'Verifying' },
-          { seq: 4, operation: 'op5', type: 'pacto.dev/promote', actor: 'bot', outcome: 'Succeeded', unverifiedRecord: 'sha256:' + 'd'.repeat(64) },
+          { operation: 'op4', type: 'delivery.pacto.trianalab.io/promote', actor: 'bot', phase: 'Verifying' },
+          { seq: 4, operation: 'op5', type: 'delivery.pacto.trianalab.io/promote', actor: 'bot', outcome: 'Succeeded', unverifiedRecord: 'sha256:' + 'd'.repeat(64) },
         ] },
       { namespace: 'test', asOf: listing.asOf, completeness: 'complete', source: 'records', verified: true, note: '', stage: { name: 'pay' }, entries: [] },
       { namespace: 'stage', asOf: listing.asOf, completeness: 'partial', source: 'records', note: '', stage: { name: 'pay' }, entries: [] },
       { namespace: 'dev', asOf: listing.asOf, completeness: 'partial', source: 'status', note: '', stage: { name: 'pay' },
-        entries: [{ seq: 1, operation: 'op9', type: 'pacto.dev/promote', actor: 'bot', outcome: 'Succeeded' }] },
+        entries: [{ seq: 1, operation: 'op9', type: 'delivery.pacto.trianalab.io/promote', actor: 'bot', outcome: 'Succeeded' }] },
     ] });
     const { target, destroy } = render(DeliveryHistoryView);
     await settle();
@@ -803,14 +803,14 @@ describe('history and published', () => {
     fns.history.mockResolvedValue({ ...listing, people: { 'https://idp#carol': 'Carol' }, histories: [
       { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', source: 'records', verified: true, note: '', stage: { name: 'pay', pointer: D2 },
         entries: [
-          { seq: 1, operation: 'op1', type: 'pacto.dev/promote', to: D1, actor: 'bot', actorClass: 'agent', outcome: 'Succeeded', kind: 'operation', record: 'sha256:' + 'a'.repeat(64), approvals: null },
-          { seq: 2, operation: 'op2', type: 'pacto.dev/promote', from: D1, to: D2, actor: 'bot', actorClass: 'agent', outcome: 'Succeeded', kind: 'operation', record: 'sha256:' + 'b'.repeat(64),
+          { seq: 1, operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', to: D1, actor: 'bot', actorClass: 'agent', outcome: 'Succeeded', kind: 'operation', record: 'sha256:' + 'a'.repeat(64), approvals: null },
+          { seq: 2, operation: 'op2', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'bot', actorClass: 'agent', outcome: 'Succeeded', kind: 'operation', record: 'sha256:' + 'b'.repeat(64),
             approvals: [{ by: 'https://idp#carol', decision: 'approve', operation: 'u' }, { decision: 'approve' }] },
           { seq: 3, operation: '', type: '', actor: '', kind: 'gap', record: 'sha256:' + 'c'.repeat(64) },
-          { operation: 'op4', type: 'pacto.dev/promote', actor: 'bot', phase: 'Held' },
+          { operation: 'op4', type: 'delivery.pacto.trianalab.io/promote', actor: 'bot', phase: 'Held' },
         ] },
       { namespace: 'stage', asOf: listing.asOf, completeness: 'partial', source: 'records', note: '', stage: { name: 'pay' },
-        entries: [{ seq: 1, operation: 'op5', type: 'pacto.dev/promote', actor: 'bot', outcome: 'Rejected', kind: 'operation', record: 'sha256:' + 'd'.repeat(64),
+        entries: [{ seq: 1, operation: 'op5', type: 'delivery.pacto.trianalab.io/promote', actor: 'bot', outcome: 'Rejected', kind: 'operation', record: 'sha256:' + 'd'.repeat(64),
           approvals: [{ by: 'dave', decision: 'reject', operation: 'u' }] }] },
     ] });
     const { target, destroy } = render(DeliveryHistoryView);
@@ -882,9 +882,9 @@ describe('names, versions and one clear sentence', () => {
   it('says the person, the versions and a question without full digests in the inbox', async () => {
     fns.session.mockResolvedValue(shared({ name: 'Carol Diaz' }));
     fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [
-      { namespace: 'prod', name: 'op1', stage: 'pay', type: 'pacto.dev/promote', from: D1, to: D2, fromVersion: '2.4.0', toVersion: '3.0.0', phase: 'Held',
+      { namespace: 'prod', name: 'op1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, fromVersion: '2.4.0', toVersion: '3.0.0', phase: 'Held',
         question: `Promote to ${D2}?`, decision: 'approve', owners: ['team-checkout'] },
-      { namespace: 'prod', name: 'op2', stage: 'pay', type: 'pacto.dev/promote', to: D2, toVersion: '3.0.0', phase: 'Held', decision: 'approve' },
+      { namespace: 'prod', name: 'op2', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, toVersion: '3.0.0', phase: 'Held', decision: 'approve' },
     ] });
     const { target, destroy } = render(DeliveryInboxView);
     await settle();
@@ -908,7 +908,7 @@ describe('names, versions and one clear sentence', () => {
       { service: 'mail', message: 'm' },
     ] };
     fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
-      held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'pacto.dev/promote', to: D2, phase: 'Held', decision: 'approve', order }] });
+      held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', decision: 'approve', order }] });
     const { target, destroy } = render(DeliveryInboxView);
     await settle();
     const items = [...target.querySelectorAll('[data-testid="inbox-move-first"] li.mf-item')].map((li) => text(li as HTMLElement).trim());
@@ -925,7 +925,7 @@ describe('names, versions and one clear sentence', () => {
     const row = { namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', pointer: D1, version: '1.0.0', candidate: D2, candidateVersion: '2.0.0',
       verified: true, failed: false, frozen: false, autoHold: false, held: 0, ready: 'True', actions: ['promote'] };
     fns.environments.mockResolvedValue({ ...listing, environments: [row] });
-    fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'pacto.dev/promote', predicted: 'Proceeds' });
+    fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'delivery.pacto.trianalab.io/promote', predicted: 'Proceeds' });
     const { target, destroy } = render(DeliveryEnvironmentsView);
     await settle();
     const btn = target.querySelector('button[aria-label="Promote payments in prod to 2.0.0"]') as HTMLButtonElement;
@@ -965,9 +965,9 @@ describe('history blame and undo', () => {
   const history = () => ({ ...listing, versions: { [D1]: '2.4.0', [D2]: '3.0.0' }, people: { 'https://idp#carol': 'Carol Diaz' }, histories: [
     { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', source: 'records', verified: true, note: 'read from records', stage: { name: 'pay', pointer: D2 },
       entries: [
-        { seq: 1, operation: 'op1', type: 'pacto.dev/promote', from: D1, to: D2, actor: 'https://idp#carol', actorClass: 'human', outcome: 'Succeeded',
+        { seq: 1, operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'https://idp#carol', actorClass: 'human', outcome: 'Succeeded',
           finished: '2026-10-21T11:00:05Z', kind: 'operation', record: REC, pointer: { before: D1, after: D2 } },
-        { seq: 2, operation: 'op2', type: 'pacto.dev/promote', to: D1, actor: 'system:serviceaccount:agents:pay-agent', actorClass: 'agent', outcome: 'Failed', finished: 'soon', approvals: null },
+        { seq: 2, operation: 'op2', type: 'delivery.pacto.trianalab.io/promote', to: D1, actor: 'system:serviceaccount:agents:pay-agent', actorClass: 'agent', outcome: 'Failed', finished: 'soon', approvals: null },
       ] },
     { namespace: 'test', asOf: listing.asOf, completeness: 'partial', source: 'status', note: '', stage: { name: 'pay', pointer: D1 }, entries: [] },
   ] });
@@ -976,7 +976,7 @@ describe('history blame and undo', () => {
     fns.history.mockResolvedValue(history());
     fns.blame.mockResolvedValue({ stage: { name: 'pay', pointer: D2 }, digest: D2, asOf: listing.asOf, completeness: 'complete', source: 'records',
       note: `the newest change that moved the Stage to ${D2}`, onBehalfOf: 'https://idp#erin', intentReason: 'ship the fix',
-      change: { operation: 'op1', type: 'pacto.dev/promote', from: D1, to: D2, actor: 'system:serviceaccount:agents:pay-agent', actorClass: 'agent', finished: '2026-10-21T11:00:05Z' },
+      change: { operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'system:serviceaccount:agents:pay-agent', actorClass: 'agent', finished: '2026-10-21T11:00:05Z' },
       approvals: [{ by: 'https://idp#carol', decision: 'approve', operation: 'u', authTime: '1792560000', note: 'ok' }],
       verdicts: [{ gate: 'pacto.diff', phase: 'pre', result: 'Pass' }], versions: { [D1]: '2.4.0', [D2]: '3.0.0' }, people: { 'https://idp#carol': 'Carol Diaz' } });
     const { target, destroy } = render(DeliveryHistoryView);
@@ -1020,7 +1020,7 @@ describe('history blame and undo', () => {
       return target.querySelector('[data-testid="blame-panel"]') as HTMLElement;
     };
     fns.blame.mockResolvedValueOnce({ stage: { name: 'pay' }, digest: D2, completeness: 'partial', source: 'status', note: 'read from its status',
-      change: { operation: 'op1', type: 'pacto.dev/promote', to: D2, actor: 'bob' }, unsigned: ['change', 'approvals'] });
+      change: { operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', to: D2, actor: 'bob' }, unsigned: ['change', 'approvals'] });
     let panel = await open('prod');
     expect(text(panel)).toContain('Who put 222222222222 here');
     expect(text(panel)).toContain('No person approved it');
@@ -1044,8 +1044,8 @@ describe('history blame and undo', () => {
   it('plans an undo, shows the command and proposes nothing on its own', async () => {
     fns.history.mockResolvedValue(history());
     fns.undo.mockResolvedValueOnce({ operation: 'prod/op1', kind: 'rollback', note: 'it is the change the Stage runs now, so a rollback bound to it undoes it',
-      command: 'pacto delivery propose -n prod --stage pay --type rollback --undoes op1', plan: { intentDigest: 'sha256:i', type: 'pacto.dev/rollback', predicted: 'Proceeds' } });
-    fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'pacto.dev/rollback', predicted: 'Proceeds' });
+      command: 'pacto delivery propose -n prod --stage pay --type rollback --undoes op1', plan: { intentDigest: 'sha256:i', type: 'delivery.pacto.trianalab.io/rollback', predicted: 'Proceeds' } });
+    fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'delivery.pacto.trianalab.io/rollback', predicted: 'Proceeds' });
     const { target, destroy } = render(DeliveryHistoryView);
     await settle();
     const undoBtn = target.querySelector('button[aria-label="Undo op1"]') as HTMLButtonElement;
@@ -1058,7 +1058,7 @@ describe('history blame and undo', () => {
     expect(fns.propose).not.toHaveBeenCalled();
     ([...panel.querySelectorAll('button')].find((b) => b.textContent === 'Plan this roll back') as HTMLButtonElement).click();
     await settle();
-    expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'pacto.dev/rollback', undoes: 'op1' });
+    expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/rollback', undoes: 'op1' });
     // Escape inside the plan closes the plan, not the undo.
     (panel.querySelector('[data-testid="propose-panel"]') as HTMLElement).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     await settle();
@@ -1069,14 +1069,14 @@ describe('history blame and undo', () => {
     expect(target.querySelector('[data-testid="undo-panel"]')).toBeNull();
 
     fns.undo.mockResolvedValueOnce({ operation: 'prod/op1', kind: 'promote', note: `the Stage changed since, so going back to ${D1} is a promote`,
-      command: 'pacto delivery propose --to ' + D1, plan: { intentDigest: 'sha256:i', type: 'pacto.dev/promote', to: D1, predicted: 'Held' }, versions: { [D1]: '2.4.0' } });
+      command: 'pacto delivery propose --to ' + D1, plan: { intentDigest: 'sha256:i', type: 'delivery.pacto.trianalab.io/promote', to: D1, predicted: 'Held' }, versions: { [D1]: '2.4.0' } });
     undoBtn.click();
     await settle();
     panel = target.querySelector('[data-testid="undo-panel"]') as HTMLElement;
     expect(text(panel.querySelector('[data-testid="undo-note"]') as HTMLElement).trim()).toBe('Promote to 2.4.0. The Stage changed since, so going back to sha256:111111111111 is a promote.');
     ([...panel.querySelectorAll('button')].find((b) => b.textContent === 'Plan this promote') as HTMLButtonElement).click();
     await settle();
-    expect(fns.plan).toHaveBeenLastCalledWith({ namespace: 'prod', stage: 'pay', type: 'pacto.dev/promote', to: D1 });
+    expect(fns.plan).toHaveBeenLastCalledWith({ namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D1 });
     expect(panel.querySelector('#pp-title')?.textContent?.trim()).toBe('Promote prod/pay: 2.4.0');
     ([...panel.querySelectorAll('button')].find((b) => b.textContent === 'Close') as HTMLButtonElement).click();
     await settle();
@@ -1194,8 +1194,8 @@ describe('Unknown, proof, undo and autonomy', () => {
     op.operation.status = { phase: 'Concluded', applied: true, pointer: { before: D1, after: D2 }, times: { finished: '2026-10-21T10:00:00Z' } } as unknown as typeof op.operation.status;
     fns.operation.mockResolvedValue(op);
     fns.history.mockResolvedValue({ ...listing, histories: [{ namespace: 'prod', stage: { name: 'pay' }, entries: [
-      { operation: 'op1', type: 'pacto.dev/promote', from: D1, to: D2, finished: '2026-10-21T10:00:00Z' },
-      { operation: 'rb1', type: 'pacto.dev/rollback', from: D2, to: D1, actor: 'system:serviceaccount:pacto:promoter', actorClass: 'controller', finished: '2026-10-21T10:05:00Z', pointer: { before: D2, after: D1 } },
+      { operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, finished: '2026-10-21T10:00:00Z' },
+      { operation: 'rb1', type: 'delivery.pacto.trianalab.io/rollback', from: D2, to: D1, actor: 'system:serviceaccount:pacto:promoter', actorClass: 'controller', finished: '2026-10-21T10:05:00Z', pointer: { before: D2, after: D1 } },
     ] }] });
     let r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
@@ -1219,7 +1219,7 @@ describe('Unknown, proof, undo and autonomy', () => {
 
     // A person's rollback names the person; a history that cannot be read leaves the line out.
     fns.history.mockResolvedValue({ ...listing, histories: [{ namespace: 'prod', stage: { name: 'pay' }, entries: [
-      { operation: 'rb2', type: 'pacto.dev/rollback', from: D2, to: D1, actor: 'https://idp#carol', actorClass: 'human', pointer: { before: D2, after: D1 } }] }] });
+      { operation: 'rb2', type: 'delivery.pacto.trianalab.io/rollback', from: D2, to: D1, actor: 'https://idp#carol', actorClass: 'human', pointer: { before: D2, after: D1 } }] }] });
     op.explanation.stage = { name: 'pay' } as unknown as typeof op.explanation.stage;
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
@@ -1272,7 +1272,7 @@ describe('Unknown, proof, undo and autonomy', () => {
     // Server-shaped but with no approvals key: a person may have approved it.
     fns.history.mockResolvedValue({ ...listing, histories: [
       { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', source: 'records', note: '', stage: { name: 'pay' },
-        entries: [{ seq: 1, operation: 'op1', type: 'pacto.dev/promote', from: D1, to: D2, actor: 'system:serviceaccount:agents:pay-agent',
+        entries: [{ seq: 1, operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'system:serviceaccount:agents:pay-agent',
           actorClass: 'agent', phase: 'Concluded', outcome: 'Succeeded', kind: 'operation', record: 'sha256:' + 'a'.repeat(64), pointer: { before: D1, after: D2 } }] },
     ] });
     const { target, destroy } = render(DeliveryHistoryView);
@@ -1284,7 +1284,7 @@ describe('Unknown, proof, undo and autonomy', () => {
   });
 
   it('shows how many promotions needed no person, and what only Unknown held', async () => {
-    const p = (over: Record<string, unknown>) => ({ operation: 'o', type: 'pacto.dev/promote', actor: 'bot', actorClass: 'agent', phase: 'Concluded', outcome: 'Succeeded', approvals: null, ...over });
+    const p = (over: Record<string, unknown>) => ({ operation: 'o', type: 'delivery.pacto.trianalab.io/promote', actor: 'bot', actorClass: 'agent', phase: 'Concluded', outcome: 'Succeeded', approvals: null, ...over });
     fns.history.mockResolvedValue({ ...listing, histories: [
       { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', note: '', stage: { name: 'pay' },
         entries: [p({ seq: 1 }), p({ seq: 2, verification: 'AcceptedUnknown' }), p({ seq: 3, approvals: [{ by: 'carol', decision: 'approve' }] })] },

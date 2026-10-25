@@ -54,7 +54,7 @@ type envelope struct {
 }
 
 // OpenRecord verifies a bundle and returns its statement and record id. A
-// bundle that is not one signed pacto.dev/operation/v1 statement is an error.
+// bundle that is not one signed delivery.pacto.trianalab.io/operation/v1 statement is an error.
 // The payload is decoded before the signature is checked, because the stream
 // it names decides which keys may have signed it; nothing it says is trusted
 // until the signature verifies. A record only a revoked key signs comes back

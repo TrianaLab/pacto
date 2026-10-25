@@ -76,14 +76,14 @@ func deliveryDeps(user string, dynErr error) deps {
 				"status": map[string]any{"phase": "Held", "question": "Approve?", "reason": "AwaitingHuman", "message": "m",
 					"plan": map[string]any{"intentDigest": "sha256:i", "type": delivery.TypePromote, "predicted": "Held",
 						"floor": map[string]any{"human": true, "decision": "accept-unknown", "owners": []any{"team-payments"}}, "order": map[string]any{
-						"moveFirst": []any{map[string]any{"service": "orders", "message": "Ship orders first."}}, "unknown": []any{"the graph is partial"}}},
+							"moveFirst": []any{map[string]any{"service": "orders", "message": "Ship orders first."}}, "unknown": []any{"the graph is partial"}}},
 					"verdicts": []any{map[string]any{"gate": "pacto.diff", "phase": "pre", "result": "Pass", "citation": map[string]any{"query": "{}"}},
 						map[string]any{"gate": "x", "phase": "pre", "result": "Pass"}}}}),
 		)
 		c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"userInfo": map[string]any{
 				"username": user, "groups": []any{"team-payments"},
-				"extra": map[string]any{"pacto.dev/auth-time": []any{strconv.FormatInt(time.Now().Unix(), 10)}}}}}}, nil
+				"extra": map[string]any{"delivery.pacto.trianalab.io/auth-time": []any{strconv.FormatInt(time.Now().Unix(), 10)}}}}}}, nil
 		})
 		c.PrependReactor("create", "approvals", func(a k8stesting.Action) (bool, runtime.Object, error) {
 			o := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured)
@@ -156,10 +156,10 @@ func checkDeliveryRuns(t *testing.T, d deps, runs []deliveryRun) {
 func TestDeliveryCommandReadVerbs(t *testing.T) {
 	plan := []string{"plan", "-n", "prod", "--stage", "payments-prod"}
 	checkDeliveryRuns(t, deliveryDeps("alice", nil), []deliveryRun{
-		{"text", []string{"types"}, false, []string{"pacto.dev/promote", "agent,human,controller"}},
-		{"json", []string{"types"}, false, []string{`"id": "pacto.dev/promote"`}},
-		{"text", []string{"describe", "rollback"}, false, []string{"inverse:        pacto.dev/promote"}},
-		{"text", []string{"describe", "pacto.dev/unfreeze"}, false, []string{"inverse:        none"}},
+		{"text", []string{"types"}, false, []string{"delivery.pacto.trianalab.io/promote", "agent,human,controller"}},
+		{"json", []string{"types"}, false, []string{`"id": "delivery.pacto.trianalab.io/promote"`}},
+		{"text", []string{"describe", "rollback"}, false, []string{"inverse:        delivery.pacto.trianalab.io/promote"}},
+		{"text", []string{"describe", "delivery.pacto.trianalab.io/unfreeze"}, false, []string{"inverse:        none"}},
 		{"text", []string{"describe", "scale"}, true, []string{"unknown operation type"}},
 		{"text", append(plan, "--to", cliB), false, []string{"predicted: Waits", "pacto.impact", "StageFrozen"}},
 		{"json", append(plan, "--to", cliB), false, []string{`"intentDigest": "sha256:`}},

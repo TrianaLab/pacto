@@ -391,7 +391,7 @@ pacto delivery plan [flags]
       --reason string                                               why, for the record
       --stage string                                                the Stage to change (required)
       --to string                                                   the artifact digest to move to (sha256:...)
-      --type string                                                 operation type (default "pacto.dev/promote")
+      --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
       --undoes string                                               for a rollback: the name of the operation it undoes
 ```
 
@@ -415,7 +415,7 @@ pacto delivery propose [flags]
       --reason string                                               why, for the record
       --stage string                                                the Stage to change (required)
       --to string                                                   the artifact digest to move to (sha256:...)
-      --type string                                                 operation type (default "pacto.dev/promote")
+      --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
       --undoes string                                               for a rollback: the name of the operation it undoes
 ```
 

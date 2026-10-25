@@ -58,7 +58,7 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Va
 		Name: "pacto_delivery_operation_types",
 		Description: "List the operation types you may propose, with their facet and who may raise them, or with type set " +
 			"describe that one: what it checks, when a person is needed, how it is undone and its digest. Read-only." + noApprove,
-		InputSchema: inputSchema(map[string]property{"type": {Type: "string", Description: "Type id to describe, e.g. pacto.dev/promote; empty lists them all"}}, nil),
+		InputSchema: inputSchema(map[string]property{"type": {Type: "string", Description: "Type id to describe, e.g. delivery.pacto.trianalab.io/promote; empty lists them all"}}, nil),
 	}, func(_ context.Context, _ *mcpsdk.CallToolRequest, a struct {
 		Type string `json:"type"`
 	}) (*mcpsdk.CallToolResult, any, error) {
@@ -250,7 +250,7 @@ func requestSchema(extra ...string) map[string]any {
 	props := map[string]property{
 		"namespace":    {Type: "string", Description: "Namespace of the Stage"},
 		"stage":        {Type: "string", Description: "Stage name"},
-		"type":         {Type: "string", Description: "Operation type (default pacto.dev/promote)"},
+		"type":         {Type: "string", Description: "Operation type (default delivery.pacto.trianalab.io/promote)"},
 		"to":           {Type: "string", Description: "Artifact digest to move to (sha256:...); a tag is refused"},
 		"from":         {Type: "string", Description: "Digest the Stage runs now (defaults to its pointer)"},
 		"undoes":       {Type: "string", Description: "For a rollback: the name of the operation it undoes"},

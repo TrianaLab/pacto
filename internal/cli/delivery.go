@@ -158,7 +158,7 @@ func newDeliveryDescribeCommand(v *viper.Viper) *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			t, ok := delivery.TypeByID(args[0])
 			if !ok {
-				t, ok = delivery.TypeByID("pacto.dev/" + args[0])
+				t, ok = delivery.TypeByID("delivery.pacto.trianalab.io/" + args[0])
 			}
 			if !ok {
 				return fmt.Errorf("unknown operation type %q; see `pacto delivery types`", args[0])
@@ -202,7 +202,7 @@ func requestFrom(cmd *cobra.Command, ns string) (delivery.Request, error) {
 	get := func(name string) string { s, _ := cmd.Flags().GetString(name); return s }
 	typ := get("type")
 	if !strings.Contains(typ, "/") {
-		typ = "pacto.dev/" + typ
+		typ = "delivery.pacto.trianalab.io/" + typ
 	}
 	req := delivery.Request{Namespace: ns, Stage: get("stage"), Type: typ, To: get("to"), From: get("from"),
 		Undoes: get("undoes"), Reason: get("reason"), OnBehalfOf: get("on-behalf-of")}
@@ -269,7 +269,7 @@ func printPrecedent(w io.Writer, p *delivery.Precedent) {
 	}
 	for _, e := range p.Entries {
 		result := strings.Trim(string(e.Outcome)+"/"+string(e.Verification), "/")
-		_, _ = fmt.Fprintf(w, "precedent: %s seq %d %s %s %s\n", e.Stream, e.Seq, strings.TrimPrefix(e.Type, "pacto.dev/"), result, e.Reason)
+		_, _ = fmt.Fprintf(w, "precedent: %s seq %d %s %s %s\n", e.Stream, e.Seq, strings.TrimPrefix(e.Type, "delivery.pacto.trianalab.io/"), result, e.Reason)
 	}
 	_, _ = fmt.Fprintf(w, "precedent: %s: %s\n", p.Completeness, p.Note)
 }
@@ -564,7 +564,7 @@ func printHistory(out io.Writer, h *delivery.History) {
 	_, _ = fmt.Fprintln(w, "SEQ\tOPERATION\tTYPE\tTO\tACTOR\tRESULT\tREASON\tRECORD")
 	for _, e := range h.Entries {
 		result := strings.Trim(string(e.Outcome)+"/"+string(e.Verification), "/")
-		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", e.Seq, cmp.Or(e.Operation, "-"), cmp.Or(strings.TrimPrefix(e.Type, "pacto.dev/"), e.Kind),
+		_, _ = fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", e.Seq, cmp.Or(e.Operation, "-"), cmp.Or(strings.TrimPrefix(e.Type, "delivery.pacto.trianalab.io/"), e.Kind),
 			orNone([]string{e.To}), e.ActorClass, cmp.Or(result, string(e.Phase)), e.Reason, recordCell(e))
 	}
 	_ = w.Flush()
@@ -619,7 +619,7 @@ func newDeliveryBlameCommand(v *viper.Viper, d deps) *cobra.Command {
 				w := cmd.OutOrStdout()
 				_, _ = fmt.Fprintf(w, "version:   %s\n", orNone([]string{b.Digest}))
 				if e := b.Change; e != nil {
-					_, _ = fmt.Fprintf(w, "change:    seq %d %s (%s) %s\n", e.Seq, e.Operation, strings.TrimPrefix(e.Type, "pacto.dev/"), shortRecord(e.Record))
+					_, _ = fmt.Fprintf(w, "change:    seq %d %s (%s) %s\n", e.Seq, e.Operation, strings.TrimPrefix(e.Type, "delivery.pacto.trianalab.io/"), shortRecord(e.Record))
 					_, _ = fmt.Fprintf(w, "asked by:  %s (%s)\n", e.Actor, e.ActorClass)
 					if b.OnBehalfOf != "" {
 						_, _ = fmt.Fprintf(w, "for:       %s (asserted)\n", b.OnBehalfOf)

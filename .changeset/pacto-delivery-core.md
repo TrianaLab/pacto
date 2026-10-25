@@ -85,7 +85,7 @@ a KMS key in that build fails with an error naming the build to use (`go
 install -tags kms ...`, or `kms_aws`, `kms_gcp`, `kms_azure`,
 `kms_hashivault`).
 
-**Delivery.** `pkg/delivery` holds the operations (`pacto.dev/promote`,
+**Delivery.** `pkg/delivery` holds the operations (`delivery.pacto.trianalab.io/promote`,
 `rollback`, `override` and `unfreeze`) and `PlanFor`, the one planning function
 the promoter, the CLI, the MCP tools and the dashboard call. A promote is
 refused as `NotPublished` unless `pacto publish` published it and Flux verified

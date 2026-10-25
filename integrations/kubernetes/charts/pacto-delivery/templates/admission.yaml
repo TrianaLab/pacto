@@ -60,17 +60,17 @@ spec:
       message: "only the Pacto delivery promoter may raise a witnessed operation"
       reason: Forbidden
     - expression: >-
-        object.spec.type != 'pacto.dev/override' || variables.breakGlass ||
+        object.spec.type != 'delivery.pacto.trianalab.io/override' || variables.breakGlass ||
         (variables.witnessed && request.userInfo.username == '{{ $controller }}')
       message: "only break-glass may raise an override"
       reason: Forbidden
     - expression: >-
-        object.spec.type != 'pacto.dev/unfreeze' || variables.breakGlass ||
+        object.spec.type != 'delivery.pacto.trianalab.io/unfreeze' || variables.breakGlass ||
         (!variables.agent && request.userInfo.username != '{{ $controller }}')
       message: "only a person or break-glass may unfreeze a Stage; agents and the promoter may not"
       reason: Forbidden
     - expression: >-
-        object.spec.type != 'pacto.dev/freeze' || variables.breakGlass ||
+        object.spec.type != 'delivery.pacto.trianalab.io/freeze' || variables.breakGlass ||
         !variables.agent || request.userInfo.username == '{{ $controller }}'
       message: "only a person, break-glass or the promoter may freeze a Stage; agents may not"
       reason: Forbidden
@@ -133,7 +133,7 @@ spec:
 # Approvals come from people: not a service account, not an agent group, with
 # by and groups equal to the requesting user's and authTime equal to the login time the
 # apiserver reports (structured authentication maps the OIDC auth_time claim to
-# userInfo.extra["pacto.dev/auth-time"]). The promoter refuses a login older
+# userInfo.extra["delivery.pacto.trianalab.io/auth-time"]). The promoter refuses a login older
 # than 15 minutes, which forces a fresh interactive login to approve. An agent
 # holding a person's credentials still cannot be told apart from that person.
 # Once given, an Approval's spec never changes (a CRD rule); the promoter only
@@ -165,9 +165,9 @@ spec:
       message: "agents and service accounts may not approve"
       reason: Forbidden
     - expression: >-
-        'pacto.dev/auth-time' in request.userInfo.extra &&
-        has(object.spec.authTime) && object.spec.authTime == request.userInfo.extra['pacto.dev/auth-time'][0]
-      message: "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[pacto.dev/auth-time]"
+        'delivery.pacto.trianalab.io/auth-time' in request.userInfo.extra &&
+        has(object.spec.authTime) && object.spec.authTime == request.userInfo.extra['delivery.pacto.trianalab.io/auth-time'][0]
+      message: "approving needs a fresh interactive login: spec.authTime must be the login time in userInfo.extra[delivery.pacto.trianalab.io/auth-time]"
       reason: Forbidden
     - expression: >-
         variables.groups.all(g, g in request.userInfo.groups) &&

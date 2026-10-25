@@ -77,10 +77,10 @@ func TestNewOperationRecord(t *testing.T) {
 		t.Fatal("the record payload is not reproducible")
 	}
 
-	in.Operation.Spec.Type, in.Operation.Spec.OnBehalfOf = "pacto.dev/scale", nil
+	in.Operation.Spec.Type, in.Operation.Spec.OnBehalfOf = "delivery.pacto.trianalab.io/scale", nil
 	in.Subjects = RecordSubjects{Anchor: rAnc}
 	st = NewOperationRecord(in)
-	if got := st.Predicate; got.Type.ID != "pacto.dev/scale" || got.Type.Digest != "" || got.Actor.OnBehalfOf != nil {
+	if got := st.Predicate; got.Type.ID != "delivery.pacto.trianalab.io/scale" || got.Type.Digest != "" || got.Actor.OnBehalfOf != nil {
 		t.Fatalf("unknown type record = %+v", st)
 	}
 	if len(st.Subject) != 1 {
@@ -215,7 +215,7 @@ func TestSignAndOpenRecord(t *testing.T) {
 		}),
 		"payload not json": edit(func(x *envelope) { x.DSSEEnvelope.Payload = []byte(`not json`) }),
 		"unknown field": edit(func(x *envelope) {
-			x.DSSEEnvelope.Payload = []byte(`{"_type":"https://in-toto.io/Statement/v1","predicateType":"pacto.dev/operation/v1","extra":1}`)
+			x.DSSEEnvelope.Payload = []byte(`{"_type":"https://in-toto.io/Statement/v1","predicateType":"delivery.pacto.trianalab.io/operation/v1","extra":1}`)
 		}),
 		"other predicate": edit(func(x *envelope) {
 			x.DSSEEnvelope.Payload = []byte(`{"_type":"https://in-toto.io/Statement/v1","subject":[],"predicateType":"x","predicate":{"kind":"","intent":{"stage":{"cluster":"","namespace":"","name":""}},"chain":{"stream":"","seq":0},"time":{"finished":""}}}`)

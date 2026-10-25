@@ -155,7 +155,7 @@ func (s *Server) mayDecide(caller delivery.Caller, published string) error {
 		return Refuse(http.StatusForbidden, "AgentsMayNotApprove", "the apiserver says "+caller.User+" is an agent; agents may not decide")
 	case caller.AuthTime == "":
 		return Refuse(http.StatusForbidden, "AuthTimeUnavailable",
-			"this cluster does not map auth_time to userInfo.extra[pacto.dev/auth-time]; nobody can approve here")
+			"this cluster does not map auth_time to userInfo.extra[delivery.pacto.trianalab.io/auth-time]; nobody can approve here")
 	case !ok || time.Since(at) > delivery.DecisionFreshnessFor(published):
 		return Refuse(http.StatusUnauthorized, "FreshLoginRequired",
 			fmt.Sprintf("your login is older than %s: sign in again", delivery.DecisionFreshnessFor(published)))

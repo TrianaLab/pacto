@@ -541,7 +541,7 @@ YAML
 # --- reading the cluster -----------------------------------------------------
 ops() { kubectl -n "$1" get operations -o json; }
 op_to() { # NS STAGE DIGEST [TYPE] — the operations moving STAGE to DIGEST
-  ops "$1" | jq -r --arg s "$2" --arg d "$3" --arg t "${4:-pacto.dev/promote}" \
+  ops "$1" | jq -r --arg s "$2" --arg d "$3" --arg t "${4:-delivery.pacto.trianalab.io/promote}" \
     '.items[] | select(.spec.stage == $s and .spec.params.to == $d and .spec.type == $t) | .metadata.name'
 }
 op_exists() { [ -n "$(op_to "$@")" ]; }
@@ -706,7 +706,7 @@ story_b4() {
   man="$(oras manifest fetch --plain-http "$r:3.0.0")" || fail "oras could not read payments 3.0.0"
   oras blob fetch --plain-http "$r@$(jq -r '.layers[0].digest' <<<"$man")" --output "$tmp/layer" || fail "oras could not read its layer"
   copy="$(cd "$tmp" && oras push --plain-http --disable-path-validation --format go-template='{{.digest}}' \
-    --annotation "pacto.dev/contract=$(jq -r '.annotations["pacto.dev/contract"]' <<<"$man")" \
+    --annotation "delivery.pacto.trianalab.io/contract=$(jq -r '.annotations["delivery.pacto.trianalab.io/contract"]' <<<"$man")" \
     "$r:oras-copy" "layer:$(jq -r '.layers[0].mediaType' <<<"$man")")" || fail "oras could not push the copy"
   remember payments oras-copy "$copy"
   propose -n test --stage payments --to "$copy" --name payments-oras-copy --reason "B4: a copy pushed with plain oras"
@@ -808,9 +808,9 @@ b9() {
   beat B9
   journeys B9
   local d op; d="$(digest_of payments 2.3.0)"
-  rolled() { op_to prod payments "$d" pacto.dev/rollback | grep -vx payments-2-4-0-rollback | grep -q .; }
+  rolled() { op_to prod payments "$d" delivery.pacto.trianalab.io/rollback | grep -vx payments-2-4-0-rollback | grep -q .; }
   eventually 60 rolled || fail "carol's rollback of payments 3.0.0 raised no operation"
-  op="$(op_to prod payments "$d" pacto.dev/rollback | grep -vx payments-2-4-0-rollback | head -1)"
+  op="$(op_to prod payments "$d" delivery.pacto.trianalab.io/rollback | grep -vx payments-2-4-0-rollback | head -1)"
   predicted B9 prod "$op"
   wait_concluded prod "$op" Succeeded/Verified
   runs prod payments "$d" || fail "prod is not back on payments 2.3.0"
@@ -825,7 +825,7 @@ b9() {
 person() {
   local f="$DEMO/$1.kubeconfig"
   kubectl config view --raw --minify -o json | jq --arg u "$1" --arg g "$2" --arg t "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    '.users[0].user += {as: $u, "as-groups": [$g], "as-user-extra": {"pacto.dev/auth-time": [$t]}}' > "$f"
+    '.users[0].user += {as: $u, "as-groups": [$g], "as-user-extra": {"delivery.pacto.trianalab.io/auth-time": [$t]}}' > "$f"
   echo "$f"
 }
 rec() { reg "$PACTO" delivery "$@" --trust "$KEYS/recorder.pub"; }
@@ -850,7 +850,7 @@ b10() {
   # attach FILE — attach a bundle to the stream's anchor the way the recorder does; prints its manifest.
   attach() {
     (cd "$tmp" && oras attach --plain-http --artifact-type application/vnd.dev.sigstore.bundle.v0.3+json \
-      --annotation dev.sigstore.bundle.predicateType=pacto.dev/operation/v1 --annotation dev.sigstore.bundle.content=dsse-envelope \
+      --annotation dev.sigstore.bundle.predicateType=delivery.pacto.trianalab.io/operation/v1 --annotation dev.sigstore.bundle.content=dsse-envelope \
       --format go-template='{{.digest}}' "$anchor" "$1:application/vnd.dev.sigstore.bundle.v0.3+json")
   }
   # The newest record, with the time it finished changed and its signature kept.
@@ -897,7 +897,7 @@ b10() {
   local d op; d="$(digest_of payments 2.4.0)"
   KUBECONFIG="$(person ops@example.com pacto:break-glass)" kubectl -n prod patch ocirepository payments --type merge \
     -p "{\"spec\":{\"ref\":{\"digest\":\"$d\"}}}" >/dev/null || fail "the break-glass edit was refused"
-  op="$(wait_op prod payments "$d" pacto.dev/override)"
+  op="$(wait_op prod payments "$d" delivery.pacto.trianalab.io/override)"
   wait_concluded prod "$op" Witnessed/Unverified
   eventually 30 frozen || fail "the witnessed override did not freeze payments prod"
   witnessed() { rec history -n prod --stage payments --output-format json | jq -e \
@@ -1155,7 +1155,7 @@ reach_freeze() {
     pe_frozen || fail "prod-eu is not frozen after its rollback failed"
     grep -qF "the promoter's own rollback, which is never undone automatically" <<<"$(kubectl -n prod-eu get stage payments -o jsonpath='{.status.frozenReason}')" \
       || fail "prod-eu froze for another reason: $(kubectl -n prod-eu get stage payments -o jsonpath='{.status.frozenReason}')"
-    op_json prod-eu "$fz" | jq -e --arg a "$a" '.spec.type == "pacto.dev/freeze" and .spec.params.from == $a and .spec.cause.verdict.result == "Fail"' >/dev/null \
+    op_json prod-eu "$fz" | jq -e --arg a "$a" '.spec.type == "delivery.pacto.trianalab.io/freeze" and .spec.params.from == $a and .spec.cause.verdict.result == "Fail"' >/dev/null \
       || fail "the freeze does not name 2.3.0 and its failed check: $(op_json prod-eu "$fz" | jq -c .spec)"
     signed() { rec record verify -n prod-eu --stage payments --output-format json 2>/dev/null | jq -e --arg o "$fz" '[.records[] | select(.operation == $o)] | length == 1' >/dev/null; }
     eventually 60 signed || fail "the freeze is not a signed record of prod-eu: $(rec record verify -n prod-eu --stage payments 2>&1)"

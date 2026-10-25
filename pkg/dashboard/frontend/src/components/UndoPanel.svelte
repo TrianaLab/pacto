@@ -15,8 +15,8 @@
   let planning = $state(false);
   let headingEl = $state(null);
   const request = $derived(undo?.kind === 'rollback'
-    ? { namespace, stage, type: 'pacto.dev/rollback', undoes: name }
-    : { namespace, stage, type: 'pacto.dev/promote', to: undo?.plan?.to });
+    ? { namespace, stage, type: 'delivery.pacto.trianalab.io/rollback', undoes: name }
+    : { namespace, stage, type: 'delivery.pacto.trianalab.io/promote', to: undo?.plan?.to });
 
   onMount(async () => {
     headingEl?.focus();

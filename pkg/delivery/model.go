@@ -477,7 +477,7 @@ type Cause struct {
 
 // OperationSpec is the intent. It is frozen at admission.
 type OperationSpec struct {
-	// +kubebuilder:validation:Enum=pacto.dev/promote;pacto.dev/rollback;pacto.dev/override;pacto.dev/unfreeze;pacto.dev/freeze
+	// +kubebuilder:validation:Enum=delivery.pacto.trianalab.io/promote;delivery.pacto.trianalab.io/rollback;delivery.pacto.trianalab.io/override;delivery.pacto.trianalab.io/unfreeze;delivery.pacto.trianalab.io/freeze
 	Type string `json:"type"`
 	// Stage is the name of a Stage in the operation's namespace.
 	Stage string `json:"stage"`
@@ -774,7 +774,7 @@ type ApprovalSpec struct {
 	// By must equal the apiserver username of whoever created the Approval.
 	By string `json:"by"`
 	// AuthTime is the login time the apiserver reported for that user
-	// (userInfo.extra["pacto.dev/auth-time"], RFC 3339 or Unix seconds).
+	// (userInfo.extra["delivery.pacto.trianalab.io/auth-time"], RFC 3339 or Unix seconds).
 	// +optional
 	AuthTime string `json:"authTime,omitempty"`
 	// Groups must equal the groups of whoever created the Approval. The

@@ -316,7 +316,7 @@ func (s *Server) deliveryEnvironments(ctx context.Context, _ *struct{}) (*enviro
 type PublishedVersion struct {
 	Digest   string `json:"digest"`
 	Version  string `json:"version,omitempty"`
-	Contract string `json:"contract,omitempty" doc:"The digest-pinned contract the artifact names (pacto.dev/contract)"`
+	Contract string `json:"contract,omitempty" doc:"The digest-pinned contract the artifact names (delivery.pacto.trianalab.io/contract)"`
 	// Signed: Flux verified its signature on a candidate source, so pacto
 	// publish published it.
 	Signed bool                `json:"signed"`

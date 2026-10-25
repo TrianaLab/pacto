@@ -192,7 +192,7 @@ func TestExplainOperation(t *testing.T) {
 	op.Status.Verdicts = []Verdict{{Gate: GateDiff}}
 	e := ExplainOperation(&op, nil)
 	if e.Operation != "prod/p1" || e.Stage.Name != "payments-prod" || e.Order == nil || len(e.Verdicts) != 1 ||
-		e.Summary != "pacto.dev/promote on Stage payments-prod, "+ansA+" -> "+ansB+" waits for a person: Approve?" {
+		e.Summary != "delivery.pacto.trianalab.io/promote on Stage payments-prod, "+ansA+" -> "+ansB+" waits for a person: Approve?" {
 		t.Fatalf("explanation = %+v", e)
 	}
 	if e := ExplainOperation(&op, ansStage()); e.Stage.Pointer != ansB {

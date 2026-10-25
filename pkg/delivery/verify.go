@@ -12,7 +12,7 @@ import (
 
 // ContractAnnotation is the artifact annotation naming the digest-pinned
 // contract a deployable artifact was built from.
-const ContractAnnotation = "pacto.dev/contract"
+const ContractAnnotation = "delivery.pacto.trianalab.io/contract"
 
 // ParseDigest validates an OCI manifest digest as a Pacto ContentID. A tag is
 // refused: delivery moves digests only.

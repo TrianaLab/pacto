@@ -60,7 +60,7 @@ spec:
               authTime:
                 description: |-
                   AuthTime is the login time the apiserver reported for that user
-                  (userInfo.extra["pacto.dev/auth-time"], RFC 3339 or Unix seconds).
+                  (userInfo.extra["delivery.pacto.trianalab.io/auth-time"], RFC 3339 or Unix seconds).
                 type: string
               by:
                 description: By must equal the apiserver username of whoever created

@@ -9,7 +9,7 @@ audit log names the person. There is no impersonation.
 
 Approving needs the login time, read by the apiserver itself. Structured
 authentication maps the OIDC `auth_time` claim to
-`userInfo.extra["pacto.dev/auth-time"]`, only for tokens issued to the two
+`userInfo.extra["delivery.pacto.trianalab.io/auth-time"]`, only for tokens issued to the two
 clients that make a person log in again: the dashboard and `pacto delivery
 approve`'s own client, `pacto-approve`. A client-credentials or exchanged
 token never has it, and neither does a kubeconfig login (`pacto-cli`): any
@@ -24,7 +24,7 @@ jwt:
     username: {expression: "'https://idp.example.com#' + claims.sub"}
     groups: {claim: groups, prefix: ""}
     extra:
-    - key: pacto.dev/auth-time
+    - key: delivery.pacto.trianalab.io/auth-time
       valueExpression: >-
         has(claims.auth_time) && has(claims.azp) && claims.azp in ['pacto-dashboard', 'pacto-approve']
         ? string(int(claims.auth_time)) : ''
@@ -46,14 +46,14 @@ The apiserver must load this file (flag `--authentication-config`), and its
 set the apiserver's flags, as with kind, kubeadm or k3s; Pacto's own tests run
 it on kind. Managed clusters mostly decide it for you:
 
-| Cluster | Can it map `pacto.dev/auth-time`? |
+| Cluster | Can it map `delivery.pacto.trianalab.io/auth-time`? |
 |---|---|
 | kind, kubeadm, k3s and others where you set apiserver flags | Yes, tested on kind |
 | AKS | Not verified: structured authentication is in preview |
 | EKS, GKE | Not verified |
 
 To check a cluster, sign in again and run `kubectl auth whoami -o yaml`. If
-`extra` holds no `pacto.dev/auth-time`, nobody can approve there. Delivery
+`extra` holds no `delivery.pacto.trianalab.io/auth-time`, nobody can approve there. Delivery
 still promotes every change that needs no decision, people can still freeze,
 unfreeze, roll back and cancel, and the dashboard and the CLI still read
 everything. A held change then ends one of three ways: it expires, someone

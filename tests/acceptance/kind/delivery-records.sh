@@ -107,7 +107,7 @@ records_store() {
   # attach_forged FILE — attach a bundle to the Stage's anchor the way the recorder does; prints its manifest.
   attach_forged() {
     (cd "$tmp" && oras attach --plain-http --artifact-type application/vnd.dev.sigstore.bundle.v0.3+json \
-      --annotation dev.sigstore.bundle.predicateType=pacto.dev/operation/v1 --annotation dev.sigstore.bundle.content=dsse-envelope \
+      --annotation dev.sigstore.bundle.predicateType=delivery.pacto.trianalab.io/operation/v1 --annotation dev.sigstore.bundle.content=dsse-envelope \
       --format go-template='{{.digest}}' "$streams_local@$(anchor_of "$M" billing)" "$1:application/vnd.dev.sigstore.bundle.v0.3+json")
   }
   # head_bundle — the newest record of publish-manual/billing, as a file in $tmp.
@@ -229,7 +229,7 @@ records_audit() {
     | jq -r --arg u "$opc_uid" '[.. | objects | select((.annotations // {})["dev.pacto.uid"] == $u)][0].digest')"
   layer="$(oras manifest fetch --plain-http "$streams_local@$manifest" | jq -r '.layers[0].digest')"
   oras blob fetch --plain-http --output "$tmp/c.json" "$streams_local@$layer" >/dev/null
-  cosign verify-blob-attestation --bundle "$tmp/c.json" --key "$RECORDER_PUB" --type pacto.dev/operation/v1 \
+  cosign verify-blob-attestation --bundle "$tmp/c.json" --key "$RECORDER_PUB" --type delivery.pacto.trianalab.io/operation/v1 \
     --insecure-ignore-tlog --digest "${ad#sha256:}" --digestAlg sha256 >/dev/null 2>&1 || fail "cosign does not verify C's record"
   jq -r '.dsseEnvelope.payload' "$tmp/c.json" | base64 -d | jq -e --arg c "$C" \
     '.predicate.outcome.result == "Failed" and .predicate.intent.params.to == $c and .predicate.actor.class == "controller"' >/dev/null \

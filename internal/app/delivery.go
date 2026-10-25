@@ -38,7 +38,7 @@ const recordFinalizer = "delivery.pacto.trianalab.io/record"
 
 // authTimeExtra is the userInfo.extra key structured authentication maps the
 // OIDC auth_time claim to.
-const authTimeExtra = "pacto.dev/auth-time"
+const authTimeExtra = "delivery.pacto.trianalab.io/auth-time"
 
 // DeliveryRegistry is the registry access a delivery client needs: the
 // promoter's read-only access, plus resolving a tag so a refusal can name the
@@ -421,7 +421,7 @@ func (d *Delivery) Propose(ctx context.Context, req delivery.Request) (*delivery
 	if req.Name != "" {
 		meta["name"] = req.Name
 	} else {
-		meta["generateName"] = req.Stage + "-" + strings.TrimPrefix(spec.Type, "pacto.dev/") + "-"
+		meta["generateName"] = req.Stage + "-" + strings.TrimPrefix(spec.Type, "delivery.pacto.trianalab.io/") + "-"
 	}
 	specJSON, _ := json.Marshal(spec)
 	var specMap map[string]any

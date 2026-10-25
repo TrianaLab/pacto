@@ -9,7 +9,7 @@ the Operations left in the cluster.
 ## What a record is
 
 An [in-toto](https://in-toto.io) statement of predicate type
-`pacto.dev/operation/v1`: what was asked, by whom and for whom, the Stage
+`delivery.pacto.trianalab.io/operation/v1`: what was asked, by whom and for whom, the Stage
 policy, every check result with its proof, every approval and the outcome. It
 holds references, never secrets. It is a sigstore bundle attached as an OCI
 referrer to the version moved to, the one moved from, the new contract and the
@@ -198,7 +198,7 @@ REPO=registry.example/pacto/streams
 oras blob fetch --output record.json \
   "$REPO@$(oras manifest fetch "$REPO@<record manifest>" | jq -r '.layers[0].digest')"
 cosign verify-blob-attestation --bundle record.json --key recorder.pub \
-  --type pacto.dev/operation/v1 --insecure-ignore-tlog \
+  --type delivery.pacto.trianalab.io/operation/v1 --insecure-ignore-tlog \
   --digest <anchor digest without sha256:> --digestAlg sha256
 ```
 

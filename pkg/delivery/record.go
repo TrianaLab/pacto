@@ -11,7 +11,7 @@ import (
 // operation, a refusal to record one or a seq with no operation behind it.
 const (
 	StatementType      = "https://in-toto.io/Statement/v1"
-	PredicateOperation = "pacto.dev/operation/v1"
+	PredicateOperation = "delivery.pacto.trianalab.io/operation/v1"
 )
 
 // Record kinds.
@@ -39,7 +39,7 @@ type Subject struct {
 	Digest map[string]string `json:"digest"`
 }
 
-// RecordPredicate is pacto.dev/operation/v1.
+// RecordPredicate is delivery.pacto.trianalab.io/operation/v1.
 type RecordPredicate struct {
 	Kind         string           `json:"kind"`
 	Type         *RecordType      `json:"type,omitempty"`

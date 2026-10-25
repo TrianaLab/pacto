@@ -21,13 +21,13 @@ func TestClient_Annotations(t *testing.T) {
 	client, host := newTestClient(t)
 	ctx := context.Background()
 	ref := host + "/demo/app:v1"
-	img := mutate.Annotations(empty.Image, map[string]string{"pacto.dev/contract": "oci://r/p@sha256:1"}).(v1.Image)
+	img := mutate.Annotations(empty.Image, map[string]string{"delivery.pacto.trianalab.io/contract": "oci://r/p@sha256:1"}).(v1.Image)
 	r, _ := name.ParseReference(ref)
 	if err := remote.Write(r, img); err != nil {
 		t.Fatal(err)
 	}
 	got, err := client.Annotations(ctx, ref)
-	if err != nil || got["pacto.dev/contract"] != "oci://r/p@sha256:1" {
+	if err != nil || got["delivery.pacto.trianalab.io/contract"] != "oci://r/p@sha256:1" {
 		t.Fatalf("Annotations() = %v, %v", got, err)
 	}
 

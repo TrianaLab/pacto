@@ -31,7 +31,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | Field | Type | Required | Default | Enum | Description |
 | --- | --- | --- | --- | --- | --- |
 | `spec` | `object` | yes |  |  | ApprovalSpec is a human decision bound to one operation uid and intent digest. |
-| `spec.authTime` | `string` | no |  |  | AuthTime is the login time the apiserver reported for that user (userInfo.extra["pacto.dev/auth-time"], RFC 3339 or Unix seconds). |
+| `spec.authTime` | `string` | no |  |  | AuthTime is the login time the apiserver reported for that user (userInfo.extra["delivery.pacto.trianalab.io/auth-time"], RFC 3339 or Unix seconds). |
 | `spec.by` | `string` | yes |  |  | By must equal the apiserver username of whoever created the Approval. |
 | `spec.decision` | `string` | yes |  | `approve`, `reject`, `accept-unknown` | Decision is what a human approval says. |
 | `spec.groups` | `[]string` | no |  |  | Groups must equal the groups of whoever created the Approval. The promoter accepts it only when one of them names a team the question was routed to. |
@@ -88,7 +88,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.params.undoes` | `string` | no |  |  | Undoes is the uid of the operation a rollback undoes. |
 | `spec.reason` | `string` | no |  |  |  |
 | `spec.stage` | `string` | yes |  |  | Stage is the name of a Stage in the operation's namespace. |
-| `spec.type` | `string` | yes |  | `pacto.dev/promote`, `pacto.dev/rollback`, `pacto.dev/override`, `pacto.dev/unfreeze`, `pacto.dev/freeze` |  |
+| `spec.type` | `string` | yes |  | `delivery.pacto.trianalab.io/promote`, `delivery.pacto.trianalab.io/rollback`, `delivery.pacto.trianalab.io/override`, `delivery.pacto.trianalab.io/unfreeze`, `delivery.pacto.trianalab.io/freeze` |  |
 | `spec.witnessed` | `boolean` | no |  |  | Witnessed marks an override the promoter raised for an edit it saw but did not make. Only the promoter may set it. |
 | `status` | `object` | no |  |  | OperationStatus is written only by the promoter. |
 | `status.actorClass` | `string` | no |  |  | ActorClass is who raised an operation, as the promoter classifies the apiserver identity. It is derived, never asserted by the client. |

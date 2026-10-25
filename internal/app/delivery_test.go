@@ -205,7 +205,7 @@ func TestDeliveryRefusals(t *testing.T) {
 		t.Fatal("missing stage")
 	}
 	r := base
-	r.Type = "pacto.dev/scale"
+	r.Type = "delivery.pacto.trianalab.io/scale"
 	_, _, err := d.Plan(ctx, r)
 	wantErrContaining(t, err, "unknown operation type")
 	_, _, err = d.Plan(ctx, base)

@@ -160,7 +160,7 @@
     {/if}
     {#if cancelRefusal}<RefusalNotice error={cancelRefusal} />{/if}
     {#if rollingBack && !gone}
-      <ProposePanel request={{ namespace, stage: e.spec.stage, type: 'pacto.dev/rollback', undoes: name }} {miraURL}
+      <ProposePanel request={{ namespace, stage: e.spec.stage, type: 'delivery.pacto.trianalab.io/rollback', undoes: name }} {miraURL}
         onClose={() => { rollingBack = false; rollbackBtn?.focus(); }} />
     {/if}
 

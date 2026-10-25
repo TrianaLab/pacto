@@ -237,7 +237,7 @@ var health = []delivery.Verdict{{Gate: "health", Phase: "verify", Result: delive
 // little telemetry arrived to judge it, so the check says Unknown.
 var thin = []delivery.Verdict{{Gate: "health", Phase: "verify", Result: delivery.Unknown,
 	Citation: map[string]string{"provider": "mira", "query": health[0].Citation["query"], "spans": "3", "needed": "50"},
-	Message: "recorded for this demo: only 3 spans arrived in the verify window, too few to judge the error ratio (50 needed)"}}
+	Message:  "recorded for this demo: only 3 spans arrived in the verify window, too few to judge the error ratio (50 needed)"}}
 
 // recorded holds the recorded verdicts that fail a version on a Stage, or
 // leave it Unknown, by "namespace/stage@version".
@@ -424,7 +424,7 @@ func (d *demoDelivery) propose(req delivery.Request, actor story.Persona) (*deli
 	d.n++
 	t := d.clock()
 	o := &delivery.OperationObject{Metadata: delivery.ObjectMeta{Namespace: req.Namespace, UID: fmt.Sprintf("op-%d", d.n),
-		Name: fmt.Sprintf("%s-%s-%d", req.Stage, strings.TrimPrefix(spec.Type, "pacto.dev/"), d.n), CreationTimestamp: stamp(t)}, Spec: spec}
+		Name: fmt.Sprintf("%s-%s-%d", req.Stage, strings.TrimPrefix(spec.Type, "delivery.pacto.trianalab.io/"), d.n), CreationTimestamp: stamp(t)}, Spec: spec}
 	o.Status.ActorClass, o.Status.Plan, o.Status.Verdicts, o.Status.Times.Admitted = actor.Class(), &p, p.Verdicts, stamp(t)
 	d.ops = append(d.ops, o)
 	switch p.Predicted {

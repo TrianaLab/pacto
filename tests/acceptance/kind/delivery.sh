@@ -39,7 +39,7 @@
 # CI moves) and prod (fed by test's verified versions). A consumer, checkout,
 # accepts payments ^1.0.0; a second consumer, ledger, accepts >=1.0.0. Every
 # version is an OCI artifact of manifests (a Deployment and its Pacto) whose
-# pacto.dev/contract annotation names the digest-pinned contract it was built
+# delivery.pacto.trianalab.io/contract annotation names the digest-pinned contract it was built
 # from. The scenario proves the eight claims of the vision's first-step list,
 # each against the cluster rather than a status field the promoter wrote about
 # itself:
@@ -59,7 +59,7 @@
 # edit. No promote in the run may produce a witnessed override.
 #
 # Agents run as their own ServiceAccounts with tokens; people are impersonated
-# from the admin credentials with userInfo.extra["pacto.dev/auth-time"] set to
+# from the admin credentials with userInfo.extra["delivery.pacto.trianalab.io/auth-time"] set to
 # the moment of login, which is what structured authentication would map from
 # an OIDC auth_time claim. The CLI used for propose, cancel and approve is the
 # real `pacto delivery`. It runs on the host, where the in-cluster registry name
@@ -475,7 +475,7 @@ users:
     client-key-data: "$KEY"
     as: "$1"
     as-groups: ["$2"]
-    as-user-extra: {"pacto.dev/auth-time": ["$(date -u +%Y-%m-%dT%H:%M:%SZ)"]}
+    as-user-extra: {"delivery.pacto.trianalab.io/auth-time": ["$(date -u +%Y-%m-%dT%H:%M:%SZ)"]}
 contexts: [{name: c, context: {cluster: kind, user: "$1"}}]
 current-context: c
 YAML
@@ -559,7 +559,7 @@ spec:
 YAML
   tar -czf "$tgz" -C "$tree" .
   local -a ann=()
-  [ -n "$ref" ] && ann=(--annotation "pacto.dev/contract=$ref")
+  [ -n "$ref" ] && ann=(--annotation "delivery.pacto.trianalab.io/contract=$ref")
   digest="$(oras push --plain-http --disable-path-validation ${ann[@]+"${ann[@]}"} --format go-template='{{.digest}}' \
     "127.0.0.1:${LOCAL_REG_PORT}/${repo}:${tag}" "${tgz}:${FLUX_LAYER_TYPE}")"
   sign_digest "$repo" "$digest"
@@ -606,7 +606,7 @@ pointer() { kubectl -n "$1" get stage payments -o jsonpath='{.status.pointer}'; 
 has_pointer() { [ "$(pointer "$1")" = "$2" ]; }
 ops() { kubectl -n "$1" get operations -o json; }
 # op_to NS DIGEST [TYPE] — the names of operations moving NS to DIGEST.
-op_to() { ops "$1" | jq -r --arg d "$2" --arg t "${3:-pacto.dev/promote}" \
+op_to() { ops "$1" | jq -r --arg d "$2" --arg t "${3:-delivery.pacto.trianalab.io/promote}" \
   '.items[] | select(.spec.params.to == $d and .spec.type == $t) | .metadata.name'; }
 field() { kubectl -n "$1" get operation "$2" -o jsonpath="{.status.$3}"; }
 concluded() { [ "$(field "$1" "$2" phase)" = Concluded ]; }
@@ -740,11 +740,11 @@ C="$(publish C "$C120")"; candidate C
 OPC="$(wait_op test "$C")"
 wait_concluded test "$OPC" Failed/
 [ "$(field test "$OPC" reason)" = VerifyFailed ] || fail "C failed for the wrong reason: $(field test "$OPC" reason)"
-RB="$(wait_op test "$B" pacto.dev/rollback)"
+RB="$(wait_op test "$B" delivery.pacto.trianalab.io/rollback)"
 wait_concluded test "$RB" Succeeded/Verified
 has_pointer test "$B" || fail "test is not back on B"
 kubectl -n test get stage payments -o json | jq -e --arg c "$C" '.status.failedDigests | index($c)' >/dev/null || fail "C is not remembered as failed"
-[ "$(op_to test "$B" pacto.dev/rollback | wc -l | tr -d ' ')" = 1 ] || fail "more than one automatic rollback for one cause"
+[ "$(op_to test "$B" delivery.pacto.trianalab.io/rollback | wc -l | tr -d ' ')" = 1 ] || fail "more than one automatic rollback for one cause"
 never_retried() { [ "$(op_to test "$C" | wc -l | tr -d ' ')" = 1 ] && [ -z "$(op_to prod "$C")" ] && has_pointer prod "$B"; }
 # 18s: nine candidate scans and nine promoter polls (2s each).
 always 6 never_retried || fail "C was retried in test or reached prod"
@@ -904,7 +904,7 @@ OUT="$(KUBECONFIG="$AGENT_A" kubectl -n prod create -f - 2>&1 <<YAML || true
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Operation
 metadata: {name: forged, finalizers: [delivery.pacto.trianalab.io/record]}
-spec: {type: pacto.dev/promote, stage: payments, facet: pointer, params: {from: "$WINNER", to: "$F"}, actor: {user: alice}}
+spec: {type: delivery.pacto.trianalab.io/promote, stage: payments, facet: pointer, params: {from: "$WINNER", to: "$F"}, actor: {user: alice}}
 YAML
 )"
 if grep -q "spec.actor.user must be the user" <<<"$OUT"; then
@@ -966,7 +966,7 @@ else
 fi
 KUBECONFIG="$(person_kubeconfig ops pacto:break-glass)" kubectl -n prod patch ocirepository payments --type merge \
   -p "{\"spec\":{\"ref\":{\"digest\":\"$B\"}}}" >/dev/null
-OPW2="$(wait_op prod "$B" pacto.dev/override)"
+OPW2="$(wait_op prod "$B" delivery.pacto.trianalab.io/override)"
 wait_concluded prod "$OPW2" Witnessed/Unverified
 [ "$(kubectl -n prod get stage payments -o jsonpath='{.status.frozen}')" = true ] || fail "a witnessed edit must freeze the Stage"
 has_pointer prod "$B" || fail "the witnessed edit was not adopted"
@@ -975,13 +975,13 @@ pass "break-glass edit witnessed, adopted and frozen"
 
 section "no promote in the run produced a witnessed override"
 WITNESSED="$(kubectl get operations -A -o json | jq '[.items[] | select(.spec.witnessed == true)] | length')"
-PROMOTES="$(kubectl get operations -A -o json | jq '[.items[] | select(.spec.type == "pacto.dev/promote")] | length')"
+PROMOTES="$(kubectl get operations -A -o json | jq '[.items[] | select(.spec.type == "delivery.pacto.trianalab.io/promote")] | length')"
 [ "$WITNESSED" = 1 ] || fail "$WITNESSED witnessed overrides, want exactly the one break-glass edit"
 pass "$PROMOTES promotes, 0 witnessed overrides of their own"
 section "the promoter counts what it concluded and says so in Events"
 PROMOTER_POD="$(kubectl -n "$DELIVERY_NS" get pods -l app.kubernetes.io/component=promoter -o jsonpath='{.items[0].metadata.name}')"
 METRICS="$(kubectl get --raw "/api/v1/namespaces/${DELIVERY_NS}/pods/${PROMOTER_POD}:8080/proxy/metrics")" || fail "the promoter serves no metrics on port 8080"
-grep -q '^pacto_delivery_operations_total{.*type="pacto.dev/promote"' <<<"$METRICS" || fail "no concluded promote is counted: $(grep pacto_delivery <<<"$METRICS")"
+grep -q '^pacto_delivery_operations_total{.*type="delivery.pacto.trianalab.io/promote"' <<<"$METRICS" || fail "no concluded promote is counted: $(grep pacto_delivery <<<"$METRICS")"
 grep -q '^pacto_delivery_stage_frozen{namespace="prod",stage="payments"} 1' <<<"$METRICS" || fail "the frozen prod Stage is not in the frozen gauge"
 kubectl -n prod get events --field-selector involvedObject.kind=Stage,reason=Frozen -o name | grep -q . || fail "the prod Stage froze without an Event"
 kubectl -n test get events --field-selector involvedObject.kind=Operation,reason=Held -o name | grep -q . || fail "no held operation emitted an Event"
@@ -1092,7 +1092,7 @@ spec:
 YAML
   tar -czf "$tgz" -C "$tree" .
   local digest
-  digest="$(oras push --plain-http --disable-path-validation --annotation "pacto.dev/contract=$C100" --format go-template='{{.digest}}' \
+  digest="$(oras push --plain-http --disable-path-validation --annotation "delivery.pacto.trianalab.io/contract=$C100" --format go-template='{{.digest}}' \
     "127.0.0.1:${LOCAL_REG_PORT}/${H_REPO}:${label}" "${tgz}:${FLUX_LAYER_TYPE}")"
   sign_digest "$H_REPO" "$digest"
   echo "$digest"
@@ -1200,7 +1200,7 @@ verdict() { # OP GATE FIELD — one field of one verdict, as JSON
 }
 rollbacks_of() { # OP — how many rollbacks undo OP
   local uid; uid="$(kubectl -n "$H" get operation "$1" -o jsonpath='{.metadata.uid}')"
-  ops "$H" | jq --arg u "$uid" '[.items[] | select(.spec.type == "pacto.dev/rollback" and .spec.params.undoes == $u)] | length'
+  ops "$H" | jq --arg u "$uid" '[.items[] | select(.spec.type == "delivery.pacto.trianalab.io/rollback" and .spec.params.undoes == $u)] | length'
 }
 
 section "H1 ships: healthy spans, the contract check and the claim check all pass"
@@ -1286,7 +1286,7 @@ section "explain and history read it back"
 OUT="$(KUBECONFIG="$AGENT_A" "$PACTO" delivery explain -n "$H" "$RB2")"
 grep -q "re-run: POST query" <<<"$OUT" || fail "explain does not say how to re-run the Mira citation: $OUT"
 HIST="$(KUBECONFIG="$AGENT_A" "$PACTO" delivery history -n "$H" --stage payments --output-format json)"
-jq -e '.completeness == "partial" and ([.entries[] | select(.type == "pacto.dev/rollback")] | length) == 4' <<<"$HIST" >/dev/null \
+jq -e '.completeness == "partial" and ([.entries[] | select(.type == "delivery.pacto.trianalab.io/rollback")] | length) == 4' <<<"$HIST" >/dev/null \
   || fail "history does not list the four rollbacks: $HIST"
 pass "explain cites how to re-run, history lists every rollback"
 
@@ -1298,14 +1298,14 @@ KUBECONFIG="$AGENT_A" kubectl -n "$H" create -f - >/dev/null <<YAML
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Operation
 metadata: {name: promote-s-rollback, finalizers: [delivery.pacto.trianalab.io/record]}
-spec: {type: pacto.dev/promote, stage: payments, facet: pointer, params: {from: "$H1", to: "$H1"}, actor: {user: "system:serviceaccount:agents:agent-a", groups: [system:serviceaccounts, "system:serviceaccounts:agents", system:authenticated]}, reason: squat}
+spec: {type: delivery.pacto.trianalab.io/promote, stage: payments, facet: pointer, params: {from: "$H1", to: "$H1"}, actor: {user: "system:serviceaccount:agents:agent-a", groups: [system:serviceaccounts, "system:serviceaccounts:agents", system:authenticated]}, reason: squat}
 YAML
 eventually 60 concluded "$H" promote-s-rollback || fail "the squatting operation never concluded: $(field "$H" promote-s-rollback phase)"
 OPS="$(ship s "$S")"
 wait_concluded "$H" "$OPS" Failed/
 squat_frozen() {
   kubectl -n "$H" get stage payments -o json |
-    jq -e '.status.frozen == true and (.status.frozenReason | contains("promote-s-rollback is taken by a pacto.dev/promote system:serviceaccount:agents:agent-a"))' >/dev/null
+    jq -e '.status.frozen == true and (.status.frozenReason | contains("promote-s-rollback is taken by a delivery.pacto.trianalab.io/promote system:serviceaccount:agents:agent-a"))' >/dev/null
 }
 eventually 30 squat_frozen || fail "a squatted rollback name did not freeze the Stage: $(kubectl -n "$H" get stage payments -o jsonpath='{.status.frozen} {.status.frozenReason}')"
 [ "$(rollbacks_of "$OPS")" = 0 ] || fail "a rollback of S was raised under another name"
@@ -1404,7 +1404,7 @@ tags() { oras repo tags --plain-http "127.0.0.1:${LOCAL_REG_PORT}/$1" 2>/dev/nul
 # write nothing, so its referrers are counted without them.
 referrers() {
   oras discover --plain-http --format json "127.0.0.1:${LOCAL_REG_PORT}/$1" 2>/dev/null \
-    | jq '[.. | objects | select(has("digest") and ((.annotations // {})["dev.sigstore.bundle.predicateType"] != "pacto.dev/operation/v1"))] | length'
+    | jq '[.. | objects | select(has("digest") and ((.annotations // {})["dev.sigstore.bundle.predicateType"] != "delivery.pacto.trianalab.io/operation/v1"))] | length'
 }
 
 kubectl -n "$P" apply -f - >/dev/null <<YAML
@@ -1455,7 +1455,7 @@ section "publish: signed, the deploy artifact naming its contract"
 OUT="$(pub)" || fail "publish failed: $OUT"
 D1="$(grep -oE "^Deploy: ${REG_HOST}/apps/billing@sha256:[0-9a-f]{64}" <<<"$OUT" | sed 's/.*@//')"
 [ -n "$D1" ] || fail "publish named no deploy artifact: $OUT"
-CONTRACT="$(oras manifest fetch --plain-http "127.0.0.1:${LOCAL_REG_PORT}/apps/billing@$D1" | jq -r '.annotations["pacto.dev/contract"]')"
+CONTRACT="$(oras manifest fetch --plain-http "127.0.0.1:${LOCAL_REG_PORT}/apps/billing@$D1" | jq -r '.annotations["delivery.pacto.trianalab.io/contract"]')"
 [[ "$CONTRACT" == "oci://${REG_HOST}/demo/billing@sha256:"* ]] || fail "the deploy artifact names no digest-pinned contract: $CONTRACT"
 for ref in "apps/billing@$D1" "demo/billing@${CONTRACT##*@}"; do
   cosign verify --key "$KEYDIR/cosign.pub" --insecure-ignore-tlog --allow-http-registry "127.0.0.1:${LOCAL_REG_PORT}/$ref" >/dev/null 2>&1 \
@@ -1481,7 +1481,7 @@ if OUT="$(pub 2>&1)"; then fail "a breaking change was published as a minor: $OU
 grep -q "Refusal: the refusal is kept, signed, in ${REG_HOST}/demo/billing" <<<"$OUT" || fail "the refusal was not kept: $OUT"
 ANCHOR="$(tags demo/billing | tr ' ' '\n' | grep '^refusals-')" || fail "no refusal anchor in demo/billing: $(tags demo/billing)"
 REFUSALS="$(oras discover --plain-http --format json "127.0.0.1:${LOCAL_REG_PORT}/demo/billing:$ANCHOR" 2>/dev/null \
-  | jq '[.. | objects | select((.annotations // {})["dev.sigstore.bundle.predicateType"] == "pacto.dev/publish-refusal/v1")] | length')"
+  | jq '[.. | objects | select((.annotations // {})["dev.sigstore.bundle.predicateType"] == "delivery.pacto.trianalab.io/publish-refusal/v1")] | length')"
 [ "$REFUSALS" = 1 ] || fail "the refusal anchor carries $REFUSALS refusals, want 1"
 [ "$(tags apps/billing)|$(tags demo/billing | sed "s/$ANCHOR //")|$(referrers "apps/billing@$D1")" = "$AFTER" ] \
   || fail "the refused publish wrote a version to the registry: $(tags apps/billing) $(tags demo/billing)"
@@ -1555,7 +1555,7 @@ section "an artifact pushed another way is never a candidate"
 FOREIGN_TREE="$(mktemp -d)"; FOREIGN_TGZ="$(mktemp -t foreign.XXXXXX)"
 (PACTO_OUT="$FOREIGN_TREE" PACTO_VERSION=9.9.9 BILLING_BUNDLE="${REG_HOST}/demo/billing" "$PUB/render.sh")
 tar -czf "$FOREIGN_TGZ" -C "$FOREIGN_TREE" .
-FOREIGN="$(oras push --plain-http --disable-path-validation --annotation "pacto.dev/contract=$CONTRACT" --format go-template='{{.digest}}' \
+FOREIGN="$(oras push --plain-http --disable-path-validation --annotation "delivery.pacto.trianalab.io/contract=$CONTRACT" --format go-template='{{.digest}}' \
   "127.0.0.1:${LOCAL_REG_PORT}/apps/billing:9.9.9" "${FOREIGN_TGZ}:${FLUX_LAYER_TYPE}")"
 unverified() {
   kubectl -n "$P" get ocirepository billing-candidates -o json \

@@ -8,9 +8,9 @@ import (
 // PredicatePublishRefusal is a signed publish refusal: pacto publish refused
 // a version under the version rule and says so where a supervising person
 // looks. Nothing else is pushed for a refused version.
-const PredicatePublishRefusal = "pacto.dev/publish-refusal/v1"
+const PredicatePublishRefusal = "delivery.pacto.trianalab.io/publish-refusal/v1"
 
-// PublishRefusal is pacto.dev/publish-refusal/v1: one version pacto publish
+// PublishRefusal is delivery.pacto.trianalab.io/publish-refusal/v1: one version pacto publish
 // refused because the contract change needs a bigger version bump.
 type PublishRefusal struct {
 	// Service is the service the contract declares.
@@ -52,7 +52,7 @@ func SignRefusal(ctx context.Context, s Signer, st RefusalStatement) (bundle []b
 }
 
 // OpenRefusal verifies a refusal bundle with verify and returns its statement
-// and id. A bundle that is not one signed pacto.dev/publish-refusal/v1
+// and id. A bundle that is not one signed delivery.pacto.trianalab.io/publish-refusal/v1
 // statement is an error.
 func OpenRefusal(bundle []byte, verify func(bundle []byte) error) (RefusalStatement, string, error) {
 	var st RefusalStatement

@@ -2958,7 +2958,7 @@ export interface components {
             versions: components["schemas"]["PublishedVersion"][] | null;
         };
         PublishedVersion: {
-            /** @description The digest-pinned contract the artifact names (pacto.dev/contract) */
+            /** @description The digest-pinned contract the artifact names (delivery.pacto.trianalab.io/contract) */
             contract?: string;
             digest: string;
             signed: boolean;

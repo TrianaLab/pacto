@@ -5,7 +5,7 @@
 # The cluster trusts two identity providers through structured
 # authentication: Dex for people (the dashboard signs them in) and Keycloak for
 # agents reaching Pacto's MCP server over HTTP (it supports RFC 8693 token
-# exchange). Both map auth_time to userInfo.extra["pacto.dev/auth-time"], but
+# exchange). Both map auth_time to userInfo.extra["delivery.pacto.trianalab.io/auth-time"], but
 # only for tokens issued to the clients that make a person log in again (azp
 # pacto-dashboard or pacto-approve), so client-credentials and exchanged
 # tokens, and a kubeconfig login (pacto-cli), never carry it.
@@ -92,7 +92,7 @@ $ca
     username: {expression: "'$iss#' + claims.sub"}
     groups: {claim: groups, prefix: ""}
     extra:
-    - key: pacto.dev/auth-time
+    - key: delivery.pacto.trianalab.io/auth-time
       valueExpression: "has(claims.auth_time) && has(claims.azp) && claims.azp in ['pacto-dashboard', 'pacto-approve'] ? string(int(claims.auth_time)) : ''"
 YAML
     done
@@ -276,16 +276,16 @@ identity_scenario() {
   jq -e --arg iss "$DEX_ISSUER" '.status.userInfo.username | startswith($iss + "#")' <<<"$who" >/dev/null \
     || fail "a Dex user is not issuer#sub: $who"
   jq -e '.status.userInfo.groups | index("team-payments")' <<<"$who" >/dev/null || fail "alice's groups are not mapped: $who"
-  jq -e '.status.userInfo.extra["pacto.dev/auth-time"][0] | test("^[0-9]+$")' <<<"$who" >/dev/null \
+  jq -e '.status.userInfo.extra["delivery.pacto.trianalab.io/auth-time"][0] | test("^[0-9]+$")' <<<"$who" >/dev/null \
     || fail "an interactive login has no auth-time: $who"
   pass "a dashboard login authenticates as issuer#sub with its groups and its auth-time"
   local noazp; noazp="$(dex_token alice "openid profile groups")"
   who="$(whoami_json "$noazp")"
-  jq -e '.status.userInfo.username != null and (.status.userInfo.extra["pacto.dev/auth-time"] == null)' <<<"$who" >/dev/null \
+  jq -e '.status.userInfo.username != null and (.status.userInfo.extra["delivery.pacto.trianalab.io/auth-time"] == null)' <<<"$who" >/dev/null \
     || fail "a token without the interactive azp got an auth-time: $who"
   local agent; agent="$(kc_exchange "$(kc_agent_token)")"
   who="$(whoami_json "$agent")"
-  jq -e '(.status.userInfo.groups | index("pacto:agents")) and (.status.userInfo.extra["pacto.dev/auth-time"] == null)' <<<"$who" >/dev/null \
+  jq -e '(.status.userInfo.groups | index("pacto:agents")) and (.status.userInfo.extra["delivery.pacto.trianalab.io/auth-time"] == null)' <<<"$who" >/dev/null \
     || fail "an exchanged agent token is not an agent without auth-time: $who"
   local AGENT_USER; AGENT_USER="$(jq -r .status.userInfo.username <<<"$who")"
   pass "a token without azp, and an exchanged agent token, authenticate with no auth-time"
@@ -297,7 +297,7 @@ identity_scenario() {
     -scope "openid profile groups audience:server:client_id:pacto-dashboard" -user alice@example.com -password password)" \
     || fail "alice could not log in as a kubeconfig would"
   who="$(whoami_json "$kubelogin")"
-  jq -e '.status.userInfo.username != null and (.status.userInfo.extra["pacto.dev/auth-time"] == null)' <<<"$who" >/dev/null \
+  jq -e '.status.userInfo.username != null and (.status.userInfo.extra["delivery.pacto.trianalab.io/auth-time"] == null)' <<<"$who" >/dev/null \
     || fail "a kubeconfig login got an auth-time, so anything in the shell could approve with it: $who"
   pass "a kubeconfig login authenticates with no auth-time"
   # Every client reads the one identity policy the delivery chart publishes,
@@ -319,7 +319,7 @@ identity_scenario() {
   # auth-time extra is a subresource of userextras, as RBAC grants it.
   local v ans
   for v in "create approvals.delivery.pacto.trianalab.io -A" "create operations.delivery.pacto.trianalab.io -A" \
-    "list stages.delivery.pacto.trianalab.io -A" "impersonate users" "impersonate userextras --subresource=pacto.dev/auth-time"; do
+    "list stages.delivery.pacto.trianalab.io -A" "impersonate users" "impersonate userextras --subresource=delivery.pacto.trianalab.io/auth-time"; do
     # shellcheck disable=SC2086
     ans="$(kubectl auth can-i $v --as "$DSA" 2>/dev/null || true)"
     [[ "$ans" == no* ]] || fail "the dashboard's ServiceAccount may $v, or kubectl could not say: '$ans'"
@@ -376,7 +376,7 @@ identity_scenario() {
   out="$(dash "$carol" DELETE /api/delivery/operations/prod/idp-carol "" "$cs")"
   [ "${out%% *}" = 200 ] || fail "carol's cancel: $out"
   audited delete operations "$CAROL" || fail "the audit log does not show carol cancelling"
-  out="$(dash "$carol" POST /api/delivery/operations '{"namespace":"prod","stage":"payments","type":"pacto.dev/unfreeze","name":"idp-unfreeze","reason":"phase 4"}' "$cs")"
+  out="$(dash "$carol" POST /api/delivery/operations '{"namespace":"prod","stage":"payments","type":"delivery.pacto.trianalab.io/unfreeze","name":"idp-unfreeze","reason":"phase 4"}' "$cs")"
   [ "${out%% *}" = 201 ] || fail "carol's unfreeze: $out"
   eventually 40 concluded prod idp-unfreeze || fail "carol's unfreeze never concluded: $(field prod idp-unfreeze message)"
   [[ "$(outcome prod idp-unfreeze)" == Succeeded/* ]] || fail "carol's unfreeze concluded $(outcome prod idp-unfreeze)"
@@ -451,7 +451,7 @@ spec:
   decision: approve
   by: $(jq -r .status.userInfo.username <<<"$w")
   $g
-  authTime: "$(jq -r '.status.userInfo.extra["pacto.dev/auth-time"][0] // ""' <<<"$w")"
+  authTime: "$(jq -r '.status.userInfo.extra["delivery.pacto.trianalab.io/auth-time"][0] // ""' <<<"$w")"
 YAML
   }
   approval_as "$(dex_token alice)" idp-alice >/dev/null || fail "alice's own Approval was refused by admission"
@@ -519,7 +519,7 @@ YAML
   pass "carol approved from the dashboard after a fresh login; the audit log shows her, F shipped"
 
   # --- roll back and reject from the dashboard, as carol ---
-  out="$(dash "$fresh" POST /api/delivery/operations "{\"namespace\":\"prod\",\"stage\":\"payments\",\"type\":\"pacto.dev/rollback\",\"undoes\":\"idp-f\",\"name\":\"idp-rollback\",\"reason\":\"phase 4\"}" "$(csrf_of "$fresh")")"
+  out="$(dash "$fresh" POST /api/delivery/operations "{\"namespace\":\"prod\",\"stage\":\"payments\",\"type\":\"delivery.pacto.trianalab.io/rollback\",\"undoes\":\"idp-f\",\"name\":\"idp-rollback\",\"reason\":\"phase 4\"}" "$(csrf_of "$fresh")")"
   [ "${out%% *}" = 201 ] || fail "carol's rollback: $out"
   [ "$(kubectl -n prod get operation idp-rollback -o jsonpath='{.spec.actor.user} {.spec.params.undoes}')" = "$CAROL $uid" ] \
     || fail "the rollback is not carol's undoing of F: $(kubectl -n prod get operation idp-rollback -o jsonpath='{.spec}')"

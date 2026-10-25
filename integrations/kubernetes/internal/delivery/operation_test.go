@@ -458,7 +458,7 @@ func TestAdmissionRefusals(t *testing.T) {
 	facet := opObj("facet", delivery.TypePromote, dA, dB, bot)
 	facet.Spec.Facet = delivery.FacetFreeze
 	facet.Spec.IntentDigest = delivery.IntentDigest(facet.Spec, stageObj("").Spec)
-	unknown := opObj("unknown", "pacto.dev/scale", dA, dB, bot)
+	unknown := opObj("unknown", "delivery.pacto.trianalab.io/scale", dA, dB, bot)
 	badTo := opObj("badto", delivery.TypePromote, dA, "latest", bot)
 	badFrom := opObj("badfrom", delivery.TypePromote, "v1", dB, bot)
 	moved := opObj("moved", delivery.TypePromote, dC, dB, bot)

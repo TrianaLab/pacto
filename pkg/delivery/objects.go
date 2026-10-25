@@ -30,7 +30,7 @@ type OperationObject struct {
 type Request struct {
 	Namespace string `json:"namespace"`
 	Stage     string `json:"stage"`
-	// Type is a Tier 0 type id; empty means pacto.dev/promote.
+	// Type is a Tier 0 type id; empty means delivery.pacto.trianalab.io/promote.
 	Type string `json:"type,omitempty"`
 	To   string `json:"to,omitempty"`
 	// From defaults to the Stage's current pointer.
