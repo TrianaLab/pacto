@@ -8,6 +8,7 @@ package deliveryrecord
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -98,15 +99,18 @@ type Reader struct {
 }
 
 // referrer is what one referrer manifest read as: a record, why it is
-// unreadable, or neither (another tool's referrer, or one too large).
+// unreadable, or neither (another tool's referrer, or one too large). until
+// is set on a record only a revoked key signs: the last record it signed.
 type referrer struct {
-	rec *delivery.StoredRecord
-	bad string
+	rec   *delivery.StoredRecord
+	bad   string
+	until string
 }
 
 // ListStream is the package ListStream through r's cache.
 func (r *Reader) ListStream(ctx context.Context, repo *remote.Repository, stream string) (Listing, error) {
-	l, err := r.List(ctx, repo, Anchor(stream).ManifestDesc)
+	l, held, err := r.list(ctx, repo, Anchor(stream).ManifestDesc)
+	l.Records = append(l.Records, history(l.Records, held, &l.Unreadable)...)
 	ours := l.Records[:0]
 	for _, rec := range l.Records {
 		if got := rec.Statement.Predicate.Chain.Stream; got != stream {
@@ -119,14 +123,63 @@ func (r *Reader) ListStream(ctx context.Context, repo *remote.Repository, stream
 	return l, err
 }
 
-// List is the package List through r's cache.
+// held is a record only a revoked key signs, which is history only if the
+// last record the key signed (until) is it or chains from it.
+type held struct {
+	rec   delivery.StoredRecord
+	until string
+}
+
+// history is the held records the stream's own chain vouches for: those on
+// the parent chain from each revoked key's last record, walked through every
+// record read. The rest go to unreadable: a leaked key that backdates a
+// record to a seq it already used must not fork the stream.
+func history(recs []delivery.StoredRecord, hs []held, unreadable *[]string) []delivery.StoredRecord {
+	byID := map[string]delivery.StoredRecord{}
+	for _, r := range recs {
+		byID[r.ID] = r
+	}
+	for _, h := range hs {
+		byID[h.rec.ID] = h.rec
+	}
+	vouched := map[string]bool{}
+	for _, h := range hs {
+		for id := h.until; id != "" && !vouched[id]; {
+			r, ok := byID[id]
+			if !ok {
+				break
+			}
+			vouched[id], id = true, r.Statement.Predicate.Chain.Parent
+		}
+	}
+	var out []delivery.StoredRecord
+	for _, h := range hs {
+		if vouched[h.rec.ID] {
+			out = append(out, h.rec)
+			continue
+		}
+		*unreadable = append(*unreadable, h.rec.Manifest+": "+(&delivery.HistoryOnly{Until: h.until}).Error())
+	}
+	return out
+}
+
+// List is the package List through r's cache. A record only a revoked key
+// signs is unreadable here: only its stream's chain can tell it is history.
 func (r *Reader) List(ctx context.Context, repo *remote.Repository, subject ocispec.Descriptor) (Listing, error) {
+	l, hs, err := r.list(ctx, repo, subject)
+	for _, h := range hs {
+		l.Unreadable = append(l.Unreadable, h.rec.Manifest+": signed by a revoked key; read its stream to tell its history from a forgery")
+	}
+	return l, err
+}
+
+func (r *Reader) list(ctx context.Context, repo *remote.Repository, subject ocispec.Descriptor) (Listing, []held, error) {
 	var descs []ocispec.Descriptor
 	if err := repo.Referrers(ctx, subject, "", func(page []ocispec.Descriptor) error {
 		descs = append(descs, page...)
 		return nil
 	}); err != nil {
-		return Listing{}, err
+		return Listing{}, nil, err
 	}
 	key := subject.Digest.String()
 	r.mu.Lock()
@@ -134,13 +187,14 @@ func (r *Reader) List(ctx context.Context, repo *remote.Repository, subject ocis
 	r.mu.Unlock()
 	now := make(map[string]referrer, len(descs))
 	var out Listing
+	var hs []held
 	seen := map[string]bool{}
 	for _, d := range descs {
 		got, ok := known[d.Digest.String()]
 		if !ok {
 			var err error
 			if got, err = r.readOne(ctx, repo, d); err != nil {
-				return Listing{}, err
+				return Listing{}, nil, err
 			}
 		}
 		now[d.Digest.String()] = got
@@ -149,6 +203,10 @@ func (r *Reader) List(ctx context.Context, repo *remote.Repository, subject ocis
 			out.Unreadable = append(out.Unreadable, got.bad)
 		case got.rec != nil && !seen[got.rec.ID]:
 			seen[got.rec.ID] = true
+			if got.until != "" {
+				hs = append(hs, held{*got.rec, got.until})
+				continue
+			}
 			out.Records = append(out.Records, *got.rec)
 		}
 	}
@@ -158,7 +216,7 @@ func (r *Reader) List(ctx context.Context, repo *remote.Repository, subject ocis
 	}
 	r.read[key] = now
 	r.mu.Unlock()
-	return out, nil
+	return out, hs, nil
 }
 
 // readOne fetches and verifies the referrer d. An error is a registry
@@ -174,6 +232,9 @@ func (r *Reader) readOne(ctx context.Context, repo *remote.Repository, d ocispec
 		return referrer{}, nil // another tool's referrer
 	}
 	st, id, err := delivery.OpenRecord(bundle, r.Verify)
+	if h := (*delivery.HistoryOnly)(nil); errors.As(err, &h) {
+		return referrer{rec: &delivery.StoredRecord{ID: id, Manifest: d.Digest.String(), Statement: st}, until: h.Until}, nil
+	}
 	if err != nil {
 		return referrer{bad: d.Digest.String() + ": " + err.Error()}, nil
 	}

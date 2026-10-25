@@ -106,13 +106,14 @@ func TestParseTrustRefuses(t *testing.T) {
 	}
 }
 
-// TestTrustRevokesAKeyAfterASeq: a key with untilSeq verifies the history it
-// signed and nothing after it, on its own stream only, while the key that
-// replaced it signs on.
+// TestTrustRevokesAKeyAfterASeq: a key with untilSeq refuses what it signs
+// after it, on its own stream only, and holds what it signed up to it for the
+// stream's chain to vouch for (HistoryOnly), while the key that replaced it
+// signs on.
 func TestTrustRevokesAKeyAfterASeq(t *testing.T) {
 	pub, _, _ := ed25519.GenerateKey(rand.Reader)
 	raw := "keys:\n" +
-		"  - {name: old, publicKey: " + quoteYAML(pubPEM(t, pub)) + ", streams: ['c/prod/payments'], untilSeq: 41}\n" +
+		"  - {name: old, publicKey: " + quoteYAML(pubPEM(t, pub)) + ", streams: ['c/prod/payments'], untilSeq: 41, untilRecord: r41}\n" +
 		"  - {name: new, publicKey: " + quoteYAML(pubPEM(t, pub)) + ", streams: ['*/prod/*']}\n"
 	trust, err := ParseTrust([]byte(raw))
 	if err != nil {
@@ -124,7 +125,7 @@ func TestTrustRevokesAKeyAfterASeq(t *testing.T) {
 		seq         int64
 		ok          bool
 	}{
-		{"old", "c/prod/payments", 41, true},
+		{"old", "c/prod/payments", 41, false},
 		{"old", "c/prod/payments", 42, false},
 		{"old", "c/prod/orders", 1, false},
 		{"new", "c/prod/payments", 42, true},
@@ -133,6 +134,10 @@ func TestTrustRevokesAKeyAfterASeq(t *testing.T) {
 		if (err == nil) != c.ok {
 			t.Errorf("%s at %s seq %d: err = %v", c.key, c.stream, c.seq, err)
 		}
+	}
+	var h *HistoryOnly
+	if err := v("c/prod/payments", 30, []byte("old")); !errors.As(err, &h) || h.Until != "r41" {
+		t.Errorf("a revoked key's backdated record = %v, want held for r41's chain", err)
 	}
 	only := TrustConfig{Keys: trust.Keys[:1]}
 	ov, _ := only.Verifier(byName)
@@ -145,5 +150,10 @@ func TestTrustRevokesAKeyAfterASeq(t *testing.T) {
 	}
 	if _, err := ParseTrust([]byte("keys:\n  - {publicKey: " + quoteYAML(pubPEM(t, pub)) + ", untilSeq: -1}\n")); err == nil {
 		t.Error("a negative untilSeq parsed")
+	}
+	for _, half := range []string{"untilSeq: 3", "untilRecord: r3"} {
+		if _, err := ParseTrust([]byte("keys:\n  - {publicKey: " + quoteYAML(pubPEM(t, pub)) + ", " + half + "}\n")); err == nil || !strings.Contains(err.Error(), "go together") {
+			t.Errorf("%s alone: err = %v", half, err)
+		}
 	}
 }

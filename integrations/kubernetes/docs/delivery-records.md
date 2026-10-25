@@ -124,10 +124,13 @@ it, records are read unchecked and every answer says it is partial.
 ## Revoke a key
 
 When a key leaks, rotate the recorder to a new key first. Then keep the old
-key listed with `untilSeq`, the last seq it signed on that stream. Records up
-to that seq still verify, so the history stays readable. Anything the old key
-signs after it is skipped as untrusted, so a forgery neither extends the
-stream nor freezes the Stage:
+key listed with `untilRecord`, the id of the last record it signed on that
+stream, and `untilSeq`, that record's seq. The old key then verifies only that
+record and the records it chains from, so the history stays readable.
+Anything else the old key signs is skipped as untrusted: a record after
+`untilSeq`, and a forgery backdated to a seq the key already used. So a
+forgery neither extends the stream nor forks it, and the Stage does not
+freeze:
 
 ```yaml
 keys:
@@ -138,13 +141,15 @@ keys:
       -----END PUBLIC KEY-----
     streams: ["<cluster>/prod/payments"]
     untilSeq: 41
+    untilRecord: 3f9c...e1 # the record at seq 41
 ```
 
 Seqs count per stream, so give a key that signed several streams one entry
-per stream. The last seq of each is in the Stage's
-`status.stream.recordedSeq`, or in `pacto delivery record verify`. A record
-the leaked key signs at a seq it already used forks the stream, and the Stage
-freezes as a `StreamConflict` until a person deletes the forgery. Followers
+per stream. The last seq and record of each are in the Stage's
+`status.stream.recordedSeq` and `status.stream.head`, or in
+`pacto delivery record verify`. Set both fields or neither. A read of one
+version's records, not the whole stream, cannot walk the chain, so it shows
+what the old key signed as not verified. Followers
 need the same trust config. A follower that does not trust the new key sees
 the stream end at the last record it can verify.
 

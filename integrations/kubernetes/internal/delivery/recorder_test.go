@@ -896,7 +896,8 @@ func TestRecorderGapsWaitOneGraceTogether(t *testing.T) {
 
 // TestRecorderRevokesAKeyWithoutFreezing: rotating to a new key and revoking
 // the old one after the last seq it signed keeps the stream writable and its
-// history readable, and a record the revoked key signs later is ignored.
+// history readable, and a record the revoked key signs later, or backdates
+// to a seq it used, is ignored.
 func TestRecorderRevokesAKeyWithoutFreezing(t *testing.T) {
 	re := newRecEnv(t)
 	re.stage(1)
@@ -906,7 +907,7 @@ func TestRecorderRevokesAKeyWithoutFreezing(t *testing.T) {
 	_, next, _ := ed25519.GenerateKey(rand.Reader)
 	nextPEM, _ := delivery.PublicKeyPEM(next.Public())
 	v, err := signing.TrustVerifier(delivery.TrustConfig{Keys: []delivery.TrustedKey{
-		{Name: "old", PublicKey: oldPEM, Streams: []string{"cid/prod/payments-prod"}, UntilSeq: 1},
+		{Name: "old", PublicKey: oldPEM, Streams: []string{"cid/prod/payments-prod"}, UntilSeq: 1, UntilRecord: re.getStage().Status.Stream.Head},
 		{Name: "next", PublicKey: nextPEM},
 	}})
 	if err != nil {
@@ -920,6 +921,14 @@ func TestRecorderRevokesAKeyWithoutFreezing(t *testing.T) {
 		Parent: re.getStage().Status.Stream.Head}, a.desc.Digest.String(), "t")
 	bundle, _, _ := delivery.SignRecord(ctx, edSigner(re.key), st)
 	if err := re.rec.Store.write(ctx, bundle, st, locations{anchor: a}); err != nil {
+		t.Fatal(err)
+	}
+	// And one it backdates to the seq it already signed: not its history, so
+	// it neither forks the stream nor freezes the Stage.
+	back := delivery.NewGap("cid", delivery.ObjectMeta{Name: "y"}, 9, delivery.Chain{Stream: "cid/prod/payments-prod", Seq: 1},
+		a.desc.Digest.String(), "t")
+	bundle, _, _ = delivery.SignRecord(ctx, edSigner(re.key), back)
+	if err := re.rec.Store.write(ctx, bundle, back, locations{anchor: a}); err != nil {
 		t.Fatal(err)
 	}
 	re.setStage(func(s *delivery.StageStatus) { s.Stream.Seq = 2 })

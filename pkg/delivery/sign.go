@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/trianalab/pacto/v4/pkg/strictjson"
@@ -56,7 +57,9 @@ type envelope struct {
 // bundle that is not one signed pacto.dev/operation/v1 statement is an error.
 // The payload is decoded before the signature is checked, because the stream
 // it names decides which keys may have signed it; nothing it says is trusted
-// until the signature verifies.
+// until the signature verifies. A record only a revoked key signs comes back
+// with its statement, its id and a *HistoryOnly error: the reader of the
+// stream decides whether it is history.
 func OpenRecord(bundle []byte, verify Verifier) (Statement, string, error) {
 	var st Statement
 	payload, err := openStatement(bundle, PredicateOperation, &st)
@@ -64,6 +67,9 @@ func OpenRecord(bundle []byte, verify Verifier) (Statement, string, error) {
 		return Statement{}, "", err
 	}
 	if err := verify(st.Predicate.Chain.Stream, st.Predicate.Chain.Seq, bundle); err != nil {
+		if h := (*HistoryOnly)(nil); errors.As(err, &h) {
+			return st, sha256Hex(payload), fmt.Errorf("signature: %w", err)
+		}
 		return Statement{}, "", fmt.Errorf("signature: %w", err)
 	}
 	return st, sha256Hex(payload), nil
