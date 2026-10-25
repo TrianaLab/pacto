@@ -116,7 +116,12 @@ name of the rollback or freeze it raises (`<operation>-rollback`,
 `<operation>-freeze`).
 Unknown after release never rolls back, and a result about a version the Stage
 stopped running is dropped. The newest result is in `status.lastCheck`, which
-also says when the operation that shipped the running version is gone.
+also says when the operation that shipped the running version is gone. The
+Stage's `Watched` condition is `True` while that result passed. It turns
+`False` with reason `RecheckUnknown` while nothing watches the running version
+(a provider down, too many spans, no coverage) and `RecheckFailed` after a
+Fail. The promoter emits an Event when it turns `False`, and the
+`pacto_delivery_stage_watched` gauge drops to 0, so you can alert on it.
 
 ## Explain
 

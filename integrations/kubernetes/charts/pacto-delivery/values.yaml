@@ -42,6 +42,17 @@ promoter:
     # repositories, for a private registry. Without it the promoter reads only public ones.
     secretName: ""
 
+metrics:
+  # -- Expose the promoter's and the recorder's metrics (plain HTTP, port 8080) through a Service
+  enabled: true
+  serviceMonitor:
+    # -- Create a Prometheus Operator ServiceMonitor for that Service
+    enabled: false
+    # -- Scrape interval (empty uses Prometheus' default)
+    interval: ""
+    # -- Scrape timeout (empty uses Prometheus' default)
+    scrapeTimeout: ""
+
 gates:
   # -- Health gate providers a Stage may name in `spec.gates.verify.checks[].provider`, each
   # `{name, type, url}` with type `mira` (Mira's query API), `http` (any tool behind the

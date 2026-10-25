@@ -100,6 +100,13 @@ tests:
       - contains:
           path: rules
           content:
+            apiGroups: [""]
+            resources: [events]
+            verbs: [create, patch]
+        documentIndex: 1
+      - contains:
+          path: rules
+          content:
             apiGroups: [apps]
             resources: [deployments, statefulsets, replicasets, daemonsets]
             verbs: [get]

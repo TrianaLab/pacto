@@ -38,6 +38,26 @@ helm install pacto-delivery integrations/kubernetes/charts/pacto-delivery \
   --set image.repository=registry.example.com/pacto-delivery --set image.tag=dev
 ```
 
+## Metrics and Events
+
+The promoter and the recorder serve Prometheus metrics over plain HTTP on port
+8080, behind the `<release>-metrics` Service. Set
+`metrics.serviceMonitor.enabled=true` to create a Prometheus Operator
+ServiceMonitor for it.
+
+| Metric | What it counts |
+|--------|----------------|
+| `pacto_delivery_operations_total` | concluded operations by `type`, `outcome`, `verification` and `actor_class`: how much shipped with no person, and how often a person accepted an unknown |
+| `pacto_delivery_verdicts_total` | gate verdicts of concluded operations and re-checks, by `gate`, `phase` and `result` |
+| `pacto_delivery_stage_frozen` | 1 while a Stage is frozen |
+| `pacto_delivery_stage_watched` | 0 while the newest re-check of the running version did not pass |
+| `pacto_delivery_records_pending` | concluded operations per stream that have no record yet (recorder) |
+
+The promoter emits a Kubernetes Event on an operation when it waits on a person
+(`Held`) and when it concludes (its outcome). It emits one on a Stage when it
+raises a rollback (`RollbackRaised`), freezes (`Frozen`) or stops being watched
+(`RecheckUnknown`, `RecheckFailed`).
+
 ## Upgrading
 
 Helm installs CRDs once and never updates them, so apply the new ones first:

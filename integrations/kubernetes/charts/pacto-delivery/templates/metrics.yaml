@@ -1,0 +1,44 @@
+{{- if .Values.metrics.enabled }}
+# The promoter's and the recorder's metrics, plain HTTP on port 8080
+# (docs/delivery-setup.md lists them).
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pacto-delivery.fullname" . }}-metrics
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/component: metrics
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "pacto-delivery.selectorLabels" . | nindent 4 }}
+{{- if .Values.metrics.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "pacto-delivery.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pacto-delivery.labels" . | nindent 4 }}
+spec:
+  endpoints:
+    - port: metrics
+      scheme: http
+      {{- with .Values.metrics.serviceMonitor.interval }}
+      interval: {{ . }}
+      {{- end }}
+      {{- with .Values.metrics.serviceMonitor.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: metrics
+      {{- include "pacto-delivery.selectorLabels" . | nindent 6 }}
+{{- end }}
+{{- end }}

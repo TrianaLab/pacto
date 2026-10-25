@@ -56,6 +56,10 @@ same version as your Pacto operator.
 | image.tag | string | `""` | Overrides the image tag (default is the chart appVersion) |
 | imagePullSecrets | list | `[]` | Image pull secrets for private registries |
 | insecureRegistries | list | `[]` | Registry hosts (`host:port`) the promoter and the recorder reach over plain HTTP. An OCIRepository with `spec.insecure: true` is read over HTTP anyway. |
+| metrics.enabled | bool | `true` | Expose the promoter's and the recorder's metrics (plain HTTP, port 8080) through a Service |
+| metrics.serviceMonitor.enabled | bool | `false` | Create a Prometheus Operator ServiceMonitor for that Service |
+| metrics.serviceMonitor.interval | string | `""` | Scrape interval (empty uses Prometheus' default) |
+| metrics.serviceMonitor.scrapeTimeout | string | `""` | Scrape timeout (empty uses Prometheus' default) |
 | nameOverride | string | `""` | Override the chart name |
 | nodeSelector | object | `{}` | Node selector for the promoter pod |
 | podSecurityContext.runAsNonRoot | bool | `true` | Run pod as non-root |

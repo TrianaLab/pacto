@@ -13,11 +13,14 @@ import (
 	"encoding/hex"
 	"slices"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -49,14 +52,82 @@ type StageReconciler struct {
 	// (OperationReconciler.AdmissionPolicies); while they do not guard, the
 	// Stage is not Ready.
 	AdmissionPolicies []string
+	// Events receives the Events it emits when a Stage freezes, stops being
+	// watched or raises a rollback; nil emits none.
+	Events record.EventRecorder
+	// seen is what each Stage last showed (frozen, unwatched), so an Event
+	// marks a change, not every pass. Nil emits none.
+	// ponytail: in memory, so a restart says each once more.
+	seen *sync.Map
+}
+
+// ConditionWatched is True while the newest re-check of the running version
+// passed. False says nothing watches it for Pacto: the re-check failed, or it
+// came back Unknown (a health provider down, too many spans, no coverage).
+const ConditionWatched = "Watched"
+
+// watched is the Watched condition check sets.
+func watched(check *delivery.Recheck, gen int64) delivery.Condition {
+	c := delivery.Condition{Type: ConditionWatched, Status: "True", Reason: "Rechecked",
+		Message: "the running version passed its re-check at " + check.At, ObservedGeneration: gen}
+	var why []string
+	for _, v := range check.Verdicts {
+		if v.Result != delivery.Pass {
+			why = append(why, v.Gate+": "+v.Message)
+		}
+	}
+	switch delivery.Worst(check.Verdicts) {
+	case delivery.Fail:
+		c.Status, c.Reason, c.Message = statusFalse, "RecheckFailed", "the running version failed its re-check: "+strings.Join(why, "; ")
+	case delivery.Unknown:
+		c.Status, c.Reason, c.Message = statusFalse, "RecheckUnknown", "nothing watches the running version: its re-check is Unknown: "+strings.Join(why, "; ")
+	}
+	return c
+}
+
+// observe exports what a Stage shows as metrics, and emits an Event when it
+// freezes or stops being watched.
+func (r *StageReconciler) observe(stage *dv1.Stage) {
+	type shown struct{ frozen, unwatched bool }
+	now := shown{frozen: stage.Status.Frozen}
+	StageFrozen.WithLabelValues(stage.Namespace, stage.Name).Set(b2f(now.frozen))
+	var w *delivery.Condition
+	if i := slices.IndexFunc(stage.Status.Conditions, func(c delivery.Condition) bool { return c.Type == ConditionWatched }); i >= 0 {
+		w = &stage.Status.Conditions[i]
+		now.unwatched = w.Status != "True"
+		StageWatched.WithLabelValues(stage.Namespace, stage.Name).Set(b2f(!now.unwatched))
+	}
+	if r.seen == nil {
+		return
+	}
+	prev, _ := r.seen.Swap(stage.Namespace+"/"+stage.Name, now)
+	was, _ := prev.(shown)
+	if now.frozen && !was.frozen {
+		event(r.Events, stage, true, "Frozen", stage.Status.FrozenReason)
+	}
+	if now.unwatched && !was.unwatched {
+		event(r.Events, stage, true, w.Reason, w.Message)
+	}
+}
+
+func b2f(b bool) float64 {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // Reconcile implements reconcile.Reconciler.
 func (r *StageReconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
 	stage := &dv1.Stage{}
 	if err := r.Get(ctx, req.NamespacedName, stage); err != nil {
+		if apierrors.IsNotFound(err) {
+			StageFrozen.DeleteLabelValues(req.Namespace, req.Name)
+			StageWatched.DeleteLabelValues(req.Namespace, req.Name)
+		}
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
+	r.observe(stage)
 	if stage.Status.Stream.ID == "" {
 		return reconcile.Result{RequeueAfter: immediately}, r.updateStatus(ctx, stage, func(s *dv1.Stage) {
 			s.Status.Stream.ID = r.ClusterID + "/" + s.Namespace + "/" + s.Name
@@ -376,6 +447,7 @@ func (r *StageReconciler) recheck(ctx context.Context, stage *dv1.Stage) error {
 		return r.updateStatus(ctx, stage, func(st *dv1.Stage) {
 			if !moved(gone, st.Status) {
 				st.Status.LastCheck = gone
+				st.Status.Conditions, _ = delivery.SetCondition(st.Status.Conditions, watched(gone, st.Generation), now)
 			}
 		})
 	}
@@ -388,12 +460,14 @@ func (r *StageReconciler) recheck(ctx context.Context, stage *dv1.Stage) error {
 		from = applied
 	}
 	vs := delivery.RunChecks(ctx, r.Gates, verifyChecks(stage), gateInput(shipped, stage, from, now))
+	countVerdicts(vs)
 	check := &delivery.Recheck{Operation: s.LastOp, Digest: s.Pointer, At: ts(now), Verdicts: vs}
 	f := failing(vs)
 	if f == nil {
 		return r.updateStatus(ctx, stage, func(st *dv1.Stage) {
 			if !moved(check, st.Status) {
 				st.Status.LastCheck = check
+				st.Status.Conditions, _ = delivery.SetCondition(st.Status.Conditions, watched(check, st.Generation), now)
 			}
 		})
 	}
@@ -441,6 +515,7 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 			return
 		}
 		st.Status.LastCheck = check
+		st.Status.Conditions, _ = delivery.SetCondition(st.Status.Conditions, watched(check, st.Generation), r.Now())
 		st.Status.FailedDigests = delivery.AddDigest(st.Status.FailedDigests, check.Digest, delivery.MaxFailedDigests)
 		st.Status.Verified = delivery.RemoveDigest(st.Status.Verified, check.Digest)
 		switch {
@@ -463,8 +538,12 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 // someone else took its name.
 func (r *StageReconciler) raiseRollback(ctx context.Context, stage *dv1.Stage, shipped *dv1.Operation, why string, f *delivery.Verdict) error {
 	squat, err := raiseRollback(ctx, r.Client, r.Policy, shipped, stage, why, f)
-	if err != nil || squat == "" {
+	if err != nil {
 		return err
+	}
+	if squat == "" {
+		event(r.Events, stage, true, "RollbackRaised", shipped.Name+" "+why+", so it is rolled back to "+shipped.Status.Pointer.Before)
+		return nil
 	}
 	return r.freeze(ctx, stage, shipped.Name+": failed after release: "+why+", and "+squat)
 }

@@ -1,0 +1,40 @@
+suite: metrics tests
+templates:
+  - templates/metrics.yaml
+tests:
+  - it: serves the promoter's and recorder's metrics through a Service
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.ports[0]
+          value: {name: metrics, port: 8080, targetPort: metrics, protocol: TCP}
+      - notExists:
+          path: spec.selector["app.kubernetes.io/component"]
+
+  - it: creates a ServiceMonitor only when asked
+    set:
+      metrics.serviceMonitor.enabled: true
+      metrics.serviceMonitor.interval: 30s
+    asserts:
+      - hasDocuments:
+          count: 2
+      - isKind:
+          of: ServiceMonitor
+        documentIndex: 1
+      - equal:
+          path: spec.endpoints[0]
+          value: {port: metrics, scheme: http, interval: 30s}
+        documentIndex: 1
+      - equal:
+          path: spec.selector.matchLabels["app.kubernetes.io/component"]
+          value: metrics
+        documentIndex: 1
+
+  - it: renders nothing when metrics are off
+    set:
+      metrics.enabled: false
+      metrics.serviceMonitor.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 0

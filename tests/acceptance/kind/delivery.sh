@@ -950,6 +950,14 @@ WITNESSED="$(kubectl get operations -A -o json | jq '[.items[] | select(.spec.wi
 PROMOTES="$(kubectl get operations -A -o json | jq '[.items[] | select(.spec.type == "pacto.dev/promote")] | length')"
 [ "$WITNESSED" = 1 ] || fail "$WITNESSED witnessed overrides, want exactly the one break-glass edit"
 pass "$PROMOTES promotes, 0 witnessed overrides of their own"
+section "the promoter counts what it concluded and says so in Events"
+PROMOTER_POD="$(kubectl -n "$DELIVERY_NS" get pods -l app.kubernetes.io/component=promoter -o jsonpath='{.items[0].metadata.name}')"
+METRICS="$(kubectl get --raw "/api/v1/namespaces/${DELIVERY_NS}/pods/${PROMOTER_POD}:8080/proxy/metrics")" || fail "the promoter serves no metrics on port 8080"
+grep -q '^pacto_delivery_operations_total{.*type="pacto.dev/promote"' <<<"$METRICS" || fail "no concluded promote is counted: $(grep pacto_delivery <<<"$METRICS")"
+grep -q '^pacto_delivery_stage_frozen{namespace="prod",stage="payments"} 1' <<<"$METRICS" || fail "the frozen prod Stage is not in the frozen gauge"
+kubectl -n prod get events --field-selector involvedObject.kind=Stage,reason=Frozen -o name | grep -q . || fail "the prod Stage froze without an Event"
+kubectl -n test get events --field-selector involvedObject.kind=Operation,reason=Held -o name | grep -q . || fail "no held operation emitted an Event"
+pass "concluded operations are counted, the frozen Stage is in its gauge and holds and freezes emit Events"
 share B C F OPC OPF C120
 
 echo "DELIVERY CORE PASS"

@@ -42,6 +42,7 @@ func approvalUID(obj client.Object) []string { return []string{obj.(*dv1.Approva
 
 // SetupWithManager registers the stage reconciler. An Operation wakes its Stage.
 func (r *StageReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.seen = &sync.Map{}
 	return ctrl.NewControllerManagedBy(mgr).Named("delivery-stage").For(&dv1.Stage{}).
 		WithOptions(controller.Options{MaxConcurrentReconciles: r.Workers}).
 		Watches(&dv1.Operation{}, handler.EnqueueRequestsFromMapFunc(operationToStage)).

@@ -49,6 +49,11 @@ rules:
   - apiGroups: [source.toolkit.fluxcd.io]
     resources: [ocirepositories]
     verbs: [get, list, watch, patch]
+  # It emits Events on the operations and Stages it holds, concludes, rolls
+  # back and freezes.
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [create, patch]
   {{- if .Values.argocd.enabled }}
   - apiGroups: [argoproj.io]
     resources: [applications]

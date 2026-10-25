@@ -136,14 +136,18 @@ func runPromoter(args []string) error {
 	gates := delivery.NewGates(cluster, configured)
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Workers: *workers, Gates: gates, Now: time.Now, Poll: *poll, Records: *records,
-		Freshness:         *authFreshness,
-		RecordedTTL:       *recordedTTL,
+		Freshness:   *authFreshness,
+		RecordedTTL: *recordedTTL,
+		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
+		Events:            mgr.GetEventRecorderFor("pacto-delivery"),
 		AdmissionPolicies: delivery.SplitList(*admissionPolicies)}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := (&delivery.StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Workers: *workers, ClusterID: clusterID, Gates: gates, Now: time.Now,
-		Poll: *poll, AdmissionPolicies: delivery.SplitList(*admissionPolicies)}).SetupWithManager(mgr); err != nil {
+		Poll: *poll, AdmissionPolicies: delivery.SplitList(*admissionPolicies),
+		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
+		Events: mgr.GetEventRecorderFor("pacto-delivery")}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {

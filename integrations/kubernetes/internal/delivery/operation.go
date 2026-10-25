@@ -22,6 +22,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/retry"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -76,6 +77,9 @@ type OperationReconciler struct {
 	// approval's identity. While one is missing the promoter admits nothing
 	// and counts no approval: the spec says only what its writer claimed.
 	AdmissionPolicies []string
+	// Events receives the Events it emits on hold, conclusion and rollback;
+	// nil emits none.
+	Events record.EventRecorder
 	// heldChecks is when the verify gates last ran for each operation held on
 	// a running version, by uid.
 	// ponytail: in memory, so a restart runs them once early.
@@ -152,6 +156,12 @@ func (r *OperationReconciler) passed(d string) bool {
 
 func (r *OperationReconciler) requeue() (reconcile.Result, error) {
 	return reconcile.Result{RequeueAfter: r.Poll}, nil
+}
+
+// saveHeld writes an operation that now waits on a person, and says so in an Event.
+func (r *OperationReconciler) saveHeld(ctx context.Context, op *dv1.Operation) (reconcile.Result, error) {
+	event(r.Events, op, true, "Held", op.Status.Reason+": "+op.Status.Question)
+	return r.save(ctx, op)
 }
 
 // save writes the operation's status and polls again.
@@ -330,7 +340,7 @@ func (r *OperationReconciler) pending(ctx context.Context, op *dv1.Operation, st
 	case delivery.PredictHeld:
 		op.Status.Phase, op.Status.Question, op.Status.Times.Held = delivery.PhaseHeld, plan.Question, ts(r.now())
 		op.Status.Reason, op.Status.Message = "AwaitingHuman", "a person must "+string(plan.Floor.Decision)
-		return r.save(ctx, op)
+		return r.saveHeld(ctx, op)
 	case delivery.PredictWaits:
 		op.Status.Reason, op.Status.Message = reasonWaiting, strings.Join(plan.Conflicts, "; ")
 		return r.save(ctx, op)
@@ -622,7 +632,7 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 			op.Status.Plan, op.Status.Verdicts = &cur, mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
 			op.Status.Phase, op.Status.Question, op.Status.Times.Held = delivery.PhaseHeld, cur.Question, ts(r.now())
 			op.Status.Reason, op.Status.Message = "RecheckChanged", "a gate no longer passes, so a person must decide again"
-			return r.save(ctx, op)
+			return r.saveHeld(ctx, op)
 		}
 		op.Status.Verdicts = mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
 	}
@@ -889,7 +899,7 @@ func (r *OperationReconciler) verifying(ctx context.Context, op *dv1.Operation, 
 		op.Status.Reason, op.Status.Message = "VerifyUnknown", msg
 		op.Status.Question = "The verify gates could not confirm " + op.Spec.Params.To + " in time: " + msg +
 			". Accept the unknown (the version stays), or reject it (it is rolled back)?"
-		return r.save(ctx, op)
+		return r.saveHeld(ctx, op)
 	}
 	op.Status.Message = msg
 	return r.save(ctx, op)
@@ -1009,6 +1019,9 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 				if squat, err = raiseRollback(ctx, r.Client, r.Policy, op, stage, code+": "+msg, c.cause); err != nil {
 					return reconcile.Result{}, err
 				}
+				if squat == "" {
+					event(r.Events, stage, true, "RollbackRaised", op.Name+" failed ("+code+": "+msg+"), so it is rolled back to "+op.Status.Pointer.Before)
+				}
 			}
 		}
 		if err := r.casStage(ctx, stage, func(s *dv1.Stage) error {
@@ -1052,6 +1065,8 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 	if err := r.writeConcluded(ctx, op); err != nil {
 		return reconcile.Result{}, err
 	}
+	countConcluded(op)
+	event(r.Events, op, c.outcome != delivery.Succeeded && c.outcome != delivery.Cancelled, string(c.outcome), c.reason)
 	r.heldChecks.Delete(op.UID)
 	return reconcile.Result{RequeueAfter: immediately}, nil
 }
