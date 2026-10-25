@@ -35,8 +35,12 @@ import (
 // ConditionRecordStoreReady is the recorder's Stage condition.
 const ConditionRecordStoreReady = delivery.ConditionRecordStoreReady
 
-// statusFalse is a condition status.
-const statusFalse = "False"
+// Condition statuses, and the Ready condition type.
+const (
+	statusTrue     = "True"
+	statusFalse    = "False"
+	conditionReady = "Ready"
+)
 
 // Reasons RecordStoreReady is False.
 const (
@@ -134,7 +138,7 @@ func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 		return reconcile.Result{}, err
 	}
 	RecordsPending.WithLabelValues(stream.ID).Set(float64(len(items)))
-	if len(items) == 0 && hasCondition(stage, ConditionRecordStoreReady, "True") {
+	if len(items) == 0 && hasCondition(stage, ConditionRecordStoreReady, statusTrue) {
 		return reconcile.Result{}, nil
 	}
 	anchor, err := r.Store.anchor(ctx, stream.ID)
@@ -313,7 +317,7 @@ func hasCondition(stage *dv1.Stage, typ, status string) bool {
 // ready marks the stream writable and names where its records are listed,
 // and the first of the records it ignored because no trusted key signed them.
 func (r *Recorder) ready(ctx context.Context, stage *dv1.Stage, ignored []string) error {
-	want := delivery.Condition{Type: ConditionRecordStoreReady, Status: "True",
+	want := delivery.Condition{Type: ConditionRecordStoreReady, Status: statusTrue,
 		Reason: "ReferrersSupported", Message: "records are written to " + r.Store.Streams}
 	if len(ignored) > 0 {
 		want.Message += fmt.Sprintf("; %d record(s) on the anchor are ignored because no key trusted for this stream signed them, the first: %s",

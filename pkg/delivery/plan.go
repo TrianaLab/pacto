@@ -123,13 +123,22 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 		}
 		routeToServiceTeam(in, &p)
 	}
-	if why := RecordsUnavailable(in.Stage, in.Status); why != "" && in.Class != ClassHuman && in.Class != ClassBreakGlass &&
-		(in.Spec.Type == TypePromote || in.Spec.Type == TypeRollback) && !p.Floor.Human {
-		p.Floor.Human, p.Floor.Decision = true, Approve
-		p.Question = "This Stage requires records, and " + why + ". Approve the " + in.Spec.Type + " to " + short(p.To) + " without a record yet?"
-	}
+	holdForRecords(in, &p)
 	p.Predicted = predict(in, &p)
 	return p
+}
+
+// holdForRecords asks a person to approve a promote or rollback an agent or
+// the promoter raised while a Stage that requires records cannot have them
+// written. A plan that already asks a person keeps its own question.
+func holdForRecords(in PlanInput, p *Plan) {
+	why := RecordsUnavailable(in.Stage, in.Status)
+	if why == "" || in.Class == ClassHuman || in.Class == ClassBreakGlass || p.Floor.Human ||
+		in.Spec.Type != TypePromote && in.Spec.Type != TypeRollback {
+		return
+	}
+	p.Floor.Human, p.Floor.Decision = true, Approve
+	p.Question = "This Stage requires records, and " + why + ". Approve the " + in.Spec.Type + " to " + short(p.To) + " without a record yet?"
 }
 
 // ConditionRecordStoreReady is the recorder's Stage condition.

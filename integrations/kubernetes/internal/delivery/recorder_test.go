@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -927,7 +928,11 @@ func TestRecorderRevokesAKeyWithoutFreezing(t *testing.T) {
 	if c := condition(re.getStage()); c.Status != "True" || !strings.Contains(c.Message, "revoked after seq 1") {
 		t.Fatalf("condition %+v", c)
 	}
-	if recs := re.records(); len(recs) != 2 || recs[1].Statement.Predicate.Intent.Name != "next" || re.getStage().Status.Frozen {
+	recs := re.records()
+	next2 := slices.ContainsFunc(recs, func(r stored) bool {
+		return r.Statement.Predicate.Chain.Seq == 2 && r.Statement.Predicate.Intent.Name == "next"
+	})
+	if len(recs) != 2 || !next2 || re.getStage().Status.Frozen {
 		t.Fatalf("records = %+v", recs)
 	}
 }

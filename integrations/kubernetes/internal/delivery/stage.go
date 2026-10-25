@@ -161,7 +161,7 @@ func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) err
 // when the Stage can never promote: nothing is published without a candidate
 // OCIRepository whose spec.verify names the publisher (design M2).
 func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRef, error) {
-	want := delivery.Condition{Type: "Ready", Status: "True", Reason: "Ready", Message: "the Stage can promote published versions"}
+	want := delivery.Condition{Type: conditionReady, Status: statusTrue, Reason: conditionReady, Message: "the Stage can promote published versions"}
 	var cand *applyRef
 	c := stage.Spec.Candidates
 	switch {
@@ -196,7 +196,7 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 }
 
 func notReady(reason, msg string) delivery.Condition {
-	return delivery.Condition{Type: "Ready", Status: statusFalse, Reason: reason, Message: msg}
+	return delivery.Condition{Type: conditionReady, Status: statusFalse, Reason: reason, Message: msg}
 }
 
 // recordPublished remembers the candidate OCIRepository's current digest once

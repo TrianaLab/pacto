@@ -139,7 +139,7 @@ func sourceVerified(obj map[string]any, digest string) bool {
 	for _, c := range conds {
 		m, _ := c.(map[string]any)
 		msg, _ := m["message"].(string)
-		if m["type"] == "SourceVerified" && m["status"] == "True" && digest != "" && strings.Contains(msg, digest) {
+		if m["type"] == "SourceVerified" && m["status"] == statusTrue && digest != "" && strings.Contains(msg, digest) {
 			return true
 		}
 	}
@@ -199,7 +199,7 @@ func (c Cluster) applied(ctx context.Context, ns string, a *applyRef, digest str
 		applied, _, _ := unstructured.NestedString(k.Object, "status", "lastAppliedRevision")
 		attempted, _, _ := unstructured.NestedString(k.Object, "status", "lastAttemptedRevision")
 		switch {
-		case ready == "True" && delivery.RevisionDigest(applied) == digest:
+		case ready == statusTrue && delivery.RevisionDigest(applied) == digest:
 		case ready == statusFalse && delivery.RevisionDigest(attempted) == digest && reason != "Progressing" && reason != "DependencyNotReady":
 			return false, true, fmt.Sprintf("Kustomization %s failed to apply %s: %s: %s", k.GetName(), digest, reason, message), nil
 		default:
@@ -246,7 +246,7 @@ func readyCondition(obj map[string]any) (status, reason, message string) {
 	conds, _, _ := unstructured.NestedSlice(obj, "status", "conditions")
 	for _, c := range conds {
 		m, _ := c.(map[string]any)
-		if m["type"] == "Ready" {
+		if m["type"] == conditionReady {
 			status, _ = m["status"].(string)
 			reason, _ = m["reason"].(string)
 			message, _ = m["message"].(string)
