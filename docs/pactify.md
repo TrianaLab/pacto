@@ -225,9 +225,10 @@ pacto delivery propose -n test --stage my-service --type unfreeze --reason "fixe
 
 `approve` lets a change that breaks a consumer go ahead; `accept-unknown` lets
 one go ahead that Pacto could not check, recorded as accepted, never as a pass.
-To unfreeze is to let automation move the Stage again; it takes effect without anyone else's approval. Each needs the
-`pacto-delivery-approver` role, and only members of the team that owns an
-affected service may answer for it:
+To unfreeze is to let automation move the Stage again; it takes effect
+without anyone else's approval. Each needs the `pacto-delivery-approver` role,
+bound to a group or, with `--user`, to one person. Only members of the team
+that owns an affected service may answer a question about it:
 
 ```bash
 kubectl create clusterrolebinding payments-approvers \
@@ -238,12 +239,14 @@ Deciding (approve, accept-unknown or reject) also needs a company login the
 cluster trusts, done in the last 15 minutes. A cluster admin sets that up once
 with [Sign-in, approvals and agents](integrations/kubernetes/delivery-identity.md),
 which says how to check a managed cluster can. Where it cannot, nobody decides:
-cancel the change, fix what it asks about and publish again, or have a member
-of the break-glass group force the version, as below. That skips every check,
-shows in the history and freezes the Stage until a person unfreezes it.
+cancel the change, fix what it asks about and publish again, or have someone
+with the approver role in the group `pacto:break-glass` force the held version,
+as below. That skips every check, shows in the history and freezes the Stage
+until a person unfreezes it, which needs no fresh login.
 
 ```bash
-pacto delivery propose -n test --stage my-service --type override --to sha256:... --reason "why"
+to=$(kubectl -n test get operations.delivery.pacto.trianalab.io <operation> -o jsonpath='{.spec.params.to}')
+pacto delivery propose -n test --stage my-service --type override --to "$to" --reason "why"
 ```
 
 In the dashboard (`pacto dashboard`), the Delivery tab's **Inbox** lists the

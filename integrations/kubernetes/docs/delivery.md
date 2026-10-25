@@ -109,9 +109,10 @@ pass.
 | Promote | Move a Stage to a newer version |
 | Operation | One requested change to a Stage, from request to outcome |
 | Held | An Operation waiting for a person to decide |
+| Approval | A person's decision on one held Operation |
 | Freeze, unfreeze | Stop automation moving a Stage, and let it move again |
-| Auto-hold | Set when a person rolls back an `auto: true` Stage: automation stops promoting there until a person unfreezes it |
-| Break-glass | A group that may force a version past every check |
+| Auto-hold | Set when a person rolls back a Stage that promotes on its own: automation stops promoting there until a person unfreezes it |
+| Break-glass | A group, `pacto:break-glass` by default, that may force a version past every check |
 | Record | The signed account of one finished Operation |
 
 ## Where you follow it
