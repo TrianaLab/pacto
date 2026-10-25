@@ -63,6 +63,8 @@ spec:
     upstreamStage: {name: payments, namespace: test}
 ```
 
+### How a promote applies
+
 The promoter sets `spec.source.targetRevision` to the new digest and asks
 Argo CD to refresh. The move counts as applied once the Application is `Synced`
 and `Healthy` at that digest; `status.sync.revision` alone is not proof, since
@@ -75,7 +77,8 @@ promoter only ever writes a digest, so Argo CD fetches exactly the checked
 bytes. Only a Flux `OCIRepository` with `spec.verify` admits a new version, so
 the first Stage of a service needs Flux's source controller in its cluster even
 when Argo CD applies it. Stages after it can take versions from that Stage, in
-the same cluster or through its records, with no Flux at all. An Argo CD Stage places no consumers, so label the Pactos it runs with
+the same cluster or through its records, with no Flux at all. An Argo CD
+Stage places no consumers, so label the Pactos it runs with
 `delivery.pacto.trianalab.io/environment`.
 
 ## Follow a Stage in another cluster
@@ -121,16 +124,20 @@ You need:
          stream: 8d1e…/staging/payments
    ```
 
+### What the follower takes
+
 The promoter rebuilds from the records what the upstream verified: a promote
 that `Succeeded`, `Verified` and passed the published gate there is offered
 here, and a version that failed there (or was rolled back after release) is
 never taken. That includes a version that fails a check after release when
 the promoter cannot roll it back there (a person or agent chose it, or its
 rollback is used up): the promoter freezes that Stage with a freeze operation
-whose record names the failed version. Its own gates, approvals and checks still run. The digest must
-also exist in the Stage's own apply repository: use the same repository or a
+whose record names the failed version. Its own gates, approvals and checks
+still run. The digest must also exist in the Stage's own apply repository: use the same repository or a
 mirror that keeps digests. `pacto delivery plan` reads these records only with
 `--trust` and the upstream recorder's key.
+
+### When the records cannot be trusted
 
 The promoter offers nothing when it cannot check the history: without
 `promoter.upstreamTrust` the Stage is not `Ready` (`UpstreamUntrusted`). A gap,
@@ -149,6 +156,8 @@ auditor can replay the stream up to it.
 The promoter reads the upstream registry at most every 30 seconds for
 auto-promotion, and afresh when it plans a promote. It fetches and verifies
 each record once.
+
+### Freezes
 
 A freeze is local, in one cluster or across two. Freezing the upstream Stage
 does not stop a follower from taking a version the upstream already verified:

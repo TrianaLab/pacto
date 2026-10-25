@@ -227,7 +227,7 @@ referrers out of them. With `recorder.cdeventsSink` set, the recorder posts a
   its changes to conclude first.
 - A follower in another cluster notices records removed from a stream's tail
   only against the newest record it already read
-  ([details](delivery-reach.md#follow-a-stage-in-another-cluster)).
+  ([details](delivery-reach.md#when-the-records-cannot-be-trusted)).
 - A keyless record writes no transparency log entry. Its signed time comes
   from the timestamp authority the recorder must name, and the certificate is
   checked at that time.
