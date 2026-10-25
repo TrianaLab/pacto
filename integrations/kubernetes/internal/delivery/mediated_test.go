@@ -62,7 +62,19 @@ func TestMediated(t *testing.T) {
 			}
 		})
 	}
-	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "", false), verifiedRepo("payments-candidates", "latest@"+dB))
+	// An apply object recreated without the label (delete then create) is
+	// guarded by nothing, however its applier looks.
+	bare := ociRepo("payments", dA, "", false)
+	bare.SetLabels(nil)
+	e := newEnv(t, stageObj(dA), bare, verifiedRepo("payments-candidates", "latest@"+dB), guardedKs("payments", ns, nil))
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if m := conditionOf(e.getStage().Status.Conditions, ConditionMediated); m == nil || m.Status != statusFalse || m.Reason != "ApplyRefUnguarded" ||
+		!strings.Contains(m.Message, ApplyRefLabel) {
+		t.Fatalf("an unlabelled apply object is not mediated: %+v", m)
+	}
+	e = newEnv(t, stageObj(dA), ociRepo("payments", dA, "", false), verifiedRepo("payments-candidates", "latest@"+dB))
 	e.fails["list/Kustomization"] = true
 	if err := e.reconcileStage("payments-prod"); err == nil {
 		t.Fatal("a failed Kustomization list must surface")
@@ -79,6 +91,7 @@ func TestMediatedArgo(t *testing.T) {
 	}{
 		"plain":   {nil, statusTrue, "PointerOnly"},
 		"sources": {func(a map[string]any) { a["spec"].(map[string]any)["sources"] = []any{map[string]any{"repoURL": "x"}} }, statusFalse, "SeveralSources"},
+		"unlabelled": {func(a map[string]any) { delete(a["metadata"].(map[string]any), "labels") }, statusFalse, "ApplyRefUnguarded"},
 		"helm values": {func(a map[string]any) {
 			a["spec"].(map[string]any)["source"].(map[string]any)["helm"] = map[string]any{"values": "image: evil"}
 		}, statusFalse, "ApplierOverrides"},

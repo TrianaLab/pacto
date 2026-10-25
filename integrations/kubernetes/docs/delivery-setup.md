@@ -119,14 +119,14 @@ and it cannot roll back. Stage approval policy is `approval.always`, not an expr
 Pacto mediates the pointer, and signed records name it. The pointer is all
 that decides what runs only when nothing else can change it, and the Stage's
 `Mediated` condition says whether that holds. It is `True` when exactly one
-Flux Kustomization applies the apply `OCIRepository`, carries the
+Flux Kustomization applies the apply `OCIRepository`, both carry the
 `delivery.pacto.trianalab.io/apply-ref` label and sets none of `images`,
 `patches`, `components`, `postBuild`, `namePrefix` or `nameSuffix`. On
-Argo CD it is `True` when the Application has one source and sets no
+Argo CD it is `True` when the Application carries the label, has one source and sets no
 Kustomize images, patches or components, Helm parameters, values or value
 files, or plugin. Otherwise it is `False` and the reason
-(`NoApplier`, `SeveralAppliers`, `ApplierUnguarded`, `ApplierOverrides`,
-`SeveralSources`) names what else decides what runs.
+(`ApplyRefUnguarded`, `NoApplier`, `SeveralAppliers`, `ApplierUnguarded`,
+`ApplierOverrides`, `SeveralSources`) names what else decides what runs.
 
 On labelled objects, admission keeps the following to break-glass: removing
 the label, the `OCIRepository`'s `spec.url` and `spec.layerSelector`, the rest
@@ -134,6 +134,11 @@ of an Application's `spec.source` and its `spec.sources`, and a Kustomization's
 `sourceRef`, `path`, `images`, `patches`, `components`, `postBuild`,
 `namePrefix`, `nameSuffix` and `targetNamespace`. A GitOps tool that applies
 those objects must leave these fields alone, or run in a break-glass group.
+Admission guards updates only. Whoever may delete and create these objects can
+delete one and create it again without the label: nothing refuses that, but the
+Stage shows it as `Ready` `False` with the reason `ApplyRefUnlabelled` and
+`Mediated` `False` with the reason `ApplyRefUnguarded`. Keep delete and create
+on them to the people you would put in break-glass.
 `kubectl set image` on the workload itself is not mediated: Flux puts it back
 on its next reconcile, and Argo CD does with `selfHeal`; until then it runs
 beside the pointer.

@@ -43,6 +43,9 @@ func (c Cluster) mediated(ctx context.Context, ns string, a *applyRef) (delivery
 		return delivery.Condition{Type: ConditionMediated, Status: statusFalse, Reason: reason,
 			Message: msg + ", so the pointer is not all that decides what runs and records name only the pointer"}
 	}
+	if !labelled(a.obj) {
+		return no("ApplyRefUnguarded", "the apply object "+a.obj.GetName()+" has no "+ApplyRefLabel+" label, so admission does not guard its pointer"), nil
+	}
 	if a.argo {
 		if s, _, _ := unstructured.NestedSlice(a.obj.Object, "spec", "sources"); len(s) > 0 {
 			return no("SeveralSources", "Application "+a.obj.GetName()+" sets spec.sources"), nil
