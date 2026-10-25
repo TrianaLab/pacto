@@ -29,7 +29,7 @@ const (
 // fakeDelivery is a cluster as one caller sees it.
 type fakeDelivery struct {
 	// policy is the published policy; nil is the acme one most tests use.
-	policy *delivery.ClassPolicy
+	policy    *delivery.ClassPolicy
 	caller    delivery.Caller
 	callerErr error
 	stages    []delivery.StageObject
