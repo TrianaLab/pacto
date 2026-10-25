@@ -379,3 +379,40 @@ func TestPublishedGate(t *testing.T) {
 		}
 	}
 }
+
+func TestStillPasses(t *testing.T) {
+	pass := Verdict{Gate: "g", Result: Pass}
+	unknown := Verdict{Gate: "u", Result: Unknown}
+	prev := Plan{Verdicts: []Verdict{pass, unknown}, Floor: Floor{Human: true, Decision: AcceptUnknown}}
+	if !StillPasses(prev, Plan{Verdicts: []Verdict{pass}}) {
+		t.Fatal("same passes, no new floor")
+	}
+	if StillPasses(prev, Plan{Verdicts: []Verdict{{Gate: "g", Result: Unknown}}}) {
+		t.Fatal("a pass that came back Unknown")
+	}
+	if StillPasses(prev, Plan{Verdicts: []Verdict{pass}, Floor: Floor{Human: true, Decision: Approve}}) {
+		t.Fatal("an approval-needing floor accept-unknown never answered")
+	}
+	// An approval routed to one team does not answer a question for another.
+	approved := Plan{Verdicts: []Verdict{pass}, Floor: Floor{Human: true, Decision: Approve, Owners: []string{"team-payments"}}}
+	if !StillPasses(approved, approved) {
+		t.Fatal("the same question is answered")
+	}
+	if StillPasses(approved, Plan{Verdicts: []Verdict{pass}, Floor: Floor{Human: true, Decision: Approve, Owners: []string{"team-checkout"}, Consumers: []string{"checkout"}}}) {
+		t.Fatal("a question now routed to the consumer's team needs that team")
+	}
+	if StillPasses(approved, Plan{Verdicts: []Verdict{pass}, Floor: Floor{Human: true, Decision: Approve, Owners: []string{"team-payments"}, Consumers: []string{"checkout"}}}) {
+		t.Fatal("a consumer nobody was asked about needs a new answer")
+	}
+	// Accepting one unknown does not accept a different one.
+	seen := Verdict{Gate: GateImpact, Result: Unknown, Message: "the graph is partial"}
+	au := Plan{Verdicts: []Verdict{seen}, Floor: Floor{Human: true, Decision: AcceptUnknown}}
+	if !StillPasses(au, au) {
+		t.Fatal("the same unknown is accepted")
+	}
+	other := seen
+	other.Message = "orders cannot be seen"
+	if StillPasses(au, Plan{Verdicts: []Verdict{other}, Floor: au.Floor}) {
+		t.Fatal("a different unknown needs a new answer")
+	}
+}

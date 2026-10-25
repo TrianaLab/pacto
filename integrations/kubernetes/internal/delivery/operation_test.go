@@ -808,25 +808,6 @@ func TestPublishedFromUpstream(t *testing.T) {
 	}
 }
 
-// TestVerifiedPromoteIsOffered: a promote that passed the published gate here
-// and verified is offered to a downstream Stage. One a person accepted on an
-// unknown published verdict is not, and nothing but a promote is.
-func TestVerifiedPromoteIsOffered(t *testing.T) {
-	published := func(name, to string, r delivery.Result) *dv1Op {
-		o := opObj(name, delivery.TypePromote, dA, to, bot)
-		o.Status.Verdicts = []delivery.Verdict{{Gate: delivery.GatePublished, Phase: "pre", Result: r}, {Gate: delivery.GateDiff, Phase: "pre", Result: delivery.Pass}}
-		return o
-	}
-	s := delivery.StageStatus{}
-	verified := conclusion{outcome: delivery.Succeeded, verification: delivery.Verified}
-	applyEffects(&s, published("p", dB, delivery.Pass), verified)
-	applyEffects(&s, published("u", dC, delivery.Unknown), verified)
-	applyEffects(&s, opObj("o", delivery.TypeOverride, dB, dC, bot), verified)
-	if len(s.Offered) != 1 || s.Offered[0] != dB || len(s.Published) != 0 {
-		t.Fatalf("offered %v published %v", s.Offered, s.Published)
-	}
-}
-
 // TestBlockedPromoteSaysWhatMovesFirst is M4 at unit level: a promote that
 // checkout, running in prod, does not accept is held, and status.plan names
 // the verified version of checkout to ship first, read through checkout's own

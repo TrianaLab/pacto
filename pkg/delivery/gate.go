@@ -39,7 +39,7 @@ type GateInput struct {
 	// Version is the contract service.version of the version under check,
 	// when the plan could read it.
 	Version string `json:"version,omitempty"`
-	Window   Window   `json:"window"`
+	Window  Window `json:"window"`
 }
 
 // Gate answers Pass, Fail or Unknown for one input, with a citation that can

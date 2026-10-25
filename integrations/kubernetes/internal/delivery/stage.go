@@ -73,7 +73,7 @@ const ConditionWatched = "Watched"
 
 // watched is the Watched condition check sets.
 func watched(check *delivery.Recheck, gen int64) delivery.Condition {
-	c := delivery.Condition{Type: ConditionWatched, Status: "True", Reason: "Rechecked",
+	c := delivery.Condition{Type: ConditionWatched, Status: statusTrue, Reason: "Rechecked",
 		Message: "the running version passed its re-check at " + check.At, ObservedGeneration: gen}
 	var why []string
 	for _, v := range check.Verdicts {
@@ -99,7 +99,7 @@ func (r *StageReconciler) observe(stage *dv1.Stage) {
 	var w *delivery.Condition
 	if i := slices.IndexFunc(stage.Status.Conditions, func(c delivery.Condition) bool { return c.Type == ConditionWatched }); i >= 0 {
 		w = &stage.Status.Conditions[i]
-		now.unwatched = w.Status != "True"
+		now.unwatched = w.Status != statusTrue
 		StageWatched.WithLabelValues(stage.Namespace, stage.Name).Set(b2f(!now.unwatched))
 	}
 	if r.seen == nil {
@@ -249,7 +249,7 @@ func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) err
 // when the Stage can never promote: nothing is published without a candidate
 // OCIRepository whose spec.verify names the publisher (design M2).
 func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRef, error) {
-	want := delivery.Condition{Type: "Ready", Status: "True", Reason: "Ready", Message: "the Stage can promote published versions"}
+	want := delivery.Condition{Type: "Ready", Status: statusTrue, Reason: "Ready", Message: "the Stage can promote published versions"}
 	var cand *applyRef
 	c := stage.Spec.Candidates
 	switch {
@@ -270,7 +270,7 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 	case c.UpstreamStage == nil && c.UpstreamRecords == nil:
 		want = notReady("NoCandidateSource", "the Stage names no candidates.ociRepositoryRef, candidates.upstreamStage or candidates.upstreamRecords, so it never promotes")
 	}
-	if want.Status == "True" {
+	if want.Status == statusTrue {
 		a, err := r.Cluster.applier(ctx, stage.Namespace, stage.Spec.ApplyRef)
 		switch {
 		case apierrors.IsNotFound(err):
@@ -281,7 +281,7 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 				" label, so admission does not guard its pointer and the promoter may not write it")
 		}
 	}
-	if want.Status == "True" {
+	if want.Status == statusTrue {
 		why, err := unguardedBy(ctx, r.Client, r.AdmissionPolicies)
 		if err != nil {
 			return nil, err

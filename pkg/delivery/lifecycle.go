@@ -243,3 +243,76 @@ func SetCondition(conds []Condition, c Condition, now time.Time) ([]Condition, b
 	}
 	return append(slices.Clone(conds), c), true
 }
+
+// passedPublished reports whether pacto.published passed: a version a person
+// accepted on an unknown published verdict is never offered downstream.
+func passedPublished(vs []Verdict) bool {
+	return slices.ContainsFunc(vs, func(v Verdict) bool {
+		return v.Gate == GatePublished && v.Result == Pass
+	})
+}
+
+// Conclusion is how an operation ended, as ApplyEffects needs it.
+type Conclusion struct {
+	Outcome      Outcome
+	Verification Verification
+	// Reason is "Code: message".
+	Reason string
+	// Freeze says the conclusion itself freezes the Stage, for Reason.
+	Freeze bool
+}
+
+// ApplyEffects updates a Stage's memories for the operation name (uid, spec,
+// status) that concluded as c: what verified, failed, is offered downstream,
+// auto-hold and freezes. The promoter applies it in the compare-and-swap that
+// concludes, and the WASM demo applies the same rules.
+func ApplyEffects(s *StageStatus, name, uid string, spec OperationSpec, st OperationStatus, c Conclusion) {
+	to := spec.Params.To
+	if st.Applied {
+		switch {
+		case SetsAutoHold(spec, st.ActorClass, *s):
+			s.AutoHold = true
+		case spec.Type == TypePromote && st.ActorClass == ClassHuman:
+			s.AutoHold = false
+		}
+	}
+	switch c.Outcome {
+	case Succeeded:
+		if c.Verification == Verified {
+			s.Verified = AddDigest(s.Verified, to, MaxVerified)
+			if spec.Type == TypePromote && passedPublished(st.Verdicts) {
+				s.Offered = AddDigest(s.Offered, to, MaxOffered)
+			}
+		}
+		switch {
+		case spec.Type == TypeUnfreeze:
+			s.Frozen, s.FrozenReason, s.AutoHold = false, "", false
+		case spec.Type == TypeFreeze && !s.Frozen:
+			// A freeze a failed re-check raised finds the Stage frozen already,
+			// with that check's reason, which it keeps.
+			s.Frozen, s.FrozenReason = true, name+": frozen: "+spec.Reason
+		}
+	case Rejected:
+		// A refused automatic rollback must not leave the failed version
+		// running unwatched: a person decides.
+		if spec.Type == TypeRollback && st.ActorClass == ClassController {
+			c.Freeze, c.Reason = true, "the automatic rollback was refused: "+c.Reason
+		}
+	case Failed:
+		s.FailedDigests = AddDigest(s.FailedDigests, to, MaxFailedDigests)
+		s.Verified = RemoveDigest(s.Verified, to)
+		switch {
+		case spec.Type != TypePromote:
+			c.Freeze, c.Reason = true, "a "+spec.Type+" failed: "+c.Reason
+		case st.Pointer.Before == "":
+			c.Freeze, c.Reason = true, "the first version failed, so there is nothing to roll back to"
+		case slices.Contains(s.FailedDigests, st.Pointer.Before):
+			c.Freeze, c.Reason = true, "the version before it failed here too, so there is nothing safe to roll back to"
+		default:
+			s.RolledBack = AddDigest(s.RolledBack, uid, MaxRolledBack)
+		}
+	}
+	if c.Freeze {
+		s.Frozen, s.FrozenReason = true, name+": "+c.Reason
+	}
+}

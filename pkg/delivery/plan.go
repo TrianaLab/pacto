@@ -442,3 +442,42 @@ func short(d string) string {
 	}
 	return d
 }
+
+// StillPasses reports whether an approval given on prev still covers cur:
+// every gate that passed still passes (a Pass that comes back empty is Unknown,
+// and Unknown never passes), and cur asks for nothing the approval did not
+// answer: it is routed to no team and names no consumer the approval was not
+// asked about, and the impact gate is unknown for the reason the person saw.
+func StillPasses(prev, cur Plan) bool {
+	for _, v := range prev.Verdicts {
+		if v.Result != Pass {
+			continue
+		}
+		if !slices.ContainsFunc(cur.Verdicts, func(c Verdict) bool { return c.Gate == v.Gate && c.Result == Pass }) {
+			return false
+		}
+	}
+	if !cur.Floor.Human {
+		return true
+	}
+	if !subset(cur.Floor.Owners, prev.Floor.Owners) || !subset(cur.Floor.Consumers, prev.Floor.Consumers) {
+		return false
+	}
+	// ponytail: only the impact gate's message is compared, as it lists what
+	// Pacto cannot see; other gates' Unknown messages carry error text that
+	// changes from one read to the next.
+	for _, v := range cur.Verdicts {
+		if v.Gate == GateImpact && v.Result == Unknown &&
+			!slices.ContainsFunc(prev.Verdicts, func(p Verdict) bool {
+				return p.Gate == v.Gate && p.Result == v.Result && p.Message == v.Message
+			}) {
+			return false
+		}
+	}
+	return cur.Floor.Decision == prev.Floor.Decision || prev.Floor.Decision == Approve
+}
+
+// subset reports whether every element of a is in b.
+func subset(a, b []string) bool {
+	return !slices.ContainsFunc(a, func(x string) bool { return !slices.Contains(b, x) })
+}

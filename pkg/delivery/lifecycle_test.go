@@ -90,3 +90,79 @@ func TestDecisionFreshnessFor(t *testing.T) {
 		}
 	}
 }
+
+// TestApplyEffectsOffersOnlyPublishedPromotes: a promote that passed the
+// published gate here and verified is offered to a downstream Stage. One a
+// person accepted on an unknown published verdict is not, and nothing but a
+// promote is.
+func TestApplyEffectsOffersOnlyPublishedPromotes(t *testing.T) {
+	published := func(typ, to string, r Result) (OperationSpec, OperationStatus) {
+		return OperationSpec{Type: typ, Params: Params{From: dA, To: to}},
+			OperationStatus{Verdicts: []Verdict{{Gate: GatePublished, Phase: "pre", Result: r}, {Gate: GateDiff, Phase: "pre", Result: Pass}}}
+	}
+	s := StageStatus{}
+	verified := Conclusion{Outcome: Succeeded, Verification: Verified}
+	for _, c := range []struct {
+		typ, to string
+		r       Result
+	}{{TypePromote, dB, Pass}, {TypePromote, dC, Unknown}, {TypeOverride, dC, Pass}} {
+		spec, st := published(c.typ, c.to, c.r)
+		ApplyEffects(&s, "op", "uid", spec, st, verified)
+	}
+	if len(s.Offered) != 1 || s.Offered[0] != dB || len(s.Verified) != 2 {
+		t.Fatalf("offered %v verified %v", s.Offered, s.Verified)
+	}
+}
+
+// TestApplyEffects: what each conclusion leaves on the Stage.
+func TestApplyEffects(t *testing.T) {
+	type in struct {
+		typ     string
+		class   ActorClass
+		applied bool
+		before  string
+		c       Conclusion
+		s       StageStatus
+	}
+	for name, c := range map[string]struct {
+		in   in
+		want func(StageStatus) bool
+	}{
+		"a person's rollback holds auto": {in{typ: TypeRollback, class: ClassHuman, applied: true, c: Conclusion{Outcome: Succeeded}},
+			func(s StageStatus) bool { return s.AutoHold }},
+		"a person's promote releases it": {in{typ: TypePromote, class: ClassHuman, applied: true, c: Conclusion{Outcome: Succeeded}, s: StageStatus{AutoHold: true}},
+			func(s StageStatus) bool { return !s.AutoHold }},
+		"unfreeze": {in{typ: TypeUnfreeze, c: Conclusion{Outcome: Succeeded}, s: StageStatus{Frozen: true, FrozenReason: "x", AutoHold: true}},
+			func(s StageStatus) bool { return !s.Frozen && s.FrozenReason == "" && !s.AutoHold }},
+		"freeze": {in{typ: TypeFreeze, c: Conclusion{Outcome: Succeeded}},
+			func(s StageStatus) bool { return s.Frozen && s.FrozenReason == "op: frozen: because" }},
+		"freeze keeps an earlier reason": {in{typ: TypeFreeze, c: Conclusion{Outcome: Succeeded}, s: StageStatus{Frozen: true, FrozenReason: "re-check"}},
+			func(s StageStatus) bool { return s.FrozenReason == "re-check" }},
+		"a refused automatic rollback freezes": {in{typ: TypeRollback, class: ClassController, c: Conclusion{Outcome: Rejected, Reason: "PointerMoved: x"}},
+			func(s StageStatus) bool {
+				return s.Frozen && s.FrozenReason == "op: the automatic rollback was refused: PointerMoved: x"
+			}},
+		"a failed rollback freezes": {in{typ: TypeRollback, class: ClassHuman, c: Conclusion{Outcome: Failed, Reason: "VerifyFailed: x"}, s: StageStatus{Verified: []string{dB}}},
+			func(s StageStatus) bool {
+				return s.Frozen && strings.Contains(s.FrozenReason, "failed: VerifyFailed") && len(s.Verified) == 0 && s.FailedDigests[0] == dB
+			}},
+		"a failed first version freezes": {in{typ: TypePromote, c: Conclusion{Outcome: Failed}},
+			func(s StageStatus) bool {
+				return s.Frozen && strings.Contains(s.FrozenReason, "nothing to roll back to")
+			}},
+		"a failed promote over a failed version freezes": {in{typ: TypePromote, before: dA, c: Conclusion{Outcome: Failed}, s: StageStatus{FailedDigests: []string{dA}}},
+			func(s StageStatus) bool { return s.Frozen && strings.Contains(s.FrozenReason, "nothing safe") }},
+		"a failed promote is rolled back once": {in{typ: TypePromote, before: dA, c: Conclusion{Outcome: Failed}},
+			func(s StageStatus) bool { return !s.Frozen && len(s.RolledBack) == 1 && s.RolledBack[0] == "uid" }},
+		"a conclusion that freezes": {in{typ: TypePromote, c: Conclusion{Outcome: Errored, Reason: "ExecutionDeadline: x", Freeze: true}},
+			func(s StageStatus) bool { return s.FrozenReason == "op: ExecutionDeadline: x" }},
+	} {
+		s := c.in.s
+		spec := OperationSpec{Type: c.in.typ, Reason: "because", Params: Params{From: c.in.before, To: dB}}
+		st := OperationStatus{ActorClass: c.in.class, Applied: c.in.applied, Pointer: PointerChange{Before: c.in.before, After: dB}}
+		ApplyEffects(&s, "op", "uid", spec, st, c.in.c)
+		if !c.want(s) {
+			t.Errorf("%s: %+v", name, s)
+		}
+	}
+}

@@ -35,8 +35,11 @@ import (
 // ConditionRecordStoreReady is the recorder's Stage condition.
 const ConditionRecordStoreReady = "RecordStoreReady"
 
-// statusFalse is a condition status.
-const statusFalse = "False"
+// statusFalse and statusTrue are condition statuses.
+const (
+	statusFalse = "False"
+	statusTrue  = "True"
+)
 
 // Reasons RecordStoreReady is False.
 const (
@@ -133,7 +136,7 @@ func (r *Recorder) Reconcile(ctx context.Context, req reconcile.Request) (reconc
 		return reconcile.Result{}, err
 	}
 	RecordsPending.WithLabelValues(stream.ID).Set(float64(len(items)))
-	if len(items) == 0 && hasCondition(stage, ConditionRecordStoreReady, "True") {
+	if len(items) == 0 && hasCondition(stage, ConditionRecordStoreReady, statusTrue) {
 		return reconcile.Result{}, nil
 	}
 	anchor, err := r.Store.anchor(ctx, stream.ID)
@@ -304,7 +307,7 @@ func hasCondition(stage *dv1.Stage, typ, status string) bool {
 
 // ready marks the stream writable and names where its records are listed.
 func (r *Recorder) ready(ctx context.Context, stage *dv1.Stage) error {
-	want := delivery.Condition{Type: ConditionRecordStoreReady, Status: "True",
+	want := delivery.Condition{Type: ConditionRecordStoreReady, Status: statusTrue,
 		Reason: "ReferrersSupported", Message: "records are written to " + r.Store.Streams}
 	ref := deliveryrecord.AnchorRef(r.Store.Streams, stage.Status.Stream.ID)
 	want.ObservedGeneration = stage.Generation

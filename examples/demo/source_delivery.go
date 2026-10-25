@@ -498,16 +498,10 @@ func (d *demoDelivery) verify(o *delivery.OperationObject) {
 			Citation: map[string]string{"provider": "mira"}, Message: "recorded for this demo: the error ratio stayed under 1% in the verify window"})
 	}
 	o.Status.Verdicts = append(o.Status.Verdicts, verdicts...)
-	st := d.stage(env, svc)
 	if delivery.Worst(verdicts) == delivery.Fail {
-		st.Status.FailedDigests = delivery.AddDigest(st.Status.FailedDigests, o.Spec.Params.To, 50)
 		d.conclude(o, delivery.Failed, delivery.Unverified)
 		d.autoRollback(o, verdicts)
 		return
-	}
-	st.Status.Verified = delivery.AddDigest(st.Status.Verified, o.Spec.Params.To, 10)
-	if o.Spec.Type == delivery.TypePromote {
-		st.Status.Offered = delivery.AddDigest(st.Status.Offered, o.Spec.Params.To, 50)
 	}
 	d.conclude(o, delivery.Succeeded, delivery.Verified)
 }
@@ -542,6 +536,9 @@ func (d *demoDelivery) conclude(o *delivery.OperationObject, outcome delivery.Ou
 	o.Status.Seq, o.Status.StageUID, o.Status.Times.Finished, o.Status.Policy = seq, st.Metadata.UID, stamp(d.clock()), &st.Spec
 	st.Status.Stream.Concluded = append(st.Status.Stream.Concluded, delivery.Concluded{UID: o.Metadata.UID, Seq: seq, Outcome: outcome,
 		Verification: verification, Reason: o.Status.Reason})
+	// The promoter's own rules for what the Stage remembers.
+	delivery.ApplyEffects(&st.Status, o.Metadata.Name, o.Metadata.UID, o.Spec, o.Status,
+		delivery.Conclusion{Outcome: outcome, Verification: verification, Reason: o.Status.Reason})
 	if s := d.streams[stageKey(st.Metadata.Namespace, st.Metadata.Name)]; s != nil {
 		r, _ := story.Revision(o.Spec.Stage, versionOf(o.Spec.Stage, o.Spec.Params.To))
 		in := delivery.RecordInput{ClusterID: clusterID, Stage: *st, Operation: *o, Approvals: d.approvals,
