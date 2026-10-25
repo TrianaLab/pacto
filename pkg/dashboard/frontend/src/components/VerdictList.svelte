@@ -1,7 +1,7 @@
 <script>
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import DigestText from './DigestText.svelte';
-  import { miraLink, verdictBadge, unknownHelp, rerunHint, UNKNOWN_DOCS } from '../lib/delivery.ts';
+  import { miraLink, verdictBadge, unknownHelp, UNKNOWN_DOCS } from '../lib/delivery.ts';
 
   // Verdicts with the proof behind each: the citation, a link into Mira for a
   // health check when Mira's address is known (else the query to copy) and the
@@ -19,7 +19,6 @@
   <ul class="vl-list" data-testid={testid}>
     {#each verdicts as v, i (v.gate + v.phase + i)}
       {@const b = verdictBadge(v)}
-      {@const rerun = rerunHint(v.rerun)}
       <li class="vl-item">
         <div class="vl-head">
           <span class="badge {b.tone}" data-testid="verdict-badge"><span class="badge-dot"></span>{b.label}</span>
@@ -31,7 +30,7 @@
         {#if v.result === 'Unknown'}
           <p class="vl-unknown t-body-2" data-testid="verdict-unknown">{unknownHelp(v)} Until it can, a person accepts the unknown or rejects the change. <a href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">What Unknown means</a></p>
         {/if}
-        {#if (v.citation && Object.keys(v.citation).length) || rerun}
+        {#if (v.citation && Object.keys(v.citation).length) || v.rerun}
           <details class="vl-more disclosure">
             <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>Proof</summary>
             {#if v.citation && Object.keys(v.citation).length}
@@ -52,8 +51,8 @@
                 </p>
               {/if}
             {/if}
-            {#if rerun}
-              <p class="vl-proof t-body-2"><span>Run it again:</span> <CopyableIdentifier value={rerun} label="command" /></p>
+            {#if v.rerun}
+              <p class="vl-proof t-body-2"><span>Run it again:</span> <CopyableIdentifier value={v.rerun} label="command" /></p>
             {/if}
           </details>
         {/if}

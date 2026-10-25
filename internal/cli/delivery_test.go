@@ -71,7 +71,8 @@ func deliveryDeps(user string, dynErr error) deps {
 				"status": map[string]any{"phase": "Held", "question": "Approve?", "reason": "AwaitingHuman", "message": "m",
 					"plan": map[string]any{"intentDigest": "sha256:i", "type": delivery.TypePromote, "predicted": "Held", "order": map[string]any{
 						"moveFirst": []any{map[string]any{"service": "orders", "message": "Ship orders first."}}, "unknown": []any{"the graph is partial"}}},
-					"verdicts": []any{map[string]any{"gate": "pacto.diff", "phase": "pre", "result": "Pass", "citation": map[string]any{"query": "{}"}}}}}),
+					"verdicts": []any{map[string]any{"gate": "pacto.diff", "phase": "pre", "result": "Pass", "citation": map[string]any{"query": "{}"}},
+						map[string]any{"gate": "x", "phase": "pre", "result": "Pass"}}}}),
 		)
 		c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"userInfo": map[string]any{
@@ -155,6 +156,14 @@ func TestDeliveryCommandReadVerbs(t *testing.T) {
 		{"json", []string{"history", "-n", "prod", "--stage", "payments-prod"}, false, []string{`"completeness": "partial"`}},
 		{"text", []string{"history", "-n", "prod", "--stage", "missing"}, true, nil},
 	})
+}
+
+// A verdict with nothing to run again prints no re-run line.
+func TestDeliveryExplainOmitsEmptyRerun(t *testing.T) {
+	out, err := runDelivery(t, deliveryDeps("alice", nil), "text", "explain", "-n", "prod", "held")
+	if err != nil || strings.Count(out, "re-run:") != 1 || strings.Contains(out, "re-run: \n") {
+		t.Fatalf("want one re-run line: %v\n%s", err, out)
+	}
 }
 
 func TestDeliveryCommandWriteVerbs(t *testing.T) {

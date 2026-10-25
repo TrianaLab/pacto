@@ -40,7 +40,13 @@ func Summarize(op *OperationObject) string {
 	what := fmt.Sprintf("%s on Stage %s, %s -> %s", op.Spec.Type, op.Spec.Stage, orNone(op.Spec.Params.From), orNone(op.Spec.Params.To))
 	switch s.Phase {
 	case PhaseConcluded:
-		return fmt.Sprintf("%s concluded %s: %s: %s", what, strings.TrimSuffix(string(s.Outcome)+"/"+string(s.Verification), "/"), s.Reason, s.Message)
+		parts := []string{what + " concluded " + strings.TrimSuffix(string(s.Outcome)+"/"+string(s.Verification), "/")}
+		for _, p := range []string{s.Reason, s.Message} {
+			if p != "" {
+				parts = append(parts, p)
+			}
+		}
+		return strings.Join(parts, ": ")
 	case PhaseHeld:
 		return what + " waits for a person: " + s.Question
 	case "":
@@ -51,7 +57,8 @@ func Summarize(op *OperationObject) string {
 
 func orNone(s string) string { return cmp.Or(s, "(none)") }
 
-// RerunHint says how anyone can run a verdict's citation again.
+// RerunHint says how anyone can run a verdict's citation again, or "" when
+// there is nothing to run.
 func RerunHint(v Verdict) string {
 	c := v.Citation
 	switch {
@@ -65,5 +72,5 @@ func RerunHint(v Verdict) string {
 	case c["provider"] != "":
 		return "POST {\"input\": input, \"params\": params} to the " + c["provider"] + " provider"
 	}
-	return "no citation to run again"
+	return ""
 }

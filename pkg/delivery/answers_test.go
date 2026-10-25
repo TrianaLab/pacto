@@ -204,6 +204,8 @@ func TestExplainOperation(t *testing.T) {
 	}{
 		{OperationStatus{Phase: PhaseConcluded, Outcome: Succeeded, Verification: Verified, Reason: "Verified", Message: "ok"}, "concluded Succeeded/Verified: Verified: ok"},
 		{OperationStatus{Phase: PhaseConcluded, Outcome: Rejected, Reason: "R", Message: "m"}, "concluded Rejected: R: m"},
+		{OperationStatus{Phase: PhaseConcluded, Outcome: Failed, Verification: Unverified}, "concluded Failed/Unverified"},
+		{OperationStatus{Phase: PhaseConcluded, Outcome: Failed, Message: "m"}, "concluded Failed: m"},
 		{OperationStatus{}, "(none) -> " + ansB + " is not admitted yet"},
 		{OperationStatus{Phase: PhaseRunning}, "is Running: in progress"},
 		{OperationStatus{Phase: PhaseVerifying, Message: "waiting"}, "is Verifying: waiting"},
@@ -220,9 +222,9 @@ func TestExplainOperation(t *testing.T) {
 		{Gate: GateContract}: "read contractStatus",
 		{Gate: "x", Citation: map[string]string{"provider": GateRuntime}}: "read contractStatus",
 		{Gate: "x", Citation: map[string]string{"provider": "http"}}:      "to the http provider",
-		{Gate: "x"}: "no citation",
+		{Gate: "x"}: "",
 	} {
-		if got := RerunHint(*v); !strings.Contains(got, want) {
+		if got := RerunHint(*v); !strings.Contains(got, want) || (want == "") != (got == "") {
 			t.Errorf("rerun %+v = %q, want %q", v, got, want)
 		}
 	}
