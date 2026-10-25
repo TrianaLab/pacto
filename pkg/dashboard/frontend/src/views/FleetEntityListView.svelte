@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
@@ -42,7 +42,8 @@
   // rather than the product noun the count underneath was already using.
   const pluralTitle = $derived(plural[0].toUpperCase() + plural.slice(1));
 
-  let textDraft = $state(text);
+  // Seeded once; the effect below keeps it in step with the URL.
+  let textDraft = $state(untrack(() => text));
   // The text the last submit wrote to the URL. Its echo reaches `text` a hashchange later,
   // by when the reader may have typed on; adopting it would drop those keystrokes.
   let submittedText = null;

@@ -24,7 +24,7 @@
   // A decision kept across the fresh sign-in, if this is the change it was for.
   // Read once: the page is keyed by the change, so it never needs re-reading.
   let kept = $state(untrack(() => pendingFor(op.metadata.namespace || '', op.metadata.name)));
-  let note = $state(kept?.note ?? '');
+  let note = $state(untrack(() => kept?.note ?? ''));
   let busy = $state(false);
   let refusal = $state(null);
   let needsFresh = $state(null);

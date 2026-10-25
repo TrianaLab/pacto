@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -360,6 +362,35 @@ func TestEmbeddedUI(t *testing.T) {
 		t.Fatalf("expected ui/index.html to exist: %v", err)
 	}
 	_ = f.Close()
+}
+
+// firstLoadBudget is how many bytes of script the page may download before it
+// shows anything: the entry chunk and what it preloads. The graph, the charts
+// and the diagram renderers load with the views that need them.
+const firstLoadBudget = 350_000
+
+// TestFirstLoadBudget keeps cytoscape, d3 and mermaid out of the first download.
+func TestFirstLoadBudget(t *testing.T) {
+	fsys := EmbeddedUI()
+	index, err := fs.ReadFile(fsys, "index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := regexp.MustCompile(`(?:src|href)="/(assets/[^"]+\.js)"`).FindAllStringSubmatch(string(index), -1)
+	if len(refs) == 0 {
+		t.Fatal("index.html loads no script chunk")
+	}
+	total := 0
+	for _, ref := range refs {
+		b, err := fs.ReadFile(fsys, ref[1])
+		if err != nil {
+			t.Fatal(err)
+		}
+		total += len(b)
+	}
+	if total > firstLoadBudget {
+		t.Fatalf("the first load is %d bytes of script, over the %d budget: load the heavy view lazily", total, firstLoadBudget)
+	}
 }
 
 func TestExportOpenAPI(t *testing.T) {

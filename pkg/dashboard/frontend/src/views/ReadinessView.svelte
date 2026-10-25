@@ -357,7 +357,6 @@
     margin-bottom: var(--sp-4);
   }
 
-  .chart-panel { /* now inside focal-pair or breakdown region */ }
 
   .chart-title { color: var(--c-text-3); margin-bottom: var(--sp-2);
     font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);

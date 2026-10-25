@@ -1,5 +1,5 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, untrack } from 'svelte';
   import { api, ApiError } from '../lib/api.ts';
   import { boundedMatches, NAME_LOOKUP_LIMIT } from '../lib/entityResolve.ts';
   import { classificationClass, completenessClass, completenessLabel } from '../lib/format.ts';
@@ -69,7 +69,8 @@
   // Selection.
   let fromRevKey = $state('');
   let toRevKey = $state('');
-  let includeObserved = $state(params.observed === '1');
+  // Seeded once: App keys this view on its params, so new params remount it.
+  let includeObserved = $state(untrack(() => params.observed === '1'));
   let observedAvailable = $state(false);
 
   // Analysis (the POST).

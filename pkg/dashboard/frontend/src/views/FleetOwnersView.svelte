@@ -1,5 +1,5 @@
 <script>
-  import { onDestroy } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
@@ -26,7 +26,8 @@
   const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
   const anyFilter = $derived(!!text);
 
-  let textDraft = $state(text);
+  // Seeded once; the effect below keeps it in step with the URL.
+  let textDraft = $state(untrack(() => text));
   // The text the last submit wrote to the URL. Its echo reaches `text` a hashchange later,
   // by when the reader may have typed on; adopting it would drop those keystrokes.
   let submittedText = null;

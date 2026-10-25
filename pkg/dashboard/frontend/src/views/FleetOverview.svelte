@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
   import { sourceHealthTally, attentionCategoryLabel, ATTENTION_CATEGORIES } from '../lib/entityLabels.ts';
@@ -39,7 +39,7 @@
   let overview = $state(null);
   let loading = $state(true);
   let error = $state(null);
-  let lastTick = refreshTick;
+  let lastTick = untrack(() => refreshTick); // the tick this page last loaded for
 
   async function load() {
     loading = true;
