@@ -339,14 +339,17 @@ export function undoneBy<T extends UndoEntry>(entries: T[], name: string, after:
 }
 
 /**
- * NO_RERUN is what the server says for a check with nothing to run again
- * (pkg/delivery RerunHint); the dashboard leaves that line out.
+ * undoCause says why the controller undid a failed change, read from its
+ * reason: the controller writes the code in reason and the rest in message
+ * (RejectedByHuman, "carol: note"); the demo writes it all in reason.
+ * `by` is set when a person rejected the unknown.
  */
-const NO_RERUN = 'no citation to run again';
-
-/** rerunHint is the command that runs a check again, or '' when there is none. */
-export function rerunHint(rerun: string | undefined): string {
-  return rerun && rerun !== NO_RERUN ? rerun : '';
+export function undoCause(reason?: string, message?: string): { by?: string; text?: string } {
+  const [code, ...rest] = [reason, message].filter(Boolean).join(': ').split(': ');
+  if (code === 'RejectedByHuman') return rest[0] ? { by: rest[0] } : { text: 'a person rejected the unknown' };
+  if (code === 'VerifyFailed') return { text: 'a check failed after release' };
+  if (code === 'ApplyFailed') return { text: 'the release did not apply' };
+  return {};
 }
 
 const PREDICTIONS: Record<string, string> = {

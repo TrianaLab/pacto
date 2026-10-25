@@ -5,7 +5,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryInboxUrl, deliveryHistoryUrl, deliveryChangeUrl, serviceUrl } from '../lib/router.ts';
   import { typeLabel, shortDigest, shortDigests, predictionLabel, decisionLabel, authTimeText, changeSummary, actorBadge,
-    undoneBy, versionLabel } from '../lib/delivery.ts';
+    undoneBy, undoCause, versionLabel } from '../lib/delivery.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -130,7 +130,7 @@
 
     {#if undo || blocked}
       <div class="cd-undone t-body-2" data-testid="change-undone">
-        {#if undo}<p>Undone by <a href={deliveryChangeUrl(namespace, undo.operation)}>{undo.operation}</a>{#if undo.actorClass === 'controller'}{' '}(automatic{e.status.outcome === 'Failed' ? ': a check failed after release' : ''}){:else if undo.actor}, by <Person user={undo.actor} people={data?.people} {me} />{/if}.</p>{/if}
+        {#if undo}<p>Undone by <a href={deliveryChangeUrl(namespace, undo.operation)}>{undo.operation}</a>{#if undo.actorClass === 'controller'}{@const cause = undoCause(e.status.reason, e.status.message)}{' '}(automatic{#if cause.by}: <Person user={cause.by} people={data?.people} {me} /> rejected the unknown{:else if cause.text}: {cause.text}{/if}){:else if undo.actor}, by <Person user={undo.actor} people={data?.people} {me} />{/if}.</p>{/if}
         {#if blocked}<p>{versionLabel(after, data?.versions)} is blocked on {namespace}/{e.spec.stage}: it failed its checks here, so Pacto never promotes it here again.</p>{/if}
       </div>
     {/if}
@@ -166,7 +166,7 @@
 
     {#if decided}<p class="cd-decided" role="status" tabindex="-1" data-testid="decision-recorded" bind:this={doneMsg}>{decided}</p>{/if}
     {#if e.status.phase === 'Held' && !gone}
-      <DecisionPanel {op} {actions} versions={data?.versions} people={data?.people} onDecided={(msg) => { decided = msg; loader.refresh(); settleFocus(); }} />
+      <DecisionPanel {op} {actions} stage={e.stage} versions={data?.versions} people={data?.people} onDecided={(msg) => { decided = msg; loader.refresh(); settleFocus(); }} />
     {/if}
 
     <section aria-labelledby="cd-affected">

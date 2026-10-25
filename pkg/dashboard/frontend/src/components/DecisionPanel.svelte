@@ -15,7 +15,7 @@
   // in again and shown back to them, never sent on its own. Before the
   // buttons it says what each answer does, and the safer way out when there
   // is one; approving a breaking change needs a note saying why.
-  let { op, actions = [], onDecided, versions = null, people = null } = $props();
+  let { op, actions = [], onDecided, versions = null, people = null, stage = null } = $props();
 
   const ns = $derived(op.metadata.namespace || '');
   const name = $derived(op.metadata.name);
@@ -37,8 +37,13 @@
   // Breaking matters before it ships: once applied, the question is only the Unknown.
   const breaking = $derived(!applied && isBreaking(st.plan?.verdicts));
   const asker = $derived(op.spec?.actor?.user ? personLabel(op.spec.actor.user, people) : 'whoever asked');
-  // A rejected promote that already shipped fails, and a failed promote rolls back.
-  const rollsBack = $derived(applied && op.spec?.type === 'pacto.dev/promote' && !!fromV);
+  // A rejected promote that already shipped fails, and the controller rolls a
+  // failed promote back to the pointer it moved from, unless that version
+  // already failed on this Stage (operation.go finish).
+  const before = $derived(st.pointer?.before || '');
+  const beforeFailed = $derived(!!before && (stage?.failedDigests ?? []).includes(before));
+  const rollsBack = $derived(applied && op.spec?.type === 'pacto.dev/promote' && !!before && !beforeFailed);
+  const backV = $derived(before ? versionLabel(before, versions) : '');
 
   // What each answer does, as the promoter acts on it.
   const ifApprove = $derived([
@@ -54,13 +59,15 @@
     ...(applied ? [] : ['You can undo it from the history of the environment.']),
   ]);
   const ifReject = $derived([
-    rollsBack ? `${env} rolls back to ${fromV}.` : `Nothing moves: ${env} keeps running ${fromV || 'what it runs now'}.`,
+    rollsBack ? `${env} rolls back to ${backV}.`
+      : applied ? `Nothing moves: ${env} keeps running ${toV}${beforeFailed ? `, because ${backV} already failed here` : ''}.`
+      : `Nothing moves: ${env} keeps running ${fromV || 'what it runs now'}.`,
     `The change ends, and ${asker} sees your name and note as the reason.`,
   ]);
   const approveLabel = $derived(asked === 'approve'
     ? `Approve shipping ${toV} to ${env}`
     : applied ? `Accept the unknown and keep ${toV}` : `Accept the unknown and ship ${toV}`);
-  const rejectLabel = $derived(rollsBack ? `Reject and roll back to ${fromV}` : 'Reject: nothing moves');
+  const rejectLabel = $derived(rollsBack ? `Reject and roll back to ${backV}` : 'Reject: nothing moves');
 
   // A decision kept across the fresh sign-in, if this is the change it was for.
   // Read once: the page is keyed by the change, so it never needs re-reading.

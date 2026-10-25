@@ -3,7 +3,7 @@ import {
   typeLabel, decisionLabel, shortDigest, decisionAsked, cliDecision, loginUrl,
   keepPending, pendingFor, dropPending, miraLink, predictionLabel, authTimeText,
   versionLabel, shortDigests, digestParts, sentence, timeLabel, personLabel, signIn, hostSignsIn,
-  verdictBadge, isBreaking, andList, changeSummary, actorBadge, autonomyOf, unknownHelp, undoneBy, rerunHint, UNKNOWN_DOCS,
+  verdictBadge, isBreaking, andList, changeSummary, actorBadge, autonomyOf, unknownHelp, undoneBy, undoCause, UNKNOWN_DOCS,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -283,9 +283,12 @@ describe('what a change says about itself', () => {
     expect(undoneBy(abcd, 'C', v('4'), 't3')?.operation).toBe('D');
   });
 
-  it('leaves out a re-run line with nothing to run', () => {
-    expect(rerunHint('no citation to run again')).toBe('');
-    expect(rerunHint(undefined)).toBe('');
-    expect(rerunHint('pacto delivery plan')).toBe('pacto delivery plan');
+  it('reads why the controller undid a change from its reason', () => {
+    expect(undoCause('RejectedByHuman', 'carol: risky')).toEqual({ by: 'carol' });
+    expect(undoCause('RejectedByHuman: carol: risky')).toEqual({ by: 'carol' });
+    expect(undoCause('RejectedByHuman')).toEqual({ text: 'a person rejected the unknown' });
+    expect(undoCause('VerifyFailed', 'health: x')).toEqual({ text: 'a check failed after release' });
+    expect(undoCause('ApplyFailed', 'boom')).toEqual({ text: 'the release did not apply' });
+    expect(undoCause()).toEqual({});
   });
 });

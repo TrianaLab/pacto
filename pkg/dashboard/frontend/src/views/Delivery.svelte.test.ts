@@ -483,9 +483,10 @@ describe('change detail', () => {
 
   it('accepts an unknown on a change held after it shipped', async () => {
     const op = heldOperation({ actions: ['accept-unknown', 'reject'], versions: { [D1]: '1.0.0', [D2]: '2.0.0' } });
-    op.operation.status = { ...op.operation.status, applied: true,
+    // The rollback goes to the pointer the change moved from, not to params.from.
+    op.operation.status = { ...op.operation.status, applied: true, pointer: { before: D1, after: D2 },
       plan: { ...op.operation.status.plan, verdicts: [{ gate: 'pacto.diff', phase: 'pre', result: 'Pass', citation: { classification: 'BREAKING' } }] } } as unknown as typeof op.operation.status;
-    op.operation.spec = { ...op.operation.spec, params: { from: D1, to: D2 } } as typeof op.operation.spec;
+    op.operation.spec = { ...op.operation.spec, params: { to: D2 } } as typeof op.operation.spec;
     fns.operation.mockResolvedValue(op);
     fns.decide.mockResolvedValue({ approval: 'op1-acc' });
     const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
@@ -502,6 +503,21 @@ describe('change detail', () => {
     accept.click();
     await settle();
     expect(fns.decide).toHaveBeenCalledWith('prod', 'op1', 'accept-unknown', '');
+    destroy();
+  });
+
+  it('promises no rollback when the version it would go back to already failed here', async () => {
+    const op = heldOperation({ actions: ['accept-unknown', 'reject'], versions: { [D1]: '1.0.0', [D2]: '2.0.0' } });
+    op.operation.status = { ...op.operation.status, applied: true, pointer: { before: D1, after: D2 } } as unknown as typeof op.operation.status;
+    op.operation.spec = { ...op.operation.spec, params: { from: D1, to: D2 } } as typeof op.operation.spec;
+    op.explanation.stage = { name: 'pay', failedDigests: [D1] } as unknown as typeof op.explanation.stage;
+    fns.operation.mockResolvedValue(op);
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(target.querySelector('[data-testid="decide-reject"]')?.textContent).toBe('Reject: nothing moves');
+    const said = text(target.querySelector('[data-testid="decision-consequences"]') as HTMLElement);
+    expect(said).toContain('Nothing moves: prod/pay keeps running 2.0.0, because 1.0.0 already failed here.');
+    expect(said).not.toContain('rolls back');
     destroy();
   });
 
@@ -1056,7 +1072,7 @@ describe('Unknown, proof, undo and autonomy', () => {
     op.operation.status = { ...op.operation.status, applied: true, plan: { ...op.operation.status.plan, floor: { decision: 'accept-unknown' } } } as unknown as typeof op.operation.status;
     op.explanation.verdicts = [
       { gate: 'health', phase: 'verify', result: 'Unknown', message: 'too few spans', citation: { provider: 'mira', contract: 'oci://r/p@sha256:' + 'c'.repeat(64) }, rerun: 'POST query' },
-      { gate: 'pacto.published', phase: 'pre', result: 'Pass', citation: { upstream: 'test/pay' }, rerun: 'no citation to run again' },
+      { gate: 'pacto.published', phase: 'pre', result: 'Pass', citation: { upstream: 'test/pay' }, rerun: '' },
       { gate: 'x', phase: 'pre', result: 'Pass' },
     ] as unknown as typeof op.explanation.verdicts;
     fns.operation.mockResolvedValue(op);
@@ -1079,13 +1095,12 @@ describe('Unknown, proof, undo and autonomy', () => {
     expect(text(proofs[0] as HTMLElement)).not.toContain('c'.repeat(64));
     expect(text(proofs[0] as HTMLElement)).toContain('Run it again');
     expect(text(proofs[1] as HTMLElement)).not.toContain('Run it again');
-    expect(text(actual)).not.toContain('no citation to run again');
     destroy();
   });
 
   it('says which change undid a failed one and that its version is blocked here', async () => {
     const op = heldOperation({ actions: [], versions: { [D1]: '2.3.0', [D2]: '2.4.0' } });
-    op.explanation.status = { phase: 'Concluded', outcome: 'Failed', verification: 'Unverified' } as unknown as typeof op.explanation.status;
+    op.explanation.status = { phase: 'Concluded', outcome: 'Failed', verification: 'Unverified', reason: 'VerifyFailed', message: 'health: 10 of 100 failed' } as unknown as typeof op.explanation.status;
     op.explanation.stage = { name: 'pay', failedDigests: [D2] } as unknown as typeof op.explanation.stage;
     op.operation.status = { phase: 'Concluded', applied: true, pointer: { before: D1, after: D2 }, times: { finished: '2026-10-21T10:00:00Z' } } as unknown as typeof op.operation.status;
     fns.operation.mockResolvedValue(op);
@@ -1101,6 +1116,16 @@ describe('Unknown, proof, undo and autonomy', () => {
     expect(undone.querySelector('a')?.getAttribute('href')).toBe('#/delivery/changes/prod/rb1');
     expect(text(undone)).toContain('2.4.0 is blocked on prod/pay');
     expect(r.target.querySelector('.page-hd-sub')?.textContent).toBe('Promote pay in prod from 2.3.0 to 2.4.0 ended: it failed, not verified.');
+    r.destroy();
+
+    // A person rejecting the unknown is not a failed check: the line names who rejected it.
+    op.explanation.status = { phase: 'Concluded', outcome: 'Failed', verification: 'Unverified', reason: 'RejectedByHuman', message: 'https://idp#carol: too risky' } as unknown as typeof op.explanation.status;
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    undone = r.target.querySelector('[data-testid="change-undone"]') as HTMLElement;
+    expect(text(undone)).toContain('Undone by rb1 (automatic: carol');
+    expect(text(undone)).toContain('rejected the unknown).');
+    expect(text(undone)).not.toContain('a check failed');
     r.destroy();
 
     // A person's rollback names the person; a history that cannot be read leaves the line out.
