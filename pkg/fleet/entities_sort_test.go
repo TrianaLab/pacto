@@ -29,10 +29,10 @@ func TestNaturalLess(t *testing.T) {
 }
 
 func TestHealthRank(t *testing.T) {
-	if !(healthRank(StatusInvalid) < healthRank(StatusCompliant)) {
+	if healthRank(StatusInvalid) >= healthRank(StatusCompliant) {
 		t.Error("Invalid must rank before Compliant")
 	}
-	if !(healthRank(string(SourceUnavailable)) < healthRank(string(SourceAvailable))) {
+	if healthRank(string(SourceUnavailable)) >= healthRank(string(SourceAvailable)) {
 		t.Error("an unavailable source must rank before an available one")
 	}
 	if healthRank("nonsense") <= healthRank(StatusNotEvaluated) {
