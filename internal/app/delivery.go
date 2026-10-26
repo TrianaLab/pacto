@@ -321,6 +321,12 @@ func (d *Delivery) spec(ctx context.Context, req delivery.Request, stage *delive
 		spec.Params = delivery.Params{From: cited.Status.Pointer.After, To: cited.Status.Pointer.Before, Undoes: cited.Metadata.UID}
 	case typ == delivery.TypeFreeze:
 		spec.Params = delivery.Params{From: stage.Status.Pointer}
+	case t.Facet == delivery.FacetRung:
+		// --to names the rung; from is the rung the Stage is on now.
+		spec.Params = delivery.Params{From: string(delivery.CurrentRung(stage.Spec, stage.Status)), To: req.To}
+		if req.From != "" {
+			spec.Params.From = req.From
+		}
 	case t.Facet == delivery.FacetPointer:
 		to, err := d.digest(ctx, stage, req.To)
 		if err != nil {

@@ -195,6 +195,14 @@ func TestDeliveryProposeGeneratesNameAndRollback(t *testing.T) {
 	if err != nil || op.Spec.Facet != delivery.FacetFreeze || op.Spec.Params.From == "" || op.Spec.Params.To != "" {
 		t.Fatalf("freeze names the version it stays on: %+v %v", op, err)
 	}
+	op, _, err = d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeAutonomy, To: "advise"})
+	if err != nil || op.Spec.Facet != delivery.FacetRung || op.Spec.Params.To != "advise" || op.Spec.Params.From != string(delivery.RungAutonomous) {
+		t.Fatalf("a rung change moves from the rung the Stage is on: %+v %v", op, err)
+	}
+	op, _, err = d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeAutonomy, From: "advise", To: "observe"})
+	if err != nil || op.Spec.Params != (delivery.Params{From: "advise", To: "observe"}) {
+		t.Fatalf("an explicit from is kept: %+v %v", op, err)
+	}
 }
 
 func TestDeliveryRefusals(t *testing.T) {
