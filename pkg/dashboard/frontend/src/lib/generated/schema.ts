@@ -1199,6 +1199,7 @@ export interface components {
             };
             provider: string;
             suite?: string;
+            suiteDigest?: string;
         };
         "Delivery.Gates": {
             impact?: components["schemas"]["Delivery.ImpactGate"];
