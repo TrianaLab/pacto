@@ -91,6 +91,10 @@ type PlanInput struct {
 	// only for a blocked change, and it must be bounded (ResolveRevision is).
 	// Nil reads nothing: every candidate is unknown.
 	Candidates func(ctx context.Context, stage StageObject, digest string) Revision
+	// Gates are the promoter's gate providers, like RequireOwnerTeam
+	// promoter configuration: the suites pre-gate reads which checks run on
+	// an eval provider. Nil, as a client plans, sees none.
+	Gates map[string]Gate
 }
 
 // PlanFor predicts what the promoter will do with an operation: its intent digest,
@@ -270,9 +274,17 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 // whether it ships unverified rather than the promoter failing or passing it.
 func suitesGate(in PlanInput, p *Plan) {
 	var missing []string
+	checks := in.To.Bundle.Contract.Checks
 	for _, c := range in.Stage.Gates.Verify.Checks {
-		if c.Suite != "" && !slices.ContainsFunc(in.To.Bundle.Contract.Checks, func(k contract.Check) bool { return k.Name == c.Suite }) {
+		_, eval := in.Gates[c.Provider].(Eval)
+		switch {
+		case c.Suite != "" && !slices.ContainsFunc(checks, func(k contract.Check) bool { return k.Name == c.Suite }):
 			missing = append(missing, "the check "+c.Name+" runs the suite "+c.Suite+", but the contract of "+short(p.To)+" ships no check of that name")
+		case c.Suite == "" && eval:
+			// An eval check with no suite runs the only check the version ships.
+			if _, why := pickSuite(checks, "", short(p.To)); why != "" {
+				missing = append(missing, "the check "+c.Name+" names no suite and "+why)
+			}
 		}
 	}
 	if len(missing) == 0 {

@@ -74,7 +74,7 @@ func (r *OperationReconciler) planOn(ctx context.Context, op *dv1.Operation, sta
 	if err != nil {
 		return delivery.Plan{}, err
 	}
-	in.RequireOwnerTeam = r.Policy.RequireOwnerTeam
+	in.RequireOwnerTeam, in.Gates = r.Policy.RequireOwnerTeam, r.Gates
 	return delivery.PlanFor(ctx, in), nil
 }
 

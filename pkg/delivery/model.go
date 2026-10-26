@@ -192,8 +192,10 @@ type GateCheck struct {
 	// +optional
 	Params map[string]string `json:"params,omitempty"`
 	// Suite names a check the version's contract ships (its checks[].name)
-	// for an eval provider to run. A version whose contract ships no check of
-	// that name is held for a person before it ships.
+	// for an eval provider to run; without it the provider runs the only check
+	// the version ships. A version whose contract ships no check of that name,
+	// or with no suite ships none or more than one, is held for a person
+	// before it ships.
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	Suite string `json:"suite,omitempty"`

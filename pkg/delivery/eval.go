@@ -90,6 +90,24 @@ func (e Eval) Check(ctx context.Context, in GateInput, params map[string]string)
 
 // suite sets in.Contract and in.Suite to the contract the version under
 // check ships and the suite in it the gate runs, or says why it cannot.
+// pickSuite is the check a Stage check's suite name picks from the checks a
+// contract ships: the one of that name, or with no name the only one. why
+// says why there is none.
+func pickSuite(checks []contract.Check, name, ref string) (c contract.Check, why string) {
+	i := slices.IndexFunc(checks, func(c contract.Check) bool { return c.Name == name })
+	switch {
+	case name == "" && len(checks) == 1:
+		i = 0
+	case name == "" && len(checks) == 0:
+		return c, "the contract " + ref + " ships no checks, so there is no suite to run"
+	case name == "":
+		return c, "the contract " + ref + " ships more than one check: name the one to run in the Stage check's suite"
+	case i < 0:
+		return c, "the Stage runs the suite " + name + ", but the contract " + ref + " ships no check of that name"
+	}
+	return checks[i], ""
+}
+
 func (e Eval) suite(ctx context.Context, in *GateInput, name string) string {
 	if e.Revision == nil || len(in.Subjects) == 0 {
 		return "the suite gate cannot read the contract the version ships"
@@ -102,18 +120,10 @@ func (e Eval) suite(ctx context.Context, in *GateInput, name string) string {
 	if rev.Bundle.Contract != nil {
 		checks = rev.Bundle.Contract.Checks
 	}
-	i := slices.IndexFunc(checks, func(c contract.Check) bool { return c.Name == name })
-	switch {
-	case name == "" && len(checks) == 1:
-		i = 0
-	case name == "" && len(checks) == 0:
-		return "the contract " + rev.ContractRef + " ships no checks, so there is no suite to run"
-	case name == "":
-		return "the contract " + rev.ContractRef + " ships more than one check: name the one to run in the Stage check's suite"
-	case i < 0:
-		return "the Stage runs the suite " + name + ", but the contract " + rev.ContractRef + " ships no check of that name"
+	c, why := pickSuite(checks, name, rev.ContractRef)
+	if why != "" {
+		return why
 	}
-	c := checks[i]
 	data, err := fs.ReadFile(rev.Bundle.FS, c.File)
 	if err != nil {
 		return fmt.Sprintf("reading the suite %s in %s: %v", c.File, rev.ContractRef, err)

@@ -135,7 +135,7 @@ func (r *StageReconciler) wouldHave(ctx context.Context, stage *dv1.Stage, spec 
 	if err != nil {
 		return delivery.Shadow{}, err
 	}
-	in.RequireOwnerTeam = r.Policy.RequireOwnerTeam
+	in.RequireOwnerTeam, in.Gates = r.Policy.RequireOwnerTeam, r.Gates
 	p := delivery.PlanFor(ctx, in)
 	e := delivery.Shadow{Candidate: to, From: from, Predicted: p.Predicted, IntentDigest: p.IntentDigest,
 		ImpactDigest: p.ImpactDigest, PlannedAt: ts(now), Question: p.Question}

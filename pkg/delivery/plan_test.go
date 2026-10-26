@@ -510,6 +510,48 @@ func autonomousPlan(in PlanInput) Plan {
 	return PlanFor(context.Background(), in)
 }
 
+// TestPlanHoldsAnEvalCheckWithNoSuite: an eval check that names no suite runs
+// the only check the version ships, so a version that ships none, or more
+// than one, is held for a person; a non-eval check without a suite holds
+// nothing.
+func TestPlanHoldsAnEvalCheckWithNoSuite(t *testing.T) {
+	from := rev(dA, c1, bundle("payments", "1.0.0"))
+	one := []contract.Check{{Name: "evals", File: "evals.yaml"}}
+	two := append(slices.Clone(one), contract.Check{Name: "refunds", File: "refunds.yaml"})
+	for _, tc := range []struct {
+		provider string
+		checks   []contract.Check
+		held     string
+	}{
+		{"runner", nil, "names no suite and the contract"},
+		{"runner", two, "ships more than one check"},
+		{"runner", one, ""},
+		{"webhook", nil, ""},
+	} {
+		to := rev(dB, c2, bundle("payments", "1.1.0"))
+		to.Bundle.Contract.Checks = tc.checks
+		snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		stage := stageSpec()
+		stage.Gates.Verify.Checks = []GateCheck{{Name: "quality", Provider: tc.provider}}
+		p := autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stage, From: from, To: to, Snapshot: snap, Class: ClassAgent,
+			Gates:  map[string]Gate{"runner": Eval{}, "webhook": Webhook{}},
+			Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}}})
+		if tc.held == "" {
+			if p.Predicted != PredictProceeds || slices.ContainsFunc(p.Verdicts, func(v Verdict) bool { return v.Gate == GateSuites }) {
+				t.Errorf("%s %d checks: %+v", tc.provider, len(tc.checks), p)
+			}
+			continue
+		}
+		v := verdict(t, p, GateSuites)
+		if p.Predicted != PredictHeld || v.Result != Unknown || p.Floor.Decision != AcceptUnknown || !strings.Contains(p.Question, tc.held) {
+			t.Errorf("%s %d checks: %+v %+v", tc.provider, len(tc.checks), p, v)
+		}
+	}
+}
+
 // TestPlanHoldsAVersionThatDoesNotShipTheSuite: a Stage check that runs a
 // suite the version's contract does not ship holds the promote for a person,
 // neither failing nor passing it; one it ships changes nothing.
