@@ -1193,6 +1193,7 @@ export interface components {
                 [key: string]: string;
             };
             provider: string;
+            suite?: string;
         };
         "Delivery.Gates": {
             impact?: components["schemas"]["Delivery.ImpactGate"];

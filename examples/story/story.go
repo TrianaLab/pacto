@@ -398,9 +398,20 @@ func observedBy(p delivery.PactoView, env string, callers []string) delivery.Pac
 	return p
 }
 
+// Checks are the verify checks a Stage of the story runs beside the Pacto
+// contract check: pay-agent's test Stage runs the eval suite pay-agent ships
+// through a suite runner and needs 95% of its cases to pass.
+func Checks(service, env string) []delivery.GateCheck {
+	if service != "pay-agent" || env != Test {
+		return nil
+	}
+	return []delivery.GateCheck{{Name: "evals", Provider: "evals", Suite: "evals", Params: map[string]string{"minPassRate": "0.95"}}}
+}
+
 func stage(service, env string) delivery.StageSpec {
 	s := delivery.StageSpec{Service: delivery.ServiceRef{Name: service}, Environment: env, ApplyRef: delivery.ApplyRef{Name: service}}
 	s.Gates.Impact.DeclaredConsumersOnly = true // an observed uncontracted caller still holds
+	s.Gates.Verify.Checks = Checks(service, env)
 	if env == Test {
 		s.Candidates.OCIRepositoryRef = &delivery.LocalRef{Name: service + "-candidates"}
 	} else {

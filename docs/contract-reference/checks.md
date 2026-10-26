@@ -58,13 +58,16 @@ gates:
     checks:
       - name: evals
         provider: evals                # gates.providers: {name: evals, type: eval, url: ...}
-        params: {suite: evals, minPassRate: "0.95"}
+        suite: evals                   # the checks[].name to run
+        params: {minPassRate: "0.95"}
 ```
 
 `suite` names the check to run; it can be left out when the version ships
-exactly one. A version that does not ship the named suite is held with a
-message that says so. The runner says how many cases passed and the sha256 of
-the suite it ran. `minPassRate` must be above 0.
+exactly one. A version that does not ship the named suite is held before it
+ships, with a message that says so: a person accepts it or it does not ship.
+It is neither failed nor passed. The runner says how many cases passed and the
+sha256 of the suite it ran, and only an answer about that exact sha256 counts.
+`minPassRate` must be above 0.
 
 ### An agent is a service
 

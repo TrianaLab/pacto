@@ -919,7 +919,7 @@ b_agent() {
   beat agent
   environment pay-agent test candidates true "$(cat <<YAML
       checks:
-      - {name: evals, provider: evals, params: {minPassRate: "0.95"}}
+      - {name: evals, provider: evals, suite: evals, params: {minPassRate: "0.95"}}
 YAML
 )"
   environment pay-agent prod upstream false

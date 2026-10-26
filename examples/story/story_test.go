@@ -309,9 +309,10 @@ func evals(t *testing.T, passed, total int) delivery.Verdict {
 		}
 		return delivery.Revision{ContractRef: "oci://registry.example/story/pay-agent@sha256:c0", Bundle: b}
 	}
-	return delivery.Eval{URL: srv.URL, Client: srv.Client(), Revision: ship}.Check(ctx, delivery.GateInput{
+	gates := map[string]delivery.Gate{"evals": delivery.Eval{URL: srv.URL, Client: srv.Client(), Revision: ship}}
+	return delivery.RunChecks(ctx, gates, Checks("pay-agent", Test), delivery.GateInput{
 		Service: delivery.ServiceRef{Name: "pay-agent"}, Subjects: []string{ArtifactDigest("pay-agent", "1.1.0")},
-	}, map[string]string{"minPassRate": "0.95"})
+	})[0]
 }
 
 // TestAgentPassingItsEvalsShips: the eval gate passes 1.0.0, which passed

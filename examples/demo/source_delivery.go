@@ -118,6 +118,7 @@ func newStage(service, env string) *delivery.StageObject {
 	s := &delivery.StageObject{Metadata: delivery.ObjectMeta{Name: service, Namespace: env, UID: "stage-" + env + "-" + service}}
 	s.Spec = delivery.StageSpec{Service: delivery.ServiceRef{Name: service}, Environment: env, ApplyRef: delivery.ApplyRef{Name: service}}
 	s.Spec.Gates.Impact.DeclaredConsumersOnly = true // every service in the story has a contract
+	s.Spec.Gates.Verify.Checks = story.Checks(service, env)
 	// The simulated Stages have already climbed the autonomy ladder, so the
 	// story's agent promotes plan as they would on a real autonomous Stage.
 	s.Status.Rung = delivery.RungAutonomous
