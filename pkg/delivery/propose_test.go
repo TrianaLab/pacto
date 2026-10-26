@@ -26,6 +26,14 @@ func impactPlan(completeness string, r Result) *Plan {
 	return &Plan{Verdicts: []Verdict{{Gate: GateImpact, Result: r, Message: "m", Citation: map[string]string{"completeness": completeness}}}}
 }
 
+// uncontractedPlan is a complete, passing impact verdict on a change that
+// names runtime callers with no contract under key.
+func uncontractedPlan(key string) *Plan {
+	p := impactPlan("complete", Pass)
+	p.Verdicts[0].Citation[key] = "1"
+	return p
+}
+
 func TestBelow(t *testing.T) {
 	if r, ok := RungAutonomous.Below(); !ok || r != RungAutoNonBreaking {
 		t.Fatal(r)
@@ -96,6 +104,8 @@ func TestProposeRungPromotes(t *testing.T) {
 		{&Plan{}, []string{BlockerNeedsClearedBreaking, BlockerPartialGraph}},
 		{impactPlan("partial", Unknown), []string{BlockerNeedsClearedBreaking, BlockerPartialGraph}},
 		{impactPlan("complete", Unknown), []string{BlockerNeedsClearedBreaking, BlockerUndeclaredRange}},
+		{uncontractedPlan("uncontracted"), []string{BlockerNeedsClearedBreaking, BlockerMissingContract}},
+		{uncontractedPlan("callersUnseen"), []string{BlockerNeedsClearedBreaking, BlockerMissingContract}},
 	} {
 		if p := ProposeRung(spec, auto, c.plan); p.Rung != "" || !slices.Equal(kinds(p), c.want) {
 			t.Fatalf("%+v: %+v", c.plan, p)

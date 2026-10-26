@@ -388,6 +388,20 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 			unknown = append(unknown, c)
 		}
 	}
+	// What keeps autonomous from being proposed whatever the classification:
+	// runtime callers with no contract, and callers the graph cannot see.
+	uncontracted := 0
+	for _, c := range res.Consumers {
+		if c.Uncontracted {
+			uncontracted++
+		}
+	}
+	if uncontracted > 0 {
+		v.Citation["uncontracted"] = strconv.Itoa(uncontracted)
+	}
+	if n := len(callersUnseen(in.Snapshot, fleet.NewServiceKeyDomain(contract.OCIDomain(in.To.ContractRef), in.Stage.Service.Name))); n > 0 {
+		v.Citation["callersUnseen"] = strconv.Itoa(n)
+	}
 	unseenConsumers := unseenConsumersOf(in, res, unknown)
 	unseen := slices.Clone(unseenConsumers)
 	if len(res.Consumers) == 0 && res.Classification != diff.NonBreaking.String() && !in.Stage.Gates.Impact.DeclaredConsumersOnly {

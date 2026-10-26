@@ -197,7 +197,7 @@ func TestRuntimeClaimGate(t *testing.T) {
 // confirmed Fail marks it failed and raises exactly one rollback; Unknown and a
 // check inside the interval do nothing.
 func TestRecheckAfterRelease(t *testing.T) {
-	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, "alice"))
 	wantOutcome(t, e.shipB(), delivery.Succeeded, "Verified")
 	shippedAt := e.now
 
@@ -299,7 +299,7 @@ func TestRecheckFreezesWhenItCannotRollBack(t *testing.T) {
 // the Stage unfrozen, so the next re-check raises it again; once frozen, no
 // re-check runs that could.
 func TestRecheckRaisesTheFreezeFirst(t *testing.T) {
-	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, "alice"))
 	e.shipB()
 	e.setStage(func(s *delivery.StageStatus) { s.RolledBack = []string{"uid-p1"} })
 	e.health.result = delivery.Fail
@@ -515,7 +515,7 @@ func TestRecheckNeverUndoesAChoice(t *testing.T) {
 		"promote on auto-hold":   {delivery.TypePromote, true},
 	} {
 		t.Run(name, func(t *testing.T) {
-			e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+			e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, "alice"))
 			e.shipB()
 			o := e.getOp("p1")
 			o.Spec.Type = c.typ
@@ -561,7 +561,7 @@ func TestRecheckDropsAStaleVerdict(t *testing.T) {
 			"lock taken":    func(s *delivery.StageStatus) { s.Locks = map[string]string{"pointer": "uid-p2"} },
 		} {
 			t.Run(string(res)+" "+name, func(t *testing.T) {
-				e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+				e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, "alice"))
 				e.shipB()
 				e.health.result = res
 				e.health.during = func() { e.setStage(mutate) }
@@ -576,7 +576,7 @@ func TestRecheckDropsAStaleVerdict(t *testing.T) {
 		}
 	}
 	// The Stage moves after the fresh read, before the verdict is written.
-	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, "alice"))
 	e.shipB()
 	e.health.result = delivery.Fail
 	e.st.APIReader = &afterFirstGet{Reader: e.c, fn: func() {
@@ -589,7 +589,7 @@ func TestRecheckDropsAStaleVerdict(t *testing.T) {
 		t.Fatalf("a stale verdict changed the Stage: %+v ops=%d", s.Status, len(e.ops()))
 	}
 	// A Stage that cannot be read again is an error, retried.
-	e = healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e = healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, "alice"))
 	e.shipB()
 	e.health.result = delivery.Fail
 	e.health.during = func() { e.setFail("get/Stage", true) }
@@ -603,7 +603,7 @@ func TestRecheckDropsAStaleVerdict(t *testing.T) {
 // rollback with the bad version still Verified; a rollback that could not be
 // created is raised on the next pass.
 func TestRecheckRecordsBeforeItRaises(t *testing.T) {
-	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, "alice"))
 	e.shipB()
 	e.health.result = delivery.Fail
 	e.fails["status/Stage"] = true
@@ -633,7 +633,7 @@ func TestRecheckRecordsBeforeItRaises(t *testing.T) {
 // concluded without moving the pointer, the failed version stays and no
 // rollback is raised again: not even a create is attempted.
 func TestRecheckRaisesNoSecondRollback(t *testing.T) {
-	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, "alice"))
 	e.shipB()
 	e.health.result = delivery.Fail
 	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 2 {

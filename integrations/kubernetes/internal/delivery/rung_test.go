@@ -9,8 +9,11 @@ package delivery
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
+
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -24,6 +27,10 @@ func observeStage() *dv1.Stage {
 	s.Status.ObservedRevision = &delivery.ObservedRevision{Digest: dA, Since: "2026-10-20T09:00:00Z"}
 	s.Status.Conditions = []delivery.Condition{{Type: conditionReady, Status: statusTrue, Reason: delivery.ReasonObservingGuarded}}
 	s.Status.Proposal = &delivery.Proposal{Rung: delivery.RungAdvise, Evidence: []string{dA}}
+	// The status that earned it: autonomyGate recomputes the proposal.
+	for range delivery.DefaultProposeAfter {
+		s.Status.Shadow = append(s.Status.Shadow, delivery.Shadow{Candidate: dA, ObservedAt: "2026-10-20T09:00:00Z", Verification: delivery.Verified})
+	}
 	return s
 }
 
@@ -134,6 +141,32 @@ func TestAutonomyLowerConcludesWithoutAPerson(t *testing.T) {
 	}
 	e.create(opObj("again", delivery.TypeAutonomy, "autonomous", "advise", bot))
 	wantOutcome(t, e.drive("again"), delivery.Rejected, "RungMoved")
+}
+
+// TestLowerToObserveClearsThePointer: lowered to observe, GitOps owns the
+// pointer again and moves it; labelling the applyRef to leave observe is no
+// edit outside Pacto, so nothing is witnessed and nothing freezes.
+func TestLowerToObserveClearsThePointer(t *testing.T) {
+	e := baseEnv(t, opObj("down", delivery.TypeAutonomy, "advise", "observe", "alice"))
+	e.setStage(func(st *delivery.StageStatus) { st.Rung = delivery.RungAdvise })
+	wantOutcome(t, e.drive("down"), delivery.Succeeded, "RungChanged")
+	if st := e.getStage().Status; st.Rung != delivery.RungObserve || st.Pointer != "" {
+		t.Fatalf("observe clears the pointer: %+v", st)
+	}
+	u := &unstructured.Unstructured{}
+	u.SetGroupVersionKind(gvkOCI)
+	_ = e.c.Get(context.Background(), keyOf("payments"), u)
+	_ = unstructured.SetNestedField(u.Object, dB, "spec", "ref", "digest")
+	if err := e.c.Update(context.Background(), u); err != nil {
+		t.Fatal(err)
+	}
+	e.apply(dB) // GitOps moved it; the label is on again
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if st := e.getStage().Status; st.Frozen || slices.ContainsFunc(e.ops(), func(o dv1.Operation) bool { return o.Spec.Witnessed }) {
+		t.Fatalf("no override and no freeze: %+v", st)
+	}
 }
 
 // TestAutonomyRungMovedAtTheSwap: the compare-and-swap that concludes a rung

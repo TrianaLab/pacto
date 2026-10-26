@@ -109,7 +109,11 @@ func ClearedBreaking(p *Plan) bool {
 // running service's team, never by the promoter. Leaving observe needs the
 // applyRef labelled and an observed digest to adopt as the pointer; an
 // automatic rung needs the recorder, so every grant of autonomy is a signed
-// record. A raise above what Pacto proposes is Unknown.
+// record. A raise passes only when Pacto proposes exactly the rung above the
+// current one, both in the stored proposal and in a proposal recomputed from
+// in.Status, so a stale proposal never lets an unknown pass; anything else is
+// Unknown. The promoter may only make the automatic step-down: one rung down
+// from an automatic rung.
 func autonomyGate(in PlanInput, p *Plan) {
 	from, to := Rung(in.Spec.Params.From), Rung(in.Spec.Params.To)
 	v := Verdict{Gate: GateAutonomy, Phase: "pre", Result: Fail, Citation: map[string]string{"from": string(from), "to": string(to)}}
@@ -124,6 +128,9 @@ func autonomyGate(in PlanInput, p *Plan) {
 		return
 	case to.level() < from.level() && in.Class == ClassAgent && to == RungObserve:
 		v.Message = "an agent may not lower a Stage to observe: like a freeze, it stops a Stage moving"
+		return
+	case to.level() < from.level() && in.Class == ClassController && (!from.Automatic() || from.level()-to.level() != 1):
+		v.Message = "the promoter only steps a Stage down one rung from an automatic rung"
 		return
 	case to.level() < from.level():
 		v.Result, v.Message = Pass, "lowering "+stage+" from "+string(from)+" to "+string(to)+" needs no approval"
@@ -151,7 +158,7 @@ func autonomyGate(in PlanInput, p *Plan) {
 	case in.From.Bundle == nil || in.From.Bundle.Contract == nil:
 		v.Result = Unknown
 		v.Message = "the contract running on " + stage + " (" + short(in.From.Digest) + ") cannot be read, so Pacto cannot tell whose team decides: " + cmp.Or(in.From.Err, "nothing is known to run")
-	case prop != nil && to.level() <= prop.Rung.level():
+	case prop != nil && prop.Rung == to && earned(in, to):
 		v.Result, v.Message = Pass, "Pacto proposes "+string(prop.Rung)+": "+strings.Join(prop.Evidence, ", ")
 		return
 	default:
@@ -160,6 +167,21 @@ func autonomyGate(in PlanInput, p *Plan) {
 	}
 	p.Floor.Decision = AcceptUnknown
 	p.Question = v.Message + ". Accept the unknown and raise it anyway?"
+}
+
+// earned reports whether a proposal recomputed from in.Status still proposes
+// to, the rung right above the Stage's current one. The graph blockers come
+// from the newest promote's plan, which only the stored proposal read, so
+// they are left to it.
+func earned(in PlanInput, to Rung) bool {
+	cur := CurrentRung(in.Stage, in.Status)
+	if cur.level() < 0 || cur.level()+1 >= len(rungOrder) || rungOrder[cur.level()+1] != to {
+		return false
+	}
+	fresh := ProposeRung(in.Stage, in.Status, nil)
+	return !slices.ContainsFunc(fresh.Blockers, func(b Blocker) bool {
+		return !slices.Contains([]string{BlockerPartialGraph, BlockerUndeclaredRange, BlockerMissingContract}, b.Kind)
+	})
 }
 
 // blockerText lists a proposal's blockers for a message.
@@ -209,6 +231,7 @@ const (
 	BlockerIncident             = "incident"
 	BlockerPartialGraph         = "partial-graph"
 	BlockerUndeclaredRange      = "undeclared-range"
+	BlockerMissingContract      = "missing-contract"
 )
 
 // ProposeRung is the next rung Pacto proposes for a Stage, or the blockers
@@ -324,7 +347,8 @@ scan:
 
 // graphReady blocks autonomous until a breaking change the graph cleared
 // verified on this rung and the newest promote saw a complete graph that
-// left nothing unknown.
+// left nothing unknown and no runtime caller without a contract, whatever
+// the change's classification.
 func graphReady(latest *Plan, cleared bool, service string, block func(kind, subject, msg string)) {
 	if !cleared {
 		block(BlockerNeedsClearedBreaking, service, "no breaking change that every consumer accepts has verified here yet, and that is the one thing autonomous adds")
@@ -340,8 +364,10 @@ func graphReady(latest *Plan, cleared bool, service string, block func(kind, sub
 		block(BlockerPartialGraph, service, "no promote has projected a change onto the graph yet")
 	case v.Citation["completeness"] != string(fleet.CompletenessComplete):
 		block(BlockerPartialGraph, service, "the newest promote saw a "+cmp.Or(v.Citation["completeness"], "unknown")+" graph: "+v.Message)
+	case v.Citation["uncontracted"] != "" || v.Citation["callersUnseen"] != "":
+		block(BlockerMissingContract, service, fmt.Sprintf("the newest promote saw %s runtime callers with no contract and %s callers the graph cannot see: give each a contract",
+			cmp.Or(v.Citation["uncontracted"], "0"), cmp.Or(v.Citation["callersUnseen"], "0")))
 	case v.Result != Pass:
-		// ponytail: missing-contract waits for the observed uncontracted callers.
 		block(BlockerUndeclaredRange, service, v.Message)
 	}
 }

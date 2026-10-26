@@ -67,8 +67,16 @@ func TestPlanUncontractedCallerHoldsABreakingChange(t *testing.T) {
 		}
 	}
 	from, to = minorSides()
-	if p := PlanFor(context.Background(), planIn(t, from, to, paymentsPacto(complete(), legacy))); p.Predicted != PredictProceeds {
+	p := PlanFor(context.Background(), planIn(t, from, to, paymentsPacto(complete(), legacy)))
+	if p.Predicted != PredictProceeds {
 		t.Fatalf("a non-breaking change keeps shipping past an uncontracted caller: %+v", p)
+	}
+	// It still cites the caller, which keeps autonomous from being proposed.
+	if v := verdict(t, p, GateImpact); v.Citation["uncontracted"] != "1" {
+		t.Fatalf("the uncontracted caller is cited: %+v", v)
+	}
+	if got := ProposeRung(StageSpec{}, StageStatus{Rung: RungAutoNonBreaking}, &p); !slices.Contains(kinds(got), BlockerMissingContract) {
+		t.Fatalf("missing-contract blocks autonomous: %+v", got)
 	}
 }
 
@@ -102,8 +110,12 @@ func TestPlanCallerCoverageIsPerProvider(t *testing.T) {
 		}
 		from, to = minorSides()
 		in = planIn(t, from, to, c.pacto)
-		if p := PlanFor(context.Background(), in); p.Predicted != PredictProceeds {
+		p = PlanFor(context.Background(), in)
+		if p.Predicted != PredictProceeds {
 			t.Fatalf("%s: coverage holds only a change that is not plainly non-breaking: %+v", name, p)
+		}
+		if v := verdict(t, p, GateImpact); v.Citation["callersUnseen"] != "1" {
+			t.Fatalf("%s: unseen callers are cited whatever the classification: %+v", name, v)
 		}
 	}
 	from, to := breakingSides()

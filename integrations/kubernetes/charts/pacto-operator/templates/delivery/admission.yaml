@@ -1,6 +1,6 @@
 {{- if .Values.delivery.enabled }}
 {{- if not (or .Values.delivery.admissionPolicies.enabled .Values.delivery.admissionPolicies.allowUnguarded) }}
-{{- fail "admissionPolicies.enabled=false leaves every actor, approver and the pointer unguarded: anyone who may create an Operation or an Approval can claim to be anyone. Set admissionPolicies.allowUnguarded=true only if you accept that." }}
+{{- fail "delivery.admissionPolicies.enabled=false leaves every actor, approver and the pointer unguarded: anyone who may create an Operation or an Approval can claim to be anyone. Set delivery.admissionPolicies.allowUnguarded=true only if you accept that." }}
 {{- end }}
 {{- if .Values.delivery.admissionPolicies.enabled }}
 {{- $fullname := include "pacto-operator.delivery.fullname" . }}
@@ -49,10 +49,11 @@ spec:
       expression: "has(object.spec.params) && has(object.spec.params.to) ? object.spec.params.to : ''"
     - name: rungs
       expression: "{'observe': 0, 'advise': 1, 'auto-nonbreaking': 2, 'autonomous': 3}"
-    - name: lowers
+    - name: stepsDown
       expression: >-
         variables.rungFrom in variables.rungs && variables.rungTo in variables.rungs &&
-        variables.rungs[variables.rungTo] < variables.rungs[variables.rungFrom]
+        variables.rungs[variables.rungFrom] >= 2 &&
+        variables.rungs[variables.rungFrom] - variables.rungs[variables.rungTo] == 1
   validations:
     - expression: "object.spec.actor.user == request.userInfo.username"
       message: "spec.actor.user must be the user creating the operation"
@@ -87,8 +88,8 @@ spec:
       reason: Forbidden
     - expression: >-
         object.spec.type != 'delivery.pacto.trianalab.io/autonomy' || variables.breakGlass ||
-        (request.userInfo.username == '{{ $controller }}' ? variables.lowers : !(variables.agent && variables.rungTo == 'observe'))
-      message: "the promoter only lowers a rung, and an agent never lowers a Stage to observe"
+        (request.userInfo.username == '{{ $controller }}' ? variables.stepsDown : !(variables.agent && variables.rungTo == 'observe'))
+      message: "the promoter only steps a Stage down one rung from an automatic rung, and an agent never lowers a Stage to observe"
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1

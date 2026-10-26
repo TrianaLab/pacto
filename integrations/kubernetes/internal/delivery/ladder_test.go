@@ -308,8 +308,7 @@ func TestStepDownRepeatedFailures(t *testing.T) {
 	}
 }
 
-// TestNoStepDown: Unknown never steps down, nor does a failure of a promote a
-// person or agent chose.
+// TestNoStepDown: Unknown never steps down.
 func TestNoStepDown(t *testing.T) {
 	e, _ := stepDownEnv(t, delivery.RungAutonomous, promoterSA, delivery.Unknown)
 	e.now = e.now.Add(2 * time.Minute)
@@ -324,10 +323,19 @@ func TestNoStepDown(t *testing.T) {
 			t.Fatalf("an Unknown verify never steps down: %+v", x.Spec)
 		}
 	}
-	e, o = stepDownEnv(t, delivery.RungAutonomous, bot, delivery.Fail)
+}
+
+// TestStepDownAfterAnAgentPromote: on autonomous an agent's promote ships
+// with no person, so its confirmed failure steps the Stage down like the
+// promoter's would.
+func TestStepDownAfterAnAgentPromote(t *testing.T) {
+	e, o := stepDownEnv(t, delivery.RungAutonomous, bot, delivery.Fail)
 	wantOutcome(t, o, delivery.Failed, "VerifyFailed")
-	if r := e.getStage().Status.Rung; r != delivery.RungAutonomous || slices.ContainsFunc(e.ops(), func(x dv1.Operation) bool { return x.Spec.Type == delivery.TypeAutonomy }) {
-		t.Fatalf("an agent's promote failing steps nothing down: %s", r)
+	if o.Status.ActorClass != delivery.ClassAgent || len(o.Status.Approvals) != 0 {
+		t.Fatalf("an agent's promote with no approval: %+v", o.Status)
+	}
+	if sd := e.getOp("p1-stepdown"); sd.Spec.Params != (delivery.Params{From: "autonomous", To: "auto-nonbreaking"}) {
+		t.Fatalf("an agent's automatic promote failing steps down: %+v", sd.Spec)
 	}
 }
 

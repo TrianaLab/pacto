@@ -58,20 +58,20 @@ tests:
           path: 'spec.validations[?(@.message == "only a person, break-glass or the promoter may freeze a Stage; agents may not")].expression'
           value: "object.spec.type != 'delivery.pacto.trianalab.io/freeze' || variables.breakGlass || !variables.agent || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery'"
 
-  - it: lets the promoter only lower a rung, and never an agent to observe
+  - it: lets the promoter only step down one rung from an automatic rung, and never an agent to observe
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     documentSelector:
-      path: 'spec.validations[?(@.message == "the promoter only lowers a rung, and an agent never lowers a Stage to observe")].message'
-      value: "the promoter only lowers a rung, and an agent never lowers a Stage to observe"
+      path: 'spec.validations[?(@.message == "the promoter only steps a Stage down one rung from an automatic rung, and an agent never lowers a Stage to observe")].message'
+      value: "the promoter only steps a Stage down one rung from an automatic rung, and an agent never lowers a Stage to observe"
     asserts:
       - equal:
-          path: 'spec.validations[?(@.message == "the promoter only lowers a rung, and an agent never lowers a Stage to observe")].expression'
-          value: "object.spec.type != 'delivery.pacto.trianalab.io/autonomy' || variables.breakGlass || (request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery' ? variables.lowers : !(variables.agent && variables.rungTo == 'observe'))"
+          path: 'spec.validations[?(@.message == "the promoter only steps a Stage down one rung from an automatic rung, and an agent never lowers a Stage to observe")].expression'
+          value: "object.spec.type != 'delivery.pacto.trianalab.io/autonomy' || variables.breakGlass || (request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery' ? variables.stepsDown : !(variables.agent && variables.rungTo == 'observe'))"
       - equal:
-          path: 'spec.variables[?(@.name == "lowers")].expression'
-          value: "variables.rungFrom in variables.rungs && variables.rungTo in variables.rungs && variables.rungs[variables.rungTo] < variables.rungs[variables.rungFrom]"
+          path: 'spec.variables[?(@.name == "stepsDown")].expression'
+          value: "variables.rungFrom in variables.rungs && variables.rungTo in variables.rungs && variables.rungs[variables.rungFrom] >= 2 && variables.rungs[variables.rungFrom] - variables.rungs[variables.rungTo] == 1"
 
   - it: keeps the rung, proposal, shadow and observed revision out of the recorder's reach
     capabilities:

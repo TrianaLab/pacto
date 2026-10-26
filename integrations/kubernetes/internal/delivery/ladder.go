@@ -218,15 +218,24 @@ func (r *StageReconciler) propose(ctx context.Context, stage *dv1.Stage) error {
 			latest = ops[i].Status.Plan
 		}
 	}
-	p := delivery.ProposeRung(stage.Spec, stage.Status, latest)
-	if reflect.DeepEqual(p, stage.Status.Proposal) {
+	if reflect.DeepEqual(delivery.ProposeRung(stage.Spec, stage.Status, latest), stage.Status.Proposal) {
 		return nil
 	}
-	return r.updateStatus(ctx, stage, func(s *dv1.Stage) { s.Status.Proposal = p })
+	lastOp := stage.Status.LastOp
+	// The proposal is computed again from the fresh status, so a stale read
+	// never writes a proposal made for an earlier rung. latest belongs to
+	// lastOp: when the fresh status moved the pointer since, the next
+	// reconcile proposes from that operation's plan.
+	return r.updateStatus(ctx, stage, func(s *dv1.Stage) {
+		if s.Status.LastOp == lastOp {
+			s.Status.Proposal = delivery.ProposeRung(s.Spec, s.Status, latest)
+		}
+	})
 }
 
-// raiseStepDown lowers the Stage one rung after a promote the promoter
-// raised on an automatic rung failed on a confirmed Fail: an autonomy
+// raiseStepDown lowers the Stage one rung after a promote that shipped with
+// no person on an automatic rung (the promoter or an agent raised it and
+// nobody approved it) failed on a confirmed Fail: an autonomy
 // operation raised by the promoter, which the recorder signs when it is
 // writing, needing no approval, never below observe. Concluding it
 // restarts the evidence count (delivery.ProposeRung). Its name is derived
@@ -236,7 +245,8 @@ func (r *StageReconciler) propose(ctx context.Context, stage *dv1.Stage) error {
 // rung would raise a step-down the swap refuses. A non-empty squat says
 // someone else took that name.
 func raiseStepDown(ctx context.Context, c client.Client, policy delivery.ClassPolicy, failed *dv1.Operation, stage *dv1.Stage, why string, cause *delivery.Verdict) (squat string, _ error) {
-	if failed.Spec.Type != delivery.TypePromote || failed.Status.ActorClass != delivery.ClassController || cause == nil || cause.Result != delivery.Fail {
+	if failed.Spec.Type != delivery.TypePromote || failed.Status.ActorClass == delivery.ClassHuman || len(failed.Status.Approvals) > 0 ||
+		cause == nil || cause.Result != delivery.Fail {
 		return "", nil
 	}
 	from := delivery.CurrentRung(stage.Spec, stage.Status)
@@ -251,7 +261,7 @@ func raiseStepDown(ctx context.Context, c client.Client, policy delivery.ClassPo
 	op.Spec = delivery.OperationSpec{
 		Type: delivery.TypeAutonomy, Stage: stage.Name, Facet: delivery.FacetRung,
 		Params: delivery.Params{From: string(from), To: string(to)},
-		Reason: "automatic step-down: " + failed.Name + ", which the promoter shipped on " + string(from) + ", failed (" + why + ")",
+		Reason: "automatic step-down: " + failed.Name + ", which shipped with no person on " + string(from) + ", failed (" + why + ")",
 		Actor:  delivery.Actor{User: policy.ControllerUser},
 		Cause:  &delivery.Cause{Operation: string(failed.UID), Verdict: cause},
 	}

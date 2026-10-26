@@ -2,6 +2,8 @@ package delivery
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -129,7 +131,10 @@ func TestAutonomyGate(t *testing.T) {
 	running := rev(dA, c1, bundle("payments", "1.0.0"))
 	observed := &ObservedRevision{Digest: dA, Since: "2026-10-20T10:00:00Z"}
 	ready := StageStatus{Pointer: dA, Conditions: []Condition{readyGuarded(), recordStoreReady()}, ObservedRevision: observed,
-		Proposal: &Proposal{Rung: RungAutonomous, Evidence: []string{dA}}}
+		Proposal: &Proposal{Rung: RungAutoNonBreaking, Evidence: []string{"p1"}}}
+	for i := range DefaultProposeAfter {
+		ready.Stream.Concluded = append(ready.Stream.Concluded, promoted(fmt.Sprint("p", i), Succeeded, Verified, false))
+	}
 	fails := func(name string, p Plan, want string) {
 		t.Helper()
 		v := verdict(t, p, GateAutonomy)
@@ -137,15 +142,21 @@ func TestAutonomyGate(t *testing.T) {
 			t.Fatalf("%s: want a refusal naming %q, got %+v", name, want, p)
 		}
 	}
-	// Lowering needs no approval, from anyone but the promoter's raise.
-	for _, class := range []ActorClass{ClassHuman, ClassAgent, ClassController} {
+	// Lowering needs no approval. The promoter only steps down one rung
+	// from an automatic rung.
+	for _, class := range []ActorClass{ClassHuman, ClassAgent} {
 		if p := autonomy(RungAutonomous, RungAdvise, StageStatus{}, class, Revision{}); p.Predicted != PredictProceeds || p.Floor.Human {
 			t.Fatalf("%s lowering: %+v", class, p)
 		}
 	}
-	if p := autonomy(RungAdvise, RungObserve, StageStatus{}, ClassController, Revision{}); p.Predicted != PredictProceeds {
-		t.Fatalf("the promoter may lower to observe: %+v", p)
+	for _, from := range []Rung{RungAutonomous, RungAutoNonBreaking} {
+		to, _ := from.Below()
+		if p := autonomy(from, to, StageStatus{}, ClassController, Revision{}); p.Predicted != PredictProceeds || p.Floor.Human {
+			t.Fatalf("the promoter's step-down from %s: %+v", from, p)
+		}
 	}
+	fails("the promoter lowering two rungs", autonomy(RungAutonomous, RungAdvise, StageStatus{}, ClassController, Revision{}), "one rung from an automatic rung")
+	fails("the promoter lowering to observe", autonomy(RungAdvise, RungObserve, StageStatus{}, ClassController, Revision{}), "one rung from an automatic rung")
 	fails("an agent lowering to observe", autonomy(RungAdvise, RungObserve, StageStatus{}, ClassAgent, Revision{}), "may not lower a Stage to observe")
 	fails("not a rung", autonomy(RungAdvise, "yolo", ready, ClassHuman, running), "is not a rung")
 	fails("no change", autonomy(RungAdvise, RungAdvise, ready, ClassHuman, running), "already on")
@@ -166,10 +177,10 @@ func TestAutonomyGate(t *testing.T) {
 		t.Fatalf("advise needs no recorder: %+v", p)
 	}
 	// Stale From is rejected like PointerMoved.
-	stale := PlanFor(context.Background(), PlanInput{Spec: OperationSpec{Type: TypeAutonomy, Facet: FacetRung, Params: Params{From: "observe", To: "advise"}},
+	staleFrom := PlanFor(context.Background(), PlanInput{Spec: OperationSpec{Type: TypeAutonomy, Facet: FacetRung, Params: Params{From: "observe", To: "advise"}},
 		Status: StageStatus{Rung: RungAdvise}, Class: ClassHuman})
-	if stale.Predicted != PredictRejected || !strings.HasPrefix(stale.Conflicts[0], "RungMoved: ") {
-		t.Fatalf("stale from: %+v", stale)
+	if staleFrom.Predicted != PredictRejected || !strings.HasPrefix(staleFrom.Conflicts[0], "RungMoved: ") {
+		t.Fatalf("stale from: %+v", staleFrom)
 	}
 	// A raise always asks a person from the running service's team.
 	for _, class := range []ActorClass{ClassHuman, ClassAgent, ClassBreakGlass} {
@@ -178,6 +189,18 @@ func TestAutonomyGate(t *testing.T) {
 			strings.Join(p.Floor.Owners, ",") != "team-payments" || !strings.Contains(p.Question, "Raise payments-prod from advise to auto-nonbreaking?") {
 			t.Fatalf("%s raise: %+v", class, p)
 		}
+	}
+	// A stale proposal for another rung, or one the status no longer earns,
+	// never passes.
+	stale := ready
+	stale.Proposal = &Proposal{Rung: RungAutonomous}
+	if v := verdict(t, autonomy(RungAdvise, RungAutoNonBreaking, stale, ClassHuman, running), GateAutonomy); v.Result != Unknown {
+		t.Fatalf("a proposal made for another rung: %+v", v)
+	}
+	lapsed := ready
+	lapsed.Stream.Concluded = append(slices.Clone(ready.Stream.Concluded), Concluded{UID: "rb", Type: TypeRollback, Outcome: Succeeded})
+	if v := verdict(t, autonomy(RungAdvise, RungAutoNonBreaking, lapsed, ClassHuman, running), GateAutonomy); v.Result != Unknown {
+		t.Fatalf("an incident after the proposal: %+v", v)
 	}
 	// Above the proposal is Unknown, citing the blockers.
 	low := ready
@@ -250,7 +273,7 @@ func TestRungRefusalAndChange(t *testing.T) {
 	st.ObservedRevision.Digest = dB
 	down := OperationSpec{Type: TypeAutonomy, Facet: FacetRung, Params: Params{From: "advise", To: "observe"}}
 	ApplyEffects(&st, "lower", "u3", down, OperationStatus{}, Conclusion{Outcome: Succeeded})
-	if st.Rung != RungObserve || st.Pointer != dA {
-		t.Fatalf("lowering keeps the pointer: %+v", st)
+	if st.Rung != RungObserve || st.Pointer != "" {
+		t.Fatalf("lowering to observe hands the pointer back to GitOps: %+v", st)
 	}
 }

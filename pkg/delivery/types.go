@@ -162,7 +162,7 @@ var tier0 = []OperationType{
 		Raisers:           []ActorClass{ClassHuman, ClassAgent, ClassBreakGlass, ClassController},
 		PreGates:          []string{GateAutonomy},
 		VerifyGates:       []string{},
-		ApprovalFloor:     "raise one rung: a person other than the raiser, from the team of the running service; lower: none. The promoter only lowers, and an agent never lowers to observe",
+		ApprovalFloor:     "raise one rung: a person other than the raiser, from the team of the running service; lower: none. The promoter only steps down one rung from an automatic rung, and an agent never lowers to observe",
 		Inverse:           TypeAutonomy,
 		Cancellable:       "until it applies",
 		ApprovalDeadline:  defaultApprovalDeadline,

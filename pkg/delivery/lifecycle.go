@@ -359,7 +359,10 @@ func changeRung(s *StageStatus, spec OperationSpec) {
 	// window restarts when the Stage observes again.
 	s.Rung, s.Proposal = Rung(spec.Params.To), nil
 	if s.Rung == RungObserve {
-		s.Shadow = nil
+		// GitOps owns the pointer again, so the old one is cleared: kept, it
+		// would read as an edit outside Pacto once the applyRef is labelled
+		// to leave observe (witness).
+		s.Shadow, s.Pointer = nil, ""
 	}
 }
 
