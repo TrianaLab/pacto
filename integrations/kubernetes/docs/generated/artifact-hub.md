@@ -20,7 +20,7 @@ Published artifact coordinates for the Kubernetes integration. All coordinates a
 
 ## Verify a published artifact
 
-The controller image and the Helm chart, and the opt-in delivery image and chart, are signed keylessly by the release workflow through GitHub's OIDC issuer. Verify each one before installing it:
+The controller image, the opt-in delivery image and the Helm chart are signed keylessly by the release workflow through GitHub's OIDC issuer. Verify each one before installing it:
 
 ```bash
 cosign verify \

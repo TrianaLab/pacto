@@ -1097,8 +1097,8 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
     if signed:
         out.append("## Verify a published artifact\n")
         out.append(
-            "The controller image and the Helm chart, and the opt-in delivery image and "
-            "chart, are signed keylessly by the release workflow through GitHub's OIDC "
+            "The controller image, the opt-in delivery image and the Helm chart are "
+            "signed keylessly by the release workflow through GitHub's OIDC "
             "issuer. Verify each one before installing it:\n"
         )
         out.append("```bash")
@@ -1170,7 +1170,7 @@ def gen_chart_command(repo_root: str, verb: str) -> str:
 # --reset-then-reuse-values (Helm 3.14+), not --reuse-values: the latter drops the
 # new chart's defaults, so on the upgrade that first ships `delivery` the section
 # holds only `enabled` and the render dies on a nil map. docs_check (g) refuses it.
-def gen_delivery_chart_command(repo_root: str) -> str:
+def gen_delivery_install_command(repo_root: str) -> str:
     manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
     return banner("release/release-manifest.json") + chart_command(
         manifest["units"]["operator-chart"], "upgrade",
@@ -1320,7 +1320,7 @@ def main() -> int:
         "_compatibility.md": gen_compatibility(repo_root, k8s),
         "_install-command.md": gen_chart_command(repo_root, "install"),
         "_upgrade-command.md": gen_chart_command(repo_root, "upgrade"),
-        "_delivery-install-command.md": gen_delivery_chart_command(repo_root),
+        "_delivery-install-command.md": gen_delivery_install_command(repo_root),
         "_crd-apply.md": gen_crd_apply(repo_root),
     }
     for name, content in pages.items():

@@ -385,7 +385,7 @@ func TestDeliveryWhoAmIAndApprove(t *testing.T) {
 }
 
 // TestDeliveryReadsThePublishedPolicy: the caller is classified with the
-// policy the delivery chart publishes, and a client without it falls back to
+// policy the chart's delivery section publishes, and a client without it falls back to
 // the one it was given.
 func TestDeliveryReadsThePublishedPolicy(t *testing.T) {
 	ctx := context.Background()

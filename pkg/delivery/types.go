@@ -205,7 +205,7 @@ type Identity struct {
 }
 
 // ClassPolicy names the identities the promoter treats specially. The
-// delivery chart publishes it as JSON in the PolicyConfigMap, which the
+// chart's delivery section publishes it as JSON in the PolicyConfigMap, which the
 // promoter runs with and every client reads, so they cannot drift.
 type ClassPolicy struct {
 	// ControllerUser is the promoter's own service account username.
@@ -227,17 +227,17 @@ type ClassPolicy struct {
 	HumanGroups []string `json:"humanGroups,omitempty"`
 }
 
-// PolicyConfigMap is the ConfigMap, in the delivery chart's namespace, that
+// PolicyConfigMap is the ConfigMap, in delivery.namespace, that
 // holds the ClassPolicy as JSON under PolicyKey. Every authenticated user may
 // read it.
 const (
 	PolicyConfigMap = "pacto-delivery-identities"
 	PolicyKey       = "policy.json"
-	// PolicyNamespace is the namespace the delivery chart's docs install in.
+	// PolicyNamespace is the default delivery.namespace.
 	PolicyNamespace = "pacto-delivery"
 )
 
-// DefaultClassPolicy is the delivery chart's default: what a client assumes
+// DefaultClassPolicy is the chart's default delivery.identities: what a client assumes
 // when the policy is not published.
 func DefaultClassPolicy() ClassPolicy {
 	return ClassPolicy{AgentGroups: []string{"pacto:agents"}, BreakGlassGroups: []string{"pacto:break-glass"}, RequireOwnerTeam: true}

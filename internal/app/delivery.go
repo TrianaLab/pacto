@@ -59,7 +59,7 @@ type Delivery struct {
 	// Policy classifies the caller when the promoter's policy is not
 	// published; ControllerUser is unused on the client.
 	Policy delivery.ClassPolicy
-	// PolicyNamespace is where the delivery chart publishes the promoter's
+	// PolicyNamespace is where the chart's delivery section publishes the promoter's
 	// ClassPolicy (delivery.PolicyConfigMap); empty uses Policy as is.
 	PolicyNamespace string
 	Now             func() time.Time

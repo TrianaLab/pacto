@@ -58,13 +58,13 @@ type Gate interface {
 	Check(ctx context.Context, in GateInput, params map[string]string) Verdict
 }
 
-// Provider types the delivery chart may configure.
+// Provider types delivery.gates.providers may configure.
 const (
 	ProviderMira = "mira"
 	ProviderHTTP = "http"
 )
 
-// ProviderConfig is one gate provider the delivery chart configures. Its URL
+// ProviderConfig is one gate provider set in delivery.gates.providers. Its URL
 // is operator configuration: a Stage only names a provider, and an agent can
 // name nothing, so no request can point the promoter at a host of its choosing.
 type ProviderConfig struct {

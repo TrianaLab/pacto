@@ -166,7 +166,7 @@ type VerifyGates struct {
 	// +optional
 	Window string `json:"window,omitempty"`
 	// Checks are this Stage's own verify gates, run beside the Pacto contract
-	// check: a health provider the delivery chart configures, or the built-in
+	// check: a health provider set in delivery.gates.providers, or the built-in
 	// pacto.runtime claim gate.
 	// +optional
 	// +kubebuilder:validation:MaxItems=16
@@ -183,7 +183,7 @@ type GateCheck struct {
 	// Name is the gate id its verdicts carry, unique on the Stage.
 	// +kubebuilder:validation:MinLength=1
 	Name string `json:"name"`
-	// Provider is a gate provider configured in the delivery chart, or
+	// Provider is a gate provider set in delivery.gates.providers, or
 	// pacto.runtime. A Stage cannot name a URL: providers are operator
 	// configuration.
 	// +kubebuilder:validation:MinLength=1
@@ -254,9 +254,11 @@ type StageSpec struct {
 	Candidates Candidates `json:"candidates,omitzero"`
 	// StartRung is where a new Stage begins. It is read once, when
 	// status.rung is empty; after that only an autonomy operation moves the
-	// rung. Neither choice lets Pacto ship without a person.
+	// rung. Creating a Stage is an admin action, so any rung is accepted, and
+	// a Stage whose status is lost seeds back to this rung. Only observe and
+	// advise keep Pacto from shipping without a person.
 	// +optional
-	// +kubebuilder:validation:Enum=observe;advise
+	// +kubebuilder:validation:Enum=observe;advise;auto-nonbreaking;autonomous
 	// +kubebuilder:default=observe
 	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="startRung is fixed at creation; propose delivery.pacto.trianalab.io/autonomy to change the rung"
 	StartRung Rung `json:"startRung,omitempty"`
@@ -812,7 +814,7 @@ type OperationStatus struct {
 	Phase Phase `json:"phase,omitempty"`
 	// Guarded says the promoter checked its admission policies guarded the
 	// cluster when it admitted this operation. False when the chart runs
-	// without them (admissionPolicies.allowUnguarded): the actor and the
+	// without them (delivery.admissionPolicies.allowUnguarded): the actor and the
 	// approvers are then only what their writers claimed.
 	// +optional
 	Guarded bool `json:"guarded,omitempty"`

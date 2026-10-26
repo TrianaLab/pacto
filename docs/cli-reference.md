@@ -385,12 +385,12 @@ pacto delivery plan [flags]
 
 ```
       --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
-      --from string                                                 the digest the Stage runs now (defaults to its pointer)
+      --from string                                                 where the Stage is now: a digest, or a rung for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current rung)
   -h, --help                                                        help for plan
       --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
       --reason string                                               why, for the record
       --stage string                                                the Stage to change (required)
-      --to string                                                   the artifact digest to move to (sha256:...)
+      --to string                                                   where to move: an artifact digest (sha256:...) for a pointer type, or a rung (observe, advise, auto-nonbreaking or autonomous) for delivery.pacto.trianalab.io/autonomy
       --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
       --undoes string                                               for a rollback: the name of the operation it undoes
 ```
@@ -407,14 +407,14 @@ pacto delivery propose [flags]
 
 ```
       --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
-      --from string                                                 the digest the Stage runs now (defaults to its pointer)
+      --from string                                                 where the Stage is now: a digest, or a rung for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current rung)
   -h, --help                                                        help for propose
       --intent-digest string                                        the intent digest from your plan; propose refuses if it no longer matches
       --name string                                                 the Operation name (generated when empty)
       --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
       --reason string                                               why, for the record
       --stage string                                                the Stage to change (required)
-      --to string                                                   the artifact digest to move to (sha256:...)
+      --to string                                                   where to move: an artifact digest (sha256:...) for a pointer type, or a rung (observe, advise, auto-nonbreaking or autonomous) for delivery.pacto.trianalab.io/autonomy
       --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
       --undoes string                                               for a rollback: the name of the operation it undoes
 ```
@@ -1168,7 +1168,7 @@ With --root, the server instead exposes a read-only contract catalog: the given 
 
 With --fleet, the server instead exposes the read-only operational-graph query tools over one snapshot. The shared fleet source flags — --local, --target-state, --evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness — compose that snapshot and are read in --fleet mode only.
 
-With --delivery, the server instead exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy the delivery chart publishes). There is no approve tool.
+With --delivery, the server instead exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). There is no approve tool.
 
 Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies (issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback needs them and refuses --auth and --allow-writes, which would lend this process's service credential to every caller. With --delivery the server then exchanges each caller's token for one the apiserver accepts (RFC 8693, --exchange-client-id) and builds the tools for that caller on every request, so an agent proposes as itself and a person gets the read-only tools.
 

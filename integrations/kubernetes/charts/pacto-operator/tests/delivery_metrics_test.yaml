@@ -7,7 +7,7 @@ capabilities:
   apiVersions:
     - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
 tests:
-  # The recorder has its own Service under recorder.monitoring; selecting it
+  # The recorder has its own Service under delivery.recorder.monitoring; selecting it
   # here too would scrape every recorder series twice.
   - it: serves only the promoter's metrics through a Service
     asserts:

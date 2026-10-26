@@ -46,7 +46,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"that snapshot and are read in --fleet mode only.\n\n" +
 			"With --delivery, the server instead exposes the Pacto delivery tools (pacto_delivery_*) over the " +
 			"ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the " +
-			"apiserver says the caller is an agent (a service account, or an agent by the identity policy the delivery chart publishes). There is " +
+			"apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). There is " +
 			"no approve tool.\n\n" +
 			"Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies " +
 			"(issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback " +

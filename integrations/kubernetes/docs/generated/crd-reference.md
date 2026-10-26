@@ -99,7 +99,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.approvals[].decision` | `string` | yes |  |  | Decision is what a human approval says. |
 | `status.approvals[].name` | `string` | yes |  |  |  |
 | `status.approvals[].note` | `string` | no |  |  |  |
-| `status.guarded` | `boolean` | no |  |  | Guarded says the promoter checked its admission policies guarded the cluster when it admitted this operation. False when the chart runs without them (admissionPolicies.allowUnguarded): the actor and the approvers are then only what their writers claimed. |
+| `status.guarded` | `boolean` | no |  |  | Guarded says the promoter checked its admission policies guarded the cluster when it admitted this operation. False when the chart runs without them (delivery.admissionPolicies.allowUnguarded): the actor and the approvers are then only what their writers claimed. |
 | `status.message` | `string` | no |  |  |  |
 | `status.outcome` | `string` | no |  |  | Outcome is how a concluded operation ended. |
 | `status.phase` | `string` | no |  |  | Phase is where an operation is in its lifecycle. |
@@ -183,10 +183,10 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.policy.gates.impact` | `object` | no |  |  | ImpactGate tunes pacto.impact. |
 | `status.policy.gates.impact.declaredConsumersOnly` | `boolean` | no |  |  | DeclaredConsumersOnly says every consumer of the service has a contract Pacto can see, so a breaking change no Pacto depends on ships without a person. Off by default: a service with no contract can still call it, so a breaking change with no consumer in sight waits for a person to accept the unknown. |
 | `status.policy.gates.verify` | `object` | no |  |  | VerifyGates configures what runs after a version is applied. |
-| `status.policy.gates.verify.checks` | `[]object` | no |  |  | Checks are this Stage's own verify gates, run beside the Pacto contract check: a health provider the delivery chart configures, or the built-in pacto.runtime claim gate. |
+| `status.policy.gates.verify.checks` | `[]object` | no |  |  | Checks are this Stage's own verify gates, run beside the Pacto contract check: a health provider set in delivery.gates.providers, or the built-in pacto.runtime claim gate. |
 | `status.policy.gates.verify.checks[].name` | `string` | yes |  |  | Name is the gate id its verdicts carry, unique on the Stage. |
 | `status.policy.gates.verify.checks[].params` | `object` | no |  |  | Params are the provider's settings (thresholds, filters). |
-| `status.policy.gates.verify.checks[].provider` | `string` | yes |  |  | Provider is a gate provider configured in the delivery chart, or pacto.runtime. A Stage cannot name a URL: providers are operator configuration. |
+| `status.policy.gates.verify.checks[].provider` | `string` | yes |  |  | Provider is a gate provider set in delivery.gates.providers, or pacto.runtime. A Stage cannot name a URL: providers are operator configuration. |
 | `status.policy.gates.verify.recheck` | `string` | no |  |  | Recheck is how often the verify gates run again on the version the Stage runs once it shipped (a Go duration, default 1m). A confirmed Fail rolls it back; Unknown never does. |
 | `status.policy.gates.verify.window` | `string` | no |  |  | Window is how long the verify gates may stay Unknown before the operation is held for a human (a Go duration, default 5m). Re-checks after release judge the same length of time. |
 | `status.policy.records` | `object` | no |  |  | RecordsPolicy says whether automation may move the Stage while its records cannot be written. |
@@ -194,7 +194,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.policy.service` | `object` | yes |  |  | ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified service name its contracts declare. |
 | `status.policy.service.domain` | `string` | no |  |  | Domain is the registry and organisation scope (empty for the default). |
 | `status.policy.service.name` | `string` | yes |  |  | Name is the contract's service.name. |
-| `status.policy.startRung` | `string` | no | `"observe"` | `observe`, `advise` | StartRung is where a new Stage begins. It is read once, when status.rung is empty; after that only an autonomy operation moves the rung. Neither choice lets Pacto ship without a person. |
+| `status.policy.startRung` | `string` | no | `"observe"` | `observe`, `advise`, `auto-nonbreaking`, `autonomous` | StartRung is where a new Stage begins. It is read once, when status.rung is empty; after that only an autonomy operation moves the rung. Creating a Stage is an admin action, so any rung is accepted, and a Stage whose status is lost seeds back to this rung. Only observe and advise keep Pacto from shipping without a person. |
 | `status.question` | `string` | no |  |  | Question is what a human is asked while the operation is Held. |
 | `status.reason` | `string` | no |  |  | Reason is the machine reason for the outcome or the hold (PlanStale, PointerMoved, NoStage, ...). |
 | `status.record` | `object` | no |  |  | Record is the signed record of this operation, once the recorder wrote it. Only the recorder writes it. |
@@ -272,10 +272,10 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.gates.impact` | `object` | no |  |  | ImpactGate tunes pacto.impact. |
 | `spec.gates.impact.declaredConsumersOnly` | `boolean` | no |  |  | DeclaredConsumersOnly says every consumer of the service has a contract Pacto can see, so a breaking change no Pacto depends on ships without a person. Off by default: a service with no contract can still call it, so a breaking change with no consumer in sight waits for a person to accept the unknown. |
 | `spec.gates.verify` | `object` | no |  |  | VerifyGates configures what runs after a version is applied. |
-| `spec.gates.verify.checks` | `[]object` | no |  |  | Checks are this Stage's own verify gates, run beside the Pacto contract check: a health provider the delivery chart configures, or the built-in pacto.runtime claim gate. |
+| `spec.gates.verify.checks` | `[]object` | no |  |  | Checks are this Stage's own verify gates, run beside the Pacto contract check: a health provider set in delivery.gates.providers, or the built-in pacto.runtime claim gate. |
 | `spec.gates.verify.checks[].name` | `string` | yes |  |  | Name is the gate id its verdicts carry, unique on the Stage. |
 | `spec.gates.verify.checks[].params` | `object` | no |  |  | Params are the provider's settings (thresholds, filters). |
-| `spec.gates.verify.checks[].provider` | `string` | yes |  |  | Provider is a gate provider configured in the delivery chart, or pacto.runtime. A Stage cannot name a URL: providers are operator configuration. |
+| `spec.gates.verify.checks[].provider` | `string` | yes |  |  | Provider is a gate provider set in delivery.gates.providers, or pacto.runtime. A Stage cannot name a URL: providers are operator configuration. |
 | `spec.gates.verify.recheck` | `string` | no |  |  | Recheck is how often the verify gates run again on the version the Stage runs once it shipped (a Go duration, default 1m). A confirmed Fail rolls it back; Unknown never does. |
 | `spec.gates.verify.window` | `string` | no |  |  | Window is how long the verify gates may stay Unknown before the operation is held for a human (a Go duration, default 5m). Re-checks after release judge the same length of time. |
 | `spec.records` | `object` | no |  |  | RecordsPolicy says whether automation may move the Stage while its records cannot be written. |
@@ -283,7 +283,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.service` | `object` | yes |  |  | ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified service name its contracts declare. |
 | `spec.service.domain` | `string` | no |  |  | Domain is the registry and organisation scope (empty for the default). |
 | `spec.service.name` | `string` | yes |  |  | Name is the contract's service.name. |
-| `spec.startRung` | `string` | no | `"observe"` | `observe`, `advise` | StartRung is where a new Stage begins. It is read once, when status.rung is empty; after that only an autonomy operation moves the rung. Neither choice lets Pacto ship without a person. |
+| `spec.startRung` | `string` | no | `"observe"` | `observe`, `advise`, `auto-nonbreaking`, `autonomous` | StartRung is where a new Stage begins. It is read once, when status.rung is empty; after that only an autonomy operation moves the rung. Creating a Stage is an admin action, so any rung is accepted, and a Stage whose status is lost seeds back to this rung. Only observe and advise keep Pacto from shipping without a person. |
 | `status` | `object` | no |  |  | StageStatus is written by the promoter's operation and stage reconcilers and by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each through a compare-and-swap on the Stage's resourceVersion. |
 | `status.authFreshness` | `string` | no |  |  | AuthFreshness is how old a login the promoter accepts on an approval (a Go duration). Clients ask for a fresh login with a margin under it (DecisionFreshnessFor). |
 | `status.autoHold` | `boolean` | no |  |  | AutoHold stops auto-promotion after a person or agent rolled back or promoted back to a version the Stage already verified. |

@@ -300,7 +300,7 @@ identity_scenario() {
   jq -e '.status.userInfo.username != null and (.status.userInfo.extra["delivery.pacto.trianalab.io/auth-time"] == null)' <<<"$who" >/dev/null \
     || fail "a kubeconfig login got an auth-time, so anything in the shell could approve with it: $who"
   pass "a kubeconfig login authenticates with no auth-time"
-  # Every client reads the one identity policy the delivery chart publishes,
+  # Every client reads the one identity policy the chart's delivery section publishes,
   # with the person's own token: nothing is configured twice. This run installs
   # the chart with no team group prefix, since its contracts name the groups
   # themselves (owner team-checkout is group team-checkout).

@@ -27,7 +27,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 )
 
-// deliveryGroupVersion is the API the delivery chart installs.
+// deliveryGroupVersion is the API the chart's delivery section installs.
 const deliveryGroupVersion = "delivery.pacto.trianalab.io/v1alpha1"
 
 // splitList reads a list flag that may also come from an environment

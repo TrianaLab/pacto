@@ -85,7 +85,7 @@ func SplitList(v string) []string {
 	return out
 }
 
-// LoadClassPolicy reads the ClassPolicy the delivery chart publishes, mounted
+// LoadClassPolicy reads the ClassPolicy the chart's delivery section publishes, mounted
 // from its ConfigMap, and makes controllerUser its own; an empty path keeps
 // the defaults. The promoter runs with exactly what clients read.
 func LoadClassPolicy(path, controllerUser string) (delivery.ClassPolicy, error) {

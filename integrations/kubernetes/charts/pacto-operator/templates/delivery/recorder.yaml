@@ -2,18 +2,18 @@
 {{- if .Values.delivery.recorder.enabled }}
 {{- $r := .Values.delivery.recorder }}
 {{- if not $r.streamsRepository }}
-{{- fail "recorder.streamsRepository is required when the recorder is enabled" }}
+{{- fail "delivery.recorder.streamsRepository is required when the recorder is enabled" }}
 {{- end }}
 {{- $signers := 0 }}
 {{- if $r.signing.ed25519.secretName }}{{ $signers = add1 $signers }}{{ end }}
 {{- if $r.signing.kms }}{{ $signers = add1 $signers }}{{ end }}
 {{- if $r.signing.keyless.enabled }}{{ $signers = add1 $signers }}{{ end }}
 {{- if ne (int $signers) 1 }}
-{{- fail "configure exactly one of recorder.signing.ed25519.secretName, recorder.signing.kms or recorder.signing.keyless" }}
+{{- fail "configure exactly one of delivery.recorder.signing.ed25519.secretName, delivery.recorder.signing.kms or delivery.recorder.signing.keyless" }}
 {{- end }}
 {{- $k := $r.signing.keyless }}
 {{- if and $k.enabled (or (not $k.identity) (not $k.issuer) (not $k.fulcioURL) (not $k.timestampURL) (not $k.trustedRoot)) }}
-{{- fail "recorder.signing.keyless needs identity, issuer, fulcioURL, timestampURL and trustedRoot" }}
+{{- fail "delivery.recorder.signing.keyless needs identity, issuer, fulcioURL, timestampURL and trustedRoot" }}
 {{- end }}
 {{- $name := printf "%s-recorder" (include "pacto-operator.delivery.fullname" .) }}
 {{- if $r.serviceAccount.create }}

@@ -166,7 +166,7 @@ tests:
     template: templates/delivery/recorder.yaml
     asserts:
       - failedTemplate:
-          errorMessage: recorder.signing.keyless needs identity, issuer, fulcioURL, timestampURL and trustedRoot
+          errorMessage: delivery.recorder.signing.keyless needs identity, issuer, fulcioURL, timestampURL and trustedRoot
 
   - it: passes the KMS key
     set:
