@@ -74,9 +74,9 @@ type cluster struct {
 	// observed is false when no node runtime observation exists, so calls
 	// could not be seen at all.
 	observed bool
-	// fresh are the nodes whose observation was published within its
-	// staleness bound; calls from any other node could not be seen.
-	fresh map[string]bool
+	// nodes maps a node name to its observation.
+	nodes map[string]*runtimefacts.Snapshot
+	now   time.Time
 }
 
 // Cluster drafts a contract for every workload in the namespaces that no
@@ -157,9 +157,7 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 	if !cl.observed {
 		r.Unknown = append(r.Unknown, "dependencies seen at runtime: the cluster holds no node runtime observations, so no calls were seen")
 	}
-	for _, n := range cl.unobserved(w) {
-		r.Unknown = append(r.Unknown, "dependencies seen at runtime: node "+n+" has no current observation, so calls from it could not be seen")
-	}
+	r.Unknown = append(r.Unknown, cl.unobserved(w)...)
 	return r, err
 }
 
@@ -167,7 +165,7 @@ func readCluster(ctx context.Context, dyn dynamic.Interface, namespaces []string
 	if len(namespaces) == 0 {
 		namespaces = []string{metav1.NamespaceAll}
 	}
-	cl := &cluster{owners: map[string]string{}, fresh: map[string]bool{}}
+	cl := &cluster{owners: map[string]string{}, nodes: map[string]*runtimefacts.Snapshot{}, now: now}
 	list := func(r schema.GroupVersionResource, ns string, optional bool) ([]unstructured.Unstructured, error) {
 		l, err := dyn.Resource(r).Namespace(ns).List(ctx, metav1.ListOptions{})
 		if optional && apierrors.IsNotFound(err) {
@@ -187,17 +185,11 @@ func readCluster(ctx context.Context, dyn dynamic.Interface, namespaces []string
 			}
 			cl.workloads = append(cl.workloads, items...)
 		}
-		for _, into := range []struct {
-			r        schema.GroupVersionResource
-			to       *[]unstructured.Unstructured
-			optional bool
-		}{{gvrServices, &cl.services, false}, {gvrPods, &cl.pods, false}, {gvrEndpointSlices, &cl.slices, false}, {gvrPactos, &cl.pactos, true}} {
-			items, err := list(into.r, ns, into.optional)
-			if err != nil {
-				return nil, err
-			}
-			*into.to = append(*into.to, items...)
+		items, err := list(gvrPods, ns, false)
+		if err != nil {
+			return nil, err
 		}
+		cl.pods = append(cl.pods, items...)
 		for _, r := range []schema.GroupVersionResource{gvrReplicaSets, gvrJobs} {
 			items, err := list(r, ns, false)
 			if err != nil {
@@ -211,6 +203,20 @@ func readCluster(ctx context.Context, dyn dynamic.Interface, namespaces []string
 		}
 	}
 	sort.Slice(cl.workloads, func(i, j int) bool { return key(cl.workloads[i]) < key(cl.workloads[j]) })
+	// Services, their endpoints and Pactos are read in every namespace: a pod
+	// here may call a Service anywhere, and only the drafts keep to the
+	// namespaces asked for.
+	for _, into := range []struct {
+		r        schema.GroupVersionResource
+		to       *[]unstructured.Unstructured
+		optional bool
+	}{{gvrServices, &cl.services, false}, {gvrEndpointSlices, &cl.slices, false}, {gvrPactos, &cl.pactos, true}} {
+		items, err := list(into.r, metav1.NamespaceAll, into.optional)
+		if err != nil {
+			return nil, err
+		}
+		*into.to = items
+	}
 	nros, err := list(kubesink.GVR, metav1.NamespaceAll, true)
 	if err != nil {
 		return nil, err
@@ -222,23 +228,40 @@ func readCluster(ctx context.Context, dyn dynamic.Interface, namespaces []string
 			return nil, fmt.Errorf("reading the node runtime observation %s: %w", n.GetName(), err)
 		}
 		cl.snaps = append(cl.snaps, s)
-		if !s.LastPublished.IsZero() && now.Sub(s.LastPublished) <= s.StalenessBound(0) {
-			cl.fresh[s.NodeName] = true
-		}
+	}
+	for i := range cl.snaps {
+		cl.nodes[cl.snaps[i].NodeName] = &cl.snaps[i]
 	}
 	cl.observed = len(cl.snaps) > 0
 	return cl, nil
 }
 
-// unobserved are the nodes, sorted, that run a pod of w and have no fresh
-// observation: a call from there cannot be ruled out. With no observation
-// at all the draft already says so once.
+// unobserved are the Unknown lines, sorted, for the pods of w whose calls
+// the node they run on could not show: no current observation, a failed
+// collection, or a pod the observation has not mapped or cannot tell from
+// the host. With no observation at all the draft already says so once.
 func (cl *cluster) unobserved(w unstructured.Unstructured) []string {
 	var out []string
 	for _, p := range cl.pods {
 		node, _, _ := unstructured.NestedString(p.Object, "spec", "nodeName")
-		if cl.observed && node != "" && !cl.fresh[node] && cl.owner(p) == key(w) && !slices.Contains(out, node) {
-			out = append(out, node)
+		if !cl.observed || node == "" || cl.owner(p) != key(w) {
+			continue
+		}
+		started, _, _ := unstructured.NestedString(p.Object, "status", "startTime")
+		start, _ := time.Parse(time.RFC3339, started) // ponytail: zero when unset; Classify uses it only for Complete
+		o := runtimefacts.Classify(cl.nodes[node], string(p.GetUID()), start, cl.now, 0)
+		if o.Facts != nil {
+			continue
+		}
+		line := "dependencies seen at runtime: node " + node + " has no current observation, so calls from it could not be seen"
+		switch o.Coverage {
+		case runtimefacts.CoverageFailed:
+			line = "dependencies seen at runtime: node " + node + " failed to collect, so calls from it could not be seen"
+		case runtimefacts.CoveragePartial:
+			line = "dependencies seen at runtime: pod " + p.GetName() + " on node " + node + " is not mapped in its observation or shares the host network, so its calls could not be seen"
+		}
+		if !slices.Contains(out, line) {
+			out = append(out, line)
 		}
 	}
 	sort.Strings(out)

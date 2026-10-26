@@ -234,33 +234,68 @@ func TestClusterWithoutObservations(t *testing.T) {
 	}
 }
 
-// TestClusterStaleObservations: a node whose observation is stale, or that
-// has none, cannot rule a call out, so each draft with a pod there says so;
-// a pod on a node observed now adds no such line.
+// TestClusterStaleObservations: a node whose observation is stale, that
+// has none or whose collection failed cannot rule a call out, nor can a
+// fresh one that has not mapped the pod or shares it with the host, so each
+// draft with such a pod says so; a pod mapped on a node observed now adds no
+// such line.
 func TestClusterStaleObservations(t *testing.T) {
 	now := time.Now()
 	pod := func(name, node string) runtime.Object {
-		return controlled(obj("v1", "Pod", "shop", name+"-0", map[string]any{"spec": map[string]any{"nodeName": node}}), "StatefulSet", name, "u-"+name)
+		return controlled(obj("v1", "Pod", "shop", name+"-0", map[string]any{"spec": map[string]any{"nodeName": node},
+			"status": map[string]any{"startTime": now.Add(-time.Hour).UTC().Format(time.RFC3339)}}), "StatefulSet", name, "u-"+name)
 	}
-	nro := func(node string, published time.Time) runtime.Object {
+	nro := func(node string, published time.Time, state string, pods ...any) runtime.Object {
 		return obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", node, map[string]any{"status": map[string]any{
-			"nodeName": node, "publishIntervalSeconds": int64(30), "lastPublished": published.UTC().Format(time.RFC3339)}})
+			"nodeName": node, "publishIntervalSeconds": int64(30), "lastPublished": published.UTC().Format(time.RFC3339),
+			"collection": map[string]any{"state": state}, "pods": pods}})
 	}
 	set := func(name string) runtime.Object {
 		return obj("apps/v1", "StatefulSet", "shop", name, map[string]any{"spec": map[string]any{"template": map[string]any{
 			"spec": map[string]any{"containers": []any{map[string]any{"name": name, "image": "reg.io/acme/" + name + ":1.0.0"}}}}}})
 	}
-	cl := fakeCluster(set("checkout"), set("fraud"), set("ledger"), pod("checkout", "node-1"), pod("fraud", "node-2"), pod("ledger", "node-3"),
-		obj("v1", "Pod", "shop", "pending", nil), nro("node-1", now.Add(-10*time.Second)), nro("node-2", now.Add(-3*time.Hour)))
+	fresh := now.Add(-10 * time.Second)
+	cl := fakeCluster(set("checkout"), set("fraud"), set("ledger"), set("audit"), set("cart"), set("edge"),
+		pod("checkout", "node-1"), pod("fraud", "node-2"), pod("ledger", "node-3"), pod("audit", "node-4"), pod("cart", "node-1"), pod("edge", "node-1"),
+		obj("v1", "Pod", "shop", "pending", nil),
+		nro("node-1", fresh, "Running", map[string]any{"uid": "u-checkout"}, map[string]any{"uid": "u-edge", "netnsShared": true}),
+		nro("node-2", now.Add(-3*time.Hour), "Running"), nro("node-4", fresh, "Failed"))
 	b, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Out: t.TempDir(), Now: func() time.Time { return now }}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for name, want := range map[string]string{"checkout": "", "fraud": "node node-2 has no current observation", "ledger": "node node-3 has no current observation"} {
+	for name, want := range map[string]string{
+		"checkout": "",
+		"fraud":    "node node-2 has no current observation",
+		"ledger":   "node node-3 has no current observation",
+		"audit":    "node node-4 failed to collect",
+		"cart":     "pod cart-0 on node node-1 is not mapped in its observation",
+		"edge":     "pod edge-0 on node node-1 is not mapped in its observation or shares the host network",
+	} {
 		u := result(t, b, name).Unknown
-		if want == "" && hasLine(u, "has no current observation") || want != "" && !hasLine(u, want) {
+		if want == "" && hasLine(u, "could not be seen") || want != "" && !hasLine(u, want) {
 			t.Errorf("%s: %q", name, u)
 		}
+	}
+}
+
+// TestClusterCrossNamespaceCall: reading one namespace still maps a call to
+// a Service in another, so the dependency is drafted, not dropped.
+func TestClusterCrossNamespaceCall(t *testing.T) {
+	now := time.Now()
+	objs := []runtime.Object{
+		deployment("demo", "checkout", "reg.io/acme/checkout:1.4.0"),
+		controlled(obj("apps/v1", "ReplicaSet", "demo", "checkout-7f", nil), "Deployment", "checkout", ""),
+		controlled(obj("v1", "Pod", "demo", "checkout-7f-a", map[string]any{"metadata": map[string]any{"labels": map[string]any{"app": "checkout"}}}), "ReplicaSet", "checkout-7f", "u-checkout"),
+		service("shop", "payments", "10.0.0.20"),
+		obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
+			"nodeName": "node-1", "pods": []any{map[string]any{"uid": "u-checkout", "connections": []any{
+				map[string]any{"address": "10.0.0.20", "port": int64(80), "successes": int64(1), "lastSuccessAt": now.UTC().Format(time.RFC3339)}}}}}}),
+	}
+	c := ClusterOptions{Namespaces: []string{"demo"}, Out: t.TempDir(), Now: func() time.Time { return now }}
+	b, err := Cluster(context.Background(), fakeCluster(objs...), Options{Plan: true}, c, nil)
+	if err != nil || len(b.Results) != 1 || !slices.ContainsFunc(b.Results[0].Dependencies, func(d Finding) bool { return d.Where == "calls seen to the Service shop/payments" }) {
+		t.Fatalf("cross-namespace call: %+v %v", b, err)
 	}
 }
 
@@ -288,7 +323,7 @@ func TestClusterRefusals(t *testing.T) {
 			t.Errorf("%+v: %v", tc.opts, err)
 		}
 	}
-	for _, r := range []string{"deployments", "services", "replicasets", "noderuntimeobservations"} {
+	for _, r := range []string{"deployments", "pods", "services", "replicasets", "noderuntimeobservations"} {
 		cl := fakeCluster(shopCluster(now)...)
 		cl.PrependReactor("list", r, func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, errors.New("boom") })
 		if _, err := Cluster(ctx, cl, Options{Plan: true}, c, nil); err == nil || !strings.Contains(err.Error(), "listing "+r+": boom") {
