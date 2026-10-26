@@ -386,6 +386,8 @@ workload conforming 1 "[$NETEXEC, $(loop client backend)]"; service conforming
 workload deaf 1 "[$DEAF]"; service deaf
 workload caller 1 "[$(loop client backend conforming)]"
 workload deaf-caller 1 "[$(loop client deaf)]"
+# No Pacto describes curl: the backend Pacto lists it as an uncontracted caller.
+workload curl 1 "[$(loop client backend)]"
 workload probe-target 1 "[{name: server, image: $AGNHOST, imagePullPolicy: Never, args: [test-webserver, --port=8080], ports: [{containerPort: 8080}]}]"
 service probe-target NodePort
 # The same pods behind a LoadBalancer whose status carries a public address. Kind
@@ -422,7 +424,7 @@ spec:
       template:
         spec: {restartPolicy: Never, containers: [$PAUSE]}
 YAML
-for d in backend conforming deaf caller deaf-caller probe-target metrics scratch shared durable; do
+for d in backend conforming deaf caller deaf-caller curl probe-target metrics scratch shared durable; do
   rollout "deploy/$d" || fail "deployment $d never rolled out"
 done
 
@@ -520,6 +522,10 @@ expect_pacto version-client "$R" -status NonCompliant -expect DEPENDENCY_VERSION
 
 scenario "dependency-undeclared" "the caller also reaches the Pacto-managed conforming service it never declared"
 expect_pacto undeclared-client "$R" -status Warning -expect DEPENDENCY_UNDECLARED:warning:dependency/conforming -collector DEPENDENCY_UNDECLARED=ebpf
+
+scenario "uncontracted-caller" "a workload no Pacto describes calls the backend; callers a Pacto targets stay off the list"
+expect_pacto backend "$R" -caller Deployment/curl -no-caller Deployment/caller -no-caller Deployment/conforming
+echo "  backend caller coverage: $(kubectl -n "$APP" get pacto backend -o jsonpath='{.status.observedCallersCoverage}')"
 
 scenario "workload-mismatch" "contract says job, the explicit workload is a Deployment"
 expect_pacto wl-mismatch "$R" -status NonCompliant -expect WORKLOAD_MISMATCH:error
