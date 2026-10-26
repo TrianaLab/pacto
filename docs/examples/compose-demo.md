@@ -6,12 +6,19 @@ search:
 
 # Runnable demo (Docker Compose)
 
-A complete Pacto fleet running on your machine. An OCI registry holds real
-published contract revisions, an Evidence Server ingests a signed envelope
-from a "remote" environment and the dashboard shows the operational graph
-they add up to. It also shows runtime conformance live: a host agent watches
-the containers' sockets with eBPF and reports a service that is up but serves
-nothing.
+A small set of services and Pacto, running on your machine with Docker. It
+is for someone who wants to see Pacto against real parts, not recorded data:
+
+- a container registry holds published contracts;
+- an Evidence Server, which stores signed reports from other environments,
+  holds one from a pretend remote environment;
+- the dashboard shows all of it as one graph of who calls whom;
+- `pacto agent` watches the containers' network connections and reports a
+  service that says it is up but serves nothing.
+
+It shows contracts and checks on running services, not delivery: for
+delivery and the autonomy ladder, see the [browser demo](dashboard-demo.md)
+or the [Kubernetes demo](kubernetes-demo.md).
 
 There is no repository to clone, nothing to build and no file to download. The
 demo is published as an OCI artifact that Docker Compose owns and runs directly.

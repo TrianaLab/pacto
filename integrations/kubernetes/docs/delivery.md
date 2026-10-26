@@ -67,34 +67,34 @@ does not.
 
 ## Who is asked and why
 
-Each contract says which services it depends on and which of their versions it
-accepts, for example "checkout accepts payments 2.x". This is its version
-range. That is how Pacto knows who a change can break.
+Each contract lists the services it depends on and the versions of each it
+accepts (its version range), for example "checkout accepts payments 2.x".
+That is how Pacto knows who a change can break.
 
 Say payments 3.0.0 removes a field. In prod, checkout and orders still accept
-only payments 2.x. The change waits, and Pacto asks the checkout and orders
-teams, because theirs are the services it would break. Nobody else is asked.
+only payments 2.x. The change waits and Pacto asks only the checkout and
+orders teams, whose services it would break.
 
-Pacto sees only the consumers that have a contract. A breaking change that no
-contract depends on still waits for a person, who can accept the unknown,
-because a service without a contract may call it. A Stage whose every consumer
-has a contract can say so with `gates.impact.declaredConsumersOnly: true`.
+A breaking change that no contract depends on still waits for a person, who
+can accept the unknown, because a service without a contract may call it. A
+Stage whose every consumer has a contract can say so with
+`gates.impact.declaredConsumersOnly: true`.
 
 Pacto also says what to update first. If checkout 1.9.0 accepts both payments
-2.x and 3.0.0 and already passed in test, Pacto's plan for the change says to
-ship it first. Once
-checkout has moved, only the orders team is still asked.
+2.x and 3.0.0 and already passed in test, Pacto's plan says to ship it first.
+Then only the orders team is still asked.
 
-Pacto judges this by the version range each service declares, not by which
-fields or endpoints it uses. Pacto can also watch the traffic between services,
-but that tells it only which service calls which, not what each call uses.
+Pacto judges by declared version ranges, not by which fields or endpoints a
+service uses. Watching traffic shows only which service calls which,
+not what each call uses.
 
-AI agents can plan, ask for and cancel the changes they asked for, but only people can approve.
-To approve, a person must have signed in to the dashboard (or the cluster)
-with their own company login within the promoter's login freshness (15 minutes
-by default, `promoter.authFreshness`), and the record names them.
-That needs a cluster that trusts your company login, which is not verified on
-managed clusters (EKS, GKE, AKS); [Sign-in, approvals and agents](delivery-identity.md#where-approving-works)
+AI agents can plan, ask for and cancel their own changes, but only people can
+approve. To approve, a person must have signed in to the dashboard (or the
+cluster) with their own company login within the promoter's login freshness
+(15 minutes by default, `delivery.promoter.authFreshness`), and the record
+names them. That needs a cluster that trusts your company login, not yet
+verified on EKS, GKE and AKS;
+[Sign-in, approvals and agents](delivery-identity.md#where-approving-works)
 says how to check and what to do without it.
 
 ## What Unknown means

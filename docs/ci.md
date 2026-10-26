@@ -1,74 +1,128 @@
-# CI integration
+# Put it in your repository
 
-Add two steps to your CI so a pull request that breaks your contract fails its checks: validate the contract, then compare it with the version you published. `pacto diff` exits non-zero when the change is breaking. Your branch protection rules turn that failed check into a blocked merge.
-
----
+Add Pacto to your build pipeline (CI) so a pull request that would break the
+services using yours fails its checks, and every merge publishes a version.
+This page assumes you have a contract, `pacto.yaml`, from
+[Pactify a service](pactify.md). The examples use the names from that page:
+the contract is published to `oci://ghcr.io/acme/contracts/my-service`, the
+`publish.bundle` field of `pacto.yaml`.
 
 ## What to commit
 
-Put three things in your repository:
+Commit what `pacto init` wrote (`pacto.yaml`, `.pactoignore`, `.gitignore`,
+`delivery/` and any files the contract points to, such as an OpenAPI
+document).
 
-1. **`pacto.yaml`** at the repository root
-2. **`pacto.lock`** next to it — the dependency lockfile
-3. **The CI workflow** that runs `pacto validate` and `pacto diff`
+If your contract lists dependencies, also run `pacto lock .` and commit the
+`pacto.lock` it writes. It records the exact published build of every
+contract yours depends on, so every build checks against the same ones. It is
+optional: without it, Pacto looks dependencies up fresh each time. See
+[Lockfile](lockfile.md).
 
-`pacto lock .` writes the lockfile: it looks up every dependency and records its exact digest (a content hash). Commit it so every build uses the same dependency versions. Commit the interface files (`interfaces/openapi.yaml`, configuration schemas) too.
+## Declare your API first
 
----
-
-## The two steps
-
-### Step 1: Validate
+`pacto diff` sees API changes only in the interfaces the contract declares.
+If `pacto init` did not find your OpenAPI document, add it to `pacto.yaml`
+yourself, with the path from the repository root:
 
 ```yaml
-- name: Validate contract
-  run: pacto validate .
+interfaces:
+  - name: rest-api
+    type: openapi
+    ref: api/openapi.yaml
+    visibility: public          # other teams may call it
 ```
 
-This catches missing or malformed fields, fields that contradict each other and policy failures. Add `--readiness` to gate on readiness scores; without it, validation ignores the `readiness:` block.
+Other interface types and fields are in [Contract sections](contract-reference/sections.md#interfaces).
 
-### Step 2: Diff against the published version
+## On every pull request
 
-```yaml
-- name: Check for breaking changes
-  run: pacto diff oci://ghcr.io/acme/my-service-pacto .
-```
-
-`pacto diff` exits 1 when the classification is `BREAKING`. The first argument is the baseline, the second is the updated contract. For a local diff with no registry, compare two directories: `pacto diff ./main ./feature-branch`.
-
----
-
-## Exit codes and what blocks a merge
-
-`pacto diff` exits 1 on a breaking change, so the CI step fails and the pull request shows a failing check. Pacto stops there. Your repository's branch protection rules decide whether a failing check blocks the merge.
-
-A `BREAKING` classification means the new version is incompatible with consumers pinned to the old major. Release it as a new major (`1.4.2` → `2.0.0`) so consumers can choose when to move.
-
----
-
-## Handling exceptions
-
-Sometimes a breaking change is unavoidable. Branch protection lets you merge a failing check with override permission. Document the reason (in the PR description, a comment or an ADR), then merge. Do not change `pactoVersion` or remove fields to dodge the gate.
-
----
-
-## Publishing the contract
-
-After the PR merges, publish to your OCI registry:
+The snippets below are steps of a GitHub Actions job, after
+`actions/checkout`. Install Pacto first; the token avoids GitHub's limit on
+anonymous API calls, which shared CI runners hit:
 
 ```yaml
-- name: Push contract
-  run: pacto push oci://ghcr.io/acme/my-service-pacto -p .
+- name: Install Pacto
+  run: curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | bash
   env:
-    PACTO_REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    GH_TOKEN: ${{ github.token }}
 ```
 
-`pacto push` tags the bundle with `service.version`. If that tag exists, the command skips the push unless you pass `--force`.
+Two checks. The second reads your registry, so give the job a login. These
+variables work for any registry; on GitHub's, the built-in token will do:
 
----
+```yaml
+env:
+  PACTO_REGISTRY_USERNAME: ${{ github.actor }}
+  PACTO_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+```
 
-## GitHub Actions
+```yaml
+- name: Validate the contract
+  run: pacto validate .
 
-The [GitHub Actions integration](github-actions.md) wraps these steps in a reusable action. Use `command: validate` and `command: diff` instead of writing `run:` steps, and the action handles installation, caching and PR comments for you.
+- name: Check for breaking changes
+  run: pacto diff oci://ghcr.io/acme/contracts/my-service .
+```
 
-For other CI systems (GitLab CI, Jenkins, CircleCI), install the CLI with the [installer script](installation.md#via-installer-script) and call the commands directly as shown above.
+`pacto validate` catches missing or malformed fields, fields that contradict
+each other and failed policies, the rules your platform team may set for
+every contract.
+
+`pacto diff` compares the contract in the pull request (the second argument)
+with the last one you published (the first). With no version after the name,
+it picks the highest published version. It exits 1 when the change is
+breaking, meaning it removes or changes something other services may use, so
+the check fails. Your branch protection rules decide whether a failed check
+blocks the merge.
+
+Until the first version is published there is nothing to compare with and
+`pacto diff` fails, so add this step after your first `pacto publish`. To
+compare two folders with no registry, run `pacto diff ./main ./feature-branch`.
+
+## After a merge: publish
+
+With the same login variables:
+
+```yaml
+- name: Set up a Docker builder
+  run: docker buildx create --use --driver docker-container
+
+- name: Publish a version
+  run: |
+    echo "$COSIGN_KEY" > cosign.key      # publish.sign reads it from the repository root
+    pacto publish
+  env:
+    COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
+    COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+```
+
+`pacto publish` builds the image, pushes it to your registry with your
+Kubernetes files and the contract, and signs them; delivery only rolls out
+versions published this way. Store the contents of `cosign.key` and its
+password as CI secrets. On GitHub, the job also needs
+`permissions: packages: write` to push.
+
+It never overwrites a published version, and a merge that does not raise
+`service.version` in `pacto.yaml`, such as a docs change, fails here. Raise
+the version with each change you want to ship, or run this step only when
+`pacto.yaml` changed. See [Publish a version](publishing.md).
+
+If you use contracts without delivery, `pacto push oci://ghcr.io/acme/contracts/my-service -p .`
+uploads only the contract.
+
+## A breaking change you need to ship
+
+Sometimes a breaking change is the right call. Give it a new major version
+(`1.4.2` becomes `2.0.0`): `pacto publish` refuses a breaking change with a
+smaller version. With delivery, the change then waits for the teams whose
+services it would break. Do not remove fields or change `pactoVersion` to get
+past the check.
+
+## GitHub Actions and other CI systems
+
+The [GitHub Actions integration](github-actions.md) wraps these steps in a
+ready-made action that also installs Pacto and comments on the pull request.
+For GitLab CI, Jenkins or CircleCI, install Pacto with the
+[installer script](installation.md#via-installer-script) and run the same
+commands.

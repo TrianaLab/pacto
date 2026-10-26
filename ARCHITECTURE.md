@@ -7,7 +7,7 @@ Dependencies flow in one direction.
 *contract* is declared operational intent. *Evidence* is what a collector
 observed about a running system. `Evaluate` is a pure function that compares the
 two and returns typed findings plus coverage. Everything else — the CLI, the
-dashboard, the operator — is delivery. A contract adds a relational and temporal
+dashboard, the operator — is a surface. A contract adds a relational and temporal
 layer over the interface specs it composes rather than replaces: ownership,
 dependencies, compatibility, readiness. That layer is why the core splits into
 `pkg/graph` (dependencies), `pkg/diff` (compatibility and change over time) and

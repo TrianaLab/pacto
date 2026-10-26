@@ -5,19 +5,35 @@
 template: home.html
 ---
 
-<h1 hidden>One versioned contract per service</h1>
+<h1 hidden>Describe your services once. Pacto decides what ships.</h1>
 
 ## What is Pacto? { #what-is-pacto }
 
-A service's operational facts are scattered. Ownership is in a wiki. The API is
-an OpenAPI file in another repository. What it depends on is implied by Helm
-values and a Service name. What breaks if you change it is in someone's memory.
+Pacto is continuous delivery for the GitlessOps era. You describe each service
+once, in a contract. Pacto works out what each change does to the services
+that depend on it, and decides which version runs in each environment. Flux
+or Argo CD, the tools that keep a Kubernetes cluster running what you ask for,
+still apply the version.
 
-Pacto is an operational contract system. It puts those facts in one YAML file,
-published to the container registry you already run. With the opt-in
-[delivery](integrations/kubernetes/delivery.md) component, Pacto also acts on
-them: it decides which version of each service runs in each environment, and
-[pactifying a service](pactify.md) sets it up.
+GitlessOps, in one line: which version runs where is set from signed
+artifacts in your container registry and from evidence, not from commits to
+git. Your code and your
+deployment files stay in git; only that one line moves out.
+[What GitlessOps means](manifesto.md#what-gitlessops-means) gives the three
+rules behind it.
+
+Pacto starts by watching. It earns the right to ship on its own one step at a
+time, and a person confirms every step: that is
+[the autonomy ladder](autonomy.md). Its four steps, called rungs, are observe
+(watch only), advise (a person approves each automatic promote), auto for non-breaking
+and autonomous. The rung is set per Stage, meaning one service in one
+environment, such as payments in prod. It asks only the teams a change affects,
+and when it cannot see enough it says Unknown and waits for a person.
+
+Contracts are the foundation. A contract is one YAML file that says who owns
+a service, what it offers, which services it calls and which of their
+versions it accepts. It lives in the container registry you already run, and
+it is useful on its own, before you turn on delivery:
 
 ```yaml title="pacto.yaml"
 pactoVersion: "2.0"
@@ -43,8 +59,8 @@ dependencies:
 ## Who breaks when a dependency ships a new version
 
 The `compatibility` range above records which versions of `auth` this revision
-accepts, and `pacto.lock` pins every dependency below it to the exact published
-build. So when auth is about to ship 3.0, Pacto answers per consumer:
+accepts, and `pacto.lock` pins every dependency, direct or indirect, to the
+exact published build. So when auth is about to ship 3.0, Pacto answers per consumer:
 
 ```console
 $ pacto impact ./auth-2.1.0 ./auth-3.0.0 --local .
@@ -57,10 +73,12 @@ Affected consumers (2):
   reporting                    direct     confidence=contractual  compat=compatible   owner=analytics
 ```
 
-`checkout` accepts `^2.0.0` and 3.0.0 falls outside it. `reporting` accepts
+`pacto diff` lists the breaking change itself. `checkout` accepts `^2.0.0`
+and 3.0.0 falls outside it. `reporting` accepts
 `>=2.0.0 <4.0.0` and 3.0.0 is inside. `direct` means each one declares auth
 itself rather than reaching it through another service, and `contractual` means
-the dependency is declared with a usable range and nothing observed it running.
+the answer comes from the declared ranges alone: Pacto has not also seen the
+call happen at runtime.
 
 One file, checked when you write it, compared against the previous revision,
 then compared against what is actually running.
@@ -75,10 +93,10 @@ pass.
 | `pacto validate` | Is this contract legal? |
 | `pacto diff` | Did I break my own consumers? |
 | `pacto impact` | Which consumers, and where do they run? |
-| The [operator](integrations/kubernetes/overview.md) | Does reality still match what was declared? |
+| The [operator](integrations/kubernetes/overview.md), a controller you install in the cluster | Does reality still match what was declared? |
 
-`validate` and `diff` pay off at one service; `impact` and the graph pay off at
-the second consumer.
+`validate` and `diff` pay off at one service; `impact` and the graph of who
+calls whom pay off at the second consumer.
 
 ## Check what is actually running
 
@@ -90,7 +108,7 @@ prove:
 | --- | --- |
 | A process reports healthy but nothing listens on the declared port | `INTERFACE_ABSENT` |
 | A declared dependency the service keeps failing to reach | `DEPENDENCY_UNREACHABLE` |
-| A call to another Pacto service no dependency declares (Kubernetes, `pacto agent`) | `DEPENDENCY_UNDECLARED` |
+| A call to another Pacto service no dependency declares (seen on Kubernetes or by `pacto agent`) | `DEPENDENCY_UNDECLARED` |
 
 ```bash
 pacto run --contract ./payments --bind api=8080 --fail-on noncompliant -- ./payments-server
@@ -103,13 +121,48 @@ when it cannot see it says "don't know" instead of guessing. Run it three ways:
 Docker host or a server and the Kubernetes operator deploys the same agent on
 every node. See [Runtime conformance](runtime-conformance.md).
 
+## What delivery needs
+
+Contracts and the checks above work anywhere. Delivery, the part that moves
+versions, is alpha: its settings and commands may still change. It needs:
+
+- Kubernetes 1.30 or later, with Flux (Argo CD works too, as an experimental
+  option).
+- Your container registry, to hold contracts and versions.
+- For signed records, and so for the two automatic rungs, a registry that
+  serves the OCI Referrers API: the feature that lets a registry list the
+  files attached to an image, here the signed records. zot, an open source
+  registry, does. GitHub's registry does not today, so with it a Stage can
+  observe and advise but never ship on its own. For any other registry,
+  check its documentation for "referrers API".
+- For checks on error rates after a release, traces in
+  [Mira](https://github.com/trianalab/mira), an OpenTelemetry trace store, or
+  a check you call over HTTP. Without them Pacto still checks the contract.
+- For a person to approve anything, a cluster that can tell how recently that
+  person signed in to your company login. That works where you set the
+  Kubernetes API server's flags yourself (tested on kind). It is not verified
+  yet on EKS, GKE and AKS. Where it does not work, nobody can approve, so
+  nothing can be raised up the ladder; see
+  [where approving works](integrations/kubernetes/delivery-identity.md#where-approving-works).
+
+Trying it costs nothing: a new service starts on observe and moves nothing,
+and the [live demo](examples/dashboard-demo.md) runs in your browser.
+
 ## Where to start
 
-- [What the live demo shows](examples/dashboard-demo.md) — the dashboard runs
-  in your browser against a fixture fleet, nothing to install
-- [Quickstart](quickstart.md) — an empty directory to a validated contract, a
-  breaking change and the consumers it reaches, about five minutes
-- [Put it in your repository](ci.md) — validate and diff on every
-  pull request
-- [Contract reference](contract-reference/index.md) — every field and every
-  validation rule
+| You want to | Read |
+|---|---|
+| Know what Pacto is and whether it fits | [The autonomy ladder](autonomy.md), [What GitlessOps means](manifesto.md#what-gitlessops-means) and the [live demo](examples/dashboard-demo.md) |
+| Pactify your first service (give it a contract and connect it to delivery) | [Quickstart](quickstart.md), then [Pactify a service](pactify.md) |
+| Approve or unblock a change | [Decide, unfreeze and roll back](pactify-decide.md) |
+| Verify a record | [Check a record without Pacto](verify-a-record.md) |
+| Drive Pacto from an AI agent | [AI assistants (MCP)](mcp-integration.md) |
+| Write and check contracts | [For developers](developers.md) and the [contract reference](contract-reference/index.md) |
+
+New words are explained in the [glossary](glossary.md).
+
+Pacto delivery builds on two ideas from others:
+[ConfigHub](https://confighub.com)'s configuration as data and Anthropic's
+[Scion](https://www.anthropic.com/engineering/redesigning-source-control).
+The contract graph is ours, and all of Pacto is open source under the MIT
+licence.

@@ -1,8 +1,11 @@
-# Fleet tools
+# Fleet views
 
 Three ways to see all your services at once: the dashboard in a browser,
 `pacto fleet` in a terminal or CI job and `pacto tui` in an interactive
-terminal. All three read the same [operational graph](operational-graph.md).
+terminal. All three read the same [operational graph](operational-graph.md),
+the joined view of your contracts, their versions and where they run. An AI
+agent asks the same questions through the `pacto_fleet_*` tools of
+[`pacto mcp --fleet`](mcp-integration.md).
 The contract-to-infrastructure side is in [For platform
 engineers](platform-engineers.md).
 
@@ -18,11 +21,7 @@ shows version history, interfaces, configuration schemas and diffs. See the [`pa
 reference](cli-reference.md#pacto-dashboard) for its flags and environment
 variables.
 
-Its HTTP API is described at `/openapi.json`. The `status` filters of
-`/api/fleet/services`, `/api/fleet/entities` and `/api/fleet/attention` and the
-comma-separated `kinds` filter of `/api/fleet/entities` are enums checked item by
-item: an unknown value or an empty item such as a trailing comma gets a 422 that
-names the parameter, for example `query.kinds[1]`.
+Its HTTP API is described at `/openapi.json`; see [Dashboard container](dashboard-docker.md#operational-endpoints).
 
 ## Fleet queries without a browser
 

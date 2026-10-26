@@ -180,7 +180,7 @@ fixtures](operational-graph.md#what-a-target-state-fixture-looks-like).
 
 Agents get the same analysis as the read-only `pacto_impact` MCP tool. It belongs
 to the **fleet query**
-[family](mcp-integration.md#three-tool-families-and-their-boundaries) and shares
+[family](mcp-reference.md#three-tool-families-and-their-boundaries) and shares
 that family's boundaries: it projects the operational graph, observes nothing,
 changes nothing and authorizes nothing. It is the one fleet tool that does not
 serve a frozen snapshot: it rebuilds the graph on every call. Its `asOf`

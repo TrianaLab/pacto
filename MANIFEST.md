@@ -31,8 +31,8 @@ dependency records that this revision accepts `auth ^2.0.0`, and `pacto.lock`
 pins the rest of the transitive closure by digest.
 
 The first is a fact about the present, in a mutable store. The second can be
-compared — against the previous revision, against the policies the contract must
-satisfy and against what is deployed. That comparison is what a CI job, a
+compared — against the previous revision, against the rules your platform sets
+for every contract (policies) and against what is deployed. That comparison is what a CI job, a
 controller or an agent needs before it concludes anything.
 
 ## Principles
@@ -42,8 +42,8 @@ controller or an agent needs before it concludes anything.
   validated, distributed and verified.
 
 - **Declaration is separate from observation.** The contract is stable author
-  intent. Runtime state is external to it, gathered by collectors and evaluated
-  against it. Observation is never written back into the declaration, which is
+  intent. Runtime state is external to it, gathered by collectors (agents that
+  watch running services) and evaluated against it. Observation is never written back into the declaration, which is
   what lets one contract be validated at authoring time, diffed in CI and
   checked against a running system.
 
@@ -57,8 +57,41 @@ controller or an agent needs before it concludes anything.
   carry container images. No new distribution plane.
 
 - **Act only on what each change can show.** The opt-in delivery component
-  lets a version move on its own only when this change's compatibility, its
-  impact on the declared consumers and its checks back it. Autonomy is gated
-  by evidence per change, not granted for a good track record. When Pacto
+  moves a version on its own only when this change's compatibility, its
+  impact on the consumers and its checks back it. A Stage (one service in one
+  environment) earns the right to
+  move on its own one rung at a time, and a person confirms each rung; a good
+  track record never replaces the evidence for the next change. When Pacto
   cannot see enough it holds the change and asks the teams concerned, never an
-  agent, and each decision can end in a signed record.
+  agent.
+
+## What GitlessOps means
+
+In plain words: which version runs where is set from signed artifacts in
+your registry and from evidence, not from commits to git. Your code and
+manifests stay in git. GitlessOps is three principles, each true only under its condition:
+
+1. **Desired versions are immutable artifacts in a registry.** Every version
+   Pacto promotes is an OCI digest that `pacto publish` signed. Which digest
+   runs where is a pointer Pacto writes onto a Flux OCIRepository or an
+   OCI-sourced Argo CD Application. Source code and manifests stay in git, and
+   Flux or Argo CD still apply them.
+2. **Evidence, not a pull request, moves a change**, on a Stage set to an
+   automatic rung. A person is asked when a check cannot see enough
+   (Unknown: the service's owners), when a consumer's range rejects it (that consumer's
+   owners), when the Stage is set to ask before every promote, on auto for non-breaking
+   when the change is not known to be non-breaking, or when a failed version has no safe way back
+   and the Stage freezes. Only the affected team is asked.
+3. **Every decision can be verified without Pacto.** With the recorder (the
+   part of Pacto that signs records) on,
+   each finished operation leaves a signed in-toto record as an OCI referrer,
+   checkable with `oras` and `cosign`. That needs a registry with the
+   Referrers API, which GitHub's does not serve today.
+
+Two ideas came first. [ConfigHub](https://confighub.com) treats configuration
+as data in a database behind an API, not as templates; Pacto keeps only "which version
+runs where" that way. Anthropic's
+[Scion](https://www.anthropic.com/engineering/redesigning-source-control)
+addresses stored content by what it holds, moves a pointer with one compare-and-swap and
+tests after a change merges and before it deploys. The contract graph is
+ours, and all of it is open source under the MIT licence.

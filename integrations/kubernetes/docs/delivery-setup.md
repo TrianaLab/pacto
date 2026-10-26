@@ -115,9 +115,9 @@ and it cannot roll back. Stage approval policy is `approval.always`, not an expr
 
 ## What the pointer guarantees
 
-Pacto mediates the pointer, and signed records name it. The pointer is all
-that decides what runs only when nothing else can change it, and the Stage's
-`Mediated` condition says whether that holds. It is `True` when exactly one
+Pacto mediates the pointer and signed records name it. The pointer alone
+decides what runs only when nothing else can change it; the Stage's `Mediated`
+condition says whether that holds. It is `True` when exactly one
 Flux Kustomization applies the apply `OCIRepository`, both carry the
 `delivery.pacto.trianalab.io/apply-ref` label and sets none of `images`,
 `patches`, `components`, `postBuild`, `namePrefix` or `nameSuffix`. On
@@ -127,12 +127,12 @@ files, or plugin. Otherwise it is `False` and the reason
 (`ApplyRefUnguarded`, `NoApplier`, `SeveralAppliers`, `ApplierUnguarded`,
 `ApplierOverrides`, `SeveralSources`) names what else decides what runs.
 
-On labelled objects, admission keeps the following to break-glass: removing
+On labelled objects, only break-glass may change: removing
 the label, the `OCIRepository`'s `spec.url` and `spec.layerSelector`, the rest
 of an Application's `spec.source` and its `spec.sources`, and a Kustomization's
 `sourceRef`, `path`, `images`, `patches`, `components`, `postBuild`,
 `namePrefix`, `nameSuffix` and `targetNamespace`. A GitOps tool that applies
-those objects must leave these fields alone, or run in a break-glass group.
+those objects must leave these fields alone or run as break-glass.
 Admission guards updates only. Whoever may delete and create these objects can
 recreate one without the label; the Stage then shows `Ready` `False` with the reason `ApplierUnlabelled` and
 `Mediated` `False` with the reason `ApplyRefUnguarded`. Keep delete and create

@@ -7,7 +7,10 @@ search:
 
 # Quickstart
 
-From zero to a validated contract that detects breaking changes: about five minutes. Everything runs locally with no account, no registry, nothing to sign up for.
+From nothing to a checked contract that catches breaking changes, in about
+five minutes. A contract is one file, `pacto.yaml`, that says who owns a
+service, what it offers and which other services it calls. Everything here
+runs on your machine, with no account and no registry.
 
 ---
 
@@ -68,18 +71,21 @@ $ pacto validate my-service
 my-service is valid
 ```
 
-Validation checks three things: the file's shape, that fields agree with each other (a capability must bind to a declared interface, for example) and your policies. See the [Contract Reference](contract-reference/validation.md#validation-layers) for the full rules.
+Validation checks three things: the file's shape, that fields agree with each
+other (a field that names an interface must name one the contract declares,
+for example) and your policies, the rules your platform team may set for every
+contract. See the [Contract Reference](contract-reference/validation.md#validation-layers) for the full rules.
 
 ## 4. Add consumers
 
-Two services depend on `my-service`, each with a different compatibility range. Copy the bundle twice and declare the dependencies:
+Two services depend on `my-service`, each with a different compatibility range. Copy the folder twice and declare the dependencies:
 
 ```bash
 cp -r my-service checkout
 cp -r my-service reporting
 ```
 
-In `checkout/pacto.yaml`, set `service.name: checkout` and replace the commented-out `dependencies:` block with:
+In `checkout/pacto.yaml`, set `service.name: checkout` and replace the `dependencies:` block that `pacto init` wrote as comments with:
 
 ```yaml
 dependencies:
@@ -156,7 +162,9 @@ Affected consumers (2):
 
 `checkout` and `reporting` declare the *same* edge to the *same* service and get *opposite* verdicts. `checkout` pins `^1.0.0` (1.x only) and breaks. `reporting` accepts `>=1.0.0` (any major) and survives. A catalog that records only "`checkout` depends on `my-service`" cannot tell those two apart; Pacto can, because the contract carries the compatibility range.
 
-`confidence=contractual` means the dependency is declared with a usable range and nothing observed it at runtime. `direct` means each consumer declares `my-service` itself rather than reaching it through another service.
+`owner=my-team` is the placeholder team `pacto init` wrote. `confidence=contractual`
+means the answer comes from the declared ranges alone: Pacto has not also seen
+the call happen at runtime. `direct` means each consumer declares `my-service` itself rather than reaching it through another service.
 
 ---
 
@@ -189,7 +197,7 @@ Clean up:
 docker rm -f pacto-registry
 ```
 
-For a real registry like GHCR, you need `pacto login` with a personal access token. See [Installation](installation.md) for the supply-chain guarantees and [CI integration](ci.md) for what to commit to your repository.
+For a real registry like GHCR, you need `pacto login` with a personal access token. See [Installation](installation.md) for the supply-chain guarantees and [Put it in your repository](ci.md) for what to commit.
 
 ---
 
@@ -197,8 +205,8 @@ For a real registry like GHCR, you need `pacto login` with a personal access tok
 
 | Goal | Guide |
 |------|-------|
-| Put it in your repository | [CI integration](ci.md) |
 | Let Pacto check every release of a real service | [Pactify a service](pactify.md) |
+| Put it in your repository | [Put it in your repository](ci.md) |
 | Understand every contract field | [Contract Reference](contract-reference/index.md) |
 | See contracts for real services | [Examples](examples/index.md) |
 | Explore contracts visually | Run `pacto dashboard` or [`pacto tui`](fleet-tools.md#the-terminal-ui) |
