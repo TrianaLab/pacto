@@ -3,6 +3,7 @@ import {
   serviceUrl, ownerUrl, graphUrl, ownersUrl, readinessUrl, compareDiffUrl,
   fleetOverviewUrl, fleetServicesUrl, fleetUrl, fleetOwnersUrl, fleetSourcesUrl,
   fleetAttentionUrl, fleetChangesUrl, fleetEntityListUrl,
+  deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryPublishUrl,
 } from './router';
 import { ownerKey, ownerKeyLabel, ownerKeyKind, ownerMatchesFilter } from './format';
 
@@ -14,6 +15,7 @@ export interface Command {
   hint?: string;       // right-aligned meta (version, service count)
   href?: string;       // router hash for view/service/owner
   action?: string;     // action id for action commands
+  query?: string;      // the text an entity search starts from
   keywords?: string[]; // searchable synonyms; never rendered
 }
 
@@ -48,6 +50,15 @@ const FLEET_VIEWS: Command[] = [
   { kind: 'view', label: 'Data sources', href: fleetSourcesUrl() },
   { kind: 'view', label: 'Readiness', href: fleetEntityListUrl('revision'), keywords: ['contract revisions', 'assessment'] },
 ];
+// Where delivery is served, its five views are destinations like any other.
+const DELIVERY_VIEWS: Command[] = [
+  { kind: 'view', label: 'Delivery inbox', href: deliveryInboxUrl(), keywords: ['delivery', 'held', 'waiting'] },
+  { kind: 'view', label: 'Delivery environments', href: deliveryEnvironmentsUrl(), keywords: ['delivery', 'promote'] },
+  { kind: 'view', label: 'Delivery autonomy', href: deliveryAutonomyUrl(), keywords: ['delivery', 'rung'] },
+  { kind: 'view', label: 'Delivery history', href: deliveryHistoryUrl(), keywords: ['delivery', 'records', 'audit'] },
+  { kind: 'view', label: 'Delivery published', href: deliveryPublishUrl(), keywords: ['delivery', 'versions'] },
+];
+
 const LEGACY_VIEWS: Command[] = [
   { kind: 'view', label: 'Services', href: '#/' },
   { kind: 'view', label: 'Graph', href: graphUrl() },
@@ -67,14 +78,20 @@ const ACTIONS: Command[] = [
  * (a useful default). Non-empty query → every group filtered; empty groups drop.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function buildCommands(query: string, services: any[], fleet = false): CommandGroup[] {
+export function buildCommands(query: string, services: any[], fleet = false, delivery = false): CommandGroup[] {
   const q = query.trim().toLowerCase();
   const match = (s: string) => !q || s.toLowerCase().includes(q);
   const groups: CommandGroup[] = [];
 
-  const views = (fleet ? FLEET_VIEWS : LEGACY_VIEWS)
+  const views = [...(fleet ? FLEET_VIEWS : LEGACY_VIEWS), ...(delivery ? DELIVERY_VIEWS : [])]
     .filter((v) => match(v.label) || (v.keywords || []).some(match));
   if (views.length) groups.push({ label: 'Views', items: views });
+
+  // On a Fleet host entities are found through the product search, so typed text is
+  // always one Enter away from it rather than a dead "No results".
+  if (q && fleet) {
+    groups.push({ label: 'Search', items: [{ kind: 'action', label: `Search entities for "${query.trim()}"`, action: 'search', query: query.trim() }] });
+  }
 
   // The legacy service/owner search links to legacy detail routes, which are superseded
   // on a Fleet host (the visible EntitySearch / '/' discovers entities through the

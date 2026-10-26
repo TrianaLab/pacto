@@ -214,8 +214,11 @@
     }
   }
 
-  function handlePaletteAction(id) {
-    if (id === 'theme') toggleTheme();
+  // The text the palette handed to the entity search.
+  let searchInitial = $state('');
+  function handlePaletteAction(id, cmd) {
+    if (id === 'search') { searchInitial = cmd?.query ?? ''; searchOpen = true; }
+    else if (id === 'theme') toggleTheme();
     else if (id === 'refresh') loadGlobal(true);
     else if (id === 'autoreload') toggleAutoReload();
   }
@@ -278,11 +281,12 @@
   open={paletteOpen}
   {services}
   fleet={fleetHost}
+  delivery={capabilities?.delivery === true}
   onClose={() => (paletteOpen = false)}
   onAction={handlePaletteAction}
 />
 
-<EntitySearch open={searchOpen} onClose={() => (searchOpen = false)} />
+<EntitySearch open={searchOpen} initial={searchInitial} onClose={() => { searchOpen = false; searchInitial = ''; }} />
 
 {#if loadError && services.length > 0}
   <div class="backend-banner" role="alert">

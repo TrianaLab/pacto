@@ -1,14 +1,14 @@
 <script>
   import { buildCommands, flattenCommands } from './lib/commands.ts';
 
-  let { open = false, services = [], fleet = false, onClose, onAction } = $props();
+  let { open = false, services = [], fleet = false, delivery = false, onClose, onAction } = $props();
 
   let query = $state('');
   let selectedIdx = $state(0);
   let inputEl = $state(null);
   let prevFocus = null;
 
-  let groups = $derived(buildCommands(query, services, fleet));
+  let groups = $derived(buildCommands(query, services, fleet, delivery));
   let flat = $derived(flattenCommands(groups));
 
   // Reset + focus each time the palette opens; restore focus on close.
@@ -24,13 +24,18 @@
     }
   });
 
+  // The selected row stays in view as the arrows move it, so Enter never opens a
+  // result the reader cannot see.
+  let resultsEl = $state(null);
+  $effect(() => { resultsEl?.querySelector(`#cp-opt-${selectedIdx}`)?.scrollIntoView?.({ block: 'nearest' }); });
+
   // Keep the selection in range as results shrink.
   $effect(() => { if (selectedIdx > flat.length - 1) selectedIdx = Math.max(0, flat.length - 1); });
 
   function activate(cmd) {
     if (!cmd) return;
     onClose?.();
-    if (cmd.action) onAction?.(cmd.action);
+    if (cmd.action) onAction?.(cmd.action, cmd);
     else if (cmd.href) location.hash = cmd.href;
   }
 
@@ -80,11 +85,16 @@
           type="text"
           placeholder="Jump to a service, owner, view or action..."
           aria-label="Command palette search"
+          role="combobox"
+          aria-expanded="true"
+          aria-controls="cp-list"
+          aria-autocomplete="list"
+          aria-activedescendant={flat.length ? `cp-opt-${selectedIdx}` : undefined}
           onkeydown={onKeydown}
         />
         <kbd>Esc</kbd>
       </div>
-      <div class="cp-results" role="listbox">
+      <div class="cp-results" role="listbox" id="cp-list" bind:this={resultsEl}>
         {#if flat.length === 0}
           <div class="cp-empty">No results for "{query}"</div>
         {:else}
@@ -94,6 +104,7 @@
               {@const idx = baseIndex(gi) + ii}
               <button
                 type="button"
+                id={`cp-opt-${idx}`}
                 class="cp-item"
                 class:selected={idx === selectedIdx}
                 role="option"

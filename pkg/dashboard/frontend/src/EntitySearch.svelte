@@ -1,7 +1,7 @@
 <script>
   import { onDestroy } from 'svelte';
   import { createEntitySuggest } from './lib/entitySuggest.svelte.ts';
-  import { hashForHref, fleetEntityUrl } from './lib/router.ts';
+  import { hashForHref, fleetEntityUrl, fleetServicesUrl } from './lib/router.ts';
   import EntityIdentity from './components/EntityIdentity.svelte';
 
   // Global entity search: discovery across services, revisions,
@@ -11,7 +11,8 @@
   // palette: arrows move, Enter opens the exact entity, Escape closes, focus is
   // restored. Same-named entities across domains are NOT collapsed -- each result
   // carries enough identity (domain / scope / parent service) to disambiguate.
-  let { open = false, onClose } = $props();
+  // initial: the text a search starts from (the palette hands over what was typed).
+  let { open = false, initial = '', onClose } = $props();
 
   let query = $state('');
   let selectedIdx = $state(0);
@@ -29,7 +30,7 @@
   $effect(() => {
     suggest.clear();
     if (open) {
-      query = ''; selectedIdx = 0;
+      query = initial; selectedIdx = 0;
       prevFocus = document.activeElement;
       queueMicrotask(() => inputEl?.focus());
     } else if (prevFocus) {
@@ -50,6 +51,8 @@
   function openResult(r) { if (!r) return; onClose?.(); location.hash = hrefFor(r); }
 
   let panelEl = $state(null);
+  // The selected result stays in view as the arrows move it.
+  $effect(() => { panelEl?.querySelector(`#es-opt-${selectedIdx}`)?.scrollIntoView?.({ block: 'nearest' }); });
 
   function onKeydown(e) {
     if (e.key === 'ArrowDown') { e.preventDefault(); selectedIdx = Math.min(selectedIdx + 1, results.length - 1); }
@@ -86,12 +89,19 @@
           type="text"
           placeholder="Search services, revisions, operational targets, owners, data sources..."
           aria-label="Search services, revisions and targets"
+          role="combobox"
+          aria-expanded={results.length > 0}
+          aria-controls="es-list"
+          aria-autocomplete="list"
+          aria-activedescendant={results.length ? `es-opt-${selectedIdx}` : undefined}
           onkeydown={onKeydown}
         />
         <kbd>Esc</kbd>
       </div>
-      <div class="es-results" role="listbox">
-        {#if suggest.loading}
+      <div class="es-results" role="listbox" id="es-list">
+        <!-- The previous results stay while the next ones load, so the list does not
+             flash "Searching…" on every keystroke. -->
+        {#if suggest.loading && results.length === 0}
           <div class="es-msg">Searching…</div>
         {:else if suggest.error}
           <div class="es-msg es-err">Search unavailable: {suggest.error.message}</div>
@@ -103,6 +113,7 @@
           {#each results as r, i (r.kind + '::' + r.key)}
             <button
               type="button"
+              id={`es-opt-${i}`}
               class="es-item"
               class:selected={i === selectedIdx}
               role="option"
@@ -115,7 +126,7 @@
             </button>
           {/each}
           {#if suggest.truncated}
-            <div class="es-trunc">Showing {results.length} of {suggest.total}. Refine your search to narrow it.</div>
+            <div class="es-trunc">Showing {results.length} of {suggest.total}. Refine your search, or <a href={fleetServicesUrl({ text: query.trim() })} onclick={() => onClose?.()}>see every matching service</a>.</div>
           {/if}
         {/if}
       </div>

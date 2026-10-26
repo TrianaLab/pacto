@@ -147,6 +147,23 @@ describe('EntitySearch — global entity discovery', () => {
     const { target, component } = mountSearch();
     type(target, 'x');
     await vi.waitFor(() => expect(target.textContent).toContain('Showing 1 of 42'));
+    expect(target.querySelector('.es-trunc a')?.getAttribute('href')).toBe('#/fleet/services?text=x');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('names the selected result to assistive tech as the arrows move', async () => {
+    entitiesFn.mockResolvedValue(list([
+      { kind: 'service', key: 'a/one', label: 'one', domain: 'a', href: '/fleet/services/a%2Fone' },
+      { kind: 'service', key: 'a/two', label: 'two', domain: 'a', href: '/fleet/services/a%2Ftwo' },
+    ]));
+    const { target, component } = mountSearch();
+    const input = type(target, 'o');
+    await vi.waitFor(() => expect(rows(target).length).toBe(2));
+    expect(input.getAttribute('role')).toBe('combobox');
+    expect(input.getAttribute('aria-activedescendant')).toBe('es-opt-0');
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    flushSync();
+    expect(input.getAttribute('aria-activedescendant')).toBe('es-opt-1');
     unmount(component); document.body.removeChild(target);
   });
 });

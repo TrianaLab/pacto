@@ -97,4 +97,17 @@ describe('buildCommands — capability-aware views (Part 1: one destination per 
     const groups = buildCommands('payments', services, false);
     expect(groups.find((g) => g.label === 'Services' && g.items.some((i) => i.kind === 'service'))).toBeTruthy();
   });
+
+  it('on a Fleet host typed text is always one Enter from the entity search', () => {
+    const groups = buildCommands('orders', services, true);
+    const search = groups.find((g) => g.label === 'Search')?.items[0];
+    expect(search).toMatchObject({ kind: 'action', action: 'search', query: 'orders', label: 'Search entities for "orders"' });
+    expect(buildCommands('', services, true).find((g) => g.label === 'Search')).toBeUndefined();
+  });
+
+  it('offers the delivery views where delivery is served', () => {
+    const labels = (q: string, delivery: boolean) => buildCommands(q, services, true, delivery).flatMap((g) => g.items.map((i) => i.label));
+    expect(labels('delivery', true)).toEqual(expect.arrayContaining(['Delivery inbox', 'Delivery history']));
+    expect(labels('delivery', false)).not.toContain('Delivery inbox');
+  });
 });
