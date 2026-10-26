@@ -129,7 +129,7 @@ func TestStepDownRestartsAtZero(t *testing.T) {
 	st := StageStatus{Rung: RungAdvise, Conditions: []Condition{recordStoreReady()}, Stream: Stream{Concluded: []Concluded{
 		{UID: "down", Type: TypeAutonomy, Outcome: Succeeded, Cause: "p1"},
 		promoted("p1", Failed, "", false),
-		{UID: "rb", Type: TypeRollback, Outcome: Succeeded, Cause: "p1"},
+		{UID: "rb", Type: TypeRollback, Outcome: Succeeded, Verification: Verified, Cause: "p1"},
 		{UID: "fz", Type: TypeFreeze, Outcome: Succeeded, Cause: "p1"},
 	}}}
 	if p := ProposeRung(spec, st, nil); !slices.Equal(kinds(p), []string{BlockerNeedsVerified}) || !strings.Contains(p.Blockers[0].Message, "0 of 1") {
@@ -139,9 +139,18 @@ func TestStepDownRestartsAtZero(t *testing.T) {
 	if p := ProposeRung(spec, st, nil); p.Rung != RungAutoNonBreaking {
 		t.Fatalf("one verified promote re-earns the rung: %+v", p)
 	}
-	st.Stream.Concluded[2].Outcome = Failed
-	if p := ProposeRung(spec, st, nil); !slices.Contains(kinds(p), BlockerIncident) {
-		t.Fatalf("a rollback that failed is still an incident: %+v", p)
+	for _, rb := range []Concluded{
+		{UID: "rb", Type: TypeRollback, Outcome: Failed, Cause: "p1"},
+		{UID: "rb", Type: TypeRollback, Outcome: Errored, Cause: "p1"},
+		{UID: "rb", Type: TypeRollback, Outcome: Rejected, Cause: "p1"},
+		{UID: "rb", Type: TypeRollback, Outcome: Succeeded, Verification: Unverified, Cause: "p1"},
+		{UID: "rb", Type: TypeRollback, Outcome: Succeeded, Verification: AcceptedUnknown, Cause: "p1"},
+		{UID: "rb", Type: TypeFreeze, Outcome: Cancelled, Cause: "p1"},
+	} {
+		st.Stream.Concluded[2] = rb
+		if p := ProposeRung(spec, st, nil); !slices.Contains(kinds(p), BlockerIncident) {
+			t.Fatalf("a remediation that did not succeed and verify is still an incident: %+v -> %+v", rb, p)
+		}
 	}
 	st.Stream.Concluded[2] = Concluded{UID: "rb2", Type: TypeRollback, Outcome: Succeeded, Cause: "other"}
 	if p := ProposeRung(spec, st, nil); !slices.Contains(kinds(p), BlockerIncident) {

@@ -292,7 +292,7 @@ func promoteEvidence(st StageStatus, n int, block func(kind, subject, msg string
 	// An automatic step-down cites the failure that raised it. That failed
 	// promote and the rollback or freeze it raised can conclude after the
 	// step-down: they are why the rung dropped, not a new incident, unless
-	// the rollback or freeze itself failed.
+	// the rollback did not succeed and verify or the freeze did not succeed.
 	cause := ""
 	for _, c := range slices.Backward(st.Stream.Concluded) {
 		if c.Type == TypeAutonomy && c.Outcome == Succeeded {
@@ -305,7 +305,8 @@ scan:
 		switch {
 		case c.Type == TypeAutonomy && c.Outcome == Succeeded:
 			break scan
-		case cause != "" && (c.UID == cause || c.Cause == cause && c.Outcome != Failed):
+		case cause != "" && (c.UID == cause || c.Cause == cause && c.Outcome == Succeeded &&
+			(c.Type == TypeFreeze || c.Type == TypeRollback && c.Verification == Verified)):
 		case c.Outcome == Failed, !c.Person && (c.Type == TypeRollback || c.Type == TypeFreeze):
 			block(BlockerIncident, c.UID, "a "+c.Type+" ended "+string(c.Outcome)+": "+c.Reason)
 		case c.Type != TypePromote || len(ev) == n:
