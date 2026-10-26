@@ -9,6 +9,7 @@
   import { statusLabel, STATUS_FILTER_OPTIONS, ownerKeyLabel, ownerKeyKind } from '../lib/format.ts';
   import { fleetOverviewUrl, fleetAttentionUrl } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
+  import EntityCombobox from '../components/EntityCombobox.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import EntityLink from '../components/EntityLink.svelte';
   import SeverityBadge from '../components/SeverityBadge.svelte';
@@ -112,6 +113,19 @@
     });
   }
   function apply(patch) { location.hash = urlWith(patch); }
+
+  // Owner, source and service are picked from what exists, not typed as exact ids. A
+  // picked owner is an identity (ownerKey); typed text stays the generous owner search.
+  // committed guards the change event a pick is followed by, which would otherwise
+  // re-read the exact choice as a substring search.
+  let committed = { owner: '', source: '', service: '' };
+  function pickOwner(ref) { committed.owner = ref.label ?? ''; apply({ ownerKey: ref.key ?? '', owner: '' }); }
+  function typeOwner(v) { if (v !== committed.owner && v !== ownerBox) { committed.owner = v; apply({ owner: v, ownerKey: '' }); } }
+  function pickSource(ref) { committed.source = ref.label ?? ''; apply({ source: ref.key ?? '' }); }
+  function typeSource(v) { if (v !== committed.source && v !== source) { committed.source = v; apply({ source: v }); } }
+  // A service filter is a canonical key, so only a pick sets it; clearing the box clears it.
+  function pickService(ref) { committed.service = ref.label ?? ''; apply({ service: ref.key ?? '' }); }
+  function typeService(v) { if (!v && service) apply({ service: '' }); }
   function clearAll() { location.hash = fleetAttentionUrl(); }
 
 
@@ -221,17 +235,26 @@
             {#each STATUS_FILTER_OPTIONS as s}<option value={s}>{statusLabel(s)}</option>{/each}
           </select>
         </label>
-        <label class="av-field">
-          <span>Owner</span>
+        <!-- Not wrapping <label>s: a click inside one is forwarded to its control, which
+             would swallow the click on a suggestion. The association is by `for`. -->
+        <div class="av-field">
+          <label for="attn-owner">Owner</label>
           <!-- Arriving here from an owner page carries the canonical `ownerKey`; the
                box shows that owner's NAME, because `team:alice` is a wire form and
                editing it would hand the reader a search for the encoding. -->
-          <input class="input" type="text" value={ownerBox} placeholder="team or DRI" aria-label="Filter by owner" onchange={(e) => apply({ owner: e.currentTarget.value.trim(), ownerKey: '' })} />
-        </label>
-        <label class="av-field">
-          <span>Source</span>
-          <input class="input" type="text" value={source} placeholder="source id" aria-label="Filter by source" onchange={(e) => apply({ source: e.currentTarget.value.trim() })} />
-        </label>
+          <EntityCombobox id="attn-owner" value={ownerBox} kinds={['owner']} placeholder="team or DRI" label="Filter by owner"
+            testid="attn-owner" onselect={pickOwner} oncommit={typeOwner} />
+        </div>
+        <div class="av-field">
+          <label for="attn-source">Source</label>
+          <EntityCombobox id="attn-source" value={source} kinds={['source']} placeholder="data source" label="Filter by source"
+            testid="attn-source" onselect={pickSource} oncommit={typeSource} />
+        </div>
+        <div class="av-field">
+          <label for="attn-service">Service</label>
+          <EntityCombobox id="attn-service" value={service} kinds={['service']} placeholder="service" label="Filter by service"
+            testid="attn-service" onselect={pickService} oncommit={typeService} />
+        </div>
         <label class="av-check">
           <input type="checkbox" checked={isStale} aria-label="Show only stale evidence" onchange={(e) => apply({ staleOnly: e.currentTarget.checked })} />
           <span>Stale evidence only</span>
@@ -315,7 +338,7 @@
      nothing; a fold that starts below the first item does. */
   .av-shape { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); gap: var(--sp-4); margin-bottom: var(--sp-4); align-items: start; }
   .av-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
-  .av-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); color: var(--c-text-3); }
+  .av-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); color: var(--c-text-3); position: relative; min-width: 12rem; }
   /* Look and behaviour come from the shared .disclosure class: an accent-coloured
      summary here and quiet grey ones elsewhere read as two different controls. */
   .av-adv-grid { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; margin-top: var(--sp-2); }

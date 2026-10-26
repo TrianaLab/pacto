@@ -343,3 +343,22 @@ describe('FleetAttentionView — the motion ration', () => {
     unmount(m2.component); document.body.removeChild(m2.target);
   });
 });
+
+describe('FleetAttentionView — searchable filters', () => {
+  beforeEach(() => { attentionFn.mockReset(); location.hash = ''; });
+
+  it('offers owner, source and service as pickers, and clearing the service widens to the fleet', async () => {
+    serveByOffset();
+    const { target, component } = mountView({ service: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelectorAll('.attn-item').length).toBeGreaterThan(0));
+    for (const id of ['attn-owner', 'attn-source', 'attn-service']) {
+      expect(target.querySelector(`[data-testid="${id}"]`)?.getAttribute('role')).toBe('combobox');
+    }
+    const svc = target.querySelector('[data-testid="attn-service"]') as HTMLInputElement;
+    expect(svc.value).toBe('domain-a/payments');
+    svc.value = '';
+    svc.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/attention');
+    unmount(component); document.body.removeChild(target);
+  });
+});

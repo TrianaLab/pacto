@@ -63,6 +63,9 @@
 
   function close() { openList = false; activeIdx = -1; }
 
+  // The highlighted suggestion stays in view as the arrows move it.
+  $effect(() => { if (activeId) document.getElementById(activeId)?.scrollIntoView?.({ block: 'nearest' }); });
+
   function choose(r) {
     close();
     // Adopt the chosen entity's own label. A `change` event that follows (the browser
