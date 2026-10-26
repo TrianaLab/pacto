@@ -1,96 +1,454 @@
 /* ===========================================================================
-   Pacto docs theme — typography, indigo accent, dark surfaces, landing hero.
-   Header stays neutral (white in light, near-black in dark; set via the palette
-   in mkdocs.yml). Indigo is the one accent — links, active nav/tabs, buttons,
-   the hero — retinted here so there is a single place to change it.
+   Pacto docs theme: the dashboard's "signed document" identity on Material.
+
+   The tokens below are copied from pkg/dashboard/frontend/src/styles/tokens.css
+   (same names, same values) so the docs and the dashboard read as one product:
+   serif titles in Source Serif 4, a double rule under the page title, italic
+   subsections, small caps labels and the dashboard palette in light and dark.
+   Change a value there, change it here. Material still owns navigation, search
+   and layout; this file only repaints them.
    =========================================================================== */
 
-/* Headings use Space Grotesk (body stays Inter, code stays JetBrains Mono).
-   Fetched from Google Fonts here; Material only exposes one text-font slot. */
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap");
-
-.md-typeset h1,
-.md-typeset h2,
-.md-typeset h3 {
-  font-family: "Space Grotesk", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
-  font-weight: 600;
-  letter-spacing: -0.015em;
+/* Source Serif 4 (Adobe, SIL OFL 1.1), the unmodified variable release shipped by
+   the dashboard; licence in assets/fonts/source-serif-4-OFL.txt. One file per
+   style covers every weight. Served from this site: no font CDN. */
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("../assets/fonts/SourceSerif4Variable-Roman.otf.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Source Serif 4";
+  src: url("../assets/fonts/SourceSerif4Variable-Italic.otf.woff2") format("woff2");
+  font-weight: 200 900;
+  font-style: italic;
+  font-display: swap;
 }
 
-/* Indigo accent — matched to the Pacto dashboard (#6366F1 family).
-   On white, #6366f1 measures 4.46:1 — under the 4.5:1 WCAG AA floor for body
-   text. So the light scheme uses the deeper #4f46e5 (6.29:1) wherever indigo
-   carries text or sits behind white text, and keeps #6366f1 for decoration. The
-   dark scheme has the opposite problem and steps up to the lighter tint. */
+/* ---- Tokens (dashboard tokens.css) ---------------------------------------- */
 :root {
-  --pacto-indigo: #6366f1;
-  --pacto-indigo-light: #818cf8;
-  --pacto-indigo-deep: #4f46e5;
-  --pacto-indigo-darker: #4338ca;
+  --font-display: "Source Serif 4", "Iowan Old Style", Georgia, serif;
+  /* Material appends its own system fallback stack to these two. */
+  --md-text-font: "Inter";
+  --md-code-font: "JetBrains Mono";
+
+  --role-label-tracking: 0.05em;
+
+  --radius: 10px;
+  --radius-md: 8px;
+  --radius-sm: 6px;
+  --radius-xs: 4px;
+  --radius-pill: 999px;
+}
+
+/* Dark: the dashboard's default theme. */
+[data-md-color-scheme="slate"] {
+  --c-bg: #0a0e17;
+  --c-surface: #111827;
+  --c-surface-raised: #1a2332;
+  --c-surface-hover: #1e293b;
+  --c-surface-inset: #060a12;
+  --c-text: #f1f5f9;
+  --c-text-2: #b4bfcf;
+  --c-text-3: #9aa6b8;
+  --c-border: #1e293b;
+  --c-border-subtle: rgba(148, 163, 184, 0.06);
+  --c-ok: #34d399;
+  --c-ok-bg: rgba(52, 211, 153, 0.08);
+  --c-warn: #fbbf24;
+  --c-warn-bg: rgba(251, 191, 36, 0.08);
+  --c-err: #f87171;
+  --c-err-bg: rgba(248, 113, 113, 0.08);
+  --c-info: #60a5fa;
+  --c-info-bg: rgba(96, 165, 250, 0.08);
+  --c-neutral: #94a3b8;
+  --c-neutral-bg: rgba(100, 116, 139, 0.08);
+  --c-accent: #818cf8;
+  --c-accent-bg: rgba(129, 140, 248, 0.08);
+  --c-accent-hover: #a5b4fc;
+  --c-on-accent: #0a0e17;
+  /* Code sits on the page here, not inside a card as in the dashboard, so it takes
+     the surface: the dashboard's inset (#060a12) would vanish into #0a0e17. */
+  --c-code-bg: var(--c-surface);
+  /* ...and inline code would then vanish into tables and admonitions, which are
+     surface too, so it steps up one. */
+  --c-code-inline-bg: var(--c-surface-raised);
 }
 
 [data-md-color-scheme="default"] {
-  --md-accent-fg-color: var(--pacto-indigo-deep);
-  --md-typeset-a-color: var(--pacto-indigo-deep);
+  --c-bg: #f8fafc;
+  --c-surface: #ffffff;
+  --c-surface-raised: #f1f5f9;
+  --c-surface-hover: #e2e8f0;
+  --c-surface-inset: #f1f5f9;
+  --c-text: #0f172a;
+  --c-text-2: #3f4b5c;
+  --c-text-3: #526073;
+  --c-border: #e2e8f0;
+  --c-border-subtle: rgba(0, 0, 0, 0.04);
+  --c-ok: #047857;
+  --c-ok-bg: rgba(4, 120, 87, 0.06);
+  --c-warn: #b45309;
+  --c-warn-bg: rgba(180, 83, 9, 0.06);
+  --c-err: #b91c1c;
+  --c-err-bg: rgba(185, 28, 28, 0.06);
+  --c-info: #2563eb;
+  --c-info-bg: rgba(37, 99, 235, 0.06);
+  --c-neutral: #64748b;
+  --c-neutral-bg: rgba(100, 116, 139, 0.06);
+  --c-accent: #4f46e5;
+  --c-accent-bg: rgba(79, 70, 229, 0.06);
+  --c-accent-hover: #4338ca;
+  --c-on-accent: #ffffff;
+  --c-code-bg: var(--c-surface-inset);
+  --c-code-inline-bg: var(--c-surface-inset);
 }
 
-/* Dark: the header is black and the surfaces near-black, so links and accents
-   step up to the lighter indigo to keep contrast. */
-[data-md-color-scheme="slate"] {
-  --md-accent-fg-color: var(--pacto-indigo-light);
-  --md-typeset-a-color: var(--pacto-indigo-light);
+/* ---- Tokens -> Material (primary/accent are `custom` in mkdocs.yml) -------- */
+[data-md-color-scheme] {
+  --md-default-bg-color: var(--c-bg);
+  --md-default-fg-color: var(--c-text);
+  --md-default-fg-color--light: var(--c-text-2);
+  /* Material's own value here is a 32% grey that fails AA wherever it carries
+     text (icons, footnotes, the copy button); text-3 clears it in both themes. */
+  --md-default-fg-color--lighter: var(--c-text-3);
+  --md-default-fg-color--lightest: var(--c-border);
+
+  /* The header and tabs bar are the dashboard navbar: surface, ink, a hairline. */
+  --md-primary-fg-color: var(--c-surface);
+  --md-primary-fg-color--light: var(--c-surface-hover);
+  --md-primary-fg-color--dark: var(--c-border);
+  --md-primary-bg-color: var(--c-text);
+  --md-primary-bg-color--light: var(--c-text-3);
+
+  --md-accent-fg-color: var(--c-accent);
+  --md-accent-fg-color--transparent: var(--c-accent-bg);
+  --md-accent-bg-color: var(--c-on-accent);
+  --md-accent-bg-color--light: var(--c-on-accent);
+  --md-typeset-a-color: var(--c-accent);
+
+  --md-code-bg-color: var(--c-code-bg);
+  --md-code-fg-color: var(--c-text);
+  /* Comments, punctuation and friends resolve to --light (text-2) otherwise, which
+     is fine; text-3 keeps them a step dimmer than code and still AA on the code
+     surface in both themes. */
+  --md-code-hl-comment-color: var(--c-text-3);
+  --md-code-hl-generic-color: var(--c-text-3);
+  --md-code-hl-operator-color: var(--c-text-2);
+  --md-code-hl-punctuation-color: var(--c-text-2);
+  --md-code-hl-variable-color: var(--c-text-2);
+
+  --md-typeset-table-color: var(--c-border);
+  --md-typeset-table-color--light: var(--c-surface-hover);
+  --md-admonition-bg-color: var(--c-surface);
+  --md-admonition-fg-color: var(--c-text);
+
+  --md-footer-bg-color: var(--c-surface);
+  --md-footer-bg-color--dark: var(--c-bg);
+  --md-footer-fg-color: var(--c-text);
+  --md-footer-fg-color--light: var(--c-text-2);
+  --md-footer-fg-color--lighter: var(--c-text-3);
 }
 
-/* Dark mode: Material's slate scheme tints surfaces blue, which reads muddy under
-   the indigo accent. Retint to a neutral near-black so the whole site — hero glow
-   included — sits on one calm surface. */
-[data-md-color-scheme="slate"] {
-  --md-default-bg-color: #14151a;
-  --md-default-bg-color--light: hsla(0, 0%, 100%, 0.7);
-  --md-default-bg-color--lighter: hsla(0, 0%, 100%, 0.3);
-  --md-default-bg-color--lightest: hsla(0, 0%, 100%, 0.12);
-  --md-code-bg-color: #0f1014;
-  --md-footer-bg-color: #101116;
+/* ---- Header and logo ------------------------------------------------------ */
+.md-header,
+.md-header--shadow {
+  box-shadow: none;
+  border-bottom: 1px solid var(--c-border);
+}
+/* The brand reads like the dashboard's: serif, bold, the mark in the accent. */
+.md-header__topic:first-child {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+/* Brand and mark sit together, as in the dashboard navbar. */
+[dir="ltr"] .md-header__title {
+  margin-left: 0.2rem;
+}
+/* The mark is an <img>, so it cannot take currentColor; swap the file instead.
+   logo.svg carries the light accent, logo-dark.svg the dark one. */
+[data-md-color-scheme="slate"] .md-header__button.md-logo img {
+  content: url("../assets/images/logo-dark.svg");
+}
+/* The mike version selector is the dashboard's version tag: a quiet pill. The
+   pill's border is the affordance, so the dropdown chevron goes. */
+.md-version {
+  font-family: var(--md-text-font-family);
+  font-weight: 500;
+}
+.md-version__current {
+  padding: 0 0.4rem;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-pill);
+  background: var(--c-bg);
+  color: var(--c-text-3);
+  font-size: 0.6rem;
+}
+.md-version__current::after {
+  display: none;
+}
+.md-version__current:hover {
+  color: var(--c-text);
+}
+/* Search: the dashboard's search box, bordered on the page background. */
+@media screen and (min-width: 60em) {
+  .md-search__form,
+  .md-search__form:hover {
+    background-color: var(--c-bg);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-sm);
+  }
+  .md-search__form:hover {
+    border-color: var(--c-text-3);
+  }
+  .md-search__input::placeholder,
+  .md-search__input + .md-search__icon {
+    color: var(--c-text-3);
+  }
 }
 
-/* The logo is the indigo brackets mark (assets/images/logo.svg); indigo reads on
-   both the white (light) and near-black (dark) header, so no per-scheme swap. */
-
-/* Nav and tabs highlights follow the accent (Material would otherwise tint them
-   with the now-neutral primary). */
-.md-nav__link--active,
-.md-nav__link:hover {
-  color: var(--pacto-indigo-deep);
+/* ---- Tabs bar: the dashboard's nav links ---------------------------------- */
+.md-tabs {
+  background-color: var(--c-surface);
+  border-bottom: 1px solid var(--c-border);
 }
-.md-tabs__link--active,
-.md-tabs__link:hover {
-  color: var(--pacto-indigo-deep);
+.md-tabs__item {
+  height: 2.2rem;
+  padding: 0 0.1rem;
+}
+.md-tabs__link {
+  margin-top: 0.4rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--radius-xs);
+  color: var(--c-text-3);
+  font-size: 0.66rem;
+  font-weight: 500;
   opacity: 1;
+  transition: color 160ms, background-color 160ms;
 }
-[data-md-color-scheme="slate"] .md-nav__link--active,
-[data-md-color-scheme="slate"] .md-nav__link:hover,
-[data-md-color-scheme="slate"] .md-tabs__link--active,
-[data-md-color-scheme="slate"] .md-tabs__link:hover {
-  color: var(--pacto-indigo-light);
+.md-tabs__link:hover {
+  color: var(--c-text);
+  background-color: var(--c-surface-hover);
+}
+.md-tabs__item--active .md-tabs__link {
+  color: var(--c-accent);
+  background-color: var(--c-accent-bg);
 }
 
-/* Primary buttons: the neutral primary would make these white/black, so pin them
-   to indigo everywhere (hero and body). */
-.md-typeset .md-button--primary {
-  background-color: var(--pacto-indigo-deep);
-  border-color: var(--pacto-indigo-deep);
-  color: #fff;
+/* ---- Sidebar: section titles are labels ----------------------------------- */
+.md-nav__item--section > .md-nav__link,
+.md-nav--secondary > .md-nav__title {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-caps: all-small-caps;
+  letter-spacing: var(--role-label-tracking);
+  font-size: 0.75rem;
+  color: var(--c-text-3);
 }
-.md-typeset .md-button--primary:hover,
-.md-typeset .md-button--primary:focus {
-  background-color: var(--pacto-indigo-darker);
-  border-color: var(--pacto-indigo-darker);
-  color: #fff;
+.md-nav__item--section > .md-nav__link[for] {
+  color: var(--c-text-3);
+}
+.md-nav__link--active,
+.md-nav__link:is(:hover, :focus) {
+  color: var(--c-accent);
+}
+
+/* ---- Headings: the signed document ---------------------------------------- */
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  font-family: var(--font-display);
+  color: var(--c-text);
+}
+/* The page title, closed with a double rule like a signed agreement. The rule is
+   as wide as the title, as in the dashboard, not the whole column. */
+.md-typeset h1 {
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 1em;
+  padding-bottom: 10px;
+  border-bottom: 3px double var(--c-text);
+  font-size: 2.1em;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.md-typeset h2 {
+  font-size: 1.4em;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+.md-typeset h3 {
+  font-size: 1.15em;
+  font-style: italic;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.md-typeset h4,
+.md-typeset h5,
+.md-typeset h6 {
+  font-size: 1.05em;
+  font-weight: 600;
+  font-variant-caps: all-small-caps;
+  letter-spacing: var(--role-label-tracking);
+  text-transform: none;
+  color: var(--c-text-2);
+}
+
+/* ---- Tables: the dashboard's, small caps headers -------------------------- */
+.md-typeset table:not([class]) {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--c-surface);
+  font-size: 0.7rem;
+}
+.md-typeset table:not([class]) th {
+  border-bottom: 1px solid var(--c-border);
+  color: var(--c-text-3);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-caps: all-small-caps;
+  letter-spacing: var(--role-label-tracking);
+  font-size: 1.05em;
+}
+.md-typeset table:not([class]) td {
+  border-top: 1px solid var(--c-border);
+}
+.md-typeset table:not([class]) tbody tr:hover {
+  background-color: var(--c-surface-hover);
+  box-shadow: none;
+}
+
+/* ---- Code ----------------------------------------------------------------- */
+.md-typeset code {
+  border-radius: var(--radius-xs);
+}
+.md-typeset :not(pre) > code {
+  background-color: var(--c-code-inline-bg);
+}
+.md-typeset pre > code {
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+}
+.md-typeset .highlight span.filename {
+  border: 1px solid var(--c-border);
+  border-bottom: none;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background-color: var(--c-surface-raised);
+  font-family: var(--md-code-font-family);
+  font-weight: 500;
+}
+.md-typeset .highlight span.filename + pre > code {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* Content tabs (=== "Tab"): the dashboard's tab bar. */
+.md-typeset .tabbed-labels {
+  border-bottom: 1px solid var(--c-border);
+  box-shadow: none;
+}
+.md-typeset .tabbed-labels > label {
+  color: var(--c-text-3);
+  font-weight: 500;
+}
+.md-typeset .tabbed-labels > label:hover,
+.md-typeset .tabbed-set > input:checked + label {
+  color: var(--c-accent);
+}
+.js .md-typeset .tabbed-labels::before {
+  background: var(--c-accent);
+}
+
+/* ---- Admonitions: a card with a status edge and a small caps title --------
+   Material colours each type in rules of specificity (0,3,0); the doubled
+   .md-typeset lifts the shared rules above them without !important. */
+.md-typeset :is(.admonition, details):is(.note, .info, .abstract, .summary, .tldr, .todo) {
+  --pacto-tone: var(--c-info);
+  --pacto-tone-bg: var(--c-info-bg);
+}
+.md-typeset :is(.admonition, details):is(.tip, .hint, .important, .success, .check, .done) {
+  --pacto-tone: var(--c-ok);
+  --pacto-tone-bg: var(--c-ok-bg);
+}
+.md-typeset :is(.admonition, details):is(.question, .help, .faq, .example) {
+  --pacto-tone: var(--c-accent);
+  --pacto-tone-bg: var(--c-accent-bg);
+}
+.md-typeset :is(.admonition, details):is(.warning, .caution, .attention) {
+  --pacto-tone: var(--c-warn);
+  --pacto-tone-bg: var(--c-warn-bg);
+}
+.md-typeset :is(.admonition, details):is(.failure, .fail, .missing, .danger, .error, .bug) {
+  --pacto-tone: var(--c-err);
+  --pacto-tone-bg: var(--c-err-bg);
+}
+.md-typeset :is(.admonition, details):is(.quote, .cite) {
+  --pacto-tone: var(--c-neutral);
+  --pacto-tone-bg: var(--c-neutral-bg);
+}
+.md-typeset.md-typeset :is(.admonition, details) {
+  border: 1px solid var(--c-border);
+  border-left: 3px solid var(--pacto-tone, var(--c-info));
+  border-radius: var(--radius-sm);
+  background-color: var(--c-surface);
+  box-shadow: none;
+  font-size: 0.7rem;
+}
+.md-typeset.md-typeset :is(.admonition, details) > :is(.admonition-title, summary) {
+  background-color: var(--pacto-tone-bg, var(--c-info-bg));
+  border: none;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-caps: all-small-caps;
+  letter-spacing: var(--role-label-tracking);
+  font-size: 1.1em;
+}
+.md-typeset.md-typeset :is(.admonition, details) > :is(.admonition-title, summary)::before {
+  background-color: var(--pacto-tone, var(--c-info));
+}
+
+/* ---- Buttons: the dashboard's .btn / .btn-primary ------------------------- */
+.md-typeset .md-button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  background-color: var(--c-surface);
+  color: var(--c-text);
+  font-size: 0.7rem;
+  font-weight: 500;
+  transition: background-color 90ms, border-color 90ms, color 90ms;
+}
+.md-typeset .md-button:is(:hover, :focus) {
+  background-color: var(--c-surface-hover);
+  border-color: var(--c-text-3);
+  color: var(--c-text);
+}
+.md-typeset .md-button--primary {
+  background-color: var(--c-accent);
+  border-color: var(--c-accent);
+  color: var(--c-on-accent);
+}
+.md-typeset .md-button--primary:is(:hover, :focus) {
+  background-color: var(--c-accent-hover);
+  border-color: var(--c-accent-hover);
+  color: var(--c-on-accent);
 }
 
 /* ---- Landing hero (overrides/home.html) -----------------------------------
-   Light & airy: inherits the page background and floats a soft indigo glow
-   behind the wordmark. Elements fade up on load; motion respects
+   The title page of the document: serif wordmark, small caps eyebrow, a serif
+   headline closed by the double rule. Elements fade up on load; motion respects
    prefers-reduced-motion. */
 .pacto-hero {
   position: relative;
@@ -98,32 +456,8 @@
   padding: 5.5rem 1rem 4rem;
   text-align: center;
 }
-.pacto-hero__glow {
-  position: absolute;
-  top: -9rem;
-  left: 50%;
-  width: 46rem;
-  max-width: 130vw;
-  height: 34rem;
-  transform: translateX(-50%);
-  background: radial-gradient(
-    closest-side,
-    rgba(99, 102, 241, 0.28),
-    rgba(99, 102, 241, 0) 70%
-  );
-  pointer-events: none;
-  z-index: 0;
-}
-[data-md-color-scheme="slate"] .pacto-hero__glow {
-  background: radial-gradient(
-    closest-side,
-    rgba(129, 140, 248, 0.22),
-    rgba(129, 140, 248, 0) 70%
-  );
-}
 .pacto-hero__inner {
   position: relative;
-  z-index: 1;
   max-width: 46rem;
   margin: 0 auto;
 }
@@ -138,48 +472,44 @@
 .pacto-hero .pacto-hero__logo {
   height: 2.5rem;
   width: auto;
-  color: var(--pacto-indigo);
-}
-[data-md-color-scheme="slate"] .pacto-hero .pacto-hero__logo {
-  color: var(--pacto-indigo-light);
+  color: var(--c-accent);
 }
 .pacto-hero__wordmark {
-  font-family: "Space Grotesk", "Inter", sans-serif;
+  font-family: var(--font-display);
   font-size: 2rem;
-  font-weight: 600;
-  letter-spacing: -0.02em;
+  font-weight: 700;
+  letter-spacing: -0.01em;
   line-height: 1;
-  color: var(--md-default-fg-color);
+  color: var(--c-text);
 }
 .pacto-hero .pacto-hero__eyebrow {
   margin: 0 0 0.9rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--pacto-indigo);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 600;
+  font-variant-caps: all-small-caps;
+  letter-spacing: var(--role-label-tracking);
+  color: var(--c-text-3);
   animation: pacto-fade-up 0.6s ease 0.08s both;
-}
-[data-md-color-scheme="slate"] .pacto-hero .pacto-hero__eyebrow {
-  color: var(--pacto-indigo-light);
 }
 .pacto-hero .pacto-hero__title {
   margin: 0 auto;
   max-width: 20ch;
-  font-family: "Space Grotesk", "Inter", sans-serif;
-  font-size: clamp(2.4rem, 6vw, 3.6rem);
-  font-weight: 600;
-  line-height: 1.08;
-  letter-spacing: -0.02em;
-  color: var(--md-default-fg-color);
+  padding-bottom: 0.3em;
+  font-family: var(--font-display);
+  font-size: clamp(2.2rem, 6vw, 3.4rem);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  color: var(--c-text);
   animation: pacto-fade-up 0.6s ease 0.16s both;
 }
 .pacto-hero .pacto-hero__tagline {
   margin: 1.25rem auto 0;
   max-width: 34rem;
-  font-size: 1.1rem;
-  line-height: 1.6;
-  color: var(--md-default-fg-color--light);
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: var(--c-text-2);
   animation: pacto-fade-up 0.6s ease 0.24s both;
 }
 .pacto-hero__actions {
@@ -195,26 +525,9 @@
   max-width: 34rem;
   font-size: 0.72rem;
   line-height: 1.6;
-  color: var(--md-default-fg-color--light);
+  color: var(--c-text-3);
   animation: pacto-fade-up 0.6s ease 0.4s both;
 }
-.pacto-hero .md-button {
-  border-color: var(--md-default-fg-color--lighter);
-  color: var(--md-default-fg-color);
-  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
-}
-.pacto-hero .md-button:hover,
-.pacto-hero .md-button:focus {
-  background-color: var(--pacto-indigo-deep);
-  border-color: var(--pacto-indigo-deep);
-  color: #fff;
-}
-.pacto-hero .md-button--primary,
-.pacto-hero .md-button--primary:hover,
-.pacto-hero .md-button--primary:focus {
-  color: #fff;
-}
-
 
 @keyframes pacto-fade-up {
   from {
@@ -462,11 +775,8 @@
    where the keyboard was. One accent outline for everything, on :focus-visible
    only, so pointer users never see it. */
 :focus-visible {
-  outline: 2px solid var(--pacto-indigo-deep);
+  outline: 2px solid var(--c-accent);
   outline-offset: 2px;
-}
-[data-md-color-scheme="slate"] :focus-visible {
-  outline-color: var(--pacto-indigo-light);
 }
 /* Material gives the search result list an explicit `tabindex="0"` so it can be
    scrolled from the keyboard, and leaves it there while the search is closed and
@@ -484,11 +794,8 @@
    label instead — the one that is not `hidden` belongs to the checked radio,
    which is the only one in the tab order. */
 .md-option:focus-visible + label:not([hidden]) {
-  outline: 2px solid var(--pacto-indigo-deep);
+  outline: 2px solid var(--c-accent);
   outline-offset: 2px;
-}
-[data-md-color-scheme="slate"] .md-option:focus-visible + label:not([hidden]) {
-  outline-color: var(--pacto-indigo-light);
 }
 
 /* Inline links are told apart from the text around them by colour alone, and no
@@ -513,17 +820,3 @@
   text-decoration: none;
 }
 
-/* Five of Material's syntax-highlight tokens resolve to --md-default-fg-color
-   --light (#717171). That is 4.8:1 on the white page and passes, but code sits
-   on #f5f5f5, where the same grey measures 4.47:1 and fails AA by three
-   hundredths -- on comments and shell variables, in nearly every code block on
-   the site. Darkening the five code tokens to #5c5c5c (6.1:1 on the code
-   surface) fixes it without moving the secondary text colour everywhere else.
-   The slate scheme measures clean and is left alone. */
-[data-md-color-scheme="default"] {
-  --md-code-hl-comment-color: #5c5c5c;
-  --md-code-hl-generic-color: #5c5c5c;
-  --md-code-hl-operator-color: #5c5c5c;
-  --md-code-hl-punctuation-color: #5c5c5c;
-  --md-code-hl-variable-color: #5c5c5c;
-}

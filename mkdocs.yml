@@ -22,9 +22,11 @@ theme:
   custom_dir: overrides
   logo: assets/images/logo.svg
   favicon: favicon.svg
-  font:
-    text: Inter
-    code: JetBrains Mono
+  # No Google Fonts: the type matches the dashboard and is served from this site.
+  # Source Serif 4 is bundled in docs/assets/fonts/; Inter and JetBrains Mono are
+  # named in stylesheets/extra.css and fall back to the system stack, exactly as
+  # the dashboard does.
+  font: false
   icon:
     repo: fontawesome/brands/github
   palette:
@@ -34,16 +36,16 @@ theme:
         name: Switch to light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      # Neutral header + indigo accent; exact indigo hexes set in stylesheets/extra.css.
-      primary: white
-      accent: indigo
+      # custom: every colour comes from the dashboard tokens in stylesheets/extra.css.
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: black
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to system preference
