@@ -92,6 +92,36 @@ func TestRejectedUnknownRollsBack(t *testing.T) {
 	}
 }
 
+// The reads hand out views made once per change; a step the promoter takes
+// later, outside any request, drops them too.
+func TestViewsFollowALaterStep(t *testing.T) {
+	var queued []func()
+	d, err := newDemoDelivery(time.Now, func(f func()) { queued = append(queued, f) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	pointer := func() string {
+		stages, _ := d.Stages(t.Context(), story.Prod)
+		for _, s := range stages {
+			if s.Metadata.Name == "checkout" {
+				return s.Status.Pointer
+			}
+		}
+		return ""
+	}
+	before := pointer()
+	if _, _, err := d.Propose(t.Context(), delivery.Request{Namespace: story.Prod, Stage: "checkout", To: digest("checkout", "1.9.0")}); err != nil {
+		t.Fatal(err)
+	}
+	if pointer() != before || len(queued) != 1 {
+		t.Fatalf("moved before the step: %s, %d steps", pointer(), len(queued))
+	}
+	queued[0]()
+	if got := pointer(); got != digest("checkout", "1.9.0") {
+		t.Fatalf("the step moved checkout to %s, the read still says %s", digest("checkout", "1.9.0"), got)
+	}
+}
+
 // storyUnknown is B8: too little telemetry leaves 3.0.0 Unknown after it
 // shipped, so it waits for carol to accept the unknown.
 func storyUnknown(t *testing.T, d *demoDelivery, h http.Handler, op delivery.OperationObject, decide string) {

@@ -68,6 +68,34 @@ type demoDelivery struct {
 
 	key     ed25519.PrivateKey
 	keyHint string
+
+	// views are the copies the reads hand out, made once per change: a
+	// copy per Stage on every read was most of each answer's time on a
+	// large fleet. changed drops them.
+	views *demoViews
+}
+
+type demoViews struct {
+	stages []delivery.StageObject
+	ops    []delivery.OperationObject
+}
+
+// changed drops the views after the world moved.
+func (d *demoDelivery) changed() { d.views = nil }
+
+// snapshot is the views of the world as it is now, under the lock.
+func (d *demoDelivery) snapshot() *demoViews {
+	if d.views == nil {
+		v := &demoViews{}
+		for _, s := range d.stages {
+			v.stages = append(v.stages, d.view(s))
+		}
+		for _, o := range d.ops {
+			v.ops = append(v.ops, clone(*o))
+		}
+		d.views = v
+	}
+	return d.views
 }
 
 // newDemoDelivery replays the story up to the change that waits for a person
@@ -471,6 +499,7 @@ func (d *demoDelivery) step(f func()) {
 		d.mu.Lock()
 		defer d.mu.Unlock()
 		f()
+		d.changed()
 	})
 }
 
@@ -641,28 +670,28 @@ func (d *demoDelivery) WhoAmI(context.Context) (delivery.Caller, error) {
 	return d.caller(), nil
 }
 
+// inNamespace is a fresh slice of the items in ns ("" for all), so a caller
+// may sort or filter it without touching the views.
+func inNamespace[T any](all []T, ns string, nsOf func(*T) string) []T {
+	out := []T{}
+	for i := range all {
+		if ns == "" || nsOf(&all[i]) == ns {
+			out = append(out, all[i])
+		}
+	}
+	return out
+}
+
 func (d *demoDelivery) Stages(_ context.Context, ns string) ([]delivery.StageObject, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	out := []delivery.StageObject{}
-	for _, s := range d.stages {
-		if ns == "" || s.Metadata.Namespace == ns {
-			out = append(out, d.view(s))
-		}
-	}
-	return out, nil
+	return inNamespace(d.snapshot().stages, ns, func(s *delivery.StageObject) string { return s.Metadata.Namespace }), nil
 }
 
 func (d *demoDelivery) Operations(_ context.Context, ns string) ([]delivery.OperationObject, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	out := []delivery.OperationObject{}
-	for _, o := range d.ops {
-		if ns == "" || o.Metadata.Namespace == ns {
-			out = append(out, clone(*o))
-		}
-	}
-	return out, nil
+	return inNamespace(d.snapshot().ops, ns, func(o *delivery.OperationObject) string { return o.Metadata.Namespace }), nil
 }
 
 func notFound(what string) error {
@@ -706,12 +735,7 @@ func (d *demoDelivery) history(ns, name string) (*delivery.History, []delivery.S
 	if st == nil {
 		return nil, nil, nil, notFound("Stage " + stageKey(ns, name))
 	}
-	var ops []delivery.OperationObject
-	for _, o := range d.ops {
-		if o.Metadata.Namespace == ns {
-			ops = append(ops, clone(*o))
-		}
-	}
+	ops := inNamespace(d.snapshot().ops, ns, func(o *delivery.OperationObject) string { return o.Metadata.Namespace })
 	var r *delivery.RecordsRead
 	if s := d.streams[stageKey(ns, name)]; s != nil {
 		r = &delivery.RecordsRead{Fold: delivery.FoldStream(s.recs), Unreadable: slices.Clone(s.unreadable),
@@ -767,6 +791,7 @@ func (d *demoDelivery) Propose(_ context.Context, req delivery.Request) (*delive
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	o, p, err := d.propose(req, personas[d.persona])
+	d.changed()
 	if err != nil {
 		return nil, p, err
 	}
@@ -779,6 +804,7 @@ func (d *demoDelivery) Propose(_ context.Context, req delivery.Request) (*delive
 func (d *demoDelivery) Approve(_ context.Context, ns, name string, decision delivery.Decision, note string) (string, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	defer d.changed()
 	o := d.op(ns, name)
 	if o == nil || o.Status.Phase != delivery.PhaseHeld {
 		return "", dashboard.Refuse(http.StatusConflict, "NotHeld", name+" is not waiting for a decision")
@@ -818,6 +844,7 @@ func (d *demoDelivery) Cancel(_ context.Context, ns, name string) error {
 		return dashboard.Refuse(http.StatusConflict, "TooLate", name+" already moved the pointer or concluded")
 	}
 	d.ops = slices.Delete(d.ops, i, i+1)
+	d.changed()
 	return nil
 }
 
