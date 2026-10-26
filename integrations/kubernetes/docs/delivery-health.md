@@ -109,6 +109,7 @@ spec:
         - name: quality
           provider: evals
           suite: evals
+          suiteDigest: sha256:...   # optional
           params:
             minPassRate: "0.95"
 ```
@@ -117,6 +118,11 @@ Without `suite` the runner runs the only check the version ships. A version
 that does not ship the named check, or with no `suite` ships no check or more
 than one, is held before it ships (the `pacto.suites` gate): a person accepts
 it or it does not ship. It is neither failed nor passed.
+
+`suiteDigest` pins the sha256 of the suite's bytes. The suite comes from the
+version under check, so without a pin that version writes its own exam. With
+one, a version whose suite has another sha256 is held the same way before it
+ships, and the eval check of it is Unknown.
 
 The promoter posts the same `{"input": ..., "params": ...}`, the input also
 naming the contract the version ships and the suite in it:

@@ -199,6 +199,12 @@ type GateCheck struct {
 	// +optional
 	// +kubebuilder:validation:MinLength=1
 	Suite string `json:"suite,omitempty"`
+	// SuiteDigest pins the suite's bytes ("sha256:" and 64 hex digits). A
+	// version whose suite has another digest changed its own exam: it is held
+	// for a person before it ships, and an eval check of it is Unknown.
+	// +optional
+	// +kubebuilder:validation:Pattern=`^sha256:[a-f0-9]{64}$`
+	SuiteDigest string `json:"suiteDigest,omitempty"`
 }
 
 // Gates configures the Stage's gates. The pre-gates are fixed by the operation

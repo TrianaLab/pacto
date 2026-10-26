@@ -254,9 +254,13 @@ func TestRunChecksSuite(t *testing.T) {
 	gates := map[string]Gate{"runner": echo}
 	vs := RunChecks(context.Background(), gates, []GateCheck{
 		{Name: "typed", Provider: "runner", Suite: "evals", Params: map[string]string{"suite": "other"}},
-		{Name: "param", Provider: "runner", Params: map[string]string{"suite": "other"}},
+		{Name: "param", Provider: "runner", Params: map[string]string{"suite": "other", "suiteDigest": "sha256:x"}},
+		{Name: "pinned", Provider: "runner", SuiteDigest: "sha256:y", Params: map[string]string{"suiteDigest": "sha256:x"}},
+		{Name: "bare", Provider: "runner", Suite: "evals", SuiteDigest: "sha256:y"},
 	}, gateIn())
-	if vs[0].Message != "evals" || vs[0].Citation["params"] != `{"suite":"evals"}` || vs[1].Message != "" {
+	if vs[0].Message != "evals" || vs[0].Citation["params"] != `{"suite":"evals"}` || vs[1].Message != "" ||
+		vs[1].Citation["params"] != `{}` || vs[2].Citation["params"] != `{"suiteDigest":"sha256:y"}` ||
+		vs[3].Citation["params"] != `{"suite":"evals","suiteDigest":"sha256:y"}` {
 		t.Errorf("%+v", vs)
 	}
 }

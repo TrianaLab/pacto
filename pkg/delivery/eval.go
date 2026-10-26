@@ -59,6 +59,9 @@ func (e Eval) Check(ctx context.Context, in GateInput, params map[string]string)
 	if msg := e.suite(ctx, &in, params["suite"]); msg != "" {
 		return Verdict{Result: Unknown, Message: msg}
 	}
+	if pin := params["suiteDigest"]; pin != "" && pin != in.Suite.Digest {
+		return Verdict{Result: Unknown, Message: pinMismatch(in.Suite, pin)}
+	}
 	var a evalAnswer
 	if err := postJSON(ctx, e.Client, e.URL, map[string]any{"input": in, "params": params}, &a); err != nil {
 		return Verdict{Result: Unknown, Message: err.Error()}
@@ -116,19 +119,39 @@ func (e Eval) suite(ctx context.Context, in *GateInput, name string) string {
 	if rev.Bundle == nil {
 		return "reading the contract the version ships: " + rev.Err
 	}
+	s, why := readSuite(rev, name)
+	if why != "" {
+		return why
+	}
+	in.Contract, in.Suite = rev.ContractRef, s
+	return ""
+}
+
+// readSuite is the suite a Stage check's suite name picks from the checks
+// rev's contract ships, with the sha256 of its bytes, or why there is none.
+func readSuite(rev Revision, name string) (*Suite, string) {
 	var checks []contract.Check
 	if rev.Bundle.Contract != nil {
 		checks = rev.Bundle.Contract.Checks
 	}
 	c, why := pickSuite(checks, name, rev.ContractRef)
 	if why != "" {
-		return why
+		return nil, why
+	}
+	if rev.Bundle.FS == nil {
+		return nil, "the bundle " + rev.ContractRef + " carries no files to read the suite " + c.File + " from"
 	}
 	data, err := fs.ReadFile(rev.Bundle.FS, c.File)
 	if err != nil {
-		return fmt.Sprintf("reading the suite %s in %s: %v", c.File, rev.ContractRef, err)
+		return nil, fmt.Sprintf("reading the suite %s in %s: %v", c.File, rev.ContractRef, err)
 	}
 	sum := sha256.Sum256(data)
-	in.Contract, in.Suite = rev.ContractRef, &Suite{Name: c.Name, Path: c.File, Digest: "sha256:" + hex.EncodeToString(sum[:])}
-	return ""
+	return &Suite{Name: c.Name, Path: c.File, Digest: "sha256:" + hex.EncodeToString(sum[:])}, ""
+}
+
+// pinMismatch says a version ships a suite whose digest is not the one the
+// Stage pinned.
+func pinMismatch(s *Suite, pin string) string {
+	return "the Stage pins the suite " + s.Name + " to " + pin + ", but this version ships " + s.Digest +
+		" in " + s.Path + ": the version changed its own exam, so a person decides"
 }

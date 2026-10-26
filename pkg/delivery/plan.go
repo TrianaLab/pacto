@@ -284,6 +284,7 @@ func suitesGate(in PlanInput, p *Plan) {
 	checks := in.To.Bundle.Contract.Checks
 	for _, c := range in.Stage.Gates.Verify.Checks {
 		_, eval := in.Gates[c.Provider].(Eval)
+		before := len(missing)
 		switch {
 		case c.Suite != "" && !slices.ContainsFunc(checks, func(k contract.Check) bool { return k.Name == c.Suite }):
 			missing = append(missing, "the check "+c.Name+" runs the suite "+c.Suite+", but the contract of "+short(p.To)+" ships no check of that name")
@@ -291,6 +292,14 @@ func suitesGate(in PlanInput, p *Plan) {
 			// An eval check with no suite runs the only check the version ships.
 			if _, why := pickSuite(checks, "", short(p.To)); why != "" {
 				missing = append(missing, "the check "+c.Name+" names no suite and "+why)
+			}
+		}
+		if c.SuiteDigest != "" && len(missing) == before {
+			switch s, why := readSuite(in.To, c.Suite); {
+			case why != "":
+				missing = append(missing, "the check "+c.Name+" pins its suite, but "+why)
+			case s.Digest != c.SuiteDigest:
+				missing = append(missing, "the check "+c.Name+": "+pinMismatch(s, c.SuiteDigest))
 			}
 		}
 	}

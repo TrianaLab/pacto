@@ -226,6 +226,13 @@ spec:
                                 before it ships.
                               minLength: 1
                               type: string
+                            suiteDigest:
+                              description: |-
+                                SuiteDigest pins the suite's bytes ("sha256:" and 64 hex digits). A
+                                version whose suite has another digest changed its own exam: it is held
+                                for a person before it ships, and an eval check of it is Unknown.
+                              pattern: ^sha256:[a-f0-9]{64}$
+                              type: string
                           required:
                           - name
                           - provider

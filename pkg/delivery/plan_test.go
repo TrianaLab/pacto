@@ -3,9 +3,11 @@ package delivery
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -579,6 +581,45 @@ func TestPlanHoldsAVersionThatDoesNotShipTheSuite(t *testing.T) {
 		if p.Predicted != PredictHeld || v.Result != Unknown || p.Floor.Decision != AcceptUnknown ||
 			!strings.Contains(p.Question, "the check quality runs the suite refunds, but the contract of") {
 			t.Errorf("missing suite: %+v %+v", p, v)
+		}
+	}
+}
+
+// TestPlanHoldsAVersionThatChangedAPinnedSuite: a Stage check that pins its
+// suite's digest holds a version whose suite has other bytes, or whose suite
+// cannot be read, for a person before it ships; the pinned bytes ship.
+func TestPlanHoldsAVersionThatChangedAPinnedSuite(t *testing.T) {
+	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
+	to.Bundle.Contract.Checks = []contract.Check{{Name: "evals", File: "evals/suite.yaml"}}
+	from.Bundle.Contract.Checks = to.Bundle.Contract.Checks
+	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := "sha256:" + strings.Repeat("0", 64)
+	for _, tc := range []struct {
+		pin  string
+		fs   fs.FS
+		held string
+	}{
+		{suiteDigest, fstest.MapFS{"evals/suite.yaml": {Data: []byte("cases: []\n")}}, ""},
+		{other, fstest.MapFS{"evals/suite.yaml": {Data: []byte("cases: []\n")}}, "the version changed its own exam"},
+		{other, nil, "pins its suite, but the bundle"},
+	} {
+		to.Bundle.FS = tc.fs
+		stage := stageSpec()
+		stage.Gates.Verify.Checks = []GateCheck{{Name: "quality", Provider: "runner", Suite: "evals", SuiteDigest: tc.pin}}
+		p := autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stage, From: from, To: to, Snapshot: snap, Class: ClassAgent,
+			Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}}})
+		if tc.held == "" {
+			if p.Predicted != PredictProceeds {
+				t.Errorf("the pinned suite: %+v", p)
+			}
+			continue
+		}
+		v := verdict(t, p, GateSuites)
+		if p.Predicted != PredictHeld || v.Result != Unknown || p.Floor.Decision != AcceptUnknown || !strings.Contains(p.Question, tc.held) {
+			t.Errorf("%s: %+v", tc.held, p)
 		}
 	}
 }

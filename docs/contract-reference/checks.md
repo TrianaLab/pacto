@@ -63,6 +63,7 @@ gates:
       - name: evals
         provider: evals                # gates.providers: {name: evals, type: eval, url: ...}
         suite: evals                   # the checks[].name to run
+        suiteDigest: sha256:...        # optional: the exact suite bytes to accept
         params: {minPassRate: "0.95"}
 ```
 
@@ -72,6 +73,10 @@ ships, with a message that says so: a person accepts it or it does not ship.
 It is neither failed nor passed. The runner says how many cases passed and the
 sha256 of the suite it ran, and only an answer about that exact sha256 counts.
 `minPassRate` must be above 0.
+
+`suiteDigest` pins the suite to bytes the Stage owner chose. A version that
+ships a suite with another sha256 is held for a person before it ships, and its
+eval check is Unknown, never Pass.
 
 ### An agent is a service
 

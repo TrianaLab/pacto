@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -204,5 +205,28 @@ func TestEvalSuiteByName(t *testing.T) {
 	}
 	if v := g.Check(context.Background(), gateIn(), nil); v.Message != "the contract oci://r/a@sha256:c0 ships no checks, so there is no suite to run" {
 		t.Errorf("no checks: %+v", v)
+	}
+}
+
+// TestEvalSuitePin: a Stage that pins the suite's digest gets Unknown, and
+// the runner is never asked, when the version ships other bytes.
+func TestEvalSuitePin(t *testing.T) {
+	g, answer, body := evalRunner(t)
+	*answer = evalRan(2, 2)
+	if v := g.Check(context.Background(), gateIn(), map[string]string{"suiteDigest": suiteDigest}); v.Result != Pass {
+		t.Fatalf("the pinned suite: %+v", v)
+	}
+	*body = nil
+	pin := "sha256:" + strings.Repeat("0", 64)
+	v := g.Check(context.Background(), gateIn(), map[string]string{"suiteDigest": pin})
+	if v.Result != Unknown || *body != nil || !strings.Contains(v.Message, "pins the suite evals to "+pin+", but this version ships "+suiteDigest) {
+		t.Fatalf("another suite: %+v asked=%v", v, *body != nil)
+	}
+	g.Revision = func(context.Context, GateInput) Revision {
+		return Revision{ContractRef: "oci://r/a@sha256:c0", Bundle: &contract.Bundle{Contract: &contract.Contract{
+			Checks: []contract.Check{{Name: "evals", File: "evals/suite.yaml"}}}}}
+	}
+	if v := g.Check(context.Background(), gateIn(), nil); v.Result != Unknown || !strings.Contains(v.Message, "carries no files") {
+		t.Fatalf("a bundle with no files: %+v", v)
 	}
 }

@@ -162,15 +162,19 @@ func checkWithin(ctx context.Context, g Gate, in GateInput, params map[string]st
 
 func runCheck(ctx context.Context, gates map[string]Gate, c GateCheck, in GateInput) Verdict {
 	v := Verdict{Result: Unknown, Message: fmt.Sprintf("no gate provider named %q is configured", c.Provider)}
-	// The suite reaches the provider only from the typed field, the one the
-	// pacto.suites pre-gate checked: a "suite" param is dropped.
+	// The suite and its pin reach the provider only from the typed fields,
+	// the ones the pacto.suites pre-gate checked: such params are dropped.
 	params := maps.Clone(c.Params)
 	delete(params, "suite")
-	if c.Suite != "" {
+	delete(params, "suiteDigest")
+	for k, val := range map[string]string{"suite": c.Suite, "suiteDigest": c.SuiteDigest} {
+		if val == "" {
+			continue
+		}
 		if params == nil {
 			params = map[string]string{}
 		}
-		params["suite"] = c.Suite
+		params[k] = val
 	}
 	if g := gates[c.Provider]; g != nil {
 		v = checkWithin(ctx, g, in, params)
