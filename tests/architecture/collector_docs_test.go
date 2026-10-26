@@ -83,7 +83,7 @@ func TestDocsDoNotConflateOrOverclaimCollectors(t *testing.T) {
 		"docs/index.md", "docs/model.md", "docs/platform-engineers.md",
 		"docs/operational-graph.md", "docs/impact.md", "docs/evidence.md",
 		"docs/quickstart.md", "docs/developers.md", "docs/fleet-tools.md",
-		"docs/mcp-integration.md", "docs/patterns/index.md",
+		"docs/mcp-integration.md", "docs/mcp-reference.md", "docs/patterns/index.md",
 		"docs/runtime-conformance.md", "docs/runtime-run.md", "docs/runtime-agent.md",
 	}
 	engineConflation := regexp.MustCompile(`(?i)kubernetes (collector|operator)[^.\n]{0,30}\bis the engine\b`)

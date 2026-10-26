@@ -755,7 +755,7 @@ cmd_story() {
   story_b5
   story_records
   stop_pf
-  echo; echo "STORY PASS: every beat matched examples/story"
+  echo; echo "STORY PASS: every played beat matched examples/story"
   next_steps story
 }
 

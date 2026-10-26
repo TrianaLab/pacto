@@ -118,7 +118,7 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 	"dashboard": "It auto-detects sources: pass OCI repositories as arguments, or run it next to the operator (with a kubeconfig) and it discovers OCI repositories from each Pacto resource's `status.contract.resolvedRef`. Use `--no-cache` for a cold start (it skips scanning pre-existing cached bundles; bundles fetched during the session are still cached).\n\n" +
 		"For a tour of what the dashboard surfaces, see [For platform engineers](platform-engineers.md); to run it as a container, see [Dashboard container](dashboard-docker.md).",
 
-	"mcp": "The **default** server exposes the four authoring tools below. Three flags select a different server, each with its own tools -- see [Server modes](#server-modes) immediately after this table:\n\n" +
+	"mcp": "The **default** server exposes the four authoring tools below. A bundle reference and four flags select a different server, each with its own tools -- see [Server modes](#server-modes) immediately after this table:\n\n" +
 		"| Tool | Description |\n" +
 		"|------|-------------|\n" +
 		"| `pacto_create` | Create a new contract from intent-level inputs (name, description, interfaces, runtime semantics). Supports dry run. |\n" +
@@ -127,12 +127,14 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"| `pacto_schema` | Return the Pacto format explanation and full JSON Schema reference. |\n\n" +
 		"These four authoring tools operate on local contract directories (they read and write `pacto.yaml` on disk) and do not resolve `oci://` refs.\n\n" +
 		"### Server modes\n\n" +
-		"The default server exposes the authoring tools above. Three flags select a different server instead, and they cannot be combined — passing more than one is an error, never a silent choice:\n\n" +
+		"The default server exposes the authoring tools above. A bundle reference, `--root`, `--fleet`, `--publish` and `--delivery` each select a different server instead, and they cannot be combined — passing more than one is an error, never a silent choice:\n\n" +
 		"| Invocation | Server |\n" +
 		"|------------|--------|\n" +
 		"| `pacto mcp` | Authoring tools. |\n" +
 		"| `pacto mcp <bundle-ref>` | Authoring tools plus the bundle's OpenAPI operations as executable agent tools, alongside a `pacto_skill` tool for any bundled skills. |\n" +
 		"| `pacto mcp --fleet` | Authoring tools plus read-only [operational-graph](operational-graph.md) query tools. |\n" +
+		"| `pacto mcp --publish` | Authoring tools plus `pacto_publish_plan` and `pacto_publish`, which publish a version to your registry. Stdio only. |\n" +
+		"| `pacto mcp --delivery` | Authoring tools plus the delivery tools over the cluster your kubeconfig points at: read delivery state and, for an agent, ask for or cancel a change. There is no approve tool. |\n" +
 		"| `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots, and nothing else: catalog mode registers no authoring tools, so nothing reachable in it writes to disk. |\n\n" +
 		"`--root` is repeatable and takes a local bundle directory or an `oci://` reference. The roots and their dependency closure are resolved once, at startup, through the same reference parsing, credentials and cache the rest of the CLI uses; after that the session is frozen, so a tag that moves in a registry does not change any answer. Roots that do not resolve stay visible with a classified reason and the catalog reports itself as partial. Nothing is crawled, nothing is refreshed and nothing is persisted.\n\n" +
 		"### Fleet tool arguments\n\n" +
@@ -146,7 +148,7 @@ Sibling dependencies are resolved in parallel. OCI bundles are cached locally in
 		"| `pacto_fleet_explain` | `subject` (**required**) — a service name or a target key or name |\n" +
 		"| `pacto_impact` | `old_ref` and `new_ref` (**both required**), plus `include_observed` and `traces` |\n\n" +
 		"Argument names are not flag names: the substring filter is `text`, not `query`, and every tool above closes its schema, so a wrong guess is rejected as an error rather than dropped into an unfiltered answer.\n\n" +
-		"See [MCP Integration](mcp-integration.md) for detailed setup, serving a bundle's operations as tools and the catalog surface.",
+		"See [MCP Integration](mcp-integration.md) for setup and the [MCP reference](mcp-reference.md) for serving a bundle's operations as tools and the catalog surface.",
 }
 
 func main() {

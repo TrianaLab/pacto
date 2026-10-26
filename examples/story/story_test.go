@@ -488,3 +488,32 @@ func TestColdStartAsksToAcceptTheUnknown(t *testing.T) {
 		}
 	}
 }
+
+// TestRaiseIsDecidedByTheServiceTeam: the advise raise pay-agent asked for is
+// answered neither by pay-agent nor by a person outside team risk, only by a
+// person of team risk with a fresh login.
+func TestRaiseIsDecidedByTheServiceTeam(t *testing.T) {
+	b := beat(t, "advise")
+	in, err := b.PlanInput(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := delivery.PlanFor(context.Background(), in)
+	spec := in.Spec
+	spec.IntentDigest = p.IntentDigest
+	st := delivery.OperationStatus{Phase: delivery.PhaseHeld, Plan: &p, Times: delivery.Times{Held: Now.Add(-time.Minute).Format(time.RFC3339)}}
+	answer := func(by string, groups ...string) (bool, string) {
+		a := delivery.ApprovalSpec{OperationUID: "op-advise", IntentDigest: p.IntentDigest, Decision: delivery.Approve,
+			By: by, Groups: groups, AuthTime: Now.Format(time.RFC3339)}
+		return delivery.ApprovalEligible(spec, st, "op-advise", a, Now, Policy, delivery.AuthFreshness)
+	}
+	if ok, _ := answer(PayAgent.User, PayAgent.Groups...); ok {
+		t.Error("pay-agent decided its own raise")
+	}
+	if ok, _ := answer(Alice.User, Alice.Groups...); ok {
+		t.Error("alice, outside team risk, decided fraud's raise")
+	}
+	if ok, why := answer("rita@example.com", "team-risk"); !ok {
+		t.Errorf("a person of team risk could not decide: %s", why)
+	}
+}
