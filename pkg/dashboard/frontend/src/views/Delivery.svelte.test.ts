@@ -309,6 +309,34 @@ describe('environments', () => {
     destroy();
   });
 
+  it('narrows to one environment, keeps empty cells quiet and caps what Pacto would have done', async () => {
+    const shadow = [{ candidate: D2, predicted: 'Proceeds' }];
+    const row = (service: string, environment: string) => ({ namespace: environment, stage: `${service}-${environment}`, service, environment, verified: false, failed: false,
+      frozen: false, autoHold: false, held: 0, actions: [], ready: 'True', rung: 'observe', shadow });
+    const svcs = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+    fns.environments.mockResolvedValue({ ...listing, environmentNames: ['test', 'prod'], environments: [...svcs.map((x) => row(x, 'test')), row('a', 'prod')] });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    // An empty cell is a quiet dash a legend explains, not a sentence in every cell.
+    expect(text(target.querySelector('[data-testid="environments-legend"]') as HTMLElement)).toContain('not delivered in that environment');
+    expect(target.querySelectorAll('.ev-none[title="Not delivered here"]').length).toBe(6);
+    // One summary for every observing Stage, five shown, the rest behind a button.
+    expect(target.querySelectorAll('[data-testid="shadow-summary"]').length).toBe(1);
+    expect(target.querySelectorAll('[data-testid="shadow"]').length).toBe(5);
+    const more = target.querySelector('[data-testid="shadow-more"]') as HTMLButtonElement;
+    expect(text(more)).toBe('Show all 8 observing Stages');
+    more.click();
+    await settle();
+    expect(target.querySelectorAll('[data-testid="shadow"]').length).toBe(8);
+    const pick = target.querySelector('.ev-tools select') as HTMLSelectElement;
+    pick.value = 'prod';
+    pick.dispatchEvent(new Event('change', { bubbles: true }));
+    await settle();
+    expect([...target.querySelectorAll('[data-testid="environments-board"] thead th')].map((t) => t.textContent)).toEqual(['Service', 'prod']);
+    expect(target.querySelectorAll('[data-testid="shadow"]').length).toBe(1);
+    destroy();
+  });
+
   it('says when there is no Stage', async () => {
     fns.environments.mockResolvedValue({ ...listing, environments: [] });
     const { target, destroy } = render(DeliveryEnvironmentsView);

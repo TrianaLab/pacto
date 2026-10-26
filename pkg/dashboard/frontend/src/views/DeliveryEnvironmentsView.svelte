@@ -14,6 +14,9 @@
   import ListingNote from '../components/ListingNote.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import ProposePanel from '../components/ProposePanel.svelte';
+  import Select from '../components/Select.svelte';
+  import ShowAll from '../components/ShowAll.svelte';
+  import { cap } from '../lib/cap.svelte.ts';
 
   // Every service in every environment: the version it runs and whether that
   // version is verified, failed, frozen or waiting. Promote and unfreeze start
@@ -31,6 +34,11 @@
   const data = $derived(loader.dataTag === question ? loader.data : null);
   const rows = $derived(data?.environments ?? []);
   const environments = $derived(sortEnvironments(data?.environmentNames ?? [...new Set(rows.map((r) => r.environment))]));
+  // One environment at a time when thirteen columns are too many to read
+  // across. ponytail: narrows the columns of this page only; the server still
+  // pages by service, so a service with no Stage there shows an empty row.
+  let only = $state('');
+  const shown = $derived(only && environments.includes(only) ? [only] : environments);
   const services = $derived([...new Set(rows.map((r) => r.service))].sort());
   // Every cell's Stages, grouped once per answer rather than searched per cell.
   const cells = $derived(rows.reduce((m, r) => {
@@ -41,7 +49,8 @@
   const cell = (svc, env) => cells.get(`${svc}\u0000${env}`) ?? [];
   const href = (off, lim) => deliveryEnvironmentsUrl({ q, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
   const serviceTotal = $derived(data?.page?.total ?? services.length);
-  const observing = $derived(rows.filter((r) => r.rung === 'observe' && r.shadow?.length));
+  const observing = $derived(rows.filter((r) => r.rung === 'observe' && r.shadow?.length && shown.includes(r.environment)));
+  const observingCap = cap(5);
   const VERIFICATION = { Verified: 'Verified', Unverified: 'Not verified', AcceptedUnknown: 'A person accepted the unknown' };
 
   // The plan being looked at: one request at a time, opened in a row right
@@ -67,7 +76,12 @@
     revalidating={!!data && loader.loading}
   />
   <DeliveryNav current="delivery-environments" />
-  <ListFilter value={q} href={(v) => deliveryEnvironmentsUrl({ q: v })} label="Filter services by name" placeholder="Service" testid="environments-filter" />
+  <div class="ev-tools">
+    <ListFilter value={q} href={(v) => deliveryEnvironmentsUrl({ q: v })} label="Filter services by name" placeholder="Service" testid="environments-filter" />
+    {#if environments.length > 1}
+      <Select label="Environment" value={only} options={[{ value: '', label: 'Every environment' }, ...environments]} onchange={(e) => { only = e.currentTarget.value; }} />
+    {/if}
+  </div>
 
   {#if !data && loader.loading}
     <EmptyState loading={true} />
@@ -83,27 +97,30 @@
         <p>No Stage exists {data.completeness === 'partial' ? 'that you can see' : 'in this cluster'}. A Stage is one service in one environment. Install pacto-operator with <code>delivery.enabled=true</code>, then create one.</p>
       </div>
     {:else}
-      <div class="data-scroll ev-board">
-        <table class="data-table ev-table" data-testid="environments-board" style:min-width={`calc(12rem + ${environments.length} * 12rem)`}>
+      <p class="t-meta ev-legend" data-testid="environments-legend"><span class="ev-none" aria-hidden="true">–</span> not delivered in that environment. A version opens its history.{#if shown.length > 6}{' '}Scroll sideways for more environments, or pick one above.{/if}</p>
+      <div class="ev-board">
+        <table class="data-table ev-table" data-testid="environments-board" style:min-width={`calc(13rem + ${shown.length} * 12rem)`}>
           <caption class="visually-hidden">Services by environment</caption>
-          <colgroup><col style="width: 12rem" />{#each environments as env (env)}<col />{/each}</colgroup>
+          <colgroup><col style="width: 13rem" />{#each shown as env (env)}<col style={shown.length > 1 ? 'width: 12rem' : undefined} />{/each}</colgroup>
           <thead>
-            <tr><th scope="col">Service</th>{#each environments as env (env)}<th scope="col">{env}</th>{/each}</tr>
+            <tr><th scope="col">Service</th>{#each shown as env (env)}<th scope="col"><span class="cell-clip" title={env}>{env}</span></th>{/each}</tr>
           </thead>
           <tbody>
             {#each services as svc (svc)}
               <tr data-testid={`env-row-${svc}`}>
                 <th scope="row"><a class="cell-clip" href={serviceUrl(svc)} title={svc}>{svc}</a></th>
-                {#each environments as env (env)}
+                {#each shown as env (env)}
                   {@const here = cell(svc, env)}
                   <td data-label={env}>
                     {#each here as r (r.namespace + '/' + r.stage)}
                       <div class="ev-cell" data-testid="env-cell" data-stage={`${r.namespace}/${r.stage}`}>
                         {#if here.length > 1}<span class="t-meta ev-stage">{r.namespace}/{r.stage}</span>{/if}
-                        <a class="ev-version" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })}
-                          title={r.pointer || 'nothing deployed yet'}>{r.version || shortDigest(r.pointer) || 'Nothing yet'}</a>
+                        <span class="ev-head">
+                          <a class="ev-version" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })}
+                            title={r.pointer || 'nothing deployed yet'}>{r.version || shortDigest(r.pointer) || 'Nothing yet'}</a>
+                          {#if r.rung}<span class="t-meta ev-rung" data-testid="rung" title={rungHelp(r.rung)}>{rungLabel(r.rung)}</span>{/if}
+                        </span>
                         <span class="ev-badges">
-                          {#if r.rung}<span class="badge badge-neutral" data-testid="rung" title={rungHelp(r.rung)}>{rungLabel(r.rung)}</span>{/if}
                           {#if r.verified}<span class="badge badge-ok">Verified</span>{/if}
                           {#if r.failed}<span class="badge badge-err">Failed</span>{/if}
                           {#if r.frozen}<span class="badge badge-warn" title={r.frozenReason || 'Nothing moves here until a person unfreezes it'}>Frozen</span>{/if}
@@ -111,7 +128,7 @@
                           {#if r.held}<span class="badge badge-warn">{r.held} waiting</span>{/if}
                           {#if r.pointer && !r.verified && !r.failed}<span class="badge badge-neutral">Not verified</span>{/if}
                         </span>
-                        {#if r.ready && !r.ready.startsWith('True')}<span class="t-meta ev-ready" title={r.ready}>Cannot promote: {sentence(r.readyMessage || r.ready.replace(/^\w+: /, ''))}</span>{/if}
+                        {#if r.ready && !r.ready.startsWith('True')}{@const why = `Cannot promote: ${sentence(r.readyMessage || r.ready.replace(/^\w+: /, ''))}`}<span class="t-meta ev-ready" title={why}>{why}</span>{/if}
                         {#if r.actions?.length}
                           <span class="ev-actions">
                             {#if r.actions.includes('promote')}
@@ -124,13 +141,13 @@
                         {/if}
                       </div>
                     {:else}
-                      <span class="t-meta">Not delivered here</span>
+                      <span class="ev-none" title="Not delivered here"><span aria-hidden="true">–</span><span class="visually-hidden">Not delivered here</span></span>
                     {/each}
                   </td>
                 {/each}
               </tr>
               {#if proposing && proposingService === svc}
-                <tr class="ev-plan-row"><td colspan={environments.length + 1}>
+                <tr class="ev-plan-row"><td colspan={shown.length + 1}>
                   <div class="ev-plan">
                     {#key proposing}
                       <ProposePanel request={proposing} toVersion={proposingVersion} {miraURL} onClose={closePlan} />
@@ -143,36 +160,41 @@
         </table>
       </div>
       <Pager page={data.page} {href} label="Pages of services" noun="services" testid="environments-pager" />
-      {#each observing as r (r.namespace + '/' + r.stage)}
-        <details class="ev-shadow disclosure" data-testid="shadow" data-stage={`${r.namespace}/${r.stage}`}>
-          <summary>
-            <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
-            <h2 id={`shadow-${r.namespace}-${r.stage}`} class="t-section-title">{r.service} in {r.environment}: what Pacto would have done</h2>
-            <span class="t-meta">{formatCount(r.shadow.length)} candidate{r.shadow.length === 1 ? '' : 's'}</span>
-          </summary>
-          <p class="t-body-2">This Stage observes: GitOps applies and Pacto moves nothing. Each row is what Pacto would have done with a candidate on Autonomous, next to what happened. It is advisory and unsigned: status, not a record.</p>
-          <div class="ev-scroll">
-            <table class="ev-table">
-              <caption class="visually-hidden">What Pacto would have done with each candidate on {r.service} in {r.environment}, newest first</caption>
-              <thead><tr><th scope="col">Candidate</th><th scope="col">On Autonomous, Pacto would have</th><th scope="col">Source reported at</th><th scope="col">Verification</th></tr></thead>
-              <tbody>
-                {#each r.shadow as sh (sh.candidate + (sh.intentDigest ?? ''))}
-                  <tr class:ev-attention={heldButRan(sh)} data-testid="shadow-row">
-                    <td><code title={sh.candidate}>{shortDigest(sh.candidate)}</code></td>
-                    <td>
-                      {shadowLabel(sh)}
-                      {#if heldButRan(sh)}<span class="badge badge-warn" data-testid="held-but-ran">GitOps ran it anyway</span>{/if}
-                    </td>
-                    <td>{sh.observedAt ? timeLabel(sh.observedAt) : 'Not reported yet'}</td>
-                    <td>{VERIFICATION[sh.verification] ?? 'Not checked yet'}</td>
-                  </tr>
-                {/each}
-              </tbody>
-            </table>
-          </div>
-          <p class="t-meta">"Source reported at" is when GitOps' source showed the candidate, not when it rolled out.</p>
-        </details>
-      {/each}
+      {#if observing.length}
+        <section class="ev-shadows" data-testid="shadow-summary" aria-labelledby="ev-shadows-title">
+          <h2 id="ev-shadows-title" class="t-section-title">What Pacto would have done <span class="t-meta">{formatCount(observing.length)} observing Stage{observing.length === 1 ? '' : 's'} on this page</span></h2>
+          <p class="t-body-2">These Stages observe: GitOps applies and Pacto moves nothing. Each row is what Pacto would have done with a candidate on Autonomous, next to what happened. It is advisory and unsigned: status, not a record. "Source reported at" is when GitOps' source showed the candidate, not when it rolled out.</p>
+          {#each observingCap.slice(observing) as r (r.namespace + '/' + r.stage)}
+            <details class="ev-shadow disclosure" data-testid="shadow" data-stage={`${r.namespace}/${r.stage}`}>
+              <summary>
+                <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+                <h3 id={`shadow-${r.namespace}-${r.stage}`} class="ev-shadow-title">{r.service} in {r.environment}</h3>
+                <span class="t-meta">{formatCount(r.shadow.length)} candidate{r.shadow.length === 1 ? '' : 's'}</span>
+              </summary>
+              <div class="ev-scroll">
+                <table class="ev-table">
+                  <caption class="visually-hidden">What Pacto would have done with each candidate on {r.service} in {r.environment}, newest first</caption>
+                  <thead><tr><th scope="col">Candidate</th><th scope="col">On Autonomous, Pacto would have</th><th scope="col">Source reported at</th><th scope="col">Verification</th></tr></thead>
+                  <tbody>
+                    {#each r.shadow as sh (sh.candidate + (sh.intentDigest ?? ''))}
+                      <tr class:ev-attention={heldButRan(sh)} data-testid="shadow-row">
+                        <td><code title={sh.candidate}>{shortDigest(sh.candidate)}</code></td>
+                        <td>
+                          {shadowLabel(sh)}
+                          {#if heldButRan(sh)}<span class="badge badge-warn" data-testid="held-but-ran">GitOps ran it anyway</span>{/if}
+                        </td>
+                        <td>{sh.observedAt ? timeLabel(sh.observedAt) : 'Not reported yet'}</td>
+                        <td>{VERIFICATION[sh.verification] ?? 'Not checked yet'}</td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+              </div>
+            </details>
+          {/each}
+          <ShowAll cap={observingCap} total={observing.length} noun="observing Stages" testid="shadow-more" />
+        </section>
+      {/if}
     {/if}
   {/if}
 </div>
@@ -188,8 +210,16 @@
   .ev-plan-row td { background: var(--c-surface-inset); }
   .ev-plan { position: sticky; left: var(--sp-3); max-width: min(60rem, calc(100vw - 4 * var(--sp-4))); }
   .ev-stage { color: var(--c-text-2); font-family: var(--font-mono); }
+  .ev-tools { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: center; justify-content: space-between; }
+  .ev-legend { margin: 0; }
+  /* Page scroll down, sideways scroll only when the columns need it: no inner box that hides rows. */
+  /* relative: the visually hidden labels in off-screen cells are absolute and would widen the page. */
+  .ev-board { position: relative; overflow-x: auto; border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); }
+  .ev-none { color: var(--c-text-3); }
+  .ev-shadows { display: flex; flex-direction: column; gap: var(--sp-2); }
+  .ev-shadows > h2, .ev-shadows > p { margin: 0; }
   .ev-shadow summary { display: flex; align-items: baseline; gap: var(--sp-2); cursor: pointer; }
-  .ev-shadow summary h2 { margin: 0; }
+  .ev-shadow-title { margin: 0; font-size: var(--text-sm); font-weight: 600; }
   .ev-shadow[open] > :not(summary) { margin-top: var(--sp-2); }
   @media (max-width: 720px) {
     .ev-board .ev-table { min-width: 0 !important; }
@@ -200,8 +230,11 @@
   .ev-cell + .ev-cell { margin-top: var(--sp-2); }
   .ev-version { font-weight: 600; }
   .ev-badges, .ev-actions { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
-  .ev-ready { color: var(--c-warn); }
-  .ev-shadow { margin-top: var(--sp-2); }
+  .ev-ready { color: var(--c-warn); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .ev-head { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--sp-2); }
+  .ev-head .ev-version { overflow-wrap: anywhere; }
+  .ev-tools > :global(form) { flex: 1 1 24rem; }
+  .ev-rung { white-space: nowrap; }
   .ev-attention td:first-child { box-shadow: inset 3px 0 0 var(--c-warn); }
   .state-box { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8) var(--sp-4); text-align: center; color: var(--c-text-3); }
   .state-box h2 { color: var(--c-text-2); }

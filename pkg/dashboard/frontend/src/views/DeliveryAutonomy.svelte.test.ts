@@ -219,7 +219,9 @@ describe('would have versus what happened', () => {
     expect(rungs).toEqual(['Observe', 'Advise']);
     const tables = target.querySelectorAll('[data-testid="shadow"]');
     expect(tables.length).toBe(1);
-    expect(text(tables[0])).toContain('advisory and unsigned');
+    // One explanation for every observing Stage, not one per Stage.
+    expect(text(target.querySelector('[data-testid="shadow-summary"]') as HTMLElement)).toContain('advisory and unsigned');
+    expect(text(tables[0])).not.toContain('advisory and unsigned');
     const rows = [...tables[0].querySelectorAll('[data-testid="shadow-row"]')];
     expect(text(rows[0])).toContain('hold for team-checkout and team-ledger');
     expect(text(rows[0])).toContain('2026-10-25 09:00 UTC');
