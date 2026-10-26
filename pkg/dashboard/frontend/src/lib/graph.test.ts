@@ -91,7 +91,8 @@ describe('nodeLabel', () => {
 
   it('truncates long names to 18 chars with ellipsis', () => {
     const { name } = nodeLabel({ id: 'x', serviceName: 'a-really-long-service-name', version: '1.0.0' });
-    expect(name).toBe('a-really-long-ser…');
+    expect(name).toBe('a-really-…ice-name');
+    expect(nodeLabel({ id: 'payments-ledger-replica-07' }).name).not.toBe(nodeLabel({ id: 'payments-ledger-replica-08' }).name);
     expect(name.length).toBe(18);
   });
 });

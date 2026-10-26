@@ -58,13 +58,13 @@
         <li class="hb-row tone-{r.tone || 'info'}">
           {#if r.href}
             <a class="hb-inner" href={r.href}>
-              <span class="hb-label">{r.label}</span>
+              <span class="hb-label" title={r.label}>{r.label}</span>
               <span class="hb-track" aria-hidden="true"><span class="hb-fill" data-motion style="width: {width(r.value)}%"></span></span>
               <span class="hb-value">{amount(r.value)}</span>
             </a>
           {:else}
             <span class="hb-inner">
-              <span class="hb-label">{r.label}</span>
+              <span class="hb-label" title={r.label}>{r.label}</span>
               <span class="hb-track" aria-hidden="true"><span class="hb-fill" data-motion style="width: {width(r.value)}%"></span></span>
               <span class="hb-value">{amount(r.value)}</span>
             </span>
@@ -97,7 +97,8 @@
     min-height: var(--touch-min);
   }
   a.hb-inner:hover .hb-label, a.hb-inner:focus-visible .hb-label { text-decoration: underline; }
-  .hb-label { overflow-wrap: anywhere; }
+  /* One line: a long name wrapped over five lines and made one bar five rows tall. */
+  .hb-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hb-track { display: block; height: 10px; border-radius: var(--radius-xs); background: var(--c-surface-inset); border: 1px solid var(--c-border); }
   .hb-fill { display: block; height: 100%; background: var(--tone-c, var(--c-info)); transition: width var(--motion-reveal); }
   .hb-value { font-weight: 700; color: var(--c-text); font-variant-numeric: tabular-nums; }

@@ -185,10 +185,15 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
     analyzeBtn(target).click();
     await vi.waitFor(() => expect(target.textContent).toContain('Affected consumers'));
-    impactFn.mockResolvedValueOnce(impactResult({ offset: 100 }));
+    let release: (v: unknown) => void = () => {};
+    impactFn.mockReturnValueOnce(new Promise((r) => { release = r; }));
     const next = Array.from(target.querySelectorAll('button')).find((b) => b.textContent === 'Next') as HTMLButtonElement;
     next.click();
     await vi.waitFor(() => expect(impactFn).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 100 })));
+    // While the next page loads the answer stays mounted, so the reader keeps their place.
+    expect(target.textContent).toContain('Affected consumers');
+    expect(target.textContent).not.toContain('Comparing the two revisions');
+    release(impactResult({ offset: 100 }));
     unmount(component); document.body.removeChild(target);
   });
 

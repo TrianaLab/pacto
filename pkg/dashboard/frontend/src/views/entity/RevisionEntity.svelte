@@ -138,7 +138,7 @@
              is visible either way, so the state is never hidden -- only its evidence. -->
         <PreviewSection title="Readiness checks" level={3} role="subsection" collapsible open={!r.passing} summary={r.passing ? 'All declared checks accounted for' : 'Open to see which checks are outstanding'} total={r.checks?.total ?? 0} count={r.checks?.count ?? 0} truncated={r.checks?.truncated}>
           <ul class="re-checks">
-            {#each r.checks.items as c (c.id)}
+            {#each r.checks.items as c, ci (`${c.id}:${ci}`)}
               <li>
                 <IdentityBadge label={c.status || 'unknown'} tone={c.status === 'done' ? 'ok' : (c.status === 'not-done' ? 'warn' : 'neutral')} />
                 <span class="rc-id">{c.id}</span>
@@ -182,7 +182,7 @@
     empty="This revision declares no interfaces."
   >
     <ul class="re-ifaces">
-      {#each d.interfaces?.items ?? [] as i (i.name)}
+      {#each d.interfaces?.items ?? [] as i, ii (`${i.name}:${ii}`)}
         <li class="ri">
           <div class="ri-head">
             <span class="ri-name">{i.name}</span>
@@ -203,7 +203,7 @@
                 {i.operations.count}{i.operations.truncated ? ` of ${i.operations.total}` : ''} {i.operations.total === 1 && !i.operations.truncated ? 'operation' : 'operations'}
               </summary>
               <ul class="re-tools">
-                {#each i.operations.items as t (t.name + t.method + t.path)}
+                {#each i.operations.items as t, ti (`${t.name}${t.method}${t.path}:${ti}`)}
                   <li>
                     {#if t.mutating}<IdentityBadge label="mutating" tone="warn" />{/if}
                     <span class="rt-method">{t.method}</span>
@@ -237,7 +237,7 @@
     empty="This revision declares no configuration."
   >
     <ul class="re-cfgs">
-      {#each d.configurations?.items ?? [] as c (c.name)}
+      {#each d.configurations?.items ?? [] as c, ci (`${c.name}:${ci}`)}
         <li class="ri">
           <div class="ri-head">
             <span class="ri-name">{c.name || 'default'}</span>
@@ -257,7 +257,7 @@
               <table class="re-kv">
                 <thead><tr><th scope="col">Key</th><th scope="col">Value</th></tr></thead>
                 <tbody>
-                  {#each c.values.items as v (v.key)}<tr><td>{v.key}</td><td>{v.value}</td></tr>{/each}
+                  {#each c.values.items as v, vi (`${v.key}:${vi}`)}<tr><td>{v.key}</td><td>{v.value}</td></tr>{/each}
                 </tbody>
               </table>
               {#if c.values.truncated}<p class="ri-note">Showing {c.values.count} values{typeof c.values.total === 'number' ? ` of ${c.values.total}` : '; total unknown'}.</p>{/if}
@@ -275,10 +275,13 @@
     truncated={d.policies?.truncated}
     empty="This revision declares no policies."
   >
-    <table class="re-table">
+    <!-- The shared table rules: fixed columns so a long reference can no longer squeeze
+         Name to one word per line or push Target off the card. -->
+    <table class="data-table re-policies">
+      <colgroup><col style="width:26%" /><col style="width:12%" /><col /><col style="width:22%" /></colgroup>
       <thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">Definition</th><th scope="col">Target</th></tr></thead>
       <tbody>
-        {#each d.policies?.items ?? [] as p (p.name)}
+        {#each d.policies?.items ?? [] as p, pi (`${p.name}:${pi}`)}
           <tr>
             <td data-label="Name">{p.name}</td>
             <td data-label="Kind">{p.ref ? 'Remote' : 'Local'}</td>
@@ -343,7 +346,7 @@
          operation reachable if the interface list above is truncated. -->
     <PreviewSection title="Tools exposed to agents" collapsible open={false} summary="Every operation, flat and cross-interface" total={d.tools?.total ?? 0} count={d.tools?.count ?? 0} truncated={d.tools?.truncated}>
       <ul class="re-tools">
-        {#each d.tools.items as t (t.name + t.method + t.path)}
+        {#each d.tools.items as t, ti (`${t.name}${t.method}${t.path}:${ti}`)}
           <li>
             {#if t.mutating}<IdentityBadge label="mutating" tone="warn" />{/if}
             <span class="rt-method">{t.method}</span>
@@ -358,7 +361,7 @@
 
   {#if (d.skills?.count ?? 0) > 0}
     <PreviewSection title="Skills" collapsible open={false} total={d.skills?.total ?? 0} count={d.skills?.count ?? 0} truncated={d.skills?.truncated}>
-      <ul class="re-chips">{#each d.skills.items as s (s)}<li>{s}</li>{/each}</ul>
+      <ul class="re-chips">{#each d.skills.items as s, si (`${s}:${si}`)}<li>{s}</li>{/each}</ul>
     </PreviewSection>
   {/if}
 
@@ -412,7 +415,7 @@
       <table class="re-kv">
         <thead><tr><th scope="col">Key</th><th scope="col">Value</th></tr></thead>
         <tbody>
-          {#each d.metadata.items as m (m.key)}<tr><td>{m.key}</td><td>{m.value}</td></tr>{/each}
+          {#each d.metadata.items as m, mi (`${m.key}:${mi}`)}<tr><td>{m.key}</td><td>{m.value}</td></tr>{/each}
         </tbody>
       </table>
     </PreviewSection>
@@ -516,16 +519,8 @@
   .ri-name { font-weight: 600; color: var(--c-text); overflow-wrap: anywhere; }
   .ri-ref { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .ri-note { margin: 0; font-size: var(--text-sm); color: var(--c-text-3); }
-  .re-kv, .re-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-  .re-kv th, .re-table th { text-align: left; color: var(--c-text-3); padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
-  .re-kv td, .re-table td { padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; color: var(--c-text-2); border-top: 1px solid var(--c-border); overflow-wrap: anywhere; vertical-align: top; }
+  .re-kv { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+  .re-kv th { text-align: left; color: var(--c-text-3); padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
+  .re-kv td { padding: var(--sp-1) var(--sp-2) var(--sp-1) 0; color: var(--c-text-2); border-top: 1px solid var(--c-border); overflow-wrap: anywhere; vertical-align: top; }
   .re-kv td:first-child { font-family: var(--font-mono, monospace); color: var(--c-text); }
-  /* 320px: a four-column policy table cannot fit, so it becomes a stacked list with
-     each cell keeping its column name as a prefix. */
-  @media (max-width: 30rem) {
-    .re-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-    .re-table tr { display: block; border-top: 1px solid var(--c-border); padding: var(--sp-2) 0; }
-    .re-table td { display: block; border: 0; padding: 0; }
-    .re-table td::before { content: attr(data-label) ' '; color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
-  }
 </style>

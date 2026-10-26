@@ -12,6 +12,7 @@
   import PageToc from '../components/PageToc.svelte';
   import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
   import ProductEmptyState from '../components/ProductEmptyState.svelte';
+  import EmptyState from '../components/EmptyState.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ServiceEntity from './entity/ServiceEntity.svelte';
   import RevisionEntity from './entity/RevisionEntity.svelte';
@@ -151,17 +152,24 @@
         <p class="ev-key-hint">The identity Pacto uses for this {kindLabel(kind).toLowerCase()} everywhere — in the API, the CLI and shared links.</p>
       </details>
 
-      {#if detail.service}
-        <ServiceEntity {detail} />
-      {:else if detail.revision}
-        <RevisionEntity {detail} />
-      {:else if detail.target}
-        <TargetEntity {detail} />
-      {:else if detail.owner}
-        <OwnerEntity {detail} />
-      {:else if detail.source}
-        <SourceEntity {detail} />
-      {/if}
+      <!-- One malformed record (a duplicate key, a field of the wrong shape) must cost
+           this body, not the page: without a boundary it left the skeleton up for ever. -->
+      <svelte:boundary>
+        {#if detail.service}
+          <ServiceEntity {detail} />
+        {:else if detail.revision}
+          <RevisionEntity {detail} />
+        {:else if detail.target}
+          <TargetEntity {detail} />
+        {:else if detail.owner}
+          <OwnerEntity {detail} />
+        {:else if detail.source}
+          <SourceEntity {detail} />
+        {/if}
+        {#snippet failed(err, reset)}
+          <EmptyState error title={`Couldn’t show this ${kindLabel(kind).toLowerCase()}`} message="Part of its record could not be drawn. Refresh to try again, or open it in the CLI." onRetry={reset} />
+        {/snippet}
+      </svelte:boundary>
       </div>
     </div>
   {/if}

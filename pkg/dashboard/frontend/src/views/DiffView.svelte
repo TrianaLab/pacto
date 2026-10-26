@@ -1,4 +1,5 @@
 <script>
+  import SearchPick from '../components/SearchPick.svelte';
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { serviceUrl, compareDiffUrl } from '../lib/router.ts';
@@ -32,6 +33,11 @@
       return [];
     }
   }
+
+  // Hundreds of services or versions get a searchable field instead of a select that
+  // matches only prefixes and widens to its longest option (see SearchPick).
+  const svcOptions = $derived(serviceNames.map((sn) => ({ value: sn, label: sn })));
+  const versionOptions = (vs) => (vs || []).map((v) => ({ value: v.version, label: `${v.version}${v.isCurrent ? ' (current)' : ''}` }));
 
   async function onFromNameChange() {
     fromVer = '';
@@ -126,24 +132,16 @@
     <div class="diff-field">
       <label for="from-svc">From service</label>
       {#if serviceNames.length > 0}
-        <select id="from-svc" bind:value={fromName} onchange={onFromNameChange}>
-          <option value="">Select service</option>
-          {#each serviceNames as sn}
-            <option value={sn}>{sn}</option>
-          {/each}
-        </select>
+        <SearchPick id="from-svc" value={fromName} options={svcOptions} placeholder="Select service" label="From service"
+          testid="from-svc" onpick={(v) => { fromName = v; onFromNameChange(); }} />
       {:else}
         <input id="from-svc" type="text" bind:value={fromName} onchange={onFromNameChange} placeholder="Service name" />
       {/if}
     </div>
     <div class="diff-field">
       <label for="from-ver">Version</label>
-      <select id="from-ver" bind:value={fromVer}>
-        <option value="">Select version</option>
-        {#each fromVersions as v}
-          <option value={v.version}>{v.version}{v.isCurrent ? ' (current)' : ''}</option>
-        {/each}
-      </select>
+      <SearchPick id="from-ver" value={fromVer} options={versionOptions(fromVersions)} placeholder="Select version" label="From version"
+        testid="from-ver" onpick={(v) => { fromVer = v; }} />
     </div>
   </div>
 
@@ -155,24 +153,16 @@
     <div class="diff-field">
       <label for="to-svc">To service</label>
       {#if serviceNames.length > 0}
-        <select id="to-svc" bind:value={toName} onchange={onToNameChange}>
-          <option value="">Select service</option>
-          {#each serviceNames as sn}
-            <option value={sn}>{sn}</option>
-          {/each}
-        </select>
+        <SearchPick id="to-svc" value={toName} options={svcOptions} placeholder="Select service" label="To service"
+          testid="to-svc" onpick={(v) => { toName = v; onToNameChange(); }} />
       {:else}
         <input id="to-svc" type="text" bind:value={toName} onchange={onToNameChange} placeholder="Service name" />
       {/if}
     </div>
     <div class="diff-field">
       <label for="to-ver">Version</label>
-      <select id="to-ver" bind:value={toVer}>
-        <option value="">Select version</option>
-        {#each toVersions as v}
-          <option value={v.version}>{v.version}{v.isCurrent ? ' (current)' : ''}</option>
-        {/each}
-      </select>
+      <SearchPick id="to-ver" value={toVer} options={versionOptions(toVersions)} placeholder="Select version" label="To version"
+        testid="to-ver" onpick={(v) => { toVer = v; }} />
     </div>
   </div>
 
@@ -220,14 +210,17 @@
     display: flex; align-items: flex-end; gap: var(--sp-3); flex-wrap: wrap;
     margin-bottom: var(--sp-5);
   }
+  /* Every control can shrink, so a long option never widens a field over its neighbour
+     or pushes Compare off a phone screen. */
   .diff-side {
-    display: flex; gap: var(--sp-2); flex: 1; min-width: 200px;
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sp-2); flex: 1; min-width: min(100%, 200px);
   }
   .diff-field {
-    display: flex; flex-direction: column; gap: 6px; flex: 1;
+    display: flex; flex-direction: column; gap: 6px; min-width: 0;
   }
   .diff-field label { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
-  .diff-field select, .diff-field input {
+  .diff-field :global(select), .diff-field input, .diff-field :global(input) {
+    max-width: 100%;
     padding: var(--sp-2) var(--sp-3);
     min-height: var(--touch-min);
     border: 1px solid var(--c-border); border-radius: var(--radius-sm);

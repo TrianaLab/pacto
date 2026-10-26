@@ -294,3 +294,25 @@ describe('FilterBar — facet controls and counts', () => {
     unmount(component);
   });
 });
+
+describe('FilterBar — a facet with hundreds of values', () => {
+  it('becomes a searchable field instead of a long select, and still filters', async () => {
+    const { getFilters } = await import('../lib/filters.svelte');
+    clearFilters();
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const services = Array.from({ length: 300 }, (_, i) => ({ name: `s${i}`, contractStatus: 'Compliant', owner: { team: `team-${i}` } }));
+    const c = mount(FilterBar, { target, props: { services } });
+    const owner = Array.from(target.querySelectorAll('.filter-select')).find((s) => s.textContent?.includes('Owner'));
+    const input = owner?.querySelector('input[list]') as HTMLInputElement;
+    expect(input).toBeTruthy();
+    expect(owner?.querySelectorAll('datalist option').length).toBe(300);
+    input.value = 'team-42 (';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(getFilters().owner).toBe('team:team-42');
+    unmount(c);
+    target.remove();
+    clearFilters();
+  });
+});

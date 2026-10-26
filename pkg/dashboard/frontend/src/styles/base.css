@@ -119,7 +119,10 @@ h3, h4, h5, h6 {
 
 /* Tables */
 table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); table-layout: auto; }
-td code { word-break: break-all; }
+/* Break a long code value at a word boundary, or inside a word only when one word
+   is wider than its column. break-all let auto layout squeeze config keys to three
+   characters and push the value and Type columns off screen. */
+td code { overflow-wrap: break-word; word-break: normal; }
 thead { border-bottom: 1px solid var(--c-border); }
 th {
   text-align: left; padding: var(--sp-3) var(--sp-3);

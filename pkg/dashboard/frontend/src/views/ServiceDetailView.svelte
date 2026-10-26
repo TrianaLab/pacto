@@ -23,7 +23,11 @@
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { navigate, serviceUrl, serviceVersionUrl, diffUrl, ownerUrl } from '../lib/router.ts';
-  import { complianceClass, classificationClass, ownerIsStructured, referencedDocPaths, paginate } from '../lib/format.ts';
+  import { complianceClass, classificationClass, ownerIsStructured, referencedDocPaths } from '../lib/format.ts';
+  import Pager from '../components/Pager.svelte';
+  import SearchPick from '../components/SearchPick.svelte';
+  import { clientPage } from '../lib/paging.ts';
+  import { listState } from '../lib/hashQuery.svelte.ts';
   import { versionTimelineData } from '../lib/chartData.ts';
   import OwnerLink from '../components/OwnerLink.svelte';
   import SourceDot from '../components/SourceDot.svelte';
@@ -83,10 +87,10 @@
   let resolving = $state(false);
   let resolveError = $state(null);
 
-  // Version history pagination
+  // Version history pagination, kept in the URL (voffset, vlimit) so Back returns to it.
   const VERSIONS_PER_PAGE = 10;
-  let versionsPage = $state(1);
-  let pagedVersions = $derived(paginate(versions || [], versionsPage, VERSIONS_PER_PAGE));
+  const versionList = $derived(listState(VERSIONS_PER_PAGE, 'v'));
+  let pagedVersions = $derived(clientPage(versions || [], versionList.offset, versionList.limit));
 
   // Inline version diff
   let diffExpandedVer = $state(null);
@@ -171,7 +175,6 @@
         api.crossRefs(name).catch(() => { depsError = true; return null; }),
       ]);
       versions = vers || [];
-      versionsPage = 1;
       dependents = deps || [];
       crossRefs = refs;
 
@@ -189,7 +192,6 @@
     versionsError = false;
     try {
       versions = (await api.versions(name)) || [];
-      versionsPage = 1;
     } catch {
       versionsError = true;
     }
@@ -338,9 +340,13 @@
   <header class="detail-header fade-in-up">
     <div class="detail-title-row">
       <h1>{detail.name}</h1>
-      <span class="badge badge-definition" data-tip="No cluster runtime data for this view — showing the contract definition only (runtime status unknown)">
-        <span class="badge-dot"></span>Definition only
-      </span>
+      {#if !detail.observedRuntime && !detail.runtimeDiff?.length}
+        <!-- Only when no runtime data arrived: shown beside an observed runtime it
+             contradicted the section below it. -->
+        <span class="badge badge-definition" data-tip="No cluster runtime data for this view — showing the contract definition only (runtime status unknown)">
+          <span class="badge-dot"></span>Definition only
+        </span>
+      {/if}
       {#if blastRadius > 0}
         <a href="#/graph" class="blast-indicator" class:blast-warn={blastRadius >= 3 && blastRadius < 5} class:blast-high={blastRadius >= 5} data-tip="If this service fails, {blastRadius} other service{blastRadius !== 1 ? 's are' : ' is'} transitively impacted">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7" opacity="0.4"/><circle cx="12" cy="12" r="11" opacity="0.2"/></svg>
@@ -361,13 +367,9 @@
       {#if detail.resolvedRef || detail.imageRef}<code class="detail-ref text-3">{detail.resolvedRef || detail.imageRef}</code>{/if}
       {#if versions?.length > 1}
         <div class="version-actions">
-          <select class="btn btn-sm version-select" aria-label="Select version"
-            value={detail.version}
-            onchange={(e) => goToVersion(e.currentTarget.value)}>
-            {#each versions as v}
-              <option value={v.version}>{v.version}{v.isCurrent ? ' (current)' : ''}</option>
-            {/each}
-          </select>
+          <SearchPick id="version-select" value={detail.version} label="Select version" testid="version-select"
+            options={versions.map((v) => ({ value: v.version, label: `${v.version}${v.isCurrent ? ' (current)' : ''}` }))}
+            onpick={(v) => { if (v) goToVersion(v); }} />
           <a href={diffUrl(name)} class="btn btn-sm btn-compare">Compare versions</a>
         </div>
       {/if}
@@ -473,7 +475,7 @@
       <div class="section-title">Version History <span class="tab-count">{versions.length}</span></div>
       <VersionTimeline data={versionTimelineData(versions)} onSelect={(v) => location.hash = serviceVersionUrl(name, v)} />
       <div class="table-wrap">
-        <table class="version-history">
+        <table class="data-table version-history">
           <colgroup>
             <col class="vh-version" />
             <col class="vh-class" />
@@ -483,23 +485,29 @@
           </colgroup>
           <thead><tr><th data-tip="Semver version tag">Version</th><th data-tip="Change impact vs previous version">Classification</th><th data-tip="Where this version was found">Source</th><th data-tip="When this version was published">Created</th><th data-tip="Compare this version against the one you're viewing">Compare</th></tr></thead>
           <tbody>
-            {#each pagedVersions.items as ver}
+            {#each pagedVersions.items as ver (ver.version)}
               <tr class:version-current={ver.version === detail.version}>
-                <td>
-                  <a href={ver.isCurrent ? serviceUrl(name) : serviceVersionUrl(name, ver.version)}><code>{ver.version}</code></a>
-                  {#if ver.isCurrent}<span class="badge badge-neutral" style="margin-left:6px;font-size: var(--text-xs)">current</span>{/if}
-                  {#if ver.version === detail.version && !ver.isCurrent}<span class="badge badge-viewing" style="margin-left:6px;font-size: var(--text-xs)">viewing</span>{/if}
+                <td data-label="Version">
+                  <span class="cell-stack">
+                    <a class="cell-clip" href={ver.isCurrent ? serviceUrl(name) : serviceVersionUrl(name, ver.version)} title={ver.version}><code>{ver.version}</code></a>
+                    {#if ver.isCurrent || ver.version === detail.version}
+                      <span class="cell-badges">
+                        {#if ver.isCurrent}<span class="badge badge-neutral" style="font-size: var(--text-xs)">current</span>{/if}
+                        {#if ver.version === detail.version && !ver.isCurrent}<span class="badge badge-viewing" style="font-size: var(--text-xs)">viewing</span>{/if}
+                      </span>
+                    {/if}
+                  </span>
                 </td>
-                <td>
+                <td data-label="Classification">
                   {#if ver.classification === 'BREAKING'}<span class="badge badge-err">Breaking</span>
                   {:else if ver.classification === 'POTENTIAL_BREAKING'}<span class="badge badge-warn">Potential breaking</span>
                   {:else if ver.classification === 'NON_BREAKING'}<span class="badge badge-ok">Non-breaking</span>
                   {:else}<span class="text-3">—</span>
                   {/if}
                 </td>
-                <td>{#if ver.source}<SourceDot source={ver.source} /> <span class="text-3" style="font-size:var(--text-xs)">{ver.source}</span>{:else}—{/if}</td>
-                <td class="text-2">{formatDate(ver.createdAt) || '—'}</td>
-                <td>
+                <td data-label="Source">{#if ver.source}<SourceDot source={ver.source} /> <span class="text-3" style="font-size:var(--text-xs)">{ver.source}</span>{:else}—{/if}</td>
+                <td data-label="Created" class="text-2">{formatDate(ver.createdAt) || '—'}</td>
+                <td data-label="Compare">
                   {#if ver.version !== detail.version}
                     <button type="button" class="btn btn-sm" class:btn-active={diffExpandedVer === ver.version} onclick={() => compareVersion(ver.version)}>
                       {diffExpandedVer === ver.version ? 'Close' : `vs ${baselineLabel}`}
@@ -533,17 +541,8 @@
           </tbody>
         </table>
       </div>
-      {#if pagedVersions.totalPages > 1}
-        <div class="pager">
-          <button type="button" class="btn btn-sm" disabled={pagedVersions.page <= 1}
-            onclick={() => { versionsPage = pagedVersions.page - 1; }} aria-label="Previous page">‹ Prev</button>
-          <span class="pager-info text-3">
-            Page {pagedVersions.page} of {pagedVersions.totalPages}
-            <span class="text-3">· {pagedVersions.total} versions</span>
-          </span>
-          <button type="button" class="btn btn-sm" disabled={pagedVersions.page >= pagedVersions.totalPages}
-            onclick={() => { versionsPage = pagedVersions.page + 1; }} aria-label="Next page">Next ›</button>
-        </div>
+      {#if pagedVersions.page.total > VERSIONS_PER_PAGE}
+        <Pager page={pagedVersions.page} href={versionList.href} label="Version pages" noun="versions" testid="versions-pager" />
       {/if}
     </section>
   {/if}
@@ -585,9 +584,6 @@
     align-items: center;
     gap: var(--sp-2);
   }
-  /* Native <select> carries the .btn .btn-sm classes so it matches the adjacent
-     Compare button; this just restores the pointer cursor. */
-  .version-select { cursor: pointer; }
   .version-banner {
     padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-5);
     border-radius: var(--radius-sm);
@@ -716,7 +712,8 @@
      The .diff-expand-row's colspan cell is exempt (its content wraps freely). */
   .version-history { table-layout: fixed; }
   .version-history th { white-space: normal; }
-  .version-history td { overflow: visible; white-space: nowrap; }
+  /* Cells wrap and clip by the shared data-table rules; nowrap + overflow:visible here
+     ran a long version under Classification and the current pill onto Source. */
   .vh-version { width: auto; }
   .vh-class { width: 22%; }
   .vh-source { width: 16%; }
@@ -732,12 +729,6 @@
     color: var(--c-accent);
   }
 
-  .pager {
-    display: flex; align-items: center; justify-content: flex-end; gap: 12px;
-    margin-top: 10px;
-  }
-  .pager-info { font-size: var(--text-xs); }
-  .pager .btn[disabled] { opacity: 0.4; cursor: default; }
 
   .detail-ref {
     word-break: break-all;

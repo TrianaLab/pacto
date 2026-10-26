@@ -154,3 +154,13 @@ describe('graph signatures (Part 5: topology vs presentation)', () => {
     expect(topoSignature(changed)).not.toBe(topoSignature(base()));
   });
 });
+
+describe('neighborhoodToGraph — revision labels', () => {
+  it('puts a revision version on its own label line so truncation never cuts it', () => {
+    const g = neighborhoodToGraph({
+      nodes: [{ ref: { kind: 'revision', key: 'r1', label: 'payments-ledger-replica 12.4.0', version: '12.4.0' }, status: 'Compliant' }],
+      edges: [],
+    } as never);
+    expect(g.nodes[0]).toMatchObject({ serviceName: 'payments-ledger-replica', version: '12.4.0' });
+  });
+});

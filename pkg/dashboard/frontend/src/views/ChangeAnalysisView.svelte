@@ -2,7 +2,8 @@
   import { onMount, onDestroy, untrack } from 'svelte';
   import { api, ApiError } from '../lib/api.ts';
   import { boundedMatches, NAME_LOOKUP_LIMIT } from '../lib/entityResolve.ts';
-  import { classificationClass, completenessClass, completenessLabel } from '../lib/format.ts';
+  import { classificationClass, completenessClass, completenessLabel, shortDigest, formatCount } from '../lib/format.ts';
+  import SearchPick from '../components/SearchPick.svelte';
   import { formatDate } from '../lib/dateFormat.ts';
   import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, hashForHref, replaceHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
@@ -79,6 +80,9 @@
   let staleSnapshot = $state(false);
   let result = $state(null);
   let consumerOffset = $state(0);
+  // Paging the consumers keeps the answer on screen; only a new comparison replaces it.
+  // Swapping the whole result for a loader on every page reset the scroll to the top.
+  let pagingConsumers = $state(false);
   let analyzeGen = 0;
 
   // Service picker (only when the route carries no service key): search-first, so a
@@ -114,7 +118,9 @@
       all.push(...(page.entities ?? []));
       if (page.nextOffset == null) { complete = true; break; }
       offset = page.nextOffset;
-      if (all.length >= MAX_SELECTOR_REVISIONS) break; // more exist; stay honestly incomplete
+      // More exist: stay honestly incomplete, and never past the bound (a 200-row page
+      // pushed after the check used to leave 600 options for a bound of 500).
+      if (all.length >= MAX_SELECTOR_REVISIONS) { all.length = MAX_SELECTOR_REVISIONS; break; }
     }
     return { items: all, complete };
   }
@@ -239,10 +245,11 @@
     if (!observedAvailable) includeObserved = false;
   });
 
-  async function analyze(offset = 0) {
+  async function analyze(offset = 0, paging = false) {
     if (!serviceKey || !fromRevKey || !toRevKey) return;
     const gen = ++analyzeGen;
-    analyzing = true;
+    if (paging && result) pagingConsumers = true;
+    else analyzing = true;
     analyzeError = null;
     staleSnapshot = false;
     try {
@@ -269,7 +276,7 @@
       if (e instanceof ApiError && e.status === 409) staleSnapshot = true;
       else analyzeError = e instanceof ApiError ? e.message : 'Couldn’t compare these revisions.';
     } finally {
-      if (gen === analyzeGen) analyzing = false;
+      if (gen === analyzeGen) { analyzing = false; pagingConsumers = false; }
     }
   }
 
@@ -314,6 +321,12 @@
   const cHasPrev = $derived((consumers.offset ?? 0) > 0);
   const cHasNext = $derived(consumers.nextOffset != null);
   const canAnalyze = $derived(!!serviceKey && !!fromRevKey && !!toRevKey && !analyzing);
+  // A revision reads as its version and a short digest: the service is already named
+  // above the pickers, and two revisions of one version differ only by content.
+  const revisionOptions = $derived(revisions.map((r) => ({
+    value: r.key,
+    label: `${r.version || r.label}${r.secondary ? ` · ${shortDigest(r.secondary)}` : ''}`,
+  })));
 </script>
 
 <div class="product-page">
@@ -402,17 +415,13 @@
     <div class="selectors">
       <div class="field">
         <label for="impact-old-rev">Earlier revision</label>
-        <select id="impact-old-rev" value={fromRevKey} onchange={(e) => (fromRevKey = e.currentTarget.value)} disabled={revisions.length === 0}>
-          <option value="">Select…</option>
-          {#each revisions as r}<option value={r.key}>{r.label}</option>{/each}
-        </select>
+        <SearchPick id="impact-old-rev" value={fromRevKey} options={revisionOptions} placeholder="Select…" label="Earlier revision"
+          disabled={revisions.length === 0} testid="impact-old-rev" onpick={(v) => (fromRevKey = v)} />
       </div>
       <div class="field">
         <label for="impact-new-rev">Later revision</label>
-        <select id="impact-new-rev" value={toRevKey} onchange={(e) => (toRevKey = e.currentTarget.value)} disabled={revisions.length === 0}>
-          <option value="">Select…</option>
-          {#each revisions as r}<option value={r.key}>{r.label}</option>{/each}
-        </select>
+        <SearchPick id="impact-new-rev" value={toRevKey} options={revisionOptions} placeholder="Select…" label="Later revision"
+          disabled={revisions.length === 0} testid="impact-new-rev" onpick={(v) => (toRevKey = v)} />
       </div>
     </div>
     {#if revisions.length < 2}
@@ -537,8 +546,9 @@
       {#if (consumers.items?.length ?? 0) === 0}
         <EmptyState title="No affected consumers" message="No service in the operational graph consumes this change." />
       {:else}
-        <div class="table-wrap">
-          <table>
+        <div class="data-scroll" aria-busy={pagingConsumers}>
+          <table class="data-table">
+            <colgroup><col style="width:22%" /><col style="width:13%" /><col /><col style="width:12%" /><col style="width:12%" /><col style="width:14%" /></colgroup>
             <thead>
               <tr>
                 <th>Consumer</th>
@@ -550,26 +560,26 @@
               </tr>
             </thead>
             <tbody>
-              {#each consumers.items as c}
+              {#each consumers.items as c, ci (`${c.service?.key}:${ci}`)}
                 <tr>
-                  <td><EntityLink ref={c.service} showStatus={false} /></td>
-                  <td>{#if c.direct}<span class="badge badge-info">Direct</span>{:else}<span class="badge badge-neutral">Transitive · depth {c.depth}</span>{/if}</td>
-                  <td class="path-cell">
+                  <td data-label="Consumer" class="consumer-cell"><EntityLink ref={c.service} showStatus={false} /></td>
+                  <td data-label="Reach">{#if c.direct}<span class="badge badge-info">Direct</span>{:else}<span class="badge badge-neutral">Transitive · depth {c.depth}</span>{/if}</td>
+                  <td data-label="Path" class="path-cell">
                     {#if (c.path?.length ?? 0) > 0}{c.path.map((p) => p.label).join(' → ')}{#if c.pathTruncated} …{/if}{:else}<span class="text-dim">—</span>{/if}
                   </td>
-                  <td><span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span></td>
-                  <td><span class="pill" title={CONFIDENCE_EXPLAIN[c.confidence] || ''}>{c.confidence}</span></td>
-                  <td>{#if c.owner}{c.owner}{:else}<span class="text-dim">—</span>{/if}</td>
+                  <td data-label="Verdict"><span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span></td>
+                  <td data-label="Confidence"><span class="pill" title={CONFIDENCE_EXPLAIN[c.confidence] || ''}>{c.confidence}</span></td>
+                  <td data-label="Owner">{#if c.owner}<span class="cell-clip" title={c.owner}>{c.owner}</span>{:else}<span class="text-dim">—</span>{/if}</td>
                 </tr>
               {/each}
             </tbody>
           </table>
         </div>
         <nav class="consumer-pager" aria-label="Consumer pages">
-          <span class="text-3">Showing {cShownFrom}–{cShownTo} of {consumers.total}</span>
+          <span class="text-3">Showing {formatCount(cShownFrom)}–{formatCount(cShownTo)} of {formatCount(consumers.total)}{pagingConsumers ? ' · loading…' : ''}</span>
           <div class="pager-btns">
-            <button type="button" class="pg" disabled={!cHasPrev} onclick={() => analyze(Math.max(0, (consumers.offset ?? 0) - CONSUMER_PAGE))}>Previous</button>
-            <button type="button" class="pg" disabled={!cHasNext} onclick={() => analyze(consumers.nextOffset)}>Next</button>
+            <button type="button" class="pg" disabled={!cHasPrev || pagingConsumers} onclick={() => analyze(Math.max(0, (consumers.offset ?? 0) - CONSUMER_PAGE), true)}>Previous</button>
+            <button type="button" class="pg" disabled={!cHasNext || pagingConsumers} onclick={() => analyze(consumers.nextOffset, true)}>Next</button>
           </div>
         </nav>
         <details class="confidence-legend disclosure">
@@ -629,7 +639,11 @@
   .selectors { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
   .field { display: flex; flex-direction: column; gap: 6px; }
   .field label { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
-  .field select { padding: var(--sp-2) var(--sp-3); min-height: var(--touch-min); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); color: var(--c-text); font: inherit; font-size: var(--text-sm); }
+  .field :global(select) { padding: var(--sp-2) var(--sp-3); min-height: var(--touch-min); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-bg); color: var(--c-text); font: inherit; font-size: var(--text-sm); max-width: 100%; }
+  /* Names ellipsize on one line (the whole name is in the link's title) instead of
+     breaking mid-word down a narrow column. */
+  .consumer-cell :global(.ei-label) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+  .consumer-cell :global(.entity-identity) { flex-wrap: nowrap; max-width: 100%; }
   .form-actions { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; }
   .check-field { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--c-text-2); }
   .check-field input:disabled { cursor: not-allowed; }

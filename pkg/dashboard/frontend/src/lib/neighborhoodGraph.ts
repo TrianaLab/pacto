@@ -68,9 +68,14 @@ export function neighborhoodToGraph(nb: NeighborhoodLike | null | undefined): Gr
   const nodes: GraphNode[] = [];
   const byKey = new Map<string, GraphNode>();
   for (const n of nb?.nodes ?? []) {
+    // A revision reads "service version"; the version goes on its own label line so
+    // truncating a long service name never cuts the version off.
+    const version = n.ref.kind === 'revision' ? n.ref.version || '' : '';
+    const label = n.ref.label || n.ref.key;
     const g: GraphNode = {
       id: n.ref.key,
-      serviceName: n.ref.label || n.ref.key,
+      serviceName: version && label.endsWith(` ${version}`) ? label.slice(0, -version.length - 1) : label,
+      ...(version ? { version } : {}),
       status: n.status || n.ref.status || 'Unknown',
       kind: nodeKind(n.ref.kind),
       edges: [],

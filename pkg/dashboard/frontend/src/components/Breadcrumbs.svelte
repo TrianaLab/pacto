@@ -7,9 +7,9 @@
     {#each trail as crumb, i}
       {#if i > 0}<span class="bc-sep" aria-hidden="true">›</span>{/if}
       {#if crumb.href && i < trail.length - 1}
-        <a href={crumb.href} class="bc-link">{crumb.label}</a>
+        <a href={crumb.href} class="bc-link" title={crumb.label}>{crumb.label}</a>
       {:else}
-        <span class="bc-current" aria-current="page">{crumb.label}</span>
+        <span class="bc-current" aria-current="page" title={crumb.label}>{crumb.label}</span>
       {/if}
     {/each}
   </nav>
@@ -24,4 +24,7 @@
   .bc-link:hover { color: var(--c-text); text-decoration: underline; }
   .bc-sep { color: var(--c-text-3); }
   .bc-current { color: var(--c-text); font-weight: 500; }
+  /* A long key or digest in the trail ellipsizes on one line, its whole value in the
+     title, instead of running the breadcrumbs off a phone screen. */
+  .bc-link, .bc-current { max-width: min(40ch, 100%); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

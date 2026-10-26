@@ -72,7 +72,9 @@ export interface GraphData {
 /** Computes the displayed label lines for a node: truncated name + version. */
 export function nodeLabel(node: { id: string; serviceName?: string; version?: string }): { name: string; version: string } {
   const raw = node.serviceName || node.id;
-  const name = raw.length > 18 ? raw.slice(0, 17) + '…' : raw;
+  // Middle ellipsis: in a fleet of payments-ledger-replica-01..60 the END is what tells
+  // two nodes apart, so it stays; cutting the tail made 59 of 60 read the same.
+  const name = raw.length > 18 ? `${raw.slice(0, 9)}…${raw.slice(-8)}` : raw;
   return { name, version: node.version || '' };
 }
 
