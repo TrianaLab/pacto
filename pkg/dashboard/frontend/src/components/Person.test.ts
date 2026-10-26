@@ -13,8 +13,8 @@ const text = (props: Record<string, unknown>) => {
 
 describe('Person', () => {
   it('prints the verifiable identity next to a self-asserted name, not in a tooltip', () => {
-    expect(text({ user: 'https://idp#u1', people: { 'https://idp#u1': 'Ann' } })).toBe('Ann (https://idp#u1)');
-    expect(document.body.querySelector('[title]')).toBeNull();
+    expect(text({ user: 'https://idp#u1', people: { 'https://idp#u1': 'Ann' } })).toBe('Ann https://idp#u1 ⧉');
+    expect(document.body.querySelector('[title]:not(.copyable)')).toBeNull();
   });
   it('prints a plain username once', () => {
     expect(text({ user: 'kind-admin' })).toBe('kind-admin');

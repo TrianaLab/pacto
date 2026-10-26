@@ -3,7 +3,7 @@
  * Each render fn takes a container element, data and options, draws an SVG.
  */
 import * as d3 from 'd3';
-import { readinessBucketLabel, ownerKeyLabel, ownerKeyKind, statusLabel, statusTone } from './format';
+import { readinessBucketLabel, ownerKeyLabel, ownerKeyKind, statusLabel, statusTone, formatCount } from './format';
 import { resolvePalette, sharedTooltip, defineGradients, animateIn, emptyState } from './chartkit';
 import { categoryIconInner } from './categoryIcons';
 import { prefersReducedMotion } from './motion';
@@ -251,11 +251,19 @@ export function renderPriorityQuadrant(
 
   // Y scale: impact/blast 0–max, square-root so one hub with a huge blast radius does not
   // squash every other service onto the floor of the plot.
-  const yMax = d3.max(data, (d) => d.y) || 1;
-  const y = d3.scaleSqrt().domain([0, yMax]).range([innerHeight, 0]);
+  // The domain stops at the 95th percentile when a few outliers sit far above it
+  // (one hub at 1,234 over two thousand services under 10): those dots are drawn
+  // on the top edge, ringed, and counted in a note, and the tooltip keeps the
+  // real number.
+  const blastValues = data.map((d) => d.y).sort((a, b) => a - b);
+  const yMax = blastValues[blastValues.length - 1] || 1;
+  const p95 = blastValues[Math.floor(0.95 * (blastValues.length - 1))] || 0;
+  const yTop = data.length >= 20 && p95 > 0 && yMax > 2 * p95 ? p95 * 1.1 : yMax;
+  const capped = (d: QuadrantDatum) => d.y > yTop;
+  const outliers = data.filter(capped).length;
+  const y = d3.scaleSqrt().domain([0, yTop]).range([innerHeight, 0]);
 
   // Quadrant guide lines: vertical at the gate, horizontal at y=median
-  const blastValues = data.map((d) => d.y).sort((a, b) => a - b);
   const medianBlast = blastValues[Math.floor(blastValues.length / 2)] || yMax / 2;
 
   g.append('line')
@@ -288,26 +296,6 @@ export function renderPriorityQuadrant(
     .attr('stroke-width', 1)
     .attr('stroke-dasharray', '4 4');
 
-  // Quadrant labels
-  g.append('text')
-    .attr('x', 6)
-    .attr('y', 6)
-    .attr('dominant-baseline', 'hanging')
-    .style('font-size', 'var(--text-xs)')
-    .style('font-weight', '500')
-    .style('fill', 'var(--c-text-3)')
-    .text('Fix first');
-
-  g.append('text')
-    .attr('x', innerWidth - 6)
-    .attr('y', innerHeight - 6)
-    .attr('text-anchor', 'end')
-    .attr('dominant-baseline', 'alphabetic')
-    .style('font-size', 'var(--text-xs)')
-    .style('font-weight', '500')
-    .style('fill', 'var(--c-text-3)')
-    .text('Healthy');
-
   // Status colour, from format.ts's table — the same one the row badges read.
   const statusColor = (status: string) => pal[statusTone(status)] || pal.neutral;
 
@@ -327,17 +315,17 @@ export function renderPriorityQuadrant(
     .data(data)
     .join('circle')
     .attr('cx', (d) => x(d.x))
-    .attr('cy', (d) => y(d.y))
+    .attr('cy', (d) => y(Math.min(d.y, yTop)))
     .attr('r', DOT_R)
     .attr('fill', (d) => statusColor(d.status))
     .attr('fill-opacity', DOT_OPACITY)
-    .attr('stroke', 'var(--c-surface)')
-    .attr('stroke-width', DOT_R > 4 ? 2 : 0.5)
+    .attr('stroke', (d) => (capped(d) ? 'var(--c-text)' : 'var(--c-surface)'))
+    .attr('stroke-width', (d) => (capped(d) ? 1.5 : DOT_R > 4 ? 2 : 0.5))
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
     .on('mouseenter', function (event, d) {
       d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
       const gap = d.x > 0 ? `${d.x} above its threshold` : d.x < 0 ? `${-d.x} below its threshold` : 'exactly at its threshold';
-      const content = `${d.name} · ${gap} · impact ${d.y} · ${statusLabel(d.status)}`;
+      const content = `${d.name} · ${gap} · impact ${formatCount(d.y)} · ${statusLabel(d.status)}`;
       tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
     })
     .on('mousemove', function (event) {
@@ -353,6 +341,44 @@ export function renderPriorityQuadrant(
 
   // Enter animation: r 0→value
   animateIn(dots, { attr: 'r', from: 0, to: () => DOT_R });
+
+  // Quadrant labels, drawn over the dots with a halo so a dense band never
+  // hides them.
+  const halo = (t: d3.Selection<SVGTextElement, unknown, null, undefined>) => t
+    .style('paint-order', 'stroke').style('stroke', 'var(--c-surface)').style('stroke-width', '3px').style('stroke-linejoin', 'round');
+  g.append('text')
+    .attr('x', 6)
+    .attr('y', 6)
+    .attr('dominant-baseline', 'hanging')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)')
+    .call(halo)
+    .text('Fix first');
+
+  g.append('text')
+    .attr('x', innerWidth - 6)
+    .attr('y', innerHeight - 6)
+    .attr('text-anchor', 'end')
+    .attr('dominant-baseline', 'alphabetic')
+    .style('font-size', 'var(--text-xs)')
+    .style('font-weight', '500')
+    .style('fill', 'var(--c-text-3)')
+    .call(halo)
+    .text('Healthy');
+
+  if (outliers) {
+    g.append('text')
+      .attr('x', innerWidth - 6)
+      .attr('y', 6)
+      .attr('text-anchor', 'end')
+      .attr('dominant-baseline', 'hanging')
+      .style('font-size', 'var(--text-xs)')
+      .style('fill', 'var(--c-text-3)')
+      .call(halo)
+      .text(`${formatCount(outliers)} with impact above ${formatCount(Math.round(yTop))}, drawn on the top edge`);
+  }
+
 
   // X axis: signed distance from the gate, so the sign is read rather than inferred
   // from which side of the line a tick fell on.

@@ -4,6 +4,7 @@
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import { decisionAsked, decisionLabel, cliDecision, loginUrl, signIn, hostSignsIn, keepPending, pendingFor, dropPending, shortDigests,
     versionLabel, personLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
+  import { formatCount } from '../lib/format.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import RefusalNotice from './RefusalNotice.svelte';
   import MoveFirstList from './MoveFirstList.svelte';
@@ -57,12 +58,18 @@
       : `${toV} goes to ${env} now. The checks after the change still run.`,
     ...(!applied && consumers.length
       ? [asked === 'approve'
-        ? `${andList(consumers)} do not accept it and may break until they are updated.`
-        : `Pacto could not tell whether ${andList(consumers)} accept it.`]
+        ? `${andList(consumers, 3)} do not accept it and may break until they are updated.`
+        : `Pacto could not tell whether ${andList(consumers, 3)} accept it.`]
       : []),
     `It is kept as your decision, with your name, your note and when you signed in.`,
     ...(applied ? [] : ['You can undo it from the history of the environment.']),
   ]);
+  // Thirty owner teams are named three at a time, the rest on request.
+  let allOwners = $state(false);
+  const ownerList = $derived(andList(owners, allOwners ? Infinity : 3, 'or'));
+  const ownersCut = $derived(owners.length > 4);
+  // The page lists every affected service right below the panel.
+  const toAffected = () => document.getElementById('cd-affected')?.scrollIntoView();
   const ifReject = $derived([
     rollsBack ? `${env} rolls back to ${backV}.`
       : applied ? `Nothing moves: ${env} keeps running ${toV}${beforeFailed ? `, because ${backV} already failed here` : ''}.`
@@ -141,13 +148,14 @@
   {#if asked === 'accept-unknown'}
     <p class="t-body-2" data-testid="decision-unknown">Pacto is asking because a check ended Unknown: it could not see enough to say yes or no, and Unknown is never a yes. Accepting the unknown is recorded as accepted, never as a pass. <a class="dp-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">What Unknown means and how to resolve it</a></p>
   {/if}
-  <p class="t-body-2">Asked: <strong>{decisionLabel(asked)}</strong> or reject. {owners.length ? `Only ${owners.join(' or ')} may answer.` : ownerless}{#if breaking}{' '}<span class="badge badge-warn" data-testid="decision-breaking">Breaking</span>{/if}</p>
+  <p class="t-body-2">Asked: <strong>{decisionLabel(asked)}</strong> or reject. {owners.length ? `Only ${ownerList} may answer.` : ownerless}{#if ownersCut}{' '}<button type="button" class="btn btn-sm" aria-expanded={allOwners} onclick={() => { allOwners = !allOwners; }}>{allOwners ? 'Show fewer' : `Show all ${formatCount(owners.length)} teams`}</button>{/if}{#if breaking}{' '}<span class="badge badge-warn" data-testid="decision-breaking">Breaking</span>{/if}</p>
 
   {#if !decided}
     <div class="dp-outcomes" data-testid="decision-consequences">
       <div class="dp-outcome">
         <h3 class="t-body">If you approve</h3>
         <ul>{#each ifApprove as line (line)}<li>{line}</li>{/each}</ul>
+        {#if !applied && consumers.length > 4}<button type="button" class="btn btn-sm dp-more" onclick={toAffected}>See all {formatCount(consumers.length)} affected services</button>{/if}
       </div>
       <div class="dp-outcome">
         <h3 class="t-body">If you reject</h3>
@@ -204,7 +212,7 @@
     </p>
   {:else}
     <p class="t-body-2" data-testid="decide-not-team">
-      Only {owners.join(' or ')} may answer this question{#if caller?.groups?.length}; you are in {caller.groups.join(', ')}{/if}.
+      Only {ownerList} may answer this question{#if caller?.groups?.length}; you are in {andList(caller.groups, 3)}{/if}.
     </p>
   {/if}
   {#if refusal}<RefusalNotice error={refusal} />{/if}
@@ -215,7 +223,13 @@
   .dp p { margin: 0; }
   .dp-question { font-weight: 600; }
   .dp-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-sm); color: var(--c-text-2); }
-  .dp-btns { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
+  /* The answer stays on screen while the reasons above it scroll past. */
+  .dp-btns {
+    display: flex; gap: var(--sp-2); flex-wrap: wrap;
+    position: sticky; bottom: 0; z-index: 1;
+    padding: var(--sp-2) 0; background: linear-gradient(var(--c-warn-bg), var(--c-warn-bg)), var(--c-surface);
+  }
+  .dp-more { align-self: flex-start; }
   .dp-btns .btn { flex: 1 1 0; min-width: 12rem; }
   .dp-outcomes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: var(--sp-2); }
   .dp-outcome, .dp-safer { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-sm); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); }

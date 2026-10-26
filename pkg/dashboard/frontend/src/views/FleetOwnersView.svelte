@@ -15,6 +15,7 @@
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import Pager from '../components/Pager.svelte';
+  import ListSort from '../components/ListSort.svelte';
   import { urlInt, limitParam, pastEnd } from '../lib/paging.ts';
   import { formatCount } from '../lib/format.ts';
   import { flip } from 'svelte/animate';
@@ -23,7 +24,8 @@
   // The product Owners list: owner discovery through
   // /api/fleet/entities?kinds=owner via the SDK facade, with a search box and stable
   // backend pagination kept in the URL. Rows navigate to the rich owner page.
-  let { text = '', offset = '', limit = '', refreshTick = 0 } = $props();
+  let { text = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  const order = $derived(sort || 'name');
 
   const PAGE_SIZE = 25;
   const pageOffset = $derived(urlInt(offset));
@@ -39,10 +41,10 @@
 
   // One reusable, race-safe loader: dedupes the initial load and
   // guards against a stale response overwriting a newer route/filter/refresh.
-  const loader = createProductLoader(() => api.fleetEntities({ kinds: ['owner'], text: text || undefined, offset: pageOffset || undefined, limit: pageLimit, sort: 'name' }));
+  const loader = createProductLoader(() => api.fleetEntities({ kinds: ['owner'], text: text || undefined, offset: pageOffset || undefined, limit: pageLimit, sort: order }));
   // queryIdentity is the QUESTION (search + page); refreshTick only re-asks it. Rows
   // are retained across a re-ask and never across a different question.
-  const queryIdentity = $derived(`${text}@@${pageOffset}@@${pageLimit}`);
+  const queryIdentity = $derived(`${text}@@${pageOffset}@@${pageLimit}@@${order}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -65,8 +67,8 @@
   const revalidating = $derived(state.kind === 'ready' && !!state.revalidating);
   const total = $derived(list?.total ?? 0);
 
-  const pageHref = (off, lim) => fleetOwnersUrl({ text: text || undefined, offset: off, limit: limitParam(lim, limit, PAGE_SIZE) });
-  function submitSearch(e) { e.preventDefault(); submittedText = textDraft; location.hash = fleetOwnersUrl({ text: textDraft }); }
+  const pageHref = (off, lim) => fleetOwnersUrl({ text: text || undefined, offset: off, limit: limitParam(lim, limit, PAGE_SIZE), sort: sort || undefined });
+  function submitSearch(e) { e.preventDefault(); submittedText = textDraft; location.hash = fleetOwnersUrl({ text: textDraft, sort: sort || undefined }); }
   function clearAll() { location.hash = fleetOwnersUrl(); }
   const chips = $derived(text ? [{ key: 'text', label: 'Search', value: text }] : []);
 
@@ -121,10 +123,13 @@
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Owners' }]} />
   <PageHeader title="Owners" count={list ? `${formatCount(total)} owner${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} />
 
-  <form class="lv-search" onsubmit={submitSearch} role="search">
-    <input class="input" type="search" bind:value={textDraft} placeholder="Search owners..." aria-label="Search owners" />
-    <button type="submit" class="btn">Search</button>
-  </form>
+  <div class="ow-filters">
+    <form class="lv-search" onsubmit={submitSearch} role="search">
+      <input class="input" type="search" bind:value={textDraft} placeholder="Search owners..." aria-label="Search owners" />
+      <button type="submit" class="btn">Search</button>
+    </form>
+    <ListSort value={order} options={[['name', 'Name'], ['services', 'Most services first']]} href={(v) => fleetOwnersUrl({ text: text || undefined, sort: v === 'name' ? undefined : v })} testid="owner-sort" />
+  </div>
   <ActiveFilterChips {chips} onRemove={clearAll} onClear={clearAll} />
 
   {#if knowledge.incomplete && (state.kind === 'ready' || state.kind === 'filtered-empty')}
@@ -200,9 +205,9 @@
   {:else if state.kind !== 'ready'}
     <ProductEmptyState {state} noun="owners" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
-    <ul class="lv-list pl-list" data-testid="owner-list">
+    <ul class="lv-list pl-list pl-list--facts pl-list--owners" data-testid="owner-list">
       {#each list.entities as ref (ref.key)}
-        <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={false} showKind={false} /></li>
+        <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={false} showKind={false}><span class="pl-num">{formatCount(ref.services ?? 0)} {ref.services === 1 ? 'service' : 'services'}</span></EntityLink></li>
       {/each}
     </ul>
     <Pager page={list} href={pageHref} label="Owner pages" noun="owners" testid="owner" />
@@ -221,7 +226,8 @@
   .ow-more-count { color: var(--c-text-3); }
   .ow-unidentified { margin: var(--sp-3) 0 0; color: var(--c-text-2); }
   .ow-sum-more[open] > .ow-sum-grid { margin-top: var(--sp-3); }
-  .lv-search { display: flex; gap: var(--sp-2); max-width: 420px; }
+  .ow-filters { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: flex-end; }
+  .lv-search { display: flex; gap: var(--sp-2); max-width: 420px; flex: 1; min-width: 220px; }
   .lv-search .input { flex: 1; }
   /* The Search control is the shared .btn, the search box the shared .input and the list,
      row and pager the shared .pl-* rules -- all from styles/components.css. Each list view

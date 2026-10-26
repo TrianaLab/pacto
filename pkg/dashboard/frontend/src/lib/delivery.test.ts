@@ -3,7 +3,7 @@ import {
   typeLabel, decisionLabel, shortDigest, decisionAsked, cliDecision, loginUrl,
   keepPending, pendingFor, dropPending, miraLink, predictionLabel, authTimeText,
   versionLabel, shortDigests, digestParts, sentence, timeLabel, personLabel, signIn, hostSignsIn,
-  verdictBadge, isBreaking, andList, sortEnvironments, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
+  verdictBadge, isBreaking, andList, reasonWords, sortEnvironments, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -223,6 +223,12 @@ describe('what a check concluded', () => {
     expect(andList(['a'])).toBe('a');
     expect(andList(['a', 'b'])).toBe('a and b');
     expect(andList(['a', 'b', 'c'])).toBe('a, b and c');
+    expect(reasonWords('ApprovalRequired')).toBe('Waiting for a person to approve');
+    expect(reasonWords('ExecutionDeadline')).toBe('Execution deadline');
+    expect(reasonWords('the plan changed')).toBe('the plan changed');
+    expect(andList(['a', 'b', 'c', 'd'], 3)).toBe('a, b, c and d');
+    expect(andList(['a', 'b', 'c', 'd', 'e'], 3, 'or')).toBe('a, b, c or 2 others');
+    expect(andList(Array.from({ length: 1003 }, (_, i) => `s${i}`), 3)).toBe('s0, s1, s2 and 1,000 others');
   });
 });
 

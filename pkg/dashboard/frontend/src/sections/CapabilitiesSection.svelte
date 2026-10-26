@@ -3,12 +3,16 @@
   import SectionState from './SectionState.svelte';
   import MarkdownView from '../MarkdownView.svelte';
   import { methodClass } from '../lib/format.ts';
+  import ShowAll from '../components/ShowAll.svelte';
+  import { cap } from '../lib/cap.svelte.ts';
 
   let { capabilities = [], skills = [], open = $bindable(false), id = '' } = $props();
 
   let count = $derived((capabilities?.length || 0) + (skills?.length || 0));
   let hasContent = $derived(count > 0);
   let expanded = $state({});
+  const toolRows = cap(25);
+  const skillRows = cap(25);
 
   function toggleSkill(i) {
     expanded = { ...expanded, [i]: !expanded[i] };
@@ -22,7 +26,7 @@
       <table class="cap-table">
         <thead><tr><th>Method</th><th>Path</th><th>Tool</th><th>Summary</th></tr></thead>
         <tbody>
-          {#each capabilities as tool}
+          {#each toolRows.slice(capabilities) as tool}
             <tr>
               <td><span class="badge {methodClass(tool.method)}">{tool.method}</span></td>
               <td><code>{tool.path}</code></td>
@@ -38,6 +42,7 @@
         </tbody>
       </table>
       </div>
+      <ShowAll cap={toolRows} total={capabilities.length} noun="tools" />
     {/if}
 
     {#if skills?.length > 0}
@@ -46,7 +51,7 @@
              is h3. h4 only read as legal while an earlier section happened to supply
              the missing h3. -->
         <h3>Skills</h3>
-        {#each skills as skill, i}
+        {#each skillRows.slice(skills) as skill, i}
           <div class="detail-card">
             <button type="button" class="detail-card-header" onclick={() => toggleSkill(i)}>
               <span class="expand-icon" data-motion class:open={expanded[i]}>
@@ -62,6 +67,7 @@
             {/if}
           </div>
         {/each}
+        <ShowAll cap={skillRows} total={skills.length} noun="skills" />
       </div>
     {/if}
   </CollapsibleSection>

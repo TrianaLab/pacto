@@ -37,6 +37,9 @@
   }
   // Twelve hundred dependents show the first twenty-five.
   const dependentRows = cap(25);
+  const depRows = cap(25);
+  const refRows = cap(25);
+  const refByRows = cap(25);
 </script>
 
 {#if hasContent}
@@ -71,7 +74,7 @@
             </colgroup>
             <thead><tr><th data-tip="Dependency service name">Service</th><th data-tip="OCI or version reference">Ref</th><th data-tip="Is this dependency required?">Required</th><th data-tip="Version compatibility constraint">Compatibility</th><th data-tip="Pinned version and digest from pacto.lock">Pinned</th></tr></thead>
             <tbody>
-              {#each dependencies as dep}
+              {#each depRows.slice(dependencies) as dep}
                 {@const reason = svcExists(dep.name) ? undefined : depReason(dep.name)}
                 <tr>
                   <td>
@@ -111,6 +114,7 @@
             </tbody>
           </table>
         </div>
+        <ShowAll cap={depRows} total={dependencies.length} noun="dependencies" testid="dependencies-show-all" />
       </div>
     {/if}
 
@@ -159,7 +163,7 @@
             </colgroup>
             <thead><tr><th>Service</th><th>Type</th><th>Status</th></tr></thead>
             <tbody>
-              {#each crossRefs.references as ref}
+              {#each refRows.slice(crossRefs.references) as ref}
                 <tr>
                   <td><a href={serviceUrl(ref.name)}>{ref.name}</a></td>
                   <td><span class="pill">{ref.refType}</span></td>
@@ -169,6 +173,7 @@
             </tbody>
           </table>
         </div>
+        <ShowAll cap={refRows} total={crossRefs.references.length} noun="references" />
       </div>
     {/if}
 
@@ -184,7 +189,7 @@
             </colgroup>
             <thead><tr><th>Service</th><th>Type</th><th>Status</th></tr></thead>
             <tbody>
-              {#each crossRefs.referencedBy as ref}
+              {#each refByRows.slice(crossRefs.referencedBy) as ref}
                 <tr>
                   <td><a href={serviceUrl(ref.name)}>{ref.name}</a></td>
                   <td><span class="pill">{ref.refType}</span></td>
@@ -194,6 +199,7 @@
             </tbody>
           </table>
         </div>
+        <ShowAll cap={refByRows} total={crossRefs.referencedBy.length} noun="references" />
       </div>
     {/if}
   </CollapsibleSection>

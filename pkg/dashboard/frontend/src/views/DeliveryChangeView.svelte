@@ -5,7 +5,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryInboxUrl, deliveryHistoryUrl, deliveryChangeUrl, serviceUrl } from '../lib/router.ts';
   import { typeLabel, shortDigest, shortDigests, predictionLabel, decisionLabel, authTimeText, changeSummary, actorBadge,
-    undoCause, versionLabel, rungLabel, rungHelp, timeLabel, outcomeTone, AUTONOMY_TYPE } from '../lib/delivery.ts';
+    undoCause, versionLabel, rungLabel, rungHelp, timeLabel, outcomeTone, AUTONOMY_TYPE, reasonWords } from '../lib/delivery.ts';
   import CappedList from '../components/CappedList.svelte';
   import { formatCount } from '../lib/format.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
@@ -110,7 +110,7 @@
       <span class="badge badge-neutral">{e.status.phase}</span>
       {#if e.status.outcome}<span class="badge {outcomeTone(e.status.outcome)}">{e.status.outcome}</span>{/if}
       {#if e.status.verification}<span class="badge badge-info">{e.status.verification}</span>{/if}
-      {#if e.status.reason}<span class="t-body-2">{e.status.reason}{#if e.status.message}: {shortDigests(e.status.message)}{/if}</span>{/if}
+      {#if e.status.reason}<span class="t-body-2" title={e.status.reason}>{reasonWords(e.status.reason)}{#if e.status.message}: {shortDigests(e.status.message)}{/if}</span>{/if}
     </section>
 
     <dl class="cd-facts t-body-2">

@@ -742,12 +742,46 @@ tr.clickable:active { background: var(--c-surface-inset); }
 /* ── Entity list rows as columns ── */
 /* Name, status and context in fixed tracks, so the status pills line up down the list
    instead of trailing each name at a different x. A long name ellipsizes and keeps the
-   whole value in its title. On a phone the context drops under the name. */
+   whole value in its title. On a phone the context drops under the name. Three
+   classes on .entity-identity on purpose: its own scoped rule is two classes and,
+   injected later, wins a tie, which left every row a ragged inline run. */
 .pl-list--cols .pl-row > .entity-link { width: 100%; }
-.pl-list--cols .entity-identity { display: grid; grid-template-columns: minmax(0, 1fr) 9rem minmax(0, 18rem); width: 100%; }
+.pl-list--cols .pl-row .entity-identity { display: grid; grid-template-columns: minmax(0, 1fr) 9rem minmax(0, 18rem); width: 100%; }
 .pl-list--cols .ei-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-list--cols .ei-context { justify-content: flex-end; text-align: right; }
 @media (max-width: 40rem) {
-  .pl-list--cols .entity-identity { grid-template-columns: minmax(0, 1fr) auto; }
+  .pl-list--cols .pl-row .entity-identity { grid-template-columns: minmax(0, 1fr) auto; }
   .pl-list--cols .ei-context { grid-column: 1 / -1; justify-content: flex-start; text-align: left; }
+}
+
+/* ── Entity list rows with facts ── */
+/* A row that is one link with cells: the name (ellipsized), the status in a fixed
+   column, the domain and the owner, and a count right-aligned. The identity's parts
+   join the link's grid through display: contents and take named areas, so a row
+   missing a part leaves its cell empty instead of shifting the rest. Five classes
+   beat the .pl-list row-link rule above. */
+.pl-list.pl-list--facts .pl-row > .entity-link:only-child {
+  display: grid; align-items: center; column-gap: var(--sp-3); row-gap: var(--sp-1);
+  grid-template-columns: minmax(0, 1fr) 9rem minmax(0, 10rem) minmax(0, 12rem) 8rem;
+  grid-template-areas: "name status ctx owner num";
+}
+.pl-list.pl-list--owners .pl-row > .entity-link:only-child {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 8rem) 8rem;
+  grid-template-areas: "name ctx num";
+}
+.pl-list--facts .pl-row .entity-identity { display: contents; }
+.pl-list--facts .ei-label { grid-area: name; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-list--facts .ei-status { grid-area: status; }
+.pl-list--facts .ei-context { grid-area: ctx; overflow: hidden; }
+.pl-list--facts .pl-owner { grid-area: owner; font-size: var(--text-xs); color: var(--c-text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-list--facts .pl-num { grid-area: num; font-size: var(--text-xs); color: var(--c-text-3); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+@media (max-width: 40rem) {
+  .pl-list.pl-list--facts .pl-row > .entity-link:only-child {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "name status" "owner num" "ctx ctx";
+  }
+  .pl-list.pl-list--owners .pl-row > .entity-link:only-child {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "name num" "ctx ctx";
+  }
 }

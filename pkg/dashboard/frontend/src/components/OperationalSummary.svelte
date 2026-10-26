@@ -1,6 +1,7 @@
 <script>
   import { hashForHref, fleetAttentionUrl } from '../lib/router.ts';
   import { severityTone } from '../lib/entityLabels.ts';
+  import { formatCount } from '../lib/format.ts';
 
   // The immediate situation: what requires action right now.
   //
@@ -45,11 +46,11 @@
 <div class="op-summary">
   <div class="tile-grid">
     <a class="tile tile-lead tone-{tone(summary.servicesNeedingAttention, leadSeverity)}" href={fleetAttentionUrl()}>
-      <span class="tile-count t-metric">{summary.servicesNeedingAttention || 0}</span>
+      <span class="tile-count t-metric">{formatCount(summary.servicesNeedingAttention || 0)}</span>
       <!-- Sentence case, like every tile beside it. A lowercase caption on the biggest
            tile and Title-leading labels on its siblings read as two kinds of thing. -->
       <span class="tile-label">Services need attention</span>
-      <span class="tile-sub">{attentionTotal} attention item{attentionTotal === 1 ? '' : 's'}</span>
+      <span class="tile-sub">{formatCount(attentionTotal)} attention item{attentionTotal === 1 ? '' : 's'}</span>
     </a>
     <!-- The observed-only tile used to be hand-written here, beside its own backend entry
          point -- so the same count reached the screen under two labels ("undeclared
@@ -57,7 +58,7 @@
          two cases, with a tone guessed locally instead of the grade its own items carry. -->
     {#each leadTiles as ep}
       <a class="tile tone-{tone(ep.count, ep.severity)}" href={hashForHref(ep.href)}>
-        <span class="tile-count t-metric">{ep.count || 0}</span>
+        <span class="tile-count t-metric">{formatCount(ep.count || 0)}</span>
         <span class="tile-label">{ep.label}</span>
       </a>
     {/each}
@@ -71,7 +72,7 @@
         <li>
           <a class="op-sec tone-{tone(ep.count, ep.severity)}" href={hashForHref(ep.href)}>
             <span class="op-sec-dot" aria-hidden="true"></span>
-            <span class="op-sec-count">{ep.count || 0}</span>
+            <span class="op-sec-count">{formatCount(ep.count || 0)}</span>
             <span class="op-sec-label">{ep.label}</span>
           </a>
         </li>

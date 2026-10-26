@@ -4,6 +4,7 @@
  * them to the identity provider.
  */
 import type { DeliveryDecision, DeliveryOperation } from './api.ts';
+import { formatCount } from './format.ts';
 
 const TYPE_LABELS: Record<string, string> = {
   'delivery.pacto.trianalab.io/promote': 'Promote',
@@ -283,6 +284,31 @@ export function reasonAfter(reason: string | undefined, ...shown: (string | unde
   return r;
 }
 
+const REASON_WORDS: Record<string, string> = {
+  ApprovalRequired: 'Waiting for a person to approve',
+  AwaitingHuman: 'Waiting for a person',
+  AcceptedUnknown: 'A person accepted the unknown',
+  RejectedByHuman: 'A person rejected it',
+  VerifyFailed: 'A check failed after release',
+  VerifyUnknown: 'A check after release ended Unknown',
+  VerifyUndecided: 'The checks after release did not decide',
+  ApplyFailed: 'The release did not apply',
+  RecheckChanged: 'A gate no longer passes',
+  Unguarded: 'Waiting for the admission policies',
+  Waiting: 'Waiting',
+};
+
+/**
+ * reasonWords says a controller reason code in plain words: the known codes
+ * by name, any other code split into words (ExecutionDeadline reads
+ * "Execution deadline"). A reason that is already a sentence is kept.
+ */
+export function reasonWords(reason: string | undefined): string {
+  const r = reason ?? '';
+  if (!/^[A-Z][A-Za-z]+$/.test(r)) return r;
+  return REASON_WORDS[r] ?? r.replace(/(?<=[a-z])(?=[A-Z])/g, ' ').replace(/ ([A-Z])/g, (_, c) => ` ${c.toLowerCase()}`);
+}
+
 /** The fields changeSummary reads from an explanation. */
 export interface ChangeFacts {
   spec?: { type?: string; stage?: string; params?: { from?: string; to?: string } | null };
@@ -411,9 +437,14 @@ export function isBreaking(verdicts: { citation?: Record<string, string> }[] | n
   return (verdicts ?? []).some((v) => v.citation?.classification === 'BREAKING');
 }
 
-/** andList joins names the way a sentence does, with no serial comma. */
-export function andList(names: string[]): string {
-  return names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+/**
+ * andList joins names the way a sentence does, with no serial comma. Past max
+ * it names the first max and counts the rest ("a, b, c and 297 others"), so
+ * one sentence never runs to a page; word is the joining word ("or").
+ */
+export function andList(names: string[], max = Infinity, word = 'and'): string {
+  const xs = names.length > max + 1 ? [...names.slice(0, max), `${formatCount(names.length - max)} others`] : names;
+  return xs.length < 2 ? (xs[0] ?? '') : `${xs.slice(0, -1).join(', ')} ${word} ${xs[xs.length - 1]}`;
 }
 
 // ── The autonomy ladder ─────────────────────────────────────────────────────
@@ -453,7 +484,7 @@ export interface ShadowFacts {
 export function shadowLabel(s: ShadowFacts): string {
   switch (s.predicted) {
     case 'Proceeds': return 'ship';
-    case 'Held': return s.owners?.length ? `hold for ${andList(s.owners)}` : `ask: ${s.question || 'a person decides'}`;
+    case 'Held': return s.owners?.length ? `hold for ${andList(s.owners, 3)}` : `ask: ${s.question || 'a person decides'}`;
     case 'Rejected': return 'refuse';
     case 'Waits': return 'wait until a person unfreezes it';
     default: return s.predicted || 'not planned yet';

@@ -3,12 +3,15 @@
   import SectionState from './SectionState.svelte';
   import MarkdownView from '../MarkdownView.svelte';
   import DocModal from '../DocModal.svelte';
+  import ShowAll from '../components/ShowAll.svelte';
+  import { cap } from '../lib/cap.svelte.ts';
 
   let { docs = [], referencedPaths = [], open = $bindable(false), id = '' } = $props();
 
   let hasContent = $derived(docs?.length > 0);
   let expanded = $state({});
   let modalDoc = $state(null);
+  const cards = cap(10);
 
   function toggle(i) {
     expanded = { ...expanded, [i]: !expanded[i] };
@@ -17,7 +20,7 @@
 
 {#if hasContent}
   <CollapsibleSection title="Documentation" count={docs.length} bind:open {id}>
-    {#each docs as d, i}
+    {#each cards.slice(docs) as d, i}
       <div class="detail-card">
         <div class="detail-card-header">
           <button type="button" class="detail-card-header-btn" onclick={() => toggle(i)}>
@@ -46,6 +49,7 @@
         {/if}
       </div>
     {/each}
+    <ShowAll cap={cards} total={docs.length} noun="documents" />
   </CollapsibleSection>
   <DocModal doc={modalDoc} onClose={() => { modalDoc = null; }} />
 {:else}

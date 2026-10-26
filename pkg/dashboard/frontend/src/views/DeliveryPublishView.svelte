@@ -15,6 +15,7 @@
   import ListingNote from '../components/ListingNote.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
+  import CappedList from '../components/CappedList.svelte';
 
   // Published versions per service, whether their signature was checked and
   // where each one runs or was verified, paged by service on the server.
@@ -39,6 +40,13 @@
   $effect(() => { refusalsLoader.sync(String(refreshTick)); });
   onDestroy(() => refusalsLoader.destroy());
   const refused = $derived(refusalsLoader.data);
+  // A service shows its newest few versions and each version its first few
+  // Stages, running and failed first, so one page stays one page. open holds
+  // what the reader asked to see whole, keyed by service (and digest).
+  const VERSIONS = 5;
+  const STAGES = 4;
+  let open = $state({});
+  const stagesFirst = (stages) => [...(stages ?? [])].sort((a, b) => (b.running || b.failed ? 1 : 0) - (a.running || a.failed ? 1 : 0));
   const BUMPS = { major: 'a major version', minor: 'at least a minor version', patch: 'a patch version' };
 </script>
 
@@ -62,7 +70,7 @@
       <p class="t-body-2 pv-none" data-testid="refused-unrecorded">This cluster keeps no record of refused publishes, so none can be shown here. <code>pacto publish</code> shows a refusal and the version bump it needs to whoever ran it.</p>
     {:else if refused}
       {#if refused.completeness === 'partial'}
-        <p class="t-body-2 pv-partial" role="status" data-testid="refused-partial">This list may be incomplete{#if refused.note}: {refused.note}{/if}.{#if refused.unreadable?.length}{' '}Could not read: {refused.unreadable.join('; ')}.{/if}</p>
+        <p class="t-body-2 pv-partial" role="status" data-testid="refused-partial">This list may be incomplete{#if refused.note}: {refused.note}{/if}.{#if refused.unreadable?.length}{' '}Could not read: <CappedList items={refused.unreadable} max={3} inline={true} label="Repositories Pacto could not read">{#snippet item(u)}{u}{/snippet}</CappedList>.{/if}</p>
       {:else if refused.note}
         <p class="t-meta" data-testid="refused-note">{sentence(refused.note)}</p>
       {/if}
@@ -103,7 +111,9 @@
         <section class="pv-svc" aria-labelledby={`pv-${svc.service}`}>
           <h2 id={`pv-${svc.service}`} class="t-section-title"><a href={serviceUrl(svc.service)}>{svc.service}</a></h2>
           <ul class="pl-list">
-            {#each svc.versions ?? [] as v (v.digest)}
+            {#each open[svc.service] ? (svc.versions ?? []) : (svc.versions ?? []).slice(0, VERSIONS) as v (v.digest)}
+              {@const sk = `${svc.service}@${v.digest}`}
+              {@const stages = stagesFirst(v.stages)}
               <li class="pl-row pl-row--stack pv-row">
                 <div class="pv-head">
                   <strong>{v.version || shortDigest(v.digest)}</strong>
@@ -111,16 +121,18 @@
                   <code class="t-meta" title={v.digest}>{shortDigest(v.digest)}</code>
                 </div>
                 {#if v.contract}<p class="t-body-2 pv-contract">Contract: <CopyableIdentifier value={v.contract} label="contract reference" /></p>{/if}
-                {#if v.stages?.length}
+                {#if stages.length}
                   <p class="t-body-2 pv-stages">
-                    {#each v.stages as on (on.namespace + '/' + on.stage)}
+                    {#each open[sk] ? stages : stages.slice(0, STAGES) as on (on.namespace + '/' + on.stage)}
                       <span class="pv-stage">{on.environment}: {on.running ? 'running' : 'known'}{#if on.verified}, verified{/if}{#if on.failed}, failed{/if}</span>
                     {/each}
+                    {#if stages.length > STAGES}<button type="button" class="btn btn-sm" aria-expanded={!!open[sk]} onclick={() => { open[sk] = !open[sk]; }}>{open[sk] ? 'Show fewer' : `+${formatCount(stages.length - STAGES)} more`}</button>{/if}
                   </p>
                 {/if}
               </li>
             {/each}
           </ul>
+          {#if (svc.versions?.length ?? 0) > VERSIONS}<button type="button" class="btn btn-sm pv-more" aria-expanded={!!open[svc.service]} onclick={() => { open[svc.service] = !open[svc.service]; }}>{open[svc.service] ? 'Show fewer' : `Show all ${formatCount(svc.versions.length)} versions`}</button>{/if}
         </section>
       {/each}
       <Pager page={data.page} {href} label="Pages of services" noun="services" testid="published-pager" />
@@ -139,7 +151,8 @@
   .pv-none { color: var(--c-text-3); }
   .pv-err { color: var(--c-err); }
   .pv-partial { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm); background: var(--c-warn-bg); color: var(--c-warn); border: 1px solid var(--c-warn-border); }
-  .pv-stages { display: flex; gap: var(--sp-3); flex-wrap: wrap; }
+  .pv-stages { display: flex; gap: var(--sp-3); flex-wrap: wrap; align-items: center; }
+  .pv-more { align-self: flex-start; }
   .state-box { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8) var(--sp-4); text-align: center; color: var(--c-text-3); }
   .state-box h2 { color: var(--c-text-2); }
 </style>

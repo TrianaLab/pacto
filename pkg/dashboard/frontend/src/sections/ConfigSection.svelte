@@ -2,12 +2,19 @@
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import SectionState from './SectionState.svelte';
   import { serviceUrl } from '../lib/router.ts';
-  import { shortDigest } from '../lib/format.ts';
+  import { shortDigest, formatCount } from '../lib/format.ts';
+  import ShowAll from '../components/ShowAll.svelte';
+  import { cap } from '../lib/cap.svelte.ts';
 
   let { configs = [], open = $bindable(false), id = '' } = $props();
 
   let hasContent = $derived(configs?.length > 0);
   let expanded = $state({});
+  // Ten cards, then the rest on request; inside a card, 25 keys of each table.
+  const cards = cap(10);
+  const KEYS = 25;
+  let allKeys = $state({});
+  const keys = (i, xs) => (allKeys[i] ? xs : xs.slice(0, KEYS));
 
   function toggle(i) {
     expanded = { ...expanded, [i]: !expanded[i] };
@@ -24,7 +31,7 @@
 
 {#if hasContent}
   <CollapsibleSection title="Configurations" count={configs.length} bind:open {id}>
-    {#each configs as config, i}
+    {#each cards.slice(configs) as config, i}
       <div class="detail-card">
         <button type="button" class="detail-card-header" class:expandable={hasDetails(config)} onclick={() => hasDetails(config) && toggle(i)}>
           <div class="detail-card-header-left">
@@ -60,7 +67,7 @@
               <table class="detail-card-table">
                 <thead><tr><th>Key</th><th>Value</th><th>Type</th></tr></thead>
                 <tbody>
-                  {#each config.values as v}
+                  {#each keys(i, config.values) as v}
                     <tr>
                       <td><code>{v.key}</code></td>
                       <td>{v.value === '(any)' ? '—' : v.value}</td>
@@ -73,7 +80,7 @@
               <table class="detail-card-table">
                 <thead><tr><th>Key</th></tr></thead>
                 <tbody>
-                  {#each config.valueKeys as key}
+                  {#each keys(i, config.valueKeys) as key}
                     <tr><td><code>{key}</code></td></tr>
                   {/each}
                 </tbody>
@@ -87,17 +94,21 @@
                 <table class="detail-card-table">
                   <thead><tr><th>Key</th><th>Type</th></tr></thead>
                   <tbody>
-                    {#each config.secretKeys as key}
+                    {#each keys(i, config.secretKeys) as key}
                       <tr><td><code>{key}</code></td><td><span class="pill" style="color:var(--c-warn)">secret</span></td></tr>
                     {/each}
                   </tbody>
                 </table>
               </div>
             {/if}
+            {#if Math.max(config.values?.length ?? 0, config.valueKeys?.length ?? 0, config.secretKeys?.length ?? 0) > KEYS}
+              <button type="button" class="btn btn-sm" aria-expanded={!!allKeys[i]} onclick={() => { allKeys[i] = !allKeys[i]; }}>{allKeys[i] ? 'Show fewer' : `Show all ${formatCount((config.values?.length || config.valueKeys?.length || 0) + (config.secretKeys?.length ?? 0))} keys`}</button>
+            {/if}
           </div>
         {/if}
       </div>
     {/each}
+    <ShowAll cap={cards} total={configs.length} noun="configurations" />
   </CollapsibleSection>
 {:else}
   <SectionState title="Configurations" bind:open {id} />

@@ -87,7 +87,7 @@
         <dt>Services with a contract</dt>
         {#if share && seen}
           <dd class="au-value">{percent(share.services, seen)}</dd>
-          <dd class="t-body-2">{formatCount(share.services)} of the {formatCount(seen)} services Pacto has seen{#if share.uncontractedCallers}: {share.uncontractedCallers} workload{share.uncontractedCallers === 1 ? '' : 's'} call{share.uncontractedCallers === 1 ? 's' : ''} a contracted service with no contract of {share.uncontractedCallers === 1 ? 'its' : 'their'} own{/if}.</dd>
+          <dd class="t-body-2">{formatCount(share.services)} of the {formatCount(seen)} services Pacto has seen{#if share.uncontractedCallers}: {formatCount(share.uncontractedCallers)} workload{share.uncontractedCallers === 1 ? '' : 's'} call{share.uncontractedCallers === 1 ? 's' : ''} a contracted service with no contract of {share.uncontractedCallers === 1 ? 'its' : 'their'} own{/if}.</dd>
         {:else}
           <dd class="t-body-2">Pacto has seen no service here yet, so it cannot say.</dd>
         {/if}
@@ -98,7 +98,7 @@
           <dd class="au-value">{formatCount(promotions.count)} of {formatCount(promotions.of)}</dd>
           <dd class="t-body-2">Counted over the last 20 operations per environment.</dd>
           {#if promotions.untyped}
-            <dd class="t-body-2">Pacto cannot tell what {promotions.untyped} more {promotions.untyped === 1 ? 'operation was' : 'operations were'}.</dd>
+            <dd class="t-body-2">Pacto cannot tell what {formatCount(promotions.untyped)} more {promotions.untyped === 1 ? 'operation was' : 'operations were'}.</dd>
           {/if}
         {:else if promotions.untyped}
           <dd class="t-body-2">Pacto cannot tell yet which operations were promotions.</dd>
