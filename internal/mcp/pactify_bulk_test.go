@@ -13,6 +13,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
+
+	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 func bulkFolder(t *testing.T, name string) string {
@@ -36,19 +38,14 @@ type bulkResult struct {
 	Skipped []string
 }
 
-// TestCreateTool_PactifyPaths: several folders plan by default, and are
-// written only with dry_run false.
+// TestCreateTool_PactifyPaths: several folders plan by default, ignore the
+// required name, and are written only with dry_run false.
 func TestCreateTool_PactifyPaths(t *testing.T) {
 	a, b := bulkFolder(t, "checkout"), bulkFolder(t, "payments")
 	paths, _ := json.Marshal([]string{a, b})
 	args := map[string]any{"name": "ignored", "pactify": true, "paths": string(paths)}
-	res := callTool(t, "pacto_create", args)
-	if !res.IsError || !strings.Contains(resultText(t, res), "cannot be given with 2 folders") {
-		t.Fatalf("a name for two folders: %s", resultText(t, res))
-	}
-	args["name"] = ""
 	var got bulkResult
-	res = callTool(t, "pacto_create", args)
+	res := callTool(t, "pacto_create", args)
 	if res.IsError || json.Unmarshal([]byte(resultText(t, res)), &got) != nil || len(got.Results) != 2 || got.Results[0].Applied {
 		t.Fatalf("plan: %s", resultText(t, res))
 	}
@@ -61,6 +58,16 @@ func TestCreateTool_PactifyPaths(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(b, "pacto.yaml")); err != nil {
 		t.Fatal(err)
+	}
+	missing := filepath.Join(a, "d.yaml") // a file, not a folder
+	paths, _ = json.Marshal([]string{bulkFolder(t, "orders"), missing})
+	args["paths"] = string(paths)
+	res = callTool(t, "pacto_create", args)
+	if !res.IsError || len(res.Content) != 2 || json.Unmarshal([]byte(resultText(t, res)), &got) != nil || len(got.Results) != 2 || !got.Results[0].Applied {
+		t.Fatalf("a failed folder hid the written one: %v %s", res.IsError, resultText(t, res))
+	}
+	if txt := res.Content[1].(*mcpsdk.TextContent).Text; !strings.Contains(txt, missing) {
+		t.Fatalf("the error does not name the failed folder: %s", txt)
 	}
 	args["paths"] = "not json"
 	if res = callTool(t, "pacto_create", args); !res.IsError {

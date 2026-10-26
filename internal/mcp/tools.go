@@ -49,7 +49,7 @@ func createTool() *mcpsdk.Tool {
 			"insecure_registry":            {Type: "boolean", Description: "With delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)"},
 			"registry_secret":              {Type: "string", Description: "With delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with"},
 			"fleet_roots":                  {Type: "string", Description: "With pactify: JSON array of folders of other services' contracts, searched for the services that use this one"},
-			"paths":                        {Type: "string", Description: "With pactify: JSON array of service folders, each planned like path; dry_run defaults to true"},
+			"paths":                        {Type: "string", Description: "With pactify: JSON array of service folders, each planned like path and named after its folder (name is ignored); dry_run defaults to true"},
 			"cluster":                      {Type: "boolean", Description: "With pactify: draft a contract for every workload in the current kubeconfig context that no Pacto describes, into path/<namespace>/<name>, with the services it was seen calling pinned to the version seen running; dry_run defaults to true"},
 			"namespaces":                   {Type: "string", Description: "With cluster: JSON array of namespaces to read (default: every namespace)"},
 		}, []string{"name"}),
@@ -145,25 +145,39 @@ func pactifyFolder(ctx context.Context, args createArgs) (*mcpsdk.CallToolResult
 	}); err != nil {
 		return nil, nil, err
 	}
-	var result any
+	if args.Cluster || args.Paths != "" {
+		opts.Dir, opts.Name = "", "" // each service is named after its folder or workload
+	}
+	var b *pactify.Bulk
 	var err error
 	switch {
 	case args.Cluster:
-		opts.Dir, opts.Name = "", ""
 		var dyn dynamic.Interface
 		if dyn, err = newDynamic(); err == nil {
-			result, err = pactify.Cluster(ctx, dyn, opts, cluster, os.WriteFile)
+			b, err = pactify.Cluster(ctx, dyn, opts, cluster, os.WriteFile)
 		}
 	case args.Paths != "":
-		result, err = pactify.Many(ctx, opts, paths, os.WriteFile)
+		b, err = pactify.Many(ctx, opts, paths, os.WriteFile)
 	default:
-		result, err = pactify.Init(ctx, opts, os.WriteFile)
+		r, err := pactify.Init(ctx, opts, os.WriteFile)
+		if err != nil {
+			return nil, nil, err
+		}
+		res, err := jsonResult(r)
+		return res, nil, err
 	}
-	if err != nil {
+	if b == nil {
 		return nil, nil, err
 	}
-	res, err := jsonResult(result)
-	return res, nil, err
+	// A folder or draft that failed does not hide the ones already written:
+	// the results come first and the error after, as the CLI prints them.
+	res, jerr := jsonResult(b)
+	if jerr != nil || err == nil {
+		return res, nil, jerr
+	}
+	res.IsError = true
+	res.Content = append(res.Content, &mcpsdk.TextContent{Text: err.Error()})
+	return res, nil, nil
 }
 
 // newDynamic is the cluster client the cluster argument reads with.
