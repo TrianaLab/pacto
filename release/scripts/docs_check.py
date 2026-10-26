@@ -518,6 +518,14 @@ def check_chart() -> None:
         for m in re.finditer(r"^\| `([\w.\[\]-]+)` \| .* \|\s*\|$", read(ref), re.M)
     ]
 
+    # --reuse-values replaces the new chart's defaults with the old release's
+    # values, so an upgrade that adds a values section renders it as nil and
+    # fails. The delivery install shipped that way. Use --reset-then-reuse-values.
+    for path in site_markdown():
+        for n, line in enumerate(read(path).splitlines(), 1):
+            if re.search(r"(?<![\w-])--reuse-values\b", line):
+                bad_sets.append(f"{os.path.relpath(path, REPO_ROOT)}:{n}:--reuse-values")
+
     ok = ok_helm and not bad_sets and not undocumented
     detail = f"helm lint+template OK, install --set keys valid, {len(known)} values all documented"
     if not ok:
@@ -525,7 +533,7 @@ def check_chart() -> None:
         if not ok_helm:
             parts.append("helm lint/template failed: " + (lint.stderr or tmpl.stderr).strip()[:200])
         if bad_sets:
-            parts.append("unknown --set keys: " + ", ".join(bad_sets))
+            parts.append("unknown --set keys or --reuse-values: " + ", ".join(bad_sets))
         if undocumented:
             parts.append(
                 f"{len(undocumented)} values.yaml keys have no `# --` description on the LEAF key: "

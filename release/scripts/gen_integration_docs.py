@@ -1167,11 +1167,14 @@ def gen_chart_command(repo_root: str, verb: str) -> str:
 # Delivery is a section of the operator chart: turning it on is an upgrade of the
 # operator release that keeps its values. A later `helm upgrade` updates the
 # delivery CRDs too, since they are templates, so no CRD snippet goes with it.
+# --reset-then-reuse-values (Helm 3.14+), not --reuse-values: the latter drops the
+# new chart's defaults, so on the upgrade that first ships `delivery` the section
+# holds only `enabled` and the render dies on a nil map. docs_check (g) refuses it.
 def gen_delivery_chart_command(repo_root: str) -> str:
     manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
     return banner("release/release-manifest.json") + chart_command(
         manifest["units"]["operator-chart"], "upgrade",
-        extra=" \\\n  --reuse-values --set delivery.enabled=true",
+        extra=" \\\n  --reset-then-reuse-values --set delivery.enabled=true",
     )
 
 
