@@ -37,7 +37,7 @@
             {#if iface.visibility}<span class="pill">{iface.visibility}</span>{/if}
           </div>
           {#if iface.hasContractFile}
-            <span class="detail-card-sub">{iface.contractFile || 'has contract'}</span>
+            <span class="detail-card-sub" title={iface.contractFile || undefined}>{iface.contractFile || 'has contract'}</span>
           {/if}
         </button>
 
@@ -97,9 +97,11 @@
   .detail-card-header.expandable:hover { background: var(--c-surface-hover, var(--c-surface-inset)); border-radius: var(--radius-sm); }
   .detail-card-header-left {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--sp-2);
     min-width: 0;
+    flex: 1 1 16rem;
   }
   .pill-type { background: var(--c-info-bg, var(--c-accent-bg)); color: var(--c-info, var(--c-accent)); font-size: var(--text-xs); flex-shrink: 0; }
   .expand-icon {
@@ -111,7 +113,8 @@
   .expand-icon.open { transform: rotate(0deg); }
   .expand-icon svg { width: 12px; height: 12px; }
   .detail-card-title { font-weight: 600; }
-  .detail-card-sub { font-size: var(--text-sm); color: var(--c-text-2); flex-shrink: 0; }
+  /* The contract file ellipsizes rather than pushing the interface name to one word per line. */
+  .detail-card-sub { font-size: var(--text-sm); color: var(--c-text-2); max-width: 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .detail-card-body {
     padding: 0 var(--sp-3) var(--sp-3);
   }

@@ -151,7 +151,7 @@
       <DistributionBar
         title="Declared ownership"
         description="Ownership is authored on each contract revision, so a service is cleanly owned only when its revisions agree. A service nobody claims and a service two teams claim are opposite problems, and neither appears in the owner list below."
-        scopeNote={`All ${services} ${services === 1 ? 'service' : 'services'} in the snapshot, whatever this page is filtered or paged to.`}
+        scopeNote={`All ${formatCount(services)} ${services === 1 ? 'service' : 'services'} in the snapshot, whatever this page is filtered or paged to.`}
         segments={ownershipOfFleet}
         total={services}
         emptyLabel="No services are tracked yet, so there is no ownership picture."

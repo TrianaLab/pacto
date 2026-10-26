@@ -175,8 +175,8 @@
   const agg = $derived(list?.aggregate ?? null);
   const matched = $derived(agg?.matched ?? 0);
   const scopeNote = $derived(anyFilter
-    ? `All ${matched} matching ${matched === 1 ? 'service' : 'services'}, not just this page.`
-    : `All ${matched} ${matched === 1 ? 'service' : 'services'} in the snapshot.`);
+    ? `All ${formatCount(matched)} matching ${matched === 1 ? 'service' : 'services'}, not just this page.`
+    : `All ${formatCount(matched)} ${matched === 1 ? 'service' : 'services'} in the snapshot.`);
   const complianceOfMatch = $derived(complianceSegments(agg?.serviceCompliance,
     statusHrefs((s) => urlWith({ status: s }))));
   const ownershipOfMatch = $derived(ownershipSegments(agg?.ownership,

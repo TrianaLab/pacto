@@ -145,7 +145,10 @@
   .ps-toned[data-tone='info'] { border-left-color: var(--c-info); }
 
   .ps-head { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; }
+  /* The count never drops to a line of its own: in a grid of cards it would leave each
+     card's title at a different height. */
   .ps-head-end { display: flex; align-items: baseline; gap: var(--sp-3); flex-wrap: wrap; margin-left: auto; }
+  .ps-count { white-space: nowrap; }
   .ps-count, .ps-empty, .ps-more, .ps-help { margin: 0; }
   .ps-help { margin-bottom: var(--sp-3); max-width: 72ch; }
   .ps-more { margin-top: var(--sp-2); }

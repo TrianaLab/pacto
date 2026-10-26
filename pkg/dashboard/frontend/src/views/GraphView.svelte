@@ -10,7 +10,7 @@
     canonicalFocusForPerspective, projectionFocusMismatch, nextMaxNodes, maxEdgesFor,
   } from '../lib/graphState.ts';
   import { cyEdgeId } from '../lib/neighborhoodGraph.ts';
-  import { abbreviateDigests } from '../lib/format.ts';
+  import { abbreviateDigests, formatCount } from '../lib/format.ts';
   import { graphQueryKey } from '../lib/graphSpatial.ts';
   import { snapshotKnowledge } from '../lib/knowledgeState.ts';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
@@ -221,7 +221,7 @@
   // relationships that ran out (and the button asks for both).
   const truncationNote = $derived(
     withheldNodes
-      ? `Showing ${shown.nodes.length} of ${totalNodes} entities within this depth.`
+      ? `Showing ${formatCount(shown.nodes.length)} of ${formatCount(totalNodes)} entities within this depth.`
       : shown?.truncatedEdges
         ? `Showing ${shown.edges.length} relationships: more exist than this view draws.`
         : 'This neighborhood is bounded and was truncated.'

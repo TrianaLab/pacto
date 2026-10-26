@@ -1,6 +1,7 @@
 <script>
   import { onMount, untrack } from 'svelte';
   import { api } from '../lib/api.ts';
+  import { formatCount } from '../lib/format.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
   import { sourceHealthTally, attentionCategoryLabel, ATTENTION_CATEGORIES } from '../lib/entityLabels.ts';
   import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl } from '../lib/router.ts';
@@ -213,7 +214,7 @@
         <DistributionBar
           title="Declared ownership"
           description="Authored on each contract revision, so a service is cleanly owned only when its revisions agree."
-          scopeNote={`All ${totalServices} ${totalServices === 1 ? 'service' : 'services'} in the snapshot.`}
+          scopeNote={`All ${formatCount(totalServices)} ${totalServices === 1 ? 'service' : 'services'} in the snapshot.`}
           segments={ownership}
           total={totalServices}
           emptyLabel="No services are tracked yet, so there is no ownership picture."
@@ -221,7 +222,7 @@
         <DistributionBar
           title="Contract revision readiness"
           description="Declared preparedness of each revision, judged against its own threshold. This is not compliance: a passing revision can still be running on a target that violates its contract."
-          scopeNote={`All ${totalRevisions} contract ${totalRevisions === 1 ? 'revision' : 'revisions'} in the snapshot.`}
+          scopeNote={`All ${formatCount(totalRevisions)} contract ${totalRevisions === 1 ? 'revision' : 'revisions'} in the snapshot.`}
           segments={readiness}
           total={totalRevisions}
           emptyLabel="No contract revisions are tracked yet, so there is no readiness picture."
@@ -297,7 +298,8 @@
           {/each}
         </ul>
       {:else}
-        <p class="ov-none">No evidence arrived recently.</p>
+        <!-- The window is the engine's: fleet.RecentEvidenceWindow, 24 hours before the snapshot. -->
+        <p class="ov-none">No evidence arrived in the 24 hours before this snapshot.</p>
       {/if}
     </section>
     </div>

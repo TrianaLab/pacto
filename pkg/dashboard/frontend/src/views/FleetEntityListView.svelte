@@ -126,8 +126,8 @@
   const agg = $derived(list?.aggregate ?? null);
   const matched = $derived(agg?.matched ?? 0);
   const scopeNote = $derived(anyFilter
-    ? `All ${matched} matching ${matched === 1 ? plural.replace(/s$/, '') : plural}, not just this page.`
-    : `All ${matched} ${matched === 1 ? plural.replace(/s$/, '') : plural}${service ? ' for this service' : ' in the snapshot'}.`);
+    ? `All ${formatCount(matched)} matching ${matched === 1 ? plural.replace(/s$/, '') : plural}, not just this page.`
+    : `All ${formatCount(matched)} ${matched === 1 ? plural.replace(/s$/, '') : plural}${service ? ' for this service' : ' in the snapshot'}.`);
   const readinessOfMatch = $derived(readinessSegments(agg?.readiness, Object.fromEntries(
     READINESS_STATES.map((s) => [s.field, urlWith({ readiness: s.value })]),
   )));

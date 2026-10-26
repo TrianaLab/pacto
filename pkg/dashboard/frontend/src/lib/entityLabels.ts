@@ -7,6 +7,8 @@
  * component never hard-codes "exact" strings inconsistently.
  */
 
+import { formatCount } from './format.ts';
+
 export type Tone = 'ok' | 'warn' | 'err' | 'info' | 'neutral';
 
 /**
@@ -239,7 +241,7 @@ export function sourceHealthTallyParts(c: SourceCounts | null | undefined): Sour
 export function sourceHealthTally(c: SourceCounts | null | undefined): string {
   const total = c?.total ?? 0;
   if (total === 0) return 'No data sources reported.';
-  const noun = `${total} data source${total === 1 ? '' : 's'}`;
+  const noun = `${formatCount(total)} data source${total === 1 ? '' : 's'}`;
   const parts = sourceHealthTallyParts(c);
   if (parts.length === 1 && parts[0].status === 'available') return `${noun}, all available.`;
   return `${noun} — ${parts.map((p) => p.text).join(', ')}.`;

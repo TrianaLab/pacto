@@ -46,7 +46,7 @@
               <span class="current-badge" data-tip="Values shown are from the referenced service's current version — this ref is not version-pinned">current</span>
             {/if}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <a href={serviceUrl(refServiceName(pol.ref))} class="ref-link" onclick={(e) => e.stopPropagation()}>
+            <a href={serviceUrl(refServiceName(pol.ref))} class="ref-link" title={pol.ref} onclick={(e) => e.stopPropagation()}>
               {pol.ref} →
             </a>
           {/if}
@@ -88,6 +88,7 @@
   }
   .detail-card-header {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     width: 100%;
@@ -103,9 +104,11 @@
   .detail-card-header.expandable:hover { background: var(--c-surface-hover, var(--c-surface-inset)); border-radius: var(--radius-sm); }
   .detail-card-header-left {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--sp-2);
     min-width: 0;
+    flex: 1 1 16rem;
   }
   .pill-ref { background: var(--c-accent-bg); color: var(--c-accent); font-size: var(--text-xs); flex-shrink: 0; }
   .pill-local { background: var(--c-neutral-bg); color: var(--c-text-2); font-size: var(--text-xs); flex-shrink: 0; }
@@ -119,12 +122,14 @@
   .expand-icon svg { width: 12px; height: 12px; }
   .detail-card-title { font-weight: 600; }
   .detail-card-sub { font-size: var(--text-sm); color: var(--c-text-2); }
+  /* A long ref ellipsizes within 40% of the header (the whole ref in its title) instead
+     of squeezing the policy name to one word per line. */
   .ref-link {
     font-size: var(--text-xs);
     color: var(--c-accent);
     text-decoration: none;
     white-space: nowrap;
-    flex-shrink: 0;
+    max-width: 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis;
   }
   .ref-link:hover { text-decoration: underline; }
   .current-badge {
