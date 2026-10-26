@@ -719,7 +719,7 @@
      under the page h1, so h2 is both the honest outline level and, via base.css, the
      section role. No override left to drift. */
   .gv-unresolved h2, .gv-limitations h2 { margin: 0 0 var(--sp-2); }
-  .gv-unresolved ul { margin: 0; padding-left: var(--sp-4); font-size: var(--text-sm); color: var(--c-text-2); display: flex; flex-direction: column; gap: 4px; }
+  .gv-unresolved :global(ul) { margin: 0; padding-left: var(--sp-4); font-size: var(--text-sm); color: var(--c-text-2); display: flex; flex-direction: column; gap: 4px; }
 
   /* A bottom sheet on a narrow screen, so opening it never scrolls the page to where a
      one-column layout put it; beside the canvas and sticky on a wide one. */
