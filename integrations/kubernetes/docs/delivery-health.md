@@ -125,9 +125,9 @@ spec:
 Without `suite` the runner runs the only check the version ships. A version
 that does not ship the named check, or with no `suite` ships no check or more
 than one, is held before it ships (the `pacto.suites` gate): a person accepts
-it or it does not ship. It is neither failed nor passed.
+it or it does not ship.
 
-The suite ships in the version under check. `suiteDigest` pins its sha256: a
+`suiteDigest` pins the sha256 of the suite the version ships: a
 version with other suite bytes is held the same way, and its eval is Unknown.
 
 The promoter posts the same `{"input": ..., "params": ...}`, the input also
@@ -154,10 +154,9 @@ Sigstore bundle: a DSSE envelope over a statement it signs.
 }
 ```
 
-`operation` is the input's `operationUID` and `challenge` the input's
-`challenge`, fresh random hex for every check, so an answer signed for an
-earlier check cannot be replayed for this one. `suite` is the sha256 of the
-suite it ran and `observedModel` (optional) the model it saw answer. The provider lists the runners it trusts in `signers`,
+`operation` and `challenge` echo the input's: the challenge is new for every
+check, so an old answer cannot be replayed.
+`suite` is the sha256 of the suite it ran and `observedModel` (optional) the model it saw answer. The provider lists the runners it trusts in `signers`,
 each a public key or a keyless identity:
 
 ```yaml
@@ -188,8 +187,7 @@ These are Unknown, never Pass or Fail:
 
 - an answer no listed signer signed
 - an answer about another version or another suite
-- an answer signed for another operation
-- an answer that does not echo this check's challenge
+- an answer for another operation or another challenge
 - a suite whose sha256 is not the Stage's `suiteDigest`
 - no cases, or no run to cite
 - a version whose contract cannot be read or does not ship the suite
