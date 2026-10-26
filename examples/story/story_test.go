@@ -297,7 +297,7 @@ func evals(t *testing.T, passed, total int) delivery.Verdict {
 			Input delivery.GateInput `json:"input"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&q)
-		_, _ = w.Write(SignEval(q.Input.OperationUID, q.Input.Subjects[0], q.Input.Suite.Digest, "run-1", passed, total))
+		_, _ = w.Write(SignEval(q.Input, "run-1", passed, total))
 	}))
 	t.Cleanup(srv.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

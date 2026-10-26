@@ -52,6 +52,12 @@ type TrustedKey struct {
 	// eval runner ("runner"). A runner key never verifies a record, and a
 	// recorder key never verifies a runner's answer.
 	Role string `json:"role,omitempty" yaml:"role,omitempty"`
+	// Providers are, on a runner key, the gate providers (a Stage check's
+	// provider) whose Pass or Fail a runner must have signed: record verify
+	// fails such a verdict that keeps no signed answer, whatever the promoter
+	// cited. It lets the auditor, not the promoter, say which verdicts are
+	// exams.
+	Providers []string `json:"providers,omitempty" yaml:"providers,omitempty"`
 }
 
 // RoleRunner is the role of a key that signs eval runners' answers.
@@ -115,6 +121,9 @@ func (t TrustConfig) Verifier(open func(TrustedKey) (func(bundle []byte) error, 
 				return nil, fmt.Errorf("trust config key %d: %w", i, err)
 			}
 			continue
+		}
+		if len(k.Providers) > 0 {
+			return nil, fmt.Errorf("trust config key %d (%s): providers are for runner keys only", i, k.Name)
 		}
 		if k.UntilSeq < 0 {
 			return nil, fmt.Errorf("trust config key %d (%s): untilSeq %d is negative", i, k.Name, k.UntilSeq)
@@ -185,6 +194,18 @@ func (t TrustConfig) Runners(open func(TrustedKey) (func(bundle []byte) error, e
 		}
 	}
 	return RunnersOf(keys, open)
+}
+
+// RunnerProviders are the providers the config's runner keys name: the
+// verdicts of their checks a runner must have signed.
+func (t TrustConfig) RunnerProviders() []string {
+	var out []string
+	for _, k := range t.Keys {
+		if k.Role == RoleRunner {
+			out = append(out, k.Providers...)
+		}
+	}
+	return out
 }
 
 // RunnersOf is the verifier of runner keys: an answer counts when one of them

@@ -20,7 +20,7 @@ var (
 
 func gateIn() GateInput {
 	return GateInput{OperationUID: "u1", Stage: StageRef{Namespace: "prod", Name: "payments"},
-		Service: ServiceRef{Name: "payments"}, Facet: FacetPointer, Subjects: []string{dA}, Window: Window{From: t0, To: t1}}
+		Service: ServiceRef{Name: "payments"}, Facet: FacetPointer, Subjects: []string{dA}, Window: Window{From: t0, To: t1}, Challenge: "c1"}
 }
 
 // gateFunc is a Gate from a function, for tests.

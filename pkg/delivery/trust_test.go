@@ -100,6 +100,7 @@ func TestParseTrustRefuses(t *testing.T) {
 		"unnamed runner":      "keys: [{publicKey: " + pemKey + ", role: runner}]",
 		"runner with streams": "keys: [{name: ci, publicKey: " + pemKey + ", role: runner, streams: ['*']}]",
 		"runner bad key":      "keys: [{name: ci, publicKey: nope, role: runner}]",
+		"recorder providers":  "keys: [{publicKey: " + pemKey + ", providers: [evals]}]",
 	} {
 		if _, err := ParseTrust([]byte(raw)); err == nil {
 			t.Errorf("%s: parsed", name)
@@ -168,10 +169,13 @@ func TestTrustRunnerKeys(t *testing.T) {
 	pub, _, _ := ed25519.GenerateKey(rand.Reader)
 	trust, err := ParseTrust([]byte("keys:\n" +
 		"  - {name: recorder, publicKey: " + quoteYAML(pubPEM(t, pub)) + "}\n" +
-		"  - {name: evals, publicKey: " + quoteYAML(pubPEM(t, pub)) + ", role: runner}\n" +
+		"  - {name: evals, publicKey: " + quoteYAML(pubPEM(t, pub)) + ", role: runner, providers: [evals]}\n" +
 		"  - {name: ci, identity: ci@acme, issuer: https://issuer, trustedRoot: '{}', role: runner}\n"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if p := trust.RunnerProviders(); len(p) != 1 || p[0] != "evals" {
+		t.Errorf("runner providers: %v", p)
 	}
 	records, _ := trust.Verifier(byName)
 	runners, err := trust.Runners(byName)

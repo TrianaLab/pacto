@@ -96,7 +96,7 @@ func TestRunnerSignsItsVerdict(t *testing.T) {
 	suite := "sha256:67fd4cc91da7c4d6870049981fed4d367327a4bb687e73666652796d80b533b8"
 	payload, _ := json.Marshal(delivery.EvalStatement{Type: delivery.StatementType, PredicateType: delivery.PredicateEval,
 		Subject:   []delivery.Subject{{Name: "pay-agent", Digest: map[string]string{"sha256": strings.Repeat("a", 64)}}},
-		Predicate: delivery.EvalResult{Suite: suite, Run: "run-7", Passed: 2, Total: 2}})
+		Predicate: delivery.EvalResult{Operation: "op-1", Challenge: "c1", Suite: suite, Run: "run-7", Passed: 2, Total: 2}})
 	keyed := func(key ed25519.PrivateKey) []byte {
 		kp, _ := FromPrivateKey(key)
 		b, err := Keyed(kp, "").Sign(ctx, delivery.PayloadType, payload)
@@ -127,7 +127,8 @@ func TestRunnerSignsItsVerdict(t *testing.T) {
 			Contract: &contract.Contract{Checks: []contract.Check{{Name: "evals", File: "evals/suite.yaml"}}},
 			FS:       fstest.MapFS{"evals/suite.yaml": {Data: []byte("cases: []\n")}}}}
 	}
-	in := delivery.GateInput{Subjects: []string{subject}}
+	in := delivery.GateInput{OperationUID: "op-1", Subjects: []string{subject}, Challenge: "c1"}
+	rec := delivery.RecordPredicate{Intent: delivery.RecordIntent{UID: "op-1", Params: &delivery.Params{To: subject}}}
 	for _, c := range []struct {
 		name   string
 		bundle []byte
@@ -147,7 +148,7 @@ func TestRunnerSignsItsVerdict(t *testing.T) {
 		if c.want == delivery.Pass {
 			verify, _ := delivery.RunnersOf([]delivery.TrustedKey{{Name: "audit", PublicKey: pemOf(t, runnerKey.Public())},
 				{Name: "audit-keyless", Identity: "evals@acme.example", Issuer: "https://issuer.example", TrustedRoot: string(ss.RootJSON)}}, OpenKey)
-			if who, err := delivery.CheckRunner(v, verify); err != nil || !strings.HasPrefix(who, "audit") {
+			if who, err := delivery.CheckRunner(v, rec, verify); err != nil || !strings.HasPrefix(who, "audit") {
 				t.Errorf("%s: an auditor re-checks the kept answer: %q %v", c.name, who, err)
 			}
 		}

@@ -755,14 +755,14 @@ func TestVerifyRecordsChecksTheRunner(t *testing.T) {
 	suite := "sha256:" + strings.Repeat("5", 64)
 	payload, _ := json.Marshal(delivery.EvalStatement{Type: delivery.StatementType, PredicateType: delivery.PredicateEval,
 		Subject:   []delivery.Subject{{Name: "agent", Digest: map[string]string{"sha256": strings.TrimPrefix(dlC, "sha256:")}}},
-		Predicate: delivery.EvalResult{Suite: suite, Run: "run-7", Passed: 2, Total: 2}})
+		Predicate: delivery.EvalResult{Operation: "uid-boot", Challenge: "c1", Suite: suite, Run: "run-7", Passed: 2, Total: 2}})
 	signed, err := edSigner(runnerKey).Sign(ctx, delivery.PayloadType, payload)
 	if err != nil {
 		t.Fatal(err)
 	}
 	boot := move(1, "", "boot", "", dlC)
 	boot.Verdicts = []delivery.Verdict{{Gate: "evals", Phase: "verify", Result: delivery.Pass, Citation: map[string]string{
-		"runner": "evals-ci", "runnerBundle": string(signed), "subject": dlC, "suite": suite, "run": "run-7", "passed": "2", "total": "2"}},
+		"runner": "evals-ci", "runnerBundle": string(signed), "subject": dlC, "operation": "uid-boot", "suite": suite, "run": "run-7", "passed": "2", "total": "2"}},
 		{Gate: delivery.GateContract, Result: delivery.Pass}}
 	r1 := e.attach("delivery/streams", e.anchor, boot)
 	e.setStream(map[string]any{"stream": map[string]any{"id": recStream, "seq": int64(1), "recordedSeq": int64(1), "head": r1,
@@ -780,5 +780,37 @@ func TestVerifyRecordsChecksTheRunner(t *testing.T) {
 	v, err = e.d.VerifyRecords(ctx, "prod", "payments-prod")
 	if rc := v.Records[0].Runners[0]; err != nil || !v.OK || !rc.OK || rc.Runner != "evals-ci-audited" || rc.Cited != "evals-ci" || rc.Gate != "evals" {
 		t.Fatalf("with the runner's key = %+v %v", v, err)
+	}
+}
+
+// TestVerifyRecordsNeedsTheRunner: an eval verdict that keeps no answer
+// signed by its runner does not verify, whether its citation names a suite
+// or the auditor's runner key names its provider.
+func TestVerifyRecordsNeedsTheRunner(t *testing.T) {
+	ctx := context.Background()
+	for name, c := range map[string]struct {
+		citation  map[string]string
+		providers []string
+	}{
+		"a suite cited":     {map[string]string{"suite": "sha256:" + strings.Repeat("5", 64), "run": "run-7"}, nil},
+		"a runner provider": {map[string]string{"run": "run-7"}, []string{"evals"}},
+	} {
+		e := newRecordEnv(t)
+		boot := move(1, "", "boot", "", dlC)
+		boot.Policy = &delivery.StageSpec{}
+		boot.Policy.Gates.Verify.Checks = []delivery.GateCheck{{Name: "evals", Provider: "evals"}}
+		boot.Verdicts = []delivery.Verdict{{Gate: "evals", Phase: "verify", Result: delivery.Pass, Citation: c.citation}}
+		r1 := e.attach("delivery/streams", e.anchor, boot)
+		e.setStream(map[string]any{"stream": map[string]any{"id": recStream, "seq": int64(1), "recordedSeq": int64(1), "head": r1,
+			"anchor": deliveryrecord.AnchorRef(e.host+"/delivery/streams", recStream)}})
+		_, runnerKey, _ := ed25519.GenerateKey(rand.Reader)
+		runnerPEM, _ := delivery.PublicKeyPEM(runnerKey.Public())
+		trust := *e.d.Trust
+		trust.Keys = append(trust.Keys, delivery.TrustedKey{Name: "ci", PublicKey: runnerPEM, Role: delivery.RoleRunner, Providers: c.providers})
+		e.d.Trust = &trust
+		v, err := e.d.VerifyRecords(ctx, "prod", "payments-prod")
+		if err != nil || v.OK || len(v.Records[0].Runners) != 1 || v.Records[0].Runners[0].Problem != "the eval verdict keeps no answer signed by its runner" {
+			t.Errorf("%s: %+v %v", name, v, err)
+		}
 	}
 }

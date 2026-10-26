@@ -3,6 +3,8 @@ package delivery
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 
@@ -46,6 +48,10 @@ type GateInput struct {
 	// check in it to run. Only the suite gate sets them, for its runner.
 	Contract string `json:"contract,omitempty"`
 	Suite    *Suite `json:"suite,omitempty"`
+	// Challenge is fresh for every check (16 random bytes in hex). A suite
+	// runner echoes it in its signed answer, so an answer signed for an
+	// earlier check cannot be replayed for this one.
+	Challenge string `json:"challenge,omitempty"`
 }
 
 // Suite is one check a contract ships: its name, its file in the bundle and
@@ -192,9 +198,30 @@ func checkWithin(ctx context.Context, g Gate, in GateInput, params map[string]st
 
 func runCheck(ctx context.Context, gates map[string]Gate, c GateCheck, in GateInput) Verdict {
 	v := Verdict{Result: Unknown, Message: fmt.Sprintf("no gate provider named %q is configured", c.Provider)}
-	// The suite, its pin and the model ask reach the provider only from the
-	// typed fields, the ones the pacto.suites pre-gate checked: such params
-	// are dropped.
+	params := providerParams(c)
+	nonce := make([]byte, 16)
+	_, _ = rand.Read(nonce) // crypto/rand.Read never fails
+	in.Challenge = hex.EncodeToString(nonce)
+	if g := gates[c.Provider]; g != nil {
+		v = checkWithin(ctx, g, in, params)
+		if v.Result == Pass && len(v.Citation) == 0 {
+			v.Result, v.Message = Unknown, "the gate passed but gave no citation to re-run: "+v.Message
+		}
+	}
+	if v.Citation == nil {
+		v.Citation = map[string]string{}
+	}
+	inJSON, _ := json.Marshal(in)
+	pJSON, _ := json.Marshal(params)
+	v.Citation["provider"], v.Citation["input"], v.Citation["params"] = c.Provider, string(inJSON), string(pJSON)
+	v.Gate, v.Phase = c.Name, "verify"
+	return v
+}
+
+// providerParams are the params a check sends its provider. The suite, its
+// pin and the model ask reach the provider only from the typed fields, the
+// ones the pacto.suites pre-gate checked: such params are dropped.
+func providerParams(c GateCheck) map[string]string {
 	params := maps.Clone(c.Params)
 	typed := map[string]string{"suite": c.Suite, "suiteDigest": c.SuiteDigest, "requireObservedModel": ""}
 	if c.RequireObservedModel {
@@ -210,20 +237,7 @@ func runCheck(ctx context.Context, gates map[string]Gate, c GateCheck, in GateIn
 		}
 		params[k] = val
 	}
-	if g := gates[c.Provider]; g != nil {
-		v = checkWithin(ctx, g, in, params)
-		if v.Result == Pass && len(v.Citation) == 0 {
-			v.Result, v.Message = Unknown, "the gate passed but gave no citation to re-run: "+v.Message
-		}
-	}
-	if v.Citation == nil {
-		v.Citation = map[string]string{}
-	}
-	inJSON, _ := json.Marshal(in)
-	pJSON, _ := json.Marshal(params)
-	v.Citation["provider"], v.Citation["input"], v.Citation["params"] = c.Provider, string(inJSON), string(pJSON)
-	v.Gate, v.Phase = c.Name, "verify"
-	return v
+	return params
 }
 
 // Worst is the combined result of verdicts: Fail over Unknown over Pass.

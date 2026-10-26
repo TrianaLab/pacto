@@ -37,11 +37,13 @@ type EvalStatement struct {
 }
 
 // EvalResult is delivery.pacto.trianalab.io/eval/v1: the operation that
-// asked (the input's operationUID), which suite ran (its sha256), where the
-// run can be read again, how many cases passed and, when the runner can tell,
-// the model that answered.
+// asked (the input's operationUID), the request it answers (the input's
+// challenge), which suite ran (its sha256), where the run can be read again,
+// how many cases passed and, when the runner can tell, the model that
+// answered.
 type EvalResult struct {
 	Operation     string `json:"operation"`
+	Challenge     string `json:"challenge"`
 	Suite         string `json:"suite"`
 	Run           string `json:"run"`
 	Passed        int    `json:"passed"`
@@ -73,27 +75,125 @@ func OpenEvalAnswer(bundle []byte, verify RunnerVerifier) (EvalStatement, string
 	return st, runner, nil
 }
 
-// CheckRunner checks again the signed answer an eval verdict keeps (its
-// runnerBundle citation), the way an auditor reads a record: the runner's
-// signature under verify, and that the answer says what the verdict cites.
-// It returns the runner that signed it.
-func CheckRunner(v Verdict, verify RunnerVerifier) (string, error) {
+// CheckRunner checks again the signed answer an eval verdict of record p
+// keeps (its runnerBundle citation), the way an auditor reads a record: the
+// runner's signature under verify; that the runner answered this record's
+// operation about the version it moved to (from, for a cause re-run before
+// the move); that the verdict cites what the
+// runner signed; and that its result is the one the signed counts give under
+// the Stage check's minPassRate. It returns the runner that signed it.
+func CheckRunner(v Verdict, p RecordPredicate, verify RunnerVerifier) (string, error) {
 	raw := v.Citation["runnerBundle"]
 	if raw == "" {
-		return "", errors.New("the verdict keeps no signed answer from its runner")
+		return "", errors.New("the eval verdict keeps no answer signed by its runner")
 	}
 	st, runner, err := OpenEvalAnswer([]byte(raw), verify)
 	if err != nil {
 		return "", err
 	}
-	a := st.Predicate
+	a, about, what := st.Predicate, "", "moved to"
+	if p.Intent.Params != nil {
+		about = p.Intent.Params.To
+		if v.Phase == "pre" { // a cited cause re-run before the move, on the version it moved from
+			about, what = p.Intent.Params.From, "moved from"
+		}
+	}
+	switch {
+	case a.Operation != p.Intent.UID:
+		return runner, fmt.Errorf("%s signed an answer for operation %q, but this record is operation %q", runner, a.Operation, p.Intent.UID)
+	case st.Version() != about:
+		return runner, fmt.Errorf("%s ran the suite on %q, but this record %s %q", runner, st.Version(), what, about)
+	}
 	for k, signed := range map[string]string{"subject": st.Version(), "operation": a.Operation, "suite": a.Suite, "run": a.Run,
 		"passed": strconv.Itoa(a.Passed), "total": strconv.Itoa(a.Total), "observedModel": a.ObservedModel} {
 		if v.Citation[k] != signed {
 			return runner, fmt.Errorf("the verdict cites %s %q, but %s signed %q", k, v.Citation[k], runner, signed)
 		}
 	}
+	params := checkParams(v, p)
+	rate, why := passRate(params)
+	if why != "" {
+		return runner, errors.New(why)
+	}
+	if a.Total <= 0 || a.Passed < 0 || a.Passed > a.Total {
+		return runner, fmt.Errorf("%s counted %d of %d cases passed, which no verdict can rest on", runner, a.Passed, a.Total)
+	}
+	want := rateResult(a, rate)
+	if params["requireObservedModel"] == "true" && a.ObservedModel == "" {
+		want = worse(want, Unknown)
+	}
+	// The record does not keep the contract's model versions, so a model the
+	// runner named may only have made the result worse, never better.
+	if v.Result != want && (a.ObservedModel == "" || worse(v.Result, want) != v.Result) {
+		return runner, fmt.Errorf("the verdict says %s, but %d of %d cases passed under minPassRate %s give %s",
+			v.Result, a.Passed, a.Total, strconv.FormatFloat(rate, 'g', 10, 64), want)
+	}
 	return runner, nil
+}
+
+// checkParams are the params the eval verdict v ran with: the Stage check of
+// its name in the policy the recorder copied, or, in a record that keeps no
+// policy, the params the verdict cites.
+func checkParams(v Verdict, p RecordPredicate) map[string]string {
+	if p.Policy == nil {
+		var params map[string]string
+		_ = json.Unmarshal([]byte(v.Citation["params"]), &params) // none read is the defaults
+		return params
+	}
+	if i := slices.IndexFunc(p.Policy.Gates.Verify.Checks, func(c GateCheck) bool { return c.Name == v.Gate }); i >= 0 {
+		return providerParams(p.Policy.Gates.Verify.Checks[i])
+	}
+	return map[string]string{"minPassRate": "the Stage runs no check named " + v.Gate}
+}
+
+// passRate is the minPassRate param, 1 (every case passes) when unset, or why
+// it is not a number above 0 and up to 1.
+func passRate(params map[string]string) (float64, string) {
+	s, ok := params["minPassRate"]
+	if !ok {
+		return 1, ""
+	}
+	r, err := strconv.ParseFloat(s, 64)
+	if err != nil || !(r > 0 && r <= 1) { // the negation also refuses NaN
+		return 0, fmt.Sprintf("minPassRate %q is not a number above 0 and up to 1", s)
+	}
+	return r, ""
+}
+
+// rateResult is Pass when a's pass rate reaches rate, else Fail.
+func rateResult(a EvalResult, rate float64) Result {
+	// Divide, never multiply: 7/100 rounds to the parsed 0.07, 0.07*100 does not round to 7.
+	if float64(a.Passed)/float64(a.Total) >= rate {
+		return Pass
+	}
+	return Fail
+}
+
+// EvalVerdicts are the verdicts of record p that an eval runner must have
+// signed: a Pass or Fail whose Stage check names a suite, pins one or asks
+// for the model, whose provider is one of providers (the runner keys'
+// providers in the auditor's trust config), or whose citation names a suite
+// or a runner. An Unknown has no answer to keep.
+func EvalVerdicts(p RecordPredicate, providers []string) []Verdict {
+	var checks []GateCheck
+	if p.Policy != nil {
+		checks = p.Policy.Gates.Verify.Checks
+	}
+	var out []Verdict
+	for _, v := range p.Verdicts {
+		if v.Result != Pass && v.Result != Fail {
+			continue
+		}
+		eval := v.Citation["runnerBundle"] != "" || v.Citation["runner"] != "" || v.Citation["suite"] != "" || v.Citation["suiteName"] != ""
+		if i := slices.IndexFunc(checks, func(c GateCheck) bool { return c.Name == v.Gate }); i >= 0 {
+			c := checks[i]
+			eval = eval || c.Suite != "" || c.SuiteDigest != "" || c.RequireObservedModel || slices.Contains(providers, c.Provider)
+		}
+		if eval {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // Eval asks a suite runner to run one of the checks the version under check
@@ -123,13 +223,12 @@ type Eval struct {
 
 // Check implements Gate.
 func (e Eval) Check(ctx context.Context, in GateInput, params map[string]string) Verdict {
-	minRate := 1.0
-	if s, ok := params["minPassRate"]; ok {
-		r, err := strconv.ParseFloat(s, 64)
-		if err != nil || !(r > 0 && r <= 1) { // the negation also refuses NaN
-			return Verdict{Result: Unknown, Message: fmt.Sprintf("minPassRate %q is not a number above 0 and up to 1", s)}
-		}
-		minRate = r
+	minRate, why := passRate(params)
+	if why != "" {
+		return Verdict{Result: Unknown, Message: why}
+	}
+	if in.Challenge == "" {
+		return Verdict{Result: Unknown, Message: "the check carries no challenge for the runner to answer, so an old answer could be replayed"}
 	}
 	models, msg := e.suite(ctx, &in, params["suite"])
 	if msg != "" {
@@ -159,9 +258,9 @@ func (e Eval) Check(ctx context.Context, in GateInput, params map[string]string)
 	case !slices.Contains(in.Subjects, subject):
 		return Verdict{Result: Unknown, Message: fmt.Sprintf("the runner ran the suite on %q, not on the version under check", subject)}
 	case a.Operation != in.OperationUID:
-		// ponytail: binds an answer to one operation, not to one request; a
-		// replayed answer from earlier in the same operation still counts.
 		return Verdict{Result: Unknown, Message: fmt.Sprintf("the runner answered operation %q, not %q: an answer signed for another operation is not this one's", a.Operation, in.OperationUID)}
+	case a.Challenge != in.Challenge:
+		return Verdict{Result: Unknown, Message: "the runner's answer does not echo this check's challenge: it answers another request, so it may be an old answer replayed"}
 	case a.Run == "":
 		return Verdict{Result: Unknown, Message: "the runner named no run to cite"}
 	case a.Suite != in.Suite.Digest:
@@ -169,14 +268,10 @@ func (e Eval) Check(ctx context.Context, in GateInput, params map[string]string)
 	case a.Total <= 0 || a.Passed < 0 || a.Passed > a.Total:
 		return Verdict{Result: Unknown, Message: fmt.Sprintf("the runner counted %d of %d cases passed", a.Passed, a.Total)}
 	}
-	v := Verdict{Result: Fail, Citation: map[string]string{
+	v := Verdict{Result: rateResult(a, minRate), Citation: map[string]string{
 		"run": a.Run, "suite": a.Suite, "suiteName": in.Suite.Name, "suitePath": in.Suite.Path, "contract": in.Contract, "subject": subject,
 		"passed": strconv.Itoa(a.Passed), "total": strconv.Itoa(a.Total), "runner": runner, "runnerBundle": signed.String(), "operation": a.Operation,
 	}}
-	// Divide, never multiply: 7/100 rounds to the parsed 0.07, 0.07*100 does not round to 7.
-	if float64(a.Passed)/float64(a.Total) >= minRate {
-		v.Result = Pass
-	}
 	v.Message = fmt.Sprintf("%d of %d cases passed, %s needed", a.Passed, a.Total, strconv.FormatFloat(minRate*100, 'g', 10, 64)+"%")
 	if a.Message != "" {
 		v.Message += ": " + a.Message

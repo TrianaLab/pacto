@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -63,6 +64,9 @@ func evalStatement(subject string, r EvalResult) EvalStatement {
 	if r.Operation == "" {
 		r.Operation = gateIn().OperationUID
 	}
+	if r.Challenge == "" {
+		r.Challenge = gateIn().Challenge
+	}
 	st := EvalStatement{Type: StatementType, PredicateType: PredicateEval, Predicate: r}
 	if algo, hex, ok := strings.Cut(subject, ":"); ok {
 		st.Subject = []Subject{{Name: "version", Digest: map[string]string{algo: hex}}}
@@ -100,7 +104,7 @@ func TestEval(t *testing.T) {
 		*sent.Input.Suite != (Suite{Name: "evals", Path: "evals/suite.yaml", Digest: suiteDigest}) {
 		t.Fatalf("all pass: %+v sent=%s", v, *body)
 	}
-	if runner, err := CheckRunner(v, trustRunner); err != nil || runner != "evals-runner" {
+	if runner, err := CheckRunner(v, recordOf(v), trustRunner); err != nil || runner != "evals-runner" {
 		t.Fatalf("the verdict keeps the runner's signed answer: %q %v", runner, err)
 	}
 	*answer = evalRan(48, 50)
@@ -140,6 +144,7 @@ func TestEvalUnknown(t *testing.T) {
 		"another version": signed("sha256:other", r("r", 1, 1)),
 		"no subject":      signed("", r("r", 1, 1)),
 		"another op":      signed(dA, EvalResult{Operation: "u0", Suite: suiteDigest, Run: "r", Passed: 1, Total: 1}),
+		"replayed":        signed(dA, EvalResult{Challenge: "c0", Suite: suiteDigest, Run: "r", Passed: 1, Total: 1}),
 		"no run":          signed(dA, r("", 1, 1)),
 		"no suite":        signed(dA, EvalResult{Run: "r", Passed: 1, Total: 1}),
 		"no cases":        signed(dA, r("r", 0, 0)),
@@ -167,6 +172,11 @@ func TestEvalUnknown(t *testing.T) {
 	if v := (Eval{URL: "http://127.0.0.1:1", Client: g.Client, Revision: agentRevision, Verify: trustRunner}).Check(context.Background(), gateIn(), nil); v.Result != Unknown {
 		t.Errorf("unreachable: %+v", v)
 	}
+	in := gateIn()
+	in.Challenge = ""
+	if v := g.Check(context.Background(), in, nil); v.Result != Unknown || !strings.Contains(v.Message, "no challenge") {
+		t.Errorf("no challenge: %+v", v)
+	}
 	g.Verify = nil
 	if v := g.Check(context.Background(), gateIn(), nil); v.Result != Unknown || !strings.Contains(v.Message, "trusts no runner key") {
 		t.Errorf("no runner trusted: %+v", v)
@@ -174,8 +184,12 @@ func TestEvalUnknown(t *testing.T) {
 }
 
 func TestEvalThroughRunChecks(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, signed(dA, EvalResult{Suite: suiteDigest, Run: "r", Passed: 3, Total: 3}))
+	var challenges []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ Input GateInput }
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		challenges = append(challenges, req.Input.Challenge)
+		_, _ = io.WriteString(w, signed(dA, EvalResult{Challenge: req.Input.Challenge, Suite: suiteDigest, Run: "r", Passed: 3, Total: 3}))
 	}))
 	defer srv.Close()
 	open := func(TrustedKey) (func([]byte) error, error) {
@@ -191,6 +205,11 @@ func TestEvalThroughRunChecks(t *testing.T) {
 	vs := RunChecks(context.Background(), gates, []GateCheck{{Name: "evals", Provider: "evals"}}, gateIn())
 	if Worst(vs) != Pass || vs[0].Citation["provider"] != "evals" || vs[0].Citation["run"] != "r" || vs[0].Citation["runner"] != "ci" {
 		t.Fatalf("%+v", vs)
+	}
+	// Every check gets a fresh challenge, so no answer counts twice.
+	RunChecks(context.Background(), gates, []GateCheck{{Name: "evals", Provider: "evals"}}, gateIn())
+	if len(challenges) != 2 || len(challenges[0]) != 32 || challenges[0] == challenges[1] {
+		t.Fatalf("challenges %q", challenges)
 	}
 }
 
@@ -336,14 +355,111 @@ func TestCheckRunner(t *testing.T) {
 	g, answer, _ := evalRunner(t)
 	*answer = evalRan(2, 2)
 	v := g.Check(context.Background(), gateIn(), nil)
-	v.Citation["passed"] = "3"
-	if _, err := CheckRunner(v, trustRunner); err == nil || !strings.Contains(err.Error(), `cites passed "3", but evals-runner signed "2"`) {
+	rec := recordOf(v)
+	edited := v
+	edited.Citation = maps.Clone(v.Citation)
+	edited.Citation["passed"] = "3"
+	if _, err := CheckRunner(edited, rec, trustRunner); err == nil || !strings.Contains(err.Error(), `cites passed "3", but evals-runner signed "2"`) {
 		t.Fatalf("an edited count: %v", err)
 	}
-	if _, err := CheckRunner(v, func([]byte) (string, error) { return "", errors.New("unknown key") }); err == nil {
+	if _, err := CheckRunner(v, rec, func([]byte) (string, error) { return "", errors.New("unknown key") }); err == nil {
 		t.Fatal("an untrusted runner")
 	}
-	if _, err := CheckRunner(Verdict{}, trustRunner); err == nil {
+	if _, err := CheckRunner(Verdict{}, rec, trustRunner); err == nil {
 		t.Fatal("no signed answer")
 	}
+	// A genuine answer pasted into another operation's record, or about
+	// another version, does not verify.
+	other := recordOf(v)
+	other.Intent.UID = "u2"
+	if _, err := CheckRunner(v, other, trustRunner); err == nil || !strings.Contains(err.Error(), `for operation "u1", but this record is operation "u2"`) {
+		t.Fatalf("another operation: %v", err)
+	}
+	other = recordOf(v)
+	other.Intent.Params.To = dB
+	if _, err := CheckRunner(v, other, trustRunner); err == nil || !strings.Contains(err.Error(), "but this record moved to") {
+		t.Fatalf("another version: %v", err)
+	}
+	// A cause re-run before the move is about the version moved from.
+	other.Intent.Params.From = dA
+	pre := v
+	pre.Phase = "pre"
+	if _, err := CheckRunner(pre, other, trustRunner); err != nil {
+		t.Fatalf("a cause re-run: %v", err)
+	}
+}
+
+// TestCheckRunnerResult: the auditor derives the result again from the
+// signed counts and the Stage check's minPassRate, so a promoter cannot turn
+// a signed 1 of 2 into a Pass.
+func TestCheckRunnerResult(t *testing.T) {
+	g, answer, _ := evalRunner(t)
+	*answer = evalRan(1, 2)
+	v := g.Check(context.Background(), gateIn(), nil)
+	if v.Result != Fail {
+		t.Fatalf("%+v", v)
+	}
+	v.Result = Pass
+	rec := recordOf(v)
+	rec.Policy = &StageSpec{}
+	rec.Policy.Gates.Verify.Checks = []GateCheck{{Name: "evals", Provider: "evals", Params: map[string]string{"minPassRate": "0.95"}}}
+	v.Gate = "evals"
+	if _, err := CheckRunner(v, rec, trustRunner); err == nil || !strings.Contains(err.Error(), "the verdict says Pass, but 1 of 2 cases passed under minPassRate 0.95 give Fail") {
+		t.Fatalf("a forged pass: %v", err)
+	}
+	rec.Policy.Gates.Verify.Checks[0].Params["minPassRate"] = "0.5"
+	if _, err := CheckRunner(v, rec, trustRunner); err != nil {
+		t.Fatalf("half needed: %v", err)
+	}
+	// A gate the Stage does not run has no minPassRate to read.
+	v.Gate = "renamed"
+	if _, err := CheckRunner(v, rec, trustRunner); err == nil || !strings.Contains(err.Error(), "runs no check named renamed") {
+		t.Fatalf("a renamed gate: %v", err)
+	}
+	rec.Policy.Gates.Verify.Checks[0].Params["minPassRate"] = "x"
+	v.Gate = "evals"
+	if _, err := CheckRunner(v, rec, trustRunner); err == nil || !strings.Contains(err.Error(), `minPassRate "x"`) {
+		t.Fatalf("no rate: %v", err)
+	}
+	none := Verdict{Result: Pass, Citation: map[string]string{"runnerBundle": signed(dA, EvalResult{Suite: suiteDigest, Run: "r"}),
+		"subject": dA, "operation": "u1", "suite": suiteDigest, "run": "r", "passed": "0", "total": "0"}}
+	if _, err := CheckRunner(none, recordOf(none), trustRunner); err == nil || !strings.Contains(err.Error(), "counted 0 of 0") {
+		t.Fatalf("no cases: %v", err)
+	}
+	// A Stage that asks which model answered, and a runner that did not say,
+	// leaves the check Unknown, never Pass.
+	*answer = evalRan(2, 2)
+	asked := g.Check(context.Background(), gateIn(), nil)
+	asked.Gate = "evals"
+	rec.Policy.Gates.Verify.Checks[0] = GateCheck{Name: "evals", Provider: "evals", RequireObservedModel: true}
+	if _, err := CheckRunner(asked, rec, trustRunner); err == nil || !strings.Contains(err.Error(), "give Unknown") {
+		t.Fatalf("a model asked for: %v", err)
+	}
+	// A model the runner named may have made the result worse.
+	*answer = signed(dA, EvalResult{Suite: suiteDigest, Run: "r", Passed: 2, Total: 2, ObservedModel: "m"})
+	v = g.Check(context.Background(), gateIn(), nil)
+	v.Result = Fail
+	if _, err := CheckRunner(v, recordOf(v), trustRunner); err != nil {
+		t.Fatalf("a model mismatch: %v", err)
+	}
+}
+
+func TestEvalVerdicts(t *testing.T) {
+	p := RecordPredicate{Policy: &StageSpec{}, Verdicts: []Verdict{
+		{Gate: "suite", Result: Pass}, {Gate: "named", Result: Pass}, {Gate: "cited", Result: Fail, Citation: map[string]string{"suiteName": "evals"}},
+		{Gate: "health", Result: Pass}, {Gate: "suite", Result: Unknown}, {Gate: "pacto.contract", Result: Pass},
+	}}
+	p.Policy.Gates.Verify.Checks = []GateCheck{{Name: "suite", Provider: "e", Suite: "evals"}, {Name: "named", Provider: "evals"}, {Name: "health", Provider: "mira"}}
+	var got []string
+	for _, v := range EvalVerdicts(p, []string{"evals"}) {
+		got = append(got, v.Gate+"/"+string(v.Result))
+	}
+	if strings.Join(got, " ") != "suite/Pass named/Pass cited/Fail" {
+		t.Fatalf("%v", got)
+	}
+}
+
+// recordOf is the record of operation u1 to dA that keeps v.
+func recordOf(v Verdict) RecordPredicate {
+	return RecordPredicate{Intent: RecordIntent{UID: "u1", Params: &Params{To: dA}}, Verdicts: []Verdict{v}}
 }

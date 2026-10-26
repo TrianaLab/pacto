@@ -175,11 +175,37 @@ jq -r .dsseEnvelope.payload runner.json | base64 -d | jq .predicate   # what it 
 ```
 
 The commands take the first eval check of the record; a record with more
-than one keeps one signed answer per check. Check that the counts and the
-suite in what the runner signed match the verdict's `citation`. With cluster
-access, `pacto delivery record verify` does both checks when the trust
-config also lists the runner's key with `role: runner`, and prints who ran
-each exam.
+than one keeps one signed answer per check. Then check what the runner
+signed against the record:
+
+- `operation` is the record's `intent.uid` and the subject its `to` digest
+- the counts and the suite match the verdict's `citation`
+- the verdict's result follows from the counts and the Stage check's
+  `minPassRate` in the record's `policy` (a model the runner named can only
+  make it worse)
+
+An eval verdict that says Pass or Fail but keeps no `runnerBundle` was not
+signed by any runner: do not trust it. With cluster access,
+`pacto delivery record verify` does all of this when the trust config also
+lists the runner's key with `role: runner`, and prints who ran each exam. It
+finds the eval verdicts from the record's Stage policy and citations. To
+decide that yourself, list on the runner key the providers whose verdicts it
+must sign:
+
+```yaml
+keys:
+  - name: evals-ci
+    role: runner
+    providers: [evals]
+    publicKey: |
+      -----BEGIN PUBLIC KEY-----
+      ...
+```
+
+What this cannot catch: a promoter that reuses an answer the runner signed
+earlier in the same operation, for the same version. The runner signs the
+challenge the promoter sent it, but nothing outside the promoter saw that
+challenge.
 
 ## Check a version was signed
 

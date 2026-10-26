@@ -43,7 +43,7 @@ func TestEvalGateReadsTheShippedSuite(t *testing.T) {
 		algo, hex, _ := strings.Cut(q.Input.Subjects[0], ":")
 		payload, _ := json.Marshal(delivery.EvalStatement{Type: delivery.StatementType, PredicateType: delivery.PredicateEval,
 			Subject:   []delivery.Subject{{Name: "pay-agent", Digest: map[string]string{algo: hex}}},
-			Predicate: delivery.EvalResult{Suite: q.Input.Suite.Digest, Run: "r", Passed: 1, Total: 1}})
+			Predicate: delivery.EvalResult{Challenge: q.Input.Challenge, Suite: q.Input.Suite.Digest, Run: "r", Passed: 1, Total: 1}})
 		_ = json.NewEncoder(w).Encode(map[string]any{"mediaType": delivery.BundleMediaType, "dsseEnvelope": map[string]any{
 			"payload": payload, "payloadType": delivery.PayloadType, "signatures": []map[string]any{{"sig": "c2ln"}}}})
 	}))
@@ -52,7 +52,7 @@ func TestEvalGateReadsTheShippedSuite(t *testing.T) {
 	trusted := func([]byte) (string, error) { return "evals-ci", nil }
 	gates := NewGates(e.op.Cluster, map[string]delivery.Gate{"evals": delivery.Eval{URL: srv.URL, Client: srv.Client(), Verify: trusted}, "mira": e.health})
 
-	in := delivery.GateInput{Stage: delivery.StageRef{Namespace: ns, Name: agent.Name}, Subjects: []string{dB}}
+	in := delivery.GateInput{Stage: delivery.StageRef{Namespace: ns, Name: agent.Name}, Subjects: []string{dB}, Challenge: "c1"}
 	if v := gates["evals"].Check(context.Background(), in, nil); v.Result != delivery.Pass || asked.Contract != contractRef(c2) ||
 		asked.Suite.Digest != "sha256:67fd4cc91da7c4d6870049981fed4d367327a4bb687e73666652796d80b533b8" {
 		t.Fatalf("%+v asked %+v", v, asked)

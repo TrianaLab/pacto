@@ -215,7 +215,7 @@ func (d *Delivery) VerifyRecords(ctx context.Context, ns, stage string) (*delive
 	for _, rec := range r.Fold.Records {
 		p := rec.Statement.Predicate
 		check := delivery.RecordCheck{Seq: p.Chain.Seq, Record: rec.ID, Manifest: rec.Manifest, Kind: p.Kind,
-			Operation: p.Intent.Name, Guarded: p.Guarded, Runners: runnerChecks(p.Verdicts, runners)}
+			Operation: p.Intent.Name, Guarded: p.Guarded, Runners: runnerChecks(p, runners, d.Trust.RunnerProviders())}
 		for _, rc := range check.Runners {
 			v.OK = v.OK && rc.OK
 		}
@@ -240,17 +240,15 @@ func (d *Delivery) VerifyRecords(ctx context.Context, ns, stage string) (*delive
 	return v, nil
 }
 
-// runnerChecks checks the runner's own signature on every verdict that keeps
-// one: an eval verdict whose runner no runner key of the trust config vouches
-// for does not verify, so who ran the exam is never taken on the promoter's word.
-func runnerChecks(verdicts []delivery.Verdict, runners delivery.RunnerVerifier) []delivery.RunnerCheck {
+// runnerChecks checks the runner's own signature on every eval verdict of
+// record p: one that keeps no signed answer, or whose runner no runner key of
+// the trust config vouches for, does not verify, so who ran the exam and what
+// it found is never taken on the promoter's word.
+func runnerChecks(p delivery.RecordPredicate, runners delivery.RunnerVerifier, providers []string) []delivery.RunnerCheck {
 	var out []delivery.RunnerCheck
-	for _, x := range verdicts {
-		if x.Citation["runnerBundle"] == "" {
-			continue
-		}
+	for _, x := range delivery.EvalVerdicts(p, providers) {
 		rc := delivery.RunnerCheck{Gate: x.Gate, Cited: x.Citation["runner"]}
-		runner, err := delivery.CheckRunner(x, runners)
+		runner, err := delivery.CheckRunner(x, p, runners)
 		rc.Runner, rc.OK = runner, err == nil
 		if err != nil {
 			rc.Problem = err.Error()

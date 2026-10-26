@@ -143,6 +143,7 @@ Sigstore bundle: a DSSE envelope over a statement it signs.
   "predicateType": "delivery.pacto.trianalab.io/eval/v1",
   "predicate": {
     "operation": "<the input's operationUID>",
+    "challenge": "<the input's challenge>",
     "suite": "sha256:...",
     "run": "https://evals.example/runs/7",
     "passed": 48,
@@ -153,8 +154,10 @@ Sigstore bundle: a DSSE envelope over a statement it signs.
 }
 ```
 
-`operation` is the input's `operationUID`, `suite` the sha256 of the suite it
-ran and `observedModel` (optional) the model it saw answer. The provider lists the runners it trusts in `signers`,
+`operation` is the input's `operationUID` and `challenge` the input's
+`challenge`, fresh random hex for every check, so an answer signed for an
+earlier check cannot be replayed for this one. `suite` is the sha256 of the
+suite it ran and `observedModel` (optional) the model it saw answer. The provider lists the runners it trusts in `signers`,
 each a public key or a keyless identity:
 
 ```yaml
@@ -185,6 +188,9 @@ These are Unknown, never Pass or Fail:
 
 - an answer no listed signer signed
 - an answer about another version or another suite
+- an answer signed for another operation
+- an answer that does not echo this check's challenge
+- a suite whose sha256 is not the Stage's `suiteDigest`
 - no cases, or no run to cite
 - a version whose contract cannot be read or does not ship the suite
 
