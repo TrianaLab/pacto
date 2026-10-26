@@ -152,16 +152,16 @@ test.describe('Browser demo: the delivery story', () => {
     await page.goto('/#/delivery/history?namespace=prod&stage=payments');
     const prod = page.getByRole('region', { name: 'History of prod/payments' });
     await expect(prod).toContainText('Runs 3.0.0', { timeout: T });
-    await expect(prod.getByTestId('history-source')).toHaveText('From signed records, complete');
+    await expect(prod.getByTestId('history-source')).toHaveText('From signed records, every signature verified, complete.');
   });
 
   test('history shows the deliberate gap, the untrusted record and a status-only Stage', async ({ page }) => {
     await ready(page, '#/delivery/history');
     const test_ = page.getByRole('region', { name: 'History of test/payments' });
-    await expect(test_.getByTestId('history-source')).toHaveText('From signed records, partial', { timeout: T });
+    await expect(test_.getByTestId('history-source')).toHaveText('From signed records, every signature verified, partial.', { timeout: T });
     await expect(test_.getByTestId('history-problems')).toContainText('is a gap');
     await expect(test_.getByTestId('history-unreadable')).toContainText('not signed by the key this tab trusts');
-    await expect(page.getByRole('region', { name: 'History of test/fraud' }).getByTestId('history-source')).toHaveText('From status, partial');
+    await expect(page.getByRole('region', { name: 'History of test/fraud' }).getByTestId('history-source')).toHaveText('From status, partial.');
   });
 
   test('the published view lists the refused 2.4.3 with the bump it needs, said to be unchecked', async ({ page }) => {

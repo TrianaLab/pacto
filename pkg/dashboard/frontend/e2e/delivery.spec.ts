@@ -318,12 +318,12 @@ test.describe('Delivery views', () => {
     await page.goto('/#/delivery/history');
     const prod = page.getByRole('region', { name: 'History of prod/payments-prod' });
     const test_ = page.getByRole('region', { name: 'History of test/payments-test' });
-    await expect(prod.getByTestId('history-source')).toHaveText('From signed records, partial', { timeout: T });
-    await expect(test_.getByTestId('history-source')).toHaveText('From status, partial');
+    await expect(prod.getByTestId('history-source')).toHaveText('From signed records, every signature verified, partial.', { timeout: T });
+    await expect(test_.getByTestId('history-source')).toHaveText('From status, partial.');
     await expect(prod.getByTestId('history-problems')).toContainText('something moved it with no record');
     await expect(prod.getByTestId('history-unreadable')).toContainText('not trusted here');
-    await expect(prod.getByRole('row', { name: /^2 Gap/ })).toBeVisible();
-    await expect(prod.getByRole('row', { name: /op2|Verifying/ }).last()).toContainText('Not recorded yet');
+    await expect(prod.getByRole('row', { name: /^#2 Gap/ })).toBeVisible();
+    await expect(prod.getByRole('row', { name: /op2|Verifying/ }).first()).toContainText('Not recorded yet');
     await expect(prod.getByRole('cell', { name: 'cccccccccccc' })).toBeVisible();
     await expect(test_.getByRole('link', { name: 'Roll back' })).toHaveAttribute('href', '#/delivery/changes/test/op5');
     await audit(page, 'history');
@@ -339,8 +339,8 @@ test.describe('Delivery views', () => {
     await as(page, 'carol');
     await page.goto('/#/delivery/history');
     const prod = page.getByRole('region', { name: 'History of prod/payments-prod' });
-    await expect(prod.getByRole('row', { name: /^3 Promote/ })).toContainText('1.4.0 → 2.0.0', { timeout: T });
-    await expect(prod.getByRole('row', { name: /^1 Promote/ })).toContainText('pacto-delivery/pacto-operator-delivery Controller');
+    await expect(prod.getByRole('row', { name: /^#3 Promote/ })).toContainText('1.4.0 → 2.0.0', { timeout: T });
+    await expect(prod.getByRole('row', { name: /^#1 Promote/ })).toContainText('pacto-delivery/pacto-operator-delivery Controller');
     await prod.getByRole('button', { name: 'Who put 2.0.0 here?' }).click();
     const blame = page.getByTestId('blame-panel');
     await expect(blame).toContainText('Approve by Dave Lee', { timeout: T });
