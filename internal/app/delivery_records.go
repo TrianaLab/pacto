@@ -208,7 +208,8 @@ func (d *Delivery) VerifyRecords(ctx context.Context, ns, stage string) (*delive
 		return nil, fmt.Errorf("Stage %s/%s has no records: the recorder has not written its stream anchor", ns, stage)
 	}
 	v := &delivery.StreamVerification{Stage: ns + "/" + stage, Stream: st.Status.Stream.ID, Anchor: r.anchor,
-		AsOf: d.Now().UTC().Format(time.RFC3339), Head: r.Fold.Head, Trust: d.Trust.Digest(), Problems: r.Fold.Problems,
+		AsOf: d.Now().UTC().Format(time.RFC3339), Head: r.Fold.Head, Trust: d.Trust.Digest(),
+		Problems:   slices.Concat(r.Fold.Problems, delivery.UnrecordableProblems(r.Fold.Records)),
 		Unreadable: r.Unreadable, Records: []delivery.RecordCheck{}}
 	v.OK = len(v.Problems) == 0 && len(v.Unreadable) == 0
 	runners, _ := d.Trust.Runners(signing.OpenKey) // validated when the trust config was parsed

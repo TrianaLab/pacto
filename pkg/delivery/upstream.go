@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -28,6 +29,11 @@ func UpstreamFromRecords(recs []StoredRecord, seen RecordMark) (*StageStatus, st
 	if len(f.Problems) > 0 {
 		return nil, "the stream is not whole: " + strings.Join(f.Problems, "; ")
 	}
+	if bad := UnrecordableProblems(f.Records); len(bad) > 0 {
+		// Its type, params and outcome are gone: it could be the Fail that
+		// marks a version failed, so nothing is offered until a person looks.
+		return nil, strings.Join(bad, "; ")
+	}
 	s := &StageStatus{}
 	at := map[int64]string{}
 	for _, r := range f.Records {
@@ -40,6 +46,21 @@ func UpstreamFromRecords(recs []StoredRecord, seen RecordMark) (*StageStatus, st
 		return nil, why
 	}
 	return s, ""
+}
+
+// UnrecordableProblems names the unrecordable stand-ins among recs: records
+// of operations that failed a recording check, which keep none of what the
+// operation did. A follower cannot tell whether one was the failure that
+// marks a version failed, and an auditor cannot tell what it changed.
+func UnrecordableProblems(recs []StoredRecord) []string {
+	var out []string
+	for _, r := range recs {
+		if u := r.Statement.Predicate.Unrecordable; u != nil {
+			out = append(out, fmt.Sprintf("seq %d (%s) is an unrecordable stand-in (%s: %s): what it did is not in the record",
+				r.Statement.Predicate.Chain.Seq, cmp.Or(r.Statement.Predicate.Intent.Name, short(r.ID)), u.Check, u.Message))
+		}
+	}
+	return out
 }
 
 // UpstreamTruncated says why a read of an upstream stream that ends at got,

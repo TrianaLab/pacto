@@ -112,3 +112,18 @@ func TestUpstreamTruncated(t *testing.T) {
 		}
 	}
 }
+
+// An unrecordable stand-in keeps no type, params or outcome: it could be the
+// Fail that marks a version failed, so a follower offers nothing.
+func TestUpstreamRefusesAnUnrecordableStandIn(t *testing.T) {
+	recs := []StoredRecord{
+		upstreamRecord(1, "", TypePromote, dA, Succeeded, Verified, true),
+		{ID: "r2", Statement: Statement{Predicate: RecordPredicate{Kind: RecordUnrecordable, Intent: RecordIntent{Name: "promote-x-rollback"},
+			Unrecordable: &Refusal{Check: CheckSensitive, Message: "a field looks like a secret"},
+			Chain:        Chain{Stream: "c2/test/payments", Seq: 2, Parent: "r1"}}}},
+	}
+	if s, why := UpstreamFromRecords(recs, RecordMark{}); s != nil ||
+		!strings.Contains(why, "seq 2 (promote-x-rollback) is an unrecordable stand-in (sensitive-value: a field looks like a secret)") {
+		t.Fatalf("an unrecordable stand-in offers nothing: %+v %q", s, why)
+	}
+}

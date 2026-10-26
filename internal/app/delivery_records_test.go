@@ -451,6 +451,23 @@ func TestVerifyRecordsGuarded(t *testing.T) {
 	}
 }
 
+// TestVerifyRecordsUnrecordable: a stand-in for an operation that failed a
+// recording check keeps nothing of what it did, so the stream does not verify.
+func TestVerifyRecordsUnrecordable(t *testing.T) {
+	e := newRecordEnv(t)
+	r1 := e.attach("delivery/streams", e.anchor, move(1, "", "boot", "", dlC))
+	stand := delivery.RecordPredicate{Kind: delivery.RecordUnrecordable, Intent: delivery.RecordIntent{UID: "uid-rb", Name: "ship-rollback"},
+		Unrecordable: &delivery.Refusal{Check: delivery.CheckSensitive, Message: "a value looks like a secret"},
+		Chain:        delivery.Chain{Stream: recStream, Seq: 2, Parent: r1}, Time: delivery.RecordTime{Finished: "2026-10-21T10:00:00Z"}}
+	r2 := e.attach("delivery/streams", e.anchor, stand)
+	e.setStream(map[string]any{"stream": map[string]any{"id": recStream, "seq": int64(2), "recordedSeq": int64(2), "head": r2,
+		"anchor": deliveryrecord.AnchorRef(e.host+"/delivery/streams", recStream)}})
+	v, err := e.d.VerifyRecords(context.Background(), "prod", "payments-prod")
+	if err != nil || v.OK || len(v.Problems) != 1 || !strings.Contains(v.Problems[0], "seq 2 (ship-rollback) is an unrecordable stand-in") {
+		t.Fatalf("verification = %+v %v", v, err)
+	}
+}
+
 func TestVerifyRecords(t *testing.T) {
 	e := newRecordEnv(t)
 	ctx := context.Background()
