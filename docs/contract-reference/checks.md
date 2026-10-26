@@ -108,8 +108,8 @@ To pin an agent completely:
   ConfigMap or Secret outside them.
 
 - Have the eval runner report the model that answered (`observedModel`).
-  The eval check then fails when that model is not the version the contract
-  declares, and a Stage check with `requireObservedModel: true` stays
+  The eval check then fails when no external dependency version in the
+  contract names that model, and a Stage check with `requireObservedModel: true` stays
   Unknown until the runner says.
 
 What this does not cover: a prompt or tool list the agent fetches at runtime,
