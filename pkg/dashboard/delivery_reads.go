@@ -224,14 +224,27 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	// and per frozen Stage is the expensive part.
 	b.Held, b.HeldPage = pageOf(held, in.Held, in.Limit, inboxPage)
 	byStage := stagesByName(stages)
-	for i, it := range b.Held {
-		b.Held[i] = withVersions(ctx, api, byStage[it.Namespace+"/"+it.Stage], it)
-	}
 	var page []delivery.StageObject
 	page, b.FrozenPage = pageOf(frozenStages, in.Frozen, in.Limit, inboxPage)
+	// Every artifact the page names is read in one go.
+	var on []digestsOn
+	for _, it := range b.Held {
+		if st := byStage[it.Namespace+"/"+it.Stage]; st != nil { // nil: the caller cannot see the Stage
+			on = append(on, digestsOn{st, []string{it.From, it.To}})
+		}
+	}
+	for i := range page {
+		on = append(on, digestsOn{&page[i], []string{page[i].Status.Pointer, page[i].Status.Candidate}})
+	}
+	vers := versionsAll(ctx, api, nil, on...)
+	for i, it := range b.Held {
+		if byStage[it.Namespace+"/"+it.Stage] != nil {
+			b.Held[i].FromVersion, b.Held[i].ToVersion = vers[it.From], vers[it.To]
+		}
+	}
 	b.Frozen = []EnvironmentRow{}
 	for _, st := range page {
-		b.Frozen = append(b.Frozen, s.environmentRow(ctx, api, st, nil, caller))
+		b.Frozen = append(b.Frozen, environmentRow(st, nil, caller, vers))
 	}
 	b.Errored, b.ErroredPage = pageOf(errored, in.Errored, in.Limit, inboxPage)
 	return out, nil
@@ -289,16 +302,6 @@ func stagesByName(stages []delivery.StageObject) map[string]*delivery.StageObjec
 	return out
 }
 
-// withVersions names the versions an item moves between, read from its
-// Stage's artifacts; nil when the caller cannot see the Stage.
-func withVersions(ctx context.Context, api DeliveryAPI, st *delivery.StageObject, it InboxItem) InboxItem {
-	if st != nil {
-		v := versions(ctx, api, st, nil, it.From, it.To)
-		it.FromVersion, it.ToVersion = v[it.From], v[it.To]
-	}
-	return it
-}
-
 // EnvironmentRow is one Stage: one service in one environment.
 type EnvironmentRow struct {
 	Namespace        string   `json:"namespace"`
@@ -324,8 +327,8 @@ type EnvironmentRow struct {
 }
 
 // environmentRow is one Stage as the board shows it; held counts the held
-// operations by namespace/Stage.
-func (s *Server) environmentRow(ctx context.Context, api DeliveryAPI, st delivery.StageObject, held map[string]int, caller delivery.Caller) EnvironmentRow {
+// operations by namespace/Stage and vers names the versions of digests.
+func environmentRow(st delivery.StageObject, held map[string]int, caller delivery.Caller, vers map[string]string) EnvironmentRow {
 	ss := st.Status
 	row := EnvironmentRow{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Service: st.Spec.Service.Name, Environment: st.Spec.Environment,
 		Pointer: ss.Pointer, Verified: slices.Contains(ss.Verified, ss.Pointer), Failed: slices.Contains(ss.FailedDigests, ss.Pointer),
@@ -344,8 +347,7 @@ func (s *Server) environmentRow(ctx context.Context, api DeliveryAPI, st deliver
 			}
 		}
 	}
-	v := versions(ctx, api, &st, nil, ss.Pointer, ss.Candidate)
-	row.Version, row.CandidateVersion = v[ss.Pointer], v[ss.Candidate]
+	row.Version, row.CandidateVersion = vers[ss.Pointer], vers[ss.Candidate]
 	row.Held = held[row.Namespace+"/"+row.Stage]
 	if delivery.MayRaise(delivery.TypePromote, caller.Class, false) && ss.Candidate != "" && ss.Candidate != ss.Pointer {
 		row.Actions = append(row.Actions, "promote")
@@ -405,10 +407,19 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	out.Body.Listing, out.Body.Environments, out.Body.EnvironmentNames = l, []EnvironmentRow{}, slices.Compact(envs)
 	var page []string
 	page, out.Body.Page = pageOf(slices.Compact(services), in.Offset, in.Limit, environmentsPage)
+	var shown []delivery.StageObject
 	for _, st := range stages {
 		if slices.Contains(page, st.Spec.Service.Name) {
-			out.Body.Environments = append(out.Body.Environments, s.environmentRow(ctx, api, st, held, caller))
+			shown = append(shown, st)
 		}
+	}
+	var on []digestsOn
+	for i := range shown {
+		on = append(on, digestsOn{&shown[i], []string{shown[i].Status.Pointer, shown[i].Status.Candidate}})
+	}
+	vers := versionsAll(ctx, api, nil, on...)
+	for _, st := range shown {
+		out.Body.Environments = append(out.Body.Environments, environmentRow(st, held, caller, vers))
 	}
 	slices.SortFunc(out.Body.Environments, func(a, b EnvironmentRow) int {
 		return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Environment, b.Environment), cmp.Compare(a.Namespace, b.Namespace))
@@ -617,6 +628,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	out.Body.Histories = []StageHistory{}
 	out.Body.Versions = map[string]string{}
 	var actors []string
+	var on []digestsOn
 	hs, errs := historiesOf(ctx, api, targets)
 	for i, t := range targets {
 		if errs[i] != nil {
@@ -639,10 +651,11 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 			digests, actors = append(digests, e.From, e.To), append(actors, e.Actor)
 		}
 		if describe {
-			versions(ctx, api, &t, out.Body.Versions, digests...)
+			on = append(on, digestsOn{&targets[i], digests})
 		}
 		out.Body.Histories = append(out.Body.Histories, sh)
 	}
+	versionsAll(ctx, api, out.Body.Versions, on...)
 	out.Body.People = s.named(actors...)
 	return out, nil
 }
@@ -670,16 +683,31 @@ func historiesOf(ctx context.Context, api DeliveryAPI, targets []delivery.StageO
 // ponytail: a digest that cannot be read is asked again each time it is
 // named; the host caches only what it read.
 func versions(ctx context.Context, api DeliveryAPI, stage *delivery.StageObject, into map[string]string, digests ...string) map[string]string {
+	return versionsAll(ctx, api, into, digestsOn{stage, digests})
+}
+
+// digestsOn are digests to read from one Stage's artifacts.
+type digestsOn struct {
+	stage   *delivery.StageObject
+	digests []string
+}
+
+// versionsAll is versions for the digests of many Stages, all read at once:
+// a page that asked Stage by Stage read two artifacts at a time.
+func versionsAll(ctx context.Context, api DeliveryAPI, into map[string]string, on ...digestsOn) map[string]string {
 	if into == nil {
 		into = map[string]string{}
 	}
 	var ask []string
-	for _, d := range digests {
-		if _, known := into[d]; !known && d != "" && !slices.Contains(ask, d) {
-			ask = append(ask, d)
+	from := map[string]*delivery.StageObject{}
+	for _, o := range on {
+		for _, d := range o.digests {
+			if _, known := into[d]; !known && d != "" && !slices.Contains(ask, d) {
+				ask, from[d] = append(ask, d), o.stage
+			}
 		}
 	}
-	revs := describeAll(ctx, api, len(ask), func(i int) (*delivery.StageObject, string) { return stage, ask[i] })
+	revs := describeAll(ctx, api, len(ask), func(i int) (*delivery.StageObject, string) { return from[ask[i]], ask[i] })
 	for i, d := range ask {
 		if v := version(ctx, revs[i]); v != "" {
 			into[d] = v

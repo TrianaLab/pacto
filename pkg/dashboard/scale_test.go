@@ -198,6 +198,27 @@ func TestHistoryPageReadsInParallel(t *testing.T) {
 	expect(t, c.histories.Load() == 25 && took < 250*time.Millisecond, "25 histories took %v (%d read)", took, c.histories.Load())
 }
 
+// slowDescribe reads an artifact the way a registry does, after a round trip.
+type slowDescribe struct{ *countingDelivery }
+
+func (s slowDescribe) Describe(ctx context.Context, st *delivery.StageObject, d string) delivery.Revision {
+	time.Sleep(5 * time.Millisecond)
+	return s.countingDelivery.Describe(ctx, st, d)
+}
+
+// A board page reads all of its artifacts at once, each digest once: about
+// 200 cold reads two at a time, Stage by Stage, took half a second.
+func TestEnvironmentsPageReadsArtifactsTogether(t *testing.T) {
+	c, q := largeCluster(t)
+	srv := NewServer(Options{UI: testUI(), Fleet: q, Delivery: func(*http.Request) (DeliveryAPI, error) { return slowDescribe{c}, nil }})
+	mux := http.NewServeMux()
+	srv.registerAPI(mux)
+	start := time.Now()
+	serveScale(t, withRequest(mux), "/api/delivery/environments")
+	took := time.Since(start)
+	expect(t, c.describes.Load() >= 40 && took < 200*time.Millisecond, "%d artifact reads took %v", c.describes.Load(), took)
+}
+
 // go test ./pkg/dashboard -run '^$' -bench LargeFleet
 func BenchmarkLargeFleet(b *testing.B) {
 	h, _ := scaleHandler(b)
