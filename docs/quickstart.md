@@ -128,9 +128,10 @@ schema:
 
 ## 6. Diff the two versions
 
-From inside `my-service`, compare the original contract against `v2`:
+Move into `my-service` and compare the original contract against `v2`:
 
 ```console
+$ cd my-service
 $ pacto diff . ../v2
 Classification: BREAKING
 Required bump: major

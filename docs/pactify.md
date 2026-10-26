@@ -4,8 +4,8 @@ To pactify a service is to give it a Pacto contract and let Pacto check every
 new version before it runs. A contract is one file, `pacto.yaml`, kept next to
 your code. It says what the service offers, which other services it calls and
 how it is built and run. This guide takes a plain service to a contract,
-signed published versions and Stages that watch on observe, and shows how a
-Stage leaves observe once it has earned it. Every command is on
+signed published versions and environments Pacto only watches, and shows how
+an environment moves past watching once it has earned it. Every command is on
 this page except the one-time cluster setup for approvals. To see where it leads first,
 with nothing to install, press **Play the delivery story** in the
 [live dashboard demo](examples/dashboard-demo.md); it runs in your browser.

@@ -4,11 +4,15 @@
 
 **Pacto is continuous delivery for the GitlessOps era.**
 
+GitlessOps means which version runs where is set from signed artifacts in
+your container registry and from evidence, not from commits to git. Your code
+and deployment files stay in git.
+
 Describe your services once, as contracts. Pacto works out what each change
 does to the services that depend on it. It starts by watching, and once a
 person has confirmed each step it ships the changes the contract graph clears.
 It asks only the teams a change affects. Flux or Argo CD still apply every
-version, and your code stays in git.
+version.
 
 The contracts are the foundation. A contract is one YAML file per service:
 who owns it, what it offers, which services it calls and which of their
@@ -38,8 +42,7 @@ contract is unchanged but whose manifests grant it more ships like any other.
 Flux applies those manifests with the rights of the account its Kustomization
 runs as, so give it a namespaced one (`pacto init --delivery` writes a
 deployer account) and treat the key that signs `pacto publish` as the root of
-trust. The Stage's `Mediated` condition is `False` while the applier runs as
-Flux itself.
+trust.
 
 Delivery is alpha: its settings and commands may still change, and it runs on
 Kubernetes 1.30 or later with Flux (Argo CD is experimental).
@@ -172,5 +175,5 @@ command in the [CLI reference](https://pacto.run/latest/cli-reference).
 
 ## License
 
-Fully open source under the [MIT](LICENSE) licence, delivery included, with no
+Fully open source under the [MIT](LICENSE) license, delivery included, with no
 hosted service.
