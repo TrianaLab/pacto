@@ -6,18 +6,17 @@ follow [Pactify a service](../../pactify.md) instead. The API group is
 
 ## Install
 
-Delivery is the `delivery` section of the `pacto-operator` chart, off by
-default. It needs Flux (source and kustomize controllers). Turn it on:
+Delivery is the `pacto-operator` chart's `delivery` section, off by default. It needs Flux (source and kustomize controllers). Turn it on:
 
 --8<-- "integrations/kubernetes/docs/generated/_delivery-install-command.md"
 
-On, it adds the promoter, its CRDs, admission policies, ServiceAccounts and
-roles; the operator's own do not change. Its signed image is listed in
+It adds the promoter, CRDs, admission policies, ServiceAccounts and roles;
+the operator's own do not change. Its image is signed; see
 [Published artifacts](artifact-hub.md). Objects are named
 `<release>-delivery[-part]`: bind `pacto-operator-delivery-agent` to your
 agents and `pacto-operator-delivery-approver` to the people who may approve.
-The identity policy lives in the release namespace; pass it to
-`pacto delivery` and `pacto mcp --delivery` with `--delivery-namespace`.
+Pass the release namespace to `pacto delivery` and `pacto mcp --delivery`
+as `--delivery-namespace`.
 
 The admission policies make the actor of an Operation and the person behind
 an Approval true, so the chart refuses Kubernetes below 1.30, a cluster
@@ -28,8 +27,7 @@ without the `ValidatingAdmissionPolicy` API and
 The promoter checks every policy the chart rendered. While one is missing,
 does not fail closed or has a binding that does not deny, binds another policy
 or is narrowed by `matchResources` or `paramRef`, it admits no operation and
-counts no approval: the operation and the Stage's `Ready` condition show
-`Unguarded`.
+counts no approval; the operation and the Stage's `Ready` show `Unguarded`.
 
 To run an unreleased change, from the repository root:
 
