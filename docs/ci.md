@@ -19,6 +19,22 @@ contract yours depends on, so every build checks against the same ones. It is
 optional: without it, Pacto looks dependencies up fresh each time. See
 [Lockfile](lockfile.md).
 
+## Declare your API first
+
+`pacto diff` sees API changes only in the interfaces the contract declares.
+If `pacto init` did not find your OpenAPI document, add it to `pacto.yaml`
+yourself, with the path from the repository root:
+
+```yaml
+interfaces:
+  - name: rest-api
+    type: openapi
+    ref: api/openapi.yaml
+    visibility: public          # other teams may call it
+```
+
+Other interface types and fields are in [Contract sections](contract-reference/sections.md#interfaces).
+
 ## On every pull request
 
 The snippets below are steps of a GitHub Actions job, after
@@ -53,9 +69,7 @@ env:
 each other and failed policies, the rules your platform team may set for
 every contract.
 
-`pacto diff` sees API changes only in the interfaces the contract declares,
-such as an OpenAPI document listed under `interfaces` (see
-[Contract sections](contract-reference/sections.md)). It compares the contract in the pull request (the second argument)
+`pacto diff` compares the contract in the pull request (the second argument)
 with the last one you published (the first). With no version after the name,
 it picks the highest published version. It exits 1 when the change is
 breaking, meaning it removes or changes something other services may use, so
