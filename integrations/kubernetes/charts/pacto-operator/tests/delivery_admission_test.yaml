@@ -3,7 +3,7 @@ templates:
   - templates/delivery/admission.yaml
 release:
   name: d
-  namespace: pacto-delivery
+  namespace: pacto-system
 set:
   delivery.enabled: true
 capabilities:

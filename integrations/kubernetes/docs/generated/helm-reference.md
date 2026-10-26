@@ -22,7 +22,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `controller.kernelEvidence.staleness` | `""` | How old a node's heartbeat may be before its evidence reads stale. Empty uses three times the node agent's publish interval. Accepts a Go duration (e.g. "2m"). |
 | `controller.stabilizationWindow` | `""` | Stabilization window: how long a sustained NEGATIVE observation must persist before it converts to a confirmed violation (a transient blip reads Unknown meanwhile). Empty string uses the controller default (2m). Accepts a Go duration (e.g. "30s", "5m"). |
 | `controller.watchNamespace` | `""` | Restrict the controller's observation scope to a single namespace. Empty string (default) means cluster-wide: the controller watches all namespaces. The dashboard inherits this scope automatically. |
-| `dashboard.auth.deliveryNamespace` | `""` | Namespace where Pacto delivery runs. The dashboard reads the identity policy it publishes there (agent, break-glass and human groups, team prefix), so it is never configured twice (empty: the release namespace when `delivery.enabled`, else `pacto-delivery`) |
+| `dashboard.auth.deliveryNamespace` | `""` | Namespace where Pacto delivery runs. The dashboard reads the identity policy it publishes there (agent, break-glass and human groups, team prefix), so it is never configured twice (empty: `delivery.namespace` when `delivery.enabled`, else `pacto-delivery`) |
 | `dashboard.auth.oidc.clientID` | `""` | The dashboard's client id at the issuer |
 | `dashboard.auth.oidc.clientSecretRef.key` | `client-secret` | Key of the client secret in that Secret |
 | `dashboard.auth.oidc.clientSecretRef.name` | `""` | Secret in the operator namespace holding the client secret (passed by secretKeyRef) |
@@ -53,6 +53,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `delivery.admissionPolicies.enabled` | `true` | Install the ValidatingAdmissionPolicies (Kubernetes 1.30 or later): an operation's actor is the requesting user, only the promoter may set witnessed, override and unfreeze are limited to their raisers, cancel is refused once the pointer moved and an agent cancels only its own operations, approvals come from people and never change, spec.ref.digest is edited only by the promoter or break-glass, and on objects labelled delivery.pacto.trianalab.io/apply-ref the label, the source and what a Kustomization applies change only by break-glass. The promoter admits no operation and counts no approval while any of them is missing or does not deny. |
 | `delivery.affinity` | `{}` | Affinity for the promoter pod |
 | `delivery.argocd.enabled` | `false` | Let Stages name an Argo CD Application as their applier (`spec.applyRef.kind: Application`). Grants the promoter patch on `argoproj.io` Applications (it only sets `spec.source.targetRevision`, and the pointer admission policy holds it to that) and read access to the agent, approver and recorder roles. Off by default. |
+| `delivery.createNamespace` | `true` | Create `delivery.namespace`. Set false to create it yourself first, for example to put the recorder key Secret in it before the install |
 | `delivery.enabled` | `false` | Install Pacto delivery: the promoter, its CRDs (Stage, Operation, Approval), roles and admission policies |
 | `delivery.gates.providers` | `[]` | Health gate providers a Stage may name in `spec.gates.verify.checks[].provider`, each `{name, type, url}` with type `mira` (Mira's query API), `http` (any tool behind the plug-in format) or `eval` (an eval runner for an AI agent's eval suite). The URL is operator configuration: a Stage only names a provider and an agent names nothing. `pacto.contract` and `pacto.runtime` are built in. |
 | `delivery.identities.agentGroups` | `null` | Groups whose members are agents. Agents may propose, never approve or unfreeze. Service accounts other than the promoter are always agents. |
@@ -70,6 +71,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `delivery.metrics.serviceMonitor.enabled` | `false` | Create a Prometheus Operator ServiceMonitor for that Service |
 | `delivery.metrics.serviceMonitor.interval` | `""` | Scrape interval (empty uses Prometheus' default) |
 | `delivery.metrics.serviceMonitor.scrapeTimeout` | `""` | Scrape timeout (empty uses Prometheus' default) |
+| `delivery.namespace` | `pacto-delivery` | Dedicated namespace the promoter and the recorder run in. The chart creates it; it must not be the release namespace (the operator can create Deployments and Secrets there). |
 | `delivery.nodeSelector` | `{}` | Node selector for the promoter pod |
 | `delivery.podSecurityContext.runAsNonRoot` | `true` | Run pod as non-root |
 | `delivery.podSecurityContext.seccompProfile.type` | `RuntimeDefault` | Seccomp profile type |

@@ -36,6 +36,8 @@ set -euo pipefail
 CMD="${1:-help}"
 CLUSTER=pacto-delivery-demo
 NS=pacto-system
+# Delivery runs in its own namespace, where the operator holds no role.
+DNS=pacto-delivery
 REG_HOST="pacto-registry.${NS}.svc.cluster.local:5000"
 LOCAL_REG_PORT=5602
 FLUX_VERSION=v2.9.5
@@ -141,12 +143,12 @@ servers() {
     -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" -v "$IDP_DIR/recorder.pub:/trust/recorder.pub:ro" \
     "$DASH_IMG" dashboard --host 0.0.0.0 --port 3300 --oidc-issuer-url "$DEX_ISSUER" --oidc-client-id pacto-dashboard \
     --oidc-redirect-url "$DASH_URL/auth/callback" --oidc-extra-scopes audience:server:client_id:pacto-cli \
-    --delivery-namespace "$NS" --delivery-trust /trust/recorder.pub
+    --delivery-namespace "$DNS" --delivery-trust /trust/recorder.pub
   in_node pacto-e2e-mcp -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \
     -e PACTO_MCP_EXCHANGE_CLIENT_SECRET=mcp-secret -e PACTO_INSECURE_REGISTRIES="$REG_HOST" -v "$mcpkc:/kube/config:ro" \
     -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" -v "$IDP_DIR/recorder.pub:/trust/recorder.pub:ro" \
     "$DASH_IMG" mcp --delivery -t http --host 0.0.0.0 --port 8585 --auth-issuer "$KC_ISSUER" \
-    --resource "$MCP_URL/mcp" --audience pacto-mcp --exchange-client-id pacto-mcp --delivery-namespace "$NS" --delivery-trust /trust/recorder.pub
+    --resource "$MCP_URL/mcp" --audience pacto-mcp --exchange-client-id pacto-mcp --delivery-namespace "$DNS" --delivery-trust /trust/recorder.pub
   dash_up() { curl -sf "$DASH_URL/health" >/dev/null; }
   eventually 40 dash_up || { docker logs pacto-e2e-dashboard 2>&1 | tail; fail "the dashboard did not start"; }
   mcp_up() { [ "$(curl -s -o /dev/null -w '%{http_code}' "$MCP_URL/mcp")" = 401 ]; }
@@ -356,7 +358,7 @@ cmd_up() {
   infra "load the images into the cluster" load_images "$OP_IMG" "$DL_IMG" "$DASH_IMG" "${FLUX_IMAGES[@]%@*}" \
     "${MIRA_IMG%@*}" "${PODINFO_IMG%@*}" "${PYTHON_IMG%@*}"
   local n
-  for n in "$NS" test prod agents; do kubectl create namespace "$n" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; done
+  for n in "$NS" "$DNS" test prod agents; do kubectl create namespace "$n" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; done
   timed "Dex for people, Keycloak for agents" idp_start
 
   section "zot, Flux, the Pacto operator chart with its node agent and delivery with the recorder, Mira"
@@ -364,7 +366,7 @@ cmd_up() {
   node_pulls_from_registry
   openssl genpkey -algorithm ed25519 -out "$KEYS/recorder.pem" 2>/dev/null || fail "openssl could not make the recorder's key"
   openssl pkey -in "$KEYS/recorder.pem" -pubout -out "$KEYS/recorder.pub"
-  kubectl -n "$NS" create secret generic recorder-key --from-file=key.pem="$KEYS/recorder.pem" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl -n "$DNS" create secret generic recorder-key --from-file=key.pem="$KEYS/recorder.pem" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   (cd "$KEYS" && COSIGN_PASSWORD="" cosign generate-key-pair >/dev/null 2>&1) || fail "cosign could not make the publisher's key"
   for n in test prod; do
     kubectl -n "$n" create secret generic cosign-pub --from-file=cosign.pub="$KEYS/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -374,7 +376,7 @@ cmd_up() {
   helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s \
     --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
     --set "insecureRegistries[0]=$REG_HOST" \
-    --set delivery.enabled=true \
+    --set delivery.enabled=true --set delivery.createNamespace=false \
     --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
     --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s --set delivery.identities.teamGroupPrefix=team- \
     --set-json "delivery.gates.providers=[{\"name\":\"mira\",\"type\":\"mira\",\"url\":\"http://mira.${NS}.svc.cluster.local:4318\"},{\"name\":\"evals\",\"type\":\"eval\",\"url\":\"http://eval-runner.${NS}.svc.cluster.local:8080\"}]" \
@@ -1276,7 +1278,7 @@ case "$CMD" in
   browser) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_browser ;;
   reach) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_reach ;;
   status) cmd_status ;;
-  logs) admin; dump_diag "$NS"; dump_identity; kubectl -n "$NS" logs deploy/pacto-operator-delivery --tail=100 2>&1 || true ;;
+  logs) admin; dump_diag "$NS"; dump_identity; kubectl -n "$DNS" logs deploy/pacto-operator-delivery --tail=100 2>&1 || true ;;
   down) cmd_down ;;
   all)
     rc=0; { bash "$0" up && bash "$0" story && bash "$0" browser && bash "$0" reach; } || rc=$?

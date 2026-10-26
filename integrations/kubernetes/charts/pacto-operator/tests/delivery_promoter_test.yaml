@@ -13,7 +13,7 @@ tests:
     template: templates/delivery/deployment.yaml
     release:
       name: d
-      namespace: pacto-delivery
+      namespace: pacto-system
     asserts:
       - equal:
           path: spec.template.spec.containers[0].args

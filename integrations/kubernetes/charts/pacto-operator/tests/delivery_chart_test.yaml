@@ -4,7 +4,13 @@ templates:
   - templates/delivery/deployment.yaml
   - templates/delivery/rbac.yaml
   - templates/delivery/admission.yaml
+  - templates/delivery/namespace.yaml
+  - templates/delivery/identities.yaml
+  - templates/delivery/recorder.yaml
   - templates/deployment.yaml
+  - templates/role.yaml
+  - templates/leader-election-role.yaml
+  - templates/nodeagent-namespace.yaml
 release:
   name: d
   namespace: pacto-system
@@ -131,14 +137,14 @@ tests:
         documentSelector: {path: kind, value: ClusterRoleBinding}
       - equal:
           path: subjects
-          value: [{kind: ServiceAccount, name: d-pacto-operator-delivery, namespace: pacto-system}]
+          value: [{kind: ServiceAccount, name: d-pacto-operator-delivery, namespace: pacto-delivery}]
         documentSelector: {path: kind, value: ClusterRoleBinding}
       - equal:
           path: roleRef.name
           value: d-pacto-operator-delivery-leader-election
         documentSelector: {path: kind, value: RoleBinding}
 
-  - it: points the dashboard at the release namespace when delivery runs there
+  - it: points the dashboard at the delivery namespace
     template: templates/deployment.yaml
     set:
       delivery.enabled: true
@@ -150,7 +156,7 @@ tests:
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
-          content: --dashboard-delivery-namespace=pacto-system
+          content: --dashboard-delivery-namespace=pacto-delivery
 
   - it: keeps an explicit dashboard delivery namespace
     template: templates/deployment.yaml
@@ -166,3 +172,94 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].args
           content: --dashboard-delivery-namespace=elsewhere
+
+  - it: creates delivery's own namespace
+    template: templates/delivery/namespace.yaml
+    set:
+      delivery.enabled: true
+    capabilities:
+      majorVersion: 1
+      minorVersion: 30
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - isKind:
+          of: Namespace
+      - equal:
+          path: metadata.name
+          value: pacto-delivery
+
+  - it: puts every namespaced delivery object in the delivery namespace
+    templates:
+      - templates/delivery/deployment.yaml
+      - templates/delivery/rbac.yaml
+      - templates/delivery/identities.yaml
+      - templates/delivery/recorder.yaml
+    set:
+      delivery.enabled: true
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/streams
+      delivery.recorder.signing.ed25519.secretName: recorder-key
+    capabilities:
+      majorVersion: 1
+      minorVersion: 30
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - notEqual:
+          path: metadata.namespace
+          value: pacto-system
+
+  - it: refuses to run delivery in the release namespace
+    template: templates/delivery/rbac.yaml
+    set:
+      delivery.enabled: true
+      delivery.namespace: pacto-system
+    capabilities:
+      majorVersion: 1
+      minorVersion: 30
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - failedTemplate:
+          errorPattern: delivery.namespace must not be the release namespace
+
+  # The operator must hold no Role in the delivery namespace: with create on
+  # Deployments or Secrets there it could run a pod as the promoter or mint
+  # the promoter's token and move the pointer itself.
+  - it: gives the operator no Role in the delivery namespace
+    templates:
+      - templates/role.yaml
+      - templates/leader-election-role.yaml
+      - templates/nodeagent-namespace.yaml
+    set:
+      delivery.enabled: true
+      dashboard.enabled: true
+      evidence.enabled: true
+      evidence.registry.subjects: ["oci://registry.example/contracts@sha256:0000000000000000000000000000000000000000000000000000000000000000"]
+      nodeAgent.enabled: true
+    capabilities:
+      majorVersion: 1
+      minorVersion: 30
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - notEqual:
+          path: metadata.namespace
+          value: pacto-delivery
+      - isNotNullOrEmpty:
+          path: metadata.name
+
+  - it: leaves the delivery namespace to you when asked
+    template: templates/delivery/namespace.yaml
+    set:
+      delivery.enabled: true
+      delivery.createNamespace: false
+    capabilities:
+      majorVersion: 1
+      minorVersion: 30
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - hasDocuments:
+          count: 0

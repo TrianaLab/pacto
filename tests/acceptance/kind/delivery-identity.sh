@@ -303,7 +303,7 @@ identity_scenario() {
   # Every client reads the one identity policy the delivery chart publishes,
   # with the person's own token: nothing is configured twice.
   local policy
-  policy="$(as_token "$kubelogin" -n "$NS" get configmap pacto-delivery-identities -o jsonpath='{.data.policy\.json}')" \
+  policy="$(as_token "$kubelogin" -n "$DNS" get configmap pacto-delivery-identities -o jsonpath='{.data.policy\.json}')" \
     || fail "a signed-in person cannot read the published identity policy"
   jq -e '.teamGroupPrefix == "team-" and .requireOwnerTeam == true and (.agentGroups | index("pacto:agents"))' <<<"$policy" >/dev/null \
     || fail "the published identity policy is not the chart's: $policy"

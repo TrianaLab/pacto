@@ -4,7 +4,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: {{ include "pacto-operator.delivery.serviceAccountName" . }}
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "pacto-operator.delivery.namespace" . }}
   labels:
     {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
   {{- with .Values.delivery.serviceAccount.annotations }}
@@ -90,13 +90,13 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ include "pacto-operator.delivery.serviceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
+    namespace: {{ include "pacto-operator.delivery.namespace" . }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: {{ include "pacto-operator.delivery.fullname" . }}-leader-election
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "pacto-operator.delivery.namespace" . }}
   labels:
     {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 rules:
@@ -111,7 +111,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: {{ include "pacto-operator.delivery.fullname" . }}-leader-election
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "pacto-operator.delivery.namespace" . }}
   labels:
     {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 roleRef:
@@ -121,7 +121,7 @@ roleRef:
 subjects:
   - kind: ServiceAccount
     name: {{ include "pacto-operator.delivery.serviceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
+    namespace: {{ include "pacto-operator.delivery.namespace" . }}
 ---
 # Bind this to agents (their own service accounts, or the agent group): they
 # may propose and read operations, cancel the ones they proposed (admission

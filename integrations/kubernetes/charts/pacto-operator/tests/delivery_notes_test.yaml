@@ -3,7 +3,7 @@ templates:
   - templates/NOTES.txt
 release:
   name: d
-  namespace: pacto-delivery
+  namespace: pacto-system
 set:
   delivery.enabled: true
 capabilities:

@@ -10,13 +10,20 @@ Delivery is the `pacto-operator` chart's `delivery` section, off by default. It 
 
 --8<-- "integrations/kubernetes/docs/generated/_delivery-install-command.md"
 
-It adds the promoter, CRDs, admission policies, ServiceAccounts and roles;
-the operator's own do not change. Its image is signed; see
-[Published artifacts](artifact-hub.md). Objects are named
-`<release>-delivery[-part]`: bind `pacto-operator-delivery-agent` to your
-agents and `pacto-operator-delivery-approver` to the people who may approve.
-Pass the release namespace to `pacto delivery` and `pacto mcp --delivery`
-as `--delivery-namespace`.
+The flag needs Helm 3.14 or later; plain `--reuse-values` drops the new
+`delivery` defaults and the render fails. It adds the promoter, CRDs,
+admission policies, ServiceAccounts and roles in their own namespace,
+`delivery.namespace` (`pacto-delivery`), which may not be the release
+namespace. The chart creates it; set `delivery.createNamespace=false` to
+create it yourself, with the recorder key Secret, before the install. The operator holds no role there, so it
+cannot run a pod as the promoter or the recorder, mint their tokens or move
+the pointer. It can still read Secrets in every namespace, to pull contracts,
+so prefer KMS or keyless signing over an Ed25519 key Secret for the recorder.
+The image is signed; see [Published artifacts](artifact-hub.md). Objects are
+named `<release>-delivery[-part]`: bind `pacto-operator-delivery-agent` to
+your agents and `pacto-operator-delivery-approver` to the people who may
+approve. `pacto delivery` and `pacto mcp --delivery` look in `pacto-delivery`
+by default; pass `--delivery-namespace` if you changed it.
 
 The admission policies make the actor of an Operation and the person behind
 an Approval true, so the chart refuses Kubernetes below 1.30, a cluster

@@ -198,7 +198,7 @@ dashboard:
       extraScopes: []
     # -- Gate the fleet views and the whole API behind sign-in too, not only delivery (needs `oidc.issuerURL`)
     required: false
-    # -- Namespace where Pacto delivery runs. The dashboard reads the identity policy it publishes there (agent, break-glass and human groups, team prefix), so it is never configured twice (empty: the release namespace when `delivery.enabled`, else `pacto-delivery`)
+    # -- Namespace where Pacto delivery runs. The dashboard reads the identity policy it publishes there (agent, break-glass and human groups, team prefix), so it is never configured twice (empty: `delivery.namespace` when `delivery.enabled`, else `pacto-delivery`)
     deliveryNamespace: ""
   # -- Mira's address, to link the health-check citations in delivery views
   miraURL: ""
@@ -374,6 +374,13 @@ affinity: {}
 delivery:
   # -- Install Pacto delivery: the promoter, its CRDs (Stage, Operation, Approval), roles and admission policies
   enabled: false
+  # -- Dedicated namespace the promoter and the recorder run in. The chart
+  # creates it; it must not be the release namespace (the operator can create
+  # Deployments and Secrets there).
+  namespace: pacto-delivery
+  # -- Create `delivery.namespace`. Set false to create it yourself first, for
+  # example to put the recorder key Secret in it before the install
+  createNamespace: true
   # -- Number of promoter replicas. Only the elected leader acts.
   replicaCount: 1
 

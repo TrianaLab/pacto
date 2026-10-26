@@ -362,7 +362,7 @@ spec:
   policyName: {{ $fullname }}-applier
   validationActions: [Deny]
 {{- if .Values.delivery.recorder.enabled }}
-{{- $recorder := printf "system:serviceaccount:%s:%s" .Release.Namespace (include "pacto-operator.delivery.recorderServiceAccountName" .) }}
+{{- $recorder := printf "system:serviceaccount:%s:%s" (include "pacto-operator.delivery.namespace" .) (include "pacto-operator.delivery.recorderServiceAccountName" .) }}
 ---
 # The record fields belong to the recorder: status.record on an Operation and
 # status.stream.{recordedSeq,head,anchor} on a Stage change only when the

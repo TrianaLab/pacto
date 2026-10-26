@@ -4,8 +4,9 @@
 
 Add the Pacto delivery promoter and recorder, an opt-in component with its own
 image and API group, installed by the `pacto-operator` chart under
-`delivery.enabled`, and tie every Pacto check result to the version it
-evaluated. The operator's image, ServiceAccount and roles gain no permission.
+`delivery.enabled` into its own namespace, and tie every Pacto check result to
+the version it evaluated. The operator holds no role in the delivery namespace,
+so it cannot run a pod as the promoter or the recorder or mint their tokens.
 
 **Pacto status.** `Pacto.status.evaluatedRevision` names the contract digest
 and the workload object and generation an evaluation read, and its
@@ -94,7 +95,9 @@ promoter deletes recorded operations after `delivery.recorder.operationTTL` (a w
 never the one a Stage runs.
 
 **The `delivery` section of the `pacto-operator` chart** (`delivery.enabled`,
-off by default; the default render is unchanged) installs both with the
+off by default; the default render is unchanged) installs both in
+`delivery.namespace` (`pacto-delivery`, created by the chart and never the
+release namespace) with the
 Stage, Operation and Approval CRDs, their own ServiceAccounts and RBAC, the
 `<release>-delivery-agent` and `<release>-delivery-approver` roles and
 ValidatingAdmissionPolicies that bind an operation's actor to the requesting

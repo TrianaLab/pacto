@@ -68,6 +68,8 @@
 set -euo pipefail
 CLUSTER="${KIND_CLUSTER:-pacto-delivery}"
 NS=pacto-system
+# Delivery runs in its own namespace, where the operator holds no role.
+DNS=pacto-delivery
 REG_HOST="pacto-registry.${NS}.svc.cluster.local:5000"
 LOCAL_REG_PORT=5602
 # Pinned with the GitOps shard: spec.ref.digest and lastAttemptedRevision are both there.
@@ -128,9 +130,9 @@ dump_delivery() {
   echo "--- flux ---"
   kubectl get ocirepositories,kustomizations -A -o wide || true
   echo "--- logs deploy/pacto-operator-delivery ---"
-  kubectl -n "$NS" logs deploy/pacto-operator-delivery --tail=300 || true
+  kubectl -n "$DNS" logs deploy/pacto-operator-delivery --tail=300 || true
   echo "--- logs deploy/pacto-operator-delivery-recorder ---"
-  kubectl -n "$NS" logs deploy/pacto-operator-delivery-recorder --tail=200 || true
+  kubectl -n "$DNS" logs deploy/pacto-operator-delivery-recorder --tail=200 || true
   for d in source-controller kustomize-controller; do
     echo "--- logs deploy/$d (flux-system) ---"
     kubectl -n flux-system logs "deploy/$d" --tail=100 || true
@@ -316,7 +318,7 @@ fi
 timed "wait for the cluster" ensure_cluster "$KIND_CONFIG"
 section "load the images into the cluster"
 infra "load the images into the cluster" load_images "$OP_IMG" "$DL_IMG" "$DASH_IMG" "${FLUX_IMAGES[@]}" "$PAUSE_IMG" ${EXTRA_IMAGES[@]+"${EXTRA_IMAGES[@]}"}
-for n in "$NS" test prod agents; do
+for n in "$NS" "$DNS" test prod agents; do
   kubectl create namespace "$n" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 done
 # DELIVERY_SKIP_IDENTITY=1 skips phase 4. It needs phase 1 (it ships F again).
@@ -337,7 +339,7 @@ RECORDER_KEY="$KEYDIR/recorder.pem"
 RECORDER_PUB="$KEYDIR/recorder.pub"
 openssl genpkey -algorithm ed25519 -out "$RECORDER_KEY" 2>/dev/null || fail "openssl could not generate the recorder's key"
 openssl pkey -in "$RECORDER_KEY" -pubout -out "$RECORDER_PUB"
-kubectl -n "$NS" create secret generic recorder-key --from-file=key.pem="$RECORDER_KEY" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl -n "$DNS" create secret generic recorder-key --from-file=key.pem="$RECORDER_KEY" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 STREAMS_REPO="pacto-delivery-streams"
 
 # Phase 2 needs the operator's node agent and the promoter's Mira provider.
@@ -360,7 +362,7 @@ helm upgrade --install pacto-operator "$OP_CHART" -n "$NS" ${OP_HEALTH[@]+"${OP_
   --set dashboard.auth.oidc.clientID=pacto-dashboard --set dashboard.auth.oidc.redirectURL="$DASH_URL/auth/callback" \
   --set dashboard.auth.oidc.clientSecretRef.name=dashboard-oidc \
   --set "insecureRegistries[0]=$REG_HOST" \
-  --set delivery.enabled=true \
+  --set delivery.enabled=true --set delivery.createNamespace=false \
   --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
   --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s \
   --set delivery.recorder.enabled=true --set delivery.recorder.streamsRepository="$REG_HOST/$STREAMS_REPO" --set delivery.recorder.poll=5s \
@@ -404,6 +406,16 @@ if kubectl auth can-i patch ocirepositories.source.toolkit.fluxcd.io -A \
   --as "system:serviceaccount:${NS}:pacto-operator" | grep -q yes; then
   fail "the observing operator can edit the pointer; delivery must add no permission to it"
 fi
+# Nor can it become the promoter or the recorder: it can create no pod,
+# Deployment, Secret or token in the delivery namespace. (It still reads Secrets
+# everywhere, to pull contracts; delivery-setup.md says so.)
+for verb_res in "create pods" "create deployments.apps" "patch deployments.apps" \
+  "create secrets" "create serviceaccounts --subresource=token"; do
+  # shellcheck disable=SC2086 # verb, resource and flag are separate words
+  if kubectl auth can-i $verb_res -n "$DNS" --as "system:serviceaccount:${NS}:pacto-operator" | grep -q yes; then
+    fail "the observing operator can $verb_res in $DNS, so it could act as the promoter"
+  fi
+done
 pass "delivery installed; the operator's service account still cannot change what runs"
 
 if phase_runs identity; then
@@ -919,7 +931,7 @@ else
 fi
 # The promoter's RBAC reaches every OCIRepository; admission holds it to the
 # pointer field of a labelled one.
-OUT="$(kubectl --as "system:serviceaccount:${NS}:pacto-operator-delivery" -n prod patch ocirepository payments --type merge \
+OUT="$(kubectl --as "system:serviceaccount:${DNS}:pacto-operator-delivery" -n prod patch ocirepository payments --type merge \
   -p '{"spec":{"interval":"7m"}}' 2>&1 || true)"
 if grep -q "the promoter may change only spec.ref.digest" <<<"$OUT"; then
   pass "the promoter cannot change anything but the pointer"
@@ -953,7 +965,7 @@ pass "the prod Stage is Mediated, and only break-glass changes its applier, url 
 forge_ready() {
   OUT="$(kubectl -n prod get stage payments -o json |
     jq '.status.conditions = [{"type":"Ready","status":"False","reason":"Forged","message":"forged"}]' |
-    kubectl --as "system:serviceaccount:${NS}:pacto-operator-delivery-recorder" replace --subresource=status -f - 2>&1 || true)"
+    kubectl --as "system:serviceaccount:${DNS}:pacto-operator-delivery-recorder" replace --subresource=status -f - 2>&1 || true)"
   grep -q "the Pacto delivery recorder writes records, never what runs" <<<"$OUT"
 }
 if eventually 20 forge_ready; then
@@ -976,8 +988,8 @@ PROMOTES="$(kubectl get operations -A -o json | jq '[.items[] | select(.spec.typ
 [ "$WITNESSED" = 1 ] || fail "$WITNESSED witnessed overrides, want exactly the one break-glass edit"
 pass "$PROMOTES promotes, 0 witnessed overrides of their own"
 section "the promoter counts what it concluded and says so in Events"
-PROMOTER_POD="$(kubectl -n "$NS" get pods -l app.kubernetes.io/component=delivery-promoter -o jsonpath='{.items[0].metadata.name}')"
-METRICS="$(kubectl get --raw "/api/v1/namespaces/${NS}/pods/${PROMOTER_POD}:8080/proxy/metrics")" || fail "the promoter serves no metrics on port 8080"
+PROMOTER_POD="$(kubectl -n "$DNS" get pods -l app.kubernetes.io/component=delivery-promoter -o jsonpath='{.items[0].metadata.name}')"
+METRICS="$(kubectl get --raw "/api/v1/namespaces/${DNS}/pods/${PROMOTER_POD}:8080/proxy/metrics")" || fail "the promoter serves no metrics on port 8080"
 grep -q '^pacto_delivery_operations_total{.*type="delivery.pacto.trianalab.io/promote"' <<<"$METRICS" || fail "no concluded promote is counted: $(grep pacto_delivery <<<"$METRICS")"
 grep -q '^pacto_delivery_stage_frozen{namespace="prod",stage="payments"} 1' <<<"$METRICS" || fail "the frozen prod Stage is not in the frozen gauge"
 kubectl -n prod get events --field-selector involvedObject.kind=Stage,reason=Frozen -o name | grep -q . || fail "the prod Stage froze without an Event"

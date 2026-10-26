@@ -62,7 +62,7 @@ The promoter's apiserver username, the one identity admission lets set
 witnessed and edit the pointer.
 */}}
 {{- define "pacto-operator.delivery.controllerUser" -}}
-system:serviceaccount:{{ .Release.Namespace }}:{{ include "pacto-operator.delivery.serviceAccountName" . }}
+system:serviceaccount:{{ include "pacto-operator.delivery.namespace" . }}:{{ include "pacto-operator.delivery.serviceAccountName" . }}
 {{- end }}
 
 {{/*
@@ -121,4 +121,17 @@ image.digest is set. The tag defaults to the chart appVersion.
 {{- $ref := printf "%s:%s" .Values.delivery.image.repository (.Values.delivery.image.tag | default .Chart.AppVersion) -}}
 {{- with .Values.delivery.image.digest }}{{ $ref = printf "%s@%s" $ref . }}{{ end -}}
 {{- $ref -}}
+{{- end }}
+
+{{/*
+The namespace delivery runs in. Never the release namespace: the operator
+holds create on Deployments and Secrets there, which would let it run a pod
+as the promoter or mint the promoter's token and move the pointer itself.
+*/}}
+{{- define "pacto-operator.delivery.namespace" -}}
+{{- $ns := required "delivery.namespace is required" .Values.delivery.namespace }}
+{{- if eq $ns .Release.Namespace }}
+{{- fail "delivery.namespace must not be the release namespace: the operator can create Deployments and Secrets there, so it could act as the promoter" }}
+{{- end }}
+{{- $ns }}
 {{- end }}

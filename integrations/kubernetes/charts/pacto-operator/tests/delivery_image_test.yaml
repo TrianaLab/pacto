@@ -4,7 +4,7 @@ templates:
   - templates/delivery/recorder.yaml
 release:
   name: d
-  namespace: pacto-delivery
+  namespace: pacto-system
 set:
   delivery.enabled: true
 capabilities:

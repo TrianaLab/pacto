@@ -6,7 +6,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: {{ include "pacto-operator.delivery.fullname" . }}-metrics
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "pacto-operator.delivery.namespace" . }}
   labels:
     app.kubernetes.io/component: delivery-metrics
     {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
@@ -24,7 +24,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: {{ include "pacto-operator.delivery.fullname" . }}
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "pacto-operator.delivery.namespace" . }}
   labels:
     {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 spec:

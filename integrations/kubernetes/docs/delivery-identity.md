@@ -78,11 +78,11 @@ delivery:
 ```
 
 The chart renders the admission policies from these values and publishes them
-in the ConfigMap `pacto-delivery-identities` in the release namespace, which
+in the ConfigMap `pacto-delivery-identities` in `delivery.namespace`, which
 every signed-in user may read. The promoter mounts that ConfigMap and runs with it, and restarts when it
 changes. `pacto delivery`, `pacto mcp --delivery` and the dashboard read it
-too, from `--delivery-namespace` (the chart's dashboard is pointed at the
-release namespace on its own; pass the flag to the CLI), so what they offer matches what admission and the promoter decide. A client that cannot read
+too, from `--delivery-namespace` (default `pacto-delivery`; the chart points
+its own dashboard at `delivery.namespace`), so what they offer matches what admission and the promoter decide. A client that cannot read
 it falls back to the defaults above; admission and the promoter still decide.
 
 A held question goes to the teams that own the affected services. When neither
@@ -112,7 +112,7 @@ dashboard:
       redirectURL: https://pacto.example.com/auth/callback
       extraScopes: [audience:server:client_id:pacto-cli]
     required: true             # sign-in for the fleet views and the whole API too, not only delivery
-    deliveryNamespace: ""      # where delivery publishes its identity policy; empty means the release namespace when delivery.enabled
+    deliveryNamespace: ""      # where delivery publishes its identity policy; empty means delivery.namespace when delivery.enabled
   miraURL: http://mira.observability:4318
 ```
 
