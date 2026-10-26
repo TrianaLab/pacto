@@ -252,7 +252,7 @@ describe('GraphView — product Operational Graph', () => {
 
   it('climbs to the ceiling and then tells the reader to narrow instead of offering a dead button', async () => {
     neighborhoodFn.mockResolvedValue(neighborhood({ totalNodes: 210 }));
-    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web', maxNodes: '500' });
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web', maxNodes: '200' });
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-truncated"]')).toBeTruthy());
     expect(q(target, '[data-testid="graph-show-more"]')).toBeNull();
     expect(q(target, '[data-testid="graph-truncated"]')?.textContent).toMatch(/Narrow the direction or depth/i);
@@ -274,7 +274,15 @@ describe('GraphView — product Operational Graph', () => {
   it('asks the backend for the node budget in the URL', async () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web', maxNodes: '150' });
     await vi.waitFor(() => expect(neighborhoodFn).toHaveBeenCalled());
-    expect(neighborhoodFn.mock.calls[0][0]).toMatchObject({ maxNodes: 150 });
+    expect(neighborhoodFn.mock.calls[0][0]).toMatchObject({ maxNodes: 150, maxEdges: 300 });
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('says the relationships ran out when the edge budget, not the node budget, cut it', async () => {
+    neighborhoodFn.mockResolvedValue(neighborhood({ truncatedEdges: true }));
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-truncated"]')).toBeTruthy());
+    expect(q(target, '[data-testid="graph-truncated"]')?.textContent).toMatch(/relationships: more exist/);
     unmount(component); document.body.removeChild(target);
   });
 
@@ -327,7 +335,7 @@ describe('GraphView — product Operational Graph', () => {
 
   it('exposes only perspectives valid for the focus (a service cannot become a revision/target)', async () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
-    await vi.waitFor(() => expect(q(target, '[data-testid="perspective-service"]')).toBeTruthy());
+    await vi.waitFor(() => expect(q(target, '[data-testid="perspective-only"]')?.textContent).toBe('Services'));
     expect(q(target, '[data-testid="perspective-revision"]')).toBeNull();
     expect(q(target, '[data-testid="perspective-target"]')).toBeNull();
     unmount(component); document.body.removeChild(target);
@@ -506,6 +514,17 @@ describe('GraphView — product Operational Graph', () => {
     const drawer = q(target, '[data-testid="graph-drawer"]');
     expect(drawer?.textContent).toContain('Declared by');
     expect(drawer?.textContent).toContain('^1.0.0');
+    // The parts of a claim are spaced: never "…· ^1.0.0· declared-not-observed".
+    expect(drawer?.querySelector('.gv-claims li')?.textContent).toMatch(/ · \^1\.0\.0 · declared-not-observed$/);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('says once that unresolved dependencies have no provider, not on every row', async () => {
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-unresolved"]')).toBeTruthy());
+    const row = q(target, '[data-testid="graph-unresolved-list"] li')?.textContent ?? '';
+    expect(row.replace(/\s+/g, ' ')).toContain('declares oci://x/ghost: no provider');
+    expect(row).not.toContain('no provider resolves it');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -536,6 +555,8 @@ describe('GraphView — product Operational Graph', () => {
     const { target, component } = mountView({});
     const input = q(target, 'input[type="search"]') as HTMLInputElement;
     input.value = 'ol'; input.dispatchEvent(new Event('input', { bubbles: true }));   // query 1 (pending)
+    // Searches are debounced: wait for the first to be asked before typing on.
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalledTimes(1));
     input.value = 'new'; input.dispatchEvent(new Event('input', { bubbles: true }));  // query 2 (resolves)
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-focus-link"]')).toBeTruthy());
     expect(target.textContent).toContain('new');
@@ -545,6 +566,18 @@ describe('GraphView — product Operational Graph', () => {
     flushSync();
     expect(target.textContent).toContain('new');
     expect(target.textContent).not.toContain('old');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('asks once per pause in typing, not once per key', async () => {
+    entitiesFn.mockResolvedValue({ meta: {}, total: 0, count: 0, entities: [] });
+    const { target, component } = mountView({});
+    const input = q(target, 'input[type="search"]') as HTMLInputElement;
+    for (const v of ['o', 'or', 'ord', 'orde', 'order']) { input.value = v; input.dispatchEvent(new Event('input', { bubbles: true })); }
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 300));
+    expect(entitiesFn).toHaveBeenCalledTimes(1);
+    expect(entitiesFn.mock.calls[0][0]).toMatchObject({ text: 'order' });
     unmount(component); document.body.removeChild(target);
   });
 

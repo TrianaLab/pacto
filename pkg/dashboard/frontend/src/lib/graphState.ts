@@ -23,13 +23,12 @@ export const DEFAULT_VIEWS: KnowledgeView[] = ['expected', 'differences'];
 export const MAX_DEPTH = 6;
 
 // How many nodes one answer may carry, and the rungs the reader can climb. The
-// backend defaults to 60 and caps at 500 (fleet.DefaultMaxNodes / MaxNeighborhoodNodes);
-// these are the same numbers, because a UI that offers a rung the backend then
-// silently clamps is a UI that lies about what it just fetched. 60 is a graph you
-// can read, 500 is the most the backend will ever draw, and 150 is the step between
-// them -- so a hub with two hundred neighbors takes one click, not four.
+// backend defaults to 60 and caps at 500 (fleet.DefaultMaxNodes / MaxNeighborhoodNodes),
+// so every rung here is one the backend honours. 60 is a graph you can read and 200 is
+// the most a canvas still reads as anything but a mass; 500 was offered and drew
+// exactly that mass, so the rungs stop at 200.
 export const DEFAULT_MAX_NODES = 60;
-export const MAX_NODES_STEPS = [60, 150, 500] as const;
+export const MAX_NODES_STEPS = [60, 150, 200] as const;
 export const MAX_NODES = MAX_NODES_STEPS[MAX_NODES_STEPS.length - 1];
 
 export interface GraphState {
@@ -83,6 +82,13 @@ function clampDepth(d: number): number {
 function clampMaxNodes(n: number): number {
   if (!Number.isFinite(n) || n < 1) return DEFAULT_MAX_NODES;
   return Math.min(MAX_NODES, Math.trunc(n));
+}
+
+/** maxEdgesFor is the relationship budget asked with a node budget: twice the nodes,
+ *  within the backend cap (fleet.MaxNeighborhoodEdges). Without it every answer got the
+ *  backend's 120-edge default whatever node budget was asked for. */
+export function maxEdgesFor(maxNodes: number): number {
+  return Math.min(1000, 2 * maxNodes);
 }
 
 /** nextMaxNodes returns the next rung above `current`, or null when the answer is

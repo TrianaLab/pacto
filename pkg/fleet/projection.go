@@ -30,6 +30,8 @@ type projectionBuilder struct {
 	maxNodes  int
 	maxEdges  int
 	truncated bool
+	// truncatedEdges says the edge cap, not the node cap, cut the answer.
+	truncatedEdges bool
 }
 
 func newProjectionBuilder(maxNodes, maxEdges int) *projectionBuilder {
@@ -57,7 +59,7 @@ func (b *projectionBuilder) addEdge(e NeighborhoodEdge) {
 		return
 	}
 	if len(b.edges) >= b.maxEdges {
-		b.truncated = true
+		b.truncated, b.truncatedEdges = true, true
 		return
 	}
 	b.edges[e.ID] = e
@@ -156,6 +158,7 @@ func (q *Query) revisionNeighborhood(kind EntityKind, key string, bp boundedPara
 		UnresolvedDependencies: boundedUnresolved(unresolved),
 		Limitations:            revisionObservedLimitation(bp.views),
 		Truncated:              b.truncated,
+		TruncatedEdges:         b.truncatedEdges,
 	}
 	// When the request focused a DIFFERENT entity (a target) than the revision the
 	// projection resolved, surface the resolved revision as an explicit projection
@@ -396,6 +399,7 @@ func (q *Query) targetNeighborhood(kind EntityKind, key string, bp boundedParams
 		UnresolvedDependencies: boundedUnresolved(unresolved),
 		Limitations:            targetLimitations(bp.views, extraLimits),
 		Truncated:              b.truncated,
+		TruncatedEdges:         b.truncatedEdges,
 	}, nil
 }
 

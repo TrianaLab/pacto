@@ -387,8 +387,8 @@ func TestRevisionProjection_EdgeCapAndMerge(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(capped.Edges) != 1 || !capped.Truncated {
-		t.Errorf("maxEdges=1 on api should yield 1 edge + truncated; got %d edges truncated=%v", len(capped.Edges), capped.Truncated)
+	if len(capped.Edges) != 1 || !capped.Truncated || !capped.TruncatedEdges {
+		t.Errorf("maxEdges=1 on api should yield 1 edge + truncated edges; got %d edges truncated=%v edges cut=%v", len(capped.Edges), capped.Truncated, capped.TruncatedEdges)
 	}
 
 	// A depth-2 both walk from web reaches web->api (dependency) and, expanding api's

@@ -313,6 +313,9 @@ type Neighborhood struct {
 	UnresolvedDependencies UnresolvedDependenciesPreview `json:"unresolvedDependencies"`
 	Limitations            LimitationsPreview            `json:"limitations"`
 	Truncated              bool                          `json:"truncated"`
+	// TruncatedEdges says the relationship budget (MaxEdges) cut the answer, so a
+	// reader is told to ask for more relationships rather than for more entities.
+	TruncatedEdges bool `json:"truncatedEdges"`
 	// TotalNodes is how many nodes the walk reached within EffectiveDepth, before
 	// the node cap -- the denominator for Nodes. It equals len(Nodes) when the
 	// answer is not truncated, and it is what lets a reader tell a hub with
@@ -468,6 +471,7 @@ func (q *Query) serviceNeighborhood(kind EntityKind, key string, bp boundedParam
 		UnresolvedDependencies: q.unresolvedNeighborhoodDeps(nodeDepth, wantDeclared),
 		Limitations:            limitationsPreview(nil),
 		Truncated:              truncatedNodes || truncatedEdges,
+		TruncatedEdges:         truncatedEdges,
 		TotalNodes:             totalNodes,
 	}
 	return res, nil

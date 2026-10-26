@@ -324,7 +324,11 @@ export const LEGEND_SELECTORS: Record<string, string> = {
  * at a readable node size instead of collapsing a wide, shallow fleet into a thin
  * band — shared-infra hubs settle centrally. Used for the fleet + owner views.
  */
-export function cyLayout(layout: 'force' | 'layered'): LayoutOptions {
+// Past this many nodes the layout settles at once: animating it held the main thread
+// for seconds on Reset layout and showed nothing worth watching.
+export const ANIMATE_LAYOUT_MAX_NODES = 150;
+
+export function cyLayout(layout: 'force' | 'layered', nodeCount = 0): LayoutOptions {
   if (layout === 'layered') {
     // Top-down dependency tree: roots on top → services → shared-infra sinks at the
     // bottom. fit/animate off here — renderGraph wraps over-wide levels first, then
@@ -335,7 +339,7 @@ export function cyLayout(layout: 'force' | 'layered'): LayoutOptions {
   return {
     name: 'fcose',
     // Honor prefers-reduced-motion: settle instantly rather than animating the layout.
-    animate: prefersReducedMotion() ? false : 'end',
+    animate: prefersReducedMotion() || nodeCount > ANIMATE_LAYOUT_MAX_NODES ? false : 'end',
     animationDuration: 600,
     animationEasing: 'ease-out',
     fit: true,
@@ -896,7 +900,7 @@ export function renderGraph(
   }
 
   function runLayout(): void {
-    const l = cy.layout(cyLayout(layout));
+    const l = cy.layout(cyLayout(layout, cy.nodes().length));
     l.one('layoutstop', () => {
       // Layered tree: fold any over-wide level into sub-rows sized to the CURRENT
       // canvas width, so one big level can't stretch the tree into a band.

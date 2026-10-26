@@ -2858,6 +2858,7 @@ export interface components {
             /** Format: int64 */
             totalNodes: number;
             truncated: boolean;
+            truncatedEdges: boolean;
             unresolvedDependencies: components["schemas"]["ProductUnresolvedDependenciesPreview"];
             views: ("expected" | "observed" | "differences")[] | null;
         };

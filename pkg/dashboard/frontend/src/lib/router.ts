@@ -156,7 +156,9 @@ function parseFleet(path: string, query: string): Route {
     // route: perspective, knowledge views, direction, depth and the
     // focus (kind/sel). The former domain/scope/owner/status/source/freshness params
     // were placebo URL state no view or backend consumed, so they are not parsed.
-    for (const k of ['perspective', 'views', 'direction', 'depth', 'sel', 'kind']) {
+    // maxNodes too: "Show up to 150" writes it, and dropping it here made the button a
+    // no-op that left the graph at 60.
+    for (const k of ['perspective', 'views', 'direction', 'depth', 'sel', 'kind', 'maxNodes']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }

@@ -415,6 +415,10 @@ describe('parseHash — fleet product IA', () => {
     expect(fleetSourcesUrl({ sourceHealth: 'stale' })).toBe('#/fleet/sources?sourceHealth=stale');
   });
 
+  it('keeps the graph node budget the Show more button writes', () => {
+    expect(parseHash('#/fleet/graph/service/orders?maxNodes=150').params).toMatchObject({ kind: 'service', sel: 'orders', maxNodes: '150' });
+  });
+
   it('every Fleet list keeps its page size and order in the URL', () => {
     expect(fleetSourcesUrl({ offset: 50, limit: 50, sort: 'name' })).toBe('#/fleet/sources?offset=50&limit=50&sort=name');
     expect(fleetServicesUrl({ limit: 100 })).toBe('#/fleet/services?limit=100');

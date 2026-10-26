@@ -228,3 +228,14 @@ describe('projectionFocusMismatch (Part 4: canonicalize a bookmarked reinterpret
     expect(projectionFocusMismatch(null, 'target', 'x')).toBeNull();
   });
 });
+
+describe('graph budgets', () => {
+  it('climbs 60, 150, 200 and asks for twice as many relationships as entities', async () => {
+    const { nextMaxNodes, maxEdgesFor, MAX_NODES_STEPS } = await import('./graphState.ts');
+    expect([...MAX_NODES_STEPS]).toEqual([60, 150, 200]);
+    expect(nextMaxNodes(60)).toBe(150);
+    expect(nextMaxNodes(200)).toBeNull();
+    expect(maxEdgesFor(60)).toBe(120);
+    expect(maxEdgesFor(800)).toBe(1000);
+  });
+});

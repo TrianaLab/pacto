@@ -227,6 +227,11 @@ describe('buildElements', () => {
 });
 
 describe('cyLayout', () => {
+  it('settles a big graph at once instead of animating it', () => {
+    expect((cyLayout('force', 10) as { animate: unknown }).animate).not.toBe(false);
+    expect((cyLayout('force', 200) as { animate: unknown }).animate).toBe(false);
+  });
+
   it('uses dagre top-down for the dependency tree', () => {
     const l = cyLayout('layered') as { name: string; rankDir: string };
     expect(l.name).toBe('dagre');

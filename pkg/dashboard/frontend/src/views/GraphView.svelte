@@ -7,7 +7,7 @@
     differenceDescription, relationLabel, neighborhoodIsEmpty, MAX_DEPTH,
     defaultPerspectiveForKind, availablePerspectives, revisionLinkAuthoritative,
     perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
-    canonicalFocusForPerspective, projectionFocusMismatch, nextMaxNodes,
+    canonicalFocusForPerspective, projectionFocusMismatch, nextMaxNodes, maxEdgesFor,
   } from '../lib/graphState.ts';
   import { cyEdgeId } from '../lib/neighborhoodGraph.ts';
   import { abbreviateDigests } from '../lib/format.ts';
@@ -18,6 +18,8 @@
   import { fleetGraphFocusUrl, fleetGraphDiscoveryUrl, fleetOverviewUrl, fleetAttentionUrl, hashForHref, fleetChangesUrl, replaceHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import CappedList from '../components/CappedList.svelte';
+  import { createEntitySuggest } from '../lib/entitySuggest.svelte.ts';
   import EntityLink from '../components/EntityLink.svelte';
   import EntityIdentity from '../components/EntityIdentity.svelte';
   import IdentityBadge from '../components/IdentityBadge.svelte';
@@ -42,7 +44,7 @@
   // ── focused neighborhood (product API only) ──────────────────────────────────
   const loader = createProductLoader(() => api.fleetNeighborhood({
     kind: gs.kind, key: gs.key, perspective: gs.perspective,
-    direction: gs.direction, depth: gs.depth, views: gs.views, maxNodes: gs.maxNodes,
+    direction: gs.direction, depth: gs.depth, views: gs.views, maxNodes: gs.maxNodes, maxEdges: maxEdgesFor(gs.maxNodes),
   }));
   $effect(() => {
     if (focused) {
@@ -117,6 +119,9 @@
   // the drawer so a screen reader announces it.
   const selected = $state({ kind: '', node: null, edge: null });
   let drawerEl = $state(null);
+  // A relationship declared by a hundred revisions shows its first five claims.
+  let claimsShown = $state(5);
+  $effect(() => { if (selected.edge) claimsShown = 5; });
   let drawerOpener = null;
   function rememberOpener() {
     const a = document.activeElement;
@@ -147,7 +152,9 @@
   function onDrawerKeydown(e) { if (e.key === 'Escape' && selected.kind) { e.preventDefault(); closeDrawer(); } }
   // Move focus into the drawer when it opens so it is announced and Escape-operable.
   $effect(() => {
-    if (selected.kind && drawerEl) queueMicrotask(() => drawerEl?.focus());
+    // preventScroll: the drawer is sticky (wide) or a bottom sheet (narrow), so it is
+    // already in view; scrolling to it used to throw the reader thousands of pixels.
+    if (selected.kind && drawerEl) queueMicrotask(() => drawerEl?.focus({ preventScroll: true }));
   });
   // Canvas selection reports the Cytoscape element id; map it back to the backend node
   // (by canonical key) or edge (by the reproduced Cytoscape edge id).
@@ -210,10 +217,14 @@
   const totalNodes = $derived(shown?.totalNodes ?? 0);
   const withheldNodes = $derived(shown ? Math.max(0, totalNodes - shown.nodes.length) : 0);
   const moreNodes = $derived(nextMaxNodes(gs.maxNodes));
+  // Which budget cut the answer, so the note never blames entities when it was the
+  // relationships that ran out (and the button asks for both).
   const truncationNote = $derived(
     withheldNodes
       ? `Showing ${shown.nodes.length} of ${totalNodes} entities within this depth.`
-      : 'This neighborhood is bounded and was truncated.'
+      : shown?.truncatedEdges
+        ? `Showing ${shown.edges.length} relationships: more exist than this view draws.`
+        : 'This neighborhood is bounded and was truncated.'
   );
 
   const graphSummary = $derived(!shown ? '' : [
@@ -264,37 +275,18 @@
 
   // ── discovery search (search-first entry, product-honest) ────────────────────
   let queryText = $state('');
-  let results = $state([]);
-  let searchTotal = $state(0);
-  let searching = $state(false);
-  let searchError = $state(null);
-  let searchSeq = 0;
-  function runSearch() {
-    const q = queryText.trim();
-    const mySeq = ++searchSeq;
-    if (!q) { results = []; searchTotal = 0; searching = false; searchError = null; return; }
-    searching = true;
-    searchError = null;
-    // Only graph-focusable kinds: the graph projects services, revisions and targets.
-    api.fleetEntities({ text: q, kinds: ['service', 'revision', 'target'], limit: 20 })
-      .then((r) => {
-        if (mySeq !== searchSeq) return; // a newer query supersedes this response
-        results = r.entities || [];
-        searchTotal = r.total ?? results.length;
-        searchError = null;
-      })
-      .catch((e) => {
-        if (mySeq !== searchSeq) return;
-        // Product-honest: a transport/schema failure is NOT "no matches". Keep the
-        // error distinct so the UI never renders an empty state after a failed request.
-        results = [];
-        searchTotal = 0;
-        searchError = e;
-      })
-      .finally(() => { if (mySeq === searchSeq) searching = false; });
-  }
+  // The shared search mechanics (debounce, bound, stale-response guard): one request per
+  // pause in typing, not one per key. Only graph-focusable kinds: the graph projects
+  // services, revisions and targets. A transport failure stays an error, never "no matches".
+  const suggest = createEntitySuggest({ kinds: ['service', 'revision', 'target'], limit: 20 });
+  onDestroy(() => suggest.destroy());
+  const results = $derived(suggest.results);
+  const searchTotal = $derived(suggest.total);
+  // The previous results stay while the next ones load, so the list does not flash.
+  const searching = $derived(suggest.loading && results.length === 0);
+  const searchError = $derived(suggest.error);
+  function runSearch() { suggest.search(queryText); }
   function submitSearch(e) { e.preventDefault(); runSearch(); }
-  onDestroy(() => { searchSeq++; });
 
   function searchErrorMessage(e) {
     if (e instanceof SchemaCompatibilityError) return 'The dashboard and backend API versions differ; reload to update.';
@@ -392,14 +384,19 @@
     <div class="workspace-controls is-row" role="group" aria-label="Graph controls">
       <div class="gv-ctl">
         <span class="gv-ctl-k">Perspective</span>
-        <div class="gv-seg">
-          {#each perspectives as p}
-            <!-- The wire enum is service/revision/target; the button says what the user
-                 reads everywhere else in the product ("Operational targets", never a
-                 lowercase "target"). data-testid keeps the wire value for tests. -->
-            <button type="button" class:active={gs.perspective === p} onclick={() => setPerspective(p)} data-testid="perspective-{p}">{kindLabelPlural(p)}</button>
-          {/each}
-        </div>
+        {#if perspectives.length > 1}
+          <div class="gv-seg">
+            {#each perspectives as p}
+              <!-- The wire enum is service/revision/target; the button says what the user
+                   reads everywhere else in the product ("Operational targets", never a
+                   lowercase "target"). data-testid keeps the wire value for tests. -->
+              <button type="button" class:active={gs.perspective === p} onclick={() => setPerspective(p)} data-testid="perspective-{p}">{kindLabelPlural(p)}</button>
+            {/each}
+          </div>
+        {:else}
+          <!-- One perspective is not a choice: plain text, not a one-button segment. -->
+          <span class="gv-one" data-testid="perspective-only">{kindLabelPlural(perspectives[0] ?? gs.perspective)}</span>
+        {/if}
       </div>
       <div class="gv-ctl">
         <span class="gv-ctl-k">Knowledge <HelpTip label="the knowledge layers" text={VIEW_HELP} /></span>
@@ -559,11 +556,13 @@
           {#if (shown.unresolvedDependencies?.count ?? 0) > 0}
             <section class="gv-unresolved" data-testid="graph-unresolved">
               <h2>Unresolved dependencies ({shown.unresolvedDependencies.total})</h2>
-              <ul>
-                {#each shown.unresolvedDependencies.items as u (u.from.key + '::' + u.ref)}
-                  <li><EntityLink ref={u.from} showStatus={false} /> declares <code>{u.requestedRef || u.ref}</code> - no provider resolves it{#if u.reason}: {u.reason}{/if}</li>
-                {/each}
-              </ul>
+              <!-- The sentence once, not on every row: each is a declaration no provider
+                   in the fleet resolves. -->
+              <p class="t-body-2">Each is declared, and no provider in the fleet resolves it.</p>
+              <CappedList items={shown.unresolvedDependencies.items} max={8} label="Unresolved dependencies" testid="graph-unresolved-list">
+                {#snippet item(u)}<EntityLink ref={u.from} showStatus={false} />{' '}declares <code>{u.requestedRef || u.ref}</code>{#if u.reason}{': '}{u.reason}{/if}{/snippet}
+              </CappedList>
+              {#if shown.unresolvedDependencies.truncated}<p class="t-meta">Showing {shown.unresolvedDependencies.count} of {shown.unresolvedDependencies.total}.</p>{/if}
             </section>
           {/if}
 
@@ -613,19 +612,23 @@
               {#if (selected.edge.declaredClaims?.count ?? 0) > 0}
                 <div class="gv-claims">
                   <span class="gv-k">Declared by</span>
+                  {#if selected.edge.declaredClaims.truncated}<span class="t-meta">{selected.edge.declaredClaims.count} of {selected.edge.declaredClaims.total}</span>{/if}
                   <ul>
-                    {#each selected.edge.declaredClaims.items as c, i (i)}
+                    {#each selected.edge.declaredClaims.items.slice(0, claimsShown) as c, i (i)}
                       <!-- Through the shared abbreviator, like every other surface that
                            prints a canonical revision key. A 64-hex digest has no break
                            opportunity, so printed whole it also sets this panel's
                            minimum width and pushes the panel off the screen. -->
-                      <li title={c.sourceRevision || undefined}>{abbreviateDigests(c.sourceRevision) || 'a revision'}{#if c.compatibility} &middot; <code>{c.compatibility}</code>{/if}{#if c.reconciliation} &middot; {c.reconciliation}{/if}</li>
+                      <li title={c.sourceRevision || undefined}>{abbreviateDigests(c.sourceRevision) || 'a revision'}{#if c.compatibility}{' · '}<code>{c.compatibility}</code>{/if}{#if c.reconciliation}{' · '}{c.reconciliation}{/if}</li>
                     {/each}
                   </ul>
+                  {#if selected.edge.declaredClaims.items.length > claimsShown}
+                    <button type="button" class="btn btn-sm" onclick={() => { claimsShown = Infinity; }}>Show all {selected.edge.declaredClaims.items.length}</button>
+                  {/if}
                 </div>
               {/if}
               {#if selected.edge.observed}
-                <p class="gv-drow"><span class="gv-k">Observed</span> {selected.edge.count || 0} calls{#if selected.edge.observationSources?.total} across {selected.edge.observationSources.total} source(s){/if}{#if selected.edge.stale} &middot; stale window{/if}</p>
+                <p class="gv-drow"><span class="gv-k">Observed</span> {selected.edge.count || 0} calls{#if selected.edge.observationSources?.total} across {selected.edge.observationSources.total} source(s){/if}{#if selected.edge.stale}{' · '}stale window{/if}</p>
               {/if}
             {/if}
           </aside>
@@ -650,7 +653,8 @@
   .gv-viewctl { margin-left: auto; }
   .gv-ctl-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .gv-seg { display: inline-flex; border: 1px solid var(--c-border); border-radius: var(--radius-sm); overflow: hidden; }
-  .gv-seg button { padding: 6px 10px; border: none; background: var(--c-bg); color: var(--c-text-2); font: inherit; font-size: var(--text-sm); cursor: pointer; text-transform: capitalize; }
+  .gv-seg button { padding: 6px 10px; border: none; background: var(--c-bg); color: var(--c-text-2); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+  .gv-one { font-size: var(--text-sm); color: var(--c-text-2); padding: 6px 0; }
   .gv-seg button.active { background: var(--c-accent); color: var(--c-on-accent); }
   .gv-seg button:disabled { opacity: 0.5; cursor: not-allowed; }
   .gv-depth { align-items: center; }
@@ -717,7 +721,13 @@
   .gv-unresolved h2, .gv-limitations h2 { margin: 0 0 var(--sp-2); }
   .gv-unresolved ul { margin: 0; padding-left: var(--sp-4); font-size: var(--text-sm); color: var(--c-text-2); display: flex; flex-direction: column; gap: 4px; }
 
-  .gv-drawer { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-2); }
+  /* A bottom sheet on a narrow screen, so opening it never scrolls the page to where a
+     one-column layout put it; beside the canvas and sticky on a wide one. */
+  .gv-drawer {
+    border: 1px solid var(--c-border); border-radius: var(--radius-md) var(--radius-md) 0 0; padding: var(--sp-4); background: var(--c-surface);
+    display: flex; flex-direction: column; gap: var(--sp-2);
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50; max-height: 60vh; overflow: auto; box-shadow: var(--shadow-md);
+  }
   .gv-drawer-head { display: flex; align-items: center; justify-content: space-between; }
   .gv-drawer-head h2 { margin: 0; }
   .gv-close { background: none; border: none; color: var(--c-text-3); cursor: pointer; font-size: var(--text-md); }
@@ -731,5 +741,9 @@
     /* minmax(0, ...) rather than a bare 1fr: a grid item's automatic minimum is its
        content, so one wide child is enough to stop the column shrinking for the drawer. */
     .gv-body.gv-body-drawer { grid-template-columns: minmax(0, 1fr) minmax(280px, 360px); align-items: start; }
+    .gv-drawer {
+      position: sticky; top: calc(var(--navbar-h) + var(--sp-3)); left: auto; right: auto; bottom: auto; z-index: auto;
+      max-height: calc(100vh - var(--navbar-h) - 2 * var(--sp-3)); border-radius: var(--radius-md); box-shadow: none;
+    }
   }
 </style>
