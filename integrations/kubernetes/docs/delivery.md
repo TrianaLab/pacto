@@ -91,11 +91,15 @@ Pacto judges by declared version ranges, not by which fields or endpoints a
 service uses. Watching traffic shows only which service calls which,
 not what each call uses.
 
+## Who may approve
+
 AI agents can plan, ask for and cancel their own changes, but only people can
 approve. Whoever asked may not approve, nor the person an agent says it acts
 for (`--on-behalf-of`, claimed and never checked). An agent that leaves it out
 hides who is behind it, so the two-person rule holds only for changes a person
-asks for directly or an agent asks for in their name. To approve, a person must have signed in to the dashboard (or the
+asks for directly or an agent asks for in their name.
+
+To approve, a person must have signed in to the dashboard (or the
 cluster) with their own company login in the last 15 minutes (the default of
 `delivery.promoter.authFreshness`), and the record names them. That needs a
 cluster that trusts your company login, untested on EKS, GKE and AKS;
@@ -152,13 +156,16 @@ Every other word is in the [glossary](../../glossary.md).
 
 None of these is required reading:
 
-- [Setup and gates](delivery-setup.md): install, Stages by hand, what moves
-  first and who may do what
+- [Setup and gates](delivery-setup.md): install and Stages by hand
+- [Plan, propose and approve](delivery-operations.md): what moves first and
+  who may do what
 - [Health checks](delivery-health.md): monitoring, the suites a version ships and the
   calls a service makes
+- [Eval providers](delivery-evals.md): suite runners and their signed answers
 - [Sign-in, approvals and agents](delivery-identity.md)
-- [Signed records and history](delivery-records.md): records, key rotation,
-  blame, undo and verification
+- [Signed records and history](delivery-records.md): records, blame, undo and
+  verification
+- [Record keys](delivery-record-keys.md): trust, key rotation and revocation
 - [Argo CD and several clusters](delivery-reach.md) (experimental)
 - [Ladder reference](../../autonomy-reference.md): rungs, proposals and blockers
 - [Publishing details](../../publishing.md) and the contract's

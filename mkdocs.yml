@@ -225,8 +225,11 @@ nav:
       - Delivery reference:
           - Sign-in, approvals and agents: integrations/kubernetes/delivery-identity.md
           - Signed records and history: integrations/kubernetes/delivery-records.md
+          - Record keys: integrations/kubernetes/delivery-record-keys.md
           - Setup and gates: integrations/kubernetes/delivery-setup.md
+          - Plan, propose and approve: integrations/kubernetes/delivery-operations.md
           - Health checks: integrations/kubernetes/delivery-health.md
+          - Eval providers: integrations/kubernetes/delivery-evals.md
           - Argo CD and several clusters: integrations/kubernetes/delivery-reach.md
       - Contract reference:
           - contract-reference/index.md

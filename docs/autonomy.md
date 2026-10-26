@@ -40,25 +40,24 @@ Each Stage sits on one rung.
 | **autonomous** | Ships every change the contracts clear on its own | Pacto, unless a consumer would break or a check is Unknown |
 
 Once Pacto moves versions, the safety rules hold on every rung. A change that
-would break a consumer waits for that consumer's team; one that breaks
-consumers of several teams waits until every one of them approves, and so
-does a rollback a person or agent asks for that goes back to a version a
-consumer has moved past. A version
-that changes `service.owner` waits on every rung for the team that owns the
-service now: the owner answers every later question, so the author of a version
-never picks who approves it. When the contract running on the Stage cannot be
-read, no team is asked, and only break-glass can answer if the promoter
-requires an owner team. A change with an
-Unknown check waits for the team that owns the service. The rung only decides how often a person is
-asked when the contracts say a change is safe.
+would break a consumer waits for that consumer's team, and one that breaks
+consumers of several teams waits for all of them. So does a rollback a person
+or agent asks for to a version a consumer has moved past. A version that
+changes `service.owner` waits for the team that owns the service now, so the
+author of a version never picks who approves it. When the running contract
+cannot be read, no team is asked, and only break-glass can answer if the
+promoter requires an owner team. A change with an Unknown check waits for the
+team that owns the service. The rung only decides how often a person is asked
+when the contracts say a change is safe.
 
 Consumers declare the versions they accept as ranges, and Pacto checks each
-range against the version the change is published as. The promoter also checks
-that version against the change: a breaking change published as a minor (1.9.0
-after 1.8.0) would pass every `^1` range, so it waits for a person to accept
-the unknown instead. A version whose contract is published under another
-registry domain than the running one waits the same way: consumers declared
-against the old domain would not be counted.
+range against the version the change is published as. It also checks that
+version against the change: a breaking change published as a minor (1.9.0
+after 1.8.0) would pass every `^1` range, so it waits for a person. So does a
+version whose contract moved to another registry domain, because consumers
+declared against the old domain would not be counted.
+
+### What the rungs do not judge
 
 The rungs judge the contract, never the manifests that ship with it. A version
 with the same contract and new manifests (a new ClusterRoleBinding, say) is

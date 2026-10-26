@@ -80,7 +80,7 @@ delivery:
 
 The chart renders the admission policies from these values and publishes them
 in the ConfigMap `pacto-delivery-identities` in `delivery.namespace`, which
-every signed-in user may read. The promoter mounts that ConfigMap and runs with it, and restarts when it
+every signed-in user may read. The promoter runs with that ConfigMap and restarts when it
 changes. `pacto delivery`, `pacto mcp --delivery` and the dashboard read it
 too, from `--delivery-namespace` (default `pacto-delivery`; the chart points
 its own dashboard at `delivery.namespace`), so what they offer matches what admission and the promoter decide. A client that cannot read

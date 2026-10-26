@@ -6,8 +6,7 @@ your code. It says what the service offers, which other services it calls and
 how it is built and run. This guide takes a plain service to a contract,
 signed published versions and Stages that watch on observe, and shows how a
 Stage leaves observe once it has earned it. Every command is on
-this page except the one-time approval setup of the cluster; the links are
-reference. To see where it leads first,
+this page except the one-time cluster setup for approvals. To see where it leads first,
 with nothing to install, press **Play the delivery story** in the
 [live dashboard demo](examples/dashboard-demo.md); it runs in your browser.
 
@@ -153,9 +152,8 @@ using yours needs 3.0.0) and never overwrites a published one; see
 
 Install, once per cluster, Flux, the Pacto operator (it checks that each
 running service matches its contract) and delivery (it decides which version
-runs in each environment). Helm is the usual Kubernetes installer; one chart
-installs both. Delivery reads your contracts, so with a private registry give
-it a login first, in the operator's namespace, and add
+runs in each environment). One Helm chart installs both. Delivery reads your contracts: with a private registry, give it a login
+first in the operator's namespace and add
 `--set delivery.promoter.registryCredentials.secretName=registry-creds` to the
 command that turns delivery on below:
 
@@ -196,8 +194,8 @@ kubectl apply -f delivery/test.yaml -f delivery/prod.yaml
 with. A read-only token is enough (on GitHub, `read:packages`); see
 [Private registries](integrations/kubernetes/limitations.md#delivery-and-private-registries).
 
-Each `delivery/<env>.yaml` holds a Stage, which is one service in one
-environment and holds which version runs there, and the Flux pieces that watch
+Each `delivery/<env>.yaml` holds a Stage (one service in one environment and
+the version it runs there) and the Flux pieces that watch
 your registry and apply what the Stage picks. `delivery/pacto.yaml` tells the
 operator to check the service; it ships inside every version, so you never
 apply it.

@@ -171,6 +171,8 @@ in `upstreamTrust`), then upstream. The Stage's `Ready` message counts the
 referrers on the upstream anchor it could not verify, so a skipped record
 does not go unsaid.
 
+### When records were removed or rewritten
+
 The Stage remembers the newest upstream record it read in
 `status.upstreamSeen`. A later read that ends before it, or holds another
 record at its seq however far the stream has grown since, is refused the same
