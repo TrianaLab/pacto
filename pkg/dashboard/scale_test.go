@@ -41,7 +41,9 @@ func (c *countingDelivery) History(ctx context.Context, ns, stage string) (*deli
 var scaleEnvs = [...]string{"test", "dev", "qa", "staging", "perf", "preprod", "sandbox", "prod-eu-west-1", "prod-us-east-1",
 	"prod-ap-southeast-2", "dr-eu-central-1", "canary-global-edge"}
 
-func scaleDigest(svc string, v int) string { return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(fmt.Sprint(svc, "@", v)))) }
+func scaleDigest(svc string, v int) string {
+	return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(fmt.Sprint(svc, "@", v))))
+}
 
 // largeCluster is the generated fleet: the delivery world and its snapshot.
 func largeCluster(tb testing.TB) (*countingDelivery, func(context.Context) (*fleet.Query, error)) {
