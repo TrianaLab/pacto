@@ -244,7 +244,7 @@ spec:
     name: %s
   candidates:
 %s  # The Stage plans every change and moves nothing. Every rung above this is
-  # a pacto.dev/autonomy operation a second person approves.
+  # a delivery.pacto.trianalab.io/autonomy operation a second person approves.
   startRung: observe
   gates:
     verify:

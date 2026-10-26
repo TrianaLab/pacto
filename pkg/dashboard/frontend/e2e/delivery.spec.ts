@@ -139,8 +139,8 @@ function installDelivery(persona: Persona): void {
         { service: 'payments', version: '2.4.3', check: 'version', requiredBump: 'major', baseline: '2.4.2', reason: 'removing a field is a breaking change',
           actor: 'system:serviceaccount:agents:pay-agent', at: '2026-10-21T08:00:00Z', verified: true }] });
     }
-    if (route === '/api/delivery/plan' && method === 'POST' && JSON.parse(body || '{}').type === 'pacto.dev/autonomy') {
-      return json(200, { intentDigest: 'sha256:raise', type: 'pacto.dev/autonomy', from: 'advise', to: 'auto-nonbreaking', predicted: 'Held',
+    if (route === '/api/delivery/plan' && method === 'POST' && JSON.parse(body || '{}').type === 'delivery.pacto.trianalab.io/autonomy') {
+      return json(200, { intentDigest: 'sha256:raise', type: 'delivery.pacto.trianalab.io/autonomy', from: 'advise', to: 'auto-nonbreaking', predicted: 'Held',
         question: 'raise payments-prod to auto-nonbreaking?', floor: { human: true, decision: 'approve', owners: ['team-payments'] }, verdicts: [] });
     }
     if (route === '/api/delivery/plan' && method === 'POST') return json(200, plan);

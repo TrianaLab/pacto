@@ -95,22 +95,22 @@ describe('path to autonomy', () => {
     destroy();
   });
 
-  it('proposes the next rung through a plan, as a pacto.dev/autonomy operation', async () => {
+  it('proposes the next rung through a plan, as a delivery.pacto.trianalab.io/autonomy operation', async () => {
     fns.autonomy.mockResolvedValue(page);
-    fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'pacto.dev/autonomy', predicted: 'Held', question: 'raise the rung?', floor: { owners: ['team-payments'] }, verdicts: [] });
+    fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'delivery.pacto.trianalab.io/autonomy', predicted: 'Held', question: 'raise the rung?', floor: { owners: ['team-payments'] }, verdicts: [] });
     fns.propose.mockResolvedValue({ operation: { metadata: { name: 'raise-1', namespace: 'prod' } } });
     const { target, destroy } = render(DeliveryAutonomyView);
     await settle();
     const btn = target.querySelector('button[aria-label="Propose Auto non-breaking for payments in prod"]') as HTMLButtonElement;
     btn.click();
     await settle();
-    expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'pacto.dev/autonomy', from: 'advise', to: 'auto-nonbreaking' });
+    expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/autonomy', from: 'advise', to: 'auto-nonbreaking' });
     const panel = target.querySelector('[data-testid="propose-panel"]')!;
     expect(text(panel)).toContain('Rung change prod/pay: Auto non-breaking');
     expect(text(panel.querySelector('button[type="submit"]')!)).toBe('Propose rung change');
     (panel.querySelector('form') as HTMLFormElement).requestSubmit();
     await settle();
-    expect(fns.propose).toHaveBeenCalledWith(expect.objectContaining({ type: 'pacto.dev/autonomy', to: 'auto-nonbreaking', intentDigest: 'sha256:i' }));
+    expect(fns.propose).toHaveBeenCalledWith(expect.objectContaining({ type: 'delivery.pacto.trianalab.io/autonomy', to: 'auto-nonbreaking', intentDigest: 'sha256:i' }));
     expect(location.hash).toBe('#/delivery/changes/prod/raise-1');
     destroy();
   });
@@ -214,7 +214,7 @@ describe('would have versus what happened', () => {
 
 describe('the rung on a change', () => {
   it('names the Stage rung, and rungs, not digests, on an autonomy operation', async () => {
-    const spec = { type: 'pacto.dev/autonomy', stage: 'pay', facet: 'rung', actor: { user: 'https://idp#carol' }, params: { from: 'advise', to: 'auto-nonbreaking' } };
+    const spec = { type: 'delivery.pacto.trianalab.io/autonomy', stage: 'pay', facet: 'rung', actor: { user: 'https://idp#carol' }, params: { from: 'advise', to: 'auto-nonbreaking' } };
     fns.operation.mockResolvedValue({
       explanation: { operation: 'prod/r1', spec, status: { phase: 'Held', actorClass: 'human' }, verdicts: [], stage: { name: 'pay' } },
       operation: { metadata: { name: 'r1', namespace: 'prod' }, spec, status: { phase: 'Held' } },
@@ -246,7 +246,7 @@ describe('ladder words', () => {
     expect(blockerLabel(undefined)).toBe('Blocker');
     expect(proposalText('observe', { rung: 'advise', evidence: ['d'] })).toBe('Pacto proposes Advise: 1 version GitOps ran that verified, no incident.');
     expect(proposalText('advise', { rung: 'auto-nonbreaking' })).toBe('Pacto proposes Auto non-breaking: 0 verified promotions, no incident.');
-    expect(typeLabel('pacto.dev/autonomy')).toBe('Rung change');
-    expect(changeSummary({ spec: { type: 'pacto.dev/autonomy', stage: 's', params: { to: 'advise' } }, status: { phase: 'Held' } }, 'ns')).toBe('The rung of s in ns to Advise waits for a person.');
+    expect(typeLabel('delivery.pacto.trianalab.io/autonomy')).toBe('Rung change');
+    expect(changeSummary({ spec: { type: 'delivery.pacto.trianalab.io/autonomy', stage: 's', params: { to: 'advise' } }, status: { phase: 'Held' } }, 'ns')).toBe('The rung of s in ns to Advise waits for a person.');
   });
 });

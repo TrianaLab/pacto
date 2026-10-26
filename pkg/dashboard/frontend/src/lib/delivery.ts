@@ -11,7 +11,7 @@ const TYPE_LABELS: Record<string, string> = {
   'delivery.pacto.trianalab.io/override': 'Override',
   'delivery.pacto.trianalab.io/unfreeze': 'Unfreeze',
   'delivery.pacto.trianalab.io/freeze': 'Freeze',
-  'pacto.dev/autonomy': 'Rung change',
+  'delivery.pacto.trianalab.io/autonomy': 'Rung change',
 };
 
 /** typeLabel names an operation type in plain words. */
@@ -416,7 +416,7 @@ export function andList(names: string[]): string {
 // ── The autonomy ladder ─────────────────────────────────────────────────────
 
 /** The operation type that moves a Stage's rung, one rung at a time. */
-export const AUTONOMY_TYPE = 'pacto.dev/autonomy';
+export const AUTONOMY_TYPE = 'delivery.pacto.trianalab.io/autonomy';
 
 const RUNGS: Record<string, { label: string; help: string }> = {
   observe: { label: 'Observe', help: 'Pacto plans every change and moves nothing. GitOps applies what git says.' },

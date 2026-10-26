@@ -212,7 +212,7 @@ and each Stage records what it would have done.
 
 When Pacto proposes the next rung, `advise`, label the OCIRepository so Pacto
 may write its digest, then have a second person approve the
-`pacto.dev/autonomy` operation (see [When a change waits](pactify-decide.md#when-a-change-waits-or-an-environment-freezes)):
+`delivery.pacto.trianalab.io/autonomy` operation (see [When a change waits](pactify-decide.md#when-a-change-waits-or-an-environment-freezes)):
 
 ```bash
 kubectl -n test label ocirepository my-service delivery.pacto.trianalab.io/apply-ref=my-service
