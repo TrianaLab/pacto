@@ -1648,6 +1648,7 @@ export interface components {
             targets: {
                 [key: string]: components["schemas"]["Fleet.TargetRecord"];
             };
+            uncontractedCallers?: components["schemas"]["Fleet.UncontractedCaller"][] | null;
         };
         "Fleet.GraphNode": {
             /** Format: int64 */
@@ -1784,6 +1785,8 @@ export interface components {
             targets: number;
             /** Format: int64 */
             unavailableSources: number;
+            /** Format: int64 */
+            uncontractedCallers: number;
             /** Format: int64 */
             unknownTargets: number;
             /** Format: int64 */
@@ -2188,6 +2191,12 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        "Fleet.UncontractedCaller": {
+            ambiguous?: boolean;
+            caller: string;
+            sources: string[] | null;
+            toService: string;
+        };
         GetSourcesOutputBody: {
             /** @description True while the first snapshot is still being built */
             discovering: boolean;
@@ -2260,6 +2269,7 @@ export interface components {
             service: string;
             status?: string;
             targets?: string[] | null;
+            uncontracted?: boolean;
         };
         "Impact.ChangesPreview": {
             /** Format: int64 */

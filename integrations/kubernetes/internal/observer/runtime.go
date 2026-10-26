@@ -109,6 +109,10 @@ type CollectInput struct {
 	// KernelEvidenceStaleness bounds how old a node's heartbeat may be; zero means three times the
 	// node object's publish interval.
 	KernelEvidenceStaleness time.Duration
+	// CallerWindow is how far back a call to the target's Service counts when listing its callers, at least
+	// the dependency observation window: the time between two reconciles, so a caller that called between
+	// them is not missed.
+	CallerWindow time.Duration
 
 	// kernel is the per-reconcile kernel view Collect loads; nil when kernel evidence is off.
 	kernel *kernelView
@@ -191,6 +195,10 @@ type collectRun struct {
 	workload *workloadView
 	// kernelCoverage is the node agent's coverage of the target's pods (kernelView.coverage).
 	kernelCoverage string
+	// callers and callerCoverage are what observeCallers found, as of now.
+	callers        []unversioned.ObservedCaller
+	callerCoverage *unversioned.CallerCoverage
+	now            time.Time
 	monitors       map[string]*monitorList
 	failures       []error
 	seen           map[string]bool
@@ -299,6 +307,8 @@ func (o *Observer) Collect(ctx context.Context, input CollectInput) (evidence.Ev
 
 	// Peers only the kernel sees: Pacto-managed services no declared dependency resolves to.
 	observations = append(observations, o.observeUndeclaredPeers(ctx, input, now)...)
+	o.run.now = now
+	o.run.callers, o.run.callerCoverage = o.observeCallers(ctx, input, now)
 
 	log := logf.FromContext(ctx)
 	for _, err := range o.run.failures {

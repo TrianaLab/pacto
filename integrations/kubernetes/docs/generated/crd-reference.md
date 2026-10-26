@@ -550,6 +550,16 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.observationWindows[].firstObservedNegativeAt` | `string` | yes |  |  | FirstObservedNegativeAt is when the current negative streak began. |
 | `status.observationWindows[].kind` | `string` | yes |  |  | Kind is the assertion dimension: interface \| dependency \| configuration \| capability. |
 | `status.observationWindows[].subject` | `string` | yes |  |  | Subject is the assertion identity (interface/dependency/configuration name, or capability key). |
+| `status.observedCallers` | `[]object` | no |  |  | ObservedCallers are workloads the node agent saw calling this target's Service, inside the dependency observation window, that no Pacto describes. Capped at 32, sorted by namespace, kind and name. |
+| `status.observedCallers[].firstSeen` | `string` | yes |  |  | FirstSeen is set once, when the caller first appears, so the status does not change on every reconcile. |
+| `status.observedCallers[].kind` | `string` | yes |  |  | Kind is the owning controller: Deployment, StatefulSet, DaemonSet, Job, CronJob, another controller kind, or Pod for a pod no controller owns. |
+| `status.observedCallers[].name` | `string` | yes |  |  |  |
+| `status.observedCallers[].namespace` | `string` | yes |  |  |  |
+| `status.observedCallers[].source` | `string` | yes |  | `ebpf` | Source is the collector that saw the calls. |
+| `status.observedCallersCoverage` | `object` | no |  |  | ObservedCallersCoverage says whether observedCallers can be trusted as complete. Absent when runtime observation is not configured for this Pacto. |
+| `status.observedCallersCoverage.reason` | `string` | no |  |  |  |
+| `status.observedCallersCoverage.refreshSeconds` | `integer` | no |  |  | RefreshSeconds is how often the operator rewrites this status. A reader treats a status not reconciled within twice that as stale, so an operator that stopped never leaves a complete coverage in place. |
+| `status.observedCallersCoverage.state` | `string` | yes |  | `complete`, `partial`, `unavailable` |  |
 | `status.observedGeneration` | `integer` | no |  |  | ObservedGeneration is the most recent generation observed by the controller. |
 | `status.observedRuntime` | `object` | no |  |  | ObservedRuntime describes the actual runtime state observed from the cluster. Only populated when a target workload exists. This is a lean evidence view. |
 | `status.observedRuntime.containerImages` | `[]string` | no |  |  | ContainerImages lists the container images from the pod spec. |

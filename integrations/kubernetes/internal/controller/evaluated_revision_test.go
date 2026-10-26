@@ -80,6 +80,8 @@ func TestPactoStatusFillsTheDeliveryReadContract(t *testing.T) {
 	p.Status.Contract.Owner = &pactov1alpha1.OwnerInfo{Team: "team-pay"}
 	p.Generation = 2
 	p.Status.EvaluatedRevision.KernelCoverage = "Complete"
+	p.Status.ObservedCallers = []pactov1alpha1.ObservedCaller{{Namespace: "pay", Kind: "Deployment", Name: "legacy", Source: "ebpf"}}
+	p.Status.ObservedCallersCoverage = &pactov1alpha1.CallerCoverage{State: "partial", Reason: "stale-node", RefreshSeconds: 300}
 	p.Status.Findings = append(p.Status.Findings, pactov1alpha1.FindingStatus{Code: "DEPENDENCY_UNDECLARED", Severity: "warning",
 		Category: "RuntimeDrift", Subject: "dependency/fraud", Message: "m",
 		EvidenceRefs: []pactov1alpha1.EvidenceRefStatus{{Source: "k8s", ObservedAt: "t", Collector: "ebpf", DetectedAt: "2026-10-20T10:00:00Z"}}})
@@ -96,7 +98,9 @@ func TestPactoStatusFillsTheDeliveryReadContract(t *testing.T) {
 		len(s.Dependencies) != 1 || s.Dependencies[0].Compatibility != "^1" || !s.Dependencies[0].Required ||
 		s.EvaluatedRevision == nil || s.EvaluatedRevision.ContractDigest != evaluatedDigest ||
 		s.EvaluatedRevision.Workload.UID != "w-1" || s.EvaluatedRevision.Workload.Generation != 3 ||
-		s.EvaluatedRevision.KernelCoverage != "Complete" || !hasKernelFinding(s.Findings) {
+		s.EvaluatedRevision.KernelCoverage != "Complete" || !hasKernelFinding(s.Findings) ||
+		len(s.ObservedCallers) != 1 || s.ObservedCallers[0] != (delivery.ObservedCallerView{Namespace: "pay", Kind: "Deployment", Name: "legacy", Source: "ebpf"}) ||
+		s.ObservedCallersCoverage == nil || *s.ObservedCallersCoverage != (delivery.CallerCoverageView{State: "partial", Reason: "stale-node", RefreshSeconds: 300}) {
 		t.Fatalf("the delivery read contract lost a field: %+v", v)
 	}
 }

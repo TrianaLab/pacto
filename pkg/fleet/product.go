@@ -248,6 +248,7 @@ type OverviewSummary struct {
 	StaleTargets              int `json:"staleTargets"`
 	UnresolvedRelationships   int `json:"unresolvedRelationships"`
 	ObservedOnlyRelationships int `json:"observedOnlyRelationships"`
+	UncontractedCallers       int `json:"uncontractedCallers"`
 	DegradedSources           int `json:"degradedSources"`
 	StaleSources              int `json:"staleSources"`
 	UnavailableSources        int `json:"unavailableSources"`
@@ -407,6 +408,7 @@ func (q *Query) tallyRelationships(sum *OverviewSummary) {
 			sum.ObservedOnlyRelationships++
 		}
 	}
+	sum.UncontractedCallers = len(q.snap.UncontractedCallers)
 }
 
 // tallySources counts degraded, stale and unavailable sources.
@@ -482,6 +484,7 @@ func entryPoints(sum *OverviewSummary) []EntryPoint {
 		{Label: "Invalid revisions", Count: sum.InvalidRevisions, View: EntryPointAttention, Category: categoryInvalid, Severity: severityError},
 		{Label: "Unresolved declared dependencies", Count: sum.UnresolvedRelationships, View: EntryPointAttention, Category: categoryUnresolved, Severity: severityWarning},
 		{Label: "Undeclared runtime dependencies observed", Count: sum.ObservedOnlyRelationships, View: EntryPointServices, Severity: severityInfo},
+		{Label: "Uncontracted callers observed", Count: sum.UncontractedCallers, View: EntryPointServices, Severity: severityInfo},
 		{Label: "Incomplete sources", Count: sum.DegradedSources + sum.StaleSources + sum.UnavailableSources, View: EntryPointOverview, Severity: severityWarning},
 	}
 	out := []EntryPoint{}

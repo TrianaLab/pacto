@@ -697,6 +697,68 @@ spec:
                   - subject
                   type: object
                 type: array
+              observedCallers:
+                description: |-
+                  ObservedCallers are workloads the node agent saw calling this target's
+                  Service, inside the dependency observation window, that no Pacto
+                  describes. Capped at 32, sorted by namespace, kind and name.
+                items:
+                  description: |-
+                    ObservedCaller is a workload seen calling a target's Service at runtime that
+                    no Pacto describes, named by the controller that owns its pods.
+                  properties:
+                    firstSeen:
+                      description: |-
+                        FirstSeen is set once, when the caller first appears, so the status does
+                        not change on every reconcile.
+                      format: date-time
+                      type: string
+                    kind:
+                      description: |-
+                        Kind is the owning controller: Deployment, StatefulSet, DaemonSet, Job,
+                        CronJob, another controller kind, or Pod for a pod no controller owns.
+                      type: string
+                    name:
+                      type: string
+                    namespace:
+                      type: string
+                    source:
+                      description: Source is the collector that saw the calls.
+                      enum:
+                      - ebpf
+                      type: string
+                  required:
+                  - firstSeen
+                  - kind
+                  - name
+                  - namespace
+                  - source
+                  type: object
+                maxItems: 32
+                type: array
+              observedCallersCoverage:
+                description: |-
+                  ObservedCallersCoverage says whether observedCallers can be trusted as
+                  complete. Absent when runtime observation is not configured for this Pacto.
+                properties:
+                  reason:
+                    type: string
+                  refreshSeconds:
+                    description: |-
+                      RefreshSeconds is how often the operator rewrites this status. A reader
+                      treats a status not reconciled within twice that as stale, so an operator
+                      that stopped never leaves a complete coverage in place.
+                    format: int32
+                    type: integer
+                  state:
+                    enum:
+                    - complete
+                    - partial
+                    - unavailable
+                    type: string
+                required:
+                - state
+                type: object
               observedGeneration:
                 description: ObservedGeneration is the most recent generation observed
                   by the controller.

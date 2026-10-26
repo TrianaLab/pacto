@@ -771,6 +771,18 @@ type PactoStatus struct {
 	// +optional
 	EvaluatedRevision *EvaluatedRevision `json:"evaluatedRevision,omitempty"`
 
+	// ObservedCallers are workloads the node agent saw calling this target's
+	// Service, inside the dependency observation window, that no Pacto
+	// describes. Capped at 32, sorted by namespace, kind and name.
+	// +kubebuilder:validation:MaxItems=32
+	// +optional
+	ObservedCallers []ObservedCaller `json:"observedCallers,omitempty"`
+
+	// ObservedCallersCoverage says whether observedCallers can be trusted as
+	// complete. Absent when runtime observation is not configured for this Pacto.
+	// +optional
+	ObservedCallersCoverage *CallerCoverage `json:"observedCallersCoverage,omitempty"`
+
 	// CurrentRevision is the name of the active PactoRevision.
 	// +optional
 	CurrentRevision string `json:"currentRevision,omitempty"`
@@ -782,6 +794,42 @@ type PactoStatus struct {
 	// ObservedGeneration is the most recent generation observed by the controller.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+}
+
+// ObservedCaller is a workload seen calling a target's Service at runtime that
+// no Pacto describes, named by the controller that owns its pods.
+type ObservedCaller struct {
+	Namespace string `json:"namespace"`
+	// Kind is the owning controller: Deployment, StatefulSet, DaemonSet, Job,
+	// CronJob, another controller kind, or Pod for a pod no controller owns.
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+	// Source is the collector that saw the calls.
+	// +kubebuilder:validation:Enum=ebpf
+	Source string `json:"source"`
+	// FirstSeen is set once, when the caller first appears, so the status does
+	// not change on every reconcile.
+	FirstSeen metav1.Time `json:"firstSeen"`
+}
+
+// Caller coverage states.
+const (
+	CallerCoverageComplete    = "complete"
+	CallerCoveragePartial     = "partial"
+	CallerCoverageUnavailable = "unavailable"
+)
+
+// CallerCoverage is how far a list of observed callers can be trusted.
+type CallerCoverage struct {
+	// +kubebuilder:validation:Enum=complete;partial;unavailable
+	State string `json:"state"`
+	// +optional
+	Reason string `json:"reason,omitempty"`
+	// RefreshSeconds is how often the operator rewrites this status. A reader
+	// treats a status not reconciled within twice that as stale, so an operator
+	// that stopped never leaves a complete coverage in place.
+	// +optional
+	RefreshSeconds int32 `json:"refreshSeconds,omitempty"`
 }
 
 // +kubebuilder:object:root=true
