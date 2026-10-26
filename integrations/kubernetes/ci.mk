@@ -19,7 +19,20 @@ ci-test: envtest setup-envtest
 	fi
 	@echo "    total coverage: 100.0%"
 
-ci-chart: helm-lint helm-template helm-golden helm-unittest helm-schema helm-docs-check docs-generate-check
+ci-chart: crd-sync-check helm-lint helm-template helm-golden helm-unittest helm-schema helm-docs-check docs-generate-check
+
+# The chart renders copies of the generated CRDs. helm-golden cannot see a
+# stale delivery copy, because delivery is off by default.
+.PHONY: crd-sync-check
+crd-sync-check:
+	@echo "==> Checking the chart's CRD copies match config/crd/bases..."
+	@set -e; for pair in "pacto.trianalab.io:charts/pacto-operator/crds" "delivery.pacto.trianalab.io:charts/pacto-operator/files/delivery-crds"; do \
+		group=$${pair%%:*}; dir=$${pair#*:}; \
+		[ "$$(cd config/crd/bases && ls $$group\_*.yaml)" = "$$(ls $$dir)" ] || { echo "$$dir does not hold exactly the $$group CRDs: run make sync-crds"; exit 1; }; \
+		for f in config/crd/bases/$$group\_*.yaml; do \
+			cmp -s "$$f" "$$dir/$$(basename $$f)" || { echo "$$dir/$$(basename $$f) differs from $$f: run make sync-crds"; exit 1; }; \
+		done; \
+	done
 
 ci-fmt:
 	@echo "==> Checking formatting..."
