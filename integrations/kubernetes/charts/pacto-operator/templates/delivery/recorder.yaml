@@ -21,6 +21,9 @@
 {{- if eq (include "pacto-operator.delivery.recorderServiceAccountName" .) (include "pacto-operator.delivery.serviceAccountName" .) }}
 {{- fail "the recorder and the promoter resolve to the same ServiceAccount, so the promoter could sign and write records itself: give delivery.recorder.serviceAccount and delivery.serviceAccount different names" }}
 {{- end }}
+{{- if and (eq .Values.delivery.namespace .Release.Namespace) (eq (include "pacto-operator.delivery.recorderServiceAccountName" .) (include "pacto-operator.serviceAccountName" .)) }}
+{{- fail "the recorder resolves to the operator's own ServiceAccount, so the operator could sign and write records: give delivery.recorder.serviceAccount another name" }}
+{{- end }}
 {{- $name := printf "%s-recorder" (include "pacto-operator.delivery.fullname" .) }}
 {{- if $r.serviceAccount.create }}
 apiVersion: v1

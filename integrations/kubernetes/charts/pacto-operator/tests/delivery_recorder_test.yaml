@@ -241,6 +241,19 @@ tests:
       - failedTemplate:
           errorPattern: same ServiceAccount
 
+  - it: refuses a recorder that takes the operator's own ServiceAccount
+    set:
+      delivery.namespace: pacto-system
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.kms: k
+      serviceAccount.name: pacto-operator
+      delivery.recorder.serviceAccount.name: pacto-operator
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: operator's own ServiceAccount
+
   - it: refuses keyless without identity and issuer
     set:
       delivery.recorder.enabled: true
