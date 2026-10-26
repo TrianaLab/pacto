@@ -385,9 +385,12 @@ func (r *StageReconciler) candidateReady(ctx context.Context, stage *dv1.Stage) 
 		return nil, nil, notReady("UpstreamUntrusted", noUpstreamTrust+", so the Stage never promotes"), nil
 	case c.UpstreamRecords != nil:
 		up, why := r.remote(ctx, stage)
-		if up == nil {
+		switch {
+		case up == nil:
 			want = notReady("UpstreamUnreadable", "the records of the upstream Stage "+c.UpstreamRecords.Stream+" in "+c.UpstreamRecords.Repository+
 				" cannot be read or verified ("+why+"), so the Stage promotes nothing until they can")
+		case why != "": // read, with referrers it could not verify
+			want.Message += "; " + why
 		}
 		return nil, up, want, nil
 	case c.UpstreamStage == nil:

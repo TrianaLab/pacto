@@ -143,8 +143,8 @@ You need:
 
 The promoter rebuilds from the records what the upstream verified: a promote
 that `Succeeded`, `Verified` and passed the published gate there is offered
-here, and a version that failed there (or was rolled back after release) is
-never taken. That includes a version that fails a check after release when
+here, and a failure the follower has read is never taken: a version that
+failed there, or was rolled back after release. That includes a version that fails a check after release when
 the promoter cannot roll it back there (a person or agent chose it, or its
 rollback is used up): the promoter freezes that Stage with a freeze operation
 whose record names the failed version. Its own gates, approvals and checks
@@ -160,6 +160,16 @@ a fork or an unreadable registry make it not `Ready` (`UpstreamUnreadable`,
 saying why) until a read succeeds, and refuse a promote as `NotPublished`. A
 record no trusted key signed is skipped, since anyone with push access could
 attach one. A trusted record that stops verifying leaves a gap.
+
+What the follower cannot see, it cannot refuse. It detects records removed
+from before `status.upstreamSeen`, but not a record hidden after it was
+written and before the follower first read it, nor one signed with a key
+`upstreamTrust` does not list, which is skipped like a forgery. A version that
+failed upstream through such a record can still be taken. So rotate the
+recorder's key in every follower first (list the new key beside the old one
+in `upstreamTrust`), then upstream. The Stage's `Ready` message counts the
+referrers on the upstream anchor it could not verify, so a skipped record
+does not go unsaid.
 
 The Stage remembers the newest upstream record it read in
 `status.upstreamSeen`. A later read that ends before it, or holds another

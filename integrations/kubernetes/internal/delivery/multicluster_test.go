@@ -58,6 +58,15 @@ func TestRemoteUpstreamReady(t *testing.T) {
 	if c := conditionOf(e.getStage().Status.Conditions, "Ready"); c == nil || c.Reason != "Ready" {
 		t.Fatalf("trusted: %+v", c)
 	}
+	// Referrers it could not verify are said, not hidden behind Ready.
+	e.upstreamReads(&delivery.StageStatus{}, "2 referrers on the upstream anchor could not be verified")
+	e.st.reads = nil
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if c := conditionOf(e.getStage().Status.Conditions, "Ready"); c == nil || c.Reason != "Ready" || !strings.Contains(c.Message, "2 referrers") {
+		t.Fatalf("unverifiable referrers: %+v", c)
+	}
 }
 
 // TestRemoteUpstreamUnreadable: records that cannot be read make the Stage

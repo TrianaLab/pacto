@@ -269,8 +269,8 @@ func TestUpstream(t *testing.T) {
 		t.Fatalf("offered = %+v %q", s, why)
 	}
 	other, mallory, _ := ed25519.GenerateKey(rand.Reader)
-	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(other), delivery.RecordMark{}); why != "" || len(s.Offered) != 0 {
-		t.Fatalf("an untrusted key offers nothing: %+v %q", s, why)
+	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(other), delivery.RecordMark{}); !strings.HasPrefix(why, "1 referrers on the upstream anchor could not be verified") || len(s.Offered) != 0 {
+		t.Fatalf("an untrusted key offers nothing, and says so: %+v %q", s, why)
 	}
 	// A record another key signed, attached by anyone with push access, does
 	// not blind the follower: it is skipped.
@@ -278,8 +278,8 @@ func TestUpstream(t *testing.T) {
 	forged.Predicate.Chain.Seq = 2
 	fb, _, _ := delivery.SignRecord(t.Context(), edSigner(mallory), forged)
 	attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, fb, map[string]string{AnnPredicateType: delivery.PredicateOperation})
-	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(pub), delivery.RecordMark{}); why != "" || len(s.Offered) != 1 {
-		t.Fatalf("a forged referrer blinds the follower: %+v %q", s, why)
+	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(pub), delivery.RecordMark{}); !strings.Contains(why, "1 referrers") || len(s.Offered) != 1 {
+		t.Fatalf("a forged referrer blinds the follower, or goes unsaid: %+v %q", s, why)
 	}
 	_, path = setup(t, testutil.ReferrersOptions{Unsupported: true})
 	repo, _ = ocireferrer.Open(path, ocireferrer.Options{})
