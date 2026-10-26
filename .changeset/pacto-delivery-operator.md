@@ -13,7 +13,7 @@ and the workload object and generation an evaluation read, and its
 `kernelCoverage` says how far the node agent's view could be trusted
 (`Complete`, `Partial`, `Failed` or `Stale`). A consumer acting on
 `contractStatus` must check `evaluatedRevision` first, as the promoter does.
-The Pacto status also accepts `mcp` interfaces, so agent contracts reconcile.
+The Pacto status also accepts `mcp` interfaces, so a service that exposes tools reconciles.
 `status.observedCallers` lists the workloads the node agent saw calling the
 target's Service that no Pacto describes, and `status.observedCallersCoverage`
 says whether that list is complete, partial (with a reason such as

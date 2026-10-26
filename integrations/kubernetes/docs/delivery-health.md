@@ -114,9 +114,9 @@ spec:
 ```
 
 Without `suite` the runner runs the only check the version ships. A version
-whose contract ships no check of the name `suite` gives is held before it
-ships (the `pacto.suites` gate): a person accepts that it ships without that
-check passing, or it does not ship. It is neither failed nor passed.
+that does not ship the named check is held before it ships (the `pacto.suites`
+gate): a person accepts it or it does not ship. It is neither failed nor
+passed.
 
 The promoter posts the same `{"input": ..., "params": ...}`, the input also
 naming the contract the version ships and the suite in it:

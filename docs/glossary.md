@@ -18,6 +18,9 @@ a different label, it is in the last column.
 | Digest | The fingerprint of one exact published artifact (`sha256:...`) | — |
 | Bundle | A contract together with the files it points to (OpenAPI documents, schemas), as one folder or one published artifact | — |
 | Interface | One way a service is called, such as an HTTP API described by an OpenAPI file | Interfaces |
+| External dependency | A dependency this Pacto system does not deliver, such as a managed database or a model. It has a contract and a version range, or only a version, and then anything relying on it is Unknown. See [external dependencies](contract-reference/dependencies-and-state.md#external-dependencies) | — |
+| Suite | A test or eval file a version ships in its `checks` list. A Stage runs it, and only a verdict about that exact file counts. See [checks](contract-reference/checks.md) | — |
+| Agent | An AI agent is a service like any other: its tools are an `mcp` interface, its model a dependency and its evals a suite. See [an agent is a service](contract-reference/checks.md#an-agent-is-a-service) | — |
 | Policy | A rule a contract must follow, such as "every service names an owner", checked with the contract | Policy |
 | Clear | The contracts clear a change when every consumer accepts the new version | — |
 | Target | One running deployment of a service, such as payments in one cluster | Targets |
