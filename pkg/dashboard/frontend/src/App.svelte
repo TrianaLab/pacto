@@ -402,19 +402,19 @@
          knows who the caller is. Anywhere else the views say why they are absent. -->
     {#if capabilities?.delivery === true}
       {#if route.view === 'delivery-inbox'}
-        <LazyView load={loadDeliveryInboxView} {refreshTick} />
+        <LazyView load={loadDeliveryInboxView} {...route.params} {refreshTick} />
       {:else if route.view === 'delivery-environments'}
-        <LazyView load={loadDeliveryEnvironmentsView} {refreshTick} miraURL={capabilities.miraURL || ''} />
+        <LazyView load={loadDeliveryEnvironmentsView} {...route.params} {refreshTick} miraURL={capabilities.miraURL || ''} />
       {:else if route.view === 'delivery-autonomy'}
-        <LazyView load={loadDeliveryAutonomyView} {refreshTick} miraURL={capabilities.miraURL || ''} />
+        <LazyView load={loadDeliveryAutonomyView} {...route.params} {refreshTick} miraURL={capabilities.miraURL || ''} />
       {:else if route.view === 'delivery-change'}
         {#key route.params.namespace + '/' + route.params.name}
           <LazyView load={loadDeliveryChangeView} namespace={route.params.namespace} name={route.params.name} {refreshTick} miraURL={capabilities.miraURL || ''} />
         {/key}
       {:else if route.view === 'delivery-history'}
-        <LazyView load={loadDeliveryHistoryView} namespace={route.params.namespace || ''} stage={route.params.stage || ''} {refreshTick} miraURL={capabilities.miraURL || ''} />
+        <LazyView load={loadDeliveryHistoryView} {...route.params} {refreshTick} miraURL={capabilities.miraURL || ''} />
       {:else}
-        <LazyView load={loadDeliveryPublishView} {refreshTick} />
+        <LazyView load={loadDeliveryPublishView} {...route.params} {refreshTick} />
       {/if}
     {:else if capabilities}
       <div class="product-page" data-testid="delivery-unavailable">

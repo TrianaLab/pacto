@@ -694,3 +694,47 @@ tr.clickable:active { background: var(--c-surface-inset); }
 @media (prefers-reduced-motion: reduce) {
   .pl-page:active { transform: none; }
 }
+
+/* A row that stacks its children (a title, a sentence, facts) reads from the left edge
+   like any text block; centring each line was the row's default leaking through. A
+   row with several links is not one target, so it gets no hover bar either. */
+.pl-row.pl-row--stack { flex-direction: column; align-items: stretch; }
+.pl-row.pl-row--stack:hover, .pl-row.pl-row--stack:focus-within { background: none; box-shadow: none; }
+
+/* ── Wide pages ── */
+/* Table and board views use the width a wide screen has, centred on the page, instead
+   of the 1200px reading measure that leaves wide tables scrolling sideways. */
+.product-page--wide {
+  --page-wide: min(1600px, 100vw - 2 * var(--sp-4));
+  width: max(100%, var(--page-wide));
+  margin-inline: min(0px, (100% - var(--page-wide)) / 2);
+}
+
+/* ── Data tables ── */
+/* One rule set for every long table. Columns get their widths from a <colgroup> under a
+   fixed layout, so no cell can paint over the next one; text wraps at word boundaries
+   and identifiers clip with an ellipsis (.cell-clip) and keep the full value in a title.
+   The scroller is bounded, so the header stays in view while the rows scroll. Under
+   720px each row becomes a card of label and value pairs, read from data-label. */
+.data-scroll {
+  overflow: auto; max-height: min(75vh, 56rem);
+  border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface);
+}
+.data-table { table-layout: fixed; width: 100%; }
+.data-table th, .data-table td { overflow-wrap: break-word; min-width: 0; }
+.data-table td code { word-break: normal; }
+.data-table thead th { position: sticky; top: 0; z-index: 2; background: var(--c-surface); box-shadow: inset 0 -1px 0 var(--c-border); }
+.data-table tbody th { font: inherit; font-variant-caps: normal; letter-spacing: normal; color: var(--c-text); }
+.cell-clip { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cell-stack { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1); min-width: 0; }
+.cell-badges { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
+@media (max-width: 720px) {
+  .data-scroll { max-height: none; border: none; background: none; }
+  .data-table, .data-table tbody, .data-table tr, .data-table td, .data-table tbody th { display: block; width: 100%; }
+  .data-table colgroup { display: none; }
+  .data-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .data-table tr { border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); margin-bottom: var(--sp-2); padding: var(--sp-2) 0; }
+  .data-table td, .data-table tbody th { border: none; padding: var(--sp-1) var(--sp-3); }
+  .data-table td[data-label]::before { content: attr(data-label); display: block; color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); }
+  .data-table td:empty { display: none; }
+}

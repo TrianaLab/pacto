@@ -42,11 +42,12 @@
     color: var(--c-text-2); background: var(--c-surface-inset);
     padding: 1px 6px; border-radius: var(--radius-xs);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    word-break: break-all;
+    min-width: 0; flex: 0 1 auto;
   }
   .copyable-btn {
     background: none; border: none; cursor: pointer; color: var(--c-text-3);
     font-size: var(--text-sm); line-height: 1; padding: 2px 4px; border-radius: var(--radius-xs);
+    flex-shrink: 0;
   }
   .copyable-btn:hover { color: var(--c-text); background: var(--c-surface-inset); }
 </style>

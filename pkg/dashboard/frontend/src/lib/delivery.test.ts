@@ -6,7 +6,7 @@ import {
   verdictBadge, isBreaking, andList, changeSummary, actorBadge, autonomyOf, unknownHelp, undoneBy, undoCause, UNKNOWN_DOCS,
 } from './delivery.ts';
 import {
-  parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryHistoryUrl, deliveryChangeUrl,
+  parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
 } from './router.ts';
 
 describe('delivery labels', () => {
@@ -122,6 +122,15 @@ describe('delivery routes', () => {
       view: 'delivery-history', params: { namespace: 'prod', stage: 'pay ments' },
     });
     expect(parseHash(deliveryChangeUrl('prod', 'a/b'))).toEqual({ view: 'delivery-change', params: { namespace: 'prod', name: 'a/b' } });
+  });
+
+  it('keep the page and the filter of every list in the URL', () => {
+    expect(parseHash(deliveryInboxUrl({ held: 25, q: 'pay' }))).toEqual({ view: 'delivery-inbox', params: { held: '25', q: 'pay' } });
+    expect(parseHash(deliveryAutonomyUrl({ offset: 50, blockers: 25 })).params).toEqual({ offset: '50', blockers: '25' });
+    expect(parseHash(deliveryPublishUrl({ limit: 100 })).params).toEqual({ limit: '100' });
+    expect(parseHash('#/delivery/environments?namespace=prod&offset=25&junk=1').params).toEqual({ offset: '25' });
+    expect(deliveryHistoryUrl({ namespace: 'prod', stage: 'pay', offset: 50 })).toBe('#/delivery/history?namespace=prod&stage=pay&offset=50');
+    expect(deliveryHistoryUrl({ offset: 10, q: '' })).toBe('#/delivery/history?offset=10');
   });
 });
 

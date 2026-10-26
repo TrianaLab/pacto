@@ -77,6 +77,11 @@ export type DeliveryOperation = GetResponse<'/api/delivery/operations/{namespace
 export type DeliveryBlame = GetResponse<'/api/delivery/blame'>;
 export type DeliveryUndo = GetResponse<'/api/delivery/undo'>;
 export type DeliveryRefusals = GetResponse<'/api/delivery/refusals'>;
+/** The paging and filter a long delivery list takes, from the generated query. */
+export type DeliveryQuery<P extends keyof paths> =
+  paths[P] extends { get: { parameters: { query?: infer Q } } } ? NonNullable<Q> : never;
+/** Which slice of a list an answer holds. */
+export type DeliveryPage = components['schemas']['Page'];
 export type DeliveryPlan = components['schemas']['Delivery.Plan'];
 export type DeliveryRequest = components['schemas']['Delivery.Request'];
 export type DeliveryDecision = components['schemas']['DecideInputBody']['decision'];
@@ -425,13 +430,17 @@ export const api = {
     const body = (await res.json().catch(() => ({}))) as { logoutURL?: string };
     return body.logoutURL ?? '';
   },
-  deliveryInbox: (): Promise<DeliveryInbox> => unwrap(client.GET('/api/delivery/inbox')),
-  deliveryEnvironments: (): Promise<DeliveryEnvironments> => unwrap(client.GET('/api/delivery/environments')),
-  deliveryAutonomy: (): Promise<DeliveryAutonomy> => unwrap(client.GET('/api/delivery/autonomy')),
-  deliveryPublished: (): Promise<DeliveryPublished> => unwrap(client.GET('/api/delivery/published')),
-  deliveryHistory: (namespace = '', stage = ''): Promise<DeliveryHistory> =>
+  deliveryInbox: (query: DeliveryQuery<'/api/delivery/inbox'> = {}): Promise<DeliveryInbox> =>
+    unwrap(client.GET('/api/delivery/inbox', { params: { query } })),
+  deliveryEnvironments: (query: DeliveryQuery<'/api/delivery/environments'> = {}): Promise<DeliveryEnvironments> =>
+    unwrap(client.GET('/api/delivery/environments', { params: { query } })),
+  deliveryAutonomy: (query: DeliveryQuery<'/api/delivery/autonomy'> = {}): Promise<DeliveryAutonomy> =>
+    unwrap(client.GET('/api/delivery/autonomy', { params: { query } })),
+  deliveryPublished: (query: DeliveryQuery<'/api/delivery/published'> = {}): Promise<DeliveryPublished> =>
+    unwrap(client.GET('/api/delivery/published', { params: { query } })),
+  deliveryHistory: (namespace = '', stage = '', query: DeliveryQuery<'/api/delivery/history'> = {}): Promise<DeliveryHistory> =>
     unwrap(client.GET('/api/delivery/history', {
-      params: { query: { namespace: namespace || undefined, stage: stage || undefined } },
+      params: { query: { ...query, namespace: namespace || undefined, stage: stage || undefined } },
     })),
   deliveryBlame: (namespace: string, stage: string, digest = ''): Promise<DeliveryBlame> =>
     unwrap(client.GET('/api/delivery/blame', { params: { query: { namespace, stage, digest: digest || undefined } } })),

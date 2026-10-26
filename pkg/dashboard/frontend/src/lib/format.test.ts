@@ -1543,3 +1543,11 @@ describe('STATUS_FILTER_OPTIONS', () => {
     ]);
   });
 });
+
+describe('formatCount', () => {
+  it('groups thousands', async () => {
+    const { formatCount } = await import('./format.ts');
+    expect(formatCount(12431)).toBe('12,431');
+    expect(formatCount(7)).toBe('7');
+  });
+});

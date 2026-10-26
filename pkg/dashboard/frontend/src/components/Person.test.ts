@@ -20,3 +20,10 @@ describe('Person', () => {
     expect(text({ user: 'kind-admin' })).toBe('kind-admin');
   });
 });
+
+describe('Person wrapping', () => {
+  it('wraps an email after @ and dots, never inside a word', () => {
+    expect(text({ user: 'carol@example.com' })).toBe('carol@example.com');
+    expect(document.body.innerHTML).toContain('carol@<wbr>example.<wbr>com');
+  });
+});

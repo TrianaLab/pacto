@@ -1,5 +1,7 @@
 /** Minimal hash router — returns a reactive route object. */
 
+import { pagedHash } from './paging.ts';
+
 export interface Route {
   view:
     | 'list' | 'detail' | 'diff' | 'graph' | 'owners' | 'owner-detail' | 'readiness'
@@ -255,25 +257,27 @@ function parseFleet(path: string, query: string): Route {
   return { view: 'fleet-overview', params: {} };
 }
 
+// The URL state of a delivery list: which Stage, which page and the filter.
+const DELIVERY_QUERY = ['namespace', 'stage', 'offset', 'limit', 'q', 'held', 'frozen', 'errored', 'blockers'];
+
 function parseDelivery(path: string, query: string): Route {
   const rest = path.slice('delivery'.length).replace(/^\//, '');
   const change = rest.match(/^changes\/([^/]+)\/([^/]+)$/);
   if (change) {
     return { view: 'delivery-change', params: { namespace: decodeURIComponent(change[1]), name: decodeURIComponent(change[2]) } };
   }
-  if (rest === 'environments') return { view: 'delivery-environments', params: {} };
-  if (rest === 'autonomy') return { view: 'delivery-autonomy', params: {} };
-  if (rest === 'publish') return { view: 'delivery-publish', params: {} };
-  if (rest === 'history') {
-    const params: Record<string, string> = {};
-    const qs = new URLSearchParams(query);
-    for (const k of ['namespace', 'stage']) {
-      const v = qs.get(k);
-      if (v) params[k] = v;
-    }
-    return { view: 'delivery-history', params };
+  const params: Record<string, string> = {};
+  const qs = new URLSearchParams(query);
+  for (const k of DELIVERY_QUERY) {
+    const v = qs.get(k);
+    if (v) params[k] = v;
   }
-  return { view: 'delivery-inbox', params: {} };
+  // One Stage's history needs both halves of its name.
+  if (!params.namespace || !params.stage) { delete params.namespace; delete params.stage; }
+  const views: Record<string, Route['view']> = {
+    environments: 'delivery-environments', autonomy: 'delivery-autonomy', publish: 'delivery-publish', history: 'delivery-history',
+  };
+  return { view: views[rest] ?? 'delivery-inbox', params };
 }
 
 // replaceHash canonicalizes the current URL to `hash` WITHOUT pushing a history entry,
@@ -604,27 +608,28 @@ export function compareDiffUrl(opts: { fromName?: string; fromVer?: string; toNa
 
 // ── delivery navigation ──────────────────────────────────────────────────────
 
-export function deliveryInboxUrl(): string {
-  return '#/delivery/inbox';
+/** The paging and filter a delivery list keeps in its URL. */
+export type DeliveryListQuery = Record<string, string | number | null | undefined>;
+
+export function deliveryInboxUrl(q: DeliveryListQuery = {}): string {
+  return pagedHash('#/delivery/inbox', q);
 }
 
-export function deliveryEnvironmentsUrl(): string {
-  return '#/delivery/environments';
+export function deliveryEnvironmentsUrl(q: DeliveryListQuery = {}): string {
+  return pagedHash('#/delivery/environments', q);
 }
 
-export function deliveryAutonomyUrl(): string {
-  return '#/delivery/autonomy';
+export function deliveryAutonomyUrl(q: DeliveryListQuery = {}): string {
+  return pagedHash('#/delivery/autonomy', q);
 }
 
-export function deliveryPublishUrl(): string {
-  return '#/delivery/publish';
+export function deliveryPublishUrl(q: DeliveryListQuery = {}): string {
+  return pagedHash('#/delivery/publish', q);
 }
 
-export function deliveryHistoryUrl(opts: { namespace?: string; stage?: string } = {}): string {
-  const qs = new URLSearchParams();
-  if (opts.namespace && opts.stage) { qs.set('namespace', opts.namespace); qs.set('stage', opts.stage); }
-  const str = qs.toString();
-  return str ? `#/delivery/history?${str}` : '#/delivery/history';
+export function deliveryHistoryUrl(opts: { namespace?: string; stage?: string } & DeliveryListQuery = {}): string {
+  const { namespace, stage, ...q } = opts;
+  return pagedHash('#/delivery/history', namespace && stage ? { namespace, stage, ...q } : q);
 }
 
 export function deliveryChangeUrl(namespace: string, name: string): string {

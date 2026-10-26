@@ -139,7 +139,7 @@ export function formatDiffValue(val: unknown): string {
 
 /**
  * HTML for a long dotted identifier/path that wraps at NATURAL boundaries
- * (dots, brackets, colons, slashes, hyphens, underscores) instead of breaking
+ * (dots, brackets, colons, slashes, hyphens, underscores, @ and #) instead of breaking
  * mid-word. Escapes HTML, then inserts <wbr> break opportunities after each
  * separator — so a narrow table cell renders "service.owner.\ncontacts[...]"
  * rather than "service.owner.t\neam". <wbr> is not copied into the clipboard,
@@ -148,7 +148,7 @@ export function formatDiffValue(val: unknown): string {
  */
 export function breakableIdentifierHtml(s: string): string {
   const escaped = (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  return escaped.replace(/([.[\]:/_-])/g, '$1<wbr>');
+  return escaped.replace(/([.[\]:/_@#-])/g, '$1<wbr>');
 }
 
 // ── Dependency resolution reason helpers ──
@@ -1056,4 +1056,13 @@ export function computeTooltipPosition(
   }
 
   return { left, top };
+}
+
+// ── Counts ──
+
+const COUNT = new Intl.NumberFormat('en-US');
+
+/** formatCount groups a count's thousands, so 12431 reads 12,431. */
+export function formatCount(n: number): string {
+  return COUNT.format(n);
 }

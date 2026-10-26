@@ -73,10 +73,12 @@
 </div>
 
 <style>
-  .dn-tabs { display: flex; gap: var(--sp-1); flex-wrap: wrap; border-bottom: 1px solid var(--c-border); }
+  /* One row that scrolls on a phone, never a tab alone on a second line. */
+  .dn-tabs { display: flex; gap: var(--sp-1); overflow-x: auto; scrollbar-width: thin; box-shadow: inset 0 -1px 0 var(--c-border); }
   .dn-tab {
     padding: var(--sp-2) var(--sp-3); color: var(--c-text-2); text-decoration: none;
-    border-bottom: 2px solid transparent; margin-bottom: -1px; font-size: var(--text-sm); font-weight: 500;
+    border-bottom: 2px solid transparent; font-size: var(--text-sm); font-weight: 500;
+    white-space: nowrap; flex-shrink: 0;
   }
   .dn-tab:hover { color: var(--c-text); }
   .dn-tab:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
