@@ -9,8 +9,9 @@ the contract is published to `oci://ghcr.io/acme/contracts/my-service`, the
 
 ## What to commit
 
-Commit what `pacto init` wrote (`pacto.yaml`, `.pactoignore`, `delivery/`
-and the files the contract points to, such as `interfaces/openapi.yaml`).
+Commit what `pacto init` wrote (`pacto.yaml`, `.pactoignore`, `.gitignore`,
+`delivery/` and any files the contract points to, such as an OpenAPI
+document).
 
 If your contract lists dependencies, also run `pacto lock .` and commit the
 `pacto.lock` it writes. It records the exact published build of every
@@ -20,7 +21,14 @@ optional: without it, Pacto looks dependencies up fresh each time. See
 
 ## On every pull request
 
-Two checks:
+Two checks. The second reads your registry, so give the job a login. These
+variables work for any registry; on GitHub's, the built-in token will do:
+
+```yaml
+env:
+  PACTO_REGISTRY_USERNAME: ${{ github.actor }}
+  PACTO_REGISTRY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+```
 
 ```yaml
 - name: Validate the contract
@@ -47,20 +55,31 @@ compare two folders with no registry, run `pacto diff ./main ./feature-branch`.
 
 ## After a merge: publish
 
+With the same login variables:
+
 ```yaml
+- name: Set up a Docker builder
+  run: docker buildx create --use --driver docker-container
+
 - name: Publish a version
-  run: pacto publish
+  run: |
+    echo "$COSIGN_KEY" > cosign.key      # publish.sign reads it from the repository root
+    pacto publish
   env:
+    COSIGN_KEY: ${{ secrets.COSIGN_KEY }}
     COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
 ```
 
 `pacto publish` builds the image, pushes it to your registry with your
 Kubernetes files and the contract, and signs them; delivery only rolls out
-versions published this way. Give it the signing key (`cosign.key`) from a
-secret and a login to your registry, for example `pacto login ghcr.io` or the
-`PACTO_REGISTRY_TOKEN` variable set to a registry token. It never overwrites
-a published version, so raise `service.version` in `pacto.yaml` with each
-change. See [Publish a version](publishing.md).
+versions published this way. Store the contents of `cosign.key` and its
+password as CI secrets. On GitHub, the job also needs
+`permissions: packages: write` to push.
+
+It never overwrites a published version, and a merge that does not raise
+`service.version` in `pacto.yaml`, such as a docs change, fails here. Raise
+the version with each change you want to ship, or run this step only when
+`pacto.yaml` changed. See [Publish a version](publishing.md).
 
 If you use contracts without delivery, `pacto push oci://ghcr.io/acme/contracts/my-service -p .`
 uploads only the contract.

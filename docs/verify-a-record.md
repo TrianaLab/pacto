@@ -3,8 +3,11 @@
 This page is for an auditor or security reviewer who must check what Pacto
 did, with standard tools instead of Pacto itself. It shows how to read a
 record, check its signature, check the whole history and check that a
-released version was signed. You still trust one thing from the team that
-runs Pacto: the public key that records are checked against.
+released version was signed. Without access to the cluster you still take
+three things from the team that runs Pacto: the public key records are
+checked against, the address where a Stage's records hang and the id of its
+newest record. Ask for all three in writing and keep them: a later mismatch
+is evidence.
 The full detail is in [Signed records and history](integrations/kubernetes/delivery-records.md).
 
 ## The words on this page
@@ -37,7 +40,7 @@ Every field sits under `.predicate`:
 
 | Field | What it says |
 |---|---|
-| `kind` | `operation` for a change, `gap` for a placeholder (see below), `unrecordable` for a change that failed a check before it could be signed |
+| `kind` | `operation` for a change, `gap` for a placeholder (see below), `unrecordable` for a signed stand-in for a change whose own record failed a check |
 | `intent` | What was asked: the change's name, its Stage (`intent.stage.namespace` and `intent.stage.name`) and its reason |
 | `actor.user`, `actor.class` | Who asked, and whether that is a `human`, an `agent`, `break-glass` or Pacto itself (`controller`) |
 | `actor.onBehalfOf` | The person an agent said it acted for. Only claimed, never checked, and marked so |
@@ -45,7 +48,7 @@ Every field sits under `.predicate`:
 | `verdicts[]` | Each check (`gate`), when it ran (`phase`: `pre` before the move, `verify` after) and its `result`: `Pass`, `Fail` or `Unknown` |
 | `outcome.result` | How it ended, such as `Succeeded`, `Failed`, `Rejected` or `Cancelled` |
 | `outcome.pointer.before`, `.after` | The version digest the Stage ran before and after |
-| `guarded` | `true` when the cluster's admission checks confirmed who asked and who approved. Without it, those names are only what the writer claimed |
+| `guarded` | Read this first. `true` when the cluster's admission checks confirmed who asked and who approved. Without it, those names are only what the writer claimed |
 | `chain.seq`, `chain.parent` | The record's number in its Stage's history and the id of the record before it (see "Check the whole history") |
 
 Records are off unless your platform team turned on the recorder, and they
@@ -56,8 +59,11 @@ not).
 
 Each record is stored in your registry as a referrer, attached to the version
 the change moved to, the version it moved from, the new contract and one
-fixed digest per Stage called the **anchor**. The anchor is where the whole
-history of one Stage hangs. Its full address is in the Stage:
+fixed digest per Stage called the **anchor**. These four digests are the
+record's signed subjects (`.subject[]`, named `to`, `from`, `contract` and
+`anchor`). The anchor is where the whole history of one Stage hangs. All
+anchors live in one repository, the **streams repository**. The anchor's full
+address is in the Stage:
 
 ```bash
 kubectl get stages.delivery.pacto.trianalab.io -n prod payments -o jsonpath='{.status.stream.anchor}'
@@ -166,12 +172,23 @@ cosign verify --certificate-identity https://github.com/acme/payments/.github/wo
 If the team publishes with `transparencyLog: false`, add
 `--insecure-ignore-tlog` to the key command; the publishing team can tell
 you which it uses. `pacto publish` refuses to publish a version it cannot
-sign. To tie a record to a release, take `.predicate.outcome.pointer.after`
-from the record and check that digest here. See
+sign.
+
+To tie a record to a release, take the digest of the subject named `to`
+(`jq -r '.subject[] | select(.name=="to") | .digest.sha256'` on the decoded
+statement). It is the deploy artifact, the package of Kubernetes files Flux
+applies. It lives in the repository the service's contract names for that
+artifact (`publish.artifacts`, the one `publish.deploy` points at), for
+example `registry.example/acme/deploy/payments`. Check it there with the
+`cosign verify` command above. Get the publisher's key out of band too, never
+from the registry. See
 [Publish a version](publishing.md#signing) for the signing settings.
 
 ## Known limits
 
+- Someone who controls both the registry and the cluster can delete the
+  newest records and report an older newest id. Compare with the id you kept
+  from your last audit.
 - With no public log, nothing outside the record proves when it was signed.
   Someone holding the recorder's key could write a record with any date.
 - A change running while its Stage is deleted is never recorded.

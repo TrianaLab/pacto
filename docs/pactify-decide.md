@@ -59,7 +59,7 @@ Then give one answer:
 |---|---|---|
 | `approve` | The question says "Approve": the change breaks a consumer, or the Stage asks for every change, and you accept it | The version goes ahead |
 | `accept-unknown` | The question says "Accept the unknown": a check said Unknown and you accept the risk | The version goes ahead; the record says "accepted", never "passed". If the version already shipped and a later check said Unknown, only this or `reject` answers |
-| `reject` | You do not want this version here | The change ends; the Stage keeps the version it runs. Someone can ask again later |
+| `reject` | You do not want this version here | If it has not shipped, the change ends and the Stage keeps the version it runs. If it already shipped, Pacto rolls it back to the version before. Someone can ask again later |
 
 ```bash
 pacto delivery approve -n prod <change> --decision approve   # or accept-unknown, or reject
@@ -68,8 +68,10 @@ pacto delivery approve -n prod <change> --decision approve   # or accept-unknown
 `<change>` is the name in the `NAME` column of the first command. All three
 answers go through `approve`; the `--decision` flag says which one.
 
-A held change that nobody answers ends on its own after 24 hours, as
-`Expired`, and the Stage keeps the version it runs. The person
+A held change that nobody answers ends on its own after 24 hours. If it had
+not shipped, it ends as `Expired` and the Stage keeps the version it runs. If
+it had shipped and the question was about a later Unknown check, the Stage
+freezes instead, so a person looks at it. The person
 who asked can withdraw it at any time with `pacto delivery cancel -n prod <change>`.
 
 In the dashboard (`pacto dashboard`), the **Delivery** tab's **Inbox** lists
@@ -82,7 +84,8 @@ Two things, both set up once by your cluster admin:
 
 1. **A role.** Your Kubernetes user or group needs the approver role, and
    your group must be the owner team written in the contract of the service
-   you are asked about: for a breaking change, the consumer that would break.
+   you are asked about: for a breaking change, the consumer that would break;
+   otherwise, the service whose version is moving.
    Ask your admin for a binding like this one, for the team `payments`:
 
    ```bash
@@ -98,8 +101,9 @@ Two things, both set up once by your cluster admin:
    time, set your company's sign-in address, which your admin gives you, in
    your shell: `export PACTO_DELIVERY_OIDC_ISSUER_URL=https://login.example.com`.
 
-Some clusters cannot check a fresh login; managed clusters such as EKS, GKE
-and AKS are not verified. There, nobody can give any of the three answers,
+Some clusters cannot check a fresh login. It works where your admin sets
+the Kubernetes API server's flags, and nobody has tested it yet on managed
+clusters such as EKS, GKE and AKS. There, nobody can give any of the three answers,
 reject included. Ask your admin, who can
 check with [Sign-in, approvals and agents](integrations/kubernetes/delivery-identity.md#where-approving-works).
 A held change then has three ways out: the person who asked cancels it and
@@ -121,7 +125,8 @@ pacto delivery propose -n prod --stage payments --type unfreeze --reason "fixed 
 ```
 
 Despite the name `propose`, an unfreeze takes effect at once and needs nobody
-else. It needs the approver role but no fresh login. In the dashboard, the
+else. It also clears `HOLD`, so run it on a Stage that is on hold even when
+`FROZEN` shows `false`. It needs the approver role but no fresh login. In the dashboard, the
 **Environments** view has an **Unfreeze** button on each frozen Stage.
 
 ## Roll back by hand
@@ -146,7 +151,8 @@ version, so it does not undo your choice. In the dashboard, the
 
 Someone in the break-glass group, `pacto:break-glass` by default, can force a
 version past every check. It shows in the history and freezes the Stage until
-a person unfreezes it. Use it only when nothing else works:
+a person unfreezes it. Use it only when nothing else works. `<change>` is
+the held change whose version you force:
 
 ```bash
 to=$(kubectl -n prod get operations.delivery.pacto.trianalab.io <change> -o jsonpath='{.spec.params.to}')

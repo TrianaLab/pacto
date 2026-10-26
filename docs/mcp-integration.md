@@ -9,7 +9,8 @@ in the [MCP reference](mcp-reference.md).
 
 | Word | Meaning |
 |---|---|
-| Pacto | A tool that describes each of your services in a contract and, with delivery turned on, decides which version runs in each environment |
+| Pacto | A tool that describes each of your services in a contract and checks changes against those contracts |
+| Delivery | The optional part of Pacto that runs in a Kubernetes cluster and decides which version of each service runs in each environment, such as test or prod |
 | Contract | A file, `pacto.yaml`, in which a service says who owns it, what it offers (its APIs) and which other services it calls |
 | Bundle | A contract together with the files it points to, such as the service's OpenAPI document. It is a folder on disk or a published copy in a container registry, written `oci://registry/name:version` |
 | Fleet | All your services together, as Pacto sees them from contracts, clusters and registries |
@@ -75,8 +76,9 @@ example `["mcp", "--delivery"]`.
 
 ## Pick what the agent may do
 
-How you start the server decides what the agent can reach. Pick one; the
-flags cannot be combined.
+How you start the server decides what the agent can reach. Pick one mode:
+`--root`, `--fleet`, a bundle, `--publish` and `--delivery` cannot be
+combined with each other.
 
 | Start it with | The agent can | It can change |
 |---|---|---|
@@ -85,35 +87,73 @@ flags cannot be combined.
 | `pacto mcp --fleet` | Everything the default does, plus answer questions about your fleet | Contract files on disk |
 | `pacto mcp ./my-service --base-url https://...` | Everything the default does, plus call the service's own API, one tool per operation | Contract files; the live service only with `--allow-writes` |
 | `pacto mcp --publish` | Everything the default does, plus publish a version to your registry | Contract files and your registry |
-| `pacto mcp --delivery` | Read delivery state and, if the cluster counts it as an agent, ask for or cancel a change | Only its own requests; it can never approve |
+| `pacto mcp --delivery` | Everything the default does, plus read delivery state and, if the cluster counts it as an agent, ask for or cancel a change | Contract files and its own requests; it can never approve |
 
 If the agent must change nothing at all, use `--root`.
+
+**Files.** The contract tools write to the folder the agent names in each
+call, relative to the folder the server was started in. Pacto does not limit
+which folder, so start the server in the project the agent should work on,
+as a user that can write only where it should.
+
+**Fleet.** `--fleet` reads the sources you name with more flags, such as
+`--local ./contracts` for folders, `--oci <ref>` for published contracts and
+`--k8s` for the cluster your kubeconfig points at. See
+[`pacto mcp`](cli-reference.md#pacto-mcp).
+
+**Delivery.** `--delivery` acts on the cluster your kubeconfig points at, as
+the identity in it. The cluster treats a Kubernetes service account as an
+agent, and also anyone in the agent group your platform team set up
+(`pacto:agents` by default). Only an agent gets the tools to ask for and
+cancel a change; a person gets only the read tools. So give the agent a
+kubeconfig for its own service account, never yours: an agent holding your
+credentials is you to the cluster.
+
+**Credentials.** `--publish`, `--root` and `--fleet` use the registry logins
+of `pacto login`. A bundle's API calls use `--auth name=value` for the
+service's own sign-in, as its OpenAPI document declares it.
 
 ## What keeps it safe
 
 - **An agent never approves.** In delivery mode it can ask for a change, but
-  Pacto's checks and the owning team decide. There is no approve tool, and
-  the cluster refuses an approval from an agent anyway. Run the agent with
-  its own Kubernetes identity, never your login: an agent holding your
-  credentials is you to the cluster.
+  Pacto's checks (is the version signed, does it break a service that calls
+  it, is it healthy after release) and the owning team decide. There is no
+  approve tool, and the cluster refuses an approval from an agent anyway.
 - **Calls to your service are read-only by default.** Only `GET` and `HEAD`
   operations become tools unless you pass `--allow-writes`. Each call stops
   after 30 seconds and follows no redirect.
 - **Tools carry no safety labels.** Pacto does not mark its tools as
-  read-only or destructive in MCP, so build allow-lists by name. Tools named
-  `pacto_*` are Pacto's own: `pacto_create`, `pacto_edit` and `pacto_publish`
-  write, and the rest read. Tools without the `pacto_` prefix call your
-  service.
-- **A missing answer is not proof.** Fleet answers carry `asOf` and
-  `completeness`. When a source was unreachable the answer says `partial`,
+  read-only or destructive in MCP, so build allow-lists by name from the
+  table below.
+- **A missing answer is not proof.** Fleet answers carry `asOf`, the time
+  they describe, and `completeness`, `complete` or `partial`. When a source was unreachable the answer says `partial`,
   and "not found" then means "not known", not "does not exist".
-- **Answers are frozen at start.** `--root`, `--fleet` and a bundle are read
+- **Answers are frozen at start.** `--root`, `--fleet` and a bundle (the
+  `./my-service` argument) are read
   once when the server starts. Restart it to see newer services or versions.
-- **Over the network, callers must sign in.** `pacto mcp -t http` listens only
-  on this machine by default. To listen beyond it you must add
-  `--auth-issuer` and `--resource`, so every request carries a token the
-  server checks, and the server then refuses `--auth` and `--allow-writes`.
-  See [agents over the network](integrations/kubernetes/delivery-identity.md#agents-over-the-network).
+- **Over the network, callers must sign in.** By default the server talks
+  over standard input and output. With `-t http` it serves HTTP on this
+  machine only. Serving other machines needs a token on every request, from
+  your company sign-in, and then no service credential or write access to the
+  service is allowed. See
+  [agents over the network](integrations/kubernetes/delivery-identity.md#agents-over-the-network).
+
+## Which tools exist
+
+| Tools | Mode | Read or write |
+|---|---|---|
+| `pacto_create`, `pacto_edit` | every mode but `--root` | Write contract files |
+| `pacto_check`, `pacto_schema` | every mode but `--root` | Read |
+| `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_impact` | `--fleet` | Read |
+| `pacto_catalog_revision`, plus the resources `pacto://catalog` and `pacto://catalog/closure` | `--root` | Read |
+| One tool per API operation, named by its `operationId` (or `<method>_<path>`), plus `pacto_skill` | a bundle | Read; your service's write operations only with `--allow-writes` |
+| `pacto_publish_plan` | `--publish` | Read |
+| `pacto_publish` | `--publish` | Writes to your registry |
+| `pacto_delivery_operation_types`, `_operation_plan`, `_get`, `_explain`, `_history`, `_blame`, `_undo_plan`, `_record_verify` | `--delivery` | Read |
+| `pacto_delivery_operation_propose`, `pacto_delivery_cancel` | `--delivery`, agents only | Ask for or cancel a change |
+
+A bundle cannot name an operation `pacto_*`, so the prefix always means a
+Pacto tool. Inputs and outputs are in the [MCP reference](mcp-reference.md).
 
 ## Try it
 
