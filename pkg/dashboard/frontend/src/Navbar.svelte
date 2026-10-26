@@ -67,7 +67,7 @@
       {
         label: 'Delivery',
         href: deliveryInboxUrl(),
-        views: ['delivery-inbox', 'delivery-environments', 'delivery-change', 'delivery-history', 'delivery-publish'],
+        views: ['delivery-inbox', 'delivery-environments', 'delivery-autonomy', 'delivery-change', 'delivery-history', 'delivery-publish'],
         cap: 'delivery',
         confirmed: true,
       },

@@ -70,6 +70,7 @@ type DeleteResponse<P extends keyof paths> =
 export type DeliverySession = GetResponse<'/api/session'>;
 export type DeliveryInbox = GetResponse<'/api/delivery/inbox'>;
 export type DeliveryEnvironments = GetResponse<'/api/delivery/environments'>;
+export type DeliveryAutonomy = GetResponse<'/api/delivery/autonomy'>;
 export type DeliveryPublished = GetResponse<'/api/delivery/published'>;
 export type DeliveryHistory = GetResponse<'/api/delivery/history'>;
 export type DeliveryOperation = GetResponse<'/api/delivery/operations/{namespace}/{name}'>;
@@ -426,6 +427,7 @@ export const api = {
   },
   deliveryInbox: (): Promise<DeliveryInbox> => unwrap(client.GET('/api/delivery/inbox')),
   deliveryEnvironments: (): Promise<DeliveryEnvironments> => unwrap(client.GET('/api/delivery/environments')),
+  deliveryAutonomy: (): Promise<DeliveryAutonomy> => unwrap(client.GET('/api/delivery/autonomy')),
   deliveryPublished: (): Promise<DeliveryPublished> => unwrap(client.GET('/api/delivery/published')),
   deliveryHistory: (namespace = '', stage = ''): Promise<DeliveryHistory> =>
     unwrap(client.GET('/api/delivery/history', {

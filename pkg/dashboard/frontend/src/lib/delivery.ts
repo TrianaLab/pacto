@@ -11,6 +11,7 @@ const TYPE_LABELS: Record<string, string> = {
   'delivery.pacto.trianalab.io/override': 'Override',
   'delivery.pacto.trianalab.io/unfreeze': 'Unfreeze',
   'delivery.pacto.trianalab.io/freeze': 'Freeze',
+  'pacto.dev/autonomy': 'Rung change',
 };
 
 /** typeLabel names an operation type in plain words. */
@@ -265,9 +266,11 @@ export interface ChangeFacts {
 export function changeSummary(e: ChangeFacts | null | undefined, namespace: string, versions?: Record<string, string> | null): string {
   if (!e) return '';
   const p = e.spec?.params ?? {};
-  const v = (d: string | undefined) => (d ? versionLabel(d, versions) : '');
+  const v = (d: string | undefined) => (!d ? '' : e.spec?.type === AUTONOMY_TYPE ? rungLabel(d) : versionLabel(d, versions));
   const move = p.from && p.to ? ` from ${v(p.from)} to ${v(p.to)}` : p.to ? ` to ${v(p.to)}` : '';
-  const what = `${typeLabel(e.spec?.type)} ${e.spec?.stage ?? ''} in ${namespace}${move}`;
+  // typeLabel is a verb for every type but a rung change, which reads as a noun.
+  const lead = e.spec?.type === AUTONOMY_TYPE ? 'The rung of' : typeLabel(e.spec?.type);
+  const what = `${lead} ${e.spec?.stage ?? ''} in ${namespace}${move}`;
   const st = e.status ?? {};
   if (st.phase === 'Concluded') {
     const end = [OUTCOMES[st.outcome ?? ''] ?? st.outcome, VERIFICATIONS[st.verification ?? ''] ?? st.verification].filter(Boolean).join(', ');
@@ -360,7 +363,7 @@ const PREDICTIONS: Record<string, string> = {
   Proceeds: 'It would go ahead with no person involved.',
   Held: 'It would wait for a person to decide.',
   Rejected: 'It would be refused.',
-  Waits: 'It would wait until the environment is free.',
+  Waits: 'It would wait until a person unfreezes it.',
 };
 
 /** predictionLabel says what a plan predicts, in a sentence. */
@@ -408,4 +411,81 @@ export function isBreaking(verdicts: { citation?: Record<string, string> }[] | n
 /** andList joins names the way a sentence does, with no serial comma. */
 export function andList(names: string[]): string {
   return names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+}
+
+// ── The autonomy ladder ─────────────────────────────────────────────────────
+
+/** The operation type that moves a Stage's rung, one rung at a time. */
+export const AUTONOMY_TYPE = 'pacto.dev/autonomy';
+
+const RUNGS: Record<string, { label: string; help: string }> = {
+  observe: { label: 'Observe', help: 'Pacto plans every change and moves nothing. GitOps applies what git says.' },
+  advise: { label: 'Advise', help: 'Pacto shows each candidate and its plan. A person proposes or approves every promote.' },
+  'auto-nonbreaking': { label: 'Auto non-breaking', help: 'Pacto promotes non-breaking changes on its own. A person approves every other change.' },
+  autonomous: { label: 'Autonomous', help: 'Pacto promotes any change the contract graph clears. Unknown still waits for a person.' },
+};
+
+/** rungLabel names a rung in plain words; an empty rung is one the Stage does not report. */
+export function rungLabel(rung: string | undefined): string {
+  return RUNGS[rung ?? '']?.label ?? (rung || 'Not reported');
+}
+
+/** rungHelp says what Pacto does on a rung, in a sentence. */
+export function rungHelp(rung: string | undefined): string {
+  return RUNGS[rung ?? '']?.help ?? 'This Stage does not report a rung. An operator older than the autonomy ladder writes none.';
+}
+
+/** The fields of a would-have decision shadowLabel reads. */
+export interface ShadowFacts {
+  predicted?: string;
+  owners?: string[] | null;
+  question?: string;
+  observedAt?: string;
+}
+
+/**
+ * shadowLabel says what a fully automatic Stage would have done with a
+ * candidate: ship, hold for the teams it would ask, or ask the question.
+ */
+export function shadowLabel(s: ShadowFacts): string {
+  switch (s.predicted) {
+    case 'Proceeds': return 'ship';
+    case 'Held': return s.owners?.length ? `hold for ${andList(s.owners)}` : `ask: ${s.question || 'a person decides'}`;
+    case 'Rejected': return 'refuse';
+    case 'Waits': return 'wait until a person unfreezes it';
+    default: return s.predicted || 'not planned yet';
+  }
+}
+
+/** heldButRan: GitOps' source reported a candidate Pacto would not have shipped on its own. */
+export function heldButRan(s: ShadowFacts): boolean {
+  return !!s.observedAt && s.predicted !== 'Proceeds';
+}
+
+const BLOCKERS: Record<string, string> = {
+  'missing-contract': 'No contract',
+  'undeclared-range': 'No version range declared',
+  'unlabelled-apply-ref': 'GitOps can still write the version',
+  'no-observed-digest': 'The running version is not known',
+  'no-record-store': 'Signed records are off',
+  'needs-verified': 'Needs more verified releases',
+  'needs-cleared-breaking': 'Needs a breaking change the graph cleared',
+  incident: 'A release failed here',
+  'partial-graph': 'The contract graph is partial',
+};
+
+/** blockerLabel names what keeps a Stage from the next rung. */
+export function blockerLabel(kind: string | undefined): string {
+  return BLOCKERS[kind ?? ''] ?? (kind || 'Blocker');
+}
+
+/**
+ * proposalText says what Pacto proposes for a Stage and what earned it, or
+ * that it proposes nothing yet.
+ */
+export function proposalText(rung: string | undefined, proposal: { rung?: string; evidence?: string[] | null } | null | undefined): string {
+  if (!proposal?.rung) return 'Nothing to propose yet.';
+  const n = proposal.evidence?.length ?? 0;
+  const what = rung === 'observe' ? `version${n === 1 ? '' : 's'} GitOps ran that verified` : `verified promotion${n === 1 ? '' : 's'}`;
+  return `Pacto proposes ${rungLabel(proposal.rung)}: ${n} ${what}, no incident.`;
 }

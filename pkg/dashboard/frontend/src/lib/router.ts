@@ -17,6 +17,7 @@ export interface Route {
     // Delivery (only where the delivery component is installed).
     | 'delivery-inbox'        // /delivery[/inbox]
     | 'delivery-environments' // /delivery/environments
+    | 'delivery-autonomy'     // /delivery/autonomy
     | 'delivery-change'       // /delivery/changes/:namespace/:name
     | 'delivery-history'      // /delivery/history[?namespace=&stage=]
     | 'delivery-publish';     // /delivery/publish
@@ -261,6 +262,7 @@ function parseDelivery(path: string, query: string): Route {
     return { view: 'delivery-change', params: { namespace: decodeURIComponent(change[1]), name: decodeURIComponent(change[2]) } };
   }
   if (rest === 'environments') return { view: 'delivery-environments', params: {} };
+  if (rest === 'autonomy') return { view: 'delivery-autonomy', params: {} };
   if (rest === 'publish') return { view: 'delivery-publish', params: {} };
   if (rest === 'history') {
     const params: Record<string, string> = {};
@@ -608,6 +610,10 @@ export function deliveryInboxUrl(): string {
 
 export function deliveryEnvironmentsUrl(): string {
   return '#/delivery/environments';
+}
+
+export function deliveryAutonomyUrl(): string {
+  return '#/delivery/autonomy';
 }
 
 export function deliveryPublishUrl(): string {

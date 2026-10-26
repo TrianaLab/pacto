@@ -19,6 +19,7 @@ type operationOutput struct {
 		Explanation *delivery.Explanation     `json:"explanation"`
 		Operation   *delivery.OperationObject `json:"operation"`
 		Actions     []string                  `json:"actions" doc:"What the caller may ask for: approve, reject, accept-unknown, cancel, rollback"`
+		Rung        string                    `json:"rung,omitempty" doc:"The Stage's rung now: observe, advise, auto-nonbreaking or autonomous"`
 		Labels
 	}
 }
@@ -46,6 +47,9 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 	out := &operationOutput{}
 	out.Body.Explanation, out.Body.Operation = e, op
 	out.Body.Actions = s.actions(ctx, op, e.Stage, caller)
+	if st, err := api.Stage(ctx, in.Namespace, op.Spec.Stage); err == nil {
+		out.Body.Rung = ladderOf(*st).Rung
+	}
 	out.Body.Versions = stageVersions(ctx, api, in.Namespace, op.Spec.Stage, op.Spec.Params.From, op.Spec.Params.To,
 		op.Status.Pointer.Before, op.Status.Pointer.After, e.Stage.Pointer)
 	people := []string{op.Spec.Actor.User}

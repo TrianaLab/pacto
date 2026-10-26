@@ -257,6 +257,9 @@ type EnvironmentRow struct {
 	CandidateVersion string   `json:"candidateVersion,omitempty" doc:"The version the candidate's contract declares, when the artifact could be read"`
 	Ready            string   `json:"ready,omitempty" doc:"The Ready condition: True, or False with the reason the Stage cannot promote"`
 	Actions          []string `json:"actions" doc:"What the caller's class may ask for here: promote, unfreeze"`
+	Rung             string   `json:"rung,omitempty" doc:"observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one"`
+	// Shadow is set on an observe Stage only: newest first.
+	Shadow []ShadowDecision `json:"shadow,omitempty" doc:"On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed"`
 }
 
 func (s *Server) environmentRow(ctx context.Context, api DeliveryAPI, st delivery.StageObject, ops []delivery.OperationObject, caller delivery.Caller) EnvironmentRow {
@@ -264,6 +267,12 @@ func (s *Server) environmentRow(ctx context.Context, api DeliveryAPI, st deliver
 	row := EnvironmentRow{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Service: st.Spec.Service.Name, Environment: st.Spec.Environment,
 		Pointer: ss.Pointer, Verified: slices.Contains(ss.Verified, ss.Pointer), Failed: slices.Contains(ss.FailedDigests, ss.Pointer),
 		Frozen: ss.Frozen, FrozenReason: ss.FrozenReason, AutoHold: ss.AutoHold, Candidate: ss.Candidate, Actions: []string{}}
+	if lad := ladderOf(st); lad.Rung != "" {
+		row.Rung = lad.Rung
+		if lad.Rung == "observe" {
+			row.Shadow = lad.Shadow
+		}
+	}
 	for _, c := range ss.Conditions {
 		if c.Type == "Ready" {
 			row.Ready = strings.TrimSuffix(c.Status+": "+c.Reason, ": ")

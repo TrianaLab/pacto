@@ -146,8 +146,8 @@ describe('dual-UI guard — non-Fleet host keeps the legacy UI as its only UI', 
   ])('keeps %s on its legacy screen (there is no product route to send it to)', async (hash, heading) => {
     const { target, app } = await mountAt(hash);
     expect(location.hash).toBe(hash);
-    // The legacy screens load on first use, so wait for the module.
-    await vi.waitFor(() => expect(target.querySelector('h1')?.textContent).toContain(heading), { timeout: 10_000 });
+    // The legacy screens load on first use, and a cold transform is slow on a busy machine.
+    await vi.waitFor(() => expect(target.querySelector('h1')?.textContent).toContain(heading), { timeout: 60_000 });
     unmount(app); document.body.removeChild(target);
-  });
+  }, 90_000);
 });

@@ -5,7 +5,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryInboxUrl, deliveryHistoryUrl, deliveryChangeUrl, serviceUrl } from '../lib/router.ts';
   import { typeLabel, shortDigest, shortDigests, predictionLabel, decisionLabel, authTimeText, changeSummary, actorBadge,
-    undoneBy, undoCause, versionLabel } from '../lib/delivery.ts';
+    undoneBy, undoCause, versionLabel, rungLabel, rungHelp, AUTONOMY_TYPE } from '../lib/delivery.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -121,8 +121,10 @@
 
     <dl class="cd-facts t-body-2">
       <dt>Environment</dt><dd><a href={deliveryHistoryUrl({ namespace, stage: e.spec.stage })}>{namespace}/{e.spec.stage}</a>{#if e.stage.frozen}{' '}(frozen{#if e.stage.frozenReason}: {shortDigests(e.stage.frozenReason)}{/if}){/if}</dd>
+      {#if data.rung}<dt>Rung</dt><dd data-testid="change-rung"><span class="badge badge-neutral">{rungLabel(data.rung)}</span> {rungHelp(data.rung)}</dd>{/if}
       {#each [['From', e.spec.params?.from], ['To', e.spec.params?.to]] as [label, d] (label)}
-        {#if d}<dt>{label}</dt><dd>{#if data.versions?.[d]}{data.versions[d]}{' '}{/if}<code class="cd-digest" title={d}>{shortDigest(d)}</code>{#if !data.versions?.[d]}{' '}<span class="cd-digest">(version unknown)</span>{/if}</dd>{/if}
+        {#if d && e.spec.type === AUTONOMY_TYPE}<dt>{label}</dt><dd>{rungLabel(d)}</dd>
+        {:else if d}<dt>{label}</dt><dd>{#if data.versions?.[d]}{data.versions[d]}{' '}{/if}<code class="cd-digest" title={d}>{shortDigest(d)}</code>{#if !data.versions?.[d]}{' '}<span class="cd-digest">(version unknown)</span>{/if}</dd>{/if}
       {/each}
       <dt>Asked by</dt><dd><Person user={e.spec.actor.user} people={data?.people} {me} />{#if asker}{' '}<span class="badge {asker.tone}" data-testid="actor-badge">{asker.label}</span>{/if}{#if e.spec.onBehalfOf?.user}, for <Person user={e.spec.onBehalfOf.user} people={data?.people} {me} />{/if}</dd>
       {#if e.spec.reason}<dt>Why</dt><dd>{e.spec.reason}</dd>{/if}
