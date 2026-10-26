@@ -170,32 +170,32 @@ extra_javascript:
 # -- a first-time visitor should be able to try Pacto before absorbing it. Every
 # label is a word a reader would search for, and no two entries share a label.
 nav:
-  # One section per reader, in the order a newcomer meets them: someone deciding
+  # Six tabs at most, so the header fits at 1280px. "Get started" holds one
+  # group or page per reader, in the order a newcomer meets them: someone deciding
   # whether Pacto fits, a platform engineer pactifying a service, an approver, an
   # auditor and an agent operator. Reference pages sit at the end and are never
   # required reading. README.md and docs/index.md "Where to start" use the same paths.
   - Home: index.md
-  - What Pacto is:
-      - The autonomy ladder: autonomy.md
-      - Manifesto and GitlessOps: manifesto.md
-      - Glossary: glossary.md
-      - Live dashboard demo: examples/dashboard-demo.md
-      - Guided tour: examples/demo-tour.md
-      - Run it locally: examples/compose-demo.md
-      - Try it on Kubernetes: examples/kubernetes-demo.md
-  - Pactify your first service:
-      - Installation: installation.md
-      - Quickstart: quickstart.md
-      - Pactify a service: pactify.md
-      - Put it in your repository: ci.md
-      - For platform engineers: platform-engineers.md
-  - Approve or unblock a change:
-      - Decide, unfreeze and roll back: pactify-decide.md
-  - Verify a record:
-      - Check a record without Pacto: verify-a-record.md
-  - Drive Pacto from an agent:
-      - Connect an agent (MCP): mcp-integration.md
-  - Write contracts:
+  - Get started:
+      - What Pacto is:
+          - The autonomy ladder: autonomy.md
+          - Manifesto and GitlessOps: manifesto.md
+          - Glossary: glossary.md
+      - Try it:
+          - Live dashboard demo: examples/dashboard-demo.md
+          - Guided tour: examples/demo-tour.md
+          - Run it locally: examples/compose-demo.md
+          - Try it on Kubernetes: examples/kubernetes-demo.md
+      - Pactify your first service:
+          - Installation: installation.md
+          - Quickstart: quickstart.md
+          - Pactify a service: pactify.md
+          - Put it in your repository: ci.md
+          - For platform engineers: platform-engineers.md
+      - Approve or unblock a change: pactify-decide.md
+      - Verify a record: verify-a-record.md
+      - Drive Pacto from an agent: mcp-integration.md
+  - Guides:
       - For developers: developers.md
       - Example contracts: examples/index.md
       - Composition patterns: patterns/index.md
