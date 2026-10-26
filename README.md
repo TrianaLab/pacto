@@ -52,10 +52,10 @@ never changes what runs.
 
 Delivery synthesizes two ideas from others and adds one of ours:
 
-- **[ConfigHub](https://confighub.com)**: configuration as data behind an API,
-  instead of files in git. Pacto keeps only "which version runs where" that way.
+- **[ConfigHub](https://confighub.com)**: configuration as data in a database behind an API,
+  not as templates. Pacto keeps only "which version runs where" that way.
 - **Anthropic's [Scion](https://www.anthropic.com/engineering/redesigning-source-control)**:
-  source control for agent-scale change. Content stored by its hash, a pointer
+  source control for agent-scale change. Content-addressed storage, a pointer
   moved with one compare-and-swap and tests after a change merges, before it
   deploys.
 - **Ours, the contract graph**: which services depend on which and which
@@ -224,7 +224,7 @@ Pick the path that matches what you came to do:
 | Know what Pacto is and whether it fits | [Delivery](https://pacto.run/latest/integrations/kubernetes/delivery/), [the autonomy ladder](https://pacto.run/latest/autonomy/) and the [live demo](https://pacto.run/latest/demo/#/fleet) |
 | Pactify your first service | [Quickstart](https://pacto.run/latest/quickstart), then [Pactify a service](https://pacto.run/latest/pactify/) |
 | Approve or unblock a change | [Decide, unfreeze and roll back](https://pacto.run/latest/pactify-decide/) |
-| Verify a record | [Signed records and history](https://pacto.run/latest/integrations/kubernetes/delivery-records/) |
+| Verify a record | [Check a record without Pacto](https://pacto.run/latest/verify-a-record/) |
 | Drive Pacto from an AI agent | [MCP integration](https://pacto.run/latest/mcp-integration) |
 | Write and check contracts | [For developers](https://pacto.run/latest/developers) and the [contract reference](https://pacto.run/latest/contract-reference) |
 

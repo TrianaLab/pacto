@@ -42,8 +42,8 @@ controller or an agent needs before it concludes anything.
   validated, distributed and verified.
 
 - **Declaration is separate from observation.** The contract is stable author
-  intent. Runtime state is external to it, gathered by collectors and evaluated
-  against it. Observation is never written back into the declaration, which is
+  intent. Runtime state is external to it, gathered by collectors (agents that
+  watch running services) and evaluated against it. Observation is never written back into the declaration, which is
   what lets one contract be validated at authoring time, diffed in CI and
   checked against a running system.
 
@@ -66,9 +66,9 @@ controller or an agent needs before it concludes anything.
 
 ## What GitlessOps means
 
-Pacto delivery is continuous delivery for the GitlessOps era. Contracts are
-the foundation: describe your services once, and Pacto decides what ships.
-GitlessOps is three principles, each true only under its condition:
+In plain words: the list of which version runs where lives in your
+registry, signed, instead of in git commits. Your code and manifests stay in
+git. GitlessOps is three principles, each true only under its condition:
 
 1. **Desired versions are immutable artifacts in a registry.** Every version
    Pacto promotes is an OCI digest that `pacto publish` signed. Which digest
@@ -78,17 +78,17 @@ GitlessOps is three principles, each true only under its condition:
 2. **Evidence, not a pull request, moves a change**, on a Stage set to an
    automatic rung. A person is asked when the graph cannot clear
    the change (Unknown), when a consumer's range rejects it (that consumer's
-   owners), when the Stage asks for every promote or after an automatic
-   rollback freezes it. Only the affected team is asked.
+   owners), when the Stage asks for every promote or when a failed version
+   has no safe way back and the Stage freezes. Only the affected team is asked.
 3. **Every decision can be verified without Pacto.** With the recorder on,
    each finished operation leaves a signed in-toto record as an OCI referrer,
    checkable with `oras` and `cosign`. That needs a registry with the
    Referrers API, which GitHub's does not serve today.
 
 Two ideas came first. [ConfigHub](https://confighub.com) treats configuration
-as data behind an API instead of files in git; Pacto keeps only "which version
+as data in a database behind an API, not as templates; Pacto keeps only "which version
 runs where" that way. Anthropic's
 [Scion](https://www.anthropic.com/engineering/redesigning-source-control)
-stores content by its hash, moves a pointer with one compare-and-swap and
+addresses stored content by what it holds, moves a pointer with one compare-and-swap and
 tests after a change merges and before it deploys. The contract graph is
 ours, and all of it is open source under the MIT licence.

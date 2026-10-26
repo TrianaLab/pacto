@@ -195,6 +195,7 @@ nav:
       - Decide, unfreeze and roll back: pactify-decide.md
       - Sign-in, approvals and agents: integrations/kubernetes/delivery-identity.md
   - Verify a record:
+      - Check a record without Pacto: verify-a-record.md
       - Signed records and history: integrations/kubernetes/delivery-records.md
       - Publish a version: publishing.md
   - Drive Pacto from an agent:

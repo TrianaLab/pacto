@@ -115,7 +115,7 @@ every node. See [Runtime conformance](runtime-conformance.md).
 | Know what Pacto is and whether it fits | [Delivery](integrations/kubernetes/delivery.md), [the autonomy ladder](autonomy.md), [What GitlessOps means](manifesto.md#what-gitlessops-means) and the [live demo](examples/dashboard-demo.md) |
 | Pactify your first service | [Quickstart](quickstart.md), then [Pactify a service](pactify.md) |
 | Approve or unblock a change | [Decide, unfreeze and roll back](pactify-decide.md) |
-| Verify a record | [Signed records and history](integrations/kubernetes/delivery-records.md) |
+| Verify a record | [Check a record without Pacto](verify-a-record.md) |
 | Drive Pacto from an AI agent | [AI assistants (MCP)](mcp-integration.md) |
 | Write and check contracts | [For developers](developers.md) and the [contract reference](contract-reference/index.md) |
 
