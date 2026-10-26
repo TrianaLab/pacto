@@ -446,6 +446,13 @@ delivery:
     # `{name, publicKey}` or `{name, identity, issuer, trustedRoot}`. An answer no signer signed is
     # Unknown, and the verdict names the runner that signed it.
     providers: []
+    caBundle:
+      # -- A ConfigMap in `delivery.namespace` holding the PEM certificates of the CAs that sign
+      # your in-cluster providers' https certificates, so they need no `allowPlainHTTP`. The
+      # promoter trusts them on top of the image's public roots. Empty trusts the public roots only.
+      configMap: ""
+      # -- The key in that ConfigMap
+      key: ca.crt
 
   identities:
     # -- Groups whose members are agents. Agents may propose, never approve or unfreeze.

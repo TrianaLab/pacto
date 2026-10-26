@@ -83,6 +83,11 @@ spec:
             - name: DOCKER_CONFIG
               value: /etc/pacto/registry
             {{- end }}
+            {{- if .Values.delivery.gates.caBundle.configMap }}
+            # Read on top of the image's roots in /etc/ssl/certs.
+            - name: SSL_CERT_FILE
+              value: /etc/pacto/ca/{{ .Values.delivery.gates.caBundle.key }}
+            {{- end }}
             {{- with .Values.delivery.insecureRegistries }}
             - name: PACTO_INSECURE_REGISTRIES
               value: {{ join "," . | quote }}
@@ -125,6 +130,11 @@ spec:
             - name: identities
               mountPath: /etc/pacto/identities
               readOnly: true
+            {{- if .Values.delivery.gates.caBundle.configMap }}
+            - name: gate-ca
+              mountPath: /etc/pacto/ca
+              readOnly: true
+            {{- end }}
       volumes:
         {{- if .Values.delivery.promoter.upstreamTrust }}
         - name: upstream-trust
@@ -142,6 +152,16 @@ spec:
         - name: identities
           configMap:
             name: pacto-delivery-identities
+        {{- with .Values.delivery.gates.caBundle }}
+        {{- if .configMap }}
+        - name: gate-ca
+          configMap:
+            name: {{ .configMap }}
+            items:
+              - key: {{ .key }}
+                path: {{ .key }}
+        {{- end }}
+        {{- end }}
       {{- with .Values.delivery.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

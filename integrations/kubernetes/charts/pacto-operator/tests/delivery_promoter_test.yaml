@@ -371,3 +371,25 @@ tests:
       delivery.identities.humanGroups: [staff]
     asserts:
       - notFailedTemplate: {}
+
+  - it: trusts an internal CA for gate providers when one is named
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.gates.caBundle.configMap: internal-ca
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SSL_CERT_FILE, value: /etc/pacto/ca/ca.crt}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: gate-ca, mountPath: /etc/pacto/ca, readOnly: true}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: gate-ca, configMap: {name: internal-ca, items: [{key: ca.crt, path: ca.crt}]}}
+
+  - it: mounts no CA bundle by default
+    template: templates/delivery/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SSL_CERT_FILE, value: /etc/pacto/ca/ca.crt}

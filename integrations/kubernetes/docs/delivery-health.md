@@ -66,7 +66,18 @@ delivery:
 
 The URL must be https. A verdict ends up in a signed record, so an answer
 forged on the way could get a Pass signed. Plain http works only on loopback,
-or with `allowPlainHTTP: true` on a test cluster.
+or with `allowPlainHTTP: true` on a test cluster. The promoter never follows a
+redirect: a provider that answers one gets Unknown.
+
+A provider inside the cluster often has a certificate from an internal CA.
+Put that CA's PEM certificates in a ConfigMap in `delivery.namespace` and name
+it, so the promoter trusts it on top of the public roots:
+
+```yaml
+delivery:
+  gates:
+    caBundle: {configMap: internal-ca, key: ca.crt}
+```
 
 ## Mira
 

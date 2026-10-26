@@ -831,6 +831,14 @@
                   }
                 ]
               }
+            },
+            "caBundle": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "configMap": { "type": "string" },
+                "key": { "type": "string", "minLength": 1 }
+              }
             }
           }
         },
