@@ -144,13 +144,15 @@
        The two lists a reader almost always wants -- what is running, and which revisions
        it is running -- stay open; the exhaustive variants of the same lists open on
        request. -->
-  <div class="se-grid">
+  <!-- Targets get the full width: their names are environment, kind and service
+       together, and a third of the page cut them into four lines. -->
+  <PreviewSection title="Operational targets" total={d.deployments?.total ?? 0} count={d.deployments?.count ?? 0} truncated={d.deployments?.truncated} viewAllHref={allTargetsHref} viewAllLabel="View all targets" empty="No running target observed.">
+    <EntityRefList items={d.deployments?.items ?? []} clip />
+  </PreviewSection>
+
+  <div class="se-grid se-grid--two">
     <PreviewSection title="Revisions in use" total={d.activeRevisions?.total ?? 0} count={d.activeRevisions?.count ?? 0} truncated={d.activeRevisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No revision is currently matched to a running target." help="The revisions at least one running target is matched to. Newest first.">
       <EntityRefList items={d.activeRevisions?.items ?? []} showStatus={false} />
-    </PreviewSection>
-
-    <PreviewSection title="Operational targets" total={d.deployments?.total ?? 0} count={d.deployments?.count ?? 0} truncated={d.deployments?.truncated} viewAllHref={allTargetsHref} viewAllLabel="View all targets" empty="No running target observed.">
-      <EntityRefList items={d.deployments?.items ?? []} />
     </PreviewSection>
 
     <!-- A configuration or policy reference is NOT a dependency: it does not enter the
@@ -160,7 +162,9 @@
     <PreviewSection title="Referenced by" total={d.referencedBy?.total ?? 0} count={d.referencedBy?.count ?? 0} truncated={d.referencedBy?.truncated} empty="No service references this service's configuration or policy." help="These services reference this one's configuration or policy contract. That is not a runtime dependency, so it never appears in the graph.">
       <EntityRefList items={d.referencedBy?.items ?? []} showStatus={false} />
     </PreviewSection>
+  </div>
 
+  <div class="se-grid">
     <PreviewSection title="All revisions" collapsible open={noneInUse} summary="Every revision Pacto knows, in use or not" total={d.revisions?.total ?? 0} count={d.revisions?.count ?? 0} truncated={d.revisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No known revisions."
       help="Newest first, whether or not anything is running them. Readiness is declared per revision — open one to see its gate.">
       <!-- Readiness is a DIMENSION of a revision, not a service-level score: it is
@@ -212,6 +216,7 @@
   .se-conflict-list li { overflow-wrap: anywhere; }
   .se-conflict-more { color: var(--c-text-3); }
   .se-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: var(--sp-3); align-items: start; }
+  .se-grid--two { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
   /* Same frame as a PreviewSection -- this block is a section like any other, it just
      renders bars instead of a list. Its padding matches so the page has one rhythm. */
   .se-summary { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); display: flex; flex-direction: column; gap: var(--sp-3); }

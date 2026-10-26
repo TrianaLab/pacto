@@ -287,6 +287,24 @@ describe('FleetEntityView — rich service page (D)', () => {
     };
   }
 
+  it('gives operational targets the full width and clips their names, but lets revision names wrap', async () => {
+    detailFn.mockResolvedValue(serviceDetail());
+    const { target, component } = await mountView('service', 'domain-a/payments');
+    await vi.waitFor(() => expect(target.textContent).toContain('Operational targets'));
+    const listUnder = (title: string) => Array.from(target.querySelectorAll('h2, h3')).find((h) => h.textContent?.trim().startsWith(title))!
+      .closest('[data-testid="preview-section"]')!.querySelector('.ref-list')!;
+    const targets = listUnder('Operational targets');
+    // Full width: outside the card grids, so a long target name is not cut into four lines.
+    expect(targets.closest('.se-grid')).toBeNull();
+    expect(targets.classList.contains('ref-clip')).toBe(true);
+    // The whole name stays in the title of the clipped label.
+    expect(targets.querySelector('.ei-label')?.getAttribute('title')).toBeTruthy();
+    // A revision's version is at the end of its name, so revision lists never clip.
+    const revisions = listUnder('All revisions');
+    expect(revisions.classList.contains('ref-clip')).toBe(false);
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('names the other end of every relationship, never the service you are already on', async () => {
     // A service's edges run both ways. Rendering a fixed end made an inbound edge read
     // as the service depending on ITSELF, and two edges with the same counterpart became
