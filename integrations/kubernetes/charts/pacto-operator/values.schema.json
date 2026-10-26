@@ -798,10 +798,38 @@
                   "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$", "not": { "pattern": "^pacto[.]" } },
                   "type": { "type": "string", "enum": ["mira", "http", "eval"] },
                   "url": { "type": "string", "pattern": "^https?://[^/]+" },
-                  "allowPlainHTTP": { "type": "boolean" }
+                  "allowPlainHTTP": { "type": "boolean" },
+                  "signers": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": ["name"],
+                      "properties": {
+                        "name": { "type": "string", "minLength": 1 },
+                        "publicKey": { "type": "string", "minLength": 1 },
+                        "identity": { "type": "string", "minLength": 1 },
+                        "issuer": { "type": "string", "minLength": 1 },
+                        "trustedRoot": { "type": "string", "minLength": 1 }
+                      },
+                      "oneOf": [
+                        { "required": ["publicKey"], "not": { "anyOf": [{ "required": ["identity"] }, { "required": ["issuer"] }, { "required": ["trustedRoot"] }] } },
+                        { "required": ["identity", "issuer", "trustedRoot"], "not": { "required": ["publicKey"] } }
+                      ]
+                    }
+                  }
                 },
-                "if": { "properties": { "url": { "pattern": "^http://", "not": { "pattern": "^http://(localhost|127[.][0-9.]+|\\[::1\\])(:|/|$)" } } } },
-                "then": { "required": ["allowPlainHTTP"], "properties": { "allowPlainHTTP": { "const": true } } }
+                "allOf": [
+                  {
+                    "if": { "properties": { "url": { "pattern": "^http://", "not": { "pattern": "^http://(localhost|127[.][0-9.]+|\\[::1\\])(:|/|$)" } } } },
+                    "then": { "required": ["allowPlainHTTP"], "properties": { "allowPlainHTTP": { "const": true } } }
+                  },
+                  {
+                    "if": { "properties": { "type": { "const": "eval" } } },
+                    "then": { "required": ["signers"], "properties": { "signers": { "minItems": 1 } } },
+                    "else": { "not": { "required": ["signers"] } }
+                  }
+                ]
               }
             }
           }

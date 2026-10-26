@@ -442,6 +442,9 @@ delivery:
     # agent names nothing. `pacto.contract` and `pacto.runtime` are built in. The URL must be
     # https: a verdict ends up in a signed record, so an answer forged in transit could get a
     # Pass signed. Plain http works only on loopback, or with `allowPlainHTTP: true` on a test cluster.
+    # An `eval` provider also needs `signers`: the runners whose signed answers it trusts, each
+    # `{name, publicKey}` or `{name, identity, issuer, trustedRoot}`. An answer no signer signed is
+    # Unknown, and the verdict names the runner that signed it.
     providers: []
 
   identities:

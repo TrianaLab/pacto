@@ -626,6 +626,13 @@ spec:
                                     configuration.
                                   minLength: 1
                                   type: string
+                                requireObservedModel:
+                                  description: |-
+                                    RequireObservedModel makes an eval check Unknown unless its runner
+                                    says which model answered (observedModel) and the contract declares
+                                    an external dependency with a version to compare it with. A model the
+                                    runner names that no such version matches fails the check either way.
+                                  type: boolean
                                 suite:
                                   description: |-
                                     Suite names a check the version's contract ships (its checks[].name)

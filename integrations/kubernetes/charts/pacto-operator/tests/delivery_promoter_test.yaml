@@ -116,11 +116,35 @@ tests:
     set:
       delivery.gates.providers:
         - {name: mira, type: mira, url: "http://mira.observability:4318", allowPlainHTTP: true}
-        - {name: evals, type: eval, url: "http://localhost:8080"}
+        - {name: evals, type: eval, url: "http://localhost:8080", signers: [{name: evals-ci, publicKey: "-----BEGIN PUBLIC KEY-----"}]}
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
-          content: '--gate-providers=[{"allowPlainHTTP":true,"name":"mira","type":"mira","url":"http://mira.observability:4318"},{"name":"evals","type":"eval","url":"http://localhost:8080"}]'
+          content: '--gate-providers=[{"allowPlainHTTP":true,"name":"mira","type":"mira","url":"http://mira.observability:4318"},{"name":"evals","signers":[{"name":"evals-ci","publicKey":"-----BEGIN PUBLIC KEY-----"}],"type":"eval","url":"http://localhost:8080"}]'
+
+  - it: refuses an eval provider that trusts no runner signer
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.gates.providers:
+        - {name: evals, type: eval, url: "https://evals.example"}
+    asserts:
+      - failedTemplate: {}
+
+  - it: refuses signers on a provider that is not eval
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.gates.providers:
+        - {name: mira, type: mira, url: "https://mira.example", signers: [{name: x, publicKey: k}]}
+    asserts:
+      - failedTemplate: {}
+
+  - it: refuses a runner signer that is both a key and a keyless identity
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.gates.providers:
+        - {name: evals, type: eval, url: "https://evals.example", signers: [{name: x, publicKey: k, identity: i, issuer: s, trustedRoot: r}]}
+    asserts:
+      - failedTemplate: {}
 
   - it: refuses a provider that takes a built-in gate's name
     template: templates/delivery/deployment.yaml
