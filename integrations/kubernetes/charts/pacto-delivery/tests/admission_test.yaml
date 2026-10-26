@@ -94,6 +94,12 @@ tests:
           path: 'spec.validations[?(@.message == "agents and service accounts may not approve")].message'
           value: "agents and service accounts may not approve"
       - matchRegex:
+          path: 'spec.validations[?(@.message == "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest")].expression'
+          pattern: "!request.userInfo.groups.exists\\(g, g in \\['staff'\\]\\)\\)$"
+        documentSelector:
+          path: 'spec.validations[?(@.message == "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest")].message'
+          value: "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest"
+      - matchRegex:
           path: 'spec.variables[?(@.name == "agent")].expression'
           pattern: "!request.userInfo.groups.exists\\(g, g in \\['staff'\\]\\)$"
         documentSelector:

@@ -111,7 +111,7 @@ spec:
         request.userInfo.username == 'system:serviceaccount:kube-system:namespace-controller' ||
         request.userInfo.groups.exists(g, g in {{ $breakGlass }}) ||
         !(request.userInfo.username.startsWith('system:serviceaccount:') ||
-        request.userInfo.groups.exists(g, g in {{ $agents }}))
+        request.userInfo.groups.exists(g, g in {{ $agents }}){{ $unenrolled }})
       message: "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest"
       reason: Forbidden
     - expression: >-
