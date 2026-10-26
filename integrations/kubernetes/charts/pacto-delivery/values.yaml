@@ -46,7 +46,7 @@ promoter:
     secretName: ""
 
 metrics:
-  # -- Expose the promoter's and the recorder's metrics (plain HTTP, port 8080) through a Service
+  # -- Expose the promoter's metrics (plain HTTP, port 8080) through a Service. The recorder's come with `recorder.monitoring`
   enabled: true
   serviceMonitor:
     # -- Create a Prometheus Operator ServiceMonitor for that Service

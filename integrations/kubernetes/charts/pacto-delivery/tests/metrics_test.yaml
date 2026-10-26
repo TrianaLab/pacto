@@ -2,15 +2,18 @@ suite: metrics tests
 templates:
   - templates/metrics.yaml
 tests:
-  - it: serves the promoter's and recorder's metrics through a Service
+  # The recorder has its own Service under recorder.monitoring; selecting it
+  # here too would scrape every recorder series twice.
+  - it: serves only the promoter's metrics through a Service
     asserts:
       - hasDocuments:
           count: 1
       - equal:
           path: spec.ports[0]
           value: {name: metrics, port: 8080, targetPort: metrics, protocol: TCP}
-      - notExists:
+      - equal:
           path: spec.selector["app.kubernetes.io/component"]
+          value: promoter
 
   - it: creates a ServiceMonitor only when asked
     set:

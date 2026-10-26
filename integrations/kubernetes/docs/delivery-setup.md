@@ -41,9 +41,11 @@ helm install pacto-delivery integrations/kubernetes/charts/pacto-delivery \
 ## Metrics and Events
 
 The promoter and the recorder serve Prometheus metrics over plain HTTP on port
-8080, behind the `<release>-metrics` Service. Set
+8080. The promoter's are behind the `<release>-metrics` Service; set
 `metrics.serviceMonitor.enabled=true` to create a Prometheus Operator
-ServiceMonitor for it.
+ServiceMonitor for it. The recorder's are behind their own Service, which
+`recorder.monitoring.enabled=true` creates with its ServiceMonitor and alerts
+([Delivery records](delivery-records.md)).
 
 | Metric | What it counts |
 |--------|----------------|
@@ -241,7 +243,8 @@ placed counts everywhere and, as a consumer, asks a person.
 
 Admission requires an Approval's `spec.by`, `spec.groups` and `spec.authTime`
 to match the requesting user and its login time. The promoter does not count
-a login older than 15 minutes, an approval from the operation's own actor or
+a login older than its login freshness (`promoter.authFreshness`, 15 minutes
+by default), an approval from the operation's own actor or
 whoever it acts for, one from outside the teams asked, one given before the
 question was last asked, an accepted unknown where an approval is needed or an
 approval once the version shipped. The operation's `status.message` names the

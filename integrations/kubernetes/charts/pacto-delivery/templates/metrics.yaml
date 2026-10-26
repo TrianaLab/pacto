@@ -1,6 +1,7 @@
 {{- if .Values.metrics.enabled }}
-# The promoter's and the recorder's metrics, plain HTTP on port 8080
-# (docs/delivery-setup.md lists them).
+# The promoter's metrics, plain HTTP on port 8080 (docs/delivery-setup.md lists
+# them). The recorder's have their own Service under recorder.monitoring, so
+# this one leaves the recorder out rather than have it scraped twice.
 apiVersion: v1
 kind: Service
 metadata:
@@ -16,6 +17,7 @@ spec:
       targetPort: metrics
       protocol: TCP
   selector:
+    app.kubernetes.io/component: promoter
     {{- include "pacto-delivery.selectorLabels" . | nindent 4 }}
 {{- if .Values.metrics.serviceMonitor.enabled }}
 ---
