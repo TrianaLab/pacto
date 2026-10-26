@@ -15,7 +15,6 @@ Published artifact coordinates for the Kubernetes integration. All coordinates a
 | Controller image | oci-image | `ghcr.io/trianalab/pacto/operator` | `6.0.1` |
 | Helm chart | helm-chart | `ghcr.io/trianalab/pacto/charts/pacto-operator` | `6.0.1` |
 | Delivery image (opt-in) | oci-image | `ghcr.io/trianalab/pacto/delivery` | `6.0.1` |
-| Delivery Helm chart (opt-in) | helm-chart | `ghcr.io/trianalab/pacto/charts/pacto-delivery` | `6.0.1` |
 | Go module | go-module | `github.com/trianalab/pacto/integrations/kubernetes/v6` | `6.0.1` |
 | Documentation | docs | `mkdocs:integrations/kubernetes` | `6.0.1` |
 
@@ -40,6 +39,8 @@ Anything other than a successful verification -- including `no signatures found`
 ```yaml
 - name: pacto-controller
   image: ghcr.io/trianalab/pacto/operator:6.0.1
+- name: pacto-delivery
+  image: ghcr.io/trianalab/pacto/delivery:6.0.1
 ```
 
 ## Install from the published chart

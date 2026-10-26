@@ -4,8 +4,9 @@
   Regenerate with `make docs-generate`; drift is a CI failure (`make docs-check`).
 -->
 ```bash
-helm install pacto-delivery \
-  oci://ghcr.io/trianalab/pacto/charts/pacto-delivery \
+helm upgrade pacto-operator \
+  oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
   --version 6.0.1 \
-  --namespace pacto-delivery --create-namespace
+  --namespace pacto-operator-system \
+  --reuse-values --set delivery.enabled=true
 ```

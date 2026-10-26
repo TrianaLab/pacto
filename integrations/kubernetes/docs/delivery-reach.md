@@ -13,11 +13,12 @@ that follows a Stage in another cluster.
 ## Apply through Argo CD
 
 A Stage can point at an Argo CD `Application` instead of a Flux
-`OCIRepository`. Turn it on in the delivery chart:
+`OCIRepository`. Turn it on in the operator chart's delivery section:
 
 ```yaml
-argocd:
-  enabled: true
+delivery:
+  argocd:
+    enabled: true
 ```
 
 This gives the promoter `patch` on Argo CD Applications and adds an admission

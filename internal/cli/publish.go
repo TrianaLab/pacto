@@ -86,7 +86,7 @@ func newPublishCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command 
 	cmd.Flags().StringP("path", "p", "", "path to contract directory, the same as [dir] (default: current directory)")
 	cmd.Flags().Bool("plan", false, "show what is missing and what refuses it; change nothing")
 	cmd.Flags().String("revision", "", "source revision stamped on every artifact (default: the git commit of the contract directory, which must have no uncommitted changes)")
-	cmd.Flags().String("propose", "", "after publishing, propose the deploy artifact on <namespace>/<stage> (needs the pacto-delivery chart)")
+	cmd.Flags().String("propose", "", "after publishing, propose the deploy artifact on <namespace>/<stage> (needs delivery.enabled on the pacto-operator chart)")
 	cmd.Flags().Duration("propose-timeout", 10*time.Minute, "how long --propose waits for the Stage to record the version as published")
 	addOverrideFlagsNoShorthand(cmd)
 	return cmd

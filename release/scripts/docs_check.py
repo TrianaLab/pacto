@@ -544,7 +544,7 @@ def check_coordinates() -> None:
     units = manifest["units"]
     ah = read(os.path.join(K8S, "docs", "generated", "artifact-hub.md"))
     problems = []
-    for uid in ("operator-image", "operator-chart", "delivery-image", "delivery-chart", "k8s-module"):
+    for uid in ("operator-image", "operator-chart", "delivery-image", "k8s-module"):
         u = units[uid]
         if u["coordinate"] not in ah:
             problems.append(f"{uid} coordinate {u['coordinate']} absent from artifact-hub.md")
@@ -553,8 +553,8 @@ def check_coordinates() -> None:
     # Authored install snippets must use the manifest chart coordinate, not a stale one.
     for path, unit in ((os.path.join(K8S, "docs", "installation.md"), "operator-chart"),
                        (os.path.join(K8S, "docs", "upgrade.md"), "operator-chart"),
-                       (os.path.join(K8S, "docs", "delivery-setup.md"), "delivery-chart"),
-                       (os.path.join(REPO_ROOT, "docs", "pactify.md"), "delivery-chart")):
+                       (os.path.join(K8S, "docs", "delivery-setup.md"), "operator-chart"),
+                       (os.path.join(REPO_ROOT, "docs", "pactify.md"), "operator-chart")):
         name = os.path.basename(path)
         chart_coord = units[unit]["coordinate"]
         text = read(path)
@@ -569,14 +569,13 @@ def check_coordinates() -> None:
             problems.append(
                 f"{name}: hand-written --version {ver}; include "
                 f"generated/_install-command.md, _upgrade-command.md or "
-                "_delivery-{install,upgrade}-command.md instead"
+                "_delivery-install-command.md instead"
             )
-    # Each CRD-apply snippet must name exactly the CRDs its chart ships in crds/,
-    # the directory `helm upgrade` never updates. A delivery CRD in the operator
-    # snippet would install delivery on an operator upgrade; a missing one would
-    # leave a chart's schema stale.
-    for snippet, chart in (("_crd-apply.md", "pacto-operator"),
-                           ("_delivery-crd-apply.md", "pacto-delivery")):
+    # The CRD-apply snippet must name exactly the CRDs the chart ships in crds/,
+    # the directory `helm upgrade` never updates. A delivery CRD there would
+    # install delivery on an operator upgrade (they are templates behind
+    # delivery.enabled); a missing one would leave the chart's schema stale.
+    for snippet, chart in (("_crd-apply.md", "pacto-operator"),):
         named = sorted(re.findall(r"/config/crd/bases/(\S+\.yaml)",
                                   read(os.path.join(K8S, "docs", "generated", snippet))))
         shipped = sorted(os.listdir(os.path.join(K8S, "charts", chart, "crds")))

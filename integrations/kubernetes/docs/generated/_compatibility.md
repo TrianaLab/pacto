@@ -13,7 +13,6 @@ The Kubernetes integration is versioned independently from Pacto core. The table
 | Operator image | `6.0.1` | `>=4.0.0` |
 | Operator chart | `6.0.1` | `>=4.0.0` |
 | Delivery image | `6.0.1` | `>=4.0.0` |
-| Delivery chart | `6.0.1` | `>=4.0.0` |
 | Go module | `6.0.1` | `>=4.0.0` |
 | Integration docs | `6.0.1` | `>=4.0.0` |
 

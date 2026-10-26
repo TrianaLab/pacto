@@ -12,10 +12,11 @@ See LICENSE file in the project root for full license text.
 // only reads the cluster and the registry and writes status.
 //
 // It is NOT part of the observing operator. It is built into the separate
-// pacto-delivery image and installed by the opt-in pacto-delivery chart, so the
-// operator keeps its promise of never changing what runs. For the same reason
-// it carries no kubebuilder RBAC markers: they would be merged into the
-// operator's generated role. Its RBAC lives in the delivery chart.
+// pacto-delivery image and installed by the operator chart's opt-in delivery
+// section with its own ServiceAccount, so the operator keeps its promise of
+// never changing what runs. For the same reason it carries no kubebuilder RBAC
+// markers: they would be merged into the operator's generated role. Its RBAC
+// lives in the chart's templates/delivery.
 package delivery
 
 import (

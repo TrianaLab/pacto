@@ -1359,7 +1359,7 @@ pacto publish [dir] [flags]
   -h, --help                       help for publish
   -p, --path string                path to contract directory, the same as [dir] (default: current directory)
       --plan                       show what is missing and what refuses it; change nothing
-      --propose string             after publishing, propose the deploy artifact on <namespace>/<stage> (needs the pacto-delivery chart)
+      --propose string             after publishing, propose the deploy artifact on <namespace>/<stage> (needs delivery.enabled on the pacto-operator chart)
       --propose-timeout duration   how long --propose waits for the Stage to record the version as published (default 10m0s)
       --revision string            source revision stamped on every artifact (default: the git commit of the contract directory, which must have no uncommitted changes)
       --set stringArray            set a contract value (e.g. --set service.version=2.0.0)

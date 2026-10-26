@@ -303,16 +303,16 @@ identity_scenario() {
   # Every client reads the one identity policy the delivery chart publishes,
   # with the person's own token: nothing is configured twice.
   local policy
-  policy="$(as_token "$kubelogin" -n "$DELIVERY_NS" get configmap pacto-delivery-identities -o jsonpath='{.data.policy\.json}')" \
+  policy="$(as_token "$kubelogin" -n "$NS" get configmap pacto-delivery-identities -o jsonpath='{.data.policy\.json}')" \
     || fail "a signed-in person cannot read the published identity policy"
   jq -e '.teamGroupPrefix == "team-" and .requireOwnerTeam == true and (.agentGroups | index("pacto:agents"))' <<<"$policy" >/dev/null \
     || fail "the published identity policy is not the chart's: $policy"
   pass "a signed-in person reads the identity policy the promoter runs with"
 
   # --- identities and rights ---
-  kubectl create clusterrolebinding delivery-oidc-approvers --clusterrole=pacto-delivery-approver \
+  kubectl create clusterrolebinding delivery-oidc-approvers --clusterrole=pacto-operator-delivery-approver \
     --group=team-checkout --group=team-payments --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl create clusterrolebinding delivery-oidc-agents --clusterrole=pacto-delivery-agent \
+  kubectl create clusterrolebinding delivery-oidc-agents --clusterrole=pacto-operator-delivery-agent \
     --group=pacto:agents --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   local DSA="system:serviceaccount:${NS}:pacto-dashboard"
   # Only a plain "no" passes: a kubectl error prints nothing on stdout. The

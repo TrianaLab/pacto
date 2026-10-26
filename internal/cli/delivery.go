@@ -70,7 +70,7 @@ func deliveryTrust(path string) (*delivery.TrustConfig, error) {
 func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delivery",
-		Short: "Plan, propose and approve changes to what runs (needs the pacto-delivery chart)",
+		Short: "Plan, propose and approve changes to what runs (needs delivery.enabled on the pacto-operator chart)",
 		Long: "Pacto delivery decides which version each environment (a Stage) runs. Every change is an " +
 			"Operation: plan it to see what the promoter will do and who must agree, propose it, and a person " +
 			"approves only when the contracts say a consumer would break, Pacto cannot see enough or the Stage " +

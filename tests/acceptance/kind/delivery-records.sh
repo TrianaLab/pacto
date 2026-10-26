@@ -56,15 +56,15 @@ records_store() {
   unrecorded() { ! recorded "$1"; }
 
   section "a recorder that was down records what concluded meanwhile, once each"
-  kubectl -n "$DELIVERY_NS" scale deploy pacto-delivery-recorder --replicas=0 >/dev/null
-  kubectl -n "$DELIVERY_NS" wait --for=delete pod -l app.kubernetes.io/component=recorder --timeout=120s >/dev/null 2>&1 || true
+  kubectl -n "$NS" scale deploy pacto-operator-delivery-recorder --replicas=0 >/dev/null
+  kubectl -n "$NS" wait --for=delete pod -l app.kubernetes.io/component=delivery-recorder --timeout=120s >/dev/null 2>&1 || true
   local r1=records-down-1 r2=records-down-2
   refuse "$r1"; refuse "$r2"
   kubectl -n "$M" delete operation "$r2" --wait=false >/dev/null
   waits() { ! recorded "$r1" && kubectl -n "$M" get operation "$r2" >/dev/null 2>&1; }
   always 3 waits || fail "an operation was recorded or let go while the recorder was down"
-  kubectl -n "$DELIVERY_NS" scale deploy pacto-delivery-recorder --replicas=1 >/dev/null
-  kubectl -n "$DELIVERY_NS" rollout status deploy/pacto-delivery-recorder --timeout=180s >/dev/null
+  kubectl -n "$NS" scale deploy pacto-operator-delivery-recorder --replicas=1 >/dev/null
+  kubectl -n "$NS" rollout status deploy/pacto-operator-delivery-recorder --timeout=180s >/dev/null
   r2_gone() { ! kubectl -n "$M" get operation "$r2" >/dev/null 2>&1; }
   eventually 40 recorded "$r1" || fail "$r1 was not recorded after the recorder came back"
   eventually 40 r2_gone || fail "the cancelled $r2 was not recorded and let go"
@@ -272,7 +272,7 @@ records_audit() {
   local kind name edit
   while IFS=$'\t' read -r kind name edit; do
     out="$(kubectl -n test get "$kind" "$name" -o json | jq "$edit" |
-      kubectl --as "system:serviceaccount:$DELIVERY_NS:pacto-delivery-recorder" replace --subresource=status -f - 2>&1 || true)"
+      kubectl --as "system:serviceaccount:$NS:pacto-operator-delivery-recorder" replace --subresource=status -f - 2>&1 || true)"
     grep -q "the Pacto delivery recorder writes records, never what runs" <<<"$out" || fail "the recorder wrote $edit on $kind/$name: $out"
   done <<EOF
 stage	payments	.status.locks = {"pointer": "forged"}
