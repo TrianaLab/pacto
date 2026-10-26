@@ -37,13 +37,16 @@ type streamRead struct {
 // readStream reads a Stage's stream from its anchor. nil means the Stage has
 // no records to read: no recorder wrote its anchor, or this client reads no
 // registry. A registry that could not be read is an error, never no records.
-// ponytail: every read fetches every record of the stream, O(records) per
-// call; cache verified records by manifest digest (they never change) if
-// dashboard polling or long streams show on the registry.
+// A read is O(records); with Streams set, a stream whose head has not moved
+// is read once.
 func (d *Delivery) readStream(ctx context.Context, stage *delivery.StageObject) (*streamRead, error) {
 	s := stage.Status.Stream
 	if d.Records == nil || s.Anchor == "" {
 		return nil, nil
+	}
+	key := d.streamKey(s)
+	if r := d.Streams.get(key); r != nil {
+		return r, nil
 	}
 	path, _, err := deliveryrecord.ParseAnchorRef(s.Anchor, s.ID)
 	if err != nil {
@@ -66,7 +69,21 @@ func (d *Delivery) readStream(ctx context.Context, stage *delivery.StageObject) 
 	if s.Head != "" && !slices.ContainsFunc(r.Fold.Records, func(x delivery.StoredRecord) bool { return x.ID == s.Head }) {
 		r.Fold.Problems = append(r.Fold.Problems, "the head "+s.Head+" the Stage names is not in the registry: it lost history the cluster saw")
 	}
+	d.Streams.put(key, r)
 	return r, nil
+}
+
+// streamKey names a stream's content: anchor, stream, head and trust. A
+// Stage that names no head yet has no fixed content, so it gets no key.
+func (d *Delivery) streamKey(s delivery.Stream) string {
+	if s.Head == "" {
+		return ""
+	}
+	trust := ""
+	if d.Trust != nil {
+		trust = d.Trust.Digest()
+	}
+	return strings.Join([]string{s.Anchor, s.ID, s.Head, trust}, "\x00")
 }
 
 // verifier checks records against the trust config, or checks nothing when

@@ -72,6 +72,8 @@ type dashboardIdentity struct {
 
 	mu        sync.Mutex
 	revisions map[string]delivery.Revision
+	// streams keeps verified record streams across requests (see app.StreamCache).
+	streams app.StreamCache
 }
 
 // Discovery: an answer is kept a minute, a failure a few seconds, and no call
@@ -190,7 +192,7 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 		return nil, err
 	}
 	return dashDelivery{d: &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
-		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now}, id: id}, nil
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams}, id: id}, nil
 }
 
 // describe caches what a digest carries: a digest never changes.

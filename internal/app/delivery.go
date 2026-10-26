@@ -68,6 +68,9 @@ type Delivery struct {
 	Records RecordRepo
 	// Trust verifies records; nil lists them unverified and says so.
 	Trust *delivery.TrustConfig
+	// Streams caches verified record streams across calls; nil reads them
+	// afresh every time. A long-lived host (the dashboard) keeps one.
+	Streams *StreamCache
 }
 
 // Caller is who the apiserver says is calling, and when they last logged in.

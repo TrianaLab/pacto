@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/logging"
@@ -491,11 +492,19 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 	out := &publishedOutput{}
 	out.Body.Listing, out.Body.Services = l, []PublishedService{}
 	names, out.Body.Page = pageOf(names, in.Offset, in.Limit, publishedPage)
+	var page []*PublishedVersion
+	for _, svc := range names {
+		for _, v := range byService[svc] {
+			page = append(page, v)
+		}
+	}
+	revs := describeAll(ctx, api, len(page), func(i int) (*delivery.StageObject, string) { return readFrom[page[i]], page[i].Digest })
+	for i, v := range page {
+		v.Contract, v.Version = revs[i].ContractRef, version(ctx, revs[i])
+	}
 	for _, svc := range names {
 		ps := PublishedService{Service: svc, Versions: []PublishedVersion{}}
 		for _, v := range byService[svc] {
-			r := api.Describe(ctx, readFrom[v], v.Digest)
-			v.Contract, v.Version = r.ContractRef, version(ctx, r)
 			ps.Versions = append(ps.Versions, *v)
 		}
 		slices.SortFunc(ps.Versions, func(a, b PublishedVersion) int {
@@ -623,15 +632,41 @@ func versions(ctx context.Context, api DeliveryAPI, stage *delivery.StageObject,
 	if into == nil {
 		into = map[string]string{}
 	}
+	var ask []string
 	for _, d := range digests {
-		if _, known := into[d]; known || d == "" {
-			continue
+		if _, known := into[d]; !known && d != "" && !slices.Contains(ask, d) {
+			ask = append(ask, d)
 		}
-		if v := version(ctx, api.Describe(ctx, stage, d)); v != "" {
+	}
+	revs := describeAll(ctx, api, len(ask), func(i int) (*delivery.StageObject, string) { return stage, ask[i] })
+	for i, d := range ask {
+		if v := version(ctx, revs[i]); v != "" {
 			into[d] = v
 		}
 	}
 	return into
+}
+
+// describeParallel is how many digests are described at once. A Describe
+// reads a registry, so a page of fifty read one after another took fifty
+// round trips; the host caches what it read, so a refresh is cheap either way.
+const describeParallel = 8
+
+// describeAll describes n digests, describeParallel at once; at(i) names the
+// Stage to read the i-th from and its digest. out[i] answers at(i).
+func describeAll(ctx context.Context, api DeliveryAPI, n int, at func(int) (*delivery.StageObject, string)) []delivery.Revision {
+	out := make([]delivery.Revision, n)
+	var g errgroup.Group
+	g.SetLimit(describeParallel)
+	for i := range n {
+		g.Go(func() error {
+			st, d := at(i)
+			out[i] = api.Describe(ctx, st, d)
+			return nil
+		})
+	}
+	_ = g.Wait()
+	return out
 }
 
 // version is the version a revision's contract declares; "" when it has
