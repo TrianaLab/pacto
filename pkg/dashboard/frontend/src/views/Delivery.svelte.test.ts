@@ -861,7 +861,7 @@ describe('history and published', () => {
       { namespace: 'dev', asOf: listing.asOf, completeness: 'partial', source: 'status', note: '', stage: { name: 'pay' },
         entries: [{ seq: 1, operation: 'op9', type: 'delivery.pacto.trianalab.io/promote', actor: 'bot', outcome: 'Succeeded' }] },
     ] });
-    const { target, destroy } = render(DeliveryHistoryView);
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
     await settle();
     const sources = [...target.querySelectorAll('[data-testid="history-source"]')].map((e) => e.textContent);
     expect(sources).toEqual(['From signed records, every signature verified, partial.', 'From signed records, every signature verified, complete.',
@@ -903,7 +903,7 @@ describe('history and published', () => {
         entries: [{ seq: 1, operation: 'op5', type: 'delivery.pacto.trianalab.io/promote', actor: 'bot', outcome: 'Rejected', kind: 'operation', record: 'sha256:' + 'd'.repeat(64),
           approvals: [{ by: 'dave', decision: 'reject', operation: 'u' }] }] },
     ] });
-    const { target, destroy } = render(DeliveryHistoryView);
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
     await settle();
     expect([...target.querySelectorAll('th')].map((t) => t.textContent)).toContain('Decided by');
     const decided = [...target.querySelectorAll('[data-testid="history-decided"]')].map((e) => text(e as HTMLElement));
@@ -952,16 +952,29 @@ describe('history and published', () => {
     destroy();
   });
 
-  it('shows every environment with its newest changes and a link to the rest', async () => {
-    fns.history.mockResolvedValue({ ...listing, page: { total: 30, offset: 0, limit: 10 }, histories: [
-      { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', note: '', stage: { name: 'pay' }, entriesPage: { total: 40, offset: 0, limit: 10 },
-        entries: [{ seq: 40, operation: 'op40', type: 'delivery.pacto.trianalab.io/promote', actor: 'bot', outcome: 'Succeeded' }] },
+  it('sums up every environment in one line each: newest change, how it ended, how many and a link to the rest', async () => {
+    fns.history.mockResolvedValue({ ...listing, page: { total: 30, offset: 0, limit: 25 }, versions: { [D1]: '1.0.0', [D2]: '2.0.0' }, histories: [
+      { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', source: 'records', verified: true, note: '', stage: { name: 'pay', pointer: D2, frozen: true },
+        entriesPage: { total: 40, offset: 0, limit: 1 }, problems: ['seq 2 is a gap'], unreadable: ['sha256:bad: not trusted here'],
+        entries: [{ seq: 40, operation: 'op40', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'bot', outcome: 'Succeeded', finished: '2026-10-21T11:00:00Z' }] },
+      { namespace: 'test', asOf: listing.asOf, completeness: 'partial', source: 'status', note: '', stage: { name: 'pay' }, entries: [] },
     ] });
     const { target, destroy } = render(DeliveryHistoryView, {});
     await settle();
-    expect(target.querySelector('[data-testid="history-all-changes"]')?.getAttribute('href')).toBe('#/delivery/history?namespace=prod&stage=pay');
-    expect(text(target.querySelector('[data-testid="history-all-changes"]') as HTMLElement)).toBe('All 40 changes on prod/pay');
-    expect(text(target.querySelector('[data-testid="history-pager-range"]') as HTMLElement).trim()).toBe('Showing 1–10 of 30 environments');
+    const rows = [...target.querySelectorAll('[data-testid="history-stage-row"]')].map((r) => [...r.querySelectorAll('th, td')].map((c) => text(c as HTMLElement).trim()));
+    expect(rows).toEqual([
+      ['prod/pay Signed records', '2.0.0Frozen', 'Promote 1.0.0 → 2.0.0', 'Succeeded', '2026-10-21 11:00 UTC', '40 changes 2 problems'],
+      ['test/pay Status, partial', 'Nothing yet', 'None kept', '', '', '0 changes'],
+    ]);
+    // No per-change table, no problem list and no Who put button: those live on the Stage's own history.
+    expect(target.querySelector('[data-testid="history-problems"]')).toBeNull();
+    expect(target.querySelector('section.hv-stage')).toBeNull();
+    const all = target.querySelector('[data-testid="history-all-changes"]')!;
+    expect(all.getAttribute('href')).toBe('#/delivery/history?namespace=prod&stage=pay');
+    expect(all.getAttribute('aria-label')).toBe('All 40 changes on prod/pay');
+    expect(target.querySelector('[data-testid="history-issues"]')?.getAttribute('href')).toBe('#/delivery/history?namespace=prod&stage=pay');
+    expect(target.querySelector('[data-testid="history-source"]')?.getAttribute('title')).toBe('From signed records, every signature verified, complete');
+    expect(text(target.querySelector('[data-testid="history-pager-range"]') as HTMLElement).trim()).toBe('Showing 1–25 of 30 environments');
     expect(target.querySelector('[data-testid="history-pager-size"]')).not.toBeNull();
     destroy();
   });
@@ -1160,7 +1173,7 @@ describe('history blame and undo', () => {
       change: { operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'system:serviceaccount:agents:pay-agent', actorClass: 'agent', finished: '2026-10-21T11:00:05Z' },
       approvals: [{ by: 'https://idp#carol', decision: 'approve', operation: 'u', authTime: '1792560000', note: 'ok' }],
       verdicts: [{ gate: 'pacto.diff', phase: 'pre', result: 'Pass' }], versions: { [D1]: '2.4.0', [D2]: '3.0.0' }, people: { 'https://idp#carol': 'Carol Diaz' } });
-    const { target, destroy } = render(DeliveryHistoryView);
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
     await settle();
     const prod = target.querySelector('section[aria-label="History of prod/pay"]') as HTMLElement;
     const rows = [...prod.querySelectorAll('tbody tr')].map((r) => [...r.querySelectorAll('td')].map((td) => text(td as HTMLElement).trim()));
@@ -1192,7 +1205,7 @@ describe('history blame and undo', () => {
 
   it('says when blame is unsigned, unknown or refused', async () => {
     fns.history.mockResolvedValue(history());
-    const { target, destroy } = render(DeliveryHistoryView);
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
     await settle();
     const open = async (ns: string) => {
       const sec = target.querySelector(`section[aria-label="History of ${ns}/pay"]`) as HTMLElement;
@@ -1227,7 +1240,7 @@ describe('history blame and undo', () => {
     fns.undo.mockResolvedValueOnce({ operation: 'prod/op1', kind: 'rollback', note: 'it is the change the Stage runs now, so a rollback bound to it undoes it',
       command: 'pacto delivery propose -n prod --stage pay --type rollback --undoes op1', plan: { intentDigest: 'sha256:i', type: 'delivery.pacto.trianalab.io/rollback', predicted: 'Proceeds' } });
     fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'delivery.pacto.trianalab.io/rollback', predicted: 'Proceeds' });
-    const { target, destroy } = render(DeliveryHistoryView);
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
     await settle();
     const undoBtn = target.querySelector('button[aria-label="Undo op1"]') as HTMLButtonElement;
     undoBtn.click();
@@ -1474,7 +1487,7 @@ describe('Unknown, proof, undo and autonomy', () => {
         entries: [{ seq: 1, operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'system:serviceaccount:agents:pay-agent',
           actorClass: 'agent', phase: 'Concluded', outcome: 'Succeeded', kind: 'operation', record: 'sha256:' + 'a'.repeat(64), pointer: { before: D1, after: D2 } }] },
     ] });
-    const { target, destroy } = render(DeliveryHistoryView);
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
     await settle();
     expect(text(target.querySelector('[data-testid="history-decided"]') as HTMLElement)).toBe('Not recorded');
     expect(text(target)).not.toContain('No person');
@@ -1489,7 +1502,7 @@ describe('Unknown, proof, undo and autonomy', () => {
         entries: [p({ seq: 1 }), p({ seq: 2, verification: 'AcceptedUnknown' }), p({ seq: 3, approvals: [{ by: 'carol', decision: 'approve' }] })] },
       { namespace: 'test', asOf: listing.asOf, completeness: 'partial', note: '', stage: { name: 'pay' }, entries: [p({ seq: 1 })] },
     ] });
-    const { target, destroy } = render(DeliveryHistoryView);
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
     await settle();
     const line = target.querySelector('[data-testid="history-autonomy"]') as HTMLElement;
     expect(text(line)).toContain('2 of 4 promotions needed no person; 1 waited for one only because a check was Unknown');

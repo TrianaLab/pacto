@@ -25,7 +25,8 @@
   // recorder runs, otherwise from the changes still in the cluster. Every
   // history says where it came from and whether it is the whole story. The
   // server pages it: one environment's changes newest first, or every
-  // environment with its newest changes and a link to the rest.
+  // environment as one line: its newest change, how it ended, how many
+  // changes it has and a link to them.
   let { namespace = '', stage = '', offset = '', limit = '', q = '', refreshTick = 0, miraURL = '' } = $props();
 
   const one = $derived(!!(namespace && stage));
@@ -59,6 +60,12 @@
   function sourceLabel(h) {
     const from = h.source !== 'records' ? 'From status' : h.verified ? 'From signed records, every signature verified' : 'From records, signatures not verified';
     return `${from}, ${h.completeness === 'complete' ? 'complete' : 'partial'}`;
+  }
+
+  /** The same, short enough for one cell of the summary. */
+  function sourceShort(h) {
+    const from = h.source !== 'records' ? 'Status' : h.verified ? 'Signed records' : 'Records, not verified';
+    return h.completeness === 'complete' ? from : `${from}, partial`;
   }
 
   /** What a line is: a change, or a record that stands for one. */
@@ -97,18 +104,59 @@
     <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
-    {#if autonomy?.total}
+    {#if one && autonomy?.total}
       <p class="t-body-2 hv-autonomy" data-testid="history-autonomy">
         <strong>{autonomy.noPerson} of {autonomy.total} promotion{autonomy.total === 1 ? '' : 's'} needed no person</strong>{#if autonomy.onlyUnknown}; {autonomy.onlyUnknown} waited for one only because a check was Unknown, which more visibility removes (<a class="hv-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">how</a>){/if}.{#if partial || more}{' '}Counted from the changes shown here{#if partial}, and some histories are partial{/if}.{/if}
       </p>
     {/if}
     {#if histories.length === 0}
       <div class="state-box"><h2>{q ? 'Nothing matches the filter' : 'No history yet'}</h2><p>{q ? `No ${one ? 'change' : 'environment'} you can see matches “${q}”.` : 'No environment you can see has a change on record.'}</p></div>
+    {:else if !one}
+      <div class="data-scroll hv-summary-scroll">
+        <table class="data-table hv-table" data-testid="history-summary">
+          <caption class="visually-hidden">Every environment's newest change, newest first in each</caption>
+          <colgroup><col style="width: 24%" /><col style="width: 12%" /><col style="width: 22%" /><col style="width: 13%" /><col style="width: 13%" /><col style="width: 16%" /></colgroup>
+          <thead><tr><th scope="col">Environment</th><th scope="col">Runs</th><th scope="col">Newest change</th><th scope="col">How it ended</th><th scope="col">When</th><th scope="col">Changes</th></tr></thead>
+          <tbody>
+            {#each histories as h (h.namespace + '/' + h.stage.name)}
+              {@const en = h.entries?.[0]}
+              {@const url = deliveryHistoryUrl({ namespace: h.namespace, stage: h.stage.name })}
+              {@const issues = (h.problems?.length ?? 0) + (h.unreadable?.length ?? 0)}
+              {@const total = h.entriesPage?.total ?? h.entries?.length ?? 0}
+              <tr data-testid="history-stage-row" data-stage={`${h.namespace}/${h.stage.name}`}>
+                <th scope="row">
+                  <div class="cell-stack">
+                    <a class="cell-clip" href={url} title={`${h.namespace}/${h.stage.name}`}>{h.namespace}/{h.stage.name}</a>
+                    <span class="t-meta hv-source" class:hv-partial={h.completeness !== 'complete'} data-testid="history-source" title={sourceLabel(h)}>{sourceShort(h)}</span>
+                  </div>
+                </th>
+                <td data-label="Runs"><span class="cell-clip" title={h.stage.pointer || 'nothing yet'}>{h.stage.pointer ? version(h.stage.pointer) : 'Nothing yet'}</span>{#if h.stage.frozen}<span class="badge badge-warn">Frozen</span>{/if}</td>
+                <td data-label="Newest change">
+                  {#if en}
+                    <div class="cell-stack">
+                      <span>{#if en.operation}<a href={deliveryChangeUrl(h.namespace, en.operation)}>{changeLabel(en)}</a>{:else}{changeLabel(en)}{/if}</span>
+                      {#if en.from || en.to}<span class="t-meta cell-clip" title={[en.from, en.to].filter(Boolean).join(' → ')}>{version(en.from) || '–'} → {version(en.to) || '–'}</span>{/if}
+                    </div>
+                  {:else}<span class="hv-none">None kept</span>{/if}
+                </td>
+                <td data-label="How it ended">{#if en}<span class="badge {outcomeTone(en.outcome)}">{en.outcome || en.phase || 'Not known'}</span>{/if}</td>
+                <td data-label="When">{#if en?.finished}<time datetime={en.finished} title={en.finished}>{timeLabel(en.finished)}</time>{/if}</td>
+                <td data-label="Changes">
+                  <div class="cell-stack">
+                    <a href={url} data-testid="history-all-changes" aria-label={`All ${formatCount(total)} changes on ${h.namespace}/${h.stage.name}`}>{formatCount(total)} change{total === 1 ? '' : 's'}</a>
+                    {#if issues}<a class="badge badge-warn" href={url} data-testid="history-issues">{formatCount(issues)} problem{issues === 1 ? '' : 's'}</a>{/if}
+                  </div>
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
     {:else}
       {#each histories as h (h.namespace + '/' + h.stage.name)}
         {@const known = knownIds(h)}
         <section class="hv-stage" aria-label={`History of ${h.namespace}/${h.stage.name}`}>
-          <h2 class="t-section-title">{#if one}{h.namespace}/{h.stage.name}{:else}<a class="hv-link" href={deliveryHistoryUrl({ namespace: h.namespace, stage: h.stage.name })}>{h.namespace}/{h.stage.name}</a>{/if}</h2>
+          <h2 class="t-section-title">{h.namespace}/{h.stage.name}</h2>
           <p class="t-body-2">
             <span class="hv-source" class:hv-partial={h.completeness !== 'complete'} data-testid="history-source">{sourceLabel(h)}.</span>
             Runs {#if h.stage.pointer}<strong>{version(h.stage.pointer)}</strong>{#if data.versions?.[h.stage.pointer]}{' '}<code class="hv-digest" title={h.stage.pointer}>{shortDigest(h.stage.pointer)}</code>{/if}{:else}nothing yet{/if}{#if h.stage.frozen}, frozen{/if}. {sentence(h.note)}
@@ -132,7 +180,7 @@
             </div>
           {/if}
           {#if (h.entries ?? []).length === 0}
-            <p class="t-body-2 hv-none">{q && one ? 'No change matches the filter.' : 'No change kept for this environment.'}</p>
+            <p class="t-body-2 hv-none">{q ? 'No change matches the filter.' : 'No change kept for this environment.'}</p>
           {:else}
             <div class="data-scroll">
               <table class="data-table hv-table">
@@ -171,9 +219,6 @@
                 </tbody>
               </table>
             </div>
-            {#if !one && (h.entriesPage?.total ?? 0) > h.entries.length}
-              <p class="t-body-2"><a class="hv-link" href={deliveryHistoryUrl({ namespace: h.namespace, stage: h.stage.name })} data-testid="history-all-changes">All {formatCount(h.entriesPage.total)} changes on {h.namespace}/{h.stage.name}</a></p>
-            {/if}
           {/if}
         </section>
       {/each}
@@ -191,6 +236,10 @@
   .hv-notes h3 { margin: 0; font-weight: 600; }
   .hv-notes { overflow-wrap: break-word; }
   .hv-table a { color: var(--c-accent); }
+  .hv-table a.badge { color: inherit; text-decoration: none; }
+  /* The summary is a page of twenty-five short rows: the page scrolls, not a box. */
+  .hv-summary-scroll { max-height: none; }
+  .hv-table tbody th .hv-source { margin: 0; font-weight: 400; }
   .hv-none { color: var(--c-text-3); }
   .hv-seq, .hv-class, .hv-digest { color: var(--c-text-2); }
   .hv-reason { color: var(--c-text-2); }

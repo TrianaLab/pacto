@@ -315,7 +315,13 @@ test.describe('Delivery views', () => {
 
   test('history says when it comes from signed records and when it is only partial', async ({ page }) => {
     await as(page, 'carol');
+    // Every environment is one line: its newest change, how many and its problems, linked to the rest.
     await page.goto('/#/delivery/history');
+    const summary = page.getByTestId('history-summary');
+    await expect(summary.getByRole('row', { name: /prod\/payments-prod/ })).toContainText('2 problems', { timeout: T });
+    await expect(summary.getByRole('link', { name: 'All 4 changes on prod/payments-prod' })).toHaveAttribute('href', '#/delivery/history?namespace=prod&stage=payments-prod');
+    await audit(page, 'history summary');
+    await page.goto('/#/delivery/history?namespace=prod&stage=payments-prod');
     const prod = page.getByRole('region', { name: 'History of prod/payments-prod' });
     const test_ = page.getByRole('region', { name: 'History of test/payments-test' });
     await expect(prod.getByTestId('history-source')).toHaveText('From signed records, every signature verified, partial.', { timeout: T });
@@ -330,14 +336,14 @@ test.describe('Delivery views', () => {
 
     // Problems name full digests: on a phone they wrap instead of scrolling the page sideways.
     await page.setViewportSize({ width: 320, height: 800 });
-    await page.goto('/#/delivery/history');
+    await page.goto('/#/delivery/history?namespace=prod&stage=payments-prod');
     await expect(prod.getByTestId('history-problems')).toBeVisible({ timeout: T });
     expect(await page.evaluate(() => [document.documentElement, document.body].every((e) => e.scrollWidth <= e.clientWidth + 1))).toBe(true);
   });
 
   test('history says who put a version there and how to undo a change, and nothing is proposed', async ({ page }) => {
     await as(page, 'carol');
-    await page.goto('/#/delivery/history');
+    await page.goto('/#/delivery/history?namespace=prod&stage=payments-prod');
     const prod = page.getByRole('region', { name: 'History of prod/payments-prod' });
     await expect(prod.getByRole('row', { name: /^#3 Promote/ })).toContainText('1.4.0 → 2.0.0', { timeout: T });
     await expect(prod.getByRole('row', { name: /^#1 Promote/ })).toContainText('pacto-delivery/pacto-operator-delivery Controller');
@@ -413,7 +419,8 @@ test.describe('The path to autonomy', () => {
     await as(page, 'carol');
     await page.goto('/#/delivery/environments');
     const shadow = page.getByTestId('shadow');
-    await expect(shadow).toContainText('advisory and unsigned', { timeout: T });
+    await expect(page.getByTestId('shadow-summary')).toContainText('advisory and unsigned', { timeout: T });
+    await shadow.locator('summary').click();
     await expect(page.getByTestId('rung')).toHaveText(['Advise', 'Observe']);
     await expect(shadow.getByTestId('shadow-row').first()).toContainText('hold for team-checkout');
     await expect(shadow.getByTestId('held-but-ran')).toHaveCount(1);
@@ -432,6 +439,9 @@ test.describe('Delivery views in the dark theme', () => {
     await expect(page.getByTestId('environments-board')).toBeVisible({ timeout: T });
     await audit(page, 'environments, dark');
     await page.goto('/#/delivery/history');
+    await expect(page.getByTestId('history-summary')).toBeVisible({ timeout: T });
+    await audit(page, 'history summary, dark');
+    await page.goto('/#/delivery/history?namespace=prod&stage=payments-prod');
     await expect(page.getByTestId('history-problems')).toBeVisible({ timeout: T });
     await audit(page, 'history, dark');
     await page.goto('/#/delivery/autonomy');

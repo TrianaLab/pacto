@@ -172,11 +172,14 @@ test.describe('Browser demo: the delivery story', () => {
 
   test('history shows the deliberate gap, the untrusted record and a status-only Stage', async ({ page }) => {
     await ready(page, '#/delivery/history');
+    await expect(page.getByTestId('history-summary').getByRole('row', { name: /test\/payments/ })).toContainText('problem', { timeout: T });
+    await ready(page, '#/delivery/history?namespace=test&stage=payments');
     const test_ = page.getByRole('region', { name: 'History of test/payments' });
     await expect(test_.getByTestId('history-source')).toHaveText('From signed records, every signature verified, partial.', { timeout: T });
     await expect(test_.getByTestId('history-problems')).toContainText('is a gap');
     await expect(test_.getByTestId('history-unreadable')).toContainText('not signed by the key this tab trusts');
-    await expect(page.getByRole('region', { name: 'History of test/fraud' }).getByTestId('history-source')).toHaveText('From status, partial.');
+    await ready(page, '#/delivery/history?namespace=test&stage=fraud');
+    await expect(page.getByRole('region', { name: 'History of test/fraud' }).getByTestId('history-source')).toHaveText('From status, partial.', { timeout: T });
   });
 
   test('the published view lists the refused 2.4.3 with the bump it needs, said to be unchecked', async ({ page }) => {
@@ -281,7 +284,7 @@ test.describe('Browser demo: the delivery story', () => {
     test(`every delivery view passes the accessibility audit on ${label}`, async ({ page }) => {
       if (viewport) await page.setViewportSize(viewport);
       await ready(page, '#/delivery/inbox');
-      for (const hash of ['#/delivery/inbox', '#/delivery/environments', '#/delivery/history', '#/delivery/publish', '#/delivery/changes/prod/payments-promote-3']) {
+      for (const hash of ['#/delivery/inbox', '#/delivery/environments', '#/delivery/history', '#/delivery/history?namespace=prod&stage=payments', '#/delivery/publish', '#/delivery/changes/prod/payments-promote-3']) {
         await page.goto(`/${hash}`);
         await expect(page.getByTestId('delivery-identity')).toContainText('Signed in as', { timeout: T });
         await audit(page, `${hash} on ${label}`);

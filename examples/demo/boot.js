@@ -480,7 +480,7 @@
     }, {
       text: "History reads every step back from records signed in this tab, including a deliberate gap in test and a record signed by a key nobody trusts.",
       hash: "#/delivery/history",
-      target: '[aria-label="History of prod/payments"]'
+      target: '[data-stage="prod/payments"]'
     }, {
       text: "Explore more on your own, or see the same story on a real cluster.",
       links: [

@@ -544,11 +544,12 @@ type historyInput struct {
 	PageQuery
 }
 
-// Pages of a history: Stages per page across every Stage, the newest changes
-// each of them shows there, and changes per page of one Stage.
+// Pages of a history: Stages per page across every Stage, the newest change
+// each of them shows there (a one-line summary that links to the rest), and
+// changes per page of one Stage.
 const (
-	historyStagesPage  = 10
-	historyRecent      = 10
+	historyStagesPage  = 25
+	historyRecent      = 1
 	historyEntriesPage = 50
 )
 

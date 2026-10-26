@@ -861,7 +861,7 @@ func TestPeopleAndVersionLabels(t *testing.T) {
 
 	// History names the versions its digests carry and the people who signed in.
 	f.history = &delivery.History{Stage: delivery.StageNow{Name: "payments", Pointer: dRun}, Completeness: "complete",
-		Entries: []delivery.HistoryEntry{{Operation: "done", From: dRun, To: dNext, Actor: person().User}, {Operation: "bot", Actor: "system:serviceaccount:a:b"}}}
+		Entries: []delivery.HistoryEntry{{Operation: "bot", Actor: "system:serviceaccount:a:b"}, {Operation: "done", From: dRun, To: dNext, Actor: person().User}}}
 	_, h := call(t, http.MethodGet, base+"/api/delivery/history", nil)
 	vs, people := h["versions"].(map[string]any), h["people"].(map[string]any)
 	expect(t, vs[dRun] == "1.0.0" && vs[dNext] == "2.0.0" && len(vs) == 2, "history versions: %v", vs)
