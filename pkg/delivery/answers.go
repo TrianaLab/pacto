@@ -70,8 +70,11 @@ func AssembleHistory(st *StageObject, ops []OperationObject, r *RecordsRead, rea
 		h.Unreadable, h.Note = []string{readErr.Error()}, "the records could not be read, so this is "+historyNote
 	}
 	recorded := map[string]bool{}
+	// Without records the Operations are all the history there is, so one
+	// deleted after it concluded is a gap to name, never a quiet omission.
+	h.Problems = MissingSeqs(st, ops)
 	if r != nil {
-		r.Fold.Problems = append(r.Fold.Problems, MissingSeqs(st, ops)...)
+		r.Fold.Problems = append(r.Fold.Problems, h.Problems...)
 		h.Source, h.Head, h.Problems, h.Unreadable = SourceRecords, r.Fold.Head, r.Fold.Problems, r.Unreadable
 		h.Completeness, h.Note, h.Verified = r.complete(), r.note(), r.Trust != ""
 		for _, rec := range r.Fold.Records {

@@ -103,7 +103,11 @@ spec:
   validationActions: [Deny]
 ---
 # Cancelling is deleting, and it is refused once the pointer has moved: an
-# applied operation runs to its end, which may be a rollback. An agent cancels
+# applied operation runs to its end, which may be a rollback. Once it has
+# concluded only the promoter (its operationTTL, which keeps the operation a
+# Stage runs) and the namespace controller delete it: re-checks, rollbacks
+# and the Stage's history cite the operation that shipped what runs, so
+# nobody else, not its raiser nor break-glass, removes it. An agent cancels
 # only what it asked for itself: a rollback or freeze the promoter raised, or
 # another actor's operation, is cancelled by a person, break-glass or the
 # promoter. The namespace controller may delete one with its namespace.
@@ -133,8 +137,9 @@ spec:
       reason: Forbidden
     - expression: >-
         !has(oldObject.status) || !has(oldObject.status.applied) || !oldObject.status.applied ||
-        (has(oldObject.status.phase) && oldObject.status.phase == 'Concluded')
-      message: "the pointer already moved for this operation, so it can no longer be cancelled; roll it back instead"
+        (has(oldObject.status.phase) && oldObject.status.phase == 'Concluded' &&
+        request.userInfo.username in ['{{ $controller }}', 'system:serviceaccount:kube-system:namespace-controller'])
+      message: "the pointer moved for this operation, so it can no longer be cancelled (roll it back instead), and once it concludes only the promoter or the namespace controller removes it: re-checks, rollbacks and the Stage's history cite it"
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1

@@ -209,7 +209,12 @@ asked. `propose` with the plan's intent digest refuses with `PlanStale` if
 anything moved since. `cancel` works until the pointer moves; after that,
 propose `--type rollback --undoes <operation>`. A tag is refused. An agent may
 cancel only an operation it proposed; a rollback or freeze the promoter raised,
-or anyone else's operation, is cancelled by a person or break-glass.
+or anyone else's operation, is cancelled by a person or break-glass. Once an
+operation has moved the pointer nobody deletes it by hand, not even break-glass:
+re-checks, rollbacks and history cite it. Only the promoter (after
+`delivery.recorder.operationTTL`, and never the one the Stage runs) and the
+namespace controller remove it. With the recorder off, history names any seq
+whose Operation is gone.
 
 `pacto mcp --delivery` gives agents the read, plan, history, blame, undo and
 record-verify tools, plus propose and cancel only when the apiserver says the

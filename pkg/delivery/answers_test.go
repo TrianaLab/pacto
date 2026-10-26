@@ -58,6 +58,18 @@ func TestAssembleHistoryFromStatus(t *testing.T) {
 	}
 }
 
+// TestAssembleHistoryFlagsDeletedOperations: with no recorder, the Operations
+// are the only history, so one deleted after it concluded is a gap the answer
+// names rather than a change that never happened.
+func TestAssembleHistoryFlagsDeletedOperations(t *testing.T) {
+	st := ansStage()
+	st.Status.Stream.Seq, st.Status.Stream.RecordedSeq = 2, 0
+	h, _ := AssembleHistory(st, []OperationObject{ansOp("b", "u2", 2, ansA, ansB)}, nil, nil, "now")
+	if strings.Join(h.Problems, "|") != "local seq 1 concluded, but neither its record nor its Operation can be read" {
+		t.Fatalf("problems = %v", h.Problems)
+	}
+}
+
 func TestAssembleHistoryFromRecords(t *testing.T) {
 	st := ansStage()
 	unrec := ansOp("b", "u2", 2, ansA, ansB)

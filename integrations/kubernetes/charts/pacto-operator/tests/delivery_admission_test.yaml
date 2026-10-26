@@ -99,8 +99,8 @@ tests:
           path: 'spec.validations[?(@.message == "an agent may cancel only an operation it proposed itself; a person or break-glass cancels the rest")].expression'
           value: "oldObject.spec.actor.user == request.userInfo.username || request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery' || request.userInfo.username == 'system:serviceaccount:kube-system:namespace-controller' || request.userInfo.groups.exists(g, g in ['pacto:break-glass']) || !(request.userInfo.username.startsWith('system:serviceaccount:') || request.userInfo.groups.exists(g, g in ['pacto:agents']))"
       - matchRegex:
-          path: 'spec.validations[?(@.message == "the pointer already moved for this operation, so it can no longer be cancelled; roll it back instead")].message'
-          pattern: can no longer be cancelled
+          path: 'spec.validations[?(@.message == "the pointer moved for this operation, so it can no longer be cancelled (roll it back instead), and once it concludes only the promoter or the namespace controller removes it: re-checks, rollbacks and the Stage''s history cite it")].expression'
+          pattern: "oldObject.status.phase == 'Concluded' && request.userInfo.username in \\['system:serviceaccount:pacto-delivery:d-pacto-operator-delivery', 'system:serviceaccount:kube-system:namespace-controller'\\]"
 
   - it: refuses approvals from agents and service accounts
     capabilities:
