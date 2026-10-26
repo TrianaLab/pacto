@@ -399,7 +399,7 @@ cosign verify \
 | delivery.image.tag | string | `""` | Overrides the image tag (default is the chart appVersion) |
 | delivery.imagePullSecrets | list | `[]` | Image pull secrets for private registries |
 | delivery.insecureRegistries | list | `[]` | Registry hosts (`host:port`) the promoter and the recorder reach over plain HTTP. An OCIRepository with `spec.insecure: true` is read over HTTP anyway. |
-| delivery.metrics.enabled | bool | `true` | Expose the promoter's and the recorder's metrics (plain HTTP, port 8080) through a Service |
+| delivery.metrics.enabled | bool | `true` | Expose the promoter's metrics (plain HTTP, port 8080) through a Service. The recorder's come with `delivery.recorder.monitoring` |
 | delivery.metrics.serviceMonitor.enabled | bool | `false` | Create a Prometheus Operator ServiceMonitor for that Service |
 | delivery.metrics.serviceMonitor.interval | string | `""` | Scrape interval (empty uses Prometheus' default) |
 | delivery.metrics.serviceMonitor.scrapeTimeout | string | `""` | Scrape timeout (empty uses Prometheus' default) |

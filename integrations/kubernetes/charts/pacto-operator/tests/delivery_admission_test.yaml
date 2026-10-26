@@ -68,7 +68,7 @@ tests:
     asserts:
       - equal:
           path: 'spec.validations[?(@.message == "the promoter only lowers a rung, and an agent never lowers a Stage to observe")].expression'
-          value: "object.spec.type != 'delivery.pacto.trianalab.io/autonomy' || variables.breakGlass || (request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-delivery' ? variables.lowers : !(variables.agent && variables.rungTo == 'observe'))"
+          value: "object.spec.type != 'delivery.pacto.trianalab.io/autonomy' || variables.breakGlass || (request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery' ? variables.lowers : !(variables.agent && variables.rungTo == 'observe'))"
       - equal:
           path: 'spec.variables[?(@.name == "lowers")].expression'
           value: "variables.rungFrom in variables.rungs && variables.rungTo in variables.rungs && variables.rungs[variables.rungTo] < variables.rungs[variables.rungFrom]"
@@ -78,7 +78,7 @@ tests:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     set:
-      recorder.enabled: true
+      delivery.recorder.enabled: true
     documentSelector:
       path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
       value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
