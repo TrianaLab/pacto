@@ -130,6 +130,16 @@ from a stale one.
 
 `evidence.enabled` is `false`. See [The Evidence Server](evidence-server.md).
 
+### Keep the delivery namespace to cluster admins
+
+With `delivery.enabled`, the promoter and the recorder run in
+`delivery.namespace` (`pacto-delivery`). Anyone who can create a pod there can
+run it as the promoter's service account, which moves any labelled pointer and
+writes every Stage's and Operation's status, or as the recorder's, which signs
+records. Anyone who can edit a ConfigMap there can change the identity policy
+and the upstream trust config. Grant write access in that namespace to cluster
+admins only, and give nobody else a binding there.
+
 ## Verify the install
 
 ```bash

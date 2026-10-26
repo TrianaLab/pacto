@@ -20,3 +20,8 @@ tests:
           pattern: kubectl get stages\.delivery\.pacto\.trianalab\.io -A
       - notMatchRegexRaw:
           pattern: kubectl get stages -A
+
+  - it: says the delivery namespace is for cluster admins only
+    asserts:
+      - matchRegexRaw:
+          pattern: Keep that namespace writable by cluster admins only
