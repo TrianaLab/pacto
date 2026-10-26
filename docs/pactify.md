@@ -5,18 +5,20 @@ new version before it runs. A contract is one file, `pacto.yaml`, kept next to
 your code. It says what the service offers, which other services it calls and
 how it is built and run. This guide takes a plain service to its first gated
 release: one Pacto checks before it reaches production. Every command of that
-path is on this page; the links are reference. To see where it leads first,
+path is on this page, except the one-time setup that lets people approve,
+which your cluster admin does; the links are reference. To see where it leads first,
 with nothing to install, press **Play the delivery story** in the
 [live dashboard demo](examples/dashboard-demo.md); it runs in your browser.
 
 In the cluster, [Flux](https://fluxcd.io) does the deploying: it is a tool that
 keeps the cluster running what your files say. Pacto tells it which version.
+Each environment starts on observe, the first rung of
+[the autonomy ladder](autonomy.md): Pacto watches and moves nothing until a
+person raises it.
 
 You need:
 
-- the `pacto` command:
-  `go install github.com/trianalab/pacto/v4/cmd/pacto@latest`, or another
-  method from [Installation](installation.md);
+- the `pacto` command, from [Installation](installation.md);
 - a service in a git repository, with a Dockerfile and the Kubernetes files
   that run it (a Deployment and a Service). Those files are what lands in the
   cluster. Leave the namespace out of them: each environment gets its own;
@@ -31,8 +33,16 @@ You need:
 - `cosign`, once, to make a signing key: `brew install cosign`, or
   `go install github.com/sigstore/cosign/v2/cmd/cosign@latest`;
 - for step 4, a Kubernetes cluster (1.30 or later), `kubectl` and `helm`. For
-  a person to approve a held change, the cluster must trust your company
-  login, which is not verified on managed clusters (EKS, GKE, AKS): see step 5.
+  a person to approve a held change, the cluster must be able to tell how
+  recently that person signed in to your company login. That is tested on
+  kind and not verified yet on EKS, GKE and AKS. Where it does not work,
+  nobody can approve, so prod, which asks a person for every version, never
+  moves: see [where approving works](integrations/kubernetes/delivery-identity.md#where-approving-works).
+  Setting that up is a one-time job for whoever runs the cluster, maybe you:
+  [the cluster trusts your identity provider](integrations/kubernetes/delivery-identity.md#the-cluster-trusts-your-identity-provider).
+  `pacto delivery approve` then signs you in with that same login, which is
+  how the cluster knows who you are. Until it is done, everything on this page
+  works except approving: prod waits.
 
 You do not write the contract by hand: Pacto writes it from your service.
 
@@ -62,6 +72,8 @@ error. It is a question Pacto will not guess the answer to.
 
 ## 2. Write the contract
 
+Add any flags you needed in step 1, such as `--registry-secret`:
+
 ```bash
 pacto init --delivery --owner payments
 pacto validate
@@ -70,7 +82,8 @@ echo cosign.key >> .gitignore
 
 `--owner` names the team that owns the service. Use the name of that team's
 group in your company login: its members are the people Pacto asks about this
-service. `init` writes `pacto.yaml`, the `delivery/` folder and a
+service, in the dashboard and with `pacto delivery` (see
+[Decide, unfreeze and roll back](pactify-decide.md)). `init` writes `pacto.yaml`, the `delivery/` folder and a
 `.pactoignore` file that keeps the signing key out of what is published.
 `pacto validate` checks the contract is well formed. Running `pacto init` again
 never overwrites your edits. For an image `ghcr.io/acme/my-service:1.0.0` and
@@ -104,7 +117,8 @@ publish:
   sign: {key: cosign.key}
 ```
 
-The manifests build swaps the image in your Deployment for the one this
+You do not need to edit the long `command` line: `init` wrote it. The
+manifests build swaps the image in your Deployment for the one this
 version just built, pinned by its digest, so each version runs its own image.
 It does the same in every other manifest that runs that image, such as a
 CronJob, and lists any file it cannot rewrite. Your `k8s/deployment.yaml` stays as it is.
@@ -112,14 +126,21 @@ CronJob, and lists any file it cannot rewrite. Your `k8s/deployment.yaml` stays 
 Fill in what the plan marked Unknown, above all the dependencies: uncomment one
 entry per service yours calls and set `compatibility` to the versions it
 accepts, such as `^2.0.0` for any 2.x. This is called a version range, and it is
-what lets Pacto ask the right team about a change. Every field is in
+what lets Pacto ask the right team about a change. Add an entry only for a
+service whose contract is already published; leave the others commented out
+until their teams pactify them. If your service has an OpenAPI document and
+the contract has no `interfaces` block, add one as
+[Put it in your repository](ci.md#declare-your-api-first) shows: `pacto diff`
+and delivery see API changes only in the interfaces the contract declares. Every field is in
 [Publish](contract-reference/publish.md) and
 [Dependencies](contract-reference/dependencies-and-state.md). If your images
 are private, also add `imagePullSecrets: [{name: registry-creds}]` under
 `spec.template.spec` in your Deployment; step 4 creates that Secret. If the
 contract and deploy repositories are private too, run `pacto init` with
-`--registry-secret registry-creds` as step 1 says. Commit
-`pacto.yaml`, `.pactoignore`, `.gitignore` and `delivery/`.
+`--registry-secret registry-creds` as step 1 says. If you declared
+dependencies, run `pacto lock .` to pin them (see [Lockfile](lockfile.md)).
+Commit `pacto.yaml`, `.pactoignore`, `.gitignore`, `delivery/` and
+`pacto.lock` if you made one.
 
 ## 3. Publish a version
 
@@ -199,7 +220,7 @@ Flux applies what it did. With no version tag on the image, `init` writes no
 environment file.
 
 ```bash
-kubectl get stages.delivery.pacto.trianalab.io -A    # the version each one runs
+kubectl get stages.delivery.pacto.trianalab.io -A    # POINTER: the digest of the version each one runs
 pacto delivery history -n test --stage my-service     # what happened in test
 kubectl -n test describe stages.delivery.pacto.trianalab.io my-service  # if nothing moves: why, under Ready
 ```
@@ -212,7 +233,7 @@ and each Stage records what it would have done.
 
 When Pacto proposes the next rung, `advise`, label the OCIRepository so Pacto
 may write its digest, then have a second person approve the
-`delivery.pacto.trianalab.io/autonomy` operation (see [When a change waits](pactify-decide.md#when-a-change-waits-or-an-environment-freezes)):
+`delivery.pacto.trianalab.io/autonomy` operation (see [When a change waits](pactify-decide.md#why-you-were-asked)):
 
 ```bash
 kubectl -n test label ocirepository my-service delivery.pacto.trianalab.io/apply-ref=my-service
@@ -224,10 +245,19 @@ the contract check cannot see a consumer with no contract, or tell whether the
 version is healthy. Once a health check judges each version there
 (`gates.verify.checks`, see
 [Delivery reference: health checks](integrations/kubernetes/delivery-health.md)),
-delete `approval` from `delivery/prod.yaml`. A version that fails its checks
+delete `approval` from `delivery/prod.yaml`. You may delete it without a health
+check too; then only the contract check judges each prod version. A version that fails its checks
 after release is rolled back once, or its Stage freezes until a person
 unfreezes it. A change that would break a service using yours asks that
 service's team.
+
+Each move is a change, a Kubernetes object of kind `Operation`; one that waits
+for a person shows `Held`. To approve one, as a member of the owner team:
+
+```bash
+kubectl get operations.delivery.pacto.trianalab.io -n prod   # PHASE shows Held
+pacto delivery approve -n prod <name> --decision approve
+```
 
 ## Many services at once
 
@@ -257,7 +287,7 @@ gone, see [Decide, unfreeze and roll back](pactify-decide.md).
 |------|------|
 | Decide on a waiting change or roll one back | [Decide, unfreeze and roll back](pactify-decide.md) |
 | Understand what happens to a change | [Delivery](integrations/kubernetes/delivery.md) |
-| Fail a commit that would break a consumer | [CI integration](ci.md) |
+| Fail a commit that would break a consumer | [Put it in your repository](ci.md) |
 | Check errors and response times after release | [Health checks](integrations/kubernetes/delivery-health.md) |
 | Keep a signed record of every change | [Signed records](integrations/kubernetes/delivery-records.md) |
 | Set up Stages by hand | [Setup and gates](integrations/kubernetes/delivery-setup.md) |

@@ -21,8 +21,6 @@ calls.
 | On hold | A Stage that automation no longer moves after a person rolled it back by hand, so it does not undo that choice. It shows under `HOLD`, and an unfreeze clears it too |
 | Unknown | Pacto could not see enough to say whether the change is safe |
 
-<a id="when-a-change-waits-or-an-environment-freezes"></a>
-
 ## Why you were asked
 
 Pacto holds a change and asks a person in these cases:

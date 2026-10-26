@@ -39,7 +39,7 @@ flowchart LR
 `pacto publish`, Pacto's release command, and signed, which proves who
 published it. It compares the new contract with the one running and looks at
 every service in that environment that uses this one. If none of them would
-break, the change goes ahead on its own.
+break, the change goes ahead on its own on an automatic rung.
 
 **After Flux applies it**, Pacto checks that the running version does what its
 contract says. You can add health checks too, such as error rates from your
@@ -55,8 +55,8 @@ None of a Stage's last 50 failed versions is tried again there.
 
 A version reaches prod only after it passed in the environment before it,
 such as test. Each service in each environment is called a **Stage**. Moving a Stage to a new
-version is called promoting it, and a Stage can promote new versions on its
-own or wait to be asked.
+version is called promoting it. A Stage can promote on its own only once a
+person has raised it up [the autonomy ladder](../../autonomy.md).
 
 **Every change that ends**, refusals included, can leave a signed record in
 your container registry, the place your images are stored. The signature shows
@@ -125,6 +125,9 @@ pass.
 | Auto-hold | Set when a person or agent rolls back a Stage, or promotes it back to a version this Stage already verified: automation stops promoting there until a person unfreezes it or promotes a version it has not verified yet |
 | Break-glass | A group, `pacto:break-glass` by default, that may force a version past every check |
 | Record | The signed account of one finished Operation |
+| Rung | How much a Stage lets Pacto do on its own; see [the autonomy ladder](../../autonomy.md) |
+
+Every other word is in the [glossary](../../glossary.md).
 
 ## Where you follow it
 
@@ -152,6 +155,7 @@ None of these is required reading:
 - [Signed records and history](delivery-records.md): records, key rotation,
   blame, undo and verification
 - [Argo CD and several clusters](delivery-reach.md) (experimental)
+- [Ladder reference](../../autonomy-reference.md): rungs, proposals and blockers
 - [Publishing details](../../publishing.md) and the contract's
   [`publish` section](../../contract-reference/publish.md)
 

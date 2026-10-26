@@ -105,11 +105,12 @@ flowchart LR
 - None of a Stage's last 50 failed versions is promoted again there. The
   promoter raises one rollback per failure; if that fails, is refused or is
   unclear, or the version before failed too, the Stage freezes until a person
-  unfreezes it. A person's rollback puts an auto-hold on an
-  `auto: true` Stage, so automation does not undo it.
+  unfreezes it. A person's rollback puts an auto-hold on a Stage on an
+  automatic rung, so automation does not undo it.
 
-Only five built-in operation types exist: promote, rollback, override, freeze
-and unfreeze. A freeze stops automation on the version the Stage runs until a
+Only six built-in operation types exist: promote, rollback, override, freeze,
+unfreeze and autonomy, which moves the Stage up or down
+[the autonomy ladder](../../autonomy.md). A freeze stops automation on the version the Stage runs until a
 person unfreezes it; the promoter raises one when a check after release fails
 and it cannot roll back. Stage approval policy is `approval.always`, not an expression.
 
@@ -181,7 +182,7 @@ spec:
   applyRef: {name: payments}
   candidates:
     upstreamStage: {name: payments, namespace: test}
-  auto: true
+  startRung: advise
   gates:
     verify: {window: 5m}
 ```
