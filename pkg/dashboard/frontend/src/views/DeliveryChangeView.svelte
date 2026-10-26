@@ -5,7 +5,9 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryInboxUrl, deliveryHistoryUrl, deliveryChangeUrl, serviceUrl } from '../lib/router.ts';
   import { typeLabel, shortDigest, shortDigests, predictionLabel, decisionLabel, authTimeText, changeSummary, actorBadge,
-    undoneBy, undoCause, versionLabel, rungLabel, rungHelp, AUTONOMY_TYPE } from '../lib/delivery.ts';
+    undoCause, versionLabel, rungLabel, rungHelp, timeLabel, outcomeTone, AUTONOMY_TYPE } from '../lib/delivery.ts';
+  import CappedList from '../components/CappedList.svelte';
+  import { formatCount } from '../lib/format.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -40,17 +42,9 @@
   const after = $derived(st?.pointer?.after || '');
   const blocked = $derived(!!after && (e?.stage?.failedDigests ?? []).includes(after));
 
-  // The change that undid this one, read from the environment's history.
-  let undo = $state(null);
-  $effect(() => {
-    const stage = e?.spec?.stage, finished = st?.times?.finished;
-    void refreshTick;
-    undo = null;
-    if (!stage || !after || e.status.phase !== 'Concluded') return;
-    api.deliveryHistory(namespace, stage)
-      .then((h) => { undo = undoneBy(h.histories?.[0]?.entries ?? [], name, after, finished); })
-      .catch(() => { undo = null; }); // ponytail: the line is extra; a failed read just leaves it out.
-  });
+  // The change that undid this one: the server reads it from the
+  // environment's history, so the page never downloads the whole history.
+  const undo = $derived(data?.undoneBy ?? null);
 
   const TIMES = [
     ['admitted', 'Admitted'], ['started', 'Started'], ['applied', 'Applied'], ['finished', 'Finished'],
@@ -114,7 +108,7 @@
   {:else if data}
     <section class="cd-status" aria-label="Where it stands">
       <span class="badge badge-neutral">{e.status.phase}</span>
-      {#if e.status.outcome}<span class="badge {e.status.outcome === 'Succeeded' ? 'badge-ok' : e.status.outcome === 'Failed' || e.status.outcome === 'Errored' ? 'badge-err' : 'badge-neutral'}">{e.status.outcome}</span>{/if}
+      {#if e.status.outcome}<span class="badge {outcomeTone(e.status.outcome)}">{e.status.outcome}</span>{/if}
       {#if e.status.verification}<span class="badge badge-info">{e.status.verification}</span>{/if}
       {#if e.status.reason}<span class="t-body-2">{e.status.reason}{#if e.status.message}: {shortDigests(e.status.message)}{/if}</span>{/if}
     </section>
@@ -172,12 +166,12 @@
     {/if}
 
     <section aria-labelledby="cd-affected">
-      <h2 id="cd-affected" class="t-section-title">Affected services</h2>
+      <h2 id="cd-affected" class="t-section-title">Affected services{#if consumers.length}{' '}<span class="t-meta">({formatCount(consumers.length)})</span>{/if}</h2>
       {#if consumers.length}
         <p class="t-body-2">These services are why a person is needed. Open one to see it on the operational graph.</p>
-        <ul class="cd-consumers" data-testid="affected-services">
-          {#each consumers as c (c)}<li><a href={serviceUrl(c)}>{c}</a></li>{/each}
-        </ul>
+        <div class="cd-consumers">
+          <CappedList items={consumers} max={12} inline={true} label="Affected services" testid="affected-services">{#snippet item(c)}<a href={serviceUrl(c)}>{c}</a>{/snippet}</CappedList>
+        </div>
       {:else}
         <p class="t-body-2">The plan names no other service this change affects.</p>
       {/if}
@@ -218,7 +212,7 @@
       <h2 id="cd-timeline" class="t-section-title">Timeline</h2>
       {#if timeline.length}
         <ol class="cd-timeline t-body-2">
-          {#each timeline as t (t.k)}<li><time datetime={t.at}>{t.at}</time> {t.label}</li>{/each}
+          {#each timeline as t (t.k)}<li><time datetime={t.at} title={t.at}>{timeLabel(t.at)}</time> {t.label}</li>{/each}
         </ol>
       {:else}
         <p class="t-body-2">Nothing has happened yet.</p>
@@ -239,7 +233,7 @@
   .cd-digest { color: var(--c-text-2); }
   .cd-facts a, .cd-consumers a { color: var(--c-accent); text-decoration: underline; }
   .cd-actions { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
-  .cd-consumers { display: flex; gap: var(--sp-3); flex-wrap: wrap; list-style: none; padding: 0; margin: var(--sp-2) 0 0; }
+  .cd-consumers { margin: var(--sp-2) 0 0; display: flex; flex-direction: column; gap: var(--sp-1); align-items: flex-start; }
   .cd-compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: var(--sp-4); }
   .cd-compare section { display: flex; flex-direction: column; gap: var(--sp-2); }
   .cd-approvals, .cd-timeline { margin: var(--sp-2) 0 0; padding-left: var(--sp-5); }

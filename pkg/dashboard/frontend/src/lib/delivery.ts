@@ -348,33 +348,6 @@ export function autonomyOf(entries: AutonomyEntry[]): { total: number; noPerson:
   };
 }
 
-/** The fields of a history line undoneBy reads. */
-export interface UndoEntry {
-  operation?: string;
-  type?: string;
-  from?: string;
-  finished?: string;
-  actor?: string;
-  actorClass?: string;
-  pointer?: { after?: string } | null;
-}
-
-/**
- * undoneBy finds the rollback that undid the change `name`, which moved its
- * Stage to `after`: the first change after it that moved the Stage off
- * `after` (one that did not move it, failed or still running, undid
- * nothing). That is the undo only if it is a rollback; anything else means the
- * Stage moved on, and a later rollback from `after` undid that, not this.
- * Lines are in the order the history keeps them, oldest first.
- */
-// ponytail: matched by version, order and time, because history lines do not name what a rollback undoes; read params.undoes if they ever do.
-export function undoneBy<T extends UndoEntry>(entries: T[], name: string, after: string, finished?: string): T | null {
-  const i = entries.findIndex((en) => en.operation === name);
-  const next = entries.slice(i + 1).find((en) => en.operation && en.from === after && en.pointer?.after
-    && (!finished || !en.finished || en.finished >= finished));
-  return next?.type === 'delivery.pacto.trianalab.io/rollback' ? next : null;
-}
-
 /**
  * undoCause says why the controller undid a failed change, read from its
  * reason: the controller writes the code in reason and the rest in message

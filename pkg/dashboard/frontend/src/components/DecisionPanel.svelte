@@ -69,10 +69,13 @@
       : `Nothing moves: ${env} keeps running ${fromV || 'what it runs now'}.`,
     `The change ends, and ${asker} sees your name and note as the reason.`,
   ]);
+  // A button names the version, cut short when it is long (the title keeps it
+  // whole); the environment is in the panel's heading, not on the button.
+  const clip = (v) => (v.length > 24 ? `${v.slice(0, 23)}…` : v);
   const approveLabel = $derived(asked === 'approve'
-    ? `Approve shipping ${toV} to ${env}`
-    : applied ? `Accept the unknown and keep ${toV}` : `Accept the unknown and ship ${toV}`);
-  const rejectLabel = $derived(rollsBack ? `Reject and roll back to ${backV}` : 'Reject: nothing moves');
+    ? `Approve shipping ${clip(toV)}`
+    : applied ? `Accept the unknown and keep ${clip(toV)}` : `Accept the unknown and ship ${clip(toV)}`);
+  const rejectLabel = $derived(rollsBack ? `Reject and roll back to ${clip(backV)}` : 'Reject: nothing moves');
 
   // A decision kept across the fresh sign-in, if this is the change it was for.
   // Read once: the page is keyed by the change, so it never needs re-reading.
@@ -186,8 +189,8 @@
     {#if stale && !needsFresh}<p class="t-body-2" data-testid="decision-stale">A decision needs a recent sign-in, and yours is older. Pressing a button below takes you to sign in again; your choice and note are kept, and you confirm it once you are back.</p>{/if}
     {#if noteMissing}<p id="dp-note-why" class="t-body-2" data-testid="decision-note-required">This change is breaking: say why it should ship anyway before you approve it.</p>{/if}
     <div class="dp-btns">
-      <button type="button" class="btn" data-testid="decide-approve" bind:this={approveBtn} class:dp-was={kept?.decision === asked} disabled={busy || noteMissing} onclick={() => decide(asked)}>{label(asked, approveLabel)}</button>
-      <button type="button" class="btn" data-testid="decide-reject" bind:this={rejectBtn} class:dp-was={kept?.decision === 'reject'} disabled={busy} onclick={() => decide('reject')}>{label('reject', rejectLabel)}</button>
+      <button type="button" class="btn" data-testid="decide-approve" bind:this={approveBtn} class:dp-was={kept?.decision === asked} disabled={busy || noteMissing} onclick={() => decide(asked)} title={asked === 'approve' ? `Approve shipping ${toV} to ${env}` : undefined}>{label(asked, approveLabel)}</button>
+      <button type="button" class="btn" data-testid="decide-reject" bind:this={rejectBtn} class:dp-was={kept?.decision === 'reject'} disabled={busy} onclick={() => decide('reject')} title={rollsBack ? `Reject and roll back ${env} to ${backV}` : undefined}>{label('reject', rejectLabel)}</button>
     </div>
   {:else if caller?.user && (caller.user === op.spec?.actor?.user || caller.user === op.spec?.onBehalfOf?.user)}
     <p class="t-body-2" data-testid="decide-own">You asked for this change, so someone else must decide it.</p>

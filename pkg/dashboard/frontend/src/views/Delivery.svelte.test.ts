@@ -346,6 +346,22 @@ function heldOperation(over: Record<string, unknown> = {}) {
 }
 
 describe('change detail', () => {
+  it('lists a dozen affected services with Show all, and reads its timeline in minutes', async () => {
+    const op = heldOperation();
+    op.operation.status.plan.floor.consumers = Array.from({ length: 30 }, (_, i) => `svc-${i}`);
+    fns.operation.mockResolvedValue(op);
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    const affected = target.querySelector('[data-testid="affected-services"]') as HTMLElement;
+    expect(affected.querySelectorAll('li').length).toBe(12);
+    expect(text(target.querySelector('[aria-labelledby="cd-affected"]') as HTMLElement)).toContain('Show all 30');
+    expect(text(target.querySelector('#cd-affected') as HTMLElement)).toBe('Affected services (30)');
+    const first = target.querySelector('.cd-timeline time') as HTMLElement;
+    expect(first.textContent).toBe('2026-10-21 10:00 UTC');
+    expect(first.title).toBe('2026-10-21T10:00:00Z');
+    destroy();
+  });
+
   it('shows the plan, predicted next to actual verdicts, decisions, the timeline and a Mira link', async () => {
     // Before it applies, what happened is the plan's checks again, so it is not shown.
     fns.operation.mockResolvedValue(heldOperation());
@@ -443,7 +459,8 @@ describe('change detail', () => {
     expect(panel.querySelector('[data-testid="decision-breaking"]')?.textContent).toBe('Breaking');
     const approve = panel.querySelector('[data-testid="decide-approve"]') as HTMLButtonElement;
     const reject = panel.querySelector('[data-testid="decide-reject"]') as HTMLButtonElement;
-    expect(approve.textContent).toBe('Approve shipping 3.0.0 to prod/pay');
+    expect(approve.textContent).toBe('Approve shipping 3.0.0');
+    expect(approve.title).toBe('Approve shipping 3.0.0 to prod/pay');
     expect(reject.textContent).toBe('Reject: nothing moves');
     // Same weight: neither answer is the primary one.
     expect(approve.className).toBe(reject.className);
@@ -1324,14 +1341,12 @@ describe('Unknown, proof, undo and autonomy', () => {
     op.explanation.status = { phase: 'Concluded', outcome: 'Failed', verification: 'Unverified', reason: 'VerifyFailed', message: 'health: 10 of 100 failed' } as unknown as typeof op.explanation.status;
     op.explanation.stage = { name: 'pay', failedDigests: [D2] } as unknown as typeof op.explanation.stage;
     op.operation.status = { phase: 'Concluded', applied: true, pointer: { before: D1, after: D2 }, times: { finished: '2026-10-21T10:00:00Z' } } as unknown as typeof op.operation.status;
-    fns.operation.mockResolvedValue(op);
-    fns.history.mockResolvedValue({ ...listing, histories: [{ namespace: 'prod', stage: { name: 'pay' }, entries: [
-      { operation: 'op1', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, finished: '2026-10-21T10:00:00Z' },
-      { operation: 'rb1', type: 'delivery.pacto.trianalab.io/rollback', from: D2, to: D1, actor: 'system:serviceaccount:pacto:promoter', actorClass: 'controller', finished: '2026-10-21T10:05:00Z', pointer: { before: D2, after: D1 } },
-    ] }] });
+    // The server says which rollback undid it; the page reads no history for it.
+    const rb1 = { operation: 'rb1', type: 'delivery.pacto.trianalab.io/rollback', from: D2, to: D1, actor: 'system:serviceaccount:pacto:promoter', actorClass: 'controller', finished: '2026-10-21T10:05:00Z', pointer: { before: D2, after: D1 } };
+    fns.operation.mockResolvedValue({ ...op, undoneBy: rb1 });
     let r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
-    expect(fns.history).toHaveBeenCalledWith('prod', 'pay');
+    expect(fns.history).not.toHaveBeenCalled();
     let undone = r.target.querySelector('[data-testid="change-undone"]') as HTMLElement;
     expect(text(undone)).toContain('Undone by rb1 (automatic: a check failed after release).');
     expect(undone.querySelector('a')?.getAttribute('href')).toBe('#/delivery/changes/prod/rb1');
@@ -1341,6 +1356,7 @@ describe('Unknown, proof, undo and autonomy', () => {
 
     // A person rejecting the unknown is not a failed check: the line names who rejected it.
     op.explanation.status = { phase: 'Concluded', outcome: 'Failed', verification: 'Unverified', reason: 'RejectedByHuman', message: 'https://idp#carol: too risky' } as unknown as typeof op.explanation.status;
+    fns.operation.mockResolvedValue({ ...op, undoneBy: rb1 });
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     undone = r.target.querySelector('[data-testid="change-undone"]') as HTMLElement;
@@ -1349,17 +1365,16 @@ describe('Unknown, proof, undo and autonomy', () => {
     expect(text(undone)).not.toContain('a check failed');
     r.destroy();
 
-    // A person's rollback names the person; a history that cannot be read leaves the line out.
-    fns.history.mockResolvedValue({ ...listing, histories: [{ namespace: 'prod', stage: { name: 'pay' }, entries: [
-      { operation: 'rb2', type: 'delivery.pacto.trianalab.io/rollback', from: D2, to: D1, actor: 'https://idp#carol', actorClass: 'human', pointer: { before: D2, after: D1 } }] }] });
+    // A person's rollback names the person; no undoneBy leaves the line out.
     op.explanation.stage = { name: 'pay' } as unknown as typeof op.explanation.stage;
+    fns.operation.mockResolvedValue({ ...op, undoneBy: { operation: 'rb2', type: 'delivery.pacto.trianalab.io/rollback', from: D2, to: D1, actor: 'https://idp#carol', actorClass: 'human', pointer: { before: D2, after: D1 } } });
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     undone = r.target.querySelector('[data-testid="change-undone"]') as HTMLElement;
     expect(text(undone)).toContain('Undone by rb2, by carol');
     expect(text(undone)).not.toContain('blocked');
     r.destroy();
-    fns.history.mockRejectedValue(new ApiError(500, 'boom'));
+    fns.operation.mockResolvedValue(op);
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     expect(r.target.querySelector('[data-testid="change-undone"]')).toBeNull();
@@ -1394,7 +1409,7 @@ describe('Unknown, proof, undo and autonomy', () => {
     await settle();
     const reject = target.querySelector('[data-testid="decide-reject"]') as HTMLButtonElement;
     expect(reject.textContent).toBe(`Confirm: Reject: nothing moves (signed in at ${new Date(1792560000 * 1000).toISOString().slice(0, 16).replace('T', ' ')} UTC)`);
-    expect(target.querySelector('[data-testid="decide-approve"]')?.textContent).toBe('Approve shipping this change to prod/pay');
+    expect(target.querySelector('[data-testid="decide-approve"]')?.textContent).toBe('Approve shipping this change');
     expect(document.activeElement).toBe(reject);
     expect(target.querySelector('[data-testid="decision-stale"]')).toBeNull();
     destroy();
