@@ -71,7 +71,12 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 		return r.shadowVerify(ctx, stage, now)
 	}
 	set := func(s *dv1.Stage) {
-		s.Status.Shadow = append(slices.Clone(add), s.Status.Shadow...)
+		// Another reconcile of a stale read may have planned the same
+		// candidate: one entry per candidate.
+		fresh := slices.DeleteFunc(slices.Clone(add), func(e delivery.Shadow) bool {
+			return slices.ContainsFunc(s.Status.Shadow, func(x delivery.Shadow) bool { return x.Candidate == e.Candidate })
+		})
+		s.Status.Shadow = append(fresh, s.Status.Shadow...)
 		s.Status.Shadow = s.Status.Shadow[:min(len(s.Status.Shadow), delivery.MaxShadow)]
 		if s.Status.ObservedRevision == nil || s.Status.ObservedRevision.Digest != d {
 			s.Status.ObservedRevision = &delivery.ObservedRevision{Digest: d, Since: ts(now)}

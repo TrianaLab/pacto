@@ -66,6 +66,12 @@ func TestShadowPlansWhatGitOpsApplies(t *testing.T) {
 	if st.Proposal == nil || st.Proposal.Rung != "" || st.Proposal.Blockers[2].Kind != delivery.BlockerUnlabelledApplyRef {
 		t.Fatalf("proposal: %+v", st.Proposal)
 	}
+	stale := stageObj("")
+	stale.Status.Rung = delivery.RungObserve
+	stale.ResourceVersion = ""
+	if err := e.st.shadow(context.Background(), stale); err != nil || len(e.getStage().Status.Shadow) != 2 {
+		t.Fatalf("a reconcile of a stale read adds no second entry per candidate: %v %+v", err, e.getStage().Status.Shadow)
+	}
 	rv := e.getStage().ResourceVersion
 	if err := e.reconcileStage("payments-prod"); err != nil || e.getStage().ResourceVersion != rv {
 		t.Fatalf("a tick with nothing new writes nothing: %v", err)
