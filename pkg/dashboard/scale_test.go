@@ -177,6 +177,27 @@ func TestLargeFleetBudget(t *testing.T) {
 	}
 }
 
+// slowHistory answers a history after a cluster's round trips.
+type slowHistory struct{ *countingDelivery }
+
+func (s slowHistory) History(ctx context.Context, ns, stage string) (*delivery.History, error) {
+	time.Sleep(20 * time.Millisecond)
+	return s.countingDelivery.History(ctx, ns, stage)
+}
+
+// A page of every Stage's history reads the histories side by side: 25 slow
+// reads one after another would take half a second.
+func TestHistoryPageReadsInParallel(t *testing.T) {
+	c, q := largeCluster(t)
+	srv := NewServer(Options{UI: testUI(), Fleet: q, Delivery: func(*http.Request) (DeliveryAPI, error) { return slowHistory{c}, nil }})
+	mux := http.NewServeMux()
+	srv.registerAPI(mux)
+	start := time.Now()
+	serveScale(t, withRequest(mux), "/api/delivery/history")
+	took := time.Since(start)
+	expect(t, c.histories.Load() == 25 && took < 250*time.Millisecond, "25 histories took %v (%d read)", took, c.histories.Load())
+}
+
 // go test ./pkg/dashboard -run '^$' -bench LargeFleet
 func BenchmarkLargeFleet(b *testing.B) {
 	h, _ := scaleHandler(b)

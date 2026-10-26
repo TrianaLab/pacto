@@ -617,11 +617,12 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	out.Body.Histories = []StageHistory{}
 	out.Body.Versions = map[string]string{}
 	var actors []string
-	for _, t := range targets {
-		h, err := api.History(ctx, t.Metadata.Namespace, t.Metadata.Name)
-		if err != nil {
-			return nil, err
+	hs, errs := historiesOf(ctx, api, targets)
+	for i, t := range targets {
+		if errs[i] != nil {
+			return nil, errs[i]
 		}
+		h := hs[i]
 		sh := StageHistory{Namespace: t.Metadata.Namespace, History: *h}
 		entries := slices.Clone(h.Entries)
 		slices.Reverse(entries) // newest first: what a reader looks for is the latest change
@@ -644,6 +645,24 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	}
 	out.Body.People = s.named(actors...)
 	return out, nil
+}
+
+// historiesOf reads the history of each target, describeParallel at once: on
+// a cluster each one gets the Stage, lists the namespace's changes and reads
+// a record stream, so a page of 25 read one after another was 50 round trips
+// in a row.
+func historiesOf(ctx context.Context, api DeliveryAPI, targets []delivery.StageObject) ([]*delivery.History, []error) {
+	hs, errs := make([]*delivery.History, len(targets)), make([]error, len(targets))
+	var g errgroup.Group
+	g.SetLimit(describeParallel)
+	for i, t := range targets {
+		g.Go(func() error {
+			hs[i], errs[i] = api.History(ctx, t.Metadata.Namespace, t.Metadata.Name)
+			return nil
+		})
+	}
+	_ = g.Wait()
+	return hs, errs
 }
 
 // versions adds to into (a new map when nil) the version each digest's
