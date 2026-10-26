@@ -1666,6 +1666,8 @@ func reconcileDeclared(snap *FleetSnapshot) {
 			rel.Reconciliation = ReconciliationInsufficient
 		case observed[edge{rel.FromService, rel.ToService}]:
 			rel.Reconciliation = ReconciliationMatched
+		case rel.External:
+			// Not expected to run where Pacto observes, so not seeing it is no finding.
 		default:
 			rel.Reconciliation = ReconciliationDeclaredNotObserved
 		}
@@ -1731,6 +1733,7 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 			Type: RelationshipDependency, Provenance: ProvenanceDeclared,
 			Required: dep.Required, Compatibility: dep.Compatibility,
 			RequestedRef: dep.Ref, Resolved: ok, ToService: toSvc,
+			External: dep.External, Version: dep.Version,
 		}
 		if rev.Lock != nil {
 			if e, found := rev.Lock.Dependency(dep.Name); found {
@@ -1738,9 +1741,12 @@ func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractR
 				rel.LockedVersion = e.Version
 			}
 		}
-		if !ok {
+		switch {
+		case !ok && dep.External:
+			rel.Reason = "an external dependency: this Pacto system does not deliver it"
+		case !ok:
 			rel.Reason = "no service in the fleet resolves this dependency ref"
-		} else {
+		default:
 			snap.forwardDepsByRevision[rk] = appendUnique(snap.forwardDepsByRevision[rk], toSvc)
 			snap.forwardDeps[rev.ServiceKey] = appendUnique(snap.forwardDeps[rev.ServiceKey], toSvc)
 			snap.reverseDeps[toSvc] = appendUnique(snap.reverseDeps[toSvc], rev.ServiceKey)

@@ -97,6 +97,8 @@ type ExplainDependency struct {
 	Ref           string `json:"ref"`
 	Required      bool   `json:"required"`
 	Compatibility string `json:"compatibility"`
+	External      bool   `json:"external,omitempty"`
+	Version       string `json:"version,omitempty"`
 }
 
 // Explain produces a human-readable summary of a contract.
@@ -152,6 +154,8 @@ func (s *Service) Explain(ctx context.Context, opts ExplainOptions) (*ExplainRes
 			Ref:           dep.Ref,
 			Required:      dep.Required,
 			Compatibility: dep.Compatibility,
+			External:      dep.External,
+			Version:       dep.Version,
 		})
 	}
 

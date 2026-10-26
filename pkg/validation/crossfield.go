@@ -42,7 +42,8 @@ func ValidateCrossField(c *contract.Contract, bundleFS fs.FS) ValidationResult {
 	validateStatePersistenceInvariants(c, &result)
 	validateReadiness(c, &result)
 	validatePublish(c, &result)
-	validateAgent(c, bundleFS, &result)
+	validateMCPInterfaces(c, bundleFS, &result)
+	validateChecks(c, bundleFS, &result)
 
 	return result
 }
@@ -77,10 +78,10 @@ func validatePublish(c *contract.Contract, result *ValidationResult) {
 	}
 }
 
-// validateAgent checks what the schema cannot: an mcp interface file is a
-// tools/list result with named tools, so a diff can tell a removed tool from a
-// changed one, and the eval suite is in the bundle, so it ships with the version.
-func validateAgent(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
+// validateMCPInterfaces checks what the schema cannot: an mcp interface file
+// is a tools/list result with named tools, so a diff can tell a removed tool
+// from a changed one.
+func validateMCPInterfaces(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
 	if bundleFS == nil {
 		return
 	}
@@ -96,8 +97,21 @@ func validateAgent(c *contract.Contract, bundleFS fs.FS, result *ValidationResul
 			result.AddError(fmt.Sprintf("interfaces[%d].ref", i), "INVALID_MCP_TOOLS", fmt.Sprintf("mcp interface file %q %v", iface.Ref, err))
 		}
 	}
-	if c.Agent != nil && c.Agent.Evals != "" && missingFile(bundleFS, c.Agent.Evals) {
-		result.AddError("agent.evals", "FILE_NOT_FOUND", fmt.Sprintf("eval suite file %q not found in bundle", c.Agent.Evals))
+}
+
+// validateChecks enforces that check names are unique, so a delivery gate
+// names one suite, and that each suite file is in the bundle, so it ships
+// with the version.
+func validateChecks(c *contract.Contract, bundleFS fs.FS, result *ValidationResult) {
+	seen := map[string]int{}
+	for i, ch := range c.Checks {
+		if prev, dup := seen[ch.Name]; dup {
+			result.AddError(fmt.Sprintf("checks[%d].name", i), "DUPLICATE_CHECK_NAME", fmt.Sprintf("check name %q is already declared at checks[%d]", ch.Name, prev))
+		}
+		seen[ch.Name] = i
+		if bundleFS != nil && missingFile(bundleFS, ch.File) {
+			result.AddError(fmt.Sprintf("checks[%d].file", i), "FILE_NOT_FOUND", fmt.Sprintf("check %q: file %q not found in bundle", ch.Name, ch.File))
+		}
 	}
 }
 
@@ -378,8 +392,33 @@ func validatePolicyFields(c *contract.Contract, bundleFS fs.FS, result *Validati
 	}
 }
 
+// validateDependencyForm enforces the two shapes a dependency takes: a ref to
+// its contract with a compatibility range, or, for a dependency this Pacto
+// system does not deliver and nobody wrote a contract for, external: true with
+// the free-text version it runs against. It reports false when the shape is
+// wrong, so the ref and range checks do not pile on.
+func validateDependencyForm(i int, dep contract.Dependency, result *ValidationResult) bool {
+	base := fmt.Sprintf("dependencies[%d]", i)
+	switch {
+	case dep.Ref == "" && !dep.External:
+		result.AddError(base+".ref", "DEPENDENCY_REF_REQUIRED", fmt.Sprintf("dependency %q has no ref: set ref to its contract, or, if this Pacto system does not deliver it, set external: true and the version you run against", dep.Name))
+	case dep.Ref == "" && dep.Version == "":
+		result.AddError(base+".version", "EXTERNAL_VERSION_REQUIRED", fmt.Sprintf("external dependency %q has no ref, so it needs a version: write the version you run against, for example version: \"2025-01\"", dep.Name))
+	case dep.Ref == "" && dep.Compatibility != "":
+		result.AddError(base+".compatibility", "COMPATIBILITY_WITHOUT_REF", fmt.Sprintf("dependency %q has a compatibility range but no ref to compare it with: add the ref of its contract, or drop compatibility and keep version", dep.Name))
+	case dep.Ref != "" && dep.Version != "":
+		result.AddError(base+".version", "VERSION_WITH_REF", fmt.Sprintf("dependency %q has a ref, so Pacto reads its version from its contract: drop version and say which versions work in compatibility", dep.Name))
+	default:
+		return true
+	}
+	return false
+}
+
 func validateDependencyRefs(c *contract.Contract, result *ValidationResult) {
 	for i, dep := range c.Dependencies {
+		if !validateDependencyForm(i, dep, result) || dep.Ref == "" {
+			continue
+		}
 		parsed := graph.ParseDependencyRef(dep.Ref)
 
 		if parsed.IsOCI() {
@@ -400,7 +439,7 @@ func validateDependencyRefs(c *contract.Contract, result *ValidationResult) {
 			result.AddError(
 				fmt.Sprintf("dependencies[%d].compatibility", i),
 				"EMPTY_COMPATIBILITY",
-				"compatibility range must not be empty",
+				fmt.Sprintf("dependency %q has a ref, so it needs compatibility: the versions that work, for example ^2.0.0", dep.Name),
 			)
 		} else if _, err := contract.ParseRange(dep.Compatibility); err != nil {
 			result.AddError(

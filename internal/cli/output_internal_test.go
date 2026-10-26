@@ -445,6 +445,7 @@ func TestPrintExplainResult_Full(t *testing.T) {
 		Dependencies: []app.ExplainDependency{
 			{Name: "dep", Ref: "ghcr.io/dep:1.0.0", Required: true, Compatibility: "^1.0.0"},
 			{Name: "opt", Ref: "ghcr.io/opt:2.0.0", Required: false, Compatibility: "^2.0.0"},
+			{Name: "model", External: true, Version: "claude-sonnet-4-5", Required: true},
 		},
 	}
 	if err := printExplainResult(cmd, result, "text"); err != nil {
@@ -462,6 +463,9 @@ func TestPrintExplainResult_Full(t *testing.T) {
 	}
 	if !strings.Contains(out, "internal") {
 		t.Errorf("expected visibility, got %q", out)
+	}
+	if !strings.Contains(out, "  - model: external, version claude-sonnet-4-5 (cannot be checked, required)") {
+		t.Errorf("expected the external dependency's version, got %q", out)
 	}
 	if !strings.Contains(out, "events (grpc: service.proto") {
 		t.Errorf("expected grpc interface with ref, got %q", out)

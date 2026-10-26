@@ -40,14 +40,16 @@ type GateInput struct {
 	// when the plan could read it.
 	Version string `json:"version,omitempty"`
 	Window  Window `json:"window"`
-	// Contract is the digest-pinned contract the version ships and Evals the
-	// eval suite in it. Only the eval gate sets them, for its runner.
+	// Contract is the digest-pinned contract the version ships and Suite the
+	// check in it to run. Only the suite gate sets them, for its runner.
 	Contract string `json:"contract,omitempty"`
-	Evals    *Suite `json:"evals,omitempty"`
+	Suite    *Suite `json:"suite,omitempty"`
 }
 
-// Suite is a file in a contract bundle and the sha256 of its bytes.
+// Suite is one check a contract ships: its name, its file in the bundle and
+// the sha256 of the file's bytes.
 type Suite struct {
+	Name   string `json:"name"`
 	Path   string `json:"path"`
 	Digest string `json:"digest"`
 }

@@ -16,8 +16,8 @@ var SupportedVersions = []string{"2.0", "2.1"}
 // It enforces syntactic correctness (field types, unknown-field rejection) and a
 // few required top-level fields (pactoVersion, service.name, service.version).
 // pactoVersion "2.0" and "2.1" are supported; other versions are rejected. 2.1
-// adds the publish and agent sections and the mcp interface type, which
-// validation refuses in a 2.0 contract.
+// adds the publish and checks sections, external dependencies and the mcp
+// interface type, which validation refuses in a 2.0 contract.
 // Deeper semantic validation is a separate concern handled by the validation engine.
 func Parse(r io.Reader) (*Contract, error) {
 	var c Contract

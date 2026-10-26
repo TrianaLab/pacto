@@ -284,13 +284,11 @@
     },
     "dependencies": {
       "type": "array",
-      "description": "Other services this service depends on. Each dependency references another service's published Pacto contract.",
+      "description": "Other services this service depends on. Each one references the other service's published Pacto contract, or, for a dependency this Pacto system does not deliver and nobody wrote a contract for, is marked external with the version it runs against.",
       "items": {
         "type": "object",
         "required": [
           "name",
-          "ref",
-          "compatibility",
           "required"
         ],
         "additionalProperties": false,
@@ -303,7 +301,7 @@
           "ref": {
             "type": "string",
             "minLength": 1,
-            "description": "An OCI reference to the dependency's published Pacto contract (e.g. ghcr.io/org/service-pacto@sha256:...)."
+            "description": "An OCI reference to the dependency's published Pacto contract (e.g. ghcr.io/org/service-pacto@sha256:...). Leave it out only for an external dependency with no contract, which gives version instead."
           },
           "required": {
             "type": "boolean",
@@ -312,7 +310,16 @@
           "compatibility": {
             "type": "string",
             "minLength": 1,
-            "description": "A semver range expressing which versions of the dependency this service is compatible with (e.g. ^2.0.0, ~1.3.0)."
+            "description": "A semver range expressing which versions of the dependency this service is compatible with (e.g. ^2.0.0, ~1.3.0). Required with ref."
+          },
+          "external": {
+            "type": "boolean",
+            "description": "True when this Pacto system does not deliver the dependency (it may still run in the same company). Pacto does not expect to see it running and never moves it. With ref, versions are compared as usual; without ref, version is required and compatibility can never be confirmed."
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The version an external dependency with no ref runs against, as free text (e.g. 2025-01 or claude-sonnet-4-5). Shown in the graph and in diffs; Pacto cannot check it, so anything relying on it is Unknown."
           }
         }
       }
@@ -817,26 +824,28 @@
         }
       }
     },
-    "agent": {
-      "type": "object",
-      "description": "Marks this service as an AI agent. The tools it exposes are interfaces of type mcp and the services it calls are dependencies; agent adds the models it calls that have no contract of their own and the eval suite delivery checks it with.",
-      "additionalProperties": false,
-      "minProperties": 1,
-      "properties": {
-        "models": {
-          "type": "array",
-          "description": "Model ids the agent calls, exactly as its code names them. Changing them changes what the agent does, so it needs at least a minor version. A model served behind a Pacto contract is a dependency instead, with a version range.",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": {
+    "checks": {
+      "type": "array",
+      "description": "Test or eval suites shipped with this version. Pacto never reads them: it packs each file in the bundle, records its sha256 and hands file and digest to the runner a delivery gate names, accepting only a verdict about that exact digest.",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "file"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "A unique name for the suite; a delivery gate runs it by this name."
+          },
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Path to the suite file in the bundle."
           }
-        },
-        "evals": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Path to the eval suite file in the bundle. It ships with the version; Pacto only hashes it, so the eval gate takes an answer only about this exact file. An eval runner behind a delivery gate runs it."
         }
       }
     },

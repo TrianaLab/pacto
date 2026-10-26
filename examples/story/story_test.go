@@ -287,7 +287,7 @@ func mira(t *testing.T, total, failed int) delivery.Verdict {
 	return v
 }
 
-// evals runs the real eval gate against a runner that passed passed of
+// evals runs the real suite gate against a runner that passed passed of
 // total cases on the version under check.
 func evals(t *testing.T, passed, total int) delivery.Verdict {
 	t.Helper()
@@ -296,7 +296,7 @@ func evals(t *testing.T, passed, total int) delivery.Verdict {
 			Input delivery.GateInput `json:"input"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&q)
-		_ = json.NewEncoder(w).Encode(map[string]any{"subject": q.Input.Subjects[0], "suite": q.Input.Evals.Digest,
+		_ = json.NewEncoder(w).Encode(map[string]any{"subject": q.Input.Subjects[0], "suite": q.Input.Suite.Digest,
 			"run": "run-1", "passed": passed, "total": total})
 	}))
 	t.Cleanup(srv.Close)
@@ -321,8 +321,8 @@ func TestAgentPassingItsEvalsShips(t *testing.T) {
 		t.Fatalf("2 of 2 must pass and cite its run: %+v", v)
 	}
 	b, err := Bundle("pay-agent", "1.1.0")
-	if err != nil || b.Contract.Agent == nil || b.Contract.Agent.Evals == "" {
-		t.Fatalf("pay-agent declares its eval suite: %v", err)
+	if err != nil || len(b.Contract.Checks) != 1 || b.Contract.Checks[0].File == "" {
+		t.Fatalf("pay-agent ships its eval suite as a check: %v", err)
 	}
 }
 

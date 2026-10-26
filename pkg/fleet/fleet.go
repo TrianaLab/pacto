@@ -604,6 +604,11 @@ type Relationship struct {
 	LockedDigest   string `json:"lockedDigest,omitempty"`
 	LockedVersion  string `json:"lockedVersion,omitempty"`
 	Reason         string `json:"reason,omitempty"`
+	// External marks a declared dependency this Pacto system does not deliver:
+	// it is not expected in the fleet, so not resolving is not a gap. Version
+	// is the free-text version an external dependency with no ref declares.
+	External bool   `json:"external,omitempty"`
+	Version  string `json:"version,omitempty"`
 	// ObservedCount is the TOTAL runtime calls witnessed across all sources for an
 	// observed (Provenance == observed) edge. Zero for declared edges.
 	ObservedCount int `json:"observedCount,omitempty"`
@@ -621,6 +626,10 @@ type Relationship struct {
 	FirstSeen *time.Time `json:"firstSeen,omitempty"`
 	LastSeen  *time.Time `json:"lastSeen,omitempty"`
 }
+
+// missing reports whether a declared dependency failed to resolve in a way
+// worth reporting: an external one is not expected in the fleet.
+func (r Relationship) missing() bool { return !r.Resolved && !r.External }
 
 // ObservedSourceStat is one observation source's contribution to an observed
 // relationship: the calls it witnessed and the window it saw them in.

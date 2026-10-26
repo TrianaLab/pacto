@@ -941,10 +941,6 @@ export interface components {
             values?: components["schemas"]["Schemax.Property"][] | null;
             valuesAreCurrent?: boolean;
         };
-        "Contract.Agent": {
-            evals?: string;
-            models?: string[] | null;
-        };
         "Contract.Capability": {
             binding?: components["schemas"]["Contract.CapabilityBinding"];
             ref?: string;
@@ -954,6 +950,10 @@ export interface components {
             interface: string;
             path?: string;
             type: string;
+        };
+        "Contract.Check": {
+            file: string;
+            name: string;
         };
         "Contract.Configuration": {
             name: string;
@@ -965,8 +965,8 @@ export interface components {
             };
         };
         "Contract.Contract": {
-            agent?: components["schemas"]["Contract.Agent"];
             capabilities?: components["schemas"]["Contract.Capability"][] | null;
+            checks?: components["schemas"]["Contract.Check"][] | null;
             configurations?: components["schemas"]["Contract.Configuration"][] | null;
             dependencies?: components["schemas"]["Contract.Dependency"][] | null;
             extensions?: {
@@ -985,10 +985,12 @@ export interface components {
             workload?: string;
         };
         "Contract.Dependency": {
-            compatibility: string;
+            compatibility?: string;
+            external?: boolean;
             name: string;
-            ref: string;
+            ref?: string;
             required: boolean;
+            version?: string;
         };
         "Contract.DockerfileBuild": {
             context: string;
@@ -1426,11 +1428,13 @@ export interface components {
         DependencyInfo: {
             compatibility?: string;
             driftStatus?: string;
+            external?: boolean;
             lockedDigest?: string;
             lockedVersion?: string;
             name: string;
             ref: string;
             required: boolean;
+            version?: string;
         };
         DependentInfo: {
             compatibility?: string;
@@ -2016,6 +2020,7 @@ export interface components {
         };
         "Fleet.Relationship": {
             compatibility?: string;
+            external?: boolean;
             /** Format: date-time */
             firstSeen?: string;
             fromRevision?: string;
@@ -2038,6 +2043,7 @@ export interface components {
             to: string;
             toService?: string;
             type: string;
+            version?: string;
         };
         "Fleet.RevisionCapabilities": {
             revision: string;

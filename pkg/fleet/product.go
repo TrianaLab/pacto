@@ -393,7 +393,7 @@ func (q *Query) tallyRelationships(sum *OverviewSummary) {
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
 		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared {
-			if !rel.Resolved {
+			if rel.missing() {
 				sum.UnresolvedRelationships++
 			}
 			if rel.ToService != "" {
@@ -454,7 +454,7 @@ func (q *Query) servicesNeedingAttention() int {
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared && !rel.Resolved {
+		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceDeclared && rel.missing() {
 			need[rel.FromService] = true
 		}
 	}
@@ -740,7 +740,7 @@ func (q *Query) unresolvedAttention() []AttentionItem {
 	var out []AttentionItem
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || rel.Resolved {
+		if rel.Type != RelationshipDependency || rel.Provenance != ProvenanceDeclared || !rel.missing() {
 			continue
 		}
 		// A declared dependency's FromService always exists — it is the service

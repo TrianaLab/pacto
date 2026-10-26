@@ -1341,3 +1341,33 @@ func TestResolveWithOptions_SameRefDifferentConstraintAreDistinctNodes(t *testin
 		t.Errorf("fetched %v, want both constraints resolved separately", f.seen)
 	}
 }
+
+// TestResolve_ExternalDependency: an external dependency with no ref is an
+// external edge, never fetched; one with a ref resolves like any other and
+// keeps its external mark. Both render marked external.
+func TestResolve_ExternalDependency(t *testing.T) {
+	fetcher := &mockFetcher{contracts: map[string]*contract.Contract{
+		"oci://registry.io/db:1.0.0": {Service: contract.Service{Name: "db", Version: "1.0.0"}},
+	}}
+	c := &contract.Contract{
+		Service: contract.Service{Name: "agent", Version: "1.0.0"},
+		Dependencies: []contract.Dependency{
+			{Name: "model", External: true, Version: "claude-sonnet-4-5", Required: true},
+			{Name: "db", Ref: "oci://registry.io/db:1.0.0", Compatibility: "^1.0.0", External: true},
+		},
+	}
+	for name, f := range map[string]ContractFetcher{"fetcher": fetcher, "no fetcher": nil} {
+		result := Resolve(context.Background(), c, f)
+		model := result.Root.Dependencies[0]
+		if model.Type != EdgeExternal || model.Node != nil || model.Error != "" || model.Name != "model" || model.Version != "claude-sonnet-4-5" || !model.Required {
+			t.Fatalf("%s: model edge = %+v", name, model)
+		}
+		if db := result.Root.Dependencies[1]; db.Type != EdgeDependency || !db.External {
+			t.Fatalf("%s: db edge = %+v", name, db)
+		}
+	}
+	tree := RenderTreeColored(Resolve(context.Background(), c, fetcher), TreeColors{})
+	if !strings.Contains(tree, "model@claude-sonnet-4-5 [external]") || !strings.Contains(tree, "db@1.0.0 [external]") {
+		t.Fatalf("tree:\n%s", tree)
+	}
+}

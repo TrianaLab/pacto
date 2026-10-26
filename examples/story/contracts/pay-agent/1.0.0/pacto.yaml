@@ -9,9 +9,16 @@ interfaces:
   - name: tools
     type: mcp
     ref: interfaces/tools.json
-agent:
-  models: [anthropic/claude-sonnet-4-5]
-  evals: evals/suite.yaml
+dependencies:
+  # The model is run by its vendor, not by this Pacto system, and has no
+  # contract: an external dependency named by its version.
+  - name: model
+    external: true
+    version: anthropic/claude-sonnet-4-5
+    required: true
+checks:
+  - name: evals
+    file: evals/suite.yaml
 publish:
   bundle: oci://registry.example/story/pay-agent
   deploy: manifests

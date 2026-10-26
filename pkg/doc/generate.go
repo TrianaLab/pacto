@@ -268,6 +268,7 @@ func contractFromDetails(d *contractview.ServiceDetails) *contract.Contract {
 	for _, dep := range d.Dependencies {
 		c.Dependencies = append(c.Dependencies, contract.Dependency{
 			Name: dep.Name, Ref: dep.Ref, Required: dep.Required, Compatibility: dep.Compatibility,
+			External: dep.External, Version: dep.Version,
 		})
 	}
 	if st := d.State; st != nil {
@@ -340,10 +341,14 @@ func writeDependencyEdges(b *strings.Builder, c *contract.Contract, gr *graph.Re
 			name = depName(dep.Ref)
 		}
 		depID := "dep_" + sanitizeMermaidID(name)
+		accepts := dep.Compatibility
+		if dep.Ref == "" {
+			accepts = "external " + dep.Version
+		}
 		if dep.Required {
-			fmt.Fprintf(b, "  %s -->|\"required · %s\"| %s[\"%s\"]\n", svcID, dep.Compatibility, depID, name)
+			fmt.Fprintf(b, "  %s -->|\"required · %s\"| %s[\"%s\"]\n", svcID, accepts, depID, name)
 		} else {
-			fmt.Fprintf(b, "  %s -.->|\"optional · %s\"| %s[\"%s\"]\n", svcID, dep.Compatibility, depID, name)
+			fmt.Fprintf(b, "  %s -.->|\"optional · %s\"| %s[\"%s\"]\n", svcID, accepts, depID, name)
 		}
 	}
 }
@@ -581,8 +586,12 @@ func writeDependencyTable(b *strings.Builder, deps []contractview.DependencyInfo
 		if dep.Required {
 			req = "Yes"
 		}
-		fmt.Fprintf(b, "| `%s` | `%s` | %s | %s | %s | %s | %s |\n",
-			EscapeMarkdownCell(dep.Name), EscapeMarkdownCell(dep.Ref), dash(dep.Compatibility),
+		ref, accepts := "`"+EscapeMarkdownCell(dep.Ref)+"`", dash(dep.Compatibility)
+		if dep.Ref == "" {
+			ref, accepts = "external, no contract", "version "+EscapeMarkdownCell(dep.Version)+" (cannot be checked)"
+		}
+		fmt.Fprintf(b, "| `%s` | %s | %s | %s | %s | %s | %s |\n",
+			EscapeMarkdownCell(dep.Name), ref, accepts,
 			req, dash(dep.LockedVersion), dash(dep.LockedDigest), dash(dep.DriftStatus))
 	}
 	fmt.Fprintln(b)

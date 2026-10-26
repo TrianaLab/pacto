@@ -31,6 +31,14 @@ func diffDependencies(old, new *contract.Contract) []Change {
 			changes = append(changes, newChange("dependencies.compatibility", Modified,
 				name+": "+oldDep.Compatibility, name+": "+newDep.Compatibility))
 		}
+		if oldDep.Version != newDep.Version {
+			changes = append(changes, newChange("dependencies.version", strChangeType(oldDep.Version, newDep.Version),
+				name+": "+oldDep.Version, name+": "+newDep.Version))
+		}
+		if oldDep.External != newDep.External {
+			changes = append(changes, newChange("dependencies.external", Modified,
+				name+": external="+strconv.FormatBool(oldDep.External), name+": external="+strconv.FormatBool(newDep.External)))
+		}
 		if oldDep.Required != newDep.Required {
 			changes = append(changes, newChange("dependencies.required", Modified,
 				name+": required="+strconv.FormatBool(oldDep.Required), name+": required="+strconv.FormatBool(newDep.Required)))

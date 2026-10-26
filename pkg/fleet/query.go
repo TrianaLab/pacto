@@ -916,7 +916,7 @@ func (q *Query) explainService(s *ServiceRecord) *ExplainResult {
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]
-		if rel.FromService == s.Key && rel.Type == RelationshipDependency && !rel.Resolved {
+		if rel.FromService == s.Key && rel.Type == RelationshipDependency && rel.missing() {
 			res.Reasons = append(res.Reasons, Reason{
 				Code: LimitationUnresolvedDep, Message: "declared dependency is not resolved in the fleet",
 				Assertion: &AssertionRef{Kind: "dependency", Name: rel.To},

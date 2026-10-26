@@ -306,6 +306,10 @@ func printExplainResult(cmd *cobra.Command, result *app.ExplainResult, format st
 				if dep.Required {
 					req = "required"
 				}
+				if dep.Ref == "" {
+					_, _ = fmt.Fprintf(w, "  - %s: external, version %s (cannot be checked, %s)\n", dep.Name, dep.Version, req)
+					continue
+				}
 				_, _ = fmt.Fprintf(w, "  - %s: %s (%s, %s)\n", dep.Name, dep.Ref, dep.Compatibility, req)
 			}
 		}

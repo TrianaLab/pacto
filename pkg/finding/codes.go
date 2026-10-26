@@ -8,7 +8,7 @@ import (
 const (
 	// Durable v2 codes (may occur for v2 Operational Contracts).
 	CodeUnsupportedPactoVersion      Code = "UNSUPPORTED_PACTO_VERSION"
-	CodeNeedsPacto21                 Code = "NEEDS_PACTO_2_1" // a 2.0 contract uses publish, agent or an mcp interface
+	CodeNeedsPacto21                 Code = "NEEDS_PACTO_2_1" // a 2.0 contract uses publish, checks, an external dependency or an mcp interface
 	CodeSchemaError                  Code = "SCHEMA_ERROR"
 	CodeSchemaViolation              Code = "SCHEMA_VIOLATION"
 	CodeYamlParseError               Code = "YAML_PARSE_ERROR"

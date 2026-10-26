@@ -1,4 +1,4 @@
-# Field coverage inventory for the Pacto v2.1 contract schema (2.0 plus publish, agent and mcp).
+# Field coverage inventory for the Pacto v2.1 contract schema (2.0 plus publish, checks, external dependencies and mcp).
 #
 # One entry per schema path (dotted, [] for array items) and, under values, one per
 # enum value. pkg/validation/fieldcoverage_test.go walks the schema and fails when a
@@ -31,7 +31,7 @@ fields:
     evidence: 'none: the field has no runtime counterpart'
     rule: parse rejects anything but "2.0" and "2.1" before any other layer runs; the version selects the schema
     outcomes: PARSE_ERROR when unsupported
-    limitations: 2.0 has its own schema without publish, agent or mcp; this inventory walks 2.1, the superset
+    limitations: 2.0 has its own schema without publish, checks, external dependencies or mcp; this inventory walks 2.1, the superset
     tests:
       unit:
       - pkg/contract/parse_test.go:TestParse_UnsupportedVersion
@@ -454,7 +454,7 @@ fields:
           - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=asyncapi
           e2e: []
       mcp:
-        meaning: The tools an AI agent exposes, as an MCP tools/list result (pactoVersion 2.1).
+        meaning: The tools a service exposes, as an MCP tools/list result (pactoVersion 2.1).
         runtime: static-only
         evidence: Protocol is ignored
         rule: 'cross-field: the file lists tools, each named once; diff compares tool by tool'
@@ -462,7 +462,7 @@ fields:
         limitations: MCP runs over stdio or HTTP, so no wire protocol is implied; descriptions are not compared
         tests:
           unit:
-          - pkg/validation/crossfield_test.go:TestValidateAgent
+          - pkg/validation/crossfield_test.go:TestValidateMCPInterfaces
           - pkg/diff/mcp_test.go:TestDiffMCP
           integration:
           - tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=mcp
@@ -869,8 +869,10 @@ fields:
     runtime: partial
     evidence: 'resolution key: matched against sibling Pacto status.contract.resolvedRef to find the provider Service'
     rule: a ref that matches no sibling cannot be observed
-    outcomes: OBSERVATION_UNSUPPORTED when no sibling matches; INVALID_OCI_REF and TAG_NOT_DIGEST (warning) statically
-    limitations: a ref without a scheme is a local path and gets no static check
+    outcomes: OBSERVATION_UNSUPPORTED when no sibling matches; INVALID_OCI_REF and TAG_NOT_DIGEST (warning) statically;
+      DEPENDENCY_REF_REQUIRED when missing on a dependency that is not external
+    limitations: a ref without a scheme is a local path and gets no static check; only an external dependency may leave
+      it out
     tests:
       unit:
       - pkg/validation/crossfield_test.go:TestValidateDependencyRefs_InvalidOCI
@@ -949,6 +951,38 @@ fields:
       run:
         evidence: unverified
         reason: 'no source off Kubernetes: no provider version is known, so the facet is listed in coverage.unverified'
+  dependencies[].external:
+    meaning: The dependency is not delivered by this Pacto system (it may still run in the same company).
+    runtime: static-only
+    evidence: 'none: it only changes expectations; Pacto does not expect to see it running and never moves it first'
+    rule: 'cross-field: a dependency without ref must be external with a version; pactoVersion 2.1 only'
+    outcomes: DEPENDENCY_REF_REQUIRED; NEEDS_PACTO_2_1 under 2.0
+    limitations: with a ref it is compared like any other dependency; reachability is still checked when bound
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateDependencyForm
+      - pkg/graph/resolver_test.go:TestResolve_ExternalDependency
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].external/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].external/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].external/invalid-2.0
+      e2e: []
+  dependencies[].version:
+    meaning: Free-text version an external dependency with no ref runs against.
+    runtime: static-only
+    evidence: 'none: no contract to compare it with, so anything relying on it is Unknown'
+    rule: 'cross-field: required for an external dependency without ref, refused beside a ref; diff: any change is
+      potentially breaking'
+    outcomes: EXTERNAL_VERSION_REQUIRED, VERSION_WITH_REF, COMPATIBILITY_WITHOUT_REF
+    limitations: shown in the graph and in diffs only; compatibility can never be confirmed
+    tests:
+      unit:
+      - pkg/validation/crossfield_test.go:TestValidateDependencyForm
+      - pkg/diff/dependency_test.go:TestDiffDependencies_External
+      integration:
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].version/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].version/invalid
+      e2e: []
   state:
     meaning: How the service holds state.
     runtime: not-applicable
@@ -2381,63 +2415,66 @@ fields:
       - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.transparencyLog/valid
       - tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.transparencyLog/invalid
       e2e: []
-  agent:
-    meaning: Marks the service as an AI agent; adds the models it calls and its eval suite.
+  checks:
+    meaning: Test or eval suites shipped with the version; a delivery gate hands one to a runner.
     runtime: static-only
-    evidence: 'none: delivery runs the eval suite through an eval gate; nothing at runtime reads the section'
-    rule: 'schema: object with models or evals; pactoVersion 2.1 only'
-    outcomes: PARSE_ERROR when not a map; SCHEMA_VIOLATION when empty or under 2.0
-    limitations: tools are interfaces of type mcp and called services are dependencies
+    evidence: 'none: a suite gate in delivery asks a runner to run a suite, bound to its sha256'
+    rule: 'schema: non-empty list; pactoVersion 2.1 only'
+    outcomes: PARSE_ERROR when not a list; NEEDS_PACTO_2_1 under 2.0
+    limitations: Pacto never reads a suite; its format is the runner's
     tests:
       unit:
-      - pkg/diff/mcp_test.go:TestDiffAgent
+      - pkg/validation/crossfield_test.go:TestValidateChecks
+      - pkg/diff/checks_test.go:TestDiffChecks
       integration:
-      - tests/integration/field_coverage_test.go:TestFieldCoverage/agent/valid
-      - tests/integration/field_coverage_test.go:TestFieldCoverage/agent/invalid
-      - tests/integration/field_coverage_test.go:TestFieldCoverage/agent/invalid-empty
-      - tests/integration/field_coverage_test.go:TestFieldCoverage/agent/invalid-2.0
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/checks/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/checks/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/checks/invalid-2.0
       e2e: []
-  agent.models:
-    meaning: Model ids the agent calls that have no Pacto contract of their own.
+  checks[]:
+    meaning: One suite, by name and file.
     runtime: static-only
-    evidence: 'none: the models the agent really calls are not observed'
-    rule: 'schema: unique non-empty strings; diff: any change is potentially breaking'
-    outcomes: SCHEMA_VIOLATION
-    limitations: ids match exactly, with no version ranges; a model with a contract is a dependency
+    evidence: 'none: a suite gate runs it by name'
+    rule: 'schema: name and file, nothing else; cross-field: names are unique; diff: added is non-breaking, removed or
+      changed is potentially breaking'
+    outcomes: SCHEMA_VIOLATION, DUPLICATE_CHECK_NAME
+    limitations: the diff cannot tell a stricter suite from a weaker one
     tests:
       unit:
-      - pkg/diff/mcp_test.go:TestDiffAgent
+      - pkg/validation/crossfield_test.go:TestValidateChecks
+      - pkg/diff/checks_test.go:TestDiffChecksSuiteContent
       integration:
-      - tests/integration/field_coverage_test.go:TestFieldCoverage/agent.models/valid
-      - tests/integration/field_coverage_test.go:TestFieldCoverage/agent.models/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/checks[]/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/checks[]/invalid
       e2e: []
-  agent.models[]:
-    meaning: One model id, as the agent's code names it.
+  checks[].name:
+    meaning: The suite's name; a delivery gate names it to run it.
     runtime: static-only
-    evidence: 'none: the models the agent really calls are not observed'
-    rule: 'schema: non-empty string'
-    outcomes: SCHEMA_VIOLATION
+    evidence: 'none: identity only'
+    rule: 'schema: required non-empty string; cross-field: unique'
+    outcomes: SCHEMA_VIOLATION, DUPLICATE_CHECK_NAME
     limitations: none
     tests:
       unit:
-      - pkg/diff/mcp_test.go:TestDiffAgent
+      - pkg/validation/crossfield_test.go:TestValidateChecks
       integration:
-      - tests/integration/field_coverage_test.go:TestFieldCoverage/agent.models[]/valid
-      - tests/integration/field_coverage_test.go:TestFieldCoverage/agent.models[]/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/checks[].name/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/checks[].name/invalid
       e2e: []
-  agent.evals:
-    meaning: The eval suite's file in the bundle; an eval runner reads it, Pacto never does.
+  checks[].file:
+    meaning: The suite's file in the bundle; a runner reads it, Pacto only hashes it.
     runtime: static-only
-    evidence: 'none: an eval gate in delivery asks a runner to run it'
+    evidence: 'none: the suite gate sends its path and sha256 and accepts only a verdict about that digest'
     rule: 'cross-field: file exists in the bundle'
     outcomes: FILE_NOT_FOUND
-    limitations: the suite format is the runner's; changing it is non-breaking
+    limitations: the file's format is the runner's
     tests:
       unit:
-      - pkg/validation/crossfield_test.go:TestValidateAgent
+      - pkg/validation/crossfield_test.go:TestValidateChecks
+      - pkg/delivery/eval_test.go:TestEvalSuiteBinding
       integration:
-      - tests/integration/field_coverage_test.go:TestFieldCoverage/agent.evals/valid
-      - tests/integration/field_coverage_test.go:TestFieldCoverage/agent.evals/invalid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/checks[].file/valid
+      - tests/integration/field_coverage_test.go:TestFieldCoverage/checks[].file/invalid
       e2e: []
   metadata:
     meaning: Free-form key/value annotations.

@@ -511,7 +511,7 @@ func unresolvedConsumers(snap *fleet.FleetSnapshot, service string) []string {
 // unresolvedTo reports whether r is a declared dependency on service the
 // graph could not resolve.
 func unresolvedTo(r fleet.Relationship, service string) bool {
-	return r.Type == fleet.RelationshipDependency && r.Provenance == fleet.ProvenanceDeclared && !r.Resolved && r.To == service
+	return r.Type == fleet.RelationshipDependency && r.Provenance == fleet.ProvenanceDeclared && !r.Resolved && !r.External && r.To == service
 }
 
 func consumerNamesOwners(cs []impact.AffectedConsumer) (names, owners []string) {

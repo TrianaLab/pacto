@@ -387,6 +387,10 @@ func TestAcceptsWhatRunsHere(t *testing.T) {
 		{shippingDep("whatever", true), "", `its range "whatever" on shipping cannot be read`},
 		{contract.Dependency{Name: "stock", Compatibility: "^1.0.0"}, "", ""},
 		{contract.Dependency{Name: "stock", Compatibility: "^1.0.0", Required: true}, "", "Pacto sees no stock running here"},
+		// External: not expected to run here, so unseen is fine; with no
+		// contract there is no range to check, so Pacto cannot tell.
+		{contract.Dependency{Name: "stock", Ref: "oci://r/stock:1", Compatibility: "^1.0.0", Required: true, External: true}, "", ""},
+		{contract.Dependency{Name: "model", External: true, Version: "2025-01", Required: true}, "", "it uses model 2025-01, an external dependency with no contract, so Pacto cannot tell whether it works with it"},
 	}
 	for _, c := range cases {
 		why, err := acceptsWhatRunsHere(s, bundle("orders", "1.9.0", c.dep).Contract, "payments")
@@ -550,5 +554,19 @@ func TestMoveFirstMessageNoVersion(t *testing.T) {
 		"and was verified on test/orders. Ship orders first: promote " + o1 + " on Stage prod/orders."
 	if got != want {
 		t.Fatalf("got\n%s\nwant\n%s", got, want)
+	}
+}
+
+// TestUnresolvedToSkipsExternal: a consumer that marked the service external
+// said it does not expect this Pacto system to deliver it, so its unresolved
+// declaration is not a warning about this service.
+func TestUnresolvedToSkipsExternal(t *testing.T) {
+	r := fleet.Relationship{Type: fleet.RelationshipDependency, Provenance: fleet.ProvenanceDeclared, To: "payments"}
+	if !unresolvedTo(r, "payments") {
+		t.Fatal("a plain unresolved declaration is reported")
+	}
+	r.External = true
+	if unresolvedTo(r, "payments") {
+		t.Fatal("an external declaration is reported")
 	}
 }

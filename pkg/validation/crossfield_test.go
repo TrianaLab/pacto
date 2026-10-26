@@ -2,6 +2,7 @@ package validation
 
 import (
 	"io/fs"
+	"strings"
 	"testing"
 	"testing/fstest"
 
@@ -1117,10 +1118,10 @@ func TestValidatePublish(t *testing.T) {
 	}
 }
 
-func TestValidateAgent(t *testing.T) {
+func TestValidateMCPInterfaces(t *testing.T) {
 	codes := func(c *contract.Contract, fsys fs.FS) []string {
 		var r ValidationResult
-		validateAgent(c, fsys, &r)
+		validateMCPInterfaces(c, fsys, &r)
 		var out []string
 		for _, e := range r.Errors {
 			out = append(out, e.Path+" "+e.Code)
@@ -1134,24 +1135,74 @@ func TestValidateAgent(t *testing.T) {
 		{Name: "tools", Type: "mcp", Ref: "tools.json"},
 		{Name: "gone", Type: "mcp", Ref: "missing.json"},
 	}
-	c.Agent = &contract.Agent{Models: []string{"m"}, Evals: "evals.yaml"}
-	good := fstest.MapFS{
-		"tools.json": {Data: []byte(`{"tools":[{"name":"refund"}]}`)},
-		"evals.yaml": {Data: []byte("cases: []")},
-	}
+	good := fstest.MapFS{"tools.json": {Data: []byte(`{"tools":[{"name":"refund"}]}`)}}
 	if got := codes(c, good); got != nil {
-		t.Fatalf("valid agent: %v", got)
+		t.Fatalf("valid tools: %v", got)
 	}
 	if got := codes(c, nil); got != nil {
 		t.Fatalf("no bundle: %v", got)
 	}
-	bad := fstest.MapFS{"tools.json": {Data: []byte(`{"tools":[]}`)}}
-	got := codes(c, bad)
-	if len(got) != 2 || got[0] != "interfaces[1].ref INVALID_MCP_TOOLS" || got[1] != "agent.evals FILE_NOT_FOUND" {
+	got := codes(c, fstest.MapFS{"tools.json": {Data: []byte(`{"tools":[]}`)}})
+	if len(got) != 1 || got[0] != "interfaces[1].ref INVALID_MCP_TOOLS" {
 		t.Fatalf("got %v", got)
 	}
-	c.Agent = nil
+}
+
+func TestValidateChecks(t *testing.T) {
+	codes := func(c *contract.Contract, fsys fs.FS) []string {
+		var r ValidationResult
+		validateChecks(c, fsys, &r)
+		var out []string
+		for _, e := range r.Errors {
+			out = append(out, e.Path+" "+e.Code)
+		}
+		return out
+	}
+	c := validV20Contract()
+	c.PactoVersion = "2.1"
+	c.Checks = []contract.Check{{Name: "evals", File: "evals.yaml"}, {Name: "smoke", File: "smoke.sh"}}
+	good := fstest.MapFS{"evals.yaml": {Data: []byte("cases: []")}, "smoke.sh": {Data: []byte("true")}}
 	if got := codes(c, good); got != nil {
-		t.Fatalf("no agent section: %v", got)
+		t.Fatalf("valid checks: %v", got)
+	}
+	c.Checks = append(c.Checks, contract.Check{Name: "evals", File: "gone.yaml"})
+	if got := codes(c, nil); len(got) != 1 || got[0] != "checks[2].name DUPLICATE_CHECK_NAME" {
+		t.Fatalf("no bundle, duplicate name: %v", got)
+	}
+	got := codes(c, good)
+	if len(got) != 2 || got[1] != "checks[2].file FILE_NOT_FOUND" {
+		t.Fatalf("got %v", got)
+	}
+}
+
+func TestValidateDependencyForm(t *testing.T) {
+	cases := map[string]struct {
+		dep  contract.Dependency
+		want string // "" = valid
+	}{
+		"ref and range":          {contract.Dependency{Name: "a", Ref: "oci://r/a:1.0.0", Compatibility: "^1.0.0"}, ""},
+		"external with ref":      {contract.Dependency{Name: "a", Ref: "oci://r/a:1.0.0", Compatibility: "^1.0.0", External: true}, ""},
+		"external no ref":        {contract.Dependency{Name: "model", External: true, Version: "2025-01"}, ""},
+		"no ref, not external":   {contract.Dependency{Name: "a", Compatibility: "^1.0.0"}, "dependencies[0].ref DEPENDENCY_REF_REQUIRED"},
+		"external, no version":   {contract.Dependency{Name: "a", External: true}, "dependencies[0].version EXTERNAL_VERSION_REQUIRED"},
+		"range without ref":      {contract.Dependency{Name: "a", External: true, Version: "v", Compatibility: "^1"}, "dependencies[0].compatibility COMPATIBILITY_WITHOUT_REF"},
+		"version beside the ref": {contract.Dependency{Name: "a", Ref: "oci://r/a:1.0.0", Compatibility: "^1.0.0", Version: "1"}, "dependencies[0].version VERSION_WITH_REF"},
+		"ref, no range":          {contract.Dependency{Name: "a", Ref: "oci://r/a:1.0.0"}, "dependencies[0].compatibility EMPTY_COMPATIBILITY"},
+	}
+	for name, tc := range cases {
+		c := validV20Contract()
+		c.Dependencies = []contract.Dependency{tc.dep}
+		var r ValidationResult
+		validateDependencyRefs(c, &r)
+		got := ""
+		if len(r.Errors) > 0 {
+			got = r.Errors[0].Path + " " + r.Errors[0].Code
+			if !strings.Contains(r.Errors[0].Message, `"a"`) {
+				t.Errorf("%s: the message does not name the dependency: %s", name, r.Errors[0].Message)
+			}
+		}
+		if len(r.Errors) > 1 || got != tc.want {
+			t.Errorf("%s: got %v, want %q", name, r.Errors, tc.want)
+		}
 	}
 }

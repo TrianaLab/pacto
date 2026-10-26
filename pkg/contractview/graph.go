@@ -108,6 +108,9 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reas
 			// Dependency edges
 			for _, dep := range details.Dependencies {
 				depName := resolveServiceName(extractServiceNameFromRef(dep.Ref), index)
+				if dep.Ref == "" {
+					depName = dep.Name // an external dependency with no contract
+				}
 				_, resolved := index[depName]
 				node.Edges = append(node.Edges, GraphEdgeData{
 					TargetID:      depName,
@@ -128,6 +131,7 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reas
 						ID:          depName,
 						ServiceName: depName,
 						Status:      "external",
+						Version:     dep.Version,
 						Reason:      unresolvedReason(dep.Ref, reasonFn),
 					})
 				}

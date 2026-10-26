@@ -88,7 +88,7 @@ var fieldCoverageCases = []fcCase{
 	valid("pactoVersion/valid"),
 	invalid("pactoVersion/invalid", parseError, set("pactoVersion", "1.0")),
 	valid("pactoVersion=2.1", set("pactoVersion", "2.1")),
-	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("publish"), del("agent")),
+	valid("pactoVersion=2.0", set("pactoVersion", "2.0"), del("publish"), del("checks")),
 
 	valid("service/valid"),
 	invalid("service/invalid", parseError, set("service", "orders")),
@@ -137,7 +137,7 @@ var fieldCoverageCases = []fcCase{
 	valid("interfaces[].type=grpc", set("interfaces.0.type", "grpc"), set("interfaces.0.ref", "interfaces/orders.proto")),
 	valid("interfaces[].type=mcp", set("interfaces.0.type", "mcp"), set("interfaces.0.ref", "interfaces/tools.json")),
 	invalid("interfaces[].type=mcp/no-tools", "INVALID_MCP_TOOLS", set("interfaces.0.type", "mcp")),
-	invalid("interfaces[].type=mcp/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("publish"), del("agent"),
+	invalid("interfaces[].type=mcp/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("publish"), del("checks"),
 		set("interfaces.0.type", "mcp"), set("interfaces.0.ref", "interfaces/tools.json")),
 	valid("interfaces[].ref/valid", set("interfaces.0.ref", "interfaces/asyncapi.yaml")),
 	invalid("interfaces[].ref/invalid", "FILE_NOT_FOUND", set("interfaces.0.ref", "interfaces/missing.yaml")),
@@ -187,6 +187,11 @@ var fieldCoverageCases = []fcCase{
 	invalid("dependencies[].required/invalid", schemaViolation, del("dependencies.0.required")),
 	valid("dependencies[].compatibility/valid", set("dependencies.0.compatibility", ">=1.2.0 <3.0.0")),
 	invalid("dependencies[].compatibility/invalid", "INVALID_COMPATIBILITY", set("dependencies.0.compatibility", "not-a-range")),
+	valid("dependencies[].external/valid", set("dependencies.0.external", true)),
+	invalid("dependencies[].external/invalid", "DEPENDENCY_REF_REQUIRED", del("dependencies.0.ref")),
+	invalid("dependencies[].external/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("publish"), del("checks"), set("dependencies.0.external", true)),
+	valid("dependencies[].version/valid", set("dependencies.1", map[string]any{"name": "model", "required": true, "external": true, "version": "claude-sonnet-4-5"})),
+	invalid("dependencies[].version/invalid", "EXTERNAL_VERSION_REQUIRED", set("dependencies.1", map[string]any{"name": "model", "required": true, "external": true})),
 
 	valid("state/valid", del("state")),
 	invalid("state/invalid", parseError, set("state", "stateful")),
@@ -359,16 +364,15 @@ var fieldCoverageCases = []fcCase{
 	valid("publish.sign.transparencyLog/valid", del("publish.sign.transparencyLog")),
 	invalid("publish.sign.transparencyLog/invalid", parseError, set("publish.sign.transparencyLog", 3)),
 
-	valid("agent/valid"),
-	invalid("agent/invalid", parseError, set("agent", "yes")),
-	invalid("agent/invalid-empty", schemaViolation, set("agent", map[string]any{})),
-	invalid("agent/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("publish")),
-	valid("agent.models/valid", del("agent.models")),
-	invalid("agent.models/invalid", schemaViolation, set("agent.models", []any{"m", "m"})),
-	valid("agent.models[]/valid", set("agent.models", []any{"openai/gpt-5", "anthropic/claude-sonnet-4-5"})),
-	invalid("agent.models[]/invalid", schemaViolation, set("agent.models", []any{""})),
-	valid("agent.evals/valid", del("agent.evals")),
-	invalid("agent.evals/invalid", "FILE_NOT_FOUND", set("agent.evals", "evals/missing.yaml")),
+	valid("checks/valid", del("checks")),
+	invalid("checks/invalid", parseError, set("checks", "evals")),
+	invalid("checks/invalid-2.0", needs21, set("pactoVersion", "2.0"), del("publish")),
+	valid("checks[]/valid", set("checks.1", map[string]any{"name": "smoke", "file": "evals/suite.yaml"})),
+	invalid("checks[]/invalid", "DUPLICATE_CHECK_NAME", set("checks.1", map[string]any{"name": "evals", "file": "evals/suite.yaml"})),
+	valid("checks[].name/valid", set("checks.0.name", "refunds")),
+	invalid("checks[].name/invalid", schemaViolation, del("checks.0.name")),
+	valid("checks[].file/valid", set("checks.0.file", "interfaces/tools.json")),
+	invalid("checks[].file/invalid", "FILE_NOT_FOUND", set("checks.0.file", "evals/missing.yaml")),
 
 	valid("metadata/valid", set("metadata.runbook", "https://example.com/runbook")),
 	invalid("metadata/invalid", parseError, set("metadata", "gold")),
@@ -472,9 +476,9 @@ publish:
   sign:
     key: cosign.key
     transparencyLog: false
-agent:
-  models: [anthropic/claude-sonnet-4-5]
-  evals: evals/suite.yaml
+checks:
+  - name: evals
+    file: evals/suite.yaml
 metadata:
   tier: gold
 extensions:

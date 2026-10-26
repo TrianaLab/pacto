@@ -306,13 +306,15 @@ var Beats = []Beat{
 		Service: "payments", Environment: Prod, Type: delivery.TypeUnfreeze, Actor: Alice, Frozen: true,
 		Expect: Outcome{Concluded: "Succeeded/Unverified"},
 	},
-	// agent: pay-agent is a service too. Its contract declares its tools, its
-	// model and its eval suite, and its test Stage checks it with an eval
-	// runner. 1.1.0 swaps the model, which needs at least a minor version.
+	// agent: pay-agent is a service like any other. Its contract declares its
+	// tools (an mcp interface), its model (an external dependency named by its
+	// version) and its eval suite (a check), and its test Stage runs that suite
+	// through a suite runner. 1.1.0 swaps the model, which Pacto cannot check,
+	// so it needs at least a minor version.
 	{
 		ID:      "agent",
 		Says:    "pay-agent 1.1.0 swaps its model, passes only 1 of its 2 evals in test, and rolls back without reaching prod.",
-		Why:     "An agent ships like any other service, and its eval suite is the check after release.",
+		Why:     "An agent ships like any other service, and the eval suite it ships is the check after release.",
 		Service: "pay-agent", Environment: Test, Actor: PayAgent, From: "1.0.0", To: "1.1.0",
 		Expect: Outcome{Classification: "POTENTIAL_BREAKING", RequiredBump: diff.BumpMinor, Predicted: delivery.PredictProceeds, Verify: delivery.Fail},
 	},

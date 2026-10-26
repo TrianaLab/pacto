@@ -127,7 +127,7 @@ func isNotFound(err error) bool {
 // rejectLocalDeps returns an error if any dependency uses a local reference.
 func rejectLocalDeps(c *contract.Contract) error {
 	for _, dep := range c.Dependencies {
-		if graph.ParseDependencyRef(dep.Ref).IsLocal() {
+		if dep.Ref != "" && graph.ParseDependencyRef(dep.Ref).IsLocal() {
 			return fmt.Errorf("local dependency detected: %s\nLocal dependencies are not allowed when publishing. All dependencies must use OCI references (oci://...)", dep.Ref)
 		}
 	}

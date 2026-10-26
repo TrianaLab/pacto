@@ -571,8 +571,12 @@ func TestNeeds21(t *testing.T) {
 		"pactoVersion": "2.0",
 		"service":      map[string]any{"name": "svc", "version": "1.0.0"},
 		"publish":      map[string]any{},
-		"agent":        map[string]any{},
+		"checks":       []any{},
 		"interfaces":   []any{map[string]any{"name": "tools", "type": "mcp"}, map[string]any{"name": "api", "type": "bogus", "visibility": "nonsense"}},
+		"dependencies": []any{
+			map[string]any{"name": "db", "ref": "oci://r/db:1.0.0", "required": true, "compatibility": "^1.0.0", "external": true},
+			map[string]any{"name": "model", "required": true, "external": true, "version": "2025-01"},
+		},
 	}
 	res := ValidateStructural(data)
 	var got []string
@@ -583,7 +587,9 @@ func TestNeeds21(t *testing.T) {
 		}
 	}
 	joined := strings.Join(got, "\n")
-	for _, want := range []string{"NEEDS_PACTO_2_1 publish", "NEEDS_PACTO_2_1 agent", "NEEDS_PACTO_2_1 interfaces.0.type", "SCHEMA_VIOLATION interfaces.1.visibility"} {
+	for _, want := range []string{"NEEDS_PACTO_2_1 publish", "NEEDS_PACTO_2_1 checks", "NEEDS_PACTO_2_1 interfaces.0.type",
+		"NEEDS_PACTO_2_1 dependencies.0.external", "NEEDS_PACTO_2_1 dependencies.1.external", "NEEDS_PACTO_2_1 dependencies.1.version",
+		"SCHEMA_VIOLATION dependencies.1", "SCHEMA_VIOLATION interfaces.1.visibility"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("missing %q in:\n%s", want, joined)
 		}
@@ -591,12 +597,16 @@ func TestNeeds21(t *testing.T) {
 	if strings.Contains(joined, "SCHEMA_VIOLATION interfaces.0") {
 		t.Fatalf("the api interface's errors are reported at the mcp interface's index:\n%s", joined)
 	}
-	if _, ok := data["publish"]; !ok {
+	if strings.Contains(joined, "SCHEMA_VIOLATION dependencies.0") {
+		t.Fatalf("a 2.0 dependency with a ref is wrong only in being external:\n%s", joined)
+	}
+	if _, ok := data["publish"]; !ok || data["dependencies"].([]any)[0].(map[string]any)["external"] != true {
 		t.Fatal("the caller's data was changed")
 	}
 	data["interfaces"] = []any{map[string]any{"name": "api", "type": "openapi", "ref": "api.yaml"}}
 	delete(data, "publish")
-	delete(data, "agent")
+	delete(data, "checks")
+	delete(data, "dependencies")
 	if res := ValidateStructural(data); !res.IsValid() {
 		t.Fatalf("a plain 2.0 contract: %+v", res.Errors)
 	}

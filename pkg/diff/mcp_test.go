@@ -1,7 +1,6 @@
 package diff
 
 import (
-	"io/fs"
 	"testing"
 	"testing/fstest"
 
@@ -53,54 +52,6 @@ func TestDiffMCP(t *testing.T) {
 		if got := diffMCP("tools.json", "tools.json", c[0], c[1]); got != nil {
 			t.Errorf("%s: %v", name, got)
 		}
-	}
-}
-
-func TestDiffAgent(t *testing.T) {
-	if got := diffAgent(nil, nil, nil, nil); got != nil {
-		t.Fatalf("no agent: %v", got)
-	}
-	got := diffAgent(
-		&contract.Agent{Models: []string{"a", "b"}, Evals: "evals/v1.yaml"},
-		&contract.Agent{Models: []string{"b", "c"}, Evals: "evals/v2.yaml"}, nil, nil)
-	want := []string{"agent.models removed POTENTIAL_BREAKING", "agent.models added POTENTIAL_BREAKING", "agent.evals modified POTENTIAL_BREAKING"}
-	if len(got) != len(want) {
-		t.Fatalf("got %+v", got)
-	}
-	for i, c := range got {
-		if s := c.Path + " " + c.Type.String() + " " + c.Classification.String(); s != want[i] {
-			t.Errorf("%d: got %s, want %s", i, s, want[i])
-		}
-	}
-	if got := diffAgent(nil, &contract.Agent{Evals: "e.yaml"}, nil, nil); len(got) != 1 || got[0].Classification != NonBreaking {
-		t.Fatalf("evals added: %+v", got)
-	}
-	if got := diffAgent(&contract.Agent{Evals: "e.yaml"}, nil, nil, nil); len(got) != 1 || got[0].Classification != PotentialBreaking {
-		t.Fatalf("evals removed: %+v", got)
-	}
-}
-
-// TestDiffAgentSuiteContent: a release that edits its eval suite in place
-// (drops the cases it fails, say) is potentially breaking; the same bytes, or
-// no bundles to read, is no change.
-func TestDiffAgentSuiteContent(t *testing.T) {
-	a := &contract.Agent{Evals: "evals/suite.yaml"}
-	full := fstest.MapFS{"evals/suite.yaml": {Data: []byte("cases: [refund, chargeback]\n")}}
-	weaker := fstest.MapFS{"evals/suite.yaml": {Data: []byte("cases: [refund]\n")}}
-	got := diffAgent(a, a, full, weaker)
-	if len(got) != 1 || got[0].Classification != PotentialBreaking || got[0].Type != Modified || got[0].Reason != "the eval suite evals/suite.yaml changed" {
-		t.Fatalf("suite edited: %+v", got)
-	}
-	if got := diffAgent(a, a, full, fstest.MapFS{}); len(got) != 1 {
-		t.Fatalf("suite gone from the bundle: %+v", got)
-	}
-	for name, fsys := range map[string][2]fs.FS{"same bytes": {full, full}, "no bundles": {nil, full}, "both unreadable": {fstest.MapFS{}, fstest.MapFS{}}} {
-		if got := diffAgent(a, a, fsys[0], fsys[1]); len(got) != 0 {
-			t.Errorf("%s: %+v", name, got)
-		}
-	}
-	if got := diffAgent(&contract.Agent{}, &contract.Agent{}, full, weaker); len(got) != 0 {
-		t.Errorf("no suite: %+v", got)
 	}
 }
 

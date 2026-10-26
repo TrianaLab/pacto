@@ -272,6 +272,10 @@ type DependencyInfo struct {
 	Ref           string `json:"ref"`
 	Required      bool   `json:"required"`
 	Compatibility string `json:"compatibility,omitempty"`
+	// External marks a dependency this Pacto system does not deliver; Version
+	// is the free-text version one with no ref declares.
+	External bool   `json:"external,omitempty"`
+	Version  string `json:"version,omitempty"`
 	// Lock pins, populated from pacto.lock when present (local source only).
 	LockedDigest  string `json:"lockedDigest,omitempty"`
 	LockedVersion string `json:"lockedVersion,omitempty"`

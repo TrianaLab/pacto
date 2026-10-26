@@ -90,6 +90,8 @@ type DependencyView struct {
 	Ref           string `json:"ref"`
 	Required      bool   `json:"required"`
 	Compatibility string `json:"compatibility"`
+	External      bool   `json:"external,omitempty"`
+	Version       string `json:"version,omitempty"`
 }
 
 // EvaluatedView is Pacto.status.evaluatedRevision: the exact contract and

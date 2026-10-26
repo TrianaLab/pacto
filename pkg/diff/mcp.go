@@ -1,7 +1,6 @@
 package diff
 
 import (
-	"bytes"
 	"fmt"
 	"io/fs"
 	"slices"
@@ -45,48 +44,6 @@ func diffMCP(oldPath, newPath string, oldFS, newFS fs.FS) []Change {
 		if !slices.ContainsFunc(oldTools, func(t contract.MCPTool) bool { return t.Name == n.Name }) {
 			changes = append(changes, Change{Path: fmt.Sprintf("mcp.tools[%s]", n.Name), Type: Added, NewValue: n.Name,
 				Classification: classify("mcp.tools", Added), Reason: "tool " + n.Name + " added"})
-		}
-	}
-	return changes
-}
-
-// diffAgent compares the agent sections. A different model changes what the
-// agent does even when every tool keeps its shape, so a model change is
-// potentially breaking: it needs at least a minor and goes through the evals.
-// The eval suite is what earns the agent its autonomy, and a release that
-// changes it can loosen the very check it ships behind (drop the cases it
-// fails), so a suite removed, moved or edited is potentially breaking too: a
-// person reviews it. Its bytes are compared when both bundles are given; the
-// diff cannot tell a stricter suite from a weaker one.
-func diffAgent(old, new *contract.Agent, oldFS, newFS fs.FS) []Change {
-	var o, n contract.Agent
-	if old != nil {
-		o = *old
-	}
-	if new != nil {
-		n = *new
-	}
-	var changes []Change
-	for _, m := range o.Models {
-		if !slices.Contains(n.Models, m) {
-			changes = append(changes, newChange("agent.models", Removed, m, nil))
-		}
-	}
-	for _, m := range n.Models {
-		if !slices.Contains(o.Models, m) {
-			changes = append(changes, newChange("agent.models", Added, nil, m))
-		}
-	}
-	switch {
-	case o.Evals != n.Evals:
-		changes = append(changes, newChange("agent.evals", strChangeType(o.Evals, n.Evals), o.Evals, n.Evals))
-	case o.Evals != "" && oldFS != nil && newFS != nil:
-		ob, oerr := fs.ReadFile(oldFS, o.Evals)
-		nb, nerr := fs.ReadFile(newFS, n.Evals)
-		if (oerr == nil) != (nerr == nil) || !bytes.Equal(ob, nb) {
-			c := newChange("agent.evals", Modified, o.Evals, n.Evals)
-			c.Reason = "the eval suite " + n.Evals + " changed"
-			changes = append(changes, c)
 		}
 	}
 	return changes

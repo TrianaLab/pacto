@@ -126,25 +126,43 @@ func ValidateStructural(data any) ValidationResult {
 }
 
 // needs21 records a NEEDS_PACTO_2_1 error for each part of data only
-// pactoVersion 2.1 has (publish, agent and an mcp interface), in place of the
-// 2.0 schema's generic "not allowed". It returns data without publish and
-// agent for the rest of the 2.0 schema to check, and the indexes of the mcp
-// interfaces, whose schema errors the caller drops. The interfaces stay in
-// place so every other interface's errors keep its own index.
+// pactoVersion 2.1 has (publish, checks, an external dependency and an mcp
+// interface), in place of the 2.0 schema's generic "not allowed". It returns
+// data without publish, checks and the dependencies' external and version for
+// the rest of the 2.0 schema to check, and the indexes of the mcp interfaces,
+// whose schema errors the caller drops. The interfaces stay in place so every
+// other interface's errors keep its own index.
 func needs21(result *ValidationResult, data any) (any, []int) {
+	const fix = `; set pactoVersion: "2.1", which keeps every 2.0 field`
 	m, _ := data.(map[string]any) // a 2.0 pactoVersion was read from it
 	out := maps.Clone(m)
-	for _, key := range []string{"publish", "agent"} {
+	for _, key := range []string{"publish", "checks"} {
 		if _, ok := m[key]; ok {
-			result.AddError(key, string(finding.CodeNeedsPacto21), key+` needs pactoVersion "2.1"; set pactoVersion: "2.1", which keeps every 2.0 field`)
+			result.AddError(key, string(finding.CodeNeedsPacto21), key+` needs pactoVersion "2.1"`+fix)
 			delete(out, key)
 		}
+	}
+	if deps, ok := m["dependencies"].([]any); ok {
+		kept := make([]any, len(deps))
+		for i, d := range deps {
+			dm, _ := d.(map[string]any)
+			kept[i] = d
+			for _, key := range []string{"external", "version"} {
+				if _, ok := dm[key]; ok {
+					result.AddError(fmt.Sprintf("dependencies.%d.%s", i, key), string(finding.CodeNeedsPacto21), `an external dependency needs pactoVersion "2.1"`+fix)
+					dm = maps.Clone(dm)
+					delete(dm, key)
+					kept[i] = dm
+				}
+			}
+		}
+		out["dependencies"] = kept
 	}
 	ifaces, _ := m["interfaces"].([]any)
 	var mcp []int
 	for i, it := range ifaces {
 		if im, _ := it.(map[string]any); im["type"] == "mcp" {
-			result.AddError(fmt.Sprintf("interfaces.%d.type", i), string(finding.CodeNeedsPacto21), `an mcp interface needs pactoVersion "2.1"; set pactoVersion: "2.1", which keeps every 2.0 field`)
+			result.AddError(fmt.Sprintf("interfaces.%d.type", i), string(finding.CodeNeedsPacto21), `an mcp interface needs pactoVersion "2.1"`+fix)
 			mcp = append(mcp, i)
 		}
 	}

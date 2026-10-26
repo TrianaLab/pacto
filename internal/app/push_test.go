@@ -172,6 +172,14 @@ func TestRejectLocalDeps_OCIAllowed(t *testing.T) {
 	}
 }
 
+// An external dependency with no ref has nothing local to publish.
+func TestRejectLocalDeps_ExternalWithoutRefAllowed(t *testing.T) {
+	c := &contract.Contract{Dependencies: []contract.Dependency{{Name: "model", External: true, Version: "v1"}}}
+	if err := rejectLocalDeps(c); err != nil {
+		t.Fatalf("unexpected error for an external dependency: %v", err)
+	}
+}
+
 func TestRejectLocalDeps_NoDeps(t *testing.T) {
 	c := &contract.Contract{}
 	err := rejectLocalDeps(c)

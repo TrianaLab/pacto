@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing/fstest"
 
@@ -78,6 +79,10 @@ type DependencyInput struct {
 	Ref           string `json:"ref"`
 	Required      bool   `json:"required,omitempty"`
 	Compatibility string `json:"compatibility,omitempty"`
+	// External marks a dependency this Pacto system does not deliver. With
+	// no ref it needs Version, the free-text version it runs against.
+	External bool   `json:"external,omitempty"`
+	Version  string `json:"version,omitempty"`
 }
 
 // ConfigProperty describes a configuration property.
@@ -355,6 +360,7 @@ func buildCreateMap(input CreateInput) map[string]any {
 
 	if len(input.Dependencies) > 0 {
 		m["dependencies"] = buildDependenciesList(input.Dependencies)
+		needs21(m, input.Dependencies)
 	}
 
 	workload := input.Workload
@@ -423,15 +429,37 @@ func dependencyName(dep DependencyInput) string {
 func buildDependenciesList(inputs []DependencyInput) []any {
 	var result []any
 	for _, dep := range inputs {
-		entry := map[string]any{
-			"name":          dependencyName(dep),
-			"ref":           dep.Ref,
-			"compatibility": defaultCompatibility(dep.Compatibility),
-			"required":      dep.Required, // mandatory in v2 schema; emit true AND false
-		}
-		result = append(result, entry)
+		result = append(result, dependencyEntry(dep))
 	}
 	return result
+}
+
+// dependencyEntry is one dependencies[] entry. An external dependency with no
+// ref carries its version instead of a ref and a range.
+func dependencyEntry(dep DependencyInput) map[string]any {
+	if dep.Ref == "" && dep.External {
+		return map[string]any{"name": dep.Name, "external": true, "version": dep.Version, "required": dep.Required}
+	}
+	entry := map[string]any{
+		"name":          dependencyName(dep),
+		"ref":           dep.Ref,
+		"compatibility": defaultCompatibility(dep.Compatibility),
+		"required":      dep.Required, // mandatory in v2 schema; emit true AND false
+	}
+	if dep.External {
+		entry["external"] = true
+	}
+	return entry
+}
+
+// needs21 sets pactoVersion 2.1 when an external dependency is declared:
+// 2.0 has no external dependencies, and 2.1 keeps every 2.0 field.
+func needs21(m map[string]any, deps []DependencyInput) bool {
+	if m["pactoVersion"] != "2.0" || !slices.ContainsFunc(deps, func(d DependencyInput) bool { return d.External }) {
+		return false
+	}
+	m["pactoVersion"] = "2.1"
+	return true
 }
 
 // --- Edit ---
@@ -651,6 +679,11 @@ func removeDependencies(m map[string]any, refs []string) []string {
 				changes = append(changes, fmt.Sprintf("removed dependency %q", ref))
 				continue
 			}
+			// An external dependency with no ref is removed by name.
+			if name, ok := depMap["name"].(string); ok && depMap["ref"] == nil && removeSet[name] {
+				changes = append(changes, fmt.Sprintf("removed dependency %q", name))
+				continue
+			}
 		}
 		kept = append(kept, dep)
 	}
@@ -666,16 +699,14 @@ func addDependencies(m map[string]any, inputs []DependencyInput) []string {
 	var changes []string
 	deps, _ := m["dependencies"].([]any)
 	for _, dep := range inputs {
-		entry := map[string]any{
-			"name":          dependencyName(dep),
-			"ref":           dep.Ref,
-			"compatibility": defaultCompatibility(dep.Compatibility),
-			"required":      dep.Required, // mandatory in v2 schema; emit true AND false
-		}
+		entry := dependencyEntry(dep)
 		deps = append(deps, entry)
-		changes = append(changes, fmt.Sprintf("added dependency %q", dep.Ref))
+		changes = append(changes, fmt.Sprintf("added dependency %q", entry["name"]))
 	}
 	m["dependencies"] = deps
+	if needs21(m, inputs) {
+		changes = append(changes, `set pactoVersion "2.1" for the external dependency`)
+	}
 	return changes
 }
 
@@ -1258,7 +1289,11 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 	}
 
 	for _, dep := range c.Dependencies {
-		s.Dependencies = append(s.Dependencies, dep.Ref)
+		ref := dep.Ref
+		if ref == "" {
+			ref = dep.Name + " (external " + dep.Version + ")"
+		}
+		s.Dependencies = append(s.Dependencies, ref)
 	}
 
 	return s

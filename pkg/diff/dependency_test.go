@@ -119,3 +119,19 @@ func TestDiffDependencies_NoChange(t *testing.T) {
 		t.Errorf("expected 0 changes, got %d: %v", len(changes), changes)
 	}
 }
+
+// TestDiffDependencies_External: a new free-text version is potentially
+// breaking (nobody can check it); marking a dependency external is not.
+func TestDiffDependencies_External(t *testing.T) {
+	old, new := minimalContract(), minimalContract()
+	old.Dependencies = []contract.Dependency{{Name: "model", External: true, Version: "v1"}, {Name: "db", Ref: "oci://r/db:1", Compatibility: "^1"}}
+	new.Dependencies = []contract.Dependency{{Name: "model", External: true, Version: "v2"}, {Name: "db", Ref: "oci://r/db:1", Compatibility: "^1", External: true}}
+	var got []string
+	for _, c := range diffDependencies(old, new) {
+		got = append(got, c.Path+" "+c.Type.String()+" "+c.Classification.String())
+	}
+	want := []string{"dependencies.external modified NON_BREAKING", "dependencies.version modified POTENTIAL_BREAKING"}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+}

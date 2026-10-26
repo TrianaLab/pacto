@@ -645,3 +645,17 @@ func TestGlobalGraphFromResult_NilEdgeNodeAndNoContractDep(t *testing.T) {
 // TestExtractVersionFromRef pins the one thing that separates this helper from
 // extractServiceNameFromRef: it reports only a TAG. A digest-pinned ref reports
 // no version, because a digest is not a tag anything can be pulled or ordered by.
+
+// TestBuildGlobalGraph_ExternalWithoutRef: an external dependency with no ref
+// is a node named after the dependency, carrying its version.
+func TestBuildGlobalGraph_ExternalWithoutRef(t *testing.T) {
+	services := []Service{{Name: "agent", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"}}
+	index := map[string]*ServiceDetails{
+		"agent": {Service: Service{Name: "agent"}, Dependencies: []DependencyInfo{{Name: "model", External: true, Version: "v1", Required: true}}},
+	}
+	graph := buildGlobalGraph(services, index, nil)
+	if len(graph.Nodes) != 2 || graph.Nodes[0].ID != "model" || graph.Nodes[0].Version != "v1" || graph.Nodes[0].Status != "external" ||
+		graph.Nodes[1].Edges[0].TargetID != "model" {
+		t.Fatalf("graph = %+v", graph)
+	}
+}
