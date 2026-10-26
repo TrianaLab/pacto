@@ -94,12 +94,12 @@ If the agent must change nothing at all, use `--root`.
 **Files.** The contract tools write to the folder the agent names in each
 call, relative to the folder the server was started in. Pacto does not limit
 which folder, so start the server in the project the agent should work on,
-as a user that can write only where it should. Claude Code and Cursor start
+as a user that can write only there. Claude Code and Cursor start
 it in your project; for Claude Desktop, have the agent pass full paths.
 
 **Fleet.** `--fleet` reads the sources you name with more flags, such as
 `--local ./contracts` for folders, `--oci <ref>` for published contracts and
-`--k8s` for the cluster your kubeconfig points at. See
+`--k8s` for your kubeconfig's cluster. See
 [`pacto mcp`](cli-reference.md#pacto-mcp).
 
 **Delivery.** `--delivery` acts on the cluster your kubeconfig points at, as
