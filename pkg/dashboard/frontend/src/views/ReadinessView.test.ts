@@ -92,3 +92,20 @@ describe('ReadinessView — shared filters + category breakdown', () => {
     unmount(component);
   });
 });
+
+describe('ReadinessView — paging', () => {
+  it('shows fifty services a page and pages through the URL', async () => {
+    location.hash = '';
+    clearFilters();
+    await new Promise((r) => setTimeout(r, 0));
+    const many = Array.from({ length: 120 }, (_, i) => ({ ...services[1], name: `svc-${i}` }));
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const c = mount(ReadinessView, { target, props: { services: many } });
+    expect(target.querySelectorAll('table.readiness-list > tbody > tr').length).toBe(50);
+    expect(target.querySelector('[data-testid="readiness-pager-range"]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Showing 1–50 of 120 services');
+    expect(target.querySelector('[data-testid="readiness-pager-last"]')?.getAttribute('href')).toBe('#/?offset=100');
+    unmount(c);
+    target.remove();
+  });
+});

@@ -715,7 +715,7 @@ tr.clickable:active { background: var(--c-surface-inset); }
    fixed layout, so no cell can paint over the next one; text wraps at word boundaries
    and identifiers clip with an ellipsis (.cell-clip) and keep the full value in a title.
    The scroller is bounded, so the header stays in view while the rows scroll. Under
-   720px each row becomes a card of label and value pairs, read from data-label. */
+   768px each row becomes a card of label and value pairs, read from data-label. */
 .data-scroll {
   overflow: auto; max-height: min(75vh, 56rem);
   border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface);
@@ -728,7 +728,7 @@ tr.clickable:active { background: var(--c-surface-inset); }
 .cell-clip { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cell-stack { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1); min-width: 0; }
 .cell-badges { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
-@media (max-width: 720px) {
+@media (max-width: 768px) {
   .data-scroll { max-height: none; border: none; background: none; }
   .data-table, .data-table tbody, .data-table tr, .data-table td, .data-table tbody th { display: block; width: 100%; }
   .data-table colgroup { display: none; }

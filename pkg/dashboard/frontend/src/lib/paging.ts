@@ -88,3 +88,33 @@ export function pagedHash(path: string, params: Record<string, string | number |
 export function limitParam(wanted: number, urlLimit: string | number | undefined, defaultLimit: number): number | undefined {
   return urlInt(urlLimit) || wanted !== defaultLimit ? wanted : undefined;
 }
+
+/**
+ * hashWith sets query keys on a hash route and keeps the rest; an empty, zero or
+ * null value removes its key. It is how a list the client holds in full keeps
+ * its page, page size and order in the URL beside the filters already there.
+ */
+export function hashWith(hash: string, patch: Record<string, string | number | null | undefined>): string {
+  const i = hash.indexOf('?');
+  // An empty hash is the home route; a bare '?…' href would leave the hash router.
+  const path = (i === -1 ? hash : hash.slice(0, i)).replace(/^#?$/, '#/');
+  const qs = new URLSearchParams(i === -1 ? '' : hash.slice(i + 1));
+  for (const [k, v] of Object.entries(patch)) {
+    if (v === undefined || v === null || v === '' || v === 0) qs.delete(k);
+    else qs.set(k, String(v));
+  }
+  const s = qs.toString();
+  return s ? `${path}?${s}` : path;
+}
+
+/**
+ * clientPage is one page of a list the client already holds, described the way
+ * the server describes its pages, so the same Pager draws both. An offset past
+ * the end answers the last page.
+ */
+export function clientPage<T>(all: T[], offset: number, limit: number): { items: T[]; page: PageWire } {
+  const size = Math.max(1, limit);
+  const lastOffset = Math.max(0, Math.ceil(all.length / size) - 1) * size;
+  const start = Math.min(Math.max(0, offset), lastOffset);
+  return { items: all.slice(start, start + size), page: { total: all.length, offset: start, limit: size } };
+}

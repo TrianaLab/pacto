@@ -391,6 +391,7 @@ describe('aggregateByOwner', () => {
     const result = aggregateByOwner(services);
     const teamA = result.find((r) => r.key === 'team:team-a')!;
     expect(teamA.totalBlast).toBe(3); // 2 + 1 + 0
+    expect(teamA.maxBlast).toBe(2);
   });
 
   it('computes compliance as the share of assessed services that are compliant', () => {
@@ -1003,6 +1004,7 @@ describe('readinessBucket', () => {
   });
   it('returns ready when the gate passes (regardless of score band)', () => {
     expect(readinessBucket(rdy({ passing: true, score: 60 }))).toBe('ready');
+    expect(readinessBucket(rdy({ passing: true, score: 100, expired: true }))).toBe('partial');
   });
   it('returns partial when not passing but score >= 50', () => {
     expect(readinessBucket(rdy({ passing: false, score: 50 }))).toBe('partial');

@@ -1,7 +1,10 @@
 <script>
   import { setFilter } from '../lib/filters.svelte.ts';
   import { serviceUrl } from '../lib/router.ts';
-  import { readinessBucket, readinessBucketLabel, readinessBucketClass, paginate, compareScoresUnassessedLast } from '../lib/format.ts';
+  import { compareScoresUnassessedLast } from '../lib/format.ts';
+  import { clientPage } from '../lib/paging.ts';
+  import { hashParam, listState, setHashParams } from '../lib/hashQuery.svelte.ts';
+  import Pager from './Pager.svelte';
   import StatusBadge from './StatusBadge.svelte';
   import ComplianceScore from './ComplianceScore.svelte';
   import ReadinessScore from './ReadinessScore.svelte';
@@ -19,14 +22,16 @@
   // Reference/NotEvaluated are outside the runtime ladder, so they sort after Compliant.
   const STATUS_RANK = { Invalid: 0, NonCompliant: 1, Unknown: 2, Warning: 3, Compliant: 4, Reference: 5, NotEvaluated: 6 };
 
-  let sortBy = $state('blast');
-  let sortAsc = $state(false); // blast descending by default (highest impact first)
-  let page = $state(1);
+  // The order and the page live in the URL, so Back from a service returns to the
+  // same page in the same order. Blast descending by default (highest impact first).
+  const SORTS = ['name', 'status', 'compliance', 'readiness', 'blast'];
+  const sortBy = $derived(SORTS.includes(hashParam('sort')) ? hashParam('sort') : 'blast');
+  const sortAsc = $derived(hashParam('dir') ? hashParam('dir') === 'asc' : sortBy !== 'blast');
+  const list = $derived(listState(PER_PAGE));
 
   function setSort(col) {
-    if (sortBy === col) sortAsc = !sortAsc;
-    else { sortBy = col; sortAsc = col !== 'blast'; } // name/status/scores asc, blast desc
-    page = 1;
+    const asc = sortBy === col ? !sortAsc : col !== 'blast'; // name/status/scores asc, blast desc
+    setHashParams({ sort: col === 'blast' ? null : col, dir: asc === (col !== 'blast') ? null : (asc ? 'asc' : 'desc'), offset: null });
   }
   function ariaSort(col) { return sortBy === col ? (sortAsc ? 'ascending' : 'descending') : 'none'; }
   function sortIcon(col) { return sortBy === col ? (sortAsc ? ' ↑' : ' ↓') : ''; }
@@ -44,16 +49,16 @@
       }
     });
   });
-  // paginate() clamps the page, so a filter that shrinks the list can't strand the
+  // clientPage clamps the page, so a filter that shrinks the list can't strand the
   // user past the end (and a poll refresh won't bounce them back to page 1).
-  let paged = $derived(paginate(sorted, page, PER_PAGE));
+  let paged = $derived(clientPage(sorted, list.offset, list.limit));
 </script>
 
 {#if services.length === 0}
   <EmptyState title="No services" message="No services match the current filters." />
 {:else}
-  <div class="table-wrap">
-    <table>
+  <div class="data-scroll">
+    <table class="data-table">
       <colgroup>
         <col class="col-name" />
         <col class="col-version" />
@@ -77,19 +82,19 @@
         </tr>
       </thead>
       <tbody>
-        {#each paged.items as svc}
+        {#each paged.items as svc (svc.name)}
           <tr class="clickable" onclick={() => (location.hash = serviceUrl(svc.name))}>
-            <td>
-              <a href={serviceUrl(svc.name)} class="svc-name">{svc.name}</a>
+            <td data-label="Name">
+              <a href={serviceUrl(svc.name)} class="svc-name" title={svc.name}>{svc.name}</a>
               <span class="svc-owner"><OwnerLink owner={svc.owner} /></span>
             </td>
-            <td>
-              <span class="pill">{svc.version || '—'}</span>
+            <td data-label="Version">
+              <span class="pill svc-version" title={svc.version || undefined}>{svc.version || '—'}</span>
               {#if svc.updateAvailable}
                 <span class="update-dot" data-tip="Newer version available" role="img" aria-label="Newer version available"></span>
               {/if}
             </td>
-            <td>
+            <td data-label="Contract status">
               <button
                 type="button"
                 class="badge-btn"
@@ -101,17 +106,17 @@
                 <StatusBadge status={svc.contractStatus} />
               </button>
             </td>
-            <td>
+            <td data-label="Compliance">
               <ComplianceScore score={svc.complianceScore} status={svc.complianceStatus} />
             </td>
-            <td>
+            <td data-label="Readiness">
               {#if svc.readiness}
                 <ReadinessScore readiness={svc.readiness} />
               {:else}
                 <span class="text-dim">—</span>
               {/if}
             </td>
-            <td>
+            <td data-label="Blast radius">
               {#if svc.blastRadius > 0}
                 <span
                   class="blast-badge"
@@ -127,7 +132,7 @@
                 <span class="blast-badge blast-zero" data-tip="No services impacted if this one fails" aria-label="No services impacted if this one fails">0</span>
               {/if}
             </td>
-            <td>
+            <td data-label="Checks">
               {#if svc.checksTotal > 0}
                 <span class:text-ok={svc.checksFailed === 0} class:text-err={svc.checksFailed > 0}>
                   {svc.checksPassed}/{svc.checksTotal}
@@ -143,7 +148,7 @@
                 >cov {svc.evaluationCoverage.evaluated}/{svc.evaluationCoverage.required}</span>
               {/if}
             </td>
-            <td>
+            <td data-label="Source">
               {#each svc.sources || [svc.source] as src}
                 <SourceDot source={src} align="right" />
               {/each}
@@ -153,15 +158,8 @@
       </tbody>
     </table>
   </div>
-  {#if paged.total > PER_PAGE}
-    <div class="table-footer">
-      <span class="showing">Showing {(paged.page - 1) * PER_PAGE + 1}–{Math.min(paged.page * PER_PAGE, paged.total)} of {paged.total}</span>
-      <div class="pager">
-        <button type="button" class="btn btn-sm" disabled={paged.page <= 1} onclick={() => page = paged.page - 1}>Prev</button>
-        <span class="pager-pos">Page {paged.page} / {paged.totalPages}</span>
-        <button type="button" class="btn btn-sm" disabled={paged.page >= paged.totalPages} onclick={() => page = paged.page + 1}>Next</button>
-      </div>
-    </div>
+  {#if paged.page.total > PER_PAGE}
+    <Pager page={paged.page} href={list.href} label="Service pages" noun="services" testid="services-table-pager" />
   {/if}
 {/if}
 
@@ -174,29 +172,6 @@
   }
   .col-sort:hover { color: var(--c-text); }
 
-  .table-footer {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-3);
-    font-size: var(--text-sm); color: var(--c-text-3);
-  }
-  .pager { display: flex; align-items: center; gap: var(--sp-2); }
-  .pager-pos { font-variant-numeric: tabular-nums; }
-
-  /* The .table-wrap div deliberately has NO scoped overflow rule: it inherits the
-     global .table-wrap (overflow:visible on desktop, overflow-x:auto only ≤768px).
-     A scoped overflow-x:auto here forced a permanent scroll context on desktop, and
-     since cells are overflow:visible (so tooltips escape), the hover tooltips that
-     paint past the last column turned into a spurious horizontal scrollbar. */
-
-  /* Fixed layout: column widths come from <colgroup>, not from content's
-     intrinsic min-content. This stops the nowrap columns from over-growing the
-     table past 100% and triggering a spurious horizontal scrollbar. */
-  table {
-    width: 100%;
-    box-sizing: border-box;
-    table-layout: fixed;
-  }
-
   /* Name column flexes and truncates; the rest are compact and fixed-ish. */
   .col-name { width: auto; }
   .col-version { width: 12%; }
@@ -207,20 +182,10 @@
   .col-checks { width: 9%; }
   .col-source { width: 9%; }
 
-  th {
-    white-space: normal;
-    overflow: visible;
-    text-overflow: clip;
-  }
-
-  td {
-    white-space: nowrap;
-    overflow: visible;
-  }
-
-  th:first-child, td:first-child {
-    white-space: normal;
-  }
+  /* No nowrap + overflow:visible cells: that is what painted the coverage badge under
+     the source dots and the version over Status. Short values sit in columns wide
+     enough for them; a long one ellipsizes and keeps the whole value in its title. */
+  .svc-version { display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
 
   .svc-name {
     font-weight: 600;
@@ -289,8 +254,8 @@
   }
 
   .eval-badge {
-    display: inline-block;
-    margin-left: 6px;
+    display: table;
+    margin-top: 2px;
     padding: 1px 6px;
     border-radius: var(--radius-xs);
     background: var(--c-neutral-bg);

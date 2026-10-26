@@ -2,7 +2,7 @@
  * Component render tests for ServicesTable.svelte.
  * Verifies table renders one row per service with all columns, click-to-filter facets.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, unmount } from 'svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import ServicesTable from './ServicesTable.svelte';
@@ -17,6 +17,7 @@ describe('ServicesTable — columns and click-to-filter', () => {
 
   afterEach(() => {
     document.body.removeChild(target);
+    location.hash = '';
   });
 
   it('renders one row per service', () => {
@@ -289,7 +290,7 @@ describe('ServicesTable — columns and click-to-filter', () => {
     unmount(component);
   });
 
-  it('sorts by name when the Name header is clicked', () => {
+  it('sorts by name when the Name header is clicked', async () => {
     const component = mount(ServicesTable, {
       target,
       props: {
@@ -302,7 +303,19 @@ describe('ServicesTable — columns and click-to-filter', () => {
     });
     const nameBtn = [...target.querySelectorAll('th .col-sort')].find((b) => b.textContent?.includes('Name')) as HTMLButtonElement;
     nameBtn.click();
-    expect(rowNames()).toEqual(['alpha', 'bravo', 'charlie']);
+    // The order is URL state, so Back from a service returns to it.
+    expect(location.hash).toBe('#/?sort=name');
+    await vi.waitFor(() => expect(rowNames()).toEqual(['alpha', 'bravo', 'charlie']));
+    unmount(component);
+  });
+
+  it('pages through the URL and keeps the page across a remount', async () => {
+    const services = Array.from({ length: 30 }, (_, i) => ({ name: `s${String(i).padStart(2, '0')}`, contractStatus: 'Compliant', blastRadius: 30 - i }));
+    location.hash = '#/?offset=25';
+    await new Promise((r) => setTimeout(r, 0));
+    const component = mount(ServicesTable, { target, props: { services } });
+    expect(rowNames()).toEqual(['s25', 's26', 's27', 's28', 's29']);
+    expect(target.querySelector('[data-testid="services-table-pager-first"]')?.getAttribute('href')).toBe('#/');
     unmount(component);
   });
 });

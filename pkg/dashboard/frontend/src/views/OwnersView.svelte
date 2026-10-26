@@ -1,7 +1,6 @@
 <script>
   import { ownerUrl, serviceUrl } from '../lib/router.ts';
   import { aggregateByOwner, complianceClass, statusClass, ownerKey, UNOWNED_KEY, sourceTooltip, complianceStatusClass, compareScoresUnassessedLast } from '../lib/format.ts';
-  import { getFilters, setFilter } from '../lib/filters.svelte.ts';
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import SummaryBar from '../components/SummaryBar.svelte';
   import EmptyState from '../components/EmptyState.svelte';
@@ -9,6 +8,10 @@
   import ComplianceScore from '../components/ComplianceScore.svelte';
   import SourceDot from '../components/SourceDot.svelte';
   import SortControls from '../components/SortControls.svelte';
+  import Pager from '../components/Pager.svelte';
+  import ListFilter from '../components/ListFilter.svelte';
+  import { clientPage, hashWith } from '../lib/paging.ts';
+  import { hashParam, listState, setHashParams } from '../lib/hashQuery.svelte.ts';
 
   let { services = [], initialLoading = false } = $props();
 
@@ -17,10 +20,11 @@
   let statusFilter = $state('all'); // all | warnings | non-compliant | compliant
   let expandedOwner = $state(null);
 
-  // The owner name search uses the shared store's `search` key, so a query carries
-  // over from the services list and into shareable links.
-  const filters = $derived(getFilters());
-  let nameFilter = $derived(filters.search);
+  // The owner search has its own URL key. It used to share the services list's
+  // `search`, so filtering owners here silently filtered the Services list too.
+  let nameFilter = $derived(hashParam('q'));
+  const list = $derived(listState(25));
+  const paged = $derived(clientPage(owners, list.offset, list.limit));
 
   // Services belonging to the expanded owner
   let expandedServices = $derived.by(() => {
@@ -30,7 +34,12 @@
 
   function toggleExpand(key) {
     expandedOwner = expandedOwner === key ? null : key;
+    allExpanded = false;
   }
+  // An owner with a thousand services shows its first 25 and offers the rest.
+  const EXPANDED_ROWS = 25;
+  let allExpanded = $state(false);
+  const expandedShown = $derived(allExpanded ? expandedServices : expandedServices.slice(0, EXPANDED_ROWS));
 
   // Single derived list used by both chart and table
   let owners = $derived.by(() => {
@@ -53,7 +62,7 @@
       if (sortBy === 'key') return (a.label.localeCompare(b.label) || a.key.localeCompare(b.key)) * dir;
       if (sortBy === 'services') return (a.services - b.services) * dir;
       if (sortBy === 'compliance') return compareScoresUnassessedLast(a.compliancePercent, b.compliancePercent, dir);
-      if (sortBy === 'blast') return (a.totalBlast - b.totalBlast) * dir;
+      if (sortBy === 'blast') return (a.maxBlast - b.maxBlast) * dir;
       if (sortBy === 'warning') return (a.warning - b.warning) * dir;
       if (sortBy === 'nonCompliant') return (a.nonCompliant - b.nonCompliant) * dir;
       return 0;
@@ -93,6 +102,7 @@
   function setSort(col) {
     if (sortBy === col) sortAsc = !sortAsc;
     else { sortBy = col; sortAsc = col === 'key'; }
+    if (list.offset) setHashParams({ offset: null });
   }
 
   function sortIcon(col) {
@@ -102,11 +112,12 @@
 
   function toggleFilter(f) {
     statusFilter = statusFilter === f ? 'all' : f;
+    if (list.offset) setHashParams({ offset: null });
   }
 
   const SORT_OPTIONS = [
     { value: 'services', label: '# Services' },
-    { value: 'blast', label: 'Blast radius' },
+    { value: 'blast', label: 'Largest blast radius' },
     { value: 'compliance', label: '% Compliant' },
     { value: 'warning', label: 'Warnings' },
     { value: 'nonCompliant', label: 'Non-Compliant' },
@@ -157,10 +168,7 @@
       </button>
     {/if}
 
-    <div class="filter-search">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-      <input type="text" placeholder="Filter owners…" value={nameFilter} oninput={(e) => setFilter('search', e.currentTarget.value)} aria-label="Filter by owner name" />
-    </div>
+    <ListFilter value={nameFilter} href={(q) => hashWith(location.hash, { q, offset: null })} label="Filter by owner name" placeholder="Filter owners…" testid="owners-filter" />
   </div>
 
   {#if owners.length === 0}
@@ -204,11 +212,11 @@
             <th data-tip="Non-compliant services"><button type="button" class="col-sort" onclick={() => setSort('nonCompliant')}>Non-Compliant{sortIcon('nonCompliant')}</button></th>
             <th data-tip="Reference-only contracts">Reference</th>
             <th><button type="button" class="col-sort" data-tip="% of assessed services that are compliant" onclick={() => setSort('compliance')}>% Compliant{sortIcon('compliance')}</button></th>
-            <th><button type="button" class="col-sort" data-tip="Combined blast radius of all services" onclick={() => setSort('blast')}>Blast{sortIcon('blast')}</button></th>
+            <th><button type="button" class="col-sort" data-tip="The widest blast radius among this owner's services. Blast radii overlap, so they are not added up" onclick={() => setSort('blast')}>Largest blast{sortIcon('blast')}</button></th>
           </tr>
         </thead>
         <tbody>
-          {#each owners as row, i}
+          {#each paged.items as row, i (row.key)}
             <tr class="clickable" class:row-expanded={expandedOwner === row.key} onclick={() => toggleExpand(row.key)}>
               <td>
                 <button type="button" class="expand-icon" data-motion class:expanded={expandedOwner === row.key}
@@ -240,8 +248,8 @@
                 {/if}
               </td>
               <td>
-                {#if row.totalBlast > 0}
-                  <span class="blast-badge" class:blast-low={row.totalBlast < 3} class:blast-med={row.totalBlast >= 3 && row.totalBlast < 5} class:blast-high={row.totalBlast >= 5}>{row.totalBlast}</span>
+                {#if row.maxBlast > 0}
+                  <span class="blast-badge" class:blast-low={row.maxBlast < 3} class:blast-med={row.maxBlast >= 3 && row.maxBlast < 5} class:blast-high={row.maxBlast >= 5}>{row.maxBlast}</span>
                 {:else}
                   <span class="blast-badge blast-zero">0</span>
                 {/if}
@@ -271,7 +279,7 @@
                         </tr>
                       </thead>
                       <tbody>
-                        {#each expandedServices as svc}
+                        {#each expandedShown as svc (svc.name)}
                           <tr class="clickable" onclick={() => location.hash = serviceUrl(svc.name)}>
                             <td><a href={serviceUrl(svc.name)} onclick={(e) => e.stopPropagation()}>{svc.name}</a></td>
                             <td><span class="pill">{svc.version || '—'}</span></td>
@@ -295,6 +303,11 @@
                         {/each}
                       </tbody>
                     </table>
+                    {#if expandedServices.length > EXPANDED_ROWS}
+                      <button type="button" class="btn btn-sm" onclick={(e) => { e.stopPropagation(); allExpanded = !allExpanded; }}>
+                        {allExpanded ? 'Show fewer' : `Show all ${expandedServices.length} services`}
+                      </button>
+                    {/if}
                   </div>
                 </td>
               </tr>
@@ -303,6 +316,7 @@
         </tbody>
       </table>
     </div>
+    <Pager page={paged.page} href={list.href} label="Owner pages" noun="owners" testid="owners-pager" />
   {/if}
 {/if}
 
@@ -326,21 +340,6 @@
   .chip-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
   .chip-count { font-weight: 600; }
 
-  .filter-search {
-    display: inline-flex; align-items: center; gap: 5px;
-    padding: 4px 10px; border-radius: 100px;
-    border: 1px solid var(--c-border); background: var(--c-surface);
-    transition: border-color var(--transition);
-    min-height: 30px;
-  }
-  .filter-search:focus-within { border-color: var(--c-accent); }
-  .filter-search svg { color: var(--c-text-3); flex-shrink: 0; }
-  .filter-search input {
-    border: none; background: none; outline: none;
-    font: inherit; font-size: var(--text-xs); color: var(--c-text);
-    width: 110px; padding: 2px 0;
-  }
-  .filter-search input::placeholder { color: var(--c-text-3); }
 
   /* ── Table ── */
   table { width: 100%; }
@@ -463,7 +462,5 @@
 
   @media (max-width: 768px) {
     .controls-row { gap: var(--sp-2); }
-    .filter-search { flex: 1; min-width: 0; }
-    .filter-search input { width: 100%; }
   }
 </style>

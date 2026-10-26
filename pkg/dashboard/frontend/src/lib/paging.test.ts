@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pageView, offsetOfPage, pageSizes, urlInt, pagedHash, pastEnd } from './paging.ts';
+import { pageView, offsetOfPage, pageSizes, urlInt, pagedHash, pastEnd, hashWith, clientPage } from './paging.ts';
 
 describe('pageView', () => {
   it('reads the first, a middle and the last page', () => {
@@ -58,5 +58,23 @@ describe('limitParam', () => {
     expect(limitParam(50, '', 50)).toBeUndefined();
     expect(limitParam(50, '50', 50)).toBe(50);
     expect(limitParam(100, undefined, 50)).toBe(100);
+  });
+});
+
+describe('client-held lists', () => {
+  it('sets and removes query keys and keeps the rest', () => {
+    expect(hashWith('#/readiness?owner=a', { offset: 50, limit: null })).toBe('#/readiness?owner=a&offset=50');
+    expect(hashWith('#/readiness?owner=a&offset=50', { offset: 0 })).toBe('#/readiness?owner=a');
+    expect(hashWith('#/', { offset: '' })).toBe('#/');
+    expect(hashWith('', { offset: 25 })).toBe('#/?offset=25');
+    expect(hashWith('#?sort=a', { offset: 25 })).toBe('#/?sort=a&offset=25');
+  });
+
+  it('pages a held list like the server pages its lists, the end clamped', () => {
+    const all = Array.from({ length: 60 }, (_, i) => i);
+    expect(clientPage(all, 25, 25)).toEqual({ items: all.slice(25, 50), page: { total: 60, offset: 25, limit: 25 } });
+    expect(clientPage(all, 900, 25).page.offset).toBe(50);
+    expect(clientPage([], 50, 25)).toEqual({ items: [], page: { total: 0, offset: 0, limit: 25 } });
+    expect(clientPage(all, -5, 0).page).toEqual({ total: 60, offset: 0, limit: 1 });
   });
 });

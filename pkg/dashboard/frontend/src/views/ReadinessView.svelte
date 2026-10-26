@@ -28,6 +28,9 @@
   import CategoryIcon from '../components/CategoryIcon.svelte';
   import SortControls from '../components/SortControls.svelte';
   import { quadrantData, heatmapData } from '../lib/chartData.ts';
+  import Pager from '../components/Pager.svelte';
+  import { clientPage } from '../lib/paging.ts';
+  import { listState, setHashParams } from '../lib/hashQuery.svelte.ts';
 
   let { services = [], initialLoading = false } = $props();
 
@@ -95,12 +98,17 @@
     });
   });
 
+  // Two thousand services are fifty pages, not one 100,000px table.
+  const list = $derived(listState(50));
+  const paged = $derived(clientPage(rows, list.offset, list.limit));
+
   function setSort(col) {
     if (sortBy === col) sortAsc = !sortAsc;
     else {
       sortBy = col;
       sortAsc = col === 'name' || col === 'owner';
     }
+    if (list.offset) setHashParams({ offset: null });
   }
 
   function sortIcon(col) {
@@ -221,7 +229,7 @@
           </tr>
         </thead>
         <tbody>
-          {#each rows as row, i (row.name)}
+          {#each paged.items as row, i (row.name)}
             <tr class="clickable" class:row-expanded={expandedService === row.name} onclick={() => toggleExpand(row.name)}>
               <td>
                 <button type="button" class="expand-icon" data-motion class:expanded={expandedService === row.name}
@@ -330,6 +338,7 @@
         </tbody>
       </table>
     </div>
+    <Pager page={paged.page} href={list.href} label="Readiness pages" noun="services" testid="readiness-pager" />
   {/if}
 {/if}
 

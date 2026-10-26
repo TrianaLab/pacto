@@ -489,6 +489,8 @@ export interface OwnerAggregation {
   runtimeEvaluated: number; // compliant + warning + nonCompliant + unknown
   conclusive: number; // compliant + warning + nonCompliant
   totalBlast: number;
+  /** The widest blast radius among the owner's services. Blast radii overlap, so their sum counts no real set. */
+  maxBlast: number;
   compliancePercent: number;
   // Per-owner readiness composition (buckets sum to `services`).
   ready: number;
@@ -658,7 +660,11 @@ export type ReadinessBucket = 'ready' | 'partial' | 'not-ready' | 'unknown';
 export function readinessBucket(svc: WithReadiness): ReadinessBucket {
   const r = svc?.readiness;
   if (!r) return 'unknown';
-  if (r.passing) return 'ready';
+  // An expired assessment proves nothing about today, whatever it scored, so it is
+  // never Ready; it reads by its score like any assessment below the gate. The engine
+  // already reports passing=false then; this holds when a payload says otherwise.
+  // ponytail: no Expired bucket of its own; the Expiry column says it in red.
+  if (r.passing && !r.expired) return 'ready';
   if (r.score >= 50) return 'partial';
   return 'not-ready';
 }
@@ -671,7 +677,7 @@ export function readinessBucket(svc: WithReadiness): ReadinessBucket {
  */
 export function readinessGateClass(r: ReadinessInfo | null | undefined): string {
   if (!r) return '';
-  if (r.passing) return 'score-ok';
+  if (r.passing && !r.expired) return 'score-ok';
   // Below the gate: amber when it is at least within striking distance,
   // red when it is far off — but never green, because it does not pass.
   if (r.score >= 50 && !r.expired) return 'score-warn';
@@ -924,7 +930,7 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     const key = ownerKey(svc.owner) || UNOWNED_KEY;
     let agg = ownerMap.get(key);
     if (!agg) {
-      agg = { key, label: key === UNOWNED_KEY ? UNOWNED_KEY : ownerKeyLabel(key), kind: ownerKeyKind(key), services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, invalid: 0, notEvaluated: 0, runtimeEvaluated: 0, conclusive: 0, totalBlast: 0, compliancePercent: 0, ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
+      agg = { key, label: key === UNOWNED_KEY ? UNOWNED_KEY : ownerKeyLabel(key), kind: ownerKeyKind(key), services: 0, compliant: 0, warning: 0, nonCompliant: 0, reference: 0, unknown: 0, invalid: 0, notEvaluated: 0, runtimeEvaluated: 0, conclusive: 0, totalBlast: 0, maxBlast: 0, compliancePercent: 0, ready: 0, partial: 0, notReady: 0, notConfigured: 0 };
       ownerMap.set(key, agg);
     }
     agg.services++;
@@ -937,6 +943,7 @@ export function summarize(services: Array<Record<string, unknown>>): Metrics {
     else if (status === 'NotEvaluated') agg.notEvaluated++;
     else agg.unknown++;
     agg.totalBlast += (svc.blastRadius as number) || 0;
+    agg.maxBlast = Math.max(agg.maxBlast, (svc.blastRadius as number) || 0);
 
     // Readiness aggregation
     const r = (svc as WithReadiness).readiness;
