@@ -77,11 +77,8 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 	reg := env.publishRegistry()
 	tools := newExecTools(path, env.run, reg)
 	in.Checks = append(in.Checks, checkOf("references", rejectLocalDeps(c), rejectLocalRefs(c)),
-		checkOf("lock", s.verifyLockIfPresent(ctx, path, b)), checkOf("signing key", keyOutsideBundle(c, fsys), tools.loadSigner(ctx, c)),
-		checkOf("build outputs", sbomsIgnored(c, path)), checkOf("builders", builders(ctx, env, path, c)))
-	if opts.Revision == "" && in.Revision != "" {
-		in.Checks = append(in.Checks, checkOf("clean checkout", cleanCheckout(ctx, env.run, path, in.Revision)))
-	}
+		checkOf("lock", s.verifyLockIfPresent(ctx, path, b)), checkOf("build outputs", sbomsIgnored(c, path)))
+	in.Preflight = preflight(ctx, env, tools, path, c, fsys, opts.Revision == "" && in.Revision != "", in.Revision)
 	if opts.Plan {
 		return &publish.Result{Plan: publish.MakePlan(ctx, reg, in)}, nil
 	}
@@ -90,6 +87,29 @@ func (s *Service) Publish(ctx context.Context, opts PublishOptions) (*publish.Re
 		res.Refusal = keepRefusal(ctx, env, tools, b, res.Plan)
 	}
 	return res, err
+}
+
+// preflight checks what the absent items need: the builder of each artifact
+// still to build, and, when anything is written, the signer and a clean
+// checkout (askGit says whether to ask git). A re-run of a version already
+// published needs none of them, so `--propose` still works from a machine
+// with no buildx, no OIDC token or an unrelated uncommitted file.
+func preflight(ctx context.Context, env sysDeps, tools execTools, path string, c *contract.Contract, fsys fs.FS, askGit bool, rev string) func(publish.Plan) []publish.Check {
+	return func(p publish.Plan) []publish.Check {
+		absent := map[string]bool{}
+		for _, it := range p.Items {
+			absent[it.Name] = it.State == publish.Absent
+		}
+		sign := keyOutsideBundle(c, fsys)
+		if p.Missing > 0 {
+			sign = errors.Join(sign, tools.loadSigner(ctx, c))
+		}
+		checks := []publish.Check{checkOf("signing key", sign), checkOf("builders", builders(ctx, env, path, c, absent))}
+		if askGit && p.Missing > 0 {
+			checks = append(checks, checkOf("clean checkout", cleanCheckout(ctx, env.run, path, rev)))
+		}
+		return checks
+	}
 }
 
 // checkOf is a passed check, or a failed one carrying the first error.
@@ -124,11 +144,12 @@ func cleanCheckout(ctx context.Context, run runner, dir, rev string) error {
 }
 
 // builders predicts a build that cannot start: docker buildx for a
-// dockerfile build, and the program a command build runs. It runs no build.
+// dockerfile build, and the program a command build runs, for each artifact
+// absent names. It runs no build.
 //
 // ponytail: a builder on the plain docker driver passes, though it writes an
 // OCI layout only with the containerd image store; the build says so.
-func builders(ctx context.Context, env sysDeps, dir string, c *contract.Contract) error {
+func builders(ctx context.Context, env sysDeps, dir string, c *contract.Contract, absent map[string]bool) error {
 	if c.Publish == nil {
 		return nil
 	}
@@ -136,6 +157,7 @@ func builders(ctx context.Context, env sysDeps, dir string, c *contract.Contract
 	buildx := false
 	for _, a := range c.Publish.Artifacts {
 		switch {
+		case !absent[a.Name]:
 		case a.Build.Dockerfile != nil && !buildx:
 			buildx = true
 			ctx, cancel := context.WithTimeout(ctx, preflightTimeout)

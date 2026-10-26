@@ -41,6 +41,11 @@ Pacto runs no tests. It refuses to publish when one of its own checks fails:
   the contract directory without a `.pactoignore` line (`--plan` names it);
 - the version is too small for the change.
 
+The signer, the clean checkout and the builders are checked only for what is
+still to write: a builder for each artifact not yet published, the signer and
+`git status` when anything is. Running publish again for a version already
+published (to `--propose` it, say) needs none of them.
+
 A version too small for the change is also kept as a signed refusal in the
 contract bundle repository, signed with the publish key, so the dashboard's
 **Published** view shows it with the bump it needed. Keeping it never changes

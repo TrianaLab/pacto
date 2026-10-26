@@ -96,6 +96,10 @@ type Input struct {
 	Revision string
 	// Checks are checks the caller ran (validation, local references, the lock).
 	Checks []Check
+	// Preflight, when set, returns more checks once the items are decided, so
+	// a check that only matters for what will be written (a builder, a
+	// signer, a clean checkout) can pass when nothing will be.
+	Preflight func(Plan) []Check
 }
 
 // Repo turns a publish ref (oci://host/path) into a repository reference.
@@ -163,14 +167,17 @@ func MakePlan(ctx context.Context, reg Registry, in Input) Plan {
 	p.Items = append(p.Items, bundle)
 
 	p.Ready = true
-	for _, ch := range p.Checks {
-		p.Ready = p.Ready && ch.Passed
-	}
 	for _, it := range p.Items {
 		p.Ready = p.Ready && it.State != Conflict && it.State != Unreadable
 		if it.State == Absent {
 			p.Missing++
 		}
+	}
+	if in.Preflight != nil {
+		p.Checks = append(p.Checks, in.Preflight(p)...)
+	}
+	for _, ch := range p.Checks {
+		p.Ready = p.Ready && ch.Passed
 	}
 	return p
 }

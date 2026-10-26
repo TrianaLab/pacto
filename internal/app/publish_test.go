@@ -219,7 +219,7 @@ func TestPublishPlanChecksTheBuilders(t *testing.T) {
 		!strings.Contains(b, "the build of manifests runs ./render.sh, which is not an executable here") || strings.Contains(b, "worker") {
 		t.Fatalf("builders: %v", got)
 	}
-	if err := builders(context.Background(), sysDeps{}, dir, &contract.Contract{}); err != nil {
+	if err := builders(context.Background(), sysDeps{}, dir, &contract.Contract{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if err := newExecTools(dir, nil, nil).loadSigner(context.Background(), &contract.Contract{}); err != nil {
@@ -332,6 +332,46 @@ func TestPublishRunsTheTools(t *testing.T) {
 	again, err := svc.Publish(context.Background(), PublishOptions{Path: dir, Revision: "r1"})
 	if err != nil || len(again.Actions) != 0 {
 		t.Fatalf("second run: %v %v", err, again.Actions)
+	}
+}
+
+// TestPublishAgainNeedsNoBuilderSignerOrCleanCheckout: once a version is
+// published, running publish again (to --propose it, say) writes nothing, so
+// it must not be refused for a missing buildx, a missing build program, an
+// uncommitted file or a missing keyless OIDC token. Those preflights guard
+// only what is still to build, sign or stamp.
+func TestPublishAgainNeedsNoBuilderSignerOrCleanCheckout(t *testing.T) {
+	host, reg := publishRegistry(t)
+	dir := writePublishBundle(t, host, "")
+	signingKey(t, dir)
+	writeGit(t, dir, map[string]string{"HEAD": commitA + "\n"})
+	if _, err := publishService(&fakeRun{}, reg).Publish(context.Background(), PublishOptions{Path: dir}); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeRun{fail: preflights[0], dirty: " M unrelated.txt\n"}
+	svc := publishService(f, reg)
+	svc.sys.lookPath = func(string) (string, error) { return "", errors.New("not found") }
+	for _, plan := range []bool{true, false} {
+		res, err := svc.Publish(context.Background(), PublishOptions{Path: dir, Plan: plan})
+		if err != nil || !res.Plan.Ready || res.Plan.Missing != 0 || len(res.Actions) != 0 {
+			t.Fatalf("plan=%v: %v %+v", plan, err, res)
+		}
+	}
+	if len(f.calls) != 0 {
+		t.Fatalf("a re-run asked buildx or git: %v", f.calls)
+	}
+	// Keyless with no token: nothing to sign, so the token is not asked for.
+	t.Setenv("SIGSTORE_ID_TOKEN", "")
+	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+	keyless := &contract.Contract{Publish: &contract.Publish{Sign: &contract.PublishSign{Keyless: true}}}
+	check := preflight(context.Background(), sysDeps{}, newExecTools(dir, nil, nil), dir, keyless, os.DirFS(dir), false, "")
+	for _, c := range check(publish.Plan{}) {
+		if !c.Passed {
+			t.Fatalf("nothing to write, yet %s failed: %s", c.Name, c.Message)
+		}
+	}
+	if c := check(publish.Plan{Missing: 1}); c[0].Passed {
+		t.Fatalf("something to sign with no token passed: %+v", c)
 	}
 }
 
