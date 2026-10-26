@@ -135,7 +135,10 @@ pacto delivery propose -n prod --stage payments --type unfreeze --reason "fixed 
 
 Despite the name `propose`, an unfreeze takes effect at once and needs nobody
 else. It also clears `HOLD`, so run it on a Stage that is on hold even when
-`FROZEN` shows `false`. It needs the approver role but no fresh login. In the dashboard, the
+`FROZEN` shows `false`. It needs the approver role but no fresh login, and
+only the team that owns the service (the owner team in the contract running on
+the Stage) or break-glass may unfreeze it: a person of another team is refused
+with `NotYourTeam`, even with a cluster-wide approver binding. In the dashboard, the
 **Environments** view has an **Unfreeze** button on each frozen Stage.
 
 ## Roll back by hand

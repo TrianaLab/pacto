@@ -561,7 +561,10 @@ func TestFrozenPromoteWaitsAndUnfreeze(t *testing.T) {
 	}
 	e.create(opObj("u1", delivery.TypeUnfreeze, "", "", bot))
 	wantOutcome(t, e.drive("u1"), delivery.Rejected, "NotPermitted")
-	e.create(opObj("u2", delivery.TypeUnfreeze, "", "", "alice"))
+	// A person of another team may not clear this team's freeze.
+	e.create(opObj("u3", delivery.TypeUnfreeze, "", "", "bob", "team-orders"))
+	wantOutcome(t, e.drive("u3"), delivery.Rejected, "NotYourTeam")
+	e.create(opObj("u2", delivery.TypeUnfreeze, "", "", "alice", "team-payments"))
 	u2 := e.drive("u2")
 	wantOutcome(t, u2, delivery.Succeeded, "Unfrozen")
 	if u2.Status.Verification != delivery.Unverified {
@@ -572,6 +575,27 @@ func TestFrozenPromoteWaitsAndUnfreeze(t *testing.T) {
 	}
 	if o := e.drive("p1"); o.Status.Phase != delivery.PhaseRunning {
 		t.Fatalf("the parked promote moves after unfreeze: %s %s", o.Status.Phase, o.Status.Message)
+	}
+}
+
+// TestUnfreezeWithNoTeamToAsk: with RequireOwnerTeam, a Stage whose running
+// contract names no team, or cannot be read, is unfrozen only by break-glass.
+func TestUnfreezeWithNoTeamToAsk(t *testing.T) {
+	for name, setup := range map[string]func(e *env){
+		"nothing runs":       func(e *env) { e.setStage(func(s *delivery.StageStatus) { s.Pointer = "" }) },
+		"applier unreadable": func(e *env) { e.fails["get/OCIRepository/payments"] = true },
+		"no owner":           func(e *env) { e.reg.bundles[contractRef(c1)].Contract.Service.Owner = contract.Owner{} },
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := baseEnv(t, opObj("u1", delivery.TypeUnfreeze, "", "", "alice", "team-payments"))
+			e.op.Policy.RequireOwnerTeam = true
+			e.setStage(func(s *delivery.StageStatus) { s.Frozen = true })
+			setup(e)
+			o := e.drive("u1")
+			wantOutcome(t, o, delivery.Rejected, "NoOwnerTeam")
+			e.create(opObj("u2", delivery.TypeUnfreeze, "", "", "ops", "pacto:break-glass"))
+			wantOutcome(t, e.drive("u2"), delivery.Succeeded, "")
+		})
 	}
 }
 
