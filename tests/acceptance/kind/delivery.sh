@@ -61,8 +61,10 @@
 # Agents run as their own ServiceAccounts with tokens; people are impersonated
 # from the admin credentials with userInfo.extra["delivery.pacto.trianalab.io/auth-time"] set to
 # the moment of login, which is what structured authentication would map from
-# an OIDC auth_time claim. The CLI used for propose, cancel and approve is the
-# real `pacto delivery`. It runs on the host, where the in-cluster registry name
+# an OIDC auth_time claim. The CLI used for propose and cancel is the real
+# `pacto delivery`; its approve logs the person in again in a browser, which
+# the identity phase drives against Dex, so here approve_as creates the
+# Approval as the impersonated person. It runs on the host, where the in-cluster registry name
 # does not resolve, so its printed plan is not asserted here: the promoter's
 # status.plan is, and plan() is one pure function shared by both.
 set -euo pipefail
@@ -461,9 +463,10 @@ current-context: c
 YAML
   echo "$f"
 }
-# person_kubeconfig USER GROUP — impersonates USER with a login time of NOW.
+# person_kubeconfig USER GROUP [AT] — impersonates USER with a login time of AT
+# (default now).
 person_kubeconfig() {
-  local f; f="$(mktemp)"
+  local f at="${3:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"; f="$(mktemp)"
   cat > "$f" <<YAML
 apiVersion: v1
 kind: Config
@@ -475,7 +478,7 @@ users:
     client-key-data: "$KEY"
     as: "$1"
     as-groups: ["$2"]
-    as-user-extra: {"delivery.pacto.trianalab.io/auth-time": ["$(date -u +%Y-%m-%dT%H:%M:%SZ)"]}
+    as-user-extra: {"delivery.pacto.trianalab.io/auth-time": ["$at"]}
 contexts: [{name: c, context: {cluster: kind, user: "$1"}}]
 current-context: c
 YAML
@@ -486,6 +489,27 @@ AGENT_B="$(agent_kubeconfig agent-b)"
 as_agent() { local kc="$1"; shift; KUBECONFIG="$kc" "$PACTO" delivery "$@"; }
 # as_person USER TEAM ... — only members of the team a held question names may answer it.
 as_person() { local u="$1" g="$2"; shift 2; KUBECONFIG="$(person_kubeconfig "$u" "$g")" "$PACTO" delivery "$@"; }
+# approve_as USER TEAM NS OP DECISION [NOTE] — the Approval a person with a
+# fresh login creates. `pacto delivery approve` never sends the kubeconfig's
+# credentials: it logs the person in again in a browser (the identity phase
+# drives that against Dex). Here the person is impersonated, so the Approval
+# is created as they would send it: by, groups and authTime as the apiserver
+# reports them (admission holds the Approval to exactly that), owned by OP.
+approve_as() {
+  local u="$1" g="$2" ns="$3" op="$4" decision="$5" note="${6:-}" at kc uid digest groups
+  at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"; kc="$(person_kubeconfig "$u" "$g" "$at")"
+  uid="$(kubectl -n "$ns" get operation "$op" -o jsonpath='{.metadata.uid}')"
+  digest="$(kubectl -n "$ns" get operation "$op" -o jsonpath='{.spec.intentDigest}')"
+  groups="$(KUBECONFIG="$kc" kubectl auth whoami -o json | jq -c '.status.userInfo.groups')"
+  KUBECONFIG="$kc" kubectl -n "$ns" create -f - >/dev/null <<YAML
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Approval
+metadata:
+  generateName: $op-
+  ownerReferences: [{apiVersion: delivery.pacto.trianalab.io/v1alpha1, kind: Operation, name: "$op", uid: "$uid"}]
+spec: {operation: "$op", operationUID: "$uid", intentDigest: "$digest", decision: $decision, note: "$note", by: "$u", authTime: "$at", groups: $groups}
+YAML
+}
 
 section "contracts"
 contract_dir() { # NAME VERSION WORKLOAD [DEPENDENCY_LINES]
@@ -833,9 +857,11 @@ kubectl -n test get operation "$OPF" -o json | jq -e '.status.plan.floor.owners 
   || fail "the floor is not routed to team-checkout alone"
 waits_for_f() { has_pointer test "$WINNER" && held test "$OPF"; }
 always 5 waits_for_f || fail "F moved without a person"
-# No agent can approve: RBAC refuses the create, and the CLI refuses first.
+# No agent can approve: RBAC refuses the create, and the CLI refuses first,
+# since it sends no kubeconfig credentials and asks for a login of the
+# person's own.
 OUT="$(as_agent "$AGENT_A" approve -n test "$OPF" 2>&1 || true)"
-if grep -q "agents may not approve" <<<"$OUT"; then pass "the agent cannot approve"; else fail "an agent approved: $OUT"; fi
+if grep -q "approving needs a fresh login of your own" <<<"$OUT"; then pass "the agent cannot approve"; else fail "an agent approved: $OUT"; fi
 if KUBECONFIG="$AGENT_A" kubectl -n test create -f - 2>/dev/null <<YAML
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Approval
@@ -863,9 +889,9 @@ spec: {operation: $OPF, operationUID: x, intentDigest: x, decision: approve, by:
 YAML
 then fail "an approval without a fresh login was admitted"; fi
 # Only checkout's team may answer: alice is ignored while in team-payments and counts once in team-checkout.
-as_person alice team-payments approve -n test "$OPF" --decision approve --note "not my team" >/dev/null
+approve_as alice team-payments test "$OPF" approve "not my team"
 always 3 waits_for_f || fail "an approval from outside team-checkout moved F"
-as_person alice team-checkout approve -n test "$OPF" --decision approve --note "checkout migrates next sprint" >/dev/null
+approve_as alice team-checkout test "$OPF" approve "checkout migrates next sprint"
 wait_concluded test "$OPF" Succeeded/Verified
 [ "$(kubectl -n test get operation "$OPF" -o jsonpath='{.status.approvals[*].by}')" = alice ] || fail "the approval is not recorded, or the one from outside the team was"
 # Every Approval of F is owned by F, so it is garbage collected with it, and
@@ -881,7 +907,7 @@ pass "F's Approvals are owned by F and cannot be edited"
 pass "item 4: F held for team-checkout only, answered only by a team-checkout member, verified in test"
 OPFP="$(wait_op prod "$F")"
 eventually 30 held prod "$OPFP" || fail "F was not held in prod"
-as_person carol team-checkout approve -n prod "$OPFP" --decision approve >/dev/null
+approve_as carol team-checkout prod "$OPFP" approve
 wait_concluded prod "$OPFP" Succeeded/Verified
 
 section "item 7: a person's rollback in prod is not undone by automation"
@@ -1247,7 +1273,7 @@ verdict "$OPQ" health .message | grep -q "spans in the window; at least 20" || f
 eventually 60 held "$H" "$OPQ" || fail "Q was not held for a person at the window's end: $(field "$H" "$OPQ" phase)"
 [ "$(field "$H" "$OPQ" reason)" = VerifyUnknown ] || fail "Q held for the wrong reason: $(field "$H" "$OPQ" reason)"
 { [ "$(rollbacks_of "$OPQ")" = 0 ] && has_pointer "$H" "$Q"; } || fail "Unknown rolled Q back"
-as_person alice team-payments approve -n "$H" "$OPQ" --decision reject --note "no telemetry, no trust" >/dev/null
+approve_as alice team-payments "$H" "$OPQ" reject "no telemetry, no trust"
 wait_concluded "$H" "$OPQ" Failed/
 wait_concluded "$H" "${OPQ}-rollback" Succeeded/Verified
 pass "Q held as Unknown with no rollback until alice rejected it"
