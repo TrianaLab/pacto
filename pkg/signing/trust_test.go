@@ -93,7 +93,7 @@ func TestRunnerSignsItsVerdict(t *testing.T) {
 	_, runnerKey, _ := ed25519.GenerateKey(rand.Reader)
 	_, stranger, _ := ed25519.GenerateKey(rand.Reader)
 	subject := "sha256:" + strings.Repeat("a", 64)
-	suite := "sha256:67fd4cc91da7c4d6870049981fed4d367327a4bb687e73666652796d80b533b8"
+	suite := "sha256:46f6697e1c211b6750b35512f33b92b69a700b74cda7e469e0bfd8ddd594b752"
 	payload, _ := json.Marshal(delivery.EvalStatement{Type: delivery.StatementType, PredicateType: delivery.PredicateEval,
 		Subject:   []delivery.Subject{{Name: "pay-agent", Digest: map[string]string{"sha256": strings.Repeat("a", 64)}}},
 		Predicate: delivery.EvalResult{Operation: "op-1", Challenge: "c1", Suite: suite, Run: "run-7", Passed: 2, Total: 2}})

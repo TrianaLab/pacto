@@ -1,7 +1,6 @@
 package diff
 
 import (
-	"bytes"
 	"io/fs"
 	"slices"
 
@@ -29,11 +28,13 @@ func diffChecks(old, new []contract.Check, oldFS, newFS fs.FS) []Change {
 		if oldFS == nil || newFS == nil {
 			continue
 		}
-		ob, oerr := fs.ReadFile(oldFS, o.File)
-		nb, nerr := fs.ReadFile(newFS, n.File)
-		if (oerr == nil) != (nerr == nil) || !bytes.Equal(ob, nb) {
+		// Every file beside the suite counts: a runner can read its cases
+		// from there, so suite.yaml alone could stay the same while they weaken.
+		od, oerr := contract.SuiteDigest(oldFS, o.File)
+		nd, nerr := contract.SuiteDigest(newFS, n.File)
+		if (oerr == nil) != (nerr == nil) || od != nd {
 			c := newChange("checks.file", Modified, o.Name+": "+o.File, o.Name+": "+n.File)
-			c.Reason = "the suite " + n.File + " of check " + n.Name + " changed"
+			c.Reason = "the suite " + n.File + " of check " + n.Name + " or a file beside it changed"
 			changes = append(changes, c)
 		}
 	}

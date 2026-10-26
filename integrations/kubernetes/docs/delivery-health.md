@@ -134,8 +134,11 @@ that does not ship the named check, or with no `suite` ships no check or more
 than one, is held before it ships (the `pacto.suites` gate): a person accepts
 it or it does not ship.
 
-`suiteDigest` pins the sha256 of the suite the version ships: a
-version with other suite bytes is held the same way, and its eval is Unknown.
+`suiteDigest` pins the sha256 of the suite the version ships, which covers
+every file in the suite's directory (see
+[Checks](../../contract-reference/checks.md#checks)): a version with
+another suite is held the same way, and its eval is Unknown. A suite must be
+self-contained in its directory.
 
 The promoter posts the same `{"input": ..., "params": ...}`, the input also
 naming the contract the version ships and the suite in it:

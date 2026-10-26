@@ -3,12 +3,9 @@ package delivery
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"net/http"
 	"slices"
 	"strconv"
@@ -345,7 +342,8 @@ func (e Eval) suite(ctx context.Context, in *GateInput, name string) (models []s
 }
 
 // readSuite is the suite a Stage check's suite name picks from the checks
-// rev's contract ships, with the sha256 of its bytes, or why there is none.
+// rev's contract ships, with the sha256 of every file in its directory
+// (contract.SuiteDigest), or why there is none.
 func readSuite(rev Revision, name string) (*Suite, string) {
 	var checks []contract.Check
 	if rev.Bundle.Contract != nil {
@@ -358,12 +356,11 @@ func readSuite(rev Revision, name string) (*Suite, string) {
 	if rev.Bundle.FS == nil {
 		return nil, "the bundle " + rev.ContractRef + " carries no files to read the suite " + c.File + " from"
 	}
-	data, err := fs.ReadFile(rev.Bundle.FS, c.File)
+	digest, err := contract.SuiteDigest(rev.Bundle.FS, c.File)
 	if err != nil {
 		return nil, fmt.Sprintf("reading the suite %s in %s: %v", c.File, rev.ContractRef, err)
 	}
-	sum := sha256.Sum256(data)
-	return &Suite{Name: c.Name, Path: c.File, Digest: "sha256:" + hex.EncodeToString(sum[:])}, ""
+	return &Suite{Name: c.Name, Path: c.File, Digest: digest}, ""
 }
 
 // pinMismatch says a version ships a suite whose digest is not the one the

@@ -15,8 +15,8 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
-// suiteDigest is the sha256 of the suite agentRevision ships.
-const suiteDigest = "sha256:67fd4cc91da7c4d6870049981fed4d367327a4bb687e73666652796d80b533b8"
+// suiteDigest is the sha256 of the suite agentRevision ships (contract.SuiteDigest).
+const suiteDigest = "sha256:46f6697e1c211b6750b35512f33b92b69a700b74cda7e469e0bfd8ddd594b752"
 
 // agentRevision is a version whose contract ships one check, evals/suite.yaml.
 func agentRevision(context.Context, GateInput) Revision {
@@ -462,4 +462,15 @@ func TestEvalVerdicts(t *testing.T) {
 // recordOf is the record of operation u1 to dA that keeps v.
 func recordOf(v Verdict) RecordPredicate {
 	return RecordPredicate{Intent: RecordIntent{UID: "u1", Params: &Params{To: dA}}, Verdicts: []Verdict{v}}
+}
+
+// TestSuitePinCoversFilesBesideIt: a runner can load cases from beside the
+// suite, so weakening them with suite.yaml unchanged still breaks the pin.
+func TestSuitePinCoversFilesBesideIt(t *testing.T) {
+	rev := agentRevision(context.Background(), GateInput{})
+	rev.Bundle.FS = fstest.MapFS{"evals/suite.yaml": {Data: []byte("cases: []\n")}, "evals/cases.csv": {Data: []byte("refund\n")}}
+	s, why := readSuite(rev, "evals")
+	if why != "" || s.Digest == suiteDigest {
+		t.Fatalf("a case file beside the suite must change its digest: %+v %q", s, why)
+	}
 }

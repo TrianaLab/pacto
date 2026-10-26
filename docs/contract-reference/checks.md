@@ -28,11 +28,21 @@ checks:
 | `name` | The suite's name, unique in the contract (`DUPLICATE_CHECK_NAME` otherwise). A Stage names it to run it |
 | `file` | The suite's file in the bundle (`FILE_NOT_FOUND` when missing) |
 
-Pacto never reads a suite. It packs the file in the bundle, records its
-sha256 and hands file and digest to the runner the Stage names. It accepts
-only a verdict about that exact digest: no verdict, a timeout or an answer
-about another file is Unknown, and Unknown never passes. The contract does not
-say which runner runs a suite; the environment does.
+Pacto never reads a suite. It packs the file in the bundle, records a sha256
+of the suite and hands file and digest to the runner the Stage names. It
+accepts only a verdict about that exact digest: no verdict, a timeout or an
+answer about another suite is Unknown, and Unknown never passes. The contract
+does not say which runner runs a suite; the environment does.
+
+A suite is every file in the directory that holds its `file`, not the file
+alone: a runner may read cases, fixtures or golden answers from beside it.
+Keep each suite self-contained in its own directory (`evals/`, not the bundle
+root, where the suite would take in the whole bundle). The digest is what
+`sha256sum` prints for those files, sorted by path, hashed once more:
+
+```bash
+cd evals && find . -type f | sed 's|^\./||' | LC_ALL=C sort | xargs sha256sum | sha256sum
+```
 
 ### What a change needs
 
@@ -43,8 +53,9 @@ say which runner runs a suite; the environment does.
 | A suite added | Non-breaking: it only adds a check |
 | A suite removed, moved or edited | Potentially breaking: a release that drops the cases it fails would loosen the check it ships behind, so a person reviews it |
 
-`pacto diff` compares the suite's bytes, so it sees an edit but cannot tell a
-stricter suite from a weaker one: that is the reviewer's call.
+`pacto diff` compares the suite's digest, every file beside it included, so it
+sees an edit but cannot tell a stricter suite from a weaker one: that is the
+reviewer's call.
 
 In delivery, any suite change (added, removed, moved or edited) holds the
 version for a person on every rung, autonomous included. A version never
@@ -63,7 +74,7 @@ gates:
       - name: evals
         provider: evals                # gates.providers: {name: evals, type: eval, url: ...}
         suite: evals                   # the checks[].name to run
-        suiteDigest: sha256:...        # optional: the exact suite bytes to accept
+        suiteDigest: sha256:...        # optional: the exact suite to accept
         params: {minPassRate: "0.95"}
 ```
 

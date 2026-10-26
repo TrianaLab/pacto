@@ -54,7 +54,7 @@ func TestEvalGateReadsTheShippedSuite(t *testing.T) {
 
 	in := delivery.GateInput{Stage: delivery.StageRef{Namespace: ns, Name: agent.Name}, Subjects: []string{dB}, Challenge: "c1"}
 	if v := gates["evals"].Check(context.Background(), in, nil); v.Result != delivery.Pass || asked.Contract != contractRef(c2) ||
-		asked.Suite.Digest != "sha256:67fd4cc91da7c4d6870049981fed4d367327a4bb687e73666652796d80b533b8" {
+		asked.Suite.Digest != "sha256:46f6697e1c211b6750b35512f33b92b69a700b74cda7e469e0bfd8ddd594b752" {
 		t.Fatalf("%+v asked %+v", v, asked)
 	}
 	for name, want := range map[string]string{"gone": "reading the Stage", lost.Name: "reading the apply OCIRepository"} {

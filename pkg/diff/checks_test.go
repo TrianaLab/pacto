@@ -34,8 +34,14 @@ func TestDiffChecksSuiteContent(t *testing.T) {
 	full := fstest.MapFS{"evals/suite.yaml": {Data: []byte("cases: [refund, chargeback]\n")}}
 	weaker := fstest.MapFS{"evals/suite.yaml": {Data: []byte("cases: [refund]\n")}}
 	got := diffChecks(a, a, full, weaker)
-	if len(got) != 1 || got[0].Classification != PotentialBreaking || got[0].Type != Modified || got[0].Reason != "the suite evals/suite.yaml of check evals changed" {
+	if len(got) != 1 || got[0].Classification != PotentialBreaking || got[0].Type != Modified || got[0].Reason != "the suite evals/suite.yaml of check evals or a file beside it changed" {
 		t.Fatalf("suite edited: %+v", got)
+	}
+	// suite.yaml unchanged, but the cases it loads from beside it weakened.
+	withCases := fstest.MapFS{"evals/suite.yaml": full["evals/suite.yaml"], "evals/cases.csv": {Data: []byte("refund\nchargeback\n")}}
+	fewerCases := fstest.MapFS{"evals/suite.yaml": full["evals/suite.yaml"], "evals/cases.csv": {Data: []byte("refund\n")}}
+	if got := diffChecks(a, a, withCases, fewerCases); len(got) != 1 || got[0].Classification != PotentialBreaking {
+		t.Fatalf("a case file beside the suite changed: %+v", got)
 	}
 	if got := diffChecks(a, a, full, fstest.MapFS{}); len(got) != 1 {
 		t.Fatalf("suite gone from the bundle: %+v", got)
