@@ -54,8 +54,9 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 			// ran: the compare-and-swap below concludes it Preempted.
 			// ponytail: a lock taken between this read and that swap still
 			// gets the rollback raised, which is then refused and freezes.
-			live := concludedOn(cur.Status, op.UID) == nil && !preempted(op, cur)
-			if live {
+			open := concludedOn(cur.Status, op.UID) == nil
+			live := open && !preempted(op, cur)
+			if live || open && c.preempted { // a preempting rollback already ran: only the step-down is owed
 				var err error
 				if squat, err = raiseStepDown(ctx, r.Client, r.Policy, op, cur, code+": "+msg, c.cause); err != nil {
 					return reconcile.Result{}, err
@@ -89,7 +90,7 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 				op.Status.Seq, c = done.Seq, conclusion{outcome: done.Outcome, verification: done.Verification, reason: done.Reason}
 				return nil
 			}
-			if taken {
+			if taken && !c.preempted {
 				c = preemptedBy
 			}
 			if op.Spec.Type == delivery.TypeAutonomy && c.outcome == delivery.Succeeded {

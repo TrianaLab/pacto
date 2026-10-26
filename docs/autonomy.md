@@ -129,6 +129,11 @@ non-breaking, and auto for non-breaking goes back to advise. The drop is
 recorded like any other change and needs no approval. The count of good
 versions starts again from zero, so Pacto has to earn the rung back.
 
+A version that shipped with no person and that an AI agent rolls back before
+its checks judge it counts as failed too: it is never promoted on that Stage
+again and the Stage drops a rung, so an agent cannot pull its own failing
+change and keep its record clean.
+
 An Unknown never causes a step-down. Unknown means Pacto could not see, not
 that the version failed.
 

@@ -89,6 +89,9 @@ type conclusion struct {
 	freeze       bool
 	// cause is the verdict that failed the operation, cited by its rollback.
 	cause *delivery.Verdict
+	// preempted says a rollback took the lock and failed the operation
+	// (preemption): its step-down is raised, its rollback already ran.
+	preempted bool
 }
 
 // Reconcile implements reconcile.Reconciler.
@@ -454,9 +457,38 @@ func preempted(op *dv1.Operation, stage *dv1.Stage) bool {
 // concludes.
 var preemptedBy = conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified, reason: "Preempted: a rollback or override took the Stage"}
 
+// preemption is how op concludes once a rollback or override took its lock:
+// preemptedBy, or Failed when a rollback no person raised undid a promote no
+// person approved. Concluded as a success, an agent could pull its own
+// failing promote before verify judged it: no step-down, no failed digest, so
+// the rung stays automatic and the version can ship again.
+func (r *OperationReconciler) preemption(ctx context.Context, op *dv1.Operation) (conclusion, error) {
+	if op.Spec.Type != delivery.TypePromote || op.Status.ActorClass == delivery.ClassHuman || len(op.Status.Approvals) > 0 {
+		return preemptedBy, nil
+	}
+	ops, err := stageOps(ctx, r.Client, op.Namespace, op.Spec.Stage)
+	if err != nil {
+		return conclusion{}, err
+	}
+	for _, o := range ops {
+		if o.Spec.Type == delivery.TypeRollback && o.Spec.Params.Undoes == string(op.UID) &&
+			o.Status.ActorClass != delivery.ClassHuman && o.Status.ActorClass != delivery.ClassBreakGlass {
+			msg := "preempted by " + string(o.Status.ActorClass) + " rollback " + o.Name + ", which no person raised, before verify judged it"
+			return conclusion{outcome: delivery.Failed, reason: "PreemptedByRollback: " + msg, preempted: true,
+				cause: &delivery.Verdict{Gate: "pacto.preempted", Phase: "verify", Result: delivery.Fail, Message: msg,
+					Citation: map[string]string{"rollback": string(o.UID)}}}, nil
+		}
+	}
+	return preemptedBy, nil
+}
+
 func (r *OperationReconciler) verifying(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, error) {
 	if preempted(op, stage) {
-		return r.finish(ctx, op, stage, preemptedBy)
+		c, err := r.preemption(ctx, op)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		return r.finish(ctx, op, stage, c)
 	}
 	vs := r.verdicts(ctx, op, stage)
 	op.Status.Verdicts = slices.DeleteFunc(op.Status.Verdicts, func(x delivery.Verdict) bool { return x.Phase == "verify" })
@@ -511,7 +543,11 @@ func verdictMessages(vs []delivery.Verdict, r delivery.Result) string {
 // keeps the lock, but a rollback or override may preempt it.
 func (r *OperationReconciler) heldAfterApply(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (reconcile.Result, error) {
 	if preempted(op, stage) {
-		return r.finish(ctx, op, stage, preemptedBy)
+		c, err := r.preemption(ctx, op)
+		if err != nil {
+			return reconcile.Result{}, err
+		}
+		return r.finish(ctx, op, stage, c)
 	}
 	if r.passed(op.Status.Times.ApprovalDeadline) {
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Errored, freeze: true, reason: "VerifyUndecided: nobody accepted or rejected the unknown in time"})

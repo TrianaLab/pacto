@@ -416,6 +416,42 @@ func TestLockWaitsAndPointerMovedAtLock(t *testing.T) {
 	}
 }
 
+// TestAgentRollbackPreemptingItsOwnPromoteFailsIt: an agent that pulls its
+// own failing promote before verify judges it still owns the failure: the
+// promote concludes Failed, the version is never promoted again and the
+// Stage steps down. No second rollback is raised.
+func TestAgentRollbackPreemptingItsOwnPromoteFailsIt(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
+	e.setStage(func(s *delivery.StageStatus) { s.Rung = delivery.RungAutonomous })
+	e.drive("p1")
+	e.apply(dB)
+	e.drive("p1") // verifying
+	rb := opObj("undo", delivery.TypeRollback, dB, dA, bot)
+	rb.Spec.Params.Undoes = "uid-p1"
+	rb.Spec.IntentDigest = delivery.IntentDigest(rb.Spec, stageObj("").Spec)
+	e.create(rb)
+	if o := e.drive("undo"); o.Status.Phase != delivery.PhaseRunning {
+		t.Fatalf("the agent's rollback preempts: %s %s", o.Status.Phase, o.Status.Message)
+	}
+	e.fails["list/Operation"] = true
+	if _, err := e.op.verifying(context.Background(), e.getOp("p1"), e.getStage()); err == nil {
+		t.Fatal("an unlistable Stage's operations must be an error, not a success")
+	}
+	delete(e.fails, "list/Operation")
+	wantOutcome(t, e.drive("p1"), delivery.Failed, "PreemptedByRollback")
+	if s := e.getStage(); !slices.Contains(s.Status.FailedDigests, dB) || s.Status.Locks[delivery.FacetPointer] != "uid-undo" {
+		t.Fatalf("the preempted version must count as failed: %+v", s.Status)
+	}
+	if sd := e.getOp("p1-stepdown"); sd.Spec.Params.From != string(delivery.RungAutonomous) {
+		t.Fatalf("the step-down: %+v", sd.Spec)
+	}
+	for _, o := range e.ops() {
+		if o.Name == "p1-rollback" {
+			t.Fatal("the agent's rollback already ran; no second one is owed")
+		}
+	}
+}
+
 // TestHumanRollbackPreemptsAndHolds is acceptance item 7: a person's rollback
 // preempts a verifying promote and puts an auto-hold on the Stage, so
 // automation does not undo it.
