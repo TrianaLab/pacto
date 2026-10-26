@@ -249,6 +249,11 @@ func TestWebhook(t *testing.T) {
 	if v.Result != Fail || v.Citation["query"] != "q" || v.Citation["subject"] != dA || sent.Input.OperationUID != "u1" || sent.Params["slo"] != "99" {
 		t.Fatalf("%+v sent=%s", v, body)
 	}
+	// A Fail needs no citation of its own; it still names the version judged.
+	answer = `{"subject":"` + dA + `","result":"Fail","message":"down"}`
+	if v := g.Check(context.Background(), gateIn(), nil); v.Result != Fail || v.Citation["subject"] != dA {
+		t.Fatalf("a fail with no citation: %+v", v)
+	}
 	answer = `{"subject":"` + dA + `","result":"Pass"}`
 	// A pass with no citation of its own is Unknown through RunChecks: the
 	// subject the gate adds is nothing to re-run.
