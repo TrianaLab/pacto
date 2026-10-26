@@ -11,6 +11,7 @@ package story
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"embed"
@@ -497,6 +498,15 @@ func (b Beat) autonomyInput() (delivery.PlanInput, error) {
 	if below, _ := from.Below(); to != from && to != below {
 		in.From = run
 		in.Status.Proposal = &delivery.Proposal{Rung: to, Evidence: []string{run.Digest}}
+		// The status that earned it: the planner checks the proposal against it.
+		for i := range cmp.Or(in.Stage.Autonomy.ProposeAfter, delivery.DefaultProposeAfter) {
+			if from == delivery.RungObserve {
+				in.Status.Shadow = append(in.Status.Shadow, delivery.Shadow{Candidate: run.Digest, ObservedAt: Now.Format(time.RFC3339), Verification: delivery.Verified})
+				continue
+			}
+			in.Status.Stream.Concluded = append(in.Status.Stream.Concluded, delivery.Concluded{UID: fmt.Sprint("earned-", i),
+				Type: delivery.TypePromote, Outcome: delivery.Succeeded, Verification: delivery.Verified, ClearedBreaking: i == 0})
+		}
 	}
 	return in, nil
 }
