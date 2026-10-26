@@ -18,7 +18,7 @@ The page is generated from `pkg/validation/schema/field-coverage.yaml`. `pkg/val
 | --- | --- | --- |
 | `verified` | A runtime fact can both satisfy and contradict the declaration. | 4 |
 | `partial` | A runtime fact exists, but some values or environments stay unverified. | 15 |
-| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 69 |
+| `static-only` | Checked by `pacto validate` only; nothing at runtime reads it. | 71 |
 | `not-applicable` | Identity, container or open object with nothing to verify. | 13 |
 
 A runtime check never turns "could not look" into a violation. A check with no usable fact is listed in `status.evaluationCoverage.unverified` and leaves the contract status unchanged.
@@ -61,9 +61,11 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `dependencies` | `not-applicable` | - | - | - | PARSE_ERROR when not a list |
 | `dependencies[]` | `verified` | `verified` | `verified` | `partial` | Compliant; DEPENDENCY_UNREACHABLE (error, warning when optional); OBSERVATION_UNSUPPORTED when the provider is not a Pacto target; DEPENDENCY_UNDECLARED (warning) for reachable peers no entry names |
 | `dependencies[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_DEPENDENCY_NAME |
-| `dependencies[].ref` | `partial` | `partial` | `unverified` | `unverified` | OBSERVATION_UNSUPPORTED when no sibling matches; INVALID_OCI_REF and TAG_NOT_DIGEST (warning) statically |
+| `dependencies[].ref` | `partial` | `partial` | `unverified` | `unverified` | OBSERVATION_UNSUPPORTED when no sibling matches; INVALID_OCI_REF and TAG_NOT_DIGEST (warning) statically; DEPENDENCY_REF_REQUIRED when missing on a dependency that is not external |
 | `dependencies[].required` | `partial` | `partial` | `partial` | `partial` | DEPENDENCY_UNREACHABLE or DEPENDENCY_VERSION_MISMATCH as warning when optional; SCHEMA_VIOLATION when omitted |
 | `dependencies[].compatibility` | `partial` | `partial` | `unverified` | `unverified` | Compliant; DEPENDENCY_VERSION_MISMATCH (error, warning when optional); listed in evaluationCoverage.unverified otherwise; INVALID_COMPATIBILITY statically |
+| `dependencies[].external` | `static-only` | - | - | - | DEPENDENCY_REF_REQUIRED; NEEDS_PACTO_2_1 under 2.0 |
+| `dependencies[].version` | `static-only` | - | - | - | EXTERNAL_VERSION_REQUIRED, VERSION_WITH_REF, COMPATIBILITY_WITHOUT_REF |
 | `state` | `not-applicable` | - | - | - | PARSE_ERROR when not an object |
 | `state.type` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `state.persistence` | `not-applicable` | - | - | - | SCHEMA_VIOLATION when missing |
@@ -122,10 +124,10 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `publish.sign.key` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `publish.sign.kms` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `publish.sign.transparencyLog` | `static-only` | - | - | - | PARSE_ERROR when not a boolean |
-| `agent` | `static-only` | - | - | - | PARSE_ERROR when not a map; SCHEMA_VIOLATION when empty or under 2.0 |
-| `agent.models` | `static-only` | - | - | - | SCHEMA_VIOLATION |
-| `agent.models[]` | `static-only` | - | - | - | SCHEMA_VIOLATION |
-| `agent.evals` | `static-only` | - | - | - | FILE_NOT_FOUND |
+| `checks` | `static-only` | - | - | - | PARSE_ERROR when not a list; NEEDS_PACTO_2_1 under 2.0 |
+| `checks[]` | `static-only` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_CHECK_NAME |
+| `checks[].name` | `static-only` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_CHECK_NAME |
+| `checks[].file` | `static-only` | - | - | - | FILE_NOT_FOUND |
 | `metadata` | `not-applicable` | - | - | - | PARSE_ERROR when not a map |
 | `extensions` | `not-applicable` | - | - | - | PARSE_ERROR when not a map |
 
@@ -140,7 +142,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Evidence | none: the field has no runtime counterpart |
 | Rule | parse rejects anything but "2.0" and "2.1" before any other layer runs; the version selects the schema |
 | Outcomes | PARSE_ERROR when unsupported |
-| Limitations | 2.0 has its own schema without publish, agent or mcp; this inventory walks 2.1, the superset |
+| Limitations | 2.0 has its own schema without publish, checks, external dependencies or mcp; this inventory walks 2.1, the superset |
 | Tests | unit: `pkg/contract/parse_test.go:TestParse_UnsupportedVersion`, `pkg/validation/structural_test.go:TestValidateStructuralRaw_UnsupportedVersion_V10`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid` |
 
 | Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
@@ -361,7 +363,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `openapi` | `verified` | HTTP API described by an OpenAPI document. | http1 or http2 satisfies; other contradicts | Compliant or INTERFACE_PROTOCOL_MISMATCH | tls or no probe answer is unverified | unit: `pkg/validation/evaluate_test.go:TestEvaluate_InterfaceTypeFacet`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=openapi`; e2e: `tests/acceptance/kind/runtime-conformance.sh:conforming-workload`, `tests/acceptance/kind/runtime-conformance.sh:protocol-mismatch` |
 | `grpc` | `verified` | gRPC service; HTTP/2 on the wire. | http2 satisfies; http1 or other contradicts | Compliant or INTERFACE_PROTOCOL_MISMATCH | tls or no probe answer is unverified | unit: `pkg/validation/evaluate_test.go:TestEvaluate_InterfaceTypeFacet`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=grpc`; e2e: `tests/acceptance/kind/runtime-conformance.sh:protocol-mismatch` |
 | `asyncapi` | `static-only` | Message-driven API described by an AsyncAPI document. | no wire protocol is implied, so nothing satisfies or contradicts it | always listed as unverified when the interface is present | brokers and protocols vary (Kafka, AMQP, MQTT, WebSocket) | unit: `pkg/validation/evaluate_test.go:TestEvaluate_InterfaceTypeFacet`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=asyncapi` |
-| `mcp` | `static-only` | The tools an AI agent exposes, as an MCP tools/list result (pactoVersion 2.1). | cross-field: the file lists tools, each named once; diff compares tool by tool | INVALID_MCP_TOOLS; always listed as unverified when the interface is present | MCP runs over stdio or HTTP, so no wire protocol is implied; descriptions are not compared | unit: `pkg/validation/crossfield_test.go:TestValidateAgent`, `pkg/diff/mcp_test.go:TestDiffMCP`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=mcp`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=mcp/no-tools` |
+| `mcp` | `static-only` | The tools a service exposes, as an MCP tools/list result (pactoVersion 2.1). | cross-field: the file lists tools, each named once; diff compares tool by tool | INVALID_MCP_TOOLS; always listed as unverified when the interface is present | MCP runs over stdio or HTTP, so no wire protocol is implied; descriptions are not compared | unit: `pkg/validation/crossfield_test.go:TestValidateMCPInterfaces`, `pkg/diff/mcp_test.go:TestDiffMCP`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=mcp`, `tests/integration/field_coverage_test.go:TestFieldCoverage/interfaces[].type=mcp/no-tools` |
 
 ### `interfaces[].ref`
 
@@ -626,8 +628,8 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Runtime | `partial` |
 | Evidence | resolution key: matched against sibling Pacto status.contract.resolvedRef to find the provider Service |
 | Rule | a ref that matches no sibling cannot be observed |
-| Outcomes | OBSERVATION_UNSUPPORTED when no sibling matches; INVALID_OCI_REF and TAG_NOT_DIGEST (warning) statically |
-| Limitations | a ref without a scheme is a local path and gets no static check |
+| Outcomes | OBSERVATION_UNSUPPORTED when no sibling matches; INVALID_OCI_REF and TAG_NOT_DIGEST (warning) statically; DEPENDENCY_REF_REQUIRED when missing on a dependency that is not external |
+| Limitations | a ref without a scheme is a local path and gets no static check; only an external dependency may leave it out |
 | Tests | unit: `pkg/validation/crossfield_test.go:TestValidateDependencyRefs_InvalidOCI`, `pkg/validation/crossfield_test.go:TestValidateDependencyRefs_TagNotDigestWarning`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].ref/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].ref/invalid`; e2e: `tests/acceptance/kind/runtime-conformance.sh:dependency-reachable-kernel` |
 
 | Platform | Evidence | Why | Tests |
@@ -671,6 +673,30 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Kubernetes (the operator with its node agent) | `partial` | the provider Pacto's deployed contract version | the e2e scenarios above |
 | `pacto agent` (a Docker host or a server) | `unverified` | no source off Kubernetes: no provider version is known, so the facet is listed in coverage.unverified | - |
 | `pacto run` (one wrapped command) | `unverified` | no source off Kubernetes: no provider version is known, so the facet is listed in coverage.unverified | - |
+
+### `dependencies[].external`
+
+| Key | Value |
+| --- | --- |
+| Meaning | The dependency is not delivered by this Pacto system (it may still run in the same company). |
+| Runtime | `static-only` |
+| Evidence | none: it only changes expectations; Pacto does not expect to see it running and never moves it first |
+| Rule | cross-field: a dependency without ref must be external with a version; pactoVersion 2.1 only |
+| Outcomes | DEPENDENCY_REF_REQUIRED; NEEDS_PACTO_2_1 under 2.0 |
+| Limitations | with a ref it is compared like any other dependency; reachability is still checked when bound |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateDependencyForm`, `pkg/graph/resolver_test.go:TestResolve_ExternalDependency`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].external/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].external/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].external/invalid-2.0` |
+
+### `dependencies[].version`
+
+| Key | Value |
+| --- | --- |
+| Meaning | Free-text version an external dependency with no ref runs against. |
+| Runtime | `static-only` |
+| Evidence | none: no contract to compare it with, so anything relying on it is Unknown |
+| Rule | cross-field: required for an external dependency without ref, refused beside a ref; diff: any change is potentially breaking |
+| Outcomes | EXTERNAL_VERSION_REQUIRED, VERSION_WITH_REF, COMPATIBILITY_WITHOUT_REF |
+| Limitations | shown in the graph and in diffs only; compatibility can never be confirmed |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateDependencyForm`, `pkg/diff/dependency_test.go:TestDiffDependencies_External`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].version/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/dependencies[].version/invalid` |
 
 ### `state`
 
@@ -1500,53 +1526,53 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Limitations | false is for private registries; keyless signing needs the log |
 | Tests | unit: `pkg/validation/structural_test.go:TestValidateStructural_V21Publish`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.transparencyLog/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/publish.sign.transparencyLog/invalid` |
 
-### `agent`
+### `checks`
 
 | Key | Value |
 | --- | --- |
-| Meaning | Marks the service as an AI agent; adds the models it calls and its eval suite. |
+| Meaning | Test or eval suites shipped with the version; a delivery gate hands one to a runner. |
 | Runtime | `static-only` |
-| Evidence | none: delivery runs the eval suite through an eval gate; nothing at runtime reads the section |
-| Rule | schema: object with models or evals; pactoVersion 2.1 only |
-| Outcomes | PARSE_ERROR when not a map; SCHEMA_VIOLATION when empty or under 2.0 |
-| Limitations | tools are interfaces of type mcp and called services are dependencies |
-| Tests | unit: `pkg/diff/mcp_test.go:TestDiffAgent`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/agent/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/agent/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/agent/invalid-empty`, `tests/integration/field_coverage_test.go:TestFieldCoverage/agent/invalid-2.0` |
+| Evidence | none: a suite gate in delivery asks a runner to run a suite, bound to its sha256 |
+| Rule | schema: non-empty list; pactoVersion 2.1 only |
+| Outcomes | PARSE_ERROR when not a list; NEEDS_PACTO_2_1 under 2.0 |
+| Limitations | Pacto never reads a suite; its format is the runner's |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateChecks`, `pkg/diff/checks_test.go:TestDiffChecks`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/checks/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/checks/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/checks/invalid-2.0` |
 
-### `agent.models`
+### `checks[]`
 
 | Key | Value |
 | --- | --- |
-| Meaning | Model ids the agent calls that have no Pacto contract of their own. |
+| Meaning | One suite, by name and file. |
 | Runtime | `static-only` |
-| Evidence | none: the models the agent really calls are not observed |
-| Rule | schema: unique non-empty strings; diff: any change is potentially breaking |
-| Outcomes | SCHEMA_VIOLATION |
-| Limitations | ids match exactly, with no version ranges; a model with a contract is a dependency |
-| Tests | unit: `pkg/diff/mcp_test.go:TestDiffAgent`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/agent.models/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/agent.models/invalid` |
+| Evidence | none: a suite gate runs it by name |
+| Rule | schema: name and file, nothing else; cross-field: names are unique; diff: added is non-breaking, removed or changed is potentially breaking |
+| Outcomes | SCHEMA_VIOLATION, DUPLICATE_CHECK_NAME |
+| Limitations | the diff cannot tell a stricter suite from a weaker one |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateChecks`, `pkg/diff/checks_test.go:TestDiffChecksSuiteContent`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/checks[]/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/checks[]/invalid` |
 
-### `agent.models[]`
+### `checks[].name`
 
 | Key | Value |
 | --- | --- |
-| Meaning | One model id, as the agent's code names it. |
+| Meaning | The suite's name; a delivery gate names it to run it. |
 | Runtime | `static-only` |
-| Evidence | none: the models the agent really calls are not observed |
-| Rule | schema: non-empty string |
-| Outcomes | SCHEMA_VIOLATION |
+| Evidence | none: identity only |
+| Rule | schema: required non-empty string; cross-field: unique |
+| Outcomes | SCHEMA_VIOLATION, DUPLICATE_CHECK_NAME |
 | Limitations | none |
-| Tests | unit: `pkg/diff/mcp_test.go:TestDiffAgent`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/agent.models[]/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/agent.models[]/invalid` |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateChecks`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/checks[].name/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/checks[].name/invalid` |
 
-### `agent.evals`
+### `checks[].file`
 
 | Key | Value |
 | --- | --- |
-| Meaning | The eval suite's file in the bundle; an eval runner reads it, Pacto never does. |
+| Meaning | The suite's file in the bundle; a runner reads it, Pacto only hashes it. |
 | Runtime | `static-only` |
-| Evidence | none: an eval gate in delivery asks a runner to run it |
+| Evidence | none: the suite gate sends its path and sha256 and accepts only a verdict about that digest |
 | Rule | cross-field: file exists in the bundle |
 | Outcomes | FILE_NOT_FOUND |
-| Limitations | the suite format is the runner's; changing it is non-breaking |
-| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateAgent`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/agent.evals/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/agent.evals/invalid` |
+| Limitations | the file's format is the runner's |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateChecks`, `pkg/delivery/eval_test.go:TestEvalSuiteBinding`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/checks[].file/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/checks[].file/invalid` |
 
 ### `metadata`
 

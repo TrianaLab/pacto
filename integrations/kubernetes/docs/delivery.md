@@ -151,7 +151,7 @@ None of these is required reading:
 
 - [Setup and gates](delivery-setup.md): install, Stages by hand, what moves
   first and who may do what
-- [Health checks](delivery-health.md): monitoring, AI agent evals and the
+- [Health checks](delivery-health.md): monitoring, the suites a version ships and the
   calls a service makes
 - [Sign-in, approvals and agents](delivery-identity.md)
 - [Signed records and history](delivery-records.md): records, key rotation,

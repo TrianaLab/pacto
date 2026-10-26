@@ -53,12 +53,19 @@ invalid one fails the command. `pacto_create` takes `paths`, `cluster` and
 
 **Contract format 2.1.** `pactoVersion: "2.1"` adds a `publish` section (the
 contract bundle repository, the image, chart or manifests the service
-publishes, how each is built and signed and the deploy artifact Flux applies)
-and lets a contract describe an AI agent: an `mcp` interface lists the tools it
-exposes and an `agent` section lists the models it calls and the eval suite in
-its bundle. `pacto diff` compares tools one by one and treats a model change,
-and an eval suite removed, moved or edited, as needing at least a minor. A 2.0 contract keeps working unchanged; `publish`,
-`agent` or an `mcp` interface in a 2.0 contract fails validation with
+publishes, how each is built and signed and the deploy artifact Flux applies),
+a `checks` list of test and eval suites shipped in the bundle (Pacto only
+hashes each one and takes a runner's verdict about that exact file), an `mcp`
+interface type for the tools a service exposes and `external: true` on a
+dependency this Pacto system does not deliver. An external dependency either
+points at a contract and is compared by its range as usual, or has no `ref`
+and names a free-text `version` that nothing can check, so anything relying on
+it is Unknown. An AI agent is a normal service: tools as an `mcp` interface,
+its model as an external dependency, its evals as a check. `pacto diff`
+compares tools one by one and treats a new external version, and a suite
+removed, moved or edited, as needing at least a minor. A 2.0 contract keeps
+working unchanged; `publish`, `checks`, an external dependency or an `mcp`
+interface in a 2.0 contract fails validation with
 `NEEDS_PACTO_2_1`, which says to set `pactoVersion: "2.1"`. Older Pacto
 versions reject a 2.1 contract, and that reaches consumers too: once a provider
 publishes a 2.1 bundle, a consumer whose Pacto or operator predates 2.1 fails to
@@ -111,8 +118,8 @@ for a person to accept the unknown, a breaking change no contract depends on
 included; Unknown never passes. Health checks keep
 running after release: a `mira` provider judges the error ratio of the
 service's traces, `http` is the plug-in format for any other tool, `eval`
-checks an agent with the eval suite its bundle ships, a verdict counting only
-about that suite's sha256, and `pacto.runtime` fails a version the node agent
+runs one of the `checks` the version ships (the `suite` param names it), a
+verdict counting only about that suite's sha256, and `pacto.runtime` fails a version the node agent
 saw calling a service it never declared and passes only after a soak. A
 workload the node agent saw calling a service with no contract of its own
 counts as an unknown consumer: a breaking change waits for a person to accept

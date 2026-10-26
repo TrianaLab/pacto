@@ -15,12 +15,41 @@ Declares dependencies on other services via their Pacto contracts.
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Non-empty identifier for the dependency |
-| `ref` | string | Yes | Non-empty. OCI reference (`oci://...`) or local path (`file://...` or bare path) |
+| `ref` | string | Yes, unless `external` | Non-empty. OCI reference (`oci://...`) or local path (`file://...` or bare path) |
 | `required` | boolean | Yes | Whether the dependency is mandatory. Has no default — every entry must set it |
-| `compatibility` | string | Yes | Non-empty. Valid semver constraint |
+| `compatibility` | string | With `ref` | Non-empty. Valid semver constraint |
+| `external` | boolean | No | `true` when this Pacto system does not deliver the dependency. Needs `pactoVersion: "2.1"` |
+| `version` | string | Only for `external` without `ref` | The version it runs against, as free text |
 
 !!! note
     `true` means the service cannot function without the dependency; `false` means it degrades gracefully when the dependency is unavailable. This is declared *intent* that consumers read — the dashboard works out the affected consumers from it — not something Pacto checks at deployment time.
+
+### External dependencies
+
+`external: true` says this Pacto system does not deliver the dependency. It may
+still be run by your company, just not through this Pacto installation. Pacto
+then does not expect to see it running, never proposes moving it first and
+does not report it as unresolved. It takes one of two forms:
+
+```yaml
+dependencies:
+  - name: ledger                 # someone wrote a contract for it
+    ref: oci://ghcr.io/acme/pacto/ledger
+    compatibility: "^4.0.0"      # compared like any other dependency
+    required: true
+    external: true
+  - name: model                  # no contract: name the version instead
+    external: true
+    version: anthropic/claude-sonnet-4-5
+    required: true
+```
+
+With `ref`, versions are compared as usual. Without it, `version` is required:
+it shows in the graph and in [`pacto diff`](diff.md), where any change is
+potentially breaking, but Pacto has nothing to compare it with. So anything
+relying on it is Unknown, never a pass. A dependency without `ref` that is not
+`external` fails validation with `DEPENDENCY_REF_REQUIRED`, and one without
+`version` with `EXTERNAL_VERSION_REQUIRED`.
 
 ### Dependency reference schemes
 
@@ -78,7 +107,7 @@ Pacto uses [Masterminds/semver](https://github.com/Masterminds/semver#checking-v
 Practices:
 
 - **Pin by digest in production.** `oci://...@sha256:...`; a tag-based reference produces a validation warning.
-- **Give cloud-managed resources a contract.** A lightweight Pacto contract for GCP Cloud SQL, AWS SNS or Azure Service Bus, referenced as a dependency, makes that dependency explicit and version-tracked alongside your own.
+- **Give cloud-managed resources a contract when you can.** A lightweight Pacto contract for GCP Cloud SQL, AWS SNS or Azure Service Bus, referenced as an external dependency, makes it version-tracked alongside your own. When nobody will write one, name its version instead.
 - **Pin the whole closure with `pacto lock`.** When a `pacto.lock` file is present, every resolved dependency must match the pinned digest or the command fails. See [Lockfile](../lockfile.md).
 
 ---

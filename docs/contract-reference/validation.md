@@ -20,12 +20,12 @@ Validates against the embedded schema of the contract's version, `pacto-v2.0.sch
 - Field types match
 - Required fields are present (including the mandatory `required` on `configurations[]` and `dependencies[]`)
 - Enum values are valid (e.g. interface `type` is `openapi`/`asyncapi`/`grpc`/`mcp`, `capabilities[].type` is `health`/`metrics`/`extension`, `policies[].target` is `contract`)
-- Fields that must carry a value are non-empty (e.g. `interfaces[].ref`, `dependencies[].compatibility`)
+- Fields that must carry a value are non-empty (e.g. `interfaces[].ref`, `checks[].file`)
 - Discriminated shapes hold — a `configurations[]` entry has exactly one of `schema`/`ref`; a `capabilities[]` `extension` requires a namespaced `ref` while `health`/`metrics` must not set `ref`
 - State invariants hold (`stateless` requires `ephemeral` durability)
 
 Structural failures report `SCHEMA_VIOLATION`. A `"2.0"` contract that uses
-`publish`, `agent` or an `mcp` interface reports `NEEDS_PACTO_2_1` for each
+`publish`, `checks`, an external dependency or an `mcp` interface reports `NEEDS_PACTO_2_1` for each
 instead: set `pactoVersion: "2.1"`, which keeps every 2.0 field.
 
 A contract that cannot be **loaded** at all — malformed YAML, an unknown field or a
@@ -47,12 +47,17 @@ Validates semantic references and consistency:
 | Interface spec file exists in the bundle | `FILE_NOT_FOUND` |
 | Interface spec file parses, if the ref ends `.json`, `.yaml` or `.yml` (any other extension is existence-checked only) | `INVALID_INTERFACE_SPEC` |
 | An `mcp` interface file lists tools, each with a name used once | `INVALID_MCP_TOOLS` |
-| `agent.evals` file exists in the bundle | `FILE_NOT_FOUND` |
+| Check names are unique | `DUPLICATE_CHECK_NAME` |
+| `checks[].file` exists in the bundle | `FILE_NOT_FOUND` |
 | `extension` capability `ref` is well-formed | `CAPABILITY_REF_INVALID` |
 | Standard capability type is not declared twice | `DUPLICATE_CAPABILITY` |
 | `capabilities[].binding.interface` matches a declared interface | `CAPABILITY_INTERFACE_UNKNOWN` |
 | `capabilities[].binding.path` is a safe application path | `CAPABILITY_PATH_INVALID` |
 | OCI dependency refs (`oci://`) are valid OCI references | `INVALID_OCI_REF` |
+| A dependency without `ref` is `external` | `DEPENDENCY_REF_REQUIRED` |
+| An external dependency without `ref` has a `version` | `EXTERNAL_VERSION_REQUIRED` |
+| No `compatibility` without `ref`, no `version` beside a `ref` | `COMPATIBILITY_WITHOUT_REF`, `VERSION_WITH_REF` |
+| A dependency with `ref` has a `compatibility` range | `EMPTY_COMPATIBILITY` |
 | Compatibility ranges are valid semver constraints | `INVALID_COMPATIBILITY` |
 | OCI dependency uses tag instead of digest | `TAG_NOT_DIGEST` (warning) |
 | `configurations[].ref` is not a valid OCI reference | `INVALID_CONFIG_REF` |
