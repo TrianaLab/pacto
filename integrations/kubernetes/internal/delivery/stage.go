@@ -314,7 +314,7 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 	}
 	observing := delivery.CurrentRung(stage.Spec, stage.Status) == delivery.RungObserve
 	unlabelled := blocked != nil && blocked.Reason == reasonApplierUnlabelled
-	if blocked != nil && !(observing && unlabelled) {
+	if blocked != nil && (!observing || !unlabelled) {
 		want = *blocked
 	}
 	if want.Status == statusTrue {

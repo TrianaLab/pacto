@@ -311,9 +311,10 @@ func TestStepDownRepeatedFailures(t *testing.T) {
 // TestNoStepDown: Unknown never steps down, nor does a failure of a promote a
 // person or agent chose.
 func TestNoStepDown(t *testing.T) {
-	e, o := stepDownEnv(t, delivery.RungAutonomous, promoterSA, delivery.Unknown)
+	e, _ := stepDownEnv(t, delivery.RungAutonomous, promoterSA, delivery.Unknown)
 	e.now = e.now.Add(2 * time.Minute)
-	if o = e.drive("p1"); o.Status.Phase != delivery.PhaseHeld {
+	o := e.drive("p1")
+	if o.Status.Phase != delivery.PhaseHeld {
 		t.Fatalf("Unknown holds: %+v", o.Status)
 	}
 	e.approve(o, "no", "bob", delivery.Reject)
