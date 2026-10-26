@@ -6,12 +6,16 @@ search:
 
 # Try it on Kubernetes
 
-The payments story on a real cluster on your machine. The components are real:
-the registry, Flux, the delivery promoter, the recorder that signs every step,
-the health check, the node agent that sees calls, sign-in and the dashboard. The
-workloads, their telemetry and the B10 sign-ins are generated (see
-[What is generated](#what-is-generated)). The browser demo shows the same story
-over fixed data.
+Pacto delivery on a real Kubernetes cluster on your machine, following one
+service, payments, through its releases. It is for a platform engineer who
+wants to see every part working before trying their own service. The parts
+are real: the registry, Flux, delivery (which picks the version), the
+recorder (which signs a record of every step), a health check, the node
+agent (which sees calls between services), sign-in and the dashboard. The
+services themselves, their traffic and the people signing in are made up
+(see [What is generated](#what-is-generated)). The
+[browser demo](dashboard-demo.md) shows the same story with nothing to
+install.
 
 ## Run it
 

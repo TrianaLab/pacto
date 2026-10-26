@@ -6,9 +6,10 @@ search:
 
 # Guided tour
 
-Six things people actually need from a fleet they did not build, answered against
-one fixture, in the order the questions arrive. Each story is one or two commands
-and what its output means.
+Six questions people ask about services they did not build, each answered
+with one or two `pacto` commands on a fixed set of example contracts, and
+what the output means. It covers contracts and the checks on them, not
+delivery.
 
 ## Before you start
 
