@@ -468,19 +468,30 @@ spec:
                       description: Compatibility is the semver constraint for the
                         dependency.
                       type: string
+                    external:
+                      description: |-
+                        External marks a dependency this Pacto system does not run, such as a
+                        managed database or a hosted model.
+                      type: boolean
                     name:
                       description: Name is the dependency name (required, unique within
                         contract).
                       type: string
                     ref:
-                      description: Ref is the dependency reference (OCI URI).
+                      description: |-
+                        Ref is the dependency reference (OCI URI). Empty for an external
+                        dependency that has no contract.
                       type: string
                     required:
                       description: Required indicates whether this dependency is mandatory.
                       type: boolean
+                    version:
+                      description: |-
+                        Version is the free-text version an external dependency without a ref
+                        declares.
+                      type: string
                   required:
                   - name
-                  - ref
                   - required
                   type: object
                 type: array

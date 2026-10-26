@@ -546,9 +546,11 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.currentRevision` | `string` | no |  |  | CurrentRevision is the name of the active PactoRevision. |
 | `status.dependencies` | `[]object` | no |  |  | Dependencies lists the declared dependencies from the contract. |
 | `status.dependencies[].compatibility` | `string` | no |  |  | Compatibility is the semver constraint for the dependency. |
+| `status.dependencies[].external` | `boolean` | no |  |  | External marks a dependency this Pacto system does not run, such as a managed database or a hosted model. |
 | `status.dependencies[].name` | `string` | yes |  |  | Name is the dependency name (required, unique within contract). |
-| `status.dependencies[].ref` | `string` | yes |  |  | Ref is the dependency reference (OCI URI). |
+| `status.dependencies[].ref` | `string` | no |  |  | Ref is the dependency reference (OCI URI). Empty for an external dependency that has no contract. |
 | `status.dependencies[].required` | `boolean` | yes |  |  | Required indicates whether this dependency is mandatory. |
+| `status.dependencies[].version` | `string` | no |  |  | Version is the free-text version an external dependency without a ref declares. |
 | `status.evaluatedRevision` | `object` | no |  |  | EvaluatedRevision ties this status to the exact contract and workload generation it was computed from, so a result for an old version is never read as the answer for a new one. A consumer acting on contractStatus (the opt-in Pacto delivery promoter) must check it first. |
 | `status.evaluatedRevision.contractDigest` | `string` | no |  |  | ContractDigest is the OCI manifest digest of the evaluated contract bundle. Empty for inline contracts. |
 | `status.evaluatedRevision.kernelCoverage` | `string` | no |  | `Complete`, `Partial`, `Failed`, `Stale` | KernelCoverage is how far the node agent's view of the workload's pods could be trusted in this evaluation, the worst pod first: Complete, Partial, Failed or Stale. Empty when kernel evidence is off. Complete is what lets a reader tell "observed and clean" from "not observed". |

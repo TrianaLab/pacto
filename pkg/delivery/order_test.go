@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -568,5 +569,42 @@ func TestUnresolvedToSkipsExternal(t *testing.T) {
 	r.External = true
 	if unresolvedTo(r, "payments") {
 		t.Fatal("an external declaration is reported")
+	}
+}
+
+// TestStatusCarriesExternal: the running revisions come from Pacto status, so
+// an external dependency there (a managed database with a contract) must stay
+// external: ordering does not need to see it run and reconcile does not report
+// it missing.
+func TestStatusCarriesExternal(t *testing.T) {
+	var dep DependencyView
+	// The shape the operator writes into Pacto.status.dependencies.
+	if err := json.Unmarshal([]byte(`{"name":"stock","ref":"oci://r/stock:1","required":true,"compatibility":"^1.0.0","external":true}`), &dep); err != nil {
+		t.Fatal(err)
+	}
+	in, pactos := ordersWorld(map[string]*contract.Bundle{
+		o2: bundle("orders", "1.9.0", paymentsDep(">=2.0.0 <4.0.0"), contract.Dependency(dep)),
+	})
+	for i := range pactos {
+		pactos[i].Status.Dependencies = append(pactos[i].Status.Dependencies, dep)
+	}
+	if m := onlyMove(t, orderPlan(t, in, pactos, payments2, payments3)); m.Candidate == nil || m.Candidate.Digest != o2 {
+		t.Fatalf("an external dependency nothing runs here does not block the move: %+v", m)
+	}
+	snap, err := Snapshot(context.Background(), pactos, nil, nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range snap.Relationships {
+		if strings.HasSuffix(string(r.FromService), "orders") && strings.Contains(r.To, "stock") {
+			found = true
+			if !r.External || r.Reconciliation == fleet.ReconciliationDeclaredNotObserved {
+				t.Fatalf("the status dependency stays external: %+v", r)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no relationship to stock")
 	}
 }

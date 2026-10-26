@@ -427,8 +427,10 @@ type DependencyInfo struct {
 	// Name is the dependency name (required, unique within contract).
 	Name string `json:"name"`
 
-	// Ref is the dependency reference (OCI URI).
-	Ref string `json:"ref"`
+	// Ref is the dependency reference (OCI URI). Empty for an external
+	// dependency that has no contract.
+	// +optional
+	Ref string `json:"ref,omitempty"`
 
 	// Required indicates whether this dependency is mandatory.
 	Required bool `json:"required"`
@@ -436,6 +438,16 @@ type DependencyInfo struct {
 	// Compatibility is the semver constraint for the dependency.
 	// +optional
 	Compatibility string `json:"compatibility,omitempty"`
+
+	// External marks a dependency this Pacto system does not run, such as a
+	// managed database or a hosted model.
+	// +optional
+	External bool `json:"external,omitempty"`
+
+	// Version is the free-text version an external dependency without a ref
+	// declares.
+	// +optional
+	Version string `json:"version,omitempty"`
 }
 
 // PolicyInfo describes a single named policy source from the contract.

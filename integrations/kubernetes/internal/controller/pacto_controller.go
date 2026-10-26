@@ -725,6 +725,8 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 			Ref:           dep.Ref,
 			Required:      dep.Required,
 			Compatibility: dep.Compatibility,
+			External:      dep.External,
+			Version:       dep.Version,
 		})
 	}
 
