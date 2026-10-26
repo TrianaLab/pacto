@@ -64,12 +64,15 @@ helm-template: ## Render chart templates and validate output.
 	@echo "==> Rendering with metrics disabled..."
 	helm template pacto-operator charts/pacto-operator --set metrics.enabled=false > /dev/null
 	@echo "==> Rendering with delivery, with and without admission policies..."
-	helm template pacto-operator charts/pacto-operator --set delivery.enabled=true \
+	helm template pacto-operator charts/pacto-operator --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
 		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy --debug > /dev/null
-	helm template pacto-operator charts/pacto-operator --set delivery.enabled=true \
+	helm template pacto-operator charts/pacto-operator --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
 		--set delivery.admissionPolicies.enabled=false --set delivery.admissionPolicies.allowUnguarded=true > /dev/null
-	@echo "==> Delivery refuses to render unguarded by accident..."
+	@echo "==> Delivery refuses to render with no humanGroups by accident..."
 	! helm template pacto-operator charts/pacto-operator --set delivery.enabled=true \
+		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy > /dev/null 2>&1
+	@echo "==> Delivery refuses to render unguarded by accident..."
+	! helm template pacto-operator charts/pacto-operator --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
 		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy \
 		--set delivery.admissionPolicies.enabled=false > /dev/null 2>&1
 
@@ -90,7 +93,7 @@ helm-golden: ## Prove the default render is unchanged and delivery leaves the op
 		{ echo "Error: the default render changed. If intended, run 'make helm-golden-update' and commit." >&2; exit 1; }
 	@echo "==> Checking delivery.enabled leaves the operator's ServiceAccount and RBAC unchanged..."
 	@diff -u <(helm template pacto-operator charts/pacto-operator $(OPERATOR_IDENTITY)) \
-		<(helm template pacto-operator charts/pacto-operator $(OPERATOR_IDENTITY) --set delivery.enabled=true \
+		<(helm template pacto-operator charts/pacto-operator $(OPERATOR_IDENTITY) --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true \
 			--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy)
 
 .PHONY: helm-golden-update

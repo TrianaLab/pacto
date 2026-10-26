@@ -3,6 +3,7 @@ templates:
   - templates/delivery/metrics.yaml
 set:
   delivery.enabled: true
+  delivery.identities.allowEmptyHumanGroups: true
 capabilities:
   apiVersions:
     - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy

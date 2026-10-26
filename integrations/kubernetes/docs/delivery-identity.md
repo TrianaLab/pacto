@@ -74,7 +74,8 @@ delivery:
     breakGlassGroups: [pacto:break-glass]
     teamGroupPrefix: ""                  # owner team T is group T, or this prefix plus T
     requireOwnerTeam: true               # a question naming no team is answered by nobody
-    humanGroups: []                      # when set, everyone outside these groups is an agent
+    humanGroups: [staff]                 # everyone outside these groups is an agent
+    allowEmptyHumanGroups: false         # true lets humanGroups stay empty
 ```
 
 The chart renders the admission policies from these values and publishes them
@@ -92,9 +93,12 @@ in its question. Set it to `false` to let any person answer instead.
 
 Service accounts are always agents, but a person-like agent identity is an
 agent only while it is in an agent group. Left out by mistake, it counts as a
-person: it is still refused an approval, because its token carries no login
-time, but records name it a person. Set `humanGroups` to the groups your people
-are in, and anyone outside them is an agent.
+person, and an unenrolled identity that completes a `pacto-approve` login
+counts as a person when it approves too: `pacto-approve` is a public client,
+so a bot user with stored credentials can log in without anyone at the
+keyboard and get a login time. Set `humanGroups` to the groups your people are
+in, and anyone outside them is an agent. The chart refuses delivery with
+`humanGroups` empty unless you set `allowEmptyHumanGroups: true`.
 
 ## Sign in to the dashboard
 

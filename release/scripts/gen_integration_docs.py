@@ -1178,7 +1178,7 @@ def gen_delivery_install_command(repo_root: str) -> str:
     manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
     return banner("release/release-manifest.json") + chart_command(
         manifest["units"]["operator-chart"], "upgrade",
-        extra=" \\\n  --reset-then-reuse-values --set delivery.enabled=true",
+        extra=" \\\n  --reset-then-reuse-values --set delivery.enabled=true \\\n  --set delivery.identities.humanGroups={staff}",
     )
 
 

@@ -168,7 +168,7 @@ func setup() error {
 	}
 	cmd := exec.CommandContext(ctx, "helm", "template", "d", filepath.Join("..", "..", "charts", "pacto-operator"),
 		"-n", "pacto-system", "-s", "templates/delivery/admission.yaml",
-		"--set", "delivery.enabled=true", "--set", "delivery.argocd.enabled=true",
+		"--set", "delivery.enabled=true", "--set", "delivery.argocd.enabled=true", "--set", "delivery.identities.allowEmptyHumanGroups=true",
 		"--set", "delivery.recorder.enabled=true", "--set", "delivery.recorder.streamsRepository=reg.example/streams",
 		"--set", "delivery.recorder.signing.kms=awskms://k",
 		"--api-versions", "admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy")

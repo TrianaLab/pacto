@@ -173,6 +173,9 @@ kubectl apply -f https://github.com/fluxcd/flux2/releases/latest/download/instal
 
 --8<-- "integrations/kubernetes/docs/generated/_delivery-install-command.md"
 
+Replace `staff` with the group your people are in: anyone outside it counts as
+an agent and never approves.
+
 Delivery is opt-in: without it, Pacto never changes what runs. Each environment
 is a namespace of the same name. Create them, give Flux your public key, so it
 takes only versions you signed, and apply the files `init` wrote:

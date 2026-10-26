@@ -5,6 +5,7 @@ templates:
   - templates/delivery/identities.yaml
 set:
   delivery.enabled: true
+  delivery.identities.allowEmptyHumanGroups: true
 capabilities:
   apiVersions:
     - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
@@ -354,3 +355,19 @@ tests:
             apiGroups: [delivery.pacto.trianalab.io]
             resources: [operations]
             verbs: [get, list, watch, create, update, patch, delete]
+
+  - it: refuses delivery with no humanGroups unless that is accepted on purpose
+    template: templates/delivery/identities.yaml
+    set:
+      delivery.identities.allowEmptyHumanGroups: false
+    asserts:
+      - failedTemplate:
+          errorPattern: "delivery.identities.humanGroups is empty"
+
+  - it: renders with humanGroups set
+    template: templates/delivery/identities.yaml
+    set:
+      delivery.identities.allowEmptyHumanGroups: false
+      delivery.identities.humanGroups: [staff]
+    asserts:
+      - notFailedTemplate: {}

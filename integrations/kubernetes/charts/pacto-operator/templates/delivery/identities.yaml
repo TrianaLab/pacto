@@ -1,4 +1,7 @@
 {{- if .Values.delivery.enabled }}
+{{- if not (or .Values.delivery.identities.humanGroups .Values.delivery.identities.allowEmptyHumanGroups) }}
+{{- fail "delivery.identities.humanGroups is empty, so anyone in no agent group counts as a person, and an agent identity that completes a pacto-approve login can approve. Set humanGroups to the groups your people are in, or set delivery.identities.allowEmptyHumanGroups=true to accept that." }}
+{{- end }}
 # The promoter's identity policy, published for clients. The promoter mounts
 # this ConfigMap and runs with it; `pacto delivery`, `pacto mcp --delivery` and
 # the dashboard read it, so what they offer matches what the promoter and

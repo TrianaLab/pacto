@@ -464,8 +464,12 @@ delivery:
     requireOwnerTeam: true
     # -- When set, only members of these groups count as people. Anyone in none of them is an agent,
     # so an agent identity nobody enrolled in an agent group still cannot approve. Empty classifies
-    # by `agentGroups` alone.
+    # by `agentGroups` alone, which the chart refuses unless `allowEmptyHumanGroups` is set.
     humanGroups: []
+    # -- Render with `humanGroups` empty anyway. Then an identity left out of every agent group counts
+    # as a person, and one that completes a `pacto-approve` login (a public client, so a bot with
+    # stored credentials can) may approve.
+    allowEmptyHumanGroups: false
 
   recorder:
     # -- Run the recorder, which writes a signed record of every concluded operation to the registry

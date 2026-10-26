@@ -10,6 +10,11 @@ Delivery is the `pacto-operator` chart's `delivery` section, off by default. It 
 
 --8<-- "integrations/kubernetes/docs/generated/_delivery-install-command.md"
 
+Replace `staff` with the group your people are in: anyone outside it counts as
+an agent, which may propose but never approve. The chart refuses an empty
+`humanGroups` unless you set `delivery.identities.allowEmptyHumanGroups=true`
+(see [identities](delivery-identity.md)).
+
 This needs Helm 3.14 or later. Delivery runs in `delivery.namespace`
 (`pacto-delivery`, never the release or node agent namespace), where the operator holds no
 role, so it cannot act as the promoter. It still reads every Secret: prefer

@@ -14,6 +14,8 @@ templates:
 release:
   name: d
   namespace: pacto-system
+set:
+  delivery.identities.allowEmptyHumanGroups: true
 tests:
   - it: renders no delivery object by default
     template: templates/delivery/crds.yaml
