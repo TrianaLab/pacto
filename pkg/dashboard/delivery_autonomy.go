@@ -87,18 +87,17 @@ func rewire[T any](v any) (t T) {
 	return t
 }
 
-// ponytail: ladderOf and uncontractedOf read the ladder's status fields and the
-// snapshot's uncontractedCallers by their wire names, so this file builds before
-// the tracks that add those Go fields land; once they do, read the fields
-// directly. They are vars so tests can supply what today's typed status drops.
-// uncontractedOf encodes the whole snapshot per request: fine at dashboard
-// scale, read snap.UncontractedCallers directly to drop the cost.
+// ponytail: ladderOf maps the Stage's typed ladder status onto the dashboard's
+// wire shape by JSON field names (the names match). Both are vars so tests can
+// supply a ladder without building a whole status.
 var (
 	ladderOf       = func(st delivery.StageObject) stageLadder { return rewire[stageLadder](st.Status) }
 	uncontractedOf = func(snap *fleet.FleetSnapshot) []uncontractedCaller {
-		return rewire[struct {
-			UncontractedCallers []uncontractedCaller `json:"uncontractedCallers"`
-		}](snap).UncontractedCallers
+		var out []uncontractedCaller
+		for _, c := range snap.UncontractedCallers {
+			out = append(out, uncontractedCaller{Caller: c.Caller, ToService: string(c.ToService)})
+		}
+		return out
 	}
 )
 

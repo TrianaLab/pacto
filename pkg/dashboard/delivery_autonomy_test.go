@@ -40,6 +40,8 @@ func TestLadderReadsTheWireNames(t *testing.T) {
 	// Today's typed status carries none of it, and a snapshot no caller.
 	expect(t, ladderOf(stage("prod", "p", "p", delivery.StageStatus{Pointer: dRun})).Rung == "", "no rung from today's status")
 	expect(t, uncontractedOf(&fleet.FleetSnapshot{}) == nil, "no uncontracted caller from today's snapshot")
+	got := uncontractedOf(&fleet.FleetSnapshot{UncontractedCallers: []fleet.UncontractedCaller{{Caller: "k8s:prod/Deployment/orders", ToService: "payments"}}})
+	expect(t, len(got) == 1 && got[0] == uncontractedCaller{Caller: "k8s:prod/Deployment/orders", ToService: "payments"}, "the snapshot's uncontracted caller")
 }
 
 func TestAutonomy(t *testing.T) {
