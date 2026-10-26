@@ -17,7 +17,8 @@ calls.
 | Change | A request to move a Stage to another version. In Kubernetes it is an object of kind `Operation` |
 | Consumer | A service whose contract says it calls yours, and which versions of yours it accepts |
 | Held | A change that waits for a person |
-| Frozen | A Stage that automation no longer moves until a person unfreezes it |
+| Frozen | A Stage that automation no longer moves until a person unfreezes it. It shows under `FROZEN` |
+| On hold | A Stage that automation no longer moves after a person rolled it back by hand, so it does not undo that choice. It shows under `HOLD`, and an unfreeze clears it too |
 | Unknown | Pacto could not see enough to say whether the change is safe |
 
 <a id="when-a-change-waits-or-an-environment-freezes"></a>
@@ -48,12 +49,16 @@ kubectl get operations.delivery.pacto.trianalab.io -n prod   # PHASE shows Held
 pacto delivery explain -n prod <change>                       # what is asked and why
 ```
 
+The `question:` line `explain` prints ends with what it asks for, for
+example `Approve shipping it anyway?` or `Accept the unknown?`. Give that
+answer, or reject.
+
 Then give one answer:
 
 | Answer | Use it when | What happens |
 |---|---|---|
-| `approve` | The change breaks a consumer and you accept that | The version goes ahead |
-| `accept-unknown` | A check said Unknown and you accept the risk | The version goes ahead; the record says "accepted", never "passed" |
+| `approve` | The question says "Approve": the change breaks a consumer, or the Stage asks for every change, and you accept it | The version goes ahead |
+| `accept-unknown` | The question says "Accept the unknown": a check said Unknown and you accept the risk | The version goes ahead; the record says "accepted", never "passed". If the version already shipped and a later check said Unknown, only this or `reject` answers |
 | `reject` | You do not want this version here | The change ends; the Stage keeps the version it runs. Someone can ask again later |
 
 ```bash
@@ -63,7 +68,8 @@ pacto delivery approve -n prod <change> --decision approve   # or accept-unknown
 `<change>` is the name in the `NAME` column of the first command. All three
 answers go through `approve`; the `--decision` flag says which one.
 
-A held change that nobody answers ends on its own after 24 hours. The person
+A held change that nobody answers ends on its own after 24 hours, as
+`Expired`, and the Stage keeps the version it runs. The person
 who asked can withdraw it at any time with `pacto delivery cancel -n prod <change>`.
 
 In the dashboard (`pacto dashboard`), the **Delivery** tab's **Inbox** lists
@@ -75,8 +81,9 @@ the changes **Waiting for your decision**. Open one and press **Approve**,
 Two things, both set up once by your cluster admin:
 
 1. **A role.** Your Kubernetes user or group needs the approver role, and
-   your group must be the owner team written in the service's contract. Ask
-   your admin for a binding like this one:
+   your group must be the owner team written in the contract of the service
+   you are asked about: for a breaking change, the consumer that would break.
+   Ask your admin for a binding like this one, for the team `payments`:
 
    ```bash
    kubectl create clusterrolebinding payments-approvers \
@@ -87,11 +94,13 @@ Two things, both set up once by your cluster admin:
    and you must have signed in during the last 15 minutes. You do not do
    anything special: `pacto delivery approve` prints an address, you sign in
    again in your browser and it sends your answer with that login. The
-   dashboard asks you to sign in again in the same way. Your admin gives you
-   the sign-in address to put in `PACTO_DELIVERY_OIDC_ISSUER_URL`.
+   dashboard asks you to sign in again in the same way. Before the first
+   time, set your company's sign-in address, which your admin gives you, in
+   your shell: `export PACTO_DELIVERY_OIDC_ISSUER_URL=https://login.example.com`.
 
 Some clusters cannot check a fresh login; managed clusters such as EKS, GKE
-and AKS are not verified. There, nobody can approve. Ask your admin, who can
+and AKS are not verified. There, nobody can give any of the three answers,
+reject included. Ask your admin, who can
 check with [Sign-in, approvals and agents](integrations/kubernetes/delivery-identity.md#where-approving-works).
 A held change then has three ways out: the person who asked cancels it and
 publishes a version that asks nothing, it ends after 24 hours, or someone in
@@ -103,7 +112,7 @@ A frozen Stage shows `true` under `FROZEN` in
 `kubectl get stages.delivery.pacto.trianalab.io -n prod`, and its reason says
 why. Pacto freezes a Stage when a version failed its checks and Pacto has no
 safe way back: there is no earlier good version, the automatic rollback
-itself failed, or a person had chosen the failed version. A forced version
+itself failed, or a person had asked for the failed version by hand. A forced version
 (below) also freezes it. Fix the cause first, then let automation move it
 again:
 

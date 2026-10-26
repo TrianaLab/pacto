@@ -25,6 +25,8 @@ explains those steps, called rungs, in plain words.
   Each check answers Pass, Fail or **Unknown**, meaning it could not see
   enough to say, for example because monitoring data is missing.
 - A **Stage** is one service in one environment, such as payments in prod.
+- An **AI agent**, such as Claude connected to Pacto, can ask for a change
+  but can never approve one.
 
 ## The four rungs
 
@@ -39,7 +41,7 @@ Each Stage sits on one rung.
 
 Once Pacto moves versions, the safety rules hold on every rung. A change that
 would break a consumer waits for that consumer's team. A change with an
-Unknown check waits for a person. The rung only decides how often a person is
+Unknown check waits for the team that owns the service. The rung only decides how often a person is
 asked when the contracts say a change is safe.
 
 ## Cold start: begin by watching
@@ -79,8 +81,8 @@ A proposal changes nothing by itself. To act on it, someone asks for the
 raise in the dashboard or with `pacto delivery propose`, and a different
 person approves it. Someone can also ask for a raise Pacto has not proposed;
 then the approver must accept that the evidence is missing (accept the
-unknown). That person
-must belong to the team that owns the service, as its contract says. A rung
+unknown). The approver must belong to the team that owns the service, as its
+contract says. A rung
 goes up one step at a time. Raising a Stage to either automatic rung also
 needs the recorder, the part of Pacto that signs a record of each decision
 and stores it next to your images. So every grant of autonomy leaves a
@@ -117,7 +119,8 @@ take over that one field, a person does two things:
 2. Adds a label to that manifest's object in the cluster, so only Pacto can
    change the version from then on.
 
-Pacto proposes advise only once the label is in place. The
+Pacto proposes advise only once the label is in place. Do both just before
+the raise to advise is approved: in between, nothing moves the version. The
 [ladder reference](autonomy-reference.md) names the field and the label for
 Flux and Argo CD.
 

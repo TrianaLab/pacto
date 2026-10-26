@@ -77,8 +77,8 @@ git. GitlessOps is three principles, each true only under its condition:
    OCI-sourced Argo CD Application. Source code and manifests stay in git, and
    Flux or Argo CD still apply them.
 2. **Evidence, not a pull request, moves a change**, on a Stage set to an
-   automatic rung. A person is asked when the graph cannot clear
-   the change (Unknown), when a consumer's range rejects it (that consumer's
+   automatic rung. A person is asked when a check cannot see enough
+   (Unknown: the service's owners), when a consumer's range rejects it (that consumer's
    owners), when the Stage is set to ask before every promote or when a failed version
    has no safe way back and the Stage freezes. Only the affected team is asked.
 3. **Every decision can be verified without Pacto.** With the recorder (the

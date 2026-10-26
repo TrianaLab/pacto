@@ -23,7 +23,10 @@ rules behind it.
 
 Pacto starts by watching. It earns the right to ship on its own one step at a
 time, and a person confirms every step: that is
-[the autonomy ladder](autonomy.md). It asks only the teams a change affects,
+[the autonomy ladder](autonomy.md). Its four steps, called rungs, are observe
+(watch only), advise (a person asks for every move), auto for non-breaking
+and autonomous. The rung is set per Stage, meaning one service in one
+environment, such as payments in prod. It asks only the teams a change affects,
 and when it cannot see enough it says Unknown and waits for a person.
 
 Contracts are the foundation. A contract is one YAML file that says who owns
@@ -125,9 +128,15 @@ versions, is alpha: its settings and commands may still change. It needs:
 - Kubernetes 1.30 or later, with Flux (Argo CD works too, as an experimental
   option).
 - Your container registry, to hold contracts and versions.
-- For signed records, and so for the two automatic rungs of the ladder, a
-  registry that serves OCI Referrers, such as zot. GitHub's registry does not,
-  so on it a Stage can watch and be asked, but never ship on its own.
+- For signed records, and so for the two automatic rungs, a registry that
+  serves the OCI Referrers API: the feature that lets a registry list the
+  files attached to an image, here the signed records. zot, an open source
+  registry, does. GitHub's registry does not today, so with it a Stage can
+  observe and advise but never ship on its own. For any other registry,
+  check its documentation for "referrers API".
+- For checks on error rates after a release, traces in
+  [Mira](https://github.com/trianalab/mira), an OpenTelemetry trace store, or
+  a check you call over HTTP. Without them Pacto still checks the contract.
 - For a person to approve anything, a cluster that can tell how recently that
   person signed in to your company login. That works where you set the
   Kubernetes API server's flags yourself (tested on kind). It is not verified
