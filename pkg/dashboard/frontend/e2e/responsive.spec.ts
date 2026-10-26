@@ -132,3 +132,23 @@ for (const w of [390, 800, 1024, 1280]) {
     expect(outside, `navbar controls off screen at ${w}px`).toEqual([]);
   });
 }
+
+// At 390px every copy button and every filter chip's remove button stays on screen. A
+// long identifier used to push its copy button off the edge, and a long filter value
+// pushed its chip, and the × that removes it, past the window.
+test('copy and chip-remove buttons stay within the window @390px', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const long = 'a-very-long-filter-value-that-keeps-going-well-past-the-edge-of-a-phone';
+  await page.goto(`/#/fleet/services?text=${long}&domain=${long}`);
+  await expect(page.getByRole('heading', { level: 1, name: 'Services' })).toBeVisible({ timeout: 20_000 });
+  await page.goto('/#/fleet/services/payments-service');
+  await expect(page.locator('.ev-body')).toBeVisible({ timeout: 20_000 });
+  await page.getByTestId('entity-identifier').locator('summary').click();
+  const off = async (sel: string) => page.evaluate((s) => [...document.querySelectorAll<HTMLElement>(s)]
+    .filter((b) => { const r = b.getBoundingClientRect(); return r.width > 0 && (r.left < 0 || r.right > window.innerWidth + 1); })
+    .map((b) => b.getAttribute('aria-label') || b.textContent || s), sel);
+  expect(await off('.copyable-btn')).toEqual([]);
+  await page.goto(`/#/fleet/services?text=${long}&domain=${long}`);
+  await expect(page.locator('.chip').first()).toBeVisible({ timeout: 20_000 });
+  expect(await off('.chip-x')).toEqual([]);
+});
