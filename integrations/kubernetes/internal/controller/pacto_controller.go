@@ -435,9 +435,10 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	pacto.Status.Capabilities = nil
 	pacto.Status.EvaluationCoverage = nil
 	// Callers are kept for their FirstSeen; until a runtime evaluation rewrites them, a coverage that was
-	// reported reads unavailable, never as the complete list of an older evaluation.
-	if pacto.Status.ObservedCallersCoverage != nil {
-		pacto.Status.ObservedCallersCoverage = &pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageUnavailable, Reason: "not-evaluated"}
+	// reported reads unavailable, never as the complete list of an older evaluation. It keeps the refresh
+	// interval, so delivery reads it as not evaluated rather than as a status the operator stopped writing.
+	if c := pacto.Status.ObservedCallersCoverage; c != nil {
+		pacto.Status.ObservedCallersCoverage = &pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageUnavailable, Reason: "not-evaluated", RefreshSeconds: c.RefreshSeconds}
 	}
 	// Preserve: CurrentRevision (set in step 7), ObservationWindows (temporal state, spec 9.5), LastReconciledAt/ObservedGeneration (set in finish)
 }

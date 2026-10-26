@@ -189,7 +189,7 @@ test-acceptance-kind-runtime-conformance:
 # record on its subjects, that record verify and cosign accept them, and that a
 # changed or chain-breaking record stops the stream and freezes its Stage.
 # CI shards it by phase (DELIVERY_PHASES=core|health|publish|ordering|identity|
-# records, see the script's header) over images built once; locally it runs all,
+# records|ladder, see the script's header) over images built once; locally it runs all,
 # the independent phases at the same time (DELIVERY_SEQUENTIAL=1 runs them one
 # at a time), and prints where the time went.
 test-acceptance-kind-delivery:
