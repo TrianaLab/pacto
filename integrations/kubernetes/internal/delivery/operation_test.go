@@ -923,6 +923,32 @@ func TestBlockedPromoteSaysWhatMovesFirst(t *testing.T) {
 	}
 }
 
+// TestEveryAskedTeamApproves: a change that breaks consumers of two teams
+// waits for both; one team's approval never ships it over the other's consumer.
+func TestEveryAskedTeamApproves(t *testing.T) {
+	consumer := func(name, digest string) *unstructured.Unstructured {
+		return pactoObj(name, name, digest, "Compliant", 1,
+			map[string]any{"name": "payments", "ref": "oci://reg.example/pactos/payments", "compatibility": "^1.0.0"})
+	}
+	e := newEnv(t, stageObj(dA), ociRepo("payments", dA, "latest@"+dA, true), deployment("payments", 2, 2),
+		pactoObj("payments", "payments", c1, "Compliant", 2), consumer("checkout", c3), consumer("orders", c2),
+		opObj("p1", delivery.TypePromote, dA, dC, bot))
+	o := e.drive("p1")
+	if strings.Join(o.Status.Plan.Floor.Owners, ",") != "team-checkout,team-orders" {
+		t.Fatalf("want both teams asked: %+v", o.Status.Plan.Floor)
+	}
+	e.approveAs(o, "a-checkout", "carol", []string{"team-checkout"}, delivery.Approve)
+	o = e.drive("p1")
+	if o.Status.Phase != delivery.PhaseHeld || strings.Join(o.Status.ApprovedTeams, ",") != "team-checkout" ||
+		!strings.Contains(o.Status.Message, "still waits for team-orders") {
+		t.Fatalf("one team's approval shipped a change that breaks another's consumer: %s %v %q", o.Status.Phase, o.Status.ApprovedTeams, o.Status.Message)
+	}
+	e.approveAs(o, "a-orders", "dave", []string{"team-orders"}, delivery.Approve)
+	if o = e.drive("p1"); o.Status.Phase == delivery.PhaseHeld || strings.Join(o.Status.ApprovedTeams, ",") != "team-checkout,team-orders" {
+		t.Fatalf("both teams approved, yet it still waits: %s %v %q", o.Status.Phase, o.Status.ApprovedTeams, o.Status.Message)
+	}
+}
+
 // TestHeldOrderIsRefreshed is story beat B6 on Kubernetes: a change held
 // because checkout and orders accept only the old major is planned again while
 // it waits. Once checkout runs a version that accepts it, only team-orders is

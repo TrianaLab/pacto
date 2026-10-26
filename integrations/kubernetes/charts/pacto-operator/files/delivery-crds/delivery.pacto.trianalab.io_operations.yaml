@@ -213,6 +213,14 @@ spec:
                   - name
                   type: object
                 type: array
+              approvedTeams:
+                description: |-
+                  ApprovedTeams are the teams the question is asked of (plan.floor.owners)
+                  that an approval counted for since the operation was last held. A change
+                  asked of several teams goes ahead only once every one of them answered.
+                items:
+                  type: string
+                type: array
               guarded:
                 description: |-
                   Guarded says the promoter checked its admission policies guarded the

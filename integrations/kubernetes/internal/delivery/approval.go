@@ -11,6 +11,7 @@ import (
 	"cmp"
 	"context"
 	"slices"
+	"strings"
 
 	"k8s.io/apimachinery/pkg/api/equality"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -49,7 +50,21 @@ func (r *OperationReconciler) held(ctx context.Context, op *dv1.Operation, stage
 	case a == nil:
 		return r.requeue()
 	}
+	if waiting := delivery.TeamsWaiting(ownersOf(op), op.Status.ApprovedTeams); len(waiting) > 0 {
+		op.Status.Reason = "AwaitingHuman"
+		op.Status.Message = a.By + " answered for " + strings.Join(op.Status.ApprovedTeams, ", ") +
+			"; the change still waits for " + strings.Join(waiting, ", ") + ", since it is asked of every one of them"
+		return r.save(ctx, op)
+	}
 	return r.lock(ctx, op, stage, true)
+}
+
+// ownersOf are the teams op's question is asked of.
+func ownersOf(op *dv1.Operation) []string {
+	if op.Status.Plan == nil {
+		return nil
+	}
+	return op.Status.Plan.Floor.Owners
 }
 
 // refreshOrder plans a change held on its order again while it waits, so the
@@ -120,6 +135,7 @@ func (r *OperationReconciler) approval(ctx context.Context, op *dv1.Operation) (
 		}
 		rec := delivery.ApprovalRecord{Name: a.Name, By: s.By, Decision: s.Decision, Note: s.Note, AuthTime: s.AuthTime}
 		op.Status.Approvals = append(op.Status.Approvals, rec)
+		op.Status.ApprovedTeams = delivery.AnsweredTeams(r.Policy, ownersOf(op), s.Groups, op.Status.ApprovedTeams)
 		return &rec, ""
 	}
 	return nil, skipped

@@ -884,6 +884,11 @@ type OperationStatus struct {
 	Verdicts []Verdict `json:"verdicts,omitempty"`
 	// +optional
 	Approvals []ApprovalRecord `json:"approvals,omitempty"`
+	// ApprovedTeams are the teams the question is asked of (plan.floor.owners)
+	// that an approval counted for since the operation was last held. A change
+	// asked of several teams goes ahead only once every one of them answered.
+	// +optional
+	ApprovedTeams []string `json:"approvedTeams,omitempty"`
 	// +optional
 	Pointer PointerChange `json:"pointer,omitzero"`
 	// Applied is true once the pointer moved for this operation.

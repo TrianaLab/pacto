@@ -99,6 +99,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.approvals[].decision` | `string` | yes |  |  | Decision is what a human approval says. |
 | `status.approvals[].name` | `string` | yes |  |  |  |
 | `status.approvals[].note` | `string` | no |  |  |  |
+| `status.approvedTeams` | `[]string` | no |  |  | ApprovedTeams are the teams the question is asked of (plan.floor.owners) that an approval counted for since the operation was last held. A change asked of several teams goes ahead only once every one of them answered. |
 | `status.guarded` | `boolean` | no |  |  | Guarded says the promoter checked its admission policies guarded the cluster when it admitted this operation. False when the chart runs without them (delivery.admissionPolicies.allowUnguarded): the actor and the approvers are then only what their writers claimed. |
 | `status.message` | `string` | no |  |  |  |
 | `status.outcome` | `string` | no |  |  | Outcome is how a concluded operation ended. |

@@ -40,7 +40,8 @@ Each Stage sits on one rung.
 | **autonomous** | Ships every change the contracts clear on its own | Pacto, unless a consumer would break or a check is Unknown |
 
 Once Pacto moves versions, the safety rules hold on every rung. A change that
-would break a consumer waits for that consumer's team. A change with an
+would break a consumer waits for that consumer's team; one that breaks
+consumers of several teams waits until every one of them approves. A change with an
 Unknown check waits for the team that owns the service. The rung only decides how often a person is
 asked when the contracts say a change is safe.
 

@@ -176,3 +176,15 @@ func TestApplyEffects(t *testing.T) {
 		}
 	}
 }
+
+func TestTeamsWaiting(t *testing.T) {
+	p := ClassPolicy{TeamGroupPrefix: "acme:"}
+	owners := []string{"checkout", "orders"}
+	got := AnsweredTeams(p, owners, []string{"acme:checkout", "checkout"}, nil)
+	if strings.Join(got, ",") != "checkout" || strings.Join(TeamsWaiting(owners, got), ",") != "orders" {
+		t.Fatalf("answered %v, waiting %v", got, TeamsWaiting(owners, got))
+	}
+	if got = AnsweredTeams(p, owners, []string{"acme:checkout", "acme:orders"}, got); len(TeamsWaiting(owners, got)) != 0 {
+		t.Fatalf("every team answered: %v", got)
+	}
+}

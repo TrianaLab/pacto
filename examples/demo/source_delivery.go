@@ -815,7 +815,15 @@ func (d *demoDelivery) Approve(_ context.Context, ns, name string, decision deli
 	d.approvals[approval] = delivery.ApprovalSpec{Operation: name, OperationUID: o.Metadata.UID, IntentDigest: o.Spec.IntentDigest,
 		Decision: decision, Note: note, By: c.User, AuthTime: c.AuthTime, Groups: c.Groups}
 	o.Status.Approvals = append(o.Status.Approvals, delivery.ApprovalRecord{Name: approval, By: c.User, Decision: decision, Note: note, AuthTime: c.AuthTime})
+	var owners []string
+	if o.Status.Plan != nil {
+		owners = o.Status.Plan.Floor.Owners
+	}
+	o.Status.ApprovedTeams = delivery.AnsweredTeams(c.Policy, owners, c.Groups, o.Status.ApprovedTeams)
+	waiting := delivery.TeamsWaiting(owners, o.Status.ApprovedTeams)
 	switch {
+	case decision != delivery.Reject && len(waiting) > 0: // every team asked answers
+		o.Status.Message = c.User + " answered; the change still waits for " + strings.Join(waiting, ", ")
 	case decision == delivery.Reject && o.Status.Applied: // a rejected unknown: it fails and rolls back
 		o.Status.Reason = "RejectedByHuman: " + c.User + ": " + note
 		d.conclude(o, delivery.Failed, "")

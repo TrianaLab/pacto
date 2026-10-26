@@ -204,6 +204,7 @@ func (r *OperationReconciler) pending(ctx context.Context, op *dv1.Operation, st
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Rejected, reason: planRefusal(plan)})
 	case delivery.PredictHeld:
 		op.Status.Phase, op.Status.Question, op.Status.Times.Held = delivery.PhaseHeld, plan.Question, ts(r.now())
+		op.Status.ApprovedTeams = nil // a question asked again is answered again
 		op.Status.Reason, op.Status.Message = "AwaitingHuman", "a person must "+string(plan.Floor.Decision)
 		return r.saveHeld(ctx, op)
 	case delivery.PredictWaits:
@@ -244,6 +245,7 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 		if !delivery.StillPasses(*op.Status.Plan, cur) {
 			op.Status.Plan, op.Status.Verdicts = &cur, mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
 			op.Status.Phase, op.Status.Question, op.Status.Times.Held = delivery.PhaseHeld, cur.Question, ts(r.now())
+			op.Status.ApprovedTeams = nil // a question asked again is answered again
 			op.Status.Reason, op.Status.Message = "RecheckChanged", "a gate no longer passes, so a person must decide again"
 			return r.saveHeld(ctx, op)
 		}
@@ -473,6 +475,7 @@ func (r *OperationReconciler) verifying(ctx context.Context, op *dv1.Operation, 
 		t, _ := delivery.TypeByID(op.Spec.Type)
 		approval, _ := t.Deadlines(stage.Spec.Deadlines)
 		op.Status.Phase, op.Status.Times.Held = delivery.PhaseHeld, ts(r.now())
+		op.Status.ApprovedTeams = nil // a question asked again is answered again
 		op.Status.Times.ApprovalDeadline = ts(r.now().Add(approval))
 		op.Status.Reason, op.Status.Message = "VerifyUnknown", msg
 		op.Status.Question = "The verify gates could not confirm " + op.Spec.Params.To + " in time: " + msg +

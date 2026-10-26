@@ -74,6 +74,25 @@ func ApprovalRefusal(spec OperationSpec, st OperationStatus, uid string, a Appro
 	return code, why
 }
 
+// AnsweredTeams is approved plus every team of owners an approver in groups
+// belongs to: what one approval answers of a question asked of several teams.
+func AnsweredTeams(p ClassPolicy, owners, groups, approved []string) []string {
+	out := slices.Clone(approved)
+	for _, t := range owners {
+		if p.InTeams(groups, []string{t}) && !slices.Contains(out, t) {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+// TeamsWaiting are the teams of owners that approved does not name: a change
+// that breaks consumers of several teams waits for every one of them, so one
+// team's approval never ships a change that breaks another team's consumer.
+func TeamsWaiting(owners, approved []string) []string {
+	return slices.DeleteFunc(slices.Clone(owners), func(t string) bool { return slices.Contains(approved, t) })
+}
+
 // approvalAnswers says why a does not answer the question op asks now.
 func approvalAnswers(spec OperationSpec, st OperationStatus, uid string, a ApprovalSpec) (string, string) {
 	floor := Decision("")

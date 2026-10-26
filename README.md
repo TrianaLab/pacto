@@ -56,7 +56,8 @@ rung, whether it was rolled back or froze.
 ### Safety rules on every rung
 
 No rung skips the safety rules. A change that would break a consumer waits and
-asks only that consumer's team, and the plan says which service to ship first.
+asks only that consumer's team; one that breaks consumers of several teams waits
+for every one of them. The plan says which service to ship first.
 When Pacto cannot see enough (Unknown), the change waits for a person. A
 service seen calling yours at runtime with no contract counts as a consumer
 Pacto cannot judge, so a breaking change waits too. AI agents may propose
