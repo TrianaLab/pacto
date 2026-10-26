@@ -123,6 +123,12 @@ docker run -p 127.0.0.1:3000:3000 \
 `/openapi` on its own is a prefix, not a route: it returns `404`. The image also
 carries a Docker `HEALTHCHECK` polling `/health` every 10 seconds.
 
+The `status` filters of `/api/fleet/services`, `/api/fleet/entities` and
+`/api/fleet/attention` and the comma-separated `kinds` filter of
+`/api/fleet/entities` are enums checked item by item: an unknown value or an
+empty item such as a trailing comma gets a 422 that names the parameter, for
+example `query.kinds[1]`.
+
 ## Security
 
 !!! warning "The dashboard has no authentication — do not expose it"
