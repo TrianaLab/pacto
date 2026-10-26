@@ -659,3 +659,30 @@ func TestBuildGlobalGraph_ExternalWithoutRef(t *testing.T) {
 		t.Fatalf("graph = %+v", graph)
 	}
 }
+
+// TestBuildGlobalGraph_ExternalWithoutRefNeverResolvesByName: a fleet service
+// that shares the name of an external dependency with no ref is not it.
+func TestBuildGlobalGraph_ExternalWithoutRefNeverResolvesByName(t *testing.T) {
+	services := []Service{
+		{Name: "agent", Version: "1.0.0", ContractStatus: StatusCompliant, Source: "local"},
+		{Name: "model", Version: "2.0.0", ContractStatus: StatusCompliant, Source: "local"},
+	}
+	index := map[string]*ServiceDetails{
+		"agent": {Service: Service{Name: "agent"}, Dependencies: []DependencyInfo{{Name: "model", External: true, Version: "v1", Required: true}}},
+		"model": {Service: Service{Name: "model"}},
+	}
+	graph := buildGlobalGraph(services, index, nil)
+	var agent, ext *GraphNodeData
+	for i := range graph.Nodes {
+		switch graph.Nodes[i].ID {
+		case "agent":
+			agent = &graph.Nodes[i]
+		case "model (external)":
+			ext = &graph.Nodes[i]
+		}
+	}
+	if agent == nil || ext == nil || ext.Status != "external" || ext.Version != "v1" || ext.ServiceName != "model" ||
+		agent.Edges[0].TargetID != "model (external)" || agent.Edges[0].Resolved {
+		t.Fatalf("graph = %+v", graph)
+	}
+}

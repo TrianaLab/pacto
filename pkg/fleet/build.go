@@ -1727,7 +1727,13 @@ func addObservedLimitation(snap *FleetSnapshot, seen map[string]bool, name strin
 func revisionDependencyEdges(snap *FleetSnapshot, rk RevisionKey, rev *ContractRevision) []Relationship {
 	var out []Relationship
 	for _, dep := range rev.Contract.Dependencies {
-		toSvc, ok := resolveDepService(snap, rev.Domain, dep)
+		var toSvc ServiceKey
+		ok := false
+		// An external dependency with no contract has only a local name, which
+		// may be any unrelated fleet service's: it never resolves.
+		if dep.Ref != "" || !dep.External {
+			toSvc, ok = resolveDepService(snap, rev.Domain, dep)
+		}
 		rel := Relationship{
 			FromService: rev.ServiceKey, FromRevision: rk, To: dep.Name,
 			Type: RelationshipDependency, Provenance: ProvenanceDeclared,

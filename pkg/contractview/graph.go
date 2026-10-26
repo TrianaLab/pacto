@@ -108,12 +108,18 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reas
 			// Dependency edges
 			for _, dep := range details.Dependencies {
 				depName := resolveServiceName(extractServiceNameFromRef(dep.Ref), index)
-				if dep.Ref == "" {
-					depName = dep.Name // an external dependency with no contract
-				}
+				targetID := depName
 				_, resolved := index[depName]
+				if dep.Ref == "" {
+					// An external dependency with no contract never resolves by
+					// name: a fleet service that shares it is a different thing.
+					depName, targetID, resolved = dep.Name, dep.Name, false
+					if _, clash := index[dep.Name]; clash {
+						targetID = dep.Name + " (external)"
+					}
+				}
 				node.Edges = append(node.Edges, GraphEdgeData{
-					TargetID:      depName,
+					TargetID:      targetID,
 					TargetName:    depName,
 					Required:      dep.Required,
 					Compatibility: dep.Compatibility,
@@ -125,10 +131,10 @@ func buildGlobalGraph(services []Service, index map[string]*ServiceDetails, reas
 				})
 
 				// Add unresolved dependency targets as external nodes.
-				if !resolved && !nodeSet[depName] {
-					nodeSet[depName] = true
+				if !resolved && !nodeSet[targetID] {
+					nodeSet[targetID] = true
 					graph.Nodes = append(graph.Nodes, GraphNodeData{
-						ID:          depName,
+						ID:          targetID,
 						ServiceName: depName,
 						Status:      "external",
 						Version:     dep.Version,
