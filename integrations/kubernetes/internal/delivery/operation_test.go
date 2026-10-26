@@ -452,6 +452,30 @@ func TestAgentRollbackPreemptingItsOwnPromoteFailsIt(t *testing.T) {
 	}
 }
 
+// TestFailedPromoteWhoseRollbackCannotBeCreated: a person's promote that
+// fails raises its rollback (no step-down: a person shipped it); a rollback
+// that cannot be created is an error, retried, never a silent conclusion.
+func TestFailedPromoteWhoseRollbackCannotBeCreated(t *testing.T) {
+	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, "alice"))
+	e.drive("p1")
+	e.apply(dB)
+	e.drive("p1")
+	e.evaluate(c2, "NonCompliant")
+	e.fails["create/Operation"] = true
+	if _, err := e.op.verifying(context.Background(), e.getOp("p1"), e.getStage()); err == nil {
+		t.Fatal("a rollback that cannot be created must be an error")
+	}
+	if ownersOf(&dv1.Operation{}) != nil {
+		t.Fatal("an operation with no plan asks no team")
+	}
+	// A person's promote, preempted, is not failed by it: they shipped it.
+	mine := opObj("p2", delivery.TypePromote, dA, dB, "alice")
+	mine.Status.ActorClass = delivery.ClassHuman
+	if c, err := e.op.preemption(context.Background(), mine); err != nil || c.outcome != delivery.Succeeded {
+		t.Fatalf("a person's preempted promote: %+v %v", c, err)
+	}
+}
+
 // TestHumanRollbackPreemptsAndHolds is acceptance item 7: a person's rollback
 // preempts a verifying promote and puts an auto-hold on the Stage, so
 // automation does not undo it.
@@ -762,6 +786,11 @@ func TestVerifyUnknownHoldsAfterApply(t *testing.T) {
 	t.Run("preempted", func(t *testing.T) {
 		e := setup(t)
 		e.setStage(func(s *delivery.StageStatus) { s.Locks = map[string]string{"pointer": "x"} })
+		e.fails["list/Operation"] = true
+		if _, err := e.op.heldAfterApply(context.Background(), e.getOp("p1"), e.getStage()); err == nil {
+			t.Fatal("a failed read of who preempted it must be an error")
+		}
+		delete(e.fails, "list/Operation")
 		wantOutcome(t, e.drive("p1"), delivery.Succeeded, "Preempted")
 	})
 }
