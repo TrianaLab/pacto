@@ -257,6 +257,22 @@ func TestStepDownAfterAConfirmedFailure(t *testing.T) {
 	if c := st.Stream.Concluded[len(st.Stream.Concluded)-1]; c.Type != delivery.TypeAutonomy || c.Person {
 		t.Fatalf("the step-down is the newest conclusion, raised by no person: %+v", c)
 	}
+	// The rollback of that same failure concludes after the step-down; it is
+	// why the rung dropped, so the count restarts at zero with no incident.
+	e.health.result = delivery.Pass
+	e.drive("p1-rollback")
+	e.apply(dA)
+	e.evaluate(c1, "Compliant")
+	rb := e.drive("p1-rollback")
+	wantOutcome(t, rb, delivery.Succeeded, "Verified")
+	st = e.getStage().Status
+	if c := st.Stream.Concluded[len(st.Stream.Concluded)-1]; c.UID != string(rb.UID) || c.Cause != "uid-p1" {
+		t.Fatalf("the rollback concludes after the step-down, citing p1: %+v %+v", c, rb.Status)
+	}
+	if p := delivery.ProposeRung(e.getStage().Spec, st, nil); slices.ContainsFunc(p.Blockers, func(b delivery.Blocker) bool { return b.Kind == delivery.BlockerIncident }) ||
+		!strings.Contains(p.Blockers[0].Message, "0 of") {
+		t.Fatalf("no incident blocks re-earning the rung: %+v", p)
+	}
 }
 
 // TestStepDownRepeatedFailures: each confirmed failure of an automatic

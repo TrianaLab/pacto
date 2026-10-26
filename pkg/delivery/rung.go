@@ -289,11 +289,23 @@ func shadowEvidence(st StageStatus, n int, block func(kind, subject, msg string)
 // rollback, freeze or failure came after that change. cleared says one of
 // them was a breaking change the graph cleared.
 func promoteEvidence(st StageStatus, n int, block func(kind, subject, msg string)) (ev []string, cleared bool) {
+	// An automatic step-down cites the failure that raised it. That failed
+	// promote and the rollback or freeze it raised can conclude after the
+	// step-down: they are why the rung dropped, not a new incident, unless
+	// the rollback or freeze itself failed.
+	cause := ""
+	for _, c := range slices.Backward(st.Stream.Concluded) {
+		if c.Type == TypeAutonomy && c.Outcome == Succeeded {
+			cause = c.Cause
+			break
+		}
+	}
 scan:
 	for _, c := range slices.Backward(st.Stream.Concluded) {
 		switch {
 		case c.Type == TypeAutonomy && c.Outcome == Succeeded:
 			break scan
+		case cause != "" && (c.UID == cause || c.Cause == cause && c.Outcome != Failed):
 		case c.Outcome == Failed, !c.Person && (c.Type == TypeRollback || c.Type == TypeFreeze):
 			block(BlockerIncident, c.UID, "a "+c.Type+" ended "+string(c.Outcome)+": "+c.Reason)
 		case c.Type != TypePromote || len(ev) == n:

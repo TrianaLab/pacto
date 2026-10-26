@@ -122,6 +122,33 @@ func TestProposeRungPromotes(t *testing.T) {
 	}
 }
 
+// TestStepDownRestartsAtZero: the rollback and failed promote of the failure
+// a step-down cites conclude after it and are no incident; the count restarts.
+func TestStepDownRestartsAtZero(t *testing.T) {
+	spec := StageSpec{Autonomy: AutonomyPolicy{ProposeAfter: 1}}
+	st := StageStatus{Rung: RungAdvise, Conditions: []Condition{recordStoreReady()}, Stream: Stream{Concluded: []Concluded{
+		{UID: "down", Type: TypeAutonomy, Outcome: Succeeded, Cause: "p1"},
+		promoted("p1", Failed, "", false),
+		{UID: "rb", Type: TypeRollback, Outcome: Succeeded, Cause: "p1"},
+		{UID: "fz", Type: TypeFreeze, Outcome: Succeeded, Cause: "p1"},
+	}}}
+	if p := ProposeRung(spec, st, nil); !slices.Equal(kinds(p), []string{BlockerNeedsVerified}) || !strings.Contains(p.Blockers[0].Message, "0 of 1") {
+		t.Fatalf("the step-down's own failure is no incident; the count restarts at zero: %+v", p)
+	}
+	st.Stream.Concluded = append(st.Stream.Concluded, promoted("p2", Succeeded, Verified, false))
+	if p := ProposeRung(spec, st, nil); p.Rung != RungAutoNonBreaking {
+		t.Fatalf("one verified promote re-earns the rung: %+v", p)
+	}
+	st.Stream.Concluded[2].Outcome = Failed
+	if p := ProposeRung(spec, st, nil); !slices.Contains(kinds(p), BlockerIncident) {
+		t.Fatalf("a rollback that failed is still an incident: %+v", p)
+	}
+	st.Stream.Concluded[2] = Concluded{UID: "rb2", Type: TypeRollback, Outcome: Succeeded, Cause: "other"}
+	if p := ProposeRung(spec, st, nil); !slices.Contains(kinds(p), BlockerIncident) {
+		t.Fatalf("a rollback of another failure is an incident: %+v", p)
+	}
+}
+
 func TestRungChangeResetsTheWindows(t *testing.T) {
 	s := StageStatus{Rung: RungAdvise, Shadow: []Shadow{{Candidate: dA}}, Proposal: &Proposal{Rung: RungAutoNonBreaking}}
 	changeRung(&s, OperationSpec{Params: Params{From: string(RungAdvise), To: string(RungAutoNonBreaking)}})

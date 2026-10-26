@@ -582,6 +582,11 @@ spec:
                       description: Concluded is one operation's seq and conclusion,
                         as the Stage holds it.
                       properties:
+                        cause:
+                          description: |-
+                            Cause is the uid of the operation whose failure made the promoter
+                            raise this one: an automatic rollback, freeze or step-down.
+                          type: string
                         clearedBreaking:
                           description: |-
                             ClearedBreaking is a promote of a change that is not NON_BREAKING whose

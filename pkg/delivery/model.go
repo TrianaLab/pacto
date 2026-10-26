@@ -341,6 +341,10 @@ type Concluded struct {
 	// impact verdict passed: every consumer accepts it.
 	// +optional
 	ClearedBreaking bool `json:"clearedBreaking,omitempty"`
+	// Cause is the uid of the operation whose failure made the promoter
+	// raise this one: an automatic rollback, freeze or step-down.
+	// +optional
+	Cause string `json:"cause,omitempty"`
 }
 
 // ObservedRevision is the digest GitOps' source reports while a Stage

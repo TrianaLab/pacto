@@ -103,6 +103,9 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 			done := delivery.Concluded{UID: string(op.UID), Seq: op.Status.Seq, Outcome: c.outcome, Verification: c.verification, Reason: c.reason,
 				Type: op.Spec.Type, Person: len(op.Status.Approvals) > 0 || op.Status.ActorClass == delivery.ClassHuman,
 				ClearedBreaking: delivery.ClearedBreaking(op.Status.Plan)}
+			if op.Status.ActorClass == delivery.ClassController {
+				done.Cause = causeOp(op) // only the promoter's own cause excuses what follows
+			}
 			s.Status.Stream.Concluded = append(s.Status.Stream.Concluded, done)
 			s.Status.Stream.Concluded = s.Status.Stream.Concluded[max(0, len(s.Status.Stream.Concluded)-delivery.MaxConcluded):]
 			delivery.ApplyEffects(&s.Status, op.Name, string(op.UID), op.Spec, op.Status,
