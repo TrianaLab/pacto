@@ -924,7 +924,7 @@ always 5 waits_for_f || fail "F moved without a person"
 # No agent can approve: RBAC refuses the create, and the CLI refuses first,
 # asking for a fresh login of a person's own before anything else.
 OUT="$(as_agent "$AGENT_A" approve -n test "$OPF" 2>&1 || true)"
-if grep -q "agents may not approve\|fresh login of your own" <<<"$OUT"; then pass "the agent cannot approve"; else fail "an agent approved: $OUT"; fi
+if grep -q "approving needs a fresh login of your own" <<<"$OUT"; then pass "the agent cannot approve"; else fail "an agent approved: $OUT"; fi
 if KUBECONFIG="$AGENT_A" kubectl -n test create -f - 2>/dev/null <<YAML
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Approval

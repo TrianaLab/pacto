@@ -4,7 +4,8 @@ The recorder writes a signed record of every operation that ends, refusals
 included, into your registry next to the versions it touched. It is off by
 default. Only it holds the signing key and the right to push; the promoter
 never gets either. With it on, history, blame and undo read the records, not
-the Operations left in the cluster.
+the Operations left in the cluster. The operator reads every Secret, so it
+can read an Ed25519 key too: prefer KMS or keyless signing.
 
 ## What a record is
 
@@ -33,23 +34,24 @@ Your registry must serve the OCI Referrers API natively.
 `distribution` do not, so they hold no records.
 
 ```yaml
-recorder:
-  enabled: true
-  streamsRepository: registry.example/pacto/streams
-  registryCredentials:
-    secretName: recorder-push       # a kubernetes.io/dockerconfigjson Secret
-  signing:
-    ed25519:
-      secretName: recorder-key      # holds key.pem, a PKCS#8 Ed25519 key
+delivery:
+  recorder:
+    enabled: true
+    streamsRepository: registry.example/pacto/streams
+    registryCredentials:
+      secretName: recorder-push       # a kubernetes.io/dockerconfigjson Secret
+    signing:
+      ed25519:
+        secretName: recorder-key      # holds key.pem, a PKCS#8 Ed25519 key
 ```
 
 The push Secret needs write access to the streams, deploy and contract
 repositories. Create a test key with
 `openssl genpkey -algorithm ed25519 -out key.pem`.
 
-In production, sign with a KMS key (`signing.kms: awskms:///alias/pacto`;
+In production, sign with a KMS key (`delivery.recorder.signing.kms: awskms:///alias/pacto`;
 ECDSA P-256, Ed25519 or RSA PKCS#1 v1.5 with SHA-256; AWS, GCP, Azure and
-Vault) or keyless (`signing.keyless`: certificate `identity` and `issuer`, a
+Vault) or keyless (`delivery.recorder.signing.keyless`: certificate `identity` and `issuer`, a
 Fulcio, a required timestamp authority and a `trustedRoot`). Workload identity
 goes in `delivery.recorder.serviceAccount.annotations`. The recorder never uploads to a
 public transparency log and checks a probe record at startup, so a wrong key
@@ -102,15 +104,16 @@ Readers and the recorder check every signature against a trust config. To
 rotate, sign with the new key and keep the old one listed:
 
 ```yaml
-recorder:
-  trust: |
-    keys:
-      - name: old-recorder
-        publicKey: |
-          -----BEGIN PUBLIC KEY-----
-          ...
-          -----END PUBLIC KEY-----
-        streams: ["*/prod/*"]
+delivery:
+  recorder:
+    trust: |
+      keys:
+        - name: old-recorder
+          publicKey: |
+            -----BEGIN PUBLIC KEY-----
+            ...
+            -----END PUBLIC KEY-----
+          streams: ["*/prod/*"]
 ```
 
 `streams` are patterns over stream ids (`<cluster>/<namespace>/<stage>`), so a
@@ -211,7 +214,8 @@ with the entry's `trustedRoot` saved as `trusted_root.json`:
 
 `--insecure-ignore-sct` is there only when the trusted root lists no
 certificate transparency log, as a private Sigstore often does. A certificate
-from such a root has no timestamp to check, and cosign fails without the flag.
+from such a root carries no SCT (no CT log saw it), and cosign fails without
+the flag. The TSA timestamp is still checked.
 
 `oras discover` on a version lists the records attached to it. The record
 itself is a DSSE envelope: `jq -r .dsseEnvelope.payload record.json | base64 -d`
