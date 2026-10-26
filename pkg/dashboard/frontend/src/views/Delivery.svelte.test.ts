@@ -95,6 +95,32 @@ describe('inbox', () => {
     destroy();
   });
 
+  it('pages each section on its own, caps the affected services and filters', async () => {
+    const item = (n: number) => ({ namespace: 'prod', name: `op${n}`, stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', phase: 'Held', decision: 'approve',
+      owners: ['team-checkout'], consumers: ['a', 'b', 'c', 'd', 'e'] });
+    fns.inbox.mockResolvedValue({ ...listing, held: [item(26)], heldPage: { total: 1500, offset: 25, limit: 25 },
+      frozen: [], frozenPage: { total: 0, offset: 0, limit: 25 }, errored: [], erroredPage: { total: 0, offset: 0, limit: 25 } });
+    const { target, destroy } = render(DeliveryInboxView, { held: '25', frozen: '50', q: 'pay' });
+    await settle();
+    expect(text(target)).toContain('1,500 waiting for a decision');
+    const pager = target.querySelector('[data-testid="inbox-held-pager"]') as HTMLElement;
+    expect(text(pager.querySelector('.pl-range') as HTMLElement).trim()).toBe('Showing 26–50 of 1,500 held changes');
+    // Another page of held changes keeps the other sections and the filter where they are.
+    expect(target.querySelector('[data-testid="inbox-held-pager-next"]')?.getAttribute('href')).toBe('#/delivery/inbox?held=50&frozen=50&q=pay');
+    const affected = target.querySelector('ul[aria-label="Affected services"]') as HTMLElement;
+    expect([...affected.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['a', 'b', 'c']);
+    expect(text(target)).toContain('Show all 5');
+    destroy();
+  });
+
+  it('says when nothing matches the filter', async () => {
+    fns.inbox.mockResolvedValue({ ...listing, held: [], frozen: [], errored: [] });
+    const { target, destroy } = render(DeliveryInboxView, { q: 'zzz' });
+    await settle();
+    expect(text(target.querySelector('[data-testid="inbox-empty"]') as HTMLElement)).toContain('Nothing matches the filter');
+    destroy();
+  });
+
   it('says up front that approving is not possible on a cluster that reports no login time', async () => {
     fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
       held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', question: 'ship?', decision: 'approve', owners: ['team-checkout'] }] });

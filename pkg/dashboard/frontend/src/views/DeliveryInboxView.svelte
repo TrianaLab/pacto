@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { deliveryChangeUrl, deliveryHistoryUrl, serviceUrl } from '../lib/router.ts';
+  import { deliveryChangeUrl, deliveryHistoryUrl, deliveryInboxUrl, serviceUrl } from '../lib/router.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import { typeLabel, decisionLabel, shortDigest, shortDigests, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
@@ -11,31 +11,49 @@
   import ListingNote from '../components/ListingNote.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import MoveFirstList from '../components/MoveFirstList.svelte';
+  import Pager from '../components/Pager.svelte';
+  import ListFilter from '../components/ListFilter.svelte';
+  import CappedList from '../components/CappedList.svelte';
+  import { urlInt, limitParam } from '../lib/paging.ts';
+  import { formatCount } from '../lib/format.ts';
 
   // What waits on me or my team: held changes whose question names one of my
-  // teams, then frozen environments and changes that could not finish.
-  let { refreshTick = 0 } = $props();
+  // teams, then frozen environments and changes that could not finish. Each
+  // section is paged on the server, and its place is in the URL.
+  let { held: heldAt = '', frozen: frozenAt = '', errored: erroredAt = '', limit = '', q = '', refreshTick = 0 } = $props();
 
-  const loader = createProductLoader(() => api.deliveryInbox());
-  $effect(() => { loader.sync(String(refreshTick)); });
+  const query = $derived({ held: urlInt(heldAt), frozen: urlInt(frozenAt), errored: urlInt(erroredAt), limit: urlInt(limit), q });
+  const loader = createProductLoader(() => api.deliveryInbox({
+    held: query.held || undefined, frozen: query.frozen || undefined, errored: query.errored || undefined,
+    limit: query.limit || undefined, q: q || undefined,
+  }));
+  const question = $derived(JSON.stringify(query));
+  $effect(() => { loader.sync(`${question}@@${refreshTick}`, question); });
   onDestroy(() => loader.destroy());
 
-  const inbox = $derived(loader.data);
+  const inbox = $derived(loader.dataTag === question ? loader.data : null);
   const held = $derived(inbox?.held ?? []);
   const frozen = $derived(inbox?.frozen ?? []);
   const errored = $derived(inbox?.errored ?? []);
-  const nothing = $derived(!!inbox && held.length + frozen.length + errored.length === 0);
+  const total = (p, list) => p?.total ?? list.length;
+  const nothing = $derived(!!inbox && total(inbox.heldPage, held) + total(inbox.frozenPage, frozen) + total(inbox.erroredPage, errored) === 0);
+  // A link to another page of one section keeps the others where they are.
+  const hrefFor = (section) => (off, lim) => deliveryInboxUrl({
+    ...query, [section]: off, limit: limitParam(lim, limit, inbox?.[`${section}Page`]?.limit ?? lim),
+  });
 </script>
 
 <div class="product-page">
   <PageHeader
     title="Inbox"
     subtitle="What waits on you or your team: the question asked and the services it affects."
-    count={inbox ? `${held.length} waiting for a decision` : ''}
+    count={inbox ? `${formatCount(total(inbox.heldPage, held))} waiting for a decision` : ''}
     asOf={inbox?.asOf}
     revalidating={!!inbox && loader.loading}
   />
   <DeliveryNav current="delivery-inbox" />
+  <ListFilter value={q} href={(v) => deliveryInboxUrl({ q: v })} label="Filter by namespace, environment, service or change"
+    placeholder="Namespace, environment, service or change" testid="inbox-filter" />
 
   {#if !inbox && loader.loading}
     <EmptyState loading={true} rows={3} />
@@ -46,8 +64,13 @@
 
     {#if nothing}
       <div class="state-box" data-testid="inbox-empty">
-        <h2>{inbox.completeness === 'partial' ? 'Nothing waits on you that you can see' : 'Nothing waits on you'}</h2>
-        <p>No change is held for your teams, and none of your environments is frozen or stuck.</p>
+        {#if q}
+          <h2>Nothing matches the filter</h2>
+          <p>Nothing waiting on you matches “{q}”.</p>
+        {:else}
+          <h2>{inbox.completeness === 'partial' ? 'Nothing waits on you that you can see' : 'Nothing waits on you'}</h2>
+          <p>No change is held for your teams, and none of your environments is frozen or stuck.</p>
+        {/if}
       </div>
     {:else}
       <section aria-labelledby="inbox-held">
@@ -60,7 +83,7 @@
         {:else}
           <ul class="pl-list" data-testid="inbox-held">
             {#each held as it (it.namespace + '/' + it.name)}
-              <li class="pl-row dl-row">
+              <li class="pl-row pl-row--stack dl-row">
                 <a class="dl-title" href={deliveryChangeUrl(it.namespace, it.name)}>
                   {typeLabel(it.type)} on {it.namespace}/{it.stage}{#if it.to}: {it.fromVersion && it.toVersion ? `${it.fromVersion} to ${it.toVersion}` : it.toVersion || shortDigest(it.to)}{/if}
                 </a>
@@ -71,12 +94,13 @@
                   <dt>Who may answer</dt><dd>{it.owners?.length ? it.owners.join(', ') : deliverySession.data?.requireOwnerTeam ? 'Nobody: no team is declared, so only break-glass can override' : 'Any person'}</dd>
                   {#if it.consumers?.length}
                     <dt>Affected services</dt>
-                    <dd>{#each it.consumers as c, i}{#if i > 0},{' '}{/if}<a href={serviceUrl(c)}>{c}</a>{/each}</dd>
+                    <dd><CappedList items={it.consumers} max={3} inline={true} label="Affected services">{#snippet item(c)}<a href={serviceUrl(c)}>{c}</a>{/snippet}</CappedList></dd>
                   {/if}
                 </dl>
               </li>
             {/each}
           </ul>
+          <Pager page={inbox.heldPage} href={hrefFor('held')} label="Pages of held changes" noun="held changes" testid="inbox-held-pager" />
         {/if}
       </section>
 
@@ -85,12 +109,13 @@
           <h2 id="inbox-frozen" class="t-section-title">Frozen environments</h2>
           <ul class="pl-list" data-testid="inbox-frozen">
             {#each frozen as row (row.namespace + '/' + row.stage)}
-              <li class="pl-row dl-row">
+              <li class="pl-row pl-row--stack dl-row">
                 <a class="dl-title" href={deliveryHistoryUrl({ namespace: row.namespace, stage: row.stage })}>{row.service} in {row.environment}</a>
                 <p class="t-body-2">Frozen{#if row.frozenReason}: {shortDigests(row.frozenReason)}{/if}. Nothing moves here until a person unfreezes it.</p>
               </li>
             {/each}
           </ul>
+          <Pager page={inbox.frozenPage} href={hrefFor('frozen')} label="Pages of frozen environments" noun="frozen environments" testid="inbox-frozen-pager" />
         </section>
       {/if}
 
@@ -99,12 +124,13 @@
           <h2 id="inbox-errored" class="t-section-title">Changes that could not finish</h2>
           <ul class="pl-list" data-testid="inbox-errored">
             {#each errored as it (it.namespace + '/' + it.name)}
-              <li class="pl-row dl-row">
+              <li class="pl-row pl-row--stack dl-row">
                 <a class="dl-title" href={deliveryChangeUrl(it.namespace, it.name)}>{typeLabel(it.type)} on {it.namespace}/{it.stage}</a>
-                <p class="t-body-2">{it.reason || 'Pacto could not tell how it ended'}. The environment is still frozen.</p>
+                <p class="t-body-2">{shortDigests(it.reason) || 'Pacto could not tell how it ended'}. The environment is still frozen.</p>
               </li>
             {/each}
           </ul>
+          <Pager page={inbox.erroredPage} href={hrefFor('errored')} label="Pages of changes that could not finish" noun="changes" testid="inbox-errored-pager" />
         </section>
       {/if}
     {/if}
@@ -112,7 +138,7 @@
 </div>
 
 <style>
-  .dl-row { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-3); }
+  .dl-row { gap: var(--sp-1); padding: var(--sp-3); overflow-wrap: break-word; }
   .dl-title { font-weight: 600; color: var(--c-accent); }
   .dl-question { margin: 0; }
   .dl-facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px var(--sp-3); margin: 0; }
