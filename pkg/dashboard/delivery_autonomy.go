@@ -3,7 +3,6 @@ package dashboard
 import (
 	"cmp"
 	"context"
-	"encoding/json"
 	"slices"
 	"strings"
 
@@ -72,12 +71,15 @@ type stageLadder struct {
 	Proposal *AutonomyProposal `json:"proposal"`
 	Shadow   []ShadowDecision  `json:"shadow"`
 	Stream   struct {
-		Concluded []struct {
-			Type    string `json:"type"`
-			Person  bool   `json:"person"`
-			Outcome string `json:"outcome"`
-		} `json:"concluded"`
+		Concluded []ladderConcluded `json:"concluded"`
 	} `json:"stream"`
+}
+
+// ladderConcluded is how one operation in a Stage's window concluded.
+type ladderConcluded struct {
+	Type    string `json:"type"`
+	Person  bool   `json:"person"`
+	Outcome string `json:"outcome"`
 }
 
 // uncontractedCaller is a workload seen calling a contracted service that no
@@ -87,18 +89,12 @@ type uncontractedCaller struct {
 	ToService string `json:"toService"`
 }
 
-// rewire reads v by its JSON field names into T.
-func rewire[T any](v any) (t T) {
-	b, _ := json.Marshal(v) // plain data: never fails
-	_ = json.Unmarshal(b, &t)
-	return t
-}
-
-// ponytail: ladderOf maps the Stage's typed ladder status onto the dashboard's
-// wire shape by JSON field names (the names match). Both are vars so tests can
+// ladderOf maps the Stage's typed ladder status onto the dashboard's wire
+// shape field by field: a JSON round trip of every Stage's status was most of
+// the autonomy answer's time on a large fleet. Both are vars so tests can
 // supply a ladder without building a whole status.
 var (
-	ladderOf       = func(st delivery.StageObject) stageLadder { return rewire[stageLadder](st.Status) }
+	ladderOf       = ladderFrom
 	uncontractedOf = func(snap *fleet.FleetSnapshot) []uncontractedCaller {
 		var out []uncontractedCaller
 		for _, c := range snap.UncontractedCallers {
@@ -193,6 +189,26 @@ func (s *Server) deliveryAutonomy(ctx context.Context, in *autonomyInput) (*auto
 	}
 	b.Blockers, b.BlockersPage = pageOf(blockers, in.Blockers, in.Limit, autonomyPage)
 	return out, nil
+}
+
+func ladderFrom(st delivery.StageObject) stageLadder {
+	ss := st.Status
+	lad := stageLadder{Rung: string(ss.Rung)}
+	if p := ss.Proposal; p != nil {
+		lad.Proposal = &AutonomyProposal{Rung: string(p.Rung), Evidence: p.Evidence}
+		for _, b := range p.Blockers {
+			lad.Proposal.Blockers = append(lad.Proposal.Blockers, AutonomyBlocker{Kind: b.Kind, Subject: b.Subject, Message: b.Message})
+		}
+	}
+	for _, sh := range ss.Shadow {
+		lad.Shadow = append(lad.Shadow, ShadowDecision{Candidate: sh.Candidate, From: sh.From, Predicted: string(sh.Predicted),
+			Decision: string(sh.Decision), Owners: sh.Owners, Question: sh.Question, IntentDigest: sh.IntentDigest,
+			PlannedAt: sh.PlannedAt, ObservedAt: sh.ObservedAt, Verification: string(sh.Verification)})
+	}
+	for _, c := range ss.Stream.Concluded {
+		lad.Stream.Concluded = append(lad.Stream.Concluded, ladderConcluded{Type: c.Type, Person: c.Person, Outcome: string(c.Outcome)})
+	}
+	return lad
 }
 
 func distinctCallers(cs []uncontractedCaller) int {

@@ -44,6 +44,20 @@ func TestLadderReadsTheWireNames(t *testing.T) {
 	expect(t, len(got) == 1 && got[0] == uncontractedCaller{Caller: "k8s:prod/Deployment/orders", ToService: "payments"}, "the snapshot's uncontracted caller")
 }
 
+// ladderFrom copies the typed status field by field; it must read what the
+// wire names say, so it answers what a JSON round trip of the status would.
+func TestLadderFromMatchesTheWire(t *testing.T) {
+	st := stage("prod", "p", "p", delivery.StageStatus{Rung: "advise",
+		Proposal: &delivery.Proposal{Rung: "auto-nonbreaking", Evidence: []string{"sha256:a"},
+			Blockers: []delivery.Blocker{{Kind: "incident", Subject: "payments", Message: "open"}}},
+		Shadow: []delivery.Shadow{{Candidate: "sha256:c", From: "sha256:b", Predicted: delivery.PredictProceeds, Decision: delivery.Approve,
+			Owners: []string{"team-a"}, Question: "q", IntentDigest: "sha256:i", PlannedAt: "t1", ObservedAt: "t2", Verification: "Verified"}},
+		Stream: delivery.Stream{Concluded: []delivery.Concluded{{UID: "u", Type: delivery.TypePromote, Person: true, Outcome: delivery.Succeeded}}}})
+	want, _ := json.Marshal(rewire[stageLadder](st.Status))
+	got, _ := json.Marshal(ladderFrom(st))
+	expect(t, string(got) == string(want), "ladderFrom\n%s\nwant\n%s", got, want)
+}
+
 func TestAutonomy(t *testing.T) {
 	promote := func(person bool, outcome string) string {
 		p := "false"
@@ -154,4 +168,11 @@ func TestFixFor(t *testing.T) {
 	expect(t, fixFor("missing-contract", "payments", "", nil).Command == "pacto init --cluster --out ./pacto-drafts", "a service name")
 	expect(t, fixFor("undeclared-range", "checkout", "", nil) == nil, "no provider, no snippet")
 	expect(t, fixFor("incident", "x", "payments", nil) == nil, "nothing to copy for an incident")
+}
+
+// rewire reads v by its JSON field names into T.
+func rewire[T any](v any) (t T) {
+	b, _ := json.Marshal(v) // plain data: never fails
+	_ = json.Unmarshal(b, &t)
+	return t
 }
