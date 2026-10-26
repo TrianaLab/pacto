@@ -127,11 +127,17 @@ image.digest is set. The tag defaults to the chart appVersion.
 The namespace delivery runs in. Never the release namespace: the operator
 holds create on Deployments and Secrets there, which would let it run a pod
 as the promoter or mint the promoter's token and move the pointer itself.
+Never the node agent namespace either, on or off: the operator holds create on
+DaemonSets, ServiceAccounts and Roles there, and the chart would render a
+second Namespace of the same name.
 */}}
 {{- define "pacto-operator.delivery.namespace" -}}
 {{- $ns := required "delivery.namespace is required" .Values.delivery.namespace }}
 {{- if eq $ns .Release.Namespace }}
 {{- fail "delivery.namespace must not be the release namespace: the operator can create Deployments and Secrets there, so it could act as the promoter" }}
+{{- end }}
+{{- if eq $ns .Values.nodeAgent.namespace }}
+{{- fail "delivery.namespace must not be the node agent namespace: the operator can create DaemonSets and ServiceAccounts there, so it could act as the promoter" }}
 {{- end }}
 {{- $ns }}
 {{- end }}

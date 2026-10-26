@@ -224,6 +224,36 @@ tests:
       - failedTemplate:
           errorPattern: delivery.namespace must not be the release namespace
 
+  - it: refuses to run delivery in the node agent namespace, even with the agent off
+    template: templates/delivery/rbac.yaml
+    set:
+      delivery.enabled: true
+      delivery.namespace: pacto-node-agent
+      delivery.createNamespace: false
+    capabilities:
+      majorVersion: 1
+      minorVersion: 30
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - failedTemplate:
+          errorPattern: delivery.namespace must not be the node agent namespace
+
+  - it: refuses to run delivery in the node agent namespace with the agent on
+    template: templates/delivery/rbac.yaml
+    set:
+      delivery.enabled: true
+      nodeAgent.enabled: true
+      delivery.namespace: pacto-node-agent
+    capabilities:
+      majorVersion: 1
+      minorVersion: 30
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    asserts:
+      - failedTemplate:
+          errorPattern: delivery.namespace must not be the node agent namespace
+
   # The operator must hold no Role in the delivery namespace: with create on
   # Deployments or Secrets there it could run a pod as the promoter or mint
   # the promoter's token and move the pointer itself.
