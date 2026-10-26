@@ -79,6 +79,32 @@ func TestStatus_CatchesEveryBrokenFact(t *testing.T) {
 	}
 }
 
+// A provider Pacto with one uncontracted caller the kernel saw.
+const backendPacto = `{
+  "metadata": {"name": "backend"},
+  "status": {"contractStatus": "Compliant",
+    "observedCallers": [{"namespace": "conf", "kind": "Deployment", "name": "curl", "source": "ebpf", "firstSeen": "2026-10-18T10:00:00Z"}],
+    "observedCallersCoverage": {"state": "complete", "refreshSeconds": 30}}
+}`
+
+func TestStatus_ObservedCallers(t *testing.T) {
+	if errs := status(t, backendPacto, "-caller", "Deployment/curl", "-no-caller", "Deployment/caller", "-caller-coverage", "complete"); errs != nil {
+		t.Fatalf("unexpected failures: %v", errs)
+	}
+	for name, args := range map[string][]string{
+		"missing caller": {"-caller", "Deployment/other"},
+		"listed caller":  {"-no-caller", "Deployment/curl"},
+		"wrong coverage": {"-caller-coverage", "partial"},
+	} {
+		if errs := status(t, backendPacto, args...); len(errs) != 1 {
+			t.Errorf("%s: want exactly one failure, got %v", name, errs)
+		}
+	}
+	if errs := status(t, conformingPacto, "-caller-coverage", "complete"); len(errs) != 1 {
+		t.Errorf("no coverage: want exactly one failure, got %v", errs)
+	}
+}
+
 func TestStatus_ReportsEveryFailureTogether(t *testing.T) {
 	errs := status(t, conformingPacto, "-status", "NonCompliant", "-expect", "INTERFACE_ABSENT", "-collector", "INTERFACE_ABSENT=ebpf")
 	if len(errs) != 3 {

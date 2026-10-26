@@ -8,12 +8,14 @@ See LICENSE file in the project root for full license text.
 package observer
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
 	"slices"
 	"time"
 
+	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -87,6 +89,23 @@ func (o *Observer) loadKernelView(ctx context.Context, input CollectInput, now t
 		// Recorded where it happened: a workload read failure belongs to the workload view.
 		return &kernelView{failed: true}
 	}
+	byNode, err := o.loadNodes(ctx, input)
+	if err != nil {
+		return &kernelView{failed: true}
+	}
+	kv := &kernelView{now: now, nodes: byNode, staleness: input.KernelEvidenceStaleness}
+	for i := range pods {
+		kp := kv.classify(&pods[i])
+		if kp.Facts != nil {
+			kv.freshness = max(kv.freshness, byNode[pods[i].Spec.NodeName].StalenessBound(kv.staleness))
+		}
+		kv.pods = append(kv.pods, kp)
+	}
+	return kv
+}
+
+// loadNodes reads the node objects and their Leases in the agent namespace, keyed by object name.
+func (o *Observer) loadNodes(ctx context.Context, input CollectInput) (map[string]*runtimefacts.Snapshot, error) {
 	// Only objects carrying the agent's labels count, and only by object name: the agent names its object
 	// after its node, while status.nodeName is a field any writer could set to speak for another node. The
 	// list is read-only here, so the cache hands out its own copies.
@@ -94,7 +113,7 @@ func (o *Observer) loadKernelView(ctx context.Context, input CollectInput, now t
 	if err := o.client.List(ctx, &nodes, client.InNamespace(input.KernelEvidenceNamespace),
 		client.MatchingLabels(nodeagent.Labels()), client.UnsafeDisableDeepCopy); err != nil {
 		o.fail("kernel", fmt.Errorf("failed to list NodeRuntimeObservations: %w", err))
-		return &kernelView{failed: true}
+		return nil, err
 	}
 	// The heartbeat is the node's Lease, renewed every publish while the observation itself is rewritten only
 	// when it changes. An agent that renews no Lease (an older one) still heartbeats through lastPublished.
@@ -102,7 +121,7 @@ func (o *Observer) loadKernelView(ctx context.Context, input CollectInput, now t
 	if err := o.client.List(ctx, &leases, client.InNamespace(input.KernelEvidenceNamespace),
 		client.MatchingLabels(nodeagent.Labels()), client.UnsafeDisableDeepCopy); err != nil {
 		o.fail("kernel", fmt.Errorf("failed to list node agent Leases: %w", err))
-		return &kernelView{failed: true}
+		return nil, err
 	}
 	renewed := make(map[string]time.Time, len(leases.Items))
 	for i := range leases.Items {
@@ -118,15 +137,7 @@ func (o *Observer) loadKernelView(ctx context.Context, input CollectInput, now t
 		}
 		byNode[nodes.Items[i].Name] = snap
 	}
-	kv := &kernelView{now: now, nodes: byNode, staleness: input.KernelEvidenceStaleness}
-	for i := range pods {
-		kp := kv.classify(&pods[i])
-		if kp.Facts != nil {
-			kv.freshness = max(kv.freshness, byNode[pods[i].Spec.NodeName].StalenessBound(kv.staleness))
-		}
-		kv.pods = append(kv.pods, kp)
-	}
-	return kv
+	return byNode, nil
 }
 
 // coverage is the worst coverage among the target's pods. A target with no running pod has nothing the
@@ -508,4 +519,171 @@ func TrimPod(obj any) (any, error) {
 			PodIPs:     pod.Status.PodIPs,
 		},
 	}, nil
+}
+
+// maxObservedCallers caps status.observedCallers; more callers than this make the coverage partial.
+const maxObservedCallers = 32
+
+// observeCallers lists the workloads the node agent saw calling the target's Service inside the dependency
+// observation window (or input.CallerWindow, if longer) that no Pacto describes, named by the controller that owns their pods, and how far
+// that list can be trusted. It returns nothing when kernel evidence is off or the target names no Service.
+// Every read it cannot make, and every caller it cannot name, lowers the coverage instead of shortening
+// the list silently: a caller Pacto cannot see is one it cannot rule out.
+func (o *Observer) observeCallers(ctx context.Context, input CollectInput, now time.Time) ([]unversioned.ObservedCaller, *unversioned.CallerCoverage) {
+	if !input.KernelEvidence || input.ServiceName == "" {
+		return nil, nil
+	}
+	unavailable := func(reason string) ([]unversioned.ObservedCaller, *unversioned.CallerCoverage) {
+		return nil, &unversioned.CallerCoverage{State: unversioned.CallerCoverageUnavailable, Reason: reason}
+	}
+	nodes, err := o.loadNodes(ctx, input)
+	if err != nil {
+		return unavailable("agent-data-unreadable")
+	}
+	if len(nodes) == 0 {
+		return unavailable("no-agent-data")
+	}
+	svc := &corev1.Service{}
+	if err := o.client.Get(ctx, types.NamespacedName{Namespace: input.Namespace, Name: input.ServiceName}, svc); err != nil {
+		return unavailable("service-unreadable")
+	}
+	var epSlices discoveryv1.EndpointSliceList
+	if err := o.client.List(ctx, &epSlices, client.InNamespace(input.Namespace),
+		client.MatchingLabels{discoveryv1.LabelServiceName: svc.Name}); err != nil {
+		return unavailable("service-unreadable")
+	}
+	var pods corev1.PodList
+	if err := o.client.List(ctx, &pods); err != nil {
+		o.fail("kernel", fmt.Errorf("failed to list Pods: %w", err))
+		return unavailable("pods-unreadable")
+	}
+	var pactos unversioned.PactoList
+	if err := o.client.List(ctx, &pactos); err != nil {
+		o.fail("kernel", fmt.Errorf("failed to list Pacto CRs: %w", err))
+		return unavailable("pactos-unreadable")
+	}
+
+	cov := &unversioned.CallerCoverage{State: unversioned.CallerCoverageComplete}
+	partial := func(reason string) {
+		if cov.State == unversioned.CallerCoverageComplete {
+			cov.State, cov.Reason = unversioned.CallerCoveragePartial, reason
+		}
+	}
+	freshness := input.CallerWindow
+	snaps := make([]runtimefacts.Snapshot, 0, len(nodes))
+	for _, name := range slices.Sorted(maps.Keys(nodes)) {
+		s := nodes[name]
+		bound := s.StalenessBound(input.KernelEvidenceStaleness)
+		freshness = max(freshness, bound)
+		switch {
+		case s.LastPublished.IsZero() || now.Sub(s.LastPublished) > bound:
+			partial("stale-node")
+		case s.Collection.State == runtimefacts.StateFailed:
+			partial("collection-failed")
+		case s.Collection.State != runtimefacts.StateRunning:
+			partial("degraded-node")
+		}
+		for _, w := range s.Workloads {
+			if w.Shared {
+				partial("shared-netns")
+			}
+			if w.Truncated {
+				partial("truncated")
+			}
+		}
+		snaps = append(snaps, *s)
+	}
+	byUID := make(map[string]*corev1.Pod, len(pods.Items))
+	for i := range pods.Items {
+		p := &pods.Items[i]
+		byUID[string(p.UID)] = p
+		if p.Status.Phase == corev1.PodRunning && p.Spec.NodeName != "" && nodes[p.Spec.NodeName] == nil {
+			partial("node-without-agent")
+		}
+	}
+
+	seen := map[unversioned.ObservedCaller]bool{}
+	for _, id := range runtimefacts.Callers(snaps, servicePeers(svc, epSlices.Items), now.Add(-freshness)) {
+		pod := byUID[id.ID]
+		if pod == nil {
+			partial("unresolved-caller")
+			continue
+		}
+		chain, err := o.podOwners(ctx, pod)
+		if err != nil {
+			partial("unresolved-caller")
+			continue
+		}
+		if slices.ContainsFunc(chain, func(w ownerRef) bool { return pactoTarget(pactos.Items, pod.Namespace, w.kind, w.name) }) {
+			continue
+		}
+		top := chain[len(chain)-1]
+		seen[unversioned.ObservedCaller{Namespace: pod.Namespace, Kind: top.kind, Name: top.name, Source: collectorKernel}] = true
+	}
+	callers := slices.SortedFunc(maps.Keys(seen), func(a, b unversioned.ObservedCaller) int {
+		return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.Name, b.Name))
+	})
+	if len(callers) > maxObservedCallers {
+		callers = callers[:maxObservedCallers]
+		cov.State, cov.Reason = unversioned.CallerCoveragePartial, "truncated"
+	}
+	return callers, cov
+}
+
+// ownerRef is one link of a pod's controller chain.
+type ownerRef struct{ kind, name string }
+
+// podOwners is the pod's controller chain, nearest first: its direct controller and, for a ReplicaSet or a Job,
+// that controller's own controller (a Deployment or a CronJob). A pod no controller owns is its own chain. The
+// caller is named after the last link; a Pacto on any link means the pod is that Pacto's.
+func (o *Observer) podOwners(ctx context.Context, pod *corev1.Pod) ([]ownerRef, error) {
+	ref := metav1.GetControllerOf(pod)
+	if ref == nil {
+		return []ownerRef{{"Pod", pod.Name}}, nil
+	}
+	chain := []ownerRef{{ref.Kind, ref.Name}}
+	var parent client.Object
+	switch ref.Kind {
+	case workloadReplicaSet:
+		parent = &appsv1.ReplicaSet{}
+	case workloadJob:
+		parent = &batchv1.Job{}
+	default:
+		return chain, nil
+	}
+	if err := o.client.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: ref.Name}, parent); err != nil {
+		return nil, err
+	}
+	if up := metav1.GetControllerOf(parent); up != nil {
+		chain = append(chain, ownerRef{up.Kind, up.Name})
+	}
+	return chain, nil
+}
+
+// pactoTarget reports whether a Pacto in the namespace targets the workload.
+func pactoTarget(pactos []unversioned.Pacto, namespace, kind, name string) bool {
+	return slices.ContainsFunc(pactos, func(p unversioned.Pacto) bool {
+		n, k := p.ResolvedWorkload()
+		return p.Namespace == namespace && n == name && k == kind
+	})
+}
+
+// ObservedCallers is what the last Collect found calling the target's Service (observeCallers), with each
+// caller's FirstSeen carried over from prev, the list the status held before, so a caller seen again does
+// not rewrite the status. A new caller is first seen at the Collect's time. Both are nil before a Collect or
+// when runtime observation is off.
+func (o *Observer) ObservedCallers(prev []unversioned.ObservedCaller) ([]unversioned.ObservedCaller, *unversioned.CallerCoverage) {
+	if o.run == nil {
+		return nil, nil
+	}
+	callers := slices.Clone(o.run.callers)
+	for i := range callers {
+		callers[i].FirstSeen = metav1.NewTime(o.run.now)
+		if j := slices.IndexFunc(prev, func(p unversioned.ObservedCaller) bool {
+			return p.Namespace == callers[i].Namespace && p.Kind == callers[i].Kind && p.Name == callers[i].Name && p.Source == callers[i].Source
+		}); j >= 0 {
+			callers[i].FirstSeen = prev[j].FirstSeen
+		}
+	}
+	return callers, o.run.callerCoverage
 }

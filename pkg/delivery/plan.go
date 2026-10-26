@@ -369,7 +369,7 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 		old = in.To.Bundle
 	}
 	res := impact.Analyze(ctx, old.Contract, in.To.Bundle.Contract, old.FS, in.To.Bundle.FS, in.Snapshot,
-		impact.Options{Domain: contract.OCIDomain(in.To.ContractRef)})
+		impact.Options{Domain: contract.OCIDomain(in.To.ContractRef), IncludeObserved: true})
 	resJSON, _ := json.Marshal(res)
 	p.ImpactDigest = sha256Hex(resJSON)
 	v := Verdict{Gate: GateImpact, Phase: "pre", Result: Pass, Citation: map[string]string{
@@ -384,8 +384,7 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 		switch {
 		case c.CompatibilityVerdict == impact.CompatibilityIncompatible:
 			incompatible = append(incompatible, c)
-		case c.Confidence == impact.ConfidenceUnknown,
-			c.Direct && c.CompatibilityVerdict == impact.CompatibilityUnknown && res.Classification != diff.NonBreaking.String():
+		case unknownConsumer(res, c):
 			unknown = append(unknown, c)
 		}
 	}
@@ -421,6 +420,14 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 	p.Verdicts = append(p.Verdicts, v)
 }
 
+// unknownConsumer reports whether Pacto cannot tell if the change breaks c:
+// its evidence is unknown, or it is a direct consumer with no usable range of
+// a change that is not plainly non-breaking.
+func unknownConsumer(res *impact.Result, c impact.AffectedConsumer) bool {
+	return c.Confidence == impact.ConfidenceUnknown ||
+		c.Direct && c.CompatibilityVerdict == impact.CompatibilityUnknown && res.Classification != diff.NonBreaking.String()
+}
+
 // unseenConsumersOf says which consumers the impact gate cannot see: a
 // partial graph, consumers with no usable range, dependencies the graph could
 // not resolve and misplaced Pactos that are consumers of the service.
@@ -430,7 +437,16 @@ func unseenConsumersOf(in PlanInput, res *impact.Result, unknown []impact.Affect
 		out = append(out, "the operational graph is partial ("+limitationCodes(res.Limitations)+")")
 	}
 	for _, c := range unknown {
+		if c.Uncontracted {
+			// ponytail: the node agent is delivery's only caller source today (design section 2.1).
+			out = append(out, c.Service+" calls "+in.Stage.Service.Name+" at runtime (ebpf) but has no contract: run `"+
+				InitClusterCommand(callerNamespace(c.Service))+"` for it, or declare its range")
+			continue
+		}
 		out = append(out, c.Service+" has no usable compatibility range for this change")
+	}
+	if res.Classification != diff.NonBreaking.String() {
+		out = append(out, callersUnseen(in.Snapshot, fleet.NewServiceKeyDomain(contract.OCIDomain(in.To.ContractRef), in.Stage.Service.Name))...)
 	}
 	out = append(out, unresolvedConsumers(in.Snapshot, in.Stage.Service.Name)...)
 	consumers := map[string]bool{}

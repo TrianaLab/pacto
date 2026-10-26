@@ -79,7 +79,14 @@ type pacto struct {
 		Name string `json:"name"`
 	} `json:"metadata"`
 	Status struct {
-		ContractStatus     string    `json:"contractStatus"`
+		ContractStatus  string `json:"contractStatus"`
+		ObservedCallers []struct {
+			Kind string `json:"kind"`
+			Name string `json:"name"`
+		} `json:"observedCallers"`
+		ObservedCallersCoverage *struct {
+			State string `json:"state"`
+		} `json:"observedCallersCoverage"`
 		Findings           []finding `json:"findings"`
 		EvaluationCoverage *struct {
 			Evaluated  int      `json:"evaluated"`
@@ -96,13 +103,16 @@ type statusWant struct {
 	collector  []string // CODE=substring
 	unverified []string // contract path listed in evaluationCoverage.unverified
 	verified   []string // contract path NOT listed there: the facet was judged
+	callers    []string // Kind/name listed in observedCallers
+	noCallers  []string // Kind/name NOT listed there
+	callerCov  string   // observedCallersCoverage.state
 	noFindings bool
 	covered    bool
 }
 
 func runStatus(args []string, in io.Reader) ([]string, error) {
 	var w statusWant
-	var expect, forbid, collector, unverified, verified multi
+	var expect, forbid, collector, unverified, verified, callers, noCallers multi
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&w.status, "status", "", "required contractStatus")
@@ -111,12 +121,16 @@ func runStatus(args []string, in io.Reader) ([]string, error) {
 	fs.Var(&collector, "collector", "CODE=substring: a CODE finding cites a collector containing substring (repeatable)")
 	fs.Var(&unverified, "unverified", "a contract path evaluationCoverage.unverified must list (repeatable)")
 	fs.Var(&verified, "verified", "a contract path evaluationCoverage.unverified must not list (repeatable)")
+	fs.Var(&callers, "caller", "a Kind/name observedCallers must list (repeatable)")
+	fs.Var(&noCallers, "no-caller", "a Kind/name observedCallers must not list (repeatable)")
+	fs.StringVar(&w.callerCov, "caller-coverage", "", "required observedCallersCoverage.state")
 	fs.BoolVar(&w.noFindings, "no-findings", false, "the Pacto has no findings at all")
 	fs.BoolVar(&w.covered, "covered", false, "every required assertion was evaluated")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
 	w.expect, w.forbid, w.collector, w.unverified, w.verified = expect, forbid, collector, unverified, verified
+	w.callers, w.noCallers = callers, noCallers
 	var p pacto
 	if err := json.NewDecoder(in).Decode(&p); err != nil {
 		return nil, fmt.Errorf("decode Pacto: %w", err)
@@ -161,6 +175,25 @@ func checkStatus(p pacto, w statusWant) []string {
 	for _, path := range w.verified {
 		if cov := s.EvaluationCoverage; cov != nil && slices.Contains(cov.Unverified, path) {
 			add("evaluationCoverage.unverified lists %s, want it judged", path)
+		}
+	}
+	var seen []string
+	for _, c := range s.ObservedCallers {
+		seen = append(seen, c.Kind+"/"+c.Name)
+	}
+	for _, c := range w.callers {
+		if !slices.Contains(seen, c) {
+			add("observedCallers does not list %s (got %v)", c, seen)
+		}
+	}
+	for _, c := range w.noCallers {
+		if slices.Contains(seen, c) {
+			add("observedCallers lists %s, want it left out (got %v)", c, seen)
+		}
+	}
+	if w.callerCov != "" {
+		if cov := s.ObservedCallersCoverage; cov == nil || cov.State != w.callerCov {
+			add("observedCallersCoverage is %+v, want state %s", cov, w.callerCov)
 		}
 	}
 	if w.covered {

@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"io"
 	"io/fs"
+	"maps"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1544,11 +1546,27 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 	}
 	edges := map[edgeKey]*edgeAgg{}
 	var order []edgeKey
+	type callerKey struct {
+		caller    string
+		to        ServiceKey
+		ambiguous bool
+	}
+	uncontracted := map[callerKey]map[string]bool{}
 	for _, oi := range observed {
 		fromKey, fromRes := resolve(oi.edge.From)
 		toKey, toRes := resolve(oi.edge.To)
-		addObservedLimitation(snap, seenLim, oi.edge.From, fromRes, oi.source)
 		addObservedLimitation(snap, seenLim, oi.edge.To, toRes, oi.source)
+		if toRes == ObservedResolved && fromRes != ObservedResolved {
+			// A caller with no contract of a service with one is kept, not dropped:
+			// it is exactly the consumer a breaking change cannot rule out.
+			k := callerKey{oi.edge.From, toKey, fromRes == ObservedAmbiguous}
+			if uncontracted[k] == nil {
+				uncontracted[k] = map[string]bool{}
+			}
+			uncontracted[k][oi.source] = true
+			continue
+		}
+		addObservedLimitation(snap, seenLim, oi.edge.From, fromRes, oi.source)
 		if fromRes != ObservedResolved || toRes != ObservedResolved {
 			continue
 		}
@@ -1569,6 +1587,18 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 		st.Count += oi.edge.Count
 		mergeWindow(&st.FirstSeen, &st.LastSeen, oi.edge.FirstSeen, oi.edge.LastSeen)
 	}
+	for k, sources := range uncontracted {
+		snap.UncontractedCallers = append(snap.UncontractedCallers, UncontractedCaller{
+			Caller: k.caller, ToService: k.to, Sources: slices.Sorted(maps.Keys(sources)), Ambiguous: k.ambiguous,
+		})
+	}
+	sort.Slice(snap.UncontractedCallers, func(i, j int) bool {
+		a, b := snap.UncontractedCallers[i], snap.UncontractedCallers[j]
+		if a.ToService != b.ToService {
+			return a.ToService < b.ToService
+		}
+		return a.Caller < b.Caller
+	})
 	sort.Slice(order, func(i, j int) bool {
 		if order[i].from != order[j].from {
 			return order[i].from < order[j].from

@@ -648,6 +648,9 @@ type FleetSnapshot struct {
 	Sources       []SourceState                     `json:"sources"`
 	Completeness  Completeness                      `json:"completeness"`
 	Limitations   []Limitation                      `json:"limitations,omitempty"`
+	// UncontractedCallers are observed callers with no contract of a service
+	// that has one. Sorted by (ToService, Caller).
+	UncontractedCallers []UncontractedCaller `json:"uncontractedCallers,omitempty"`
 
 	// reverseDeps maps a service KEY to the keys of services that declare a
 	// dependency on it, across all their revisions (the dependents index). Built
@@ -667,6 +670,18 @@ type FleetSnapshot struct {
 	// callers can layer observed evidence on top rather than conflating the two.
 	observedReverse map[ServiceKey][]ServiceKey
 	observedForward map[ServiceKey][]ServiceKey
+}
+
+// UncontractedCaller is a runtime caller no contract describes, of a service
+// that has one. Caller is the raw observed identity, for example
+// "k8s:payments/Deployment/legacy-billing"; the k8s: prefix keeps it from ever
+// resolving to a contracted service by accident.
+type UncontractedCaller struct {
+	Caller    string     `json:"caller"`
+	ToService ServiceKey `json:"toService"`
+	Sources   []string   `json:"sources"`
+	// Ambiguous is set when the caller name matched more than one service.
+	Ambiguous bool `json:"ambiguous,omitempty"`
 }
 
 // Service returns the logical service record by name, or nil.

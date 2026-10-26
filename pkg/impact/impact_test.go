@@ -649,3 +649,32 @@ func TestReleaseBlocking(t *testing.T) {
 		})
 	}
 }
+
+// TestAnalyze_UncontractedCallers surfaces a caller with no contract as a
+// direct observed consumer with no range, only when observed evidence is in.
+func TestAnalyze_UncontractedCallers(t *testing.T) {
+	auth := svcContract("auth-service", "1.0.0", contract.Owner{Team: "platform"})
+	other := svcContract("other", "1.0.0", contract.Owner{})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("delivery", "kubernetes",
+		&fleet.Collection{
+			Revisions: []fleet.RawRevision{{Bundle: mkBundle(auth)}, {Bundle: mkBundle(other)}},
+			Observed: []fleet.ObservedEdge{
+				{From: "k8s:pay/Deployment/legacy", To: "auth-service", Count: 1},
+				{From: "k8s:pay/Deployment/elsewhere", To: "other", Count: 1},
+			},
+		}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	newC := svcContract("auth-service", "2.0.0", contract.Owner{Team: "platform"})
+	res := Analyze(context.Background(), auth, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{IncludeObserved: true})
+	want := []AffectedConsumer{{Service: "k8s:pay/Deployment/legacy", Depth: 1, Direct: true,
+		Path: []string{"k8s:pay/Deployment/legacy", "auth-service"}, CompatibilityVerdict: CompatibilityUnknown,
+		Provenance: fleet.ProvenanceObserved, Confidence: ConfidenceObserved, Uncontracted: true}}
+	if !reflect.DeepEqual(res.Consumers, want) {
+		t.Fatalf("consumers = %+v\nwant %+v", res.Consumers, want)
+	}
+	if res := Analyze(context.Background(), auth, newC, fstest.MapFS{}, fstest.MapFS{}, snap, Options{}); len(res.Consumers) != 0 {
+		t.Fatalf("declared-only analysis surfaced %+v", res.Consumers)
+	}
+}
