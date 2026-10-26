@@ -78,7 +78,7 @@
   const deciders = (en) => (en.approvals ?? []).filter((a) => a.by);
 </script>
 
-<div class="product-page product-page--wide">
+<div class="product-page">
   <PageHeader
     title={stage ? `History of ${namespace}/${stage}` : 'History'}
     subtitle="What happened on each environment, newest first. Where the recorder runs it is read from signed records; elsewhere from the changes still in the cluster, which is never the whole story."

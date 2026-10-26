@@ -701,15 +701,6 @@ tr.clickable:active { background: var(--c-surface-inset); }
 .pl-row.pl-row--stack { flex-direction: column; align-items: stretch; }
 .pl-row.pl-row--stack:hover, .pl-row.pl-row--stack:focus-within { background: none; box-shadow: none; }
 
-/* ── Wide pages ── */
-/* Table and board views use the width a wide screen has, centred on the page, instead
-   of the 1200px reading measure that leaves wide tables scrolling sideways. */
-.product-page--wide {
-  --page-wide: min(1600px, 100vw - 2 * var(--sp-4));
-  width: max(100%, var(--page-wide));
-  margin-inline: min(0px, (100% - var(--page-wide)) / 2);
-}
-
 /* ── Data tables ── */
 /* One rule set for every long table. Columns get their widths from a <colgroup> under a
    fixed layout, so no cell can paint over the next one; text wraps at word boundaries

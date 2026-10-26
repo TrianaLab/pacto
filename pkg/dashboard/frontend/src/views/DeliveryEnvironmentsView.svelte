@@ -58,7 +58,7 @@
   function closePlan() { proposing = null; opener?.focus(); }
 </script>
 
-<div class="product-page product-page--wide">
+<div class="product-page">
   <PageHeader
     title="Environments"
     subtitle="Every service in every environment: the version it runs and whether that version is verified, failed, frozen or waiting. A Stage is one service in one environment."
