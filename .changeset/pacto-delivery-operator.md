@@ -3,8 +3,10 @@
 ---
 
 Add the Pacto delivery promoter and recorder, an opt-in component with its own
-image, chart and API group, and tie every Pacto check result to the version it
-evaluated. The `pacto-operator` chart and image gain no permission.
+image and API group, installed by the `pacto-operator` chart under
+`delivery.enabled` into its own namespace, and tie every Pacto check result to
+the version it evaluated. The operator holds no role in the delivery namespace,
+so it cannot run a pod as the promoter or the recorder or mint their tokens.
 
 **Pacto status.** `Pacto.status.evaluatedRevision` names the contract digest
 and the workload object and generation an evaluation read, and its
@@ -39,9 +41,9 @@ declared range, holds for a person when a consumer in the Stage's environment
 would break or Pacto cannot see enough and writes to `status.plan.order` which
 consumer must move first, planned again while the change waits. It accepts an
 approval only from a person in a team the question names (chart
-`identities.teamGroupPrefix`); a question that names no team is answered by
-nobody unless `identities.requireOwnerTeam` is false, and with
-`identities.humanGroups` set only those groups count as people. The chart
+`delivery.identities.teamGroupPrefix`); a question that names no team is answered by
+nobody unless `delivery.identities.requireOwnerTeam` is false, and with
+`delivery.identities.humanGroups` set only those groups count as people. The chart
 publishes these identities in the ConfigMap `pacto-delivery-identities`, which
 the promoter runs with and the CLI, the MCP server and the dashboard read. It takes the Stage lock with one
 compare-and-swap, moves the pointer, waits for the apply and runs the verify
@@ -61,7 +63,7 @@ since a service without a contract may call it, unless the Stage sets
 The promoter emits Events when it holds, concludes, rolls back or freezes and
 exports `pacto_delivery_operations_total`, `pacto_delivery_verdicts_total`,
 `pacto_delivery_stage_frozen` and `pacto_delivery_stage_watched` (chart
-`metrics.*`). Each Stage says in `Watched` whether its running version passed
+`delivery.metrics.*`). Each Stage says in `Watched` whether its running version passed
 its latest re-check and in `Mediated` whether its pointer alone decides what
 runs, gives every condition an observed generation and publishes the
 promoter's login freshness in `status.authFreshness`. An approval the promoter
@@ -69,9 +71,9 @@ passes over is named on the operation with the reason.
 
 **Reach (experimental).** A Stage applies through a Flux `OCIRepository` by
 default, or, as an experimental option, through an Argo CD Application with an
-OCI source (`applyRef.kind: Application`, chart `argocd.enabled`). `candidates.upstreamRecords` lets a
+OCI source (`applyRef.kind: Application`, chart `delivery.argocd.enabled`). `candidates.upstreamRecords` lets a
 Stage follow a Stage in another cluster from that cluster's signed records,
-read with `promoter.upstreamTrust`; without it the Stage is not Ready
+read with `delivery.promoter.upstreamTrust`; without it the Stage is not Ready
 (`UpstreamUntrusted`), and while those records cannot be read or lost their
 newest entries it is not Ready either (`UpstreamUnreadable`). Ready also names
 an applier the promoter cannot write through. Only a Flux `OCIRepository` with
@@ -79,8 +81,10 @@ an applier the promoter cannot write through. Only a Flux `OCIRepository` with
 even when Argo CD applies it. A freeze is local: it does not stop followers. Argo CD and cross-cluster reach
 may change more than the rest of delivery.
 
-**The recorder** (subcommand `recorder`, chart `recorder.*`, off by default)
-is the only holder of the signing key and the registry push credentials. It
+**The recorder** (subcommand `recorder`, chart `delivery.recorder.*`, off by default)
+is the only delivery component that holds the signing key and the registry
+push credentials. With an Ed25519 key the operator, which reads every Secret,
+can read the key too, so prefer a KMS key or keyless signing. It
 writes a signed record of every operation that ends, in order per Stage,
 attaches it to the versions and contract involved, confirms the Referrers API
 lists it and only then advances the Stage's stream. A record can be late, never
@@ -89,30 +93,34 @@ service account token, verifies each stream against its trust config before
 extending it, freezes a Stage whose stream is in conflict and can post a
 CDEvent per record. `RecordStoreReady` says whether records are being written,
 and `pacto_delivery_records_pending` shows the lag. With the recorder on, the
-promoter deletes recorded operations after `recorder.operationTTL` (a week),
+promoter deletes recorded operations after `delivery.recorder.operationTTL` (a week),
 never the one a Stage runs.
 
-**The `pacto-delivery` chart**
-(`oci://ghcr.io/trianalab/pacto/charts/pacto-delivery`) installs both with
-their CRDs, ServiceAccounts, RBAC, the `pacto-delivery-agent` and
-`pacto-delivery-approver` roles and ValidatingAdmissionPolicies (Kubernetes
-1.30 or later) that bind an operation's actor to the requesting user, keep
-approvals to people with a login time (the apiserver maps the login time to
-`userInfo.extra["delivery.pacto.trianalab.io/auth-time"]`), keep the pointer to the promoter or
-break-glass, keep the promoter itself to the pointer field and keep the record
-fields to the recorder. The chart renders them even offline and refuses to
-render without them unless `admissionPolicies.allowUnguarded` is set; the
-promoter admits no operation and counts no approval while they are missing.
-`promoter.registryCredentials.secretName` lets the promoter read a private
-contract or deploy repository. The image and chart are published, signed and
-versioned with the operator, so install the delivery chart at your operator's
-version. Helm never updates a chart's CRDs: apply the
-delivery CRDs before every `helm upgrade pacto-delivery`. `make sync-crds`
-copies each API group into its own chart.
+**The `delivery` section of the `pacto-operator` chart** (`delivery.enabled`,
+off by default; the default render is unchanged) installs both in
+`delivery.namespace` (`pacto-delivery`, created by the chart and never the
+release namespace) with the
+Stage, Operation and Approval CRDs, their own ServiceAccounts and RBAC, the
+`<release>-delivery-agent` and `<release>-delivery-approver` roles and
+ValidatingAdmissionPolicies that bind an operation's actor to the requesting
+user, keep approvals to people with a login time (the apiserver maps the login
+time to `userInfo.extra["delivery.pacto.trianalab.io/auth-time"]`), keep the
+pointer to the promoter or break-glass, keep the promoter itself to the pointer
+field and keep the record fields to the recorder. Every delivery object is
+named `<release>-delivery[-part]`. It refuses to render below Kubernetes 1.30,
+without the ValidatingAdmissionPolicy API or without the policies unless
+`delivery.admissionPolicies.allowUnguarded` is set; the promoter admits no
+operation and counts no approval while they are missing.
+`delivery.promoter.registryCredentials.secretName` lets the promoter read a
+private contract or deploy repository. The delivery CRDs are chart templates
+with `helm.sh/resource-policy: keep`: `helm upgrade` updates them and
+`helm uninstall` leaves them and their history in place. The delivery image is
+published, signed and versioned with the operator. `make sync-crds` copies the
+delivery CRDs into the chart's `files/delivery-crds/`.
 
-**Both charts** gain `image.digest`: set it to a `sha256:` digest and the image
-is pulled as `tag@digest`, so the pod runs exactly that image whatever the tag
-later points at.
+**The chart's images** gain `image.digest` and `delivery.image.digest`: set
+one to a `sha256:` digest and that image is pulled as `tag@digest`, so the pod
+runs exactly that image whatever the tag later points at.
 
 **The `pacto-operator` chart** gains `dashboard.auth.oidc` (`issuerURL`,
 `clientID`, `clientSecretRef`, `redirectURL`, `extraScopes`),

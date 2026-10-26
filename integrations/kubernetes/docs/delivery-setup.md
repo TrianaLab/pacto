@@ -6,46 +6,48 @@ follow [Pactify a service](../../pactify.md) instead. The API group is
 
 ## Install
 
-The chart needs Flux (source and kustomize controllers) and the Pacto operator.
-Install it at the same version as your operator:
+Delivery is the `pacto-operator` chart's `delivery` section, off by default. It needs Flux (source and kustomize controllers). Turn it on:
 
 --8<-- "integrations/kubernetes/docs/generated/_delivery-install-command.md"
 
-The chart brings its own image, CRDs, RBAC and admission policies; the
-`pacto-operator` chart gains nothing. Its image,
-`ghcr.io/trianalab/pacto/delivery`, is signed by the release workflow; see
-[Published artifacts](artifact-hub.md). Bind `pacto-delivery-agent` to your
-agents' service accounts and `pacto-delivery-approver` to the people who may
-approve.
+This needs Helm 3.14 or later. Delivery runs in `delivery.namespace`
+(`pacto-delivery`, never the release or node agent namespace), where the operator holds no
+role, so it cannot act as the promoter. It still reads every Secret: prefer
+KMS or keyless recorder signing. Set `delivery.createNamespace=false` to
+create the namespace, with the recorder key, yourself. Bind
+`pacto-operator-delivery-agent` to agents and
+`pacto-operator-delivery-approver` to approvers. The image is
+[signed](artifact-hub.md).
 
-It needs Kubernetes 1.30 or later. The admission policies are what make the
-actor of an Operation and the person behind an Approval true, so the chart
-renders them even offline and refuses `admissionPolicies.enabled=false` unless
-you also set `admissionPolicies.allowUnguarded=true`. The promoter checks every
-policy the chart rendered. While one is missing, does not fail closed or has a
-binding that does not deny, binds another policy or is narrowed by
-`matchResources` or `paramRef`, it admits no operation and counts no approval.
-The operation shows the reason `Unguarded` and so does the Stage's `Ready`
-condition, which is `False`.
+The admission policies make the actor of an Operation and the person behind
+an Approval true, so the chart refuses Kubernetes below 1.30, a cluster
+without the `ValidatingAdmissionPolicy` API and
+`delivery.admissionPolicies.enabled=false`, unless you set
+`delivery.admissionPolicies.allowUnguarded=true`. With `helm template`, pass
+`--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy`.
+The promoter checks every policy the chart rendered. While one is missing,
+does not fail closed or has a binding that does not deny, binds another policy
+or is narrowed by `matchResources` or `paramRef`, it admits no operation and
+counts no approval; the operation and the Stage's `Ready` show `Unguarded`.
 
 To run an unreleased change, from the repository root:
 
 ```bash
-docker build -f integrations/kubernetes/Dockerfile --build-arg CMD=cmd/delivery \
+docker build -f integrations/kubernetes/Dockerfile --target delivery --build-arg CMD=cmd/delivery \
   -t registry.example.com/pacto-delivery:dev .
-helm install pacto-delivery integrations/kubernetes/charts/pacto-delivery \
-  -n pacto-delivery --create-namespace \
-  --set image.repository=registry.example.com/pacto-delivery --set image.tag=dev
+helm upgrade --install pacto-operator integrations/kubernetes/charts/pacto-operator \
+  -n pacto-operator-system --create-namespace --set delivery.enabled=true \
+  --set delivery.image.repository=registry.example.com/pacto-delivery --set delivery.image.tag=dev
 ```
 
 ## Metrics and Events
 
-The promoter and the recorder serve Prometheus metrics over plain HTTP on
-port 8080. The promoter's are behind the `<release>-metrics` Service; set
-`metrics.serviceMonitor.enabled=true` to create a Prometheus Operator
+The promoter and the recorder serve Prometheus metrics over plain HTTP on port
+8080. The promoter's are behind the `<release>-delivery-metrics` Service; set
+`delivery.metrics.serviceMonitor.enabled=true` to create a Prometheus Operator
 ServiceMonitor for it. The recorder's are behind their own Service, which
-`recorder.monitoring.enabled=true` creates with its ServiceMonitor and alerts
-([Delivery records](delivery-records.md)).
+`delivery.recorder.monitoring.enabled=true` creates with its ServiceMonitor and
+alerts ([Delivery records](delivery-records.md)).
 
 | Metric | What it counts |
 |--------|----------------|
@@ -62,14 +64,9 @@ raises a rollback (`RollbackRaised`), freezes (`Frozen`) or stops being watched
 
 ## Upgrading
 
-Helm installs CRDs once and never updates them, so apply the new ones first:
-
---8<-- "integrations/kubernetes/docs/generated/_delivery-crd-apply.md"
-
---8<-- "integrations/kubernetes/docs/generated/_delivery-upgrade-command.md"
-
-Upgrading the operator never touches these CRDs; see
-[Upgrade the Kubernetes operator](upgrade.md).
+[Upgrade the operator](upgrade.md) as usual: `helm upgrade` updates the
+delivery CRDs, and `helm.sh/resource-policy: keep` keeps them and their history
+on uninstall.
 
 ## How a change moves
 
@@ -137,8 +134,7 @@ of an Application's `spec.source` and its `spec.sources`, and a Kustomization's
 `namePrefix`, `nameSuffix` and `targetNamespace`. A GitOps tool that applies
 those objects must leave these fields alone, or run in a break-glass group.
 Admission guards updates only. Whoever may delete and create these objects can
-delete one and create it again without the label: nothing refuses that, but the
-Stage shows it as `Ready` `False` with the reason `ApplierUnlabelled` and
+recreate one without the label; the Stage then shows `Ready` `False` with the reason `ApplierUnlabelled` and
 `Mediated` `False` with the reason `ApplyRefUnguarded`. Keep delete and create
 on them to the people you would put in break-glass.
 `kubectl set image` on the workload itself is not mediated: Flux puts it back

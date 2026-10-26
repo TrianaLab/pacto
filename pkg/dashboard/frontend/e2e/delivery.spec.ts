@@ -92,7 +92,7 @@ function installDelivery(persona: Persona): void {
           problems: ['seq 3 moved the Stage from ' + D1 + ', but the change before it left ' + D2 + ': something moved it with no record'],
           unreadable: [rec('d') + ': signature: signed by a key that is not trusted here'],
           entries: [
-            { seq: 1, operation: 'op0', type: 'delivery.pacto.trianalab.io/promote', from: '', to: D1, actor: 'system:serviceaccount:pacto-delivery:promoter', actorClass: 'controller',
+            { seq: 1, operation: 'op0', type: 'delivery.pacto.trianalab.io/promote', from: '', to: D1, actor: 'system:serviceaccount:pacto-delivery:pacto-operator-delivery', actorClass: 'controller',
               phase: 'Concluded', outcome: 'Succeeded', verification: 'Verified', finished: '2026-10-20T09:00:00Z', kind: 'operation', record: rec('a') },
             { seq: 2, operation: '', type: '', actor: '', phase: 'Concluded', kind: 'gap', reason: 'Gap: the operation with local seq 2 was gone before it was recorded',
               finished: '2026-10-20T10:00:00Z', record: rec('b') },
@@ -322,7 +322,7 @@ test.describe('Delivery views', () => {
     await page.goto('/#/delivery/history');
     const prod = page.getByRole('region', { name: 'History of prod/payments-prod' });
     await expect(prod.getByRole('row', { name: /^3 Promote/ })).toContainText('1.4.0 → 2.0.0', { timeout: T });
-    await expect(prod.getByRole('row', { name: /^1 Promote/ })).toContainText('pacto-delivery/promoter Controller');
+    await expect(prod.getByRole('row', { name: /^1 Promote/ })).toContainText('pacto-delivery/pacto-operator-delivery Controller');
     await prod.getByRole('button', { name: 'Who put 2.0.0 here?' }).click();
     const blame = page.getByTestId('blame-panel');
     await expect(blame).toContainText('Approve by Dave Lee', { timeout: T });

@@ -1,0 +1,48 @@
+{{- if .Values.delivery.enabled }}
+{{- if .Values.delivery.metrics.enabled }}
+# The promoter's metrics, plain HTTP on port 8080 (docs/delivery-setup.md lists
+# them). The recorder's have their own Service under delivery.recorder.monitoring, so
+# this one leaves the recorder out rather than have it scraped twice.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" . }}-metrics
+  namespace: {{ include "pacto-operator.delivery.namespace" . }}
+  labels:
+    app.kubernetes.io/component: delivery-metrics
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app.kubernetes.io/component: delivery-promoter
+    {{- include "pacto-operator.delivery.selectorLabels" . | nindent 4 }}
+{{- if .Values.delivery.metrics.serviceMonitor.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" . }}
+  namespace: {{ include "pacto-operator.delivery.namespace" . }}
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  endpoints:
+    - port: metrics
+      scheme: http
+      {{- with .Values.delivery.metrics.serviceMonitor.interval }}
+      interval: {{ . }}
+      {{- end }}
+      {{- with .Values.delivery.metrics.serviceMonitor.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: delivery-metrics
+      {{- include "pacto-operator.delivery.selectorLabels" . | nindent 6 }}
+{{- end }}
+{{- end }}
+{{- end }}

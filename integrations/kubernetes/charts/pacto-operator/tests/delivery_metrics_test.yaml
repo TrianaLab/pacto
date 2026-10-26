@@ -1,6 +1,11 @@
 suite: metrics tests
 templates:
-  - templates/metrics.yaml
+  - templates/delivery/metrics.yaml
+set:
+  delivery.enabled: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
 tests:
   # The recorder has its own Service under recorder.monitoring; selecting it
   # here too would scrape every recorder series twice.
@@ -13,12 +18,12 @@ tests:
           value: {name: metrics, port: 8080, targetPort: metrics, protocol: TCP}
       - equal:
           path: spec.selector["app.kubernetes.io/component"]
-          value: promoter
+          value: delivery-promoter
 
   - it: creates a ServiceMonitor only when asked
     set:
-      metrics.serviceMonitor.enabled: true
-      metrics.serviceMonitor.interval: 30s
+      delivery.metrics.serviceMonitor.enabled: true
+      delivery.metrics.serviceMonitor.interval: 30s
     asserts:
       - hasDocuments:
           count: 2
@@ -31,13 +36,13 @@ tests:
         documentIndex: 1
       - equal:
           path: spec.selector.matchLabels["app.kubernetes.io/component"]
-          value: metrics
+          value: delivery-metrics
         documentIndex: 1
 
   - it: renders nothing when metrics are off
     set:
-      metrics.enabled: false
-      metrics.serviceMonitor.enabled: true
+      delivery.metrics.enabled: false
+      delivery.metrics.serviceMonitor.enabled: true
     asserts:
       - hasDocuments:
           count: 0

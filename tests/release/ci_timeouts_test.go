@@ -66,7 +66,7 @@ func TestJobTimeoutsCoverTheirStepTimeouts(t *testing.T) {
 // older ones get their timeouts.
 func TestNewReleaseJobsHaveATimeout(t *testing.T) {
 	jobs := workflowJobs(t, repoRoot(t), "release.yml")
-	for _, name := range []string{"delivery-image-build", "delivery-image", "delivery-chart", "verify-transaction"} {
+	for _, name := range []string{"delivery-image-build", "delivery-image", "verify-transaction"} {
 		if j, ok := jobs[name]; !ok || j.TimeoutMinutes == nil {
 			t.Errorf("release.yml job %q has no timeout-minutes", name)
 		}

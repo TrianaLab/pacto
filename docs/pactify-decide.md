@@ -24,13 +24,13 @@ pacto delivery propose -n test --stage my-service --type unfreeze --reason "fixe
 `approve` lets a change that breaks a consumer go ahead; `accept-unknown` lets
 one go ahead that Pacto could not check, recorded as accepted, never as a pass.
 To unfreeze is to let automation move the Stage again; it takes effect
-without anyone else's approval. Each needs the `pacto-delivery-approver` role,
+without anyone else's approval. Each needs the `pacto-operator-delivery-approver` role,
 bound to a group or, with `--user`, to one person. Only members of the team
 that owns an affected service may answer a question about it:
 
 ```bash
 kubectl create clusterrolebinding payments-approvers \
-  --clusterrole=pacto-delivery-approver --group=payments
+  --clusterrole=pacto-operator-delivery-approver --group=payments
 ```
 
 Deciding (approve, accept-unknown or reject) also needs a company login the

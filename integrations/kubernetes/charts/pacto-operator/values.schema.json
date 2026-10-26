@@ -664,6 +664,173 @@
     },
     "affinity": {
       "type": "object"
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "namespace": { "type": "string", "minLength": 1, "maxLength": 63, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
+        "createNamespace": { "type": "boolean" },
+        "replicaCount": { "type": "integer", "minimum": 1 },
+        "image": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "repository": { "type": "string", "minLength": 1 },
+            "pullPolicy": { "type": "string", "enum": ["Always", "IfNotPresent", "Never"] },
+            "tag": { "type": "string" },
+            "digest": { "type": "string", "pattern": "^(sha256:[a-f0-9]{64})?$" }
+          }
+        },
+        "imagePullSecrets": { "type": "array" },
+        "serviceAccount": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "create": { "type": "boolean" },
+            "annotations": { "type": "object" },
+            "name": { "type": "string" }
+          }
+        },
+        "promoter": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "poll": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$" },
+            "workers": { "type": "integer", "minimum": 1 },
+            "authFreshness": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$" },
+            "leaderElect": { "type": "boolean" },
+            "upstreamTrust": { "type": "string" },
+            "registryCredentials": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "secretName": { "type": "string" } }
+            }
+          }
+        },
+        "recorder": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "streamsRepository": { "type": "string" },
+            "poll": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$" },
+            "leaderElect": { "type": "boolean" },
+            "serviceAccount": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "create": { "type": "boolean" },
+                "annotations": { "type": "object", "additionalProperties": { "type": "string" } },
+                "name": { "type": "string" }
+              }
+            },
+            "registryCredentials": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "secretName": { "type": "string" } }
+            },
+            "signing": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "ed25519": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": { "secretName": { "type": "string" }, "key": { "type": "string", "minLength": 1 } }
+                },
+                "kms": { "type": "string" },
+                "keyless": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "enabled": { "type": "boolean" },
+                    "identity": { "type": "string" },
+                    "issuer": { "type": "string" },
+                    "fulcioURL": { "type": "string" },
+                    "timestampURL": { "type": "string" },
+                    "trustedRoot": { "type": "string" }
+                  }
+                }
+              }
+            },
+            "operationTTL": { "type": "string", "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$" },
+            "trust": { "type": "string" },
+            "cdeventsSink": { "type": "string" },
+            "monitoring": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "enabled": { "type": "boolean" } }
+            },
+            "extraEnv": { "type": "array" },
+            "resources": { "type": "object" }
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "serviceMonitor": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "interval": { "type": "string" },
+                "scrapeTimeout": { "type": "string" }
+              }
+            }
+          }
+        },
+        "gates": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "providers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "type", "url"],
+                "properties": {
+                  "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9.-]*$", "not": { "pattern": "^pacto[.]" } },
+                  "type": { "type": "string", "enum": ["mira", "http", "eval"] },
+                  "url": { "type": "string", "pattern": "^https?://[^/]+" }
+                }
+              }
+            }
+          }
+        },
+        "identities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "agentGroups": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "breakGlassGroups": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+            "teamGroupPrefix": { "type": "string" },
+            "requireOwnerTeam": { "type": "boolean" },
+            "humanGroups": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+          }
+        },
+        "insecureRegistries": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "argocd": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "enabled": { "type": "boolean" } }
+        },
+        "admissionPolicies": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": { "enabled": { "type": "boolean" }, "allowUnguarded": { "type": "boolean" } }
+        },
+        "podSecurityContext": { "type": "object" },
+        "securityContext": { "type": "object" },
+        "resources": { "type": "object" },
+        "nodeSelector": { "type": "object" },
+        "tolerations": { "type": "array" },
+        "affinity": { "type": "object" }
+      }
     }
   }
 }

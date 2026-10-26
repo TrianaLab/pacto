@@ -322,9 +322,6 @@ artifact-drift:
 		integrations/kubernetes/charts/pacto-operator/Chart.yaml \
 		integrations/kubernetes/charts/pacto-operator/values.yaml \
 		integrations/kubernetes/charts/pacto-operator/README.md \
-		integrations/kubernetes/charts/pacto-delivery/Chart.yaml \
-		integrations/kubernetes/charts/pacto-delivery/values.yaml \
-		integrations/kubernetes/charts/pacto-delivery/README.md \
 		docs/examples/compose-demo.md docs/dashboard-docker.md \
 		integrations/kubernetes/docs/installation.md \
 		|| { echo "artifact drift: apply-release-plan is not idempotent (re-run mutated tracked files)"; exit 1; }

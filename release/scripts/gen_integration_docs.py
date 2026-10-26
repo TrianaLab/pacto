@@ -19,10 +19,8 @@ Source-of-truth map (page -> inputs):
   _compatibility.md        <- integration.yaml (compatibility) + release/release-manifest.json
   _install-command.md      <- release/release-manifest.json (operator-chart version)
   _upgrade-command.md      <- release/release-manifest.json (operator-chart version)
-  _delivery-install-command.md <- release/release-manifest.json (delivery-chart version)
-  _delivery-upgrade-command.md <- release/release-manifest.json (delivery-chart version)
+  _delivery-install-command.md <- release/release-manifest.json (operator-chart version)
   _crd-apply.md            <- release/release-manifest.json (k8s-module release tag)
-  _delivery-crd-apply.md   <- release/release-manifest.json (k8s-module release tag)
 
 Usage:
   python3 release/scripts/gen_integration_docs.py [--repo-root DIR] [--integration-dir DIR]
@@ -1075,12 +1073,11 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
     out.append("## Artifact coordinates\n")
     out.append("| Artifact | Kind | Coordinate | Version |")
     out.append("| --- | --- | --- | --- |")
-    order = ["operator-image", "operator-chart", "delivery-image", "delivery-chart", "k8s-module", "k8s-docs"]
+    order = ["operator-image", "operator-chart", "delivery-image", "k8s-module", "k8s-docs"]
     labels = {
         "operator-image": "Controller image",
         "operator-chart": "Helm chart",
         "delivery-image": "Delivery image (opt-in)",
-        "delivery-chart": "Delivery Helm chart (opt-in)",
         "k8s-module": "Go module",
         "k8s-docs": "Documentation",
     }
@@ -1146,9 +1143,10 @@ def gen_artifact_hub(repo_root: str, k8s: str) -> str:
 # one and `make docs-check` catches any drift.
 
 def chart_command(chart_unit: dict, verb: str, release: str = "pacto-operator",
-                  namespace: str = "pacto-operator-system") -> str:
+                  namespace: str = "pacto-operator-system", extra: str = "") -> str:
     """Fenced `helm install|upgrade` block pinned to the published chart version."""
-    extra = " --create-namespace" if verb == "install" else ""
+    if verb == "install":
+        extra = " --create-namespace" + extra
     return (
         "```bash\n"
         f"helm {verb} {release} \\\n"
@@ -1166,10 +1164,17 @@ def gen_chart_command(repo_root: str, verb: str) -> str:
     )
 
 
-def gen_delivery_chart_command(repo_root: str, verb: str) -> str:
+# Delivery is a section of the operator chart: turning it on is an upgrade of the
+# operator release that keeps its values. A later `helm upgrade` updates the
+# delivery CRDs too, since they are templates, so no CRD snippet goes with it.
+# --reset-then-reuse-values (Helm 3.14+), not --reuse-values: the latter drops the
+# new chart's defaults, so on the upgrade that first ships `delivery` the section
+# holds only `enabled` and the render dies on a nil map. docs_check (g) refuses it.
+def gen_delivery_chart_command(repo_root: str) -> str:
     manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
     return banner("release/release-manifest.json") + chart_command(
-        manifest["units"]["delivery-chart"], verb, "pacto-delivery", "pacto-delivery"
+        manifest["units"]["operator-chart"], "upgrade",
+        extra=" \\\n  --reset-then-reuse-values --set delivery.enabled=true",
     )
 
 
@@ -1180,15 +1185,12 @@ def gen_delivery_chart_command(repo_root: str, verb: str) -> str:
 # ref to the integration release tag the docs describe. The file list is read
 # from config/crd/bases, so a new CRD cannot be left out of the upgrade snippet
 # (`helm upgrade` never adds or updates CRDs). Only the operator's own group: the
-# delivery.pacto.trianalab.io CRDs ship with the opt-in pacto-delivery chart, and
-# upgrading the observing operator must not install them.
+# delivery.pacto.trianalab.io CRDs are chart templates behind delivery.enabled,
+# which helm upgrade installs and updates itself.
 CRD_BASES = "integrations/kubernetes/config/crd/bases"
 RAW_BASE = "https://raw.githubusercontent.com/TrianaLab/pacto"
 
 
-# The delivery chart has the same Helm gap, so it gets its own snippet over its
-# own group. One glob per snippet keeps the two upgrades apart: neither ever
-# installs the other's CRDs.
 def gen_crd_apply(repo_root: str, group: str = "pacto.trianalab.io") -> str:
     manifest = json.loads(read(os.path.join(repo_root, "release/release-manifest.json")))
     tag = manifest["units"]["k8s-module"]["tag"]
@@ -1225,7 +1227,6 @@ def gen_compatibility(repo_root: str, k8s: str) -> str:
     out.append(f"| Operator image | `{units['operator-image']['version']}` | `{pacto_core_req}` |")
     out.append(f"| Operator chart | `{units['operator-chart']['version']}` | `{pacto_core_req}` |")
     out.append(f"| Delivery image | `{units['delivery-image']['version']}` | `{pacto_core_req}` |")
-    out.append(f"| Delivery chart | `{units['delivery-chart']['version']}` | `{pacto_core_req}` |")
     out.append(f"| Go module | `{units['k8s-module']['version']}` | `{pacto_core_req}` |")
     out.append(f"| Integration docs | `{units['k8s-docs']['version']}` | `{pacto_core_req}` |")
     out.append("")
@@ -1319,10 +1320,8 @@ def main() -> int:
         "_compatibility.md": gen_compatibility(repo_root, k8s),
         "_install-command.md": gen_chart_command(repo_root, "install"),
         "_upgrade-command.md": gen_chart_command(repo_root, "upgrade"),
-        "_delivery-install-command.md": gen_delivery_chart_command(repo_root, "install"),
-        "_delivery-upgrade-command.md": gen_delivery_chart_command(repo_root, "upgrade"),
+        "_delivery-install-command.md": gen_delivery_chart_command(repo_root),
         "_crd-apply.md": gen_crd_apply(repo_root),
-        "_delivery-crd-apply.md": gen_crd_apply(repo_root, "delivery.pacto.trianalab.io"),
     }
     for name, content in pages.items():
         path = os.path.join(out_dir, name)

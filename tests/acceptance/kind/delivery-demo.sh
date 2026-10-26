@@ -36,7 +36,8 @@ set -euo pipefail
 CMD="${1:-help}"
 CLUSTER=pacto-delivery-demo
 NS=pacto-system
-DELIVERY_NS=pacto-delivery
+# Delivery runs in its own namespace, where the operator holds no role.
+DNS=pacto-delivery
 REG_HOST="pacto-registry.${NS}.svc.cluster.local:5000"
 LOCAL_REG_PORT=5602
 FLUX_VERSION=v2.9.5
@@ -142,12 +143,12 @@ servers() {
     -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" -v "$IDP_DIR/recorder.pub:/trust/recorder.pub:ro" \
     "$DASH_IMG" dashboard --host 0.0.0.0 --port 3300 --oidc-issuer-url "$DEX_ISSUER" --oidc-client-id pacto-dashboard \
     --oidc-redirect-url "$DASH_URL/auth/callback" --oidc-extra-scopes audience:server:client_id:pacto-cli \
-    --delivery-namespace "$DELIVERY_NS" --delivery-trust /trust/recorder.pub
+    --delivery-namespace "$DNS" --delivery-trust /trust/recorder.pub
   in_node pacto-e2e-mcp -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \
     -e PACTO_MCP_EXCHANGE_CLIENT_SECRET=mcp-secret -e PACTO_INSECURE_REGISTRIES="$REG_HOST" -v "$mcpkc:/kube/config:ro" \
     -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" -v "$IDP_DIR/recorder.pub:/trust/recorder.pub:ro" \
     "$DASH_IMG" mcp --delivery -t http --host 0.0.0.0 --port 8585 --auth-issuer "$KC_ISSUER" \
-    --resource "$MCP_URL/mcp" --audience pacto-mcp --exchange-client-id pacto-mcp --delivery-namespace "$DELIVERY_NS" --delivery-trust /trust/recorder.pub
+    --resource "$MCP_URL/mcp" --audience pacto-mcp --exchange-client-id pacto-mcp --delivery-namespace "$DNS" --delivery-trust /trust/recorder.pub
   dash_up() { curl -sf "$DASH_URL/health" >/dev/null; }
   eventually 40 dash_up || { docker logs pacto-e2e-dashboard 2>&1 | tail; fail "the dashboard did not start"; }
   mcp_up() { [ "$(curl -s -o /dev/null -w '%{http_code}' "$MCP_URL/mcp")" = 401 ]; }
@@ -348,9 +349,8 @@ cmd_up() {
   for img in "${FLUX_IMAGES[@]}" "$MIRA_IMG" "$PODINFO_IMG" "$PYTHON_IMG"; do pull_pinned "$img"; done
   go build -o "$PACTO" "$ROOT/cmd/pacto" || fail "pacto did not build"
   ( cd "$ROOT" && go build -o "$OIDC_BIN" ./tests/acceptance/kind/oidclogin ) || fail "the login helper did not build"
-  local op_chart dl_chart
+  local op_chart
   op_chart="$(package_chart "$PACTO_CHART")"
-  dl_chart="$(package_chart "$ROOT/integrations/kubernetes/charts/pacto-delivery")"
   wait "$build" || exit 1
 
   timed "wait for the cluster" ensure_cluster "$cfg"
@@ -358,38 +358,36 @@ cmd_up() {
   infra "load the images into the cluster" load_images "$OP_IMG" "$DL_IMG" "$DASH_IMG" "${FLUX_IMAGES[@]%@*}" \
     "${MIRA_IMG%@*}" "${PODINFO_IMG%@*}" "${PYTHON_IMG%@*}"
   local n
-  for n in "$NS" "$DELIVERY_NS" test prod agents; do kubectl create namespace "$n" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; done
+  for n in "$NS" "$DNS" test prod agents; do kubectl create namespace "$n" --dry-run=client -o yaml | kubectl apply -f - >/dev/null; done
   timed "Dex for people, Keycloak for agents" idp_start
 
-  section "zot, the Pacto operator with its node agent, Flux, the delivery chart with the recorder, Mira"
+  section "zot, Flux, the Pacto operator chart with its node agent and delivery with the recorder, Mira"
   install_registry
   node_pulls_from_registry
   openssl genpkey -algorithm ed25519 -out "$KEYS/recorder.pem" 2>/dev/null || fail "openssl could not make the recorder's key"
   openssl pkey -in "$KEYS/recorder.pem" -pubout -out "$KEYS/recorder.pub"
-  kubectl -n "$DELIVERY_NS" create secret generic recorder-key --from-file=key.pem="$KEYS/recorder.pem" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl -n "$DNS" create secret generic recorder-key --from-file=key.pem="$KEYS/recorder.pem" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   (cd "$KEYS" && COSIGN_PASSWORD="" cosign generate-key-pair >/dev/null 2>&1) || fail "cosign could not make the publisher's key"
   for n in test prod; do
     kubectl -n "$n" create secret generic cosign-pub --from-file=cosign.pub="$KEYS/cosign.pub" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   done
-  helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s \
-    --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
-    --set "insecureRegistries[0]=$REG_HOST" --wait --timeout 240s >/dev/null || fail "the pacto-operator chart did not roll out" &
-  local op_helm=$!
   infra "install Flux" kubectl apply --server-side -f "$flux" >/dev/null
   kubectl -n flux-system scale deploy helm-controller --replicas=0 >/dev/null 2>&1 || true
-  helm upgrade --install pacto-delivery "$dl_chart" -n "$DELIVERY_NS" \
-    --set image.repository="$DL_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
-    --set "insecureRegistries[0]=$REG_HOST" --set promoter.poll=2s --set identities.teamGroupPrefix=team- \
-    --set-json "gates.providers=[{\"name\":\"mira\",\"type\":\"mira\",\"url\":\"http://mira.${NS}.svc.cluster.local:4318\"},{\"name\":\"evals\",\"type\":\"eval\",\"url\":\"http://eval-runner.${NS}.svc.cluster.local:8080\"}]" \
-    --set recorder.enabled=true --set recorder.streamsRepository="$REG_HOST/pacto-delivery-streams" --set recorder.poll=5s \
-    --set recorder.signing.ed25519.secretName=recorder-key --wait --timeout 240s >/dev/null || fail "the pacto-delivery chart did not roll out" &
-  local dl_helm=$!
+  helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s \
+    --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
+    --set "insecureRegistries[0]=$REG_HOST" \
+    --set delivery.enabled=true --set delivery.createNamespace=false \
+    --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
+    --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s --set delivery.identities.teamGroupPrefix=team- \
+    --set-json "delivery.gates.providers=[{\"name\":\"mira\",\"type\":\"mira\",\"url\":\"http://mira.${NS}.svc.cluster.local:4318\"},{\"name\":\"evals\",\"type\":\"eval\",\"url\":\"http://eval-runner.${NS}.svc.cluster.local:8080\"}]" \
+    --set delivery.recorder.enabled=true --set delivery.recorder.streamsRepository="$REG_HOST/pacto-delivery-streams" --set delivery.recorder.poll=5s \
+    --set delivery.recorder.signing.ed25519.secretName=recorder-key --wait --timeout 240s >/dev/null || fail "the pacto-operator chart did not roll out" &
+  local op_helm=$!
   mira
   infra "roll out Flux's source-controller" kubectl -n flux-system rollout status deploy/source-controller --timeout=240s
   infra "roll out Flux's kustomize-controller" kubectl -n flux-system rollout status deploy/kustomize-controller --timeout=240s
   infra "roll out Mira" kubectl -n "$NS" rollout status deploy/mira --timeout=120s >/dev/null
   wait "$op_helm" || exit 1
-  wait "$dl_helm" || exit 1
   span_generator
   eval_runner
   eventually 60 kubectl -n pacto-node-agent get ds pacto-node-agent >/dev/null 2>&1 || fail "the operator never created the node agent"
@@ -400,9 +398,9 @@ cmd_up() {
 
   section "who may do what: pay-agent proposes, team members approve"
   kubectl -n agents create serviceaccount pay-agent --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl create clusterrolebinding demo-agents --clusterrole=pacto-delivery-agent \
+  kubectl create clusterrolebinding demo-agents --clusterrole=pacto-operator-delivery-agent \
     --serviceaccount=agents:pay-agent --group=pacto:agents --dry-run=client -o yaml | kubectl apply -f - >/dev/null
-  kubectl create clusterrolebinding demo-approvers --clusterrole=pacto-delivery-approver \
+  kubectl create clusterrolebinding demo-approvers --clusterrole=pacto-operator-delivery-approver \
     --group=team-payments --group=team-orders --group=team-checkout --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   agent_kubeconfig
   timed "wait for Dex and Keycloak" identity_up
@@ -1044,7 +1042,7 @@ YAML
 cmd_reach() {
   admin
   [ -s "$DEMO/digests/payments-2.3.0" ] || fail "the demo's starting point is missing: run 'make e2e-delivery-demo-up'"
-  local ver stream op_chart dl_chart d trust
+  local ver stream op_chart d trust
   ver="$(release_version kubernetes)"
   stream="$(kubectl -n prod get stage payments -o jsonpath='{.status.stream.id}')"
   [ -n "$stream" ] || fail "payments prod has no record stream yet"
@@ -1055,22 +1053,20 @@ cmd_reach() {
   CLUSTER="$US_CLUSTER" infra "load the images into prod-us" load_images "localhost:5001/pacto-operator/pacto-controller:$ver" \
     "localhost:5001/pacto-delivery:$ver" "${PODINFO_IMG%@*}"
   local n
-  for n in "$NS" "$DELIVERY_NS" prod; do us kubectl create namespace "$n" --dry-run=client -o yaml | us kubectl apply -f - >/dev/null; done
+  for n in "$NS" prod; do us kubectl create namespace "$n" --dry-run=client -o yaml | us kubectl apply -f - >/dev/null; done
   us_registry
   us_argocd
   op_chart="$(package_chart "$PACTO_CHART")"
-  dl_chart="$(package_chart "$ROOT/integrations/kubernetes/charts/pacto-delivery")"
   # The first cluster's recorder key, trusted for that one stream only.
   trust="$DEMO/us-values.json"
   jq -n --arg k "$(cat "$KEYS/recorder.pub")" --arg s "$stream" --arg eu "${stream%%/*}/prod-eu/payments" \
-    '{promoter: {upstreamTrust: ({keys: [{name: "prod-recorder", publicKey: $k, streams: [$s, $eu]}]} | tojson)}}' > "$trust"
+    '{delivery: {promoter: {upstreamTrust: ({keys: [{name: "prod-recorder", publicKey: $k, streams: [$s, $eu]}]} | tojson)}}}' > "$trust"
   us helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set image.repository=localhost:5001/pacto-operator/pacto-controller \
-    --set image.tag="$ver" --set image.pullPolicy=Never --set "insecureRegistries[0]=$REG_HOST" --wait --timeout 240s >/dev/null \
+    --set image.tag="$ver" --set image.pullPolicy=Never --set "insecureRegistries[0]=$REG_HOST" \
+    --set delivery.enabled=true --set delivery.image.repository=localhost:5001/pacto-delivery \
+    --set delivery.image.tag="$ver" --set delivery.image.pullPolicy=Never --set "delivery.insecureRegistries[0]=$REG_HOST" \
+    --set delivery.promoter.poll=2s --set delivery.argocd.enabled=true -f "$trust" --wait --timeout 240s >/dev/null \
     || fail "the pacto-operator chart did not roll out in prod-us"
-  us helm upgrade --install pacto-delivery "$dl_chart" -n "$DELIVERY_NS" --set image.repository=localhost:5001/pacto-delivery \
-    --set image.tag="$ver" --set image.pullPolicy=Never --set "insecureRegistries[0]=$REG_HOST" --set promoter.poll=2s \
-    --set argocd.enabled=true -f "$trust" --wait --timeout 240s >/dev/null \
-    || fail "the pacto-delivery chart did not roll out in prod-us"
 
   section "payments in prod-us follows prod through its signed records, applied by Argo CD"
   us kubectl apply -f - >/dev/null <<YAML
@@ -1282,7 +1278,7 @@ case "$CMD" in
   browser) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_browser ;;
   reach) trap 'rc=$?; stop_pf; exit $rc' EXIT; cmd_reach ;;
   status) cmd_status ;;
-  logs) admin; dump_diag "$NS"; dump_identity; kubectl -n "$DELIVERY_NS" logs deploy/pacto-delivery --tail=100 2>&1 || true ;;
+  logs) admin; dump_diag "$NS"; dump_identity; kubectl -n "$DNS" logs deploy/pacto-operator-delivery --tail=100 2>&1 || true ;;
   down) cmd_down ;;
   all)
     rc=0; { bash "$0" up && bash "$0" story && bash "$0" browser && bash "$0" reach; } || rc=$?

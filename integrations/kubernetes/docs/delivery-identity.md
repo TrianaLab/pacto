@@ -65,23 +65,24 @@ it.
 
 ## Who counts as a person, an agent or a team
 
-Set the groups once, on the delivery chart:
+Set the groups once, in the operator chart's delivery section:
 
 ```yaml
-identities:
-  agentGroups: [pacto:agents]          # agents propose, never approve or unfreeze
-  breakGlassGroups: [pacto:break-glass]
-  teamGroupPrefix: ""                  # owner team T is group T, or this prefix plus T
-  requireOwnerTeam: true               # a question naming no team is answered by nobody
-  humanGroups: []                      # when set, everyone outside these groups is an agent
+delivery:
+  identities:
+    agentGroups: [pacto:agents]          # agents propose, never approve or unfreeze
+    breakGlassGroups: [pacto:break-glass]
+    teamGroupPrefix: ""                  # owner team T is group T, or this prefix plus T
+    requireOwnerTeam: true               # a question naming no team is answered by nobody
+    humanGroups: []                      # when set, everyone outside these groups is an agent
 ```
 
 The chart renders the admission policies from these values and publishes them
-in the ConfigMap `pacto-delivery-identities`, which every signed-in user may
-read. The promoter mounts that ConfigMap and runs with it, and restarts when it
+in the ConfigMap `pacto-delivery-identities` in `delivery.namespace`, which
+every signed-in user may read. The promoter mounts that ConfigMap and runs with it, and restarts when it
 changes. `pacto delivery`, `pacto mcp --delivery` and the dashboard read it
-too, from `--delivery-namespace` (default `pacto-delivery`), so what they
-offer matches what admission and the promoter decide. A client that cannot read
+too, from `--delivery-namespace` (default `pacto-delivery`; the chart points
+its own dashboard at `delivery.namespace`), so what they offer matches what admission and the promoter decide. A client that cannot read
 it falls back to the defaults above; admission and the promoter still decide.
 
 A held question goes to the teams that own the affected services. When neither
@@ -111,7 +112,7 @@ dashboard:
       redirectURL: https://pacto.example.com/auth/callback
       extraScopes: [audience:server:client_id:pacto-cli]
     required: true             # sign-in for the fleet views and the whole API too, not only delivery
-    deliveryNamespace: ""      # where the delivery chart publishes its identity policy; empty means pacto-delivery
+    deliveryNamespace: ""      # where delivery publishes its identity policy; empty means delivery.namespace when delivery.enabled
   miraURL: http://mira.observability:4318
 ```
 

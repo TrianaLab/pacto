@@ -19,7 +19,7 @@ ci-test: envtest setup-envtest
 	fi
 	@echo "    total coverage: 100.0%"
 
-ci-chart: helm-lint helm-template helm-unittest helm-schema helm-docs-check docs-generate-check
+ci-chart: helm-lint helm-template helm-golden helm-unittest helm-schema helm-docs-check docs-generate-check
 
 ci-fmt:
 	@echo "==> Checking formatting..."
@@ -50,23 +50,50 @@ helm-template: ## Render chart templates and validate output.
 	helm template pacto-operator charts/pacto-operator --set dashboard.ingress.enabled=true > /dev/null
 	@echo "==> Rendering with metrics disabled..."
 	helm template pacto-operator charts/pacto-operator --set metrics.enabled=false > /dev/null
-	@echo "==> Rendering the delivery chart, with and without admission policies..."
-	helm template pacto-delivery charts/pacto-delivery --debug > /dev/null
-	helm template pacto-delivery charts/pacto-delivery --set admissionPolicies.enabled=false \
-		--set admissionPolicies.allowUnguarded=true > /dev/null
-	@echo "==> The delivery chart refuses to render unguarded by accident..."
-	! helm template pacto-delivery charts/pacto-delivery --set admissionPolicies.enabled=false > /dev/null 2>&1
+	@echo "==> Rendering with delivery, with and without admission policies..."
+	helm template pacto-operator charts/pacto-operator --set delivery.enabled=true \
+		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy --debug > /dev/null
+	helm template pacto-operator charts/pacto-operator --set delivery.enabled=true \
+		--set delivery.admissionPolicies.enabled=false --set delivery.admissionPolicies.allowUnguarded=true > /dev/null
+	@echo "==> Delivery refuses to render unguarded by accident..."
+	! helm template pacto-operator charts/pacto-operator --set delivery.enabled=true \
+		--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy \
+		--set delivery.admissionPolicies.enabled=false > /dev/null 2>&1
+
+# The default render is byte-identical to the committed golden (versions
+# normalised, so a release bump does not move it), and turning delivery on
+# changes none of the operator's own identity or RBAC objects. Refresh the golden
+# with `make helm-golden-update` when a default-render change is intended.
+GOLDEN := charts/pacto-operator/tests/golden/default.yaml
+GOLDEN_RENDER = v=$$(awk '/^version:/{print $$2}' charts/pacto-operator/Chart.yaml); \
+	helm template pacto-operator charts/pacto-operator | sed "s/$$v/VERSION/g"
+OPERATOR_IDENTITY := -s templates/serviceaccount.yaml -s templates/clusterrole.yaml -s templates/clusterrolebinding.yaml \
+	-s templates/role.yaml -s templates/leader-election-role.yaml
+
+.PHONY: helm-golden
+helm-golden: ## Prove the default render is unchanged and delivery leaves the operator's RBAC alone.
+	@echo "==> Checking the default render against the golden..."
+	@$(GOLDEN_RENDER) | diff -u $(GOLDEN) - || \
+		{ echo "Error: the default render changed. If intended, run 'make helm-golden-update' and commit." >&2; exit 1; }
+	@echo "==> Checking delivery.enabled leaves the operator's ServiceAccount and RBAC unchanged..."
+	@diff -u <(helm template pacto-operator charts/pacto-operator $(OPERATOR_IDENTITY)) \
+		<(helm template pacto-operator charts/pacto-operator $(OPERATOR_IDENTITY) --set delivery.enabled=true \
+			--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy)
+
+.PHONY: helm-golden-update
+helm-golden-update: ## Rewrite the default-render golden.
+	@$(GOLDEN_RENDER) > $(GOLDEN)
 
 .PHONY: helm-unittest
 helm-unittest: $(HELM_UNITTEST) ## Run Helm unit tests.
 	@echo "==> Running Helm unit tests..."
-	"$(HELM_UNITTEST)" charts/pacto-operator charts/pacto-delivery
+	"$(HELM_UNITTEST)" charts/pacto-operator
 
 .PHONY: helm-schema
 helm-schema: ## Validate each chart's values.yaml against its values.schema.json.
 	@echo "==> Validating chart schemas..."
 	@command -v check-jsonschema >/dev/null 2>&1 || pip install check-jsonschema --quiet
-	@for c in pacto-operator pacto-delivery; do \
+	@for c in pacto-operator; do \
 		python3 -c "import json; json.load(open('charts/$$c/values.schema.json'))" || \
 			{ echo "Error: charts/$$c/values.schema.json is not valid JSON." >&2; exit 1; }; \
 		check-jsonschema --schemafile charts/$$c/values.schema.json charts/$$c/values.yaml || exit 1; \

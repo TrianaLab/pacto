@@ -47,7 +47,7 @@ echo "== TRANSACTION SELECTION: drive the REAL orchestrator (detect.mjs) per sce
 # detect.mjs release.yml runs; the release.yml job `if:` selection over these
 # units is separately gated by tests/release/dag_test.go.
 CORE_UNITS="core,cli,dashboard-image,dashboard-contract-bundle,demo-bundles,demo-compose"
-K8S_UNITS="k8s-module,operator-image,operator-chart,delivery-image,delivery-chart,k8s-docs"
+K8S_UNITS="k8s-module,operator-image,operator-chart,delivery-image,k8s-docs"
 mk_txn() { # <id> <groups-csv> <units-csv> <ready 0|1> -> transaction json
   python3 - "$@" <<'PY'
 import json,sys
@@ -132,33 +132,14 @@ if bash "$ROOT/release/orchestrator/verify-oci.sh" "$CHART_REF" "" "wrong-sha" "
 fi
 echo "   foreign revision refused (fail-closed)"
 
-echo "== delivery chart: package + push with provenance, adopt, refuse foreign, default image =="
-# The delivery chart publishes through the same steps as the operator chart, and its
-# default image has to be the delivery image at the chart's appVersion.
-DLCHART_SRC="$WORK/dlchart-src"
-cp -r "$ROOT/integrations/kubernetes/charts/pacto-delivery" "$DLCHART_SRC"
-SHA="$SHA" yq -i '.annotations."org.opencontainers.image.revision" = strenv(SHA)' "$DLCHART_SRC/Chart.yaml"
-helm package "$DLCHART_SRC" --version "$DV" --app-version "$DV" -d "$WORK" >/dev/null
-DLCHART="$(ls "$WORK"/pacto-delivery-*.tgz)"
-helm template d "$DLCHART" | grep -q "image: \"ghcr.io/trianalab/pacto/delivery:$DV\"" \
-  || { echo "delivery chart default image is not ghcr.io/trianalab/pacto/delivery:$DV"; exit 1; }
-echo "   default image is ghcr.io/trianalab/pacto/delivery at the chart appVersion"
-helm push "$DLCHART" "oci://$REG/pacto/charts" --plain-http >/dev/null 2>&1 \
-  || helm push "$DLCHART" "oci://$REG/pacto/charts" >/dev/null
-DLCHART_REF="$REG/pacto/charts/pacto-delivery:$DV"
-cstate="$(bash "$ROOT/release/orchestrator/verify-oci.sh" "$DLCHART_REF" "" "$SHA" "$DV")"
-[ "$cstate" = adopt ] || { echo "expected delivery chart 'adopt' by provenance, got '$cstate'"; exit 1; }
-if bash "$ROOT/release/orchestrator/verify-oci.sh" "$DLCHART_REF" "" "wrong-sha" "$DV" >/dev/null 2>&1; then
-  echo "expected conflict on a foreign delivery chart revision"; exit 1
-fi
-echo "   delivery chart adoptable by provenance, foreign revision refused"
-# Its own Artifact Hub metadata alias, round-tripped the way release.yml does.
-( cd "$ROOT/integrations/kubernetes" && oras push --plain-http "$REG/pacto/charts/pacto-delivery:artifacthub.io" \
-    --config /dev/null:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml \
-    artifacthub-repo-delivery.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml >/dev/null )
-bash "$ROOT/release/orchestrator/verify-artifacthub.sh" "$REG/pacto/charts/pacto-delivery:artifacthub.io" \
-  "$ROOT/integrations/kubernetes/artifacthub-repo-delivery.yml" >/dev/null
-echo "   delivery Artifact Hub metadata round-trips"
+echo "== the operator chart installs delivery from the delivery image at its appVersion =="
+# One chart ships both: with delivery.enabled its default promoter image has to be
+# the delivery image the same release publishes.
+helm template d "$CHART" --set delivery.enabled=true \
+  --api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy \
+  | grep -q "image: \"ghcr.io/trianalab/pacto/delivery:$DV\"" \
+  || { echo "operator chart delivery image is not ghcr.io/trianalab/pacto/delivery:$DV"; exit 1; }
+echo "   delivery image is ghcr.io/trianalab/pacto/delivery at the chart appVersion"
 
 echo "== DURABLE LEDGER + absent/identical/conflict + partial-failure/resume (shared adapter) =="
 export PACTO_LEDGER_REPO="$REG/pacto-release-ledger"
@@ -214,7 +195,7 @@ echo "   verify MISMATCH refused (fail closed)"
 
 echo "== ITEM 2: parallel per-unit records lose nothing; idempotent; conflict fails =="
 CTX="dryrun-conc-$(git -C "$ROOT" rev-parse --short HEAD)"; led init "$CTX" "$SHA" "$MSHA" >/dev/null
-CUNITS="core cli dashboard-image dashboard-contract-bundle demo-bundles demo-compose k8s-module operator-image operator-chart delivery-image delivery-chart k8s-docs"
+CUNITS="core cli dashboard-image dashboard-contract-bundle demo-bundles demo-compose k8s-module operator-image operator-chart delivery-image k8s-docs"
 i=0
 for u in $CUNITS; do i=$((i+1)); led record "$CTX" "$u" "coord/$u" "1.0.0" "sha256:$(printf '%064x' $((i*7)))" complete >/dev/null 2>&1 & done
 wait

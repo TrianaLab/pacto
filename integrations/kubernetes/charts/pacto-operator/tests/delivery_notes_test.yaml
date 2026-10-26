@@ -3,12 +3,17 @@ templates:
   - templates/NOTES.txt
 release:
   name: d
-  namespace: pacto-delivery
+  namespace: pacto-system
+set:
+  delivery.enabled: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
 tests:
   - it: names the Stage kind in full so Kargo's Stage cannot answer
     set:
-      recorder.enabled: true
-      recorder.streamsRepository: registry.example/pacto/streams
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: registry.example/pacto/streams
     asserts:
       - matchRegexRaw:
           pattern: kubectl get stages\.delivery\.pacto\.trianalab\.io -A

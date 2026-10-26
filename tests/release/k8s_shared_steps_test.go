@@ -10,9 +10,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// The operator and pacto-delivery images and charts publish through one set of
-// steps each: the delivery jobs alias the operator jobs' anchored steps, so a
-// release-incident fix lands once. This fails if someone copies the steps back.
+// The operator and pacto-delivery images publish through one set of steps each:
+// the delivery jobs alias the operator jobs' anchored steps, so a
+// release-incident fix lands once. One chart, pacto-operator, installs both. This fails if someone copies the steps back.
 func TestDeliveryJobsReuseOperatorSteps(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(repoRoot(t), ".github", "workflows", "release.yml"))
 	if err != nil {
@@ -41,7 +41,6 @@ func TestDeliveryJobsReuseOperatorSteps(t *testing.T) {
 	for delivery, operator := range map[string]string{
 		"delivery-image-build": "operator-image-build",
 		"delivery-image":       "operator-image",
-		"delivery-chart":       "operator-chart",
 	} {
 		d, o := steps[delivery], steps[operator]
 		if d == nil || o == nil {
@@ -56,7 +55,7 @@ func TestDeliveryJobsReuseOperatorSteps(t *testing.T) {
 
 // docs_check.py reads the signed coordinates straight off release.yml. With
 // the delivery jobs sharing the operator steps by alias and naming their
-// coordinates in job env, it must still find every signed image and chart.
+// coordinates in job env, it must still find every signed image and the chart.
 func TestDocsCheckSeesEverySignedCoordinate(t *testing.T) {
 	root := repoRoot(t)
 	cmd := exec.Command("python3", "-I", "-c", `
@@ -73,7 +72,6 @@ print("\n".join(sorted(m.signed_coordinates())))
 	}
 	got := strings.Fields(string(out))
 	want := []string{
-		"ghcr.io/trianalab/pacto/charts/pacto-delivery",
 		"ghcr.io/trianalab/pacto/charts/pacto-operator",
 		"ghcr.io/trianalab/pacto/dashboard",
 		"ghcr.io/trianalab/pacto/delivery",

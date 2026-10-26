@@ -47,13 +47,14 @@ version back and all Pass verifies it without the person.
 ## Providers
 
 `pacto.runtime` is built in. Every other provider is configured in the
-delivery chart, so a Stage or an agent can name a provider but never point the
-promoter at a host:
+operator chart's delivery section, so a Stage or an agent can name a provider
+but never point the promoter at a host:
 
 ```yaml
-gates:
-  providers:
-    - {name: mira, type: mira, url: "http://mira.observability:4318"}
+delivery:
+  gates:
+    providers:
+      - {name: mira, type: mira, url: "http://mira.observability:4318"}
 ```
 
 ## Mira

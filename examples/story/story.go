@@ -62,7 +62,7 @@ var (
 	PayAgent = Persona{Name: "pay-agent", User: "system:serviceaccount:agents:pay-agent"}
 	Alice    = Persona{Name: "alice", User: "alice@example.com", Groups: []string{"team-payments"}}
 	Carol    = Persona{Name: "carol", User: "carol@example.com", Groups: []string{"team-orders"}}
-	Promoter = Persona{Name: "promoter", User: "system:serviceaccount:pacto-system:pacto-delivery"}
+	Promoter = Persona{Name: "promoter", User: "system:serviceaccount:pacto-delivery:pacto-operator-delivery"}
 )
 
 // Policy maps the personas to actor classes and contract teams to groups:

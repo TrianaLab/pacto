@@ -21,7 +21,6 @@ const core = plan.groups.core;
 const k8s = plan.groups.kubernetes;
 const chart = k8s.artifacts.find((a) => a.unit === 'operator-chart');
 const opImage = k8s.artifacts.find((a) => a.unit === 'operator-image');
-const dlChart = k8s.artifacts.find((a) => a.unit === 'delivery-chart');
 const dlImage = k8s.artifacts.find((a) => a.unit === 'delivery-image');
 const chartVersion = chart.chartVersion;      // e.g. 4.7.0
 const appVersion = chart.appVersion;          // e.g. 4.7.0
@@ -93,10 +92,10 @@ assert(pathMajor >= 2 ? majorOf(pin.version) === pathMajor : majorOf(pin.version
     `${rel}: versioned core replace not pinned to ${pin.version}`);
 }
 
-// ---- 2. chart Chart.yaml: version, appVersion, artifacthub image ----
-// Both charts the Kubernetes group publishes: the operator and the opt-in delivery
-// promoter. Each one's default image tag is its appVersion, so moving appVersion
-// here is what points the chart at the image the same release publishes.
+// ---- 2. chart Chart.yaml: version, appVersion, artifacthub images ----
+// The operator chart also installs the opt-in delivery promoter (delivery.enabled),
+// whose image tag defaults to the same appVersion, so moving appVersion here points
+// both at the images the same release publishes.
 function applyChart(rel, c, imageCoord, imageName) {
   const after = edit(rel, (s) => {
     s = s.replace(/^version:.*$/m, `version: ${c.chartVersion}`);
@@ -116,7 +115,12 @@ function applyChart(rel, c, imageCoord, imageName) {
   assert(after.includes(`${imageCoord}:${c.appVersion}`), `${rel}: artifacthub image tag != ${c.appVersion}`);
 }
 applyChart('integrations/kubernetes/charts/pacto-operator/Chart.yaml', chart, opImageCoord, 'pacto-controller');
-applyChart('integrations/kubernetes/charts/pacto-delivery/Chart.yaml', dlChart, dlImage.coordinate, 'pacto-delivery');
+{
+  // Artifact Hub lists the delivery image beside the controller: one chart ships both.
+  const rel = 'integrations/kubernetes/charts/pacto-operator/Chart.yaml';
+  const after = edit(rel, (s) => s.replace(new RegExp(`(${esc(dlImage.coordinate)}:)v?${SEMVER}`), `$1${chart.appVersion}`));
+  assert(after.includes(`${dlImage.coordinate}:${chart.appVersion}`), `${rel}: artifacthub delivery image tag != ${chart.appVersion}`);
+}
   // image.tag intentionally NOT pinned in values.yaml: the chart deployment defaults
   // the tag to .Chart.AppVersion, so pinning it here would only create helm-docs drift.
 
@@ -125,11 +129,6 @@ applyChart('integrations/kubernetes/charts/pacto-delivery/Chart.yaml', dlChart, 
   const rel = 'integrations/kubernetes/artifacthub-repo.yml';
   assert(existsSync(R(rel)) && /repositoryID:/.test(readFileSync(R(rel), 'utf8')),
     `${rel}: missing or lacks repositoryID`);
-  // The delivery chart is its own Artifact Hub repository. Its repositoryID only
-  // exists once someone registers that repository, so only the owners are required.
-  const dl = 'integrations/kubernetes/artifacthub-repo-delivery.yml';
-  assert(existsSync(R(dl)) && /owners:/.test(readFileSync(R(dl), 'utf8')),
-    `${dl}: missing or lacks owners`);
 }
 
 // ---- 5. integration.yaml compatibility (pactoCore) ----
@@ -142,7 +141,6 @@ applyChart('integrations/kubernetes/charts/pacto-delivery/Chart.yaml', dlChart, 
 // ---- 6. generated install examples: chart README badges + --version pin ----
 for (const rel of [
   'integrations/kubernetes/charts/pacto-operator/README.md',
-  'integrations/kubernetes/charts/pacto-delivery/README.md',
 ]) {
   const after = edit(rel, (s) => {
     s = s.replace(new RegExp(`(--version )v?${SEMVER}`, 'g'), `$1${chartVersion}`);

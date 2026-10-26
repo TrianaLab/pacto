@@ -22,7 +22,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `controller.kernelEvidence.staleness` | `""` | How old a node's heartbeat may be before its evidence reads stale. Empty uses three times the node agent's publish interval. Accepts a Go duration (e.g. "2m"). |
 | `controller.stabilizationWindow` | `""` | Stabilization window: how long a sustained NEGATIVE observation must persist before it converts to a confirmed violation (a transient blip reads Unknown meanwhile). Empty string uses the controller default (2m). Accepts a Go duration (e.g. "30s", "5m"). |
 | `controller.watchNamespace` | `""` | Restrict the controller's observation scope to a single namespace. Empty string (default) means cluster-wide: the controller watches all namespaces. The dashboard inherits this scope automatically. |
-| `dashboard.auth.deliveryNamespace` | `""` | Namespace of the pacto-delivery chart. The dashboard reads the identity policy it publishes there (agent, break-glass and human groups, team prefix), so it is never configured twice (empty: `pacto-delivery`) |
+| `dashboard.auth.deliveryNamespace` | `""` | Namespace where Pacto delivery runs. The dashboard reads the identity policy it publishes there (agent, break-glass and human groups, team prefix), so it is never configured twice (empty: `delivery.namespace` when `delivery.enabled`, else `pacto-delivery`) |
 | `dashboard.auth.oidc.clientID` | `""` | The dashboard's client id at the issuer |
 | `dashboard.auth.oidc.clientSecretRef.key` | `client-secret` | Key of the client secret in that Secret |
 | `dashboard.auth.oidc.clientSecretRef.name` | `""` | Secret in the operator namespace holding the client secret (passed by secretKeyRef) |
@@ -49,6 +49,78 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `dashboard.service.nodePort` | `""` | Node port (only used when type is NodePort) |
 | `dashboard.service.port` | `3000` | Dashboard service port |
 | `dashboard.service.type` | `ClusterIP` | Dashboard exposure Service type (ClusterIP, NodePort, LoadBalancer). The operator manages an internal ClusterIP Service (pacto-dashboard) for pod-to-pod communication. This chart-managed Service provides configurable external access and serves as the backend for Ingress/HTTPRoute resources. Selects dashboard pods via operator-defined labels. |
+| `delivery.admissionPolicies.allowUnguarded` | `false` | Render without the policies (enabled=false) anyway, and skip the chart's Kubernetes 1.30 and ValidatingAdmissionPolicy API check. Without the policies anyone who may create an Operation or an Approval can claim to be anyone, so the chart refuses either unless this is set. |
+| `delivery.admissionPolicies.enabled` | `true` | Install the ValidatingAdmissionPolicies (Kubernetes 1.30 or later): an operation's actor is the requesting user, only the promoter may set witnessed, override and unfreeze are limited to their raisers, cancel is refused once the pointer moved and an agent cancels only its own operations, approvals come from people and never change, spec.ref.digest is edited only by the promoter or break-glass, and on objects labelled delivery.pacto.trianalab.io/apply-ref the label, the source and what a Kustomization applies change only by break-glass. The promoter admits no operation and counts no approval while any of them is missing or does not deny. |
+| `delivery.affinity` | `{}` | Affinity for the promoter pod |
+| `delivery.argocd.enabled` | `false` | Let Stages name an Argo CD Application as their applier (`spec.applyRef.kind: Application`). Grants the promoter patch on `argoproj.io` Applications (it only sets `spec.source.targetRevision`, and the pointer admission policy holds it to that) and read access to the agent, approver and recorder roles. Off by default. |
+| `delivery.createNamespace` | `true` | Create `delivery.namespace`. Set false to create it yourself first, for example to put the recorder key Secret in it before the install |
+| `delivery.enabled` | `false` | Install Pacto delivery: the promoter, its CRDs (Stage, Operation, Approval), roles and admission policies |
+| `delivery.gates.providers` | `[]` | Health gate providers a Stage may name in `spec.gates.verify.checks[].provider`, each `{name, type, url}` with type `mira` (Mira's query API), `http` (any tool behind the plug-in format) or `eval` (an eval runner for an AI agent's eval suite). The URL is operator configuration: a Stage only names a provider and an agent names nothing. `pacto.contract` and `pacto.runtime` are built in. |
+| `delivery.identities.agentGroups` | `null` | Groups whose members are agents. Agents may propose, never approve or unfreeze. Service accounts other than the promoter are always agents. |
+| `delivery.identities.breakGlassGroups` | `null` | Groups that may raise an override and edit an OCIRepository's spec.ref.digest directly |
+| `delivery.identities.humanGroups` | `[]` | When set, only members of these groups count as people. Anyone in none of them is an agent, so an agent identity nobody enrolled in an agent group still cannot approve. Empty classifies by `agentGroups` alone. |
+| `delivery.identities.requireOwnerTeam` | `true` | A held question whose service and consumers declare no owner team is answered by nobody, and only break-glass can override. Set false to let any person answer it, as before. |
+| `delivery.identities.teamGroupPrefix` | `""` | Only members of the teams a held question names may answer it. A contract owner team `T` is the identity-provider group `T`, or once this prefix is set only this prefix followed by `T` (for example `acme:`). A `system:` group is never a team. |
+| `delivery.image.digest` | `""` | Pins the image by digest (sha256:...), appended to the tag as tag@digest so the runtime pulls exactly that image whatever the tag resolves to later |
+| `delivery.image.pullPolicy` | `IfNotPresent` | Image pull policy |
+| `delivery.image.repository` | `ghcr.io/trianalab/pacto/delivery` | Promoter image repository (the pacto-delivery image) |
+| `delivery.image.tag` | `""` | Overrides the image tag (default is the chart appVersion) |
+| `delivery.imagePullSecrets` | `[]` | Image pull secrets for private registries |
+| `delivery.insecureRegistries` | `[]` | Registry hosts (`host:port`) the promoter and the recorder reach over plain HTTP. An OCIRepository with `spec.insecure: true` is read over HTTP anyway. |
+| `delivery.metrics.enabled` | `true` | Expose the promoter's and the recorder's metrics (plain HTTP, port 8080) through a Service |
+| `delivery.metrics.serviceMonitor.enabled` | `false` | Create a Prometheus Operator ServiceMonitor for that Service |
+| `delivery.metrics.serviceMonitor.interval` | `""` | Scrape interval (empty uses Prometheus' default) |
+| `delivery.metrics.serviceMonitor.scrapeTimeout` | `""` | Scrape timeout (empty uses Prometheus' default) |
+| `delivery.namespace` | `pacto-delivery` | Dedicated namespace the promoter and the recorder run in. The chart creates it; it must not be the release namespace (the operator can create Deployments and Secrets there). |
+| `delivery.nodeSelector` | `{}` | Node selector for the promoter pod |
+| `delivery.podSecurityContext.runAsNonRoot` | `true` | Run pod as non-root |
+| `delivery.podSecurityContext.seccompProfile.type` | `RuntimeDefault` | Seccomp profile type |
+| `delivery.promoter.authFreshness` | `15m` | How old a person's login may be when their approval is given; an older one is ignored (a Go duration). Every Stage publishes it in `status.authFreshness` |
+| `delivery.promoter.leaderElect` | `true` | Elect one active promoter |
+| `delivery.promoter.poll` | `3s` | How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration) |
+| `delivery.promoter.registryCredentials.secretName` | `""` | A `kubernetes.io/dockerconfigjson` Secret with read access to the contract and deploy repositories, for a private registry. Without it the promoter reads only public ones. |
+| `delivery.promoter.upstreamTrust` | `""` | The recorder keys of other clusters, as a trust config in YAML (keys per stream glob). A Stage with `candidates.upstreamRecords` promotes only on records one of these keys signed for that stream; without it such a Stage is not Ready. Public keys only. |
+| `delivery.promoter.workers` | `4` | How many operations and Stages the promoter reconciles at once, so one slow health provider does not hold up the rest |
+| `delivery.recorder.cdeventsSink` | `""` | A URL the recorder POSTs a CDEvent (CloudEvents, structured mode) to for every record, best effort. Empty sends none. |
+| `delivery.recorder.enabled` | `false` | Run the recorder, which writes a signed record of every concluded operation to the registry as OCI referrers. Off by default. When on, the promoter leaves the record finalizer to it. The registry must support the OCI Referrers API natively (GHCR and released `distribution` do not). |
+| `delivery.recorder.extraEnv` | `[]` | Extra environment for the recorder (for example the credentials a KMS client reads) |
+| `delivery.recorder.leaderElect` | `true` | Elect one active recorder |
+| `delivery.recorder.monitoring.enabled` | `false` | Scrape the recorder's metrics and alert when records fall behind: a metrics Service, a ServiceMonitor and a PrometheusRule. Needs the Prometheus Operator CRDs. |
+| `delivery.recorder.operationTTL` | `168h` | Keep a recorded operation this long after it concluded, then delete it: its record holds what happened. The operation a Stage runs is never deleted. `0s` keeps them all (a Go duration). |
+| `delivery.recorder.poll` | `30s` | How long a registry or signer failure backs off (a Go duration) |
+| `delivery.recorder.registryCredentials.secretName` | `""` | A `kubernetes.io/dockerconfigjson` Secret with push access to the streams, apply and contract repositories. Only the recorder mounts it. |
+| `delivery.recorder.resources.limits.cpu` | `500m` | CPU limit |
+| `delivery.recorder.resources.limits.memory` | `256Mi` | Memory limit |
+| `delivery.recorder.resources.requests.cpu` | `10m` | CPU request |
+| `delivery.recorder.resources.requests.memory` | `64Mi` | Memory request |
+| `delivery.recorder.serviceAccount.annotations` | `{}` | Annotations to add to the recorder's ServiceAccount (workload identity for KMS or keyless) |
+| `delivery.recorder.serviceAccount.create` | `true` | Create a ServiceAccount for the recorder |
+| `delivery.recorder.serviceAccount.name` | `""` | Name override (defaults to `<fullname>-delivery-recorder`) |
+| `delivery.recorder.signing.ed25519.key` | `key.pem` | The key in that Secret |
+| `delivery.recorder.signing.ed25519.secretName` | `""` | A Secret holding a PKCS#8 PEM Ed25519 private key (for kind and tests) |
+| `delivery.recorder.signing.keyless.enabled` | `false` | Sign keyless with a Fulcio certificate for the recorder's workload identity, presented as a projected service account token for the `sigstore` audience. Rekor upload is off; a timestamp authority dates each signature. |
+| `delivery.recorder.signing.keyless.fulcioURL` | `""` | The Fulcio that issues the certificate |
+| `delivery.recorder.signing.keyless.identity` | `""` | The certificate identity keyless signing produces |
+| `delivery.recorder.signing.keyless.issuer` | `""` | The OIDC issuer keyless signing uses |
+| `delivery.recorder.signing.keyless.timestampURL` | `""` | The timestamp authority whose signed time a short-lived certificate verifies at |
+| `delivery.recorder.signing.keyless.trustedRoot` | `""` | The Sigstore trusted root (`trusted_root.json`) naming that Fulcio and timestamp authority. Required with keyless: without it a self-signed certificate could name the recorder's identity. |
+| `delivery.recorder.signing.kms` | `""` | A KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`). The default image includes every provider; an image built with `--build-arg GO_TAGS=` has none, and one built with `GO_TAGS=kms_aws` (or `kms_gcp`, `kms_azure`, `kms_hashivault`) has only that one |
+| `delivery.recorder.streamsRepository` | `""` | Repository (`host/path`) that holds one anchor per Stage stream. Required when enabled. |
+| `delivery.recorder.trust` | `""` | Other keys whose records the recorder accepts, as a trust config in YAML (`keys: [{publicKey: <PEM>, streams: ["*/prod/*"]}]`): list the old key here while you rotate to a new one, and set `untilSeq` and `untilRecord` on a leaked key to revoke it after the last record it signed. The recorder's own key is always trusted. A record no listed key signed is skipped as untrusted. |
+| `delivery.replicaCount` | `1` | Number of promoter replicas. Only the elected leader acts. |
+| `delivery.resources.limits.cpu` | `500m` | CPU limit |
+| `delivery.resources.limits.memory` | `256Mi` | Memory limit |
+| `delivery.resources.requests.cpu` | `10m` | CPU request |
+| `delivery.resources.requests.memory` | `64Mi` | Memory request |
+| `delivery.securityContext.allowPrivilegeEscalation` | `false` | Disallow privilege escalation |
+| `delivery.securityContext.capabilities.drop` | `null` | Drop all capabilities |
+| `delivery.securityContext.readOnlyRootFilesystem` | `true` | Read-only root filesystem |
+| `delivery.securityContext.runAsNonRoot` | `true` | Run as non-root |
+| `delivery.securityContext.runAsUser` | `65532` | Run as UID 65532 (nonroot in distroless) |
+| `delivery.serviceAccount.annotations` | `{}` | Annotations to add to the ServiceAccount |
+| `delivery.serviceAccount.create` | `true` | Create a ServiceAccount for the promoter |
+| `delivery.serviceAccount.name` | `""` | Name override (defaults to `<fullname>-delivery`) |
+| `delivery.tolerations` | `[]` | Tolerations for the promoter pod |
 | `evidence.enabled` | `false` | Enable the operator-managed Evidence Server deployment. Disabled by default. When enabled the operator reconciles a SEPARATE Evidence Server Deployment and an internal Service; the image is the same runtime image as the dashboard and is not user-configurable. The Evidence Server is single- writer, so its replica count is fixed at one. |
 | `evidence.httpRoute.enabled` | `false` | Enable Gateway API HTTPRoute for the Evidence Server. |
 | `evidence.httpRoute.hostnames` | `[]` | Hostnames for the HTTPRoute. |

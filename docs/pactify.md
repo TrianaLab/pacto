@@ -146,15 +146,15 @@ using yours needs 3.0.0) and never overwrites a published one; see
 
 Install, once per cluster, Flux, the Pacto operator (it checks that each
 running service matches its contract) and delivery (it decides which version
-runs in each environment). Helm is the usual Kubernetes installer; the charts
-have their own version numbers. Delivery reads your contracts, so with a
-private registry give it a login first, in its own namespace, and add
-`--set promoter.registryCredentials.secretName=registry-creds` to its install
-command below:
+runs in each environment). Helm is the usual Kubernetes installer; one chart
+installs both. Delivery reads your contracts, so with a private registry give
+it a login first, in the operator's namespace, and add
+`--set delivery.promoter.registryCredentials.secretName=registry-creds` to the
+command that turns delivery on below:
 
 ```bash
-kubectl create namespace pacto-delivery
-kubectl -n pacto-delivery create secret docker-registry registry-creds \
+kubectl create namespace pacto-operator-system
+kubectl -n pacto-operator-system create secret docker-registry registry-creds \
   --docker-server=ghcr.io --docker-username=<user> --docker-password=<token>
 ```
 

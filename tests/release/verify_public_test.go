@@ -24,7 +24,7 @@ func verifyPublic(t *testing.T, unitsDir, units string) (string, error) {
 
 func TestVerifyPublicSelectsEveryGHCRRepository(t *testing.T) {
 	// Every release unit, so the selection is decided by kind alone.
-	all := `["dashboard-contract-bundle","delivery-chart","delivery-image","demo-bundles",` +
+	all := `["dashboard-contract-bundle","delivery-image","demo-bundles",` +
 		`"demo-compose","k8s-docs","k8s-module","operator-chart","operator-image","cli","core","dashboard-image"]`
 	out, err := verifyPublic(t, filepath.Join(repoRoot(t), "release", "units"), all)
 	if err != nil {
@@ -35,7 +35,6 @@ func TestVerifyPublicSelectsEveryGHCRRepository(t *testing.T) {
 	// or helm-chart unit belongs here too.
 	want := strings.Join([]string{
 		"dashboard-contract-bundle trianalab/pacto/dashboard-contract",
-		"delivery-chart trianalab/pacto/charts/pacto-delivery",
 		"delivery-image trianalab/pacto/delivery",
 		"demo-compose trianalab/pacto/demo",
 		"operator-chart trianalab/pacto/charts/pacto-operator",

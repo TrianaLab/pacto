@@ -72,14 +72,6 @@
           "unit": "delivery-image"
         },
         {
-          "appVersion": "6.0.1",
-          "chartVersion": "6.0.1",
-          "coordinate": "ghcr.io/trianalab/pacto/charts/pacto-delivery",
-          "defaultImageTag": "6.0.1",
-          "kind": "helm-chart",
-          "unit": "delivery-chart"
-        },
-        {
           "kind": "docs",
           "unit": "k8s-docs",
           "version": "6.0.1"
@@ -111,7 +103,6 @@
     "kubernetes:operator-image",
     "kubernetes:operator-chart",
     "kubernetes:delivery-image",
-    "kubernetes:delivery-chart",
     "kubernetes:docs"
   ],
   "schema": "pacto-release-plan/v1"

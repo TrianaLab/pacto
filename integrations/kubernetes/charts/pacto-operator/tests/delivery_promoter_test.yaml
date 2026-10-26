@@ -1,14 +1,19 @@
 suite: promoter tests
 templates:
-  - templates/deployment.yaml
-  - templates/rbac.yaml
-  - templates/identities.yaml
+  - templates/delivery/deployment.yaml
+  - templates/delivery/rbac.yaml
+  - templates/delivery/identities.yaml
+set:
+  delivery.enabled: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
 tests:
   - it: runs the promoter subcommand with the derived controller identity
-    template: templates/deployment.yaml
+    template: templates/delivery/deployment.yaml
     release:
       name: d
-      namespace: pacto-delivery
+      namespace: pacto-system
     asserts:
       - equal:
           path: spec.template.spec.containers[0].args
@@ -18,36 +23,36 @@ tests:
             - --poll=3s
             - --workers=4
             - --auth-freshness=15m
-            - --controller-user=system:serviceaccount:pacto-delivery:d-pacto-delivery
+            - --controller-user=system:serviceaccount:pacto-delivery:d-pacto-operator-delivery
             - --identities=/etc/pacto/identities/policy.json
-            - --admission-policies=d-pacto-delivery-operation,d-pacto-delivery-cancel,d-pacto-delivery-approval,d-pacto-delivery-pointer,d-pacto-delivery-applier,d-pacto-delivery-promoter-writes
+            - --admission-policies=d-pacto-operator-delivery-operation,d-pacto-operator-delivery-cancel,d-pacto-operator-delivery-approval,d-pacto-operator-delivery-pointer,d-pacto-operator-delivery-applier,d-pacto-operator-delivery-promoter-writes
 
   - it: names every rendered admission policy, so the self-check covers them all
-    template: templates/deployment.yaml
+    template: templates/delivery/deployment.yaml
     set:
-      argocd.enabled: true
-      recorder.enabled: true
+      delivery.argocd.enabled: true
+      delivery.recorder.enabled: true
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
-          content: --admission-policies=RELEASE-NAME-pacto-delivery-operation,RELEASE-NAME-pacto-delivery-cancel,RELEASE-NAME-pacto-delivery-approval,RELEASE-NAME-pacto-delivery-pointer,RELEASE-NAME-pacto-delivery-applier,RELEASE-NAME-pacto-delivery-promoter-writes,RELEASE-NAME-pacto-delivery-pointer-argocd,RELEASE-NAME-pacto-delivery-promoter-writes-argocd,RELEASE-NAME-pacto-delivery-records
+          content: --admission-policies=RELEASE-NAME-pacto-operator-delivery-operation,RELEASE-NAME-pacto-operator-delivery-cancel,RELEASE-NAME-pacto-operator-delivery-approval,RELEASE-NAME-pacto-operator-delivery-pointer,RELEASE-NAME-pacto-operator-delivery-applier,RELEASE-NAME-pacto-operator-delivery-promoter-writes,RELEASE-NAME-pacto-operator-delivery-pointer-argocd,RELEASE-NAME-pacto-operator-delivery-promoter-writes-argocd,RELEASE-NAME-pacto-operator-delivery-records
 
   - it: names no admission policies when they are off on purpose
-    template: templates/deployment.yaml
+    template: templates/delivery/deployment.yaml
     set:
-      admissionPolicies.enabled: false
-      admissionPolicies.allowUnguarded: true
+      delivery.admissionPolicies.enabled: false
+      delivery.admissionPolicies.allowUnguarded: true
     asserts:
       - notContains:
           path: spec.template.spec.containers[0].args
-          content: --admission-policies=RELEASE-NAME-pacto-delivery-operation,RELEASE-NAME-pacto-delivery-cancel,RELEASE-NAME-pacto-delivery-approval,RELEASE-NAME-pacto-delivery-pointer,RELEASE-NAME-pacto-delivery-applier,RELEASE-NAME-pacto-delivery-promoter-writes
+          content: --admission-policies=RELEASE-NAME-pacto-operator-delivery-operation,RELEASE-NAME-pacto-operator-delivery-cancel,RELEASE-NAME-pacto-operator-delivery-approval,RELEASE-NAME-pacto-operator-delivery-pointer,RELEASE-NAME-pacto-operator-delivery-applier,RELEASE-NAME-pacto-operator-delivery-promoter-writes
 
   - it: publishes the identity policy the promoter mounts, readable by every signed-in user
-    template: templates/identities.yaml
+    template: templates/delivery/identities.yaml
     set:
-      identities.teamGroupPrefix: "acme:"
-      identities.agentGroups: [acme:bots]
-      identities.humanGroups: [acme:staff]
+      delivery.identities.teamGroupPrefix: "acme:"
+      delivery.identities.agentGroups: [acme:bots]
+      delivery.identities.humanGroups: [acme:staff]
     asserts:
       - equal:
           path: data["policy.json"]
@@ -67,9 +72,9 @@ tests:
         documentIndex: 2
 
   - it: lets an ownerless question go to any person only when asked
-    template: templates/identities.yaml
+    template: templates/delivery/identities.yaml
     set:
-      identities.requireOwnerTeam: false
+      delivery.identities.requireOwnerTeam: false
     asserts:
       - matchRegex:
           path: data["policy.json"]
@@ -77,7 +82,7 @@ tests:
         documentIndex: 0
 
   - it: mounts the published policy and restarts when it changes
-    template: templates/deployment.yaml
+    template: templates/delivery/deployment.yaml
     asserts:
       - contains:
           path: spec.template.spec.volumes
@@ -89,9 +94,9 @@ tests:
           path: spec.template.metadata.annotations["checksum/identities"]
 
   - it: passes the gate providers as one JSON flag
-    template: templates/deployment.yaml
+    template: templates/delivery/deployment.yaml
     set:
-      gates.providers:
+      delivery.gates.providers:
         - {name: mira, type: mira, url: "http://mira.observability:4318"}
     asserts:
       - contains:
@@ -99,17 +104,17 @@ tests:
           content: '--gate-providers=[{"name":"mira","type":"mira","url":"http://mira.observability:4318"}]'
 
   - it: refuses a provider that takes a built-in gate's name
-    template: templates/deployment.yaml
+    template: templates/delivery/deployment.yaml
     set:
-      gates.providers:
+      delivery.gates.providers:
         - {name: pacto.runtime, type: mira, url: "http://m"}
     asserts:
       - failedTemplate: {}
 
   - it: passes insecure registries through
-    template: templates/deployment.yaml
+    template: templates/delivery/deployment.yaml
     set:
-      insecureRegistries: [reg:5000, other:5000]
+      delivery.insecureRegistries: [reg:5000, other:5000]
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -118,7 +123,7 @@ tests:
             value: reg:5000,other:5000
 
   - it: grants the promoter only the digest write on Flux sources, nothing on workloads
-    template: templates/rbac.yaml
+    template: templates/delivery/rbac.yaml
     asserts:
       - contains:
           path: rules
@@ -150,9 +155,9 @@ tests:
         documentIndex: 1
 
   - it: mounts the upstream trust config and passes it only when set
-    template: templates/deployment.yaml
+    template: templates/delivery/deployment.yaml
     set:
-      promoter.upstreamTrust: "keys: []"
+      delivery.promoter.upstreamTrust: "keys: []"
     asserts:
       - equal:
           path: data["trust.yaml"]
@@ -164,14 +169,14 @@ tests:
         documentIndex: 1
       - equal:
           path: spec.template.spec.volumes[0].configMap.name
-          value: RELEASE-NAME-pacto-delivery-upstream-trust
+          value: RELEASE-NAME-pacto-operator-delivery-upstream-trust
         documentIndex: 1
 
   - it: mounts the registry credentials only when set, beside the upstream trust config
-    template: templates/deployment.yaml
+    template: templates/delivery/deployment.yaml
     set:
-      promoter.upstreamTrust: "keys: []"
-      promoter.registryCredentials.secretName: promoter-pull
+      delivery.promoter.upstreamTrust: "keys: []"
+      delivery.promoter.registryCredentials.secretName: promoter-pull
     asserts:
       - contains:
           path: spec.template.spec.containers[0].env
@@ -194,9 +199,9 @@ tests:
         documentIndex: 1
 
   - it: mounts the registry credentials alone
-    template: templates/deployment.yaml
+    template: templates/delivery/deployment.yaml
     set:
-      promoter.registryCredentials.secretName: promoter-pull
+      delivery.promoter.registryCredentials.secretName: promoter-pull
     asserts:
       - equal:
           path: spec.template.spec.volumes[0].secret.secretName
@@ -206,7 +211,7 @@ tests:
           count: 2
 
   - it: passes no upstream trust config by default
-    template: templates/deployment.yaml
+    template: templates/delivery/deployment.yaml
     asserts:
       - hasDocuments:
           count: 1
@@ -219,7 +224,7 @@ tests:
           content: {name: DOCKER_CONFIG, value: /etc/pacto/registry}
 
   - it: grants nothing on Argo CD unless it is enabled
-    template: templates/rbac.yaml
+    template: templates/delivery/rbac.yaml
     documentIndex: 1
     asserts:
       - notContains:
@@ -230,9 +235,9 @@ tests:
             verbs: [get, list, watch, patch]
 
   - it: grants the targetRevision write on Argo CD Applications, and reads to agents, when enabled
-    template: templates/rbac.yaml
+    template: templates/delivery/rbac.yaml
     set:
-      argocd.enabled: true
+      delivery.argocd.enabled: true
     asserts:
       - contains:
           path: rules
@@ -250,12 +255,12 @@ tests:
         documentIndex: 5
 
   - it: never lets an agent create approvals
-    template: templates/rbac.yaml
+    template: templates/delivery/rbac.yaml
     documentIndex: 5
     asserts:
       - equal:
           path: metadata.name
-          value: RELEASE-NAME-pacto-delivery-agent
+          value: RELEASE-NAME-pacto-operator-delivery-agent
       - notContains:
           path: rules
           content:
@@ -270,21 +275,21 @@ tests:
             verbs: [get, list, watch, create, delete]
 
   - it: skips the ServiceAccount when told to
-    template: templates/rbac.yaml
+    template: templates/delivery/rbac.yaml
     set:
-      serviceAccount.create: false
-      serviceAccount.name: existing
+      delivery.serviceAccount.create: false
+      delivery.serviceAccount.name: existing
     asserts:
       - notContains:
           path: subjects
           content:
             kind: ServiceAccount
-            name: RELEASE-NAME-pacto-delivery
+            name: RELEASE-NAME-pacto-operator-delivery
             namespace: NAMESPACE
         documentIndex: 1
 
   - it: lets the promoter delete operations only when the recorder keeps their records
-    template: templates/rbac.yaml
+    template: templates/delivery/rbac.yaml
     documentIndex: 1
     asserts:
       - contains:
@@ -295,10 +300,10 @@ tests:
             verbs: [get, list, watch, create, update, patch]
 
   - it: grants the delete with the recorder on
-    template: templates/rbac.yaml
+    template: templates/delivery/rbac.yaml
     documentIndex: 1
     set:
-      recorder.enabled: true
+      delivery.recorder.enabled: true
     asserts:
       - contains:
           path: rules
