@@ -105,9 +105,13 @@ func TestDeliveryListsPage(t *testing.T) {
 	_, au := call(t, http.MethodGet, base+"/api/delivery/autonomy?limit=1&q=pay", nil)
 	expect(t, len(au["stages"].([]any)) == 1 && page(au["page"])["total"] == float64(1), "Stages are paged and filtered: %v", au)
 	expect(t, page(au["blockersPage"])["total"] == float64(0), "blockers are filtered too: %v", au["blockersPage"])
+}
 
-	// History across Stages pages the Stages and shows the newest changes of
-	// each; one Stage pages its changes, newest first.
+// History across Stages pages the Stages and shows the newest changes of
+// each; one Stage pages its changes, newest first.
+func TestDeliveryHistoryPages(t *testing.T) {
+	f := sampleCluster("acme:team-checkout")
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
 	var entries []delivery.HistoryEntry
 	for i := 1; i <= 12; i++ {
 		entries = append(entries, delivery.HistoryEntry{Seq: int64(i), Operation: fmt.Sprintf("op-%d", i), Actor: map[bool]string{true: "carol", false: "bot"}[i%2 == 0]})

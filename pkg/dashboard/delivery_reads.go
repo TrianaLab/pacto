@@ -215,29 +215,8 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	// frozen holds the caller's Stages that are frozen now. Concluded
 	// operations are never deleted, so an Errored one waits on someone only
 	// while the pause it caused lasts; after that it is history.
-	frozen := map[string]bool{}
-	var frozenStages []delivery.StageObject
-	for _, st := range stages {
-		if st.Status.Frozen && mine(st.Spec.Service.Name) {
-			frozen[st.Metadata.Namespace+"/"+st.Metadata.Name] = true
-			if matches(in.Q, st.Metadata.Namespace, st.Metadata.Name, st.Spec.Service.Name) {
-				frozenStages = append(frozenStages, st)
-			}
-		}
-	}
-	held, errored := []InboxItem{}, []InboxItem{}
-	for _, o := range ops {
-		it := inboxItem(o)
-		if !matches(in.Q, it.Namespace, it.Stage, it.Name, strings.Join(it.Consumers, " ")) {
-			continue
-		}
-		switch {
-		case it.Phase == delivery.PhaseHeld && waitsOn(&o, it, caller):
-			held = append(held, it)
-		case it.Outcome == delivery.Errored && frozen[it.Namespace+"/"+it.Stage]:
-			errored = append(errored, it)
-		}
-	}
+	frozen, frozenStages := frozenOf(stages, mine, in.Q)
+	held, errored := inboxQueues(ops, in.Q, frozen, caller)
 	out := &inboxOutput{}
 	b := &out.Body
 	b.Listing = l
@@ -256,6 +235,41 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	}
 	b.Errored, b.ErroredPage = pageOf(errored, in.Errored, in.Limit, inboxPage)
 	return out, nil
+}
+
+// frozenOf returns the caller's frozen Stages by namespace/name, and those
+// of them matching q.
+func frozenOf(stages []delivery.StageObject, mine func(string) bool, q string) (map[string]bool, []delivery.StageObject) {
+	frozen := map[string]bool{}
+	var frozenStages []delivery.StageObject
+	for _, st := range stages {
+		if st.Status.Frozen && mine(st.Spec.Service.Name) {
+			frozen[st.Metadata.Namespace+"/"+st.Metadata.Name] = true
+			if matches(q, st.Metadata.Namespace, st.Metadata.Name, st.Spec.Service.Name) {
+				frozenStages = append(frozenStages, st)
+			}
+		}
+	}
+	return frozen, frozenStages
+}
+
+// inboxQueues splits the operations matching q into those held on the caller
+// and those errored on a Stage that is still frozen.
+func inboxQueues(ops []delivery.OperationObject, q string, frozen map[string]bool, caller delivery.Caller) (held, errored []InboxItem) {
+	held, errored = []InboxItem{}, []InboxItem{}
+	for _, o := range ops {
+		it := inboxItem(o)
+		if !matches(q, it.Namespace, it.Stage, it.Name, strings.Join(it.Consumers, " ")) {
+			continue
+		}
+		switch {
+		case it.Phase == delivery.PhaseHeld && waitsOn(&o, it, caller):
+			held = append(held, it)
+		case it.Outcome == delivery.Errored && frozen[it.Namespace+"/"+it.Stage]:
+			errored = append(errored, it)
+		}
+	}
+	return held, errored
 }
 
 // waitsOn: held op it waits on caller, whose decision the promoter would
@@ -459,35 +473,7 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 	}
 	// First where each digest stands, which costs nothing; then only the
 	// page's artifacts are read.
-	byService := map[string]map[string]*PublishedVersion{}
-	readFrom := map[*PublishedVersion]*delivery.StageObject{}
-	for i := range stages {
-		st := &stages[i]
-		ss := st.Status
-		svc := st.Spec.Service.Name
-		if !matches(in.Q, svc) {
-			continue
-		}
-		if byService[svc] == nil {
-			byService[svc] = map[string]*PublishedVersion{}
-		}
-		for _, d := range slices.Concat(ss.Published, ss.Offered, ss.Verified, ss.FailedDigests, []string{ss.Pointer}) {
-			if d == "" {
-				continue
-			}
-			v := byService[svc][d]
-			if v == nil {
-				v = &PublishedVersion{Digest: d, Stages: []PublishedOnStages{}}
-				byService[svc][d], readFrom[v] = v, st
-			}
-			v.Signed = v.Signed || slices.Contains(ss.Published, d)
-			on := PublishedOnStages{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Environment: st.Spec.Environment,
-				Running: ss.Pointer == d, Verified: slices.Contains(ss.Verified, d), Failed: slices.Contains(ss.FailedDigests, d)}
-			if !slices.Contains(v.Stages, on) {
-				v.Stages = append(v.Stages, on)
-			}
-		}
-	}
+	byService, readFrom := publishedDigests(stages, in.Q)
 	names := slices.Sorted(maps.Keys(byService))
 	out := &publishedOutput{}
 	out.Body.Listing, out.Body.Services = l, []PublishedService{}
@@ -513,6 +499,41 @@ func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*pu
 		out.Body.Services = append(out.Body.Services, ps)
 	}
 	return out, nil
+}
+
+// publishedDigests groups every digest the Stages of services matching q
+// remember by service, with the Stage to read each one's artifact from.
+func publishedDigests(stages []delivery.StageObject, q string) (byService map[string]map[string]*PublishedVersion, readFrom map[*PublishedVersion]*delivery.StageObject) {
+	byService = map[string]map[string]*PublishedVersion{}
+	readFrom = map[*PublishedVersion]*delivery.StageObject{}
+	for i := range stages {
+		st := &stages[i]
+		ss := st.Status
+		svc := st.Spec.Service.Name
+		if !matches(q, svc) {
+			continue
+		}
+		if byService[svc] == nil {
+			byService[svc] = map[string]*PublishedVersion{}
+		}
+		for _, d := range slices.Concat(ss.Published, ss.Offered, ss.Verified, ss.FailedDigests, []string{ss.Pointer}) {
+			if d == "" {
+				continue
+			}
+			v := byService[svc][d]
+			if v == nil {
+				v = &PublishedVersion{Digest: d, Stages: []PublishedOnStages{}}
+				byService[svc][d], readFrom[v] = v, st
+			}
+			v.Signed = v.Signed || slices.Contains(ss.Published, d)
+			on := PublishedOnStages{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Environment: st.Spec.Environment,
+				Running: ss.Pointer == d, Verified: slices.Contains(ss.Verified, d), Failed: slices.Contains(ss.FailedDigests, d)}
+			if !slices.Contains(v.Stages, on) {
+				v.Stages = append(v.Stages, on)
+			}
+		}
+	}
+	return byService, readFrom
 }
 
 type historyInput struct {
