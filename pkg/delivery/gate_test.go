@@ -306,3 +306,22 @@ func TestRunChecksSuite(t *testing.T) {
 		t.Errorf("%+v", vs)
 	}
 }
+
+// TestGatesNeverFollowARedirect: a provider that answers 307 never gets the
+// promoter to post the gate input to a URL of its choosing.
+func TestGatesNeverFollowARedirect(t *testing.T) {
+	hit := false
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hit = true }))
+	defer elsewhere.Close()
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhere.URL+"/latest/meta-data", http.StatusTemporaryRedirect)
+	}))
+	defer provider.Close()
+	gates, err := NewGates([]ProviderConfig{{Name: "dd", Type: ProviderHTTP, URL: provider.URL}}, provider.Client(), openAny)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := gates["dd"].Check(context.Background(), gateIn(), nil); v.Result != Unknown || hit || !strings.Contains(v.Message, "answered 307") {
+		t.Fatalf("a redirect was followed: %+v (hit %v)", v, hit)
+	}
+}

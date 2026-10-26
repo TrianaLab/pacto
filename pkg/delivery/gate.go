@@ -107,6 +107,7 @@ func ParseProviders(s string) ([]ProviderConfig, error) {
 // the built-in gates' and cannot be taken. open turns a runner key into the
 // check of a signed answer (pkg/signing.OpenKey).
 func NewGates(configs []ProviderConfig, client *http.Client, open func(TrustedKey) (func(bundle []byte) error, error)) (map[string]Gate, error) {
+	client = noRedirects(client)
 	gates := map[string]Gate{}
 	for _, c := range configs {
 		u, err := url.Parse(c.URL)
@@ -280,6 +281,19 @@ func Rerun(ctx context.Context, gates map[string]Gate, checks []GateCheck, base 
 
 // maxAnswer bounds what the promoter reads from any gate provider.
 const maxAnswer = 64 << 20
+
+// noRedirects is client, copied, refusing to follow a redirect: a provider
+// that answers 307 would otherwise have the promoter post gate input again to
+// a URL of its choosing, plain http or a metadata endpoint included. A
+// redirect is an answer that is not 2xx, so the verdict is Unknown.
+func noRedirects(client *http.Client) *http.Client {
+	c := &http.Client{}
+	if client != nil {
+		*c = *client
+	}
+	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return c
+}
 
 // postJSON posts body to u and decodes a 2xx answer into out, tolerating
 // fields it does not know: a provider's answer is not a schema Pacto owns.
