@@ -540,6 +540,11 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 		if why := bumpRefusal(res); why != "" {
 			unseen = append(unseen, why)
 		}
+		// The impact is keyed on the candidate's domain, which its author
+		// chooses: consumers declared against the old one would drop out.
+		if a, b := contract.OCIDomain(in.From.ContractRef), contract.OCIDomain(in.To.ContractRef); a != b {
+			unseen = append(unseen, fmt.Sprintf("the contract moved from %q to %q, so consumers that depend on it in %q are not counted", a, b, a))
+		}
 	}
 	if in.From.Digest != "" && !slices.Contains(in.Status.Verified, in.From.Digest) {
 		unseen = append(unseen, "the version a rollback would return to ("+short(in.From.Digest)+") was never verified here")

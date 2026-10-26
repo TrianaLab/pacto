@@ -56,7 +56,9 @@ Consumers declare the versions they accept as ranges, and Pacto checks each
 range against the version the change is published as. The promoter also checks
 that version against the change: a breaking change published as a minor (1.9.0
 after 1.8.0) would pass every `^1` range, so it waits for a person to accept
-the unknown instead.
+the unknown instead. A version whose contract is published under another
+registry domain than the running one waits the same way: consumers declared
+against the old domain would not be counted.
 
 The rungs judge the contract, never the manifests that ship with it. A version
 with the same contract and new manifests (a new ClusterRoleBinding, say) is

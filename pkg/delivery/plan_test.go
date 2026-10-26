@@ -220,6 +220,29 @@ func TestPlanRollbackAConsumerDoesNotAccept(t *testing.T) {
 	}
 }
 
+// TestPlanContractMovedDomain: the impact is keyed on the candidate's own
+// domain, so a version published elsewhere would drop every consumer
+// declared against the old one. A moved contract is Unknown for a person,
+// even on a Stage that declares its graph complete.
+func TestPlanContractMovedDomain(t *testing.T) {
+	old, moved := bundle("payments", "1.0.0"), bundle("payments", "2.0.0")
+	old.Contract.Workload, moved.Contract.Workload = "service", "job" // BREAKING
+	from := rev(dA, c1, old)
+	to := Revision{Digest: dB, ContractRef: "oci://elsewhere.example/pactos/payments@" + c2, Bundle: moved}
+	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
+		From: from, To: to, Snapshot: snap, Class: ClassAgent}
+	in.Stage.Gates.Impact.DeclaredConsumersOnly = true
+	p := autonomousPlan(in)
+	if v := verdict(t, p, GateImpact); v.Result != Unknown || p.Floor.Decision != AcceptUnknown || ClearedBreaking(&p) ||
+		!strings.Contains(v.Message, `the contract moved from "reg.example/pactos" to "elsewhere.example/pactos"`) {
+		t.Fatalf("a contract that moved domain must not clear: %+v", p)
+	}
+}
+
 func TestPlanBreakingChangeAsksOnlyTheBrokenConsumersOwners(t *testing.T) {
 	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "2.0.0"))
 	other := checkoutPacto("^1.0.0")
