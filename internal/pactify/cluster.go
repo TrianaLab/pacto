@@ -74,6 +74,9 @@ type cluster struct {
 	// observed is false when no node runtime observation exists, so calls
 	// could not be seen at all.
 	observed bool
+	// fresh are the nodes whose observation was published within its
+	// staleness bound; calls from any other node could not be seen.
+	fresh map[string]bool
 }
 
 // Cluster drafts a contract for every workload in the namespaces that no
@@ -91,7 +94,7 @@ func Cluster(ctx context.Context, dyn dynamic.Interface, base Options, c Cluster
 	if c.Now == nil {
 		c.Now = time.Now
 	}
-	cl, err := readCluster(ctx, dyn, c.Namespaces)
+	cl, err := readCluster(ctx, dyn, c.Namespaces, c.Now())
 	if err != nil {
 		return nil, err
 	}
@@ -154,14 +157,17 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 	if !cl.observed {
 		r.Unknown = append(r.Unknown, "dependencies seen at runtime: the cluster holds no node runtime observations, so no calls were seen")
 	}
+	for _, n := range cl.unobserved(w) {
+		r.Unknown = append(r.Unknown, "dependencies seen at runtime: node "+n+" has no current observation, so calls from it could not be seen")
+	}
 	return r, err
 }
 
-func readCluster(ctx context.Context, dyn dynamic.Interface, namespaces []string) (*cluster, error) {
+func readCluster(ctx context.Context, dyn dynamic.Interface, namespaces []string, now time.Time) (*cluster, error) {
 	if len(namespaces) == 0 {
 		namespaces = []string{metav1.NamespaceAll}
 	}
-	cl := &cluster{owners: map[string]string{}}
+	cl := &cluster{owners: map[string]string{}, fresh: map[string]bool{}}
 	list := func(r schema.GroupVersionResource, ns string, optional bool) ([]unstructured.Unstructured, error) {
 		l, err := dyn.Resource(r).Namespace(ns).List(ctx, metav1.ListOptions{})
 		if optional && apierrors.IsNotFound(err) {
@@ -216,9 +222,27 @@ func readCluster(ctx context.Context, dyn dynamic.Interface, namespaces []string
 			return nil, fmt.Errorf("reading the node runtime observation %s: %w", n.GetName(), err)
 		}
 		cl.snaps = append(cl.snaps, s)
+		if !s.LastPublished.IsZero() && now.Sub(s.LastPublished) <= s.StalenessBound(0) {
+			cl.fresh[s.NodeName] = true
+		}
 	}
 	cl.observed = len(cl.snaps) > 0
 	return cl, nil
+}
+
+// unobserved are the nodes, sorted, that run a pod of w and have no fresh
+// observation: a call from there cannot be ruled out. With no observation
+// at all the draft already says so once.
+func (cl *cluster) unobserved(w unstructured.Unstructured) []string {
+	var out []string
+	for _, p := range cl.pods {
+		node, _, _ := unstructured.NestedString(p.Object, "spec", "nodeName")
+		if cl.observed && node != "" && !cl.fresh[node] && cl.owner(p) == key(w) && !slices.Contains(out, node) {
+			out = append(out, node)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func key(o unstructured.Unstructured) string {
