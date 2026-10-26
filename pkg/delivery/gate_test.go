@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -305,8 +306,8 @@ func TestRunChecksSuite(t *testing.T) {
 // TestGatesNeverFollowARedirect: a provider that answers 307 never gets the
 // promoter to post the gate input to a URL of its choosing.
 func TestGatesNeverFollowARedirect(t *testing.T) {
-	hit := false
-	elsewhere := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hit = true }))
+	var hit atomic.Bool
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { hit.Store(true) }))
 	defer elsewhere.Close()
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, elsewhere.URL+"/latest/meta-data", http.StatusTemporaryRedirect)
@@ -316,8 +317,8 @@ func TestGatesNeverFollowARedirect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v := gates["dd"].Check(context.Background(), gateIn(), nil); v.Result != Unknown || hit || !strings.Contains(v.Message, "answered 307") {
-		t.Fatalf("a redirect was followed: %+v (hit %v)", v, hit)
+	if v := gates["dd"].Check(context.Background(), gateIn(), nil); v.Result != Unknown || hit.Load() || !strings.Contains(v.Message, "answered 307") {
+		t.Fatalf("a redirect was followed: %+v (hit %v)", v, hit.Load())
 	}
 }
 
