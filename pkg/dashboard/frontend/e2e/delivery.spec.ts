@@ -81,7 +81,7 @@ function installDelivery(persona: Persona): void {
           { candidate: D1, predicted: 'Proceeds', observedAt: '2026-10-20T09:00:00Z', verification: 'Verified' }] }] });
     }
     if (route === '/api/delivery/autonomy') {
-      return json(200, { ...listing, contracted: { services: 4, uncontractedCallers: 1 }, promotionsWithoutPerson: { count: 3, of: 5 },
+      return json(200, { ...listing, contracted: { services: 4, uncontractedCallers: 1 }, promotionsWithoutPerson: { count: 3, of: 5, untyped: 0 },
         stages: [{ namespace: 'prod', stage: 'payments-prod', service: 'payments', environment: 'prod', rung: 'advise',
           proposal: { rung: 'auto-nonbreaking', evidence: ['u1', 'u2', 'u3'] } },
         { namespace: 'test', stage: 'payments-test', service: 'payments', environment: 'test', rung: 'observe',
@@ -402,7 +402,7 @@ test.describe('The path to autonomy', () => {
     await audit(page, 'autonomy');
     await page.getByRole('button', { name: 'Propose Auto non-breaking for payments in prod' }).click();
     const panel = page.getByTestId('propose-panel');
-    await expect(panel).toContainText('Change the rung prod/payments-prod: Auto non-breaking', { timeout: T });
+    await expect(panel).toContainText('Rung change prod/payments-prod: Auto non-breaking', { timeout: T });
     await expect(panel).toContainText('raise payments-prod to auto-nonbreaking?');
     await audit(page, 'autonomy proposal');
     await page.keyboard.press('Escape');

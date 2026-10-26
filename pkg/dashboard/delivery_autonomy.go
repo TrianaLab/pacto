@@ -125,6 +125,9 @@ type ContractShare struct {
 type PromotionCount struct {
 	Count int `json:"count"`
 	Of    int `json:"of" doc:"Succeeded promotions in the windows: the last 20 operations per Stage"`
+	// Untyped is how many operations in the windows carry no type, so Pacto
+	// cannot tell whether they were promotions.
+	Untyped int `json:"untyped" doc:"Operations in the windows with no type: Pacto cannot tell whether they were promotions"`
 }
 
 type autonomyOutput struct {
@@ -197,6 +200,9 @@ func autonomy(stages []delivery.StageObject, callers []uncontractedCaller) ([]Au
 			}
 		}
 		for _, c := range lad.Stream.Concluded {
+			if c.Type == "" {
+				count.Untyped++
+			}
 			if c.Type == delivery.TypePromote && c.Outcome == string(delivery.Succeeded) {
 				count.Of++
 				if !c.Person {

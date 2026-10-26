@@ -11,7 +11,7 @@ const TYPE_LABELS: Record<string, string> = {
   'delivery.pacto.trianalab.io/override': 'Override',
   'delivery.pacto.trianalab.io/unfreeze': 'Unfreeze',
   'delivery.pacto.trianalab.io/freeze': 'Freeze',
-  'pacto.dev/autonomy': 'Change the rung',
+  'pacto.dev/autonomy': 'Rung change',
 };
 
 /** typeLabel names an operation type in plain words. */
@@ -361,7 +361,7 @@ const PREDICTIONS: Record<string, string> = {
   Proceeds: 'It would go ahead with no person involved.',
   Held: 'It would wait for a person to decide.',
   Rejected: 'It would be refused.',
-  Waits: 'It would wait until the environment is free.',
+  Waits: 'It would wait until a person unfreezes it.',
 };
 
 /** predictionLabel says what a plan predicts, in a sentence. */
@@ -450,7 +450,7 @@ export function shadowLabel(s: ShadowFacts): string {
     case 'Proceeds': return 'ship';
     case 'Held': return s.owners?.length ? `hold for ${andList(s.owners)}` : `ask: ${s.question || 'a person decides'}`;
     case 'Rejected': return 'refuse';
-    case 'Waits': return 'wait until the environment is free';
+    case 'Waits': return 'wait until a person unfreezes it';
     default: return s.predicted || 'not planned yet';
   }
 }

@@ -49,7 +49,7 @@ const text = (t: Element) => t.textContent?.replace(/\s+/g, ' ') ?? '';
 const page = {
   ...listing,
   contracted: { services: 12, uncontractedCallers: 3 },
-  promotionsWithoutPerson: { count: 17, of: 20 },
+  promotionsWithoutPerson: { count: 17, of: 20, untyped: 0 },
   stages: [
     { namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', rung: 'advise',
       proposal: { rung: 'auto-nonbreaking', evidence: Array.from({ length: 10 }, (_, i) => `u${i}`) } },
@@ -106,7 +106,8 @@ describe('path to autonomy', () => {
     await settle();
     expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'pacto.dev/autonomy', from: 'advise', to: 'auto-nonbreaking' });
     const panel = target.querySelector('[data-testid="propose-panel"]')!;
-    expect(text(panel)).toContain('Change the rung prod/pay: Auto non-breaking');
+    expect(text(panel)).toContain('Rung change prod/pay: Auto non-breaking');
+    expect(text(panel.querySelector('button[type="submit"]')!)).toBe('Propose rung change');
     (panel.querySelector('form') as HTMLFormElement).requestSubmit();
     await settle();
     expect(fns.propose).toHaveBeenCalledWith(expect.objectContaining({ type: 'pacto.dev/autonomy', to: 'auto-nonbreaking', intentDigest: 'sha256:i' }));
@@ -141,11 +142,27 @@ describe('path to autonomy', () => {
   });
 
   it('says what it cannot know: no snapshot, no promotion, no Stage, no blocker, and a refusal', async () => {
-    fns.autonomy.mockResolvedValue({ ...listing, completeness: 'partial', unreadable: ['books'], promotionsWithoutPerson: { count: 0, of: 0 }, stages: [], blockers: [] });
+    fns.autonomy.mockResolvedValue({ ...listing, completeness: 'partial', unreadable: ['books'], promotionsWithoutPerson: { count: 0, of: 0, untyped: 0 }, stages: [], blockers: [] });
     let r = render(DeliveryAutonomyView);
     await settle();
     expect(text(r.target)).toContain('Pacto has seen no service here yet, so it cannot say.');
     expect(text(r.target)).toContain('No promotion succeeded in the last 20 operations per environment.');
+    r.destroy();
+    // Operations with no type: Pacto cannot tell, so it never claims none succeeded.
+    fns.autonomy.mockResolvedValue({ ...listing, promotionsWithoutPerson: { count: 0, of: 0, untyped: 4 }, stages: [], blockers: [] });
+    r = render(DeliveryAutonomyView);
+    await settle();
+    expect(text(r.target)).toContain('Pacto cannot tell yet which operations were promotions.');
+    expect(text(r.target)).not.toContain('No promotion succeeded');
+    r.destroy();
+    fns.autonomy.mockResolvedValue({ ...listing, promotionsWithoutPerson: { count: 1, of: 2, untyped: 1 }, stages: [], blockers: [] });
+    r = render(DeliveryAutonomyView);
+    await settle();
+    expect(text(r.target)).toContain('Pacto cannot tell what 1 more operation was.');
+    r.destroy();
+    fns.autonomy.mockResolvedValue({ ...listing, completeness: 'partial', unreadable: ['books'], promotionsWithoutPerson: { count: 0, of: 0, untyped: 0 }, stages: [], blockers: [] });
+    r = render(DeliveryAutonomyView);
+    await settle();
     expect(text(r.target.querySelector('[data-testid="autonomy-empty"]')!)).toContain('that you can see');
     expect(r.target.querySelector('[data-testid="autonomy-no-blockers"]')).not.toBeNull();
     r.destroy();
@@ -206,7 +223,7 @@ describe('the rung on a change', () => {
     const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'r1' });
     await settle();
     expect(text(target.querySelector('[data-testid="change-rung"]')!)).toContain('Advise');
-    expect(target.querySelector('.page-hd-sub')?.textContent).toBe('Change the rung pay in prod from Advise to Auto non-breaking waits for a person.');
+    expect(target.querySelector('.page-hd-sub')?.textContent).toBe('Rung change pay in prod from Advise to Auto non-breaking waits for a person.');
     expect(text(target)).not.toContain('version unknown');
     destroy();
   });
@@ -219,7 +236,7 @@ describe('ladder words', () => {
     expect(rungHelp('observe')).toContain('moves nothing');
     expect(rungHelp(undefined)).toContain('does not report a rung');
     expect(shadowLabel({ predicted: 'Rejected' })).toBe('refuse');
-    expect(shadowLabel({ predicted: 'Waits' })).toBe('wait until the environment is free');
+    expect(shadowLabel({ predicted: 'Waits' })).toBe('wait until a person unfreezes it');
     expect(shadowLabel({ predicted: 'Held' })).toBe('ask: a person decides');
     expect(shadowLabel({})).toBe('not planned yet');
     expect(shadowLabel({ predicted: 'Odd' })).toBe('Odd');
@@ -229,7 +246,7 @@ describe('ladder words', () => {
     expect(blockerLabel(undefined)).toBe('Blocker');
     expect(proposalText('observe', { rung: 'advise', evidence: ['d'] })).toBe('Pacto proposes Advise: 1 version GitOps ran that verified, no incident.');
     expect(proposalText('advise', { rung: 'auto-nonbreaking' })).toBe('Pacto proposes Auto non-breaking: 0 verified promotions, no incident.');
-    expect(typeLabel('pacto.dev/autonomy')).toBe('Change the rung');
-    expect(changeSummary({ spec: { type: 'pacto.dev/autonomy', stage: 's', params: { to: 'advise' } }, status: { phase: 'Held' } }, 'ns')).toBe('Change the rung s in ns to Advise waits for a person.');
+    expect(typeLabel('pacto.dev/autonomy')).toBe('Rung change');
+    expect(changeSummary({ spec: { type: 'pacto.dev/autonomy', stage: 's', params: { to: 'advise' } }, status: { phase: 'Held' } }, 'ns')).toBe('Rung change s in ns to Advise waits for a person.');
   });
 });

@@ -132,6 +132,19 @@ func TestAutonomyPartialAndRefused(t *testing.T) {
 	}
 }
 
+// On today's typed status a concluded operation carries no type, so Pacto
+// cannot tell a promotion from a freeze: it counts those apart, never as
+// "no promotion succeeded".
+func TestAutonomyCountsUntypedOperationsApart(t *testing.T) {
+	f := &fakeDelivery{caller: person(), stages: []delivery.StageObject{stage("prod", "payments", "payments",
+		delivery.StageStatus{Stream: delivery.Stream{Concluded: []delivery.Concluded{
+			{UID: "a", Seq: 1, Outcome: delivery.Succeeded}, {UID: "b", Seq: 2, Outcome: delivery.Errored}}}})}}
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, out := call(t, http.MethodGet, base+"/api/delivery/autonomy", nil)
+	p := out["promotionsWithoutPerson"].(map[string]any)
+	expect(t, p["untyped"] == float64(2) && p["of"] == float64(0) && p["count"] == float64(0), "untyped counted apart: %v", p)
+}
+
 func TestFixFor(t *testing.T) {
 	expect(t, fixFor("missing-contract", "payments", "", nil).Command == "pacto init --cluster --out ./pacto-drafts", "a service name")
 	expect(t, fixFor("undeclared-range", "checkout", "", nil) == nil, "no provider, no snippet")

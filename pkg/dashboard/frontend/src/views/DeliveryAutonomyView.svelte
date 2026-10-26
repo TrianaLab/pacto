@@ -25,7 +25,7 @@
   const blockers = $derived(data?.blockers ?? []);
   const share = $derived(data?.contracted);
   const seen = $derived(share ? share.services + share.uncontractedCallers : 0);
-  const promotions = $derived(data?.promotionsWithoutPerson ?? { count: 0, of: 0 });
+  const promotions = $derived(data?.promotionsWithoutPerson ?? { count: 0, of: 0, untyped: 0 });
 
   let proposing = $state(null);
   let proposingLabel = $state('');
@@ -86,6 +86,11 @@
         {#if promotions.of}
           <dd class="au-value">{promotions.count} of {promotions.of}</dd>
           <dd class="t-body-2">Counted over the last 20 operations per environment.</dd>
+          {#if promotions.untyped}
+            <dd class="t-body-2">Pacto cannot tell what {promotions.untyped} more {promotions.untyped === 1 ? 'operation was' : 'operations were'}.</dd>
+          {/if}
+        {:else if promotions.untyped}
+          <dd class="t-body-2">Pacto cannot tell yet which operations were promotions.</dd>
         {:else}
           <dd class="t-body-2">No promotion succeeded in the last 20 operations per environment.</dd>
         {/if}

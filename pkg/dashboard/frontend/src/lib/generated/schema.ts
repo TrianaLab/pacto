@@ -3000,6 +3000,11 @@ export interface components {
              * @description Succeeded promotions in the windows: the last 20 operations per Stage
              */
             of: number;
+            /**
+             * Format: int64
+             * @description Operations in the windows with no type: Pacto cannot tell whether they were promotions
+             */
+            untyped: number;
         };
         ProposeOutputBody: {
             operation: components["schemas"]["Delivery.OperationObject"];
