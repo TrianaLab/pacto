@@ -86,6 +86,8 @@ func TestPlanCallerCoverageIsPerProvider(t *testing.T) {
 		"no reconcile time":   {reconciled(paymentsPacto(complete()), ""), "(coverage: unavailable, stale-status)"},
 		"host network": {paymentsPacto(&CallerCoverageView{State: "partial", Reason: "shared-netns", RefreshSeconds: 300}),
 			"a pod on the host network can call it and the node agent cannot tell which one (coverage: partial, shared-netns)"},
+		"an evaluation that did not run": {paymentsPacto(&CallerCoverageView{State: "unavailable", Reason: "not-evaluated", RefreshSeconds: 300}),
+			"cannot be ruled out: the operator could not evaluate this Pacto's runtime evidence (coverage: unavailable, not-evaluated)"},
 		"a reason this build does not know": {paymentsPacto(&CallerCoverageView{State: "partial", Reason: "new-thing", RefreshSeconds: 300}),
 			"cannot be ruled out: the operator reported new-thing (coverage: partial, new-thing)"},
 	}

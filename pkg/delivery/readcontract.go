@@ -205,7 +205,8 @@ func callerLimitations(p PactoView, reconciled *time.Time, now time.Time) []flee
 }
 
 // coverageReasons says in plain words what each caller-coverage reason the
-// operator writes (internal/observer observeCallers) means for the person
+// operator writes (internal/observer observeCallers, and not-evaluated from
+// the controller's resetDerivedStatus) means for the person
 // asked to approve. The slug stays in the message as the citation.
 var coverageReasons = map[string]string{
 	"shared-netns":          "a pod on the host network can call it and the node agent cannot tell which one",
@@ -220,6 +221,7 @@ var coverageReasons = map[string]string{
 	"service-unreadable":    "the operator could not read the Service",
 	"pods-unreadable":       "the operator could not read the pods",
 	"pactos-unreadable":     "the operator could not read the Pactos",
+	"not-evaluated":         "the operator could not evaluate this Pacto's runtime evidence",
 	"stale-status":          "the operator has not updated this status recently",
 }
 
