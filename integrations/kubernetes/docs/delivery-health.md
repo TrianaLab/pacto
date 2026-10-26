@@ -101,6 +101,22 @@ even that holds more, the check is Unknown, so narrow it with `where`. The
 citation holds the exact queries with absolute time bounds, so posting them to
 Mira again reads the same spans.
 
+### What a verdict can prove
+
+Mira and `http` verdicts are unsigned and, by default, self-reported. Mira
+counts the spans the service sends about itself, keyed on the `service.name`
+and `service.version` the sender sets. The version under check, or any pod
+that can reach the OTLP endpoint, can leave out its errors or send clean
+spans to force a Pass, or send failed ones to force a Fail and a rollback.
+An `http` provider's answer is believed as it arrives over https. To make a
+verdict worth more:
+
+- accept telemetry only from authenticated senders at the collector;
+- add a `where` on attributes the collector sets, not the sender, such as the
+  `k8s.pod.uid` or `k8s.namespace.name` the `k8sattributes` processor adds;
+- count the spans of the service's callers (`spanKind: client` on the caller's
+  side) instead of the service's own.
+
 ## HTTP providers
 
 An `http` provider is the plug-in format for any other tool. The promoter

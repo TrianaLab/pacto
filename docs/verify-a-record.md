@@ -258,3 +258,10 @@ from the registry. See
 - A runner's signature proves which runner key signed the answer, not that
   the runner ran every case honestly, and not which model really answered.
   A runner that reports `observedModel` vouches for it with its own key.
+- A `mira` or `http` verdict is unsigned, and the record signs only what the
+  promoter read. Mira counts telemetry the service reports about itself (its
+  own server spans, keyed on the `service.name` and `service.version` it
+  sends), so code under test, or any pod that can reach the OTLP endpoint,
+  can hide its errors or flood clean spans to force a Pass, or a Fail and
+  with it a rollback. See
+  [what a health verdict can prove](integrations/kubernetes/delivery-health.md#what-a-verdict-can-prove).
