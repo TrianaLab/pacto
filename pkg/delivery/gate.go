@@ -289,7 +289,9 @@ func where(u string) string {
 
 // Webhook is the plug-in format: any monitoring tool can be a gate behind a
 // URL that takes {"input": GateInput, "params": {...}} and answers
-// {"result": "Pass|Fail|Unknown", "message": "...", "citation": {...}}.
+// {"subject": "sha256:...", "result": "Pass|Fail|Unknown", "message": "...",
+// "citation": {...}}. subject is the version it judged, one of the input's
+// subjects: an answer about another version, or that names none, is Unknown.
 type Webhook struct {
 	URL    string
 	Client *http.Client
@@ -297,13 +299,24 @@ type Webhook struct {
 
 // Check implements Gate.
 func (w Webhook) Check(ctx context.Context, in GateInput, params map[string]string) Verdict {
-	var a Verdict
+	var a struct {
+		Subject  string            `json:"subject"`
+		Result   Result            `json:"result"`
+		Message  string            `json:"message"`
+		Citation map[string]string `json:"citation"`
+	}
 	err := postJSON(ctx, w.Client, w.URL, map[string]any{"input": in, "params": params}, &a)
 	switch {
 	case err != nil:
 		return Verdict{Result: Unknown, Message: err.Error()}
 	case a.Result != Pass && a.Result != Fail && a.Result != Unknown:
 		return Verdict{Result: Unknown, Message: fmt.Sprintf("%s answered result %q", where(w.URL), a.Result)}
+	case !slices.Contains(in.Subjects, a.Subject):
+		return Verdict{Result: Unknown, Message: fmt.Sprintf("%s judged %q, not the version under check", where(w.URL), a.Subject)}
 	}
+	if a.Citation == nil {
+		a.Citation = map[string]string{}
+	}
+	a.Citation["subject"] = a.Subject
 	return Verdict{Result: a.Result, Message: a.Message, Citation: a.Citation}
 }

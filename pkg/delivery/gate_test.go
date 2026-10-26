@@ -211,7 +211,7 @@ func TestRerun(t *testing.T) {
 
 func TestWebhook(t *testing.T) {
 	var body []byte
-	answer, status := `{"result":"Fail","message":"p99 too high","citation":{"query":"q"},"extra":1}`, 200
+	answer, status := `{"subject":"`+dA+`","result":"Fail","message":"p99 too high","citation":{"query":"q"},"extra":1}`, 200
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ = io.ReadAll(r.Body)
 		w.WriteHeader(status)
@@ -225,13 +225,18 @@ func TestWebhook(t *testing.T) {
 		Params map[string]string `json:"params"`
 	}
 	_ = json.Unmarshal(body, &sent)
-	if v.Result != Fail || v.Citation["query"] != "q" || sent.Input.OperationUID != "u1" || sent.Params["slo"] != "99" {
+	if v.Result != Fail || v.Citation["query"] != "q" || v.Citation["subject"] != dA || sent.Input.OperationUID != "u1" || sent.Params["slo"] != "99" {
 		t.Fatalf("%+v sent=%s", v, body)
+	}
+	answer = `{"subject":"` + dA + `","result":"Pass"}`
+	if v := g.Check(context.Background(), gateIn(), nil); v.Result != Pass || v.Citation["subject"] != dA {
+		t.Fatalf("a pass with no citation of its own: %+v", v)
 	}
 	for name, a := range map[string]struct {
 		body   string
 		status int
-	}{"status": {`{}`, 503}, "garbage": {`nope`, 200}, "result": {`{"result":"Maybe"}`, 200}} {
+	}{"status": {`{}`, 503}, "garbage": {`nope`, 200}, "result": {`{"subject":"` + dA + `","result":"Maybe"}`, 200},
+		"no subject": {`{"result":"Pass","citation":{"q":"1"}}`, 200}, "other subject": {`{"subject":"` + dB + `","result":"Fail"}`, 200}} {
 		answer, status = a.body, a.status
 		if v := g.Check(context.Background(), gateIn(), nil); v.Result != Unknown {
 			t.Errorf("%s: %+v", name, v)

@@ -99,7 +99,9 @@ Mira again reads the same spans.
 An `http` provider is the plug-in format for any other tool. The promoter
 posts `{"input": ..., "params": ...}`, where the input names the operation,
 the Stage, the service, the digests under check and the time window. The tool
-answers `{"result": "Pass|Fail|Unknown", "message": "...", "citation": {...}}`.
+answers `{"subject": "sha256:...", "result": "Pass|Fail|Unknown", "message": "...", "citation": {...}}`,
+where `subject` is the digest it judged. An answer that names no subject, or
+a version other than the one under check, is Unknown.
 
 An `eval` provider is a suite runner: it runs one of the
 [checks](../../contract-reference/checks.md) the version ships, such as an AI
