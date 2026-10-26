@@ -20,10 +20,10 @@ See LICENSE file in the project root for full license text.
 package delivery
 
 import (
-	"regexp"
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
