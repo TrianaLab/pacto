@@ -833,9 +833,14 @@ export interface components {
         AutonomyOutputBody: {
             asOf: string;
             blockers: components["schemas"]["AutonomyBlocker"][] | null;
+            /** @description Which blockers this page holds, grouped by kind */
+            blockersPage: components["schemas"]["Page"];
             /** @enum {string} */
             completeness: "complete" | "partial";
             contracted?: components["schemas"]["ContractShare"];
+            /** @description Which Stages this page holds */
+            page: components["schemas"]["Page"];
+            /** @description Counted over every Stage, not only this page */
             promotionsWithoutPerson: components["schemas"]["PromotionCount"];
             stages: components["schemas"]["AutonomyStage"][] | null;
             /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
@@ -1512,7 +1517,12 @@ export interface components {
             asOf: string;
             /** @enum {string} */
             completeness: "complete" | "partial";
+            /** @description Every environment of the services that match, over every page */
+            environmentNames: string[] | null;
+            /** @description The Stages of the services on this page */
             environments: components["schemas"]["EnvironmentRow"][] | null;
+            /** @description Which services this page holds; offset and limit count services */
+            page: components["schemas"]["Page"];
             /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
             unreadable?: string[] | null;
         };
@@ -2334,6 +2344,8 @@ export interface components {
             /** @enum {string} */
             completeness: "complete" | "partial";
             histories: components["schemas"]["StageHistory"][] | null;
+            /** @description Which Stages this page holds. With a stage, offset, limit and q page its changes instead (see entriesPage) */
+            page: components["schemas"]["Page"];
             /** @description The names of the people named here who signed in to this dashboard, by username */
             people?: {
                 [key: string]: string;
@@ -2458,10 +2470,13 @@ export interface components {
             completeness: "complete" | "partial";
             /** @description Errored operations of the caller's services whose Stage is still frozen */
             errored: components["schemas"]["InboxItem"][] | null;
+            erroredPage: components["schemas"]["Page"];
             /** @description Frozen Stages of the caller's services */
             frozen: components["schemas"]["EnvironmentRow"][] | null;
+            frozenPage: components["schemas"]["Page"];
             /** @description Held operations whose question names one of the caller's teams; for break-glass also those that name no team */
             held: components["schemas"]["InboxItem"][] | null;
+            heldPage: components["schemas"]["Page"];
             /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
             unreadable?: string[] | null;
         };
@@ -2582,10 +2597,28 @@ export interface components {
             };
             /** @description The Stage's rung now: observe, advise, auto-nonbreaking or autonomous */
             rung?: string;
+            /** @description The rollback that undid this change, read from its Stage's history */
+            undoneBy?: components["schemas"]["Delivery.HistoryEntry"];
             /** @description The version each digest named here carries, when its artifact could be read */
             versions?: {
                 [key: string]: string;
             };
+        };
+        Page: {
+            /** Format: int64 */
+            limit: number;
+            /**
+             * Format: int64
+             * @description Where the next page starts; absent on the last page
+             */
+            nextOffset?: number;
+            /** Format: int64 */
+            offset: number;
+            /**
+             * Format: int64
+             * @description How many match, over every page
+             */
+            total: number;
         };
         PolicyInfo: {
             content?: string;
@@ -3066,6 +3099,8 @@ export interface components {
             asOf: string;
             /** @enum {string} */
             completeness: "complete" | "partial";
+            /** @description Which services this page holds; offset and limit count services */
+            page: components["schemas"]["Page"];
             services: components["schemas"]["PublishedService"][] | null;
             /** @description Namespaces the caller may not list, or * when the namespaces could not be known */
             unreadable?: string[] | null;
@@ -3189,6 +3224,11 @@ export interface components {
             /** @description This cluster keeps a record of refused publishes; false means an empty list proves nothing */
             recorded: boolean;
             refusals: components["schemas"]["PublishRefusal"][] | null;
+            /**
+             * Format: int64
+             * @description How many refusals were read; refusals holds the newest 20
+             */
+            total: number;
             /** @description What could not be read, and why */
             unreadable?: string[] | null;
         };
@@ -3333,6 +3373,8 @@ export interface components {
             asOf: string;
             completeness: string;
             entries: components["schemas"]["Delivery.HistoryEntry"][] | null;
+            /** @description Which of the Stage's changes entries holds, newest first */
+            entriesPage: components["schemas"]["Page"];
             head?: string;
             namespace: string;
             note: string;
@@ -3464,7 +3506,16 @@ export interface operations {
     };
     "delivery-autonomy": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Where the page starts. Past the end answers the last page */
+                offset?: number;
+                /** @description How many per page; 0 means the list's default */
+                limit?: number;
+                /** @description Keep only what contains this text, ignoring case */
+                q?: string;
+                /** @description Where the page of blockers starts; limit and q apply to it too */
+                blockers?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3509,6 +3560,15 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -3610,7 +3670,14 @@ export interface operations {
     };
     "delivery-environments": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Where the page starts. Past the end answers the last page */
+                offset?: number;
+                /** @description How many per page; 0 means the list's default */
+                limit?: number;
+                /** @description Keep only what contains this text, ignoring case */
+                q?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3662,6 +3729,15 @@ export interface operations {
                     "application/problem+json": components["schemas"]["V2.ErrorModel"];
                 };
             };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
             /** @description Internal Server Error */
             500: {
                 headers: {
@@ -3680,6 +3756,12 @@ export interface operations {
                 namespace?: string;
                 /** @description One Stage's name */
                 stage?: string;
+                /** @description Where the page starts. Past the end answers the last page */
+                offset?: number;
+                /** @description How many per page; 0 means the list's default */
+                limit?: number;
+                /** @description Keep only what contains this text, ignoring case */
+                q?: string;
             };
             header?: never;
             path?: never;
@@ -3754,7 +3836,18 @@ export interface operations {
     };
     "delivery-inbox": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Where the page of held changes starts */
+                held?: number;
+                /** @description Where the page of frozen Stages starts */
+                frozen?: number;
+                /** @description Where the page of Errored changes starts */
+                errored?: number;
+                /** @description How many of each section per page; 0 means 25 */
+                limit?: number;
+                /** @description Keep only what names this text (namespace, Stage, service or change), ignoring case */
+                q?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -3799,6 +3892,15 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -4210,7 +4312,14 @@ export interface operations {
     };
     "delivery-published": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Where the page starts. Past the end answers the last page */
+                offset?: number;
+                /** @description How many per page; 0 means the list's default */
+                limit?: number;
+                /** @description Keep only what contains this text, ignoring case */
+                q?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4255,6 +4364,15 @@ export interface operations {
             };
             /** @description Conflict */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };

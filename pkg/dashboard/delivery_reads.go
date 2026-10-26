@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -30,20 +31,20 @@ func forbidden(err error) bool {
 	return errors.As(err, &de) && de.Status == http.StatusForbidden
 }
 
-// lists reads every Stage and Operation the caller can see: in the
-// dashboard's namespace when it has one; else cluster-wide when allowed, else,
-// partially, per namespace of the fleet snapshot. A namespace that refuses is
-// dropped and named.
+// lists reads every Stage the caller can see, and with ops every Operation:
+// in the dashboard's namespace when it has one; else cluster-wide when
+// allowed, else, partially, per namespace of the fleet snapshot. A namespace
+// that refuses is dropped and named.
 // ponytail: a list per request with the caller's token, polled by the UI;
 // add a per-session informer if list load shows on the apiserver.
-func (s *Server) lists(ctx context.Context, api DeliveryAPI) ([]delivery.StageObject, []delivery.OperationObject, Listing, error) {
+func (s *Server) lists(ctx context.Context, api DeliveryAPI, withOps bool) ([]delivery.StageObject, []delivery.OperationObject, Listing, error) {
 	l := Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete"}
 	namespaces := []string{s.opts.DeliveryNamespace}
 	if namespaces[0] == "" {
 		stages, err := api.Stages(ctx, "")
 		var ops []delivery.OperationObject
 		if err == nil {
-			if ops, err = api.Operations(ctx, ""); err == nil {
+			if ops, err = operations(ctx, api, "", withOps); err == nil {
 				return stages, ops, l, nil
 			}
 		}
@@ -55,18 +56,27 @@ func (s *Server) lists(ctx context.Context, api DeliveryAPI) ([]delivery.StageOb
 		// complete: "*" says namespaces outside the guess were not read.
 		l.Completeness, l.Unreadable, namespaces = "partial", []string{"*"}, s.namespaces(ctx)
 	}
-	return listEach(ctx, api, namespaces, l)
+	return listEach(ctx, api, namespaces, l, withOps)
+}
+
+// operations lists a namespace's Operations, or nothing when they are not
+// wanted: a list that never reads them never pays for them.
+func operations(ctx context.Context, api DeliveryAPI, ns string, want bool) ([]delivery.OperationObject, error) {
+	if !want {
+		return nil, nil
+	}
+	return api.Operations(ctx, ns)
 }
 
 // listEach lists each namespace, dropping (and naming) one that refuses.
-func listEach(ctx context.Context, api DeliveryAPI, namespaces []string, l Listing) ([]delivery.StageObject, []delivery.OperationObject, Listing, error) {
+func listEach(ctx context.Context, api DeliveryAPI, namespaces []string, l Listing, withOps bool) ([]delivery.StageObject, []delivery.OperationObject, Listing, error) {
 	var stages []delivery.StageObject
 	var ops []delivery.OperationObject
 	for _, ns := range namespaces {
 		st, err := api.Stages(ctx, ns)
 		var os []delivery.OperationObject
 		if err == nil {
-			os, err = api.Operations(ctx, ns)
+			os, err = operations(ctx, api, ns, withOps)
 		}
 		switch {
 		case forbidden(err):
@@ -158,16 +168,30 @@ func inboxItem(o delivery.OperationObject) InboxItem {
 	return it
 }
 
+// inboxPage is how many items of each inbox section one page holds.
+const inboxPage = 25
+
+type inboxInput struct {
+	Held    int    `query:"held" minimum:"0" doc:"Where the page of held changes starts"`
+	Frozen  int    `query:"frozen" minimum:"0" doc:"Where the page of frozen Stages starts"`
+	Errored int    `query:"errored" minimum:"0" doc:"Where the page of Errored changes starts"`
+	Limit   int    `query:"limit" minimum:"0" maximum:"200" doc:"How many of each section per page; 0 means 25"`
+	Q       string `query:"q" doc:"Keep only what names this text (namespace, Stage, service or change), ignoring case"`
+}
+
 type inboxOutput struct {
 	Body struct {
 		Listing
-		Held    []InboxItem      `json:"held" doc:"Held operations whose question names one of the caller's teams; for break-glass also those that name no team"`
-		Frozen  []EnvironmentRow `json:"frozen" doc:"Frozen Stages of the caller's services"`
-		Errored []InboxItem      `json:"errored" doc:"Errored operations of the caller's services whose Stage is still frozen"`
+		Held        []InboxItem      `json:"held" doc:"Held operations whose question names one of the caller's teams; for break-glass also those that name no team"`
+		HeldPage    Page             `json:"heldPage"`
+		Frozen      []EnvironmentRow `json:"frozen" doc:"Frozen Stages of the caller's services"`
+		FrozenPage  Page             `json:"frozenPage"`
+		Errored     []InboxItem      `json:"errored" doc:"Errored operations of the caller's services whose Stage is still frozen"`
+		ErroredPage Page             `json:"erroredPage"`
 	}
 }
 
-func (s *Server) deliveryInbox(ctx context.Context, _ *struct{}) (*inboxOutput, error) {
+func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutput, error) {
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
 		return nil, err
@@ -176,7 +200,7 @@ func (s *Server) deliveryInbox(ctx context.Context, _ *struct{}) (*inboxOutput, 
 	if err != nil {
 		return nil, err
 	}
-	stages, ops, l, err := s.lists(ctx, api)
+	stages, ops, l, err := s.lists(ctx, api, true)
 	if err != nil {
 		return nil, err
 	}
@@ -191,24 +215,45 @@ func (s *Server) deliveryInbox(ctx context.Context, _ *struct{}) (*inboxOutput, 
 	// operations are never deleted, so an Errored one waits on someone only
 	// while the pause it caused lasts; after that it is history.
 	frozen := map[string]bool{}
-	out := &inboxOutput{}
-	out.Body.Listing, out.Body.Held, out.Body.Frozen, out.Body.Errored = l, []InboxItem{}, []EnvironmentRow{}, []InboxItem{}
+	var frozenStages []delivery.StageObject
 	for _, st := range stages {
 		if st.Status.Frozen && mine(st.Spec.Service.Name) {
 			frozen[st.Metadata.Namespace+"/"+st.Metadata.Name] = true
-			out.Body.Frozen = append(out.Body.Frozen, s.environmentRow(ctx, api, st, nil, caller))
+			if matches(in.Q, st.Metadata.Namespace, st.Metadata.Name, st.Spec.Service.Name) {
+				frozenStages = append(frozenStages, st)
+			}
 		}
 	}
-	byStage := stagesByName(stages)
+	held, errored := []InboxItem{}, []InboxItem{}
 	for _, o := range ops {
 		it := inboxItem(o)
+		if !matches(in.Q, it.Namespace, it.Stage, it.Name, strings.Join(it.Consumers, " ")) {
+			continue
+		}
 		switch {
 		case it.Phase == delivery.PhaseHeld && waitsOn(&o, it, caller):
-			out.Body.Held = append(out.Body.Held, withVersions(ctx, api, byStage[it.Namespace+"/"+it.Stage], it))
+			held = append(held, it)
 		case it.Outcome == delivery.Errored && frozen[it.Namespace+"/"+it.Stage]:
-			out.Body.Errored = append(out.Body.Errored, it)
+			errored = append(errored, it)
 		}
 	}
+	out := &inboxOutput{}
+	b := &out.Body
+	b.Listing = l
+	// Only the page is described and drawn: an artifact read per held item
+	// and per frozen Stage is the expensive part.
+	b.Held, b.HeldPage = pageOf(held, in.Held, in.Limit, inboxPage)
+	byStage := stagesByName(stages)
+	for i, it := range b.Held {
+		b.Held[i] = withVersions(ctx, api, byStage[it.Namespace+"/"+it.Stage], it)
+	}
+	var page []delivery.StageObject
+	page, b.FrozenPage = pageOf(frozenStages, in.Frozen, in.Limit, inboxPage)
+	b.Frozen = []EnvironmentRow{}
+	for _, st := range page {
+		b.Frozen = append(b.Frozen, s.environmentRow(ctx, api, st, nil, caller))
+	}
+	b.Errored, b.ErroredPage = pageOf(errored, in.Errored, in.Limit, inboxPage)
 	return out, nil
 }
 
@@ -262,7 +307,9 @@ type EnvironmentRow struct {
 	Shadow []ShadowDecision `json:"shadow,omitempty" doc:"On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed"`
 }
 
-func (s *Server) environmentRow(ctx context.Context, api DeliveryAPI, st delivery.StageObject, ops []delivery.OperationObject, caller delivery.Caller) EnvironmentRow {
+// environmentRow is one Stage as the board shows it; held counts the held
+// operations by namespace/Stage.
+func (s *Server) environmentRow(ctx context.Context, api DeliveryAPI, st delivery.StageObject, held map[string]int, caller delivery.Caller) EnvironmentRow {
 	ss := st.Status
 	row := EnvironmentRow{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Service: st.Spec.Service.Name, Environment: st.Spec.Environment,
 		Pointer: ss.Pointer, Verified: slices.Contains(ss.Verified, ss.Pointer), Failed: slices.Contains(ss.FailedDigests, ss.Pointer),
@@ -280,11 +327,7 @@ func (s *Server) environmentRow(ctx context.Context, api DeliveryAPI, st deliver
 	}
 	v := versions(ctx, api, &st, nil, ss.Pointer, ss.Candidate)
 	row.Version, row.CandidateVersion = v[ss.Pointer], v[ss.Candidate]
-	for _, o := range ops {
-		if o.Metadata.Namespace == row.Namespace && o.Spec.Stage == row.Stage && o.Status.Phase == delivery.PhaseHeld {
-			row.Held++
-		}
-	}
+	row.Held = held[row.Namespace+"/"+row.Stage]
 	if delivery.MayRaise(delivery.TypePromote, caller.Class, false) && ss.Candidate != "" && ss.Candidate != ss.Pointer {
 		row.Actions = append(row.Actions, "promote")
 	}
@@ -294,14 +337,26 @@ func (s *Server) environmentRow(ctx context.Context, api DeliveryAPI, st deliver
 	return row
 }
 
+// environmentsPage is how many services one page of the board holds.
+const environmentsPage = 25
+
+type environmentsInput struct {
+	PageQuery
+}
+
 type environmentsOutput struct {
 	Body struct {
 		Listing
-		Environments []EnvironmentRow `json:"environments"`
+		Environments []EnvironmentRow `json:"environments" doc:"The Stages of the services on this page"`
+		// Page counts services, not Stages: a page is whole rows of the board.
+		Page Page `json:"page" doc:"Which services this page holds; offset and limit count services"`
+		// EnvironmentNames are the board's columns on every page, so paging
+		// never moves a column.
+		EnvironmentNames []string `json:"environmentNames" doc:"Every environment of the services that match, over every page"`
 	}
 }
 
-func (s *Server) deliveryEnvironments(ctx context.Context, _ *struct{}) (*environmentsOutput, error) {
+func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput) (*environmentsOutput, error) {
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
 		return nil, err
@@ -310,14 +365,31 @@ func (s *Server) deliveryEnvironments(ctx context.Context, _ *struct{}) (*enviro
 	if err != nil {
 		return nil, err
 	}
-	stages, ops, l, err := s.lists(ctx, api)
+	stages, ops, l, err := s.lists(ctx, api, true)
 	if err != nil {
 		return nil, err
 	}
-	out := &environmentsOutput{}
-	out.Body.Listing, out.Body.Environments = l, []EnvironmentRow{}
+	held := map[string]int{}
+	for _, o := range ops {
+		if o.Status.Phase == delivery.PhaseHeld {
+			held[o.Metadata.Namespace+"/"+o.Spec.Stage]++
+		}
+	}
+	stages = filter(stages, func(st delivery.StageObject) bool { return matches(in.Q, st.Spec.Service.Name) })
+	services, envs := []string{}, []string{}
 	for _, st := range stages {
-		out.Body.Environments = append(out.Body.Environments, s.environmentRow(ctx, api, st, ops, caller))
+		services, envs = append(services, st.Spec.Service.Name), append(envs, st.Spec.Environment)
+	}
+	slices.Sort(services)
+	slices.Sort(envs)
+	out := &environmentsOutput{}
+	out.Body.Listing, out.Body.Environments, out.Body.EnvironmentNames = l, []EnvironmentRow{}, slices.Compact(envs)
+	var page []string
+	page, out.Body.Page = pageOf(slices.Compact(services), in.Offset, in.Limit, environmentsPage)
+	for _, st := range stages {
+		if slices.Contains(page, st.Spec.Service.Name) {
+			out.Body.Environments = append(out.Body.Environments, s.environmentRow(ctx, api, st, held, caller))
+		}
 	}
 	slices.SortFunc(out.Body.Environments, func(a, b EnvironmentRow) int {
 		return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Environment, b.Environment), cmp.Compare(a.Namespace, b.Namespace))
@@ -352,10 +424,18 @@ type PublishedService struct {
 	Versions []PublishedVersion `json:"versions"`
 }
 
+// publishedPage is how many services one page of published versions holds.
+const publishedPage = 10
+
+type publishedInput struct {
+	PageQuery
+}
+
 type publishedOutput struct {
 	Body struct {
 		Listing
 		Services []PublishedService `json:"services"`
+		Page     Page               `json:"page" doc:"Which services this page holds; offset and limit count services"`
 	}
 }
 
@@ -363,19 +443,26 @@ type publishedOutput struct {
 // ponytail: digests the caller's Stages know (published, offered, verified,
 // failed, running), not every bundle tag in the registry; list registry tags
 // when someone needs versions no Stage has seen.
-func (s *Server) deliveryPublished(ctx context.Context, _ *struct{}) (*publishedOutput, error) {
+func (s *Server) deliveryPublished(ctx context.Context, in *publishedInput) (*publishedOutput, error) {
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	stages, _, l, err := s.lists(ctx, api)
+	stages, _, l, err := s.lists(ctx, api, false)
 	if err != nil {
 		return nil, err
 	}
+	// First where each digest stands, which costs nothing; then only the
+	// page's artifacts are read.
 	byService := map[string]map[string]*PublishedVersion{}
-	for _, st := range stages {
+	readFrom := map[*PublishedVersion]*delivery.StageObject{}
+	for i := range stages {
+		st := &stages[i]
 		ss := st.Status
 		svc := st.Spec.Service.Name
+		if !matches(in.Q, svc) {
+			continue
+		}
 		if byService[svc] == nil {
 			byService[svc] = map[string]*PublishedVersion{}
 		}
@@ -385,10 +472,8 @@ func (s *Server) deliveryPublished(ctx context.Context, _ *struct{}) (*published
 			}
 			v := byService[svc][d]
 			if v == nil {
-				r := api.Describe(ctx, &st, d)
-				v = &PublishedVersion{Digest: d, Contract: r.ContractRef, Stages: []PublishedOnStages{}}
-				v.Version = version(ctx, r)
-				byService[svc][d] = v
+				v = &PublishedVersion{Digest: d, Stages: []PublishedOnStages{}}
+				byService[svc][d], readFrom[v] = v, st
 			}
 			v.Signed = v.Signed || slices.Contains(ss.Published, d)
 			on := PublishedOnStages{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Environment: st.Spec.Environment,
@@ -398,11 +483,15 @@ func (s *Server) deliveryPublished(ctx context.Context, _ *struct{}) (*published
 			}
 		}
 	}
+	names := slices.Sorted(maps.Keys(byService))
 	out := &publishedOutput{}
 	out.Body.Listing, out.Body.Services = l, []PublishedService{}
-	for svc, versions := range byService {
+	names, out.Body.Page = pageOf(names, in.Offset, in.Limit, publishedPage)
+	for _, svc := range names {
 		ps := PublishedService{Service: svc, Versions: []PublishedVersion{}}
-		for _, v := range versions {
+		for _, v := range byService[svc] {
+			r := api.Describe(ctx, readFrom[v], v.Digest)
+			v.Contract, v.Version = r.ContractRef, version(ctx, r)
 			ps.Versions = append(ps.Versions, *v)
 		}
 		slices.SortFunc(ps.Versions, func(a, b PublishedVersion) int {
@@ -410,26 +499,39 @@ func (s *Server) deliveryPublished(ctx context.Context, _ *struct{}) (*published
 		})
 		out.Body.Services = append(out.Body.Services, ps)
 	}
-	slices.SortFunc(out.Body.Services, func(a, b PublishedService) int { return cmp.Compare(a.Service, b.Service) })
 	return out, nil
 }
 
 type historyInput struct {
 	Namespace string `query:"namespace" doc:"Namespace of one Stage (with stage); empty lists every Stage the caller can see"`
 	Stage     string `query:"stage" doc:"One Stage's name"`
+	// With a Stage, the page is of its changes; without, of Stages, each
+	// with its newest changes.
+	PageQuery
 }
 
+// Pages of a history: Stages per page across every Stage, the newest changes
+// each of them shows there, and changes per page of one Stage.
+const (
+	historyStagesPage  = 10
+	historyRecent      = 10
+	historyEntriesPage = 50
+)
+
 // StageHistory is one Stage's history and the namespace the Stage lives in,
-// which the history itself does not carry.
+// which the history itself does not carry. Its entries are newest first, and
+// only a page of them.
 type StageHistory struct {
 	Namespace string `json:"namespace"`
 	delivery.History
+	EntriesPage Page `json:"entriesPage" doc:"Which of the Stage's changes entries holds, newest first"`
 }
 
 type historyOutput struct {
 	Body struct {
 		Listing
 		Histories []StageHistory `json:"histories"`
+		Page      Page           `json:"page" doc:"Which Stages this page holds. With a stage, offset, limit and q page its changes instead (see entriesPage)"`
 		Labels
 	}
 }
@@ -451,7 +553,8 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	// describe: the Stages were read, so their artifacts can be asked for
 	// versions. A Stage that cannot be read still has a history to ask for.
 	describe := true
-	if in.Namespace != "" && in.Stage != "" {
+	one := in.Namespace != "" && in.Stage != ""
+	if one {
 		if err := s.inScope(in.Namespace); err != nil {
 			return nil, err
 		}
@@ -459,13 +562,22 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 		if err != nil {
 			st, describe = &delivery.StageObject{Metadata: delivery.ObjectMeta{Namespace: in.Namespace, Name: in.Stage}}, false
 		}
-		targets = []delivery.StageObject{*st}
+		targets, out.Body.Page = []delivery.StageObject{*st}, Page{Total: 1, Limit: 1}
 	} else {
-		stages, _, l, err := s.lists(ctx, api)
+		stages, _, l, err := s.lists(ctx, api, false)
 		if err != nil {
 			return nil, err
 		}
-		out.Body.Listing, targets = l, stages
+		stages = filter(stages, func(st delivery.StageObject) bool {
+			return matches(in.Q, st.Metadata.Namespace+"/"+st.Metadata.Name, st.Spec.Service.Name, st.Spec.Environment)
+		})
+		slices.SortFunc(stages, func(a, b delivery.StageObject) int {
+			return cmp.Or(cmp.Compare(a.Metadata.Namespace, b.Metadata.Namespace), cmp.Compare(a.Metadata.Name, b.Metadata.Name))
+		})
+		out.Body.Listing = l
+		// Only the page's histories are read: each one reads and verifies a
+		// whole record stream.
+		targets, out.Body.Page = pageOf(stages, in.Offset, in.Limit, historyStagesPage)
 	}
 	out.Body.Histories = []StageHistory{}
 	out.Body.Versions = map[string]string{}
@@ -475,14 +587,25 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 		if err != nil {
 			return nil, err
 		}
+		sh := StageHistory{Namespace: t.Metadata.Namespace, History: *h}
+		entries := slices.Clone(h.Entries)
+		slices.Reverse(entries) // newest first: what a reader looks for is the latest change
+		if one {
+			entries = filter(entries, func(e delivery.HistoryEntry) bool {
+				return matches(in.Q, e.Operation, e.Type, e.Actor, string(e.Outcome), string(e.Phase), string(e.Verification), e.Reason)
+			})
+			sh.Entries, sh.EntriesPage = pageOf(entries, in.Offset, in.Limit, historyEntriesPage)
+		} else {
+			sh.Entries, sh.EntriesPage = pageOf(entries, 0, historyRecent, historyRecent)
+		}
 		digests := []string{h.Stage.Pointer}
-		for _, e := range h.Entries {
+		for _, e := range sh.Entries {
 			digests, actors = append(digests, e.From, e.To), append(actors, e.Actor)
 		}
 		if describe {
 			versions(ctx, api, &t, out.Body.Versions, digests...)
 		}
-		out.Body.Histories = append(out.Body.Histories, StageHistory{Namespace: t.Metadata.Namespace, History: *h})
+		out.Body.Histories = append(out.Body.Histories, sh)
 	}
 	out.Body.People = s.named(actors...)
 	return out, nil

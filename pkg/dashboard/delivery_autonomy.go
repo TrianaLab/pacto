@@ -129,23 +129,33 @@ type PromotionCount struct {
 	Untyped int `json:"untyped" doc:"Operations in the windows with no type: Pacto cannot tell whether they were promotions"`
 }
 
+// autonomyPage is how many Stages, and how many blockers, one page holds.
+const autonomyPage = 25
+
+type autonomyInput struct {
+	PageQuery
+	Blockers int `query:"blockers" minimum:"0" doc:"Where the page of blockers starts; limit and q apply to it too"`
+}
+
 type autonomyOutput struct {
 	Body struct {
 		Listing
 		// Contracted is absent when the dashboard has no fleet snapshot.
 		Contracted              *ContractShare    `json:"contracted,omitempty"`
-		PromotionsWithoutPerson PromotionCount    `json:"promotionsWithoutPerson"`
+		PromotionsWithoutPerson PromotionCount    `json:"promotionsWithoutPerson" doc:"Counted over every Stage, not only this page"`
 		Stages                  []AutonomyStage   `json:"stages"`
+		Page                    Page              `json:"page" doc:"Which Stages this page holds"`
 		Blockers                []AutonomyBlocker `json:"blockers"`
+		BlockersPage            Page              `json:"blockersPage" doc:"Which blockers this page holds, grouped by kind"`
 	}
 }
 
-func (s *Server) deliveryAutonomy(ctx context.Context, _ *struct{}) (*autonomyOutput, error) {
+func (s *Server) deliveryAutonomy(ctx context.Context, in *autonomyInput) (*autonomyOutput, error) {
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	stages, _, l, err := s.lists(ctx, api)
+	stages, _, l, err := s.lists(ctx, api, false)
 	if err != nil {
 		return nil, err
 	}
@@ -156,8 +166,16 @@ func (s *Server) deliveryAutonomy(ctx context.Context, _ *struct{}) (*autonomyOu
 		callers = uncontractedOf(snap)
 		out.Body.Contracted = &ContractShare{Services: len(snap.Services), UncontractedCallers: distinctCallers(callers)}
 	}
-	out.Body.Listing = l
-	out.Body.Stages, out.Body.Blockers, out.Body.PromotionsWithoutPerson = autonomy(stages, callers)
+	b := &out.Body
+	b.Listing = l
+	rows, blockers, count := autonomy(stages, callers)
+	b.PromotionsWithoutPerson = count
+	rows = filter(rows, func(r AutonomyStage) bool { return matches(in.Q, r.Namespace+"/"+r.Stage, r.Service, r.Environment) })
+	blockers = filter(blockers, func(x AutonomyBlocker) bool {
+		return matches(in.Q, append([]string{x.Kind, x.Subject}, x.Stages...)...)
+	})
+	b.Stages, b.Page = pageOf(rows, in.Offset, in.Limit, autonomyPage)
+	b.Blockers, b.BlockersPage = pageOf(blockers, in.Blockers, in.Limit, autonomyPage)
 	return out, nil
 }
 

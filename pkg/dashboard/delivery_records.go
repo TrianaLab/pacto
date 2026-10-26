@@ -114,6 +114,7 @@ type refusalsOutput struct {
 		// Recorded: this host keeps a record of refused publishes.
 		Recorded bool `json:"recorded" doc:"This cluster keeps a record of refused publishes; false means an empty list proves nothing"`
 		PublishRefusals
+		Total int `json:"total" doc:"How many refusals were read; refusals holds the newest 20"`
 	}
 }
 
@@ -138,6 +139,7 @@ func (s *Server) deliveryRefusals(ctx context.Context, _ *struct{}) (*refusalsOu
 	}
 	out.Body.Recorded, out.Body.PublishRefusals = true, *r
 	slices.SortFunc(out.Body.Refusals, func(a, b PublishRefusal) int { return refusedAt(b.At).Compare(refusedAt(a.At)) })
+	out.Body.Total = len(out.Body.Refusals)
 	out.Body.Refusals = out.Body.Refusals[:min(len(out.Body.Refusals), recentRefusals)]
 	if out.Body.Refusals == nil {
 		out.Body.Refusals = []PublishRefusal{}

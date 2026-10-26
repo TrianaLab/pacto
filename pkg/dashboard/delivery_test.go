@@ -568,7 +568,7 @@ func TestListsDropNamespacesTheCallerCannotRead(t *testing.T) {
 		Delivery: func(*http.Request) (DeliveryAPI, error) { return f, nil }}))
 	f.forbid = nil
 	f.opsErr = errors.New("ops down")
-	if code, _ := call(t, http.MethodGet, srv2+"/api/delivery/published", nil); code != http.StatusInternalServerError {
+	if code, _ := call(t, http.MethodGet, srv2+"/api/delivery/environments", nil); code != http.StatusInternalServerError {
 		t.Fatalf("a per-namespace error fails the read: %d", code)
 	}
 }

@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -20,6 +21,7 @@ type operationOutput struct {
 		Operation   *delivery.OperationObject `json:"operation"`
 		Actions     []string                  `json:"actions" doc:"What the caller may ask for: approve, reject, accept-unknown, cancel, rollback"`
 		Rung        string                    `json:"rung,omitempty" doc:"The Stage's rung now: observe, advise, auto-nonbreaking or autonomous"`
+		UndoneBy    *delivery.HistoryEntry    `json:"undoneBy,omitempty" doc:"The rollback that undid this change, read from its Stage's history"`
 		Labels
 	}
 }
@@ -50,6 +52,13 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 	if st, err := api.Stage(ctx, in.Namespace, op.Spec.Stage); err == nil {
 		out.Body.Rung = ladderOf(*st).Rung
 	}
+	if st := op.Status; st.Phase == delivery.PhaseConcluded && st.Pointer.After != "" {
+		// ponytail: one history read per concluded change shown; the live
+		// host's record stream read is what it costs.
+		if h, err := api.History(ctx, in.Namespace, op.Spec.Stage); err == nil {
+			out.Body.UndoneBy = undoneBy(h.Entries, in.Name, st.Pointer.After, st.Times.Finished)
+		}
+	}
 	out.Body.Versions = stageVersions(ctx, api, in.Namespace, op.Spec.Stage, op.Spec.Params.From, op.Spec.Params.To,
 		op.Status.Pointer.Before, op.Status.Pointer.After, e.Stage.Pointer)
 	people := []string{op.Spec.Actor.User}
@@ -61,6 +70,28 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 	}
 	out.Body.People = s.named(people...)
 	return out, nil
+}
+
+// undoneBy is the rollback that undid the change name, which moved its Stage
+// to after: the first change after it (entries are oldest first) that moved
+// the Stage off after. One that did not move it, failed or still running,
+// undid nothing. That is the undo only if it is a rollback; anything else
+// means the Stage moved on, and a later rollback from after undid that, not
+// this.
+// ponytail: matched by version, order and time, because history lines do not
+// name what a rollback undoes; read params.undoes if they ever do.
+func undoneBy(entries []delivery.HistoryEntry, name, after, finished string) *delivery.HistoryEntry {
+	i := slices.IndexFunc(entries, func(e delivery.HistoryEntry) bool { return e.Operation == name })
+	for _, e := range entries[i+1:] {
+		if e.Operation == "" || e.From != after || e.Pointer == nil || e.Pointer.After == "" || finished != "" && e.Finished != "" && e.Finished < finished {
+			continue
+		}
+		if e.Type == delivery.TypeRollback {
+			return &e
+		}
+		return nil
+	}
+	return nil
 }
 
 // actions are what the UI offers on an operation. They only hide what the

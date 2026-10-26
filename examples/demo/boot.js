@@ -226,7 +226,7 @@
     // in are not records, and with them no two reads a second or a sign-in apart would
     // ever compare equal.
     function world() {
-      var h = serve("GET", "/api/delivery/history");
+      var h = serve("GET", "/api/delivery/history?limit=200");
       return JSON.stringify(h && h.body && h.body.histories, function (k, v) { return k === "asOf" ? undefined : v; });
     }
     // Set by the ready path after a reload the tour asked for. The tour starts from
@@ -255,9 +255,10 @@
       ((env && env.body && env.body.environments) || []).forEach(function (r) { facts.rows[r.environment + "/" + r.service] = r; });
       var h = serve("GET", "/api/delivery/history?namespace=prod&stage=payments");
       var entries = (h && h.body && h.body.histories && h.body.histories[0] && h.body.histories[0].entries) || [];
+      // Newest first: the first promote is the latest one.
       entries.forEach(function (e) {
-        if (e.type === "delivery.pacto.trianalab.io/promote" && e.operation) { facts.latest = e.operation; facts.accepted = e.verification === "AcceptedUnknown"; }
-        if (e.phase === "Held") { facts.held = e.operation; }
+        if (e.type === "delivery.pacto.trianalab.io/promote" && e.operation && !facts.latest) { facts.latest = e.operation; facts.accepted = e.verification === "AcceptedUnknown"; }
+        if (e.phase === "Held" && !facts.held) { facts.held = e.operation; }
       });
       if (facts.held) {
         var op = serve("GET", "/api/delivery/operations/prod/" + facts.held);
