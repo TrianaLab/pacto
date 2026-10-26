@@ -195,8 +195,7 @@ nav:
   - Verify a record:
       - Check a record without Pacto: verify-a-record.md
   - Drive Pacto from an agent:
-      - AI assistants (MCP): mcp-integration.md
-      - Fleet tools: fleet-tools.md
+      - Connect an agent (MCP): mcp-integration.md
   - Write contracts:
       - For developers: developers.md
       - Example contracts: examples/index.md
@@ -206,12 +205,14 @@ nav:
       - How delivery works: integrations/kubernetes/delivery.md
       - The model: model.md
       - Operational graph: operational-graph.md
+      - Fleet views: fleet-tools.md
       - Impact analysis: impact.md
       - What runtime conformance checks: runtime-conformance.md
       - Run a command under Pacto: runtime-run.md
       - Watch a host with pacto agent: runtime-agent.md
   - Reference:
       - Ladder reference: autonomy-reference.md
+      - MCP reference: mcp-reference.md
       - Delivery reference:
           - Sign-in, approvals and agents: integrations/kubernetes/delivery-identity.md
           - Signed records and history: integrations/kubernetes/delivery-records.md

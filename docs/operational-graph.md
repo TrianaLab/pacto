@@ -327,7 +327,7 @@ flowchart LR
 - **MCP fleet tools** — `pacto_fleet_search`, `pacto_fleet_get`,
   `pacto_fleet_graph`, `pacto_fleet_status` and `pacto_fleet_explain`, plus
   [`pacto_impact`](impact.md), give an agent read-only understanding of the
-  operational system. See [MCP integration](mcp-integration.md#three-tool-families-and-their-boundaries)
+  operational system. See [MCP integration](mcp-reference.md#three-tool-families-and-their-boundaries)
   for how they differ from authoring tools and generated service tools.
 
 ## A read model around many evaluations, not a new evaluator
