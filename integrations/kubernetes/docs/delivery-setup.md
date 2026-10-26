@@ -125,7 +125,8 @@ condition says whether that holds. It is `True` when exactly one
 Flux Kustomization applies the apply `OCIRepository`, both carry the
 `delivery.pacto.trianalab.io/apply-ref` label, the Kustomization sets a
 `serviceAccountName` and sets none of `images`,
-`patches`, `components`, `postBuild`, `namePrefix` or `nameSuffix`. Without a
+`patches`, `components`, `postBuild`, `namePrefix`, `nameSuffix`, `kubeConfig`,
+`suspend` or `decryption`, and the `OCIRepository` sets no `spec.ignore`. Without a
 `serviceAccountName` Flux applies each version as kustomize-controller, which
 is cluster-admin in a default install, so a version whose contract did not
 change could ship a ClusterRoleBinding and an automatic rung would apply it:
@@ -138,15 +139,20 @@ files, or plugin. Otherwise it is `False` and the reason
 `ApplierUnscoped`, `ApplierOverrides`, `SeveralSources`) names what else decides what runs.
 
 On labelled objects, only break-glass may change: removing
-the label, the `OCIRepository`'s `spec.url` and `spec.layerSelector`, the rest
-of an Application's `spec.source` and its `spec.sources`, and a Kustomization's
+the label, the `OCIRepository`'s `spec.url`, `spec.layerSelector` and
+`spec.ignore`, the rest of an Application's `spec.source`, its `spec.sources`,
+`spec.destination` and `spec.project`, and a Kustomization's
 `sourceRef`, `path`, `images`, `patches`, `components`, `postBuild`,
-`namePrefix`, `nameSuffix` and `targetNamespace`. A GitOps tool that applies
+`namePrefix`, `nameSuffix`, `targetNamespace`, `serviceAccountName`,
+`kubeConfig`, `suspend` and `decryption`. A GitOps tool that applies
 those objects must leave these fields alone or run as break-glass.
-Admission guards updates only. Whoever may delete and create these objects can
-recreate one without the label; the Stage then shows `Ready` `False` with the reason `ApplierUnlabelled` and
-`Mediated` `False` with the reason `ApplyRefUnguarded`. Keep delete and create
-on them to the people you would put in break-glass.
+Deleting a labelled object, or creating one with the label, is an edit too:
+only break-glass, `system:masters`, the namespace controller, the garbage
+collector and the users in `delivery.admissionPolicies.gitopsUsers` (Flux's
+kustomize-controller and Argo CD's application controller by default) may.
+If one of them is ever recreated without the label, the Stage shows `Ready`
+`False` with the reason `ApplierUnlabelled` and `Mediated` `False` with the
+reason `ApplyRefUnguarded`.
 `kubectl set image` on the workload itself is not mediated: Flux puts it back
 on its next reconcile, and Argo CD does with `selfHeal`; until then it runs
 beside the pointer.

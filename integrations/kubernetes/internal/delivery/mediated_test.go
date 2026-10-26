@@ -44,6 +44,12 @@ func TestMediated(t *testing.T) {
 		"images": {[]*unstructured.Unstructured{guardedKs("payments", ns, func(s map[string]any) {
 			s["images"], s["prune"] = []any{map[string]any{"name": "app", "newTag": "evil"}}, true
 		})}, statusFalse, "ApplierOverrides", "sets spec.images"},
+		"suspended": {[]*unstructured.Unstructured{guardedKs("payments", ns, func(s map[string]any) {
+			s["suspend"] = true
+		})}, statusFalse, "ApplierOverrides", "sets spec.suspend"},
+		"another cluster": {[]*unstructured.Unstructured{guardedKs("payments", ns, func(s map[string]any) {
+			s["kubeConfig"], s["suspend"] = map[string]any{"secretRef": map[string]any{"name": "remote"}}, false
+		})}, statusFalse, "ApplierOverrides", "sets spec.kubeConfig"},
 		"cluster-admin applier": {[]*unstructured.Unstructured{guardedKs("payments", ns, func(s map[string]any) {
 			delete(s, "serviceAccountName")
 		})}, statusFalse, "ApplierUnscoped", "sets no serviceAccountName"},
@@ -77,6 +83,17 @@ func TestMediated(t *testing.T) {
 	if m := conditionOf(e.getStage().Status.Conditions, ConditionMediated); m == nil || m.Status != statusFalse || m.Reason != "ApplyRefUnguarded" ||
 		!strings.Contains(m.Message, ApplyRefLabel) {
 		t.Fatalf("an unlabelled apply object is not mediated: %+v", m)
+	}
+	// An apply object that leaves files of the version out is not mediated.
+	ignoring := ociRepo("payments", dA, "", false)
+	_ = unstructured.SetNestedField(ignoring.Object, "deploy/", "spec", "ignore")
+	e = newEnv(t, stageObj(dA), ignoring, verifiedRepo("payments-candidates", "latest@"+dB), guardedKs("payments", ns, nil))
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if m := conditionOf(e.getStage().Status.Conditions, ConditionMediated); m == nil || m.Reason != "ApplierOverrides" ||
+		!strings.Contains(m.Message, "spec.ignore") {
+		t.Fatalf("an apply object with spec.ignore is not mediated: %+v", m)
 	}
 	e = newEnv(t, stageObj(dA), ociRepo("payments", dA, "", false), verifiedRepo("payments-candidates", "latest@"+dB))
 	e.fails["list/Kustomization"] = true
@@ -117,7 +134,7 @@ func TestMediatedArgo(t *testing.T) {
 }
 
 func TestEmpty(t *testing.T) {
-	for v, want := range map[any]bool{nil: true, "": true, "x": false, false: false, 0: false} {
+	for v, want := range map[any]bool{nil: true, "": true, "x": false, false: true, true: false, 0: false} {
 		if empty(v) != want {
 			t.Errorf("empty(%v) = %v", v, !want)
 		}

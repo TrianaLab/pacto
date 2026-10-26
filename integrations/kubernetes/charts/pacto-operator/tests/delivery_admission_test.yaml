@@ -213,15 +213,15 @@ tests:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     documentSelector:
-      path: 'spec.validations[?(@.message == "spec.url and spec.layerSelector decide what the Pacto delivery pointer runs: only break-glass changes them")].message'
-      value: "spec.url and spec.layerSelector decide what the Pacto delivery pointer runs: only break-glass changes them"
+      path: 'spec.validations[?(@.message == "spec.url, spec.layerSelector and spec.ignore decide what the Pacto delivery pointer runs: only break-glass changes them")].message'
+      value: "spec.url, spec.layerSelector and spec.ignore decide what the Pacto delivery pointer runs: only break-glass changes them"
     asserts:
       - equal:
           path: 'spec.validations[?(@.message == "the delivery.pacto.trianalab.io/apply-ref label guards the Pacto delivery pointer: only break-glass removes it")].expression'
-          value: "variables.breakGlass || has(object.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in object.metadata.labels"
+          value: "request.operation != 'UPDATE' || variables.breakGlass || has(object.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in object.metadata.labels"
       - matchRegex:
-          path: 'spec.validations[?(@.message == "spec.url and spec.layerSelector decide what the Pacto delivery pointer runs: only break-glass changes them")].expression'
-          pattern: "object\\.spec\\.url.*object\\.spec\\.layerSelector"
+          path: 'spec.validations[?(@.message == "spec.url, spec.layerSelector and spec.ignore decide what the Pacto delivery pointer runs: only break-glass changes them")].expression'
+          pattern: "object\\.spec\\.url.*object\\.spec\\.layerSelector.*object\\.spec\\.ignore"
 
   - it: keeps the rest of an Argo CD Application's source and its label to break-glass
     capabilities:
@@ -230,14 +230,14 @@ tests:
     set:
       delivery.argocd.enabled: true
     documentSelector:
-      path: 'spec.validations[?(@.message == "spec.source and spec.sources decide what the Pacto delivery pointer runs: only break-glass changes them")].message'
-      value: "spec.source and spec.sources decide what the Pacto delivery pointer runs: only break-glass changes them"
+      path: 'spec.validations[?(@.message == "spec.source, spec.sources, spec.destination and spec.project decide what the Pacto delivery pointer runs: only break-glass changes them")].message'
+      value: "spec.source, spec.sources, spec.destination and spec.project decide what the Pacto delivery pointer runs: only break-glass changes them"
     asserts:
       - matchRegex:
           path: 'spec.validations[?(@.message == "the delivery.pacto.trianalab.io/apply-ref label guards the Pacto delivery pointer: only break-glass removes it")].expression'
           pattern: "'delivery\\.pacto\\.trianalab\\.io/apply-ref' in object\\.metadata\\.labels"
       - matchRegex:
-          path: 'spec.validations[?(@.message == "spec.source and spec.sources decide what the Pacto delivery pointer runs: only break-glass changes them")].expression'
+          path: 'spec.validations[?(@.message == "spec.source, spec.sources, spec.destination and spec.project decide what the Pacto delivery pointer runs: only break-glass changes them")].expression'
           pattern: "k == 'targetRevision' \\|\\| \\(k in variables\\.oldSource.*object\\.spec\\.sources"
 
   - it: keeps what a labelled Kustomization applies, and its label, to break-glass
@@ -245,8 +245,8 @@ tests:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     documentSelector:
-      path: 'spec.validations[?(@.message == "sourceRef, path, images, patches, components, postBuild, namePrefix, nameSuffix and targetNamespace decide what the Pacto delivery pointer runs: only break-glass changes them")].message'
-      value: "sourceRef, path, images, patches, components, postBuild, namePrefix, nameSuffix and targetNamespace decide what the Pacto delivery pointer runs: only break-glass changes them"
+      path: 'spec.validations[?(@.message == "sourceRef, path, images, patches, components, postBuild, namePrefix, nameSuffix, targetNamespace, serviceAccountName, kubeConfig, suspend and decryption decide what the Pacto delivery pointer runs: only break-glass changes them")].message'
+      value: "sourceRef, path, images, patches, components, postBuild, namePrefix, nameSuffix, targetNamespace, serviceAccountName, kubeConfig, suspend and decryption decide what the Pacto delivery pointer runs: only break-glass changes them"
     asserts:
       - equal:
           path: metadata.name
@@ -259,9 +259,9 @@ tests:
           value: delivery.pacto.trianalab.io/apply-ref
       - equal:
           path: 'spec.variables[?(@.name == "guarded")].expression'
-          value: "['sourceRef', 'path', 'images', 'patches', 'components', 'postBuild', 'namePrefix', 'nameSuffix', 'targetNamespace']"
+          value: "['sourceRef', 'path', 'images', 'patches', 'components', 'postBuild', 'namePrefix', 'nameSuffix', 'targetNamespace', 'serviceAccountName', 'kubeConfig', 'suspend', 'decryption']"
       - matchRegex:
-          path: 'spec.validations[?(@.message == "sourceRef, path, images, patches, components, postBuild, namePrefix, nameSuffix and targetNamespace decide what the Pacto delivery pointer runs: only break-glass changes them")].expression'
+          path: 'spec.validations[?(@.message == "sourceRef, path, images, patches, components, postBuild, namePrefix, nameSuffix, targetNamespace, serviceAccountName, kubeConfig, suspend and decryption decide what the Pacto delivery pointer runs: only break-glass changes them")].expression'
           pattern: "variables\\.guarded\\.all\\(f,"
 
   - it: renders nothing when disabled on purpose

@@ -1052,7 +1052,7 @@ eventually 20 mediated_is prod payments True/PointerOnly \
 OUT="$(kubectl -n prod patch kustomization payments --type merge -p '{"spec":{"images":[{"name":"payments","newTag":"evil"}]}}' 2>&1 || true)"
 grep -q "only break-glass changes them" <<<"$OUT" || fail "a labelled Kustomization's images were changed: $OUT"
 OUT="$(kubectl -n prod patch ocirepository payments --type merge -p '{"spec":{"url":"oci://elsewhere.example/payments"}}' 2>&1 || true)"
-grep -q "spec.url and spec.layerSelector decide" <<<"$OUT" || fail "a labelled OCIRepository's url was changed: $OUT"
+grep -q "spec.url, spec.layerSelector and spec.ignore decide" <<<"$OUT" || fail "a labelled OCIRepository's url was changed: $OUT"
 OUT="$(kubectl -n prod label ocirepository payments delivery.pacto.trianalab.io/apply-ref- 2>&1 || true)"
 grep -q "only break-glass removes it" <<<"$OUT" || fail "the apply-ref label was removed without break-glass: $OUT"
 OUT="$(kubectl -n prod label kustomization payments delivery.pacto.trianalab.io/apply-ref- 2>&1 || true)"

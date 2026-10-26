@@ -571,6 +571,13 @@ delivery:
     # The promoter admits no operation and counts no approval while any of them is
     # missing or does not deny.
     enabled: true
+    # -- Users besides break-glass that may create or delete an OCIRepository, Kustomization
+    # or Application labelled delivery.pacto.trianalab.io/apply-ref: the GitOps controllers
+    # that apply them. Deleting one and creating it again is an edit, so a namespace editor
+    # may do neither. The namespace controller and the garbage collector are always allowed.
+    gitopsUsers:
+      - system:serviceaccount:flux-system:kustomize-controller
+      - system:serviceaccount:argocd:argocd-application-controller
     # -- Render without the policies (enabled=false) anyway, and skip the chart's
     # Kubernetes 1.30 and ValidatingAdmissionPolicy API check. Without the policies
     # anyone who may create an Operation or an Approval can claim to be anyone, so

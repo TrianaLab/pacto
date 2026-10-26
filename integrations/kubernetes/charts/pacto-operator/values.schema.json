@@ -854,7 +854,11 @@
         "admissionPolicies": {
           "type": "object",
           "additionalProperties": false,
-          "properties": { "enabled": { "type": "boolean" }, "allowUnguarded": { "type": "boolean" } }
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "allowUnguarded": { "type": "boolean" },
+            "gitopsUsers": { "type": "array", "items": { "type": "string" } }
+          }
         },
         "podSecurityContext": { "type": "object" },
         "securityContext": { "type": "object" },

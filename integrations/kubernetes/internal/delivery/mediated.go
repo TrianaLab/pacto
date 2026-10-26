@@ -23,9 +23,11 @@ import (
 const ConditionMediated = "Mediated"
 
 // kustomizationOverrides are the Kustomization fields that change what runs
-// beyond the bytes the pointer names. The applier policy guards them, with
-// sourceRef, on a labelled Kustomization.
-var kustomizationOverrides = []string{"images", "patches", "components", "postBuild", "namePrefix", "nameSuffix"}
+// beyond the bytes the pointer names, where or whether it runs. The applier
+// policy guards them, with sourceRef and serviceAccountName, on a labelled
+// Kustomization.
+var kustomizationOverrides = []string{"images", "patches", "components", "postBuild", "namePrefix", "nameSuffix",
+	"kubeConfig", "suspend", "decryption"}
 
 // argoOverrides are the paths under an Application's spec.source that change
 // what runs beyond the bytes targetRevision names.
@@ -45,6 +47,9 @@ func (c Cluster) mediated(ctx context.Context, ns string, a *applyRef) (delivery
 	}
 	if !labelled(a.obj) {
 		return no("ApplyRefUnguarded", "the apply object "+a.obj.GetName()+" has no "+ApplyRefLabel+" label, so admission does not guard its pointer"), nil
+	}
+	if ignore, _, _ := unstructured.NestedString(a.obj.Object, "spec", "ignore"); !a.argo && ignore != "" {
+		return no("ApplierOverrides", "OCIRepository "+a.obj.GetName()+" sets spec.ignore, which leaves files of the version out"), nil
 	}
 	if a.argo {
 		if s, _, _ := unstructured.NestedSlice(a.obj.Object, "spec", "sources"); len(s) > 0 {
@@ -118,6 +123,8 @@ func empty(v any) bool {
 		return true
 	case string:
 		return x == ""
+	case bool:
+		return !x // suspend: false suspends nothing
 	case []any:
 		return len(x) == 0
 	case map[string]any:

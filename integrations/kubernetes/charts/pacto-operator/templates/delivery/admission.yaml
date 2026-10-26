@@ -7,6 +7,12 @@
 {{- $controller := include "pacto-operator.delivery.controllerUser" . }}
 {{- $agents := include "pacto-operator.delivery.celList" .Values.delivery.identities.agentGroups }}
 {{- $breakGlass := include "pacto-operator.delivery.celList" .Values.delivery.identities.breakGlassGroups }}
+{{- /* Who may create or delete a labelled pointer, applier or Application
+besides break-glass: the GitOps controllers that apply them, the namespace
+controller and the garbage collector. system:masters bypasses authorization
+and could remove these policies anyway, so refusing it guards nothing. */}}
+{{- $lifecycle := include "pacto-operator.delivery.celList" (concat .Values.delivery.admissionPolicies.gitopsUsers (list "system:serviceaccount:kube-system:namespace-controller" "system:serviceaccount:kube-system:generic-garbage-collector")) }}
+{{- $lifecycleRule := printf "request.operation == 'UPDATE' ||\n        request.userInfo.groups.exists(g, g in %s || g == 'system:masters') ||\n        request.userInfo.username in %s" $breakGlass $lifecycle }}
 {{- /* With identities.humanGroups set, anyone in none of them is an agent too. */}}
 {{- $unenrolled := "" }}
 {{- with .Values.delivery.identities.humanGroups }}
@@ -209,10 +215,12 @@ spec:
 ---
 # The pointer: on an OCIRepository a Stage applies through (label it
 # delivery.pacto.trianalab.io/apply-ref), spec.ref.digest changes only by the
-# promoter or break-glass. spec.url and spec.layerSelector, which also decide
-# what runs, and the label itself change only by break-glass, so nobody can
-# unlabel the object and then move the pointer unguarded. Every other field,
-# and Flux's own writes, pass.
+# promoter or break-glass. spec.url, spec.layerSelector and spec.ignore, which
+# also decide what runs, and the label itself change only by break-glass, so
+# nobody can unlabel the object and then move the pointer unguarded. Deleting
+# a labelled one, or creating one with the label, is an edit too: only
+# break-glass or the GitOps controller (admissionPolicies.gitopsUsers) does
+# it. Every other field, and Flux's own writes, pass.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -229,7 +237,7 @@ spec:
     resourceRules:
       - apiGroups: [source.toolkit.fluxcd.io]
         apiVersions: ["*"]
-        operations: [UPDATE]
+        operations: [CREATE, UPDATE, DELETE]
         resources: [ocirepositories]
   variables:
     - name: digest
@@ -240,21 +248,27 @@ spec:
       expression: "request.userInfo.groups.exists(g, g in {{ $breakGlass }})"
   validations:
     - expression: >-
+        {{ $lifecycleRule }}
+      message: "the delivery.pacto.trianalab.io/apply-ref label marks a Pacto delivery pointer: only break-glass or the GitOps controller creates or deletes one"
+      reason: Forbidden
+    - expression: >-
+        request.operation != 'UPDATE' ||
         variables.digest == variables.oldDigest ||
         request.userInfo.username == '{{ $controller }}' ||
         variables.breakGlass
       message: "spec.ref.digest is the Pacto delivery pointer: propose a promote, or use break-glass"
       reason: Forbidden
     - expression: >-
-        variables.breakGlass ||
+        request.operation != 'UPDATE' || variables.breakGlass ||
         has(object.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in object.metadata.labels
       message: "the delivery.pacto.trianalab.io/apply-ref label guards the Pacto delivery pointer: only break-glass removes it"
       reason: Forbidden
     - expression: >-
-        variables.breakGlass || (
+        request.operation != 'UPDATE' || variables.breakGlass || (
         (has(object.spec.url) ? object.spec.url : '') == (has(oldObject.spec.url) ? oldObject.spec.url : '') &&
-        (has(object.spec.layerSelector) ? object.spec.layerSelector : {}) == (has(oldObject.spec.layerSelector) ? oldObject.spec.layerSelector : {}))
-      message: "spec.url and spec.layerSelector decide what the Pacto delivery pointer runs: only break-glass changes them"
+        (has(object.spec.layerSelector) ? object.spec.layerSelector : {}) == (has(oldObject.spec.layerSelector) ? oldObject.spec.layerSelector : {}) &&
+        (has(object.spec.ignore) ? object.spec.ignore : '') == (has(oldObject.spec.ignore) ? oldObject.spec.ignore : ''))
+      message: "spec.url, spec.layerSelector and spec.ignore decide what the Pacto delivery pointer runs: only break-glass changes them"
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -271,8 +285,10 @@ spec:
 # The pointer on Argo CD: on an Application a Stage applies through (label it
 # delivery.pacto.trianalab.io/apply-ref), spec.source.targetRevision changes
 # only by the promoter or break-glass. The rest of spec.source and
-# spec.sources, which also decide what runs, and the label itself change only
-# by break-glass. Every other field, and Argo CD's own writes, pass.
+# spec.sources, spec.destination and spec.project, which also decide what
+# runs, and the label itself change only by break-glass. Creating or deleting
+# a labelled one is for break-glass or the GitOps controller. Every other
+# field, and Argo CD's own writes, pass.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -289,7 +305,7 @@ spec:
     resourceRules:
       - apiGroups: [argoproj.io]
         apiVersions: ["*"]
-        operations: [UPDATE]
+        operations: [CREATE, UPDATE, DELETE]
         resources: [applications]
   variables:
     - name: revision
@@ -304,22 +320,29 @@ spec:
       expression: "has(oldObject.spec.source) ? oldObject.spec.source : {}"
   validations:
     - expression: >-
+        {{ $lifecycleRule }}
+      message: "the delivery.pacto.trianalab.io/apply-ref label marks a Pacto delivery pointer: only break-glass or the GitOps controller creates or deletes one"
+      reason: Forbidden
+    - expression: >-
+        request.operation != 'UPDATE' ||
         variables.revision == variables.oldRevision ||
         request.userInfo.username == '{{ $controller }}' ||
         variables.breakGlass
       message: "spec.source.targetRevision is the Pacto delivery pointer: propose a promote, or use break-glass"
       reason: Forbidden
     - expression: >-
-        variables.breakGlass ||
+        request.operation != 'UPDATE' || variables.breakGlass ||
         has(object.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in object.metadata.labels
       message: "the delivery.pacto.trianalab.io/apply-ref label guards the Pacto delivery pointer: only break-glass removes it"
       reason: Forbidden
     - expression: >-
-        variables.breakGlass || (
+        request.operation != 'UPDATE' || variables.breakGlass || (
         variables.source.all(k, k == 'targetRevision' || (k in variables.oldSource && variables.source[k] == variables.oldSource[k])) &&
         variables.oldSource.all(k, k == 'targetRevision' || k in variables.source) &&
-        (has(object.spec.sources) ? object.spec.sources : []) == (has(oldObject.spec.sources) ? oldObject.spec.sources : []))
-      message: "spec.source and spec.sources decide what the Pacto delivery pointer runs: only break-glass changes them"
+        (has(object.spec.sources) ? object.spec.sources : []) == (has(oldObject.spec.sources) ? oldObject.spec.sources : []) &&
+        (has(object.spec.destination) ? object.spec.destination : {}) == (has(oldObject.spec.destination) ? oldObject.spec.destination : {}) &&
+        (has(object.spec.project) ? object.spec.project : '') == (has(oldObject.spec.project) ? oldObject.spec.project : ''))
+      message: "spec.source, spec.sources, spec.destination and spec.project decide what the Pacto delivery pointer runs: only break-glass changes them"
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -335,9 +358,12 @@ spec:
 ---
 # The applier: on a Flux Kustomization labelled
 # delivery.pacto.trianalab.io/apply-ref, what decides which objects run from
-# the pointer's bytes (sourceRef, path, images, patches, components, postBuild,
-# namePrefix, nameSuffix, targetNamespace) and the label itself change only by
-# break-glass. Every other field, and Flux's own writes, pass.
+# the pointer's bytes and with what rights (sourceRef, path, images, patches,
+# components, postBuild, namePrefix, nameSuffix, targetNamespace,
+# serviceAccountName, kubeConfig, suspend, decryption) and the label itself
+# change only by break-glass. Creating or deleting a labelled one is for
+# break-glass or the GitOps controller. Every other field, and Flux's own
+# writes, pass.
 apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingAdmissionPolicy
 metadata:
@@ -354,23 +380,27 @@ spec:
     resourceRules:
       - apiGroups: [kustomize.toolkit.fluxcd.io]
         apiVersions: ["*"]
-        operations: [UPDATE]
+        operations: [CREATE, UPDATE, DELETE]
         resources: [kustomizations]
   variables:
     - name: breakGlass
       expression: "request.userInfo.groups.exists(g, g in {{ $breakGlass }})"
     - name: guarded
-      expression: "['sourceRef', 'path', 'images', 'patches', 'components', 'postBuild', 'namePrefix', 'nameSuffix', 'targetNamespace']"
+      expression: "['sourceRef', 'path', 'images', 'patches', 'components', 'postBuild', 'namePrefix', 'nameSuffix', 'targetNamespace', 'serviceAccountName', 'kubeConfig', 'suspend', 'decryption']"
   validations:
     - expression: >-
-        variables.breakGlass ||
+        {{ $lifecycleRule }}
+      message: "the delivery.pacto.trianalab.io/apply-ref label marks what applies a Pacto delivery pointer: only break-glass or the GitOps controller creates or deletes one"
+      reason: Forbidden
+    - expression: >-
+        request.operation != 'UPDATE' || variables.breakGlass ||
         has(object.metadata.labels) && 'delivery.pacto.trianalab.io/apply-ref' in object.metadata.labels
       message: "the delivery.pacto.trianalab.io/apply-ref label guards what the Pacto delivery pointer runs: only break-glass removes it"
       reason: Forbidden
     - expression: >-
-        variables.breakGlass ||
+        request.operation != 'UPDATE' || variables.breakGlass ||
         variables.guarded.all(f, (f in object.spec) == (f in oldObject.spec) && (!(f in object.spec) || object.spec[f] == oldObject.spec[f]))
-      message: "sourceRef, path, images, patches, components, postBuild, namePrefix, nameSuffix and targetNamespace decide what the Pacto delivery pointer runs: only break-glass changes them"
+      message: "sourceRef, path, images, patches, components, postBuild, namePrefix, nameSuffix, targetNamespace, serviceAccountName, kubeConfig, suspend and decryption decide what the Pacto delivery pointer runs: only break-glass changes them"
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1
