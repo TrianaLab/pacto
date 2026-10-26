@@ -114,7 +114,11 @@ describe('dual-UI guard — non-Fleet host keeps the legacy UI as its only UI', 
   // on its first import, which can outlast a test's timeout on a busy
   // machine, so load them once here, under a hook timeout that allows it.
   beforeAll(async () => {
-    await Promise.all([import('./views/ReadinessView.svelte'), import('./views/DiffView.svelte')]);
+    // @ts-expect-error — Svelte components have no declaration file
+    const readiness = import('./views/ReadinessView.svelte');
+    // @ts-expect-error — Svelte components have no declaration file
+    const diff = import('./views/DiffView.svelte');
+    await Promise.all([readiness, diff]);
   }, 120_000);
 
   beforeEach(() => {

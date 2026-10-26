@@ -40,8 +40,8 @@ helm install pacto-delivery integrations/kubernetes/charts/pacto-delivery \
 
 ## Metrics and Events
 
-The promoter and the recorder serve Prometheus metrics over plain HTTP on port
-8080. The promoter's are behind the `<release>-metrics` Service; set
+The promoter and the recorder serve Prometheus metrics over plain HTTP on
+port 8080. The promoter's are behind the `<release>-metrics` Service; set
 `metrics.serviceMonitor.enabled=true` to create a Prometheus Operator
 ServiceMonitor for it. The recorder's are behind their own Service, which
 `recorder.monitoring.enabled=true` creates with its ServiceMonitor and alerts
