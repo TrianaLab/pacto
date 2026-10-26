@@ -76,6 +76,12 @@ theme:
 exclude_docs: |
   superpowers/
 
+# The WASM demo folded into docs/demo/ ships its own licences as Markdown (the
+# dashboard's Source Serif 4 OFL). They must still be published with the font, but
+# they are not documentation pages, so --strict must not ask for them in the nav.
+not_in_nav: |
+  /demo/
+
 # Fail the build (under --strict) on orphan pages and broken cross-references,
 # so no page lingers outside the nav and every link/anchor resolves.
 validation:
