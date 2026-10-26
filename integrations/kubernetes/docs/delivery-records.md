@@ -42,11 +42,16 @@ delivery:
     signing:
       ed25519:
         secretName: recorder-key      # holds key.pem, a PKCS#8 Ed25519 key
+      allowOperatorReadableKey: true  # the operator can read this Secret too
 ```
 
 The push Secret needs write access to the streams, deploy and contract
 repositories. Create a test key with
-`openssl genpkey -algorithm ed25519 -out key.pem`.
+`openssl genpkey -algorithm ed25519 -out key.pem`. The operator reads every
+Secret in the cluster, so a key in a Secret is not the recorder's alone. The
+chart refuses `ed25519.secretName` unless `allowOperatorReadableKey: true`
+says you accept that. Use it for kind and tests. The chart also refuses a
+recorder that shares the promoter's ServiceAccount.
 
 In production, sign with a KMS key (`delivery.recorder.signing.kms: awskms:///alias/pacto`;
 ECDSA P-256, Ed25519 or RSA PKCS#1 v1.5 with SHA-256; AWS, GCP, Azure and

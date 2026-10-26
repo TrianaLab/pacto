@@ -369,7 +369,7 @@ helm upgrade --install pacto-operator "$OP_CHART" -n "$NS" ${OP_HEALTH[@]+"${OP_
   --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
   --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s \
   --set delivery.recorder.enabled=true --set delivery.recorder.streamsRepository="$REG_HOST/$STREAMS_REPO" --set delivery.recorder.poll=5s \
-  --set delivery.recorder.signing.ed25519.secretName=recorder-key --wait --timeout 240s >/dev/null || fail "the pacto-operator chart did not roll out" &
+  --set delivery.recorder.signing.ed25519.secretName=recorder-key --set delivery.recorder.signing.allowOperatorReadableKey=true --wait --timeout 240s >/dev/null || fail "the pacto-operator chart did not roll out" &
 OP_HELM=$!
 infra "roll out Flux's source-controller" kubectl -n flux-system rollout status deploy/source-controller --timeout=240s
 infra "roll out Flux's kustomize-controller" kubectl -n flux-system rollout status deploy/kustomize-controller --timeout=240s

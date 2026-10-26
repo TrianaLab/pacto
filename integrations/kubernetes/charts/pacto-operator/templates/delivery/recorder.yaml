@@ -15,6 +15,12 @@
 {{- if and $k.enabled (or (not $k.identity) (not $k.issuer) (not $k.fulcioURL) (not $k.timestampURL) (not $k.trustedRoot)) }}
 {{- fail "delivery.recorder.signing.keyless needs identity, issuer, fulcioURL, timestampURL and trustedRoot" }}
 {{- end }}
+{{- if and $r.signing.ed25519.secretName (not $r.signing.allowOperatorReadableKey) }}
+{{- fail "delivery.recorder.signing.ed25519.secretName puts the signing key in a Secret, and the operator reads every Secret in the cluster, so the recorder would not be the key's only holder. Use kms or keyless signing, or set delivery.recorder.signing.allowOperatorReadableKey=true to accept that (for kind and tests)" }}
+{{- end }}
+{{- if eq (include "pacto-operator.delivery.recorderServiceAccountName" .) (include "pacto-operator.delivery.serviceAccountName" .) }}
+{{- fail "the recorder and the promoter resolve to the same ServiceAccount, so the promoter could sign and write records itself: give delivery.recorder.serviceAccount and delivery.serviceAccount different names" }}
+{{- end }}
 {{- $name := printf "%s-recorder" (include "pacto-operator.delivery.fullname" .) }}
 {{- if $r.serviceAccount.create }}
 apiVersion: v1

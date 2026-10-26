@@ -428,6 +428,7 @@ cosign verify \
 | delivery.recorder.serviceAccount.annotations | object | `{}` | Annotations to add to the recorder's ServiceAccount (workload identity for KMS or keyless) |
 | delivery.recorder.serviceAccount.create | bool | `true` | Create a ServiceAccount for the recorder |
 | delivery.recorder.serviceAccount.name | string | `""` | Name override (defaults to `<fullname>-delivery-recorder`) |
+| delivery.recorder.signing.allowOperatorReadableKey | bool | `false` | Say yes to an Ed25519 key in a Secret. The operator reads every Secret in the cluster, so it can read this key too and the recorder is not its only holder. The chart refuses `ed25519.secretName` unless this is true. Prefer KMS or keyless signing |
 | delivery.recorder.signing.ed25519.key | string | `"key.pem"` | The key in that Secret |
 | delivery.recorder.signing.ed25519.secretName | string | `""` | A Secret holding a PKCS#8 PEM Ed25519 private key (for kind and tests) |
 | delivery.recorder.signing.keyless.enabled | bool | `false` | Sign keyless with a Fulcio certificate for the recorder's workload identity, presented as a projected service account token for the `sigstore` audience. Rekor upload is off; a timestamp authority dates each signature. |

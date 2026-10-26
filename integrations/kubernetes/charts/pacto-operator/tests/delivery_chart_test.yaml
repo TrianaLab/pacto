@@ -200,6 +200,7 @@ tests:
       delivery.recorder.enabled: true
       delivery.recorder.streamsRepository: registry.example/streams
       delivery.recorder.signing.ed25519.secretName: recorder-key
+      delivery.recorder.signing.allowOperatorReadableKey: true
     capabilities:
       majorVersion: 1
       minorVersion: 30

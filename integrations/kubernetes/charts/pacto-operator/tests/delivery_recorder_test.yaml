@@ -27,6 +27,7 @@ tests:
       delivery.recorder.enabled: true
       delivery.recorder.streamsRepository: registry.example/pacto/streams
       delivery.recorder.signing.ed25519.secretName: recorder-key
+      delivery.recorder.signing.allowOperatorReadableKey: true
       delivery.recorder.registryCredentials.secretName: recorder-push
     asserts:
       - contains:
@@ -73,6 +74,7 @@ tests:
       delivery.recorder.enabled: true
       delivery.recorder.streamsRepository: r/s
       delivery.recorder.signing.ed25519.secretName: recorder-key
+      delivery.recorder.signing.allowOperatorReadableKey: true
       delivery.recorder.registryCredentials.secretName: recorder-push
     template: templates/delivery/deployment.yaml
     asserts:
@@ -199,10 +201,45 @@ tests:
       delivery.recorder.streamsRepository: r/s
       delivery.recorder.signing.kms: k
       delivery.recorder.signing.ed25519.secretName: s
+      delivery.recorder.signing.allowOperatorReadableKey: true
     template: templates/delivery/recorder.yaml
     asserts:
       - failedTemplate:
           errorPattern: exactly one
+
+  - it: refuses an Ed25519 key in a Secret without saying yes to the operator reading it
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.ed25519.secretName: s
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: allowOperatorReadableKey=true
+
+  - it: refuses a recorder that shares the promoter's ServiceAccount by default
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.kms: k
+      delivery.serviceAccount.create: false
+      delivery.recorder.serviceAccount.create: false
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: same ServiceAccount
+
+  - it: refuses a recorder that shares the promoter's ServiceAccount by name
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: r/s
+      delivery.recorder.signing.kms: k
+      delivery.serviceAccount.name: delivery
+      delivery.recorder.serviceAccount.name: delivery
+    template: templates/delivery/recorder.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: same ServiceAccount
 
   - it: refuses keyless without identity and issuer
     set:
@@ -272,6 +309,7 @@ tests:
       delivery.recorder.enabled: true
       delivery.recorder.streamsRepository: registry.example/pacto/streams
       delivery.recorder.signing.ed25519.secretName: recorder-key
+      delivery.recorder.signing.allowOperatorReadableKey: true
     asserts:
       - hasDocuments:
           count: 0
@@ -282,6 +320,7 @@ tests:
       delivery.recorder.enabled: true
       delivery.recorder.streamsRepository: registry.example/pacto/streams
       delivery.recorder.signing.ed25519.secretName: recorder-key
+      delivery.recorder.signing.allowOperatorReadableKey: true
       delivery.recorder.monitoring.enabled: true
     asserts:
       - hasDocuments:

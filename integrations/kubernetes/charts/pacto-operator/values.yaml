@@ -492,6 +492,10 @@ delivery:
         secretName: ""
         # -- The key in that Secret
         key: key.pem
+      # -- Say yes to an Ed25519 key in a Secret. The operator reads every Secret in the cluster, so
+      # it can read this key too and the recorder is not its only holder. The chart refuses
+      # `ed25519.secretName` unless this is true. Prefer KMS or keyless signing
+      allowOperatorReadableKey: false
       # -- A KMS key URI (`awskms://`, `gcpkms://`, `azurekms://`, `hashivault://`). The default image
       # includes every provider; an image built with `--build-arg GO_TAGS=` has none, and one built with
       # `GO_TAGS=kms_aws` (or `kms_gcp`, `kms_azure`, `kms_hashivault`) has only that one

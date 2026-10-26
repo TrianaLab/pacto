@@ -13,7 +13,8 @@ Delivery is the `pacto-operator` chart's `delivery` section, off by default. It 
 This needs Helm 3.14 or later. Delivery runs in `delivery.namespace`
 (`pacto-delivery`, never the release or node agent namespace), where the operator holds no
 role, so it cannot act as the promoter. It still reads every Secret: prefer
-KMS or keyless recorder signing. Set `delivery.createNamespace=false` to
+KMS or keyless recorder signing. The chart refuses an Ed25519 key in a Secret
+unless `delivery.recorder.signing.allowOperatorReadableKey: true` accepts that. Set `delivery.createNamespace=false` to
 create the namespace, with the recorder key, yourself. Bind
 `pacto-operator-delivery-agent` to agents and
 `pacto-operator-delivery-approver` to approvers. The image is

@@ -740,6 +740,7 @@
                   "additionalProperties": false,
                   "properties": { "secretName": { "type": "string" }, "key": { "type": "string", "minLength": 1 } }
                 },
+                "allowOperatorReadableKey": { "type": "boolean" },
                 "kms": { "type": "string" },
                 "keyless": {
                   "type": "object",

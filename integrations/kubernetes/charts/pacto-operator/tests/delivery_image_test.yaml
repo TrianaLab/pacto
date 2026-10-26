@@ -42,6 +42,7 @@ tests:
       delivery.recorder.enabled: true
       delivery.recorder.streamsRepository: registry.example/pacto/streams
       delivery.recorder.signing.ed25519.secretName: recorder-key
+      delivery.recorder.signing.allowOperatorReadableKey: true
       delivery.image.digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
     asserts:
       - equal:
