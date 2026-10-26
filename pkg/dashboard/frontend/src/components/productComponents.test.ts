@@ -173,6 +173,14 @@ describe('SourceHealth', () => {
     expect(links[1].textContent).toContain('local');     // then stale
     expect(links[2].textContent).toContain('oci');       // available last
   });
+
+  it('folds forty healthy sources into one chip and keeps every unhealthy one', () => {
+    const sources = [{ id: 'k8s', status: 'unavailable' }, ...Array.from({ length: 40 }, (_, i) => ({ id: `oci-${i}`, status: 'available' }))];
+    comp = mount(SourceHealth, { target, props: { sources } });
+    const links = Array.from(target.querySelectorAll('a.sh-chip')) as HTMLAnchorElement[];
+    expect(links.map((a) => a.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['k8s Unavailable', '40 available']);
+    expect(links[1].getAttribute('href')).toBe('#/fleet/sources?sourceHealth=available');
+  });
 });
 
 describe('OperationalSummary', () => {

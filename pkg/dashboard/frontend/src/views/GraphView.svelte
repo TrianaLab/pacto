@@ -558,7 +558,7 @@
               <h2>Unresolved dependencies ({shown.unresolvedDependencies.total})</h2>
               <!-- The sentence once, not on every row: each is a declaration no provider
                    in the fleet resolves. -->
-              <p class="t-body-2">Each is declared, and no provider in the fleet resolves it.</p>
+              <p class="t-body-2">Each is declared, and nothing Pacto knows provides it.</p>
               <CappedList items={shown.unresolvedDependencies.items} max={8} label="Unresolved dependencies" testid="graph-unresolved-list">
                 {#snippet item(u)}<EntityLink ref={u.from} showStatus={false} />{' '}declares <code>{u.requestedRef || u.ref}</code>{#if u.reason}{': '}{u.reason}{/if}{/snippet}
               </CappedList>

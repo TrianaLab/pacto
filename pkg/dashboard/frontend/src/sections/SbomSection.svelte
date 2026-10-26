@@ -1,10 +1,13 @@
 <script>
+  import ShowAll from '../components/ShowAll.svelte';
+  import { cap } from '../lib/cap.svelte.ts';
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import SectionState from './SectionState.svelte';
 
   let { sbom = null, open = $bindable(false), id = '' } = $props();
   let packages = $derived(sbom?.packages ?? []);
   let hasContent = $derived(packages.length > 0);
+  const rows = cap(50);
 </script>
 
 {#if hasContent}
@@ -14,7 +17,7 @@
     <table class="sbom-table">
       <thead><tr><th>Package</th><th>Version</th><th>License</th><th>Supplier</th></tr></thead>
       <tbody>
-        {#each packages as p}
+        {#each rows.slice(packages) as p, i (i)}
           <tr>
             <td>{p.name}</td>
             <td>{p.version || '—'}</td>
@@ -25,6 +28,7 @@
       </tbody>
     </table>
     </div>
+    <ShowAll cap={rows} total={packages.length} noun="packages" testid="sbom-show-all" />
   </CollapsibleSection>
 {:else}
   <SectionState title="SBOM" bind:open {id} />

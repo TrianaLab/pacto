@@ -49,6 +49,17 @@ function targetDetail(): Record<string, any> {
  * the entity key. A test that waited for "payments" to appear therefore resolved
  * against the loading shell and then asserted on a body that did not exist yet.
  */
+/** A closed section mounts nothing: open every disclosure, as a reader looking would. */
+function openAll(target: HTMLElement) {
+  for (let pass = 0; pass < 4; pass++) {
+    target.querySelectorAll('details:not([open])').forEach((d) => {
+      (d as HTMLDetailsElement).open = true;
+      d.dispatchEvent(new Event('toggle'));
+    });
+    flushSync();
+  }
+}
+
 async function mountView(kind: string, key: string) {
   const target = document.createElement('div');
   document.body.appendChild(target);
@@ -699,6 +710,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     });
     const { target, component } = await mountView('target', 'prod/k8s/app');
     await vi.waitFor(() => expect(target.textContent).toContain('Observed runtime'));
+    openAll(target);
     const text = (target.textContent || '').replace(/\s+/g, ' ');
     expect(text).not.toContain('200 of 400'); // scanned is NOT the total
     expect(text).not.toContain('200 of 200'); // count is NOT the total
@@ -737,6 +749,7 @@ describe('FleetEntityView — owner and source pages (G)', () => {
     });
     const { target, component } = await mountView('revision', 'domain-a/app@sha256:1');
     await vi.waitFor(() => expect(target.textContent).toContain('Readiness checks'));
+    openAll(target);
     const text = (target.textContent || '').replace(/\s+/g, ' ');
     // Ownership rendered (not just a count).
     expect(text).toContain('platform');

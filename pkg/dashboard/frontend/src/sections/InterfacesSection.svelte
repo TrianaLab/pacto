@@ -1,4 +1,6 @@
 <script>
+  import ShowAll from '../components/ShowAll.svelte';
+  import { cap } from '../lib/cap.svelte.ts';
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import SectionState from './SectionState.svelte';
   import { methodClass } from '../lib/format.ts';
@@ -14,6 +16,8 @@
   function hasDetails(iface) {
     return iface.endpoints?.length > 0 || iface.contractContent;
   }
+  // Eight hundred endpoints show the first fifty; one cap for every interface on the page.
+  const eps = cap(50);
 </script>
 
 {#if interfaces?.length > 0}
@@ -43,7 +47,7 @@
               <table class="detail-card-table">
                 <thead><tr><th>Method</th><th>Path</th><th>Summary</th></tr></thead>
                 <tbody>
-                  {#each iface.endpoints as ep}
+                  {#each eps.slice(iface.endpoints) as ep, ei (ei)}
                     <tr>
                       <td><span class="badge {methodClass(ep.method)}">{ep.method}</span></td>
                       <td><code>{ep.path}</code></td>
@@ -52,6 +56,7 @@
                   {/each}
                 </tbody>
               </table>
+              <ShowAll cap={eps} total={iface.endpoints.length} noun="endpoints" />
             {/if}
             {#if iface.contractContent}
               <details class="contract-content">

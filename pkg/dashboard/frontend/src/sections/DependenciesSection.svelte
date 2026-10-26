@@ -1,4 +1,6 @@
 <script>
+  import ShowAll from '../components/ShowAll.svelte';
+  import { cap } from '../lib/cap.svelte.ts';
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import SectionState from './SectionState.svelte';
   import GraphPanel from '../GraphPanel.svelte';
@@ -33,6 +35,8 @@
     const node = graphData.nodes.find((n) => n.id === depName || n.serviceName === depName);
     return node?.status === 'external' ? node.reason : undefined;
   }
+  // Twelve hundred dependents show the first twenty-five.
+  const dependentRows = cap(25);
 </script>
 
 {#if hasContent}
@@ -129,7 +133,7 @@
             </colgroup>
             <thead><tr><th data-tip="Service that depends on this one">Service</th><th data-tip="Contract compliance status">Status</th><th data-tip="Is this a required dependency?">Required</th></tr></thead>
             <tbody>
-              {#each dependents as dep}
+              {#each dependentRows.slice(dependents) as dep, di (di)}
                 <tr>
                   <td><a href={serviceUrl(dep.name)}>{dep.name}</a></td>
                   <td><StatusBadge status={dep.contractStatus} /></td>
@@ -139,6 +143,7 @@
             </tbody>
           </table>
         </div>
+        <ShowAll cap={dependentRows} total={dependents.length} noun="dependents" testid="dependents-show-all" />
       </div>
     {/if}
 

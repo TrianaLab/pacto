@@ -5,6 +5,7 @@
   import { deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryPublishUrl } from '../lib/router.ts';
   import { loginUrl, signIn, hostSignsIn } from '../lib/delivery.ts';
   import Person from './Person.svelte';
+  import CappedList from './CappedList.svelte';
 
   // The delivery section's own navigation and who the views act as. Every
   // delivery view renders it first, so a person always sees whose identity an
@@ -58,7 +59,7 @@
   {:else if s?.signedIn}
     <span>
       {#if caller?.user}
-        Signed in as <strong><Person user={caller.user} {me} /></strong>{#if caller.groups?.length}, in {caller.groups.join(', ')}{/if}.
+        Signed in as <strong><Person user={caller.user} {me} /></strong>{#if caller.groups?.length}{', in '}<CappedList items={caller.groups} max={3} inline label="Your groups" testid="identity-groups">{#snippet item(g)}{g}{/snippet}</CappedList>{/if}.
       {:else}
         <!-- The ID token's name alone is self-asserted, so it is never shown as who you are. -->
         Signed in. <span class="dn-err">The cluster did not say who you are{#if s.callerError}: {s.callerError}{:else}.{/if}</span>
@@ -83,6 +84,10 @@
   .dn-tab:hover { color: var(--c-text); }
   .dn-tab:focus-visible { outline: 2px solid var(--c-accent); outline-offset: 2px; }
   .dn-tab[aria-current='page'] { color: var(--c-accent); border-bottom-color: var(--c-accent); }
-  .dn-who { display: flex; gap: var(--sp-3); align-items: center; flex-wrap: wrap; color: var(--c-text-2); }
+  /* Who you are, then the button, on one line: the text takes what room there is and the
+     button never wraps under a long list of groups. */
+  .dn-who { display: flex; gap: var(--sp-3); align-items: center; color: var(--c-text-2); }
+  .dn-who > span:first-child { flex: 1 1 auto; min-width: 0; }
+  .dn-who > .btn { flex-shrink: 0; }
   .dn-err { color: var(--c-err); }
 </style>

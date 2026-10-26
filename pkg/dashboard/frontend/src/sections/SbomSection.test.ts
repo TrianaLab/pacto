@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mount, unmount } from 'svelte';
+import { mount, unmount, flushSync } from 'svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import SbomSection from './SbomSection.svelte';
 
@@ -24,6 +24,18 @@ describe('SbomSection', () => {
     expect(target.querySelector('.section')).not.toBeNull();
     expect(target.textContent).toContain('SBOM');
     expect(target.textContent).toContain('None declared');
+    unmount(c);
+  });
+
+  it('shows fifty packages and offers the other 2,950', () => {
+    const packages = Array.from({ length: 3000 }, (_, i) => ({ name: `pkg-${i}`, version: '1.0.0' }));
+    const c = mount(SbomSection, { target, props: { open: true, sbom: { format: 'spdx', packages } } });
+    expect(target.querySelectorAll('tbody tr').length).toBe(50);
+    const more = target.querySelector('[data-testid="sbom-show-all"]') as HTMLButtonElement;
+    expect(more.textContent?.trim()).toBe('Show all 3,000 packages');
+    more.click();
+    flushSync();
+    expect(target.querySelectorAll('tbody tr').length).toBe(3000);
     unmount(c);
   });
 });

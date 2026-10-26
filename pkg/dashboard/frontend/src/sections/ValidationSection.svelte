@@ -1,4 +1,6 @@
 <script>
+  import ShowAll from '../components/ShowAll.svelte';
+  import { cap } from '../lib/cap.svelte.ts';
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import SectionState from './SectionState.svelte';
 
@@ -10,6 +12,9 @@
     (validation?.errors?.length > 0) ||
     (validation?.warnings?.length > 0)
   );
+  // Three hundred errors show the first ten; the rest are one press away.
+  const errs = cap(10);
+  const warns = cap(10);
 </script>
 
 {#if hasContent}
@@ -17,21 +22,23 @@
     {#if validation?.errors?.length > 0}
       <div class="subsection">
         <h3 style="color:var(--c-err)">Errors</h3>
-        {#each validation.errors as issue}
+        {#each errs.slice(validation.errors) as issue, i (i)}
           <div class="insight insight-critical">
             <code>{issue.path}</code> <strong>[{issue.code}]</strong> {issue.message}
           </div>
         {/each}
+        <ShowAll cap={errs} total={validation.errors.length} noun="errors" />
       </div>
     {/if}
     {#if validation?.warnings?.length > 0}
       <div class="subsection">
         <h3 style="color:var(--c-warn)">Warnings</h3>
-        {#each validation.warnings as issue}
+        {#each warns.slice(validation.warnings) as issue, i (i)}
           <div class="insight insight-warning">
             <code>{issue.path}</code> <strong>[{issue.code}]</strong> {issue.message}
           </div>
         {/each}
+        <ShowAll cap={warns} total={validation.warnings.length} noun="warnings" />
       </div>
     {/if}
   </CollapsibleSection>

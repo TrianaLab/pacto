@@ -25,6 +25,8 @@
   import { navigate, serviceUrl, serviceVersionUrl, diffUrl, ownerUrl } from '../lib/router.ts';
   import { complianceClass, classificationClass, ownerIsStructured, referencedDocPaths } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
+  import ShowAll from '../components/ShowAll.svelte';
+  import { cap } from '../lib/cap.svelte.ts';
   import SearchPick from '../components/SearchPick.svelte';
   import { clientPage } from '../lib/paging.ts';
   import { listState } from '../lib/hashQuery.svelte.ts';
@@ -143,7 +145,11 @@
   // Label for the version-history compare buttons: the baseline is whatever
   // version is being viewed ("current" when that's the deployed one).
   let baselineLabel = $derived(detail?.version && detail.version !== currentVersion ? detail.version : 'current');
-  let insights = $derived(detail?.insights || []);
+  // Worst first, then the first five: sixty insights at the top of the page pushed
+  // every section below it several screens down.
+  const SEVERITY_ORDER = { critical: 0, warning: 1, info: 2 };
+  let insights = $derived([...(detail?.insights || [])].sort((a, b) => (SEVERITY_ORDER[a.severity] ?? 3) - (SEVERITY_ORDER[b.severity] ?? 3)));
+  const insightRows = cap(5);
   // "E of R" evaluation-coverage label — empty unless runtime-evaluated (see helper).
   let sources = $derived.by(() => {
     const s = detail?.sources || [];
@@ -407,13 +413,14 @@
     <div class="section">
       <div class="section-title">Insights</div>
       <div class="insights-list">
-        {#each insights as ins}
+        {#each insightRows.slice(insights) as ins, ii (ii)}
           <div class="insight insight-{ins.severity}">
             <strong>{ins.title}</strong>
             {#if ins.description}<span>{ins.description}</span>{/if}
           </div>
         {/each}
       </div>
+      <ShowAll cap={insightRows} total={insights.length} noun="insights" />
     </div>
   {/if}
 
