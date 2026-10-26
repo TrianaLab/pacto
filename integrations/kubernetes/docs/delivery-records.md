@@ -43,8 +43,8 @@ recorder:
       secretName: recorder-key      # holds key.pem, a PKCS#8 Ed25519 key
 ```
 
-The push Secret needs write access to the streams repository and the deploy
-and contract repositories. Create a test key with
+The push Secret needs write access to the streams, deploy and contract
+repositories. Create a test key with
 `openssl genpkey -algorithm ed25519 -out key.pem`.
 
 In production, sign with a KMS key (`signing.kms: awskms:///alias/pacto`;
@@ -80,8 +80,7 @@ etcd restore the recorder continues from the newest record, never forking.
 ## Require records
 
 By default automation keeps moving a Stage while the recorder cannot write,
-and the records catch up later. To stop that, set `records.required` on the
-Stage:
+and records catch up later. To stop that, set `records.required`:
 
 ```yaml
 spec:
@@ -90,7 +89,7 @@ spec:
 ```
 
 Then every promote or rollback an agent or the promoter raises waits for a
-person to approve it while `RecordStoreReady` is not `True`, or while more than
+person's approval while `RecordStoreReady` is not `True`, or while more than
 five of the Stage's operations wait for a record. People, break-glass and
 freezes are not held. With `recorder.monitoring.enabled`, the chart scrapes the
 recorder and ships a `PrometheusRule`. `PactoDeliveryRecordsPending` fires when
@@ -118,8 +117,8 @@ recorder:
 dev key cannot sign prod history. A keyless entry names `identity`, `issuer`
 and the required `trustedRoot`. The recorder's own key is always trusted. List
 the old key before the recorder signs with a new one, including when a KMS
-alias moves to a new key. Otherwise the records the old key signed no longer
-verify, the head the Stage names goes missing and the Stage freezes. Pass the same file (or the recorder's PEM
+alias moves to a new key. Otherwise the old key's records stop verifying, the
+head the Stage names goes missing and the Stage freezes. Pass the same file (or the recorder's PEM
 public key) to the CLI with `--trust` or `PACTO_DELIVERY_TRUST`, and to
 `pacto mcp --delivery` and `pacto dashboard` with `--delivery-trust`. Without
 it, records are read unchecked and every answer says it is partial.
@@ -129,11 +128,10 @@ it, records are read unchecked and every answer says it is partial.
 When a key leaks, rotate the recorder to a new key first. Then keep the old
 key listed with `untilRecord`, the id of the last record it signed on that
 stream, and `untilSeq`, that record's seq. The old key then verifies only that
-record and the records it chains from, so the history stays readable.
-Anything else the old key signs is skipped as untrusted: a record after
-`untilSeq`, and a forgery backdated to a seq the key already used. So a
-forgery neither extends the stream nor forks it, and the Stage does not
-freeze:
+record and those it chains from, so history stays readable. Anything else it
+signs is skipped as untrusted, whether a record after `untilSeq` or a forgery
+backdated to a seq it already used. So a forgery neither extends nor forks the
+stream and the Stage does not freeze:
 
 ```yaml
 keys:
@@ -152,12 +150,12 @@ per stream. The last seq and record of each are in the Stage's
 `status.stream.recordedSeq` and `status.stream.head`, or in
 `pacto delivery record verify`. Set both fields or neither. A read of one
 version's records, not the whole stream, cannot walk the chain, so it shows
-what the old key signed as not verified. Followers
-need the same trust config. A follower that does not trust the new key sees
-the stream end at the last record it can verify.
+what the old key signed as not verified. Followers need the same trust
+config: one that does not trust the new key sees the stream end at the last
+record it can verify.
 
-Removing the key instead makes every record it signed unverifiable. The
-recorder then stops on the missing head and every follower sees a hole.
+Removing the key instead makes its records unverifiable: the recorder stops
+on the missing head and every follower sees a hole.
 
 ## History, blame and undo
 
@@ -191,7 +189,7 @@ pacto delivery record verify -n prod --stage payments --trust recorder.pub
 It checks every signature and the whole chain, exits non-zero if anything is
 wrong and prints a command that checks one record without Pacto, with
 [oras](https://oras.land) and [cosign](https://github.com/sigstore/cosign).
-`record verify --all` checks every stream. The printed command looks like this:
+`record verify --all` checks every stream. For example:
 
 ```bash
 REPO=registry.example/pacto/streams
