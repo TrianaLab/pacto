@@ -53,7 +53,8 @@ publishes these identities in the ConfigMap `pacto-delivery-identities`, which
 the promoter runs with and the CLI, the MCP server and the dashboard read. It takes the Stage lock with one
 compare-and-swap, moves the pointer, waits for the apply and runs the verify
 checks the Stage lists in `spec.gates.verify.checks`: the Pacto contract check,
-providers from `delivery.gates.providers` (`mira`, `http` or `eval`) and the built-in
+providers from `delivery.gates.providers` (`mira`, `http` or `eval`, whose
+check names the contract suite it runs in `suite`) and the built-in
 `pacto.runtime`. Checks run again every `spec.gates.verify.recheck` after
 release. Unknown never passes and never rolls back. A confirmed failure is
 never promoted again (the Stage keeps its last 50) and gets one bound rollback;

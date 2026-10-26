@@ -118,8 +118,9 @@ for a person to accept the unknown, a breaking change no contract depends on
 included; Unknown never passes. Health checks keep
 running after release: a `mira` provider judges the error ratio of the
 service's traces, `http` is the plug-in format for any other tool, `eval`
-runs one of the `checks` the version ships (the `suite` param names it), a
-verdict counting only about that suite's sha256, and `pacto.runtime` fails a version the node agent
+runs one of the `checks` the version ships (the Stage check's `suite` names it,
+and a version that does not ship it is held for a person), a verdict counting
+only about that suite's sha256, and `pacto.runtime` fails a version the node agent
 saw calling a service it never declared and passes only after a soak. A
 workload the node agent saw calling a service with no contract of its own
 counts as an unknown consumer: a breaking change waits for a person to accept
