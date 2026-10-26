@@ -193,7 +193,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().StringSlice("oidc-extra-scopes", nil, "scopes to ask for beyond openid, profile and groups")
 	cmd.Flags().Bool("auth-required", false, "with OIDC sign-in, gate the fleet views and the whole API behind it too, not only delivery (also PACTO_DASHBOARD_AUTH_REQUIRED)")
 	cmd.Flags().String("mira-url", "", "Mira's address, to link the health-check citations of delivery verdicts")
-	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "namespace of the pacto-delivery chart, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
+	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.Flags().String("delivery-trust", "", "the trust config delivery records are verified with, so History reads signed records "+
 		"(the recorder's PEM public key or a YAML trust config; default $"+trustEnv+")")
 

@@ -167,7 +167,7 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.BoolVar(&o.dashboardAuth.Required, "dashboard-auth-required", false,
 		"With OIDC sign-in, gate the fleet views and the whole API behind it too, not only delivery.")
 	fs.StringVar(&o.dashboardAuth.DeliveryNamespace, "dashboard-delivery-namespace", "",
-		"Namespace of the pacto-delivery chart, whose published identity policy the dashboard reads; "+
+		"Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; "+
 			"empty means pacto-delivery.")
 	fs.StringVar(&o.dashboardMiraURL, "dashboard-mira-url", "",
 		"Mira's address, to link the dashboard's health-check citations.")

@@ -97,7 +97,7 @@ type AuthConfig struct {
 	// Required gates the fleet views and the whole API behind sign-in too,
 	// not only delivery.
 	Required bool
-	// DeliveryNamespace is where the pacto-delivery chart publishes the
+	// DeliveryNamespace is the namespace Pacto delivery runs in, where it publishes the
 	// promoter's identity policy, which the dashboard reads; empty means
 	// pacto-delivery.
 	DeliveryNamespace string

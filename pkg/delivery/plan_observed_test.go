@@ -49,7 +49,7 @@ func planIn(t *testing.T, from, to Revision, pactos ...PactoView) PlanInput {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
+	return PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Status: StageStatus{Rung: RungAutonomous, Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
 		From: from, To: to, Snapshot: snap, Class: ClassAgent}
 }
 

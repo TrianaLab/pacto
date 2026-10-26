@@ -78,7 +78,7 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 			"There is no approve tool for agents. `approve` is for people, with a fresh login.",
 	}
 	cmd.PersistentFlags().StringP("namespace", "n", "default", "namespace of the Stage and its Operations")
-	cmd.PersistentFlags().String("delivery-namespace", delivery.PolicyNamespace, "namespace of the pacto-delivery chart, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
+	cmd.PersistentFlags().String("delivery-namespace", delivery.PolicyNamespace, "namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.PersistentFlags().String("trust", "", "the trust config delivery records are verified with: the recorder's PEM public key, "+
 		"or a YAML file of keys and the streams each may sign (default $"+trustEnv+")")
 	cmd.AddCommand(

@@ -12,7 +12,7 @@
     },
     "PACTO_DASHBOARD_DELIVERY_NAMESPACE": {
       "default": "pacto-delivery",
-      "description": "Namespace of the pacto-delivery chart, whose published identity policy the dashboard reads",
+      "description": "Namespace Pacto delivery runs in, whose published identity policy the dashboard reads",
       "type": "string"
     },
     "PACTO_DASHBOARD_DELIVERY_TRUST": {
