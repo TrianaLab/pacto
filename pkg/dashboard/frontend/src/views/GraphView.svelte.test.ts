@@ -246,7 +246,7 @@ describe('GraphView — product Operational Graph', () => {
     expect(q(target, '[data-testid="graph-truncated"]')?.textContent).toContain('Showing 3 of 210');
 
     (q(target, '[data-testid="graph-show-more"]') as HTMLButtonElement).click();
-    expect(location.hash).toContain('maxNodes=150');
+    expect(location.hash).toContain('maxNodes=100');
     unmount(component); document.body.removeChild(target);
   });
 
@@ -269,6 +269,43 @@ describe('GraphView — product Operational Graph', () => {
     expect(note).toContain('bounded and was truncated');
     expect(note).not.toMatch(/Showing \d+ of/);
     unmount(component); document.body.removeChild(target);
+  });
+
+  it('folds a large neighborhood by team, opens a team on request and can show every entity', async () => {
+    const base = neighborhood();
+    const far = Array.from({ length: 50 }, (_, i) => ({ ref: ref('service', `domain-b/s${i}`, `s${i}`), depth: 2, status: 'Compliant', owner: i % 2 ? 'team-x' : 'team-y' }));
+    neighborhoodFn.mockResolvedValue(neighborhood({ nodes: [...base.nodes, ...far], truncated: false }));
+    applyTopologySpy.mockReset();
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-grouped"]')).toBeTruthy());
+    expect(q(target, '[data-testid="graph-grouped"]')?.textContent).toContain('To keep 53 entities readable, 50 past the direct neighbors are grouped by team (2 teams)');
+    const drawn = renderSpy.mock.calls.at(-1)![1];
+    expect(drawn.nodes.map((n: { id: string }) => n.id)).toEqual(expect.arrayContaining(['group:team-x', 'group:team-y', 'domain-a/web']));
+    expect(drawn.nodes).toHaveLength(5);
+    // The summary still counts every entity and says which are grouped; the list names them all.
+    expect(q(target, '[data-testid="graph-summary"]')?.textContent).toContain('50 of them are grouped by team');
+    expect(qa(target, '.gv-nodes > li').length).toBe(53);
+    // A team opens from the note as well as from the canvas.
+    (qa(target, '[data-testid="graph-open-group"]').find((b) => b.textContent?.startsWith('team-x')) as HTMLButtonElement).click();
+    flushSync();
+    expect(applyTopologySpy.mock.calls.at(-1)![0].nodes).toHaveLength(29);
+    // Selecting a team's node on the canvas opens it too, and opens no drawer.
+    renderSpy.mock.calls.at(-1)![2].onSelectNode('group:team-y');
+    flushSync();
+    expect(q(target, '[data-testid="graph-grouped"]')).toBeNull();
+    expect(applyTopologySpy.mock.calls.at(-1)![0].nodes).toHaveLength(53);
+    unmount(component); document.body.removeChild(target);
+
+    const again = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(again.target, '[data-testid="graph-show-every"]')).toBeTruthy());
+    (q(again.target, '[data-testid="graph-show-every"]') as HTMLButtonElement).click();
+    flushSync();
+    expect(applyTopologySpy.mock.calls.at(-1)![0].nodes).toHaveLength(53);
+    expect(q(again.target, '[data-testid="graph-grouped"]')?.textContent).toContain('Every entity is drawn.');
+    (q(again.target, '[data-testid="graph-group-again"]') as HTMLButtonElement).click();
+    flushSync();
+    expect(applyTopologySpy.mock.calls.at(-1)![0].nodes).toHaveLength(5);
+    unmount(again.component); document.body.removeChild(again.target);
   });
 
   it('asks the backend for the node budget in the URL', async () => {

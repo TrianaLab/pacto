@@ -60,11 +60,11 @@ describe('maxNodes (the node budget the reader can raise)', () => {
     }
   });
   it('climbs the rungs once each and then stops at the ceiling', () => {
-    expect(nextMaxNodes(DEFAULT_MAX_NODES)).toBe(150);
+    expect(nextMaxNodes(DEFAULT_MAX_NODES)).toBe(100);
     expect(nextMaxNodes(150)).toBe(MAX_NODES);
     expect(nextMaxNodes(MAX_NODES)).toBeNull();
     // A budget between rungs still climbs to the next one above it.
-    expect(nextMaxNodes(61)).toBe(150);
+    expect(nextMaxNodes(41)).toBe(100);
   });
   it('keeps the rungs ascending, so "show more" always shows more', () => {
     expect([...MAX_NODES_STEPS].sort((a, b) => a - b)).toEqual([...MAX_NODES_STEPS]);
@@ -230,10 +230,10 @@ describe('projectionFocusMismatch (Part 4: canonicalize a bookmarked reinterpret
 });
 
 describe('graph budgets', () => {
-  it('climbs 60, 150, 200 and asks for twice as many relationships as entities', async () => {
+  it('climbs 40, 100, 200 and asks for twice as many relationships as entities', async () => {
     const { nextMaxNodes, maxEdgesFor, MAX_NODES_STEPS } = await import('./graphState.ts');
-    expect([...MAX_NODES_STEPS]).toEqual([60, 150, 200]);
-    expect(nextMaxNodes(60)).toBe(150);
+    expect([...MAX_NODES_STEPS]).toEqual([40, 100, 200]);
+    expect(nextMaxNodes(60)).toBe(100);
     expect(nextMaxNodes(200)).toBeNull();
     expect(maxEdgesFor(60)).toBe(120);
     expect(maxEdgesFor(800)).toBe(1000);

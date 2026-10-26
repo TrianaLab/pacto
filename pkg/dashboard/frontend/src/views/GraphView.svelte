@@ -9,7 +9,7 @@
     perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
     canonicalFocusForPerspective, projectionFocusMismatch, nextMaxNodes, maxEdgesFor,
   } from '../lib/graphState.ts';
-  import { cyEdgeId } from '../lib/neighborhoodGraph.ts';
+  import { cyEdgeId, neighborhoodToGraph, groupByOwner, GROUP_PREFIX, GROUP_THRESHOLD as GROUP_LIMIT } from '../lib/neighborhoodGraph.ts';
   import { abbreviateDigests, formatCount } from '../lib/format.ts';
   import { graphQueryKey } from '../lib/graphSpatial.ts';
   import { snapshotKnowledge } from '../lib/knowledgeState.ts';
@@ -158,7 +158,21 @@
   });
   // Canvas selection reports the Cytoscape element id; map it back to the backend node
   // (by canonical key) or edge (by the reproduced Cytoscape edge id).
-  function selectNodeById(id) { selectNode((shown?.nodes || []).find((n) => n.ref.key === id), { pin: false }); }
+  function selectNodeById(id) {
+    // A team's folded node opens the team instead of a drawer.
+    if (id?.startsWith(GROUP_PREFIX)) { openGroups = new Set([...openGroups, id.slice(GROUP_PREFIX.length)]); return; }
+    selectNode((shown?.nodes || []).find((n) => n.ref.key === id), { pin: false });
+  }
+
+  // ── folding a large neighborhood by team ─────────────────────────────────────
+  // Past GROUP_THRESHOLD entities the ones beyond the direct neighbors are drawn as one
+  // node per team. Opening a team or showing every entity is per question: a new focus,
+  // depth or budget starts folded again.
+  let openGroups = $state(new Set());
+  let showEvery = $state(false);
+  let groupedFor = '';
+  $effect(() => { if (queryKey !== groupedFor) { groupedFor = queryKey; openGroups = new Set(); showEvery = false; } });
+  const grouped = $derived(shown ? groupByOwner(neighborhoodToGraph(shown), { open: openGroups, all: showEvery }) : null);
   function selectEdgeByCyId(cyId) {
     selectEdge((shown?.edges || []).find((e) => cyEdgeId(e.from.key, e.to.key, e.relation) === cyId));
   }
@@ -178,6 +192,7 @@
       { key: 'kind:service', label: 'Service', cls: 'lg-node lg-service' },
       { key: 'kind:revision', label: 'Revision', cls: 'lg-node lg-revision' },
       { key: 'kind:target', label: 'Operational target', cls: 'lg-node lg-target' },
+      { key: 'kind:group', label: 'A team (grouped)', cls: 'lg-node lg-team' },
     ] },
     { title: 'Relationship', items: [
       { key: 'rel:dependency', label: 'Depends on', cls: 'lg-edge lg-dep' },
@@ -230,6 +245,7 @@
   const graphSummary = $derived(!shown ? '' : [
     `${shown.nodes.length} ${shown.nodes.length === 1 ? 'entity' : 'entities'} and ${shown.edges.length} ${shown.edges.length === 1 ? 'relationship' : 'relationships'}.`,
     withheldNodes ? `${withheldNodes} more within this depth are not shown.` : '',
+    grouped?.folded ? `${grouped.folded} of them are grouped by team on the canvas; the list below names each one.` : '',
     hiddenLabels.length ? `Dimmed on the canvas: ${hiddenLabels.join(', ')}.` : '',
     selectedSummary,
   ].filter(Boolean).join(' '));
@@ -460,7 +476,7 @@
           {truncationNote}
           {#if moreNodes}
             <button type="button" class="gv-more" data-testid="graph-show-more" onclick={() => go({ maxNodes: moreNodes })}>
-              Show up to {moreNodes}
+              Show up to {moreNodes} entities
             </button>
           {:else}
             Narrow the direction or depth, or open an entity to continue.
@@ -483,7 +499,19 @@
             <p class="gv-status" data-testid="graph-empty">No {gs.direction === 'both' ? 'related entities' : gs.direction} are known for this focus under the selected views.</p>
           {:else}
             <!-- Primary: the visual Cytoscape topology. -->
-            <NeighborhoodGraph neighborhood={shown} focusKey={focusRef?.key || ''} {queryKey} onSelectNode={selectNodeById} onSelectEdge={selectEdgeByCyId} oncontrols={onControls} />
+            {#if grouped?.groups.length}
+              <div class="gv-caveat tone-info" role="status" data-testid="graph-grouped">
+                To keep {formatCount(shown.nodes.length)} entities readable, {formatCount(grouped.folded)} past the direct neighbors are grouped by team ({formatCount(grouped.groups.length)} team{grouped.groups.length === 1 ? '' : 's'}). Select a team on the graph, or here, to open it:
+                <CappedList items={grouped.groups} max={6} inline={true} label="Teams grouped on the graph">{#snippet item(g)}<button type="button" class="gv-more" data-testid="graph-open-group" onclick={() => { openGroups = new Set([...openGroups, g.owner]); }}>{g.owner} ({formatCount(g.count)})</button>{/snippet}</CappedList>
+                <button type="button" class="gv-more" data-testid="graph-show-every" onclick={() => { showEvery = true; }}>Show every entity</button>
+              </div>
+            {:else if showEvery && shown.nodes.length > GROUP_LIMIT}
+              <div class="gv-caveat tone-info" role="status" data-testid="graph-grouped">
+                Every entity is drawn.
+                <button type="button" class="gv-more" data-testid="graph-group-again" onclick={() => { showEvery = false; openGroups = new Set(); }}>Group by team again</button>
+              </div>
+            {/if}
+            <NeighborhoodGraph neighborhood={shown} graph={grouped?.graph} focusKey={focusRef?.key || ''} {queryKey} onSelectNode={selectNodeById} onSelectEdge={selectEdgeByCyId} oncontrols={onControls} />
 
             <!-- Legend, and the canvas's filter: every item is a REAL canvas distinction.
                  Node kinds are shapes/borders; edge relation and reconciliation state are
@@ -684,6 +712,7 @@
   .lg-node { width: 16px; height: 12px; border: 1.5px solid var(--c-text-3); background: var(--c-surface); }
   .lg-service { border-radius: 3px; }
   .lg-revision { border-radius: 3px; border-style: dashed; }
+  .lg-team { border-radius: 3px; border-style: double; border-width: 3px; }
   .lg-target { border-radius: 50%; }
   .lg-group { color: var(--c-text-3); margin-left: var(--sp-2); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .lg-group:first-child { margin-left: 0; }

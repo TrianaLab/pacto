@@ -63,10 +63,24 @@ export interface GraphNode {
   // target perspective), 'revision' is a content-addressed revision. Absent = service.
   kind?: 'service' | 'revision' | 'target';
   edges?: GraphEdge[];
+  /** Hops from the focus (0 = the focus), when the answer says; it seeds the layout in
+   *  rings so a large neighborhood reads outward from its subject. */
+  depth?: number;
+  /** The owner the backend names, which orders a ring so a team sits together. */
+  owner?: string;
+  /** Set on a node that stands for this many entities of one team (see groupByOwner). */
+  group?: number;
 }
 
 export interface GraphData {
   nodes: GraphNode[];
+}
+
+/** fullName is the whole name a node's label may cut, for its hover title. */
+export function fullName(node: { id: string; serviceName?: string; version?: string; group?: number }): string {
+  const raw = node.serviceName || node.id;
+  if (node.group) return `${raw}: ${node.group} entities. Select to show them.`;
+  return node.version ? `${raw} ${node.version}` : raw;
 }
 
 /** Computes the displayed label lines for a node: truncated name + version. */
@@ -264,6 +278,10 @@ export function buildElements(graphData: GraphData, focusId?: string): ElementDe
         id: n.id,
         serviceName: n.serviceName,
         label: version ? `${name}\n${version}` : name,
+        fullName: fullName(n),
+        owner: n.owner || '',
+        depth: n.depth ?? -1,
+        group: n.group ? 1 : 0,
         status: n.status,
         reason: n.reason || '',
         kind: n.kind || 'service',
@@ -307,7 +325,8 @@ export function buildElements(graphData: GraphData, focusId?: string): ElementDe
  * fail silently as "the filter does nothing".
  */
 export const LEGEND_SELECTORS: Record<string, string> = {
-  'kind:service': 'node[kind = "service"]',
+  'kind:service': 'node[kind = "service"][group = 0]',
+  'kind:group': 'node[group = 1]',
   'kind:revision': 'node[kind = "revision"]',
   'kind:target': 'node[kind = "target"]',
   'rel:dependency': 'edge[etype = "dependency"]',
@@ -328,6 +347,81 @@ export const LEGEND_SELECTORS: Record<string, string> = {
 // for seconds on Reset layout and showed nothing worth watching.
 export const ANIMATE_LAYOUT_MAX_NODES = 150;
 
+/** spread is how much further apart a graph of n nodes is laid out than a small one:
+ *  1 up to 40 nodes, then with the square root of the count. */
+export function spread(n: number): number {
+  return Math.max(1, Math.sqrt(n / 40));
+}
+
+/**
+ * seedPositions is where each node starts before the force layout refines it. fCoSE
+ * is seeded from the current positions (randomize: false), and a fresh graph has none,
+ * so every node started on the same point and a large neighborhood settled with boxes
+ * stacked in the middle. With hop depths (a focused neighborhood) the focus sits at the
+ * centre and each hop on a ring around it, ordered by owner so a team sits together;
+ * without them, a grid. Deterministic: the same graph always starts the same way.
+ */
+export function seedPositions(nodes: Array<{ id: string; depth?: number; owner?: string }>): Map<string, { x: number; y: number }> {
+  const out = new Map<string, { x: number; y: number }>();
+  const ranked = nodes.some((n) => (n.depth ?? -1) >= 0);
+  if (!ranked) {
+    const ids = nodes.map((n) => n.id).sort();
+    const cols = Math.max(1, Math.ceil(Math.sqrt(ids.length)));
+    ids.forEach((id, i) => out.set(id, { x: (i % cols) * 180, y: Math.floor(i / cols) * 140 }));
+    return out;
+  }
+  const rings = new Map<number, Array<{ id: string; owner?: string }>>();
+  for (const n of nodes) {
+    const d = (n.depth ?? -1) >= 0 ? n.depth! : 1;
+    rings.set(d, [...(rings.get(d) ?? []), n]);
+  }
+  let radius = 0;
+  for (const d of [...rings.keys()].sort((a, b) => a - b)) {
+    const ring = rings.get(d)!.sort((a, b) => (a.owner || '').localeCompare(b.owner || '') || a.id.localeCompare(b.id));
+    if (d === 0 && ring.length === 1) { out.set(ring[0].id, { x: 0, y: 0 }); continue; }
+    // Far enough out to clear the ring inside it, and round enough to fit its boxes.
+    radius = Math.max(radius + 260, (ring.length * (NODE_W + 40)) / (2 * Math.PI));
+    ring.forEach((n, i) => {
+      const a = (i * 2 * Math.PI) / ring.length;
+      out.set(n.id, { x: Math.round(Math.cos(a) * radius), y: Math.round(Math.sin(a) * radius) });
+    });
+  }
+  return out;
+}
+
+/** Past this many nodes a focused neighborhood is laid out in rows by hop instead of by
+ *  force: a dense neighborhood under a force layout packs into one overlapping knot. */
+export const RANKED_ROWS_MIN = 25;
+
+/**
+ * rankRows lays a focused neighborhood out in rows by hop from the focus: the focus on
+ * top, its direct neighbors under it, the next hop under them, each hop wrapped to the
+ * canvas width and ordered by owner so a team sits together. Nothing overlaps and the
+ * graph reads outward from its subject. Null when the nodes carry no hop depth.
+ */
+export function rankRows(nodes: Array<{ id: string; depth?: number; owner?: string }>, canvas: { width: number; height: number }): Map<string, { x: number; y: number }> | null {
+  if (!nodes.some((n) => (n.depth ?? -1) >= 0)) return null;
+  const step = NODE_W + 28;
+  // As many columns as make the whole graph about as wide as the canvas is, relative
+  // to its height, so a fit does not have to shrink it past legible.
+  const aspect = Math.max(1, canvas.width / Math.max(1, canvas.height));
+  const cols = Math.ceil(Math.sqrt((aspect * nodes.length * (NODE_H + 32)) / step));
+  const maxWidth = Math.max(canvas.width - 60, cols * step);
+  const ranked = [...nodes].sort((a, b) => rankOf(a) - rankOf(b) || (a.owner || '').localeCompare(b.owner || '') || a.id.localeCompare(b.id));
+  const pos = new Map<string, { x: number; y: number }>();
+  const inRank = new Map<number, number>();
+  for (const n of ranked) {
+    const r = rankOf(n);
+    const i = inRank.get(r) ?? 0;
+    inRank.set(r, i + 1);
+    pos.set(n.id, { x: i * step, y: r * 120 });
+  }
+  wrapWideRanks(pos, { nodeW: NODE_W, nodeH: NODE_H, nodesep: 28, ranksep: 70, maxWidth });
+  return pos;
+}
+
+const rankOf = (n: { depth?: number }) => ((n.depth ?? -1) >= 0 ? n.depth! : 1);
+
 export function cyLayout(layout: 'force' | 'layered', nodeCount = 0): LayoutOptions {
   if (layout === 'layered') {
     // Top-down dependency tree: roots on top → services → shared-infra sinks at the
@@ -344,9 +438,12 @@ export function cyLayout(layout: 'force' | 'layered', nodeCount = 0): LayoutOpti
     animationEasing: 'ease-out',
     fit: true,
     padding: 40,
-    nodeSeparation: 130,
-    idealEdgeLength: 110,
-    nodeRepulsion: 6500,
+    // A large neighborhood needs room in proportion: at 200 nodes the small-graph
+    // spacing packed boxes on top of each other in the middle.
+    nodeSeparation: 130 * spread(nodeCount),
+    idealEdgeLength: 110 * spread(nodeCount),
+    nodeRepulsion: 6500 * spread(nodeCount) ** 2,
+    numIter: nodeCount > ANIMATE_LAYOUT_MAX_NODES ? 1500 : 2500,
     packComponents: true,
     nodeDimensionsIncludeLabels: true,
     // fCoSE seeds from random positions by default, so the SAME graph laid out twice
@@ -527,6 +624,13 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
         'underlay-shape': 'round-rectangle',
       },
     },
+    {
+      // A team's entities folded into one node: a double border, so it never reads as
+      // one service. Selecting it opens the team.
+      selector: 'node[group = 1]',
+      style: { 'border-style': 'double', 'border-width': 4, 'font-weight': 600 },
+    },
+    { selector: 'edge.pacto-dense', style: { opacity: 0.16 } },
     { selector: 'node.pacto-faded', style: { opacity: 0.12 } },
     { selector: 'edge.pacto-faded', style: { opacity: 0.02 } },
     { selector: 'node.pacto-hot', style: { 'border-width': 3.5 } },
@@ -735,6 +839,9 @@ export function renderGraph(
   cy.on('mouseover', 'node', (evt) => {
     container.style.cursor = 'pointer';
     const n = evt.target as NodeSingular;
+    // The label may be cut; the whole name shows on hover. The text alternative below the
+    // canvas carries every full name for the keyboard.
+    container.title = n.data('fullName') || '';
     if (clickFocusId) return;
     cy.batch(() => cy.elements().removeClass(HL));
     spotlight(n);
@@ -744,6 +851,7 @@ export function renderGraph(
   });
   cy.on('mouseout', 'node', () => {
     container.style.cursor = 'default';
+    container.removeAttribute('title');
     if (clickFocusId) return;
     applyDimming(); // restore the resting owner/filter emphasis (batched, clears HL)
   });
@@ -900,6 +1008,20 @@ export function renderGraph(
   }
 
   function runLayout(): void {
+    const rows = layout === 'force' && cy.nodes().length > RANKED_ROWS_MIN
+      ? rankRows(liveNodes(), { width: cy.width() || 1000, height: cy.height() || 600 }) : null;
+    if (rows) {
+      // Many edges at the usual strength are a grey wash; at rest they are faint here and
+      // a hovered or selected node lights its own.
+      cy.batch(() => {
+        cy.nodes().forEach((n) => { const p = rows.get(n.id()); if (p) n.position(p); });
+        if (cy.edges().length > 80) cy.edges().addClass('pacto-dense');
+      });
+      fitView(0);
+      settle();
+      emitSpatial();
+      return;
+    }
     const l = cy.layout(cyLayout(layout, cy.nodes().length));
     l.one('layoutstop', () => {
       // Layered tree: fold any over-wide level into sub-rows sized to the CURRENT
@@ -922,8 +1044,17 @@ export function renderGraph(
     l.run();
   }
 
+  function liveNodes(): Array<{ id: string; depth: number; owner: string }> {
+    return cy.nodes().map((n) => ({ id: n.id(), depth: n.data('depth'), owner: n.data('owner') }));
+  }
+
+  function seed(): void {
+    const at = seedPositions(liveNodes());
+    cy.batch(() => cy.nodes().forEach((n) => { const p = at.get(n.id()); if (p) n.position(p); }));
+  }
+
   function layoutAndFit(): void {
-    if (restored.size === 0) { runLayout(); return; }
+    if (restored.size === 0) { if (layout === 'force') seed(); runLayout(); return; }
     // The user already arranged this exact graph query. Laying it out again would
     // discard that, so only the nodes the saved state did not know about are placed,
     // and the saved viewport (if any) is restored rather than re-fitted.
@@ -1001,6 +1132,7 @@ export function renderGraph(
         const { name, version } = nodeLabel(n);
         cn.data('status', n.status);
         cn.data('label', version ? `${name}\n${version}` : name);
+        cn.data('fullName', fullName(n));
         cn.data('serviceName', n.serviceName);
         cn.data('kind', n.kind || 'service');
       }
@@ -1041,6 +1173,14 @@ export function renderGraph(
     patchData(next);
     const fresh = new Set<string>();
     cy.nodes().forEach((n) => { if (!before.has(n.id())) fresh.add(n.id()); });
+    // A team opened or folded again reshapes the graph the reader asked for, so a graph
+    // laid out in rows is laid out again; a refresh that adds a node keeps everything put.
+    const regrouped = [...before].some((id) => id.startsWith('group:') && !keep.has(id)) || [...fresh].some((id) => id.startsWith('group:'));
+    if (regrouped && layout === 'force' && cy.nodes().length > RANKED_ROWS_MIN) {
+      fresh.forEach((id) => restored.add(id));
+      runLayout();
+      return;
+    }
     placeNewNodes(fresh);
     fresh.forEach((id) => restored.add(id)); // now arranged; a later refresh must keep it
     if (filterFn) applyFilter(filterFn);
@@ -1056,13 +1196,7 @@ export function renderGraph(
   function resetLayout(): void {
     restored.clear();
     userAdjusted = false;
-    const ids: string[] = [];
-    cy.nodes().forEach((n) => { ids.push(n.id()); });
-    ids.sort();
-    const cols = Math.max(1, Math.ceil(Math.sqrt(ids.length)));
-    cy.batch(() => ids.forEach((id, i) => {
-      cy.getElementById(id).position({ x: (i % cols) * 180, y: Math.floor(i / cols) * 140 });
-    }));
+    seed();
     runLayout();
   }
 

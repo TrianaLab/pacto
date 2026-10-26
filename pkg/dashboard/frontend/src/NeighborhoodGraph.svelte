@@ -16,7 +16,7 @@
   // every saved arrangement is stored under. It is NOT what decides a rebuild: the data
   // never does either, and neither does a change of depth or direction. See `instanceKey`.
   let {
-    neighborhood = null, focusKey = '', queryKey = '',
+    neighborhood = null, graph = null, focusKey = '', queryKey = '',
     onSelectNode, onSelectEdge, oncontrols,
   } = $props();
 
@@ -54,7 +54,9 @@
 
   function init() {
     if (!containerEl) return;
-    const gd = neighborhoodToGraph(neighborhood);
+    // graph: the caller's own projection of the neighborhood (GraphView folds a large one
+    // by team); otherwise every returned node and edge.
+    const gd = graph ?? neighborhoodToGraph(neighborhood);
     const topo = `${topoSignature(gd)}||${focusKey}`;
     const pres = presentationSignature(gd);
 
@@ -157,7 +159,7 @@
   onMount(() => () => { if (instance) instance.destroy(); });
 
   $effect(() => {
-    const _ = [neighborhood, focusKey, queryKey, instanceKey, containerEl]; // track re-render inputs
+    const _ = [neighborhood, graph, focusKey, queryKey, instanceKey, containerEl]; // track re-render inputs
     if (containerEl) init();
   });
 

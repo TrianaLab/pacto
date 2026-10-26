@@ -156,8 +156,8 @@ function parseFleet(path: string, query: string): Route {
     // route: perspective, knowledge views, direction, depth and the
     // focus (kind/sel). The former domain/scope/owner/status/source/freshness params
     // were placebo URL state no view or backend consumed, so they are not parsed.
-    // maxNodes too: "Show up to 150" writes it, and dropping it here made the button a
-    // no-op that left the graph at 60.
+    // maxNodes too: "Show up to 100" writes it, and dropping it here made the button a
+    // no-op that left the graph at the default.
     for (const k of ['perspective', 'views', 'direction', 'depth', 'sel', 'kind', 'maxNodes']) {
       const v = qs.get(k);
       if (v) params[k] = v;
@@ -553,7 +553,7 @@ export function fleetGraphFocusUrl(kind: string, key: string, state: Omit<GraphS
   if (state.depth && state.depth !== 1) qs.set('depth', String(state.depth));
   // 60 is the backend default, so it is the URL's default too: only a raised node
   // budget is worth carrying, and a canonical URL stays short.
-  if (state.maxNodes && state.maxNodes !== 60) qs.set('maxNodes', String(state.maxNodes));
+  if (state.maxNodes && state.maxNodes !== 40) qs.set('maxNodes', String(state.maxNodes)); // 40: graphState's DEFAULT_MAX_NODES
   const base = `#/fleet/graph/${encodeURIComponent(kind)}/${encodeURIComponent(key)}`;
   const str = qs.toString();
   return str ? `${base}?${str}` : base;

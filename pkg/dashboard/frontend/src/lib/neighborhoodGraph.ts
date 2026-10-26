@@ -79,6 +79,8 @@ export function neighborhoodToGraph(nb: NeighborhoodLike | null | undefined): Gr
       status: n.status || n.ref.status || 'Unknown',
       kind: nodeKind(n.ref.kind),
       edges: [],
+      ...(typeof n.depth === 'number' ? { depth: n.focus ? 0 : n.depth } : n.focus ? { depth: 0 } : {}),
+      ...(n.owner ? { owner: n.owner } : {}),
     };
     nodes.push(g);
     byKey.set(g.id, g);
@@ -125,4 +127,85 @@ export function presentationSignature(gd: GraphData): string {
     .flatMap((n) => (n.edges || []).map((e) => `${n.id}>${e.targetId}:${e.type || 'dependency'}:${e.edgeState || ''}`))
     .sort().join(',');
   return `${ns}||${es}`;
+}
+
+/** Past this many entities a neighborhood folds the ones beyond the direct neighbors
+ *  into one node per team: 200 boxes on one canvas read as a mass, not a graph. */
+export const GROUP_THRESHOLD = 40;
+
+/** The id prefix of a node that stands for one team's entities. */
+export const GROUP_PREFIX = 'group:';
+
+export interface Grouping {
+  /** Owners whose group the reader opened. */
+  open?: ReadonlySet<string>;
+  /** Show every entity, grouping nothing. */
+  all?: boolean;
+  threshold?: number;
+}
+
+export interface GroupedGraph {
+  graph: GraphData;
+  /** The groups drawn, largest first, and how many entities each stands for. */
+  groups: Array<{ owner: string; count: number }>;
+  /** How many entities the groups fold away. */
+  folded: number;
+}
+
+/** The owner a group is keyed by; an entity with none groups as "No owner". */
+const ownerOf = (n: GraphNode) => n.owner || 'No owner';
+
+/**
+ * groupByOwner folds a large neighborhood so it stays readable: past the threshold,
+ * the entities beyond the direct neighbors (and the direct neighbors too, when they
+ * alone are past it) become one node per owner, with an edge wherever one of its
+ * entities had one. The focus is never folded, a team of one is never folded and an
+ * opened team shows its entities. It hides nothing from the text alternative: the
+ * Relationships list still names every entity.
+ */
+export function groupByOwner(gd: GraphData, { open = new Set(), all = false, threshold = GROUP_THRESHOLD }: Grouping = {}): GroupedGraph {
+  if (all || gd.nodes.length <= threshold) return { graph: gd, groups: [], folded: 0 };
+  const far = (n: GraphNode) => (n.depth ?? 1) >= 2;
+  const near = (n: GraphNode) => (n.depth ?? 1) === 1;
+  // Fold the far ring; if the near ring alone is still too many, fold it as well.
+  const foldNear = gd.nodes.filter((n) => !far(n)).length > threshold;
+  const candidates = gd.nodes.filter((n) => (far(n) || (foldNear && near(n))) && !open.has(ownerOf(n)));
+  const members = new Map<string, GraphNode[]>();
+  for (const n of candidates) members.set(ownerOf(n), [...(members.get(ownerOf(n)) ?? []), n]);
+  const rep = new Map<string, string>(); // entity id -> the id that stands for it
+  const groups: GroupedGraph['groups'] = [];
+  const nodes: GraphNode[] = [];
+  for (const [owner, ms] of members) {
+    if (ms.length < 2) continue;
+    const id = GROUP_PREFIX + owner;
+    for (const m of ms) rep.set(m.id, id);
+    groups.push({ owner, count: ms.length });
+    nodes.push({ id, serviceName: owner, version: `${ms.length} entities`, status: 'group', kind: 'service', owner,
+      depth: Math.min(...ms.map((m) => m.depth ?? 1)), group: ms.length, edges: [] });
+  }
+  if (!groups.length) return { graph: gd, groups: [], folded: 0 };
+  const byId = new Map<string, GraphNode>();
+  for (const n of gd.nodes) {
+    if (rep.has(n.id)) continue;
+    const kept = { ...n, edges: [] as GraphEdge[] };
+    nodes.push(kept);
+    byId.set(n.id, kept);
+  }
+  for (const g of nodes) if (g.group) byId.set(g.id, g);
+  const seen = new Set<string>();
+  for (const n of gd.nodes) {
+    for (const e of n.edges ?? []) {
+      const from = rep.get(n.id) ?? n.id;
+      const to = rep.get(e.targetId) ?? e.targetId;
+      if (from === to || !byId.has(to)) continue; // inside one team, or not drawn
+      const key = `${from}>${to}:${e.type || 'dependency'}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      // One edge for many: it keeps a state only when it is an entity's own edge.
+      const folded = from !== n.id || to !== e.targetId;
+      byId.get(from)!.edges!.push(folded ? { targetId: to, type: e.type } : { ...e });
+    }
+  }
+  groups.sort((a, b) => b.count - a.count || a.owner.localeCompare(b.owner));
+  return { graph: { nodes }, groups, folded: candidates.filter((n) => rep.has(n.id)).length };
 }

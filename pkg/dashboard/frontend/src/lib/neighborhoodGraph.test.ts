@@ -6,7 +6,7 @@
  * node the backend did not return.
  */
 import { describe, it, expect } from 'vitest';
-import { neighborhoodToGraph, cyEdgeId, edgeState, topoSignature, presentationSignature } from './neighborhoodGraph.ts';
+import { neighborhoodToGraph, cyEdgeId, edgeState, topoSignature, presentationSignature, groupByOwner, GROUP_THRESHOLD } from './neighborhoodGraph.ts';
 import type { GraphData } from './graph.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -162,5 +162,67 @@ describe('neighborhoodToGraph — revision labels', () => {
       edges: [],
     } as never);
     expect(g.nodes[0]).toMatchObject({ serviceName: 'payments-ledger-replica', version: '12.4.0' });
+  });
+});
+
+describe('groupByOwner', () => {
+  // A focus, `near` direct neighbors and `far` second-hop entities split over owners.
+  const graph = (near: number, far: number, owners = ['team-a', 'team-b']): GraphData => {
+    const nodes: GraphData['nodes'] = [{ id: 'focus', serviceName: 'focus', status: 'Compliant', depth: 0, edges: [] }];
+    for (let i = 0; i < near; i++) nodes.push({ id: `n${i}`, serviceName: `n${i}`, status: 'Compliant', depth: 1, owner: owners[i % owners.length], edges: [{ targetId: 'focus' }] });
+    for (let i = 0; i < far; i++) nodes.push({ id: `f${i}`, serviceName: `f${i}`, status: 'Compliant', depth: 2, owner: owners[i % owners.length], edges: [{ targetId: `n${i % Math.max(1, near)}`, edgeState: 'matched' }] });
+    return { nodes };
+  };
+
+  it('leaves a graph at or under the threshold alone', () => {
+    const g = graph(10, GROUP_THRESHOLD - 11);
+    expect(groupByOwner(g)).toEqual({ graph: g, groups: [], folded: 0 });
+    expect(groupByOwner(graph(10, 60), { all: true }).groups).toEqual([]);
+  });
+
+  it('folds the entities past the direct neighbors into one node per team, with folded edges', () => {
+    const { graph: out, groups, folded } = groupByOwner(graph(4, 60));
+    expect(groups).toEqual([{ owner: 'team-a', count: 30 }, { owner: 'team-b', count: 30 }]);
+    expect(folded).toBe(60);
+    const ids = out.nodes.map((n) => n.id);
+    expect(ids).toContain('focus');
+    expect(ids.filter((id) => /^n\d/.test(id))).toHaveLength(4);
+    expect(ids.some((id) => /^f\d/.test(id))).toBe(false);
+    const a = out.nodes.find((n) => n.id === 'group:team-a')!;
+    expect(a).toMatchObject({ serviceName: 'team-a', version: '30 entities', group: 30, depth: 2 });
+    // One edge per team and neighbor, never a state it cannot vouch for for every entity.
+    expect(a.edges).toEqual([{ targetId: 'n0', type: undefined }, { targetId: 'n2', type: undefined }]);
+  });
+
+  it('folds the direct neighbors too when they alone are past the threshold, but never the focus or a team of one', () => {
+    const g = graph(GROUP_THRESHOLD + 5, 0, ['team-a', 'team-b', 'solo']);
+    g.nodes[g.nodes.length - 1].owner = 'only-me'; // a team of one stays itself
+    const { graph: out, groups } = groupByOwner(g);
+    expect(groups.map((x) => x.owner)).toEqual(['team-a', 'team-b', 'solo']);
+    expect(out.nodes.map((n) => n.id)).toEqual(expect.arrayContaining(['focus', `n${GROUP_THRESHOLD + 4}`]));
+    // Edges inside one team vanish; edges to the focus keep it.
+    expect(out.nodes.find((n) => n.id === 'group:team-a')!.edges).toEqual([{ targetId: 'focus', type: undefined }]);
+  });
+
+  it('shows an opened team as its entities, and keeps an entity edge between two shown entities as it is', () => {
+    const { graph: out, groups } = groupByOwner(graph(4, 60), { open: new Set(['team-a']) });
+    expect(groups.map((x) => x.owner)).toEqual(['team-b']);
+    expect(out.nodes.find((n) => n.id === 'f0')!.edges).toEqual([{ targetId: 'n0', edgeState: 'matched' }]);
+  });
+
+  it('groups entities with no owner together and returns the graph as it is when nothing folds', () => {
+    const g = graph(2, 50, ['']);
+    expect(groupByOwner(g).groups).toEqual([{ owner: 'No owner', count: 50 }]);
+    const singles = graph(2, 50, Array.from({ length: 50 }, (_, i) => `t${i}`));
+    expect(groupByOwner(singles)).toEqual({ graph: singles, groups: [], folded: 0 });
+  });
+
+  it('reads hop depth and owner from the neighborhood', () => {
+    const g = neighborhoodToGraph({ nodes: [
+      { ref: { kind: 'service', key: 'a', label: 'a' }, focus: true, depth: 0 },
+      { ref: { kind: 'service', key: 'b', label: 'b' }, depth: 2, owner: 'team-b' },
+      { ref: { kind: 'service', key: 'c', label: 'c' } },
+    ] } as never);
+    expect(g.nodes.map((n) => [n.depth, n.owner])).toEqual([[0, undefined], [2, 'team-b'], [undefined, undefined]]);
   });
 });

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import cytoscape from 'cytoscape';
-import { extractSubgraph, nodeLabel, buildVersionSubgraph, renderGraph, buildElements, cyLayout, LEGEND_SELECTORS, type GraphData } from './graph.ts';
+import { extractSubgraph, nodeLabel, buildVersionSubgraph, renderGraph, buildElements, cyLayout, LEGEND_SELECTORS, fullName, spread, seedPositions, rankRows, type GraphData } from './graph.ts';
 
 const sampleGraph = {
   nodes: [
@@ -291,6 +291,7 @@ describe('renderGraph (Cytoscape)', () => {
       { id: 'eno', serviceName: 'eno', status: 'Compliant', kind: 'service', edges: [] },
       { id: 'dri', serviceName: 'dri', status: 'Compliant', kind: 'service', edges: [] },
       { id: 'ins', serviceName: 'ins', status: 'Compliant', kind: 'service', edges: [] },
+      { id: 'group:team', serviceName: 'team', status: 'group', kind: 'service', group: 3, edges: [] },
     ] };
     const cy = cytoscape({ elements: buildElements(all) });
     for (const [key, selector] of Object.entries(LEGEND_SELECTORS)) {
@@ -367,5 +368,53 @@ describe('renderGraph (Cytoscape)', () => {
     expect(ctrl.spatialState()).toEqual(before);
     expect(ctrl.nodes).toHaveLength(2);
     ctrl.destroy();
+  });
+});
+
+describe('large neighborhoods', () => {
+  it('names a node in full for its hover title, and says what a team node holds', () => {
+    expect(fullName({ id: 'x', serviceName: 'a-very-long-service-name-indeed' })).toBe('a-very-long-service-name-indeed');
+    expect(fullName({ id: 'x', serviceName: 'payments', version: '1.2.0' })).toBe('payments 1.2.0');
+    expect(fullName({ id: 'group:t', serviceName: 'team-a', group: 7 })).toBe('team-a: 7 entities. Select to show them.');
+    const els = buildElements({ nodes: [{ id: 'a', serviceName: 'a-very-long-service-name-indeed', status: 'Compliant', depth: 1, owner: 'o' }] });
+    expect(els[0].data).toMatchObject({ fullName: 'a-very-long-service-name-indeed', depth: 1, owner: 'o', group: 0 });
+  });
+
+  it('spreads a large graph out with the square root of its size', () => {
+    expect(spread(10)).toBe(1);
+    expect(spread(160)).toBe(2);
+    const small = cyLayout('force', 10) as unknown as { nodeRepulsion: number };
+    const big = cyLayout('force', 160) as unknown as { nodeRepulsion: number; numIter: number };
+    expect(big.nodeRepulsion).toBe(small.nodeRepulsion * 4);
+    expect(big.numIter).toBe(1500);
+  });
+
+  it('seeds a focused neighborhood in rings by hop, ordered by owner, and anything else on a grid', () => {
+    const at = seedPositions([
+      { id: 'focus', depth: 0 }, { id: 'b', depth: 1, owner: 'z' }, { id: 'a', depth: 1, owner: 'y' }, { id: 'c', depth: 2 }, { id: 'u' },
+    ]);
+    expect(at.get('focus')).toEqual({ x: 0, y: 0 });
+    const r = (id: string) => Math.hypot(at.get(id)!.x, at.get(id)!.y);
+    // An unknown hop sits with the direct neighbors; no owner sorts first, then y, then z.
+    expect(Math.round(r('a'))).toBe(260);
+    expect(Math.round(r('u'))).toBe(260);
+    expect(at.get('u')).toEqual({ x: 260, y: 0 });
+    expect(at.get('a')!.y).toBeGreaterThan(0);
+    expect(r('c')).toBeGreaterThan(r('a'));
+    expect([...seedPositions([{ id: 'b' }, { id: 'a' }]).entries()]).toEqual([['a', { x: 0, y: 0 }], ['b', { x: 180, y: 0 }]]);
+    // A ring of two focuses still goes round, not on top of each other.
+    expect(seedPositions([{ id: 'p', depth: 0 }, { id: 'q', depth: 0 }]).get('q')!.x).toBeLessThan(0);
+  });
+
+  it('lays a large neighborhood out in rows by hop that never overlap', () => {
+    expect(rankRows([{ id: 'a' }], { width: 1000, height: 500 })).toBeNull();
+    const nodes = [{ id: 'focus', depth: 0 }, ...Array.from({ length: 60 }, (_, i) => ({ id: `n${i}`, depth: 1 + (i % 2), owner: `t${i % 3}` }))];
+    const pos = rankRows(nodes, { width: 1000, height: 500 })!;
+    expect(pos.size).toBe(61);
+    const ys = (d: number) => nodes.filter((n) => n.depth === d).map((n) => pos.get(n.id)!.y);
+    expect(Math.max(...ys(0))).toBeLessThan(Math.min(...ys(1)));
+    expect(Math.max(...ys(1))).toBeLessThan(Math.min(...ys(2)));
+    const keys = new Set([...pos.values()].map((p) => `${Math.round(p.x)},${Math.round(p.y)}`));
+    expect(keys.size).toBe(61);
   });
 });

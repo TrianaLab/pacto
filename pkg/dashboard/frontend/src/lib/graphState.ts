@@ -24,11 +24,12 @@ export const MAX_DEPTH = 6;
 
 // How many nodes one answer may carry, and the rungs the reader can climb. The
 // backend defaults to 60 and caps at 500 (fleet.DefaultMaxNodes / MaxNeighborhoodNodes),
-// so every rung here is one the backend honours. 60 is a graph you can read and 200 is
-// the most a canvas still reads as anything but a mass; 500 was offered and drew
-// exactly that mass, so the rungs stop at 200.
-export const DEFAULT_MAX_NODES = 60;
-export const MAX_NODES_STEPS = [60, 150, 200] as const;
+// so every rung here is one the backend honours. 40 is a graph you can read at a glance
+// (past it the canvas folds the far entities by team, see groupByOwner) and 200 is the
+// most a canvas still reads as anything but a mass; 500 was offered and drew exactly
+// that mass, so the rungs stop at 200.
+export const DEFAULT_MAX_NODES = 40;
+export const MAX_NODES_STEPS = [40, 100, 200] as const;
 export const MAX_NODES = MAX_NODES_STEPS[MAX_NODES_STEPS.length - 1];
 
 export interface GraphState {
