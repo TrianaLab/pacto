@@ -4,9 +4,9 @@ To pactify a service is to give it a Pacto contract and let Pacto check every
 new version before it runs. A contract is one file, `pacto.yaml`, kept next to
 your code. It says what the service offers, which other services it calls and
 how it is built and run. This guide takes a plain service to its first gated
-release: one Pacto checks before it reaches production. Every command of that
-path is on this page, except the one-time setup that lets people approve,
-which your cluster admin does; the links are reference. To see where it leads first,
+release: one Pacto checks before it reaches production. Every command is on
+this page except the one-time approval setup of the cluster; the links are
+reference. To see where it leads first,
 with nothing to install, press **Play the delivery story** in the
 [live dashboard demo](examples/dashboard-demo.md); it runs in your browser.
 
@@ -32,17 +32,13 @@ You need:
   registry does not, so on `ghcr.io` you get no records;
 - `cosign`, once, to make a signing key: `brew install cosign`, or
   `go install github.com/sigstore/cosign/v2/cmd/cosign@latest`;
-- for step 4, a Kubernetes cluster (1.30 or later), `kubectl` and `helm`. For
-  a person to approve a held change, the cluster must be able to tell how
-  recently that person signed in to your company login. That is tested on
-  kind and not verified yet on EKS, GKE and AKS. Where it does not work,
-  nobody can approve, so prod, which asks a person for every version, never
-  moves: see [where approving works](integrations/kubernetes/delivery-identity.md#where-approving-works).
-  Setting that up is a one-time job for whoever runs the cluster, maybe you:
+- for step 4, a Kubernetes cluster (1.30 or later), `kubectl` and `helm`.
+  People approve with a fresh company login, which needs a one-time cluster
+  setup, maybe by you:
   [the cluster trusts your identity provider](integrations/kubernetes/delivery-identity.md#the-cluster-trusts-your-identity-provider).
-  `pacto delivery approve` then signs you in with that same login, which is
-  how the cluster knows who you are. Until it is done, everything on this page
-  works except approving: prod waits.
+  It is tested on kind, not yet on EKS, GKE and AKS. Until it works,
+  everything here works except approving, so prod waits; see
+  [where approving works](integrations/kubernetes/delivery-identity.md#where-approving-works).
 
 You do not write the contract by hand: Pacto writes it from your service.
 
@@ -57,8 +53,8 @@ pacto init --delivery --plan
 `pacto init` reads what is already there, such as the Dockerfile and the
 Kubernetes files, and fills in a contract from it. It reads your registry from
 the image name in your Deployment; pass `--registry ghcr.io/acme` if it cannot,
-or if the image is a bare name such as `checkout`, which means a Docker Hub
-official image nobody but Docker can push to.
+or if the image is a bare name such as `checkout`: a Docker Hub official
+image only Docker can push to.
 `--delivery` adds the cluster files of step 4, so the first version you publish
 already carries them. With `--plan` it shows exactly what it would add and
 changes nothing. For a private registry, add `--registry-secret registry-creds`
@@ -68,7 +64,7 @@ transparency log, add `--no-transparency-log`.
 
 The plan lists the services yours depends on, what Pacto could not work out,
 marked Unknown, and a **Next** list of what to do after. Unknown is not an
-error. It is a question Pacto will not guess the answer to.
+error but a question Pacto will not guess.
 
 ## 2. Write the contract
 
@@ -80,13 +76,11 @@ pacto validate
 echo cosign.key >> .gitignore
 ```
 
-`--owner` names the team that owns the service. Use the name of that team's
-group in your company login: its members are the people Pacto asks about this
-service, in the dashboard and with `pacto delivery` (see
-[Decide, unfreeze and roll back](pactify-decide.md)). `init` writes `pacto.yaml`, the `delivery/` folder and a
-`.pactoignore` file that keeps the signing key out of what is published.
-`pacto validate` checks the contract is well formed. Running `pacto init` again
-never overwrites your edits. For an image `ghcr.io/acme/my-service:1.0.0` and
+`--owner` names the team that owns the service: the name of its group in your
+company login, whose members Pacto asks about this service
+([Decide, unfreeze and roll back](pactify-decide.md)). `init` writes
+`pacto.yaml`, the `delivery/` folder and a `.pactoignore` that keeps the
+signing key out of what is published, and never overwrites your edits. For an image `ghcr.io/acme/my-service:1.0.0` and
 the files `k8s/deployment.yaml` and `k8s/service.yaml`, the contract is:
 
 ```yaml
@@ -117,30 +111,21 @@ publish:
   sign: {key: cosign.key}
 ```
 
-You do not need to edit the long `command` line: `init` wrote it. The
-manifests build swaps the image in your Deployment for the one this
-version just built, pinned by its digest, so each version runs its own image.
-It does the same in every other manifest that runs that image, such as a
-CronJob, and lists any file it cannot rewrite. Your `k8s/deployment.yaml` stays as it is.
+You never edit the long `command` line. It copies your Kubernetes files with
+the image pinned to the digest this version built, in every manifest that runs
+it, and names any file it cannot rewrite. `k8s/deployment.yaml` stays as it is.
 
-Fill in what the plan marked Unknown, above all the dependencies: uncomment one
-entry per service yours calls and set `compatibility` to the versions it
-accepts, such as `^2.0.0` for any 2.x. This is called a version range, and it is
-what lets Pacto ask the right team about a change. Add an entry only for a
-service whose contract is already published; leave the others commented out
-until their teams pactify them. If your service has an OpenAPI document and
-the contract has no `interfaces` block, add one as
-[Put it in your repository](ci.md#declare-your-api-first) shows: `pacto diff`
-and delivery see API changes only in the interfaces the contract declares. Every field is in
-[Publish](contract-reference/publish.md) and
-[Dependencies](contract-reference/dependencies-and-state.md). If your images
-are private, also add `imagePullSecrets: [{name: registry-creds}]` under
-`spec.template.spec` in your Deployment; step 4 creates that Secret. If the
-contract and deploy repositories are private too, run `pacto init` with
-`--registry-secret registry-creds` as step 1 says. If you declared
-dependencies, run `pacto lock .` to pin them (see [Lockfile](lockfile.md)).
-Commit `pacto.yaml`, `.pactoignore`, `.gitignore`, `delivery/` and
-`pacto.lock` if you made one.
+Fill in what the plan marked Unknown, above all the dependencies: uncomment
+one entry per service yours calls whose contract is published, and set
+`compatibility` to the versions it accepts, such as `^2.0.0` for any 2.x. This
+version range lets Pacto ask the right team about a change. Declare an OpenAPI
+document under `interfaces` ([how](ci.md#declare-your-api-first)): Pacto sees
+API changes only there. Every field is in [Publish](contract-reference/publish.md)
+and [Dependencies](contract-reference/dependencies-and-state.md). For private
+images, add `imagePullSecrets: [{name: registry-creds}]` under
+`spec.template.spec` in your Deployment. With dependencies, run `pacto lock .`
+([Lockfile](lockfile.md)). Commit `pacto.yaml`, `.pactoignore`, `.gitignore`,
+`delivery/` and any `pacto.lock`.
 
 ## 3. Publish a version
 
@@ -202,11 +187,10 @@ done
 kubectl apply -f delivery/test.yaml -f delivery/prod.yaml
 ```
 
-`registry-creds` is the pull Secret your Deployment names since step 2 and,
-with `--registry-secret registry-creds`, the login Flux and the operator read
-the contract and deploy repositories with. A token that can only read is
-enough (on GitHub, `read:packages`). See [Private registries](integrations/kubernetes/limitations.md#delivery-and-private-registries)
-for what each login is for.
+`registry-creds` is the pull Secret your Deployment names and, with
+`--registry-secret`, the login Flux and the operator read your repositories
+with. A read-only token is enough (on GitHub, `read:packages`); see
+[Private registries](integrations/kubernetes/limitations.md#delivery-and-private-registries).
 
 Each `delivery/<env>.yaml` holds a Stage, which is one service in one
 environment and holds which version runs there, and the Flux pieces that watch
@@ -277,9 +261,6 @@ of that service asks your team. A service with no contract stays a comment.
 Drafts are never published, and an invalid one fails the command. The MCP tool
 takes `paths`, `cluster` and `namespaces`, and only plans unless `dry_run` is
 false.
-
-When a change waits for you, an environment freezes or you want a version
-gone, see [Decide, unfreeze and roll back](pactify-decide.md).
 
 ## Where next
 

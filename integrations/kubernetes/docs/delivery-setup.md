@@ -26,11 +26,11 @@ without the `ValidatingAdmissionPolicy` API and
 `delivery.admissionPolicies.allowUnguarded=true`. With `helm template`, pass
 `--api-versions admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy`.
 The promoter checks every policy the chart rendered. While one is missing,
-does not fail closed or has a binding that does not deny, binds another policy
+does not fail closed, has a binding that does not deny, binds another policy
 or is narrowed by `matchResources` or `paramRef`, it admits no operation and
-counts no approval; the operation and the Stage's `Ready` show `Unguarded`.
+counts no approval, and shows `Unguarded`.
 
-To run an unreleased change, from the repository root:
+To run an unreleased build, from the repository root:
 
 ```bash
 docker build -f integrations/kubernetes/Dockerfile --target delivery --build-arg CMD=cmd/delivery \
@@ -45,9 +45,9 @@ helm upgrade --install pacto-operator integrations/kubernetes/charts/pacto-opera
 The promoter and the recorder serve Prometheus metrics over plain HTTP on
 port 8080. The promoter's are behind the `<release>-delivery-metrics` Service; set
 `delivery.metrics.serviceMonitor.enabled=true` to create a Prometheus Operator
-ServiceMonitor for it. The recorder's are behind their own Service, which
-`delivery.recorder.monitoring.enabled=true` creates with its ServiceMonitor and
-alerts ([Delivery records](delivery-records.md)).
+ServiceMonitor for it. `delivery.recorder.monitoring.enabled=true` gives the
+recorder's their own Service, ServiceMonitor and
+[alerts](delivery-records.md).
 
 | Metric | What it counts |
 |--------|----------------|
@@ -110,9 +110,9 @@ flowchart LR
 
 Only six built-in operation types exist: promote, rollback, override, freeze,
 unfreeze and autonomy, which moves the Stage up or down
-[the autonomy ladder](../../autonomy.md). A freeze stops automation on the version the Stage runs until a
-person unfreezes it; the promoter raises one when a check after release fails
-and it cannot roll back. Stage approval policy is `approval.always`, not an expression.
+[the autonomy ladder](../../autonomy.md). The promoter freezes a Stage when a
+check after release fails and it cannot roll back. Stage approval policy is
+`approval.always`, not an expression.
 
 ## What the pointer guarantees
 
@@ -244,8 +244,8 @@ a login older than its login freshness (`delivery.promoter.authFreshness`, 15 mi
 by default), an approval from the operation's own actor or
 whoever it acts for, one from outside the teams asked, one given before the
 question was last asked, an accepted unknown where an approval is needed or an
-approval once the version shipped. The operation's `status.message` names the
-Approval and why it does not count. Once given, an Approval's spec cannot
+approval once the version shipped. The operation's `status.message` says why
+an Approval does not count. Once given, an Approval's spec cannot
 change; the promoter makes its operation its owner, so deleting the operation
 deletes its Approvals. A break-glass edit of the pointer is never undone: it
 is recorded as a witnessed override and the Stage freezes.
