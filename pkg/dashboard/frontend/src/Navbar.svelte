@@ -159,7 +159,7 @@
     <a href={homeHref} class="navbar-brand" onclick={spinLogo}>
       <svg class="brand-mark" data-motion viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M10 6 5 12 10 18"/><path d="M14 6 19 12 14 18"/><circle cx="12" cy="12" r="1.9" fill="currentColor" stroke="none"/></svg>
       Pacto
-      {#if version}<span class="version-tag">{version}</span>{/if}
+      {#if version}<span class="version-tag" title={version}>{version}</span>{/if}
     </a>
   </div>
 
@@ -289,6 +289,8 @@
     font-size: var(--text-xs); font-weight: 500; color: var(--c-text-3);
     background: var(--c-bg); border: 1px solid var(--c-border);
     padding: 2px 8px; border-radius: 100px;
+    /* A long build string must never push the menu button off a phone screen. */
+    max-width: 12ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .navbar-nav {
     display: flex; align-items: center; gap: 2px; flex-shrink: 0;
@@ -400,7 +402,7 @@
     flex-direction: column; justify-content: center; gap: 4px;
     width: 36px; height: 36px;
     background: none; border: none; cursor: pointer; padding: 8px;
-    margin-left: auto;
+    margin-left: auto; flex-shrink: 0;
   }
   .hamburger span {
     display: block; width: 100%; height: 2px;
@@ -439,8 +441,11 @@
     display: flex; flex-wrap: wrap; gap: var(--sp-2);
   }
 
-  /* ─── Mobile ─── */
-  @media (max-width: 768px) {
+  /* ─── Collapsed ─── */
+  /* The full bar (brand, five tabs, search, sources and three buttons) needs about
+     1,130px; collapsing at the phone breakpoint left Refresh, Theme and then Search
+     clipped and unreachable from 768 to 1,130px. */
+  @media (max-width: 1180px) {
     .navbar {
       padding: 0 var(--sp-4);
       gap: var(--sp-2);
@@ -461,5 +466,8 @@
     .search-trigger { width: var(--touch-min); min-width: 0; padding: 0; justify-content: center; }
     .search-trigger .search-icon { position: static; transform: none; }
     .search-trigger-text { display: none; }
+  }
+  @media (max-width: 480px) {
+    .version-tag { display: none; }
   }
 </style>

@@ -107,3 +107,24 @@ for (const w of WIDTHS) {
     });
   });
 }
+
+// Every navbar control stays on screen. The bar used to collapse only at 768px while
+// its full layout needed about 1,130px, so Refresh, Theme and Search were clipped and
+// unreachable in between, and a long version string pushed the menu button off a phone.
+for (const w of [390, 800, 1024, 1280]) {
+  test(`every navbar control is within the window @${w}px`, async ({ page }) => {
+    await page.setViewportSize({ width: w, height: 800 });
+    await page.goto('/#/fleet');
+    await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: 20_000 });
+    const outside = await page.evaluate(() => {
+      const bad: string[] = [];
+      for (const el of document.querySelectorAll<HTMLElement>('.navbar a, .navbar button')) {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || getComputedStyle(el).visibility === 'hidden') continue;
+        if (r.left < 0 || r.right > window.innerWidth + 1) bad.push(el.getAttribute('aria-label') || el.textContent?.trim() || el.tagName);
+      }
+      return bad;
+    });
+    expect(outside, `navbar controls off screen at ${w}px`).toEqual([]);
+  });
+}
