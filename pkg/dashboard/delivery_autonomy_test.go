@@ -84,6 +84,9 @@ func TestAutonomy(t *testing.T) {
 	}
 	expect(t, strings.Join(got, ",") == "missing-contract k8s:pay/Deployment/legacy,missing-contract k8s:web/CronJob/report,"+
 		"undeclared-range checkout,unlabelled-apply-ref payments", "one blocker per kind and subject, sorted: %v", got)
+	kinds, _ := json.Marshal(out["blockerKinds"])
+	expect(t, string(kinds) == `[{"count":2,"kind":"missing-contract"},{"count":1,"kind":"undeclared-range"},{"count":1,"kind":"unlabelled-apply-ref"}]`,
+		"how many of each kind, in page order: %s", kinds)
 	bl := out["blockers"].([]any)
 	legacy, rng := bl[0].(map[string]any), bl[2].(map[string]any)
 	expect(t, legacy["fix"].(map[string]any)["command"] == "pacto init --cluster --namespace pay --out ./pacto-drafts" &&

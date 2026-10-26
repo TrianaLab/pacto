@@ -29,6 +29,13 @@ type AutonomyBlocker struct {
 	Fix    *BlockerFix `json:"fix,omitempty"`
 }
 
+// BlockerKind is how many blockers of one kind match, over every page, so a
+// page that shows a few of them can say how many there are.
+type BlockerKind struct {
+	Kind  string `json:"kind"`
+	Count int    `json:"count"`
+}
+
 // BlockerFix is what a person copies to clear a blocker. The dashboard never
 // runs it.
 type BlockerFix struct {
@@ -147,6 +154,7 @@ type autonomyOutput struct {
 		Page                    Page              `json:"page" doc:"Which Stages this page holds"`
 		Blockers                []AutonomyBlocker `json:"blockers"`
 		BlockersPage            Page              `json:"blockersPage" doc:"Which blockers this page holds, grouped by kind"`
+		BlockerKinds            []BlockerKind     `json:"blockerKinds" doc:"How many blockers of each kind match, over every page, in page order"`
 	}
 }
 
@@ -175,6 +183,14 @@ func (s *Server) deliveryAutonomy(ctx context.Context, in *autonomyInput) (*auto
 		return matches(in.Q, append([]string{x.Kind, x.Subject}, x.Stages...)...)
 	})
 	b.Stages, b.Page = pageOf(rows, in.Offset, in.Limit, autonomyPage)
+	b.BlockerKinds = []BlockerKind{}
+	for _, x := range blockers { // sorted by kind, so one kind is one run
+		if n := len(b.BlockerKinds); n > 0 && b.BlockerKinds[n-1].Kind == x.Kind {
+			b.BlockerKinds[n-1].Count++
+		} else {
+			b.BlockerKinds = append(b.BlockerKinds, BlockerKind{Kind: x.Kind, Count: 1})
+		}
+	}
 	b.Blockers, b.BlockersPage = pageOf(blockers, in.Blockers, in.Limit, autonomyPage)
 	return out, nil
 }

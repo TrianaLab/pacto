@@ -118,17 +118,20 @@ describe('path to autonomy', () => {
   it('pages Stages and blockers apart, caps the Stages a blocker names and never rounds a share to 0%', async () => {
     fns.autonomy.mockResolvedValue({ ...page, contracted: { services: 1, uncontractedCallers: 300 },
       page: { total: 400, offset: 0, limit: 25 }, blockersPage: { total: 60, offset: 25, limit: 25 },
-      blockers: [{ kind: 'needs-verified', subject: 'payments', stages: Array.from({ length: 300 }, (_, i) => `ns/s${i}`) }] });
+      blockers: [{ kind: 'needs-verified', subject: 'payments', stages: Array.from({ length: 300 }, (_, i) => `ns/s${i}`) }],
+      blockerKinds: [{ kind: 'needs-verified', count: 60 }] });
     fns.plan.mockReturnValue(new Promise(() => {}));
     const { target, destroy } = render(DeliveryAutonomyView, { blockers: '25', q: 'pay' });
     await settle();
     expect(text(target.querySelector('[data-testid="autonomy-contracted"] .au-value')!)).toBe('<1%');
     expect(target.querySelector('[data-testid="autonomy-pager-next"]')?.getAttribute('href')).toBe('#/delivery/autonomy?offset=25&q=pay&blockers=25');
     expect(target.querySelector('[data-testid="autonomy-blockers-pager-next"]')?.getAttribute('href')).toBe('#/delivery/autonomy?q=pay&blockers=50');
-    const blocker = target.querySelector('[data-testid="autonomy-blockers"] > li')!;
+    const blocker = target.querySelector('[data-testid="autonomy-blockers"] li.au-blocker')!;
     expect(blocker.querySelectorAll('.au-stages li').length).toBe(3);
     expect(text(blocker)).toContain('On 300 Stages');
     expect(text(blocker)).toContain('Show all 300');
+    // A kind counts over every page, not only the blockers this page shows.
+    expect(text(target.querySelector('[data-testid="blocker-kind-count"]')!)).toBe('60, 1 on this page');
     // Propose opens its plan in a row under the Stage it is for.
     (target.querySelector('button[aria-label^="Propose"]') as HTMLButtonElement).click();
     await settle();
@@ -143,10 +146,15 @@ describe('path to autonomy', () => {
     const { target, destroy } = render(DeliveryAutonomyView);
     await settle();
     const list = target.querySelector('[data-testid="autonomy-blockers"]')!;
-    const items = [...list.querySelectorAll(':scope > li')];
-    expect(text(items[0])).toContain('No contract: k8s:pay/Deployment/legacy');
+    const items = [...list.querySelectorAll('li.au-blocker')];
+    // Grouped by kind, one line per blocker that opens to its detail.
+    const groups = [...list.querySelectorAll('section.au-group')];
+    expect(groups.map((g) => text(g.querySelector('h3')!))).toEqual(['No contract 1', 'No version range declared 1', 'GitOps can still write the version 1']);
+    expect(text(items[0].querySelector('summary')!)).toContain('k8s:pay/Deployment/legacy No Stage');
+    expect(items[0].querySelector('details')!.open).toBe(false);
     expect(text(items[0])).toContain('pacto init --cluster --namespace pay --out ./pacto-drafts');
-    expect(text(items[1])).toContain('No version range declared: checkout On 1 Stage: prod/pay');
+    expect(text(items[1])).toContain('checkout 1 Stage');
+    expect(text(items[1])).toContain('On 1 Stage: prod/pay');
     expect(items[2].querySelector('button')).toBeNull();
     expect(text(target)).toContain('Copying a fix changes nothing in the cluster');
     expect(text(target)).not.toMatch(/one-click/i);

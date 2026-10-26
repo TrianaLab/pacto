@@ -38,6 +38,13 @@
   const percent = (n, of) => (n > 0 && n / of < 0.01 ? '<1%' : `${Math.round((n / of) * 100)}%`);
   const stages = $derived(data?.stages ?? []);
   const blockers = $derived(data?.blockers ?? []);
+  // The page's blockers in runs of one kind (the server sorts them so), each
+  // with how many of that kind match over every page.
+  const groups = $derived(blockers.reduce((gs, b) => {
+    if (gs.at(-1)?.kind !== b.kind) gs.push({ kind: b.kind, items: [], total: data?.blockerKinds?.find((k) => k.kind === b.kind)?.count });
+    gs.at(-1).items.push(b);
+    return gs;
+  }, []));
   const share = $derived(data?.contracted);
   const seen = $derived(share ? share.services + share.uncontractedCallers : 0);
   const promotions = $derived(data?.promotionsWithoutPerson ?? { count: 0, of: 0, untyped: 0 });
@@ -154,22 +161,39 @@
         <p class="t-body-2" data-testid="autonomy-no-blockers">{q ? `No blocker matches “${q}”.` : 'Nothing Pacto can see blocks the next rung.'}</p>
       {:else}
         <p class="t-body-2">Copying a fix changes nothing in the cluster: you review it and run it yourself.</p>
-        <ul class="au-blockers" data-testid="autonomy-blockers">
-          {#each blockers as b, i (b.kind + ' ' + b.subject + ' ' + i)}
-            {@const key = b.kind + ' ' + b.subject}
-            {@const fix = b.fix?.command || b.fix?.snippet || ''}
-            <li class="au-blocker">
-              <p><strong>{blockerLabel(b.kind)}</strong>: <code>{b.subject}</code></p>
-              {#if b.stages?.length}<p class="t-meta au-stages">On {formatCount(b.stages.length)} Stage{b.stages.length === 1 ? '' : 's'}: <CappedList items={b.stages} max={3} inline={true} label={`Stages ${b.subject} blocks`}>{#snippet item(st)}{st}{/snippet}</CappedList></p>{/if}
-              {#if b.message}<p class="t-body-2">{sentence(b.message)}</p>{/if}
-              {#if fix}
-                <pre class="au-fix"><code>{fix}</code></pre>
-                <button type="button" class="btn btn-sm" onclick={() => copy(key, fix)} aria-label={`Copy fix for ${b.subject}`}>Copy fix</button>
-                <span class="t-meta" role="status">{copied === key ? 'Copied.' : ''}</span>
-              {/if}
-            </li>
+        <div class="au-groups" data-testid="autonomy-blockers">
+          {#each groups as g, gi (g.kind + gi)}
+            <section class="au-group" aria-label={blockerLabel(g.kind)}>
+              <h3 class="au-group-title">{blockerLabel(g.kind)} <span class="t-meta" data-testid="blocker-kind-count">{formatCount(g.total ?? g.items.length)}{g.total > g.items.length ? `, ${formatCount(g.items.length)} on this page` : ''}</span></h3>
+              <ul class="au-blockers">
+                {#each g.items as b, i (b.subject + ' ' + i)}
+                  {@const key = b.kind + ' ' + b.subject}
+                  {@const fix = b.fix?.command || b.fix?.snippet || ''}
+                  <li class="au-blocker">
+                    <details class="disclosure">
+                      <summary class="au-row">
+                        <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+                        <code class="au-subject cell-clip" title={b.subject}>{b.subject}</code>
+                        <span class="t-meta au-count">{#if b.stages?.length}{formatCount(b.stages.length)} Stage{b.stages.length === 1 ? '' : 's'}{:else}No Stage{/if}</span>
+                        <span class="t-meta au-msg cell-clip" title={b.message ? sentence(b.message) : undefined}>{b.message ? sentence(b.message) : ''}</span>
+                        {#if fix}<span class="badge badge-neutral au-hasfix">Fix to copy</span>{/if}
+                      </summary>
+                      <div class="au-detail">
+                        {#if b.stages?.length}<p class="t-meta au-stages">On {formatCount(b.stages.length)} Stage{b.stages.length === 1 ? '' : 's'}: <CappedList items={b.stages} max={3} inline={true} label={`Stages ${b.subject} blocks`}>{#snippet item(st)}{st}{/snippet}</CappedList></p>{/if}
+                        {#if b.message}<p class="t-body-2">{sentence(b.message)}</p>{/if}
+                        {#if fix}
+                          <pre class="au-fix"><code>{fix}</code></pre>
+                          <button type="button" class="btn btn-sm" onclick={() => copy(key, fix)} aria-label={`Copy fix for ${b.subject}`}>Copy fix</button>
+                          <span class="t-meta" role="status">{copied === key ? 'Copied.' : ''}</span>
+                        {/if}
+                      </div>
+                    </details>
+                  </li>
+                {/each}
+              </ul>
+            </section>
           {/each}
-        </ul>
+        </div>
         <Pager page={data.blockersPage} href={hrefFor('blockers', 'blockersPage')} label="Pages of blockers" noun="blockers" testid="autonomy-blockers-pager" />
       {/if}
     </section>
@@ -188,9 +212,21 @@
   .au-table th a { color: var(--c-accent); }
   .au-table td > * + * { margin-left: var(--sp-2); }
   .au-help { display: block; margin: var(--sp-1) 0 0 !important; }
-  .au-blockers { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--sp-3); }
-  .au-blocker { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-sm); padding: var(--sp-3); }
-  .au-blocker p { margin: 0 0 var(--sp-1); }
+  .au-groups { display: flex; flex-direction: column; gap: var(--sp-3); }
+  .au-group-title { margin: var(--sp-2) 0 var(--sp-1); font: 600 var(--text-sm) / 1.4 var(--font-sans, inherit); font-style: normal; color: var(--c-text); }
+  /* One line per blocker; the detail opens under it. */
+  .au-blockers { list-style: none; margin: 0; padding: 0; background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-sm); }
+  .au-blocker + .au-blocker { border-top: 1px solid var(--c-border-subtle, var(--c-border)); }
+  .au-row { display: grid; grid-template-columns: auto minmax(0, 16rem) 6rem minmax(0, 1fr) auto; align-items: baseline; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); cursor: pointer; list-style: none; }
+  .au-row::-webkit-details-marker { display: none; }
+  .au-row:hover { background: var(--c-surface-hover); }
+  .au-count { white-space: nowrap; }
+  .au-detail { padding: 0 var(--sp-3) var(--sp-3) calc(var(--sp-3) * 2 + 0.75rem); }
+  .au-detail p { margin: 0 0 var(--sp-1); }
+  @media (max-width: 40rem) {
+    .au-row { grid-template-columns: auto minmax(0, 1fr) auto; }
+    .au-msg, .au-hasfix { display: none; }
+  }
   .au-fix { background: var(--c-surface-inset); padding: var(--sp-2); border-radius: var(--radius-xs); overflow: auto; max-height: 16rem; font-size: var(--text-xs); margin: var(--sp-1) 0; }
   .au-blocker { overflow-wrap: break-word; }
   .au-plan-row td { background: var(--c-surface-inset); }

@@ -832,6 +832,8 @@ export interface components {
         };
         AutonomyOutputBody: {
             asOf: string;
+            /** @description How many blockers of each kind match, over every page, in page order */
+            blockerKinds: components["schemas"]["BlockerKind"][] | null;
             blockers: components["schemas"]["AutonomyBlocker"][] | null;
             /** @description Which blockers this page holds, grouped by kind */
             blockersPage: components["schemas"]["Page"];
@@ -891,6 +893,11 @@ export interface components {
             command?: string;
             /** @description YAML to add to a contract */
             snippet?: string;
+        };
+        BlockerKind: {
+            /** Format: int64 */
+            count: number;
+            kind: string;
         };
         CancelOutputBody: {
             cancelled: string;
