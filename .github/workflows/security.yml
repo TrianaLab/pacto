@@ -77,13 +77,13 @@ jobs:
           (cd integrations/kubernetes && govulncheck -format sarif -tags kms ./...) > govulncheck-k8s.sarif
       - name: Upload SARIF to Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
         with:
           sarif_file: govulncheck.sarif
           category: govulncheck
       - name: Upload operator module SARIF to Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
         with:
           sarif_file: govulncheck-k8s.sarif
           category: govulncheck-k8s
@@ -169,7 +169,7 @@ jobs:
             "local/scan:${{ github.sha }}"
       - name: Upload SARIF to Security tab
         if: always()
-        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4
+        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4
         with:
           sarif_file: trivy.sarif
           category: ${{ matrix.image == 'cli' && 'trivy-image' || format('trivy-image-{0}', matrix.image) }}
