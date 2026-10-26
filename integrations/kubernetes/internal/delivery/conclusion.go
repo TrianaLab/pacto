@@ -43,9 +43,9 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 	}
 	if stage != nil {
 		squat := ""
-		if c.outcome == delivery.Failed && op.Spec.Type == delivery.TypePromote && op.Status.Pointer.Before != "" {
+		if c.outcome == delivery.Failed && op.Spec.Type == delivery.TypePromote {
 			// Never on a stale decision: an operation the Stage already
-			// concluded, maybe as a success, raises no rollback.
+			// concluded, maybe as a success, raises no rollback or step-down.
 			cur := &dv1.Stage{}
 			if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(stage), cur); err != nil {
 				return reconcile.Result{}, err
@@ -54,14 +54,22 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 			// ran: the compare-and-swap below concludes it Preempted.
 			// ponytail: a lock taken between this read and that swap still
 			// gets the rollback raised, which is then refused and freezes.
-			if concludedOn(cur.Status, op.UID) == nil && !preempted(op, cur) && !slices.Contains(cur.Status.FailedDigests, op.Status.Pointer.Before) {
+			live := concludedOn(cur.Status, op.UID) == nil && !preempted(op, cur)
+			if live {
 				var err error
-				if squat, err = raiseRollback(ctx, r.Client, r.Policy, op, stage, code+": "+msg, c.cause); err != nil {
+				if squat, err = raiseStepDown(ctx, r.Client, r.Policy, op, cur, code+": "+msg, c.cause); err != nil {
 					return reconcile.Result{}, err
 				}
-				if squat == "" {
+			}
+			if live && op.Status.Pointer.Before != "" && !slices.Contains(cur.Status.FailedDigests, op.Status.Pointer.Before) {
+				rb, err := raiseRollback(ctx, r.Client, r.Policy, op, stage, code+": "+msg, c.cause)
+				if err != nil {
+					return reconcile.Result{}, err
+				}
+				if rb == "" {
 					event(r.Events, stage, true, "RollbackRaised", op.Name+" failed ("+code+": "+msg+"), so it is rolled back to "+op.Status.Pointer.Before)
 				}
+				squat = strings.Join(slices.DeleteFunc([]string{squat, rb}, func(x string) bool { return x == "" }), "; ")
 			}
 		}
 		if err := r.casStage(ctx, stage, func(s *dv1.Stage) error {

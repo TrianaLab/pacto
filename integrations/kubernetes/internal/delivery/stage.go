@@ -66,8 +66,9 @@ type StageReconciler struct {
 	// ponytail: in memory, so a restart says each once more.
 	seen *sync.Map
 
-	mu    sync.Mutex
-	reads map[string]upstreamRead // remote upstream reads by Stage and stream
+	mu          sync.Mutex
+	reads       map[string]upstreamRead // remote upstream reads by Stage and stream
+	shadowTried map[string]time.Time    // last shadow verify by Stage and digest
 }
 
 // ConditionWatched is True while the newest re-check of the running version
@@ -183,6 +184,12 @@ func (r *StageReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 		return reconcile.Result{}, err
 	}
 	if err := r.showCandidate(ctx, stage, up); err != nil {
+		return reconcile.Result{}, err
+	}
+	if err := r.shadow(ctx, stage); err != nil {
+		return reconcile.Result{}, err
+	}
+	if err := r.propose(ctx, stage); err != nil {
 		return reconcile.Result{}, err
 	}
 	if err := r.autoPromote(ctx, stage); err != nil {
@@ -655,6 +662,13 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 	// A freeze is raised first instead: it takes no lock, and once the Stage is
 	// frozen no re-check runs again to raise it, so a freeze lost here would
 	// leave the failure out of the records.
+	// The step-down is raised before the failure is recorded, for the same
+	// reason as the freeze: once the Stage is frozen or rolled back, no
+	// re-check runs again to raise it.
+	stepSquat, err := raiseStepDown(ctx, r.Client, r.Policy, shipped, fresh, why, f)
+	if err != nil {
+		return err
+	}
 	if !rollback {
 		squat, err := raiseFreeze(ctx, r.Client, r.Policy, shipped, stage, why, f)
 		if err != nil {
@@ -682,6 +696,10 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release and cannot be rolled back automatically: "+why
 		default:
 			st.Status.RolledBack = delivery.AddDigest(st.Status.RolledBack, cause, delivery.MaxRolledBack)
+		}
+		if stepSquat != "" {
+			// The rung stays where the failure happened: a person decides.
+			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release: "+why+", and "+stepSquat
 		}
 	}); err != nil || !wrote || !rollback {
 		return err

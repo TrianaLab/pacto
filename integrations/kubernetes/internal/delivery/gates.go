@@ -116,13 +116,20 @@ func verifyChecks(stage *dv1.Stage) []delivery.GateCheck {
 // gateInput is the gate protocol input for op's version on the Stage over
 // [from, to].
 func gateInput(op *dv1.Operation, stage *dv1.Stage, from, to time.Time) delivery.GateInput {
-	in := delivery.GateInput{OperationUID: string(op.UID), Stage: delivery.StageRef{Namespace: stage.Namespace, Name: stage.Name},
-		Service: stage.Spec.Service, Facet: op.Spec.Facet, Subjects: []string{op.Spec.Params.To},
-		Window: delivery.Window{From: from, To: to}}
+	in := subjectInput(string(op.UID), op.Spec.Facet, op.Spec.Params.To, stage, from, to)
 	if p := op.Status.Plan; p != nil && p.To == op.Spec.Params.To {
 		in.Version = p.ToVersion
 	}
 	return in
+}
+
+// subjectInput is the gate protocol input for digest on the Stage over
+// [from, to]; uid is the operation it is checked for, empty for a shadow
+// verify of what GitOps applied.
+func subjectInput(uid, facet, digest string, stage *dv1.Stage, from, to time.Time) delivery.GateInput {
+	return delivery.GateInput{OperationUID: uid, Stage: delivery.StageRef{Namespace: stage.Namespace, Name: stage.Name},
+		Service: stage.Spec.Service, Facet: facet, Subjects: []string{digest},
+		Window: delivery.Window{From: from, To: to}}
 }
 
 // failing returns the first Fail among vs.

@@ -128,7 +128,7 @@ func TestRemoteUpstreamUnreadable(t *testing.T) {
 		t.Fatalf("a cut stream: %+v", c)
 	}
 	// Planning reads afresh and refuses the cut stream too.
-	if s, why, err := (planSources{e.op}).Upstream(context.Background(), stageObject(e.getStage())); s != nil || err != nil || !strings.Contains(why, "newest records were removed") {
+	if s, why, err := (planSources{e.op.Cluster}).Upstream(context.Background(), stageObject(e.getStage())); s != nil || err != nil || !strings.Contains(why, "newest records were removed") {
 		t.Fatalf("plan read of a cut stream: %+v %q %v", s, why, err)
 	}
 	// The same seq is not rewritten in place, and a read that extends it moves the mark.

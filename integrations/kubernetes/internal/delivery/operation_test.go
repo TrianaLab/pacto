@@ -807,6 +807,7 @@ func TestPublishedFromUpstream(t *testing.T) {
 			return c.Get(ctx, key, obj, opts...)
 		},
 	})
+	r.Cluster.Client = r.Client // planning reads through the cluster's client
 	op = opObj("p5", delivery.TypePromote, dA, dB, bot)
 	op.Status.ActorClass = delivery.ClassAgent
 	p, err := r.plan(context.Background(), op, e.getStage())
