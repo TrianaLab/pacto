@@ -379,7 +379,7 @@ cmd_up() {
     --set delivery.enabled=true --set delivery.createNamespace=false \
     --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
     --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s --set delivery.identities.teamGroupPrefix=team- \
-    --set-json "delivery.gates.providers=[{\"name\":\"mira\",\"type\":\"mira\",\"url\":\"http://mira.${NS}.svc.cluster.local:4318\"},{\"name\":\"evals\",\"type\":\"eval\",\"url\":\"http://eval-runner.${NS}.svc.cluster.local:8080\"}]" \
+    --set-json "delivery.gates.providers=[{\"name\":\"mira\",\"type\":\"mira\",\"url\":\"http://mira.${NS}.svc.cluster.local:4318\",\"allowPlainHTTP\":true},{\"name\":\"evals\",\"type\":\"eval\",\"url\":\"http://eval-runner.${NS}.svc.cluster.local:8080\",\"allowPlainHTTP\":true}]" \
     --set delivery.recorder.enabled=true --set delivery.recorder.streamsRepository="$REG_HOST/pacto-delivery-streams" --set delivery.recorder.poll=5s \
     --set delivery.recorder.signing.ed25519.secretName=recorder-key --wait --timeout 240s >/dev/null || fail "the pacto-operator chart did not roll out" &
   local op_helm=$!

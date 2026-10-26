@@ -97,17 +97,36 @@ tests:
     template: templates/delivery/deployment.yaml
     set:
       delivery.gates.providers:
-        - {name: mira, type: mira, url: "http://mira.observability:4318"}
+        - {name: mira, type: mira, url: "https://mira.observability:4318"}
     asserts:
       - contains:
           path: spec.template.spec.containers[0].args
-          content: '--gate-providers=[{"name":"mira","type":"mira","url":"http://mira.observability:4318"}]'
+          content: '--gate-providers=[{"name":"mira","type":"mira","url":"https://mira.observability:4318"}]'
+
+  - it: refuses a plain http provider off loopback unless allowPlainHTTP is set
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.gates.providers:
+        - {name: mira, type: mira, url: "http://mira.observability:4318"}
+    asserts:
+      - failedTemplate: {}
+
+  - it: takes plain http on loopback or with allowPlainHTTP
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.gates.providers:
+        - {name: mira, type: mira, url: "http://mira.observability:4318", allowPlainHTTP: true}
+        - {name: evals, type: eval, url: "http://localhost:8080"}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: '--gate-providers=[{"allowPlainHTTP":true,"name":"mira","type":"mira","url":"http://mira.observability:4318"},{"name":"evals","type":"eval","url":"http://localhost:8080"}]'
 
   - it: refuses a provider that takes a built-in gate's name
     template: templates/delivery/deployment.yaml
     set:
       delivery.gates.providers:
-        - {name: pacto.runtime, type: mira, url: "http://m"}
+        - {name: pacto.runtime, type: mira, url: "https://m"}
     asserts:
       - failedTemplate: {}
 

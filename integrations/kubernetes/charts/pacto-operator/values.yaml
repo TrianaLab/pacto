@@ -439,7 +439,9 @@ delivery:
     # -- Health gate providers a Stage may name in `spec.gates.verify.checks[].provider`, each
     # `{name, type, url}` with type `mira` (Mira's query API), `http` (any tool behind the
     # plug-in format) or `eval` (a runner for the check suites a version ships, named by `checks[].suite`). The URL is operator configuration: a Stage only names a provider and an
-    # agent names nothing. `pacto.contract` and `pacto.runtime` are built in.
+    # agent names nothing. `pacto.contract` and `pacto.runtime` are built in. The URL must be
+    # https: a verdict ends up in a signed record, so an answer forged in transit could get a
+    # Pass signed. Plain http works only on loopback, or with `allowPlainHTTP: true` on a test cluster.
     providers: []
 
   identities:

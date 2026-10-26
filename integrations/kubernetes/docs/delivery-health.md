@@ -54,8 +54,12 @@ but never point the promoter at a host:
 delivery:
   gates:
     providers:
-      - {name: mira, type: mira, url: "http://mira.observability:4318"}
+      - {name: mira, type: mira, url: "https://mira.observability:4318"}
 ```
+
+The URL must be https. A verdict ends up in a signed record, so an answer
+forged on the way could get a Pass signed. Plain http works only on loopback,
+or with `allowPlainHTTP: true` on a test cluster.
 
 ## Mira
 

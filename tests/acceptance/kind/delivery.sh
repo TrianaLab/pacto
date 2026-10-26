@@ -351,7 +351,7 @@ STREAMS_REPO="pacto-delivery-streams"
 OP_HEALTH=() DL_HEALTH=()
 if phase_runs health; then
   OP_HEALTH=(--set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s)
-  DL_HEALTH=(--set-json "delivery.gates.providers=[{\"name\":\"mira\",\"type\":\"mira\",\"url\":\"http://mira.${NS}.svc.cluster.local:4318\"}]")
+  DL_HEALTH=(--set-json "delivery.gates.providers=[{\"name\":\"mira\",\"type\":\"mira\",\"url\":\"http://mira.${NS}.svc.cluster.local:4318\",\"allowPlainHTTP\":true}]")
 fi
 # The Pacto chart install and rollout below are the product under test, not
 # infrastructure: it runs once and a failure is a FAIL, never a retry. One chart

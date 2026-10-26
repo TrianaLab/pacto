@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -74,6 +75,9 @@ type ProviderConfig struct {
 	Name string `json:"name"`
 	Type string `json:"type"`
 	URL  string `json:"url"`
+	// AllowPlainHTTP lets a provider off loopback use http://. Nothing then
+	// protects its answers in transit, so it is for test clusters only.
+	AllowPlainHTTP bool `json:"allowPlainHTTP,omitempty"`
 }
 
 // ParseProviders decodes the --gate-providers flag (a JSON list).
@@ -101,6 +105,10 @@ func NewGates(configs []ProviderConfig, client *http.Client) (map[string]Gate, e
 			return nil, fmt.Errorf("gate provider %q is configured twice", c.Name)
 		case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":
 			return nil, fmt.Errorf("gate provider %q: url %q must be http(s)://host", c.Name, where(c.URL))
+		case u.Scheme == "http" && !c.AllowPlainHTTP && !loopback(u.Hostname()):
+			// A verdict lands in a signed record: whoever can forge the answer
+			// in transit could get a Pass signed.
+			return nil, fmt.Errorf("gate provider %q: url %q is plain http, so anyone on the network path could forge its verdicts: use https (http is allowed only on loopback, or with allowPlainHTTP on a test cluster)", c.Name, where(c.URL))
 		case u.User != nil:
 			// Verdict messages land in Operation status and signed records.
 			return nil, fmt.Errorf("gate provider %q: the url must not carry a user or password", c.Name)
@@ -117,6 +125,12 @@ func NewGates(configs []ProviderConfig, client *http.Client) (map[string]Gate, e
 		}
 	}
 	return gates, nil
+}
+
+// loopback reports whether host is this machine.
+func loopback(host string) bool {
+	ip := net.ParseIP(host)
+	return host == "localhost" || ip != nil && ip.IsLoopback()
 }
 
 // RunChecks runs a Stage's verify checks at once, so they take as long as

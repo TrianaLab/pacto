@@ -30,9 +30,12 @@ func (f gateFunc) Check(ctx context.Context, in GateInput, p map[string]string) 
 }
 
 func TestNewGates(t *testing.T) {
-	gates, err := NewGates([]ProviderConfig{{Name: "mira", Type: ProviderMira, URL: "http://mira:4318"},
-		{Name: "dd", Type: ProviderHTTP, URL: "https://hooks.example/gate"}}, nil)
-	if err != nil || len(gates) != 2 {
+	gates, err := NewGates([]ProviderConfig{{Name: "mira", Type: ProviderMira, URL: "http://mira:4318", AllowPlainHTTP: true},
+		{Name: "dd", Type: ProviderHTTP, URL: "https://hooks.example/gate"},
+		{Name: "local", Type: ProviderHTTP, URL: "http://127.0.0.1:8080/gate"},
+		{Name: "local6", Type: ProviderHTTP, URL: "http://[::1]:8080/gate"},
+		{Name: "localhost", Type: ProviderEval, URL: "http://localhost:8080"}}, nil)
+	if err != nil || len(gates) != 5 {
 		t.Fatalf("valid providers: %v %v", gates, err)
 	}
 	if _, ok := gates["mira"].(Mira); !ok {
@@ -44,17 +47,21 @@ func TestNewGates(t *testing.T) {
 	bad := map[string][]ProviderConfig{
 		"no name":   {{Type: ProviderMira, URL: "http://m"}},
 		"reserved":  {{Name: "pacto.runtime", Type: ProviderMira, URL: "http://m"}},
-		"duplicate": {{Name: "m", Type: ProviderMira, URL: "http://m"}, {Name: "m", Type: ProviderHTTP, URL: "http://m"}},
-		"type":      {{Name: "m", Type: "prometheus", URL: "http://m"}},
+		"duplicate": {{Name: "m", Type: ProviderMira, URL: "https://m"}, {Name: "m", Type: ProviderHTTP, URL: "https://m"}},
+		"type":      {{Name: "m", Type: "prometheus", URL: "https://m"}},
 		"scheme":    {{Name: "m", Type: ProviderMira, URL: "file:///etc/passwd"}},
 		"no host":   {{Name: "m", Type: ProviderMira, URL: "http://"}},
 		"unparsed":  {{Name: "m", Type: ProviderMira, URL: "http://[::1"}},
 		"userinfo":  {{Name: "m", Type: ProviderHTTP, URL: "https://user:token@gate.internal/check"}},
+		"http":      {{Name: "m", Type: ProviderEval, URL: "http://eval-runner:8080"}},
 	}
 	for name, cfg := range bad {
 		if _, err := NewGates(cfg, http.DefaultClient); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
+	}
+	if _, err := NewGates(bad["http"], nil); err == nil || !strings.Contains(err.Error(), "plain http") {
+		t.Errorf("plain http off loopback: %v", err)
 	}
 }
 
