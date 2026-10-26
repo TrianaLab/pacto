@@ -73,3 +73,11 @@ export function pagedHash(path: string, params: Record<string, string | number |
   const s = qs.toString();
   return s ? `${path}?${s}` : path;
 }
+
+/**
+ * limitParam is the limit a link carries: none when the URL named none and
+ * the page size is the list's default, so a default page has a clean URL.
+ */
+export function limitParam(wanted: number, urlLimit: string | number | undefined, defaultLimit: number): number | undefined {
+  return urlInt(urlLimit) || wanted !== defaultLimit ? wanted : undefined;
+}

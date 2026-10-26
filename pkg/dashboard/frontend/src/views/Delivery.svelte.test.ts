@@ -746,10 +746,10 @@ describe('history and published', () => {
     ] });
     const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
     await settle();
-    expect(fns.history).toHaveBeenCalledWith('prod', 'pay');
+    expect(fns.history).toHaveBeenCalledWith('prod', 'pay', { offset: undefined, limit: undefined, q: undefined });
     expect(text(target)).toContain('History of prod/pay');
     expect(target.querySelector('a[href="#/delivery/changes/prod/op1"]')?.textContent).toBe('Roll back');
-    expect(text(target)).toContain('Succeeded, Verified');
+    expect(text(target.querySelector('[data-testid="history-end"]') as HTMLElement).trim()).toBe('Succeeded Verified');
     expect(text(target)).toContain('No change kept for this environment.');
     destroy();
   });
@@ -775,7 +775,8 @@ describe('history and published', () => {
     const { target, destroy } = render(DeliveryHistoryView);
     await settle();
     const sources = [...target.querySelectorAll('[data-testid="history-source"]')].map((e) => e.textContent);
-    expect(sources).toEqual(['From signed records, partial', 'From signed records, complete', 'From records, not verified, partial', 'From status, partial']);
+    expect(sources).toEqual(['From signed records, every signature verified, partial.', 'From signed records, every signature verified, complete.',
+      'From records, signatures not verified, partial.', 'From status, partial.']);
     expect(target.querySelector('[data-testid="history-problems"]')?.textContent).toContain('seq 2 is a gap');
     expect(target.querySelector('[data-testid="history-unreadable"]')?.textContent).toContain('not trusted here');
     // Ids are short inline; the full one is on hover and copied on a click.
@@ -817,9 +818,70 @@ describe('history and published', () => {
     await settle();
     expect([...target.querySelectorAll('th')].map((t) => t.textContent)).toContain('Decided by');
     const decided = [...target.querySelectorAll('[data-testid="history-decided"]')].map((e) => text(e as HTMLElement));
-    expect(decided).toEqual(['No person', 'Carol (https://idp#carol) (Approve)', '–', 'Waiting for a person', 'dave (Reject)']);
-    const sigs = [...target.querySelectorAll('[data-testid="history-signature"]')].map((e) => e.textContent);
-    expect(sigs).toEqual(['Signature verified', 'Signature verified', 'Signature verified', 'Signature not verified']);
+    expect(decided).toEqual(['No person', 'Carol (https://idp#carol) Approve', '–', 'Waiting for a person', 'dave Reject']);
+    // Each decider on a line of their own, never glued to the next one.
+    expect(target.querySelectorAll('[data-testid="history-decided"] li').length).toBe(2);
+    // Whether the signatures verified is said once per history, not on every row.
+    expect(target.querySelector('[data-testid="history-signature"]')).toBeNull();
+    expect([...target.querySelectorAll('[data-testid="history-source"]')].map((e) => e.textContent))
+      .toEqual(['From signed records, every signature verified, complete.', 'From records, signatures not verified, partial.']);
+    destroy();
+  });
+
+  it('pages one environment newest first, never says a code twice and opens Undo under its row', async () => {
+    const page = { total: 120, offset: 50, limit: 50 };
+    fns.history.mockResolvedValue({ ...listing, page: { total: 1, offset: 0, limit: 1 }, histories: [
+      { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', source: 'records', verified: true, note: '', stage: { name: 'pay', pointer: D1 },
+        entriesPage: page, problems: Array.from({ length: 9 }, (_, i) => `problem ${i}`),
+        entries: [
+          { seq: 70, operation: 'op70', type: 'delivery.pacto.trianalab.io/promote', from: D2, to: D1, actor: 'carol@example.com', outcome: 'Succeeded', verification: 'AcceptedUnknown',
+            reason: 'AcceptedUnknown: AcceptedUnknown: carol accepted it', pointer: { before: D2, after: D1 }, approvals: [{ by: 'carol@example.com', decision: 'accept-unknown' }, { by: 'dave', decision: 'approve' }] },
+          { seq: 69, operation: 'op69', type: 'delivery.pacto.trianalab.io/promote', to: D2, actor: 'bot', outcome: 'Failed', approvals: null },
+        ] },
+    ] });
+    fns.undo.mockReturnValue(new Promise(() => {}));
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay', offset: '50', q: 'carol' });
+    await settle();
+    expect(fns.history).toHaveBeenCalledWith('prod', 'pay', { offset: 50, limit: undefined, q: 'carol' });
+    const end = text(target.querySelector('[data-testid="history-end"]') as HTMLElement).trim();
+    expect(end).toBe('Succeeded A person accepted the unknown carol accepted it');
+    expect([...target.querySelectorAll('[data-testid="history-decided"] li')].map((li) => text(li as HTMLElement).trim()))
+      .toEqual(['carol@example.com Accept the unknown', 'dave Approve']);
+    // The pager pages the changes and keeps the filter and the Stage in its links.
+    expect(text(target.querySelector('[data-testid="history-pager-range"]') as HTMLElement).trim()).toBe('Showing 51–100 of 120 changes');
+    expect(target.querySelector('[data-testid="history-pager-next"]')?.getAttribute('href')).toBe('#/delivery/history?namespace=prod&stage=pay&q=carol&offset=100');
+    expect((target.querySelector('[data-testid="history-filter"] input') as HTMLInputElement).value).toBe('carol');
+    // Nine problems show five and offer the rest.
+    const problems = target.querySelector('[data-testid="history-problems"]') as HTMLElement;
+    expect(problems.querySelectorAll('li').length).toBe(5);
+    expect(text(problems)).toContain('Show all 9');
+    // Undo opens in a row right under its change, not after the whole table.
+    (target.querySelector('button[aria-label="Undo op70"]') as HTMLButtonElement).click();
+    await settle();
+    const rows = [...target.querySelectorAll('tbody tr')];
+    expect(rows[1].querySelector('[data-testid="undo-panel"]')).not.toBeNull();
+    destroy();
+  });
+
+  it('shows every environment with its newest changes and a link to the rest', async () => {
+    fns.history.mockResolvedValue({ ...listing, page: { total: 30, offset: 0, limit: 10 }, histories: [
+      { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', note: '', stage: { name: 'pay' }, entriesPage: { total: 40, offset: 0, limit: 10 },
+        entries: [{ seq: 40, operation: 'op40', type: 'delivery.pacto.trianalab.io/promote', actor: 'bot', outcome: 'Succeeded' }] },
+    ] });
+    const { target, destroy } = render(DeliveryHistoryView, {});
+    await settle();
+    expect(target.querySelector('[data-testid="history-all-changes"]')?.getAttribute('href')).toBe('#/delivery/history?namespace=prod&stage=pay');
+    expect(text(target.querySelector('[data-testid="history-all-changes"]') as HTMLElement)).toBe('All 40 changes on prod/pay');
+    expect(text(target.querySelector('[data-testid="history-pager-range"]') as HTMLElement).trim()).toBe('Showing 1–10 of 30 environments');
+    expect(target.querySelector('[data-testid="history-pager-size"]')).not.toBeNull();
+    destroy();
+  });
+
+  it('says when nothing matches the filter', async () => {
+    fns.history.mockResolvedValue({ ...listing, page: { total: 0, offset: 0, limit: 10 }, histories: [] });
+    const { target, destroy } = render(DeliveryHistoryView, { q: 'nope' });
+    await settle();
+    expect(text(target)).toContain('Nothing matches the filter');
     destroy();
   });
 
@@ -983,8 +1045,8 @@ describe('history blame and undo', () => {
     await settle();
     const prod = target.querySelector('section[aria-label="History of prod/pay"]') as HTMLElement;
     const rows = [...prod.querySelectorAll('tbody tr')].map((r) => [...r.querySelectorAll('td')].map((td) => text(td as HTMLElement).trim()));
-    expect(rows[0].slice(2, 7)).toEqual(['2.4.0 → 3.0.0', 'Carol Diaz (https://idp#carol) Person', 'The person who asked', 'Succeeded', '2026-10-21 11:00 UTC']);
-    expect(rows[1].slice(2, 7)).toEqual(['– → 2.4.0', 'agents/pay-agent Agent', 'No person', 'Failed', 'soon']);
+    expect(rows[0].slice(1, 6)).toEqual(['2.4.0 → 3.0.0', 'Carol Diaz (https://idp#carol) Person', 'The person who asked', 'Succeeded', '2026-10-21 11:00 UTC']);
+    expect(rows[1].slice(1, 6)).toEqual(['– → 2.4.0', 'agents/pay-agent Agent', 'No person', 'Failed', 'soon']);
     expect(text(prod)).toContain('Runs 3.0.0 222222222222');
     // A service account reads as namespace/name; its username is on hover.
     expect(prod.querySelector('span[title="system:serviceaccount:agents:pay-agent"]')?.textContent).toBe('agents/pay-agent');
@@ -1124,7 +1186,8 @@ describe('refused publishes', () => {
     expect(text(sec.querySelector('[data-testid="refused-partial"]') as HTMLElement).trim()).toBe('This list may be incomplete: one registry could not be read. Could not read: registry.example: timeout.');
     const rows = [...sec.querySelectorAll('li')].map((li) => text(li as HTMLElement).trim());
     expect(rows[0]).toBe('payments 2.4.3 Needs a major version Signed record Removing a field is a breaking change. Compared with 2.4.2. By agents/pay-agent, 2026-10-22 09:00 UTC');
-    expect(rows[1]).toBe('orders 1.5.0 Refused: sign Publish.sign is not configured. 2026-10-22 08:00 UTC');
+    // An identifier that starts a sentence keeps how it is written.
+    expect(rows[1]).toBe('orders 1.5.0 Refused: sign publish.sign is not configured. 2026-10-22 08:00 UTC');
     expect(rows[2]).toContain('Needs odd');
     destroy();
   });
@@ -1294,7 +1357,7 @@ describe('Unknown, proof, undo and autonomy', () => {
     await settle();
     const line = target.querySelector('[data-testid="history-autonomy"]') as HTMLElement;
     expect(text(line)).toContain('2 of 4 promotions needed no person; 1 waited for one only because a check was Unknown');
-    expect(text(line)).toContain('some are partial');
+    expect(text(line)).toContain('Counted from the changes shown here, and some histories are partial.');
     destroy();
   });
 });

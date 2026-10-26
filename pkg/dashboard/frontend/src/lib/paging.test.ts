@@ -43,3 +43,12 @@ describe('page helpers', () => {
     expect(pagedHash('#/x', { a: null })).toBe('#/x');
   });
 });
+
+describe('limitParam', () => {
+  it('leaves the default page size out of a link', async () => {
+    const { limitParam } = await import('./paging.ts');
+    expect(limitParam(50, '', 50)).toBeUndefined();
+    expect(limitParam(50, '50', 50)).toBe(50);
+    expect(limitParam(100, undefined, 50)).toBe(100);
+  });
+});

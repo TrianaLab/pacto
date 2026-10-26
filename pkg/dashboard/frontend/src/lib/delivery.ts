@@ -104,11 +104,16 @@ export function timeLabel(iso: string | undefined): string {
   return m ? `${m[1]} ${m[2]} UTC` : (iso ?? '');
 }
 
-/** sentence turns a server note into a sentence: capitalised, digests short, a full stop. */
+/**
+ * sentence turns a server note into a sentence: capitalised, digests short, a
+ * full stop. A note that starts with an identifier (k8s:pay/x, sha256:...)
+ * keeps it as written.
+ */
 export function sentence(text: string | undefined): string {
   const t = shortDigests(text).trim();
   if (!t) return '';
-  return t[0].toUpperCase() + t.slice(1) + (/[.!?]$/.test(t) ? '' : '.');
+  const lead = /^[a-z]+(?=[\s,;]|$)/.test(t) ? t[0].toUpperCase() + t.slice(1) : t;
+  return lead + (/[.!?]$/.test(t) ? '' : '.');
 }
 
 /** Who the signed-in person is, as personLabel reads it. */
@@ -252,6 +257,31 @@ export function miraLink(citation: Record<string, string> | undefined, miraURL: 
 const OUTCOMES: Record<string, string> = { Succeeded: 'succeeded', Failed: 'failed', Rejected: 'was rejected', Errored: 'could not finish' };
 const VERIFICATIONS: Record<string, string> = { Verified: 'verified', Unverified: 'not verified', AcceptedUnknown: 'a person accepted the unknown' };
 const PHASES: Record<string, string> = { Held: 'waits for a person', Pending: 'waits its turn', Running: 'is running', Verifying: 'is being checked', '': 'is not admitted yet' };
+
+/** verificationLabel says how a change's checks ended, in words. */
+export function verificationLabel(v: string | undefined): string {
+  const w = VERIFICATIONS[v ?? ''] ?? v ?? '';
+  return w ? w[0].toUpperCase() + w.slice(1) : '';
+}
+
+/** outcomeTone is the badge colour of how a change ended. */
+export function outcomeTone(outcome: string | undefined): string {
+  if (outcome === 'Succeeded') return 'badge-ok';
+  return outcome === 'Failed' || outcome === 'Errored' || outcome === 'Rejected' ? 'badge-err' : 'badge-neutral';
+}
+
+/**
+ * reasonAfter is a reason without the codes already shown next to it: the
+ * controller writes "AcceptedUnknown: ..." where the verification already
+ * says AcceptedUnknown, and a line must not say it twice.
+ */
+export function reasonAfter(reason: string | undefined, ...shown: (string | undefined)[]): string {
+  let r = (reason ?? '').trim();
+  for (let c = shown.find((x) => x && (r === x || r.startsWith(`${x}: `))); c; c = shown.find((x) => x && (r === x || r.startsWith(`${x}: `)))) {
+    r = r.slice(c.length).replace(/^: /, '');
+  }
+  return r;
+}
 
 /** The fields changeSummary reads from an explanation. */
 export interface ChangeFacts {

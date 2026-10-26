@@ -3,7 +3,7 @@ import {
   typeLabel, decisionLabel, shortDigest, decisionAsked, cliDecision, loginUrl,
   keepPending, pendingFor, dropPending, miraLink, predictionLabel, authTimeText,
   versionLabel, shortDigests, digestParts, sentence, timeLabel, personLabel, signIn, hostSignsIn,
-  verdictBadge, isBreaking, andList, changeSummary, actorBadge, autonomyOf, unknownHelp, undoneBy, undoCause, UNKNOWN_DOCS,
+  verdictBadge, isBreaking, andList, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoneBy, undoCause, UNKNOWN_DOCS,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -151,6 +151,21 @@ describe('names and versions', () => {
     expect(sentence('Done!')).toBe('Done!');
     expect(sentence('  ')).toBe('');
     expect(sentence(undefined)).toBe('');
+    expect(sentence('k8s:pay/x calls fraud')).toBe('k8s:pay/x calls fraud.');
+    expect(sentence('records, verified')).toBe('Records, verified.');
+  });
+
+  it('says how a change ended once, with no code twice', () => {
+    expect(verificationLabel('AcceptedUnknown')).toBe('A person accepted the unknown');
+    expect(verificationLabel('Odd')).toBe('Odd');
+    expect(verificationLabel(undefined)).toBe('');
+    expect(outcomeTone('Succeeded')).toBe('badge-ok');
+    expect(outcomeTone('Rejected')).toBe('badge-err');
+    expect(outcomeTone(undefined)).toBe('badge-neutral');
+    expect(reasonAfter('AcceptedUnknown: AcceptedUnknown: carol: low traffic', 'Succeeded', 'AcceptedUnknown')).toBe('carol: low traffic');
+    expect(reasonAfter('Succeeded', 'Succeeded')).toBe('');
+    expect(reasonAfter('VerifyFailed: health', 'Failed', undefined)).toBe('VerifyFailed: health');
+    expect(reasonAfter(undefined)).toBe('');
   });
 
   it('splits digests out of a sentence, resolving short ones only when one known id starts them', () => {
