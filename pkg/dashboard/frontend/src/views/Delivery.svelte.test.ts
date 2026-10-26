@@ -1341,6 +1341,25 @@ describe('Unknown, proof, undo and autonomy', () => {
     destroy();
   });
 
+  it('names the runner that ran and signed an eval, and keeps its signed answer out of the proof', async () => {
+    const op = heldOperation({ actions: [] });
+    op.operation.status = { ...op.operation.status, applied: true } as unknown as typeof op.operation.status;
+    op.explanation.verdicts = [
+      { gate: 'evals', phase: 'verify', result: 'Pass', message: '2 of 2 cases passed', citation: { run: 'run-7', runner: 'evals-ci', runnerBundle: '{"mediaType":"SIGNED"}' }, rerun: '' },
+      { gate: 'health', phase: 'verify', result: 'Pass', citation: { provider: 'mira' }, rerun: '' },
+    ] as unknown as typeof op.explanation.verdicts;
+    fns.operation.mockResolvedValue(op);
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    const actual = target.querySelector('[data-testid="actual-verdicts"]') as HTMLElement;
+    const runners = actual.querySelectorAll('[data-testid="verdict-runner"]');
+    expect(runners.length).toBe(1);
+    expect(text(runners[0] as HTMLElement)).toBe('Run and signed by evals-ci, whose signed answer the record keeps.');
+    expect(text(actual)).toContain('run-7');
+    expect(text(actual)).not.toContain('SIGNED');
+    destroy();
+  });
+
   it('says which change undid a failed one and that its version is blocked here', async () => {
     const op = heldOperation({ actions: [], versions: { [D1]: '2.3.0', [D2]: '2.4.0' } });
     op.explanation.status = { phase: 'Concluded', outcome: 'Failed', verification: 'Unverified', reason: 'VerifyFailed', message: 'health: 10 of 100 failed' } as unknown as typeof op.explanation.status;

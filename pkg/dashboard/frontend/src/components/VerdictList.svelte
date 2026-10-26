@@ -9,8 +9,10 @@
   // folded; an Unknown says what Pacto could not see and how to fix that.
   let { verdicts = [], miraURL = '', testid = 'verdicts' } = $props();
 
-  // Keys shown elsewhere in the row, or as their own control.
-  const SHOWN = new Set(['query', 'errorQuery']);
+  // Keys shown elsewhere in the row, or as their own control. The runner's
+  // signed answer is for auditors to check (pacto delivery record verify),
+  // not to read here.
+  const SHOWN = new Set(['query', 'errorQuery', 'runner', 'runnerBundle']);
 </script>
 
 {#if verdicts.length === 0}
@@ -27,6 +29,9 @@
           <span class="t-meta">{v.phase === 'pre' ? 'before the change' : v.phase === 'verify' ? 'after the change' : v.phase}</span>
         </div>
         {#if v.message}<p class="vl-msg t-body-2">{v.message}</p>{/if}
+        {#if v.citation?.runner}
+          <p class="vl-msg t-body-2" data-testid="verdict-runner">Run and signed by <strong>{v.citation.runner}</strong>{#if v.citation.runnerBundle}, whose signed answer the record keeps{/if}.</p>
+        {/if}
         {#if v.result === 'Unknown'}
           <p class="vl-unknown t-body-2" data-testid="verdict-unknown">{unknownHelp(v)} Until it can, a person accepts the unknown or rejects the change. <a href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">What Unknown means</a></p>
         {/if}

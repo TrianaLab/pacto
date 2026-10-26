@@ -1198,6 +1198,7 @@ export interface components {
                 [key: string]: string;
             };
             provider: string;
+            requireObservedModel?: boolean;
             suite?: string;
             suiteDigest?: string;
         };
