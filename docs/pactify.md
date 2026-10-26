@@ -3,8 +3,9 @@
 To pactify a service is to give it a Pacto contract and let Pacto check every
 new version before it runs. A contract is one file, `pacto.yaml`, kept next to
 your code. It says what the service offers, which other services it calls and
-how it is built and run. This guide takes a plain service to its first gated
-release: one Pacto checks before it reaches production. Every command is on
+how it is built and run. This guide takes a plain service to a contract,
+signed published versions and Stages that watch on observe, and shows how a
+Stage leaves observe once it has earned it. Every command is on
 this page except the one-time approval setup of the cluster; the links are
 reference. To see where it leads first,
 with nothing to install, press **Play the delivery story** in the
@@ -215,13 +216,24 @@ Make a change, raise `service.version` in `pacto.yaml`, then run
 `pacto publish`. While the Stages observe, you deploy the new tag as before
 and each Stage records what it would have done.
 
-When Pacto proposes the next rung, `advise`, label the OCIRepository so Pacto
-may write its digest, then have a second person approve the
-`delivery.pacto.trianalab.io/autonomy` operation (see [When a change waits](pactify-decide.md#why-you-were-asked)):
+To leave observe, in this order:
 
-```bash
-kubectl -n test label ocirepository my-service delivery.pacto.trianalab.io/apply-ref=my-service
-```
+1. Remove `spec.ref` from the OCIRepository in git, so Flux stops setting the
+   version, and label it so only Pacto may write its digest:
+
+    ```bash
+    kubectl -n test label ocirepository my-service delivery.pacto.trianalab.io/apply-ref=my-service
+    ```
+
+2. Wait for Pacto to propose `advise`. It does once 10 versions Flux applied
+   passed their checks; the Stage's `autonomy.proposeAfter` lowers that, down
+   to 1 (see [the ladder](autonomy.md#earned-autonomy-pacto-proposes-a-person-decides)).
+3. Ask for the raise and have a second person approve it (see
+   [When a change waits](pactify-decide.md#why-you-were-asked)):
+
+    ```bash
+    pacto delivery propose --type delivery.pacto.trianalab.io/autonomy --stage my-service -n test --to advise
+    ```
 
 Each rung above that is one more approved operation. In prod, `init` also
 writes `approval: always: true`, so every promote there waits for a person:
@@ -259,8 +271,8 @@ become dependencies, pinned to exactly the version seen running
 (`compatibility: "=2.3.0"`) for you to widen. Until you do, every new version
 of that service asks your team. A service with no contract stays a comment.
 Drafts are never published, and an invalid one fails the command. The MCP tool
-takes `paths`, `cluster` and `namespaces`, and only plans unless `dry_run` is
-false.
+`pacto_create` with `pactify: true` takes `paths`, `cluster` and `namespaces`,
+and only plans unless `dry_run` is false.
 
 ## Where next
 

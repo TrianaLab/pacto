@@ -64,7 +64,7 @@ Then give one answer:
 
 | Answer | Use it when | What happens |
 |---|---|---|
-| `approve` | The question says "Approve": the change breaks a consumer, the Stage asks for every promote, the Stage is on advise, the change is not known to be non-breaking and the Stage is on auto for non-breaking, or the Stage requires records the recorder cannot write now, and you accept it | The version goes ahead |
+| `approve` | The question says "Approve" and you accept it. Pacto asks that when the change breaks a consumer, the Stage asks for every promote, the Stage is on advise, the Stage is on auto for non-breaking and the change is not known to be non-breaking or the Stage requires records the recorder cannot write now | The version goes ahead |
 | `accept-unknown` | The question says "Accept the unknown": a check said Unknown and you accept the risk | The version goes ahead; the record says "accepted", never "passed". If the version already shipped and a later check said Unknown, only this or `reject` answers |
 | `reject` | You do not want this version here | If it has not shipped, the change ends and the Stage keeps the version it runs. If it already shipped, Pacto rolls it back to the version before. Someone can ask again later |
 
@@ -122,9 +122,10 @@ the break-glass group forces it (below).
 
 A frozen Stage shows `true` under `FROZEN` in
 `kubectl get stages.delivery.pacto.trianalab.io -n prod`, and its reason says
-why. Pacto freezes a Stage when a version failed its checks and Pacto has no
-safe way back: there is no earlier good version, the automatic rollback
-itself failed, or a person had asked for the failed version by hand. A forced version
+why. A failed promote is rolled back once, whoever asked for it. Pacto
+freezes the Stage instead when there is no earlier good version, the
+automatic rollback itself failed or someone chose the running version by hand
+(a rollback, or a promote during auto-hold). A forced version
 (below) also freezes it. Fix the cause first, then let automation move it
 again:
 

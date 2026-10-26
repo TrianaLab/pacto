@@ -46,8 +46,8 @@ asked when the contracts say a change is safe.
 
 ## Cold start: begin by watching
 
-A new Stage starts on **observe**. Giving a service a contract with
-`pacto init` (called pactifying it) always puts it there. Flux or Argo CD keep
+A new Stage starts on **observe**. Connecting a service to delivery with
+`pacto init --delivery` (part of pactifying it) always puts it there. Flux or Argo CD keep
 doing what they do today, and Pacto changes nothing.
 
 For each version your GitOps tool runs, Pacto writes down what it would have
@@ -72,7 +72,7 @@ number, down to 1:
   their checks, with no rollback and no failure.
 - **auto for non-breaking to autonomous**: the same, plus at least one
   breaking change that the contracts cleared, a person approved and that then
-  passed its checks.
+  passed its checks, and no caller seen at runtime without a contract.
 
 When something blocks a proposal, Pacto says what and how to fix it, for
 example "this caller has no contract".
@@ -95,14 +95,15 @@ all, and only a person may stop a service that way.
 
 ## Step-down: one failure costs one rung
 
-On every rung where Pacto moves versions, a version that fails its checks
-after release is rolled back to the version that ran before, with no one
-asked. If there is no safe version to go back to, or the rollback itself
-fails, the Stage freezes instead: nothing moves until a person rolls back or
-unfreezes it.
+On every rung where Pacto moves versions, a promote that fails its checks
+after release is rolled back once to the version that ran before, whoever
+asked for it. The Stage freezes instead when there is nothing safe to go back
+to, the rollback itself fails or someone chose the running version by hand (a
+rollback, or a promote during auto-hold). Then nothing moves until a person
+rolls back or unfreezes it.
 
-If the failed version is one Pacto shipped on its own, the Stage also drops
-one rung. Autonomous goes back to auto for
+If the failed version is one Pacto shipped with no person, the Stage also
+drops one rung, whether it was rolled back or froze. Autonomous goes back to auto for
 non-breaking, and auto for non-breaking goes back to advise. The drop is
 recorded like any other change and needs no approval. The count of good
 versions starts again from zero, so Pacto has to earn the rung back.
@@ -112,15 +113,15 @@ that the version failed.
 
 ## Leaving observe
 
-On observe, your GitOps tool still writes which version runs. Before Pacto can
-take over that one field, a person does two things:
+On observe, your GitOps tool still writes which version runs. Leaving observe
+goes in this order:
 
-1. Removes the version from the GitOps manifest in git, so git stops setting it.
-2. Adds a label to that manifest's object in the cluster, so only Pacto can
-   change the version from then on.
-
-Pacto proposes advise only once the label is in place. Do both just before
-the raise to advise is approved: in between, nothing moves the version. The
+1. A person removes the version from the GitOps manifest in git, so git stops
+   setting it, and adds a label to that manifest's object in the cluster, so
+   only Pacto can change the version from then on.
+2. Pacto then proposes advise, once the checks have passed on enough versions.
+3. Someone asks for the raise and a second person approves it. Do it
+   promptly: between step 1 and the raise, nothing moves the version. The
 [ladder reference](autonomy-reference.md) names the field and the label for
 Flux and Argo CD.
 

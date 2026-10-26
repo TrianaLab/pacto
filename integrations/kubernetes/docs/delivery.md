@@ -44,11 +44,14 @@ break, the change goes ahead on its own on an automatic rung.
 **After Flux applies it**, Pacto checks that the running version does what its
 contract says. You can add health checks too, such as error rates from your
 monitoring. These checks keep running after release, so a problem found an
-hour later still rolls the version back once: the version that ran before is
-put back. When a person picked the failed version, there is nothing safe to go
-back to, the rollback itself fails or someone else already took the name of
-the rollback Pacto raises, the Stage freezes instead and waits for a person to
-roll back or unfreeze it, from the dashboard or the command line.
+hour later still rolls the version back once, whoever asked for it: the
+version that ran before is put back. The Stage freezes instead when there is
+nothing safe to go back to, the rollback itself fails, someone chose the
+running version by hand (a rollback, or a promote during auto-hold) or someone
+else already took the name of the rollback Pacto raises. It then waits for a
+person to roll back or unfreeze it, from the dashboard or the command line. A
+failure of a version Pacto shipped with no person also drops the Stage one
+rung, whether it was rolled back or froze.
 None of a Stage's last 50 failed versions is tried again there.
 
 ## Stages and records
