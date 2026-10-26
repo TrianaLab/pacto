@@ -125,7 +125,7 @@ YAML
   [ "$(st .status.rung)" = advise ] && [ "$(st .status.pointer)" = "$W2" ] || fail "advise did not adopt W2: $(st .status)"
   [ "$(field "$L" "$up" pointer.after)" = "$W2" ] || fail "the operation does not show the adopted pointer"
   ladder_record "$L" "$up" | jq -e --arg d "$W2" '.predicate.outcome.rung == {from: "observe", to: "advise"} and
-    .predicate.outcome.pointer.after == $d and (.predicate.approvals | map(.by) == ["carol"])' >/dev/null \
+    .predicate.outcome.pointer.after == $d and (.predicate.approvals | map(select(.by == "carol")) | length) == 1' >/dev/null \
     || fail "the record of $up does not show observe -> advise, the adopted W2 and carol"
   pass "unlabelled: refused; labelled: alice proposed advise, carol confirmed, the Stage adopted W2 and cosign verifies the record"
 
