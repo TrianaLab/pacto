@@ -10,13 +10,14 @@ import (
 	"time"
 )
 
-// Operation type ids: the four Tier 0 types and freeze.
+// Operation type ids: the four Tier 0 types, freeze and autonomy.
 const (
 	TypePromote  = "delivery.pacto.trianalab.io/promote"
 	TypeRollback = "delivery.pacto.trianalab.io/rollback"
 	TypeOverride = "delivery.pacto.trianalab.io/override"
 	TypeUnfreeze = "delivery.pacto.trianalab.io/unfreeze"
 	TypeFreeze   = "delivery.pacto.trianalab.io/freeze"
+	TypeAutonomy = "delivery.pacto.trianalab.io/autonomy"
 )
 
 // Gate ids.
@@ -28,6 +29,8 @@ const (
 	// published: signed (Flux verified it on the candidate source) and
 	// carrying its contract.
 	GatePublished = "pacto.published"
+	// GateAutonomy judges a change of rung.
+	GateAutonomy = "pacto.autonomy"
 )
 
 // OperationType is a type descriptor: what an operation of this type changes,
@@ -148,6 +151,19 @@ var tier0 = []OperationType{
 		VerifyGates:       []string{},
 		ApprovalFloor:     "none",
 		Inverse:           TypeUnfreeze,
+		Cancellable:       "until it applies",
+		ApprovalDeadline:  defaultApprovalDeadline,
+		ExecutionDeadline: defaultExecutionDeadline,
+	},
+	{
+		ID: TypeAutonomy, Version: "1.0.0", Facet: FacetRung,
+		Description:       "Move the Stage one rung up or down the autonomy ladder: observe, advise, auto-nonbreaking, autonomous.",
+		Params:            []string{"from", "to"},
+		Raisers:           []ActorClass{ClassHuman, ClassAgent, ClassBreakGlass, ClassController},
+		PreGates:          []string{GateAutonomy},
+		VerifyGates:       []string{},
+		ApprovalFloor:     "raise one rung: a person other than the raiser, from the team of the running service; lower: none. The promoter only lowers, and an agent never lowers to observe",
+		Inverse:           TypeAutonomy,
 		Cancellable:       "until it applies",
 		ApprovalDeadline:  defaultApprovalDeadline,
 		ExecutionDeadline: defaultExecutionDeadline,

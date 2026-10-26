@@ -26,6 +26,9 @@ spec:
     - jsonPath: .status.conditions[?(@.type=="Ready")].status
       name: Ready
       type: string
+    - jsonPath: .status.rung
+      name: Rung
+      type: string
     - jsonPath: .status.pointer
       name: Pointer
       type: string
@@ -93,10 +96,17 @@ spec:
                       the contracts say.
                     type: boolean
                 type: object
-              auto:
-                description: Auto promotes the newest eligible candidate without anyone
-                  asking.
-                type: boolean
+              autonomy:
+                description: AutonomyPolicy tunes when Pacto proposes the next rung.
+                properties:
+                  proposeAfter:
+                    default: 10
+                    description: ProposeAfter is how many qualifying promotions earn
+                      a proposal.
+                    maximum: 20
+                    minimum: 1
+                    type: integer
+                type: object
               candidates:
                 description: |-
                   Candidates says where new versions come from. At most one is set, so the
@@ -255,6 +265,20 @@ spec:
                 required:
                 - name
                 type: object
+              startRung:
+                default: observe
+                description: |-
+                  StartRung is where a new Stage begins. It is read once, when
+                  status.rung is empty; after that only an autonomy operation moves the
+                  rung. Neither choice lets Pacto ship without a person.
+                enum:
+                - observe
+                - advise
+                type: string
+                x-kubernetes-validations:
+                - message: startRung is fixed at creation; propose delivery.pacto.trianalab.io/autonomy
+                    to change the rung
+                  rule: self == oldSelf
             required:
             - applyRef
             - environment
@@ -402,6 +426,18 @@ spec:
                   judged Ready from.
                 format: int64
                 type: integer
+              observedRevision:
+                description: ObservedRevision is what GitOps' source reports while
+                  the Stage observes.
+                properties:
+                  digest:
+                    type: string
+                  since:
+                    type: string
+                required:
+                - digest
+                - since
+                type: object
               offered:
                 description: |-
                   Offered holds the digests a promote carried through pacto.published
@@ -416,6 +452,43 @@ spec:
                   when an operation holding the pointer lock starts to apply, before
                   Flux or Argo CD runs it: Applied on that operation says when they did.
                 type: string
+              proposal:
+                description: Proposal is the next rung Pacto proposes, or why not
+                  yet.
+                properties:
+                  blockers:
+                    items:
+                      description: Blocker is one reason the next rung is not proposed.
+                      properties:
+                        kind:
+                          description: |-
+                            Kind is missing-contract, undeclared-range, unlabelled-apply-ref,
+                            no-observed-digest, no-record-store, needs-verified,
+                            needs-cleared-breaking, incident or partial-graph.
+                          type: string
+                        message:
+                          type: string
+                        subject:
+                          description: Subject is the service, consumer or caller
+                            identity.
+                          type: string
+                      required:
+                      - kind
+                      - message
+                      type: object
+                    maxItems: 32
+                    type: array
+                  evidence:
+                    description: Evidence names the digests or operation uids that
+                      earned it.
+                    items:
+                      type: string
+                    maxItems: 20
+                    type: array
+                  rung:
+                    description: Rung is empty while nothing is proposed.
+                    type: string
+                type: object
               published:
                 description: |-
                   Published holds the candidate digests Flux verified the signature of on
@@ -432,6 +505,64 @@ spec:
                   here never gets a second one.
                 items:
                   type: string
+                type: array
+              rung:
+                description: |-
+                  Rung is the Stage's autonomy rung. The stage reconciler seeds it from
+                  spec.startRung; after that only an autonomy operation writes it.
+                type: string
+              shadow:
+                description: |-
+                  Shadow holds the newest would-have decisions while the Stage observes,
+                  newest first.
+                items:
+                  description: |-
+                    Shadow is what Pacto would have decided for a candidate on a fully
+                    automatic Stage while this one observes, and what then happened. It is
+                    advisory status, never a record.
+                  properties:
+                    candidate:
+                      type: string
+                    decision:
+                      description: 'Decision is the floor''s decision: approve or
+                        accept-unknown.'
+                      type: string
+                    from:
+                      type: string
+                    impactDigest:
+                      type: string
+                    intentDigest:
+                      type: string
+                    observedAt:
+                      description: |-
+                        ObservedAt is when GitOps' source reported this candidate (RFC 3339):
+                        not proof of rollout.
+                      type: string
+                    owners:
+                      items:
+                        type: string
+                      maxItems: 16
+                      type: array
+                    plannedAt:
+                      description: PlannedAt is when Pacto planned it (RFC 3339).
+                      type: string
+                    predicted:
+                      description: Prediction is what plan() expects the promoter
+                        to do.
+                      type: string
+                    question:
+                      type: string
+                    verification:
+                      description: Verification is the shadow verify on the observed
+                        digest.
+                      type: string
+                  required:
+                  - candidate
+                  - intentDigest
+                  - plannedAt
+                  - predicted
+                  type: object
+                maxItems: 20
                 type: array
               stream:
                 description: Stream numbers a Stage's concluded operations.
@@ -451,15 +582,33 @@ spec:
                       description: Concluded is one operation's seq and conclusion,
                         as the Stage holds it.
                       properties:
+                        cause:
+                          description: |-
+                            Cause is the uid of the operation whose failure made the promoter
+                            raise this one: an automatic rollback, freeze or step-down.
+                          type: string
+                        clearedBreaking:
+                          description: |-
+                            ClearedBreaking is a promote of a change that is not NON_BREAKING whose
+                            impact verdict passed: every consumer accepts it.
+                          type: boolean
                         outcome:
                           description: Outcome is how a concluded operation ended.
                           type: string
+                        person:
+                          description: |-
+                            Person is true when the operation carried an approval or a person
+                            raised it.
+                          type: boolean
                         reason:
                           description: 'Reason is "Code: message".'
                           type: string
                         seq:
                           format: int64
                           type: integer
+                        type:
+                          description: Type is the operation type.
+                          type: string
                         uid:
                           type: string
                         verification:

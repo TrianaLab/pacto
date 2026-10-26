@@ -2,13 +2,14 @@
 # Kind acceptance for Pacto delivery: phase 1 ("the core"), the promoter, the
 # Pacto contract check and Flux, running end to end on a local cluster; then
 # phase 2 ("health"), phase 3 ("publishing"), phase 5 ("ordering"), phase 4
-# ("dashboard and identity", in delivery-identity.sh) and phase 6 ("records"),
-# described where each starts below. DELIVERY_SKIP_CORE=1,
-# DELIVERY_SKIP_HEALTH=1, DELIVERY_SKIP_PUBLISH=1, DELIVERY_SKIP_ORDER=1,
-# DELIVERY_SKIP_IDENTITY=1 and DELIVERY_SKIP_RECORDS=1 skip those scenarios (the
-# setup still runs); phase 4 needs phase 1, and phase 6 needs phases 1 and 3.
+# ("dashboard and identity", in delivery-identity.sh), phase 6 ("records") and
+# phase 7 ("ladder", in delivery-ladder.sh), described where each starts below.
+# DELIVERY_SKIP_CORE=1, DELIVERY_SKIP_HEALTH=1, DELIVERY_SKIP_PUBLISH=1,
+# DELIVERY_SKIP_ORDER=1, DELIVERY_SKIP_IDENTITY=1, DELIVERY_SKIP_RECORDS=1 and
+# DELIVERY_SKIP_LADDER=1 skip those scenarios (the setup still runs); phase 4
+# needs phase 1, and phase 6 needs phases 1 and 3.
 #
-# DELIVERY_PHASES=core,health,publish,ordering,identity,records (any subset)
+# DELIVERY_PHASES=core,health,publish,ordering,identity,records,ladder (any subset)
 # runs only the named phases plus the ones they need, by setting the skip switch
 # of every other phase; CI runs one phase per shard. DELIVERY_DRY_RUN=1 prints
 # which phases would run and stops before touching Docker or a cluster.
@@ -91,7 +92,7 @@ KIND_POLL=1
 # Every version a phase ships waits on this scan, so the run keeps it short.
 CANDIDATE_INTERVAL=2s
 
-PHASES="core health publish ordering identity records"
+PHASES="core health publish ordering identity records ladder"
 # skip_var PHASE — the name of the phase's skip switch.
 skip_var() { echo "DELIVERY_SKIP_$(tr '[:lower:]' '[:upper:]' <<<"${1/ordering/order}")"; }
 if [ -n "${DELIVERY_PHASES:-}" ]; then
@@ -520,6 +521,50 @@ spec: {operation: "$op", operationUID: "$uid", intentDigest: "$digest", decision
 YAML
 }
 
+# decide NS OP USER TEAM DECISION [NOTE] — approve_as with the operation first.
+decide() { approve_as "$3" "$4" "$1" "$2" "$5" "${6:-}"; }
+
+# --- the autonomy ladder -------------------------------------------------------
+# Every Stage here starts on advise (startRung admits only observe and advise):
+# it ships what a person proposes. A Stage the run needs automatic climbs one
+# rung at a time, each raise an autonomy operation alice proposes and carol,
+# of the service's team, approves, accepting the unknown where Pacto has not
+# proposed the rung yet. A raise needs a running contract to name that team,
+# so a person ships the first version, and an automatic rung needs the
+# recorder writing the Stage's records: every grant of autonomy is a signed
+# record. Lowering needs no approval.
+rung_of() { kubectl -n "$1" get stage "$2" -o jsonpath='{.status.rung}'; }
+recording() { [ "$(kubectl -n "$1" get stage "$2" -o jsonpath='{.status.conditions[?(@.type=="RecordStoreReady")].status}')" = True ]; }
+held_or_concluded() { held "$1" "$2" || concluded "$1" "$2"; }
+# move_rung NS STAGE TEAM TO — move the Stage to TO through one autonomy
+# operation; prints its name.
+move_rung() {
+  local ns="$1" st="$2" team="$3" to="$4" name
+  name="$st-to-$to-$(date +%s)"
+  as_person alice "$team" propose -n "$ns" --stage "$st" --type autonomy --to "$to" --name "$name" --reason "the kind run moves $st to $to" >/dev/null
+  eventually 30 held_or_concluded "$ns" "$name" || fail "$ns/$name was never planned: $(field "$ns" "$name" message)"
+  if held "$ns" "$name"; then
+    decide "$ns" "$name" carol "$team" "$(field "$ns" "$name" plan.floor.decision)" "the kind run moves it to $to"
+  fi
+  wait_concluded "$ns" "$name" Succeeded/Unverified
+  [ "$(rung_of "$ns" "$st")" = "$to" ] || fail "$ns/$st is on $(rung_of "$ns" "$st"), want $to"
+  echo "$name"
+}
+# climb NS STAGE TEAM — raise an advise Stage to autonomous, where it
+# auto-promotes any plan that proceeds.
+climb() {
+  eventually 60 recording "$1" "$2" || fail "the recorder never reported on $1/$2"
+  move_rung "$1" "$2" "$3" auto-nonbreaking >/dev/null
+  move_rung "$1" "$2" "$3" autonomous >/dev/null
+}
+# first NS STAGE TEAM DIGEST — alice ships the Stage's first version, once its
+# candidate source offers it.
+first() {
+  local name="$2-first-version"
+  as_person alice "$3" propose -n "$1" --stage "$2" --to "$4" --name "$name" --reason "the first version" >/dev/null
+  wait_concluded "$1" "$name" Succeeded/Verified
+}
+
 section "contracts"
 contract_dir() { # NAME VERSION WORKLOAD [DEPENDENCY_LINES]
   local d; d="$(mktemp -d)"
@@ -708,7 +753,7 @@ spec:
   environment: test
   applyRef: {name: payments}
   candidates: {ociRepositoryRef: {name: payments-candidates}}
-  auto: true
+  startRung: advise
   gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 kubectl -n prod apply -f - >/dev/null <<YAML
@@ -720,14 +765,17 @@ spec:
   environment: prod
   applyRef: {name: payments}
   candidates: {upstreamStage: {name: payments, namespace: test}}
-  auto: true
+  startRung: advise
   gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 
-section "bootstrap: A reaches test, then prod, by itself"
-OP="$(wait_op test "$A")"; wait_concluded test "$OP" Succeeded/Verified
-OP="$(wait_op prod "$A")"; wait_concluded prod "$OP" Succeeded/Verified
-pass "A verified in test and in prod"
+section "bootstrap: alice ships A to test and prod, and each Stage climbs to autonomous"
+eventually 60 published_in test "$A" || fail "A was never verified as published in test"
+first test payments team-payments "$A"
+climb test payments team-payments
+first prod payments team-payments "$A"
+climb prod payments team-payments
+pass "A verified in test and in prod; carol confirmed each raise, so both Stages are autonomous"
 
 section "items 1, 3 and 8: B (compatible) ships to production with no person, and a stale check never counts"
 # The operator is stopped before B ships, so the Pacto status still reports A's
@@ -819,9 +867,11 @@ section "item 6: two agents propose at once; exactly one wins"
 G="$(publish G "$C130")"
 H="$(publish H "$C140")"
 # Both must be published before an agent may propose them: Flux verifies each
-# on the candidate OCIRepository. Auto-promotion is paused meanwhile, so the
-# race is between the two agents and nothing else.
-kubectl -n test patch stage payments --type merge -p '{"spec":{"auto":false}}' >/dev/null
+# on the candidate OCIRepository. alice lowers test to advise meanwhile (a
+# lowering needs no approval), so nothing promotes by itself: each agent's
+# promote waits for a person, she approves both at once, and the race is
+# between the two promotes and nothing else.
+move_rung test payments team-payments advise >/dev/null
 for v in G H; do
   candidate "$v"
   eventually 60 published_in test "${!v}" || fail "$v was never verified as published: $(kubectl -n test get ocirepository payments-candidates -o jsonpath='{.status.conditions}')"
@@ -831,6 +881,11 @@ PA=$!
 as_agent "$AGENT_B" propose -n test --stage payments --to "$H" --name race-h --reason "agent b" >/dev/null &
 PB=$!
 wait "$PA"; wait "$PB"
+for o in race-g race-h; do eventually 30 held_or_concluded test "$o" || fail "$o was never planned: $(field test "$o" message)"; done
+for o in race-g race-h; do
+  ! held test "$o" || decide test "$o" alice team-payments approve race &
+done
+wait
 eventually 60 concluded test race-g || fail "race-g never concluded"
 eventually 60 concluded test race-h || fail "race-h never concluded"
 WON=0
@@ -846,12 +901,12 @@ WINNER="$G"; [ "$(outcome test race-h)" = Succeeded/Verified ] && WINNER="$H"
 has_pointer test "$WINNER" || fail "test does not run the winner"
 pass "item 6: race-g $(outcome test race-g), race-h $(outcome test race-h); one winner"
 # The candidate tag goes to the winner (already verified, so nothing new) and
-# auto-promotion resumes.
+# test climbs back to autonomous.
 WLABEL=G; [ "$WINNER" = "$H" ] && WLABEL=H
 candidate "$WLABEL"
 candidate_is_winner() { [ "$(kubectl -n test get ocirepository payments-candidates -o jsonpath='{.status.artifact.revision}')" = "candidate@$WINNER" ]; }
 eventually 30 candidate_is_winner || fail "the candidate OCIRepository never saw the tag move to the winner"
-kubectl -n test patch stage payments --type merge -p '{"spec":{"auto":true}}' >/dev/null
+climb test payments team-payments
 OPW="$(wait_op prod "$WINNER")"; wait_concluded prod "$OPW" Succeeded/Verified
 
 section "item 4: F (payments 2.0.0) breaks checkout; it waits, and only checkout's team is asked"
@@ -867,10 +922,9 @@ kubectl -n test get operation "$OPF" -o json | jq -e '.status.plan.floor.owners 
 waits_for_f() { has_pointer test "$WINNER" && held test "$OPF"; }
 always 5 waits_for_f || fail "F moved without a person"
 # No agent can approve: RBAC refuses the create, and the CLI refuses first,
-# since it sends no kubeconfig credentials and asks for a login of the
-# person's own.
+# asking for a fresh login of a person's own before anything else.
 OUT="$(as_agent "$AGENT_A" approve -n test "$OPF" 2>&1 || true)"
-if grep -q "approving needs a fresh login of your own" <<<"$OUT"; then pass "the agent cannot approve"; else fail "an agent approved: $OUT"; fi
+if grep -q "agents may not approve\|fresh login of your own" <<<"$OUT"; then pass "the agent cannot approve"; else fail "an agent approved: $OUT"; fi
 if KUBECONFIG="$AGENT_A" kubectl -n test create -f - 2>/dev/null <<YAML
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Approval
@@ -1172,6 +1226,7 @@ spec:
   environment: health
   applyRef: {name: payments}
   candidates: {ociRepositoryRef: {name: payments-candidates}}
+  startRung: advise
   gates:
     impact: {declaredConsumersOnly: true}
     verify:
@@ -1223,11 +1278,12 @@ eventually 60 reconciled "$H" fraud || fail "the fraud Pacto was never reconcile
 eventually 60 reconciled "$H" payments || fail "health/payments was never reconciled"
 
 # ship LABEL DIGEST — CI moves the candidate tag to the version, Flux verifies
-# its signature, and agent-a proposes it; prints the operation name.
+# its signature, and carol proposes it: the Stage advises, so it ships what a
+# person proposes. Prints the operation name.
 ship() {
   oras tag --plain-http "127.0.0.1:${LOCAL_REG_PORT}/${H_REPO}:$1" candidate >/dev/null
   eventually 60 published_in "$H" "$2" || fail "$1 was never verified as published"
-  as_agent "$AGENT_A" propose -n "$H" --stage payments --to "$2" --name "promote-$1" --reason "phase 2: $1" >/dev/null
+  as_person carol team-payments propose -n "$H" --stage payments --to "$2" --name "promote-$1" --reason "phase 2: $1" >/dev/null
   echo "promote-$1"
 }
 verdict() { # OP GATE FIELD — one field of one verdict, as JSON
@@ -1475,7 +1531,7 @@ spec:
   environment: publish
   applyRef: {name: billing}
   candidates: {ociRepositoryRef: {name: billing-candidates}}
-  auto: true
+  startRung: advise
   gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 
@@ -1523,15 +1579,17 @@ REFUSALS="$(oras discover --plain-http --format json "127.0.0.1:${LOCAL_REG_PORT
 billing_contract 1.0.0 service
 pass "BREAKING since 1.0.0 is refused as 1.1.0; only its signed refusal was written"
 
-section "delivery promotes the published version with no extra step"
-OPP="$(wait_op "$P" "$D1")"
-wait_concluded "$P" "$OPP" Succeeded/Verified
+section "the published version is what a person ships first; then the Stage climbs to autonomous"
+eventually 60 published_in "$P" "$D1" billing || fail "$D1 was never verified as published"
+first "$P" billing team-billing "$D1"
+OPP=billing-first-version
 [ "$(kubectl -n "$P" get stage billing -o jsonpath='{.status.pointer}')" = "$D1" ] || fail "the Stage does not run the published version"
 [ "$(kubectl -n "$P" get deploy billing -o jsonpath='{.spec.template.metadata.annotations.version}')" = 1.0.0 ] \
   || fail "the cluster does not run billing 1.0.0"
 published_in "$P" "$D1" billing || fail "the Stage does not remember $D1 as published"
-[ "$(field "$P" "$OPP" actorClass)" = controller ] || fail "the promote was not raised by the promoter"
-pass "the promoter promoted $D1 by itself and the contract check verified it"
+[ "$(field "$P" "$OPP" actorClass)" = human ] || fail "the first promote was not alice's"
+climb "$P" billing team-billing
+pass "alice promoted $D1, the contract check verified it, and carol confirmed the climb to autonomous"
 
 section "publish --propose waits for Flux, then proposes on a Stage that does not promote by itself"
 M=publish-manual
@@ -1570,11 +1628,13 @@ spec:
   environment: publish-manual
   applyRef: {name: billing}
   candidates: {ociRepositoryRef: {name: billing-candidates}}
+  startRung: advise
   gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 billing_contract 1.0.1 service
 git -C "$PUB" -c user.email=ci@e.com -c user.name=ci commit -qam "billing 1.0.1"
-OUT="$(KUBECONFIG="$AGENT_A" pub --propose "$M/billing" 2>&1)" || fail "publish --propose failed: $OUT"
+# The Stage advises, so a person's publish --propose ships with no approval.
+OUT="$(KUBECONFIG="$(person_kubeconfig alice team-billing)" pub --propose "$M/billing" 2>&1)" || fail "publish --propose failed: $OUT"
 D2="$(grep -oE "^Deploy: ${REG_HOST}/apps/billing@sha256:[0-9a-f]{64}" <<<"$OUT" | sed 's/.*@//')"
 OPM="$(grep -oE "on $M/billing as Operation [a-z0-9.-]+" <<<"$OUT" | awk '{print $NF}')"
 { [ -n "$D2" ] && [ -n "$OPM" ]; } || fail "publish --propose named no deploy artifact or Operation: $OUT"
@@ -1653,7 +1713,7 @@ spec:
   environment: publish-anyone
   applyRef: {name: billing-anyone-apply}
   candidates: {ociRepositoryRef: {name: billing-anyone}}
-  auto: true
+  startRung: advise
   gates: {impact: {declaredConsumersOnly: true}}
 YAML
 eventually 20 ready_is "$M" billing-anyone False/CandidateUnverified \
@@ -1703,7 +1763,7 @@ O18="$(publish O18 "$OR18" orders)"; candidate O18 orders
 # stage_ptr NS STAGE — the digest a Stage runs.
 stage_ptr() { kubectl -n "$1" get stage "$2" -o jsonpath='{.status.pointer}'; }
 stage_runs() { [ "$(stage_ptr "$1" "$2")" = "$3" ]; }
-# stage_yaml NAME ENV CANDIDATES [AUTO]
+# stage_yaml NAME ENV CANDIDATES
 stage_yaml() {
   cat <<YAML
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
@@ -1714,7 +1774,7 @@ spec:
   environment: $2
   applyRef: {name: $1}
   candidates: $3
-  auto: ${4:-true}
+  startRung: advise
   gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 }
@@ -1732,28 +1792,30 @@ section "bootstrap: orders 1.8.0 verified in staging and live, then pricing 1.0.
 # Pacto in a namespace a Stage applies into counts only for that Stage's
 # environment, so while the operator has not read one yet it never holds what
 # the other phases ship at the same time.
-{ candidates_yaml orders; echo ---; stage_yaml orders staging "{ociRepositoryRef: {name: orders-candidates}}" false; } | kubectl -n staging apply -f - >/dev/null
-stage_yaml orders live "{upstreamStage: {name: orders, namespace: staging}}" false | kubectl -n live apply -f - >/dev/null
+{ candidates_yaml orders; echo ---; stage_yaml orders staging "{ociRepositoryRef: {name: orders-candidates}}"; } | kubectl -n staging apply -f - >/dev/null
+stage_yaml orders live "{upstreamStage: {name: orders, namespace: staging}}" | kubectl -n live apply -f - >/dev/null
 apply_env staging orders "$O18"
 apply_env live orders "$O18"
 for n in staging live; do eventually 60 reconciled "$n" orders || fail "$n/orders was never reconciled"; done
-for n in staging live; do kubectl -n "$n" patch stage orders --type merge -p '{"spec":{"auto":true}}' >/dev/null; done
-OP="$(wait_op staging "$O18")"; wait_concluded staging "$OP" Succeeded/Verified
-OP="$(wait_op live "$O18")"; wait_concluded live "$OP" Succeeded/Verified
+eventually 60 published_in staging "$O18" orders || fail "orders 1.8.0 was never verified as published in staging"
+first staging orders team-orders "$O18"
+climb staging orders team-orders
+first live orders team-orders "$O18"
 apply_env live pricing "$P1"
 eventually 60 reconciled live pricing || fail "live/pricing was never reconciled"
 { candidates_yaml pricing; echo ---; stage_yaml pricing live "{ociRepositoryRef: {name: pricing-candidates}}"; } | kubectl -n live apply -f - >/dev/null
-OP="$(wait_op live "$P1")"; wait_concluded live "$OP" Succeeded/Verified
-# From here agents and people move live, nothing else.
-for s in orders pricing; do kubectl -n live patch stage "$s" --type merge -p '{"spec":{"auto":false}}' >/dev/null; done
-pass "orders 1.8.0 runs in staging and live, pricing 1.0.0 in live, all verified"
+eventually 60 published_in live "$P1" pricing || fail "pricing 1.0.0 was never verified as published in live"
+first live pricing team-pricing "$P1"
+# staging is autonomous; live stays on advise: people move it, and an agent's
+# promote waits for a person.
+pass "orders 1.8.0 runs in staging and live, pricing 1.0.0 in live, all verified; staging is autonomous, live advises"
 
 section "orders 1.9.0 (accepts pricing >=1.0.0 <3.0.0) passes staging, and live does not take it by itself"
 O19="$(publish O19 "$OR19" orders)"; candidate O19 orders
 OP="$(wait_op staging "$O19")"; wait_concluded staging "$OP" Succeeded/Verified
 offered() { kubectl -n staging get stage orders -o json | jq -e --arg d "$O19" '.status.offered // [] | index($d)' >/dev/null; }
 eventually 30 offered || fail "staging never offered orders 1.9.0 downstream"
-always 5 stage_runs live orders "$O18" || fail "live took orders 1.9.0 with auto off"
+always 5 stage_runs live orders "$O18" || fail "live took orders 1.9.0 on advise"
 
 section "pricing 2.0.0 is held in live, and the plan says orders must move first"
 P2="$(publish P2 "$PR200" pricing)"; candidate P2 pricing
@@ -1776,17 +1838,18 @@ grep -q "move first: orders 1.8.0 runs in live and accepts pricing ^1.0.0, not 2
 always 5 stage_runs live pricing "$P1" || fail "pricing 2.0.0 moved without a person"
 pass "pricing 2.0.0 waits; the plan names orders 1.8.0, Stage live/orders and orders 1.9.0 verified on staging/orders"
 
-section "orders 1.9.0 moves first, then pricing 2.0.0 ships with no person"
-# Pacto only says what moves first: the agent moves orders, then plans again.
+section "orders 1.9.0 moves first, then pricing 2.0.0 ships with no approval"
+# Pacto only says what moves first: carol moves orders, then plans again.
+# live advises, so a person proposes and nobody else is asked.
 as_agent "$AGENT_A" cancel -n live pricing-first >/dev/null
-as_agent "$AGENT_A" propose -n live --stage orders --to "$O19" --name orders-first --reason "phase 5: pricing 2.0.0 needs it" >/dev/null
+as_person carol team-orders propose -n live --stage orders --to "$O19" --name orders-first --reason "phase 5: pricing 2.0.0 needs it" >/dev/null
 wait_concluded live orders-first Succeeded/Verified
-as_agent "$AGENT_A" propose -n live --stage pricing --to "$P2" --name pricing-after --reason "phase 5" >/dev/null
+as_person carol team-pricing propose -n live --stage pricing --to "$P2" --name pricing-after --reason "phase 5" >/dev/null
 wait_concluded live pricing-after Succeeded/Verified
 kubectl -n live get operation pricing-after -o json | jq -e '.status.plan.floor.human != true and .status.plan.order == null and (.status.approvals // [] | length == 0)' >/dev/null \
   || fail "pricing 2.0.0 needed a person after orders moved: $(kubectl -n live get operation pricing-after -o jsonpath='{.status.plan}')"
 stage_runs live pricing "$P2" || fail "live does not run pricing 2.0.0"
-pass "with orders 1.9.0 in live, pricing 2.0.0 shipped with nobody involved"
+pass "with orders 1.9.0 in live, pricing 2.0.0 shipped as carol proposed it, with no question and no approval"
 
 section "a partial graph holds as Unknown"
 # shipping's contract is not in the registry, so its Pacto never carries one:
@@ -1829,6 +1892,9 @@ phase_records() {
   section "phase 6: the recorder catches up, and a forged record stops the stream"
   records_store
 }
+# Phase 7 runs beside the others, in its own namespace.
+# shellcheck source=tests/acceptance/kind/delivery-ladder.sh
+source "$(dirname "$0")/delivery-ladder.sh"
 phase_audit() {
   records_audit
   echo "DELIVERY RECORDS PASS"

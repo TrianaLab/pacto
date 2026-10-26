@@ -24,6 +24,8 @@ import "encoding/json"
 const (
 	FacetPointer = "pointer"
 	FacetFreeze  = "freeze"
+	// FacetRung is the Stage's autonomy rung (status.rung).
+	FacetRung = "rung"
 )
 
 // Result is a gate verdict.
@@ -250,9 +252,16 @@ type StageSpec struct {
 	ApplyRef ApplyRef `json:"applyRef"`
 	// +optional
 	Candidates Candidates `json:"candidates,omitzero"`
-	// Auto promotes the newest eligible candidate without anyone asking.
+	// StartRung is where a new Stage begins. It is read once, when
+	// status.rung is empty; after that only an autonomy operation moves the
+	// rung. Neither choice lets Pacto ship without a person.
 	// +optional
-	Auto bool `json:"auto,omitempty"`
+	// +kubebuilder:validation:Enum=observe;advise
+	// +kubebuilder:default=observe
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="startRung is fixed at creation; propose delivery.pacto.trianalab.io/autonomy to change the rung"
+	StartRung Rung `json:"startRung,omitempty"`
+	// +optional
+	Autonomy AutonomyPolicy `json:"autonomy,omitzero"`
 	// +optional
 	Gates Gates `json:"gates,omitzero"`
 	// +optional
@@ -261,6 +270,16 @@ type StageSpec struct {
 	Deadlines Deadlines `json:"deadlines,omitzero"`
 	// +optional
 	Records RecordsPolicy `json:"records,omitzero"`
+}
+
+// AutonomyPolicy tunes when Pacto proposes the next rung.
+type AutonomyPolicy struct {
+	// ProposeAfter is how many qualifying promotions earn a proposal.
+	// +optional
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=20
+	// +kubebuilder:default=10
+	ProposeAfter int `json:"proposeAfter,omitempty"`
 }
 
 // Stream numbers a Stage's concluded operations.
@@ -311,6 +330,85 @@ type Concluded struct {
 	// Reason is "Code: message".
 	// +optional
 	Reason string `json:"reason,omitempty"`
+	// Type is the operation type.
+	// +optional
+	Type string `json:"type,omitempty"`
+	// Person is true when the operation carried an approval or a person
+	// raised it.
+	// +optional
+	Person bool `json:"person,omitempty"`
+	// ClearedBreaking is a promote of a change that is not NON_BREAKING whose
+	// impact verdict passed: every consumer accepts it.
+	// +optional
+	ClearedBreaking bool `json:"clearedBreaking,omitempty"`
+	// Cause is the uid of the operation whose failure made the promoter
+	// raise this one: an automatic rollback, freeze or step-down.
+	// +optional
+	Cause string `json:"cause,omitempty"`
+}
+
+// ObservedRevision is the digest GitOps' source reports while a Stage
+// observes, and since when Pacto saw it (RFC 3339). It says what the source
+// fetched, not that it rolled out.
+type ObservedRevision struct {
+	Digest string `json:"digest"`
+	Since  string `json:"since"`
+}
+
+// Shadow is what Pacto would have decided for a candidate on a fully
+// automatic Stage while this one observes, and what then happened. It is
+// advisory status, never a record.
+type Shadow struct {
+	Candidate string `json:"candidate"`
+	// +optional
+	From      string     `json:"from,omitempty"`
+	Predicted Prediction `json:"predicted"`
+	// Decision is the floor's decision: approve or accept-unknown.
+	// +optional
+	Decision Decision `json:"decision,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxItems=16
+	Owners []string `json:"owners,omitempty"`
+	// +optional
+	Question     string `json:"question,omitempty"`
+	IntentDigest string `json:"intentDigest"`
+	// +optional
+	ImpactDigest string `json:"impactDigest,omitempty"`
+	// PlannedAt is when Pacto planned it (RFC 3339).
+	PlannedAt string `json:"plannedAt"`
+	// ObservedAt is when GitOps' source reported this candidate (RFC 3339):
+	// not proof of rollout.
+	// +optional
+	ObservedAt string `json:"observedAt,omitempty"`
+	// Verification is the shadow verify on the observed digest.
+	// +optional
+	Verification Verification `json:"verification,omitempty"`
+}
+
+// Proposal is the next rung Pacto proposes for a Stage, or why not yet.
+type Proposal struct {
+	// Rung is empty while nothing is proposed.
+	// +optional
+	Rung Rung `json:"rung,omitempty"`
+	// Evidence names the digests or operation uids that earned it.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	Evidence []string `json:"evidence,omitempty"`
+	// +optional
+	// +kubebuilder:validation:MaxItems=32
+	Blockers []Blocker `json:"blockers,omitempty"`
+}
+
+// Blocker is one reason the next rung is not proposed.
+type Blocker struct {
+	// Kind is missing-contract, undeclared-range, unlabelled-apply-ref,
+	// no-observed-digest, no-record-store, needs-verified,
+	// needs-cleared-breaking, incident or partial-graph.
+	Kind string `json:"kind"`
+	// Subject is the service, consumer or caller identity.
+	// +optional
+	Subject string `json:"subject,omitempty"`
+	Message string `json:"message"`
 }
 
 // StageStatus is written by the promoter's operation and stage reconcilers and
@@ -394,6 +492,21 @@ type StageStatus struct {
 	// judged Ready from.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+	// Rung is the Stage's autonomy rung. The stage reconciler seeds it from
+	// spec.startRung; after that only an autonomy operation writes it.
+	// +optional
+	Rung Rung `json:"rung,omitempty"`
+	// ObservedRevision is what GitOps' source reports while the Stage observes.
+	// +optional
+	ObservedRevision *ObservedRevision `json:"observedRevision,omitempty"`
+	// Shadow holds the newest would-have decisions while the Stage observes,
+	// newest first.
+	// +optional
+	// +kubebuilder:validation:MaxItems=20
+	Shadow []Shadow `json:"shadow,omitempty"`
+	// Proposal is the next rung Pacto proposes, or why not yet.
+	// +optional
+	Proposal *Proposal `json:"proposal,omitempty"`
 }
 
 // Condition is a Kubernetes status condition, so `kubectl wait
@@ -425,7 +538,8 @@ type Recheck struct {
 	Verdicts []Verdict `json:"verdicts,omitempty"`
 }
 
-// Params are the Tier 0 operation parameters. Digests are OCI manifest digests.
+// Params are the operation parameters. On the pointer facet From and To are
+// OCI manifest digests; on the rung facet they are rung names.
 type Params struct {
 	// +optional
 	From string `json:"from,omitempty"`
@@ -477,11 +591,11 @@ type Cause struct {
 
 // OperationSpec is the intent. It is frozen at admission.
 type OperationSpec struct {
-	// +kubebuilder:validation:Enum=delivery.pacto.trianalab.io/promote;delivery.pacto.trianalab.io/rollback;delivery.pacto.trianalab.io/override;delivery.pacto.trianalab.io/unfreeze;delivery.pacto.trianalab.io/freeze
+	// +kubebuilder:validation:Enum=delivery.pacto.trianalab.io/promote;delivery.pacto.trianalab.io/rollback;delivery.pacto.trianalab.io/override;delivery.pacto.trianalab.io/unfreeze;delivery.pacto.trianalab.io/freeze;delivery.pacto.trianalab.io/autonomy
 	Type string `json:"type"`
 	// Stage is the name of a Stage in the operation's namespace.
 	Stage string `json:"stage"`
-	// +kubebuilder:validation:Enum=pointer;freeze
+	// +kubebuilder:validation:Enum=pointer;freeze;rung
 	Facet string `json:"facet"`
 	// +optional
 	Params Params `json:"params,omitzero"`

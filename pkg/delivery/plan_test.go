@@ -62,7 +62,7 @@ func planWith(t *testing.T, spec OperationSpec, status StageStatus, from, to Rev
 	}
 	// Every version these tests promote was published: Flux verified it.
 	status.Published = append(status.Published, to.Digest)
-	return PlanFor(context.Background(), PlanInput{Spec: spec, Stage: stageSpec(), Status: status, From: from, To: to,
+	return autonomousPlan(PlanInput{Spec: spec, Stage: stageSpec(), Status: status, From: from, To: to,
 		Snapshot: snap, Class: ClassAgent})
 }
 
@@ -120,7 +120,7 @@ func TestPlanMisplacedConsumerAsksToAcceptTheUnknown(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		p := PlanFor(context.Background(), PlanInput{Spec: promote(dA, dB), Stage: stageSpec(),
+		p := autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stageSpec(),
 			Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}}, From: from, To: to,
 			Snapshot: snap, Class: ClassAgent, Misplaced: []Misplaced{{Service: c.service, Note: note}}})
 		v := verdict(t, p, GateImpact)
@@ -141,17 +141,17 @@ func TestPlanNoConsumersHoldsABreakingChangeUnlessTheGraphIsDeclaredComplete(t *
 	}
 	in := PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
 		From: from, To: to, Snapshot: snap, Class: ClassAgent}
-	p := PlanFor(context.Background(), in)
+	p := autonomousPlan(in)
 	if v := verdict(t, p, GateImpact); v.Result != Unknown || p.Floor.Decision != AcceptUnknown || !strings.Contains(v.Message, "no contract can still call it") {
 		t.Fatalf("a breaking change no Pacto depends on can still break a service with no contract: %+v", p)
 	}
 	in.Stage.Gates.Impact.DeclaredConsumersOnly = true
-	if p := PlanFor(context.Background(), in); p.Predicted != PredictProceeds {
+	if p := autonomousPlan(in); p.Predicted != PredictProceeds {
 		t.Fatalf("a Stage that declares its graph complete ships it: %+v", p)
 	}
 	in.Stage.Gates.Impact.DeclaredConsumersOnly = false
 	in.To = rev(dB, c2, bundle("payments", "1.0.1"))
-	if p := PlanFor(context.Background(), in); p.Predicted != PredictProceeds {
+	if p := autonomousPlan(in); p.Predicted != PredictProceeds {
 		t.Fatalf("a non-breaking change ships with no consumers: %+v", p)
 	}
 }
@@ -221,7 +221,7 @@ func TestPlanSaysWhoAnswersWithNoTeam(t *testing.T) {
 		t.Fatal(err)
 	}
 	for require, want := range map[bool]string{false: "Asked of: any person", true: "Asked of: nobody"} {
-		p := PlanFor(context.Background(), PlanInput{Spec: promote("", dB), Stage: stage, Status: StageStatus{Published: []string{dB}},
+		p := autonomousPlan(PlanInput{Spec: promote("", dB), Stage: stage, Status: StageStatus{Published: []string{dB}},
 			To: first, Snapshot: snap, Class: ClassAgent, RequireOwnerTeam: require})
 		if !p.Floor.Human || len(p.Floor.Owners) != 0 || !strings.Contains(p.Question, want) || !strings.Contains(p.Question, "service.owner") {
 			t.Fatalf("require=%v: %+v", require, p)
@@ -310,7 +310,7 @@ func TestPlanFrozenWaitsAndPolicyRaisesTheFloor(t *testing.T) {
 	snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
 	st := stageSpec()
 	st.Approval.Always = true
-	p = PlanFor(context.Background(), PlanInput{Spec: promote(dA, dB), Stage: st, Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
+	p = autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: st, Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
 		From: from, To: to, Snapshot: snap, Class: ClassAgent})
 	if p.Predicted != PredictHeld || p.Floor.Decision != Approve || !strings.Contains(p.Question, "every promote") {
 		t.Fatalf("approval.always: %+v", p)
@@ -357,7 +357,7 @@ func TestPublishedGate(t *testing.T) {
 	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
 	plan := func(stage StageSpec, status StageStatus, to Revision, upstream *StageStatus) Plan {
 		snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
-		return PlanFor(context.Background(), PlanInput{Spec: promote(dA, dB), Stage: stage, Status: status, From: from, To: to,
+		return autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stage, Status: status, From: from, To: to,
 			Snapshot: snap, Class: ClassAgent, Upstream: upstream, UpstreamErr: "untrusted key"})
 	}
 	oci, up, none, remote := stageSpec(), stageSpec(), stageSpec(), stageSpec()
@@ -389,7 +389,7 @@ func TestPublishedGate(t *testing.T) {
 		{"no source", plan(none, published, to, nil), Fail, "names no candidate source"},
 	}
 	snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
-	silent := PlanFor(context.Background(), PlanInput{Spec: promote(dA, dB), Stage: up, Status: StageStatus{Pointer: dA}, From: from, To: to, Snapshot: snap, Class: ClassAgent})
+	silent := autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: up, Status: StageStatus{Pointer: dA}, From: from, To: to, Snapshot: snap, Class: ClassAgent})
 	cases = append(cases, struct {
 		name   string
 		p      Plan
@@ -446,7 +446,7 @@ func TestRecordsRequired(t *testing.T) {
 		{"a freeze", freeze, st, StageStatus{Pointer: dA}, ClassController, ""},
 		{"not required", rb, stageSpec(), StageStatus{Pointer: dA}, ClassAgent, ""},
 	} {
-		p := PlanFor(context.Background(), PlanInput{Spec: c.spec, Stage: c.stage, Status: c.status, Class: c.class})
+		p := autonomousPlan(PlanInput{Spec: c.spec, Stage: c.stage, Status: c.status, Class: c.class})
 		switch {
 		case c.held == "" && p.Predicted != PredictProceeds:
 			t.Errorf("%s: %+v", c.name, p)
@@ -456,7 +456,7 @@ func TestRecordsRequired(t *testing.T) {
 	}
 	// A promote that already asks a person keeps its own question.
 	st.Approval.Always = true
-	p := PlanFor(context.Background(), PlanInput{Spec: promote(dA, dB), Stage: st, Status: StageStatus{Pointer: dA, Published: []string{dB}}, Class: ClassAgent})
+	p := autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: st, Status: StageStatus{Pointer: dA, Published: []string{dB}}, Class: ClassAgent})
 	if p.Predicted == PredictHeld && strings.Contains(p.Question, "requires records") {
 		t.Errorf("records replaced the promote's own question: %+v", p)
 	}
@@ -497,4 +497,14 @@ func TestStillPasses(t *testing.T) {
 	if StillPasses(au, Plan{Verdicts: []Verdict{other}, Floor: au.Floor}) {
 		t.Fatal("a different unknown needs a new answer")
 	}
+}
+
+// autonomousPlan plans on an autonomous Stage unless the input names a rung:
+// the gate and floor tests predate the ladder and judge what a fully
+// automatic Stage does.
+func autonomousPlan(in PlanInput) Plan {
+	if in.Status.Rung == "" {
+		in.Status.Rung = RungAutonomous
+	}
+	return PlanFor(context.Background(), in)
 }

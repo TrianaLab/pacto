@@ -43,6 +43,16 @@ spec:
       expression: >-
         request.userInfo.username.startsWith('system:serviceaccount:') ||
         request.userInfo.groups.exists(g, g in {{ $agents }}){{ $unenrolled }}
+    - name: rungFrom
+      expression: "has(object.spec.params) && has(object.spec.params.from) ? object.spec.params.from : ''"
+    - name: rungTo
+      expression: "has(object.spec.params) && has(object.spec.params.to) ? object.spec.params.to : ''"
+    - name: rungs
+      expression: "{'observe': 0, 'advise': 1, 'auto-nonbreaking': 2, 'autonomous': 3}"
+    - name: lowers
+      expression: >-
+        variables.rungFrom in variables.rungs && variables.rungTo in variables.rungs &&
+        variables.rungs[variables.rungTo] < variables.rungs[variables.rungFrom]
   validations:
     - expression: "object.spec.actor.user == request.userInfo.username"
       message: "spec.actor.user must be the user creating the operation"
@@ -74,6 +84,11 @@ spec:
         object.spec.type != 'delivery.pacto.trianalab.io/freeze' || variables.breakGlass ||
         !variables.agent || request.userInfo.username == '{{ $controller }}'
       message: "only a person, break-glass or the promoter may freeze a Stage; agents may not"
+      reason: Forbidden
+    - expression: >-
+        object.spec.type != 'delivery.pacto.trianalab.io/autonomy' || variables.breakGlass ||
+        (request.userInfo.username == '{{ $controller }}' ? variables.lowers : !(variables.agent && variables.rungTo == 'observe'))
+      message: "the promoter only lowers a rung, and an agent never lowers a Stage to observe"
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1

@@ -114,6 +114,10 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 		rejected = fmt.Sprintf("NotPermitted: a %s actor may not raise %s", in.Class, in.Spec.Type)
 	case in.Spec.Facet == FacetPointer && in.Spec.Params.From != in.Status.Pointer:
 		rejected = fmt.Sprintf("PointerMoved: from is %q but the Stage runs %q", in.Spec.Params.From, in.Status.Pointer)
+	case in.Spec.Facet == FacetRung && Rung(in.Spec.Params.From) != CurrentRung(in.Stage, in.Status):
+		rejected = fmt.Sprintf("RungMoved: from is %q but the Stage is on %q", in.Spec.Params.From, CurrentRung(in.Stage, in.Status))
+	case in.Spec.Type == TypePromote && CurrentRung(in.Stage, in.Status) == RungObserve:
+		rejected = "Observing: " + in.Spec.Stage + " observes, so GitOps owns the applyRef; propose " + TypeAutonomy + " to advise first"
 	case in.Spec.Type == TypePromote && slices.Contains(in.Status.FailedDigests, in.Spec.Params.To):
 		rejected = "FailedDigest: " + in.Spec.Params.To + " is one of the last 50 versions that failed on this Stage, which are never promoted again"
 	}
@@ -122,12 +126,17 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 		p.Predicted = PredictRejected
 		return p
 	}
-	if in.Spec.Type == TypePromote {
+	switch in.Spec.Type {
+	case TypePromote:
 		promoteGates(ctx, in, &p)
 		if in.Stage.Approval.Always && !p.Floor.Human {
 			p.Floor = Floor{Human: true, Decision: Approve}
 			p.Question = "This Stage asks a person to approve every promote. Approve " + short(p.To) + "?"
 		}
+		rungPromote(in, &p)
+		routeToServiceTeam(in, &p)
+	case TypeAutonomy:
+		autonomyGate(in, &p)
 		routeToServiceTeam(in, &p)
 	}
 	holdForRecords(in, &p)

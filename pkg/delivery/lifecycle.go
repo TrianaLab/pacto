@@ -319,6 +319,8 @@ func succeeded(s *StageStatus, name string, spec OperationSpec, st OperationStat
 		}
 	}
 	switch {
+	case spec.Type == TypeAutonomy:
+		changeRung(s, spec)
 	case spec.Type == TypeUnfreeze:
 		s.Frozen, s.FrozenReason, s.AutoHold = false, "", false
 	case spec.Type == TypeFreeze && !s.Frozen:
@@ -342,4 +344,38 @@ func failed(s *StageStatus, uid string, spec OperationSpec, st OperationStatus, 
 		s.RolledBack = AddDigest(s.RolledBack, uid, MaxRolledBack)
 	}
 	return c
+}
+
+// changeRung moves the Stage to the rung an autonomy operation names. Leaving
+// observe adopts what GitOps' source reports as the pointer: Pacto must know
+// what runs before it owns the pointer, and a promote from an empty pointer
+// would compare the new version with itself.
+func changeRung(s *StageStatus, spec OperationSpec) {
+	if Rung(spec.Params.From) == RungObserve && s.ObservedRevision != nil {
+		s.Pointer = s.ObservedRevision.Digest
+	}
+	// Evidence is earned on a rung: a change restarts the count. Concluded
+	// restarts at this operation's entry (ProposeRung); the shadow
+	// window restarts when the Stage observes again.
+	s.Rung, s.Proposal = Rung(spec.Params.To), nil
+	if s.Rung == RungObserve {
+		s.Shadow = nil
+	}
+}
+
+// RungRefusal says why an autonomy operation may not move the Stage now, or
+// "": the rung moved since it was planned, or it leaves observe with no
+// observed digest to adopt or while an operation holds the pointer. The promoter checks it in the compare-and-swap
+// that concludes the operation.
+func RungRefusal(spec OperationSpec, stage StageSpec, st StageStatus) string {
+	switch cur := CurrentRung(stage, st); {
+	case Rung(spec.Params.From) != cur:
+		return "RungMoved: from is " + spec.Params.From + " but the Stage is on " + string(cur)
+	case cur == RungObserve &&
+		(st.ObservedRevision == nil || !isDigest(st.ObservedRevision.Digest)):
+		return "NoObservedDigest: GitOps' source reports no digest, so there is no pointer to adopt"
+	case cur == RungObserve && st.Locks[FacetPointer] != "":
+		return "PointerBusy: operation " + st.Locks[FacetPointer] + " holds the pointer, so it cannot be adopted now"
+	}
+	return ""
 }

@@ -214,6 +214,10 @@ func TestSignAndOpenRecord(t *testing.T) {
 	if _, _, err := OpenRecord(b, func(string, int64, []byte) error { return errors.New("untrusted") }); err == nil {
 		t.Fatal("opened a record the verifier refused")
 	}
+	if hist, histID, err := OpenRecord(b, func(string, int64, []byte) error { return &HistoryOnly{Until: "r9"} }); err == nil ||
+		!strings.Contains(err.Error(), "r9") || histID != gotID || hist.Predicate.Chain.Seq != got.Predicate.Chain.Seq {
+		t.Fatalf("a revoked key's record comes back with its statement and a HistoryOnly error: %v", err)
+	}
 	edit := func(f func(*envelope)) []byte {
 		var x envelope
 		_ = json.Unmarshal(b, &x)

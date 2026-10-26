@@ -70,7 +70,7 @@ func (r *OperationReconciler) plan(ctx context.Context, op *dv1.Operation, stage
 }
 
 func (r *OperationReconciler) planOn(ctx context.Context, op *dv1.Operation, stage *dv1.Stage) (delivery.Plan, error) {
-	in, err := delivery.AssemblePlanInput(ctx, planSources{r}, op.Spec, stageObject(stage), op.Status.ActorClass, r.now())
+	in, err := delivery.AssemblePlanInput(ctx, planSources{r.Cluster}, op.Spec, stageObject(stage), op.Status.ActorClass, r.now())
 	if err != nil {
 		return delivery.Plan{}, err
 	}
@@ -82,35 +82,36 @@ func stageObject(s *dv1.Stage) delivery.StageObject {
 	return delivery.StageObject{Metadata: delivery.ObjectMeta{Name: s.Name, Namespace: s.Namespace, UID: string(s.UID)}, Spec: s.Spec, Status: s.Status}
 }
 
-// planSources is delivery.PlanSources over the promoter's own clients.
-type planSources struct{ r *OperationReconciler }
+// planSources is delivery.PlanSources over the promoter's own clients, for
+// the operation reconciler and the stage reconciler's shadow plans.
+type planSources struct{ c Cluster }
 
 func (p planSources) Revisions(ctx context.Context, stage delivery.StageObject, from, to string) (delivery.Revision, delivery.Revision) {
-	a, err := p.r.Cluster.applier(ctx, stage.Metadata.Namespace, stage.Spec.ApplyRef)
+	a, err := p.c.applier(ctx, stage.Metadata.Namespace, stage.Spec.ApplyRef)
 	if err != nil {
 		why := "the apply OCIRepository: " + err.Error()
 		return delivery.Revision{Digest: from, Err: why}, delivery.Revision{Digest: to, Err: why}
 	}
-	reg := p.r.Cluster.registryFor(a)
+	reg := p.c.registryFor(a)
 	return delivery.ResolveRevision(ctx, reg, a.repo, from), delivery.ResolveRevision(ctx, reg, a.repo, to)
 }
 
 func (p planSources) Pactos(ctx context.Context) ([]delivery.PactoView, error) {
-	return p.r.Cluster.pactos(ctx)
+	return p.c.pactos(ctx)
 }
 
 func (p planSources) Kustomizations(ctx context.Context) ([]delivery.KustomizationView, error) {
-	return p.r.Cluster.kustomizations(ctx)
+	return p.c.kustomizations(ctx)
 }
 
 func (p planSources) Describe(ctx context.Context, stage delivery.StageObject, digest string) delivery.Revision {
-	return p.r.Cluster.describe(ctx, stage, digest)
+	return p.c.describe(ctx, stage, digest)
 }
 
 // Stages lists every Stage, so a blocked plan can place its consumers.
 func (p planSources) Stages(ctx context.Context) ([]delivery.StageObject, error) {
 	list := &dv1.StageList{}
-	if err := p.r.List(ctx, list); err != nil {
+	if err := p.c.Client.List(ctx, list); err != nil {
 		return nil, err
 	}
 	out := make([]delivery.StageObject, 0, len(list.Items))
@@ -130,7 +131,7 @@ func (p planSources) Stages(ctx context.Context) ([]delivery.StageObject, error)
 // and why says why that gave nothing.
 func (p planSources) Upstream(ctx context.Context, stage delivery.StageObject) (*delivery.StageStatus, string, error) {
 	if stage.Spec.Candidates.UpstreamRecords != nil {
-		s, why := p.r.Cluster.remote(ctx, &dv1.Stage{Spec: stage.Spec, Status: stage.Status})
+		s, why := p.c.remote(ctx, &dv1.Stage{Spec: stage.Spec, Status: stage.Status})
 		return s, why, nil
 	}
 	up := stage.Spec.Candidates.UpstreamStage
@@ -139,7 +140,7 @@ func (p planSources) Upstream(ctx context.Context, stage delivery.StageObject) (
 	}
 	ns := cmp.Or(up.Namespace, stage.Metadata.Namespace)
 	s := &dv1.Stage{}
-	if err := p.r.Get(ctx, types.NamespacedName{Namespace: ns, Name: up.Name}, s); err != nil {
+	if err := p.c.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: up.Name}, s); err != nil {
 		if apierrors.IsNotFound(err) || apierrors.IsForbidden(err) {
 			return nil, "the upstream Stage " + ns + "/" + up.Name + " cannot be read: " + err.Error(), nil
 		}

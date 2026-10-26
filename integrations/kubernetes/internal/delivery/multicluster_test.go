@@ -66,7 +66,6 @@ func TestRemoteUpstreamReady(t *testing.T) {
 // newest record read is remembered, so a stream cut at its tail is refused.
 func TestRemoteUpstreamUnreadable(t *testing.T) {
 	s := remoteStage(dA)
-	s.Spec.Auto = true
 	e := newEnv(t, s, ociRepo("payments", dA, "", false))
 	reads := 0
 	// view is the upstream stream holding ids at seqs 1, 2 and so on, each a
@@ -129,7 +128,7 @@ func TestRemoteUpstreamUnreadable(t *testing.T) {
 		t.Fatalf("a cut stream: %+v", c)
 	}
 	// Planning reads afresh and refuses the cut stream too.
-	if s, why, err := (planSources{e.op}).Upstream(context.Background(), stageObject(e.getStage())); s != nil || err != nil || !strings.Contains(why, "newest records were removed") {
+	if s, why, err := (planSources{e.op.Cluster}).Upstream(context.Background(), stageObject(e.getStage())); s != nil || err != nil || !strings.Contains(why, "newest records were removed") {
 		t.Fatalf("plan read of a cut stream: %+v %q %v", s, why, err)
 	}
 	// The same seq is not rewritten in place, and a read that extends it moves the mark.
@@ -171,7 +170,6 @@ func TestRemoteUpstreamUnreadable(t *testing.T) {
 // verified.
 func TestRemoteUpstreamAutoPromote(t *testing.T) {
 	s := remoteStage(dA)
-	s.Spec.Auto = true
 	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false))
 	e.upstreamReads(nil, "records that could not be verified")
 	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 0 {
