@@ -354,7 +354,13 @@ func changeRung(s *StageStatus, spec OperationSpec) {
 	if Rung(spec.Params.From) == RungObserve && s.ObservedRevision != nil {
 		s.Pointer = s.ObservedRevision.Digest
 	}
-	s.Rung = Rung(spec.Params.To)
+	// Evidence is earned on a rung: a change restarts the count. Concluded
+	// restarts at this operation's entry (ProposeRung); the shadow
+	// window restarts when the Stage observes again.
+	s.Rung, s.Proposal = Rung(spec.Params.To), nil
+	if s.Rung == RungObserve {
+		s.Shadow = nil
+	}
 }
 
 // RungRefusal says why an autonomy operation may not move the Stage now, or
