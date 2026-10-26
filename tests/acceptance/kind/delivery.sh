@@ -661,6 +661,25 @@ metadata:
   labels: {delivery.pacto.trianalab.io/apply-ref: $svc}
 spec: {interval: 30s, insecure: true, url: "oci://${REG_HOST}/apps/$svc", ref: {digest: "$digest"}, $VERIFY}
 ---
+# Flux applies each version as this account, never as kustomize-controller:
+# Mediated stays False for an applier with cluster-admin rights.
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: $svc-deployer}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: $svc-deployer}
+rules:
+- {apiGroups: [apps], resources: [deployments], verbs: ["*"]}
+- {apiGroups: [pacto.trianalab.io], resources: [pactos], verbs: ["*"]}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: $svc-deployer}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: $svc-deployer}
+subjects: [{kind: ServiceAccount, name: $svc-deployer}]
+---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
 metadata: {name: $svc}
@@ -671,6 +690,7 @@ spec:
   prune: true
   timeout: 2m
   targetNamespace: $1
+  serviceAccountName: $svc-deployer
   # The Deployment only. Waiting on every object would make Flux wait for the
   # Pacto to observe its new generation, which hides the stale verdict item 8
   # is about: the promoter, not Flux, must refuse a result for an old version.

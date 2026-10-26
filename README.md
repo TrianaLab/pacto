@@ -30,8 +30,16 @@ Stage) climbs a ladder of four rungs:
 | --- | --- |
 | observe | Works out what it would do for every change and moves nothing; GitOps keeps control |
 | advise | Shows each new version and its plan; a person asks for or approves every change |
-| auto for non-breaking | Ships the changes that break no one on its own |
+| auto for non-breaking | Ships on its own the changes whose contract breaks no one |
 | autonomous | Ships every change the contract graph clears on its own |
+
+The automatic rungs judge the contract, not the manifests: a version whose
+contract is unchanged but whose manifests grant it more ships like any other.
+Flux applies those manifests with the rights of the account its Kustomization
+runs as, so give it a namespaced one (`pacto init --delivery` writes a
+deployer account) and treat the key that signs `pacto publish` as the root of
+trust. The Stage's `Mediated` condition is `False` while the applier runs as
+Flux itself.
 
 Delivery is alpha: its settings and commands may still change, and it runs on
 Kubernetes 1.30 or later with Flux (Argo CD is experimental).

@@ -219,6 +219,44 @@ func checkStages(t *testing.T, test, prod string) {
 	if !strings.Contains(test, "  wait: true\n") {
 		t.Fatalf("the Kustomization does not wait for the rollout:\n%s", test)
 	}
+	checkDeployer(t, test, "test")
+	checkDeployer(t, prod, "prod")
+}
+
+// checkDeployer: Flux applies each version as a namespaced deployer, never as
+// kustomize-controller itself, and that deployer gets no cluster-wide kind,
+// no RBAC and nothing of Flux or Pacto delivery, so a version cannot ship a
+// ClusterRoleBinding and have it applied.
+func checkDeployer(t *testing.T, text, env string) {
+	t.Helper()
+	dec := yaml.NewDecoder(strings.NewReader(text))
+	kinds := map[string]map[string]any{}
+	for {
+		var doc map[string]any
+		if dec.Decode(&doc) != nil {
+			break
+		}
+		kinds[doc["kind"].(string)] = doc
+	}
+	ks := kinds["Kustomization"]["spec"].(map[string]any)
+	if ks["serviceAccountName"] != "fraud-deployer" {
+		t.Fatalf("the Kustomization in %s applies as kustomize-controller: %v", env, ks)
+	}
+	for _, k := range []string{"ServiceAccount", "Role", "RoleBinding"} {
+		if kinds[k] == nil || kinds[k]["metadata"].(map[string]any)["namespace"] != env {
+			t.Fatalf("no namespaced %s in %s:\n%s", k, env, text)
+		}
+	}
+	if kinds["ClusterRole"] != nil || kinds["ClusterRoleBinding"] != nil {
+		t.Fatalf("the deployer in %s reaches cluster-wide:\n%s", env, text)
+	}
+	for _, r := range kinds["Role"]["rules"].([]any) {
+		for _, g := range r.(map[string]any)["apiGroups"].([]any) {
+			if g == "*" || strings.Contains(g.(string), "rbac") || strings.Contains(g.(string), "toolkit.fluxcd.io") || strings.HasPrefix(g.(string), "delivery.") {
+				t.Fatalf("the deployer in %s may write %s", env, g)
+			}
+		}
+	}
 }
 
 // decodeStage returns the Stage spec in text, decoded strictly, and the kinds

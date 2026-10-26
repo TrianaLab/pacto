@@ -20,6 +20,7 @@ func guardedKs(name, namespace string, fn func(spec map[string]any)) *unstructur
 	k := kustomization(name, "payments", "True", "", "", "")
 	k.SetNamespace(namespace)
 	k.SetLabels(map[string]string{ApplyRefLabel: "payments"})
+	k.Object["spec"].(map[string]any)["serviceAccountName"] = "payments-deployer"
 	if fn != nil {
 		fn(k.Object["spec"].(map[string]any))
 	}
@@ -43,6 +44,9 @@ func TestMediated(t *testing.T) {
 		"images": {[]*unstructured.Unstructured{guardedKs("payments", ns, func(s map[string]any) {
 			s["images"], s["prune"] = []any{map[string]any{"name": "app", "newTag": "evil"}}, true
 		})}, statusFalse, "ApplierOverrides", "sets spec.images"},
+		"cluster-admin applier": {[]*unstructured.Unstructured{guardedKs("payments", ns, func(s map[string]any) {
+			delete(s, "serviceAccountName")
+		})}, statusFalse, "ApplierUnscoped", "sets no serviceAccountName"},
 		"two appliers": {[]*unstructured.Unstructured{guardedKs("payments", ns, nil), guardedKs("other", "elsewhere", func(s map[string]any) {
 			s["sourceRef"].(map[string]any)["namespace"] = ns
 		})}, statusFalse, "SeveralAppliers", "Kustomizations elsewhere/other and prod/payments all apply"},

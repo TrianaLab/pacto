@@ -123,13 +123,19 @@ Pacto mediates the pointer and signed records name it. The pointer alone
 decides what runs only when nothing else can change it; the Stage's `Mediated`
 condition says whether that holds. It is `True` when exactly one
 Flux Kustomization applies the apply `OCIRepository`, both carry the
-`delivery.pacto.trianalab.io/apply-ref` label and sets none of `images`,
-`patches`, `components`, `postBuild`, `namePrefix` or `nameSuffix`. On
+`delivery.pacto.trianalab.io/apply-ref` label, the Kustomization sets a
+`serviceAccountName` and sets none of `images`,
+`patches`, `components`, `postBuild`, `namePrefix` or `nameSuffix`. Without a
+`serviceAccountName` Flux applies each version as kustomize-controller, which
+is cluster-admin in a default install, so a version whose contract did not
+change could ship a ClusterRoleBinding and an automatic rung would apply it:
+the rungs judge the contract, not the manifests. `pacto init --delivery`
+writes a namespaced deployer account for each environment. On
 Argo CD it is `True` when the Application carries the label, has one source and sets no
 Kustomize images, patches or components, Helm parameters, values or value
 files, or plugin. Otherwise it is `False` and the reason
 (`ApplyRefUnguarded`, `NoApplier`, `SeveralAppliers`, `ApplierUnguarded`,
-`ApplierOverrides`, `SeveralSources`) names what else decides what runs.
+`ApplierUnscoped`, `ApplierOverrides`, `SeveralSources`) names what else decides what runs.
 
 On labelled objects, only break-glass may change: removing
 the label, the `OCIRepository`'s `spec.url` and `spec.layerSelector`, the rest

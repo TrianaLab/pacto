@@ -44,6 +44,15 @@ would break a consumer waits for that consumer's team. A change with an
 Unknown check waits for the team that owns the service. The rung only decides how often a person is
 asked when the contracts say a change is safe.
 
+The rungs judge the contract, never the manifests that ship with it. A version
+with the same contract and new manifests (a new ClusterRoleBinding, say) is
+non-breaking, so an automatic rung ships it with no person. What those
+manifests can do is what the account Flux applies them as may do. Give the
+Kustomization a namespaced `serviceAccountName`, as `pacto init --delivery`
+does, and keep the key that signs `pacto publish` as safe as the cluster: it
+is the root of trust. The Stage's `Mediated` condition is `False` with the
+reason `ApplierUnscoped` while the Kustomization runs as Flux itself.
+
 ## Cold start: begin by watching
 
 A new Stage starts on **observe**. Connecting a service to delivery with

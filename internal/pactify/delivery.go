@@ -68,7 +68,8 @@ func (p *planner) delivery() {
 		if i == len(p.envs)-1 {
 			approval = gated
 		}
-		fmt.Fprintf(&b, envPieces, name, env, deployRepo, tag, verify, name, env, name, env, name, env, name, env, name, candidates, approval)
+		fmt.Fprintf(&b, deployer, name, env)
+		fmt.Fprintf(&b, envPieces, name, env, deployRepo, tag, verify, name, env, name, env, name, name, env, name, env, name, candidates, approval)
 		p.file("delivery/"+env+".yaml", b.String())
 		want := "the registry"
 		if i > 0 {
@@ -203,6 +204,63 @@ spec:
 %s---
 `
 
+// deployer is the account Flux applies a version as, and what it may touch:
+// the workload kinds in its own namespace, nothing cluster-wide and nothing
+// of Flux or Pacto delivery. Without it Flux applies as kustomize-controller,
+// cluster-admin in a default install, so anyone who can publish a version
+// could ship a ClusterRoleBinding and have it applied with no person asked.
+const deployer = `# The account Flux applies each version of %[1]s as, in %[2]s. Widen the Role in
+# git if your manifests need more; never give it cluster-wide rights or
+# the delivery, Flux or RBAC groups.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: %[1]s-deployer
+  namespace: %[2]s
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: %[1]s-deployer
+  namespace: %[2]s
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, secrets, services, serviceaccounts, persistentvolumeclaims]
+    verbs: ["*"]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets]
+    verbs: ["*"]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: ["*"]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: ["*"]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: ["*"]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: ["*"]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos]
+    verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: %[1]s-deployer
+  namespace: %[2]s
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: %[1]s-deployer
+subjects:
+  - kind: ServiceAccount
+    name: %[1]s-deployer
+---
+`
+
 const envPieces = `# The version that runs. GitOps owns spec.ref: it is the tag you deploy today,
 # so while the Stage observes, Flux applies what it always did. Pacto writes a
 # digest here only once this OCIRepository carries the apply-ref label.
@@ -230,6 +288,10 @@ spec:
   path: ./
   prune: true
   targetNamespace: %s
+  # Flux applies each version as this account, never as itself: a version
+  # can then change only what the deployer Role above allows, in this
+  # namespace. An auto rung judges the contract, not the manifests.
+  serviceAccountName: %s-deployer
   # Ready only once what it applied is rolled out, so the Stage judges the new pods.
   wait: true
   timeout: 2m
