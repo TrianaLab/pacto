@@ -110,7 +110,10 @@ func CheckRunner(v Verdict, p RecordPredicate, verify RunnerVerifier) (string, e
 			return runner, fmt.Errorf("the verdict cites %s %q, but %s signed %q", k, v.Citation[k], runner, signed)
 		}
 	}
-	params := checkParams(v, p)
+	params, why := checkParams(v, p)
+	if why != "" {
+		return runner, errors.New(why)
+	}
 	rate, why := passRate(params)
 	if why != "" {
 		return runner, errors.New(why)
@@ -133,17 +136,16 @@ func CheckRunner(v Verdict, p RecordPredicate, verify RunnerVerifier) (string, e
 
 // checkParams are the params the eval verdict v ran with: the Stage check of
 // its name in the policy the recorder copied, or, in a record that keeps no
-// policy, the params the verdict cites.
-func checkParams(v Verdict, p RecordPredicate) map[string]string {
+// policy, the params the verdict cites. why says the policy has no such check.
+func checkParams(v Verdict, p RecordPredicate) (params map[string]string, why string) {
 	if p.Policy == nil {
-		var params map[string]string
 		_ = json.Unmarshal([]byte(v.Citation["params"]), &params) // none read is the defaults
-		return params
+		return params, ""
 	}
 	if i := slices.IndexFunc(p.Policy.Gates.Verify.Checks, func(c GateCheck) bool { return c.Name == v.Gate }); i >= 0 {
-		return providerParams(p.Policy.Gates.Verify.Checks[i])
+		return providerParams(p.Policy.Gates.Verify.Checks[i]), ""
 	}
-	return map[string]string{"minPassRate": "the Stage runs no check named " + v.Gate}
+	return nil, "the record's Stage runs no check named " + v.Gate + ", so its minPassRate cannot be read"
 }
 
 // passRate is the minPassRate param, 1 (every case passes) when unset, or why
