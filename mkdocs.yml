@@ -22,9 +22,11 @@ theme:
   custom_dir: overrides
   logo: assets/images/logo.svg
   favicon: favicon.svg
-  font:
-    text: Inter
-    code: JetBrains Mono
+  # No Google Fonts: the type matches the dashboard and is served from this site.
+  # Source Serif 4 is bundled in docs/assets/fonts/; Inter and JetBrains Mono are
+  # named in stylesheets/extra.css and fall back to the system stack, exactly as
+  # the dashboard does.
+  font: false
   icon:
     repo: fontawesome/brands/github
   palette:
@@ -34,16 +36,16 @@ theme:
         name: Switch to light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      # Neutral header + indigo accent; exact indigo hexes set in stylesheets/extra.css.
-      primary: white
-      accent: indigo
+      # custom: every colour comes from the dashboard tokens in stylesheets/extra.css.
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
-      primary: black
-      accent: indigo
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to system preference
@@ -73,6 +75,12 @@ theme:
 # the published site.
 exclude_docs: |
   superpowers/
+
+# The WASM demo folded into docs/demo/ ships its own licences as Markdown (the
+# dashboard's Source Serif 4 OFL). They must still be published with the font, but
+# they are not documentation pages, so --strict must not ask for them in the nav.
+not_in_nav: |
+  /demo/
 
 # Fail the build (under --strict) on orphan pages and broken cross-references,
 # so no page lingers outside the nav and every link/anchor resolves.
