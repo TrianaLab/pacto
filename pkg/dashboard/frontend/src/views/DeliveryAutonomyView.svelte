@@ -164,7 +164,7 @@
         <div class="au-groups" data-testid="autonomy-blockers">
           {#each groups as g, gi (g.kind + gi)}
             <section class="au-group" aria-label={blockerLabel(g.kind)}>
-              <h3 class="au-group-title">{blockerLabel(g.kind)} <span class="t-meta" data-testid="blocker-kind-count">{formatCount(g.total ?? g.items.length)}{g.total > g.items.length ? `, ${formatCount(g.items.length)} on this page` : ''}</span></h3>
+              <h3 class="au-group-title">{blockerLabel(g.kind)} <span class="t-meta" data-testid="blocker-kind-count">{formatCount(g.total ?? g.items.length)}{g.total > g.items.length ? ` in all, ${formatCount(g.items.length)} on this page` : ''}</span></h3>
               <ul class="au-blockers">
                 {#each g.items as b, i (b.subject + ' ' + i)}
                   {@const key = b.kind + ' ' + b.subject}

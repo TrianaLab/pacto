@@ -131,7 +131,7 @@ describe('path to autonomy', () => {
     expect(text(blocker)).toContain('On 300 Stages');
     expect(text(blocker)).toContain('Show all 300');
     // A kind counts over every page, not only the blockers this page shows.
-    expect(text(target.querySelector('[data-testid="blocker-kind-count"]')!)).toBe('60, 1 on this page');
+    expect(text(target.querySelector('[data-testid="blocker-kind-count"]')!)).toBe('60 in all, 1 on this page');
     // Propose opens its plan in a row under the Stage it is for.
     (target.querySelector('button[aria-label^="Propose"]') as HTMLButtonElement).click();
     await settle();
