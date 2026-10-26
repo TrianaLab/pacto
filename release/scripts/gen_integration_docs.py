@@ -577,6 +577,10 @@ def chart_arg_flags(helper: str) -> dict[str, str]:
 def gen_operator_configuration(repo_root: str, k8s: str) -> str:
     help_text = controller_help(repo_root)
     flags = parse_flags(help_text)
+    if not flags:
+        # A controller that fails to build prints no flags; writing an empty table
+        # would erase the reference and still exit 0.
+        sys.exit("operator --help listed no flags:\n" + help_text[-2000:])
     main_src = read(os.path.join(k8s, "cmd/main.go"))
     env_vars = sorted(set(re.findall(r'os\.Getenv\("([^"]+)"\)', main_src)))
 
