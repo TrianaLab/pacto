@@ -636,6 +636,22 @@ func TestKernelMerge_UndeclaredKeptWhenDependencyResolvesByName(t *testing.T) {
 	}
 }
 
+// TestKernelMerge_UndeclaredKeptWithExternalDependency checks an external dependency (which never has a
+// sibling Pacto) does not suppress the report.
+func TestKernelMerge_UndeclaredKeptWithExternalDependency(t *testing.T) {
+	f := newKernelFixture()
+	f.entry().Connections = []pactoapi.RuntimeConnection{connOK("10.96.0.20", 5432)}
+	c := fake.NewClientBuilder().WithScheme(kernelScheme()).WithObjects(f.objects(true)...).Build()
+	in := f.input(true)
+	in.Contract.Dependencies = append(in.Contract.Dependencies,
+		contract.Dependency{Name: "model", External: true, Version: "2025-01"},
+		contract.Dependency{Name: "db", Ref: "oci://registry/managed-db", External: true})
+	set, _, _ := New(c).Collect(context.Background(), in)
+	if _, p := depObs(t, set, "ledger"); !p.Undeclared {
+		t.Fatalf("got %+v, want ledger reported undeclared", p)
+	}
+}
+
 func TestKernelMerge_UndeclaredExclusions(t *testing.T) {
 	conn := []pactoapi.RuntimeConnection{connOK("10.96.0.20", 5432)}
 	tests := []struct {

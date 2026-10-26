@@ -471,9 +471,14 @@ func undeclaredCandidate(p *unversioned.Pacto, input CollectInput) bool {
 // ref nor by its name: a local path or other non-OCI ref, or an OCI ref no loaded sibling carries. That
 // dependency may be the very service the target reached under another name, so calling any peer undeclared
 // could be a false positive. The merge then reports no undeclared peer at all: drift goes unreported, never
-// invented. A contract whose dependencies all resolve to siblings keeps the full report.
+// invented. A contract whose dependencies all resolve to siblings keeps the full report. An external
+// dependency never has a sibling Pacto (this system does not run it), so it is skipped rather than
+// silencing the report for every service that uses one.
 func unresolvedDependency(c *contract.Contract, pactos []unversioned.Pacto) bool {
 	for _, dep := range c.Dependencies {
+		if dep.External {
+			continue
+		}
 		if !slices.ContainsFunc(pactos, func(p unversioned.Pacto) bool {
 			return p.Status.Contract != nil &&
 				(p.Status.Contract.ServiceName == dep.Name || matchesRef(dep.Ref, p.Status.Contract.ResolvedRef))
