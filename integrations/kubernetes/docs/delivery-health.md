@@ -142,6 +142,7 @@ Sigstore bundle: a DSSE envelope over a statement it signs.
   "subject": [{"name": "pay-agent", "digest": {"sha256": "..."}}],
   "predicateType": "delivery.pacto.trianalab.io/eval/v1",
   "predicate": {
+    "operation": "<the input's operationUID>",
     "suite": "sha256:...",
     "run": "https://evals.example/runs/7",
     "passed": 48,
@@ -152,8 +153,8 @@ Sigstore bundle: a DSSE envelope over a statement it signs.
 }
 ```
 
-`suite` is the sha256 of the suite it ran; `observedModel` (optional) the
-model it saw answer. The provider lists the runners it trusts in `signers`,
+`operation` is the input's `operationUID`, `suite` the sha256 of the suite it
+ran and `observedModel` (optional) the model it saw answer. The provider lists the runners it trusts in `signers`,
 each a public key or a keyless identity:
 
 ```yaml

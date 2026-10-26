@@ -60,6 +60,9 @@ func signedBy(sig string, st any) string {
 
 // evalStatement is a runner's statement that it ran suite on subject.
 func evalStatement(subject string, r EvalResult) EvalStatement {
+	if r.Operation == "" {
+		r.Operation = gateIn().OperationUID
+	}
 	st := EvalStatement{Type: StatementType, PredicateType: PredicateEval, Predicate: r}
 	if algo, hex, ok := strings.Cut(subject, ":"); ok {
 		st.Subject = []Subject{{Name: "version", Digest: map[string]string{algo: hex}}}
@@ -136,6 +139,7 @@ func TestEvalUnknown(t *testing.T) {
 	unknown := map[string]string{
 		"another version": signed("sha256:other", r("r", 1, 1)),
 		"no subject":      signed("", r("r", 1, 1)),
+		"another op":      signed(dA, EvalResult{Operation: "u0", Suite: suiteDigest, Run: "r", Passed: 1, Total: 1}),
 		"no run":          signed(dA, r("", 1, 1)),
 		"no suite":        signed(dA, EvalResult{Run: "r", Passed: 1, Total: 1}),
 		"no cases":        signed(dA, r("r", 0, 0)),

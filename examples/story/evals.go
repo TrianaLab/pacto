@@ -30,14 +30,14 @@ func RunnerTrust() delivery.TrustedKey {
 }
 
 // SignEval is the answer the story's eval runner gives: a Sigstore bundle
-// whose DSSE envelope carries the statement that it ran suite on subject and
-// counted passed of total, signed with RunnerKey. It needs only the standard
+// whose DSSE envelope carries the statement that, asked by operation, it ran
+// suite on subject and counted passed of total, signed with RunnerKey. It needs only the standard
 // library, so the browser demo signs too.
-func SignEval(subject, suite, run string, passed, total int) []byte {
+func SignEval(operation, subject, suite, run string, passed, total int) []byte {
 	algo, digest, _ := strings.Cut(subject, ":")
 	payload, _ := json.Marshal(delivery.EvalStatement{Type: delivery.StatementType, PredicateType: delivery.PredicateEval,
 		Subject:   []delivery.Subject{{Name: "pay-agent", Digest: map[string]string{algo: digest}}},
-		Predicate: delivery.EvalResult{Suite: suite, Run: run, Passed: passed, Total: total, Message: "counted by the story's stand-in runner"}})
+		Predicate: delivery.EvalResult{Operation: operation, Suite: suite, Run: run, Passed: passed, Total: total, Message: "counted by the story's stand-in runner"}})
 	// DSSE signs the pre-authentication encoding of the payload and its type.
 	pae := fmt.Sprintf("DSSEv1 %d %s %d %s", len(delivery.PayloadType), delivery.PayloadType, len(payload), payload)
 	key := RunnerKey()

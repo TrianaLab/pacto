@@ -36,10 +36,12 @@ type EvalStatement struct {
 	Predicate     EvalResult `json:"predicate"`
 }
 
-// EvalResult is delivery.pacto.trianalab.io/eval/v1: which suite ran (its
-// sha256), where the run can be read again, how many cases passed and, when
-// the runner can tell, the model that answered.
+// EvalResult is delivery.pacto.trianalab.io/eval/v1: the operation that
+// asked (the input's operationUID), which suite ran (its sha256), where the
+// run can be read again, how many cases passed and, when the runner can tell,
+// the model that answered.
 type EvalResult struct {
+	Operation     string `json:"operation"`
 	Suite         string `json:"suite"`
 	Run           string `json:"run"`
 	Passed        int    `json:"passed"`
@@ -85,7 +87,7 @@ func CheckRunner(v Verdict, verify RunnerVerifier) (string, error) {
 		return "", err
 	}
 	a := st.Predicate
-	for k, signed := range map[string]string{"subject": st.Version(), "suite": a.Suite, "run": a.Run,
+	for k, signed := range map[string]string{"subject": st.Version(), "operation": a.Operation, "suite": a.Suite, "run": a.Run,
 		"passed": strconv.Itoa(a.Passed), "total": strconv.Itoa(a.Total), "observedModel": a.ObservedModel} {
 		if v.Citation[k] != signed {
 			return runner, fmt.Errorf("the verdict cites %s %q, but %s signed %q", k, v.Citation[k], runner, signed)
@@ -156,6 +158,10 @@ func (e Eval) Check(ctx context.Context, in GateInput, params map[string]string)
 	switch {
 	case !slices.Contains(in.Subjects, subject):
 		return Verdict{Result: Unknown, Message: fmt.Sprintf("the runner ran the suite on %q, not on the version under check", subject)}
+	case a.Operation != in.OperationUID:
+		// ponytail: binds an answer to one operation, not to one request; a
+		// replayed answer from earlier in the same operation still counts.
+		return Verdict{Result: Unknown, Message: fmt.Sprintf("the runner answered operation %q, not %q: an answer signed for another operation is not this one's", a.Operation, in.OperationUID)}
 	case a.Run == "":
 		return Verdict{Result: Unknown, Message: "the runner named no run to cite"}
 	case a.Suite != in.Suite.Digest:
@@ -165,7 +171,7 @@ func (e Eval) Check(ctx context.Context, in GateInput, params map[string]string)
 	}
 	v := Verdict{Result: Fail, Citation: map[string]string{
 		"run": a.Run, "suite": a.Suite, "suiteName": in.Suite.Name, "suitePath": in.Suite.Path, "contract": in.Contract, "subject": subject,
-		"passed": strconv.Itoa(a.Passed), "total": strconv.Itoa(a.Total), "runner": runner, "runnerBundle": signed.String(),
+		"passed": strconv.Itoa(a.Passed), "total": strconv.Itoa(a.Total), "runner": runner, "runnerBundle": signed.String(), "operation": a.Operation,
 	}}
 	// Divide, never multiply: 7/100 rounds to the parsed 0.07, 0.07*100 does not round to 7.
 	if float64(a.Passed)/float64(a.Total) >= minRate {
