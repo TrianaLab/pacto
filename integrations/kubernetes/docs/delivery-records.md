@@ -1,9 +1,8 @@
 # Delivery reference: signed records and history
 
 The recorder writes a signed record of every operation that ends, refusals
-included, into your registry next to the versions it touched. It is off by
-default. Only it holds the signing key and the right to push; the promoter
-never gets either. With it on, history, blame and undo read the records, not
+included, into your registry next to the versions it touched. Off by
+default. Only it can sign and push; the promoter can do neither. With it on, history, blame and undo read the records, not
 the Operations left in the cluster. The operator reads every Secret, so it
 can read an Ed25519 key too: prefer KMS or keyless signing.
 
@@ -69,15 +68,15 @@ Each Stage gets a `RecordStoreReady` condition:
 | `SignerUnavailable` | The signer (KMS key, keyless token, Fulcio or timestamp authority) failed; it tries again |
 | `StreamConflict` | Two trusted records with one number, a broken chain or a missing head (the one the Stage names). The recorder stops and the Stage freezes |
 
-A record no key trusted for the stream signed is not part of its history.
-The recorder and followers skip it, and the `True` condition message names
-the first one. Anyone who can push to the streams repository can attach a
-referrer, so an untrusted one never freezes a Stage.
+A record signed by no key trusted for its stream is not part of its history:
+the recorder and followers skip it, and the condition names the first
+one. Anyone who can push can attach a referrer, so an untrusted one never
+freezes a Stage.
 
 Pacto never resolves a `StreamConflict` for you. Find the bad record with
 `pacto delivery record verify`, delete its referrer manifest from the streams
 repository, wait for `RecordStoreReady` to turn `True`, then unfreeze. After an
-etcd restore the recorder continues from the newest record, never forking.
+etcd restore the recorder continues from the newest record.
 
 ## Require records
 
@@ -119,9 +118,8 @@ delivery:
 `streams` are patterns over stream ids (`<cluster>/<namespace>/<stage>`), so a
 dev key cannot sign prod history. A keyless entry names `identity`, `issuer`
 and the required `trustedRoot`. The recorder's own key is always trusted. List
-the old key before the recorder signs with a new one, including when a KMS
-alias moves to a new key. Otherwise the old key's records stop verifying, the
-head the Stage names goes missing and the Stage freezes. Pass the same file (or the recorder's PEM
+the old key before the recorder signs with a new one, also when a KMS alias
+moves. Otherwise the old records stop verifying and the Stage freezes. Pass the same file (or the recorder's PEM
 public key) to the CLI with `--trust` or `PACTO_DELIVERY_TRUST`, and to
 `pacto mcp --delivery` and `pacto dashboard` with `--delivery-trust`. Without
 it, records are read unchecked and every answer says it is partial.

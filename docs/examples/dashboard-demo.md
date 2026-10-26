@@ -20,7 +20,9 @@ browser keeps a copy afterwards.
 
 ## What to look at
 
-- **Fleet overview**: eighteen made-up services and who calls whom. A banner
+- **Fleet overview**: eighteen made-up services and who calls whom: the
+  sixteen of the [CLI tour](demo-tour.md) plus two from a partner registry,
+  a second domain. A banner
   at the top says some of the information is missing. That is on purpose:
   Pacto always tells you what it could not see instead of hiding it.
 - **One service's dependency graph**: `payments-service` has six published

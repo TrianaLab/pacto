@@ -56,7 +56,7 @@ contract.
 
 ### OwnerInfo
 
-Structured ownership metadata. All fields are optional but at least one must be present. Which field you set decides the canonical owner key the graph aggregates by — see [Ownership and the canonical owner key](../operational-graph.md#ownership-and-the-canonical-owner-key).
+Structured ownership metadata. All fields are optional but at least one must be present. Which field you set decides the canonical owner key the graph aggregates by — see [Ownership and the canonical owner key](../operational-graph-reference.md#ownership-and-the-canonical-owner-key).
 
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|

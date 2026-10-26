@@ -16,6 +16,23 @@ a different label, it is in the last column.
 | Contract graph | All your contracts together: who calls whom and which versions each accepts | Graph |
 | Registry | The place your container images are stored. Pacto stores contracts there too | — |
 | Digest | The fingerprint of one exact published artifact (`sha256:...`) | — |
+| Bundle | A contract together with the files it points to (OpenAPI documents, schemas), as one folder or one published artifact | — |
+| Interface | One way a service is called, such as an HTTP API described by an OpenAPI file | Interfaces |
+| Policy | A rule a contract must follow, such as "every service names an owner", checked with the contract | Policy |
+| Clear | The contracts clear a change when every consumer accepts the new version | — |
+| Target | One running deployment of a service, such as payments in one cluster | Targets |
+| Shadow consumer | A service seen calling another at runtime that no contract declares | — |
+| Readiness assessment | A dated statement in a contract of which readiness claims are done, with evidence; it counts for nothing once it expires | Readiness |
+
+## Checking what runs
+
+| Word | Meaning | In the dashboard |
+|---|---|---|
+| Evidence | What was observed about a running service, such as which ports listen or which services it called | Evidence |
+| Collector | What gathers evidence, such as the Kubernetes observer or the eBPF node agent | — |
+| Finding | One contradiction between a contract and the evidence, such as `INTERFACE_ABSENT` | Findings |
+| Evidence Server | The service that receives evidence and stores it in your registry next to the contract it is about | — |
+| Referrer | A file a registry stores attached to an artifact, listed by the OCI Referrers API. Evidence and records are stored this way | — |
 
 ## Delivery
 
@@ -49,7 +66,7 @@ a different label, it is in the last column.
 | Would have | On observe, what Pacto would have done with a change. Advice, not a record |
 | Proposal | The next rung Pacto suggests, with its evidence or what blocks it |
 | Earned autonomy | Raising a rung after enough good changes, confirmed by a person |
-| Step-down | Dropping one rung after a version Pacto shipped on its own fails |
+| Step-down | Dropping one rung after a version Pacto shipped with no person fails |
 
 See [the autonomy ladder](autonomy.md).
 

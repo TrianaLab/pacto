@@ -122,7 +122,7 @@ context name, or `k8s` when no context is set. A collision is refused, naming
 both claimants. Whoever owns the storage owns producing and rotating the
 exports: Pacto ships **no OTLP receiver**, so nothing listens on 4317 or 4318.
 
-[Sources](../../operational-graph.md#sources) lists every source the graph reads,
+[Sources](../../operational-graph-reference.md#sources) lists every source the graph reads,
 and [Knowledge](../../operational-graph.md#knowledge) tells an unreadable source
 from a stale one.
 

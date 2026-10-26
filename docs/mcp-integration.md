@@ -144,7 +144,7 @@ service's own sign-in, as its OpenAPI document declares it.
 
 | Tools | Mode | Read or write |
 |---|---|---|
-| `pacto_create`, `pacto_edit` | every mode but `--root` | Write contract files |
+| `pacto_create`, `pacto_edit` | every mode but `--root` | Write contract files. `pacto_create` with `pactify: true` does what `pacto init` does for a folder or a cluster (see [Pactify a service](pactify.md)) |
 | `pacto_check`, `pacto_schema` | every mode but `--root` | Read |
 | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_impact` | `--fleet` | Read |
 | `pacto_catalog_revision`, plus two MCP resources (documents the agent can read, not tools): `pacto://catalog` and `pacto://catalog/closure`, the contracts you named plus everything they depend on | `--root` | Read |
@@ -173,8 +173,9 @@ You:    Check the contract in ./user-service
 Claude: user-service is valid.
 ```
 
-Pacto never guesses which services yours calls, so you add them yourself, as
-in the second prompt.
+Pacto adds a dependency only from calls it actually observed (with the node
+agent running, pactify does), never from a guess. Otherwise you add them
+yourself, as in the second prompt.
 
 ## If the tools do not show up
 

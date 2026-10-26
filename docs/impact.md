@@ -12,8 +12,7 @@ pacto impact ./payments-api@1.4.0 ./payments-api@2.0.0 --local ./services
 It joins two things Pacto already has. The semantic diff says *how* the contract
 changed ([change classification](contract-reference/diff.md)). The
 [operational graph](operational-graph.md) says *who depends on the service and
-where it runs*. The code lives in `pkg/impact` and uses no Kubernetes, OCI,
-dashboard, MCP or HTTP code. So the CLI command, the MCP tool and the dashboard's
+where it runs*. The CLI command, the MCP tool and the dashboard's
 **Change analysis** workspace run the same analysis and, given the same
 snapshot, return the same answer.
 
@@ -21,11 +20,11 @@ snapshot, return the same answer.
 
 ```mermaid
 flowchart LR
-    OLD["Old revision<br/>contract + files"] --> DIFF["Semantic diff<br/>pkg/diff"]
+    OLD["Old revision<br/>contract + files"] --> DIFF["Semantic diff"]
     NEW["New revision<br/>contract + files"] --> DIFF
     DIFF --> CLASS["Classification<br/>NON_BREAKING · POTENTIAL_BREAKING · BREAKING<br/>breaking and potentially-breaking, kept separate"]
 
-    SNAP["Fleet Snapshot<br/>pkg/fleet · immutable read model"] --> GRAPH["Dependents traversal<br/>direct + transitive"]
+    SNAP["Operational graph<br/>immutable read model"] --> GRAPH["Dependents traversal<br/>direct + transitive"]
 
     CLASS --> IMPACT["Impact result"]
     GRAPH --> IMPACT
@@ -102,7 +101,7 @@ pacto impact <old> <new> --local .
 are separate from the fleet snapshot and may be `oci://` references either way.
 
 `pacto impact` reads the fleet through the same
-[source flags](operational-graph.md#sources) `pacto fleet` does, `--local`
+[source flags](operational-graph-reference.md#sources) `pacto fleet` does, `--local`
 included, which defaults to `.`. Point it only at offline sources and the whole
 analysis stays offline.
 
@@ -174,7 +173,7 @@ you want before anything is deployed. That JSON carries
 `schemaVersion: pacto.dev/impact/v1`, the compatibility contract to branch on
 before reading any other field. The file `--target-state` expects is documented
 under [target-state
-fixtures](operational-graph.md#what-a-target-state-fixture-looks-like).
+fixtures](operational-graph-reference.md#what-a-target-state-fixture-looks-like).
 
 ## The MCP tool and the dashboard
 

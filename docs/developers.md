@@ -82,6 +82,9 @@ pacto push oci://ghcr.io/your-org/my-service-pacto -p my-service
 ```
 
 See [Validation layers](contract-reference/validation.md) for the rules and error codes. `push` validates before uploading; use `--force` to overwrite an existing tag.
+`pacto push` uploads only the contract, for use without delivery. For anything
+delivery should ship, use [`pacto publish`](publishing.md), which signs the
+version and never overwrites one.
 
 Running on Kubernetes? The [operator](integrations/kubernetes/overview.md) can then check what your service actually does on the network against this contract. See [runtime conformance](integrations/kubernetes/runtime-conformance.md).
 

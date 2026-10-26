@@ -63,7 +63,7 @@ not: `PACTO_DASHBOARD_REPO` is the repository positional argument, and
 The two trace variables let the dashboard learn which services really call
 each other, from trace files. Pacto has no OpenTelemetry (OTLP) receiver, so
 you export traces to files and mount them in. Each file becomes a
-[named observation source](operational-graph.md#sources). Under Kubernetes the operator-managed dashboard sets
+[named observation source](operational-graph-reference.md#sources). Under Kubernetes the operator-managed dashboard sets
 `PACTO_DASHBOARD_TRACE_SOURCES` for you from `dashboard.observation.sources` —
 see [offline trace sources](integrations/kubernetes/installation.md#offline-trace-sources-for-the-dashboard).
 

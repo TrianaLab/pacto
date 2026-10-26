@@ -2,6 +2,52 @@
 
 ## The problem
 
+Moving a new version into an environment is still a pull request: someone
+bumps a tag in git, someone else approves it and a GitOps tool applies it.
+That made sense while a person wrote every change. It does not keep up with
+agents that produce changes faster than people can review them, and the
+approval rarely answers the real question: does this version break the
+services that depend on it?
+
+Nothing in that pipeline can answer it, because nothing describes a service as
+an operating thing. So a reviewer approves a one-line diff, and the safety of
+the change rests on whoever remembers who calls whom.
+
+Pacto moves that one line out of git and decides it from evidence. The
+contract graph says who depends on a service and which versions each accepts,
+checks say whether the new version behaves and a person is asked only when
+the evidence runs out.
+
+## What GitlessOps means
+
+In plain words: which version runs where is set from signed artifacts in
+your registry and from evidence, not from commits to git. Your code and
+manifests stay in git. GitlessOps is three principles, each true only under its condition:
+
+1. **Desired versions are immutable artifacts in a registry.** Every version
+   Pacto promotes is an OCI digest that `pacto publish` signed. Which digest
+   runs where is a pointer Pacto writes onto a Flux OCIRepository or an
+   OCI-sourced Argo CD Application. Source code and manifests stay in git, and
+   Flux or Argo CD still apply them.
+2. **Evidence, not a pull request, moves a change** on a Stage set to an
+   automatic rung. A person is asked only when the evidence runs out, and
+   only the team concerned:
+
+    - a check cannot see enough (Unknown): the service's owners;
+    - a consumer's range rejects the change: that consumer's owners;
+    - the Stage is set to ask before every promote;
+    - the Stage is on auto for non-breaking and the change is not known to be
+      non-breaking;
+    - a failed version has no safe way back, so the Stage freezes.
+
+3. **Every decision can be verified without Pacto.** With the recorder (the
+   part of Pacto that signs records) on,
+   each finished operation leaves a signed in-toto record as an OCI referrer,
+   checkable with `oras` and `cosign`. That needs a registry with the
+   Referrers API, which GitHub's does not serve today.
+
+## Contracts are the foundation
+
 A service's operational knowledge is real, but it has no home.
 
 The API surface has an OpenAPI spec. The container has a registry. The
@@ -64,29 +110,6 @@ controller or an agent needs before it concludes anything.
   track record never replaces the evidence for the next change. When Pacto
   cannot see enough it holds the change and asks the teams concerned, never an
   agent.
-
-## What GitlessOps means
-
-In plain words: which version runs where is set from signed artifacts in
-your registry and from evidence, not from commits to git. Your code and
-manifests stay in git. GitlessOps is three principles, each true only under its condition:
-
-1. **Desired versions are immutable artifacts in a registry.** Every version
-   Pacto promotes is an OCI digest that `pacto publish` signed. Which digest
-   runs where is a pointer Pacto writes onto a Flux OCIRepository or an
-   OCI-sourced Argo CD Application. Source code and manifests stay in git, and
-   Flux or Argo CD still apply them.
-2. **Evidence, not a pull request, moves a change**, on a Stage set to an
-   automatic rung. A person is asked when a check cannot see enough
-   (Unknown: the service's owners), when a consumer's range rejects it (that consumer's
-   owners), when the Stage is set to ask before every promote, on auto for non-breaking
-   when the change is not known to be non-breaking, or when a failed version has no safe way back
-   and the Stage freezes. Only the affected team is asked.
-3. **Every decision can be verified without Pacto.** With the recorder (the
-   part of Pacto that signs records) on,
-   each finished operation leaves a signed in-toto record as an OCI referrer,
-   checkable with `oras` and `cosign`. That needs a registry with the
-   Referrers API, which GitHub's does not serve today.
 
 Two ideas came first. [ConfigHub](https://confighub.com) treats configuration
 as data in a database behind an API, not as templates; Pacto keeps only "which version

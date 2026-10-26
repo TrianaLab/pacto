@@ -191,12 +191,12 @@ nav:
           - Quickstart: quickstart.md
           - Pactify a service: pactify.md
           - Put it in your repository: ci.md
-          - For platform engineers: platform-engineers.md
       - Approve or unblock a change: pactify-decide.md
       - Verify a record: verify-a-record.md
       - Drive Pacto from an agent: mcp-integration.md
   - Guides:
       - For developers: developers.md
+      - For platform engineers: platform-engineers.md
       - Example contracts: examples/index.md
       - Composition patterns: patterns/index.md
       - CI with GitHub Actions: github-actions.md
@@ -211,6 +211,7 @@ nav:
       - Watch a host with pacto agent: runtime-agent.md
   - Reference:
       - Ladder reference: autonomy-reference.md
+      - Operational graph reference: operational-graph-reference.md
       - MCP reference: mcp-reference.md
       - Publish reference: publishing.md
       - Delivery reference:

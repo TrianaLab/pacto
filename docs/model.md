@@ -17,11 +17,10 @@ contradiction**. Most of what follows keeps those two apart.
 
 The contract records *intent*: what a service is, whatever platform runs it.
 What it looks like at runtime is an *observation*, and it lives entirely outside
-the contract. The `Contract` type
-(`pkg/contract`) carries only intent — no `runtime` block, no port, no scaling
-and no image field, because those are delivery concerns owned by integrations.
-Runtime facts travel in a separate `EvidenceSet` (`pkg/evidence`), produced by a
-collector, and the engine reasons over the two together.
+the contract. A contract carries only intent — no `runtime` block, no port, no
+scaling and no image field, because those are delivery concerns owned by
+integrations. Runtime facts travel separately, as an `EvidenceSet` produced by
+a collector, and the engine reasons over the two together.
 
 ```mermaid
 flowchart TB
@@ -35,7 +34,7 @@ flowchart TB
 
 ## The engine: `Evaluate(contract, evidence)` { #the-engine }
 
-The heart of the system is a pure function (`pkg/validation/evaluate.go`):
+The heart of the system is a pure function, `Evaluate`:
 
 ```text
 Evaluate(contract.Contract, evidence.EvidenceSet) -> ([]finding.Finding, Coverage)
@@ -88,11 +87,10 @@ The two extend Pacto in opposite directions — a plugin consumes a contract to
 generate an artifact, a collector observes a system to produce evidence.
 
 Pacto ships one general runtime collector and plugs it into each platform. The
-watcher (`internal/runtimewatch`) observes TCP listeners and connection
-outcomes with eBPF and names the workload behind each socket: a pod, a
-container, a systemd unit, a `pacto run` session or a plain process. Its facts
-are platform neutral (`pkg/runtimefacts`), and so are its health, metrics and
-protocol probes (`pkg/probe`). Three front ends put it to work (see [runtime
+watcher observes TCP listeners and connection outcomes with eBPF and names the
+workload behind each socket: a pod, a container, a systemd unit, a `pacto run`
+session or a plain process. Its facts are platform neutral, and so are its
+health, metrics and protocol probes. Three front ends put it to work (see [runtime
 conformance](runtime-conformance.md)):
 
 - `pacto run` wraps one command and evaluates it locally.

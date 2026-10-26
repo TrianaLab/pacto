@@ -43,7 +43,7 @@ reported rather than quietly dropped, so a service missing from a `partial`
 answer may be one the missing source knew about. Likewise `1 of 1` is *this
 page* of `total` matches, not the whole fleet. `--output-format json` carries the
 same facts in a `meta` envelope for a CI job to branch on, and
-[query semantics](operational-graph.md#query-semantics) has the five operations
+[query semantics](operational-graph-reference.md#query-semantics) has the five operations
 and the [knowledge vocabulary](operational-graph.md#knowledge) behind
 `completeness`.
 

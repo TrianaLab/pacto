@@ -45,6 +45,8 @@ the running version by hand (a rollback, or a promote during auto-hold). A
 failure of a version Pacto shipped with no person also drops the Stage one
 rung, whether it was rolled back or froze.
 
+### Safety rules on every rung
+
 No rung skips the safety rules. A change that would break a consumer waits and
 asks only that consumer's team, and the plan says which service to ship first.
 When Pacto cannot see enough (Unknown), the change waits for a person. A

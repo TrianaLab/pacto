@@ -45,6 +45,11 @@ Sixteen services are in the snapshot. Five carry the stories:
 | `auth-service` | identity-team | deployed, but never observed — the Unknown target |
 | `audit-log` | platform-foundations-security | calls payments and declares nothing — the shadow consumer |
 
+A target is one running deployment of a service. A readiness assessment is a
+dated list of claims in a contract, and a shadow consumer is a service seen
+calling another that no contract declares; the [glossary](../glossary.md)
+has these and the other words the tour uses.
+
 A contract says what a service exposes, what it needs and how it behaves — never
 how it is deployed. The
 [contract reference](../contract-reference/sections.md) has every section.
@@ -57,7 +62,8 @@ how it is deployed. The
 
 Sixteen services, each with its owner, how many contract revisions it has
 published and how many deployed targets are running it. `NotEvaluated` is not a
-verdict: no evidence source is wired up, so nothing has been evaluated.
+verdict: no deployment of the service is known yet, so there is nothing to
+evaluate.
 
 `--target-state` folds in what a platform observed about the running deployments.
 Three of its targets, abridged:
@@ -182,7 +188,8 @@ for where it lands.
 
 --8<-- "examples/demo/generated/_beat-10.md"
 
-Three verdicts. `observed-not-declared` is the shadow dependency from story 4,
+Three verdicts. Reconciling means comparing each declared edge with what was
+observed. `observed-not-declared` is the shadow dependency from story 4,
 stated as a reconciliation result. `declared-not-observed` is the opposite risk
 — an edge in the diagram that no traffic has ever taken.
 
@@ -195,9 +202,11 @@ turns only the safe half. Point a human and an agent at one process:
 
 ```bash
 pacto dashboard examples/demo/bundles --port 8899
+pacto mcp examples/demo/pacto-dashboard --base-url http://127.0.0.1:8899
 ```
 
-Then open <http://127.0.0.1:8899/#/fleet>. The dashboard is itself a Pacto
+Then open <http://127.0.0.1:8899/#/fleet>, and connect your MCP client to the
+second command. The dashboard is itself a Pacto
 bundle with a real OpenAPI contract, so the agent's tools are generated from the
 contract of the very server the human is looking at. The tools come from the
 dashboard's OpenAPI interface, one per read-only operation. Beside the interface
