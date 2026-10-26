@@ -20,6 +20,8 @@ calls.
 | Frozen | A Stage that automation no longer moves until a person unfreezes it |
 | Unknown | Pacto could not see enough to say whether the change is safe |
 
+<a id="when-a-change-waits-or-an-environment-freezes"></a>
+
 ## Why you were asked
 
 Pacto holds a change and asks a person in three cases:
