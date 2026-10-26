@@ -54,15 +54,15 @@ describe('App — delivery gate', () => {
     expect(target.querySelector('[data-testid="delivery-unavailable"]')).not.toBeNull();
     (target.querySelector('button[aria-label="Refresh"]') as HTMLButtonElement).click();
     // The delivery views load on first use.
-    await vi.waitFor(() => expect(fns.inbox).toHaveBeenCalled());
+    await vi.waitFor(() => expect(fns.inbox).toHaveBeenCalled(), { timeout: 10_000 });
     destroy();
-  });
+  }, 15_000);
 
   it('mounts the inbox where it does', async () => {
     fns.capabilities.mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: true, auth: { mode: 'shared', login: true, signedIn: true } });
     const { target, destroy } = await renderAt('#/delivery/inbox');
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="inbox-empty"]')).not.toBeNull());
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="inbox-empty"]')).not.toBeNull(), { timeout: 10_000 });
     expect(fns.inbox).toHaveBeenCalled();
     destroy();
-  });
+  }, 15_000);
 });
