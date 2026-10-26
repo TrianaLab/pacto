@@ -105,6 +105,9 @@ var divergentFleetFlagTypes = map[string]string{
 	"pacto agent --evidence-url": "string",
 	// The same for `pacto run`: where its rounds are sent, not a source.
 	"pacto run --evidence-url": "string",
+	// Not a source: the namespaces `pacto init --cluster` drafts workloads
+	// from, repeatable, read by init itself and never by fleetOptions.
+	"pacto init --namespace": "stringSlice",
 }
 
 // yankedFleetSubcommands returns the `pacto fleet` subcommands the TUI can put
