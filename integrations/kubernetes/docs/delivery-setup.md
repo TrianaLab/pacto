@@ -168,7 +168,10 @@ The candidate `OCIRepository` follows the deploy artifact's repository and its
 `spec.verify` names the publisher, so Flux checks every signature. The Stage
 lists each digest Flux verified in `status.published` and refuses anything else
 as `NotPublished`. Without a `secretRef` or `matchOIDCIdentity` Flux accepts a
-keyless signature from anyone, so such a Stage promotes nothing. A Stage that
+keyless signature from anyone, so such a Stage promotes nothing. Flux reads a
+`matchOIDCIdentity` issuer and subject as regular expressions, so each must be
+anchored (`^...$`) and must not match an identity nobody has: `.*`, or a
+subject left open at the end, counts as no identity at all. A Stage that
 cannot promote has `Ready` `False` with the reason `CandidateUnverified`,
 `CandidateNotFound`, `NoCandidateSource` or `UpstreamUntrusted`.
 

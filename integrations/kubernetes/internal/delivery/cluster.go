@@ -20,6 +20,7 @@ See LICENSE file in the project root for full license text.
 package delivery
 
 import (
+	"regexp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -134,12 +135,40 @@ func (c Cluster) ociRepository(ctx context.Context, ns, name string) (*applyRef,
 // pinsIdentity reports whether spec.verify names whose signature counts: a
 // secretRef holding the publisher's public key, or a matchOIDCIdentity for
 // keyless signatures. Without either, Flux accepts a keyless signature from
-// any identity, so anyone who can push could sign their own artifact.
+// any identity, so anyone who can push could sign their own artifact. Flux
+// reads issuer and subject as regular expressions, so each must be anchored
+// (^...$) and must not match a foreign identity: ".*", or a subject left open
+// at the end, would admit any keyless signer.
 func pinsIdentity(obj map[string]any) bool {
 	provider, _, _ := unstructured.NestedString(obj, "spec", "verify", "provider")
 	secret, _, _ := unstructured.NestedString(obj, "spec", "verify", "secretRef", "name")
 	ids, _, _ := unstructured.NestedSlice(obj, "spec", "verify", "matchOIDCIdentity")
-	return provider != "" && (secret != "" || len(ids) > 0)
+	if provider == "" {
+		return false
+	}
+	if secret != "" {
+		return true
+	}
+	for _, id := range ids {
+		m, _ := id.(map[string]any)
+		issuer, _ := m["issuer"].(string)
+		subject, _ := m["subject"].(string)
+		if !pinned(issuer) || !pinned(subject) {
+			return false
+		}
+	}
+	return len(ids) > 0
+}
+
+// foreignIdentity is an issuer and subject no publisher has: a pattern that
+// matches it matches anyone.
+const foreignIdentity = "https://example.invalid/x"
+
+// pinned reports whether the Flux identity pattern p is anchored at both
+// ends, is a valid expression and does not match foreignIdentity.
+func pinned(p string) bool {
+	re, err := regexp.Compile(p)
+	return err == nil && strings.HasPrefix(p, "^") && strings.HasSuffix(p, "$") && !re.MatchString(foreignIdentity)
 }
 
 // sourceVerified reports whether Flux's SourceVerified condition is True for

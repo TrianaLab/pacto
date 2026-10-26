@@ -332,10 +332,30 @@ func TestNeverACandidateUnlessPublished(t *testing.T) {
 			t.Fatalf("%s: offered %+v, published %v", name, e.ops(), e.getStage().Status.Published)
 		}
 	}
-	keyless := map[string]any{"spec": map[string]any{"verify": map[string]any{"provider": "cosign",
-		"matchOIDCIdentity": []any{map[string]any{"issuer": "^https://token.actions.githubusercontent.com$", "subject": "^https://github.com/acme/"}}}}}
-	if !pinsIdentity(keyless) {
-		t.Fatal("a keyless spec.verify with matchOIDCIdentity names the publisher")
+	keyless := func(issuer, subject string) map[string]any {
+		return map[string]any{"spec": map[string]any{"verify": map[string]any{"provider": "cosign",
+			"matchOIDCIdentity": []any{map[string]any{"issuer": issuer, "subject": subject}}}}}
+	}
+	const gh = "^https://token\\.actions\\.githubusercontent\\.com$"
+	if !pinsIdentity(keyless(gh, "^https://github\\.com/acme/app/\\.github/workflows/release\\.yml@refs/heads/main$")) {
+		t.Fatal("an anchored matchOIDCIdentity names the publisher")
+	}
+	// Flux reads these as expressions: anything open matches any keyless signer.
+	for name, id := range map[string][2]string{
+		"open subject":  {gh, "^https://github.com/acme/"},
+		"any subject":   {gh, "^.*$"},
+		"any issuer":    {".*", "^https://github\\.com/acme/app$"},
+		"bad pattern":   {gh, "^($"},
+		"empty subject": {gh, ""},
+	} {
+		if pinsIdentity(keyless(id[0], id[1])) {
+			t.Errorf("%s: %v pins nobody", name, id)
+		}
+	}
+	none := keyless(gh, "^x$")
+	_ = unstructured.SetNestedSlice(none, []any{}, "spec", "verify", "matchOIDCIdentity")
+	if pinsIdentity(none) {
+		t.Fatal("an empty matchOIDCIdentity pins nobody")
 	}
 	// A failed read or write while remembering a published digest surfaces.
 	s := stageObj(dA)
