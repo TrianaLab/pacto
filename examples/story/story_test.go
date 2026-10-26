@@ -471,9 +471,9 @@ func TestPactifyWritesTheFraudContract(t *testing.T) {
 	}
 }
 
-// TestColdStartAsksToAcceptTheUnknown: with a service still uncontracted, the
-// breaking change waits because Pacto cannot rule out an undeclared caller,
-// and the same change with every service contracted (B5) asks the consumers.
+// TestColdStartAsksToAcceptTheUnknown: the node agent saw orders call payments
+// with no contract, so the breaking change waits and the question names orders
+// and the pacto init command that gives it a contract.
 func TestColdStartAsksToAcceptTheUnknown(t *testing.T) {
 	b := beat(t, "cold-start")
 	for _, s := range b.Uncontracted {
@@ -481,7 +481,10 @@ func TestColdStartAsksToAcceptTheUnknown(t *testing.T) {
 			t.Errorf("%s runs with a contract and without one", s)
 		}
 	}
-	if q := plan(t, b).Question; !strings.Contains(q, "a service with no contract can still call it") {
-		t.Fatalf("question %q", q)
+	q := plan(t, b).Question
+	for _, want := range []string{"k8s:prod/Deployment/orders", "pacto init --cluster --namespace prod"} {
+		if !strings.Contains(q, want) {
+			t.Errorf("question %q does not name %q", q, want)
+		}
 	}
 }
