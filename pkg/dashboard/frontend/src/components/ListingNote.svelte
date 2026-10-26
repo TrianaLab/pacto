@@ -2,6 +2,8 @@
   // A delivery list the caller could only read in part says so: a namespace
   // they may not list is left out, not shown as empty. A list whose last
   // refresh failed says it may be out of date.
+  import CappedList from './CappedList.svelte';
+
   let { listing = null, error = null, onRetry = () => {} } = $props();
   const unreadable = $derived(listing?.unreadable ?? []);
   // '*': the caller may not list across the cluster, so only the namespaces
@@ -19,7 +21,7 @@
       You may not list delivery objects across the cluster, so this shows only the namespaces Pacto knows of and may be incomplete.
     {/if}
     {#if refused.length}
-      You may not read {refused.length === 1 ? 'the namespace' : 'the namespaces'} {refused.join(', ')}, so this may be incomplete.
+      You may not read {refused.length === 1 ? 'the namespace' : 'the namespaces'}{' '}<CappedList items={refused} max={5} inline={true} label="Namespaces you may not read">{#snippet item(ns)}{ns}{/snippet}</CappedList>, so this may be incomplete.
     {/if}
   </p>
 {/if}

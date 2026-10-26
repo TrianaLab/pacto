@@ -108,7 +108,7 @@ describe('inbox', () => {
     // Another page of held changes keeps the other sections and the filter where they are.
     expect(target.querySelector('[data-testid="inbox-held-pager-next"]')?.getAttribute('href')).toBe('#/delivery/inbox?held=50&frozen=50&q=pay');
     const affected = target.querySelector('ul[aria-label="Affected services"]') as HTMLElement;
-    expect([...affected.querySelectorAll('li')].map((li) => li.textContent)).toEqual(['a', 'b', 'c']);
+    expect(text(affected)).toBe('a, b, c');
     expect(text(target)).toContain('Show all 5');
     destroy();
   });

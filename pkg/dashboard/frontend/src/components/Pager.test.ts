@@ -61,7 +61,7 @@ describe('CappedList', () => {
 
   it('shows the first few, then all of them on request', () => {
     const b = render(CappedList, { items: ['a', 'b', 'c', 'd'], max: 2, item, inline: true });
-    expect([...b.querySelectorAll('li')].map((l) => l.textContent)).toEqual(['a', 'b']);
+    expect(words(b.querySelector('ul'))).toBe('a, b');
     const more = b.querySelector('button') as HTMLButtonElement;
     expect(more.textContent?.trim()).toBe('Show all 4');
     more.click();
@@ -90,5 +90,16 @@ describe('ListFilter', () => {
     (b.querySelector('form') as HTMLFormElement).requestSubmit();
     expect(location.hash).toBe('#/x?q=carol');
     expect(b.querySelector('a')?.getAttribute('href')).toBe('#/x?q=');
+  });
+});
+
+describe('ListingNote', () => {
+  it('names five unreadable namespaces and offers the rest', async () => {
+    // @ts-expect-error — Svelte components have no declaration files
+    const { default: ListingNote } = await import('./ListingNote.svelte');
+    const unreadable = Array.from({ length: 16 }, (_, i) => `ns-${i}`);
+    const b = render(ListingNote, { listing: { completeness: 'partial', unreadable } });
+    expect(words(b.querySelector('ul'))).toBe('ns-0, ns-1, ns-2, ns-3, ns-4');
+    expect(words(b.querySelector('[data-testid="listing-partial"]'))).toContain('ns-4 Show all 16, so this may be incomplete.');
   });
 });
