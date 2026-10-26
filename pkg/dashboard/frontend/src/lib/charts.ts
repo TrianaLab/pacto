@@ -217,9 +217,13 @@ export function renderPriorityQuadrant(
 
   const pal = resolvePalette(container);
 
-  const margin = { top: 30, right: 30, bottom: 50, left: 60 };
+  // The status legend wraps onto as many rows as it needs above the plot instead of
+  // running off its right edge; the top margin grows with it.
   const width = container.clientWidth || 600;
-  const height = 300;
+  const legendLabels = [...new Set(data.map((d) => d.status))].filter(Boolean).sort().map((st) => statusLabel(st));
+  const legendRows = legendLayout(legendLabels, width - 90);
+  const margin = { top: 30 + 14 * (legendRows.rows - 1), right: 30, bottom: 50, left: 60 };
+  const height = 300 + 14 * (legendRows.rows - 1);
 
   const svg = d3.select(container)
     .append('svg')
@@ -245,9 +249,10 @@ export function renderPriorityQuadrant(
     .domain([Math.min(xExtent[0], 0) - xPad, Math.max(xExtent[1], 0) + xPad])
     .range([0, innerWidth]);
 
-  // Y scale: impact/blast 0–max
+  // Y scale: impact/blast 0–max, square-root so one hub with a huge blast radius does not
+  // squash every other service onto the floor of the plot.
   const yMax = d3.max(data, (d) => d.y) || 1;
-  const y = d3.scaleLinear().domain([0, yMax]).range([innerHeight, 0]);
+  const y = d3.scaleSqrt().domain([0, yMax]).range([innerHeight, 0]);
 
   // Quadrant guide lines: vertical at the gate, horizontal at y=median
   const blastValues = data.map((d) => d.y).sort((a, b) => a - b);
@@ -312,7 +317,10 @@ export function renderPriorityQuadrant(
   // One radius for every dot. It used to be scaled by blast radius, which is the
   // y position: the same number said twice, once by height and once by area, so the
   // top-right of the plot grew heavy for no added fact. Impact is on the axis.
-  const DOT_R = 8;
+  // Smaller and see-through when there are many, so two thousand services read as a
+  // density instead of one solid line.
+  const DOT_R = data.length > 200 ? 3 : data.length > 50 ? 5 : 8;
+  const DOT_OPACITY = data.length > 50 ? 0.6 : 1;
 
   // Dots
   const dots = g.selectAll('circle')
@@ -322,8 +330,9 @@ export function renderPriorityQuadrant(
     .attr('cy', (d) => y(d.y))
     .attr('r', DOT_R)
     .attr('fill', (d) => statusColor(d.status))
+    .attr('fill-opacity', DOT_OPACITY)
     .attr('stroke', 'var(--c-surface)')
-    .attr('stroke-width', 2)
+    .attr('stroke-width', DOT_R > 4 ? 2 : 0.5)
     .attr('cursor', opts.onSelect ? 'pointer' : 'default')
     .on('mouseenter', function (event, d) {
       d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
@@ -391,14 +400,12 @@ export function renderPriorityQuadrant(
     .map((status) => ({ label: statusLabel(status), color: statusColor(status) }));
 
   if (statusLegendData.length > 0) {
-    const legend = svg.append('g').attr('transform', `translate(${margin.left}, ${margin.top - 12})`);
-    let legendX = 0;
+    const legend = svg.append('g').attr('transform', `translate(${margin.left}, ${12 + 0})`);
     const swatch = 8;
     const swatchGap = 6;
-    const itemGap = 16;
-    const charW = 6;
-    statusLegendData.forEach((d) => {
-      const item = legend.append('g').attr('transform', `translate(${legendX}, 0)`);
+    statusLegendData.forEach((d, i) => {
+      const at = legendRows.at[i] ?? { x: 0, row: 0 };
+      const item = legend.append('g').attr('transform', `translate(${at.x}, ${at.row * 14 + 6})`);
       item.append('circle')
         .attr('cx', swatch / 2)
         .attr('cy', -swatch / 2)
@@ -411,9 +418,25 @@ export function renderPriorityQuadrant(
         .style('font-weight', '500')
         .style('fill', 'var(--c-text-3)')
         .text(d.label);
-      legendX += swatch + swatchGap + d.label.length * charW + itemGap;
     });
   }
+}
+
+/**
+ * legendLayout places legend labels left to right, wrapping onto a new row when the
+ * next one would pass maxWidth. at[i] is where label i goes.
+ */
+export function legendLayout(labels: string[], maxWidth: number): { rows: number; at: Array<{ x: number; row: number }> } {
+  const swatch = 8, swatchGap = 6, itemGap = 16, charW = 6;
+  const at: Array<{ x: number; row: number }> = [];
+  let x = 0, row = 0;
+  for (const l of labels) {
+    const w = swatch + swatchGap + l.length * charW;
+    if (x > 0 && x + w > maxWidth) { x = 0; row++; }
+    at.push({ x, row });
+    x += w + itemGap;
+  }
+  return { rows: row + 1, at };
 }
 
 /** Heatmap for team × category readiness. */
@@ -639,6 +662,8 @@ export interface VersionTimelineDatum {
   at: number; // epoch ms
   classification?: string;
   isCurrent?: boolean;
+  /** How many versions this marker stands for, when a week of them is binned into one. */
+  count?: number;
 }
 
 export interface VersionTimelineOptions {
@@ -724,7 +749,7 @@ export function renderVersionTimeline(
     .join('circle')
     .attr('cx', (d) => x(d.at))
     .attr('cy', baselineY)
-    .attr('r', (d) => d.isCurrent ? 8 : 6)
+    .attr('r', (d) => (d.isCurrent ? 8 : (d.count ?? 1) > 1 ? 7 : 6))
     .attr('fill', (d) => classColor[d.classification || ''] || pal.neutral)
     .attr('stroke', (d) => d.isCurrent ? 'var(--c-surface)' : 'none')
     .attr('stroke-width', 2)
@@ -733,7 +758,9 @@ export function renderVersionTimeline(
       d3.select(this).transition().duration(hoverMs()).attr('opacity', 0.8);
       const dateStr = (!d.at || isNaN(d.at)) ? '—' : new Date(d.at).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
       const classStr = d.classification ? d.classification.replace(/_/g, ' ').toLowerCase() : '—';
-      const content = `${d.version} · ${dateStr} · ${classStr}`;
+      const content = (d.count ?? 1) > 1
+        ? `${d.count} versions in the week of ${dateStr}, up to ${d.version} · worst: ${classStr}`
+        : `${d.version} · ${dateStr} · ${classStr}`;
       tooltip.show(content, event.offsetX + 10, event.offsetY - 10);
     })
     .on('mousemove', function (event) {

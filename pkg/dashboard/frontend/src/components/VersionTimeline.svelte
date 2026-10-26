@@ -1,5 +1,6 @@
 <script>
   import { renderVersionTimeline } from '../lib/charts.ts';
+  import { binTimeline } from '../lib/chartData.ts';
   import { currentTheme } from '../lib/theme.svelte.ts';
 
   let { data, onSelect } = $props();
@@ -9,10 +10,11 @@
 
   $effect(() => {
     if (!container || !data) return;
-    const sig = JSON.stringify(data) + currentTheme();
+    // A cheap signature: the versions and their classes, never a JSON of the whole list.
+    const sig = `${currentTheme()}|${data.length}|${data.map((d) => `${d.version}:${d.classification}:${d.at}`).join(',')}`;
     if (sig === lastSig) return;
     lastSig = sig;
-    renderVersionTimeline(container, data, { onSelect });
+    renderVersionTimeline(container, binTimeline(data), { onSelect });
   });
 </script>
 

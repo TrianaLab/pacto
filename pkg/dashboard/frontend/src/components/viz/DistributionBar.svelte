@@ -1,4 +1,5 @@
 <script>
+  import { formatCount } from '../../lib/format.ts';
   // A proportional distribution across a FINITE, exhaustive set of buckets.
   //
   // The accessibility contract this component exists to enforce, once, for every
@@ -106,14 +107,23 @@
     const p = pct(v);
     return p === 0 && v > 0 ? `<${denom >= 100 ? '0.1' : '1'}` : `${p}`;
   };
-  const pctLabel = (v) => (denom > 0 ? `(${pctText(v)}% of ${denom})` : '(share unavailable)');
+  const pctLabel = (v) => (denom > 0 ? `(${pctText(v)}% of ${formatCount(denom)})` : '(share unavailable)');
 
   // ONE stacked bar for every population, labelled on the bar itself. The bar used to
   // switch to a field of squares (one per member) under 120 members; reviewers read the
   // squares as a waffle chart they had to decode against the legend. A stacked bar with
   // each slice's name and count printed inside it reads on its own, a native tooltip
   // carries the exact share, and the legend below stays the accessible statement.
-  const tip = (r) => `${r.label}: ${r.value} ${pctLabel(r.value)}`;
+  const tip = (r) => `${r.label}: ${formatCount(r.value)} ${pctLabel(r.value)}`;
+
+  // What a slice can say depends on how wide it is drawn: its count and name, its
+  // count alone, or nothing (the tooltip and the legend still say it). A count is
+  // never cut short: "2…" for 231 read as two.
+  let barWidth = $state(0);
+  const segWidth = (v) => (sum > 0 ? Math.max(0, barWidth - 2 * (rows.length - 1)) * (v / sum) : 0);
+  // Before the bar is measured (or where nothing is laid out) every label is offered and
+  // the slice clips it.
+  const fits = (v, text) => barWidth === 0 || segWidth(v) >= text.length * 7 + 16;
 </script>
 
 <figure class="dist">
@@ -136,8 +146,8 @@
            not depend on being read next to the legend. -->
       <p class="dist-warn" role="status" data-testid="dist-inconsistent">
         <strong>These numbers do not add up.</strong>
-        The buckets below account for {sum} across a population of {denom}
-        — {over} more than {denom === 1 ? 'there is' : 'there are'}. Something is
+        The buckets below account for {formatCount(sum)} across a population of {formatCount(denom)}
+        — {formatCount(over)} more than {denom === 1 ? 'there is' : 'there are'}. Something is
         being counted twice or against the wrong population,
         {#if emptyPopulation}
           and there is no population to take a share of, so the counts below are shown
@@ -155,7 +165,7 @@
          would put a decorative shape back into it. The pointer gesture they carry is
          presentational, and its keyboard equivalent is the legend entry below, which IS
          focusable. -->
-    <div class="dist-bar" class:dist-bar-warn={over > 0} aria-hidden="true">
+    <div class="dist-bar" class:dist-bar-warn={over > 0} aria-hidden="true" bind:clientWidth={barWidth}>
       {#each rows as r (r.label)}
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <span
@@ -167,7 +177,7 @@
           style="flex-grow: {r.value}"
           onmouseenter={() => (active = r.label)}
           onmouseleave={() => (active = '')}
-        ><span class="dist-seg-text"><span class="dist-seg-value">{r.value}</span> <span class="dist-seg-name">{r.label}</span></span></span>
+        >{#if fits(r.value, formatCount(r.value))}<span class="dist-seg-text"><span class="dist-seg-value">{formatCount(r.value)}</span>{#if fits(r.value, `${formatCount(r.value)} ${r.label}`)}{' '}<span class="dist-seg-name">{r.label}</span>{/if}</span>{/if}</span>
       {/each}
     </div>
     <ul class="dist-legend">
@@ -184,13 +194,13 @@
             <a href={r.href} aria-current={selected === r.label ? 'true' : undefined}>
               <span class="dist-swatch" aria-hidden="true"></span>
               <span class="dist-label">{r.label}</span>
-              <span class="dist-value">{r.value}</span>
+              <span class="dist-value">{formatCount(r.value)}</span>
               <span class="dist-pct">{pctLabel(r.value)}</span>
             </a>
           {:else}
             <span class="dist-swatch" aria-hidden="true"></span>
             <span class="dist-label">{r.label}</span>
-            <span class="dist-value">{r.value}</span>
+            <span class="dist-value">{formatCount(r.value)}</span>
             <span class="dist-pct">{pctLabel(r.value)}</span>
           {/if}
         </li>
@@ -242,17 +252,15 @@
      legend still say it). flex-basis 0 keeps the width proportional to the value alone. */
   .dist-seg {
     display: flex; align-items: center; min-width: 2px; flex-basis: 0;
-    container-type: inline-size; overflow: hidden;
+    overflow: hidden;
     background: var(--tone-c, var(--c-neutral)); color: var(--seg-ink);
     transition: flex-grow var(--motion-reveal), opacity var(--motion-feedback);
   }
   .dist-seg-text {
-    padding: 0 var(--sp-2); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    padding: 0 var(--sp-2); min-width: 0; white-space: nowrap; overflow: hidden;
     font-size: var(--text-xs); font-weight: 600; line-height: 1;
   }
   .dist-seg-value { font-variant-numeric: tabular-nums; }
-  @container (max-width: 72px) { .dist-seg-name { display: none; } }
-  @container (max-width: 22px) { .dist-seg-text { display: none; } }
   /* A dimmed slice keeps its colour at a third; its label would drop below AA, so it
      goes rather than being shown unreadable. */
   .dist-seg.dim .dist-seg-text { visibility: hidden; }
@@ -268,6 +276,8 @@
   .dist-item.dim { opacity: 0.45; }
   .dist-bar-warn .dist-seg { opacity: 0.55; }
   .dist-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); }
+  /* Rows of one height, whether an item is a link (a touch target) or plain text. */
+  .dist-item { min-height: var(--touch-min); align-items: center; }
   .dist-item, .dist-item a {
     display: flex; align-items: baseline; gap: var(--sp-2);
     font-size: var(--text-sm); color: var(--c-text-2); text-decoration: none;

@@ -33,7 +33,7 @@ async function figure(page: Page, title: string): Promise<Figure> {
       description: text('.dist-desc'),
       buckets: [...fig.querySelectorAll('.dist-item')].map((li) => ({
         label: li.querySelector('.dist-label')!.textContent!.trim(),
-        value: Number(li.querySelector('.dist-value')!.textContent!.trim()),
+        value: Number(li.querySelector('.dist-value')!.textContent!.trim().replace(/,/g, '')),
         href: li.querySelector('a')?.getAttribute('href') ?? '',
       })),
     };

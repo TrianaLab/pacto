@@ -46,3 +46,13 @@ if (!window.matchMedia) {
     dispatchEvent: () => false,
   })) as unknown as typeof window.matchMedia;
 }
+
+// jsdom has no ResizeObserver, which bind:clientWidth uses. Inert: jsdom lays nothing
+// out, so every measured width stays 0 and a chart draws no on-bar labels here.
+if (!('ResizeObserver' in globalThis)) {
+  (globalThis as unknown as { ResizeObserver: unknown }).ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+}

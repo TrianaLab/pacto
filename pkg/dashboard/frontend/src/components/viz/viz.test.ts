@@ -52,7 +52,7 @@ describe('DistributionBar', () => {
   // is 0.033%, and a flat "0%" beside a count of 1 is a row contradicting itself.
   it('never prints a non-zero count as a zero share', () => {
     comp = mount(DistributionBar, { target, props: { title: 'Compliance', segments: [{ label: 'Invalid', value: 1, tone: 'err' }], total: 3000 } });
-    expect(target.querySelector('.dist-pct')?.textContent).toBe('(<0.1% of 3000)');
+    expect(target.querySelector('.dist-pct')?.textContent).toBe('(<0.1% of 3,000)');
   });
 
   it('names the figure from its own caption heading at the requested level', () => {
