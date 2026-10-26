@@ -157,6 +157,7 @@ func NewDeliveryServer(version string, api DeliveryAPI, writes bool, validate Va
 		Name: "pacto_delivery_record_verify",
 		Description: "Verify every signed record of a Stage's stream against the trust config this server was started with and " +
 			"check the chain from seq 1 to the head the Stage names: ok, the records, problems and what did not verify, plus the " +
+			"eval runners' own signatures on the verdicts each record keeps (who ran each exam, checked against the runner keys of the trust config), and the " +
 			"cosign command that checks one record without Pacto. Leave stage empty to verify every Stage's stream in the " +
 			"namespace (or, with no namespace, every Stage you can list); a Stage with no records does not verify. Read-only." + noApprove,
 		InputSchema: auditSchema(),

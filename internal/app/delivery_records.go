@@ -211,10 +211,15 @@ func (d *Delivery) VerifyRecords(ctx context.Context, ns, stage string) (*delive
 		AsOf: d.Now().UTC().Format(time.RFC3339), Head: r.Fold.Head, Trust: d.Trust.Digest(), Problems: r.Fold.Problems,
 		Unreadable: r.Unreadable, Records: []delivery.RecordCheck{}}
 	v.OK = len(v.Problems) == 0 && len(v.Unreadable) == 0
+	runners, _ := d.Trust.Runners(signing.OpenKey) // validated when the trust config was parsed
 	for _, rec := range r.Fold.Records {
 		p := rec.Statement.Predicate
-		v.Records = append(v.Records, delivery.RecordCheck{Seq: p.Chain.Seq, Record: rec.ID, Manifest: rec.Manifest, Kind: p.Kind,
-			Operation: p.Intent.Name, Guarded: p.Guarded})
+		check := delivery.RecordCheck{Seq: p.Chain.Seq, Record: rec.ID, Manifest: rec.Manifest, Kind: p.Kind,
+			Operation: p.Intent.Name, Guarded: p.Guarded, Runners: runnerChecks(p.Verdicts, runners)}
+		for _, rc := range check.Runners {
+			v.OK = v.OK && rc.OK
+		}
+		v.Records = append(v.Records, check)
 	}
 	repo, anchor, _ := strings.Cut(r.anchor, "@")
 	manifest := "<record manifest>"
@@ -233,6 +238,26 @@ func (d *Delivery) VerifyRecords(ctx context.Context, ns, stage string) (*delive
 		"cosign verify-blob-attestation --bundle record.json %[5]s --type %[3]s --insecure-ignore-tlog "+
 		"--digest %[4]s --digestAlg sha256", repo, manifest, delivery.PredicateOperation, strings.TrimPrefix(anchor, "sha256:"), signer)
 	return v, nil
+}
+
+// runnerChecks checks the runner's own signature on every verdict that keeps
+// one: an eval verdict whose runner no runner key of the trust config vouches
+// for does not verify, so who ran the exam is never taken on the promoter's word.
+func runnerChecks(verdicts []delivery.Verdict, runners delivery.RunnerVerifier) []delivery.RunnerCheck {
+	var out []delivery.RunnerCheck
+	for _, x := range verdicts {
+		if x.Citation["runnerBundle"] == "" {
+			continue
+		}
+		rc := delivery.RunnerCheck{Gate: x.Gate, Cited: x.Citation["runner"]}
+		runner, err := delivery.CheckRunner(x, runners)
+		rc.Runner, rc.OK = runner, err == nil
+		if err != nil {
+			rc.Problem = err.Error()
+		}
+		out = append(out, rc)
+	}
+	return out
 }
 
 // precedent is what the records attached to a version say happened to it:

@@ -215,7 +215,7 @@ func RunnersOf(keys []TrustedKey, open func(TrustedKey) (func(bundle []byte) err
 	}
 	return func(bundle []byte) (string, error) {
 		if len(entries) == 0 {
-			return "", errors.New("no runner key is trusted")
+			return "", errors.New("no runner key is trusted: list one with role: runner")
 		}
 		for _, e := range entries {
 			if e.verify(bundle) == nil {

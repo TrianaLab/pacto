@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http/httptest"
@@ -740,5 +741,44 @@ func TestDeliveryUpstreamRecords(t *testing.T) {
 	e.d.Records, e.d.Trust = records, nil
 	if up, why := upstreamOf(ctx, e.d, stage); up != nil || !strings.Contains(why, "no trust config") {
 		t.Fatalf("without trust nothing is read: %+v %q", up, why)
+	}
+}
+
+// TestVerifyRecordsChecksTheRunner: a record that keeps an eval runner's
+// signed answer verifies only when a runner key of the trust config signed
+// it and the verdict cites what the runner signed, and the answer names who
+// ran the exam.
+func TestVerifyRecordsChecksTheRunner(t *testing.T) {
+	e := newRecordEnv(t)
+	ctx := context.Background()
+	_, runnerKey, _ := ed25519.GenerateKey(rand.Reader)
+	suite := "sha256:" + strings.Repeat("5", 64)
+	payload, _ := json.Marshal(delivery.EvalStatement{Type: delivery.StatementType, PredicateType: delivery.PredicateEval,
+		Subject:   []delivery.Subject{{Name: "agent", Digest: map[string]string{"sha256": strings.TrimPrefix(dlC, "sha256:")}}},
+		Predicate: delivery.EvalResult{Suite: suite, Run: "run-7", Passed: 2, Total: 2}})
+	signed, err := edSigner(runnerKey).Sign(ctx, delivery.PayloadType, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boot := move(1, "", "boot", "", dlC)
+	boot.Verdicts = []delivery.Verdict{{Gate: "evals", Phase: "verify", Result: delivery.Pass, Citation: map[string]string{
+		"runner": "evals-ci", "runnerBundle": string(signed), "subject": dlC, "suite": suite, "run": "run-7", "passed": "2", "total": "2"}},
+		{Gate: delivery.GateContract, Result: delivery.Pass}}
+	r1 := e.attach("delivery/streams", e.anchor, boot)
+	e.setStream(map[string]any{"stream": map[string]any{"id": recStream, "seq": int64(1), "recordedSeq": int64(1), "head": r1,
+		"anchor": deliveryrecord.AnchorRef(e.host+"/delivery/streams", recStream)}})
+
+	v, err := e.d.VerifyRecords(ctx, "prod", "payments-prod")
+	if err != nil || v.OK || len(v.Records) != 1 || len(v.Records[0].Runners) != 1 ||
+		!strings.Contains(v.Records[0].Runners[0].Problem, "no runner key is trusted") {
+		t.Fatalf("with no runner key = %+v %v", v, err)
+	}
+	runnerPEM, _ := delivery.PublicKeyPEM(runnerKey.Public())
+	trust := *e.d.Trust
+	trust.Keys = append(trust.Keys, delivery.TrustedKey{Name: "evals-ci-audited", PublicKey: runnerPEM, Role: delivery.RoleRunner})
+	e.d.Trust = &trust
+	v, err = e.d.VerifyRecords(ctx, "prod", "payments-prod")
+	if rc := v.Records[0].Runners[0]; err != nil || !v.OK || !rc.OK || rc.Runner != "evals-ci-audited" || rc.Cited != "evals-ci" || rc.Gate != "evals" {
+		t.Fatalf("with the runner's key = %+v %v", v, err)
 	}
 }

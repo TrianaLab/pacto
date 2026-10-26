@@ -226,6 +226,20 @@ type RecordCheck struct {
 	Operation string `json:"operation,omitempty"`
 	// Guarded says admission checked the record's actor and approvers.
 	Guarded bool `json:"guarded,omitempty"`
+	// Runners are the eval runners' own signatures on the verdicts the
+	// record keeps: who ran each exam, checked apart from the recorder.
+	Runners []RunnerCheck `json:"runners,omitempty"`
+}
+
+// RunnerCheck is one eval verdict's signed answer checked against the trust
+// config's runner keys: Runner is who signed it as the trust config names
+// them, Cited the runner the promoter named. A Problem fails the stream.
+type RunnerCheck struct {
+	Gate    string `json:"gate"`
+	Runner  string `json:"runner,omitempty"`
+	Cited   string `json:"cited,omitempty"`
+	OK      bool   `json:"ok"`
+	Problem string `json:"problem,omitempty"`
 }
 
 // StreamVerification is `record verify`'s answer: every record of a Stage's

@@ -77,7 +77,7 @@ func deliveryDeps(user string, dynErr error) deps {
 					"plan": map[string]any{"intentDigest": "sha256:i", "type": delivery.TypePromote, "predicted": "Held",
 						"floor": map[string]any{"human": true, "decision": "accept-unknown", "owners": []any{"team-payments"}}, "order": map[string]any{
 							"moveFirst": []any{map[string]any{"service": "orders", "message": "Ship orders first."}}, "unknown": []any{"the graph is partial"}}},
-					"verdicts": []any{map[string]any{"gate": "pacto.diff", "phase": "pre", "result": "Pass", "citation": map[string]any{"query": "{}"}},
+					"verdicts": []any{map[string]any{"gate": "pacto.diff", "phase": "pre", "result": "Pass", "citation": map[string]any{"query": "{}", "runnerBundle": "SIGNED-ANSWER"}},
 						map[string]any{"gate": "x", "phase": "pre", "result": "Pass"}}}}),
 		)
 		c.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
@@ -319,5 +319,24 @@ func TestMCPDeliveryMode(t *testing.T) {
 	over.SetErr(&strings.Builder{})
 	if err := over.Execute(); !errors.Is(err, errDeliveryOverHTTP) {
 		t.Fatalf("delivery over HTTP must be refused: %v", err)
+	}
+}
+
+// The runner's signed answer is for -o json; the text says who ran the exam.
+func TestDeliveryExplainHidesTheSignedAnswer(t *testing.T) {
+	out, err := runDelivery(t, deliveryDeps("alice", nil), "text", "explain", "-n", "prod", "held")
+	if err != nil || strings.Contains(out, "SIGNED-ANSWER") {
+		t.Fatalf("the signed answer printed: %v\n%s", err, out)
+	}
+}
+
+func TestPrintVerificationNamesTheRunner(t *testing.T) {
+	var b strings.Builder
+	printVerification(&b, &delivery.StreamVerification{Records: []delivery.RecordCheck{{Seq: 1, Kind: delivery.RecordOperation, Runners: []delivery.RunnerCheck{
+		{Gate: "evals", Runner: "evals-ci", OK: true}, {Gate: "smoke", Problem: "no runner key is trusted"}}}}})
+	for _, want := range []string{"evals: the exam was run and signed by evals-ci", "smoke: the runner's signature does not verify (no runner key is trusted)"} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("lacks %q:\n%s", want, b.String())
+		}
 	}
 }

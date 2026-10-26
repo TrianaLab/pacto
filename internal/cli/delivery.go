@@ -468,6 +468,9 @@ func newDeliveryExplainCommand(v *viper.Viper, d deps) *cobra.Command {
 				for _, x := range e.Verdicts {
 					_, _ = fmt.Fprintf(w, "  %-14s %-6s %-8s %s\n", x.Gate, x.Phase, x.Result, x.Message)
 					for _, k := range slices.Sorted(maps.Keys(x.Citation)) {
+						if k == "runnerBundle" { // the runner's signed answer: -o json shows it
+							continue
+						}
 						_, _ = fmt.Fprintf(w, "      %s: %s\n", k, x.Citation[k])
 					}
 					if x.Rerun != "" {
@@ -723,6 +726,13 @@ func printVerification(w io.Writer, res *delivery.StreamVerification) {
 			unguarded = "  (unguarded: actor and approvers not checked by admission)"
 		}
 		_, _ = fmt.Fprintf(w, "  seq %-4d %-13s %s %s%s\n", r.Seq, r.Kind, r.Record, r.Operation, unguarded)
+		for _, rc := range r.Runners {
+			if rc.OK {
+				_, _ = fmt.Fprintf(w, "           %s: the exam was run and signed by %s\n", rc.Gate, rc.Runner)
+			} else {
+				_, _ = fmt.Fprintf(w, "           %s: the runner's signature does not verify (%s)\n", rc.Gate, rc.Problem)
+			}
+		}
 	}
 	printAnswerNotes(w, res.Problems, res.Unreadable)
 	_, _ = fmt.Fprintf(w, "check one record without Pacto:\n  %s\n", res.Cosign)
