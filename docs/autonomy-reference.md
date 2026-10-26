@@ -102,7 +102,7 @@ observed digest, so Pacto owns exactly what was running. Before approving it:
 1. Remove the version field from the git manifest. Flux reapplies `spec.ref`
    from git. For Argo CD, add `ignoreDifferences` on
    `/spec/source/targetRevision` with `RespectIgnoreDifferences=true`.
-2. Label the applyRef `delivery.pacto.trianalab.io/apply-ref`. From then on,
+2. Label the applyRef `delivery.pacto.trianalab.io/apply-ref=<stage name>`. From then on,
    admission lets only the promoter and break-glass change the version.
 
 ## Records

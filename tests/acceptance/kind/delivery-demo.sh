@@ -1142,7 +1142,7 @@ cmd_reach() {
   us kubectl apply -f - >/dev/null <<YAML
 apiVersion: argoproj.io/v1alpha1
 kind: Application
-metadata: {name: payments, namespace: prod, labels: {delivery.pacto.trianalab.io/apply-ref: "true"}}
+metadata: {name: payments, namespace: prod, labels: {delivery.pacto.trianalab.io/apply-ref: payments}}
 spec:
   project: default
   source: {repoURL: "oci://${REG_HOST}/story/deploy/payments", path: .}
@@ -1233,7 +1233,7 @@ reach_freeze() {
   us kubectl apply -f - >/dev/null <<YAML
 apiVersion: argoproj.io/v1alpha1
 kind: Application
-metadata: {name: payments-eu, namespace: prod, labels: {delivery.pacto.trianalab.io/apply-ref: "true"}}
+metadata: {name: payments-eu, namespace: prod, labels: {delivery.pacto.trianalab.io/apply-ref: payments-eu}}
 spec:
   project: default
   source: {repoURL: "oci://${REG_HOST}/story/deploy/payments", path: .}

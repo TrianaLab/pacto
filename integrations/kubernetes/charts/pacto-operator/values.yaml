@@ -567,7 +567,8 @@ delivery:
     # and an agent cancels only its own operations,
     # approvals come from people and never change, spec.ref.digest is edited only by the
     # promoter or break-glass, and on objects labelled delivery.pacto.trianalab.io/apply-ref
-    # the label, the source and what a Kustomization applies change only by break-glass.
+    # the label, the source and what a Kustomization applies change only by break-glass,
+    # and only the promoter writes the status of a Stage or an Operation.
     # The promoter admits no operation and counts no approval while any of them is
     # missing or does not deny.
     enabled: true

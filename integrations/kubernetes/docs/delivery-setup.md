@@ -179,9 +179,11 @@ spec:
 ```
 
 Label the `OCIRepository` that applies the Stage with
-`delivery.pacto.trianalab.io/apply-ref`, so admission keeps everyone but the
-promoter and break-glass off its digest, and give it the same `spec.verify`.
-Without the label the promoter may not write the digest either: the Stage has
+`delivery.pacto.trianalab.io/apply-ref=<stage name>`, so admission keeps
+everyone but the promoter and break-glass off its digest, and give it the same
+`spec.verify`. The value names the one Stage that applies through it, so a
+second Stage cannot drive the same pointer. Without the label, or with another
+Stage's name in it, the promoter may not write the digest either: the Stage has
 `Ready` `False` with the reason `ApplierUnlabelled`, and a refused write shows
 in the operation's `status.message`. A downstream Stage takes only what its upstream lists in
 `status.offered`: versions that passed the published gate and were verified
@@ -253,7 +255,7 @@ placed counts everywhere and, as a consumer, asks a person.
 | Identity | May | May not |
 |---|---|---|
 | Agent (its service account or `pacto:agents`) | propose, read and cancel its own operations | approve, freeze, unfreeze, write status, edit the pointer |
-| Person | propose, read and cancel any operation, approve a question their team is asked, freeze, unfreeze | write status |
+| Person | propose, read and cancel any operation, approve a question their team is asked, freeze, unfreeze | write status (beyond clearing a Stage's `upstreamSeen`) |
 | Break-glass (`pacto:break-glass`) | override and edit `spec.ref.digest` | |
 | Promoter | write status and raise its own operations | sign or push |
 | Recorder | write the record fields and finalizer; sign and push records | anything else |

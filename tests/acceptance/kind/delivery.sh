@@ -1722,7 +1722,7 @@ apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata:
   name: billing-anyone-apply
-  labels: {delivery.pacto.trianalab.io/apply-ref: billing}
+  labels: {delivery.pacto.trianalab.io/apply-ref: billing-anyone}
 spec: {interval: 30s, insecure: true, url: "oci://${REG_HOST}/apps/billing", ref: {}}
 ---
 apiVersion: delivery.pacto.trianalab.io/v1alpha1

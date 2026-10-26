@@ -412,6 +412,62 @@ metadata:
 spec:
   policyName: {{ $fullname }}-applier
   validationActions: [Deny]
+{{- $writers := list $controller }}
+{{- if .Values.delivery.recorder.enabled }}
+{{- $writers = append $writers (printf "system:serviceaccount:%s:%s" (include "pacto-operator.delivery.namespace" .) (include "pacto-operator.delivery.recorderServiceAccountName" .)) }}
+{{- end }}
+---
+# What a Stage and an Operation say happened is the promoter's to write: the
+# rung, the versions published, verified and failed, the freeze, the
+# approvals. RBAC that lets someone patch stages/status or operations/status
+# would otherwise let them raise a Stage to autonomous or publish an unsigned
+# digest. Only the promoter writes them, and the recorder its record fields
+# (the records policy holds it to those). The one exception is clearing a
+# Stage's status.upstreamSeen, which a person does once an auditor confirms a
+# cut in the upstream records; nothing else may change in that write.
+# system:masters bypasses authorization and could remove this policy, so
+# refusing it guards nothing.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-status
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [delivery.pacto.trianalab.io]
+        apiVersions: ["*"]
+        operations: [UPDATE]
+        resources: [stages/status, operations/status]
+  variables:
+    - name: status
+      expression: "has(object.status) ? object.status : {}"
+    - name: oldStatus
+      expression: "has(oldObject.status) ? oldObject.status : {}"
+    - name: clearsUpstreamSeen
+      expression: >-
+        request.resource.resource == 'stages' && !('upstreamSeen' in variables.status) &&
+        variables.status.all(k, k in variables.oldStatus && variables.status[k] == variables.oldStatus[k]) &&
+        variables.oldStatus.all(k, k == 'upstreamSeen' || k in variables.status)
+  validations:
+    - expression: >-
+        request.userInfo.username in {{ include "pacto-operator.delivery.celList" $writers }} ||
+        request.userInfo.groups.exists(g, g == 'system:masters') ||
+        variables.clearsUpstreamSeen
+      message: "the status of a Stage or an Operation is written only by the Pacto delivery promoter; a person may only clear a Stage's status.upstreamSeen"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-status
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-status
+  validationActions: [Deny]
 {{- if .Values.delivery.recorder.enabled }}
 {{- $recorder := printf "system:serviceaccount:%s:%s" (include "pacto-operator.delivery.namespace" .) (include "pacto-operator.delivery.recorderServiceAccountName" .) }}
 ---

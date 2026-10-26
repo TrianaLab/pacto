@@ -36,8 +36,9 @@ The Application must:
   value files, or plugin. Otherwise the Stage's `Mediated` condition is
   `False`: something besides the digest decides what runs.
 - sync on its own (`syncPolicy.automated`), because the promoter never runs a sync.
-- carry the `delivery.pacto.trianalab.io/apply-ref` label. Without it the Stage
-  has `Ready` `False` with the reason `ApplierUnlabelled`.
+- carry the `delivery.pacto.trianalab.io/apply-ref` label, set to the Stage's
+  name. Without it the Stage has `Ready` `False` with the reason
+  `ApplierUnlabelled`.
 - start with `targetRevision` empty or at the digest the Stage runs. Any other
   value is a write the promoter did not make, so the first promote freezes the
   Stage.
@@ -55,7 +56,7 @@ kind: Application
 metadata:
   name: payments
   namespace: prod
-  labels: {delivery.pacto.trianalab.io/apply-ref: "true"}
+  labels: {delivery.pacto.trianalab.io/apply-ref: payments}
 spec:
   project: default
   source:
@@ -172,7 +173,9 @@ Sometimes the cut is intended: the upstream stream was recreated, or a
 `StreamConflict` repair removed its newest record. Nothing clears the mark on
 its own, so the follower stays not `Ready` until a person does. Once an
 auditor confirms the cut, clear it, with the right to patch `stages/status`.
-The next read, within 30 seconds, sets it again:
+Admission lets that right do nothing else: only the promoter writes the rest of
+a Stage's or an Operation's status, so the write must remove `upstreamSeen` and
+change nothing more. The next read, within 30 seconds, sets it again:
 
 ```bash
 kubectl patch stage <stage> -n <namespace> --subresource=status --type=merge \

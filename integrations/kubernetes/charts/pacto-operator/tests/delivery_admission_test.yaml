@@ -10,13 +10,13 @@ capabilities:
   apiVersions:
     - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
 tests:
-  - it: installs six policies, each bound with Deny
+  - it: installs seven policies, each bound with Deny
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     asserts:
       - hasDocuments:
-          count: 12
+          count: 14
       - equal:
           path: spec.validationActions
           value: [Deny]
@@ -188,7 +188,7 @@ tests:
       delivery.argocd.enabled: true
     asserts:
       - hasDocuments:
-          count: 16
+          count: 18
       - equal:
           path: spec.matchConstraints.resourceRules[0].resources
           value: [applications]
@@ -316,7 +316,7 @@ tests:
       delivery.recorder.enabled: true
     asserts:
       - hasDocuments:
-          count: 14
+          count: 16
       - equal:
           path: 'spec.variables[?(@.name == "recorder")].expression'
           value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery-recorder'"
@@ -359,3 +359,19 @@ tests:
         documentSelector:
           path: 'spec.validations[?(@.message == "the Pacto delivery recorder writes records, never what runs or how an operation ended")].message'
           value: "the Pacto delivery recorder writes records, never what runs or how an operation ended"
+
+  - it: leaves the status of Stages and Operations to the promoter and the recorder
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+    set:
+      delivery.recorder.enabled: true
+      delivery.recorder.streamsRepository: reg.example/streams
+      delivery.recorder.signing.kms: awskms://k
+    documentSelector:
+      path: 'spec.validations[?(@.message == "the status of a Stage or an Operation is written only by the Pacto delivery promoter; a person may only clear a Stage''s status.upstreamSeen")].message'
+      value: "the status of a Stage or an Operation is written only by the Pacto delivery promoter; a person may only clear a Stage's status.upstreamSeen"
+    asserts:
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "the status of a Stage or an Operation is written only by the Pacto delivery promoter; a person may only clear a Stage''s status.upstreamSeen")].expression'
+          pattern: "request.userInfo.username in \\['system:serviceaccount:pacto-delivery:d-pacto-operator-delivery', 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery-recorder'\\]"

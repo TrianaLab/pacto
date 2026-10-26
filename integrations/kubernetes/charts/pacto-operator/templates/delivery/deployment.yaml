@@ -59,7 +59,7 @@ spec:
             - --identities=/etc/pacto/identities/policy.json
             {{- if .Values.delivery.admissionPolicies.enabled }}
             {{- $fullname := include "pacto-operator.delivery.fullname" . }}
-            {{- $policies := list "operation" "cancel" "approval" "pointer" "applier" "promoter-writes" }}
+            {{- $policies := list "operation" "cancel" "approval" "pointer" "applier" "promoter-writes" "status" }}
             {{- if .Values.delivery.argocd.enabled }}{{ $policies = concat $policies (list "pointer-argocd" "promoter-writes-argocd") }}{{ end }}
             {{- if .Values.delivery.recorder.enabled }}{{ $policies = append $policies "records" }}{{ end }}
             - --admission-policies={{ range $i, $p := $policies }}{{ if $i }},{{ end }}{{ $fullname }}-{{ $p }}{{ end }}

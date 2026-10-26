@@ -433,6 +433,21 @@ func TestCreateRaised(t *testing.T) {
 	}
 }
 
+// TestApplyRefLabelledForAnotherStage: the label names the one Stage that
+// applies through the object, so a second Stage cannot drive its pointer.
+func TestApplyRefLabelledForAnotherStage(t *testing.T) {
+	apply := ociRepo("payments", "", "", false)
+	apply.SetLabels(map[string]string{ApplyRefLabel: "payments-eu"})
+	e := newEnv(t, stageObj(""), apply, verifiedRepo("payments-candidates", "latest@"+dB))
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if c := conditionOf(e.getStage().Status.Conditions, "Ready"); c.Status != statusFalse || c.Reason != "ApplierUnlabelled" ||
+		!strings.Contains(c.Message, "="+"payments-eu, not payments-prod") {
+		t.Fatalf("want Ready=False naming the other Stage, got %+v", c)
+	}
+}
+
 // TestApplyRefUnlabelled: a Stage whose apply object lacks the apply-ref
 // label is not Ready, naming the label, since admission neither guards its
 // pointer nor lets the promoter write it.

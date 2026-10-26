@@ -420,7 +420,8 @@ func (r *StageReconciler) remote(ctx context.Context, stage *dv1.Stage) (*delive
 // applierReady says what keeps the Stage's applier from taking a version, nil
 // when nothing does: it cannot be read (missing, forbidden or a kind whose
 // CRD the cluster lacks), it lacks ApplyRefLabel (the admission
-// policy then refuses every promoter write) or, on Argo CD, it has no single
+// policy then refuses every promoter write), its label names another Stage
+// or, on Argo CD, it has no single
 // OCI spec.source or no automated sync (the promoter never runs a sync).
 func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*delivery.Condition, *applyRef, error) {
 	ref := stage.Spec.ApplyRef
@@ -447,6 +448,10 @@ func (r *StageReconciler) applierReady(ctx context.Context, stage *dv1.Stage) (*
 	switch {
 	case !labelled(a.obj):
 		c = notReady(reasonApplierUnlabelled, what+" has no "+ApplyRefLabel+" label, so admission refuses every version the promoter writes to it")
+	case a.obj.GetLabels()[ApplyRefLabel] != stage.Name:
+		// Another Stage could drive the same pointer otherwise.
+		c = notReady(reasonApplierUnlabelled, what+" is labelled "+ApplyRefLabel+"="+a.obj.GetLabels()[ApplyRefLabel]+
+			", not "+stage.Name+": the label names the one Stage that applies through it")
 	case !a.argo:
 		return nil, a, nil
 	case multi:

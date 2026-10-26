@@ -211,7 +211,7 @@ func TestShadowEarnsAdvise(t *testing.T) {
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(gvkOCI)
 	_ = e.c.Get(context.Background(), keyOf("payments"), u)
-	u.SetLabels(map[string]string{ApplyRefLabel: "true"})
+	u.SetLabels(map[string]string{ApplyRefLabel: "payments-prod"})
 	unstructured.RemoveNestedField(u.Object, "spec", "ref", "digest")
 	if err := e.c.Update(context.Background(), u); err != nil {
 		t.Fatal(err)
