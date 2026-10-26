@@ -67,7 +67,7 @@ Each Stage gets a `RecordStoreReady` condition:
 | `ReferrersUnsupported` | The registry has no Referrers API |
 | `RegistryUnavailable` | The registry did not answer; it tries again |
 | `SignerUnavailable` | The signer (KMS key, keyless token, Fulcio or timestamp authority) failed; it tries again |
-| `StreamConflict` | Two trusted records with one number, a broken chain, or the head the Stage names is missing. The recorder stops and the Stage freezes |
+| `StreamConflict` | Two trusted records with one number, a broken chain or a missing head (the one the Stage names). The recorder stops and the Stage freezes |
 
 A record no key trusted for the stream signed is not part of its history.
 The recorder and followers skip it, and the `True` condition message names

@@ -31,7 +31,7 @@ that says who owns it and which other services it calls.
 ## What a record says
 
 A record answers: what was asked, by whom, for which Stage, what each check
-said and why, who approved, and how it ended. Refusals are recorded too. It
+said and why, who approved and how it ended. Refusals are recorded too. It
 holds references, never secrets. A record is an
 [in-toto](https://in-toto.io) statement, a standard format for signed claims
 about software, with the type `delivery.pacto.trianalab.io/operation/v1`.

@@ -33,12 +33,17 @@ Stage) climbs a ladder of four rungs:
 | auto for non-breaking | Ships the changes that break no one on its own |
 | autonomous | Ships every change the contract graph clears on its own |
 
+Delivery is alpha: its settings and commands may still change, and it runs on
+Kubernetes 1.30 or later with Flux (Argo CD is experimental).
+
 A new Stage starts on observe. Pacto proposes the next rung after enough good
-changes, a person other than the one who asked confirms it, and a raise to an
-automatic rung needs the recorder, so it leaves a signed record. When a
-version Pacto shipped on its own fails its checks, Pacto rolls it back once if
-that is safe and otherwise freezes the Stage; after an automatic rollback the
-Stage also drops one rung.
+changes, and a person other than the one who asked confirms it. A raise to an
+automatic rung needs the recorder, so it leaves a signed record. A failed
+promote is rolled back once, whoever asked for it. The Stage freezes instead
+when there is nothing safe to go back to, the rollback fails or someone chose
+the running version by hand (a rollback, or a promote during auto-hold). A
+failure of a version Pacto shipped with no person also drops the Stage one
+rung, whether it was rolled back or froze.
 
 No rung skips the safety rules. A change that would break a consumer waits and
 asks only that consumer's team, and the plan says which service to ship first.
@@ -54,7 +59,7 @@ Delivery synthesizes two ideas from others and adds one of ours:
 
 - **[ConfigHub](https://confighub.com)**: configuration as data in a database behind an API,
   not as templates. Pacto keeps only "which version runs where" that way.
-- **Anthropic's [Scion](https://www.anthropic.com/engineering/redesigning-source-control)**:
+- **Anthropic's [Scion](https://www.anthropic.com/research/redesigning-source-control)**:
   source control for agent-scale change. Content-addressed storage, a pointer
   moved with one compare-and-swap and tests after a change merges, before it
   deploys.
@@ -66,98 +71,16 @@ Start with [Pactify a service](https://pacto.run/latest/pactify/), read
 [the autonomy ladder](https://pacto.run/latest/autonomy/) and
 [what GitlessOps means](MANIFEST.md#what-gitlessops-means).
 
-## Who breaks when a dependency ships a new version
+## Contracts and checks, without delivery
 
-A Pacto dependency records the range this revision accepts — `auth ^2.0.0` —
-and `pacto.lock` pins every dependency below it to the exact published build.
-So when auth is about to ship 3.0, Pacto answers per consumer:
+On pacto.run:
 
-```console
-$ pacto impact ./auth-2.1.0 ./auth-3.0.0 --local .
-Impact: auth 2.1.0 -> 3.0.0
-Classification: BREAKING
-Breaking changes: 1
-Potentially breaking changes: 0
-Affected consumers (2):
-  checkout                     direct     confidence=contractual  compat=incompatible owner=commerce
-  reporting                    direct     confidence=contractual  compat=compatible   owner=analytics
-```
-
-`checkout` accepts `^2.0.0` and 3.0.0 falls outside it. `reporting` accepts
-`>=2.0.0 <4.0.0` and 3.0.0 is inside. One file, checked when you write it,
-compared against the previous revision, then compared against what is actually
-running.
-
-When Pacto cannot observe something it says `Unknown`. It never reports it as a
-pass. A person reading "no findings" under a broken collector will usually smell
-something wrong. A program will not.
-
-## What each command answers
-
-| Command | Question it answers |
-| --- | --- |
-| `pacto validate` | Is this contract legal? |
-| `pacto diff` | Did I break my own consumers? |
-| `pacto impact` | Which consumers, and where do they run? |
-| The [operator](https://pacto.run/latest/integrations/kubernetes/overview/) | Does reality still match what was declared? |
-
-`validate` and `diff` pay off at one service; `impact` and the graph pay off at
-the second consumer. `pacto dashboard` and `pacto tui` put the same answers in a
-browser or a terminal.
-
-## Check what is actually running
-
-Pacto can check what a running service actually does on the network against
-what its contract says, on any Linux machine, and tells you only what it can
-prove:
-
-| What it catches | Finding |
-| --- | --- |
-| A process reports healthy but nothing listens on the declared port | `INTERFACE_ABSENT` |
-| A declared dependency the service keeps failing to reach | `DEPENDENCY_UNREACHABLE` |
-| A call to another Pacto service no dependency declares (Kubernetes) | `DEPENDENCY_UNDECLARED` |
-
-```bash
-pacto run --contract ./payments --bind api=8080 --fail-on noncompliant -- ./payments-server
-```
-
-Pacto watches TCP connections in the Linux kernel with eBPF (small, safe
-programs the kernel runs on events). It never reads payloads or secrets, and
-when it cannot see it says "don't know" instead of guessing. Run it three ways:
-`pacto run` wraps one command (a laptop, a CI job), `pacto agent` watches a
-Docker host or a server and the Kubernetes operator deploys the same agent on
-every node. See [Runtime conformance](https://pacto.run/latest/runtime-conformance/).
-
-## What a contract declares
-
-This is the `checkout` contract from the run above:
-
-```yaml
-pactoVersion: "2.0"
-
-service:
-  name: checkout
-  version: 4.2.0
-  owner: { team: commerce, dri: alice }
-
-interfaces:
-  - name: rest-api
-    type: openapi
-    ref: interfaces/openapi.yaml       # the OpenAPI document you already maintain
-    visibility: public
-
-dependencies:
-  - name: auth
-    ref: oci://ghcr.io/acme/auth-pacto
-    required: true
-    compatibility: "^2.0.0"            # the range this revision accepts
-```
-
-Only `pactoVersion` and `service` are required. Everything else is opt-in. An
-unknown field is rejected rather than ignored. There is no port, image,
-replicas or namespace field: those are delivery decisions, and leaving them out
-keeps one contract true in every cluster. Each interface's `ref` points at a
-schema you already own.
+- [Who breaks when a dependency ships a new version](https://pacto.run/latest/#who-breaks-when-a-dependency-ships-a-new-version):
+  `pacto impact` answers per consumer, from the version ranges each declares.
+- [Check what is actually running](https://pacto.run/latest/runtime-conformance/):
+  eBPF compares what a service does on the network with its contract.
+- [What a contract declares](https://pacto.run/latest/contract-reference):
+  one YAML file per service; only `pactoVersion` and `service` are required.
 
 ## How Pacto compares
 
@@ -178,7 +101,7 @@ sign each decision into a record anyone verifies without Pacto.
 | **Kratix** | Partial | — | Partial | — | — | Partial | Yes |
 | **Backstage** / Port | — | — | Partial | — | — | ✅ | No |
 | **Kargo** | ✅ | — | — | — | Partial | — | No |
-| **Pacto** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | **No** (delivery promotes) |
+| **Pacto** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ contracts and checks; delivery needs Kubernetes | **No** (delivery promotes) |
 
 ✅ first-class · Partial adjacent or limited · — not in scope. Verified against
 each project's own documentation, August 2026; these projects move fast, so
@@ -190,8 +113,9 @@ re-check the cells before relying on them. The contested columns:
 - **Orchestrator-agnostic** — the tool needs no Kubernetes control plane of its own. The softest column: between ✅ and —, Partial is a judgement of degree
 
 Several of these are complementary rather than competing: a contract can gate a
-Kargo promotion, feed a Backstage card or front a Crossplane provisioner. Pacto
-is the only row that scores first-class on all six capability columns.
+Kargo promotion, feed a Backstage card or front a Crossplane provisioner. We
+graded our own row; the orchestrator cell holds for contracts and checks, not
+for delivery.
 
 ## Installation
 

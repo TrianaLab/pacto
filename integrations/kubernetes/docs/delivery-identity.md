@@ -54,8 +54,8 @@ it on kind. Managed clusters mostly decide it for you:
 
 To check a cluster, sign in again and run `kubectl auth whoami -o yaml`. If
 `extra` holds no `delivery.pacto.trianalab.io/auth-time`, nobody can approve there. Delivery
-still promotes every change that needs no decision, people can still freeze,
-unfreeze, roll back and cancel, and the dashboard and the CLI still read
+still promotes every change that needs no decision. People can still freeze,
+unfreeze, roll back and cancel. The dashboard and the CLI still read
 everything. A held change then ends one of three ways: it expires, someone
 cancels it and publishes a version that asks nothing, or a member of the
 break-glass group raises an override with

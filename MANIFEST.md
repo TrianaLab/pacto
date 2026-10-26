@@ -91,7 +91,7 @@ manifests stay in git. GitlessOps is three principles, each true only under its 
 Two ideas came first. [ConfigHub](https://confighub.com) treats configuration
 as data in a database behind an API, not as templates; Pacto keeps only "which version
 runs where" that way. Anthropic's
-[Scion](https://www.anthropic.com/engineering/redesigning-source-control)
+[Scion](https://www.anthropic.com/research/redesigning-source-control)
 addresses stored content by what it holds, moves a pointer with one compare-and-swap and
 tests after a change merges and before it deploys. The contract graph is
 ours, and all of it is open source under the MIT licence.
