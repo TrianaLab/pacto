@@ -105,13 +105,7 @@ func (t TrustConfig) Digest() string {
 // Verifier checks a record's signature against the keys trusted for its
 // stream; open turns one key into the check of a bundle (pkg/signing does).
 func (t TrustConfig) Verifier(open func(TrustedKey) (func(bundle []byte) error, error)) (Verifier, error) {
-	type entry struct {
-		streams  []string
-		untilSeq int64
-		until    string
-		verify   func([]byte) error
-	}
-	var entries []entry
+	var entries recordKeys
 	for i, k := range t.Keys {
 		if k.Role != "" && k.Role != RoleRunner {
 			return nil, fmt.Errorf("trust config key %d (%s): role %q is not empty or %s", i, k.Name, k.Role, RoleRunner)
@@ -140,35 +134,48 @@ func (t TrustConfig) Verifier(open func(TrustedKey) (func(bundle []byte) error, 
 		if err != nil {
 			return nil, fmt.Errorf("trust config key %d (%s): %w", i, k.Name, err)
 		}
-		entries = append(entries, entry{k.Streams, k.UntilSeq, k.UntilRecord, v})
+		entries = append(entries, recordKey{k.Streams, k.UntilSeq, k.UntilRecord, v})
 	}
-	return func(stream string, seq int64, bundle []byte) error {
-		var err, revoked, history error = fmt.Errorf("no trusted key may sign records of stream %q", stream), nil, nil
-		for _, e := range entries {
-			if !covers(e.streams, stream) {
-				continue
-			}
-			if err = e.verify(bundle); err != nil {
-				continue
-			}
-			if e.untilSeq > 0 && seq > e.untilSeq {
-				revoked = fmt.Errorf("signed by a key revoked after seq %d of stream %q, and this record is seq %d", e.untilSeq, stream, seq)
-				continue
-			}
-			if e.untilSeq > 0 {
-				history = &HistoryOnly{Until: e.until}
-				continue
-			}
-			return nil
+	return entries.verify, nil
+}
+
+// recordKey is one record key a Verifier trusts.
+type recordKey struct {
+	streams  []string
+	untilSeq int64
+	until    string
+	verify   func([]byte) error
+}
+
+type recordKeys []recordKey
+
+// verify is the Verifier of the keys.
+func (entries recordKeys) verify(stream string, seq int64, bundle []byte) error {
+	var err, revoked, history error = fmt.Errorf("no trusted key may sign records of stream %q", stream), nil, nil
+	for _, e := range entries {
+		if !covers(e.streams, stream) {
+			continue
 		}
-		if history != nil {
-			return history
+		if err = e.verify(bundle); err != nil {
+			continue
 		}
-		if revoked != nil {
-			return revoked
+		if e.untilSeq > 0 && seq > e.untilSeq {
+			revoked = fmt.Errorf("signed by a key revoked after seq %d of stream %q, and this record is seq %d", e.untilSeq, stream, seq)
+			continue
 		}
-		return err
-	}, nil
+		if e.untilSeq > 0 {
+			history = &HistoryOnly{Until: e.until}
+			continue
+		}
+		return nil
+	}
+	if history != nil {
+		return history
+	}
+	if revoked != nil {
+		return revoked
+	}
+	return err
 }
 
 // For is the first key trusted to sign records of stream.

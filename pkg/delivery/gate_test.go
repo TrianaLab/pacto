@@ -267,8 +267,16 @@ func TestWebhook(t *testing.T) {
 			t.Errorf("%s: %+v", name, v)
 		}
 	}
-	// A provider's url and answer never reach a verdict message beyond its host and path.
-	answer, status = `secret body`, 500
+}
+
+// TestWebhookNeverLeaks: a provider's url and answer never reach a verdict
+// message beyond its host and path.
+func TestWebhookNeverLeaks(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(500)
+		_, _ = io.WriteString(w, `secret body`)
+	}))
+	defer srv.Close()
 	if v := (Webhook{URL: srv.URL + "/check?apikey=k1", Client: srv.Client()}).Check(context.Background(), gateIn(), nil); strings.Contains(v.Message, "k1") ||
 		strings.Contains(v.Message, "secret") || !strings.Contains(v.Message, "/check answered 500") {
 		t.Errorf("leaky message: %q", v.Message)

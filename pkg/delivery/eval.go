@@ -88,25 +88,10 @@ func CheckRunner(v Verdict, p RecordPredicate, verify RunnerVerifier) (string, e
 	if err != nil {
 		return "", err
 	}
-	a, about, what := st.Predicate, "", "moved to"
-	if p.Intent.Params != nil {
-		about = p.Intent.Params.To
-		if v.Phase == "pre" { // a cited cause re-run before the move, on the version it moved from
-			about, what = p.Intent.Params.From, "moved from"
-		}
+	if err := citesSigned(v, p, st, runner); err != nil {
+		return runner, err
 	}
-	switch {
-	case a.Operation != p.Intent.UID:
-		return runner, fmt.Errorf("%s signed an answer for operation %q, but this record is operation %q", runner, a.Operation, p.Intent.UID)
-	case st.Version() != about:
-		return runner, fmt.Errorf("%s ran the suite on %q, but this record %s %q", runner, st.Version(), what, about)
-	}
-	for k, signed := range map[string]string{"subject": st.Version(), "operation": a.Operation, "suite": a.Suite, "run": a.Run,
-		"passed": strconv.Itoa(a.Passed), "total": strconv.Itoa(a.Total), "observedModel": a.ObservedModel} {
-		if v.Citation[k] != signed {
-			return runner, fmt.Errorf("the verdict cites %s %q, but %s signed %q", k, v.Citation[k], runner, signed)
-		}
-	}
+	a := st.Predicate
 	params, why := checkParams(v, p)
 	if why != "" {
 		return runner, errors.New(why)
@@ -129,6 +114,32 @@ func CheckRunner(v Verdict, p RecordPredicate, verify RunnerVerifier) (string, e
 			v.Result, a.Passed, a.Total, strconv.FormatFloat(rate, 'g', 10, 64), want)
 	}
 	return runner, nil
+}
+
+// citesSigned checks that runner answered record p's operation about the
+// version it moved to (from, for a cause re-run before the move) and that the
+// verdict v cites what the runner signed.
+func citesSigned(v Verdict, p RecordPredicate, st EvalStatement, runner string) error {
+	a, about, what := st.Predicate, "", "moved to"
+	if p.Intent.Params != nil {
+		about = p.Intent.Params.To
+		if v.Phase == "pre" { // a cited cause re-run before the move, on the version it moved from
+			about, what = p.Intent.Params.From, "moved from"
+		}
+	}
+	switch {
+	case a.Operation != p.Intent.UID:
+		return fmt.Errorf("%s signed an answer for operation %q, but this record is operation %q", runner, a.Operation, p.Intent.UID)
+	case st.Version() != about:
+		return fmt.Errorf("%s ran the suite on %q, but this record %s %q", runner, st.Version(), what, about)
+	}
+	for k, signed := range map[string]string{"subject": st.Version(), "operation": a.Operation, "suite": a.Suite, "run": a.Run,
+		"passed": strconv.Itoa(a.Passed), "total": strconv.Itoa(a.Total), "observedModel": a.ObservedModel} {
+		if v.Citation[k] != signed {
+			return fmt.Errorf("the verdict cites %s %q, but %s signed %q", k, v.Citation[k], runner, signed)
+		}
+	}
+	return nil
 }
 
 // checkParams are the params the eval verdict v ran with: the Stage check of
@@ -253,19 +264,8 @@ func (e Eval) Check(ctx context.Context, in GateInput, params map[string]string)
 		return Verdict{Result: Unknown, Message: "the runner's answer is not signed by a runner this provider trusts: " + err.Error()}
 	}
 	a, subject := st.Predicate, st.Version()
-	switch {
-	case !slices.Contains(in.Subjects, subject):
-		return Verdict{Result: Unknown, Message: fmt.Sprintf("the runner ran the suite on %q, not on the version under check", subject)}
-	case a.Operation != in.OperationUID:
-		return Verdict{Result: Unknown, Message: fmt.Sprintf("the runner answered operation %q, not %q: an answer signed for another operation is not this one's", a.Operation, in.OperationUID)}
-	case a.Challenge != in.Challenge:
-		return Verdict{Result: Unknown, Message: "the runner's answer does not echo this check's challenge: it answers another request, so it may be an old answer replayed"}
-	case a.Run == "":
-		return Verdict{Result: Unknown, Message: "the runner named no run to cite"}
-	case a.Suite != in.Suite.Digest:
-		return Verdict{Result: Unknown, Message: fmt.Sprintf("the runner ran the suite %q, not %s, the %s the version ships", a.Suite, in.Suite.Digest, in.Suite.Path)}
-	case a.Total <= 0 || a.Passed < 0 || a.Passed > a.Total:
-		return Verdict{Result: Unknown, Message: fmt.Sprintf("the runner counted %d of %d cases passed", a.Passed, a.Total)}
+	if why := answerProblem(in, a, subject); why != "" {
+		return Verdict{Result: Unknown, Message: why}
 	}
 	v := Verdict{Result: rateResult(a, minRate), Citation: map[string]string{
 		"run": a.Run, "suite": a.Suite, "suiteName": in.Suite.Name, "suitePath": in.Suite.Path, "contract": in.Contract, "subject": subject,
@@ -282,6 +282,26 @@ func (e Eval) Check(ctx context.Context, in GateInput, params map[string]string)
 		v.Result, v.Message = worse(v.Result, r), v.Message+"; "+why
 	}
 	return v
+}
+
+// answerProblem says why the runner's answer a about subject does not answer
+// the check in, or is empty when it does.
+func answerProblem(in GateInput, a EvalResult, subject string) string {
+	switch {
+	case !slices.Contains(in.Subjects, subject):
+		return fmt.Sprintf("the runner ran the suite on %q, not on the version under check", subject)
+	case a.Operation != in.OperationUID:
+		return fmt.Sprintf("the runner answered operation %q, not %q: an answer signed for another operation is not this one's", a.Operation, in.OperationUID)
+	case a.Challenge != in.Challenge:
+		return "the runner's answer does not echo this check's challenge: it answers another request, so it may be an old answer replayed"
+	case a.Run == "":
+		return "the runner named no run to cite"
+	case a.Suite != in.Suite.Digest:
+		return fmt.Sprintf("the runner ran the suite %q, not %s, the %s the version ships", a.Suite, in.Suite.Digest, in.Suite.Path)
+	case a.Total <= 0 || a.Passed < 0 || a.Passed > a.Total:
+		return fmt.Sprintf("the runner counted %d of %d cases passed", a.Passed, a.Total)
+	}
+	return ""
 }
 
 // modelCheck compares the model the runner saw answer with the versions of

@@ -196,6 +196,11 @@ func TestTrustRunnerKeys(t *testing.T) {
 	if k, ok := trust.For("c/test/agent"); !ok || k.Name != "recorder" {
 		t.Errorf("For names the record key: %+v", k)
 	}
+}
+
+// TestRunnersRefuse: no runner key, or one that cannot be opened, verifies
+// no answer.
+func TestRunnersRefuse(t *testing.T) {
 	none, _ := TrustConfig{Keys: []TrustedKey{{Name: "recorder"}}}.Runners(byName)
 	if _, err := none([]byte("recorder")); err == nil || !strings.Contains(err.Error(), "no runner key is trusted") {
 		t.Errorf("no runner keys: %v", err)

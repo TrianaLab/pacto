@@ -110,21 +110,14 @@ func NewGates(configs []ProviderConfig, client *http.Client, open func(TrustedKe
 	client = noRedirects(client)
 	gates := map[string]Gate{}
 	for _, c := range configs {
-		u, err := url.Parse(c.URL)
 		switch {
 		case c.Name == "" || strings.HasPrefix(c.Name, "pacto."):
 			return nil, fmt.Errorf("gate provider name %q: empty or reserved", c.Name)
 		case gates[c.Name] != nil:
 			return nil, fmt.Errorf("gate provider %q is configured twice", c.Name)
-		case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":
-			return nil, fmt.Errorf("gate provider %q: url %q must be http(s)://host", c.Name, where(c.URL))
-		case u.Scheme == "http" && !c.AllowPlainHTTP && !loopback(u.Hostname()):
-			// A verdict lands in a signed record: whoever can forge the answer
-			// in transit could get a Pass signed.
-			return nil, fmt.Errorf("gate provider %q: url %q is plain http, so anyone on the network path could forge its verdicts: use https (http is allowed only on loopback, or with allowPlainHTTP on a test cluster)", c.Name, where(c.URL))
-		case u.User != nil:
-			// Verdict messages land in Operation status and signed records.
-			return nil, fmt.Errorf("gate provider %q: the url must not carry a user or password", c.Name)
+		}
+		if err := checkProviderURL(c); err != nil {
+			return nil, err
 		}
 		if c.Type != ProviderEval && len(c.Signers) > 0 {
 			return nil, fmt.Errorf("gate provider %q: only an eval provider takes signers", c.Name)
@@ -148,6 +141,24 @@ func NewGates(configs []ProviderConfig, client *http.Client, open func(TrustedKe
 		}
 	}
 	return gates, nil
+}
+
+// checkProviderURL refuses a provider url that is not http(s)://host, is
+// plain http off loopback without allowPlainHTTP, or carries credentials.
+func checkProviderURL(c ProviderConfig) error {
+	u, err := url.Parse(c.URL)
+	switch {
+	case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":
+		return fmt.Errorf("gate provider %q: url %q must be http(s)://host", c.Name, where(c.URL))
+	case u.Scheme == "http" && !c.AllowPlainHTTP && !loopback(u.Hostname()):
+		// A verdict lands in a signed record: whoever can forge the answer
+		// in transit could get a Pass signed.
+		return fmt.Errorf("gate provider %q: url %q is plain http, so anyone on the network path could forge its verdicts: use https (http is allowed only on loopback, or with allowPlainHTTP on a test cluster)", c.Name, where(c.URL))
+	case u.User != nil:
+		// Verdict messages land in Operation status and signed records.
+		return fmt.Errorf("gate provider %q: the url must not carry a user or password", c.Name)
+	}
+	return nil
 }
 
 // loopback reports whether host is this machine.
