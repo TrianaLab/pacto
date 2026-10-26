@@ -375,8 +375,8 @@ delivery:
   # -- Install Pacto delivery: the promoter, its CRDs (Stage, Operation, Approval), roles and admission policies
   enabled: false
   # -- Dedicated namespace the promoter and the recorder run in. The chart
-  # creates it; it must not be the release namespace (the operator can create
-  # Deployments and Secrets there).
+  # creates it; it must not be the release or node agent namespace (the
+  # operator can create Deployments, DaemonSets and Secrets there).
   namespace: pacto-delivery
   # -- Create `delivery.namespace`. Set false to create it yourself first, for
   # example to put the recorder key Secret in it before the install

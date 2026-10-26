@@ -11,7 +11,7 @@ Delivery is the `pacto-operator` chart's `delivery` section, off by default. It 
 --8<-- "integrations/kubernetes/docs/generated/_delivery-install-command.md"
 
 This needs Helm 3.14 or later. Delivery runs in `delivery.namespace`
-(`pacto-delivery`, never the release namespace), where the operator holds no
+(`pacto-delivery`, never the release or node agent namespace), where the operator holds no
 role, so it cannot act as the promoter. It still reads every Secret: prefer
 KMS or keyless recorder signing. Set `delivery.createNamespace=false` to
 create the namespace, with the recorder key, yourself. Bind

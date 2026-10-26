@@ -403,7 +403,7 @@ cosign verify \
 | delivery.metrics.serviceMonitor.enabled | bool | `false` | Create a Prometheus Operator ServiceMonitor for that Service |
 | delivery.metrics.serviceMonitor.interval | string | `""` | Scrape interval (empty uses Prometheus' default) |
 | delivery.metrics.serviceMonitor.scrapeTimeout | string | `""` | Scrape timeout (empty uses Prometheus' default) |
-| delivery.namespace | string | `"pacto-delivery"` | Dedicated namespace the promoter and the recorder run in. The chart creates it; it must not be the release namespace (the operator can create Deployments and Secrets there). |
+| delivery.namespace | string | `"pacto-delivery"` | Dedicated namespace the promoter and the recorder run in. The chart creates it; it must not be the release or node agent namespace (the operator can create Deployments, DaemonSets and Secrets there). |
 | delivery.nodeSelector | object | `{}` | Node selector for the promoter pod |
 | delivery.podSecurityContext.runAsNonRoot | bool | `true` | Run pod as non-root |
 | delivery.podSecurityContext.seccompProfile.type | string | `"RuntimeDefault"` | Seccomp profile type |
