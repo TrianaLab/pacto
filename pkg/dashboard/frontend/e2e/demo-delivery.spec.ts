@@ -34,6 +34,18 @@ async function switchTo(page: Page, who: 'pay-agent' | 'alice' | 'carol') {
   await expect(page.getByTestId('demo-signin')).toHaveCount(0);
 }
 
+/** Does the tour's cut-out enclose sel? A light on the wrong control is the defect. */
+async function lit(page: Page, sel: string): Promise<boolean> {
+  return page.evaluate((selector) => {
+    const spot = document.querySelector('[data-testid="demo-tour-spotlight"]') as HTMLElement | null;
+    const t = document.querySelector(selector);
+    if (!spot || spot.hidden || !t) return false;
+    const a = spot.getBoundingClientRect();
+    const b = t.getBoundingClientRect();
+    return a.left <= b.left + 1 && a.right >= b.right - 1 && a.top <= b.top + 1 && a.bottom >= b.bottom - 1;
+  }, sel);
+}
+
 async function audit(page: Page, what: string) {
   await settle(page);
   const r = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
@@ -65,13 +77,16 @@ async function playTour(page: Page, reload: boolean) {
   await expect(page.getByTestId('actual-verdicts')).toContainText('recorded for this demo', { timeout: T });
   await next.click();
 
-  // The three gated moments, skipped: Skip performs the action, then the step
-  // holds on its result until Continue.
-  for (const says of ['asks only the affected teams', 'promote checkout 1.9.0', 'Only a person on the asked team decides', 'Then Pacto could not see', 'Every step is a signed record']) {
-    await expect(text).toContainText(says);
+  // The gated moments, one action each, skipped: Skip performs the action, and the
+  // step either moves on by itself or holds on its result until Continue.
+  await expect(text).toContainText('press Promote on payments 3.0.0');
+  for (let i = 0; i < 30 && !((await text.textContent()) ?? '').includes('History reads every step back'); i++) {
+    const before = await text.textContent();
     await page.getByTestId('demo-tour-skip').click();
-    await expect(next).toBeVisible({ timeout: T });
-    await next.click();
+    await expect
+      .poll(async () => (await text.textContent()) !== before || (await next.isVisible()), { timeout: T })
+      .toBe(true);
+    if ((await text.textContent()) === before) await next.click();
   }
   await expect(text).toContainText('History reads every step back');
   await next.click();
@@ -178,6 +193,56 @@ test.describe('Browser demo: the delivery story', () => {
     // read it as a change would reload a page nothing had touched.
     await page.waitForTimeout(1_100);
     await playTour(page, false);
+  });
+
+  // The report this came from: the step said "press Switch person, pick Carol, write
+  // why and approve, after she signs in again" while the light sat on the decision card
+  // and Switch person stayed dimmed. Now each action is its own step, the light is on
+  // the control it names, and doing it moves the tour on.
+  test('the tour lights the control each step asks for, one action at a time', async ({ page }) => {
+    test.setTimeout(240_000);
+    await ready(page, '#/fleet');
+    await page.waitForTimeout(1_100);
+    await page.getByTestId('demo-delivery-start').click();
+    const text = page.getByTestId('demo-tour-text');
+    const next = page.getByTestId('demo-tour-next');
+    await expect(text).toContainText('simulated', { timeout: T });
+    for (let i = 0; i < 4; i++) await next.click();
+
+    const step = async (says: string, sel: string) => {
+      await expect(text).toContainText(says, { timeout: T });
+      await expect.poll(() => lit(page, sel), { timeout: T, message: `the light is on ${sel} for "${says}"` }).toBe(true);
+    };
+    await step('press Promote on payments 3.0.0', '[aria-label="Promote payments in prod to 3.0.0"]');
+    await page.getByRole('button', { name: 'Promote payments in prod to 3.0.0' }).click();
+    await step('so press Propose promote', '[data-testid="propose-panel"] button[type=submit]');
+    await page.getByTestId('propose-panel').getByRole('button', { name: /^Propose/ }).click();
+    await expect(next).toBeVisible({ timeout: T });
+    await next.click();
+    await step('press Promote on checkout 1.9.0', '[aria-label="Promote checkout in prod to 1.9.0"]');
+    await page.getByRole('button', { name: 'Promote checkout in prod to 1.9.0' }).click();
+    await step('Press Propose promote: checkout ships', '[data-testid="propose-panel"] button[type=submit]');
+    await page.getByTestId('propose-panel').getByRole('button', { name: /^Propose/ }).click();
+    await expect(next).toBeVisible({ timeout: T });
+    await next.click();
+
+    await step('so press Switch person', '[data-testid="delivery-identity"] button');
+    await page.getByRole('button', { name: 'Switch person' }).click();
+    await step('Pick Carol', '[data-testid="demo-persona-carol"]');
+    await page.getByTestId('demo-persona-carol').click();
+    await step('Write in the note why 3.0.0 should ship', '[data-testid="decision-panel"] textarea');
+    await page.getByTestId('decision-panel').locator('textarea').fill('orders 1.4 is ready for payments 3');
+    await step('Press Approve shipping 3.0.0', '[data-testid="decide-approve"]');
+    await page.getByTestId('decide-approve').click();
+    await step('sign in again as Carol', '[data-testid="demo-signin-submit"]');
+    await page.getByTestId('demo-signin-submit').click();
+    await step('Press Confirm', '[data-testid="decide-approve"]');
+    await page.getByTestId('decide-approve').click();
+    // 3.0.0 ships, then the checks end Unknown: a screen worth reading, so it holds.
+    await expect(text).toContainText('Then Pacto could not see', { timeout: T });
+    await expect(next).toBeVisible({ timeout: T });
+    await next.click();
+    await step('why accepting the unknown is safe', '[data-testid="decision-panel"] textarea');
   });
 
   // The engine can resolve before the strip mounts. A tour owed by a reload must still

@@ -92,7 +92,7 @@
           </thead>
           <tbody>
             {#each services as svc (svc)}
-              <tr>
+              <tr data-testid={`env-row-${svc}`}>
                 <th scope="row"><a class="cell-clip" href={serviceUrl(svc)} title={svc}>{svc}</a></th>
                 {#each environments as env (env)}
                   {@const here = cell(svc, env)}

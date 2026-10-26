@@ -81,7 +81,7 @@
 
     // The walkthrough. A visitor who arrives from the home page's call to action gets a
     // dashboard of a fleet they have never seen, and no amount of labelling tells them
-    // what any of it is FOR. So the strip offers a tour: six questions, each one driving
+    // what any of it is FOR. So the strip offers a tour: a few questions, one action per step, each driving
     // the real app to the screen that answers it. Nothing is simulated -- every step is a
     // route this dashboard already serves, read against the fixture.
     //
@@ -130,7 +130,7 @@
       hash: "#/fleet",
       target: "#sec-attention"
     }, {
-      text: "Step 2, what is out there: every service Pacto found in its contracts, with its owner and what runs it, so type payments in the search box and press Enter.",
+      text: "What is out there: every service Pacto found in its contracts, with its owner and what runs it, so type payments in the search box and press Enter.",
       hash: "#/fleet/services",
       target: '[data-testid="svc-search"]',
       wait: "Waiting for a search that narrows the list to payments-service.",
@@ -145,7 +145,7 @@
         if (i.form) { i.form.requestSubmit(); }
       }
     }, {
-      text: "Step 3, one service in full: what payments-service declares, every revision it has published and what was observed about the targets running it, so open payments-service from the list.",
+      text: "One service in full: what payments-service declares, every revision it has published and what was observed about the targets running it, so open payments-service from the list.",
       hash: "#/fleet/services",
       // The link, then -- once it has been followed and the link no longer exists -- the
       // summary it opened. Without the second entry the light goes out at the moment the
@@ -159,35 +159,49 @@
         if (a) { a.click(); } else { window.location.hash = "#/fleet/services/payments-service"; }
       }
     }, {
-      text: "Step 4, about to ship a break: two revisions are compared field by field, where removing an API path is breaking and adding an optional one is not, so choose the earlier revision and press Compare revisions.",
+      text: "About to ship a break: two revisions of payments-service are compared field by field, so first set Earlier revision to the oldest one, 1.0.0.",
       hash: "#/fleet/changes/payments-service",
-      // The whole form, so the two selectors and the submit sit inside one hole; the
-      // reader is asked to use all three and a light on only one of them misleads. Then
-      // the comparison itself: this is the step the whole tour is for, and leaving the
-      // light on the form while the bubble says to read the verdict points at the wrong
-      // half of the screen.
-      target: ["#sec-revisions", '[data-testid="changes-what-changed"]'],
+      target: "#impact-old-rev",
+      wait: "Waiting for the oldest revision to be chosen as the earlier one.",
+      gate: function () { return oldestChosen(); },
+      skip: function () {
+        var s = q("#impact-old-rev");
+        // The oldest revision is the last option, and against the newest (already the
+        // default on the right-hand selector) it is the pair that actually breaks.
+        if (s && s.options && s.options.length > 1) { setValue(s, s.options[s.options.length - 1].value); }
+      }
+    }, {
+      text: "Now press Compare revisions: removing an API path is breaking and adding an optional one is not, and the answer says which this is.",
+      hash: "#/fleet/changes/payments-service",
+      // The button, then the comparison it produced: this is the step the whole tour is
+      // for, and leaving the light on the form while the bubble says to read the verdict
+      // points at the wrong half of the screen.
+      target: ['#sec-revisions button[type=submit]', '[data-testid="changes-what-changed"]'],
       wait: "Waiting for the comparison to run.",
       hold: true,
       gate: function () { return !!q('[data-testid="changes-what-changed"]'); },
       skip: function () {
-        var s = q("#impact-old-rev");
         var f = q("#sec-revisions");
-        // The oldest revision is the last option, and against the newest (already the
-        // default on the right-hand selector) it is the pair that actually breaks.
-        if (s && s.options.length > 1) { setValue(s, s.options[s.options.length - 1].value); }
         if (f) { f.requestSubmit(); }
       }
     }, {
-      text: "Step 5, who the change reaches: links a contract declares and links Pacto observed are kept apart, so a consumer that declared nothing still shows up, and you search orders and open the result.",
+      text: "Who the change reaches: links a contract declares and links Pacto observed are kept apart, so a consumer that declared nothing still shows up, and you start by typing orders in the search box.",
       hash: "#/fleet/graph",
-      target: ['[data-testid="graph-discovery"] input[type=search]', '[data-testid="graph-focus-link"]', '[data-testid="neighborhood-canvas"]'],
+      target: '[data-testid="graph-discovery"] input[type=search]',
+      wait: "Waiting for a search that finds orders.",
+      gate: function () { return !!q('[data-testid="graph-focus-link"]'); },
+      skip: function () {
+        var i = q('[data-testid="graph-discovery"] input[type=search]');
+        if (i) { setValue(i, "orders"); } else { window.location.hash = "#/fleet/graph/service/orders-service"; }
+      }
+    }, {
+      text: "Open orders-service from the results to see its neighborhood: what it calls, what calls it and what was only observed.",
+      hash: "#/fleet/graph",
+      target: ['[data-testid="graph-focus-link"]', '[data-testid="neighborhood-canvas"]'],
       wait: "Waiting for a focused neighborhood to render.",
       hold: true,
       gate: function () { return !!q('[data-testid="neighborhood-canvas"]'); },
       skip: function () {
-        var i = q('[data-testid="graph-discovery"] input[type=search]');
-        if (i) { setValue(i, "orders"); }
         var a = q('[data-testid="graph-focus-link"]');
         // The results come back from a request, so on a step the reader skipped
         // immediately there is nothing to click yet: go where the link would have gone.
@@ -196,7 +210,7 @@
     }, {
       text: "That is the whole loop: what is out there, what state it is in, what a change breaks and who it reaches — from contracts plus observations, with nothing guessed.",
       href: "../examples/demo-tour/",
-      linkText: "The same six questions from a terminal"
+      linkText: "The same questions from a terminal"
     }];
 
 
@@ -276,6 +290,27 @@
     function onChange() { return hashPath().indexOf("#/delivery/changes/prod/") === 0; }
     function propose(body) { var r = serve("POST", "/api/delivery/operations", body); refreshViews(); return r; }
 
+    // The controls the delivery steps point at.
+    var PROPOSE_BTN = '[data-testid="propose-panel"] button[type=submit]';
+    var SWITCH_BTN = '[data-testid="delivery-identity"] button';
+    var NOTE = '[data-testid="decision-panel"] textarea';
+    var APPROVE = '[data-testid="decide-approve"]';
+    var SIGNIN_BTN = '[data-testid="demo-signin-submit"]';
+    // A plan is open for this Stage ("prod/payments"), as Promote opens it.
+    function planOpen(stage) { var h = q("#pp-title"); return !!h && h.textContent.indexOf(stage) >= 0; }
+    function noteText() { var t = q(NOTE); return t ? t.value.trim() : ""; }
+    function shipped(version) { return row("prod", "payments").version === version; }
+    function clickOn(sel) { var b = q(sel); if (b) { b.click(); } }
+    // A decision on the held change as a freshly signed-in Carol: what a skipped
+    // approve or accept does in one go.
+    function decide(decision, note) {
+      var name = fact().held;
+      if (!name) { return; }
+      setPersona("carol", true);
+      serve("POST", "/api/delivery/operations/prod/" + name + "/decision", { decision: decision, note: note });
+      refreshViews();
+    }
+
     function pactifyText() {
       var p;
       try { p = JSON.parse(window.__pactoPactifyPlan || ""); } catch (e) { return "The recorded plan did not load."; }
@@ -286,6 +321,13 @@
         "\npacto.yaml (" + (file.action || "add") + "):\n" + (file.content || "");
     }
 
+    // One action per step, and the light on the control that action uses. A moment
+    // that needs several actions (promote then propose; switch person, pick Carol,
+    // write the note, approve, sign in again, confirm) is several steps, each moving on
+    // by itself when the tour sees it done. Only a step whose result is worth reading
+    // holds for Continue, so nobody is moved off a screen they are still reading.
+    var NOTE_APPROVE = "orders 1.4 is ready for payments 3";
+    var NOTE_ACCEPT = "traffic is low at night; the error ratio is watched by hand";
     var DELIVERY_TOUR = [{
       text: "This is the payments story, simulated in your browser: Pacto's own code makes every plan, check and signed record from fixed data, and nothing reaches a cluster.",
       hash: "#/delivery/environments",
@@ -293,7 +335,7 @@
     }, {
       text: "Act 1, pactify a service: pacto init read the files of fraud, a plain service, and wrote its contract, so nobody had to write one by hand.",
       hash: "#/delivery/environments",
-      target: '[data-testid="environments-board"]',
+      target: ['[data-testid="environments-board"]', '[data-testid="env-row-fraud"]'],
       pre: pactifyText
     }, {
       text: "Act 2, a safe change ships on its own: payments 2.4.0 reached prod with nobody involved, because checkout and orders said they accept any payments 2.x.",
@@ -304,9 +346,16 @@
       hash: "#/delivery/changes/prod/payments-promote-3",
       target: '[aria-labelledby="cd-actual"]'
     }, {
-      text: "A breaking change asks only the affected teams: as pay-agent, promote payments 3.0.0 in prod and propose it, and only checkout and orders are asked, because only they accept nothing past 2.x.",
+      text: "A breaking change asks only the affected teams: as pay-agent, press Promote on payments 3.0.0 in prod.",
       hash: "#/delivery/environments",
-      target: ['[aria-label="Promote payments in prod to 3.0.0"]', '[data-testid="propose-panel"]', '[aria-labelledby="cd-move-first"]'],
+      target: '[aria-label="Promote payments in prod to 3.0.0"]',
+      wait: "Waiting for the plan of payments 3.0.0 to open.",
+      gate: function () { return planOpen("prod/payments"); },
+      skip: function () { clickOn('[aria-label="Promote payments in prod to 3.0.0"]'); }
+    }, {
+      text: "The plan asks only checkout and orders, because only they accept nothing past 2.x, so press Propose promote.",
+      hash: "#/delivery/environments",
+      target: [PROPOSE_BTN, '[data-testid="decision-safer"]'],
       wait: "Waiting for payments 3.0.0 to be proposed for prod.",
       hold: true,
       gate: function () { return !!fact().held && onChange(); },
@@ -315,45 +364,112 @@
         if (r && r.body && r.body.operation) { window.location.hash = "#/delivery/changes/prod/" + r.body.operation.metadata.name; }
       }
     }, {
-      text: "Pacto said what to update first, so promote checkout 1.9.0 in prod: it ships with nobody, and now only orders is asked, because checkout 1.9 also accepts payments 3.",
+      text: "Pacto said what to update first, so press Promote on checkout 1.9.0 in prod.",
       hash: "#/delivery/environments",
-      target: ['[aria-label="Promote checkout in prod to 1.9.0"]', '[data-testid="propose-panel"]'],
+      target: '[aria-label="Promote checkout in prod to 1.9.0"]',
+      wait: "Waiting for the plan of checkout 1.9.0 to open.",
+      gate: function () { return planOpen("prod/checkout"); },
+      skip: function () { clickOn('[aria-label="Promote checkout in prod to 1.9.0"]'); }
+    }, {
+      text: "Press Propose promote: checkout ships with nobody asked, and then only orders is asked about payments 3.0.0, because checkout 1.9 also accepts it.",
+      hash: "#/delivery/environments",
+      target: [PROPOSE_BTN, ".cd-status"],
       wait: "Waiting for checkout 1.9.0 to ship to prod.",
       hold: true,
       gate: function () { return row("prod", "checkout").version === "1.9.0" && fact().question.indexOf("Asked of: orders") >= 0; },
       skip: function () { propose({ namespace: "prod", stage: "checkout", to: digestOf("checkout", "1.9.0") }); }
     }, {
-      text: "Only a person on the asked team decides: press Switch person, pick Carol from team orders, write why 3.0.0 should ship and approve, after she signs in again, because a decision needs a fresh login.",
+      text: "Only a person on the asked team decides, so press Switch person.",
       hash: changeHash,
-      target: ['[data-testid="delivery-identity"]', '[data-testid="decision-panel"]'],
-      wait: "Waiting for Carol to approve and 3.0.0 to ship.",
-      hold: true,
-      gate: function () { return row("prod", "payments").version === "3.0.0"; },
+      target: SWITCH_BTN,
+      wait: "Waiting for the list of people to open.",
+      gate: function () { return !!q('[data-testid="demo-persona-carol"]') || persona === "carol"; },
+      skip: function () { setPersona("carol", false); }
+    }, {
+      text: "Pick Carol, who is on team orders.",
+      hash: changeHash,
+      // Back to the button if the list was closed without a pick.
+      target: [SWITCH_BTN, '[data-testid="demo-persona-carol"]'],
+      wait: "Waiting for Carol to be picked.",
+      gate: function () { return persona === "carol"; },
       skip: function () {
-        var name = fact().held;
-        setPersona("carol", true);
-        serve("POST", "/api/delivery/operations/prod/" + name + "/decision", { decision: "approve", note: "orders 1.4 is ready for payments 3" });
-        refreshViews();
+        var b = q('[data-testid="demo-persona-carol"]');
+        if (b) { b.click(); } else { setPersona("carol", false); }
       }
     }, {
-      text: "Then Pacto could not see: only 3 traces arrived after 3.0.0 shipped, too few to judge, so the check says Unknown and the change waits, and as Carol you accept the unknown, which is recorded as accepted and never as a pass.",
+      text: "Write in the note why 3.0.0 should ship, because approving a breaking change needs a reason.",
       hash: changeHash,
-      target: ['[data-testid="verdict-unknown"]', '[data-testid="decision-panel"]'],
-      wait: "Waiting for Carol to accept the unknown.",
+      target: NOTE,
+      wait: "Waiting for a note.",
+      gate: function () { return noteText().length >= 3 || shipped("3.0.0"); },
+      skip: function () { var t = q(NOTE); if (t) { setValue(t, NOTE_APPROVE); } }
+    }, {
+      text: "Press Approve shipping 3.0.0.",
+      hash: changeHash,
+      target: APPROVE,
+      wait: "Waiting for the approval to be pressed.",
+      gate: function () { return !!q(SIGNIN_BTN) || !!q('[data-testid="decision-kept"]') || shipped("3.0.0"); },
+      // Done in one go, as a fresh Carol, so a skipped step never leaves the sign-in open.
+      skip: function () { decide("approve", NOTE_APPROVE); }
+    }, {
+      text: "A decision needs a fresh login, so sign in again as Carol.",
+      hash: changeHash,
+      // Back to Approve if the sign-in was cancelled.
+      target: [APPROVE, SIGNIN_BTN],
+      wait: "Waiting for Carol to sign in again.",
+      gate: function () { return !!q('[data-testid="decision-kept"]') || shipped("3.0.0"); },
+      skip: function () {
+        var b = q(SIGNIN_BTN);
+        if (b) { b.click(); } else { setPersona("carol", true); }
+      }
+    }, {
+      text: "Press Confirm to send Carol's approval, and 3.0.0 ships.",
+      hash: changeHash,
+      target: APPROVE,
+      wait: "Waiting for 3.0.0 to ship.",
+      gate: function () { return shipped("3.0.0"); },
+      skip: function () { decide("approve", NOTE_APPROVE); }
+    }, {
+      text: "Then Pacto could not see: only 3 traces arrived after 3.0.0 shipped, too few to judge, so the check says Unknown and the change waits for a person.",
+      hash: changeHash,
+      target: '[data-testid="verdict-unknown"]',
+      wait: "Waiting for the checks after release to end.",
       hold: true,
+      // The system moves here, not the reader, so an Unknown already on screen counts.
+      observe: true,
+      gate: function () { return !!q('[data-testid="decision-unknown"]') || (!fact().held && fact().accepted); },
+      skip: function () { /* nothing to do: the checks end by themselves */ }
+    }, {
+      text: "Write in the note why accepting the unknown is safe.",
+      hash: changeHash,
+      target: NOTE,
+      wait: "Waiting for a note.",
+      gate: function () { return noteText().length >= 3 || (!fact().held && fact().accepted); },
+      skip: function () { var t = q(NOTE); if (t) { setValue(t, NOTE_ACCEPT); } }
+    }, {
+      text: "Press Accept the unknown and keep 3.0.0: it is recorded as accepted, never as a pass.",
+      hash: changeHash,
+      // Carol signed in moments ago, so this sends at once; if her login has gone stale
+      // the light moves to the sign-in, whose dialog says what to do, and then back.
+      target: [APPROVE, SIGNIN_BTN],
+      wait: "Waiting for Carol to accept the unknown.",
       gate: function () { var f = fact(); return !f.held && f.accepted; },
       skip: function accept() {
         // The checks after release end a moment after 3.0.0 ships; ask once it waits.
-        var name = fact().held;
-        if (!name) { setTimeout(accept, 500); return; }
-        setPersona("carol", true);
-        serve("POST", "/api/delivery/operations/prod/" + name + "/decision", { decision: "accept-unknown", note: "traffic is low at night; the error ratio is watched by hand" });
-        refreshViews();
+        if (!fact().held) { setTimeout(accept, 500); return; }
+        decide("accept-unknown", NOTE_ACCEPT);
       }
     }, {
-      text: "Every step is a signed record: as Carol, roll 3.0.0 back, and automation holds off because a person chose this.",
+      text: "Every step is a signed record: as Carol, press Roll back this change.",
       hash: changeHash,
-      target: '[aria-labelledby="cd-status"], .cd-status',
+      target: '[data-testid="change-rollback"]',
+      wait: "Waiting for the rollback plan to open.",
+      gate: function () { return planOpen("Roll back prod/payments"); },
+      skip: function () { clickOn('[data-testid="change-rollback"]'); }
+    }, {
+      text: "Press Propose roll back, and automation holds off afterwards because a person chose this.",
+      hash: changeHash,
+      target: [PROPOSE_BTN, ".cd-status"],
       wait: "Waiting for the rollback to finish.",
       hold: true,
       gate: function () { return !!row("prod", "payments").autoHold && row("prod", "payments").version === "2.3.0"; },
@@ -672,6 +788,11 @@
     // Anchored on the end of the href so a same-named service in another domain (this
     // fixture publishes one) cannot satisfy a gate meant for the default-domain service.
     function paymentsLink() { return q('[data-testid="service-list"] a[href$="/fleet/services/payments-service"]'); }
+    // The earlier revision is the oldest one (the last option, newest first).
+    function oldestChosen() {
+      var s = q("#impact-old-rev");
+      return !!s && !!s.options && s.options.length > 1 && s.value === s.options[s.options.length - 1].value;
+    }
 
     // Svelte 5 binds on the EVENT, not on the property: assigning .value alone leaves the
     // component's own state holding the old value, so the submit that follows sends the
@@ -801,6 +922,11 @@
     // something the reader DID rather than a state they walked in on. Stepping Back onto a
     // step whose result is still on screen would otherwise bounce straight forward again.
     var armed = false;
+    // Arrived by moving forward rather than by Back. A step whose action the reader
+    // already did before reaching it (switched to Carol early, say) is passed by: the
+    // tour saw nothing happen, but there is nothing left to wait for. Back never does
+    // this, so re-reading a step never bounces the reader forward again.
+    var forward = false;
     var openSince = 0;
     var confirmAt = 0;
     // The reader's last keystroke or pointer press, anywhere on the page. Capture phase so
@@ -860,7 +986,7 @@
         armed = true;
         openSince = 0;
         confirmAt = 0;
-      } else if (armed && !openSince) {
+      } else if ((armed || forward || s.observe) && !openSince) {
         openSince = now;
       }
       if (openSince && !confirmAt && now - openSince >= SETTLE_MS && now - lastInput >= SETTLE_MS) {
@@ -1042,6 +1168,7 @@
     // chose.
     function goStep(i) {
       if (i < 0 || i >= TOUR.length || !running) { return; }
+      forward = i > step;
       step = i;
       visit++;
       lastTarget = null;
@@ -1152,6 +1279,7 @@
       lastTarget = null;
       skipUntil = 0;
       armed = false;
+      forward = false;
       openSince = 0;
       confirmAt = 0;
       el.hidden = false;

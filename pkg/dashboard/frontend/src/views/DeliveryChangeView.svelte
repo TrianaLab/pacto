@@ -141,7 +141,7 @@
     {#if !gone && (actions.includes('cancel') || actions.includes('rollback'))}
       <div class="cd-actions">
         {#if actions.includes('rollback')}
-          <button type="button" class="btn" bind:this={rollbackBtn} onclick={() => (rollingBack = true)}>Roll back this change</button>
+          <button type="button" class="btn" bind:this={rollbackBtn} onclick={() => (rollingBack = true)} data-testid="change-rollback">Roll back this change</button>
         {/if}
         {#if actions.includes('cancel')}
           {#if confirmCancel}

@@ -190,8 +190,12 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
     await page.getByRole('link', { name: 'Compare revisions' }).click();
     await expect(page).toHaveURL(/#\/fleet\/changes\//, { timeout: T });
     await expect(page.getByRole('heading', { level: 1, name: 'Change analysis' })).toBeVisible({ timeout: T });
-    await page.locator('#impact-old-rev').selectOption({ label: 'payments-service 1.0.0' });
-    await page.locator('#impact-new-rev').selectOption({ label: 'payments-service 2.0.1' });
+    // The pickers read "1.0.0 · <short digest>": pick by version.
+    for (const [sel, v] of [['#impact-old-rev', '1.0.0'], ['#impact-new-rev', '2.0.1']]) {
+      const value = await page.locator(`${sel} option`).evaluateAll(
+        (os, ver) => (os as HTMLOptionElement[]).find((o) => (o.textContent ?? '').startsWith(`${ver} `))?.value ?? '', v);
+      await page.locator(sel).selectOption(value);
+    }
     await page.getByRole('button', { name: /Compare revisions/ }).click();
     await expect(page.getByTestId('changes-what-changed')).toBeVisible({ timeout: T });
     await expect(page.getByTestId('changes-what-it-affects')).toBeVisible({ timeout: T });
