@@ -8,6 +8,7 @@ import (
 
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -161,8 +162,18 @@ func checkWithin(ctx context.Context, g Gate, in GateInput, params map[string]st
 
 func runCheck(ctx context.Context, gates map[string]Gate, c GateCheck, in GateInput) Verdict {
 	v := Verdict{Result: Unknown, Message: fmt.Sprintf("no gate provider named %q is configured", c.Provider)}
+	// The suite reaches the provider only from the typed field, the one the
+	// pacto.suites pre-gate checked: a "suite" param is dropped.
+	params := maps.Clone(c.Params)
+	delete(params, "suite")
+	if c.Suite != "" {
+		if params == nil {
+			params = map[string]string{}
+		}
+		params["suite"] = c.Suite
+	}
 	if g := gates[c.Provider]; g != nil {
-		v = checkWithin(ctx, g, in, c.Params)
+		v = checkWithin(ctx, g, in, params)
 		if v.Result == Pass && len(v.Citation) == 0 {
 			v.Result, v.Message = Unknown, "the gate passed but gave no citation to re-run: "+v.Message
 		}
@@ -171,7 +182,7 @@ func runCheck(ctx context.Context, gates map[string]Gate, c GateCheck, in GateIn
 		v.Citation = map[string]string{}
 	}
 	inJSON, _ := json.Marshal(in)
-	pJSON, _ := json.Marshal(c.Params)
+	pJSON, _ := json.Marshal(params)
 	v.Citation["provider"], v.Citation["input"], v.Citation["params"] = c.Provider, string(inJSON), string(pJSON)
 	v.Gate, v.Phase = c.Name, "verify"
 	return v

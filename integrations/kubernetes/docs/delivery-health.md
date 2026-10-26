@@ -99,9 +99,27 @@ answers `{"result": "Pass|Fail|Unknown", "message": "...", "citation": {...}}`.
 
 An `eval` provider is a suite runner: it runs one of the
 [checks](../../contract-reference/checks.md) the version ships, such as an AI
-agent's eval suite. The promoter posts the
-same `{"input": ..., "params": ...}`, the input also naming the contract the
-version ships and the suite in it:
+agent's eval suite. The Stage check names it in `suite`:
+
+```yaml
+spec:
+  gates:
+    verify:
+      checks:
+        - name: quality
+          provider: evals
+          suite: evals
+          params:
+            minPassRate: "0.95"
+```
+
+Without `suite` the runner runs the only check the version ships. A version
+whose contract ships no check of the name `suite` gives is held before it
+ships (the `pacto.suites` gate): a person accepts that it ships without that
+check passing, or it does not ship. It is neither failed nor passed.
+
+The promoter posts the same `{"input": ..., "params": ...}`, the input also
+naming the contract the version ships and the suite in it:
 `"contract": "oci://...@sha256:...", "suite": {"name": "evals", "path": "evals/suite.yaml", "digest": "sha256:..."}`.
 The runner runs that suite on the version under check and answers how many
 cases passed, with `suite` the sha256 of the suite it ran:
@@ -110,13 +128,12 @@ The Stage decides, not the runner:
 
 | Param | Default | Meaning |
 |---|---|---|
-| `suite` | the only check | The name of the check to run. Needed when the version ships more than one |
 | `minPassRate` | 1 | The share of cases that must pass, above 0 and up to 1. Fewer fails |
 
 An answer about another version or another suite, with no cases or nothing to
 cite is Unknown, and so is a version whose contract cannot be read or does not
-ship the suite named. The verdict cites the contract, the suite's name, path
-and digest and the run.
+ship the suite. The verdict counts only when it is about that exact sha256, and
+it cites the contract, the suite's name, path and digest and the run.
 
 ## Claims against the running service
 

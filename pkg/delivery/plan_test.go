@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -507,4 +508,33 @@ func autonomousPlan(in PlanInput) Plan {
 		in.Status.Rung = RungAutonomous
 	}
 	return PlanFor(context.Background(), in)
+}
+
+// TestPlanHoldsAVersionThatDoesNotShipTheSuite: a Stage check that runs a
+// suite the version's contract does not ship holds the promote for a person,
+// neither failing nor passing it; one it ships changes nothing.
+func TestPlanHoldsAVersionThatDoesNotShipTheSuite(t *testing.T) {
+	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
+	to.Bundle.Contract.Checks = []contract.Check{{Name: "evals", File: "evals.yaml"}}
+	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for suite, held := range map[string]bool{"evals": false, "refunds": true} {
+		stage := stageSpec()
+		stage.Gates.Verify.Checks = []GateCheck{{Name: "quality", Provider: "runner", Suite: suite}}
+		p := autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stage, From: from, To: to, Snapshot: snap, Class: ClassAgent,
+			Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}}})
+		if !held {
+			if p.Predicted != PredictProceeds || slices.ContainsFunc(p.Verdicts, func(v Verdict) bool { return v.Gate == GateSuites }) {
+				t.Errorf("shipped suite: %+v", p)
+			}
+			continue
+		}
+		v := verdict(t, p, GateSuites)
+		if p.Predicted != PredictHeld || v.Result != Unknown || p.Floor.Decision != AcceptUnknown ||
+			!strings.Contains(p.Question, "the check quality runs the suite refunds, but the contract of") {
+			t.Errorf("missing suite: %+v %+v", p, v)
+		}
+	}
 }

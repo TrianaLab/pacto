@@ -217,6 +217,13 @@ spec:
                                 configuration.
                               minLength: 1
                               type: string
+                            suite:
+                              description: |-
+                                Suite names a check the version's contract ships (its checks[].name)
+                                for an eval provider to run. A version whose contract ships no check of
+                                that name is held for a person before it ships.
+                              minLength: 1
+                              type: string
                           required:
                           - name
                           - provider

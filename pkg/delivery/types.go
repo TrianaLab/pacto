@@ -29,6 +29,9 @@ const (
 	// published: signed (Flux verified it on the candidate source) and
 	// carrying its contract.
 	GatePublished = "pacto.published"
+	// GateSuites holds a promote of a version that does not ship a suite
+	// one of the Stage's checks runs.
+	GateSuites = "pacto.suites"
 	// GateAutonomy judges a change of rung.
 	GateAutonomy = "pacto.autonomy"
 )
@@ -95,9 +98,9 @@ var tier0 = []OperationType{
 		Description:       "Move the Stage pointer to a new digest. The only way to ship a version.",
 		Params:            []string{"from", "to"},
 		Raisers:           []ActorClass{ClassAgent, ClassHuman, ClassController},
-		PreGates:          []string{GatePublished, GateDiff, GateImpact},
+		PreGates:          []string{GatePublished, GateDiff, GateImpact, GateSuites},
 		VerifyGates:       []string{GateContract},
-		ApprovalFloor:     "pkg/impact: no person when no consumer is incompatible or unknown, the analysis is complete and the version to roll back to is verified; an incompatible consumer asks its owners; anything Pacto cannot see asks a person to accept the unknown; with spec.records.required, an agent or promoter promote asks a person while the Stage's records are not being written",
+		ApprovalFloor:     "pkg/impact: no person when no consumer is incompatible or unknown, the analysis is complete and the version to roll back to is verified; an incompatible consumer asks its owners; anything Pacto cannot see, or a suite a Stage check runs that the version does not ship, asks a person to accept the unknown; with spec.records.required, an agent or promoter promote asks a person while the Stage's records are not being written",
 		Inverse:           TypeRollback,
 		Cancellable:       "until the pointer moves",
 		ApprovalDeadline:  defaultApprovalDeadline,

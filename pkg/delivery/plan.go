@@ -262,6 +262,31 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 		return
 	}
 	impactGate(ctx, in, p)
+	suitesGate(in, p)
+}
+
+// suitesGate holds a version whose contract does not ship a suite one of the
+// Stage's checks runs: the check could never pass on it, so a person decides
+// whether it ships unverified rather than the promoter failing or passing it.
+func suitesGate(in PlanInput, p *Plan) {
+	var missing []string
+	for _, c := range in.Stage.Gates.Verify.Checks {
+		if c.Suite != "" && !slices.ContainsFunc(in.To.Bundle.Contract.Checks, func(k contract.Check) bool { return k.Name == c.Suite }) {
+			missing = append(missing, "the check "+c.Name+" runs the suite "+c.Suite+", but the contract of "+short(p.To)+" ships no check of that name")
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	msg := strings.Join(missing, "; ")
+	p.Verdicts = append(p.Verdicts, Verdict{Gate: GateSuites, Phase: "pre", Result: Unknown, Message: msg,
+		Citation: map[string]string{"contract": in.To.ContractRef}})
+	if p.Floor.Human {
+		p.Question = msg + ". " + p.Question
+		return
+	}
+	p.Floor = Floor{Human: true, Decision: AcceptUnknown}
+	p.Question = "Pacto cannot verify " + short(p.To) + ": " + msg + ". Accept the unknown?"
 }
 
 // publishedGate admits only a version pacto publish published. From a

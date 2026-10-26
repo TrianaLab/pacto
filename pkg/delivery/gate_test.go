@@ -243,3 +243,20 @@ func TestWebhook(t *testing.T) {
 		t.Errorf("bad url: %+v", v)
 	}
 }
+
+// TestRunChecksSuite: the provider gets the suite from the check's typed
+// field only; a "suite" param is dropped, so no check runs a suite the
+// pacto.suites pre-gate never looked at.
+func TestRunChecksSuite(t *testing.T) {
+	echo := gateFunc(func(_ context.Context, _ GateInput, p map[string]string) Verdict {
+		return Verdict{Result: Pass, Message: p["suite"], Citation: map[string]string{"run": "1"}}
+	})
+	gates := map[string]Gate{"runner": echo}
+	vs := RunChecks(context.Background(), gates, []GateCheck{
+		{Name: "typed", Provider: "runner", Suite: "evals", Params: map[string]string{"suite": "other"}},
+		{Name: "param", Provider: "runner", Params: map[string]string{"suite": "other"}},
+	}, gateIn())
+	if vs[0].Message != "evals" || vs[0].Citation["params"] != `{"suite":"evals"}` || vs[1].Message != "" {
+		t.Errorf("%+v", vs)
+	}
+}

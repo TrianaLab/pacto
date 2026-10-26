@@ -191,6 +191,12 @@ type GateCheck struct {
 	// Params are the provider's settings (thresholds, filters).
 	// +optional
 	Params map[string]string `json:"params,omitempty"`
+	// Suite names a check the version's contract ships (its checks[].name)
+	// for an eval provider to run. A version whose contract ships no check of
+	// that name is held for a person before it ships.
+	// +optional
+	// +kubebuilder:validation:MinLength=1
+	Suite string `json:"suite,omitempty"`
 }
 
 // Gates configures the Stage's gates. The pre-gates are fixed by the operation

@@ -57,3 +57,26 @@ func TestEvalGateReadsTheShippedSuite(t *testing.T) {
 		}
 	}
 }
+
+// TestMissingSuiteHoldsThePromote: a Stage check whose suite the version does
+// not ship holds the promote for a person before anything moves; it is
+// neither failed nor passed.
+func TestMissingSuiteHoldsThePromote(t *testing.T) {
+	e := baseEnv(t, nil)
+	s := e.getStage()
+	s.Spec.Gates.Verify.Checks = []delivery.GateCheck{{Name: "quality", Provider: "mira", Suite: "evals"}}
+	if err := e.c.Update(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	op := opObj("p1", delivery.TypePromote, dA, dB, bot)
+	op.Spec.IntentDigest = delivery.IntentDigest(op.Spec, s.Spec)
+	e.create(op)
+	o := e.drive("p1")
+	if o.Status.Phase != delivery.PhaseHeld || o.Status.Plan.Floor.Decision != delivery.AcceptUnknown ||
+		!strings.Contains(o.Status.Question, "the check quality runs the suite evals, but the contract of") {
+		t.Fatalf("want Held for accept-unknown: %s %+v %q", o.Status.Phase, o.Status.Plan, o.Status.Question)
+	}
+	if e.getStage().Status.Pointer != dA {
+		t.Fatal("a held promote must not move anything")
+	}
+}

@@ -187,7 +187,7 @@ func TestEvalSuiteByName(t *testing.T) {
 		t.Fatalf("named suite: %+v", v)
 	}
 	for params, want := range map[string]string{
-		"":        "the contract oci://r/a@sha256:c0 ships more than one check: name the one to run in the suite param",
+		"":        "the contract oci://r/a@sha256:c0 ships more than one check: name the one to run in the Stage check's suite",
 		"refunds": "the Stage runs the suite refunds, but the contract oci://r/a@sha256:c0 ships no check of that name",
 	} {
 		*body = nil

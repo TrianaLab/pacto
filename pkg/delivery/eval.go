@@ -28,7 +28,7 @@ type evalAnswer struct {
 }
 
 // Eval asks a suite runner to run one of the checks the version under check
-// ships (the contract's checks[]): the one the suite param names, or the only
+// ships (the contract's checks[]): the one the Stage check's suite names, or the only
 // one when the contract ships exactly one. The runner only counts; the Stage
 // decides with the minPassRate param (default 1: every case passes). The
 // runner gets the same {"input", "params"} as a Webhook, with the input also
@@ -109,7 +109,7 @@ func (e Eval) suite(ctx context.Context, in *GateInput, name string) string {
 	case name == "" && len(checks) == 0:
 		return "the contract " + rev.ContractRef + " ships no checks, so there is no suite to run"
 	case name == "":
-		return "the contract " + rev.ContractRef + " ships more than one check: name the one to run in the suite param"
+		return "the contract " + rev.ContractRef + " ships more than one check: name the one to run in the Stage check's suite"
 	case i < 0:
 		return "the Stage runs the suite " + name + ", but the contract " + rev.ContractRef + " ships no check of that name"
 	}
