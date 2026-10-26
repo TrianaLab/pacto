@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Masterminds/semver/v3"
 	"gopkg.in/yaml.v3"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -47,6 +48,14 @@ func (p *planner) delivery() {
 	if p.opts.InsecureRegistry {
 		verify = "  # The registry speaks plain HTTP: for a local registry only.\n  insecure: true\n" + verify
 	}
+	tag := p.deployedTag()
+	if tag == "" {
+		// An OCIRepository with no ref follows latest, so the Stage would
+		// watch latest and not what the team ships.
+		p.next("delivery/%s.yaml was not written: no workload image tag is a version (x.y.z), so nothing says which version you deploy, "+
+			"and an OCIRepository with no ref follows latest. Tag the image with the version you run and run pacto init --delivery again", strings.Join(p.envs, ".yaml, delivery/"))
+		return
+	}
 	for i, env := range p.envs {
 		var b strings.Builder
 		fmt.Fprintf(&b, "# %s in %s: what applies it and the Stage that decides which version runs.\n# Written by pacto init.\n", name, env)
@@ -59,7 +68,7 @@ func (p *planner) delivery() {
 		if i == len(p.envs)-1 {
 			approval = gated
 		}
-		fmt.Fprintf(&b, envPieces, name, env, name, deployRepo, verify, name, env, name, env, name, env, name, env, name, candidates, approval)
+		fmt.Fprintf(&b, envPieces, name, env, deployRepo, tag, verify, name, env, name, env, name, env, name, env, name, candidates, approval)
 		p.file("delivery/"+env+".yaml", b.String())
 		want := "the registry"
 		if i > 0 {
@@ -69,8 +78,10 @@ func (p *planner) delivery() {
 	}
 	envs := strings.Join(p.envs, ", ")
 	last := p.envs[len(p.envs)-1]
+	p.next("each Stage starts at observe: it plans every change and moves nothing, and GitOps keeps writing spec.ref of the %s OCIRepository. "+
+		"When Pacto proposes advise, label that OCIRepository %s=%s and approve the raise", name, applyRefLabel, name)
 	p.next("every promote to %s waits for a person to approve it (approval.always in delivery/%s.yaml); "+
-		"once a health check judges each version there (gates.verify.checks, see Delivery reference: health checks), delete approval to let it promote on its own", last, last)
+		"once a health check judges each version there (gates.verify.checks, see Delivery reference: health checks), delete approval, so it promotes on its own at a rung above advise", last, last)
 	p.next("create the namespaces %s, then apply each environment: kubectl apply -f delivery/%s.yaml", envs, strings.Join(p.envs, ".yaml -f delivery/"))
 	if !p.contractNew && !p.shipsPactoResource() {
 		p.next(`ship delivery/pacto.yaml with every version: add to the manifests build: sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml`)
@@ -78,6 +89,23 @@ func (p *planner) delivery() {
 	for _, k := range p.sc.kustomize {
 		p.next("%s decides what Flux applies: add pacto-resource.yaml to its resources", k)
 	}
+}
+
+// applyRefLabel marks the OCIRepository Pacto may write a digest to.
+const applyRefLabel = "delivery.pacto.trianalab.io/apply-ref"
+
+// deployedTag is the version the workload runs, read from its image tag, or
+// "" when the tag is not a version.
+func (p *planner) deployedTag() string {
+	if p.sc.workload == nil {
+		return ""
+	}
+	_, tag := imageRepo(p.sc.workload.image)
+	v, err := semver.StrictNewVersion(strings.TrimPrefix(tag, "v"))
+	if err != nil {
+		return ""
+	}
+	return v.String()
 }
 
 // deployRepo is the repository of the manifests artifact publish.deploy
@@ -172,18 +200,19 @@ spec:
 %s---
 `
 
-const envPieces = `# The version that runs. Only Pacto sets spec.ref.digest; until the first
-# promote there is none, so Flux applies nothing.
+const envPieces = `# The version that runs. GitOps owns spec.ref: it is the tag you deploy today,
+# so while the Stage observes, Flux applies what it always did. Pacto writes a
+# digest here only once this OCIRepository carries the apply-ref label.
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: OCIRepository
 metadata:
   name: %s
   namespace: %s
-  labels:
-    delivery.pacto.trianalab.io/apply-ref: %s
 spec:
   interval: 1m
   url: %s
+  ref:
+    tag: %s
 %s---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -214,7 +243,9 @@ spec:
   applyRef:
     name: %s
   candidates:
-%s  auto: true
+%s  # The Stage plans every change and moves nothing. Every rung above this is
+  # a pacto.dev/autonomy operation a second person approves.
+  startRung: observe
   gates:
     verify:
       window: 5m

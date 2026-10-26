@@ -191,12 +191,15 @@ Each `delivery/<env>.yaml` holds a Stage, which is one service in one
 environment and holds which version runs there, and the Flux pieces that watch
 your registry and apply what the Stage picks. `delivery/pacto.yaml` tells the
 operator to check the service; it ships inside every version, so you never
-apply it. Within a minute or two the test Stage runs the version you published,
-with nobody asked. Once it passed in test, prod proposes it and waits for a
-person to approve it (see [When a change waits](pactify-decide.md#when-a-change-waits-or-an-environment-freezes)):
+apply it.
+
+Each Stage starts at `observe`: it plans every new version and moves nothing,
+and the OCIRepository stays pinned to the tag you deploy (`spec.ref.tag`), so
+Flux applies what it did. With no version tag on the image, `init` writes no
+environment file.
 
 ```bash
-kubectl get stages.delivery.pacto.trianalab.io -A    # Pointer: the version it runs
+kubectl get stages.delivery.pacto.trianalab.io -A    # the version each one runs
 pacto delivery history -n test --stage my-service     # what happened in test
 kubectl -n test describe stages.delivery.pacto.trianalab.io my-service  # if nothing moves: why, under Ready
 ```
@@ -204,19 +207,46 @@ kubectl -n test describe stages.delivery.pacto.trianalab.io my-service  # if not
 ## 5. Ship the next version
 
 Make a change, raise `service.version` in `pacto.yaml`, then run
-`pacto publish`. It builds the new image and the version it publishes runs it. A safe change
-moves through test on its own (`auto: true` in each Stage). In prod, `init`
-also writes `approval: always: true`, so every promote waits for a person:
-the contract check cannot see a consumer that has no contract, or tell whether
-the version is healthy. Autonomy in prod is earned. Once a health check judges
-each version there (`gates.verify.checks`, see
+`pacto publish`. While the Stages observe, you deploy the new tag as before
+and each Stage records what it would have done.
+
+When Pacto proposes the next rung, `advise`, label the OCIRepository so Pacto
+may write its digest, then have a second person approve the
+`pacto.dev/autonomy` operation (see [When a change waits](pactify-decide.md#when-a-change-waits-or-an-environment-freezes)):
+
+```bash
+kubectl -n test label ocirepository my-service delivery.pacto.trianalab.io/apply-ref=my-service
+```
+
+Each rung above that is one more approved operation. In prod, `init` also
+writes `approval: always: true`, so every promote there waits for a person:
+the contract check cannot see a consumer with no contract, or tell whether the
+version is healthy. Once a health check judges each version there
+(`gates.verify.checks`, see
 [Delivery reference: health checks](integrations/kubernetes/delivery-health.md)),
-delete `approval` from `delivery/prod.yaml` and apply it again: from then on a
-safe change that passes the check reaches prod with nobody involved. A version
-that fails its checks after release is rolled back once, or, with nothing to
-go back to, its Stage freezes: nothing moves there until a person unfreezes it.
-A change that would break a service using yours waits and asks that service's
-team.
+delete `approval` from `delivery/prod.yaml`. A version that fails its checks
+after release is rolled back once, or its Stage freezes until a person
+unfreezes it. A change that would break a service using yours asks that
+service's team.
+
+## Many services at once
+
+`pacto init` takes several folders and ends with a summary table.
+`--cluster` drafts a contract for every workload no Pacto describes yet, from
+your current kubeconfig context, in `<out>/<namespace>/<name>`:
+
+```bash
+pacto init --plan services/checkout services/payments
+pacto init --cluster --namespace shop --out drafts --plan
+```
+
+With the Pacto node agent running, the services a workload was seen calling
+become dependencies, pinned to exactly the version seen running
+(`compatibility: "=2.3.0"`) for you to widen. Until you do, every new version
+of that service asks your team. A service with no contract stays a comment.
+Drafts are never published, and an invalid one fails the command. The MCP tool
+takes `paths`, `cluster` and `namespaces`, and only plans unless `dry_run` is
+false.
 
 When a change waits for you, an environment freezes or you want a version
 gone, see [Decide, unfreeze and roll back](pactify-decide.md).

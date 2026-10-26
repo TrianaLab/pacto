@@ -9,6 +9,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -123,6 +124,11 @@ const signKey = "cosign.key"
 func (p *planner) contract() error {
 	if p.r.Mode == modePactify {
 		p.r.Dependencies = p.sc.dependencies(p.r.Service)
+	}
+	for _, d := range p.opts.Inferred {
+		if !slices.ContainsFunc(p.r.Dependencies, func(f Finding) bool { return f.Name == d.Name }) {
+			p.r.Dependencies = append(p.r.Dependencies, Finding{Name: d.Name, Where: d.Where})
+		}
 	}
 	if data, err := os.ReadFile(p.r.Path); err == nil {
 		p.r.Files = append(p.r.Files, File{Path: "pacto.yaml", Action: Keep})
@@ -251,7 +257,7 @@ func (p *planner) pactified() string {
 	var b strings.Builder
 	files := strings.Join(append(nonEmpty(sc.dockerfile), sc.manifests...), ", ")
 	fmt.Fprintf(&b, "# Written by pacto init from %s.\n# Check it, then see what publishing would do: pacto publish --plan\n", files)
-	fmt.Fprintf(&b, "pactoVersion: \"2.1\"\nservice:\n  name: %s\n  version: %s\n", name, yq(version))
+	fmt.Fprintf(&b, "pactoVersion: \"2.1\"\nservice:\n  name: %s\n  version: %s\n", yq(name), yq(version))
 	team := p.opts.Owner
 	if team == "" && w.team != "" {
 		team = w.team
@@ -300,14 +306,47 @@ func (p *planner) pactified() string {
 // dependencyComments lists the services found as commented-out dependencies:
 // declaring one needs the versions accepted, which only its consumer knows.
 func (p *planner) dependencyComments(b *strings.Builder, bundles string) {
-	if len(p.r.Dependencies) == 0 {
+	pinned := p.pinned(b)
+	var rest []Finding
+	for _, d := range p.r.Dependencies {
+		if !pinned[d.Name] {
+			rest = append(rest, d)
+		}
+	}
+	if len(rest) == 0 {
 		return
 	}
-	fmt.Fprintf(b, "# %s calls these services. Declare each one with the versions it accepts,\n# or the runtime check reports the call as undeclared.\n# dependencies:\n", p.r.Service)
-	for _, d := range p.r.Dependencies {
+	fmt.Fprintf(b, "# %s calls these services. Declare each one with the versions it accepts,\n# or the runtime check reports the call as undeclared.\n", p.r.Service)
+	if len(pinned) == 0 {
+		b.WriteString("# dependencies:\n")
+	}
+	for _, d := range rest {
 		fmt.Fprintf(b, "#   - name: %s\n#     ref: oci://%s/%s\n#     required: true\n#     compatibility: \"^1.0.0\"\n", d.Name, bundles, d.Name)
 		p.unknown("the versions of %s that %s accepts: declare it under dependencies in pacto.yaml", d.Name, p.r.Service)
 	}
+}
+
+// pinned writes the dependencies seen at runtime whose provider runs a
+// contract version, each pinned to exactly that version. Never a wider range:
+// "*" accepts every version, so a breaking change would read compatible and
+// the caller would no longer hold it. An exact pin reads every new version as
+// incompatible, which asks this service's owners until a person widens it.
+func (p *planner) pinned(b *strings.Builder) map[string]bool {
+	out := map[string]bool{}
+	for _, d := range p.opts.Inferred {
+		if d.Version == "" || out[d.Name] {
+			continue
+		}
+		if len(out) == 0 {
+			b.WriteString("dependencies:\n")
+		}
+		out[d.Name] = true
+		fmt.Fprintf(b, "  # inferred from runtime calls: pinned to the version seen running; widen it once you know\n"+
+			"  - name: %s\n    ref: %s\n    required: true\n    compatibility: %s\n", d.Name, d.Ref, yq("="+d.Version))
+		p.found("%s calls %s %s (%s)", p.r.Service, d.Name, d.Version, d.Where)
+		p.next("pacto.yaml declares %s pinned to =%s, the version seen running: widen compatibility to the versions %s accepts, or every new %s asks %s's owners", d.Name, d.Version, p.r.Service, d.Name, p.r.Service)
+	}
+	return out
 }
 
 // publish writes the publish section and keeps it for the cluster pieces.
