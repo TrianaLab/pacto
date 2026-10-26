@@ -360,8 +360,8 @@ k8s.io/kube-openapi v0.0.0-20260721132016-d427ff9ee9ad: Apache-2.0, text 2
   source https://proxy.golang.org/k8s.io/kube-openapi/@v/v0.0.0-20260721132016-d427ff9ee9ad.zip
 k8s.io/utils v0.0.0-20260626114624-be93311217bd: Apache-2.0, text 2
   source https://proxy.golang.org/k8s.io/utils/@v/v0.0.0-20260626114624-be93311217bd.zip
-oras.land/oras-go/v2 v2.6.3: Apache-2.0, text 77
-  source https://proxy.golang.org/oras.land/oras-go/v2/@v/v2.6.3.zip
+oras.land/oras-go/v2 v2.6.4: Apache-2.0, text 77
+  source https://proxy.golang.org/oras.land/oras-go/v2/@v/v2.6.4.zip
 sigs.k8s.io/controller-runtime v0.25.2: Apache-2.0, text 26
   source https://proxy.golang.org/sigs.k8s.io/controller-runtime/@v/v0.25.2.zip
 sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730: Apache-2.0, text 78
