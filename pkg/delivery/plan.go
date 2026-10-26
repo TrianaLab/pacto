@@ -108,19 +108,7 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 	if in.To.Bundle != nil && in.To.Bundle.Contract != nil {
 		p.ToVersion = in.To.Bundle.Contract.Service.Version
 	}
-	rejected := ""
-	switch {
-	case !MayRaise(in.Spec.Type, in.Class, in.Spec.Witnessed):
-		rejected = fmt.Sprintf("NotPermitted: a %s actor may not raise %s", in.Class, in.Spec.Type)
-	case in.Spec.Facet == FacetPointer && in.Spec.Params.From != in.Status.Pointer:
-		rejected = fmt.Sprintf("PointerMoved: from is %q but the Stage runs %q", in.Spec.Params.From, in.Status.Pointer)
-	case in.Spec.Facet == FacetRung && Rung(in.Spec.Params.From) != CurrentRung(in.Stage, in.Status):
-		rejected = fmt.Sprintf("RungMoved: from is %q but the Stage is on %q", in.Spec.Params.From, CurrentRung(in.Stage, in.Status))
-	case in.Spec.Type == TypePromote && CurrentRung(in.Stage, in.Status) == RungObserve:
-		rejected = "Observing: " + in.Spec.Stage + " observes, so GitOps owns the applyRef; propose " + TypeAutonomy + " to advise first"
-	case in.Spec.Type == TypePromote && slices.Contains(in.Status.FailedDigests, in.Spec.Params.To):
-		rejected = "FailedDigest: " + in.Spec.Params.To + " is one of the last 50 versions that failed on this Stage, which are never promoted again"
-	}
+	rejected := refusal(in)
 	if rejected != "" {
 		p.Conflicts = append(p.Conflicts, rejected)
 		p.Predicted = PredictRejected
@@ -142,6 +130,23 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 	holdForRecords(in, &p)
 	p.Predicted = predict(in, &p)
 	return p
+}
+
+// refusal is why an operation is rejected before any gate runs, or "".
+func refusal(in PlanInput) string {
+	switch {
+	case !MayRaise(in.Spec.Type, in.Class, in.Spec.Witnessed):
+		return fmt.Sprintf("NotPermitted: a %s actor may not raise %s", in.Class, in.Spec.Type)
+	case in.Spec.Facet == FacetPointer && in.Spec.Params.From != in.Status.Pointer:
+		return fmt.Sprintf("PointerMoved: from is %q but the Stage runs %q", in.Spec.Params.From, in.Status.Pointer)
+	case in.Spec.Facet == FacetRung && Rung(in.Spec.Params.From) != CurrentRung(in.Stage, in.Status):
+		return fmt.Sprintf("RungMoved: from is %q but the Stage is on %q", in.Spec.Params.From, CurrentRung(in.Stage, in.Status))
+	case in.Spec.Type == TypePromote && CurrentRung(in.Stage, in.Status) == RungObserve:
+		return "Observing: " + in.Spec.Stage + " observes, so GitOps owns the applyRef; propose " + TypeAutonomy + " to advise first"
+	case in.Spec.Type == TypePromote && slices.Contains(in.Status.FailedDigests, in.Spec.Params.To):
+		return "FailedDigest: " + in.Spec.Params.To + " is one of the last 50 versions that failed on this Stage, which are never promoted again"
+	}
+	return ""
 }
 
 // holdForRecords asks a person to approve a promote or rollback an agent or
@@ -388,20 +393,7 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 			unknown = append(unknown, c)
 		}
 	}
-	// What keeps autonomous from being proposed whatever the classification:
-	// runtime callers with no contract, and callers the graph cannot see.
-	uncontracted := 0
-	for _, c := range res.Consumers {
-		if c.Uncontracted {
-			uncontracted++
-		}
-	}
-	if uncontracted > 0 {
-		v.Citation["uncontracted"] = strconv.Itoa(uncontracted)
-	}
-	if n := len(callersUnseen(in.Snapshot, fleet.NewServiceKeyDomain(contract.OCIDomain(in.To.ContractRef), in.Stage.Service.Name))); n > 0 {
-		v.Citation["callersUnseen"] = strconv.Itoa(n)
-	}
+	citeCallers(in, res, v.Citation)
 	unseenConsumers := unseenConsumersOf(in, res, unknown)
 	unseen := slices.Clone(unseenConsumers)
 	if len(res.Consumers) == 0 && res.Classification != diff.NonBreaking.String() && !in.Stage.Gates.Impact.DeclaredConsumersOnly {
@@ -432,6 +424,24 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 		v.Message = fmt.Sprintf("%d consumers, none incompatible", len(res.Consumers))
 	}
 	p.Verdicts = append(p.Verdicts, v)
+}
+
+// citeCallers cites what keeps autonomous from being proposed whatever the
+// classification: runtime callers with no contract, and callers the graph
+// cannot see.
+func citeCallers(in PlanInput, res *impact.Result, citation map[string]string) {
+	uncontracted := 0
+	for _, c := range res.Consumers {
+		if c.Uncontracted {
+			uncontracted++
+		}
+	}
+	if uncontracted > 0 {
+		citation["uncontracted"] = strconv.Itoa(uncontracted)
+	}
+	if n := len(callersUnseen(in.Snapshot, fleet.NewServiceKeyDomain(contract.OCIDomain(in.To.ContractRef), in.Stage.Service.Name))); n > 0 {
+		citation["callersUnseen"] = strconv.Itoa(n)
+	}
 }
 
 // unknownConsumer reports whether Pacto cannot tell if the change breaks c:

@@ -125,29 +125,13 @@ func autonomyGate(in PlanInput, p *Plan) {
 	case to == from:
 		v.Message = stage + " is already on " + string(to)
 		return
-	case to.level() < from.level() && in.Class == ClassAgent && to == RungObserve:
-		v.Message = "an agent may not lower a Stage to observe: like a freeze, it stops a Stage moving"
-		return
-	case to.level() < from.level() && in.Class == ClassController && (!from.Automatic() || from.level()-to.level() != 1):
-		v.Message = "the promoter only steps a Stage down one rung from an automatic rung"
-		return
 	case to.level() < from.level():
-		v.Result, v.Message = Pass, "lowering "+stage+" from "+string(from)+" to "+string(to)+" needs no approval"
+		if v.Message = lowerRefusal(in.Class, from, to); v.Message == "" {
+			v.Result, v.Message = Pass, "lowering "+stage+" from "+string(from)+" to "+string(to)+" needs no approval"
+		}
 		return
-	case in.Class == ClassController:
-		v.Message = "the promoter never raises a rung: a person confirms every raise"
-		return
-	case to.level() > from.level()+1:
-		v.Message = "one rung at a time: propose " + string(rungOrder[from.level()+1]) + " first"
-		return
-	case from == RungObserve && !conditionIs(in.Status, "Ready", ReasonObservingGuarded):
-		v.Message = "unlabelled-apply-ref: label the applyRef " + ApplyRefLabel + " and remove the pointer field from the manifest in git, so admission protects the pointer before Pacto owns it"
-		return
-	case from == RungObserve && (in.Status.ObservedRevision == nil || !isDigest(in.Status.ObservedRevision.Digest)):
-		v.Message = "no-observed-digest: GitOps' source reports no digest yet, so Pacto does not know what runs"
-		return
-	case to.Automatic() && !conditionIs(in.Status, ConditionRecordStoreReady):
-		v.Message = "no-record-store: the recorder is not writing this Stage's records, and every grant of autonomy must be a signed record"
+	}
+	if v.Message = raiseRefusal(in, from, to); v.Message != "" {
 		return
 	}
 	p.Floor = Floor{Human: true, Decision: Approve, Owners: serviceTeam(in)}
@@ -166,6 +150,35 @@ func autonomyGate(in PlanInput, p *Plan) {
 	}
 	p.Floor.Decision = AcceptUnknown
 	p.Question = v.Message + ". Accept the unknown and raise it anyway?"
+}
+
+// lowerRefusal is why a lowering is refused, or "" when it may go ahead.
+func lowerRefusal(class ActorClass, from, to Rung) string {
+	switch {
+	case class == ClassAgent && to == RungObserve:
+		return "an agent may not lower a Stage to observe: like a freeze, it stops a Stage moving"
+	case class == ClassController && (!from.Automatic() || from.level()-to.level() != 1):
+		return "the promoter only steps a Stage down one rung from an automatic rung"
+	}
+	return ""
+}
+
+// raiseRefusal is why a raise is refused outright, or "" when it goes to a
+// person.
+func raiseRefusal(in PlanInput, from, to Rung) string {
+	switch {
+	case in.Class == ClassController:
+		return "the promoter never raises a rung: a person confirms every raise"
+	case to.level() > from.level()+1:
+		return "one rung at a time: propose " + string(rungOrder[from.level()+1]) + " first"
+	case from == RungObserve && !conditionIs(in.Status, "Ready", ReasonObservingGuarded):
+		return "unlabelled-apply-ref: label the applyRef " + ApplyRefLabel + " and remove the pointer field from the manifest in git, so admission protects the pointer before Pacto owns it"
+	case from == RungObserve && (in.Status.ObservedRevision == nil || !isDigest(in.Status.ObservedRevision.Digest)):
+		return "no-observed-digest: GitOps' source reports no digest yet, so Pacto does not know what runs"
+	case to.Automatic() && !conditionIs(in.Status, ConditionRecordStoreReady):
+		return "no-record-store: the recorder is not writing this Stage's records, and every grant of autonomy must be a signed record"
+	}
+	return ""
 }
 
 // earned reports whether a proposal recomputed from in.Status still proposes
@@ -311,24 +324,13 @@ func shadowEvidence(st StageStatus, n int, block func(kind, subject, msg string)
 // rollback, freeze or failure came after that change. cleared says one of
 // them was a breaking change the graph cleared.
 func promoteEvidence(st StageStatus, n int, block func(kind, subject, msg string)) (ev []string, cleared bool) {
-	// An automatic step-down cites the failure that raised it. That failed
-	// promote and the rollback or freeze it raised can conclude after the
-	// step-down: they are why the rung dropped, not a new incident, unless
-	// the rollback did not succeed and verify or the freeze did not succeed.
-	cause := ""
-	for _, c := range slices.Backward(st.Stream.Concluded) {
-		if c.Type == TypeAutonomy && c.Outcome == Succeeded {
-			cause = c.Cause
-			break
-		}
-	}
+	cause := stepDownCause(st)
 scan:
 	for _, c := range slices.Backward(st.Stream.Concluded) {
 		switch {
 		case c.Type == TypeAutonomy && c.Outcome == Succeeded:
 			break scan
-		case cause != "" && (c.UID == cause || c.Cause == cause && c.Outcome == Succeeded &&
-			(c.Type == TypeFreeze || c.Type == TypeRollback && c.Verification == Verified)):
+		case explainedBy(c, cause):
 		case c.Outcome == Failed, !c.Person && (c.Type == TypeRollback || c.Type == TypeFreeze):
 			block(BlockerIncident, c.UID, "a "+c.Type+" ended "+string(c.Outcome)+": "+c.Reason)
 		case c.Type != TypePromote || len(ev) == n:
@@ -342,6 +344,26 @@ scan:
 		block(BlockerNeedsVerified, "", fmt.Sprintf("%d of %d promotes verified since the rung last changed", len(ev), n))
 	}
 	return ev, cleared
+}
+
+// stepDownCause is the failure the newest rung change cites, or "". An
+// automatic step-down cites the failure that raised it.
+func stepDownCause(st StageStatus) string {
+	for _, c := range slices.Backward(st.Stream.Concluded) {
+		if c.Type == TypeAutonomy && c.Outcome == Succeeded {
+			return c.Cause
+		}
+	}
+	return ""
+}
+
+// explainedBy reports whether c is the failed promote a step-down cites, or
+// the rollback or freeze it raised. They can conclude after the step-down:
+// they are why the rung dropped, not a new incident, unless the rollback did
+// not succeed and verify or the freeze did not succeed.
+func explainedBy(c Concluded, cause string) bool {
+	return cause != "" && (c.UID == cause || c.Cause == cause && c.Outcome == Succeeded &&
+		(c.Type == TypeFreeze || c.Type == TypeRollback && c.Verification == Verified))
 }
 
 // graphReady blocks autonomous until a breaking change the graph cleared

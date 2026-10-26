@@ -407,6 +407,26 @@ func stage(service, env string) delivery.StageSpec {
 	return s
 }
 
+// history is what the Stage has seen before the beat: a freeze, the
+// verified and failed versions and where the version was published.
+func (b Beat) history(in *delivery.PlanInput, from, to delivery.Revision) {
+	if b.Frozen {
+		in.Status.FrozenReason = "a record of this Stage does not verify"
+	}
+	if from.Digest != "" {
+		in.Status.Verified = []string{from.Digest}
+	}
+	if b.Failed {
+		in.Status.FailedDigests = []string{to.Digest}
+	}
+	published := []string{ArtifactDigest(b.Service, b.To)} // what pacto publish signed
+	if b.Environment == Test {
+		in.Status.Published = published
+	} else {
+		in.Upstream = &delivery.StageStatus{Verified: published, Offered: published}
+	}
+}
+
 // PlanInput is everything delivery.PlanFor reads for the beat, built from the
 // story contracts. It errors for a beat that plans nothing.
 func (b Beat) PlanInput(ctx context.Context) (delivery.PlanInput, error) {
@@ -441,21 +461,7 @@ func (b Beat) PlanInput(ctx context.Context) (delivery.PlanInput, error) {
 	case delivery.TypeUnfreeze:
 		in.Spec.Facet, in.Spec.Params = delivery.FacetFreeze, delivery.Params{}
 	}
-	if b.Frozen {
-		in.Status.FrozenReason = "a record of this Stage does not verify"
-	}
-	if from.Digest != "" {
-		in.Status.Verified = []string{from.Digest}
-	}
-	if b.Failed {
-		in.Status.FailedDigests = []string{to.Digest}
-	}
-	published := []string{ArtifactDigest(b.Service, b.To)} // what pacto publish signed
-	if b.Environment == Test {
-		in.Status.Published = published
-	} else {
-		in.Upstream = &delivery.StageStatus{Verified: published, Offered: published}
-	}
+	b.history(&in, from, to)
 
 	pactos, known, err := others(b, &in)
 	if err != nil {

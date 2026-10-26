@@ -1522,6 +1522,30 @@ type observedInput struct {
 	source string
 }
 
+// callerKey is one caller with no contract of a service with one.
+type callerKey struct {
+	caller    string
+	to        ServiceKey
+	ambiguous bool
+}
+
+// setUncontractedCallers lists the callers with no contract, sorted by the
+// service they call.
+func setUncontractedCallers(snap *FleetSnapshot, uncontracted map[callerKey]map[string]bool) {
+	for k, sources := range uncontracted {
+		snap.UncontractedCallers = append(snap.UncontractedCallers, UncontractedCaller{
+			Caller: k.caller, ToService: k.to, Sources: slices.Sorted(maps.Keys(sources)), Ambiguous: k.ambiguous,
+		})
+	}
+	sort.Slice(snap.UncontractedCallers, func(i, j int) bool {
+		a, b := snap.UncontractedCallers[i], snap.UncontractedCallers[j]
+		if a.ToService != b.ToService {
+			return a.ToService < b.ToService
+		}
+		return a.Caller < b.Caller
+	})
+}
+
 // foldObservedRelationships resolves runtime-observed edges to UNIQUE
 // domain-qualified services and folds resolved edges into the snapshot as observed
 // dependency relationships, summing counts for duplicate edges. An endpoint that
@@ -1546,11 +1570,6 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 	}
 	edges := map[edgeKey]*edgeAgg{}
 	var order []edgeKey
-	type callerKey struct {
-		caller    string
-		to        ServiceKey
-		ambiguous bool
-	}
 	uncontracted := map[callerKey]map[string]bool{}
 	for _, oi := range observed {
 		fromKey, fromRes := resolve(oi.edge.From)
@@ -1587,18 +1606,7 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 		st.Count += oi.edge.Count
 		mergeWindow(&st.FirstSeen, &st.LastSeen, oi.edge.FirstSeen, oi.edge.LastSeen)
 	}
-	for k, sources := range uncontracted {
-		snap.UncontractedCallers = append(snap.UncontractedCallers, UncontractedCaller{
-			Caller: k.caller, ToService: k.to, Sources: slices.Sorted(maps.Keys(sources)), Ambiguous: k.ambiguous,
-		})
-	}
-	sort.Slice(snap.UncontractedCallers, func(i, j int) bool {
-		a, b := snap.UncontractedCallers[i], snap.UncontractedCallers[j]
-		if a.ToService != b.ToService {
-			return a.ToService < b.ToService
-		}
-		return a.Caller < b.Caller
-	})
+	setUncontractedCallers(snap, uncontracted)
 	sort.Slice(order, func(i, j int) bool {
 		if order[i].from != order[j].from {
 			return order[i].from < order[j].from

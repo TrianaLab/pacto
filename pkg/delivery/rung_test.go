@@ -75,6 +75,10 @@ func TestRungGatePromote(t *testing.T) {
 	if p := PlanFor(ctx, breakingInput(t, RungAdvise, ClassHuman)); p.Predicted != PredictProceeds {
 		t.Fatalf("a person's promote on advise: %+v", p)
 	}
+}
+
+func TestRungGatePromoteAutoNonBreaking(t *testing.T) {
+	ctx := context.Background()
 	// auto-nonbreaking floors a breaking-but-compatible change and an unclassified one.
 	p := PlanFor(ctx, breakingInput(t, RungAutoNonBreaking, ClassController))
 	if p.Predicted != PredictHeld || !strings.Contains(p.Question, "only non-breaking") || !strings.Contains(p.Question, "BREAKING") {
@@ -128,21 +132,29 @@ func autonomy(from, to Rung, st StageStatus, class ActorClass, running Revision)
 	})
 }
 
-func TestAutonomyGate(t *testing.T) {
-	running := rev(dA, c1, bundle("payments", "1.0.0"))
+// autonomyFixture is a Stage on advise that has earned auto-nonbreaking,
+// the contract running on it and a check that a plan is refused.
+func autonomyFixture(t *testing.T) (running Revision, ready StageStatus, fails func(string, Plan, string)) {
+	t.Helper()
+	running = rev(dA, c1, bundle("payments", "1.0.0"))
 	observed := &ObservedRevision{Digest: dA, Since: "2026-10-20T10:00:00Z"}
-	ready := StageStatus{Pointer: dA, Conditions: []Condition{readyGuarded(), recordStoreReady()}, ObservedRevision: observed,
+	ready = StageStatus{Pointer: dA, Conditions: []Condition{readyGuarded(), recordStoreReady()}, ObservedRevision: observed,
 		Proposal: &Proposal{Rung: RungAutoNonBreaking, Evidence: []string{"p1"}}}
 	for i := range DefaultProposeAfter {
 		ready.Stream.Concluded = append(ready.Stream.Concluded, promoted(fmt.Sprint("p", i), Succeeded, Verified, false))
 	}
-	fails := func(name string, p Plan, want string) {
+	fails = func(name string, p Plan, want string) {
 		t.Helper()
 		v := verdict(t, p, GateAutonomy)
 		if p.Predicted != PredictRejected || v.Result != Fail || !strings.Contains(v.Message, want) {
 			t.Fatalf("%s: want a refusal naming %q, got %+v", name, want, p)
 		}
 	}
+	return running, ready, fails
+}
+
+func TestAutonomyGateLowers(t *testing.T) {
+	_, _, fails := autonomyFixture(t)
 	// Lowering needs no approval. The promoter only steps down one rung
 	// from an automatic rung.
 	for _, class := range []ActorClass{ClassHuman, ClassAgent} {
@@ -159,6 +171,10 @@ func TestAutonomyGate(t *testing.T) {
 	fails("the promoter lowering two rungs", autonomy(RungAutonomous, RungAdvise, StageStatus{}, ClassController, Revision{}), "one rung from an automatic rung")
 	fails("the promoter lowering to observe", autonomy(RungAdvise, RungObserve, StageStatus{}, ClassController, Revision{}), "one rung from an automatic rung")
 	fails("an agent lowering to observe", autonomy(RungAdvise, RungObserve, StageStatus{}, ClassAgent, Revision{}), "may not lower a Stage to observe")
+}
+
+func TestAutonomyGateRefuses(t *testing.T) {
+	running, ready, fails := autonomyFixture(t)
 	fails("not a rung", autonomy(RungAdvise, "yolo", ready, ClassHuman, running), "is not a rung")
 	fails("no change", autonomy(RungAdvise, RungAdvise, ready, ClassHuman, running), "already on")
 	fails("two rungs", autonomy(RungAdvise, RungAutonomous, ready, ClassHuman, running), "one rung at a time: propose auto-nonbreaking first")
@@ -183,6 +199,10 @@ func TestAutonomyGate(t *testing.T) {
 	if staleFrom.Predicted != PredictRejected || !strings.HasPrefix(staleFrom.Conflicts[0], "RungMoved: ") {
 		t.Fatalf("stale from: %+v", staleFrom)
 	}
+}
+
+func TestAutonomyGateRaise(t *testing.T) {
+	running, ready, _ := autonomyFixture(t)
 	// A raise always asks a person from the running service's team.
 	for _, class := range []ActorClass{ClassHuman, ClassAgent, ClassBreakGlass} {
 		p := autonomy(RungAdvise, RungAutoNonBreaking, ready, class, running)
@@ -203,6 +223,10 @@ func TestAutonomyGate(t *testing.T) {
 	if v := verdict(t, autonomy(RungAdvise, RungAutoNonBreaking, lapsed, ClassHuman, running), GateAutonomy); v.Result != Unknown {
 		t.Fatalf("an incident after the proposal: %+v", v)
 	}
+}
+
+func TestAutonomyGateUnknown(t *testing.T) {
+	running, ready, _ := autonomyFixture(t)
 	// Above the proposal is Unknown, citing the blockers.
 	low := ready
 	low.Proposal = &Proposal{Rung: RungAdvise, Blockers: []Blocker{{Kind: "needs-verified", Message: "3 of 10 verified"}}}

@@ -126,6 +126,26 @@ func result(t *testing.T, b *Bulk, name string) *Result {
 	return nil
 }
 
+// checkCheckoutDraft checks the checkout draft: payments pinned to the
+// version seen running and its manifests with no cluster-only fields.
+func checkCheckoutDraft(t *testing.T, checkout *Result, out string) {
+	t.Helper()
+	text := file(t, checkout, "pacto.yaml").Content
+	pin := "dependencies:\n  # inferred from runtime calls: pinned to the version seen running; widen it once you know\n" +
+		"  - name: payments\n    ref: oci://reg.io/acme/contracts/payments\n    required: true\n    compatibility: '=2.3.0'\n"
+	if !strings.Contains(text, pin) || strings.Contains(text, "'*'") || strings.Contains(text, `"*"`) || !strings.Contains(text, "#   - name: fraud\n") || strings.Contains(text, "# dependencies:") {
+		t.Fatalf("checkout's dependencies:\n%s", text)
+	}
+	if checkout.Dir != filepath.Join(out, "shop", "checkout") || file(t, checkout, "manifests.yaml").Action != Add ||
+		!hasLine(checkout.Next, "pacto.yaml declares payments pinned to =2.3.0") || !hasLine(checkout.Found, "checkout calls payments 2.3.0 (calls seen to the Service shop/payments)") {
+		t.Fatalf("checkout: %+v", checkout)
+	}
+	m := file(t, checkout, "manifests.yaml").Content
+	if !strings.Contains(m, "kind: Deployment") || !strings.Contains(m, "kind: Service") || strings.Contains(m, "clusterIP") || strings.Contains(m, "namespace") {
+		t.Fatalf("manifests.yaml:\n%s", m)
+	}
+}
+
 // TestClusterDrafts: every workload no Pacto describes gets a draft, its
 // dependencies read from the calls its pods made. A call to a provider whose
 // Pacto runs a version is pinned to exactly that version, never "*"; one
@@ -144,21 +164,7 @@ func TestClusterDrafts(t *testing.T) {
 	if _, err := os.Stat(out); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("a plan wrote under --out")
 	}
-	checkout := result(t, b, "checkout")
-	text := file(t, checkout, "pacto.yaml").Content
-	pin := "dependencies:\n  # inferred from runtime calls: pinned to the version seen running; widen it once you know\n" +
-		"  - name: payments\n    ref: oci://reg.io/acme/contracts/payments\n    required: true\n    compatibility: '=2.3.0'\n"
-	if !strings.Contains(text, pin) || strings.Contains(text, "'*'") || strings.Contains(text, `"*"`) || !strings.Contains(text, "#   - name: fraud\n") || strings.Contains(text, "# dependencies:") {
-		t.Fatalf("checkout's dependencies:\n%s", text)
-	}
-	if checkout.Dir != filepath.Join(out, "shop", "checkout") || file(t, checkout, "manifests.yaml").Action != Add ||
-		!hasLine(checkout.Next, "pacto.yaml declares payments pinned to =2.3.0") || !hasLine(checkout.Found, "checkout calls payments 2.3.0 (calls seen to the Service shop/payments)") {
-		t.Fatalf("checkout: %+v", checkout)
-	}
-	m := file(t, checkout, "manifests.yaml").Content
-	if !strings.Contains(m, "kind: Deployment") || !strings.Contains(m, "kind: Service") || strings.Contains(m, "clusterIP") || strings.Contains(m, "namespace") {
-		t.Fatalf("manifests.yaml:\n%s", m)
-	}
+	checkCheckoutDraft(t, result(t, b, "checkout"), out)
 	// ledger calls payments and legacy, whose Pacto runs no version yet: a comment.
 	if l := file(t, result(t, b, "ledger"), "pacto.yaml").Content; !strings.Contains(l, "compatibility: '=2.3.0'") || !strings.Contains(l, "#   - name: legacy\n") {
 		t.Fatalf("ledger:\n%s", l)
@@ -167,10 +173,15 @@ func TestClusterDrafts(t *testing.T) {
 		t.Fatalf("nightly calls nothing: %+v", n)
 	}
 
-	// Applying writes the drafts; every one is valid, and a second run keeps
-	// what is there.
-	c.Namespaces = nil
-	b, err = Cluster(context.Background(), fakeCluster(shopCluster(now)...), Options{}, c, os.WriteFile)
+}
+
+// TestClusterDraftsApply: applying writes the drafts; every one is valid,
+// and a second run keeps what is there.
+func TestClusterDraftsApply(t *testing.T) {
+	now := time.Now()
+	out := filepath.Join(t.TempDir(), "drafts")
+	c := ClusterOptions{Out: out, Now: func() time.Time { return now }}
+	b, err := Cluster(context.Background(), fakeCluster(shopCluster(now)...), Options{}, c, os.WriteFile)
 	if err != nil || len(b.Results) != 4 {
 		t.Fatalf("apply: %+v %v", b, err)
 	}

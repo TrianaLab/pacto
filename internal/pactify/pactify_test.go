@@ -179,6 +179,15 @@ publish:
     key: cosign.key
 `
 
+// checkObserves fails unless a generated Stage file starts on observe with
+// the applyRef pinned to the tag and unlabelled.
+func checkObserves(t *testing.T, text string) {
+	t.Helper()
+	if strings.Contains(text, "apply-ref:") || strings.Contains(text, "labels:") || !strings.Contains(text, "  ref:\n    tag: 1.0.0\n") || !strings.Contains(text, "  startRung: observe\n") || strings.Contains(text, "auto:") {
+		t.Fatalf("not observe by default:\n%s", text)
+	}
+}
+
 // checkStages decodes every Stage strictly into the real type, and checks the
 // promotion order: test takes new versions from its candidate OCIRepository,
 // prod takes what test verified.
@@ -203,11 +212,8 @@ func checkStages(t *testing.T, test, prod string) {
 	}
 	// Observe by default: GitOps keeps writing the applyRef, pinned to the tag
 	// the team deploys, and nothing labels it for Pacto to write.
-	for _, text := range []string{test, prod} {
-		if strings.Contains(text, "apply-ref:") || strings.Contains(text, "labels:") || !strings.Contains(text, "  ref:\n    tag: 1.0.0\n") || !strings.Contains(text, "  startRung: observe\n") || strings.Contains(text, "auto:") {
-			t.Fatalf("not observe by default:\n%s", text)
-		}
-	}
+	checkObserves(t, test)
+	checkObserves(t, prod)
 	// Flux must not report a version applied before it rolls out, or the
 	// verify gates judge the old pods.
 	if !strings.Contains(test, "  wait: true\n") {
@@ -419,9 +425,11 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 		t.Fatalf("findings: %+v", r)
 	}
 	// No Service in the folder, so the target names none: workloadRef follows target directly.
-	if !strings.Contains(file(t, r, "delivery/pacto.yaml").Content, "  target:\n    workloadRef:\n      name: report\n      kind: CronJob\n") || !strings.Contains(file(t, r, "delivery/dev.yaml").Content, "ociRepositoryRef") ||
-		!strings.Contains(file(t, r, "delivery/dev.yaml").Content, "  ref:\n    tag: 1.2.0\n") {
-		t.Fatal("delivery pieces")
+	for _, want := range [][2]string{{"delivery/pacto.yaml", "  target:\n    workloadRef:\n      name: report\n      kind: CronJob\n"},
+		{"delivery/dev.yaml", "ociRepositoryRef"}, {"delivery/dev.yaml", "  ref:\n    tag: 1.2.0\n"}} {
+		if !strings.Contains(file(t, r, want[0]).Content, want[1]) {
+			t.Fatalf("%s lacks %q", want[0], want[1])
+		}
 	}
 	if ig := file(t, r, ".pactoignore"); ig.Action != Append || ig.Content != "delivery/\n" {
 		t.Fatalf(".pactoignore: %+v", ig)

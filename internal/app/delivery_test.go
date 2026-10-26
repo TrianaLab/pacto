@@ -164,30 +164,42 @@ func TestDeliveryProposeGetCancel(t *testing.T) {
 	}
 }
 
-func TestDeliveryProposeGeneratesNameAndRollback(t *testing.T) {
+// proposeFixture is alice's delivery with operation p0 to roll back, and the
+// generateName of the last operation created.
+func proposeFixture(t *testing.T) (*Delivery, *string) {
+	t.Helper()
 	cited := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p0", map[string]any{
 		"status": map[string]any{"pointer": map[string]any{"before": dlB, "after": dlA}},
 	})
 	d, c, _ := deliveryFixture(t, "alice", nil, nil, cited)
-	var generated string
+	generated := new(string)
 	c.PrependReactor("create", "operations", func(a k8stesting.Action) (bool, runtime.Object, error) {
 		u := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured)
-		generated = u.GetGenerateName()
-		u.SetName(generated + "x")
+		*generated = u.GetGenerateName()
+		u.SetName(*generated + "x")
 		return true, u, nil
 	})
+	return d, generated
+}
+
+func TestDeliveryProposeGeneratesNameAndRollback(t *testing.T) {
+	d, gen := proposeFixture(t)
 	op, plan, err := d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeRollback, Undoes: "p0"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if generated != "payments-prod-rollback-" || op.Spec.Params.From != dlA || op.Spec.Params.To != dlB || op.Spec.Params.Undoes != "uid-p0" ||
+	if generated := *gen; generated != "payments-prod-rollback-" || op.Spec.Params.From != dlA || op.Spec.Params.To != dlB || op.Spec.Params.Undoes != "uid-p0" ||
 		plan.Predicted != delivery.PredictProceeds {
-		t.Fatalf("rollback: %q %+v %+v", generated, op.Spec, plan)
+		t.Fatalf("rollback: %q %+v %+v", *gen, op.Spec, plan)
 	}
 	if _, _, err := d.Plan(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeRollback, Undoes: "gone"}); err == nil {
 		t.Fatal("a rollback citing nothing must fail")
 	}
-	op, _, err = d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeUnfreeze})
+}
+
+func TestDeliveryProposeFreezeAndRung(t *testing.T) {
+	d, _ := proposeFixture(t)
+	op, _, err := d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeUnfreeze})
 	if err != nil || op.Spec.Facet != delivery.FacetFreeze {
 		t.Fatalf("unfreeze: %+v %v", op, err)
 	}

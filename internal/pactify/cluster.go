@@ -161,6 +161,51 @@ func (cl *cluster) draft(ctx context.Context, w unstructured.Unstructured, base 
 	return r, err
 }
 
+// readNamespace reads one namespace's workloads, pods and the owners of
+// their ReplicaSets and Jobs.
+func (cl *cluster) readNamespace(list func(schema.GroupVersionResource, string, bool) ([]unstructured.Unstructured, error), ns string) error {
+	for _, k := range []string{"Deployment", "StatefulSet", "DaemonSet", "CronJob"} {
+		items, err := list(workloadGVRs[k], ns, false)
+		if err != nil {
+			return err
+		}
+		cl.workloads = append(cl.workloads, items...)
+	}
+	items, err := list(gvrPods, ns, false)
+	if err != nil {
+		return err
+	}
+	cl.pods = append(cl.pods, items...)
+	for _, r := range []schema.GroupVersionResource{gvrReplicaSets, gvrJobs} {
+		items, err := list(r, ns, false)
+		if err != nil {
+			return err
+		}
+		for _, o := range items {
+			if ref := metav1.GetControllerOf(&o); ref != nil {
+				cl.owners[o.GetNamespace()+"/"+o.GetKind()+"/"+o.GetName()] = o.GetNamespace() + "/" + ref.Kind + "/" + ref.Name
+			}
+		}
+	}
+	return nil
+}
+
+// readObservations reads the node runtime observations' snapshots.
+func (cl *cluster) readObservations(nros []unstructured.Unstructured) error {
+	for _, n := range nros {
+		raw, _ := json.Marshal(n.Object["status"])
+		var s runtimefacts.Snapshot
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return fmt.Errorf("reading the node runtime observation %s: %w", n.GetName(), err)
+		}
+		cl.snaps = append(cl.snaps, s)
+	}
+	for i := range cl.snaps {
+		cl.nodes[cl.snaps[i].NodeName] = &cl.snaps[i]
+	}
+	return nil
+}
+
 func readCluster(ctx context.Context, dyn dynamic.Interface, namespaces []string, now time.Time) (*cluster, error) {
 	if len(namespaces) == 0 {
 		namespaces = []string{metav1.NamespaceAll}
@@ -176,30 +221,9 @@ func readCluster(ctx context.Context, dyn dynamic.Interface, namespaces []string
 		}
 		return l.Items, nil
 	}
-	kinds := []string{"Deployment", "StatefulSet", "DaemonSet", "CronJob"}
 	for _, ns := range namespaces {
-		for _, k := range kinds {
-			items, err := list(workloadGVRs[k], ns, false)
-			if err != nil {
-				return nil, err
-			}
-			cl.workloads = append(cl.workloads, items...)
-		}
-		items, err := list(gvrPods, ns, false)
-		if err != nil {
+		if err := cl.readNamespace(list, ns); err != nil {
 			return nil, err
-		}
-		cl.pods = append(cl.pods, items...)
-		for _, r := range []schema.GroupVersionResource{gvrReplicaSets, gvrJobs} {
-			items, err := list(r, ns, false)
-			if err != nil {
-				return nil, err
-			}
-			for _, o := range items {
-				if ref := metav1.GetControllerOf(&o); ref != nil {
-					cl.owners[o.GetNamespace()+"/"+o.GetKind()+"/"+o.GetName()] = o.GetNamespace() + "/" + ref.Kind + "/" + ref.Name
-				}
-			}
 		}
 	}
 	sort.Slice(cl.workloads, func(i, j int) bool { return key(cl.workloads[i]) < key(cl.workloads[j]) })
@@ -221,16 +245,8 @@ func readCluster(ctx context.Context, dyn dynamic.Interface, namespaces []string
 	if err != nil {
 		return nil, err
 	}
-	for _, n := range nros {
-		raw, _ := json.Marshal(n.Object["status"])
-		var s runtimefacts.Snapshot
-		if err := json.Unmarshal(raw, &s); err != nil {
-			return nil, fmt.Errorf("reading the node runtime observation %s: %w", n.GetName(), err)
-		}
-		cl.snaps = append(cl.snaps, s)
-	}
-	for i := range cl.snaps {
-		cl.nodes[cl.snaps[i].NodeName] = &cl.snaps[i]
+	if err := cl.readObservations(nros); err != nil {
+		return nil, err
 	}
 	cl.observed = len(cl.snaps) > 0
 	return cl, nil

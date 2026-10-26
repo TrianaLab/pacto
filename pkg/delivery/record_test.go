@@ -218,6 +218,13 @@ func TestSignAndOpenRecord(t *testing.T) {
 		!strings.Contains(err.Error(), "r9") || histID != gotID || hist.Predicate.Chain.Seq != got.Predicate.Chain.Seq {
 		t.Fatalf("a revoked key's record comes back with its statement and a HistoryOnly error: %v", err)
 	}
+}
+
+func TestOpenRecordRefusesMalformed(t *testing.T) {
+	b, _, err := SignRecord(t.Context(), plainSigner{}, NewOperationRecord(recordInput()))
+	if err != nil {
+		t.Fatal(err)
+	}
 	edit := func(f func(*envelope)) []byte {
 		var x envelope
 		_ = json.Unmarshal(b, &x)
