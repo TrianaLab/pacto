@@ -228,7 +228,10 @@ operation has moved the pointer nobody deletes it by hand, not even break-glass:
 re-checks, rollbacks and history cite it. Only the promoter (after
 `delivery.recorder.operationTTL`, and never the one the Stage runs) and the
 namespace controller remove it. With the recorder off, history names any seq
-whose Operation is gone.
+whose Operation is gone. Names ending in `-rollback`, `-freeze` or `-stepdown`,
+and `<stage>-auto-` or `<stage>-witnessed-` names, are the promoter's own:
+admission refuses them to everyone else, so nobody can take the name of a
+rollback before the promoter raises it.
 
 `pacto mcp --delivery` gives agents the read, plan, history, blame, undo and
 record-verify tools, plus propose and cancel only when the apiserver says the

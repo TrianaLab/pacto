@@ -521,11 +521,11 @@ YAML
   pass "carol approved from the dashboard after a fresh login; the audit log shows her, F shipped"
 
   # --- roll back and reject from the dashboard, as carol ---
-  out="$(dash "$fresh" POST /api/delivery/operations "{\"namespace\":\"prod\",\"stage\":\"payments\",\"type\":\"delivery.pacto.trianalab.io/rollback\",\"undoes\":\"idp-f\",\"name\":\"idp-rollback\",\"reason\":\"phase 4\"}" "$(csrf_of "$fresh")")"
+  out="$(dash "$fresh" POST /api/delivery/operations "{\"namespace\":\"prod\",\"stage\":\"payments\",\"type\":\"delivery.pacto.trianalab.io/rollback\",\"undoes\":\"idp-f\",\"name\":\"idp-undo\",\"reason\":\"phase 4\"}" "$(csrf_of "$fresh")")"
   [ "${out%% *}" = 201 ] || fail "carol's rollback: $out"
-  [ "$(kubectl -n prod get operation idp-rollback -o jsonpath='{.spec.actor.user} {.spec.params.undoes}')" = "$CAROL $uid" ] \
-    || fail "the rollback is not carol's undoing of F: $(kubectl -n prod get operation idp-rollback -o jsonpath='{.spec}')"
-  wait_concluded prod idp-rollback Succeeded/Verified
+  [ "$(kubectl -n prod get operation idp-undo -o jsonpath='{.spec.actor.user} {.spec.params.undoes}')" = "$CAROL $uid" ] \
+    || fail "the rollback is not carol's undoing of F: $(kubectl -n prod get operation idp-undo -o jsonpath='{.spec}')"
+  wait_concluded prod idp-undo Succeeded/Verified
   has_pointer prod "$from" || fail "prod is not back on the version before F"
   out="$(mcp "$(kc_agent_token)" tools/call "{\"name\":\"pacto_delivery_operation_propose\",\"arguments\":{\"namespace\":\"prod\",\"stage\":\"payments\",\"to\":\"$F\",\"from\":\"$from\",\"name\":\"idp-f2\",\"reason\":\"phase 4 again\"}}")"
   eventually 30 held prod idp-f2 || fail "F was not held again: $out $(field prod idp-f2 phase) $(field prod idp-f2 message)"

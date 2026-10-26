@@ -1401,26 +1401,25 @@ jq -e '.completeness == "partial" and ([.entries[] | select(.type == "delivery.p
   || fail "history does not list the four rollbacks: $HIST"
 pass "explain cites how to re-run, history lists every rollback"
 
-section "S: an agent takes the name of S's rollback first; S fails and the Stage freezes instead of keeping S"
-# agent-a creates promote-s-rollback before proposing promote-s, the name the
-# promoter gives S's one rollback. It is not the promoter's rollback, so it
-# never stands in for one.
-KUBECONFIG="$AGENT_A" kubectl -n "$H" create -f - >/dev/null <<YAML
+section "S: an agent cannot take the name of S's rollback first; S fails and is rolled back"
+# promote-s-rollback is the name the promoter gives S's one rollback. Taken
+# first, it would keep S's failure out of the records, so admission keeps the
+# names the promoter raises under to the promoter.
+OUT="$(KUBECONFIG="$AGENT_A" kubectl -n "$H" create -f - 2>&1 <<YAML || true
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Operation
 metadata: {name: promote-s-rollback, finalizers: [delivery.pacto.trianalab.io/record]}
 spec: {type: delivery.pacto.trianalab.io/promote, stage: payments, facet: pointer, params: {from: "$H1", to: "$H1"}, actor: {user: "system:serviceaccount:agents:agent-a", groups: [system:serviceaccounts, "system:serviceaccounts:agents", system:authenticated]}, reason: squat}
 YAML
-eventually 60 concluded "$H" promote-s-rollback || fail "the squatting operation never concluded: $(field "$H" promote-s-rollback phase)"
+)"
+grep -q "the Pacto delivery promoter raises its own operations under" <<<"$OUT" || fail "an agent took the name of S's rollback: $OUT"
 OPS="$(ship s "$S")"
 wait_concluded "$H" "$OPS" Failed/
-squat_frozen() {
-  kubectl -n "$H" get stage payments -o json |
-    jq -e '.status.frozen == true and (.status.frozenReason | contains("promote-s-rollback is taken by a delivery.pacto.trianalab.io/promote system:serviceaccount:agents:agent-a"))' >/dev/null
-}
-eventually 30 squat_frozen || fail "a squatted rollback name did not freeze the Stage: $(kubectl -n "$H" get stage payments -o jsonpath='{.status.frozen} {.status.frozenReason}')"
-[ "$(rollbacks_of "$OPS")" = 0 ] || fail "a rollback of S was raised under another name"
-pass "S failed with its rollback's name taken; the Stage froze naming the squatter"
+s_rolled_back() { [ "$(rollbacks_of "$OPS")" = 1 ]; }
+eventually 30 s_rolled_back || fail "S's rollback was not raised: $(rollbacks_of "$OPS")"
+[ "$(kubectl -n "$H" get operation promote-s-rollback -o jsonpath='{.spec.actor.user}')" = "system:serviceaccount:${DNS}:pacto-operator-delivery" ] \
+  || fail "promote-s-rollback is not the promoter's: $(kubectl -n "$H" get operation promote-s-rollback -o jsonpath='{.spec.actor.user}')"
+pass "admission refused the squat; S failed and the promoter raised its rollback"
 
 kill "$GEN_PID" "$MIRA_PF_PID" 2>/dev/null || true
 echo "DELIVERY HEALTH PASS"

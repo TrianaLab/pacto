@@ -21,6 +21,9 @@ and could remove these policies anyway, so refusing it guards nothing. */}}
 # An operation states who asked, and admission holds it to that: the actor is
 # the requesting user, only the promoter may set witnessed, override, unfreeze
 # and freeze are limited to their raisers, and the record finalizer is required.
+# The names the promoter raises its rollbacks, freezes, step-downs and
+# automatic promotes under are its own: taken first, they would keep a failure
+# out of the records a follower reads.
 # The promoter trusts the actor in a spec only because this policy checked it:
 # it admits no operation and counts no approval while this policy or the
 # approval policy is missing.
@@ -74,6 +77,12 @@ spec:
         has(object.metadata.finalizers) &&
         'delivery.pacto.trianalab.io/record' in object.metadata.finalizers
       message: "an operation must carry the delivery.pacto.trianalab.io/record finalizer"
+    - expression: >-
+        request.userInfo.username == '{{ $controller }}' ||
+        !(object.metadata.name.endsWith('-rollback') || object.metadata.name.endsWith('-freeze') ||
+        object.metadata.name.endsWith('-stepdown') || object.metadata.name.matches('-(auto|witnessed)-[0-9a-f]{10}$'))
+      message: "names ending in -rollback, -freeze or -stepdown, and <stage>-auto- or -witnessed- names, are the ones the Pacto delivery promoter raises its own operations under: choose another name"
+      reason: Forbidden
     - expression: "!variables.witnessed || request.userInfo.username == '{{ $controller }}'"
       message: "only the Pacto delivery promoter may raise a witnessed operation"
       reason: Forbidden
