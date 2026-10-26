@@ -10,20 +10,14 @@ Delivery is the `pacto-operator` chart's `delivery` section, off by default. It 
 
 --8<-- "integrations/kubernetes/docs/generated/_delivery-install-command.md"
 
-The flag needs Helm 3.14 or later; plain `--reuse-values` drops the new
-`delivery` defaults and the render fails. It adds the promoter, CRDs,
-admission policies, ServiceAccounts and roles in their own namespace,
-`delivery.namespace` (`pacto-delivery`), which may not be the release
-namespace. The chart creates it; set `delivery.createNamespace=false` to
-create it yourself, with the recorder key Secret, before the install. The operator holds no role there, so it
-cannot run a pod as the promoter or the recorder, mint their tokens or move
-the pointer. It can still read Secrets in every namespace, to pull contracts,
-so prefer KMS or keyless signing over an Ed25519 key Secret for the recorder.
-The image is signed; see [Published artifacts](artifact-hub.md). Objects are
-named `<release>-delivery[-part]`: bind `pacto-operator-delivery-agent` to
-your agents and `pacto-operator-delivery-approver` to the people who may
-approve. `pacto delivery` and `pacto mcp --delivery` look in `pacto-delivery`
-by default; pass `--delivery-namespace` if you changed it.
+This needs Helm 3.14 or later. Delivery runs in `delivery.namespace`
+(`pacto-delivery`, never the release namespace), where the operator holds no
+role, so it cannot act as the promoter. It still reads every Secret: prefer
+KMS or keyless recorder signing. Set `delivery.createNamespace=false` to
+create the namespace, with the recorder key, yourself. Bind
+`pacto-operator-delivery-agent` to agents and
+`pacto-operator-delivery-approver` to approvers. The image is
+[signed](artifact-hub.md).
 
 The admission policies make the actor of an Operation and the person behind
 an Approval true, so the chart refuses Kubernetes below 1.30, a cluster
@@ -138,8 +132,7 @@ of an Application's `spec.source` and its `spec.sources`, and a Kustomization's
 `namePrefix`, `nameSuffix` and `targetNamespace`. A GitOps tool that applies
 those objects must leave these fields alone, or run in a break-glass group.
 Admission guards updates only. Whoever may delete and create these objects can
-delete one and create it again without the label: nothing refuses that, but the
-Stage shows it as `Ready` `False` with the reason `ApplierUnlabelled` and
+recreate one without the label; the Stage then shows `Ready` `False` with the reason `ApplierUnlabelled` and
 `Mediated` `False` with the reason `ApplyRefUnguarded`. Keep delete and create
 on them to the people you would put in break-glass.
 `kubectl set image` on the workload itself is not mediated: Flux puts it back
