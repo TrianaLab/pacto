@@ -22,7 +22,7 @@ flowchart LR
     PL --> DI[pacto diff]
     PL --> G[pacto graph]
     PL --> GEN[pacto generate]
-    GEN --> K[Deployment Artifacts]
+    GEN --> K[Files a plugin writes]
     DI --> CI[CI Gate]
 ```
 
