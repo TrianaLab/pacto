@@ -154,7 +154,7 @@ mirror that keeps digests. `pacto delivery plan` reads these records only with
 ### When the records cannot be trusted
 
 The promoter offers nothing when it cannot check the history: without
-`promoter.upstreamTrust` the Stage is not `Ready` (`UpstreamUntrusted`). A gap,
+`delivery.promoter.upstreamTrust` the Stage is not `Ready` (`UpstreamUntrusted`). A gap,
 a fork or an unreadable registry make it not `Ready` (`UpstreamUnreadable`,
 saying why) until a read succeeds, and refuse a promote as `NotPublished`. A
 record no trusted key signed is skipped, since anyone with push access could

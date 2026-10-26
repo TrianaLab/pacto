@@ -141,7 +141,7 @@ views say they may be incomplete.
 A held change asks one question of the teams that own the affected services.
 Only their members may answer. A contract owner team `T` is the group `T`, or
 `teamGroupPrefix` followed by `T`. The promoter ignores an approval given
-more than its login freshness (`promoter.authFreshness`, fifteen minutes by
+more than its login freshness (`delivery.promoter.authFreshness`, fifteen minutes by
 default) after its author's login, and every Stage publishes that freshness in
 `status.authFreshness`. To decide, a person whose login is older than two
 thirds of it (ten of fifteen minutes by default) signs in again
@@ -201,7 +201,7 @@ tools.
   provider's session, and it gets a login time only as old as your last real
   login there. An identity provider that ignores `prompt=login` widens this.
 - A stolen dashboard session can approve only in the first two thirds of the
-  promoter's login freshness (`promoter.authFreshness`, ten of fifteen minutes
+  promoter's login freshness (`delivery.promoter.authFreshness`, ten of fifteen minutes
   by default) after that person signed in again, and can take their other
   actions until it ends.
 - Sessions live in the dashboard's memory: it runs as one replica and a restart

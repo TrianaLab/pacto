@@ -15,7 +15,7 @@ holds references, never secrets. It is a sigstore bundle attached as an OCI
 referrer to the version moved to, the one moved from, the new contract and the
 Stage's stream anchor. `guarded: true` says the admission policies checked who
 asked and who approved. A record without it was written while the chart ran
-without them (`admissionPolicies.allowUnguarded`), so those names are only what
+without them (`delivery.admissionPolicies.allowUnguarded`), so those names are only what
 their writers claimed.
 
 Each Stage has one stream: records are numbered (`seq`) and each names the one
@@ -51,7 +51,7 @@ In production, sign with a KMS key (`signing.kms: awskms:///alias/pacto`;
 ECDSA P-256, Ed25519 or RSA PKCS#1 v1.5 with SHA-256; AWS, GCP, Azure and
 Vault) or keyless (`signing.keyless`: certificate `identity` and `issuer`, a
 Fulcio, a required timestamp authority and a `trustedRoot`). Workload identity
-goes in `recorder.serviceAccount.annotations`. The recorder never uploads to a
+goes in `delivery.recorder.serviceAccount.annotations`. The recorder never uploads to a
 public transparency log and checks a probe record at startup, so a wrong key
 stops it before anything lands.
 
@@ -91,7 +91,7 @@ spec:
 Then every promote or rollback an agent or the promoter raises waits for a
 person's approval while `RecordStoreReady` is not `True`, or while more than
 five of the Stage's operations wait for a record. People, break-glass and
-freezes are not held. With `recorder.monitoring.enabled`, the chart scrapes the
+freezes are not held. With `delivery.recorder.monitoring.enabled`, the chart scrapes the
 recorder and ships a `PrometheusRule`. `PactoDeliveryRecordsPending` fires when
 a stream has waited 15 minutes for a record, and `PactoDeliveryRecorderDown`
 when no recorder answers a scrape.
@@ -219,10 +219,10 @@ prints the statement.
 
 ## Retention and events
 
-A recorded Operation is deleted after `recorder.operationTTL` (a week), except
+A recorded Operation is deleted after `delivery.recorder.operationTTL` (a week), except
 the one a Stage runs. Nothing in Pacto deletes a record, but registry retention
 rules can, leaving history partial: keep the streams repository and the
-referrers out of them. With `recorder.cdeventsSink` set, the recorder posts a
+referrers out of them. With `delivery.recorder.cdeventsSink` set, the recorder posts a
 [CDEvent](https://cdevents.dev) for every record, best effort.
 
 ## Limits

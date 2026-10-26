@@ -37,7 +37,7 @@ spec:
 
 The checks run on the time since Flux applied the version, all at once, and
 one that takes longer than a minute is Unknown. The promoter works on
-`promoter.workers` (4 by default) operations and Stages at a time, so a slow
+`delivery.promoter.workers` (4 by default) operations and Stages at a time, so a slow
 provider does not hold up the others. Any Fail rolls it
 back, all Pass verifies it and anything else waits; when `window` runs out a
 person is asked to accept the unknown or reject the version. While that
