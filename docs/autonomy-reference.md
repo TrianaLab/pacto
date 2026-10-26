@@ -72,19 +72,25 @@ pacto delivery approve <operation>
 - Raising needs an Approval from a person other than the raiser, from the team
   the running contract declares. If that contract cannot be read the verdict
   is Unknown.
-- Raising above `status.proposal` is Unknown and needs `accept-unknown`.
+- A raise passes only when `status.proposal` names exactly the next rung and
+  the Stage's status still earns it when the raise is planned. Anything else
+  is Unknown and needs `accept-unknown`.
 - Raising to `auto-nonbreaking` or `autonomous` without `RecordStoreReady=True`
   is Rejected.
 - Lowering needs no approval. An agent may not lower to `observe`. The promoter
-  never raises.
+  never raises, and lowers only one rung from an automatic rung (the
+  step-down below); admission enforces both.
+- Lowering to `observe` clears `status.pointer`: GitOps owns the version
+  again, and leaving observe adopts what the source then reports.
 - The approval is checked again just before the rung moves. A proposal that
   lapsed in between sends the request back to a person.
 
 ## Step-down
 
-When a version Pacto promoted automatically has a confirmed Fail (whether it
-is then rolled back or the Stage freezes), the controller raises a `delivery.pacto.trianalab.io/autonomy` operation that
-lowers the Stage one rung (never below `observe`). It needs no approval and
+When a promote that shipped with no person on an automatic rung (raised by the
+promoter or an agent, with no approval) has a confirmed Fail (whether it is
+then rolled back or the Stage freezes), the controller raises a `delivery.pacto.trianalab.io/autonomy` operation that
+lowers the Stage one rung (never below `advise`). It needs no approval and
 concludes like any other operation. The proposal window starts again. Unknown
 never steps a Stage down.
 

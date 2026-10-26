@@ -237,7 +237,7 @@ func (r *StageReconciler) propose(ctx context.Context, stage *dv1.Stage) error {
 // no person on an automatic rung (the promoter or an agent raised it and
 // nobody approved it) failed on a confirmed Fail: an autonomy
 // operation raised by the promoter, which the recorder signs when it is
-// writing, needing no approval, never below observe. Concluding it
+// writing, needing no approval, never below advise. Concluding it
 // restarts the evidence count (delivery.ProposeRung). Its name is derived
 // from the failed operation, so raising it twice is a no-op; a second failure
 // steps down again from wherever the first left the Stage, down to advise,

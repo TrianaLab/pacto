@@ -200,8 +200,8 @@ func isDigest(d string) bool {
 	return err == nil
 }
 
-// Below is the rung one step down, and false on observe: an automatic
-// step-down never goes below observe.
+// Below is the rung one step down, and false on observe. An automatic
+// step-down only starts from an automatic rung, so it never goes below advise.
 func (r Rung) Below() (Rung, bool) {
 	if r.level() < 1 {
 		return "", false
