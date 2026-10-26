@@ -92,7 +92,10 @@ service uses. Watching traffic shows only which service calls which,
 not what each call uses.
 
 AI agents can plan, ask for and cancel their own changes, but only people can
-approve. To approve, a person must have signed in to the dashboard (or the
+approve. Whoever asked may not approve, nor the person an agent says it acts
+for (`--on-behalf-of`, claimed and never checked). An agent that leaves it out
+hides who is behind it, so the two-person rule holds only for changes a person
+asks for directly or an agent asks for in their name. To approve, a person must have signed in to the dashboard (or the
 cluster) with their own company login in the last 15 minutes (the default of
 `delivery.promoter.authFreshness`), and the record names them. That needs a
 cluster that trusts your company login, untested on EKS, GKE and AKS;

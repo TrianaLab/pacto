@@ -45,7 +45,9 @@ Delivery is alpha: its settings and commands may still change, and it runs on
 Kubernetes 1.30 or later with Flux (Argo CD is experimental).
 
 A new Stage starts on observe. Pacto proposes the next rung after enough good
-changes, and a person other than the one who asked confirms it. A raise to an
+changes, and a person other than the one who asked confirms it (Pacto knows who
+asked only from the request: a person who has an agent ask without
+`--on-behalf-of` can approve their own change). A raise to an
 automatic rung needs the recorder, so it leaves a signed record. A failed
 promote is rolled back once, whoever asked for it. The Stage freezes instead
 when there is nothing safe to go back to, the rollback fails or someone chose
