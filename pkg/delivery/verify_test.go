@@ -54,6 +54,29 @@ func TestContractVerdict(t *testing.T) {
 			t.Errorf("%s: got %+v, want %s containing %q", c.name, c.v, c.want, c.msg)
 		}
 	}
+	// The Pacto ships inside the version and names its own target: one that
+	// judged a decoy says nothing about what the Stage runs.
+	runs := WorkloadRef{Kind: "Deployment", Name: "payments"}
+	decoyed := pactoAt("p", c2, "Compliant", 2)
+	decoyed.Status.EvaluatedRevision.Workload.Name = "decoy"
+	for _, c := range []struct {
+		p    PactoView
+		want Result
+		msg  string
+	}{
+		{pactoAt("p", c2, "Compliant", 2), Pass, "Compliant"},
+		{decoyed, Unknown, "it evaluated Deployment/decoy, not Deployment/payments"},
+		{PactoView{Status: PactoStatusView{ContractStatus: "Compliant", EvaluatedRevision: &EvaluatedView{ContractDigest: c2}}}, Unknown, "it evaluated no workload"},
+	} {
+		v := ContractVerdict(ContractCheck{ContractRef: ref, Applied: true, Pactos: []PactoView{c.p}, Workload: live("w1", 2, 2), Runs: runs})
+		if v.Result != c.want || !strings.Contains(v.Message, c.msg) {
+			t.Errorf("runs %v: got %+v, want %s containing %q", runs, v, c.want, c.msg)
+		}
+	}
+	if (StageSpec{Service: ServiceRef{Name: "payments"}}).WorkloadOf() != runs ||
+		(StageSpec{Workload: &WorkloadRef{Kind: "StatefulSet", Name: "db"}}).WorkloadOf() != (WorkloadRef{Kind: "StatefulSet", Name: "db"}) {
+		t.Error("WorkloadOf")
+	}
 	if v := ContractVerdict(ContractCheck{ContractRef: "oci://r/p:1.0.0", Applied: true}); v.Result != Unknown || !strings.Contains(v.Message, "digest-pinned") {
 		t.Errorf("tag contract: %+v", v)
 	}

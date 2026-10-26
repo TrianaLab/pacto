@@ -62,6 +62,10 @@ type ContractCheck struct {
 	Pactos []PactoView
 	// Workload looks up the live workload a Pacto evaluated (nil when absent).
 	Workload func(kind, name string) *WorkloadState
+	// Runs is the workload the Stage says the service runs as
+	// (StageSpec.WorkloadOf): a Pacto that evaluated anything else judged a
+	// decoy, not the version. Empty checks nothing, for callers with no Stage.
+	Runs WorkloadRef
 }
 
 // ContractVerdict maps the Pacto contract check onto a verdict, but only when
@@ -101,6 +105,9 @@ func eachPacto(in ContractCheck, gate string, judge func(PactoView) (Result, str
 	for _, p := range in.Pactos {
 		r, msg := Unknown, staleness(p, want, in.Workload)
 		if msg == "" {
+			msg = decoy(p.Status.EvaluatedRevision.Workload, in.Runs)
+		}
+		if msg == "" {
 			r, msg = judge(p)
 			if cite != nil {
 				cite(p, v.Citation)
@@ -112,6 +119,20 @@ func eachPacto(in ContractCheck, gate string, judge func(PactoView) (Result, str
 	v.Result = worst
 	v.Message = strings.Join(msgs, "; ")
 	return v
+}
+
+// decoy says why a Pacto that evaluated w judged something other than runs,
+// the workload the Stage runs, or "" when it judged that one (or runs is
+// empty).
+func decoy(w WorkloadView, runs WorkloadRef) string {
+	if runs.Name == "" || w.Kind == runs.Kind && w.Name == runs.Name {
+		return ""
+	}
+	got := "no workload"
+	if w.Name != "" {
+		got = w.Kind + "/" + w.Name
+	}
+	return "it evaluated " + got + ", not " + runs.Kind + "/" + runs.Name + ", the workload this Stage runs (spec.workload)"
 }
 
 // staleness says why a Pacto's result is not about the applied version, or ""

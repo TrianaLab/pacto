@@ -69,7 +69,7 @@ func (p *planner) delivery() {
 			approval = gated
 		}
 		fmt.Fprintf(&b, deployer, name, env)
-		fmt.Fprintf(&b, envPieces, name, env, deployRepo, tag, verify, name, env, name, env, name, name, env, name, env, name, candidates, approval)
+		fmt.Fprintf(&b, envPieces, name, env, deployRepo, tag, verify, name, env, name, env, name, name, env, name, env, name, kind, target, candidates, approval)
 		p.file("delivery/"+env+".yaml", b.String())
 		want := "the registry"
 		if i > 0 {
@@ -306,6 +306,11 @@ spec:
     name: %s
   environment: %s
   applyRef:
+    name: %s
+  # The workload the checks judge: a Pacto that checked anything else, such as
+  # a decoy a version shipped, counts for nothing.
+  workload:
+    kind: %s
     name: %s
   candidates:
 %s  # The Stage plans every change and moves nothing. Every rung above this is

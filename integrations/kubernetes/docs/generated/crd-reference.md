@@ -198,6 +198,9 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.policy.service.domain` | `string` | no |  |  | Domain is the registry and organisation scope (empty for the default). |
 | `status.policy.service.name` | `string` | yes |  |  | Name is the contract's service.name. |
 | `status.policy.startRung` | `string` | no | `"observe"` | `observe`, `advise`, `auto-nonbreaking`, `autonomous` | StartRung is where a new Stage begins. It is read once, when status.rung is empty; after that only an autonomy operation moves the rung. Creating a Stage is an admin action, so any rung is accepted, and a Stage whose status is lost seeds back to this rung. Only observe and advise keep Pacto from shipping without a person. |
+| `status.policy.workload` | `object` | no |  |  | Workload is the workload the service runs as, in the Stage's namespace: the one object pacto.contract and pacto.runtime may judge. The Pacto resource ships inside every version and names its own target, so without this a version could point its own check at a decoy. Empty is the Deployment named spec.service.name. |
+| `status.policy.workload.kind` | `string` | yes |  |  | Kind is the workload kind, such as Deployment or StatefulSet. |
+| `status.policy.workload.name` | `string` | yes |  |  |  |
 | `status.question` | `string` | no |  |  | Question is what a human is asked while the operation is Held. |
 | `status.reason` | `string` | no |  |  | Reason is the machine reason for the outcome or the hold (PlanStale, PointerMoved, NoStage, ...). |
 | `status.record` | `object` | no |  |  | Record is the signed record of this operation, once the recorder wrote it. Only the recorder writes it. |
@@ -290,6 +293,9 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.service.domain` | `string` | no |  |  | Domain is the registry and organisation scope (empty for the default). |
 | `spec.service.name` | `string` | yes |  |  | Name is the contract's service.name. |
 | `spec.startRung` | `string` | no | `"observe"` | `observe`, `advise`, `auto-nonbreaking`, `autonomous` | StartRung is where a new Stage begins. It is read once, when status.rung is empty; after that only an autonomy operation moves the rung. Creating a Stage is an admin action, so any rung is accepted, and a Stage whose status is lost seeds back to this rung. Only observe and advise keep Pacto from shipping without a person. |
+| `spec.workload` | `object` | no |  |  | Workload is the workload the service runs as, in the Stage's namespace: the one object pacto.contract and pacto.runtime may judge. The Pacto resource ships inside every version and names its own target, so without this a version could point its own check at a decoy. Empty is the Deployment named spec.service.name. |
+| `spec.workload.kind` | `string` | yes |  |  | Kind is the workload kind, such as Deployment or StatefulSet. |
+| `spec.workload.name` | `string` | yes |  |  |  |
 | `status` | `object` | no |  |  | StageStatus is written by the promoter's operation and stage reconcilers and by the recorder (Stream.Head, Stream.Anchor and RecordStoreReady), each through a compare-and-swap on the Stage's resourceVersion. |
 | `status.authFreshness` | `string` | no |  |  | AuthFreshness is how old a login the promoter accepts on an approval (a Go duration). Clients ask for a fresh login with a margin under it (DecisionFreshnessFor). |
 | `status.autoHold` | `boolean` | no |  |  | AutoHold stops auto-promotion after a person or agent rolled back or promoted back to a version the Stage already verified. |

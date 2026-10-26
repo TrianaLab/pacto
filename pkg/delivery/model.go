@@ -292,6 +292,31 @@ type StageSpec struct {
 	Deadlines Deadlines `json:"deadlines,omitzero"`
 	// +optional
 	Records RecordsPolicy `json:"records,omitzero"`
+	// Workload is the workload the service runs as, in the Stage's namespace:
+	// the one object pacto.contract and pacto.runtime may judge. The Pacto
+	// resource ships inside every version and names its own target, so
+	// without this a version could point its own check at a decoy. Empty is
+	// the Deployment named spec.service.name.
+	// +optional
+	Workload *WorkloadRef `json:"workload,omitempty"`
+}
+
+// WorkloadRef names a workload in the Stage's namespace.
+type WorkloadRef struct {
+	// Kind is the workload kind, such as Deployment or StatefulSet.
+	// +kubebuilder:validation:MinLength=1
+	Kind string `json:"kind"`
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+}
+
+// WorkloadOf is the workload the Stage's checks must have judged: spec.workload,
+// or the Deployment named spec.service.name.
+func (s StageSpec) WorkloadOf() WorkloadRef {
+	if s.Workload != nil {
+		return *s.Workload
+	}
+	return WorkloadRef{Kind: "Deployment", Name: s.Service.Name}
 }
 
 // AutonomyPolicy tunes when Pacto proposes the next rung.

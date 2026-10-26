@@ -104,6 +104,7 @@ func (c Cluster) contractCheck(ctx context.Context, stage *dv1.Stage, digest str
 		ContractRef: ann[delivery.ContractAnnotation], Applied: ok, AppliedWhy: why,
 		Pactos:   delivery.PactosFor(pactos, stage.Namespace, stage.Spec.Service.Name),
 		Workload: c.workload(ctx, stage.Namespace),
+		Runs:     stage.Spec.WorkloadOf(),
 	}, ""
 }
 

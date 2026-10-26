@@ -1415,6 +1415,7 @@ export interface components {
             records?: components["schemas"]["Delivery.RecordsPolicy"];
             service: components["schemas"]["Delivery.ServiceRef"];
             startRung?: string;
+            workload?: components["schemas"]["Delivery.WorkloadRef"];
         };
         "Delivery.Times": {
             admitted?: string;
@@ -1439,6 +1440,10 @@ export interface components {
             checks?: components["schemas"]["Delivery.GateCheck"][] | null;
             recheck?: string;
             window?: string;
+        };
+        "Delivery.WorkloadRef": {
+            kind: string;
+            name: string;
         };
         DependencyInfo: {
             compatibility?: string;

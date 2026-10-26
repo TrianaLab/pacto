@@ -715,6 +715,26 @@ spec:
                     - message: startRung is fixed at creation; propose delivery.pacto.trianalab.io/autonomy
                         to change the rung
                       rule: self == oldSelf
+                  workload:
+                    description: |-
+                      Workload is the workload the service runs as, in the Stage's namespace:
+                      the one object pacto.contract and pacto.runtime may judge. The Pacto
+                      resource ships inside every version and names its own target, so
+                      without this a version could point its own check at a decoy. Empty is
+                      the Deployment named spec.service.name.
+                    properties:
+                      kind:
+                        description: Kind is the workload kind, such as Deployment
+                          or StatefulSet.
+                        minLength: 1
+                        type: string
+                      name:
+                        minLength: 1
+                        type: string
+                    required:
+                    - kind
+                    - name
+                    type: object
                 required:
                 - applyRef
                 - environment

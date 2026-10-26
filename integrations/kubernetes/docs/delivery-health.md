@@ -6,6 +6,13 @@ calls only what its contract declares (its claims). Every check answers Pass,
 Fail or Unknown and cites what it read, so anyone can run it again. Unknown
 never passes.
 
+The Pacto resource ships inside every version and names its own target, so
+`pacto.contract` and `pacto.runtime` count only a Pacto that evaluated the
+workload the Stage says the service runs: `spec.workload` (`kind` and `name`
+in the Stage's namespace), or the Deployment named `spec.service.name` when
+it is empty. A Pacto that checked another workload, a decoy a version shipped
+for example, is Unknown. `pacto init --delivery` writes `spec.workload`.
+
 ## Add checks to a Stage
 
 List the checks under `spec.gates.verify.checks`. Each names a provider:
