@@ -245,7 +245,8 @@ func obj(apiVersion, kind, name string, labels map[string]string, spec map[strin
 // operation is an Operation user may create: actor is user, with groups
 // and the system:authenticated group the apiserver adds to every user.
 func operation(name, user string, groups []string) *unstructured.Unstructured {
-	g := []any{"system:authenticated"}
+	g := make([]any, 0, 1+len(groups))
+	g = append(g, "system:authenticated")
 	for _, x := range groups {
 		g = append(g, x)
 	}

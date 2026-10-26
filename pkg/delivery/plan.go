@@ -536,16 +536,7 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 	if len(res.Consumers) == 0 && res.Classification != diff.NonBreaking.String() && !in.Stage.Gates.Impact.DeclaredConsumersOnly {
 		unseen = append(unseen, "no Pacto depends on "+in.Stage.Service.Name+", but a service with no contract can still call it")
 	}
-	if in.From.Digest != "" {
-		if why := bumpRefusal(res); why != "" {
-			unseen = append(unseen, why)
-		}
-		// The impact is keyed on the candidate's domain, which its author
-		// chooses: consumers declared against the old one would drop out.
-		if a, b := contract.OCIDomain(in.From.ContractRef), contract.OCIDomain(in.To.ContractRef); a != b {
-			unseen = append(unseen, fmt.Sprintf("the contract moved from %q to %q, so consumers that depend on it in %q are not counted", a, b, a))
-		}
-	}
+	unseen = append(unseen, versionDoubts(in, res)...)
 	if in.From.Digest != "" && !slices.Contains(in.Status.Verified, in.From.Digest) {
 		unseen = append(unseen, "the version a rollback would return to ("+short(in.From.Digest)+") was never verified here")
 	}
@@ -571,6 +562,25 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 		v.Message = fmt.Sprintf("%d consumers, none incompatible", len(res.Consumers))
 	}
 	p.Verdicts = append(p.Verdicts, v)
+}
+
+// versionDoubts are why the candidate, against the running version, cannot be
+// judged by consumer ranges: a bump smaller than its change needs, or a
+// contract moved to another domain (the impact is keyed on the candidate's
+// domain, which its author chooses, so consumers declared against the old one
+// would drop out). None for a first version.
+func versionDoubts(in PlanInput, res *impact.Result) []string {
+	if in.From.Digest == "" {
+		return nil
+	}
+	var out []string
+	if why := bumpRefusal(res); why != "" {
+		out = append(out, why)
+	}
+	if a, b := contract.OCIDomain(in.From.ContractRef), contract.OCIDomain(in.To.ContractRef); a != b {
+		out = append(out, fmt.Sprintf("the contract moved from %q to %q, so consumers that depend on it in %q are not counted", a, b, a))
+	}
+	return out
 }
 
 // bumpRefusal says why the candidate's version cannot be trusted to speak for

@@ -199,9 +199,7 @@ func checkStages(t *testing.T, test, prod string) {
 	if ts.Candidates.OCIRepositoryRef == nil || ts.Candidates.OCIRepositoryRef.Name != "fraud-candidates" || ts.Environment != "test" || ts.ApplyRef.Name != "fraud" {
 		t.Fatalf("test Stage: %+v", ts)
 	}
-	if w := ts.WorkloadOf(); w.Kind != "Deployment" || w.Name != "fraud" || ts.Workload == nil {
-		t.Fatalf("the test Stage does not name the workload its checks judge: %+v", ts.Workload)
-	}
+	checkWorkload(t, ts)
 	if ps.Candidates.UpstreamStage == nil || *ps.Candidates.UpstreamStage != (delivery.StageRef{Name: "fraud", Namespace: "test"}) {
 		t.Fatalf("prod Stage: %+v", ps)
 	}
@@ -224,6 +222,15 @@ func checkStages(t *testing.T, test, prod string) {
 	}
 	checkDeployer(t, test, "test")
 	checkDeployer(t, prod, "prod")
+}
+
+// checkWorkload: the Stage names the workload its checks judge, so a Pacto a
+// version ships cannot point them at a decoy.
+func checkWorkload(t *testing.T, s delivery.StageSpec) {
+	t.Helper()
+	if w := s.WorkloadOf(); w.Kind != "Deployment" || w.Name != "fraud" || s.Workload == nil {
+		t.Fatalf("the Stage does not name the workload its checks judge: %+v", s.Workload)
+	}
 }
 
 // checkDeployer: Flux applies each version as a namespaced deployer, never as

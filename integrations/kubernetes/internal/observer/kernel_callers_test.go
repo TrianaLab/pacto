@@ -108,7 +108,7 @@ func (f *kernelFixture) callers(t *testing.T, in func(*CollectInput)) ([]pactoap
 }
 
 func names(cs []pactoapi.ObservedCaller) []string {
-	var out []string
+	out := make([]string, 0, len(cs))
 	for _, c := range cs {
 		out = append(out, c.Namespace+"/"+c.Kind+"/"+c.Name+"/"+c.Source)
 	}

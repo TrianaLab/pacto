@@ -51,7 +51,7 @@ func (r *OperationReconciler) held(ctx context.Context, op *dv1.Operation, stage
 		return r.requeue()
 	}
 	if waiting := delivery.TeamsWaiting(ownersOf(op), op.Status.ApprovedTeams); len(waiting) > 0 {
-		op.Status.Reason = "AwaitingHuman"
+		op.Status.Reason = reasonAwaitingHuman
 		op.Status.Message = a.By + " answered for " + strings.Join(op.Status.ApprovedTeams, ", ") +
 			"; the change still waits for " + strings.Join(waiting, ", ") + ", since it is asked of every one of them"
 		return r.save(ctx, op)

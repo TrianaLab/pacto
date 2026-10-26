@@ -42,36 +42,9 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 		return reconcile.Result{RequeueAfter: immediately}, nil
 	}
 	if stage != nil {
-		squat := ""
-		if c.outcome == delivery.Failed && op.Spec.Type == delivery.TypePromote {
-			// Never on a stale decision: an operation the Stage already
-			// concluded, maybe as a success, raises no rollback or step-down.
-			cur := &dv1.Stage{}
-			if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(stage), cur); err != nil {
-				return reconcile.Result{}, err
-			}
-			// Nor when a rollback or override took the Stage while the gates
-			// ran: the compare-and-swap below concludes it Preempted.
-			// ponytail: a lock taken between this read and that swap still
-			// gets the rollback raised, which is then refused and freezes.
-			open := concludedOn(cur.Status, op.UID) == nil
-			live := open && !preempted(op, cur)
-			if live || open && c.preempted { // a preempting rollback already ran: only the step-down is owed
-				var err error
-				if squat, err = raiseStepDown(ctx, r.Client, r.Policy, op, cur, code+": "+msg, c.cause); err != nil {
-					return reconcile.Result{}, err
-				}
-			}
-			if live && op.Status.Pointer.Before != "" && !slices.Contains(cur.Status.FailedDigests, op.Status.Pointer.Before) {
-				rb, err := raiseRollback(ctx, r.Client, r.Policy, op, stage, code+": "+msg, c.cause)
-				if err != nil {
-					return reconcile.Result{}, err
-				}
-				if rb == "" {
-					event(r.Events, stage, true, "RollbackRaised", op.Name+" failed ("+code+": "+msg+"), so it is rolled back to "+op.Status.Pointer.Before)
-				}
-				squat = strings.Join(slices.DeleteFunc([]string{squat, rb}, func(x string) bool { return x == "" }), "; ")
-			}
+		squat, err := r.raiseOnFailure(ctx, op, stage, c, code+": "+msg)
+		if err != nil {
+			return reconcile.Result{}, err
 		}
 		if err := r.casStage(ctx, stage, func(s *dv1.Stage) error {
 			// Decided on the fresh Stage: a verdict reached on a cached one
@@ -137,6 +110,46 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 	event(r.Events, op, c.outcome != delivery.Succeeded && c.outcome != delivery.Cancelled, string(c.outcome), c.reason)
 	r.heldChecks.Delete(op.UID)
 	return reconcile.Result{RequeueAfter: immediately}, nil
+}
+
+// raiseOnFailure raises what a failed promote owes before it concludes: its
+// step-down and its one bound rollback. A non-empty squat says someone took
+// the name of one, and the caller freezes the Stage. Anything else raises
+// nothing.
+func (r *OperationReconciler) raiseOnFailure(ctx context.Context, op *dv1.Operation, stage *dv1.Stage, c conclusion, why string) (string, error) {
+	if c.outcome != delivery.Failed || op.Spec.Type != delivery.TypePromote {
+		return "", nil
+	}
+	// Never on a stale decision: an operation the Stage already concluded,
+	// maybe as a success, raises no rollback or step-down.
+	cur := &dv1.Stage{}
+	if err := r.APIReader.Get(ctx, client.ObjectKeyFromObject(stage), cur); err != nil {
+		return "", err
+	}
+	// Nor when a rollback or override took the Stage while the gates ran:
+	// the compare-and-swap concludes it Preempted.
+	// ponytail: a lock taken between this read and that swap still gets the
+	// rollback raised, which is then refused and freezes.
+	open := concludedOn(cur.Status, op.UID) == nil
+	live := open && !preempted(op, cur)
+	squat := ""
+	if live || open && c.preempted { // a preempting rollback already ran: only the step-down is owed
+		var err error
+		if squat, err = raiseStepDown(ctx, r.Client, r.Policy, op, cur, why, c.cause); err != nil {
+			return "", err
+		}
+	}
+	if !live || op.Status.Pointer.Before == "" || slices.Contains(cur.Status.FailedDigests, op.Status.Pointer.Before) {
+		return squat, nil
+	}
+	rb, err := raiseRollback(ctx, r.Client, r.Policy, op, stage, why, c.cause)
+	if err != nil {
+		return "", err
+	}
+	if rb == "" {
+		event(r.Events, stage, true, "RollbackRaised", op.Name+" failed ("+why+"), so it is rolled back to "+op.Status.Pointer.Before)
+	}
+	return strings.Join(slices.DeleteFunc([]string{squat, rb}, func(x string) bool { return x == "" }), "; "), nil
 }
 
 // concludedOn is the seq and conclusion the Stage gave uid, or nil.

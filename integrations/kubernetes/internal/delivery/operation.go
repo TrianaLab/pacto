@@ -208,7 +208,7 @@ func (r *OperationReconciler) pending(ctx context.Context, op *dv1.Operation, st
 	case delivery.PredictHeld:
 		op.Status.Phase, op.Status.Question, op.Status.Times.Held = delivery.PhaseHeld, plan.Question, ts(r.now())
 		op.Status.ApprovedTeams = nil // a question asked again is answered again
-		op.Status.Reason, op.Status.Message = "AwaitingHuman", "a person must "+string(plan.Floor.Decision)
+		op.Status.Reason, op.Status.Message = reasonAwaitingHuman, "a person must "+string(plan.Floor.Decision)
 		return r.saveHeld(ctx, op)
 	case delivery.PredictWaits:
 		op.Status.Reason, op.Status.Message = reasonWaiting, strings.Join(plan.Conflicts, "; ")
@@ -452,6 +452,9 @@ func (r *OperationReconciler) verdicts(ctx context.Context, op *dv1.Operation, s
 func preempted(op *dv1.Operation, stage *dv1.Stage) bool {
 	return stage.Status.Locks[op.Spec.Facet] != string(op.UID)
 }
+
+// reasonAwaitingHuman is the reason of an operation held for a person.
+const reasonAwaitingHuman = "AwaitingHuman"
 
 // preemptedBy is how an applied operation a rollback or override preempted
 // concludes.

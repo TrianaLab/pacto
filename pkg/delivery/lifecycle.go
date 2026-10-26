@@ -181,9 +181,7 @@ func AdmitRollback(spec OperationSpec, status StageStatus, cited *CitedOp, class
 		return "UnboundRollback: to must be the cited operation's before; anything else is a promote"
 	case spec.Params.To == "":
 		return "UnboundRollback: the cited operation started from an empty Stage, so there is nothing to roll back to"
-	case cited.Type != TypePromote && class != ClassHuman && class != ClassBreakGlass:
-		// A rollback has no pre-gates: undoing a person's rollback would
-		// ship again the version they removed, with nobody asked.
+	case !mayUndo(cited.Type, class):
 		return "UnboundRollback: undoing a rollback or override is a promote; propose it"
 	case slices.Contains(status.FailedDigests, spec.Params.To):
 		return "FailedDigest: a rollback may never target a failed digest"
@@ -191,6 +189,14 @@ func AdmitRollback(spec OperationSpec, status StageStatus, cited *CitedOp, class
 		return "Frozen: an agent rollback on a frozen Stage needs a Fail verdict as its cause"
 	}
 	return ""
+}
+
+// mayUndo reports whether class may roll back an operation of type typ. A
+// rollback has no pre-gates, so undoing a person's rollback or an override
+// would ship again the version they removed with nobody asked: only a person
+// or break-glass undoes anything but a promote.
+func mayUndo(typ string, class ActorClass) bool {
+	return typ == TypePromote || class == ClassHuman || class == ClassBreakGlass
 }
 
 // SetsAutoHold reports whether concluding this operation should put an
