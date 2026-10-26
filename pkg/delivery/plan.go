@@ -462,6 +462,11 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 	if len(res.Consumers) == 0 && res.Classification != diff.NonBreaking.String() && !in.Stage.Gates.Impact.DeclaredConsumersOnly {
 		unseen = append(unseen, "no Pacto depends on "+in.Stage.Service.Name+", but a service with no contract can still call it")
 	}
+	if in.From.Digest != "" {
+		if why := bumpRefusal(res); why != "" {
+			unseen = append(unseen, why)
+		}
+	}
 	if in.From.Digest != "" && !slices.Contains(in.Status.Verified, in.From.Digest) {
 		unseen = append(unseen, "the version a rollback would return to ("+short(in.From.Digest)+") was never verified here")
 	}
@@ -487,6 +492,27 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 		v.Message = fmt.Sprintf("%d consumers, none incompatible", len(res.Consumers))
 	}
 	p.Verdicts = append(p.Verdicts, v)
+}
+
+// bumpRefusal says why the candidate's version cannot be trusted to speak for
+// its change, or "": consumer ranges are judged against service.version,
+// which the publisher chooses, and pacto publish checks the bump only on the
+// publisher's machine. A breaking change published as a minor would pass every
+// ^1 range, so the promoter checks the bump itself.
+func bumpRefusal(res *impact.Result) string {
+	if res.Classification == diff.NonBreaking.String() {
+		return "" // any version, the same one included, carries a change that breaks no one
+	}
+	cls := diff.PotentialBreaking
+	if res.Classification == diff.Breaking.String() {
+		cls = diff.Breaking
+	}
+	need := diff.RequiredBump(cls, res.OldVersion)
+	if err := diff.CheckBump(res.OldVersion, res.NewVersion, need); err != nil {
+		return fmt.Sprintf("%s is %s but not a %s bump over %s, so consumer ranges cannot judge it (%v)",
+			res.NewVersion, res.Classification, need, res.OldVersion, err)
+	}
+	return ""
 }
 
 // citeCallers cites what keeps autonomous from being proposed whatever the

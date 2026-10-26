@@ -159,6 +159,28 @@ func TestPlanNoConsumersHoldsABreakingChangeUnlessTheGraphIsDeclaredComplete(t *
 	}
 }
 
+// TestPlanBreakingChangeUnderAMinorBump: consumer ranges are judged against
+// the version the publisher chose, so a breaking change published as 1.9.0
+// passes every ^1 range. The promoter checks the bump itself: such a change is
+// Unknown for a person, never cleared breaking autonomy evidence.
+func TestPlanBreakingChangeUnderAMinorBump(t *testing.T) {
+	old, sneaky := bundle("payments", "1.8.0"), bundle("payments", "1.9.0")
+	old.Contract.Workload, sneaky.Contract.Workload = "service", "job" // BREAKING
+	from, to := rev(dA, c1, old), rev(dB, c2, sneaky)
+	in := PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
+		From: from, To: to, Class: ClassAgent}
+	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Snapshot, in.Stage.Gates.Impact.DeclaredConsumersOnly = snap, true
+	p := autonomousPlan(in)
+	if v := verdict(t, p, GateImpact); v.Result != Unknown || p.Floor.Decision != AcceptUnknown || ClearedBreaking(&p) ||
+		!strings.Contains(v.Message, "1.9.0 is BREAKING but not a major bump over 1.8.0") {
+		t.Fatalf("a breaking change under a minor bump must not ship as cleared: %+v", p)
+	}
+}
+
 func TestPlanBreakingChangeAsksOnlyTheBrokenConsumersOwners(t *testing.T) {
 	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "2.0.0"))
 	other := checkoutPacto("^1.0.0")

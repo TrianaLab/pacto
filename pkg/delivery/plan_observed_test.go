@@ -34,7 +34,7 @@ var legacy = ObservedCallerView{Namespace: "prod", Kind: "Deployment", Name: "le
 // breakingSides is a change the diff classifies as BREAKING; minorSides one it
 // classifies as NON_BREAKING.
 func breakingSides() (Revision, Revision) {
-	old, nu := bundle("payments", "1.0.0"), bundle("payments", "1.1.0")
+	old, nu := bundle("payments", "1.0.0"), bundle("payments", "2.0.0")
 	old.Contract.Workload, nu.Contract.Workload = "service", "job"
 	return rev(dA, c1, old), rev(dB, c2, nu)
 }

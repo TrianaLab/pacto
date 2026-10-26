@@ -44,6 +44,12 @@ would break a consumer waits for that consumer's team. A change with an
 Unknown check waits for the team that owns the service. The rung only decides how often a person is
 asked when the contracts say a change is safe.
 
+Consumers declare the versions they accept as ranges, and Pacto checks each
+range against the version the change is published as. The promoter also checks
+that version against the change: a breaking change published as a minor (1.9.0
+after 1.8.0) would pass every `^1` range, so it waits for a person to accept
+the unknown instead.
+
 The rungs judge the contract, never the manifests that ship with it. A version
 with the same contract and new manifests (a new ClusterRoleBinding, say) is
 non-breaking, so an automatic rung ships it with no person. What those
