@@ -3,8 +3,7 @@
 The recorder writes a signed record of every operation that ends, refusals
 included, into your registry next to the versions it touched. Off by
 default. Only it can sign and push; the promoter can do neither. With it on, history, blame and undo read the records, not
-the Operations left in the cluster. The operator reads every Secret, so it
-can read an Ed25519 key too: prefer KMS or keyless signing.
+the Operations left in the cluster.
 
 ## What a record is
 
@@ -48,18 +47,15 @@ delivery:
 The push Secret needs write access to the streams, deploy and contract
 repositories. Create a test key with
 `openssl genpkey -algorithm ed25519 -out key.pem`. The operator reads every
-Secret in the cluster, so a key in a Secret is not the recorder's alone. The
-chart refuses `ed25519.secretName` unless `allowOperatorReadableKey: true`
-says you accept that. Use it for kind and tests. The chart also refuses a
-recorder that shares the promoter's ServiceAccount.
+Secret, so the chart refuses such a key without `allowOperatorReadableKey`,
+and refuses a recorder that shares the promoter's ServiceAccount.
 
 In production, sign with a KMS key (`delivery.recorder.signing.kms: awskms:///alias/pacto`;
 ECDSA P-256, Ed25519 or RSA PKCS#1 v1.5 with SHA-256; AWS, GCP, Azure and
 Vault) or keyless (`delivery.recorder.signing.keyless`: certificate `identity` and `issuer`, a
 Fulcio, a required timestamp authority and a `trustedRoot`). Workload identity
-goes in `delivery.recorder.serviceAccount.annotations`. The recorder never uploads to a
-public transparency log and checks a probe record at startup, so a wrong key
-stops it before anything lands.
+goes in `delivery.recorder.serviceAccount.annotations`. The recorder checks a
+probe record at startup, so a wrong key stops it before anything lands.
 
 ## Check it works
 
@@ -241,6 +237,6 @@ referrers out of them. With `delivery.recorder.cdeventsSink` set, the recorder p
 - A follower in another cluster notices records removed from a stream's tail
   only against the newest record it already read
   ([details](delivery-reach.md#when-the-records-cannot-be-trusted)).
-- A keyless record writes no transparency log entry. Its signed time comes
+- No record goes to a transparency log such as Rekor. A keyless record's signed time comes
   from the timestamp authority the recorder must name, and the certificate is
   checked at that time.

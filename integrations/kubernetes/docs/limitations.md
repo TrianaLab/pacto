@@ -224,6 +224,14 @@ namespace; the chart value stays yours to set. See
 [Pactify a service](../../pactify.md#4-connect-the-service-to-your-cluster) for
 the commands.
 
+## Delivery records have no outside witness
+
+The recorder does not send records to a transparency log such as Rekor. Your
+registry is the only place they are kept. Anyone who can delete from it can
+drop the newest records of a stream. Only a follower that already read those
+records notices they are gone; a new follower, or one that never read them,
+does not. See [signed records](delivery-records.md).
+
 ## API version
 
 The CRDs are served at `v1alpha1`. Fields are added conservatively and

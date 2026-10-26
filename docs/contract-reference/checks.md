@@ -92,4 +92,15 @@ An AI agent needs no section of its own:
   by its version, so swapping it is potentially breaking.
 - Its eval suite is a `checks` entry.
 
-Pacto does not check at runtime which model an agent really calls.
+To pin an agent completely:
+
+- Put its prompt and its agent policy (allowed tools, guardrails) as files in
+  the bundle. The contract digest then covers their bytes.
+- Declare its tools in the `mcp` interface.
+- Name the model by an exact version, never an alias such as `latest`. Set it
+  in the deploy manifests, which delivery moves by digest, never from a
+  ConfigMap or Secret outside them.
+
+What this does not cover: a prompt or tool list the agent fetches at runtime,
+and which model the agent really calls. Pacto does not check either at
+runtime.

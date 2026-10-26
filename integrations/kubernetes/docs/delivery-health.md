@@ -94,7 +94,7 @@ even that holds more, the check is Unknown, so narrow it with `where`. The
 citation holds the exact queries with absolute time bounds, so posting them to
 Mira again reads the same spans.
 
-## HTTP and eval providers
+## HTTP providers
 
 An `http` provider is the plug-in format for any other tool. The promoter
 posts `{"input": ..., "params": ...}`, where the input names the operation,
@@ -102,6 +102,8 @@ the Stage, the service, the digests under check and the time window. The tool
 answers `{"subject": "sha256:...", "result": "Pass|Fail|Unknown", "message": "...", "citation": {...}}`,
 where `subject` is the digest it judged. An answer that names no subject, or
 a version other than the one under check, is Unknown.
+
+## Eval providers
 
 An `eval` provider is a suite runner: it runs one of the
 [checks](../../contract-reference/checks.md) the version ships, such as an AI
@@ -125,10 +127,8 @@ that does not ship the named check, or with no `suite` ships no check or more
 than one, is held before it ships (the `pacto.suites` gate): a person accepts
 it or it does not ship. It is neither failed nor passed.
 
-`suiteDigest` pins the sha256 of the suite's bytes. The suite comes from the
-version under check, so without a pin that version writes its own exam. With
-one, a version whose suite has another sha256 is held the same way before it
-ships, and the eval check of it is Unknown.
+The suite ships in the version under check. `suiteDigest` pins its sha256: a
+version with other suite bytes is held the same way, and its eval is Unknown.
 
 The promoter posts the same `{"input": ..., "params": ...}`, the input also
 naming the contract the version ships and the suite in it:
@@ -144,8 +144,8 @@ The Stage decides, not the runner:
 
 An answer about another version or another suite, with no cases or nothing to
 cite is Unknown, and so is a version whose contract cannot be read or does not
-ship the suite. The verdict counts only when it is about that exact sha256, and
-it cites the contract, the suite's name, path and digest and the run.
+ship the suite. The verdict cites the contract, the suite's name, path and
+digest and the run.
 
 ## Claims against the running service
 

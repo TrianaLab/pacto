@@ -13,8 +13,7 @@ Delivery is the `pacto-operator` chart's `delivery` section, off by default. It 
 This needs Helm 3.14 or later. Delivery runs in `delivery.namespace`
 (`pacto-delivery`, never the release or node agent namespace), where the operator holds no
 role, so it cannot act as the promoter. It still reads every Secret: prefer
-KMS or keyless recorder signing. The chart refuses an Ed25519 key in a Secret
-unless `delivery.recorder.signing.allowOperatorReadableKey: true` accepts that. Set `delivery.createNamespace=false` to
+KMS or keyless recorder signing. Set `delivery.createNamespace=false` to
 create the namespace, with the recorder key, yourself. Bind
 `pacto-operator-delivery-agent` to agents and
 `pacto-operator-delivery-approver` to approvers. The image is
@@ -99,9 +98,8 @@ flowchart LR
   waits for a person, unless the Stage sets
   `gates.impact.declaredConsumersOnly: true` to say every consumer has one.
   `pacto.suites` holds a version that does not ship a suite one of the Stage's
-  checks names, for a person to accept the unknown. It also holds any version
-  that adds, removes or edits a suite it ships, on every rung: a version never
-  grades its own exam.
+  checks names, for a person to accept the unknown. It also holds a version
+  that changes a suite it ships, on every rung.
 - After: the Pacto contract check counts only when
   `status.evaluatedRevision` names this version's contract digest and the
   current workload generation. `Compliant` and `Warning` pass, `NonCompliant`
