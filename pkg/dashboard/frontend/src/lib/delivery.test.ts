@@ -3,7 +3,7 @@ import {
   typeLabel, decisionLabel, shortDigest, decisionAsked, cliDecision, loginUrl,
   keepPending, pendingFor, dropPending, miraLink, predictionLabel, authTimeText,
   versionLabel, shortDigests, digestParts, sentence, timeLabel, personLabel, signIn, hostSignsIn,
-  verdictBadge, isBreaking, andList, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoneBy, undoCause, UNKNOWN_DOCS,
+  verdictBadge, isBreaking, andList, sortEnvironments, verificationLabel, outcomeTone, reasonAfter, changeSummary, actorBadge, autonomyOf, unknownHelp, undoneBy, undoCause, UNKNOWN_DOCS,
 } from './delivery.ts';
 import {
   parseHash, deliveryInboxUrl, deliveryEnvironmentsUrl, deliveryPublishUrl, deliveryAutonomyUrl, deliveryHistoryUrl, deliveryChangeUrl,
@@ -314,5 +314,11 @@ describe('what a change says about itself', () => {
     expect(undoCause('VerifyFailed', 'health: x')).toEqual({ text: 'a check failed after release' });
     expect(undoCause('ApplyFailed', 'boom')).toEqual({ text: 'the release did not apply' });
     expect(undoCause()).toEqual({});
+  });
+});
+
+describe('sortEnvironments', () => {
+  it('orders environments the way changes travel, numbers as numbers', () => {
+    expect(sortEnvironments(['prod', 'env-10', 'staging', 'env-2', 'test', 'Development'])).toEqual(['Development', 'test', 'staging', 'prod', 'env-2', 'env-10']);
   });
 });

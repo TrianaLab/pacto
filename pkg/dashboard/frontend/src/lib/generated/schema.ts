@@ -1502,6 +1502,8 @@ export interface components {
             pointer?: string;
             /** @description The Ready condition: True, or False with the reason the Stage cannot promote */
             ready?: string;
+            /** @description Why the Stage cannot promote, in words, when Ready is not True */
+            readyMessage?: string;
             /** @description observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one */
             rung?: string;
             service: string;

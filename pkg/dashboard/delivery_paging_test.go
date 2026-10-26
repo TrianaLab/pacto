@@ -86,6 +86,11 @@ func TestDeliveryListsPage(t *testing.T) {
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?q=LED", nil)
 	expect(t, len(envs["environments"].([]any)) == 1 && strings.Join(toStrings(envs["environmentNames"]), ",") == "books", "q filters services: %v", envs)
 
+	f.stages[1].Status.Conditions = []delivery.Condition{{Type: "Ready", Status: "False", Reason: "NoCandidateSource", Message: "the Stage names no candidates"}}
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?q=ledger", nil)
+	led := page(envs["environments"].([]any)[0])
+	expect(t, led["ready"] == "False: NoCandidateSource" && led["readyMessage"] == "the Stage names no candidates", "why it cannot promote, in words: %v", led)
+
 	_, pub := call(t, http.MethodGet, base+"/api/delivery/published?limit=2", nil)
 	expect(t, len(pub["services"].([]any)) == 2 && page(pub["page"])["total"] == float64(3), "published services are paged: %v", pub["page"])
 	_, pub = call(t, http.MethodGet, base+"/api/delivery/published?q=pay", nil)

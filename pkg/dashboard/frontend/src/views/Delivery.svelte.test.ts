@@ -218,8 +218,8 @@ describe('environments', () => {
     expect(text(board as HTMLElement)).toContain('Frozen');
     expect(text(board as HTMLElement)).toContain('Auto-hold');
     expect(text(board as HTMLElement)).not.toMatch(/pause|kept by a person/i);
-    // Two environments hold two Stages: the count names both, not one as the other.
-    expect(text(target)).toContain('2 environments, 2 Stages');
+    // The count names services and environments, never one as the other.
+    expect(text(target)).toContain('1 service, 2 environments');
     expect(text(board as HTMLElement)).toContain('1 waiting');
     expect(text(board as HTMLElement)).toContain('Cannot promote: CandidateUnverified');
     expect(text(board as HTMLElement)).toContain('Nothing yet');
@@ -232,6 +232,8 @@ describe('environments', () => {
     await settle();
     expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, from: D1 });
     const panel = target.querySelector('[data-testid="propose-panel"]')!;
+    // The plan opens in a row under its service, not above the board.
+    expect(panel.closest('tr.ev-plan-row')).not.toBeNull();
     expect(text(panel as HTMLElement)).toContain('It would wait for a person to decide.');
     expect(text(panel as HTMLElement)).toContain('Only team-checkout may answer it.');
     (panel.querySelector('form') as HTMLFormElement).requestSubmit();
@@ -288,6 +290,22 @@ describe('environments', () => {
     await settle();
     expect(target.querySelector('[data-testid="propose-panel"]')).toBeNull();
     expect(document.activeElement).toBe(unfreezeLedger);
+    destroy();
+  });
+
+  it('pages services, keeps every environment in promotion order and labels Stages that share a cell', async () => {
+    const row = (service: string, environment: string, stage: string) => ({ namespace: environment, stage, service, environment, verified: false, failed: false,
+      frozen: false, autoHold: false, held: 0, actions: [], ready: 'False: NoCandidateSource', readyMessage: 'the Stage names no candidates' });
+    fns.environments.mockResolvedValue({ ...listing, page: { total: 400, offset: 25, limit: 25 }, environmentNames: ['prod', 'env-10', 'test', 'env-2'],
+      environments: [row('payments', 'prod', 'pay-a'), row('payments', 'prod', 'pay-b')] });
+    const { target, destroy } = render(DeliveryEnvironmentsView, { offset: '25', q: 'pay' });
+    await settle();
+    expect([...target.querySelectorAll('thead th')].map((t) => t.textContent)).toEqual(['Service', 'test', 'prod', 'env-2', 'env-10']);
+    expect(text(target)).toContain('400 services, 4 environments');
+    const stages = [...target.querySelectorAll('[data-testid="env-cell"] .ev-stage')].map((e) => e.textContent);
+    expect(stages).toEqual(['prod/pay-a', 'prod/pay-b']);
+    expect(text(target)).toContain('Cannot promote: The Stage names no candidates.');
+    expect(target.querySelector('[data-testid="environments-pager-next"]')?.getAttribute('href')).toBe('#/delivery/environments?q=pay&offset=50');
     destroy();
   });
 
@@ -1017,7 +1035,9 @@ describe('names, versions and one clear sentence', () => {
     const { target, destroy } = render(DeliveryEnvironmentsView);
     await settle();
     const btn = target.querySelector('button[aria-label="Promote payments in prod to 2.0.0"]') as HTMLButtonElement;
-    expect(btn.textContent).toBe('Promote 2.0.0');
+    // The button stays short; the version is in its name and its title.
+    expect(btn.textContent).toBe('Promote');
+    expect(btn.title).toBe('Promote to 2.0.0');
     btn.click();
     await settle();
     expect(target.querySelector('#pp-title')?.textContent?.trim()).toBe('Promote prod/pay: 2.0.0');

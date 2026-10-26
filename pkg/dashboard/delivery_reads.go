@@ -301,6 +301,7 @@ type EnvironmentRow struct {
 	Candidate        string   `json:"candidate,omitempty" doc:"The newest eligible candidate"`
 	CandidateVersion string   `json:"candidateVersion,omitempty" doc:"The version the candidate's contract declares, when the artifact could be read"`
 	Ready            string   `json:"ready,omitempty" doc:"The Ready condition: True, or False with the reason the Stage cannot promote"`
+	ReadyMessage     string   `json:"readyMessage,omitempty" doc:"Why the Stage cannot promote, in words, when Ready is not True"`
 	Actions          []string `json:"actions" doc:"What the caller's class may ask for here: promote, unfreeze"`
 	Rung             string   `json:"rung,omitempty" doc:"observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one"`
 	// Shadow is set on an observe Stage only: newest first.
@@ -323,6 +324,9 @@ func (s *Server) environmentRow(ctx context.Context, api DeliveryAPI, st deliver
 	for _, c := range ss.Conditions {
 		if c.Type == "Ready" {
 			row.Ready = strings.TrimSuffix(c.Status+": "+c.Reason, ": ")
+			if c.Status != "True" {
+				row.ReadyMessage = c.Message
+			}
 		}
 	}
 	v := versions(ctx, api, &st, nil, ss.Pointer, ss.Candidate)
