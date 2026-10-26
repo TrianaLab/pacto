@@ -26,9 +26,8 @@ are recorded in
   - `verify-transaction.sh`, `verify-public.sh` — the terminal checks: every unit
     published, and every published image and chart reads anonymously. GitHub creates
     a new GHCR package as private, so the first release of a new unit (the delivery
-    image and chart in 6.1.0) fails here. Link each new package to `TrianaLab/pacto`,
-    make it public, then re-run the failed job. A new chart also needs its Artifact
-    Hub repository registered once. `PACTO_VERIFY_PUBLIC_LIST_ONLY=1` prints the
+    image in 6.1.0) fails here. Link each new package to `TrianaLab/pacto`,
+    make it public, then re-run the failed job. `PACTO_VERIFY_PUBLIC_LIST_ONLY=1` prints the
     repositories it would query without touching the network, and
     `tests/release/verify_public_test.go` asserts that list on every PR.
   - `dry-run.sh` — `make release-dry-run`: the whole transaction against a disposable
@@ -56,7 +55,7 @@ groups (a group releases together or not at all):
 | Group | Units | Coordinate kind |
 |-------|-------|-----------------|
 | **`core`** | `core`, `cli`, `dashboard-image`, `dashboard-contract-bundle`, `demo-bundles`, `demo-compose` | Go module tag, GitHub Release binaries, OCI image, OCI contract bundle, OCI bundles, OCI demo artifact |
-| **`kubernetes`** | `k8s-module`, `operator-image`, `operator-chart`, `delivery-image`, `k8s-docs` | Go module tag, OCI images, Helm/OCI charts, versioned docs |
+| **`kubernetes`** | `k8s-module`, `operator-image`, `operator-chart`, `delivery-image`, `k8s-docs` | Go module tag, OCI images, Helm/OCI chart, versioned docs |
 
 ## The release transaction and source-SHA binding
 
@@ -150,7 +149,7 @@ idempotency and fail-closed conflict.
 
 ## Chart versus Artifact Hub
 
-Each immutable chart and its mutable `artifacthub.io` alias are separate
+The immutable operator chart and the mutable `artifacthub.io` alias are separate
 results. The chart digest is recorded immediately after push; the Artifact Hub
 metadata is a separate step (runs on absent or identical, round-trip verified), so an
 Artifact Hub failure never leaves a published-but-unrecorded chart or wedges a resume.

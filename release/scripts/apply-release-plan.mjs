@@ -96,33 +96,30 @@ assert(pathMajor >= 2 ? majorOf(pin.version) === pathMajor : majorOf(pin.version
 // The operator chart also installs the opt-in delivery promoter (delivery.enabled),
 // whose image tag defaults to the same appVersion, so moving appVersion here points
 // both at the images the same release publishes.
-function applyChart(rel, c, imageCoord, imageName) {
+{
+  // Artifact Hub lists the delivery image beside the controller: one chart ships both.
+  const rel = 'integrations/kubernetes/charts/pacto-operator/Chart.yaml';
   const after = edit(rel, (s) => {
-    s = s.replace(/^version:.*$/m, `version: ${c.chartVersion}`);
-    s = s.replace(/^appVersion:.*$/m, `appVersion: "${c.appVersion}"`);
+    s = s.replace(/^version:.*$/m, `version: ${chart.chartVersion}`);
+    s = s.replace(/^appVersion:.*$/m, `appVersion: "${chart.appVersion}"`);
     // Artifact Hub image annotation: add once, then keep its tag in sync.
     if (!s.includes('artifacthub.io/images')) {
       if (!s.endsWith('\n')) s += '\n';
       if (!/^annotations:/m.test(s)) s += 'annotations:\n';
-      s += `  artifacthub.io/images: |\n    - name: ${imageName}\n` +
-           `      image: ${imageCoord}:${c.appVersion}\n`;
+      s += `  artifacthub.io/images: |\n    - name: pacto-controller\n` +
+           `      image: ${opImageCoord}:${chart.appVersion}\n`;
     }
-    s = s.replace(new RegExp(`(${esc(imageCoord)}:)v?${SEMVER}`), `$1${c.appVersion}`);
+    s = s.replace(new RegExp(`(${esc(opImageCoord)}:)v?${SEMVER}`), `$1${chart.appVersion}`);
+    s = s.replace(new RegExp(`(${esc(dlImage.coordinate)}:)v?${SEMVER}`), `$1${chart.appVersion}`);
     return s;
   });
-  assert(new RegExp(`^version: ${esc(c.chartVersion)}$`, 'm').test(after), `${rel}: version != ${c.chartVersion}`);
-  assert(new RegExp(`^appVersion: "${esc(c.appVersion)}"$`, 'm').test(after), `${rel}: appVersion != ${c.appVersion}`);
-  assert(after.includes(`${imageCoord}:${c.appVersion}`), `${rel}: artifacthub image tag != ${c.appVersion}`);
-}
-applyChart('integrations/kubernetes/charts/pacto-operator/Chart.yaml', chart, opImageCoord, 'pacto-controller');
-{
-  // Artifact Hub lists the delivery image beside the controller: one chart ships both.
-  const rel = 'integrations/kubernetes/charts/pacto-operator/Chart.yaml';
-  const after = edit(rel, (s) => s.replace(new RegExp(`(${esc(dlImage.coordinate)}:)v?${SEMVER}`), `$1${chart.appVersion}`));
+  assert(new RegExp(`^version: ${esc(chart.chartVersion)}$`, 'm').test(after), `${rel}: version != ${chart.chartVersion}`);
+  assert(new RegExp(`^appVersion: "${esc(chart.appVersion)}"$`, 'm').test(after), `${rel}: appVersion != ${chart.appVersion}`);
+  assert(after.includes(`${opImageCoord}:${chart.appVersion}`), `${rel}: artifacthub image tag != ${chart.appVersion}`);
   assert(after.includes(`${dlImage.coordinate}:${chart.appVersion}`), `${rel}: artifacthub delivery image tag != ${chart.appVersion}`);
 }
-  // image.tag intentionally NOT pinned in values.yaml: the chart deployment defaults
-  // the tag to .Chart.AppVersion, so pinning it here would only create helm-docs drift.
+// image.tag intentionally NOT pinned in values.yaml: the chart deployment defaults
+// the tag to .Chart.AppVersion, so pinning it here would only create helm-docs drift.
 
 // ---- 4. artifacthub-repo.yml consistency (repo metadata carries no version) ----
 {
@@ -139,9 +136,8 @@ applyChart('integrations/kubernetes/charts/pacto-operator/Chart.yaml', chart, op
 }
 
 // ---- 6. generated install examples: chart README badges + --version pin ----
-for (const rel of [
-  'integrations/kubernetes/charts/pacto-operator/README.md',
-]) {
+{
+  const rel = 'integrations/kubernetes/charts/pacto-operator/README.md';
   const after = edit(rel, (s) => {
     s = s.replace(new RegExp(`(--version )v?${SEMVER}`, 'g'), `$1${chartVersion}`);
     // helm-docs badges: alt text + shields.io URL, chart version and appVersion.
