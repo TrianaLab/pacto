@@ -206,6 +206,11 @@ Eval runners:
   config also lists that runner's key with `role: runner`. A keyless runner
   takes `identity`, `issuer` and `trustedRoot`.
 - The output names who ran each exam.
+- An eval verdict that says Pass or Fail fails the check when it keeps no
+  runner-signed answer, when the answer is for another operation or version,
+  or when the signed counts and the Stage's `minPassRate` give another result.
+- `providers` on a runner key lists the gate providers whose verdicts a
+  runner must sign, so you decide which verdicts are exams, not the promoter.
 - A runner key never verifies a record, nor a recorder key a runner's answer.
 - To check a runner's signature with cosign, see
   [Verify a record](../../verify-a-record.md#check-who-ran-an-exam).
@@ -218,6 +223,7 @@ keys:
       ...
   - name: evals-ci
     role: runner
+    providers: [evals]
     publicKey: |
       -----BEGIN PUBLIC KEY-----
       ...
