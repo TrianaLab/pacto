@@ -118,9 +118,9 @@ YAML
   up=wallet-advise
   as_person alice "$T" propose -n "$L" --stage wallet --type autonomy --to advise --name "$up" --reason "phase 7: Pacto proposes advise" >/dev/null
   eventually 30 held "$L" "$up" || fail "a raise did not wait for a person: $(field "$L" "$up" phase) $(field "$L" "$up" message)"
-  OUT="$(as_person alice "$T" approve -n "$L" "$up" --decision approve 2>&1 || true)"
-  always 3 held "$L" "$up" || fail "alice confirmed her own raise: $OUT"
-  as_person carol "$T" approve -n "$L" "$up" --decision approve --note "the shadow verified what GitOps shipped" >/dev/null
+  decide "$L" "$up" alice "$T" approve "my own raise"
+  always 3 held "$L" "$up" || fail "alice confirmed her own raise"
+  decide "$L" "$up" carol "$T" approve "the shadow verified what GitOps shipped"
   wait_concluded "$L" "$up" Succeeded/Unverified
   [ "$(st .status.rung)" = advise ] && [ "$(st .status.pointer)" = "$W2" ] || fail "advise did not adopt W2: $(st .status)"
   [ "$(field "$L" "$up" pointer.after)" = "$W2" ] || fail "the operation does not show the adopted pointer"

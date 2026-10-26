@@ -487,6 +487,26 @@ AGENT_B="$(agent_kubeconfig agent-b)"
 as_agent() { local kc="$1"; shift; KUBECONFIG="$kc" "$PACTO" delivery "$@"; }
 # as_person USER TEAM ... — only members of the team a held question names may answer it.
 as_person() { local u="$1" g="$2"; shift 2; KUBECONFIG="$(person_kubeconfig "$u" "$g")" "$PACTO" delivery "$@"; }
+# decide NS OP USER TEAM DECISION [NOTE] — USER, in TEAM, records DECISION on
+# OP: the Approval `pacto delivery approve` sends, created as USER with a login
+# time of now. approve itself logs the person in again through the identity
+# provider the cluster trusts, which phase 4 drives; here admission and the
+# promoter judge the same Approval.
+decide() {
+  local kc at uid digest
+  kc="$(person_kubeconfig "$3" "$4")"
+  at="$(sed -n 's/.*auth-time": \["\([^"]*\)".*/\1/p' "$kc")"
+  uid="$(kubectl -n "$1" get operation "$2" -o jsonpath='{.metadata.uid}')"
+  digest="$(kubectl -n "$1" get operation "$2" -o jsonpath='{.spec.intentDigest}')"
+  KUBECONFIG="$kc" kubectl -n "$1" create -f - >/dev/null <<YAML
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Approval
+metadata:
+  generateName: $2-
+  ownerReferences: [{apiVersion: delivery.pacto.trianalab.io/v1alpha1, kind: Operation, name: "$2", uid: "$uid"}]
+spec: {operation: "$2", operationUID: "$uid", intentDigest: "$digest", decision: $5, note: "${6:-}", by: "$3", authTime: "$at", groups: ["$4"]}
+YAML
+}
 
 # --- the autonomy ladder -------------------------------------------------------
 # Every Stage here starts on advise (startRung admits only observe and advise):
@@ -508,7 +528,7 @@ move_rung() {
   as_person alice "$team" propose -n "$ns" --stage "$st" --type autonomy --to "$to" --name "$name" --reason "the kind run moves $st to $to" >/dev/null
   eventually 30 held_or_concluded "$ns" "$name" || fail "$ns/$name was never planned: $(field "$ns" "$name" message)"
   if held "$ns" "$name"; then
-    as_person carol "$team" approve -n "$ns" "$name" --decision "$(field "$ns" "$name" plan.floor.decision)" --note "the kind run moves it to $to" >/dev/null
+    decide "$ns" "$name" carol "$team" "$(field "$ns" "$name" plan.floor.decision)" "the kind run moves it to $to"
   fi
   wait_concluded "$ns" "$name" Succeeded/Unverified
   [ "$(rung_of "$ns" "$st")" = "$to" ] || fail "$ns/$st is on $(rung_of "$ns" "$st"), want $to"
@@ -847,7 +867,7 @@ PB=$!
 wait "$PA"; wait "$PB"
 for o in race-g race-h; do eventually 30 held_or_concluded test "$o" || fail "$o was never planned: $(field test "$o" message)"; done
 for o in race-g race-h; do
-  ! held test "$o" || as_person alice team-payments approve -n test "$o" --decision approve --note "race" >/dev/null &
+  ! held test "$o" || decide test "$o" alice team-payments approve race &
 done
 wait
 eventually 60 concluded test race-g || fail "race-g never concluded"
@@ -885,9 +905,10 @@ kubectl -n test get operation "$OPF" -o json | jq -e '.status.plan.floor.owners 
   || fail "the floor is not routed to team-checkout alone"
 waits_for_f() { has_pointer test "$WINNER" && held test "$OPF"; }
 always 5 waits_for_f || fail "F moved without a person"
-# No agent can approve: RBAC refuses the create, and the CLI refuses first.
+# No agent can approve: RBAC refuses the create, and the CLI refuses first,
+# asking for a fresh login of a person's own before anything else.
 OUT="$(as_agent "$AGENT_A" approve -n test "$OPF" 2>&1 || true)"
-if grep -q "agents may not approve" <<<"$OUT"; then pass "the agent cannot approve"; else fail "an agent approved: $OUT"; fi
+if grep -q "agents may not approve\|fresh login of your own" <<<"$OUT"; then pass "the agent cannot approve"; else fail "an agent approved: $OUT"; fi
 if KUBECONFIG="$AGENT_A" kubectl -n test create -f - 2>/dev/null <<YAML
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Approval
@@ -915,9 +936,9 @@ spec: {operation: $OPF, operationUID: x, intentDigest: x, decision: approve, by:
 YAML
 then fail "an approval without a fresh login was admitted"; fi
 # Only checkout's team may answer: alice is ignored while in team-payments and counts once in team-checkout.
-as_person alice team-payments approve -n test "$OPF" --decision approve --note "not my team" >/dev/null
+decide test "$OPF" alice team-payments approve "not my team"
 always 3 waits_for_f || fail "an approval from outside team-checkout moved F"
-as_person alice team-checkout approve -n test "$OPF" --decision approve --note "checkout migrates next sprint" >/dev/null
+decide test "$OPF" alice team-checkout approve "checkout migrates next sprint"
 wait_concluded test "$OPF" Succeeded/Verified
 [ "$(kubectl -n test get operation "$OPF" -o jsonpath='{.status.approvals[*].by}')" = alice ] || fail "the approval is not recorded, or the one from outside the team was"
 # Every Approval of F is owned by F, so it is garbage collected with it, and
@@ -933,7 +954,7 @@ pass "F's Approvals are owned by F and cannot be edited"
 pass "item 4: F held for team-checkout only, answered only by a team-checkout member, verified in test"
 OPFP="$(wait_op prod "$F")"
 eventually 30 held prod "$OPFP" || fail "F was not held in prod"
-as_person carol team-checkout approve -n prod "$OPFP" --decision approve >/dev/null
+decide prod "$OPFP" carol team-checkout approve
 wait_concluded prod "$OPFP" Succeeded/Verified
 
 section "item 7: a person's rollback in prod is not undone by automation"
@@ -1301,7 +1322,7 @@ verdict "$OPQ" health .message | grep -q "spans in the window; at least 20" || f
 eventually 60 held "$H" "$OPQ" || fail "Q was not held for a person at the window's end: $(field "$H" "$OPQ" phase)"
 [ "$(field "$H" "$OPQ" reason)" = VerifyUnknown ] || fail "Q held for the wrong reason: $(field "$H" "$OPQ" reason)"
 { [ "$(rollbacks_of "$OPQ")" = 0 ] && has_pointer "$H" "$Q"; } || fail "Unknown rolled Q back"
-as_person alice team-payments approve -n "$H" "$OPQ" --decision reject --note "no telemetry, no trust" >/dev/null
+decide "$H" "$OPQ" alice team-payments reject "no telemetry, no trust"
 wait_concluded "$H" "$OPQ" Failed/
 wait_concluded "$H" "${OPQ}-rollback" Succeeded/Verified
 pass "Q held as Unknown with no rollback until alice rejected it"
