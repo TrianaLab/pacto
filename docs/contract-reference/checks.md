@@ -74,6 +74,11 @@ It is neither failed nor passed. The runner says how many cases passed and the
 sha256 of the suite it ran, and only an answer about that exact sha256 counts.
 `minPassRate` must be above 0.
 
+The runner signs its answer, and the provider lists the runner keys it
+trusts. An unsigned answer, or one signed by a key the provider does not
+list, is Unknown. The signed answer stays in the delivery record, so an
+auditor can see who ran the exam and check that runner's signature.
+
 `suiteDigest` pins the suite to bytes the Stage owner chose. A version that
 ships a suite with another sha256 is held for a person before it ships, and its
 eval check is Unknown, never Pass.
@@ -90,17 +95,24 @@ An AI agent needs no section of its own:
   its range; one without is an
   [external dependency](dependencies-and-state.md#external-dependencies) named
   by its version, so swapping it is potentially breaking.
-- Its eval suite is a `checks` entry.
+- Its eval suite is a `checks` entry, run by an eval runner that signs its
+  result.
 
 To pin an agent completely:
 
-- Put its prompt and its agent policy (allowed tools, guardrails) as files in
+- Put its prompt and its agent policy (allowed tools, safety rules) as files in
   the bundle. The contract digest then covers their bytes.
 - Declare its tools in the `mcp` interface.
 - Name the model by an exact version, never an alias such as `latest`. Set it
   in the deploy manifests, which delivery moves by digest, never from a
   ConfigMap or Secret outside them.
 
+- Have the eval runner report the model that answered (`observedModel`).
+  The eval check then fails when that model is not the version the contract
+  declares, and a Stage check with `requireObservedModel: true` stays
+  Unknown until the runner says.
+
 What this does not cover: a prompt or tool list the agent fetches at runtime,
-and which model the agent really calls. Pacto does not check either at
-runtime.
+and which model the agent really calls in production. The eval runner's
+`observedModel` is what it saw during the exam, signed with its own key;
+Pacto does not check it against anything else.

@@ -133,19 +133,80 @@ version with other suite bytes is held the same way, and its eval is Unknown.
 The promoter posts the same `{"input": ..., "params": ...}`, the input also
 naming the contract the version ships and the suite in it:
 `"contract": "oci://...@sha256:...", "suite": {"name": "evals", "path": "evals/suite.yaml", "digest": "sha256:..."}`.
-The runner runs that suite on the version under check and answers how many
-cases passed, with `suite` the sha256 of the suite it ran:
-`{"subject": "sha256:...", "suite": "sha256:...", "run": "...", "passed": 48, "total": 50}`.
+The runner runs that suite on the version under check and answers with a
+Sigstore bundle: a DSSE envelope over a statement it signs.
+
+```json
+{
+  "_type": "https://in-toto.io/Statement/v1",
+  "subject": [{"name": "pay-agent", "digest": {"sha256": "..."}}],
+  "predicateType": "delivery.pacto.trianalab.io/eval/v1",
+  "predicate": {
+    "suite": "sha256:...",
+    "run": "https://evals.example/runs/7",
+    "passed": 48,
+    "total": 50,
+    "observedModel": "anthropic/claude-sonnet-4-5",
+    "message": "two refunds wrong"
+  }
+}
+```
+
+`suite` is the sha256 of the suite it ran; `observedModel` (optional) the
+model it saw answer. The provider lists the runners it trusts in `signers`,
+each a public key or a keyless identity:
+
+```yaml
+delivery:
+  gates:
+    providers:
+      - name: evals
+        type: eval
+        url: https://evals.internal
+        signers:
+          - name: evals-ci
+            publicKey: |
+              -----BEGIN PUBLIC KEY-----
+              ...
+          - name: evals-keyless
+            identity: https://github.com/acme/evals/.github/workflows/run.yaml@refs/heads/main
+            issuer: https://token.actions.githubusercontent.com
+            trustedRoot: '{"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1", ...}'
+```
+
 The Stage decides, not the runner:
 
 | Param | Default | Meaning |
 |---|---|---|
 | `minPassRate` | 1 | The share of cases that must pass, above 0 and up to 1. Fewer fails |
 
-An answer about another version or another suite, with no cases or nothing to
-cite is Unknown, and so is a version whose contract cannot be read or does not
-ship the suite. The verdict cites the contract, the suite's name, path and
-digest and the run.
+These are Unknown, never Pass or Fail:
+
+- an answer no listed signer signed
+- an answer about another version or another suite
+- no cases, or no run to cite
+- a version whose contract cannot be read or does not ship the suite
+
+The verdict cites the contract, the suite, the run and the runner (`runner`),
+and keeps the signed answer (`runnerBundle`) for
+[`record verify`](delivery-records.md#verify-records).
+
+### Which model answered
+
+When the runner reports an `observedModel` that no external dependency
+`version` of the version under check names, the check fails and says both.
+Pacto takes the runner's signed word for it; nothing else checks it. A Stage
+check can require the runner to say:
+
+```yaml
+        - name: quality
+          provider: evals
+          suite: evals
+          requireObservedModel: true
+```
+
+Then no `observedModel`, or no dependency version to compare it with, is
+Unknown.
 
 ## Claims against the running service
 

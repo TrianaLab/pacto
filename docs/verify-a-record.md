@@ -46,6 +46,7 @@ Every field sits under `.predicate`:
 | `actor.onBehalfOf` | The person an agent said it acted for. Only claimed, never checked, and marked so |
 | `approvals[]` | Who answered (`by`), the answer (`decision`: `approve`, `reject` or `accept-unknown`, which means a person let the change go ahead although a check said Unknown) and when they last signed in (`authTime`) |
 | `verdicts[]` | Each check (`gate`), when it ran (`phase`: `pre` before the move, `verify` after) and its `result`: `Pass`, `Fail` or `Unknown` |
+| `verdicts[].citation.runner`, `.runnerBundle` | For an eval check: who ran the exam, and the answer that runner signed itself (see "Check who ran an exam") |
 | `outcome.result` | How it ended, such as `Succeeded`, `Failed`, `Rejected` or `Cancelled` |
 | `outcome.pointer.before`, `.after` | The version digest the Stage ran before and after |
 | `guarded` | Read this first. `true` when the cluster's admission checks confirmed who asked and who approved. Without it, those names are only what the writer claimed |
@@ -152,6 +153,34 @@ When Pacto cannot read every record, its answer says `partial`. Then a
 missing change may still have happened: no answer means "unknown", never
 "nobody".
 
+## Check who ran an exam
+
+An eval check (an AI agent's eval suite, for example) is run by an eval
+runner, not by Pacto. The runner signs its own answer: which version it ran,
+the sha256 of the suite, how many cases passed and where the run can be read
+again. The record keeps that signed answer in the verdict's
+`citation.runnerBundle`, inside the recorder's signature. So you can check
+the runner's signature yourself, without trusting the recorder or the
+promoter. Get the runner's public key from the team that runs the evals,
+not from the record or the registry:
+
+```bash
+jq -r .dsseEnvelope.payload record.json | base64 -d \
+  | jq -r '.predicate.verdicts[] | select(.citation.runnerBundle) | .citation.runnerBundle' > runner.json
+VERSION=$(jq -r .dsseEnvelope.payload runner.json | base64 -d | jq -r '.subject[0].digest.sha256')
+cosign verify-blob-attestation --bundle runner.json --key runner.pub \
+  --type delivery.pacto.trianalab.io/eval/v1 --insecure-ignore-tlog \
+  --digest "$VERSION" --digestAlg sha256
+jq -r .dsseEnvelope.payload runner.json | base64 -d | jq .predicate   # what it signed
+```
+
+The commands take the first eval check of the record; a record with more
+than one keeps one signed answer per check. Check that the counts and the
+suite in what the runner signed match the verdict's `citation`. With cluster
+access, `pacto delivery record verify` does both checks when the trust
+config also lists the runner's key with `role: runner`, and prints who ran
+each exam.
+
 ## Check a version was signed
 
 Every version Pacto promotes was published and signed with `pacto publish`.
@@ -200,3 +229,6 @@ from the registry. See
   the streams repository out of them.
 - A record made while the cluster's admission checks were off has no
   `guarded: true`.
+- A runner's signature proves which runner key signed the answer, not that
+  the runner ran every case honestly, and not which model really answered.
+  A runner that reports `observedModel` vouches for it with its own key.

@@ -17,6 +17,13 @@ asked and who approved. A record without it was written while the chart ran
 without them (`delivery.admissionPolicies.allowUnguarded`), so those names are only what
 their writers claimed.
 
+An eval verdict carries two signatures:
+
+- the eval runner's, on its own answer, kept in `citation.runnerBundle`
+  ([eval providers](delivery-health.md#eval-providers)), with the runner named
+  in `citation.runner`
+- the recorder's, on the whole record around it
+
 Each Stage has one stream: records are numbered (`seq`) and each names the one
 before (`parent`). An **unrecordable** record stands in for an operation that
 failed a check before signing (a value that looks like a secret, an approval no
@@ -191,7 +198,37 @@ pacto delivery record verify -n prod --stage payments --trust recorder.pub
 It checks every signature and the whole chain, exits non-zero if anything is
 wrong and prints a command that checks one record without Pacto, with
 [oras](https://oras.land) and [cosign](https://github.com/sigstore/cosign).
-`record verify --all` checks every stream. For example:
+`record verify --all` checks every stream.
+
+Eval runners:
+
+- A record with an eval runner's signed answer verifies only when the trust
+  config also lists that runner's key with `role: runner`. A keyless runner
+  takes `identity`, `issuer` and `trustedRoot`.
+- The output names who ran each exam.
+- A runner key never verifies a record, nor a recorder key a runner's answer.
+- To check a runner's signature with cosign, see
+  [Verify a record](../../verify-a-record.md#check-who-ran-an-exam).
+
+```yaml
+keys:
+  - name: recorder
+    publicKey: |
+      -----BEGIN PUBLIC KEY-----
+      ...
+  - name: evals-ci
+    role: runner
+    publicKey: |
+      -----BEGIN PUBLIC KEY-----
+      ...
+```
+
+```text
+  seq 4    operation     sha256:9c1f... promote-pay-agent-1-1-0
+           evals: the exam was run and signed by evals-ci
+```
+
+To check one record without Pacto, for example:
 
 ```bash
 REPO=registry.example/pacto/streams
@@ -211,10 +248,10 @@ with the entry's `trustedRoot` saved as `trusted_root.json`:
   --insecure-ignore-sct
 ```
 
-`--insecure-ignore-sct` is there only when the trusted root lists no
-certificate transparency log, as a private Sigstore often does. A certificate
-from such a root carries no SCT (no CT log saw it), and cosign fails without
-the flag. The TSA timestamp is still checked.
+`--insecure-ignore-sct` appears only when the trusted root lists no
+certificate transparency log, as in many private Sigstores: then a
+certificate carries no SCT and cosign needs the flag. The TSA timestamp is
+still checked.
 
 `oras discover` on a version lists the records attached to it. The record
 itself is a DSSE envelope: `jq -r .dsseEnvelope.payload record.json | base64 -d`
