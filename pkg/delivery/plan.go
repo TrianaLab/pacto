@@ -130,10 +130,43 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 	case TypeAutonomy:
 		autonomyGate(in, &p)
 		routeToServiceTeam(in, &p)
+	case TypeRollback:
+		rollbackImpact(ctx, in, &p)
 	}
 	holdForRecords(in, &p)
 	p.Predicted = predict(in, &p)
 	return p
+}
+
+// rollbackImpact holds a rollback a person or agent raised that a consumer
+// does not accept, for that consumer's team: going back to a version a
+// consumer has moved past breaks it as surely as a promote. A rollback runs
+// no other gate, and nothing Pacto cannot see holds it: an emergency must not
+// wait on an unreadable registry. The promoter's own rollbacks are never held.
+func rollbackImpact(ctx context.Context, in PlanInput, p *Plan) {
+	if in.Class == ClassController || in.Snapshot == nil || in.From.Bundle == nil || in.To.Bundle == nil {
+		return
+	}
+	res := impact.Analyze(ctx, in.From.Bundle.Contract, in.To.Bundle.Contract, in.From.Bundle.FS, in.To.Bundle.FS, in.Snapshot,
+		impact.Options{Domain: contract.OCIDomain(in.To.ContractRef), IncludeObserved: true})
+	var incompatible []impact.AffectedConsumer
+	for _, c := range res.Consumers {
+		if c.CompatibilityVerdict == impact.CompatibilityIncompatible {
+			incompatible = append(incompatible, c)
+		}
+	}
+	if len(incompatible) == 0 {
+		return
+	}
+	names, owners := consumerNamesOwners(incompatible)
+	if len(owners) == 0 {
+		owners = serviceTeam(in)
+	}
+	p.Verdicts = append(p.Verdicts, Verdict{Gate: GateImpact, Phase: "pre", Result: Pass, Message: "rolling back breaks " + strings.Join(names, ", "),
+		Citation: map[string]string{"classification": res.Classification, "completeness": string(res.Completeness)}})
+	p.Floor = Floor{Human: true, Decision: Approve, Owners: owners, Consumers: names}
+	p.Question = fmt.Sprintf("Rolling %s back to %s is not accepted by %s. Approve the rollback anyway? Asked of: %s",
+		in.Stage.Service.Name, res.NewVersion, describeRanges(incompatible), ownersOrAnyone(owners, in.RequireOwnerTeam))
 }
 
 // refusal is why an operation is rejected before any gate runs, or "".

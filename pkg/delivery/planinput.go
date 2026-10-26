@@ -48,15 +48,20 @@ func AssemblePlanInput(ctx context.Context, src PlanSources, spec OperationSpec,
 		}
 		return in, nil
 	}
-	if spec.Type != TypePromote {
+	// A rollback a person or agent raised is projected onto the graph too
+	// (rollbackImpact); the promoter's own rollbacks read nothing more.
+	graph := spec.Type == TypePromote || spec.Type == TypeRollback && class != ClassController
+	if !graph {
 		if spec.Facet == FacetPointer && spec.Params.To != "" {
 			_, in.To = src.Revisions(ctx, stage, spec.Params.From, spec.Params.To)
 		}
 		return in, nil
 	}
 	var err error
-	if in.Upstream, in.UpstreamErr, err = src.Upstream(ctx, stage); err != nil {
-		return in, err
+	if spec.Type == TypePromote {
+		if in.Upstream, in.UpstreamErr, err = src.Upstream(ctx, stage); err != nil {
+			return in, err
+		}
 	}
 	in.From, in.To = src.Revisions(ctx, stage, spec.Params.From, spec.Params.To)
 	pactos, listErr := src.Pactos(ctx)

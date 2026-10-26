@@ -224,7 +224,11 @@ anything moved since. `cancel` works until the pointer moves; after that,
 propose `--type rollback --undoes <operation>`. A tag is refused. A rollback
 runs no gates, so only a person or break-glass may roll back a rollback or an
 override: an agent proposes a promote of that version instead, which the gates
-judge. An agent may
+judge. One check does apply to a rollback a person or agent raises: when a
+consumer's range does not accept the version it returns to (checkout moved to
+`^3` and the rollback goes back to 2.x), that consumer's team approves it
+first. Nothing Pacto cannot see holds a rollback, and the promoter's own
+rollbacks never wait. An agent may
 cancel only an operation it proposed; a rollback or freeze the promoter raised,
 or anyone else's operation, is cancelled by a person or break-glass. Once an
 operation has moved the pointer nobody deletes it by hand, not even break-glass:

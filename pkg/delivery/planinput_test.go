@@ -53,17 +53,22 @@ func TestAssemblePlanInput(t *testing.T) {
 	}
 }
 
-// TestAssemblePlanInputOtherTypes: a rollback reads only its To side, and an
-// operation that moves no pointer reads nothing.
+// TestAssemblePlanInputOtherTypes: the promoter's rollback reads only its To
+// side, a person's or agent's reads the graph too, and an operation that
+// moves no pointer reads nothing.
 func TestAssemblePlanInputOtherTypes(t *testing.T) {
 	stage := StageObject{Metadata: ObjectMeta{Namespace: "prod", Name: "payments"}, Spec: stageSpec(), Status: StageStatus{Pointer: dA}}
 	src := &fakeSources{from: rev(dA, c1, bundle("payments", "1.0.0")), to: rev(dA, c1, bundle("payments", "1.0.0")),
 		upstream: &StageStatus{Offered: []string{dB}}, stages: []StageObject{stage}}
 	rollback := promote(dB, dA)
 	rollback.Type = TypeRollback
-	in, err := AssemblePlanInput(context.Background(), src, rollback, stage, ClassAgent, now)
+	in, err := AssemblePlanInput(context.Background(), src, rollback, stage, ClassController, now)
 	if err != nil || in.To.Bundle == nil || in.From.Bundle != nil || in.Snapshot != nil || in.Upstream != nil {
-		t.Fatalf("a rollback reads only its To side: %v %+v", err, in)
+		t.Fatalf("the promoter's rollback reads only its To side: %v %+v", err, in)
+	}
+	agent, err := AssemblePlanInput(context.Background(), src, rollback, stage, ClassAgent, now)
+	if err != nil || agent.From.Bundle == nil || agent.Snapshot == nil || agent.Upstream != nil {
+		t.Fatalf("an agent's rollback reads the graph, never the upstream: %v %+v", err, agent)
 	}
 	if p := PlanFor(context.Background(), in); p.ToVersion != "1.0.0" {
 		t.Fatalf("a rollback's plan carries the version it rolls back to, got %q", p.ToVersion)

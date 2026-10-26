@@ -41,7 +41,9 @@ Each Stage sits on one rung.
 
 Once Pacto moves versions, the safety rules hold on every rung. A change that
 would break a consumer waits for that consumer's team; one that breaks
-consumers of several teams waits until every one of them approves. A version
+consumers of several teams waits until every one of them approves, and so
+does a rollback a person or agent asks for that goes back to a version a
+consumer has moved past. A version
 that changes `service.owner` waits on every rung for the team that owns the
 service now: the owner answers every later question, so the author of a version
 never picks who approves it. When the contract running on the Stage cannot be

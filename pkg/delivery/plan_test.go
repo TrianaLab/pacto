@@ -181,6 +181,45 @@ func TestPlanBreakingChangeUnderAMinorBump(t *testing.T) {
 	}
 }
 
+// TestPlanRollbackAConsumerDoesNotAccept: going back to 2.x after checkout
+// moved to a 3.x-only range breaks checkout, so a rollback a person or agent
+// raised waits for checkout's team; the promoter's own rollback never waits.
+func TestPlanRollbackAConsumerDoesNotAccept(t *testing.T) {
+	from, to := rev(dB, c2, bundle("payments", "3.0.0")), rev(dA, c1, bundle("payments", "2.0.0"))
+	rb := promote(dB, dA)
+	rb.Type = TypeRollback
+	for class, held := range map[ActorClass]bool{ClassAgent: true, ClassHuman: true, ClassController: false} {
+		snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^3.0.0")}, nil, []Revision{from, to}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := PlanFor(context.Background(), PlanInput{Spec: rb, Stage: stageSpec(), Status: StageStatus{Pointer: dB}, From: from, To: to,
+			Snapshot: snap, Class: class})
+		if (p.Predicted == PredictHeld) != held || held && (strings.Join(p.Floor.Owners, ",") != "team-checkout" ||
+			!strings.Contains(p.Question, "Rolling payments back to 2.0.0 is not accepted by checkout (accepts ^3.0.0)")) {
+			t.Fatalf("%s: %+v", class, p)
+		}
+	}
+	// A consumer that accepts the older version, or a side that cannot be
+	// read, holds nothing: a rollback never waits on what Pacto cannot see.
+	snap, _ := Snapshot(context.Background(), []PactoView{checkoutPacto(">=2.0.0")}, nil, []Revision{from, to}, now)
+	if p := PlanFor(context.Background(), PlanInput{Spec: rb, Stage: stageSpec(), Status: StageStatus{Pointer: dB}, From: from, To: to,
+		Snapshot: snap, Class: ClassAgent}); p.Predicted != PredictProceeds {
+		t.Fatalf("an accepted rollback: %+v", p)
+	}
+	if p := PlanFor(context.Background(), PlanInput{Spec: rb, Stage: stageSpec(), Status: StageStatus{Pointer: dB}, From: Revision{Digest: dB},
+		To: to, Snapshot: snap, Class: ClassAgent}); p.Predicted != PredictProceeds {
+		t.Fatalf("an unreadable side: %+v", p)
+	}
+	ownerless := checkoutPacto("^3.0.0")
+	ownerless.Status.Contract.Owner = nil
+	snap, _ = Snapshot(context.Background(), []PactoView{ownerless}, nil, []Revision{from, to}, now)
+	if p := PlanFor(context.Background(), PlanInput{Spec: rb, Stage: stageSpec(), Status: StageStatus{Pointer: dB}, From: from, To: to,
+		Snapshot: snap, Class: ClassAgent}); strings.Join(p.Floor.Owners, ",") != "team-payments" {
+		t.Fatalf("a consumer with no team asks the service's team: %+v", p.Floor)
+	}
+}
+
 func TestPlanBreakingChangeAsksOnlyTheBrokenConsumersOwners(t *testing.T) {
 	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "2.0.0"))
 	other := checkoutPacto("^1.0.0")
