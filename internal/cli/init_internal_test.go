@@ -17,6 +17,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/pactify"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
 func runInit(t *testing.T, args ...string) (string, error) {
@@ -130,5 +131,19 @@ func TestPrintBulkFailedFolder(t *testing.T) {
 	r := &pactify.Result{Service: "a", Dir: "a", Files: []pactify.File{{Path: "pacto.yaml", Action: pactify.Keep}}, Dependencies: []pactify.Finding{{Name: "b"}, {Name: "c"}}}
 	if err := printBulk(cmd, &pactify.Bulk{Results: []*pactify.Result{nil, r}}, nil, "text"); err != nil || !strings.Contains(buf.String(), "b,c") {
 		t.Fatalf("%v\n%s", err, buf)
+	}
+}
+
+// TestInitAcceptsTheCommandDeliveryPrints: a hold tells the person to run
+// delivery.InitClusterCommand; pacto init must parse exactly those flags.
+func TestInitAcceptsTheCommandDeliveryPrints(t *testing.T) {
+	defer func(old func() (dynamic.Interface, error)) { initDynamic = old }(initDynamic)
+	initDynamic = func() (dynamic.Interface, error) { return nil, errors.New("no kubeconfig") }
+	args := strings.Fields(strings.Replace(delivery.InitClusterCommand("prod"), "<dir>", t.TempDir(), 1))
+	if args[0] != "pacto" || args[1] != "init" {
+		t.Fatalf("not a pacto init command: %v", args)
+	}
+	if _, err := runInit(t, args[2:]...); err == nil || err.Error() != "no kubeconfig" {
+		t.Fatalf("pacto init refused %v: %v", args, err)
 	}
 }
