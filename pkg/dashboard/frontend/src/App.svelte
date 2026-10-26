@@ -364,15 +364,21 @@
       status={route.params.status || ''}
       domain={route.params.domain || ''}
       offset={route.params.offset || ''}
+      limit={route.params.limit || ''}
+      sort={route.params.sort || ''}
       {refreshTick}
     />
   {:else if route.view === 'fleet-owners'}
-    <FleetOwnersView text={route.params.text || ''} offset={route.params.offset || ''} {refreshTick} />
+    <FleetOwnersView text={route.params.text || ''} offset={route.params.offset || ''}
+      limit={route.params.limit || ''}
+      sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-sources'}
     <FleetSourcesView
       text={route.params.text || ''}
       sourceHealth={route.params.sourceHealth || ''}
       offset={route.params.offset || ''}
+      limit={route.params.limit || ''}
+      sort={route.params.sort || ''}
       {refreshTick}
     />
   {:else if route.view === 'fleet-entity-list'}
@@ -384,6 +390,8 @@
       scope={route.params.scope || ''}
       readiness={route.params.readiness || ''}
       offset={route.params.offset || ''}
+      limit={route.params.limit || ''}
+      sort={route.params.sort || ''}
       {refreshTick}
     />
   {:else if route.view === 'fleet-entity'}
@@ -401,6 +409,7 @@
       service={route.params.service || ''}
       staleOnly={route.params.staleOnly || ''}
       offset={route.params.offset || ''}
+      limit={route.params.limit || ''}
       {refreshTick}
     />
   {:else if route.view === 'fleet'}

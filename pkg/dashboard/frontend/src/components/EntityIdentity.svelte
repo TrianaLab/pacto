@@ -31,8 +31,8 @@
 
 <span class="entity-identity">
   {#if showKind}<span class="ei-kind">{kindLabel(ref.kind)}</span>{/if}
-  <span class="ei-label">{primary}</span>
-  {#if showStatus}<EntityStatusBadge kind={ref.kind} status={ref.status} />{/if}
+  <span class="ei-label" title={primary}>{primary}</span>
+  {#if showStatus}<span class="ei-status"><EntityStatusBadge kind={ref.kind} status={ref.status} /></span>{/if}
   {#if context.length}
     <span class="ei-context">
       {#each context as bit, i}{#if i > 0}<span class="ei-dot" aria-hidden="true">·</span>{/if}<span title={display(bit) === bit ? undefined : bit}>{display(bit)}</span>{/each}

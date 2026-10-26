@@ -172,7 +172,7 @@ function parseFleet(path: string, query: string): Route {
     // attention list is deep-linkable and back/forward restores the exact page.
     // `owner` is what the reader typed and `ownerKey` is the canonical owner an
     // owner-page link carried; they are two different questions, so both travel.
-    for (const k of ['category', 'offset', 'owner', 'ownerKey', 'source', 'service', 'severity', 'status', 'staleOnly']) {
+    for (const k of ['category', 'offset', 'limit', 'owner', 'ownerKey', 'source', 'service', 'severity', 'status', 'staleOnly']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -208,7 +208,7 @@ function parseFleet(path: string, query: string): Route {
     // URL params no view consumed, so they are not parsed here.
     // `ownership` is a real Entities filter over services (consistent/conflicting/
     // unowned), and it is what makes "12 services have no declared owner" a link.
-    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'offset']) {
+    for (const k of ['text', 'owner', 'ownerKey', 'ownership', 'status', 'domain', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -228,7 +228,7 @@ function parseFleet(path: string, query: string): Route {
     // `readiness` is parsed for REVISIONS only. Readiness is declared and assessed per
     // contract revision, and the Entities API rejects the filter on any other kind, so
     // carrying it on /fleet/targets would be an inert param that 422s if anyone used it.
-    const keys = ['text', 'service', 'status', 'scope', 'offset'];
+    const keys = ['text', 'service', 'status', 'scope', 'offset', 'limit', 'sort'];
     for (const k of isRevisions ? [...keys, 'readiness'] : keys) {
       const v = qs.get(k);
       if (v) params[k] = v;
@@ -241,7 +241,7 @@ function parseFleet(path: string, query: string): Route {
   if (rest === 'owners' || rest === 'sources') {
     const params: Record<string, string> = {};
     const qs = new URLSearchParams(query);
-    for (const k of ['text', 'sourceHealth', 'offset']) {
+    for (const k of ['text', 'sourceHealth', 'offset', 'limit', 'sort']) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -421,6 +421,15 @@ export function fleetOverviewUrl(): string {
   return '#/fleet';
 }
 
+/** The page, page size and order a Fleet list keeps in its URL; zero and empty stay out. */
+export interface ListPaging { offset?: number; limit?: number; sort?: string }
+
+function setPaging(qs: URLSearchParams, p: ListPaging) {
+  if (p.offset && p.offset > 0) qs.set('offset', String(p.offset));
+  if (p.limit && p.limit > 0) qs.set('limit', String(p.limit));
+  if (p.sort) qs.set('sort', p.sort);
+}
+
 // fleetServicesUrl builds the product service-list route, preserving the backend
 // filters the list implements and the page offset in the URL so a filtered/paged
 // list is deep-linkable and restored by refresh/back/forward. A zero/absent offset
@@ -429,7 +438,7 @@ export function fleetOverviewUrl(): string {
 // carrying them would be an inert URL filter.
 export function fleetServicesUrl(opts: {
   text?: string; owner?: string; ownerKey?: string; ownership?: string; status?: string; domain?: string; offset?: number;
-} = {}): string {
+} & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
   // Two owner questions, two params. `owner` is free-text SEARCH (a substring over
@@ -444,26 +453,26 @@ export function fleetServicesUrl(opts: {
   if (opts.ownership) qs.set('ownership', opts.ownership);
   if (opts.status) qs.set('status', opts.status);
   if (opts.domain) qs.set('domain', opts.domain);
-  if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
+  setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/services?${str}` : '#/fleet/services';
 }
 
 // fleetOwnersUrl / fleetSourcesUrl build the product owner/source list routes,
 // preserving the search text, the source-health filter and the page offset.
-export function fleetOwnersUrl(opts: { text?: string; offset?: number } = {}): string {
+export function fleetOwnersUrl(opts: { text?: string } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
-  if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
+  setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/owners?${str}` : '#/fleet/owners';
 }
 
-export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string; offset?: number } = {}): string {
+export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
   if (opts.sourceHealth) qs.set('sourceHealth', opts.sourceHealth);
-  if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
+  setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/sources?${str}` : '#/fleet/sources';
 }
@@ -474,8 +483,8 @@ export function fleetSourcesUrl(opts: { text?: string; sourceHealth?: string; of
 // into a complete, paged answer. Any other kind falls back to its own list route,
 // because services/owners/sources already have one.
 export function fleetEntityListUrl(kind: string, opts: {
-  service?: string; text?: string; status?: string; scope?: string; readiness?: string; offset?: number;
-} = {}): string {
+  service?: string; text?: string; status?: string; scope?: string; readiness?: string;
+} & ListPaging = {}): string {
   if (kind !== 'revision' && kind !== 'target') {
     return kind === 'owner' ? fleetOwnersUrl() : kind === 'source' ? fleetSourcesUrl() : fleetServicesUrl();
   }
@@ -487,7 +496,7 @@ export function fleetEntityListUrl(kind: string, opts: {
   // Revisions only: the Entities API rejects a readiness filter on a target, so
   // emitting one here would build a URL that 422s.
   if (opts.readiness && kind === 'revision') qs.set('readiness', opts.readiness);
-  if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
+  setPaging(qs, opts);
   const str = qs.toString();
   const plural = kind === 'revision' ? 'revisions' : 'targets';
   return str ? `#/fleet/${plural}?${str}` : `#/fleet/${plural}`;
@@ -554,7 +563,7 @@ export function fleetGraphFocusUrl(kind: string, key: string, state: Omit<GraphS
 export function fleetAttentionUrl(opts: {
   category?: string; offset?: number; owner?: string; ownerKey?: string; source?: string; service?: string;
   severity?: string; status?: string; staleOnly?: boolean;
-} = {}): string {
+} & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.category) qs.set('category', opts.category);
   // Free-text owner SEARCH and exact canonical owner IDENTITY -- see fleetServicesUrl.
@@ -568,7 +577,7 @@ export function fleetAttentionUrl(opts: {
   if (opts.severity) qs.set('severity', opts.severity);
   if (opts.status) qs.set('status', opts.status);
   if (opts.staleOnly) qs.set('staleOnly', '1');
-  if (opts.offset && opts.offset > 0) qs.set('offset', String(opts.offset));
+  setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/attention?${str}` : '#/fleet/attention';
 }

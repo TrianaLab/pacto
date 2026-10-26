@@ -68,9 +68,11 @@ async function ranking(page: Page, title: string): Promise<Figure> {
 /** The pager's own count of the population, which is the rows' side of the claim. */
 async function pagerTotal(page: Page, sel: string): Promise<number> {
   const text = (await page.locator(sel).first().textContent()) ?? '';
-  const m = text.match(/of\s+(\d+)/);
-  expect(m, `no "Showing x-y of N" range in "${text}"`).not.toBeNull();
-  return Number(m![1]);
+  // "Showing 1–25 of 3,095 services", or "12 services" on a single page: the total is
+  // the last number, thousands grouped.
+  const m = text.match(/([\d,]+)\D*$/);
+  expect(m, `no pager range in "${text}"`).not.toBeNull();
+  return Number(m![1].replace(/,/g, ''));
 }
 
 /** The largest bucket that is a drill-down and does not already hold the whole population. */
@@ -97,7 +99,7 @@ test('Services: a bucket of the figure and the rows under it are the same popula
   await boot(page, '#/fleet/services');
   await expect(page.getByTestId('service-list')).toBeVisible({ timeout: 30_000 });
 
-  const total = await pagerTotal(page, '.sv-range');
+  const total = await pagerTotal(page, '[data-testid="svc-range"]');
   const before = await figure(page, 'Compliance');
   // Unfiltered, the figure says so in words and reconciles to the whole snapshot.
   expect(before.scope).toBe(`All ${total} services in the snapshot.`);
@@ -105,12 +107,12 @@ test('Services: a bucket of the figure and the rows under it are the same popula
 
   const bucket = drillable(before, total);
   await follow(page, bucket);
-  await expect(page.locator('.sv-range')).toContainText(`of ${bucket.value}`, { timeout: 30_000 });
+  await expect.poll(() => pagerTotal(page, '[data-testid="svc-range"]'), { timeout: 30_000 }).toBe(bucket.value);
 
   const after = await figure(page, 'Compliance');
   // The rows narrowed; so did the figure, to exactly the bucket that was chosen. A
   // figure still describing 18 services beside a list of 5 is the failure this catches.
-  expect(await pagerTotal(page, '.sv-range')).toBe(bucket.value);
+  expect(await pagerTotal(page, '[data-testid="svc-range"]')).toBe(bucket.value);
   expect(after.scope).toBe(`All ${bucket.value} matching services, not just this page.`);
   expect(after.buckets.map((b) => b.label), `filtering to "${bucket.label}" left other buckets populated`)
     .toEqual([bucket.label]);
@@ -125,7 +127,7 @@ test('Services: ownership coverage is a distribution of services, and it drills 
   await boot(page, '#/fleet/services');
   await expect(page.getByTestId('service-list')).toBeVisible({ timeout: 30_000 });
 
-  const total = await pagerTotal(page, '.sv-range');
+  const total = await pagerTotal(page, '[data-testid="svc-range"]');
   const f = await figure(page, 'Declared ownership');
   // Coverage is a partition of the services, not a count of owners: the buckets say how
   // many services are cleanly owned, how many disagree with themselves, and how many
@@ -135,7 +137,7 @@ test('Services: ownership coverage is a distribution of services, and it drills 
 
   const bucket = drillable(f, total);
   await follow(page, bucket);
-  await expect(page.locator('.sv-range')).toContainText(`of ${bucket.value}`, { timeout: 30_000 });
+  await expect.poll(() => pagerTotal(page, '[data-testid="svc-range"]'), { timeout: 30_000 }).toBe(bucket.value);
   const rows = await page.getByTestId('service-list').locator('li').count();
   expect(rows, 'the ownership bucket selected a population it then rendered none of').toBeGreaterThan(0);
 
@@ -165,7 +167,7 @@ test('Owners: the ownership picture is the whole fleet, whatever the roster unde
   await boot(page, '#/fleet/owners');
   await expect(page.getByTestId('owner-list')).toBeVisible({ timeout: 30_000 });
 
-  const roster = await pagerTotal(page, '.lv-range');
+  const roster = await pagerTotal(page, '[data-testid="owner-range"]');
   const f = await figure(page, 'Declared ownership');
   const services = Number(f.scope.match(/^All (\d+) services/)?.[1]);
   expect(services, `the summary does not say what it counted: "${f.scope}"`).toBeGreaterThan(0);
@@ -182,13 +184,13 @@ test('Owners: the ownership picture is the whole fleet, whatever the roster unde
   const href = (await page.getByTestId('owner-list').locator('li a').first().getAttribute('href'))!;
   const term = decodeURIComponent(href.split('/').pop()!);
   await page.evaluate((t: string) => { location.hash = `/fleet/owners?text=${encodeURIComponent(t)}`; }, term);
-  await expect.poll(() => pagerTotal(page, '.lv-range'), { timeout: 30_000 }).toBeLessThan(roster);
+  await expect.poll(() => pagerTotal(page, '[data-testid="owner-range"]'), { timeout: 30_000 }).toBeLessThan(roster);
   expect(await figure(page, 'Declared ownership')).toEqual(f);
 
   // And page it, to the second owner onward -- a different set of rows, the same fleet.
   await page.evaluate(() => { location.hash = '/fleet/owners?offset=1'; });
-  await expect(page.locator('.lv-range')).toHaveText(/^Showing 2/, { timeout: 30_000 });
-  expect(await pagerTotal(page, '.lv-range')).toBe(roster);
+  await expect(page.locator('[data-testid="owner-range"]')).toHaveText(/^Showing 2/, { timeout: 30_000 });
+  expect(await pagerTotal(page, '[data-testid="owner-range"]')).toBe(roster);
   expect(await figure(page, 'Declared ownership')).toEqual(f);
 });
 
@@ -205,7 +207,7 @@ test('Owners: a coverage bucket opens exactly the services it counted', async ({
 
   for (const b of populated) {
     await follow(page, b);
-    await expect(page.locator('.sv-range')).toContainText(`of ${b.value}`, { timeout: 30_000 });
+    await expect.poll(() => pagerTotal(page, '[data-testid="svc-range"]'), { timeout: 30_000 }).toBe(b.value);
     expect(await page.getByTestId('service-list').locator('> li').count(),
       `"${b.label}" selected ${b.value} services and rendered none of them`).toBeGreaterThan(0);
     // The destination's own coverage figure is that one bucket and nothing else, which
@@ -247,8 +249,8 @@ test('Owners: a ranked owner opens exactly the services it counted, and says wha
   const top = rank.buckets[0];
   expect(top.href).toMatch(/[?&]ownership=consistent(&|$)/);
   await follow(page, top);
-  await expect(page.locator('.sv-range')).toContainText(`of ${top.value}`, { timeout: 30_000 });
-  expect(await pagerTotal(page, '.sv-range'), `"${top.label}" ranked ${top.value} services and opened a different number`)
+  await expect.poll(() => pagerTotal(page, '[data-testid="svc-range"]'), { timeout: 30_000 }).toBe(top.value);
+  expect(await pagerTotal(page, '[data-testid="svc-range"]'), `"${top.label}" ranked ${top.value} services and opened a different number`)
     .toBe(top.value);
 });
 
@@ -300,7 +302,7 @@ test('Revisions: the readiness figure covers every revision, and a bucket opens 
   await boot(page, '#/fleet/revisions');
   await expect(page.getByTestId('entity-list')).toBeVisible({ timeout: 30_000 });
 
-  const total = await pagerTotal(page, '.lv-range');
+  const total = await pagerTotal(page, '[data-testid="entity-list-range"]');
   const f = await figure(page, 'Contract revision readiness');
   expect(f.scope).toBe(`All ${total} contract revisions in the snapshot.`);
   expect(sum(f.buckets), 'the readiness buckets do not add up to the revision population').toBe(total);
@@ -310,7 +312,7 @@ test('Revisions: the readiness figure covers every revision, and a bucket opens 
 
   const bucket = drillable(f, total);
   await follow(page, bucket);
-  await expect(page.locator('.lv-range')).toContainText(`of ${bucket.value}`, { timeout: 30_000 });
+  await expect.poll(() => pagerTotal(page, '[data-testid="entity-list-range"]'), { timeout: 30_000 }).toBe(bucket.value);
   expect((await figure(page, 'Contract revision readiness')).scope)
     .toBe(`All ${bucket.value} matching contract revisions, not just this page.`);
 

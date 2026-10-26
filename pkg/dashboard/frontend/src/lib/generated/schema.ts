@@ -4647,6 +4647,8 @@ export interface operations {
                 source?: string;
                 /** @description Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service) */
                 service?: string;
+                /** @description Order: name (natural, so 2 before 10) or health (least healthy first); absent orders by kind then key */
+                sort?: "name" | "health";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
                 limit?: number;
                 offset?: number;

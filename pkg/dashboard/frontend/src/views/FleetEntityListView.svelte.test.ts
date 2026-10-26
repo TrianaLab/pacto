@@ -93,7 +93,7 @@ describe('FleetEntityListView', () => {
     expect(target.querySelector('[data-testid="entity-list-next"]')?.getAttribute('href'))
       .toBe('#/fleet/revisions?service=domain-a%2Fpayments&offset=25');
     expect(target.querySelector('[data-testid="entity-list-prev"]')).toBeNull();
-    expect(target.querySelector('.lv-range')?.textContent).toContain('of 47');
+    expect(target.querySelector('[data-testid="entity-list-range"]')?.textContent).toContain('of 47');
     unmount(component);
   });
 

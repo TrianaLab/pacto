@@ -5,9 +5,17 @@
   // The one pager every long list uses. The server answers the page; every
   // move is a link built by href(offset, limit), so the page lives in the URL
   // and Back returns to it.
-  let { page, href, label = 'Pages', noun = 'items', testid = 'pager' } = $props();
+  // count: how many rows this page holds, when known. None on a page the server
+  // matched rows for means the link went past the end, and the pager says so with
+  // a way back instead of an empty list beside a count.
+  let { page, href, label = 'Pages', noun = 'items', testid = 'pager', count = undefined } = $props();
 
   const v = $derived(pageView(page));
+  // "1 service", not "1 services": every noun a list passes is a plain plural.
+  const word = $derived(v.total === 1 ? noun.replace(/s$/, '') : noun);
+  // An offset off the page grid (a link into the middle) is paged even when the
+  // whole list fits on one page, so its way back to the start shows.
+  const paged = $derived(v.pages > 1 || v.from > 1);
   const sizes = $derived(pageSizes(v.limit));
   let jump = $state('');
 
@@ -18,12 +26,16 @@
   }
 </script>
 
-{#if v.total > 0}
+{#if count === 0 && v.total > 0}
+  <p class="pl-past-end" role="status" data-testid={`${testid}-past-end`}>
+    This page is past the end of the {formatCount(v.total)} {word}. <a href={href(v.last ?? 0, v.limit)}>Go to the last page</a>
+  </p>
+{:else if v.total > 0}
   <nav class="pl-pager" aria-label={label} data-testid={testid}>
     <span class="pl-range" data-testid={`${testid}-range`}>
-      {#if v.pages > 1}Showing {formatCount(v.from)}–{formatCount(v.to)} of {formatCount(v.total)} {noun}{:else}{formatCount(v.total)} {noun}{/if}
+      {#if paged}Showing {formatCount(v.from)}–{formatCount(v.to)} of {formatCount(v.total)} {word}{:else}{formatCount(v.total)} {word}{/if}
     </span>
-    {#if v.pages > 1}
+    {#if paged}
       <div class="pl-pager-btns">
         {#each [['First', v.first, 'first'], ['Previous', v.prev, 'prev'], ['Next', v.next, 'next'], ['Last', v.last, 'last']] as [text, to, rel] (rel)}
           {#if to === null}

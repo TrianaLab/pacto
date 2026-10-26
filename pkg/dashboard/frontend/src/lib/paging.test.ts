@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { pageView, offsetOfPage, pageSizes, urlInt, pagedHash } from './paging.ts';
+import { pageView, offsetOfPage, pageSizes, urlInt, pagedHash, pastEnd } from './paging.ts';
 
 describe('pageView', () => {
   it('reads the first, a middle and the last page', () => {
@@ -14,7 +14,15 @@ describe('pageView', () => {
     expect(pageView({ total: 0, offset: 0, limit: 25 })).toMatchObject({ from: 0, to: 0, page: 1, pages: 1, next: null, last: null });
     expect(pageView(null)).toMatchObject({ total: 0, limit: 1, pages: 1 });
     expect(pageView({ total: 10, offset: 3, limit: 5 })).toMatchObject({ from: 4, to: 8, page: 1, prev: 0, next: 8, last: 5 });
-    expect(pageView({ total: 10, offset: 99, limit: 5 })).toMatchObject({ page: 2, next: null });
+    expect(pageView({ total: 10, offset: 99, limit: 5 })).toMatchObject({ page: 2, next: null, prev: 5, last: 5 });
+  });
+
+  it('knows a page past the end from an empty list', () => {
+    expect(pastEnd({ total: 3095, offset: 5000, limit: 25 }, 0)).toBe(true);
+    expect(pastEnd({ total: 0, offset: 50, limit: 25 }, 0)).toBe(false);
+    expect(pastEnd({ total: 30, offset: 25, limit: 25 }, 5)).toBe(false);
+    expect(pastEnd({ total: 30, offset: 0, limit: 25 }, 0)).toBe(false);
+    expect(pastEnd(null, 0)).toBe(false);
   });
 });
 

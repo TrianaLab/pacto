@@ -19,6 +19,9 @@
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import { severitySegments, severityHrefs, SEVERITY_STATES, bucketLabel } from '../lib/distributions.ts';
   import PageHeader from '../components/PageHeader.svelte';
+  import Pager from '../components/Pager.svelte';
+  import { urlInt, limitParam, pastEnd } from '../lib/paging.ts';
+  import { formatCount } from '../lib/format.ts';
   import { fly } from 'svelte/transition';
   import { flip } from 'svelte/animate';
   import { MOTION, dur, stagger } from '../lib/motion.ts';
@@ -34,13 +37,14 @@
   // canonical backlog for `team-a` never quietly includes `team-a-platform`.
   let {
     category = '', severity = '', status = '', owner = '', ownerKey = '', source = '', service = '',
-    staleOnly = '', offset = '', refreshTick = 0,
+    staleOnly = '', offset = '', limit = '', refreshTick = 0,
   } = $props();
 
   const PAGE_SIZE = 25;
   const CATEGORIES = ATTENTION_CATEGORIES;
   const SEVERITIES = ['error', 'warning', 'info'];
-  const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
+  const pageOffset = $derived(urlInt(offset));
+  const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   const isStale = $derived(staleOnly === '1');
   // The name a reader reads, and — where two owners share one — which of them.
   const ownerBox = $derived(ownerKey ? ownerKeyLabel(ownerKey) : owner);
@@ -64,11 +68,11 @@
     service: service || undefined,
     staleOnly: isStale ? true : undefined,
     offset: pageOffset || undefined,
-    limit: PAGE_SIZE,
+    limit: pageLimit,
   }));
   // queryIdentity is the QUESTION (filters + page); refreshTick only re-asks it. Rows
   // are retained across a re-ask and never across a different question.
-  const queryIdentity = $derived([category, severity, status, owner, ownerKey, source, service, staleOnly, pageOffset].join('@@'));
+  const queryIdentity = $derived([category, severity, status, owner, ownerKey, source, service, staleOnly, pageOffset, pageLimit].join('@@'));
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -81,7 +85,7 @@
   const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: anyFilter, knowledge }));
   // `loader.data`, not `list`: `list` is nulled the instant the query changes, which is
   // exactly when the skeleton renders, and 0 rows is no shape at all.
-  const skeletonRows = $derived(loader.data?.items?.length || PAGE_SIZE);
+  const skeletonRows = $derived(loader.data?.items?.length || pageLimit);
   // A poll that failed over rows we can still show. decideViewState keeps the rows;
   // this is the half that keeps it honest, so a frozen list never reads as a live one.
   const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
@@ -91,7 +95,8 @@
   const revalidating = $derived(state.kind === 'ready' && !!state.revalidating);
 
   // A filter change resets the offset to page 1; a patch value of '' clears a filter.
-  function urlWith(patch, off = 0) {
+  // The page size survives a filter change; only the page resets.
+  function urlWith(patch, off = 0, lim = pageLimit) {
     const stale = patch.staleOnly !== undefined ? patch.staleOnly : isStale;
     return fleetAttentionUrl({
       category: patch.category ?? category,
@@ -103,17 +108,12 @@
       service: patch.service ?? service,
       staleOnly: stale || undefined,
       offset: off,
+      limit: limitParam(lim, limit, PAGE_SIZE),
     });
   }
   function apply(patch) { location.hash = urlWith(patch); }
   function clearAll() { location.hash = fleetAttentionUrl(); }
 
-  const total = $derived(list?.total ?? 0);
-  const shownFrom = $derived(total === 0 ? 0 : (list?.offset ?? pageOffset) + 1);
-  const shownTo = $derived((list?.offset ?? pageOffset) + count);
-  const hasPrev = $derived((list?.offset ?? pageOffset) > 0);
-  const hasNext = $derived(list?.nextOffset != null);
-  const prevOffset = $derived(Math.max(0, (list?.offset ?? pageOffset) - PAGE_SIZE));
 
   const chips = $derived([
     category ? { key: 'category', label: 'Category', value: attentionCategoryLabel(category) } : null,
@@ -183,7 +183,7 @@
   // against printing them in prose (see the severity-vocabulary test).
   const urgent = $derived((list?.severities?.errors ?? 0) + (list?.severities?.warnings ?? 0));
   const headerCount = $derived(
-    list ? `${list.total} item${list.total === 1 ? '' : 's'} · ${urgent ? 'most urgent first' : 'nothing urgent'}` : '',
+    list ? `${formatCount(list.total)} item${list.total === 1 ? '' : 's'} · ${urgent ? 'most urgent first' : 'nothing urgent'}` : '',
   );
 </script>
 
@@ -250,7 +250,9 @@
     <StaleRefreshNotice noun="attention list" onRetry={load} />
   {/if}
 
-  {#if state.kind !== 'ready'}
+  {#if pastEnd(list, count)}
+    <Pager page={list} href={(o, l) => urlWith({}, o, l)} count={0} noun="attention items" testid="attn" />
+  {:else if state.kind !== 'ready'}
     <ProductEmptyState {state} noun="attention items" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
     <!-- The shape of the backlog before the backlog itself. Both charts read the
@@ -301,21 +303,7 @@
       {/each}
     </ul>
 
-    <nav class="av-pager pl-pager" aria-label="Attention pages">
-      <span class="av-range pl-range">Showing {shownFrom}–{shownTo} of {total}</span>
-      <div class="av-pager-btns pl-pager-btns">
-        {#if hasPrev}
-          <a class="av-page pl-page" href={urlWith({}, prevOffset)} data-testid="attn-prev" rel="prev">Previous</a>
-        {:else}
-          <span class="av-page pl-page disabled" aria-disabled="true">Previous</span>
-        {/if}
-        {#if hasNext}
-          <a class="av-page pl-page" href={urlWith({}, list.nextOffset)} data-testid="attn-next" rel="next">Next</a>
-        {:else}
-          <span class="av-page pl-page disabled" aria-disabled="true">Next</span>
-        {/if}
-      </div>
-    </nav>
+    <Pager page={list} href={(o, l) => urlWith({}, o, l)} label="Attention pages" noun="items" testid="attn" />
   {/if}
 </div>
 
@@ -335,8 +323,14 @@
   /* Shape only. The frame, the divider and the hover come from the shared .pl-row.
      The row keeps its own padding because its main child is not the only child. */
   .attn-item {
-    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--sp-2) var(--sp-3);
+    /* The next step is capped: as an auto column a long one took the whole row and
+       squeezed the entity to a character per line. On a phone it goes underneath. */
+    display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 28ch); align-items: center; gap: var(--sp-2) var(--sp-3);
     padding: var(--sp-2) var(--sp-3);
+  }
+  @media (max-width: 40rem) {
+    .attn-item { grid-template-columns: minmax(0, 1fr); }
+    .attn-next { text-align: left; }
   }
   /* The severity rail. Two selectors deep on purpose: .pl-row:hover paints the same 3px
      slot accent, and one stripe cannot mean both "clickable" and "this one is an error".

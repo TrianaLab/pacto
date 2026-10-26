@@ -14,16 +14,20 @@
   import DistributionBar from '../components/viz/DistributionBar.svelte';
   import HorizontalBars from '../components/viz/HorizontalBars.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import Pager from '../components/Pager.svelte';
+  import { urlInt, limitParam, pastEnd } from '../lib/paging.ts';
+  import { formatCount } from '../lib/format.ts';
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
 
   // The product Owners list: owner discovery through
   // /api/fleet/entities?kinds=owner via the SDK facade, with a search box and stable
   // backend pagination kept in the URL. Rows navigate to the rich owner page.
-  let { text = '', offset = '', refreshTick = 0 } = $props();
+  let { text = '', offset = '', limit = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
-  const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
+  const pageOffset = $derived(urlInt(offset));
+  const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   const anyFilter = $derived(!!text);
 
   // Seeded once; the effect below keeps it in step with the URL.
@@ -35,10 +39,10 @@
 
   // One reusable, race-safe loader: dedupes the initial load and
   // guards against a stale response overwriting a newer route/filter/refresh.
-  const loader = createProductLoader(() => api.fleetEntities({ kinds: ['owner'], text: text || undefined, offset: pageOffset || undefined, limit: PAGE_SIZE }));
+  const loader = createProductLoader(() => api.fleetEntities({ kinds: ['owner'], text: text || undefined, offset: pageOffset || undefined, limit: pageLimit, sort: 'name' }));
   // queryIdentity is the QUESTION (search + page); refreshTick only re-asks it. Rows
   // are retained across a re-ask and never across a different question.
-  const queryIdentity = $derived(`${text}@@${pageOffset}`);
+  const queryIdentity = $derived(`${text}@@${pageOffset}@@${pageLimit}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -51,7 +55,7 @@
   const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: anyFilter, knowledge }));
   // `loader.data`, not `list`: `list` is nulled the instant the query changes, which is
   // exactly when the skeleton renders, and 0 rows is no shape at all.
-  const skeletonRows = $derived(loader.data?.entities?.length || PAGE_SIZE);
+  const skeletonRows = $derived(loader.data?.entities?.length || pageLimit);
   // A poll that failed over rows we can still show. decideViewState keeps the rows;
   // this is the half that keeps it honest, so a frozen list never reads as a live one.
   const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
@@ -60,12 +64,8 @@
   // actually say it, in words rather than by spinning something.
   const revalidating = $derived(state.kind === 'ready' && !!state.revalidating);
   const total = $derived(list?.total ?? 0);
-  const shownFrom = $derived(total === 0 ? 0 : (list?.offset ?? pageOffset) + 1);
-  const shownTo = $derived((list?.offset ?? pageOffset) + count);
-  const hasPrev = $derived((list?.offset ?? pageOffset) > 0);
-  const hasNext = $derived(list?.nextOffset != null);
-  const prevOffset = $derived(Math.max(0, (list?.offset ?? pageOffset) - PAGE_SIZE));
 
+  const pageHref = (off, lim) => fleetOwnersUrl({ text: text || undefined, offset: off, limit: limitParam(lim, limit, PAGE_SIZE) });
   function submitSearch(e) { e.preventDefault(); submittedText = textDraft; location.hash = fleetOwnersUrl({ text: textDraft }); }
   function clearAll() { location.hash = fleetOwnersUrl(); }
   const chips = $derived(text ? [{ key: 'text', label: 'Search', value: text }] : []);
@@ -119,7 +119,7 @@
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Owners' }]} />
-  <PageHeader title="Owners" count={list ? `${total} owner${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} />
+  <PageHeader title="Owners" count={list ? `${formatCount(total)} owner${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} />
 
   <form class="lv-search" onsubmit={submitSearch} role="search">
     <input class="input" type="search" bind:value={textDraft} placeholder="Search owners..." aria-label="Search owners" />
@@ -195,7 +195,9 @@
     {/if}
   </section>
 
-  {#if state.kind !== 'ready'}
+  {#if pastEnd(list, count)}
+    <Pager page={list} href={pageHref} count={0} noun="owners" testid="owner" />
+  {:else if state.kind !== 'ready'}
     <ProductEmptyState {state} noun="owners" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
     <ul class="lv-list pl-list" data-testid="owner-list">
@@ -203,13 +205,7 @@
         <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={false} showKind={false} /></li>
       {/each}
     </ul>
-    <nav class="lv-pager pl-pager" aria-label="Owner pages">
-      <span class="lv-range pl-range">Showing {shownFrom}–{shownTo} of {total}</span>
-      <div class="lv-pager-btns pl-pager-btns">
-        {#if hasPrev}<a class="lv-page pl-page" href={fleetOwnersUrl({ text: text || undefined, offset: prevOffset })} data-testid="owner-prev" rel="prev">Previous</a>{:else}<span class="lv-page pl-page disabled" aria-disabled="true">Previous</span>{/if}
-        {#if hasNext}<a class="lv-page pl-page" href={fleetOwnersUrl({ text: text || undefined, offset: list.nextOffset })} data-testid="owner-next" rel="next">Next</a>{:else}<span class="lv-page pl-page disabled" aria-disabled="true">Next</span>{/if}
-      </div>
-    </nav>
+    <Pager page={list} href={pageHref} label="Owner pages" noun="owners" testid="owner" />
   {/if}
 </div>
 

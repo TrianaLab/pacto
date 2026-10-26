@@ -56,12 +56,29 @@ function mountView(props: Record<string, unknown>) {
   return { target, component };
 }
 
-const range = (t: HTMLElement) => t.querySelector('.av-range')?.textContent || '';
+const range = (t: HTMLElement) => (t.querySelector('[data-testid="attn-range"]')?.textContent || '').replace(/\s+/g, ' ').trim().replace(/ items$/, '');
 const prev = (t: HTMLElement) => t.querySelector('[data-testid="attn-prev"]') as HTMLAnchorElement | null;
 const next = (t: HTMLElement) => t.querySelector('[data-testid="attn-next"]') as HTMLAnchorElement | null;
 
 describe('FleetAttentionView — real backend pagination (A2)', () => {
   beforeEach(() => { attentionFn.mockReset(); location.hash = ''; });
+
+  it('a page past the end offers the last page instead of saying nothing is known', async () => {
+    serveByOffset();
+    const { target, component } = mountView({ offset: '500' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="attn-past-end"]')).not.toBeNull());
+    expect(target.textContent).not.toContain('No attention items');
+    expect(target.querySelector('[data-testid="attn-past-end"] a')?.getAttribute('href')).toBe('#/fleet/attention?offset=50');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('keeps the page size in the URL and asks the server for it', async () => {
+    serveByOffset();
+    const { target, component } = mountView({ limit: '50' });
+    await vi.waitFor(() => expect(attentionFn).toHaveBeenCalled());
+    expect(attentionFn.mock.calls[0][0]).toMatchObject({ limit: 50 });
+    unmount(component); document.body.removeChild(target);
+  });
 
   it('first page: renders 1-25 of 60, Prev disabled, Next -> offset 25', async () => {
     serveByOffset();

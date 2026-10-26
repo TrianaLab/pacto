@@ -738,3 +738,16 @@ tr.clickable:active { background: var(--c-surface-inset); }
   .data-table td[data-label]::before { content: attr(data-label); display: block; color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); }
   .data-table td:empty { display: none; }
 }
+
+/* ── Entity list rows as columns ── */
+/* Name, status and context in fixed tracks, so the status pills line up down the list
+   instead of trailing each name at a different x. A long name ellipsizes and keeps the
+   whole value in its title. On a phone the context drops under the name. */
+.pl-list--cols .pl-row > .entity-link { width: 100%; }
+.pl-list--cols .entity-identity { display: grid; grid-template-columns: minmax(0, 1fr) 9rem minmax(0, 18rem); width: 100%; }
+.pl-list--cols .ei-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-list--cols .ei-context { justify-content: flex-end; text-align: right; }
+@media (max-width: 40rem) {
+  .pl-list--cols .entity-identity { grid-template-columns: minmax(0, 1fr) auto; }
+  .pl-list--cols .ei-context { grid-column: 1 / -1; justify-content: flex-start; text-align: left; }
+}

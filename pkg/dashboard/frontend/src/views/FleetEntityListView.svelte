@@ -12,6 +12,10 @@
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
   import ActiveFilterChips from '../components/ActiveFilterChips.svelte';
   import PageHeader from '../components/PageHeader.svelte';
+  import Pager from '../components/Pager.svelte';
+  import ListSort from '../components/ListSort.svelte';
+  import { urlInt, limitParam, pastEnd } from '../lib/paging.ts';
+  import { formatCount } from '../lib/format.ts';
   import DistributionBar from '../components/viz/DistributionBar.svelte';
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
@@ -26,10 +30,11 @@
   // Revisions are returned in the backend's canonical order. This view does not
   // re-sort them: the chronology is the engine's answer, and a client re-sort by key
   // is exactly the digest-ordered version list the redesign was fixing.
-  let { kind = 'revision', service = '', text = '', status = '', scope = '', readiness = '', offset = '', refreshTick = 0 } = $props();
+  let { kind = 'revision', service = '', text = '', status = '', scope = '', readiness = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
-  const pageOffset = $derived(Math.max(0, Math.trunc(Number(offset) || 0)));
+  const pageOffset = $derived(urlInt(offset));
+  const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   const isRevisions = $derived(kind === 'revision');
   // Readiness is declared BY a revision, so the Entities API rejects the filter on any
   // other kind. Carrying it here for a target list would build a query that 422s.
@@ -57,13 +62,14 @@
     scope: kind === 'target' && scope ? scope : undefined,
     readiness: readinessFilter || undefined,
     offset: pageOffset || undefined,
-    limit: PAGE_SIZE,
+    limit: pageLimit,
+    sort: sort || undefined,
   }));
   // queryIdentity is the QUESTION -- the kind, the service the inventory is scoped to,
   // the filters and the page. refreshTick only re-asks it. Rows are retained across a
   // re-ask and never across a different question, so switching the scoped service can
   // never show one service's revisions under another's heading.
-  const queryIdentity = $derived(`${kind}@@${service}@@${text}@@${status}@@${scope}@@${readinessFilter}@@${pageOffset}`);
+  const queryIdentity = $derived(`${kind}@@${service}@@${text}@@${status}@@${scope}@@${readinessFilter}@@${pageOffset}@@${pageLimit}@@${sort}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -76,7 +82,7 @@
   const state = $derived(decideViewState({ loading, error, itemCount: count, filtered: anyFilter, knowledge }));
   // `loader.data`, not `list`: `list` is nulled the instant the query changes, which is
   // exactly when the skeleton renders, and 0 rows is no shape at all.
-  const skeletonRows = $derived(loader.data?.entities?.length || PAGE_SIZE);
+  const skeletonRows = $derived(loader.data?.entities?.length || pageLimit);
   // A poll that failed over rows we can still show. decideViewState keeps the rows;
   // this is the half that keeps it honest, so a frozen list never reads as a live one.
   const refreshError = $derived(state.kind === 'ready' ? state.refreshError : null);
@@ -85,11 +91,6 @@
   // actually say it, in words rather than by spinning something.
   const revalidating = $derived(state.kind === 'ready' && !!state.revalidating);
   const total = $derived(list?.total ?? 0);
-  const shownFrom = $derived(total === 0 ? 0 : (list?.offset ?? pageOffset) + 1);
-  const shownTo = $derived((list?.offset ?? pageOffset) + count);
-  const hasPrev = $derived((list?.offset ?? pageOffset) > 0);
-  const hasNext = $derived(list?.nextOffset != null);
-  const prevOffset = $derived(Math.max(0, (list?.offset ?? pageOffset) - PAGE_SIZE));
 
   // The scope is a canonical ServiceKey, so the breadcrumb links straight back to that
   // service's page rather than to an unscoped inventory the user did not come from.
@@ -97,10 +98,11 @@
     ? [{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Services', href: fleetServicesUrl() }, { label: service, href: fleetEntityUrl('service', service) }, { label: pluralTitle }]
     : [{ label: 'Overview', href: fleetOverviewUrl() }, { label: pluralTitle }]);
 
-  function urlWith(patch, off = 0) {
+  function urlWith(patch, off = 0, lim = pageLimit) {
     return fleetEntityListUrl(kind, {
       service, text: patch.text ?? text, status: patch.status ?? status, scope: patch.scope ?? scope,
       readiness: patch.readiness ?? readinessFilter, offset: off,
+      limit: limitParam(lim, limit, PAGE_SIZE), sort: (patch.sort ?? sort) || undefined,
     });
   }
   function submitSearch(e) { e.preventDefault(); submittedText = textDraft; location.hash = urlWith({ text: textDraft }); }
@@ -137,7 +139,7 @@
   <Breadcrumbs {trail} />
   <PageHeader
     title={`${pluralTitle}${service ? ` of ${service}` : ''}`}
-    count={list ? `${total} ${total === 1 ? plural.replace(/s$/, '') : plural}` : ''}
+    count={list ? `${formatCount(total)} ${total === 1 ? plural.replace(/s$/, '') : plural}` : ''}
     countTestid="entity-list-total"
     subtitle={kind === 'target'
       ? `Every place something has been observed running${service ? ' for this service' : ''}. A target is a runtime observation, not a contract.`
@@ -160,6 +162,8 @@
         </select>
       </label>
     {/if}
+    <ListSort value={sort} href={(v) => urlWith({ sort: v })} testid="entity-list-sort"
+      options={[['', isRevisions ? 'Newest first' : 'Default order'], ['name', 'Name'], ['health', 'Least healthy first']]} />
   </div>
   <ActiveFilterChips {chips} onRemove={removeChip} onClear={clearAll} />
 
@@ -197,21 +201,17 @@
     </section>
   {/if}
 
-  {#if state.kind !== 'ready'}
+  {#if pastEnd(list, count)}
+    <Pager page={list} href={(o, l) => urlWith({}, o, l)} count={0} noun={plural} testid="entity-list" />
+  {:else if state.kind !== 'ready'}
     <ProductEmptyState {state} noun={plural} onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
-    <ul class="lv-list pl-list" data-testid="entity-list">
+    <ul class="lv-list pl-list pl-list--cols" data-testid="entity-list">
       {#each list.entities as ref (ref.key)}
         <li class="lv-item pl-row" animate:flip={{ duration: dur(MOTION.row) }}><EntityLink {ref} showStatus={true} showKind={false} /></li>
       {/each}
     </ul>
-    <nav class="lv-pager pl-pager" aria-label={`${pluralTitle} pages`}>
-      <span class="lv-range pl-range">Showing {shownFrom}–{shownTo} of {total}</span>
-      <div class="lv-pager-btns pl-pager-btns">
-        {#if hasPrev}<a class="lv-page pl-page" href={urlWith({}, prevOffset)} data-testid="entity-list-prev" rel="prev">Previous</a>{:else}<span class="lv-page pl-page disabled" aria-disabled="true">Previous</span>{/if}
-        {#if hasNext}<a class="lv-page pl-page" href={urlWith({}, list.nextOffset)} data-testid="entity-list-next" rel="next">Next</a>{:else}<span class="lv-page pl-page disabled" aria-disabled="true">Next</span>{/if}
-      </div>
-    </nav>
+    <Pager page={list} href={(o, l) => urlWith({}, o, l)} label={`${pluralTitle} pages`} noun={plural} testid="entity-list" />
   {/if}
 </div>
 

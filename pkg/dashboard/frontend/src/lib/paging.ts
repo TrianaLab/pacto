@@ -38,10 +38,17 @@ export function pageView(p: PageWire | null | undefined): PageView {
     to: Math.min(offset + limit, total),
     total, limit, page, pages,
     first: offset > 0 ? 0 : null,
-    prev: offset > 0 ? Math.max(0, offset - limit) : null,
+    // Past the end (a stale link, a list that shrank) Previous and Last both lead
+    // back to the last real page instead of to another empty one.
+    prev: offset > 0 ? Math.min(lastOffset, Math.max(0, offset - limit)) : null,
     next: offset + limit < total ? offset + limit : null,
-    last: offset < lastOffset ? lastOffset : null,
+    last: offset !== lastOffset ? lastOffset : null,
   };
+}
+
+/** pastEnd: the server matched rows but this page holds none (an offset past the end). */
+export function pastEnd(p: PageWire | null | undefined, count: number): boolean {
+  return !!p && p.total > 0 && count === 0 && p.offset > 0;
 }
 
 /** offsetOfPage is where page n (1-based, clamped to 1..pages) starts. */

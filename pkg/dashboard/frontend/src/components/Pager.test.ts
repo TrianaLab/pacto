@@ -41,6 +41,12 @@ describe('Pager', () => {
     expect(b.querySelector('nav')).toBeNull();
   });
 
+  it('offers the last page when a link went past the end', () => {
+    const b = render(Pager, { page: { total: 60, offset: 500, limit: 25 }, href, count: 0, noun: 'items' });
+    expect(words(b.querySelector('[data-testid="pager-past-end"]'))).toBe('This page is past the end of the 60 items. Go to the last page');
+    expect(b.querySelector('[data-testid="pager-past-end"] a')?.getAttribute('href')).toBe(href(50, 25));
+  });
+
   it('jumps to a page and changes the page size through the URL', () => {
     const b = render(Pager, { page: { total: 500, offset: 0, limit: 25 }, href });
     const input = b.querySelector('[data-testid="pager-jump"]') as HTMLInputElement;
