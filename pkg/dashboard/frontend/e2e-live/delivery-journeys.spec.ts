@@ -30,8 +30,9 @@ async function dexLogin(page: Page, user: string): Promise<void> {
 }
 
 // decide presses choice on the held change. A decision counts only on a fresh
-// login: if this one is not fresh enough, the dashboard keeps the choice while
-// the person signs in again.
+// login: a plain sign-in is not one, so the dashboard keeps the choice and
+// sends the person straight to sign in again (or, when the server says so
+// only on the press, offers it).
 async function decide(page: Page, choice: string, note: string): Promise<void> {
   const panel = page.getByTestId('decision-panel');
   await expect(panel.getByRole('button', { name: choice })).toBeVisible({ timeout: T });
@@ -39,9 +40,10 @@ async function decide(page: Page, choice: string, note: string): Promise<void> {
   await panel.getByRole('button', { name: choice }).click();
   const recorded = page.getByTestId('decision-recorded');
   const fresh = page.getByTestId('fresh-login');
-  await expect(recorded.or(fresh)).toBeVisible({ timeout: T });
-  if (await fresh.isVisible()) {
-    await fresh.getByRole('button', { name: 'Sign in again' }).click();
+  const login = page.locator('input[name="login"]');
+  await expect(recorded.or(fresh).or(login)).toBeVisible({ timeout: T });
+  if (!(await recorded.isVisible())) {
+    if (await fresh.isVisible()) await fresh.getByRole('button', { name: 'Sign in again' }).click();
     await dexLogin(page, 'carol');
     await expect(page.getByTestId('decision-kept')).toContainText(`Your choice was ${choice}`, { timeout: T });
     await panel.getByRole('button', { name: choice }).click();
