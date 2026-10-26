@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // TestDeliveryFilterWatchesTheDemoInputs: the delivery-demo leg runs the live
@@ -74,4 +76,24 @@ func matchesAny(patterns []string, f string) bool {
 		}
 	}
 	return false
+}
+
+// TestDeliveryDemoRunsDoNotCancelEachOther: ci.yml calls delivery-demo.yml
+// as a required leg, and the nightly schedule runs the same file. On main both
+// resolve github.ref to refs/heads/main, so a concurrency group keyed on the
+// ref alone with cancel-in-progress lets the nightly cancel the required leg
+// (main goes red with no defect) or a push cancel the nightly (its failure
+// issue is never opened). The group must tell the caller's event apart.
+func TestDeliveryDemoRunsDoNotCancelEachOther(t *testing.T) {
+	var doc struct {
+		Concurrency struct {
+			Group string `yaml:"group"`
+		} `yaml:"concurrency"`
+	}
+	if err := yaml.Unmarshal([]byte(readFile(t, repoRoot(t), ".github", "workflows", "delivery-demo.yml")), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(doc.Concurrency.Group, "github.event_name") {
+		t.Errorf("delivery-demo.yml concurrency group %q is shared by the nightly and the CI call: key it on github.event_name too", doc.Concurrency.Group)
+	}
 }

@@ -18,8 +18,10 @@ on:
 permissions:
   contents: read
 
+# Keyed on the event too: on main the nightly and ci.yml's required call share
+# the ref, and neither may cancel the other.
 concurrency:
-  group: delivery-demo-${{ github.ref }}
+  group: delivery-demo-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
