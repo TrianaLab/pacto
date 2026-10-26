@@ -33,7 +33,8 @@ func TestCurrentRung(t *testing.T) {
 	}{
 		{StageSpec{}, StageStatus{}, RungObserve},
 		{StageSpec{StartRung: RungAdvise}, StageStatus{}, RungAdvise},
-		{StageSpec{StartRung: RungAutonomous}, StageStatus{}, RungObserve}, // never seeds automatic
+		{StageSpec{StartRung: RungAutonomous}, StageStatus{}, RungAutonomous}, // an admin chose it
+		{StageSpec{StartRung: "yolo"}, StageStatus{}, RungObserve},
 		{StageSpec{StartRung: RungAdvise}, StageStatus{Rung: RungAutonomous}, RungAutonomous},
 	} {
 		if got := CurrentRung(c.spec, c.st); got != c.want {

@@ -34,14 +34,13 @@ func (r Rung) level() int { return slices.Index(rungOrder, r) }
 func (r Rung) Automatic() bool { return r.level() >= RungAutoNonBreaking.level() }
 
 // CurrentRung is the Stage's rung: status.rung, or before the stage
-// reconciler seeds it, spec.startRung, or observe. An unseeded Stage never
-// reads as an automatic one.
+// reconciler seeds it, spec.startRung, or observe.
 func CurrentRung(spec StageSpec, st StageStatus) Rung {
 	switch {
 	case st.Rung != "":
 		return st.Rung
-	case spec.StartRung == RungAdvise:
-		return RungAdvise
+	case spec.StartRung.level() >= 0:
+		return spec.StartRung
 	}
 	return RungObserve
 }

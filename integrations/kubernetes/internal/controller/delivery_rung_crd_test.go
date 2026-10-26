@@ -14,7 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// A Stage starts on observe or advise, never on an automatic rung, and its
+// A Stage starts on any rung (creating one is an admin action), and its
 // startRung never changes: only an autonomy operation moves the rung.
 var _ = Describe("Stage startRung", func() {
 	stage := func(name string, start any) *unstructured.Unstructured {
@@ -28,12 +28,13 @@ var _ = Describe("Stage startRung", func() {
 		return u
 	}
 
-	It("refuses an automatic start rung", func() {
-		for _, r := range []string{"auto-nonbreaking", "autonomous"} {
-			err := k8sClient.Create(ctx, stage("start-"+r, r))
-			Expect(err).To(HaveOccurred(), r)
-			Expect(err.Error()).To(ContainSubstring("startRung"), r)
+	It("accepts every rung and refuses a name that is not one", func() {
+		for _, r := range []string{"advise", "auto-nonbreaking", "autonomous"} {
+			Expect(k8sClient.Create(ctx, stage("start-"+r, r))).To(Succeed(), r)
 		}
+		err := k8sClient.Create(ctx, stage("start-yolo", "yolo"))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("startRung"))
 	})
 
 	It("defaults to observe and keeps startRung fixed", func() {

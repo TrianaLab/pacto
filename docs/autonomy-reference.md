@@ -21,7 +21,7 @@ break-glass overrides are never rejected by the rung.
 
 | Field | Meaning |
 |---|---|
-| `spec.startRung` | Rung a new Stage starts on, read once while `status.rung` is empty. Default `observe` |
+| `spec.startRung` | Rung a new Stage starts on, read once while `status.rung` is empty. Default `observe`. Any rung is accepted, because creating a Stage is an admin action. A Stage whose status is lost seeds back to this rung, so an automatic start rung comes back automatic. `pacto init --delivery` always writes `observe` |
 | `spec.autonomy.proposeAfter` | How many qualifying changes earn a proposal. Default 10, from 1 to 20 |
 | `status.rung` | Current rung. After the start, only `delivery.pacto.trianalab.io/autonomy` operations change it |
 | `status.observedRevision` | On observe: the digest the GitOps source reports and since when Pacto saw it |

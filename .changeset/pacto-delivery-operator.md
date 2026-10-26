@@ -60,8 +60,8 @@ never promoted again (the Stage keeps its last 50) and gets one bound rollback;
 a second failure, a version a person chose, nothing safe to go back to, a
 refused automatic rollback, an outcome
 that cannot be established or an edit of the pointer the promoter did not make
-freezes the Stage. A Stage starts on `spec.startRung` (`observe`, the default,
-or `advise`) and only an `autonomy` operation moves `status.rung` after that;
+freezes the Stage. A Stage starts on `spec.startRung` (`observe` by default;
+an admin creating a Stage may pick any rung) and only an `autonomy` operation moves `status.rung` after that;
 on `auto-nonbreaking` and `autonomous` the promoter promotes the newest
 eligible candidate itself. It records what an observe Stage would have done in
 `status.shadow` (the newest 20), proposes the next rung in `status.proposal`

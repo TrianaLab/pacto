@@ -188,8 +188,8 @@ func orNone(s []string) string {
 func addRequestFlags(cmd *cobra.Command) {
 	cmd.Flags().String("stage", "", "the Stage to change (required)")
 	cmd.Flags().String("type", delivery.TypePromote, "operation type")
-	cmd.Flags().String("to", "", "the artifact digest to move to (sha256:...)")
-	cmd.Flags().String("from", "", "the digest the Stage runs now (defaults to its pointer)")
+	cmd.Flags().String("to", "", "where to move: an artifact digest (sha256:...) for a pointer type, or a rung (observe, advise, auto-nonbreaking or autonomous) for "+delivery.TypeAutonomy)
+	cmd.Flags().String("from", "", "where the Stage is now: a digest, or a rung for "+delivery.TypeAutonomy+" (defaults to its pointer, or to its current rung)")
 	cmd.Flags().String("undoes", "", "for a rollback: the name of the operation it undoes")
 	cmd.Flags().String("reason", "", "why, for the record")
 	cmd.Flags().String("on-behalf-of", "", "the person an agent acts for (asserted, not verified)")

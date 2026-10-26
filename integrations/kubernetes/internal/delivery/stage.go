@@ -153,9 +153,9 @@ func (r *StageReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 	}
 	r.observe(stage)
 	if stage.Status.Rung == "" {
-		// The one rung write not done through an operation: startRung is
-		// observe or advise, so a Stage whose status was lost seeds back to a
-		// rung on which Pacto ships nothing without a person.
+		// The one rung write not done through an operation. A Stage whose
+		// status was lost seeds back to its startRung, which an admin chose
+		// when creating it.
 		return reconcile.Result{RequeueAfter: immediately}, r.updateStatus(ctx, stage, func(s *dv1.Stage) {
 			if s.Status.Rung == "" {
 				s.Status.Rung = delivery.CurrentRung(s.Spec, s.Status)

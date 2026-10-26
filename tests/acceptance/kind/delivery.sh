@@ -525,7 +525,7 @@ YAML
 decide() { approve_as "$3" "$4" "$1" "$2" "$5" "${6:-}"; }
 
 # --- the autonomy ladder -------------------------------------------------------
-# Every Stage here starts on advise (startRung admits only observe and advise):
+# Every Stage here starts on advise:
 # it ships what a person proposes. A Stage the run needs automatic climbs one
 # rung at a time, each raise an autonomy operation alice proposes and carol,
 # of the service's team, approves, accepting the unknown where Pacto has not

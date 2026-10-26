@@ -124,7 +124,8 @@ func checkFraudDelivery(t *testing.T, r *Result) {
 	}
 	checkStages(t, file(t, r, "delivery/test.yaml").Content, file(t, r, "delivery/prod.yaml").Content)
 	if !hasLine(r.Next, "every promote to prod waits for a person") || !hasLine(r.Next, "so it promotes on its own at a rung above advise") ||
-		!hasLine(r.Next, "When Pacto proposes advise, label that OCIRepository delivery.pacto.trianalab.io/apply-ref=fraud and approve the raise") {
+		!hasLine(r.Next, "remove spec.ref from that OCIRepository in git (on Argo CD, ignoreDifferences on targetRevision) and label it delivery.pacto.trianalab.io/apply-ref=fraud") ||
+		!hasLine(r.Next, "pacto delivery propose --type delivery.pacto.trianalab.io/autonomy --stage <stage> --to advise") {
 		t.Fatalf("init does not say how prod earns autonomy: %+v", r.Next)
 	}
 }

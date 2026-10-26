@@ -79,7 +79,10 @@ func (p *planner) delivery() {
 	envs := strings.Join(p.envs, ", ")
 	last := p.envs[len(p.envs)-1]
 	p.next("each Stage starts at observe: it plans every change and moves nothing, and GitOps keeps writing spec.ref of the %s OCIRepository. "+
-		"When Pacto proposes advise, label that OCIRepository %s=%s and approve the raise", name, applyRefLabel, name)
+		"To leave observe, remove spec.ref from that OCIRepository in git (on Argo CD, ignoreDifferences on targetRevision) and label it %s=%s, "+
+		"so admission protects the pointer before Pacto owns it. Once the label is on and 10 versions GitOps applied verified (autonomy.proposeAfter), "+
+		"Pacto proposes advise: raise it with pacto delivery propose --type delivery.pacto.trianalab.io/autonomy --stage <stage> --to advise, "+
+		"and have a second person approve it", name, applyRefLabel, name)
 	p.next("every promote to %s waits for a person to approve it (approval.always in delivery/%s.yaml); "+
 		"once a health check judges each version there (gates.verify.checks, see Delivery reference: health checks), delete approval, so it promotes on its own at a rung above advise", last, last)
 	p.next("create the namespaces %s, then apply each environment: kubectl apply -f delivery/%s.yaml", envs, strings.Join(p.envs, ".yaml -f delivery/"))
