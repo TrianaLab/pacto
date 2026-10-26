@@ -2916,10 +2916,15 @@ export interface components {
             /** @enum {string} */
             kind: "service" | "revision" | "target" | "owner" | "source";
             label: string;
+            owner?: string;
             parentService?: string;
             scope?: string;
             secondary?: string;
+            /** Format: int64 */
+            services?: number;
             status?: string;
+            /** Format: int64 */
+            targets?: number;
             version?: string;
         };
         ProductRefPreview: {
@@ -4648,8 +4653,8 @@ export interface operations {
                 source?: string;
                 /** @description Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service) */
                 service?: string;
-                /** @description Order: name (natural, so 2 before 10) or health (least healthy first); absent orders by kind then key */
-                sort?: "name" | "health";
+                /** @description Order: name (natural, so 2 before 10), health (least healthy first) or services (owners with the most services first); absent orders by kind then key */
+                sort?: "name" | "health" | "services";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
                 limit?: number;
                 offset?: number;

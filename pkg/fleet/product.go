@@ -75,6 +75,14 @@ type EntityRef struct {
 	// consumer can match a requested version to a canonical RevisionKey without parsing a
 	// label -- e.g. the legacy version-bookmark migration.
 	Version string `json:"version,omitempty"`
+	// Owner is who a SERVICE reference's revisions name, set only on list answers:
+	// the owner's label when they agree on one, "N owners claim it" when they do
+	// not, and empty when none declares an owner.
+	Owner string `json:"owner,omitempty"`
+	// Targets counts what a SERVICE reference runs on; Services counts the services
+	// an OWNER reference's revisions claim. Both are set only on list answers.
+	Targets  int `json:"targets,omitempty"`
+	Services int `json:"services,omitempty"`
 }
 
 // SourceCounts is the fleet's source population tallied by health, over EVERY

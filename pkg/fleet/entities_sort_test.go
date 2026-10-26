@@ -1,8 +1,11 @@
 package fleet
 
 import (
+	"context"
 	"errors"
 	"testing"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 func TestNaturalLess(t *testing.T) {
@@ -84,4 +87,33 @@ func sortFixture() *FleetSnapshot {
 		{ID: "src-11", Kind: "k8s", Status: SourceUnavailable},
 		{ID: "src-2", Kind: "k8s", Status: SourceAvailable},
 	}}
+}
+
+// A list row says who owns a service and how many services an owner has, and
+// the owners list can put the busiest owner first.
+func TestEntitiesCarryOwnerAndCounts(t *testing.T) {
+	rev := func(name, team string) RawRevision {
+		return RawRevision{Bundle: &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.0",
+			Service: contract.Service{Name: name, Version: "1.0.0", Owner: contract.Owner{Team: team}}}}, Digest: "sha256:" + name}
+	}
+	src := NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{rev("a", "team-y"), rev("b", "team-x"), rev("c", "team-x")}})
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := NewQuery(snap)
+	owners, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindOwner}, Sort: SortServices})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(owners.Entities) != 2 || owners.Entities[0].Label != "team-x" || owners.Entities[0].Services != 2 || owners.Entities[1].Services != 1 {
+		t.Fatalf("owners = %+v", owners.Entities)
+	}
+	svcs, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindService}, Sort: SortName})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if svcs.Entities[0].Owner != "team-y" || svcs.Entities[1].Owner != "team-x" {
+		t.Fatalf("services = %+v", svcs.Entities)
+	}
 }

@@ -74,6 +74,8 @@ type EntityFilter struct {
 const (
 	SortName   = "name"
 	SortHealth = "health"
+	// SortServices puts the owners with the most services first, then by name.
+	SortServices = "services"
 )
 
 // EntityList is a bounded, deterministically ordered page of entity references.
@@ -122,6 +124,13 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 			a, b := healthRank(filtered[i].Status), healthRank(filtered[j].Status)
 			if a != b {
 				return a < b
+			}
+			return naturalLess(filtered[i].Label, filtered[j].Label)
+		})
+	case SortServices:
+		sort.SliceStable(filtered, func(i, j int) bool {
+			if a, b := filtered[i].Services, filtered[j].Services; a != b {
+				return a > b
 			}
 			return naturalLess(filtered[i].Label, filtered[j].Label)
 		})
@@ -175,8 +184,8 @@ func validateEntityFilter(f EntityFilter) error {
 	if f.Limit < 0 {
 		return &InvalidQueryError{Field: "limit", Value: fmt.Sprint(f.Limit), Reason: "must be >= 0"}
 	}
-	if f.Sort != "" && f.Sort != SortName && f.Sort != SortHealth {
-		return &InvalidQueryError{Field: "sort", Value: f.Sort, Reason: "not a sort order (name, health)"}
+	if f.Sort != "" && f.Sort != SortName && f.Sort != SortHealth && f.Sort != SortServices {
+		return &InvalidQueryError{Field: "sort", Value: f.Sort, Reason: "not a sort order (name, health, services)"}
 	}
 	if f.Status != "" && !ValidStatus(f.Status) {
 		return &InvalidQueryError{Field: "status", Value: f.Status, Reason: "not a canonical status"}
@@ -267,7 +276,15 @@ func (q *Query) candidateRefs(want map[EntityKind]bool) []EntityRef {
 	var refs []EntityRef
 	if want[KindService] {
 		for _, s := range q.snap.Services {
-			refs = append(refs, serviceEntityRef(s))
+			ref := serviceEntityRef(s)
+			ref.Targets = len(s.Targets)
+			switch n, key := q.ownershipState(s); {
+			case n == 1 && key != "":
+				ref.Owner = ownerEntityRef(key).Label
+			case n > 1:
+				ref.Owner = fmt.Sprintf("%d owners claim it", n)
+			}
+			refs = append(refs, ref)
 		}
 	}
 	if want[KindRevision] {
@@ -281,8 +298,19 @@ func (q *Query) candidateRefs(want map[EntityKind]bool) []EntityRef {
 		}
 	}
 	if want[KindOwner] {
+		// The same rule as the owner page: a service is an owner's when any of its
+		// revisions names them.
+		claimed := map[string]int{}
+		for _, s := range q.snap.Services {
+			claims := q.ownerClaimsOf(s)
+			for _, k := range claims.keys {
+				claimed[k]++
+			}
+		}
 		for _, o := range q.owners() {
-			refs = append(refs, ownerEntityRef(o))
+			ref := ownerEntityRef(o)
+			ref.Services = claimed[o]
+			refs = append(refs, ref)
 		}
 	}
 	if want[KindSource] {
