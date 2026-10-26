@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -33,13 +34,47 @@ func evalRunner(t *testing.T) (g Eval, answer *string, body *[]byte) {
 		_, _ = io.WriteString(w, *answer)
 	}))
 	t.Cleanup(srv.Close)
-	return Eval{URL: srv.URL, Client: srv.Client(), Revision: agentRevision}, answer, body
+	return Eval{URL: srv.URL, Client: srv.Client(), Revision: agentRevision, Verify: trustRunner}, answer, body
+}
+
+// runnerSig is the signature trustRunner accepts; pkg/signing tests the crypto.
+const runnerSig = "c2ln"
+
+// trustRunner accepts a bundle whose one signature is runnerSig.
+func trustRunner(b []byte) (string, error) {
+	var e envelope
+	_ = json.Unmarshal(b, &e)
+	if len(e.DSSEEnvelope.Signatures) != 1 || !strings.Contains(string(e.DSSEEnvelope.Signatures[0]), `"`+runnerSig+`"`) {
+		return "", errors.New("no trusted runner key or identity signed it")
+	}
+	return "evals-runner", nil
+}
+
+// signedBy is a runner's answer: a bundle over st with the signature sig.
+func signedBy(sig string, st any) string {
+	payload, _ := json.Marshal(st)
+	b, _ := json.Marshal(map[string]any{"mediaType": BundleMediaType, "dsseEnvelope": map[string]any{
+		"payload": payload, "payloadType": PayloadType, "signatures": []map[string]any{{"sig": sig}}}})
+	return string(b)
+}
+
+// evalStatement is a runner's statement that it ran suite on subject.
+func evalStatement(subject string, r EvalResult) EvalStatement {
+	st := EvalStatement{Type: StatementType, PredicateType: PredicateEval, Predicate: r}
+	if algo, hex, ok := strings.Cut(subject, ":"); ok {
+		st.Subject = []Subject{{Name: "version", Digest: map[string]string{algo: hex}}}
+	}
+	return st
+}
+
+// signed is a trusted runner's answer about subject.
+func signed(subject string, r EvalResult) string {
+	return signedBy(runnerSig, evalStatement(subject, r))
 }
 
 // evalRan is a runner answer for a run of passed out of total cases.
 func evalRan(passed, total int) string {
-	b, _ := json.Marshal(evalAnswer{Subject: dA, Suite: suiteDigest, Run: "https://evals.example/runs/7", Passed: passed, Total: total, Message: "two refunds wrong"})
-	return string(b)
+	return signed(dA, EvalResult{Suite: suiteDigest, Run: "https://evals.example/runs/7", Passed: passed, Total: total, Message: "two refunds wrong"})
 }
 
 func TestEval(t *testing.T) {
@@ -51,7 +86,7 @@ func TestEval(t *testing.T) {
 		Input GateInput `json:"input"`
 	}
 	_ = json.Unmarshal(*body, &sent)
-	want := map[string]string{"run": "https://evals.example/runs/7", "subject": dA, "passed": "50", "total": "50",
+	want := map[string]string{"run": "https://evals.example/runs/7", "subject": dA, "passed": "50", "total": "50", "runner": "evals-runner",
 		"suite": suiteDigest, "suiteName": "evals", "suitePath": "evals/suite.yaml", "contract": "oci://r/pay-agent@sha256:c0"}
 	for k, w := range want {
 		if v.Citation[k] != w {
@@ -61,6 +96,9 @@ func TestEval(t *testing.T) {
 	if v.Result != Pass || sent.Input.Subjects[0] != dA || sent.Input.Contract != "oci://r/pay-agent@sha256:c0" ||
 		*sent.Input.Suite != (Suite{Name: "evals", Path: "evals/suite.yaml", Digest: suiteDigest}) {
 		t.Fatalf("all pass: %+v sent=%s", v, *body)
+	}
+	if runner, err := CheckRunner(v, trustRunner); err != nil || runner != "evals-runner" {
+		t.Fatalf("the verdict keeps the runner's signed answer: %q %v", runner, err)
 	}
 	*answer = evalRan(48, 50)
 	if v := g.Check(context.Background(), gateIn(), nil); v.Result != Fail || v.Message != "48 of 50 cases passed, 100% needed: two refunds wrong" {
@@ -92,15 +130,22 @@ func TestEvalRounding(t *testing.T) {
 
 func TestEvalUnknown(t *testing.T) {
 	g, answer, _ := evalRunner(t)
+	r := func(run string, passed, total int) EvalResult {
+		return EvalResult{Suite: suiteDigest, Run: run, Passed: passed, Total: total}
+	}
 	unknown := map[string]string{
-		"another version": `{"subject":"sha256:other","suite":"` + suiteDigest + `","run":"r","passed":1,"total":1}`,
-		"no subject":      `{"suite":"` + suiteDigest + `","run":"r","passed":1,"total":1}`,
-		"no run":          `{"subject":"` + dA + `","suite":"` + suiteDigest + `","passed":1,"total":1}`,
-		"no suite":        `{"subject":"` + dA + `","run":"r","passed":1,"total":1}`,
-		"no cases":        `{"subject":"` + dA + `","suite":"` + suiteDigest + `","run":"r","passed":0,"total":0}`,
-		"too many passed": `{"subject":"` + dA + `","suite":"` + suiteDigest + `","run":"r","passed":2,"total":1}`,
-		"negative":        `{"subject":"` + dA + `","suite":"` + suiteDigest + `","run":"r","passed":-1,"total":1}`,
+		"another version": signed("sha256:other", r("r", 1, 1)),
+		"no subject":      signed("", r("r", 1, 1)),
+		"no run":          signed(dA, r("", 1, 1)),
+		"no suite":        signed(dA, EvalResult{Run: "r", Passed: 1, Total: 1}),
+		"no cases":        signed(dA, r("r", 0, 0)),
+		"too many passed": signed(dA, r("r", 2, 1)),
+		"negative":        signed(dA, r("r", -1, 1)),
 		"garbage":         `nope`,
+		"unsigned":        `{"subject":"` + dA + `","suite":"` + suiteDigest + `","run":"r","passed":1,"total":1}`,
+		"untrusted":       signedBy("Zm9yZ2Vk", evalStatement(dA, r("r", 1, 1))),
+		"a record":        signedBy(runnerSig, map[string]any{"_type": StatementType, "predicateType": PredicateOperation, "predicate": map[string]any{}}),
+		"too large":       signed(dA, EvalResult{Suite: suiteDigest, Run: strings.Repeat("r", maxRunnerAnswer), Passed: 1, Total: 1}),
 	}
 	for name, a := range unknown {
 		*answer = a
@@ -115,17 +160,24 @@ func TestEvalUnknown(t *testing.T) {
 			t.Errorf("minPassRate %q: %+v", bad, v)
 		}
 	}
-	if v := (Eval{URL: "http://127.0.0.1:1", Client: g.Client, Revision: agentRevision}).Check(context.Background(), gateIn(), nil); v.Result != Unknown {
+	if v := (Eval{URL: "http://127.0.0.1:1", Client: g.Client, Revision: agentRevision, Verify: trustRunner}).Check(context.Background(), gateIn(), nil); v.Result != Unknown {
 		t.Errorf("unreachable: %+v", v)
+	}
+	g.Verify = nil
+	if v := g.Check(context.Background(), gateIn(), nil); v.Result != Unknown || !strings.Contains(v.Message, "trusts no runner key") {
+		t.Errorf("no runner trusted: %+v", v)
 	}
 }
 
 func TestEvalThroughRunChecks(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, `{"subject":"`+dA+`","suite":"`+suiteDigest+`","run":"r","passed":3,"total":3}`)
+		_, _ = io.WriteString(w, signed(dA, EvalResult{Suite: suiteDigest, Run: "r", Passed: 3, Total: 3}))
 	}))
 	defer srv.Close()
-	gates, err := NewGates([]ProviderConfig{{Name: "evals", Type: ProviderEval, URL: srv.URL}}, srv.Client())
+	open := func(TrustedKey) (func([]byte) error, error) {
+		return func(b []byte) error { _, err := trustRunner(b); return err }, nil
+	}
+	gates, err := NewGates([]ProviderConfig{{Name: "evals", Type: ProviderEval, URL: srv.URL, Signers: []TrustedKey{{Name: "ci"}}}}, srv.Client(), open)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +185,7 @@ func TestEvalThroughRunChecks(t *testing.T) {
 	e.Revision = agentRevision
 	gates["evals"] = e
 	vs := RunChecks(context.Background(), gates, []GateCheck{{Name: "evals", Provider: "evals"}}, gateIn())
-	if Worst(vs) != Pass || vs[0].Citation["provider"] != "evals" || vs[0].Citation["run"] != "r" {
+	if Worst(vs) != Pass || vs[0].Citation["provider"] != "evals" || vs[0].Citation["run"] != "r" || vs[0].Citation["runner"] != "ci" {
 		t.Fatalf("%+v", vs)
 	}
 }
@@ -143,7 +195,7 @@ func TestEvalThroughRunChecks(t *testing.T) {
 // suite, is Unknown, and the runner is never asked.
 func TestEvalSuiteBinding(t *testing.T) {
 	g, answer, body := evalRunner(t)
-	*answer = `{"subject":"` + dA + `","suite":"evals/suite.yaml","run":"r","passed":2,"total":2}`
+	*answer = signed(dA, EvalResult{Suite: "evals/suite.yaml", Run: "r", Passed: 2, Total: 2})
 	if v := g.Check(context.Background(), gateIn(), nil); v.Result != Unknown ||
 		v.Message != `the runner ran the suite "evals/suite.yaml", not `+suiteDigest+`, the evals/suite.yaml the version ships` {
 		t.Fatalf("a suite named by path, not digest: %+v", v)
@@ -228,5 +280,66 @@ func TestEvalSuitePin(t *testing.T) {
 	}
 	if v := g.Check(context.Background(), gateIn(), nil); v.Result != Unknown || !strings.Contains(v.Message, "carries no files") {
 		t.Fatalf("a bundle with no files: %+v", v)
+	}
+}
+
+// TestEvalObservedModel: a model the runner saw that the contract's external
+// dependencies do not name fails the check; a Stage that asks which model
+// answered gets Unknown when nobody can tell.
+func TestEvalObservedModel(t *testing.T) {
+	g, answer, _ := evalRunner(t)
+	g.Revision = func(context.Context, GateInput) Revision {
+		r := agentRevision(context.Background(), GateInput{})
+		r.Bundle.Contract.Dependencies = []contract.Dependency{{Name: "orders", Ref: "oci://r/orders"},
+			{Name: "model", External: true, Version: "anthropic/claude-haiku-4-5"}}
+		return r
+	}
+	ran := func(model string) string {
+		return signed(dA, EvalResult{Suite: suiteDigest, Run: "r", Passed: 2, Total: 2, ObservedModel: model})
+	}
+	ask := map[string]string{"requireObservedModel": "true"}
+	cases := []struct {
+		name, model string
+		params      map[string]string
+		want        Result
+		msg         string
+	}{
+		{"the declared model", "anthropic/claude-haiku-4-5", ask, Pass, ""},
+		{"another model", "anthropic/claude-sonnet-4-5", nil, Fail, "the runner saw the model anthropic/claude-sonnet-4-5 answer, but the contract declares anthropic/claude-haiku-4-5"},
+		{"not said, not asked", "", nil, Pass, ""},
+		{"not said, asked", "", ask, Unknown, "the Stage asks which model answered, and the runner did not say"},
+	}
+	for _, c := range cases {
+		*answer = ran(c.model)
+		v := g.Check(context.Background(), gateIn(), c.params)
+		if v.Result != c.want || !strings.Contains(v.Message, c.msg) || v.Citation["observedModel"] != c.model {
+			t.Errorf("%s: %+v", c.name, v)
+		}
+	}
+	g.Revision = agentRevision // declares no model
+	*answer = ran("anthropic/claude-haiku-4-5")
+	if v := g.Check(context.Background(), gateIn(), nil); v.Result != Pass {
+		t.Errorf("nothing to compare, not asked: %+v", v)
+	}
+	if v := g.Check(context.Background(), gateIn(), ask); v.Result != Unknown || !strings.Contains(v.Message, "no external dependency with a version") {
+		t.Errorf("nothing to compare, asked: %+v", v)
+	}
+}
+
+// TestCheckRunner: an auditor re-checks the runner's signature on the answer
+// a verdict keeps, and that the verdict cites what the runner signed.
+func TestCheckRunner(t *testing.T) {
+	g, answer, _ := evalRunner(t)
+	*answer = evalRan(2, 2)
+	v := g.Check(context.Background(), gateIn(), nil)
+	v.Citation["passed"] = "3"
+	if _, err := CheckRunner(v, trustRunner); err == nil || !strings.Contains(err.Error(), `cites passed "3", but evals-runner signed "2"`) {
+		t.Fatalf("an edited count: %v", err)
+	}
+	if _, err := CheckRunner(v, func([]byte) (string, error) { return "", errors.New("unknown key") }); err == nil {
+		t.Fatal("an untrusted runner")
+	}
+	if _, err := CheckRunner(Verdict{}, trustRunner); err == nil {
+		t.Fatal("no signed answer")
 	}
 }

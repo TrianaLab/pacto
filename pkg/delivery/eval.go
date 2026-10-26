@@ -1,14 +1,18 @@
 package delivery
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
@@ -16,15 +20,78 @@ import (
 // ProviderEval is a suite runner: it runs one of the checks a version ships.
 const ProviderEval = "eval"
 
-// evalAnswer is what a suite runner answers: which version it ran, which
-// suite, where the run can be read again and how many cases passed.
-type evalAnswer struct {
-	Subject string `json:"subject"`
-	Suite   string `json:"suite"`
-	Run     string `json:"run"`
-	Passed  int    `json:"passed"`
-	Total   int    `json:"total"`
-	Message string `json:"message"`
+// PredicateEval is the predicate of the statement a suite runner signs.
+const PredicateEval = "delivery.pacto.trianalab.io/eval/v1"
+
+// maxRunnerAnswer bounds a runner's signed answer: it is kept in the verdict,
+// in Operation status and in the signed record.
+const maxRunnerAnswer = 64 << 10
+
+// EvalStatement is what a suite runner signs: an in-toto Statement v1 whose
+// one subject is the version it ran the suite on.
+type EvalStatement struct {
+	Type          string     `json:"_type"`
+	Subject       []Subject  `json:"subject"`
+	PredicateType string     `json:"predicateType"`
+	Predicate     EvalResult `json:"predicate"`
+}
+
+// EvalResult is delivery.pacto.trianalab.io/eval/v1: which suite ran (its
+// sha256), where the run can be read again, how many cases passed and, when
+// the runner can tell, the model that answered.
+type EvalResult struct {
+	Suite         string `json:"suite"`
+	Run           string `json:"run"`
+	Passed        int    `json:"passed"`
+	Total         int    `json:"total"`
+	ObservedModel string `json:"observedModel,omitempty"`
+	Message       string `json:"message,omitempty"`
+}
+
+// Version is the digest of the statement's one subject, "" unless it has
+// exactly one with a sha256.
+func (s EvalStatement) Version() string {
+	if len(s.Subject) != 1 || s.Subject[0].Digest["sha256"] == "" {
+		return ""
+	}
+	return "sha256:" + s.Subject[0].Digest["sha256"]
+}
+
+// OpenEvalAnswer checks a runner's answer is one DSSE-signed eval statement
+// that verify accepts, and returns it with the runner that signed it.
+func OpenEvalAnswer(bundle []byte, verify RunnerVerifier) (EvalStatement, string, error) {
+	var st EvalStatement
+	if _, err := openStatement(bundle, PredicateEval, &st); err != nil {
+		return EvalStatement{}, "", err
+	}
+	runner, err := verify(bundle)
+	if err != nil {
+		return EvalStatement{}, "", fmt.Errorf("signature: %w", err)
+	}
+	return st, runner, nil
+}
+
+// CheckRunner checks again the signed answer an eval verdict keeps (its
+// runnerBundle citation), the way an auditor reads a record: the runner's
+// signature under verify, and that the answer says what the verdict cites.
+// It returns the runner that signed it.
+func CheckRunner(v Verdict, verify RunnerVerifier) (string, error) {
+	raw := v.Citation["runnerBundle"]
+	if raw == "" {
+		return "", errors.New("the verdict keeps no signed answer from its runner")
+	}
+	st, runner, err := OpenEvalAnswer([]byte(raw), verify)
+	if err != nil {
+		return "", err
+	}
+	a := st.Predicate
+	for k, signed := range map[string]string{"subject": st.Version(), "suite": a.Suite, "run": a.Run,
+		"passed": strconv.Itoa(a.Passed), "total": strconv.Itoa(a.Total), "observedModel": a.ObservedModel} {
+		if v.Citation[k] != signed {
+			return runner, fmt.Errorf("the verdict cites %s %q, but %s signed %q", k, v.Citation[k], runner, signed)
+		}
+	}
+	return runner, nil
 }
 
 // Eval asks a suite runner to run one of the checks the version under check
@@ -33,14 +100,20 @@ type evalAnswer struct {
 // decides with the minPassRate param (default 1: every case passes). The
 // runner gets the same {"input", "params"} as a Webhook, with the input also
 // naming the contract the version ships and the suite in it, by name, path
-// and sha256 ({"contract", "suite": {"name", "path", "digest"}}), and answers
-// {"subject", "suite", "run", "passed", "total", "message"} where suite is
-// the digest of the suite it ran. An answer about another version or another
-// suite, with no cases, or with no run to cite is Unknown, never Pass or Fail:
-// a verdict on a suite nobody can tie to the bundle verifies nothing.
+// and sha256 ({"contract", "suite": {"name", "path", "digest"}}). It answers
+// with a Sigstore bundle: a DSSE envelope over an EvalStatement, signed by a
+// runner key the provider trusts. An answer nobody trusted signed, about
+// another version or another suite, with no cases or with no run to cite is
+// Unknown, never Pass or Fail: whoever ran the exam must sign its result, and
+// a verdict on a suite nobody can tie to the bundle verifies nothing. The
+// verdict keeps the signed answer, so the record carries the runner's own
+// signature beside the recorder's.
 type Eval struct {
 	URL    string
 	Client *http.Client
+	// Verify checks the runner's signature. Without it every answer is
+	// Unknown.
+	Verify RunnerVerifier
 	// Revision reads the contract the version under check ships. Without
 	// it, or when the contract cannot be read, the gate answers Unknown.
 	Revision func(context.Context, GateInput) Revision
@@ -56,19 +129,33 @@ func (e Eval) Check(ctx context.Context, in GateInput, params map[string]string)
 		}
 		minRate = r
 	}
-	if msg := e.suite(ctx, &in, params["suite"]); msg != "" {
+	models, msg := e.suite(ctx, &in, params["suite"])
+	if msg != "" {
 		return Verdict{Result: Unknown, Message: msg}
 	}
 	if pin := params["suiteDigest"]; pin != "" && pin != in.Suite.Digest {
 		return Verdict{Result: Unknown, Message: pinMismatch(in.Suite, pin)}
 	}
-	var a evalAnswer
-	if err := postJSON(ctx, e.Client, e.URL, map[string]any{"input": in, "params": params}, &a); err != nil {
+	if e.Verify == nil {
+		return Verdict{Result: Unknown, Message: "the provider trusts no runner key, so no answer can be checked"}
+	}
+	var raw json.RawMessage
+	if err := postJSON(ctx, e.Client, e.URL, map[string]any{"input": in, "params": params}, &raw); err != nil {
 		return Verdict{Result: Unknown, Message: err.Error()}
 	}
+	var signed bytes.Buffer
+	_ = json.Compact(&signed, raw) // postJSON decoded it, so it is JSON
+	if signed.Len() > maxRunnerAnswer {
+		return Verdict{Result: Unknown, Message: fmt.Sprintf("the runner's answer is %d bytes, more than the %d a verdict keeps", signed.Len(), maxRunnerAnswer)}
+	}
+	st, runner, err := OpenEvalAnswer(signed.Bytes(), e.Verify)
+	if err != nil {
+		return Verdict{Result: Unknown, Message: "the runner's answer is not signed by a runner this provider trusts: " + err.Error()}
+	}
+	a, subject := st.Predicate, st.Version()
 	switch {
-	case !slices.Contains(in.Subjects, a.Subject):
-		return Verdict{Result: Unknown, Message: fmt.Sprintf("the runner ran the suite on %q, not on the version under check", a.Subject)}
+	case !slices.Contains(in.Subjects, subject):
+		return Verdict{Result: Unknown, Message: fmt.Sprintf("the runner ran the suite on %q, not on the version under check", subject)}
 	case a.Run == "":
 		return Verdict{Result: Unknown, Message: "the runner named no run to cite"}
 	case a.Suite != in.Suite.Digest:
@@ -77,8 +164,8 @@ func (e Eval) Check(ctx context.Context, in GateInput, params map[string]string)
 		return Verdict{Result: Unknown, Message: fmt.Sprintf("the runner counted %d of %d cases passed", a.Passed, a.Total)}
 	}
 	v := Verdict{Result: Fail, Citation: map[string]string{
-		"run": a.Run, "suite": a.Suite, "suiteName": in.Suite.Name, "suitePath": in.Suite.Path, "contract": in.Contract, "subject": a.Subject,
-		"passed": strconv.Itoa(a.Passed), "total": strconv.Itoa(a.Total),
+		"run": a.Run, "suite": a.Suite, "suiteName": in.Suite.Name, "suitePath": in.Suite.Path, "contract": in.Contract, "subject": subject,
+		"passed": strconv.Itoa(a.Passed), "total": strconv.Itoa(a.Total), "runner": runner, "runnerBundle": signed.String(),
 	}}
 	// Divide, never multiply: 7/100 rounds to the parsed 0.07, 0.07*100 does not round to 7.
 	if float64(a.Passed)/float64(a.Total) >= minRate {
@@ -88,7 +175,29 @@ func (e Eval) Check(ctx context.Context, in GateInput, params map[string]string)
 	if a.Message != "" {
 		v.Message += ": " + a.Message
 	}
+	if a.ObservedModel != "" {
+		v.Citation["observedModel"] = a.ObservedModel
+	}
+	if r, why := modelCheck(a.ObservedModel, models, params["requireObservedModel"] == "true"); why != "" {
+		v.Result, v.Message = worse(v.Result, r), v.Message+"; "+why
+	}
 	return v
+}
+
+// modelCheck compares the model the runner saw answer with the versions of
+// the contract's external dependencies. A model none of them names fails; a
+// Stage that asks which model answered (required) gets Unknown when the
+// runner did not say or the contract names no version to compare with.
+func modelCheck(observed string, models []string, required bool) (Result, string) {
+	switch {
+	case observed != "" && len(models) > 0 && !slices.Contains(models, observed):
+		return Fail, "the runner saw the model " + observed + " answer, but the contract declares " + strings.Join(models, ", ")
+	case !required || observed != "" && len(models) > 0:
+		return Pass, ""
+	case observed == "":
+		return Unknown, "the Stage asks which model answered, and the runner did not say"
+	}
+	return Unknown, "the Stage asks which model answered, but the contract declares no external dependency with a version to compare " + observed + " with"
 }
 
 // suite sets in.Contract and in.Suite to the contract the version under
@@ -111,20 +220,25 @@ func pickSuite(checks []contract.Check, name, ref string) (c contract.Check, why
 	return checks[i], ""
 }
 
-func (e Eval) suite(ctx context.Context, in *GateInput, name string) string {
+func (e Eval) suite(ctx context.Context, in *GateInput, name string) (models []string, why string) {
 	if e.Revision == nil || len(in.Subjects) == 0 {
-		return "the suite gate cannot read the contract the version ships"
+		return nil, "the suite gate cannot read the contract the version ships"
 	}
 	rev := e.Revision(ctx, *in)
 	if rev.Bundle == nil {
-		return "reading the contract the version ships: " + rev.Err
+		return nil, "reading the contract the version ships: " + rev.Err
 	}
 	s, why := readSuite(rev, name)
 	if why != "" {
-		return why
+		return nil, why
 	}
 	in.Contract, in.Suite = rev.ContractRef, s
-	return ""
+	for _, d := range rev.Bundle.Contract.Dependencies { // readSuite found a check, so there is a contract
+		if d.External && d.Version != "" {
+			models = append(models, d.Version)
+		}
+	}
+	return models, ""
 }
 
 // readSuite is the suite a Stage check's suite name picks from the checks

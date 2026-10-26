@@ -48,7 +48,14 @@ type TrustedKey struct {
 	// streams gets one entry per stream.
 	UntilSeq    int64  `json:"untilSeq,omitempty" yaml:"untilSeq,omitempty"`
 	UntilRecord string `json:"untilRecord,omitempty" yaml:"untilRecord,omitempty"`
+	// Role is what the key signs: records when empty, or the answers of an
+	// eval runner ("runner"). A runner key never verifies a record, and a
+	// recorder key never verifies a runner's answer.
+	Role string `json:"role,omitempty" yaml:"role,omitempty"`
 }
+
+// RoleRunner is the role of a key that signs eval runners' answers.
+const RoleRunner = "runner"
 
 // HistoryOnly is the error of a record that only a revoked key signs, at or
 // below the seq it was revoked after: the record is history only if Until,
@@ -100,6 +107,15 @@ func (t TrustConfig) Verifier(open func(TrustedKey) (func(bundle []byte) error, 
 	}
 	var entries []entry
 	for i, k := range t.Keys {
+		if k.Role != "" && k.Role != RoleRunner {
+			return nil, fmt.Errorf("trust config key %d (%s): role %q is not empty or %s", i, k.Name, k.Role, RoleRunner)
+		}
+		if k.Role == RoleRunner { // checked here, used by Runners
+			if _, err := RunnersOf([]TrustedKey{k}, open); err != nil {
+				return nil, fmt.Errorf("trust config key %d: %w", i, err)
+			}
+			continue
+		}
 		if k.UntilSeq < 0 {
 			return nil, fmt.Errorf("trust config key %d (%s): untilSeq %d is negative", i, k.Name, k.UntilSeq)
 		}
@@ -149,11 +165,65 @@ func (t TrustConfig) Verifier(open func(TrustedKey) (func(bundle []byte) error, 
 // For is the first key trusted to sign records of stream.
 func (t TrustConfig) For(stream string) (TrustedKey, bool) {
 	for _, k := range t.Keys {
-		if covers(k.Streams, stream) {
+		if k.Role == "" && covers(k.Streams, stream) {
 			return k, true
 		}
 	}
 	return TrustedKey{}, false
+}
+
+// RunnerVerifier checks an eval runner's signed answer and names the runner
+// whose key or keyless identity signed it.
+type RunnerVerifier func(bundle []byte) (runner string, err error)
+
+// Runners is the verifier of the config's runner keys (role runner).
+func (t TrustConfig) Runners(open func(TrustedKey) (func(bundle []byte) error, error)) (RunnerVerifier, error) {
+	var keys []TrustedKey
+	for _, k := range t.Keys {
+		if k.Role == RoleRunner {
+			keys = append(keys, k)
+		}
+	}
+	return RunnersOf(keys, open)
+}
+
+// RunnersOf is the verifier of runner keys: an answer counts when one of them
+// signed it. Each key needs a name, the runner a verdict cites as who ran the
+// exam; streams and revocation are for record keys only.
+func RunnersOf(keys []TrustedKey, open func(TrustedKey) (func(bundle []byte) error, error)) (RunnerVerifier, error) {
+	type entry struct {
+		name   string
+		verify func([]byte) error
+	}
+	var entries []entry
+	for _, k := range keys {
+		if k.Name == "" {
+			return nil, errors.New("a runner key needs a name, so a verdict can say who ran the exam")
+		}
+		if len(k.Streams) > 0 || k.UntilSeq != 0 || k.UntilRecord != "" {
+			return nil, fmt.Errorf("runner key %s: streams, untilSeq and untilRecord are for record keys only", k.Name)
+		}
+		v, err := open(k)
+		if err != nil {
+			return nil, fmt.Errorf("runner key %s: %w", k.Name, err)
+		}
+		name := k.Name
+		if k.Identity != "" {
+			name += " (" + k.Identity + " from " + k.Issuer + ")"
+		}
+		entries = append(entries, entry{name, v})
+	}
+	return func(bundle []byte) (string, error) {
+		if len(entries) == 0 {
+			return "", errors.New("no runner key is trusted")
+		}
+		for _, e := range entries {
+			if e.verify(bundle) == nil {
+				return e.name, nil
+			}
+		}
+		return "", errors.New("no trusted runner key or identity signed it")
+	}, nil
 }
 
 func covers(patterns []string, stream string) bool {

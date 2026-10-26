@@ -3,6 +3,7 @@ package delivery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -34,7 +35,7 @@ func TestNewGates(t *testing.T) {
 		{Name: "dd", Type: ProviderHTTP, URL: "https://hooks.example/gate"},
 		{Name: "local", Type: ProviderHTTP, URL: "http://127.0.0.1:8080/gate"},
 		{Name: "local6", Type: ProviderHTTP, URL: "http://[::1]:8080/gate"},
-		{Name: "localhost", Type: ProviderEval, URL: "http://localhost:8080"}}, nil)
+		{Name: "localhost", Type: ProviderEval, URL: "http://localhost:8080", Signers: ci}}, nil, openAny)
 	if err != nil || len(gates) != 5 {
 		t.Fatalf("valid providers: %v %v", gates, err)
 	}
@@ -43,6 +44,9 @@ func TestNewGates(t *testing.T) {
 	}
 	if _, ok := gates["dd"].(Webhook); !ok {
 		t.Errorf("dd is %T", gates["dd"])
+	}
+	if e, ok := gates["localhost"].(Eval); !ok || e.Verify == nil {
+		t.Errorf("an eval provider checks its runner's signature: %#v", gates["localhost"])
 	}
 	bad := map[string][]ProviderConfig{
 		"no name":   {{Type: ProviderMira, URL: "http://m"}},
@@ -53,16 +57,33 @@ func TestNewGates(t *testing.T) {
 		"no host":   {{Name: "m", Type: ProviderMira, URL: "http://"}},
 		"unparsed":  {{Name: "m", Type: ProviderMira, URL: "http://[::1"}},
 		"userinfo":  {{Name: "m", Type: ProviderHTTP, URL: "https://user:token@gate.internal/check"}},
-		"http":      {{Name: "m", Type: ProviderEval, URL: "http://eval-runner:8080"}},
+		"http":      {{Name: "m", Type: ProviderEval, URL: "http://eval-runner:8080", Signers: ci}},
+		"unsigned":  {{Name: "m", Type: ProviderEval, URL: "https://eval-runner"}},
+		"unnamed":   {{Name: "m", Type: ProviderEval, URL: "https://eval-runner", Signers: []TrustedKey{{PublicKey: "k"}}}},
+		"bad key":   {{Name: "m", Type: ProviderEval, URL: "https://eval-runner", Signers: []TrustedKey{{Name: "bad"}}}},
+		"signed":    {{Name: "m", Type: ProviderHTTP, URL: "https://m", Signers: ci}},
 	}
 	for name, cfg := range bad {
-		if _, err := NewGates(cfg, http.DefaultClient); err == nil {
+		if _, err := NewGates(cfg, http.DefaultClient, openAny); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	if _, err := NewGates(bad["http"], nil); err == nil || !strings.Contains(err.Error(), "plain http") {
+	if _, err := NewGates(bad["http"], nil, openAny); err == nil || !strings.Contains(err.Error(), "plain http") {
 		t.Errorf("plain http off loopback: %v", err)
 	}
+	if _, err := NewGates(bad["unsigned"], nil, openAny); err == nil || !strings.Contains(err.Error(), "whoever ran the exam must sign") {
+		t.Errorf("an unsigned eval provider: %v", err)
+	}
+}
+
+// ci is a runner key, and openAny opens any key but one named bad.
+var ci = []TrustedKey{{Name: "ci", PublicKey: "k"}}
+
+func openAny(k TrustedKey) (func([]byte) error, error) {
+	if k.Name == "bad" {
+		return nil, errors.New("no key")
+	}
+	return func([]byte) error { return nil }, nil
 }
 
 func TestParseProviders(t *testing.T) {
@@ -266,13 +287,14 @@ func TestRunChecksSuite(t *testing.T) {
 	gates := map[string]Gate{"runner": echo}
 	vs := RunChecks(context.Background(), gates, []GateCheck{
 		{Name: "typed", Provider: "runner", Suite: "evals", Params: map[string]string{"suite": "other"}},
-		{Name: "param", Provider: "runner", Params: map[string]string{"suite": "other", "suiteDigest": "sha256:x"}},
+		{Name: "param", Provider: "runner", Params: map[string]string{"suite": "other", "suiteDigest": "sha256:x", "requireObservedModel": "true"}},
 		{Name: "pinned", Provider: "runner", SuiteDigest: "sha256:y", Params: map[string]string{"suiteDigest": "sha256:x"}},
 		{Name: "bare", Provider: "runner", Suite: "evals", SuiteDigest: "sha256:y"},
+		{Name: "model", Provider: "runner", RequireObservedModel: true},
 	}, gateIn())
 	if vs[0].Message != "evals" || vs[0].Citation["params"] != `{"suite":"evals"}` || vs[1].Message != "" ||
 		vs[1].Citation["params"] != `{}` || vs[2].Citation["params"] != `{"suiteDigest":"sha256:y"}` ||
-		vs[3].Citation["params"] != `{"suite":"evals","suiteDigest":"sha256:y"}` {
+		vs[3].Citation["params"] != `{"suite":"evals","suiteDigest":"sha256:y"}` || vs[4].Citation["params"] != `{"requireObservedModel":"true"}` {
 		t.Errorf("%+v", vs)
 	}
 }

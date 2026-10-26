@@ -96,6 +96,10 @@ func TestParseTrustRefuses(t *testing.T) {
 		"keyless, no root":    "keys: [{identity: a, issuer: b}]",
 		"the old roots field": "keys: [{identity: a, issuer: b, roots: x}]",
 		"bare garbage pem":    "-----BEGIN PUBLIC KEY-----\nAAAA\n-----END PUBLIC KEY-----\n",
+		"unknown role":        "keys: [{publicKey: " + pemKey + ", role: auditor}]",
+		"unnamed runner":      "keys: [{publicKey: " + pemKey + ", role: runner}]",
+		"runner with streams": "keys: [{name: ci, publicKey: " + pemKey + ", role: runner, streams: ['*']}]",
+		"runner bad key":      "keys: [{name: ci, publicKey: nope, role: runner}]",
 	} {
 		if _, err := ParseTrust([]byte(raw)); err == nil {
 			t.Errorf("%s: parsed", name)
@@ -155,5 +159,44 @@ func TestTrustRevokesAKeyAfterASeq(t *testing.T) {
 		if _, err := ParseTrust([]byte("keys:\n  - {publicKey: " + quoteYAML(pubPEM(t, pub)) + ", " + half + "}\n")); err == nil || !strings.Contains(err.Error(), "go together") {
 			t.Errorf("%s alone: err = %v", half, err)
 		}
+	}
+}
+
+// TestTrustRunnerKeys: a runner key verifies eval runners' answers only, and
+// a record key records only, so neither can stand in for the other.
+func TestTrustRunnerKeys(t *testing.T) {
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	trust, err := ParseTrust([]byte("keys:\n" +
+		"  - {name: recorder, publicKey: " + quoteYAML(pubPEM(t, pub)) + "}\n" +
+		"  - {name: evals, publicKey: " + quoteYAML(pubPEM(t, pub)) + ", role: runner}\n" +
+		"  - {name: ci, identity: ci@acme, issuer: https://issuer, trustedRoot: '{}', role: runner}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, _ := trust.Verifier(byName)
+	runners, err := trust.Runners(byName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if records("c/test/agent", 1, []byte("evals")) == nil || records("c/test/agent", 1, []byte("recorder")) != nil {
+		t.Error("only the record key signs records")
+	}
+	if _, err := runners([]byte("recorder")); err == nil {
+		t.Error("a record key signed a runner's answer")
+	}
+	for bundle, want := range map[string]string{"evals": "evals", "ci": "ci (ci@acme from https://issuer)"} {
+		if got, err := runners([]byte(bundle)); err != nil || got != want {
+			t.Errorf("%s: %q %v", bundle, got, err)
+		}
+	}
+	if k, ok := trust.For("c/test/agent"); !ok || k.Name != "recorder" {
+		t.Errorf("For names the record key: %+v", k)
+	}
+	none, _ := TrustConfig{Keys: []TrustedKey{{Name: "recorder"}}}.Runners(byName)
+	if _, err := none([]byte("recorder")); err == nil || !strings.Contains(err.Error(), "no runner key is trusted") {
+		t.Errorf("no runner keys: %v", err)
+	}
+	if _, err := RunnersOf([]TrustedKey{{Name: "ci"}}, func(TrustedKey) (func([]byte) error, error) { return nil, errors.New("bad") }); err == nil {
+		t.Error("a runner key open refused still built a verifier")
 	}
 }

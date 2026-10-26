@@ -90,13 +90,17 @@ func PublicGoodRoot(mirror string) (root.TrustedMaterial, error) {
 // TrustVerifier is the record verifier of a trust config: each record must
 // verify under a key or keyless identity its stream may use.
 func TrustVerifier(t delivery.TrustConfig) (delivery.Verifier, error) {
-	return t.Verifier(func(k delivery.TrustedKey) (func([]byte) error, error) {
-		p, err := policyOf(k)
-		if err != nil {
-			return nil, err
-		}
-		return func(b []byte) error { _, err := p.Verify(b, nil); return err }, nil
-	})
+	return t.Verifier(OpenKey)
+}
+
+// OpenKey is the check of a bundle against one trusted key or keyless
+// identity: what a trust config and delivery.NewGates turn keys into.
+func OpenKey(k delivery.TrustedKey) (func([]byte) error, error) {
+	p, err := policyOf(k)
+	if err != nil {
+		return nil, err
+	}
+	return func(b []byte) error { _, err := p.Verify(b, nil); return err }, nil
 }
 
 // WithoutSCT reports whether a keyless record under trustedRoot carries no

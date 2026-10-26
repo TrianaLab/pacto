@@ -205,6 +205,12 @@ type GateCheck struct {
 	// +optional
 	// +kubebuilder:validation:Pattern=`^sha256:[a-f0-9]{64}$`
 	SuiteDigest string `json:"suiteDigest,omitempty"`
+	// RequireObservedModel makes an eval check Unknown unless its runner
+	// says which model answered (observedModel) and the contract declares
+	// an external dependency with a version to compare it with. A model the
+	// runner names that no such version matches fails the check either way.
+	// +optional
+	RequireObservedModel bool `json:"requireObservedModel,omitempty"`
 }
 
 // Gates configures the Stage's gates. The pre-gates are fixed by the operation

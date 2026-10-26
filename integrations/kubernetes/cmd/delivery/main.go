@@ -120,7 +120,7 @@ func runPromoter(args []string) error {
 	if err != nil {
 		return err
 	}
-	configured, err := core.NewGates(providers, &http.Client{Timeout: 30 * time.Second})
+	configured, err := core.NewGates(providers, &http.Client{Timeout: 30 * time.Second}, signing.OpenKey)
 	if err != nil {
 		return err
 	}

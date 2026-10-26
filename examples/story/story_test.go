@@ -19,6 +19,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/diff"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
@@ -296,8 +297,7 @@ func evals(t *testing.T, passed, total int) delivery.Verdict {
 			Input delivery.GateInput `json:"input"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&q)
-		_ = json.NewEncoder(w).Encode(map[string]any{"subject": q.Input.Subjects[0], "suite": q.Input.Suite.Digest,
-			"run": "run-1", "passed": passed, "total": total})
+		_, _ = w.Write(SignEval(q.Input.Subjects[0], q.Input.Suite.Digest, "run-1", passed, total))
 	}))
 	t.Cleanup(srv.Close)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -309,7 +309,11 @@ func evals(t *testing.T, passed, total int) delivery.Verdict {
 		}
 		return delivery.Revision{ContractRef: "oci://registry.example/story/pay-agent@sha256:c0", Bundle: b}
 	}
-	gates := map[string]delivery.Gate{"evals": delivery.Eval{URL: srv.URL, Client: srv.Client(), Revision: ship}}
+	verify, err := delivery.RunnersOf([]delivery.TrustedKey{RunnerTrust()}, signing.OpenKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gates := map[string]delivery.Gate{"evals": delivery.Eval{URL: srv.URL, Client: srv.Client(), Revision: ship, Verify: verify}}
 	return delivery.RunChecks(ctx, gates, Checks("pay-agent", Test), delivery.GateInput{
 		Service: delivery.ServiceRef{Name: "pay-agent"}, Subjects: []string{ArtifactDigest("pay-agent", "1.1.0")},
 	})[0]
@@ -318,7 +322,7 @@ func evals(t *testing.T, passed, total int) delivery.Verdict {
 // TestAgentPassingItsEvalsShips: the eval gate passes 1.0.0, which passed
 // every case, so a failed 1.1.0 is the evals' doing.
 func TestAgentPassingItsEvalsShips(t *testing.T) {
-	if v := evals(t, 2, 2); v.Result != delivery.Pass || v.Citation["run"] == "" {
+	if v := evals(t, 2, 2); v.Result != delivery.Pass || v.Citation["run"] == "" || v.Citation["runner"] != RunnerName {
 		t.Fatalf("2 of 2 must pass and cite its run: %+v", v)
 	}
 	b, err := Bundle("pay-agent", "1.1.0")

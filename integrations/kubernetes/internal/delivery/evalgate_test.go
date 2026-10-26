@@ -40,10 +40,17 @@ func TestEvalGateReadsTheShippedSuite(t *testing.T) {
 		}
 		_ = json.NewDecoder(r.Body).Decode(&q)
 		asked = q.Input
-		_ = json.NewEncoder(w).Encode(map[string]any{"subject": q.Input.Subjects[0], "suite": q.Input.Suite.Digest, "run": "r", "passed": 1, "total": 1})
+		algo, hex, _ := strings.Cut(q.Input.Subjects[0], ":")
+		payload, _ := json.Marshal(delivery.EvalStatement{Type: delivery.StatementType, PredicateType: delivery.PredicateEval,
+			Subject:   []delivery.Subject{{Name: "pay-agent", Digest: map[string]string{algo: hex}}},
+			Predicate: delivery.EvalResult{Suite: q.Input.Suite.Digest, Run: "r", Passed: 1, Total: 1}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"mediaType": delivery.BundleMediaType, "dsseEnvelope": map[string]any{
+			"payload": payload, "payloadType": delivery.PayloadType, "signatures": []map[string]any{{"sig": "c2ln"}}}})
 	}))
 	defer srv.Close()
-	gates := NewGates(e.op.Cluster, map[string]delivery.Gate{"evals": delivery.Eval{URL: srv.URL, Client: srv.Client()}, "mira": e.health})
+	// pkg/signing tests the runner's signature; this test only reads the suite.
+	trusted := func([]byte) (string, error) { return "evals-ci", nil }
+	gates := NewGates(e.op.Cluster, map[string]delivery.Gate{"evals": delivery.Eval{URL: srv.URL, Client: srv.Client(), Verify: trusted}, "mira": e.health})
 
 	in := delivery.GateInput{Stage: delivery.StageRef{Namespace: ns, Name: agent.Name}, Subjects: []string{dB}}
 	if v := gates["evals"].Check(context.Background(), in, nil); v.Result != delivery.Pass || asked.Contract != contractRef(c2) ||

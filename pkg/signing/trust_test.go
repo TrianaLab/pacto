@@ -4,9 +4,14 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/signing/testutil"
 )
@@ -75,6 +80,76 @@ func TestTrustVerifier(t *testing.T) {
 			t.Errorf("%s: built a verifier", name)
 		} else if !strings.Contains(err.Error(), "trust config key 0") {
 			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+// TestRunnerSignsItsVerdict: an eval provider counts an answer only when a
+// runner it trusts signed it, keyed or keyless, and the verdict names that
+// runner and keeps the signed answer for the record.
+func TestRunnerSignsItsVerdict(t *testing.T) {
+	ctx := t.Context()
+	ss := testutil.New(t)
+	_, runnerKey, _ := ed25519.GenerateKey(rand.Reader)
+	_, stranger, _ := ed25519.GenerateKey(rand.Reader)
+	subject := "sha256:" + strings.Repeat("a", 64)
+	suite := "sha256:67fd4cc91da7c4d6870049981fed4d367327a4bb687e73666652796d80b533b8"
+	payload, _ := json.Marshal(delivery.EvalStatement{Type: delivery.StatementType, PredicateType: delivery.PredicateEval,
+		Subject:   []delivery.Subject{{Name: "pay-agent", Digest: map[string]string{"sha256": strings.Repeat("a", 64)}}},
+		Predicate: delivery.EvalResult{Suite: suite, Run: "run-7", Passed: 2, Total: 2}})
+	keyed := func(key ed25519.PrivateKey) []byte {
+		kp, _ := FromPrivateKey(key)
+		b, err := Keyed(kp, "").Sign(ctx, delivery.PayloadType, payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	tok := testutil.Token("evals@acme.example", "https://issuer.example")
+	ks, _ := Keyless(ss.Fulcio, ss.TSA, "", func(context.Context) (string, error) { return tok, nil }, ss.Root)
+	keyless, err := ks.Sign(ctx, delivery.PayloadType, payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var answer []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(answer) }))
+	defer srv.Close()
+	gates, err := delivery.NewGates([]delivery.ProviderConfig{{Name: "evals", Type: delivery.ProviderEval, URL: srv.URL, Signers: []delivery.TrustedKey{
+		{Name: "evals-ci", PublicKey: pemOf(t, runnerKey.Public())},
+		{Name: "evals-keyless", Identity: "evals@acme.example", Issuer: "https://issuer.example", TrustedRoot: string(ss.RootJSON)},
+	}}}, srv.Client(), OpenKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := gates["evals"].(delivery.Eval)
+	e.Revision = func(context.Context, delivery.GateInput) delivery.Revision {
+		return delivery.Revision{ContractRef: "oci://r/pay-agent@sha256:c0", Bundle: &contract.Bundle{
+			Contract: &contract.Contract{Checks: []contract.Check{{Name: "evals", File: "evals/suite.yaml"}}},
+			FS:       fstest.MapFS{"evals/suite.yaml": {Data: []byte("cases: []\n")}}}}
+	}
+	in := delivery.GateInput{Subjects: []string{subject}}
+	for _, c := range []struct {
+		name   string
+		bundle []byte
+		want   delivery.Result
+		runner string
+	}{
+		{"a trusted key", keyed(runnerKey), delivery.Pass, "evals-ci"},
+		{"a trusted identity", keyless, delivery.Pass, "evals-keyless (evals@acme.example from https://issuer.example)"},
+		{"a stranger's key", keyed(stranger), delivery.Unknown, ""},
+	} {
+		answer = c.bundle
+		v := e.Check(ctx, in, nil)
+		if v.Result != c.want || v.Citation["runner"] != c.runner {
+			t.Errorf("%s: %+v", c.name, v)
+			continue
+		}
+		if c.want == delivery.Pass {
+			verify, _ := delivery.RunnersOf([]delivery.TrustedKey{{Name: "audit", PublicKey: pemOf(t, runnerKey.Public())},
+				{Name: "audit-keyless", Identity: "evals@acme.example", Issuer: "https://issuer.example", TrustedRoot: string(ss.RootJSON)}}, OpenKey)
+			if who, err := delivery.CheckRunner(v, verify); err != nil || !strings.HasPrefix(who, "audit") {
+				t.Errorf("%s: an auditor re-checks the kept answer: %q %v", c.name, who, err)
+			}
 		}
 	}
 }

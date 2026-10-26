@@ -78,6 +78,11 @@ type ProviderConfig struct {
 	// AllowPlainHTTP lets a provider off loopback use http://. Nothing then
 	// protects its answers in transit, so it is for test clusters only.
 	AllowPlainHTTP bool `json:"allowPlainHTTP,omitempty"`
+	// Signers are the runners an eval provider trusts, each a named public
+	// key or keyless identity: an answer counts only when one of them signed
+	// it, and the verdict names the one that did. An eval provider needs at
+	// least one; other providers take none.
+	Signers []TrustedKey `json:"signers,omitempty"`
 }
 
 // ParseProviders decodes the --gate-providers flag (a JSON list).
@@ -93,8 +98,9 @@ func ParseProviders(s string) ([]ProviderConfig, error) {
 }
 
 // NewGates builds the configured providers. Names starting with "pacto." are
-// the built-in gates' and cannot be taken.
-func NewGates(configs []ProviderConfig, client *http.Client) (map[string]Gate, error) {
+// the built-in gates' and cannot be taken. open turns a runner key into the
+// check of a signed answer (pkg/signing.OpenKey).
+func NewGates(configs []ProviderConfig, client *http.Client, open func(TrustedKey) (func(bundle []byte) error, error)) (map[string]Gate, error) {
 	gates := map[string]Gate{}
 	for _, c := range configs {
 		u, err := url.Parse(c.URL)
@@ -113,13 +119,23 @@ func NewGates(configs []ProviderConfig, client *http.Client) (map[string]Gate, e
 			// Verdict messages land in Operation status and signed records.
 			return nil, fmt.Errorf("gate provider %q: the url must not carry a user or password", c.Name)
 		}
+		if c.Type != ProviderEval && len(c.Signers) > 0 {
+			return nil, fmt.Errorf("gate provider %q: only an eval provider takes signers", c.Name)
+		}
 		switch c.Type {
 		case ProviderMira:
 			gates[c.Name] = Mira{URL: c.URL, Client: client}
 		case ProviderHTTP:
 			gates[c.Name] = Webhook{URL: c.URL, Client: client}
 		case ProviderEval:
-			gates[c.Name] = Eval{URL: c.URL, Client: client}
+			if len(c.Signers) == 0 {
+				return nil, fmt.Errorf("gate provider %q: an eval provider needs signers, the runner keys or keyless identities whose signed answers it trusts: whoever ran the exam must sign its result", c.Name)
+			}
+			verify, err := RunnersOf(c.Signers, open)
+			if err != nil {
+				return nil, fmt.Errorf("gate provider %q: %w", c.Name, err)
+			}
+			gates[c.Name] = Eval{URL: c.URL, Client: client, Verify: verify}
 		default:
 			return nil, fmt.Errorf("gate provider %q: type %q is not mira, http or eval", c.Name, c.Type)
 		}
@@ -176,12 +192,16 @@ func checkWithin(ctx context.Context, g Gate, in GateInput, params map[string]st
 
 func runCheck(ctx context.Context, gates map[string]Gate, c GateCheck, in GateInput) Verdict {
 	v := Verdict{Result: Unknown, Message: fmt.Sprintf("no gate provider named %q is configured", c.Provider)}
-	// The suite and its pin reach the provider only from the typed fields,
-	// the ones the pacto.suites pre-gate checked: such params are dropped.
+	// The suite, its pin and the model ask reach the provider only from the
+	// typed fields, the ones the pacto.suites pre-gate checked: such params
+	// are dropped.
 	params := maps.Clone(c.Params)
-	delete(params, "suite")
-	delete(params, "suiteDigest")
-	for k, val := range map[string]string{"suite": c.Suite, "suiteDigest": c.SuiteDigest} {
+	typed := map[string]string{"suite": c.Suite, "suiteDigest": c.SuiteDigest, "requireObservedModel": ""}
+	if c.RequireObservedModel {
+		typed["requireObservedModel"] = "true"
+	}
+	for k, val := range typed {
+		delete(params, k)
 		if val == "" {
 			continue
 		}
