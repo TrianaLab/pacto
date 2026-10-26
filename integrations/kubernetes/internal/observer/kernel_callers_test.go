@@ -51,7 +51,8 @@ func controlled[T client.Object](obj T, name, kind, owner string) T {
 
 // callerFixture adds callers of checkout's Service (10.96.0.5:80 or the endpoint 10.0.0.5:8080) to the kernel
 // fixture: a Deployment's pod, a CronJob's pod, a DaemonSet's pod, a bare pod, a Pacto target (payments) and
-// a ReplicaSet with no Deployment.
+// a ReplicaSet with no Deployment, plus pods of a Pacto that targets an owned ReplicaSet (canary) and one that
+// targets a CronJob's Job (report).
 func callerFixture() *kernelFixture {
 	f := newKernelFixture()
 	pods := []*corev1.Pod{
@@ -61,6 +62,8 @@ func callerFixture() *kernelFixture {
 		callerPod("debug", "", ""),
 		callerPod("payments-1", "ReplicaSet", "payments-abc"),
 		callerPod("orphan-1", "ReplicaSet", "orphan-abc"),
+		callerPod("canary-1", "ReplicaSet", "canary-abc"),
+		callerPod("report-1", "Job", "report-123"),
 	}
 	for _, p := range pods {
 		f.extra = append(f.extra, p)
@@ -76,8 +79,20 @@ func callerFixture() *kernelFixture {
 		controlled(&batchv1.Job{}, "nightly-123", "CronJob", "nightly"),
 		controlled(&appsv1.ReplicaSet{}, "payments-abc", "Deployment", "payments"),
 		controlled(&appsv1.ReplicaSet{}, "orphan-abc", "", ""),
+		// A Pacto on an owned ReplicaSet and one on a Job a CronJob owns: their pods are not callers.
+		controlled(&appsv1.ReplicaSet{}, "canary-abc", "Deployment", "canary"),
+		controlled(&batchv1.Job{}, "report-123", "CronJob", "report"),
+		workloadPacto("canary", "ReplicaSet", "canary-abc"),
+		workloadPacto("report", "Job", "report-123"),
 	)
 	return f
+}
+
+// workloadPacto is a Pacto that targets the workload kind/name directly.
+func workloadPacto(name, kind, workload string) *pactoapi.Pacto {
+	p := kPacto(name, "", name, "1.0.0", "registry/"+name+":1.0.0")
+	p.Spec.Target.WorkloadRef = &pactoapi.WorkloadRef{Kind: kind, Name: workload}
+	return p
 }
 
 func (f *kernelFixture) callers(t *testing.T, in func(*CollectInput)) ([]pactoapi.ObservedCaller, *pactoapi.CallerCoverage) {

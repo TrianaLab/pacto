@@ -609,15 +609,16 @@ func (o *Observer) observeCallers(ctx context.Context, input CollectInput, now t
 			partial("unresolved-caller")
 			continue
 		}
-		kind, name, err := o.podOwner(ctx, pod)
+		chain, err := o.podOwners(ctx, pod)
 		if err != nil {
 			partial("unresolved-caller")
 			continue
 		}
-		if pactoTarget(pactos.Items, pod.Namespace, kind, name) {
+		if slices.ContainsFunc(chain, func(w ownerRef) bool { return pactoTarget(pactos.Items, pod.Namespace, w.kind, w.name) }) {
 			continue
 		}
-		seen[unversioned.ObservedCaller{Namespace: pod.Namespace, Kind: kind, Name: name, Source: collectorKernel}] = true
+		top := chain[len(chain)-1]
+		seen[unversioned.ObservedCaller{Namespace: pod.Namespace, Kind: top.kind, Name: top.name, Source: collectorKernel}] = true
 	}
 	callers := slices.SortedFunc(maps.Keys(seen), func(a, b unversioned.ObservedCaller) int {
 		return cmp.Or(cmp.Compare(a.Namespace, b.Namespace), cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.Name, b.Name))
@@ -629,13 +630,18 @@ func (o *Observer) observeCallers(ctx context.Context, input CollectInput, now t
 	return callers, cov
 }
 
-// podOwner names the controller that owns the pod: a ReplicaSet resolves to its Deployment and a Job to its
-// CronJob, and a pod no controller owns is named as itself.
-func (o *Observer) podOwner(ctx context.Context, pod *corev1.Pod) (kind, name string, err error) {
+// ownerRef is one link of a pod's controller chain.
+type ownerRef struct{ kind, name string }
+
+// podOwners is the pod's controller chain, nearest first: its direct controller and, for a ReplicaSet or a Job,
+// that controller's own controller (a Deployment or a CronJob). A pod no controller owns is its own chain. The
+// caller is named after the last link; a Pacto on any link means the pod is that Pacto's.
+func (o *Observer) podOwners(ctx context.Context, pod *corev1.Pod) ([]ownerRef, error) {
 	ref := metav1.GetControllerOf(pod)
 	if ref == nil {
-		return "Pod", pod.Name, nil
+		return []ownerRef{{"Pod", pod.Name}}, nil
 	}
+	chain := []ownerRef{{ref.Kind, ref.Name}}
 	var parent client.Object
 	switch ref.Kind {
 	case workloadReplicaSet:
@@ -643,15 +649,15 @@ func (o *Observer) podOwner(ctx context.Context, pod *corev1.Pod) (kind, name st
 	case workloadJob:
 		parent = &batchv1.Job{}
 	default:
-		return ref.Kind, ref.Name, nil
+		return chain, nil
 	}
 	if err := o.client.Get(ctx, types.NamespacedName{Namespace: pod.Namespace, Name: ref.Name}, parent); err != nil {
-		return "", "", err
+		return nil, err
 	}
 	if up := metav1.GetControllerOf(parent); up != nil {
-		return up.Kind, up.Name, nil
+		chain = append(chain, ownerRef{up.Kind, up.Name})
 	}
-	return ref.Kind, ref.Name, nil
+	return chain, nil
 }
 
 // pactoTarget reports whether a Pacto in the namespace targets the workload.
