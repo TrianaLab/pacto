@@ -491,7 +491,8 @@ as_person() { local u="$1" g="$2"; shift 2; KUBECONFIG="$(person_kubeconfig "$u"
 # OP: the Approval `pacto delivery approve` sends, created as USER with a login
 # time of now. approve itself logs the person in again through the identity
 # provider the cluster trusts, which phase 4 drives; here admission and the
-# promoter judge the same Approval.
+# promoter judge the same Approval. The apiserver adds system:authenticated
+# to every impersonated user's groups, and spec.groups must match them.
 decide() {
   local kc at uid digest
   kc="$(person_kubeconfig "$3" "$4")"
@@ -504,7 +505,7 @@ kind: Approval
 metadata:
   generateName: $2-
   ownerReferences: [{apiVersion: delivery.pacto.trianalab.io/v1alpha1, kind: Operation, name: "$2", uid: "$uid"}]
-spec: {operation: "$2", operationUID: "$uid", intentDigest: "$digest", decision: $5, note: "${6:-}", by: "$3", authTime: "$at", groups: ["$4"]}
+spec: {operation: "$2", operationUID: "$uid", intentDigest: "$digest", decision: $5, note: "${6:-}", by: "$3", authTime: "$at", groups: ["$4", system:authenticated]}
 YAML
 }
 
