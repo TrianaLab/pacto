@@ -3,7 +3,11 @@
   import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { serviceUrl } from '../lib/router.ts';
+  import { serviceUrl, deliveryPublishUrl } from '../lib/router.ts';
+  import { urlInt, limitParam } from '../lib/paging.ts';
+  import { formatCount } from '../lib/format.ts';
+  import Pager from '../components/Pager.svelte';
+  import ListFilter from '../components/ListFilter.svelte';
   import { shortDigest, sentence, timeLabel } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
@@ -13,15 +17,20 @@
   import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
 
   // Published versions per service, whether their signature was checked and
-  // where each one runs or was verified.
-  let { refreshTick = 0 } = $props();
+  // where each one runs or was verified, paged by service on the server.
+  let { offset = '', limit = '', q = '', refreshTick = 0 } = $props();
 
-  const loader = createProductLoader(() => api.deliveryPublished());
-  $effect(() => { loader.sync(String(refreshTick)); });
+  const loader = createProductLoader(() => api.deliveryPublished({
+    offset: urlInt(offset) || undefined, limit: urlInt(limit) || undefined, q: q || undefined,
+  }));
+  const question = $derived(`${urlInt(offset)}@@${urlInt(limit)}@@${q}`);
+  $effect(() => { loader.sync(`${question}@@${refreshTick}`, question); });
   onDestroy(() => loader.destroy());
 
-  const data = $derived(loader.data);
+  const data = $derived(loader.dataTag === question ? loader.data : null);
   const services = $derived(data?.services ?? []);
+  const serviceTotal = $derived(data?.page?.total ?? services.length);
+  const href = (off, lim) => deliveryPublishUrl({ q, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
 
   // Publishes Pacto refused, for whoever supervises: the check that refused
   // each and, for the version rule, the bump the change needs. Its own read,
@@ -37,14 +46,14 @@
   <PageHeader
     title="Published versions"
     subtitle="The versions your environments know about, whether their signature was checked and where each one runs, and the publishes Pacto refused."
-    count={data ? `${services.length} service${services.length === 1 ? '' : 's'}` : ''}
+    count={data ? `${formatCount(serviceTotal)} service${serviceTotal === 1 ? '' : 's'}` : ''}
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
   />
   <DeliveryNav current="delivery-publish" />
 
   <section class="pv-refused" aria-labelledby="pv-refused" data-testid="refused-publishes">
-    <h2 id="pv-refused" class="t-section-title">Recently refused</h2>
+    <h2 id="pv-refused" class="t-section-title">Recently refused{#if refused?.total > (refused?.refusals ?? []).length}{' '}<span class="t-meta" data-testid="refused-count">(the latest {refused.refusals.length} of {formatCount(refused.total)})</span>{/if}</h2>
     {#if !refused && refusalsLoader.loading}
       <p class="t-body-2" role="status">Reading refused publishes…</p>
     {:else if !refused && refusalsLoader.error}
@@ -62,7 +71,7 @@
       {:else}
         <ul class="pl-list">
           {#each refused.refusals as r, i (r.service + '@' + r.version + '#' + i)}
-            <li class="pl-row pv-row">
+            <li class="pl-row pl-row--stack pv-row">
               <div class="pv-head">
                 <strong>{r.service} {r.version}</strong>
                 {#if r.requiredBump}<span class="badge badge-err">Needs {BUMPS[r.requiredBump] ?? r.requiredBump}</span>{:else}<span class="badge badge-err">Refused: {r.check}</span>{/if}
@@ -77,13 +86,17 @@
     {/if}
   </section>
 
+  <h2 class="t-section-title">Versions by service</h2>
+  <ListFilter value={q} href={(v) => deliveryPublishUrl({ q: v })} label="Filter services by name" placeholder="Service" testid="published-filter" />
   {#if !data && loader.loading}
     <EmptyState loading={true} rows={4} />
   {:else if !data && loader.error}
     <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
   {:else if data}
     <ListingNote listing={data} error={loader.error} onRetry={() => loader.refresh()} />
-    {#if services.length === 0}
+    {#if services.length === 0 && q}
+      <div class="state-box"><h2>Nothing matches the filter</h2><p>No service you can see matches “{q}”.</p></div>
+    {:else if services.length === 0}
       <div class="state-box"><h2>Nothing published yet</h2><p>No environment you can see knows a version. Publish one with <code>pacto publish</code>.</p></div>
     {:else}
       {#each services as svc (svc.service)}
@@ -91,7 +104,7 @@
           <h2 id={`pv-${svc.service}`} class="t-section-title"><a href={serviceUrl(svc.service)}>{svc.service}</a></h2>
           <ul class="pl-list">
             {#each svc.versions ?? [] as v (v.digest)}
-              <li class="pl-row pv-row">
+              <li class="pl-row pl-row--stack pv-row">
                 <div class="pv-head">
                   <strong>{v.version || shortDigest(v.digest)}</strong>
                   {#if v.signed}<span class="badge badge-ok">Signature checked</span>{:else}<span class="badge badge-neutral">Signature not checked here</span>{/if}
@@ -110,6 +123,7 @@
           </ul>
         </section>
       {/each}
+      <Pager page={data.page} {href} label="Pages of services" noun="services" testid="published-pager" />
     {/if}
   {/if}
 </div>
@@ -117,9 +131,10 @@
 <style>
   .pv-svc { display: flex; flex-direction: column; gap: var(--sp-2); }
   .pv-svc h2 a { color: var(--c-accent); }
-  .pv-row { display: flex; flex-direction: column; gap: var(--sp-1); padding: var(--sp-3); }
+  .pv-row { gap: var(--sp-1); padding: var(--sp-3); min-width: 0; overflow-wrap: break-word; }
   .pv-head { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .pv-contract, .pv-stages, .pv-row p, .pv-refused > p { margin: 0; }
+  .pv-contract { display: flex; align-items: center; gap: var(--sp-2); min-width: 0; }
   .pv-refused { display: flex; flex-direction: column; gap: var(--sp-2); }
   .pv-none { color: var(--c-text-3); }
   .pv-err { color: var(--c-err); }

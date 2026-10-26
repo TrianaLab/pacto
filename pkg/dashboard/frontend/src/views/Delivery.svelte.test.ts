@@ -958,6 +958,29 @@ describe('history and published', () => {
   });
 });
 
+describe('published paging', () => {
+  it('pages services, filters them and says how many refusals there are', async () => {
+    fns.published.mockResolvedValue({ ...listing, page: { total: 300, offset: 0, limit: 10 }, services: [{ service: 'payments', versions: [] }] });
+    fns.refusals.mockResolvedValue({ asOf: listing.asOf, recorded: true, completeness: 'complete', total: 134,
+      refusals: [{ service: 'orders', version: '1.5.0', check: 'sign', reason: 'x', at: '2026-10-22T08:00:00Z', verified: false }] });
+    const { target, destroy } = render(DeliveryPublishView, { q: 'pay' });
+    await settle();
+    expect(text(target)).toContain('300 services');
+    expect(text(target.querySelector('[data-testid="refused-count"]') as HTMLElement)).toBe('(the latest 1 of 134)');
+    expect(target.querySelector('[data-testid="published-pager-next"]')?.getAttribute('href')).toBe('#/delivery/publish?q=pay&offset=10');
+    expect((target.querySelector('[data-testid="published-filter"] input') as HTMLInputElement).value).toBe('pay');
+    destroy();
+  });
+
+  it('says when nothing matches the filter', async () => {
+    fns.published.mockResolvedValue({ ...listing, page: { total: 0, offset: 0, limit: 10 }, services: [] });
+    const { target, destroy } = render(DeliveryPublishView, { q: 'zzz' });
+    await settle();
+    expect(text(target)).toContain('Nothing matches the filter');
+    destroy();
+  });
+});
+
 describe('a list whose refresh fails', () => {
   it.each([
     ['inbox', DeliveryInboxView, fns.inbox, { held: [], frozen: [], errored: [] }],
