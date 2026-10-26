@@ -1,4 +1,4 @@
-# Put it in your repo
+# Put it in your repository
 
 Add Pacto to your build pipeline (CI) so a pull request that would break the
 services using yours fails its checks, and every merge publishes a version.

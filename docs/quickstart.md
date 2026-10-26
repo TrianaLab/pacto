@@ -197,7 +197,7 @@ Clean up:
 docker rm -f pacto-registry
 ```
 
-For a real registry like GHCR, you need `pacto login` with a personal access token. See [Installation](installation.md) for the supply-chain guarantees and [Put it in your repo](ci.md) for what to commit to your repository.
+For a real registry like GHCR, you need `pacto login` with a personal access token. See [Installation](installation.md) for the supply-chain guarantees and [Put it in your repository](ci.md) for what to commit.
 
 ---
 
@@ -206,7 +206,7 @@ For a real registry like GHCR, you need `pacto login` with a personal access tok
 | Goal | Guide |
 |------|-------|
 | Let Pacto check every release of a real service | [Pactify a service](pactify.md) |
-| Put it in your repository | [Put it in your repo](ci.md) |
+| Put it in your repository | [Put it in your repository](ci.md) |
 | Understand every contract field | [Contract Reference](contract-reference/index.md) |
 | See contracts for real services | [Examples](examples/index.md) |
 | Explore contracts visually | Run `pacto dashboard` or [`pacto tui`](fleet-tools.md#the-terminal-ui) |

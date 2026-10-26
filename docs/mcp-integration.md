@@ -85,7 +85,7 @@ combined with each other.
 | `pacto mcp` | Write and check contracts in local folders | Contract files on disk |
 | `pacto mcp --root oci://...` | Read published contracts and what they depend on | Nothing |
 | `pacto mcp --fleet` | Everything the default does, plus answer questions about your fleet | Contract files on disk |
-| `pacto mcp ./my-service --base-url https://...` | Everything the default does, plus call the service's own API, one tool per operation | Contract files; the live service only with `--allow-writes` |
+| `pacto mcp ./my-service --base-url https://...` | Everything the default does, plus call the service's own API, one tool per operation. The bundle is a folder or an `oci://` reference; `--base-url` is where the running service answers | Contract files; the live service only with `--allow-writes` |
 | `pacto mcp --publish` | Everything the default does, plus publish a version to your registry | Contract files and your registry |
 | `pacto mcp --delivery` | Everything the default does, plus read delivery state and, if the cluster counts it as an agent, ask for or cancel a change | Contract files and its own requests; it can never approve |
 
@@ -94,7 +94,8 @@ If the agent must change nothing at all, use `--root`.
 **Files.** The contract tools write to the folder the agent names in each
 call, relative to the folder the server was started in. Pacto does not limit
 which folder, so start the server in the project the agent should work on,
-as a user that can write only where it should.
+as a user that can write only where it should. Claude Code and Cursor start
+it in your project; for Claude Desktop, have the agent pass full paths.
 
 **Fleet.** `--fleet` reads the sources you name with more flags, such as
 `--local ./contracts` for folders, `--oci <ref>` for published contracts and
@@ -133,9 +134,10 @@ service's own sign-in, as its OpenAPI document declares it.
   once when the server starts. Restart it to see newer services or versions.
 - **Over the network, callers must sign in.** By default the server talks
   over standard input and output. With `-t http` it serves HTTP on this
-  machine only. Serving other machines needs a token on every request, from
-  your company sign-in, and then no service credential or write access to the
-  service is allowed. See
+  machine only. Serving other machines needs `--auth-issuer` and `--resource`,
+  so every request carries a token from your company sign-in, and the server
+  then refuses `--auth` and `--allow-writes`, which would lend one
+  credential to every caller. See
   [agents over the network](integrations/kubernetes/delivery-identity.md#agents-over-the-network).
 
 ## Which tools exist
@@ -145,14 +147,15 @@ service's own sign-in, as its OpenAPI document declares it.
 | `pacto_create`, `pacto_edit` | every mode but `--root` | Write contract files |
 | `pacto_check`, `pacto_schema` | every mode but `--root` | Read |
 | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_impact` | `--fleet` | Read |
-| `pacto_catalog_revision`, plus the resources `pacto://catalog` and `pacto://catalog/closure` | `--root` | Read |
-| One tool per API operation, named by its `operationId` (or `<method>_<path>`), plus `pacto_skill` | a bundle | Read; your service's write operations only with `--allow-writes` |
+| `pacto_catalog_revision`, plus two MCP resources (documents the agent can read, not tools): `pacto://catalog` and `pacto://catalog/closure`, the contracts you named plus everything they depend on | `--root` | Read |
+| One tool per API operation, named by its `operationId` (or `<method>_<path>`) | a bundle | Calls your service: read-only, or its write operations too with `--allow-writes` |
+| `pacto_skill` | a bundle | Read: returns the notes a bundle ships for agents in `skills/*.md` |
 | `pacto_publish_plan` | `--publish` | Read |
 | `pacto_publish` | `--publish` | Writes to your registry |
-| `pacto_delivery_operation_types`, `_operation_plan`, `_get`, `_explain`, `_history`, `_blame`, `_undo_plan`, `_record_verify` | `--delivery` | Read |
+| `pacto_delivery_operation_types`, `pacto_delivery_operation_plan`, `pacto_delivery_get`, `pacto_delivery_explain`, `pacto_delivery_history`, `pacto_delivery_blame`, `pacto_delivery_undo_plan`, `pacto_delivery_record_verify` | `--delivery` | Read |
 | `pacto_delivery_operation_propose`, `pacto_delivery_cancel` | `--delivery`, agents only | Ask for or cancel a change |
 
-A bundle cannot name an operation `pacto_*`, so the prefix always means a
+Pacto skips any API operation named `pacto_*`, so the prefix always means a
 Pacto tool. Inputs and outputs are in the [MCP reference](mcp-reference.md).
 
 ## Try it
@@ -160,14 +163,14 @@ Pacto tool. Inputs and outputs are in the [MCP reference](mcp-reference.md).
 ```text
 You:    Create a pacto contract for a stateful Go HTTP API called user-service
         that stores data in PostgreSQL
-Claude: [writes pacto.yaml with an HTTP interface and persistent state]
+Claude: [writes pacto.yaml with an HTTP interface and marks the service as
+         keeping data that survives a restart]
 
 You:    Add a dependency on payments-api
 Claude: [calls pacto_edit with add_dependencies]
 
-You:    Check the contract in ./payments-api
-Claude: payments-api is valid. Suggestion: "No dependencies declared. If this
-        service depends on others, declare them explicitly."
+You:    Check the contract in ./user-service
+Claude: user-service is valid.
 ```
 
 Pacto never guesses which services yours calls, so you add them yourself, as
