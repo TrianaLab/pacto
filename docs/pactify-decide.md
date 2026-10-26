@@ -57,8 +57,11 @@ Then give one answer:
 | `reject` | You do not want this version here | The change ends; the Stage keeps the version it runs. Someone can ask again later |
 
 ```bash
-pacto delivery approve -n prod <change> --decision approve
+pacto delivery approve -n prod <change> --decision approve   # or accept-unknown, or reject
 ```
+
+`<change>` is the name in the `NAME` column of the first command. All three
+answers go through `approve`; the `--decision` flag says which one.
 
 A held change that nobody answers ends on its own after 24 hours. The person
 who asked can withdraw it at any time with `pacto delivery cancel -n prod <change>`.

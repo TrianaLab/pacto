@@ -58,8 +58,10 @@ never changes for a Stage.
 
 ## Get the public key
 
-You check signatures against the recorder's public key. Get it from the
-platform team, not from the registry, so a forger cannot hand you their own:
+You check signatures against the recorder's public key, a file such as
+`recorder.pub`. Get it from the platform team, not from the registry, so a
+forger cannot hand you their own. The platform team makes it with one of
+these (you need neither):
 
 ```bash
 openssl pkey -in key.pem -pubout -out recorder.pub          # from a key file
@@ -73,12 +75,15 @@ shows the flags.
 
 ## Check one record without Pacto
 
-You need [oras](https://oras.land) and [cosign](https://github.com/sigstore/cosign).
-List the records on the anchor, fetch one and check its signature:
+You need [oras](https://oras.land), [cosign](https://github.com/sigstore/cosign),
+`jq` and `base64`, and read access to the registry (`oras login registry.example`).
+List the records on the anchor, fetch one and check its signature. Records
+are the entries of type `application/vnd.dev.sigstore.bundle.v0.3+json`;
+`--artifact-type` lists only those:
 
 ```bash
 ANCHOR=registry.example/pacto/streams@sha256:3a7f...   # from the step above
-oras discover "$ANCHOR"                                # lists each record's manifest digest
+oras discover --artifact-type application/vnd.dev.sigstore.bundle.v0.3+json "$ANCHOR"
 REC=sha256:...                                         # pick one from the list
 REPO=${ANCHOR%@*}
 oras blob fetch --output record.json \
@@ -89,7 +94,8 @@ cosign verify-blob-attestation --bundle record.json --key recorder.pub \
 jq -r .dsseEnvelope.payload record.json | base64 -d | jq .predicate   # read it
 ```
 
-`--insecure-ignore-tlog` is expected: the recorder never writes to a public
+cosign prints `Verified OK` when the signature holds and exits non-zero when
+it does not. `--insecure-ignore-tlog` is expected: the recorder never writes to a public
 log, because records name your services. The signature alone proves the
 record was not changed.
 
@@ -98,8 +104,9 @@ record was not changed.
 To check the chain yourself, fetch every record on the anchor and check
 that the `seq` numbers run with no hole and each `parent` names the record
 before. A **gap** record is a signed placeholder for a number no change used,
-so it does not count as a hole. Pacto does the same check in one command and
-exits non-zero if anything is wrong:
+so it does not count as a hole. In the record, they are `.predicate.chain.seq` and `.predicate.chain.parent`.
+With cluster access, Pacto does the same check in one command and exits
+non-zero if anything is wrong:
 
 ```bash
 pacto delivery record verify -n prod --stage payments --trust recorder.pub
