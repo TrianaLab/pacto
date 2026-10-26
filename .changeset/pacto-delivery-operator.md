@@ -14,6 +14,11 @@ and the workload object and generation an evaluation read, and its
 (`Complete`, `Partial`, `Failed` or `Stale`). A consumer acting on
 `contractStatus` must check `evaluatedRevision` first, as the promoter does.
 The Pacto status also accepts `mcp` interfaces, so agent contracts reconcile.
+`status.observedCallers` lists the workloads the node agent saw calling the
+target's Service that no Pacto describes, and `status.observedCallersCoverage`
+says whether that list is complete, partial (with a reason such as
+`shared-netns` or `stale-node`) or unavailable; delivery holds a breaking
+change on either.
 
 **Check results change for every operator user**, delivery on or off. A
 dependency that resolves to the same service in several namespaces now
@@ -48,15 +53,22 @@ publishes these identities in the ConfigMap `pacto-delivery-identities`, which
 the promoter runs with and the CLI, the MCP server and the dashboard read. It takes the Stage lock with one
 compare-and-swap, moves the pointer, waits for the apply and runs the verify
 checks the Stage lists in `spec.gates.verify.checks`: the Pacto contract check,
-providers from `gates.providers` (`mira`, `http` or `eval`) and the built-in
+providers from `delivery.gates.providers` (`mira`, `http` or `eval`) and the built-in
 `pacto.runtime`. Checks run again every `spec.gates.verify.recheck` after
 release. Unknown never passes and never rolls back. A confirmed failure is
 never promoted again (the Stage keeps its last 50) and gets one bound rollback;
 a second failure, a version a person chose, nothing safe to go back to, a
 refused automatic rollback, an outcome
 that cannot be established or an edit of the pointer the promoter did not make
-freezes the Stage. Stages with `auto: true` promote the newest eligible
-candidate. A breaking change no contract depends on also waits for a person,
+freezes the Stage. A Stage starts on `spec.startRung` (`observe`, the default,
+or `advise`) and only an `autonomy` operation moves `status.rung` after that;
+on `auto-nonbreaking` and `autonomous` the promoter promotes the newest
+eligible candidate itself. It records what an observe Stage would have done in
+`status.shadow` (the newest 20), proposes the next rung in `status.proposal`
+after `spec.autonomy.proposeAfter` verified changes (10 by default) and, after
+an automatic rollback of a version it shipped on its own, lowers the Stage one
+rung through an operation named `<failed operation>-stepdown`. `kubectl get
+stages` shows the rung. `spec.auto` is gone. A breaking change no contract depends on also waits for a person,
 since a service without a contract may call it, unless the Stage sets
 `gates.impact.declaredConsumersOnly`.
 
@@ -91,7 +103,8 @@ lists it and only then advances the Stage's stream. A record can be late, never
 skipped. It signs with an Ed25519 key, a KMS key or keyless through a projected
 service account token, verifies each stream against its trust config before
 extending it, freezes a Stage whose stream is in conflict and can post a
-CDEvent per record. `RecordStoreReady` says whether records are being written,
+CDEvent per record. A record of an autonomy operation carries `outcome.rung`
+(`from` and `to`). `RecordStoreReady` says whether records are being written,
 and `pacto_delivery_records_pending` shows the lag. With the recorder on, the
 promoter deletes recorded operations after `delivery.recorder.operationTTL` (a week),
 never the one a Stage runs.

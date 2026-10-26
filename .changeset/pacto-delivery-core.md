@@ -3,8 +3,9 @@
 ---
 
 Add Pacto delivery, the opt-in part of Pacto that decides which version each
-environment runs, plus `pacto publish`, contract format 2.1 and a `pacto init`
-that pactifies an existing service. Nothing changes for a project that does not
+environment runs and earns autonomy one confirmed rung at a time, plus
+`pacto publish`, contract format 2.1 and a `pacto init` that pactifies existing
+services, one folder, several or a whole cluster. Nothing changes for a project that does not
 use them, with one exception: a consumer on an older Pacto or operator cannot
 read a provider's contract once the provider moves to format 2.1 (see below).
 
@@ -25,9 +26,11 @@ is reported as Unknown, never guessed. A file holding Secret values, or a
 kustomization with a `secretGenerator`, is never shipped. `--delivery` also
 writes the cluster pieces: the Pacto resource and, for each environment
 (`--env`, default test and prod), the Flux `OCIRepository` objects, a
-Kustomization that waits for the rollout and the Stage. The last
-environment's Stage asks a person to approve every promote until you add a
-health check there and delete its `approval`; `--insecure-registry`
+Kustomization that waits for the rollout and the Stage. Every Stage starts on
+`observe` and its OCIRepository stays pinned to the tag you deploy, so nothing
+changes until a person raises it. The last environment's Stage asks a person
+to approve every promote until you add a health check there and delete its
+`approval`; `--insecure-registry`
 marks those Flux objects for a plain-HTTP registry, `--registry-secret <name>`
 gives them and the Pacto resource the login for a private registry
 (`secretRef` and `pullSecretRef`) and `--no-transparency-log`
@@ -38,6 +41,15 @@ overwrites your edits. An empty folder still gets the blank contract. Agents get
 the same through `pacto_create` with `pactify: true` (plus `delivery`,
 `registry`, `environments`, `fleet_roots`, `no_transparency_log`,
 `insecure_registry`, `registry_secret` and `dry_run`).
+
+**Pactify many services.** `pacto init` takes several folders and ends with a
+summary table. `pacto init --cluster [--namespace <ns>]... --out <dir>` drafts
+a contract for every workload in the current kubeconfig context that no Pacto
+describes, in `<dir>/<namespace>/<name>`. With the node agent running, the
+services a workload was seen calling become dependencies pinned to the version
+seen running (`=2.3.0`) for you to widen. Drafts are never published, and an
+invalid one fails the command. `pacto_create` takes `paths`, `cluster` and
+`namespaces` for the same.
 
 **Contract format 2.1.** `pactoVersion: "2.1"` adds a `publish` section (the
 contract bundle repository, the image, chart or manifests the service
@@ -86,7 +98,7 @@ install -tags kms ...`, or `kms_aws`, `kms_gcp`, `kms_azure`,
 `kms_hashivault`).
 
 **Delivery.** `pkg/delivery` holds the operations (`delivery.pacto.trianalab.io/promote`,
-`rollback`, `override`, `freeze` and `unfreeze`) and `PlanFor`, the one planning function
+`rollback`, `override`, `freeze`, `unfreeze` and `autonomy`) and `PlanFor`, the one planning function
 the promoter, the CLI, the MCP tools and the dashboard call. A promote is
 refused as `NotPublished` unless `pacto publish` published it and Flux verified
 its signature, or its upstream Stage verified and offered it. It then compares
@@ -101,7 +113,14 @@ running after release: a `mira` provider judges the error ratio of the
 service's traces, `http` is the plug-in format for any other tool, `eval`
 checks an agent with the eval suite its bundle ships, a verdict counting only
 about that suite's sha256, and `pacto.runtime` fails a version the node agent
-saw calling a service it never declared and passes only after a soak. A confirmed failure rolls
+saw calling a service it never declared and passes only after a soak. A
+workload the node agent saw calling a service with no contract of its own
+counts as an unknown consumer: a breaking change waits for a person to accept
+it or for that caller to get a contract, and the question prints the
+`pacto init --cluster` command that drafts one; while the agent's view is
+partial (for example a pod on the host network), every breaking change waits
+the same way. The fleet snapshot lists these callers (`uncontractedCallers`).
+A confirmed failure rolls
 back once, then freezes the Stage.
 
 Every operation that ends becomes a signed record: an in-toto statement in a
@@ -123,11 +142,28 @@ agents; there is no approve tool. Over HTTP, `pacto mcp` verifies a bearer
 token on every request (`--auth-issuer`, `--resource`, `--audience`) and
 exchanges it for one the apiserver accepts, so each caller acts as itself.
 
+**The autonomy ladder.** Each Stage is on one rung: `observe` plans every
+new version and moves nothing, recording what it would have done; `advise`
+ships only what a person asked for or approved; `auto-nonbreaking` promotes
+non-breaking changes on its own; `autonomous` promotes any change the graph
+clears. An `autonomy` operation moves a Stage one rung: lowering needs nobody
+(an agent never lowers to observe), raising needs a person of the running
+service's team other than whoever asked, leaving observe needs the applyRef
+labelled and an observed digest, and an automatic rung needs the recorder, so
+every grant of autonomy is a signed record. Pacto proposes the next rung once
+a Stage earned it (10 verified changes by default) and lists what blocks it;
+a raise it has not proposed asks the approver to accept the unknown. When a
+version Pacto shipped on its own fails and rolls back, the promoter lowers the
+Stage one rung; an Unknown never does. `pacto delivery propose --type
+autonomy --to <rung>` asks for a move.
+
 **Dashboard.** `pacto dashboard` signs people in with OpenID Connect
 (`--oidc-*`, secret in `PACTO_DASHBOARD_OIDC_CLIENT_SECRET`) and gains a
 Delivery tab: an inbox of what waits on your teams, an environments board, a
-page per change with its plan, verdicts and proof, history with blame and undo
-and published versions with recent refused publishes. Promote, roll back,
+page per change with its plan, verdicts and proof, history with blame and undo,
+published versions with recent refused publishes and a path to autonomy: each
+Stage's rung, what Pacto would have done on observe, the next proposal and
+what blocks it, with the command that fixes each blocker. Promote, roll back,
 unfreeze, cancel and decisions run there under the person's own token. A
 decision needs a recent login and membership of a team the question names, and
 is never taken from an agent; the dashboard offers and records only a decision
@@ -137,7 +173,8 @@ behind sign-in. The dashboard also takes a new look: serif titles and numbers,
 a grouped data-sources menu and labelled status bars.
 
 **Demos.** The browser demo plays the payments story from `examples/story` on
-Pacto's own code over fixed data and labels it simulated; its Wasm is about
+Pacto's own code over fixed data and labels it simulated; the story now starts
+fraud on observe and adds the advise raise and the automatic step-down; its Wasm is about
 4 MB to download. The Compose demo has no cluster or sign-in, so it shows no
 Delivery tab; it now shows `pacto diff` and `pacto init --plan`.
 
