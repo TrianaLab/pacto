@@ -298,6 +298,10 @@ func (p planSources) Upstream(ctx context.Context, stage delivery.StageObject) (
 }
 
 // spec turns a request into the intent the promoter will admit.
+// ponytail: the plan input it feeds is shared with the promoter
+// (delivery.AssemblePlanInput), but this request-to-spec assembly, the rung
+// case included, is a client-side copy. Move it into pkg/delivery beside
+// AssemblePlanInput when a second caller needs it.
 func (d *Delivery) spec(ctx context.Context, req delivery.Request, stage *delivery.StageObject, caller Caller) (delivery.OperationSpec, error) {
 	typ := req.Type
 	if typ == "" {

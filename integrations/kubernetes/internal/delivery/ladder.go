@@ -52,7 +52,7 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 	}
 	var add []delivery.Shadow
 	for _, to := range []string{st.Candidate, d} {
-		if to == "" || to == old || slices.ContainsFunc(append(add, st.Shadow...), func(s delivery.Shadow) bool { return s.Candidate == to }) {
+		if to == "" || to == old {
 			continue
 		}
 		// What GitOps applied moved from what ran before; a candidate would
@@ -61,7 +61,11 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 		if to == d {
 			from = old
 		}
-		e, err := r.wouldHave(ctx, stage, from, to, now)
+		spec := r.shadowSpec(stage, from, to)
+		if slices.ContainsFunc(append(add, st.Shadow...), func(s delivery.Shadow) bool { return planned(s, spec) }) {
+			continue
+		}
+		e, err := r.wouldHave(ctx, stage, spec, now)
 		if err != nil {
 			return err
 		}
@@ -71,12 +75,18 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 		return r.shadowVerify(ctx, stage, now)
 	}
 	set := func(s *dv1.Stage) {
-		// Another reconcile of a stale read may have planned the same
-		// candidate: one entry per candidate.
+		// One entry per candidate. Another reconcile of a stale read may have
+		// planned it already; a new plan for a Stage spec or a running version
+		// that changed replaces an entry that has not run yet.
 		fresh := slices.DeleteFunc(slices.Clone(add), func(e delivery.Shadow) bool {
-			return slices.ContainsFunc(s.Status.Shadow, func(x delivery.Shadow) bool { return x.Candidate == e.Candidate })
+			return slices.ContainsFunc(s.Status.Shadow, func(x delivery.Shadow) bool {
+				return x.Candidate == e.Candidate && (x.IntentDigest == e.IntentDigest || x.ObservedAt != "")
+			})
 		})
-		s.Status.Shadow = append(fresh, s.Status.Shadow...)
+		kept := slices.DeleteFunc(slices.Clone(s.Status.Shadow), func(x delivery.Shadow) bool {
+			return slices.ContainsFunc(fresh, func(e delivery.Shadow) bool { return e.Candidate == x.Candidate })
+		})
+		s.Status.Shadow = append(fresh, kept...)
 		s.Status.Shadow = s.Status.Shadow[:min(len(s.Status.Shadow), delivery.MaxShadow)]
 		if s.Status.ObservedRevision == nil || s.Status.ObservedRevision.Digest != d {
 			s.Status.ObservedRevision = &delivery.ObservedRevision{Digest: d, Since: ts(now)}
@@ -94,10 +104,9 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 	return nil
 }
 
-// wouldHave plans the promote from to on the Stage as a fully automatic
-// Stage running from would: the rung autonomous gives that verdict, and the
-// pointer set to from keeps it from reading as a pointer that moved.
-func (r *StageReconciler) wouldHave(ctx context.Context, stage *dv1.Stage, from, to string, now time.Time) (delivery.Shadow, error) {
+// shadowSpec is the promote from to that the shadow plans, under the Stage
+// spec as it is now.
+func (r *StageReconciler) shadowSpec(stage *dv1.Stage, from, to string) delivery.OperationSpec {
 	spec := delivery.OperationSpec{
 		Type: delivery.TypePromote, Stage: stage.Name, Facet: delivery.FacetPointer,
 		Params: delivery.Params{From: from, To: to},
@@ -105,6 +114,21 @@ func (r *StageReconciler) wouldHave(ctx context.Context, stage *dv1.Stage, from,
 		Actor:  delivery.Actor{User: r.Policy.ControllerUser},
 	}
 	spec.IntentDigest = delivery.IntentDigest(spec, stage.Spec)
+	return spec
+}
+
+// planned says s already holds the plan for spec's candidate: planned for
+// the same intent, or the version already ran here, so what it would have
+// done then stays as it was.
+func planned(s delivery.Shadow, spec delivery.OperationSpec) bool {
+	return s.Candidate == spec.Params.To && (s.IntentDigest == spec.IntentDigest || s.ObservedAt != "")
+}
+
+// wouldHave plans the promote from to on the Stage as a fully automatic
+// Stage running from would: the rung autonomous gives that verdict, and the
+// pointer set to from keeps it from reading as a pointer that moved.
+func (r *StageReconciler) wouldHave(ctx context.Context, stage *dv1.Stage, spec delivery.OperationSpec, now time.Time) (delivery.Shadow, error) {
+	from, to := spec.Params.From, spec.Params.To
 	synth := stageObject(stage)
 	synth.Status.Rung, synth.Status.Pointer = delivery.RungAutonomous, from
 	in, err := delivery.AssemblePlanInput(ctx, planSources{r.Cluster}, spec, synth, delivery.ClassController, now)
@@ -202,8 +226,9 @@ func (r *StageReconciler) propose(ctx context.Context, stage *dv1.Stage) error {
 }
 
 // raiseStepDown lowers the Stage one rung after a promote the promoter
-// raised on an automatic rung failed on a confirmed Fail: a signed autonomy operation raised by
-// the promoter, needing no approval, never below observe. Concluding it
+// raised on an automatic rung failed on a confirmed Fail: an autonomy
+// operation raised by the promoter, which the recorder signs when it is
+// writing, needing no approval, never below observe. Concluding it
 // restarts the evidence count (delivery.ProposeRung). Its name is derived
 // from the failed operation, so raising it twice is a no-op; a second failure
 // steps down again from wherever the first left the Stage, down to advise,

@@ -76,6 +76,20 @@ func TestShadowPlansWhatGitOpsApplies(t *testing.T) {
 	if err := e.reconcileStage("payments-prod"); err != nil || e.getStage().ResourceVersion != rv {
 		t.Fatalf("a tick with nothing new writes nothing: %v", err)
 	}
+	// A Stage spec edit replans the candidate that has not run yet, in place;
+	// what already ran keeps the plan it had.
+	s := e.getStage()
+	s.Spec.Gates.Verify.Checks = healthChecks
+	if err := e.c.Update(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.reconcileStage("payments-prod"); err != nil {
+		t.Fatal(err)
+	}
+	if got := e.getStage().Status; len(got.Shadow) != 2 || shadowOf(got, dB).IntentDigest == b.IntentDigest ||
+		shadowOf(got, dB).IntentDigest != delivery.IntentDigest(e.st.shadowSpec(s, dA, dB), s.Spec) || shadowOf(got, dA).IntentDigest != a.IntentDigest {
+		t.Fatalf("a spec edit replans the unobserved candidate only: %+v", got.Shadow)
+	}
 	e.now = e.now.Add(10 * time.Second)
 	e.apply(dB)
 	if err := e.reconcileStage("payments-prod"); err != nil {
@@ -124,6 +138,9 @@ func TestShadowVerify(t *testing.T) {
 	s := e.getStage()
 	s.Spec.Gates.Verify.Checks = healthChecks
 	if err := e.c.Update(context.Background(), s); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.reconcileStage("payments-prod"); err != nil { // the spec edit replans the candidate
 		t.Fatal(err)
 	}
 	e.health.result = delivery.Unknown
@@ -389,6 +406,9 @@ func TestShadowEdges(t *testing.T) {
 	s := moved.getStage()
 	s.Spec.Gates.Verify.Checks = healthChecks
 	if err := moved.c.Update(ctx, s); err != nil {
+		t.Fatal(err)
+	}
+	if err := moved.reconcileStage("payments-prod"); err != nil { // the spec edit replans the candidate
 		t.Fatal(err)
 	}
 	moved.now = moved.now.Add(2 * time.Minute)
