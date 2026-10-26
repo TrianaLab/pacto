@@ -115,6 +115,27 @@ describe('path to autonomy', () => {
     destroy();
   });
 
+  it('pages Stages and blockers apart, caps the Stages a blocker names and never rounds a share to 0%', async () => {
+    fns.autonomy.mockResolvedValue({ ...page, contracted: { services: 1, uncontractedCallers: 300 },
+      page: { total: 400, offset: 0, limit: 25 }, blockersPage: { total: 60, offset: 25, limit: 25 },
+      blockers: [{ kind: 'needs-verified', subject: 'payments', stages: Array.from({ length: 300 }, (_, i) => `ns/s${i}`) }] });
+    fns.plan.mockReturnValue(new Promise(() => {}));
+    const { target, destroy } = render(DeliveryAutonomyView, { blockers: '25', q: 'pay' });
+    await settle();
+    expect(text(target.querySelector('[data-testid="autonomy-contracted"] .au-value')!)).toBe('<1%');
+    expect(target.querySelector('[data-testid="autonomy-pager-next"]')?.getAttribute('href')).toBe('#/delivery/autonomy?offset=25&q=pay&blockers=25');
+    expect(target.querySelector('[data-testid="autonomy-blockers-pager-next"]')?.getAttribute('href')).toBe('#/delivery/autonomy?q=pay&blockers=50');
+    const blocker = target.querySelector('[data-testid="autonomy-blockers"] > li')!;
+    expect(blocker.querySelectorAll('.au-stages li').length).toBe(3);
+    expect(text(blocker)).toContain('On 300 Stages');
+    expect(text(blocker)).toContain('Show all 300');
+    // Propose opens its plan in a row under the Stage it is for.
+    (target.querySelector('button[aria-label^="Propose"]') as HTMLButtonElement).click();
+    await settle();
+    expect(target.querySelector('[data-testid="propose-panel"]')?.closest('tr.au-plan-row')).not.toBeNull();
+    destroy();
+  });
+
   it('lists blockers with a fix to copy, and copying changes nothing', async () => {
     fns.autonomy.mockResolvedValue(page);
     const writeText = vi.fn().mockResolvedValue(undefined);
@@ -122,10 +143,10 @@ describe('path to autonomy', () => {
     const { target, destroy } = render(DeliveryAutonomyView);
     await settle();
     const list = target.querySelector('[data-testid="autonomy-blockers"]')!;
-    const items = [...list.querySelectorAll('li')];
+    const items = [...list.querySelectorAll(':scope > li')];
     expect(text(items[0])).toContain('No contract: k8s:pay/Deployment/legacy');
     expect(text(items[0])).toContain('pacto init --cluster --namespace pay --out ./pacto-drafts');
-    expect(text(items[1])).toContain('No version range declared: checkout (prod/pay)');
+    expect(text(items[1])).toContain('No version range declared: checkout On 1 Stage: prod/pay');
     expect(items[2].querySelector('button')).toBeNull();
     expect(text(target)).toContain('Copying a fix changes nothing in the cluster');
     expect(text(target)).not.toMatch(/one-click/i);
@@ -194,7 +215,8 @@ describe('would have versus what happened', () => {
     const { target, destroy } = render(DeliveryEnvironmentsView);
     await settle();
     const rungs = [...target.querySelectorAll('[data-testid="rung"]')].map((b) => b.textContent);
-    expect(rungs).toEqual(['Advise', 'Observe']);
+    // Columns run the way changes travel: test before prod.
+    expect(rungs).toEqual(['Observe', 'Advise']);
     const tables = target.querySelectorAll('[data-testid="shadow"]');
     expect(tables.length).toBe(1);
     expect(text(tables[0])).toContain('advisory and unsigned');
