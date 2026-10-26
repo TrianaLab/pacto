@@ -6,6 +6,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // breakingInput is a breaking change with no consumer on a Stage that
@@ -308,5 +311,55 @@ func TestRungRefusalAndChange(t *testing.T) {
 func TestEarnedOnlyTheNextRung(t *testing.T) {
 	if earned(PlanInput{}, RungAutonomous) {
 		t.Fatal("a jump past the next rung was earned")
+	}
+}
+
+// TestSuiteChangeNeedsAPersonOnEveryRung: a version that edits, renames or
+// drops a suite it ships is held for a person on every rung that promotes,
+// whoever raised it, even when every consumer accepts the change.
+func TestSuiteChangeNeedsAPersonOnEveryRung(t *testing.T) {
+	ctx := context.Background()
+	suite := func(b *contract.Bundle, name, body string) *contract.Bundle {
+		b.Contract.Checks = []contract.Check{{Name: name, File: "evals.yaml"}}
+		b.FS = fstest.MapFS{"evals.yaml": {Data: []byte(body)}}
+		return b
+	}
+	for name, to := range map[string]*contract.Bundle{
+		"edited":  suite(bundle("payments", "1.0.1"), "evals", "cases: 2"),
+		"renamed": suite(bundle("payments", "1.0.1"), "quality", "cases: 10"),
+		"dropped": bundle("payments", "1.0.1"),
+		"added": func() *contract.Bundle {
+			b := suite(bundle("payments", "1.0.1"), "evals", "cases: 10")
+			b.Contract.Checks = append(b.Contract.Checks, contract.Check{Name: "extra", File: "evals.yaml"})
+			return b
+		}(),
+	} {
+		for _, rung := range []Rung{RungAdvise, RungAutoNonBreaking, RungAutonomous} {
+			for _, class := range []ActorClass{ClassHuman, ClassAgent, ClassController} {
+				in := breakingInput(t, rung, class)
+				in.From = rev(dA, c1, suite(bundle("payments", "1.0.0"), "evals", "cases: 10"))
+				in.To = rev(dB, c2, to)
+				p := PlanFor(ctx, in)
+				v := verdict(t, p, GateSuites)
+				if p.Predicted != PredictHeld || !p.Floor.Human || v.Result != Unknown ||
+					!strings.Contains(v.Message, "changes the checks it is verified by") {
+					t.Errorf("%s suite on %s by %s: %+v", name, rung, class, p)
+				}
+			}
+		}
+	}
+	// The same suite, byte for byte, holds nothing.
+	in := breakingInput(t, RungAutonomous, ClassController)
+	in.From = rev(dA, c1, suite(bundle("payments", "1.0.0"), "evals", "cases: 10"))
+	in.To = rev(dB, c2, suite(bundle("payments", "1.0.1"), "evals", "cases: 10"))
+	if p := PlanFor(ctx, in); p.Predicted != PredictProceeds {
+		t.Fatalf("an unchanged suite: %+v", p)
+	}
+	// A floor already set keeps its decision and leads with the suite change.
+	held := &Plan{To: dB, Floor: Floor{Human: true, Decision: Approve}, Question: "Approve?",
+		Verdicts: []Verdict{{Gate: GateDiff, Result: Pass, Citation: map[string]string{"checks": "checks.file modified"}}}}
+	suitesGate(PlanInput{To: rev(dB, c2, bundle("payments", "1.0.1"))}, held)
+	if held.Floor.Decision != Approve || !strings.HasPrefix(held.Question, short(dB)+" changes the checks") || !strings.HasSuffix(held.Question, "Approve?") {
+		t.Fatalf("a floor already set: %+v", held)
 	}
 }

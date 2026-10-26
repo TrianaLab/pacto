@@ -529,7 +529,8 @@ func TestPlanHoldsAnEvalCheckWithNoSuite(t *testing.T) {
 		{"webhook", nil, ""},
 	} {
 		to := rev(dB, c2, bundle("payments", "1.1.0"))
-		to.Bundle.Contract.Checks = tc.checks
+		// Both ship the same suites: a suite change is held on its own.
+		to.Bundle.Contract.Checks, from.Bundle.Contract.Checks = tc.checks, tc.checks
 		snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
 		if err != nil {
 			t.Fatal(err)
@@ -558,6 +559,7 @@ func TestPlanHoldsAnEvalCheckWithNoSuite(t *testing.T) {
 func TestPlanHoldsAVersionThatDoesNotShipTheSuite(t *testing.T) {
 	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
 	to.Bundle.Contract.Checks = []contract.Check{{Name: "evals", File: "evals.yaml"}}
+	from.Bundle.Contract.Checks = to.Bundle.Contract.Checks
 	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
 	if err != nil {
 		t.Fatal(err)

@@ -272,8 +272,15 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 // suitesGate holds a version whose contract does not ship a suite one of the
 // Stage's checks runs: the check could never pass on it, so a person decides
 // whether it ships unverified rather than the promoter failing or passing it.
+// It also holds, on every rung and whoever raised it, a version that changes
+// the suites it ships (any checks change the diff saw): a version never
+// grades its own exam, so a person reviews the new one.
 func suitesGate(in PlanInput, p *Plan) {
 	var missing []string
+	if i := slices.IndexFunc(p.Verdicts, func(v Verdict) bool { return v.Gate == GateDiff }); i >= 0 && p.Verdicts[i].Citation["checks"] != "" {
+		missing = append(missing, short(p.To)+" changes the checks it is verified by ("+p.Verdicts[i].Citation["checks"]+
+			"), and a version never grades its own exam, so a person reviews the change")
+	}
 	checks := in.To.Bundle.Contract.Checks
 	for _, c := range in.Stage.Gates.Verify.Checks {
 		_, eval := in.Gates[c.Provider].(Eval)
@@ -396,6 +403,16 @@ func diffGate(ctx context.Context, in PlanInput) Verdict {
 	d := diff.Compare(ctx, from.Bundle.Contract, to.Bundle.Contract, from.Bundle.FS, to.Bundle.FS)
 	v.Result = Pass
 	v.Citation["classification"] = d.Classification.String()
+	// The suites the version ships changed: suitesGate holds it for a person.
+	var suites []string
+	for _, c := range d.Changes {
+		if c.Path == "checks" || strings.HasPrefix(c.Path, "checks.") {
+			suites = append(suites, c.Reason)
+		}
+	}
+	if len(suites) > 0 {
+		v.Citation["checks"] = strings.Join(suites, "; ")
+	}
 	v.Message = fmt.Sprintf("%s: %d contract changes", d.Classification, len(d.Changes))
 	return v
 }

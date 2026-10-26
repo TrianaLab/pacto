@@ -46,6 +46,10 @@ say which runner runs a suite; the environment does.
 `pacto diff` compares the suite's bytes, so it sees an edit but cannot tell a
 stricter suite from a weaker one: that is the reviewer's call.
 
+In delivery, any suite change (added, removed, moved or edited) holds the
+version for a person on every rung, autonomous included. A version never
+grades its own exam.
+
 ### Running a suite in delivery
 
 A Stage runs a suite with an `eval` provider, configured in the delivery chart

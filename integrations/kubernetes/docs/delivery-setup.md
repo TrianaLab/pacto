@@ -98,7 +98,9 @@ flowchart LR
   waits for a person, unless the Stage sets
   `gates.impact.declaredConsumersOnly: true` to say every consumer has one.
   `pacto.suites` holds a version that does not ship a suite one of the Stage's
-  checks names, for a person to accept the unknown.
+  checks names, for a person to accept the unknown. It also holds any version
+  that adds, removes or edits a suite it ships, on every rung: a version never
+  grades its own exam.
 - After: the Pacto contract check counts only when
   `status.evaluatedRevision` names this version's contract digest and the
   current workload generation. `Compliant` and `Warning` pass, `NonCompliant`
