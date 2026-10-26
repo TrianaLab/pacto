@@ -21,7 +21,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-auth-required` | `bool` |  | chart value | With OIDC sign-in, gate the fleet views and the whole API behind it too, not only delivery. |
 | `-dashboard-cpu-limit` | `string` |  | chart value | CPU limit for the dashboard container (e.g. 200m). Empty uses the built-in default. |
 | `-dashboard-cpu-request` | `string` |  | chart value | CPU request for the dashboard container (e.g. 50m). Empty uses the built-in default. |
-| `-dashboard-delivery-namespace` | `string` |  | chart value | Namespace of the pacto-delivery chart, whose published identity policy the dashboard reads; empty means pacto-delivery. |
+| `-dashboard-delivery-namespace` | `string` |  | chart value | Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; empty means pacto-delivery. |
 | `-dashboard-memory-limit` | `string` |  | chart value | Memory limit for the dashboard container (e.g. 512Mi). Empty uses the built-in default. |
 | `-dashboard-memory-request` | `string` |  | chart value | Memory request for the dashboard container (e.g. 128Mi). Empty uses the built-in default. |
 | `-dashboard-mira-url` | `string` |  | chart value | Mira's address, to link the dashboard's health-check citations. |

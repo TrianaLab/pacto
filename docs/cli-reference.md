@@ -225,7 +225,7 @@ pacto dashboard [sources...] [flags]
 ```
       --auth-required               with OIDC sign-in, gate the fleet views and the whole API behind it too, not only delivery (also PACTO_DASHBOARD_AUTH_REQUIRED)
       --cors-origin string          explicit cross-origin allowed to call the API (default: same-origin only)
-      --delivery-namespace string   namespace of the pacto-delivery chart, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
+      --delivery-namespace string   namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
       --delivery-trust string       the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
   -h, --help                        help for dashboard
       --host string                 bind address for the dashboard server (default "127.0.0.1")
@@ -259,7 +259,7 @@ pacto delivery [flags]
 **Flags:**
 
 ```
-      --delivery-namespace string   namespace of the pacto-delivery chart, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
+      --delivery-namespace string   namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
   -h, --help                        help for delivery
   -n, --namespace string            namespace of the Stage and its Operations (default "default")
       --trust string                the trust config delivery records are verified with: the recorder's PEM public key, or a YAML file of keys and the streams each may sign (default $PACTO_DELIVERY_TRUST)
@@ -1210,7 +1210,7 @@ pacto mcp [bundle-ref] [flags]
       --base-url string             base URL for live invocation (overrides the OpenAPI servers[] URL)
       --cache                       include every bundle in the local OCI cache as an offline baseline revision
       --delivery                    expose the Pacto delivery tools over the ambient cluster
-      --delivery-namespace string   in --delivery mode: namespace of the pacto-delivery chart, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
+      --delivery-namespace string   in --delivery mode: namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
       --delivery-trust string       in --delivery mode: the trust config delivery records are verified with (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
       --evidence-url stringArray    base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --exchange-audience string    with --delivery over HTTP: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
@@ -1232,7 +1232,7 @@ pacto mcp [bundle-ref] [flags]
   -t, --transport string            transport type: stdio or http (default "stdio")
 ```
 
-The **default** server exposes the four authoring tools below. Three flags select a different server, each with its own tools -- see [Server modes](#server-modes) immediately after this table:
+The **default** server exposes the four authoring tools below. A bundle reference and four flags select a different server, each with its own tools -- see [Server modes](#server-modes) immediately after this table:
 
 | Tool | Description |
 |------|-------------|
@@ -1245,13 +1245,15 @@ These four authoring tools operate on local contract directories (they read and 
 
 ### Server modes
 
-The default server exposes the authoring tools above. Three flags select a different server instead, and they cannot be combined — passing more than one is an error, never a silent choice:
+The default server exposes the authoring tools above. A bundle reference, `--root`, `--fleet`, `--publish` and `--delivery` each select a different server instead, and they cannot be combined — passing more than one is an error, never a silent choice:
 
 | Invocation | Server |
 |------------|--------|
 | `pacto mcp` | Authoring tools. |
 | `pacto mcp <bundle-ref>` | Authoring tools plus the bundle's OpenAPI operations as executable agent tools, alongside a `pacto_skill` tool for any bundled skills. |
 | `pacto mcp --fleet` | Authoring tools plus read-only [operational-graph](operational-graph.md) query tools. |
+| `pacto mcp --publish` | Authoring tools plus `pacto_publish_plan` and `pacto_publish`, which publish a version to your registry. Stdio only. |
+| `pacto mcp --delivery` | Authoring tools plus the delivery tools over the cluster your kubeconfig points at: read delivery state and, for an agent, ask for or cancel a change. There is no approve tool. |
 | `pacto mcp --root <ref> [--root <ref>]` | A read-only contract catalog discovered from the named roots, and nothing else: catalog mode registers no authoring tools, so nothing reachable in it writes to disk. |
 
 `--root` is repeatable and takes a local bundle directory or an `oci://` reference. The roots and their dependency closure are resolved once, at startup, through the same reference parsing, credentials and cache the rest of the CLI uses; after that the session is frozen, so a tag that moves in a registry does not change any answer. Roots that do not resolve stay visible with a classified reason and the catalog reports itself as partial. Nothing is crawled, nothing is refreshed and nothing is persisted.
@@ -1271,7 +1273,7 @@ The arguments each fleet query tool takes, since none of them is required except
 
 Argument names are not flag names: the substring filter is `text`, not `query`, and every tool above closes its schema, so a wrong guess is rejected as an error rather than dropped into an unfiltered answer.
 
-See [MCP Integration](mcp-integration.md) for detailed setup, serving a bundle's operations as tools and the catalog surface.
+See [MCP Integration](mcp-integration.md) for setup and the [MCP reference](mcp-reference.md) for serving a bundle's operations as tools and the catalog surface.
 
 ---
 

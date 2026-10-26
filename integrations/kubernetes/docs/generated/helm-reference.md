@@ -67,11 +67,11 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `delivery.image.tag` | `""` | Overrides the image tag (default is the chart appVersion) |
 | `delivery.imagePullSecrets` | `[]` | Image pull secrets for private registries |
 | `delivery.insecureRegistries` | `[]` | Registry hosts (`host:port`) the promoter and the recorder reach over plain HTTP. An OCIRepository with `spec.insecure: true` is read over HTTP anyway. |
-| `delivery.metrics.enabled` | `true` | Expose the promoter's and the recorder's metrics (plain HTTP, port 8080) through a Service |
+| `delivery.metrics.enabled` | `true` | Expose the promoter's metrics (plain HTTP, port 8080) through a Service. The recorder's come with `delivery.recorder.monitoring` |
 | `delivery.metrics.serviceMonitor.enabled` | `false` | Create a Prometheus Operator ServiceMonitor for that Service |
 | `delivery.metrics.serviceMonitor.interval` | `""` | Scrape interval (empty uses Prometheus' default) |
 | `delivery.metrics.serviceMonitor.scrapeTimeout` | `""` | Scrape timeout (empty uses Prometheus' default) |
-| `delivery.namespace` | `pacto-delivery` | Dedicated namespace the promoter and the recorder run in. The chart creates it; it must not be the release namespace (the operator can create Deployments and Secrets there). |
+| `delivery.namespace` | `pacto-delivery` | Dedicated namespace the promoter and the recorder run in. The chart creates it; it must not be the release or node agent namespace (the operator can create Deployments, DaemonSets and Secrets there). |
 | `delivery.nodeSelector` | `{}` | Node selector for the promoter pod |
 | `delivery.podSecurityContext.runAsNonRoot` | `true` | Run pod as non-root |
 | `delivery.podSecurityContext.seccompProfile.type` | `RuntimeDefault` | Seccomp profile type |
