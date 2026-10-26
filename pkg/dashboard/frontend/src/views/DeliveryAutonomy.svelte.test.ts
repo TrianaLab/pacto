@@ -223,7 +223,7 @@ describe('the rung on a change', () => {
     const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'r1' });
     await settle();
     expect(text(target.querySelector('[data-testid="change-rung"]')!)).toContain('Advise');
-    expect(target.querySelector('.page-hd-sub')?.textContent).toBe('Rung change pay in prod from Advise to Auto non-breaking waits for a person.');
+    expect(target.querySelector('.page-hd-sub')?.textContent).toBe('The rung of pay in prod from Advise to Auto non-breaking waits for a person.');
     expect(text(target)).not.toContain('version unknown');
     destroy();
   });
@@ -247,6 +247,6 @@ describe('ladder words', () => {
     expect(proposalText('observe', { rung: 'advise', evidence: ['d'] })).toBe('Pacto proposes Advise: 1 version GitOps ran that verified, no incident.');
     expect(proposalText('advise', { rung: 'auto-nonbreaking' })).toBe('Pacto proposes Auto non-breaking: 0 verified promotions, no incident.');
     expect(typeLabel('pacto.dev/autonomy')).toBe('Rung change');
-    expect(changeSummary({ spec: { type: 'pacto.dev/autonomy', stage: 's', params: { to: 'advise' } }, status: { phase: 'Held' } }, 'ns')).toBe('Rung change s in ns to Advise waits for a person.');
+    expect(changeSummary({ spec: { type: 'pacto.dev/autonomy', stage: 's', params: { to: 'advise' } }, status: { phase: 'Held' } }, 'ns')).toBe('The rung of s in ns to Advise waits for a person.');
   });
 });

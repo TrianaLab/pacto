@@ -268,7 +268,9 @@ export function changeSummary(e: ChangeFacts | null | undefined, namespace: stri
   const p = e.spec?.params ?? {};
   const v = (d: string | undefined) => (!d ? '' : e.spec?.type === AUTONOMY_TYPE ? rungLabel(d) : versionLabel(d, versions));
   const move = p.from && p.to ? ` from ${v(p.from)} to ${v(p.to)}` : p.to ? ` to ${v(p.to)}` : '';
-  const what = `${typeLabel(e.spec?.type)} ${e.spec?.stage ?? ''} in ${namespace}${move}`;
+  // typeLabel is a verb for every type but a rung change, which reads as a noun.
+  const lead = e.spec?.type === AUTONOMY_TYPE ? 'The rung of' : typeLabel(e.spec?.type);
+  const what = `${lead} ${e.spec?.stage ?? ''} in ${namespace}${move}`;
   const st = e.status ?? {};
   if (st.phase === 'Concluded') {
     const end = [OUTCOMES[st.outcome ?? ''] ?? st.outcome, VERIFICATIONS[st.verification ?? ''] ?? st.verification].filter(Boolean).join(', ');
