@@ -13,9 +13,9 @@ are real: the registry, Flux, delivery (which picks the version), the
 recorder (which signs a record of every step), a health check, the node
 agent (which sees calls between services), sign-in and the dashboard. The
 services themselves, their traffic and the people signing in are made up
-(see [What is generated](#what-is-generated)). The
-[browser demo](dashboard-demo.md) shows the same story with nothing to
-install.
+(see [What is generated](#what-is-generated)). Its Stages start on fixed
+rungs, so it does not play the climb up the autonomy ladder or a step-down:
+the [browser demo](dashboard-demo.md) does, with nothing to install.
 
 ## Run it
 
@@ -46,9 +46,10 @@ in the order the story plays them:
   manifests and writes its contract, its Pacto resource and its Stages.
   `--no-transparency-log` keeps the demo's throwaway key out of the public
   transparency log, and `--insecure-registry` lets Flux read its plain HTTP
-  registry. The demo uses the files as init wrote them. fraud ships to test,
-  running the image `pacto publish` built, pinned by digest. In prod it waits
-  for a person: init gates the last environment until a health check exists.
+  registry. The demo uses the files as init wrote them. Both of fraud's
+  Stages start on observe: Flux applies the tag, running the image
+  `pacto publish` built, pinned by digest, and Pacto only notes that it would
+  have shipped 1.0.0 to test with nobody involved.
 - **A safe change ships on its own.** payments 2.4.0 adds an endpoint and
   reaches prod with nobody involved, because checkout and orders accept any
   payments 2.x.
@@ -74,21 +75,26 @@ Open <http://127.0.0.1:3300> and sign in through Dex. Every password is
 - `alice@example.com` is on team payments and is never asked.
 - `pay-agent@example.com` is an agent: it may look and propose, never approve.
 
-`make e2e-delivery-demo-browser` plays and checks B6 to B10 (B7 to B9 in
-Chromium) against `examples/story`, once per cluster: the agent ships checkout 1.9 first
-and the held change then asks only orders; carol approves after signing in
-again; 3.0.0 sends too little telemetry, so its check says Unknown until carol
-accepts that; she rolls 3.0.0 back and automation holds off. Last comes B10:
-the newest signed record of payments in prod is deleted from the registry, and
-the Stage freezes. A changed copy of a record is ignored, since anyone who can
-push could attach one. pay-agent cannot unfreeze the Stage; alice does once the
-record is restored. The promoter plans no unfreeze, so the demo checks how it
-concludes (Succeeded/Unverified, as the story says). Then ops pins a version by hand
-under break-glass, which shows as a witnessed record and freezes the Stage
-again. Then pay-agent ships as a service of its own, with its eval suite as
-the check: 1.0.0 passes, and 1.1.0 swaps its model, passes 1 of its 2 evals and
-rolls back in test. `story` also prints the commands for
-`pacto delivery blame` and `undo` and for the agent over remote MCP.
+`make e2e-delivery-demo-browser` plays the rest in a browser, once per
+cluster, and checks it against `examples/story`:
+
+- pay-agent ships checkout 1.9 first, and the held payments 3.0.0 then asks
+  only orders.
+- carol signs in again and approves.
+- 3.0.0 sends too little telemetry, so its check says Unknown until carol
+  accepts that. She then rolls 3.0.0 back, and automation holds off.
+- The newest signed record of payments in prod is deleted from the registry,
+  and the Stage freezes. A changed copy of a record would be ignored, since
+  anyone who can push could attach one.
+- pay-agent cannot unfreeze the Stage. alice does, once the record is back.
+- ops pins a version by hand with break-glass rights. That shows as a
+  witnessed record and freezes the Stage again.
+- pay-agent ships as a service of its own, with its eval suite as the check:
+  1.0.0 passes, and 1.1.0 swaps its model, passes 1 of its 2 evals and rolls
+  back in test.
+
+`story` also prints the commands for `pacto delivery blame` and `undo` and for
+the agent over remote MCP.
 
 ## Another cluster and Argo CD
 
@@ -112,5 +118,7 @@ The payments workload is a stand-in (podinfo). Its telemetry comes from a span
 generator in the cluster, and the call 2.4.2 makes to fraud comes from a sidecar
 in that version. pay-agent's eval runner is a stand-in that answers fixed
 counts. Sign-in uses the demo's own Dex and Keycloak, not a company
-login. In B10 alice and ops do not sign in: they act through the admin
-credentials impersonating them, with a sign-in time the script makes up. For the operational graph on its own, see `make e2e-operational-graph-up`.
+login. When the record is deleted and restored, alice and ops do not sign in: they act through the admin
+credentials impersonating them, with a sign-in time the script makes up.
+
+To see the operational graph on its own, run `make e2e-operational-graph-up`.

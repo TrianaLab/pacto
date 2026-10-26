@@ -16,9 +16,9 @@ is for someone who wants to see Pacto against real parts, not recorded data:
 - `pacto agent` watches the containers' network connections and reports a
   service that says it is up but serves nothing.
 
-It shows contracts and checks on running services, not delivery: for
-delivery and the autonomy ladder, see the [browser demo](dashboard-demo.md)
-or the [Kubernetes demo](kubernetes-demo.md).
+It shows contracts and checks on running services, not delivery: for the
+autonomy ladder, see the [browser demo](dashboard-demo.md); for delivery on a
+real cluster, the [Kubernetes demo](kubernetes-demo.md).
 
 There is no repository to clone, nothing to build and no file to download. The
 demo is published as an OCI artifact that Docker Compose owns and runs directly.
@@ -159,15 +159,9 @@ docker compose -f "oci://ghcr.io/trianalab/pacto/demo@$DEMO" \
   -p pacto-demo up -d --wait -y --pull never
 ```
 
-The application itself is read from the registry by `-f oci://…` on every
-invocation — Compose has no offline mode for it. So creating a project needs the
-artifact registry reachable, once. After the project exists, operating it needs
-nothing: `stop`, `start`, `restart`, `logs` and `down -v` address it by project
-name, and the demo itself never leaves your machine. After the demo artifact and
-its digest-pinned images have been pulled, the stack requires no external
-network access. Its private Compose service network remains available because
-the dashboard, Evidence Server and embedded registry must communicate with each
-other.
+Creating the project reads the artifact from the registry, once. After that
+`stop`, `start`, `restart`, `logs` and `down -v` work by project name with no
+network beyond the stack's own.
 
 Evidence is published as an OCI 1.1 referrer of the exact contract revision it
 reports on, so the registry is the store and the Evidence Server keeps nothing.

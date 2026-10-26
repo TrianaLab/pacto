@@ -473,12 +473,15 @@ publish() {
 }
 
 # environment SERVICE ENV CANDIDATES AUTO [GATES] — what applies SERVICE in
-# ENV and the Stage that decides which version runs there, in the shape
+# ENV, on autonomous when AUTO is true and on advise otherwise (an admin may
+# create a Stage on any rung; the ladder itself is the browser demo's story),
+# and the Stage that decides which version runs there, in the shape
 # pacto init --delivery writes (the registry speaks plain HTTP, hence insecure),
 # plus a health check on the Deployment: Flux calls a version applied only once
 # its rollout is done, so the verify gates never judge the old pods (HANDOFF).
 environment() {
-  local svc="$1" env="$2" verify='verify: {provider: cosign, secretRef: {name: cosign-pub}}'
+  local svc="$1" env="$2" verify='verify: {provider: cosign, secretRef: {name: cosign-pub}}' rung=advise
+  [ "$4" = true ] && rung=autonomous
   local url="oci://${REG_HOST}/story/deploy/$svc"
   {
     if [ "$3" = candidates ]; then
@@ -514,7 +517,7 @@ spec:
   environment: $env
   applyRef: {name: $svc}
   candidates: $CANDS
-  auto: $4
+  startRung: $rung
   gates:
     impact: {declaredConsumersOnly: true}
     verify:
@@ -622,22 +625,23 @@ story_pactify() {
   [ -s "$dir/delivery/test.yaml" ] || fail "pacto init --delivery wrote no Stage for test"
   cp "$KEYS/cosign.key" "$dir/"
   git -C "$dir" init -q && git -C "$dir" add -A && git -C "$dir" -c user.email=demo@example.com -c user.name=demo commit -qm "pactify fraud"
-  local out d op
+  local out d
   out="$(cd "$dir" && reg "$PACTO" publish 2>&1)" || { echo "$out" >&2; fail "pacto publish fraud failed"; }
   d="$(grep -oE "^Deploy: .*@sha256:[0-9a-f]{64}" <<<"$out" | sed 's/.*@//')"
   remember fraud 1.0.0 "$d"
   kubectl apply -f "$dir/delivery/test.yaml" -f "$dir/delivery/prod.yaml" >/dev/null
-  op="$(wait_op test fraud "$d")"
-  wait_concluded test "$op" Succeeded/Verified
-  predicted pactify test "$op"
+  # Both Stages start on observe: Flux applies the tag, and Pacto only notes
+  # what it would have done with each version it saw.
+  shadowed() { [ -n "$(kubectl -n test get stage fraud -o json | jq -r --arg d "$d" '.status.shadow // [] | map(select(.candidate == $d and .observedAt != null)) | .[0].predicted // empty')" ]; }
+  eventually 120 shadowed || fail "fraud's test Stage noted nothing about 1.0.0: $(kubectl -n test get stage fraud -o jsonpath='{.status.conditions}')"
+  same pactify "rung" "$(kubectl -n test get stage fraud -o jsonpath='{.status.rung}')" observe
+  same pactify "predicted" "$(kubectl -n test get stage fraud -o json | jq -r --arg d "$d" '.status.shadow | map(select(.candidate == $d)) | .[0].predicted')" "$(expect pactify Predicted | jq -r .)"
   eventually 60 kubectl -n test get pacto fraud >/dev/null 2>&1 || fail "pacto init --delivery wrote no Pacto resource for fraud in test"
   local img; img="$(kubectl -n test get deploy fraud -o jsonpath='{.spec.template.spec.containers[0].image}')"
   [[ "$img" == "${REG_HOST}/story/images/fraud@sha256:"* ]] || fail "fraud runs $img in test, not the image pacto publish built, pinned by digest"
-  # Autonomy in prod is earned: init writes its Stage so every promote there
-  # waits for a person until a health check judges the version.
-  op="$(wait_op prod fraud "$d")"
-  eventually 60 held prod "$op" || fail "fraud 1.0.0 went to prod with nobody asked: $(field prod "$op" phase) $(field prod "$op" message)"
-  pass "fraud is pactified: its contract, Pacto resource and Stages come from pacto init as it wrote them, 1.0.0 runs in test with nobody involved and waits for a person in prod"
+  no_fraud_ops() { [ "$(ops test | jq '[.items[] | select(.spec.stage == "fraud")] | length')" = 0 ] && [ "$(ops prod | jq '[.items[] | select(.spec.stage == "fraud")] | length')" = 0 ]; }
+  always 5 no_fraud_ops || fail "a Stage on observe raised an operation for fraud"
+  pass "fraud is pactified: its contract, Pacto resource and Stages come from pacto init as it wrote them, both Stages observe, and Pacto noted it would have shipped 1.0.0 to test"
 }
 
 story_b1() {
@@ -1087,7 +1091,7 @@ spec:
   environment: prod-us
   applyRef: {kind: Application, name: payments}
   candidates: {upstreamRecords: {repository: "${REG_HOST}/pacto-delivery-streams", stream: "$stream"}}
-  auto: true
+  startRung: autonomous
   gates: {impact: {declaredConsumersOnly: true}}
 YAML
   d="$(digest_of payments 2.3.0)"
@@ -1177,7 +1181,7 @@ spec:
   environment: prod-us
   applyRef: {kind: Application, name: payments-eu}
   candidates: {upstreamRecords: {repository: "${REG_HOST}/pacto-delivery-streams", stream: "$eu"}}
-  auto: true
+  startRung: autonomous
   gates: {impact: {declaredConsumersOnly: true}}
 YAML
   us_empty() { [ -z "$(us kubectl -n prod get stage payments-eu -o jsonpath='{.status.pointer}')" ]; }
