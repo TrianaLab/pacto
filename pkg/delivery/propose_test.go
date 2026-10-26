@@ -75,7 +75,7 @@ func TestProposeRungPromotes(t *testing.T) {
 		{UID: "rung", Type: TypeAutonomy, Outcome: Succeeded},
 		promoted("p1", Succeeded, Verified, false),
 		{UID: "f", Type: TypeFreeze, Outcome: Succeeded, Person: true}, // a person's freeze is no incident
-		{UID: "rj", Type: TypeAutonomy, Outcome: Rejected},              // a refused rung change restarts nothing
+		{UID: "rj", Type: TypeAutonomy, Outcome: Rejected},             // a refused rung change restarts nothing
 		promoted("p2", Succeeded, Verified, true),
 		promoted("p3", Succeeded, Verified, false),
 	}}}
