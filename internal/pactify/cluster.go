@@ -300,7 +300,7 @@ func (cl *cluster) inferred(since time.Time) map[string][]Inferred {
 	for _, svc := range cl.services {
 		dep := cl.provider(svc)
 		sel, _, _ := unstructured.NestedStringMap(svc.Object, "spec", "selector")
-		for _, id := range callers(cl.snaps, cl.peers(svc), since) {
+		for _, id := range runtimefacts.Callers(cl.snaps, cl.peers(svc), since) {
 			pod, ok := pods[id.ID]
 			if !ok || id.Kind != runtimefacts.KindPod || (pod.GetNamespace() == svc.GetNamespace() && selects(sel, pod.GetLabels())) {
 				continue // not a pod read here, or the service calling itself
@@ -386,31 +386,6 @@ func (cl *cluster) peers(svc unstructured.Unstructured) []runtimefacts.Address {
 			}
 		}
 	}
-	return out
-}
-
-// callers are the workloads with a successful connection to any of peers
-// since since, sorted by ID.
-// ponytail: the same match as runtimefacts.Callers, which the observed-callers
-// work adds; call that instead once it lands.
-func callers(snaps []runtimefacts.Snapshot, peers []runtimefacts.Address, since time.Time) []runtimefacts.Identity {
-	want := map[runtimefacts.Address]bool{}
-	for _, p := range peers {
-		want[p] = true
-	}
-	seen := map[runtimefacts.Identity]bool{}
-	var out []runtimefacts.Identity
-	for _, s := range snaps {
-		for _, w := range s.Workloads {
-			for _, c := range w.Connections {
-				if want[runtimefacts.NewAddress(c.Address, c.Port)] && !c.LastSuccessAt.IsZero() && !c.LastSuccessAt.Before(since) && !seen[w.Identity] {
-					seen[w.Identity] = true
-					out = append(out, w.Identity)
-				}
-			}
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	return out
 }
 
