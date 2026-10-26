@@ -25,7 +25,7 @@ calls.
 
 ## Why you were asked
 
-Pacto holds a change and asks a person in three cases:
+Pacto holds a change and asks a person in four cases:
 
 - **It would break a consumer.** For example, payments 3.0.0 removes a field
   and the checkout contract accepts only payments 2.x. Pacto asks the team
@@ -33,8 +33,11 @@ Pacto holds a change and asks a person in three cases:
 - **It could not check something.** Monitoring had too little data, or no
   contract depends on the part that changed, so a service without a contract
   might call it. That check says Unknown.
-- **The Stage asks for every change.** A new service starts by asking a
-  person for every move; see [the autonomy ladder](autonomy.md).
+- **The Stage is on advise.** A person approves every move that a person did
+  not ask for; see [the autonomy ladder](autonomy.md).
+- **The change is breaking and the Stage is on auto for non-breaking.** Every
+  consumer's contract accepts it, but this rung ships only non-breaking
+  changes on its own, so a person approves it.
 
 You are asked only if you are in the team that owns an affected service, and
 never about a change you asked for yourself. An AI agent can ask for changes,
@@ -57,7 +60,7 @@ Then give one answer:
 
 | Answer | Use it when | What happens |
 |---|---|---|
-| `approve` | The question says "Approve": the change breaks a consumer, or the Stage asks for every change, and you accept it | The version goes ahead |
+| `approve` | The question says "Approve": the change breaks a consumer, the Stage is on advise, or the change is breaking and the Stage is on auto for non-breaking, and you accept it | The version goes ahead |
 | `accept-unknown` | The question says "Accept the unknown": a check said Unknown and you accept the risk | The version goes ahead; the record says "accepted", never "passed". If the version already shipped and a later check said Unknown, only this or `reject` answers |
 | `reject` | You do not want this version here | If it has not shipped, the change ends and the Stage keeps the version it runs. If it already shipped, Pacto rolls it back to the version before. Someone can ask again later |
 

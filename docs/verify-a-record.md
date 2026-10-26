@@ -154,9 +154,11 @@ missing change may still have happened: no answer means "unknown", never
 
 ## Check a version was signed
 
-Every version Pacto ships was published and signed with `pacto publish`.
-That signs each digest it pushes: the contract, each image and the files
-Flux applies. Check any of them with cosign and the publisher's public key,
+Every version Pacto promotes was published and signed with `pacto publish`.
+A break-glass override can skip this: look for `actor.class` `break-glass`
+in the records and check its `to` digest the same way. `pacto publish`
+signs each digest it pushes: the contract, each image and the files Flux
+applies. Check any of them with cosign and the publisher's public key,
 which the team that publishes gives you:
 
 ```bash

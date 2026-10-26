@@ -82,8 +82,8 @@ pacto delivery approve <operation>
 
 ## Step-down
 
-When a version Pacto promoted automatically has a confirmed Fail and is rolled
-back automatically, the controller raises a `delivery.pacto.trianalab.io/autonomy` operation that
+When a version Pacto promoted automatically has a confirmed Fail (whether it
+is then rolled back or the Stage freezes), the controller raises a `delivery.pacto.trianalab.io/autonomy` operation that
 lowers the Stage one rung (never below `observe`). It needs no approval and
 concludes like any other operation. The proposal window starts again. Unknown
 never steps a Stage down.
@@ -107,7 +107,11 @@ verdict with the evidence it cited, and `outcome.rung` (`{from, to}`). Check it
 without Pacto:
 
 ```bash
-cosign verify-blob-attestation ... | jq '.outcome.rung'
+cosign verify-blob-attestation --bundle record.json ...   # prints Verified OK
+jq -r .dsseEnvelope.payload record.json | base64 -d | jq .predicate.outcome.rung
 ```
+
+[Check one record without Pacto](verify-a-record.md#check-one-record-without-pacto)
+gives the full commands.
 
 Shadow entries are status, not records.

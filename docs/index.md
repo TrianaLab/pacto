@@ -15,8 +15,9 @@ that depend on it, and decides which version runs in each environment. Flux
 or Argo CD, the tools that keep a Kubernetes cluster running what you ask for,
 still apply the version.
 
-GitlessOps, in one line: the record of which version runs where lives in your
-container registry, signed, instead of in git commits. Your code and your
+GitlessOps, in one line: which version runs where is set from signed
+artifacts in your container registry and from evidence, not from commits to
+git. Your code and your
 deployment files stay in git; only that one line moves out.
 [What GitlessOps means](manifesto.md#what-gitlessops-means) gives the three
 rules behind it.
