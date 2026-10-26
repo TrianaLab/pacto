@@ -118,10 +118,16 @@ func TestAdmitRollback(t *testing.T) {
 		"wrong to":    {OperationSpec{Params: Params{From: dB, To: dC}}, ok, cited, ClassAgent, "to must be"},
 		"empty before": {OperationSpec{Params: Params{From: dB}}, ok,
 			&CitedOp{Applied: true, Pointer: PointerChange{After: dB}}, ClassAgent, "empty Stage"},
-		"failed":            {rb, StageStatus{Pointer: dB, FailedDigests: []string{dA}}, cited, ClassAgent, "FailedDigest"},
-		"frozen agent":      {rb, StageStatus{Pointer: dB, Frozen: true}, cited, ClassAgent, "Frozen"},
-		"frozen human":      {rb, StageStatus{Pointer: dB, Frozen: true}, cited, ClassHuman, ""},
-		"frozen agent fail": {OperationSpec{Params: rb.Params, Cause: &Cause{Verdict: &Verdict{Result: Fail}}}, StageStatus{Pointer: dB, Frozen: true}, cited, ClassAgent, ""},
+		"failed": {rb, StageStatus{Pointer: dB, FailedDigests: []string{dA}}, cited, ClassAgent, "FailedDigest"},
+		"agent undoes a rollback": {rb, ok, &CitedOp{Type: TypeRollback, Applied: true, Pointer: cited.Pointer}, ClassAgent,
+			"undoing a rollback or override is a promote"},
+		"promoter undoes an override": {rb, ok, &CitedOp{Type: TypeOverride, Applied: true, Pointer: cited.Pointer}, ClassController,
+			"undoing a rollback or override is a promote"},
+		"person undoes a rollback":       {rb, ok, &CitedOp{Type: TypeRollback, Applied: true, Pointer: cited.Pointer}, ClassHuman, ""},
+		"break-glass undoes an override": {rb, ok, &CitedOp{Type: TypeOverride, Applied: true, Pointer: cited.Pointer}, ClassBreakGlass, ""},
+		"frozen agent":                   {rb, StageStatus{Pointer: dB, Frozen: true}, cited, ClassAgent, "Frozen"},
+		"frozen human":                   {rb, StageStatus{Pointer: dB, Frozen: true}, cited, ClassHuman, ""},
+		"frozen agent fail":              {OperationSpec{Params: rb.Params, Cause: &Cause{Verdict: &Verdict{Result: Fail}}}, StageStatus{Pointer: dB, Frozen: true}, cited, ClassAgent, ""},
 	}
 	for name, c := range cases {
 		got := AdmitRollback(c.spec, c.status, c.cited, c.class)

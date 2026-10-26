@@ -146,7 +146,9 @@ type CitedOp struct {
 
 // AdmitRollback checks a rollback is bound to the operation it undoes: from is
 // that operation's after and the Stage's pointer, to is its before and never a
-// failed digest. An agent rolling back a frozen Stage must cite a Fail verdict.
+// failed digest. Only a person or break-glass undoes a rollback or an override
+// with one: for anyone else that is a promote. An agent rolling back a frozen
+// Stage must cite a Fail verdict.
 // It returns the refusal reason, or "" when the rollback is admissible.
 func AdmitRollback(spec OperationSpec, status StageStatus, cited *CitedOp, class ActorClass) string {
 	switch {
@@ -160,6 +162,10 @@ func AdmitRollback(spec OperationSpec, status StageStatus, cited *CitedOp, class
 		return "UnboundRollback: to must be the cited operation's before; anything else is a promote"
 	case spec.Params.To == "":
 		return "UnboundRollback: the cited operation started from an empty Stage, so there is nothing to roll back to"
+	case cited.Type != TypePromote && class != ClassHuman && class != ClassBreakGlass:
+		// A rollback has no pre-gates: undoing a person's rollback would
+		// ship again the version they removed, with nobody asked.
+		return "UnboundRollback: undoing a rollback or override is a promote; propose it"
 	case slices.Contains(status.FailedDigests, spec.Params.To):
 		return "FailedDigest: a rollback may never target a failed digest"
 	case status.Frozen && class == ClassAgent && (spec.Cause == nil || spec.Cause.Verdict == nil || spec.Cause.Verdict.Result != Fail):

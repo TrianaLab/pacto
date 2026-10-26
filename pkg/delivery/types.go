@@ -113,7 +113,7 @@ var tier0 = []OperationType{
 		Raisers:           []ActorClass{ClassAgent, ClassHuman, ClassController},
 		PreGates:          []string{},
 		VerifyGates:       []string{GateContract},
-		ApprovalFloor:     "none; an agent rollback on a frozen Stage needs a Fail verdict as its cause; with spec.records.required, an agent or promoter rollback asks a person while the Stage's records are not being written",
+		ApprovalFloor:     "none; only a person or break-glass may undo a rollback or an override, which for anyone else is a promote; an agent rollback on a frozen Stage needs a Fail verdict as its cause; with spec.records.required, an agent or promoter rollback asks a person while the Stage's records are not being written",
 		Inverse:           TypePromote,
 		Cancellable:       "until the pointer moves",
 		ApprovalDeadline:  defaultApprovalDeadline,
