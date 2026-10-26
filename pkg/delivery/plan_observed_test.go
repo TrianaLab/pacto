@@ -62,7 +62,7 @@ func TestPlanUncontractedCallerHoldsABreakingChange(t *testing.T) {
 		v := verdict(t, p, GateImpact)
 		if v.Result != Unknown || p.Floor.Decision != AcceptUnknown ||
 			!strings.Contains(v.Message, "k8s:prod/Deployment/legacy calls payments at runtime (ebpf) but has no contract") ||
-			!strings.Contains(v.Message, "`pacto init --cluster --namespace prod`") || !strings.Contains(p.Question, "k8s:prod/Deployment/legacy") {
+			!strings.Contains(v.Message, "run `pacto init --cluster --namespace prod --out <dir>` for it") || !strings.Contains(p.Question, "k8s:prod/Deployment/legacy") {
 			t.Fatalf("declaredConsumersOnly=%v: an uncontracted caller must hold a breaking change: %+v", declaredOnly, p)
 		}
 	}
@@ -79,11 +79,15 @@ func TestPlanCallerCoverageIsPerProvider(t *testing.T) {
 		line  string
 	}{
 		"partial": {paymentsPacto(&CallerCoverageView{State: "partial", Reason: "stale-node", RefreshSeconds: 300}),
-			"runtime callers of payments cannot be ruled out (coverage: partial, stale-node)"},
+			"runtime callers of payments cannot be ruled out: a node agent has not reported recently (coverage: partial, stale-node)"},
 		"a status that stopped updating": {reconciled(paymentsPacto(complete()), now.Add(-11*time.Minute).Format(time.RFC3339)),
-			"runtime callers of payments cannot be ruled out (coverage: unavailable, stale-status)"},
+			"runtime callers of payments cannot be ruled out: the operator has not updated this status recently (coverage: unavailable, stale-status)"},
 		"no refresh interval": {paymentsPacto(&CallerCoverageView{State: "complete"}), "(coverage: unavailable, stale-status)"},
 		"no reconcile time":   {reconciled(paymentsPacto(complete()), ""), "(coverage: unavailable, stale-status)"},
+		"host network": {paymentsPacto(&CallerCoverageView{State: "partial", Reason: "shared-netns", RefreshSeconds: 300}),
+			"a pod on the host network can call it and the node agent cannot tell which one (coverage: partial, shared-netns)"},
+		"a reason this build does not know": {paymentsPacto(&CallerCoverageView{State: "partial", Reason: "new-thing", RefreshSeconds: 300}),
+			"cannot be ruled out: the operator reported new-thing (coverage: partial, new-thing)"},
 	}
 	for name, c := range cases {
 		from, to := breakingSides()

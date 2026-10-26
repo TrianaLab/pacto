@@ -416,8 +416,8 @@ func unseenConsumersOf(in PlanInput, res *impact.Result, unknown []impact.Affect
 	for _, c := range unknown {
 		if c.Uncontracted {
 			// ponytail: the node agent is delivery's only caller source today (design section 2.1).
-			out = append(out, c.Service+" calls "+in.Stage.Service.Name+" at runtime (ebpf) but has no contract: run `pacto init --cluster --namespace "+
-				callerNamespace(c.Service)+"` for it, or declare its range")
+			out = append(out, c.Service+" calls "+in.Stage.Service.Name+" at runtime (ebpf) but has no contract: run `"+
+				InitClusterCommand(callerNamespace(c.Service))+"` for it, or declare its range")
 			continue
 		}
 		out = append(out, c.Service+" has no usable compatibility range for this change")

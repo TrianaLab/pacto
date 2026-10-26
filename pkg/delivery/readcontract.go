@@ -200,7 +200,34 @@ func callerLimitations(p PactoView, reconciled *time.Time, now time.Time) []flee
 		return nil
 	}
 	return []fleet.Limitation{{Code: LimitationCallersUnseen, Source: SnapshotSourceID,
-		Message: "runtime callers of " + p.Status.Contract.ServiceName + " cannot be ruled out (coverage: " + state + ", " + reason + ")"}}
+		Message: "runtime callers of " + p.Status.Contract.ServiceName + " cannot be ruled out: " +
+			cmp.Or(coverageReasons[reason], "the operator reported "+reason) + " (coverage: " + state + ", " + reason + ")"}}
+}
+
+// coverageReasons says in plain words what each caller-coverage reason the
+// operator writes (internal/observer observeCallers) means for the person
+// asked to approve. The slug stays in the message as the citation.
+var coverageReasons = map[string]string{
+	"shared-netns":          "a pod on the host network can call it and the node agent cannot tell which one",
+	"stale-node":            "a node agent has not reported recently",
+	"collection-failed":     "a node agent failed to collect connections",
+	"degraded-node":         "a node agent is not fully running",
+	"truncated":             "there were more connections or callers than the operator keeps",
+	"node-without-agent":    "a node runs pods but has no node agent",
+	"unresolved-caller":     "a caller could not be matched to a pod and its owner",
+	"agent-data-unreadable": "the operator could not read the node agent reports",
+	"no-agent-data":         "no node agent has reported",
+	"service-unreadable":    "the operator could not read the Service",
+	"pods-unreadable":       "the operator could not read the pods",
+	"pactos-unreadable":     "the operator could not read the Pactos",
+	"stale-status":          "the operator has not updated this status recently",
+}
+
+// InitClusterCommand is the command a hold prints to draft a contract for an
+// uncontracted caller in the namespace: design section 3.2's syntax, which
+// ladder-bulk implements.
+func InitClusterCommand(namespace string) string {
+	return "pacto init --cluster --namespace " + namespace + " --out <dir>"
 }
 
 // observedEdges are the runtime calls a Pacto's status shows: one edge per
