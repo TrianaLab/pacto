@@ -199,6 +199,43 @@ func TestPlanBreakingChangeAsksOnlyTheBrokenConsumersOwners(t *testing.T) {
 	}
 }
 
+// TestPlanOwnerChangeAsksTheTeamThatOwnsItNow: who owns the service decides
+// every later question, so a version that changes service.owner is approved
+// by the running team on every rung, whoever raised it; and with the running
+// contract unreadable, the incoming version never names who answers.
+func TestPlanOwnerChangeAsksTheTeamThatOwnsItNow(t *testing.T) {
+	from := rev(dA, c1, bundle("payments", "1.0.0"))
+	moved := bundle("payments", "1.0.1")
+	moved.Contract.Service.Owner = contract.Owner{Team: "team-mallory"}
+	for _, class := range []ActorClass{ClassAgent, ClassHuman} {
+		snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, rev(dB, c2, moved)}, now)
+		p := autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Snapshot: snap, Class: class,
+			Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}}, From: from, To: rev(dB, c2, moved)})
+		if !p.Floor.Human || p.Floor.Decision != Approve || strings.Join(p.Floor.Owners, ",") != "team-payments" ||
+			!strings.Contains(p.Question, "changes who owns payments (service.owner.team)") {
+			t.Fatalf("%s: an owner change must be approved by the running team: %+v", class, p)
+		}
+	}
+	// A plan that already asks a person (here, to accept that the version to
+	// roll back to never verified) now asks for an approval from that team.
+	snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, rev(dB, c2, moved)}, now)
+	p := autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Snapshot: snap, Class: ClassAgent,
+		Status: StageStatus{Pointer: dA, Published: []string{dB}}, From: from, To: rev(dB, c2, moved)})
+	if p.Floor.Decision != Approve || !strings.HasPrefix(p.Question, "sha256:bbbbbbbbbbbb changes who owns payments") ||
+		!strings.Contains(p.Question, "never verified here") {
+		t.Fatalf("an owner change on a held plan: %+v", p)
+	}
+	unread := Revision{Digest: dA, ContractRef: "oci://reg.example/pactos/payments@" + c1, Err: "pull failed"}
+	in := PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), From: unread, To: rev(dB, c2, moved)}
+	if team := serviceTeam(in); team != nil {
+		t.Fatalf("an unreadable running contract asks nobody the new version names: %v", team)
+	}
+	in.From = Revision{}
+	if team := serviceTeam(in); strings.Join(team, ",") != "team-mallory" {
+		t.Fatalf("a first version is routed to its own team: %v", team)
+	}
+}
+
 func TestPlanRoutesEveryOtherQuestionToTheServiceTeam(t *testing.T) {
 	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
 	p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, from, to, checkoutPacto("^1.0.0"))

@@ -209,14 +209,19 @@ func routeToServiceTeam(in PlanInput, p *Plan) {
 	}
 }
 
-// serviceTeam is the owner team the Stage's service declares, the running
-// contract first; nil when neither side declares one.
+// serviceTeam is the owner team the contract running on the Stage declares;
+// for a first version, with nothing running, the one it declares itself. Nil
+// when that contract declares none or, with a version running, cannot be
+// read: the incoming version's author never picks who answers for it, so then
+// only break-glass may answer when the promoter requires an owner team.
 func serviceTeam(in PlanInput) []string {
-	for _, r := range []Revision{in.From, in.To} {
-		if r.Bundle != nil && r.Bundle.Contract != nil {
-			if team := r.Bundle.Contract.Service.Owner.DisplayString(); team != "" {
-				return []string{team}
-			}
+	r := in.From
+	if r.Digest == "" {
+		r = in.To
+	}
+	if r.Bundle != nil && r.Bundle.Contract != nil {
+		if team := r.Bundle.Contract.Service.Owner.DisplayString(); team != "" {
+			return []string{team}
 		}
 	}
 	return nil
@@ -267,6 +272,32 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	}
 	impactGate(ctx, in, p)
 	suitesGate(in, p)
+	ownerGate(in, p)
+}
+
+// ownerGate holds, on every rung and whoever raised it, a promote that
+// changes service.owner: every later question about the service, autonomy
+// raises included, goes to its owner, so a change of owner is approved by the
+// team that owns the service now. The diff calls it non-breaking, which on
+// its own would let it ship with no person.
+func ownerGate(in PlanInput, p *Plan) {
+	i := slices.IndexFunc(p.Verdicts, func(v Verdict) bool { return v.Gate == GateDiff })
+	if i < 0 || p.Verdicts[i].Citation["owner"] == "" {
+		return
+	}
+	msg := short(p.To) + " changes who owns " + in.Stage.Service.Name + " (" + p.Verdicts[i].Citation["owner"] +
+		"), and the owner answers every later question about it, so the team that owns it now approves"
+	if p.Floor.Human {
+		p.Question = msg + ". " + p.Question
+	} else {
+		p.Question = msg + ". Approve " + short(p.To) + "?"
+	}
+	p.Floor.Human, p.Floor.Decision = true, Approve
+	for _, t := range serviceTeam(in) {
+		if !slices.Contains(p.Floor.Owners, t) {
+			p.Floor.Owners = append(p.Floor.Owners, t)
+		}
+	}
 }
 
 // suitesGate holds a version whose contract does not ship a suite one of the
@@ -421,6 +452,16 @@ func diffGate(ctx context.Context, in PlanInput) Verdict {
 	}
 	if len(suites) > 0 {
 		v.Citation["checks"] = strings.Join(suites, "; ")
+	}
+	// Who owns the service changed: ownerGate asks the team that owns it now.
+	var owner []string
+	for _, c := range d.Changes {
+		if strings.HasPrefix(c.Path, "service.owner") {
+			owner = append(owner, c.Path)
+		}
+	}
+	if len(owner) > 0 {
+		v.Citation["owner"] = strings.Join(owner, ", ")
 	}
 	v.Message = fmt.Sprintf("%s: %d contract changes", d.Classification, len(d.Changes))
 	return v

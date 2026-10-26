@@ -41,7 +41,12 @@ Each Stage sits on one rung.
 
 Once Pacto moves versions, the safety rules hold on every rung. A change that
 would break a consumer waits for that consumer's team; one that breaks
-consumers of several teams waits until every one of them approves. A change with an
+consumers of several teams waits until every one of them approves. A version
+that changes `service.owner` waits on every rung for the team that owns the
+service now: the owner answers every later question, so the author of a version
+never picks who approves it. When the contract running on the Stage cannot be
+read, no team is asked, and only break-glass can answer if the promoter
+requires an owner team. A change with an
 Unknown check waits for the team that owns the service. The rung only decides how often a person is
 asked when the contracts say a change is safe.
 
