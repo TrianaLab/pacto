@@ -371,12 +371,16 @@ func TestShadowEdges(t *testing.T) {
 	}
 	moved.now = moved.now.Add(2 * time.Minute)
 	moved.health.during = func() {
-		moved.setStage(func(st *delivery.StageStatus) { st.ObservedRevision = &delivery.ObservedRevision{Digest: dB, Since: "x"} })
+		moved.setStage(func(st *delivery.StageStatus) {
+			st.ObservedRevision = &delivery.ObservedRevision{Digest: dB, Since: "x"}
+		})
 	}
 	if err := moved.st.shadow(ctx, moved.getStage()); err != nil || len(moved.getStage().Status.Verified) != 0 {
 		t.Fatalf("a verify about a digest GitOps moved off is dropped: %v %+v", err, moved.getStage().Status)
 	}
-	moved.setStage(func(st *delivery.StageStatus) { st.ObservedRevision = &delivery.ObservedRevision{Digest: dA, Since: ts(moved.now.Add(-time.Hour))} })
+	moved.setStage(func(st *delivery.StageStatus) {
+		st.ObservedRevision = &delivery.ObservedRevision{Digest: dA, Since: ts(moved.now.Add(-time.Hour))}
+	})
 	moved.now = moved.now.Add(time.Hour)
 	moved.health.during = func() { moved.setFail("status/Stage", true) }
 	if err := moved.st.shadow(ctx, moved.getStage()); err == nil {
