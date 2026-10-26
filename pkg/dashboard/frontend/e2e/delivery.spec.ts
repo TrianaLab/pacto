@@ -322,7 +322,7 @@ test.describe('Delivery views', () => {
     await page.goto('/#/delivery/history');
     const prod = page.getByRole('region', { name: 'History of prod/payments-prod' });
     await expect(prod.getByRole('row', { name: /^3 Promote/ })).toContainText('1.4.0 → 2.0.0', { timeout: T });
-    await expect(prod.getByRole('row', { name: /^1 Promote/ })).toContainText('pacto-system/pacto-operator-delivery Controller');
+    await expect(prod.getByRole('row', { name: /^1 Promote/ })).toContainText('pacto-delivery/pacto-operator-delivery Controller');
     await prod.getByRole('button', { name: 'Who put 2.0.0 here?' }).click();
     const blame = page.getByTestId('blame-panel');
     await expect(blame).toContainText('Approve by Dave Lee', { timeout: T });
