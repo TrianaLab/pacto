@@ -1,4 +1,5 @@
 <script>
+  import { abbreviateDigests } from '../lib/format.ts';
   import CollapsibleSection from '../CollapsibleSection.svelte';
   import SectionState from './SectionState.svelte';
 
@@ -14,8 +15,9 @@
           {#each runtimeDiff as row}
             <tr>
               <td><strong>{row.field}</strong><br><code class="text-3">{row.contractPath}</code></td>
-              <td>{row.declaredValue || '—'}</td>
-              <td>{row.observedValue || '—'}</td>
+              <!-- A digest prints short, the whole value in its title, like everywhere else. -->
+              <td title={row.declaredValue || undefined}>{abbreviateDigests(row.declaredValue) || '—'}</td>
+              <td title={row.observedValue || undefined}>{abbreviateDigests(row.observedValue) || '—'}</td>
               <td>
                 {#if row.status === 'match'}<span class="badge badge-ok">Match</span>
                 {:else if row.status === 'mismatch'}<span class="badge badge-err">Mismatch</span>

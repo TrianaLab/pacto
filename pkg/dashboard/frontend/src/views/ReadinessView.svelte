@@ -14,6 +14,7 @@
     checkStatusLabel,
     assessmentCountdownLabel,
     compareScoresUnassessedLast,
+    abbreviateDigests,
   } from '../lib/format.ts';
   import { getFilters, setFilter } from '../lib/filters.svelte.ts';
   import { applyFilters, writeFiltersToHash } from '../lib/filters.ts';
@@ -314,7 +315,7 @@
                                   {#if isUrlEvidence(c.evidence)}
                                     <a href={c.evidence} target="_blank" rel="noopener noreferrer" onclick={(e) => e.stopPropagation()}>{c.evidence}</a>
                                   {:else}
-                                    <code>{c.evidence}</code>
+                                    <code title={c.evidence}>{abbreviateDigests(c.evidence)}</code>
                                   {/if}
                                 {:else}
                                   <span class="text-dim">No evidence</span>
