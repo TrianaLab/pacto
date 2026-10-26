@@ -213,7 +213,8 @@ with the entry's `trustedRoot` saved as `trusted_root.json`:
 
 `--insecure-ignore-sct` is there only when the trusted root lists no
 certificate transparency log, as a private Sigstore often does. A certificate
-from such a root has no timestamp to check, and cosign fails without the flag.
+from such a root carries no SCT (no CT log saw it), and cosign fails without
+the flag. The TSA timestamp is still checked.
 
 `oras discover` on a version lists the records attached to it. The record
 itself is a DSSE envelope: `jq -r .dsseEnvelope.payload record.json | base64 -d`

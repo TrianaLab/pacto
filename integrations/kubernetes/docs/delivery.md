@@ -91,7 +91,8 @@ but that tells it only which service calls which, not what each call uses.
 
 AI agents can plan, ask for and cancel the changes they asked for, but only people can approve.
 To approve, a person must have signed in to the dashboard (or the cluster)
-with their own company login in the last 15 minutes, and the record names them.
+with their own company login within the promoter's login freshness (15 minutes
+by default, `promoter.authFreshness`), and the record names them.
 That needs a cluster that trusts your company login, which is not verified on
 managed clusters (EKS, GKE, AKS); [Sign-in, approvals and agents](delivery-identity.md#where-approving-works)
 says how to check and what to do without it.

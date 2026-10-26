@@ -34,7 +34,8 @@ kubectl create clusterrolebinding payments-approvers \
 ```
 
 Deciding (approve, accept-unknown or reject) also needs a company login the
-cluster trusts, done in the last 15 minutes. A cluster admin sets that up once
+cluster trusts, done within the promoter's login freshness (15 minutes by
+default, `promoter.authFreshness`). A cluster admin sets that up once
 with [Sign-in, approvals and agents](integrations/kubernetes/delivery-identity.md),
 which says how to check a managed cluster can. `pacto delivery approve` does
 that login itself: it prints an address, you log in again in your browser, and
