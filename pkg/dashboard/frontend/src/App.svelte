@@ -57,6 +57,9 @@
   // capability the running host has not registered. null = not yet known (show
   // everything until the first probe resolves).
   let capabilities = $state(null);
+  // The capabilities probe failed and none is known yet: every gated route would
+  // otherwise wait on "Loading…" for ever, so they say so and offer a retry.
+  let capError = $state(false);
 
   const POLL_FAST = 2000;   // during discovery
   const POLL_NORMAL = 10000;
@@ -94,6 +97,7 @@
       if (capabilities === null || forceRefresh || (route.view.startsWith('delivery-') && capabilities.delivery !== true)) {
         const caps = await api.capabilities().catch(() => null);
         if (caps) capabilities = caps;
+        capError = !caps && capabilities === null;
       }
 
       // The legacy services plane is a NON-Fleet-host concern only. Compare and Readiness
@@ -101,7 +105,7 @@
       // the revision/attention readiness surfaces, which are Product-API-only. So no
       // product route triggers api.services() any more (Part 1.5).
       const needsServices = capabilities?.fleet !== true &&
-        (route.view === 'list' || route.view === 'graph' || route.view === 'owners' ||
+        (route.view === 'list' || route.view === 'detail' || route.view === 'graph' || route.view === 'owners' ||
          route.view === 'owner-detail' || route.view === 'diff' || route.view === 'readiness');
 
       let servicesFailed = false;
@@ -288,7 +292,15 @@
 {/if}
 
 {#snippet migrating()}
-  <p class="app-loading" role="status">Loading…</p>
+  {#if capError}
+    <div class="product-page" role="alert" data-testid="capabilities-error">
+      <h1 class="t-page-title">Can’t reach the Pacto backend</h1>
+      <p class="t-body">The dashboard could not ask the server what it serves, so it cannot tell which page to show.</p>
+      <button type="button" class="btn" onclick={() => loadGlobal(true)}>Retry</button>
+    </div>
+  {:else}
+    <p class="app-loading" role="status">Loading…</p>
+  {/if}
 {/snippet}
 
 <main class="container" bind:this={mainEl}>
@@ -419,7 +431,11 @@
     {:else if capabilities}
       <div class="product-page" data-testid="delivery-unavailable">
         <h1 class="t-page-title">Delivery is not available here</h1>
-        <p class="t-body">Delivery views appear where pacto-operator is installed with <code>delivery.enabled=true</code> and the dashboard knows who you are: <code>pacto dashboard</code> on your own machine, or a shared dashboard people sign in to.</p>
+        {#if capabilities.auth?.mode !== 'local' && !capabilities.auth?.login}
+          <p class="t-body" data-testid="delivery-unavailable-reason">This dashboard does not know who you are, and every delivery action is signed by a person. Delivery views appear in <code>pacto dashboard</code> on your own machine, or in a shared dashboard people sign in to.</p>
+        {:else}
+          <p class="t-body" data-testid="delivery-unavailable-reason">The cluster this dashboard reads does not serve the delivery API. Install pacto-operator with <code>delivery.enabled=true</code>.</p>
+        {/if}
       </div>
     {:else}
       {@render migrating()}

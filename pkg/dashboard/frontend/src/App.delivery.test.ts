@@ -43,9 +43,28 @@ describe('App — delivery gate', () => {
     fns.capabilities.mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: false, auth: { mode: 'none', login: false, signedIn: false } });
     const { target, destroy } = await renderAt('#/delivery/inbox');
     expect(target.querySelector('[data-testid="delivery-unavailable"]')).not.toBeNull();
+    expect(target.querySelector('[data-testid="delivery-unavailable-reason"]')?.textContent).toContain('does not know who you are');
     expect(fns.inbox).not.toHaveBeenCalled();
     destroy();
   });
+
+  it('says the cluster lacks delivery when the caller is known', async () => {
+    fns.capabilities.mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: false, auth: { mode: 'local', login: false, signedIn: true } });
+    const { target, destroy } = await renderAt('#/delivery/inbox');
+    expect(target.querySelector('[data-testid="delivery-unavailable-reason"]')?.textContent).toContain('does not serve the delivery API');
+    destroy();
+  });
+
+  it('offers a retry when the capabilities probe fails, instead of loading for ever', async () => {
+    fns.capabilities.mockRejectedValueOnce(new Error('down'))
+      .mockResolvedValue({ fleet: true, impact: true, observed: false, delivery: true, auth: { mode: 'shared', login: true, signedIn: true } });
+    const { target, destroy } = await renderAt('#/delivery/inbox');
+    const err = target.querySelector('[data-testid="capabilities-error"]');
+    expect(err).not.toBeNull();
+    (err!.querySelector('button') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(fns.inbox).toHaveBeenCalled(), { timeout: 10_000 });
+    destroy();
+  }, 15_000);
 
   it('asks again on a refresh, and mounts the inbox once delivery is served', async () => {
     fns.capabilities.mockResolvedValueOnce({ fleet: true, impact: true, observed: false, delivery: false, auth: { mode: 'shared', login: true, signedIn: true } })

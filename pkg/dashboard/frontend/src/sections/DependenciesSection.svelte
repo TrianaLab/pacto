@@ -73,6 +73,10 @@
                   <td>
                     {#if svcExists(dep.name)}
                       <a href={serviceUrl(dep.name)}>{dep.name}</a>
+                    {:else if services.length === 0}
+                      <!-- The fleet list has not arrived yet (a direct link): calling every
+                           dependency External before it does would be a guess. -->
+                      {dep.name} <span class="badge" data-testid="dep-resolving">Resolving…</span>
                     {:else}
                       {dep.name} <span class="badge {reasonBadgeClass(reason)}" data-tip={reasonTooltip(reason)}>{reasonLabel(reason)}</span>
                     {/if}
