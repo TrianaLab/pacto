@@ -130,7 +130,7 @@
       hash: "#/fleet",
       target: "#sec-attention"
     }, {
-      text: "Step 2 — what is out there. Every service Pacto found, with its owner, how many contract revisions it has published and how many deployed targets are running them. All of it read from contracts. Type payments in the search box and press Enter.",
+      text: "Step 2, what is out there: every service Pacto found in its contracts, with its owner and what runs it, so type payments in the search box and press Enter.",
       hash: "#/fleet/services",
       target: '[data-testid="svc-search"]',
       wait: "Waiting for a search that narrows the list to payments-service.",
@@ -145,7 +145,7 @@
         if (i.form) { i.form.requestSubmit(); }
       }
     }, {
-      text: "Step 3 — one service in full. What payments-service declares, every revision it has published and what was observed about the targets running it. Compliance has four states, and “not evaluated” is not one of the passing ones. Open payments-service from the list.",
+      text: "Step 3, one service in full: what payments-service declares, every revision it has published and what was observed about the targets running it, so open payments-service from the list.",
       hash: "#/fleet/services",
       // The link, then -- once it has been followed and the link no longer exists -- the
       // summary it opened. Without the second entry the light goes out at the moment the
@@ -159,7 +159,7 @@
         if (a) { a.click(); } else { window.location.hash = "#/fleet/services/payments-service"; }
       }
     }, {
-      text: "Step 4 — about to ship a break. Two revisions compared field by field. Removing an API path is Breaking; adding an optional one is not. The classification rules are a published table, not a heuristic. Choose the earlier revision, then press Compare revisions.",
+      text: "Step 4, about to ship a break: two revisions are compared field by field, where removing an API path is breaking and adding an optional one is not, so choose the earlier revision and press Compare revisions.",
       hash: "#/fleet/changes/payments-service",
       // The whole form, so the two selectors and the submit sit inside one hole; the
       // reader is asked to use all three and a light on only one of them misleads. Then
@@ -179,7 +179,7 @@
         if (f) { f.requestSubmit(); }
       }
     }, {
-      text: "Step 5 — who the change reaches. Edges a contract declares and edges something observed are kept apart rather than averaged, so a consumer that declared nothing still turns up. Search orders, then open the result.",
+      text: "Step 5, who the change reaches: links a contract declares and links Pacto observed are kept apart, so a consumer that declared nothing still shows up, and you search orders and open the result.",
       hash: "#/fleet/graph",
       target: ['[data-testid="graph-discovery"] input[type=search]', '[data-testid="graph-focus-link"]', '[data-testid="neighborhood-canvas"]'],
       wait: "Waiting for a focused neighborhood to render.",
@@ -286,24 +286,24 @@
     }
 
     var DELIVERY_TOUR = [{
-      text: "This is the payments story, simulated: every plan, check and signed record comes from Pacto's own code on fixed data, and nothing reaches a cluster.",
+      text: "This is the payments story, simulated in your browser: Pacto's own code makes every plan, check and signed record from fixed data, and nothing reaches a cluster.",
       hash: "#/delivery/environments",
       target: '[data-testid="environments-board"]'
     }, {
-      text: "Act 1, pactify a service: pacto init read fraud's Dockerfile and Kubernetes manifests and planned its contract, so a plain service joins without anyone writing one by hand.",
+      text: "Act 1, pactify a service: pacto init read the files of fraud, a plain service, and wrote its contract, so nobody had to write one by hand.",
       hash: "#/delivery/environments",
       target: '[data-testid="environments-board"]',
       pre: pactifyText
     }, {
-      text: "Act 2, a safe change ships on its own: payments 2.4.0 reached prod with nobody involved, because checkout and orders declared they accept payments ^2.",
+      text: "Act 2, a safe change ships on its own: payments 2.4.0 reached prod with nobody involved, because checkout and orders said they accept any payments 2.x.",
       hash: "#/delivery/history?namespace=prod&stage=payments",
       target: '[aria-label="History of prod/payments"]'
     }, {
-      text: "A bad release is caught and rolled back: the health check failed after 2.4.0 shipped, so the promoter went back to 2.3.0 on its own and will never promote 2.4.0 there again.",
+      text: "A bad release is caught and rolled back: the health check failed after 2.4.0 shipped, so Pacto went back to 2.3.0 by itself and will not try 2.4.0 there again.",
       hash: "#/delivery/changes/prod/payments-promote-3",
       target: '[aria-labelledby="cd-actual"]'
     }, {
-      text: "A breaking change asks only the affected teams: as pay-agent, promote payments 3.0.0 in prod and propose it, and it waits for checkout and orders only, because only their declared ranges stop at ^2.",
+      text: "A breaking change asks only the affected teams: as pay-agent, promote payments 3.0.0 in prod and propose it, and only checkout and orders are asked, because only they accept nothing past 2.x.",
       hash: "#/delivery/environments",
       target: ['[aria-label="Promote payments in prod to 3.0.0"]', '[data-testid="propose-panel"]', '[aria-labelledby="cd-move-first"]'],
       wait: "Waiting for payments 3.0.0 to be proposed for prod.",
@@ -314,7 +314,7 @@
         if (r && r.body && r.body.operation) { window.location.hash = "#/delivery/changes/prod/" + r.body.operation.metadata.name; }
       }
     }, {
-      text: "It said what to update first, so promote checkout 1.9.0 in prod: it ships with nobody, and the waiting change now asks only orders, because checkout 1.9 accepts ^2 || ^3.",
+      text: "Pacto said what to update first, so promote checkout 1.9.0 in prod: it ships with nobody, and now only orders is asked, because checkout 1.9 also accepts payments 3.",
       hash: "#/delivery/environments",
       target: ['[aria-label="Promote checkout in prod to 1.9.0"]', '[data-testid="propose-panel"]'],
       wait: "Waiting for checkout 1.9.0 to ship to prod.",
@@ -322,7 +322,7 @@
       gate: function () { return row("prod", "checkout").version === "1.9.0" && fact().question.indexOf("Asked of: orders") >= 0; },
       skip: function () { propose({ namespace: "prod", stage: "checkout", to: digestOf("checkout", "1.9.0") }); }
     }, {
-      text: "Only a person on the asked team decides: press Switch person, pick Carol from team orders, read what each answer does, write why 3.0.0 should ship anyway (it is breaking, so a note is required) and approve. She signs in again first, because a decision needs a fresh login.",
+      text: "Only a person on the asked team decides: press Switch person, pick Carol from team orders, write why 3.0.0 should ship and approve, after she signs in again, because a decision needs a fresh login.",
       hash: changeHash,
       target: ['[data-testid="delivery-identity"]', '[data-testid="decision-panel"]'],
       wait: "Waiting for Carol to approve and 3.0.0 to ship.",
@@ -335,7 +335,7 @@
         refreshViews();
       }
     }, {
-      text: "Then Pacto could not see: only 3 spans reached Mira after 3.0.0 shipped, too few to judge it, so the health check says Unknown, and Unknown is never a yes. 3.0.0 stays and waits for a person. The change says what Pacto could not observe and how to fix that. As Carol, accept the unknown: it is recorded as accepted, never as a pass.",
+      text: "Then Pacto could not see: only 3 traces arrived after 3.0.0 shipped, too few to judge, so the check says Unknown and the change waits, and as Carol you accept the unknown, which is recorded as accepted and never as a pass.",
       hash: changeHash,
       target: ['[data-testid="verdict-unknown"]', '[data-testid="decision-panel"]'],
       wait: "Waiting for Carol to accept the unknown.",
@@ -350,7 +350,7 @@
         refreshViews();
       }
     }, {
-      text: "Every step is a signed record: as Carol, roll 3.0.0 back, and automation holds off, because a person's rollback sets an auto-hold.",
+      text: "Every step is a signed record: as Carol, roll 3.0.0 back, and automation holds off because a person chose this.",
       hash: changeHash,
       target: '[aria-labelledby="cd-status"], .cd-status',
       wait: "Waiting for the rollback to finish.",
@@ -361,7 +361,7 @@
         propose({ namespace: "prod", stage: "payments", type: "delivery.pacto.trianalab.io/rollback", undoes: fact().latest });
       }
     }, {
-      text: "History reads every step back from records signed in this tab, blame names Carol's approval, and payments in test shows a deliberate gap and a record signed by a key nobody trusts.",
+      text: "History reads every step back from records signed in this tab, including a deliberate gap in test and a record signed by a key nobody trusts.",
       hash: "#/delivery/history",
       target: '[aria-label="History of prod/payments"]'
     }, {

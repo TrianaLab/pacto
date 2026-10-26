@@ -103,6 +103,9 @@ type Beat struct {
 	Tried string
 	// Running is what else runs in Environment: service to version.
 	Running map[string]string
+	// Uncontracted are workloads that run in Environment with no contract yet
+	// (the cold start), which the node agent saw calling Service.
+	Uncontracted []string
 	// Verified is what each consumer's test Stage verified, oldest first:
 	// where a version that can move first comes from.
 	Verified map[string][]string
@@ -148,8 +151,21 @@ var (
 	inTest  = map[string][]string{"checkout": {"1.8.0", "1.9.0"}, "orders": {"1.4.0"}}
 )
 
-// Beats is the story, in the order every demo plays it.
+// Beats is the story, in order. A demo plays the beats it can; a beat it
+// does not play is proven by the unit tests only.
 var Beats = []Beat{
+	// cold-start: only payments has a contract, and the node agent saw orders
+	// call it. Even a Stage that trusts declared consumers only holds.
+	// Unit-proven only (TestBeats/cold-start, TestColdStartAsksToAcceptTheUnknown):
+	// no demo plays it yet.
+	{
+		ID:      "cold-start",
+		Says:    "Pacto saw orders call payments with no contract, so a breaking payments 3.0.0 waits for a person to accept that unknown or for orders to get a contract.",
+		Why:     "No contract says who depends on payments yet, and what Pacto cannot see is never a yes.",
+		Service: "payments", Environment: Prod, Actor: PayAgent, From: "2.3.0", To: "3.0.0", Uncontracted: []string{"orders"},
+		Expect: Outcome{Classification: "BREAKING", RequiredBump: diff.BumpMajor, Predicted: delivery.PredictHeld,
+			Decision: delivery.AcceptUnknown, Asked: []string{"payments"}},
+	},
 	// The pactify input, contracts/fraud/1.0.0, is what pacto init writes in
 	// plain/fraud (TestPactifyWritesTheFraudContract), and a first version
 	// ships with nobody.
@@ -339,9 +355,20 @@ func pacto(env string, r delivery.Revision) delivery.PactoView {
 	return p
 }
 
+// observedBy is p as the operator reports it once the node agent saw each
+// uncontracted Deployment in env call it, with complete coverage.
+func observedBy(p delivery.PactoView, env string, callers []string) delivery.PactoView {
+	for _, c := range callers {
+		p.Status.ObservedCallers = append(p.Status.ObservedCallers,
+			delivery.ObservedCallerView{Namespace: env, Kind: "Deployment", Name: c, Source: "ebpf"})
+	}
+	p.Status.ObservedCallersCoverage = &delivery.CallerCoverageView{State: "complete", RefreshSeconds: 300}
+	return p
+}
+
 func stage(service, env string) delivery.StageSpec {
 	s := delivery.StageSpec{Service: delivery.ServiceRef{Name: service}, Environment: env, ApplyRef: delivery.ApplyRef{Name: service}}
-	s.Gates.Impact.DeclaredConsumersOnly = true // every service in the story has a contract
+	s.Gates.Impact.DeclaredConsumersOnly = true // an observed uncontracted caller still holds
 	if env == Test {
 		s.Candidates.OCIRepositoryRef = &delivery.LocalRef{Name: service + "-candidates"}
 	} else {
@@ -400,6 +427,9 @@ func (b Beat) PlanInput(ctx context.Context) (delivery.PlanInput, error) {
 	pactos, known, err := others(b, &in)
 	if err != nil {
 		return delivery.PlanInput{}, err
+	}
+	if len(b.Uncontracted) > 0 {
+		pactos = append(pactos, observedBy(pacto(b.Environment, from), b.Environment, b.Uncontracted))
 	}
 	in.Candidates = func(_ context.Context, _ delivery.StageObject, d string) delivery.Revision {
 		if r, ok := known[d]; ok {

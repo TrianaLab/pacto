@@ -470,3 +470,21 @@ func TestPactifyWritesTheFraudContract(t *testing.T) {
 		t.Fatalf("pacto init wrote\n%s\nwhich differs from contracts/fraud/1.0.0", r.Files[i].Content)
 	}
 }
+
+// TestColdStartAsksToAcceptTheUnknown: the node agent saw orders call payments
+// with no contract, so the breaking change waits and the question names orders
+// and the pacto init command that gives it a contract.
+func TestColdStartAsksToAcceptTheUnknown(t *testing.T) {
+	b := beat(t, "cold-start")
+	for _, s := range b.Uncontracted {
+		if _, ok := b.Running[s]; ok {
+			t.Errorf("%s runs with a contract and without one", s)
+		}
+	}
+	q := plan(t, b).Question
+	for _, want := range []string{"k8s:prod/Deployment/orders", "pacto init --cluster --namespace prod"} {
+		if !strings.Contains(q, want) {
+			t.Errorf("question %q does not name %q", q, want)
+		}
+	}
+}
