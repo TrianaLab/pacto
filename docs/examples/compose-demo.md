@@ -62,14 +62,18 @@ with 1.1.0 to see a change analysed.
 
 ### The cold start, step by step
 
-Every Pacto rollout starts the same way, and this demo shows its first half:
+Every Pacto rollout starts the same way. Every service in this demo already
+has a contract, so it shows the moves on a contracted fleet:
 
 1. **Watch what runs.** Pacto reads the contracts it has and what it sees
    running, and changes nothing.
-2. **Find who has no contract.** `checkout` calls `payments`, but no contract
-   says so. The graph marks that call as observed but not declared.
-3. **Pactify it.** `pacto init` writes a first contract from what a service
-   already has (see [Try the CLI in the demo](#try-the-cli-in-the-demo)).
+2. **Find what no contract declares.** `checkout` calls `payments`, but
+   `checkout`'s contract does not say so. The graph marks that call as observed
+   but not declared.
+3. **Pactify a service.** `pacto init` writes a first contract from what a
+   service already has. The demo shows it on a plain copy of `checkout`, since
+   every running service has a contract (see
+   [Try the CLI in the demo](#try-the-cli-in-the-demo)).
 
 The second half is delivery, where Pacto ships changes and a person confirms
 what it may do on its own. Delivery runs on Kubernetes only; the

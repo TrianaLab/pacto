@@ -151,13 +151,16 @@ var (
 	inTest  = map[string][]string{"checkout": {"1.8.0", "1.9.0"}, "orders": {"1.4.0"}}
 )
 
-// Beats is the story, in the order every demo plays it.
+// Beats is the story, in order. A demo plays the beats it can; a beat it
+// does not play is proven by the unit tests only.
 var Beats = []Beat{
 	// cold-start: only payments has a contract, and the node agent saw orders
 	// call it. Even a Stage that trusts declared consumers only holds.
+	// Unit-proven only (TestBeats/cold-start, TestColdStartAsksToAcceptTheUnknown):
+	// no demo plays it yet.
 	{
 		ID:      "cold-start",
-		Says:    "Pacto saw orders call payments with no contract, so a breaking payments 3.0.0 waits until orders has one.",
+		Says:    "Pacto saw orders call payments with no contract, so a breaking payments 3.0.0 waits for a person to accept that unknown or for orders to get a contract.",
 		Why:     "No contract says who depends on payments yet, and what Pacto cannot see is never a yes.",
 		Service: "payments", Environment: Prod, Actor: PayAgent, From: "2.3.0", To: "3.0.0", Uncontracted: []string{"orders"},
 		Expect: Outcome{Classification: "BREAKING", RequiredBump: diff.BumpMajor, Predicted: delivery.PredictHeld,
