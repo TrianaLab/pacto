@@ -524,7 +524,7 @@ climb() {
 # first NS STAGE TEAM DIGEST — alice ships the Stage's first version, once its
 # candidate source offers it.
 first() {
-  local name="$2-first"
+  local name="$2-first-version"
   as_person alice "$3" propose -n "$1" --stage "$2" --to "$4" --name "$name" --reason "the first version" >/dev/null
   wait_concluded "$1" "$name" Succeeded/Verified
 }
@@ -1545,7 +1545,7 @@ pass "BREAKING since 1.0.0 is refused as 1.1.0; only its signed refusal was writ
 section "the published version is what a person ships first; then the Stage climbs to autonomous"
 eventually 60 published_in "$P" "$D1" billing || fail "$D1 was never verified as published"
 first "$P" billing team-billing "$D1"
-OPP=billing-first
+OPP=billing-first-version
 [ "$(kubectl -n "$P" get stage billing -o jsonpath='{.status.pointer}')" = "$D1" ] || fail "the Stage does not run the published version"
 [ "$(kubectl -n "$P" get deploy billing -o jsonpath='{.spec.template.metadata.annotations.version}')" = 1.0.0 ] \
   || fail "the cluster does not run billing 1.0.0"
