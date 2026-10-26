@@ -333,6 +333,10 @@ func (w Webhook) Check(ctx context.Context, in GateInput, params map[string]stri
 		return Verdict{Result: Unknown, Message: fmt.Sprintf("%s answered result %q", where(w.URL), a.Result)}
 	case !slices.Contains(in.Subjects, a.Subject):
 		return Verdict{Result: Unknown, Message: fmt.Sprintf("%s judged %q, not the version under check", where(w.URL), a.Subject)}
+	case a.Result == Pass && len(a.Citation) == 0:
+		// Judge the provider's own citation: the subject added below is not
+		// something to re-run.
+		return Verdict{Result: Unknown, Message: "the gate passed but gave no citation to re-run: " + a.Message}
 	}
 	if a.Citation == nil {
 		a.Citation = map[string]string{}

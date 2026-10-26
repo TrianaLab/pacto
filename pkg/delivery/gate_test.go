@@ -250,8 +250,11 @@ func TestWebhook(t *testing.T) {
 		t.Fatalf("%+v sent=%s", v, body)
 	}
 	answer = `{"subject":"` + dA + `","result":"Pass"}`
-	if v := g.Check(context.Background(), gateIn(), nil); v.Result != Pass || v.Citation["subject"] != dA {
-		t.Fatalf("a pass with no citation of its own: %+v", v)
+	// A pass with no citation of its own is Unknown through RunChecks: the
+	// subject the gate adds is nothing to re-run.
+	if vs := RunChecks(context.Background(), map[string]Gate{"w": g}, []GateCheck{{Name: "w", Provider: "w"}}, gateIn()); vs[0].Result != Unknown ||
+		!strings.Contains(vs[0].Message, "no citation to re-run") {
+		t.Fatalf("a pass with no citation of its own: %+v", vs[0])
 	}
 	for name, a := range map[string]struct {
 		body   string
