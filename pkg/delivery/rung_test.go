@@ -302,3 +302,11 @@ func TestRungRefusalAndChange(t *testing.T) {
 		t.Fatalf("lowering to observe hands the pointer back to GitOps: %+v", st)
 	}
 }
+
+// TestEarnedOnlyTheNextRung: a stored proposal earns only the rung right
+// above the Stage's current one, never a jump.
+func TestEarnedOnlyTheNextRung(t *testing.T) {
+	if earned(PlanInput{}, RungAutonomous) {
+		t.Fatal("a jump past the next rung was earned")
+	}
+}

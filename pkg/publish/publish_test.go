@@ -780,3 +780,12 @@ func TestSBOMFormat(t *testing.T) {
 		expect(t, checkSBOM("a.cdx.json", CycloneDXType, []byte(b)) != nil, "accepted %s as CycloneDX", b)
 	}
 }
+
+// TestMakePlanPreflight: a failed preflight check makes the plan not ready.
+func TestMakePlanPreflight(t *testing.T) {
+	host, reg := newRegistry(t)
+	in := Input{Bundle: bundleOf(host, "1.0.0", workloadService), Revision: "abc123",
+		Preflight: func(Plan) []Check { return []Check{{Name: "docker", Message: "docker is not installed"}} }}
+	p := MakePlan(context.Background(), reg, in)
+	expect(t, !p.Ready && p.Checks[len(p.Checks)-1].Name == "docker", "plan: %+v", p)
+}
