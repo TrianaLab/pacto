@@ -31,8 +31,8 @@ dependency records that this revision accepts `auth ^2.0.0`, and `pacto.lock`
 pins the rest of the transitive closure by digest.
 
 The first is a fact about the present, in a mutable store. The second can be
-compared — against the previous revision, against the policies the contract must
-satisfy and against what is deployed. That comparison is what a CI job, a
+compared — against the previous revision, against the rules your platform sets
+for every contract (policies) and against what is deployed. That comparison is what a CI job, a
 controller or an agent needs before it concludes anything.
 
 ## Principles
@@ -58,7 +58,8 @@ controller or an agent needs before it concludes anything.
 
 - **Act only on what each change can show.** The opt-in delivery component
   moves a version on its own only when this change's compatibility, its
-  impact on the consumers and its checks back it. A Stage earns the right to
+  impact on the consumers and its checks back it. A Stage (one service in one
+  environment) earns the right to
   move on its own one rung at a time, and a person confirms each rung; a good
   track record never replaces the evidence for the next change. When Pacto
   cannot see enough it holds the change and asks the teams concerned, never an
@@ -78,9 +79,10 @@ git. GitlessOps is three principles, each true only under its condition:
 2. **Evidence, not a pull request, moves a change**, on a Stage set to an
    automatic rung. A person is asked when the graph cannot clear
    the change (Unknown), when a consumer's range rejects it (that consumer's
-   owners), when the Stage asks for every promote or when a failed version
+   owners), when the Stage is set to ask before every promote or when a failed version
    has no safe way back and the Stage freezes. Only the affected team is asked.
-3. **Every decision can be verified without Pacto.** With the recorder on,
+3. **Every decision can be verified without Pacto.** With the recorder (the
+   part of Pacto that signs records) on,
    each finished operation leaves a signed in-toto record as an OCI referrer,
    checkable with `oras` and `cosign`. That needs a registry with the
    Referrers API, which GitHub's does not serve today.

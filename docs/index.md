@@ -12,7 +12,14 @@ template: home.html
 Pacto is continuous delivery for the GitlessOps era. You describe each service
 once, in a contract. Pacto works out what each change does to the services
 that depend on it, and decides which version runs in each environment. Flux
-or Argo CD still apply the version, and your code stays in git.
+or Argo CD, the tools that keep a Kubernetes cluster running what you ask for,
+still apply the version.
+
+GitlessOps, in one line: the record of which version runs where lives in your
+container registry, signed, instead of in git commits. Your code and your
+deployment files stay in git; only that one line moves out.
+[What GitlessOps means](manifesto.md#what-gitlessops-means) gives the three
+rules behind it.
 
 Pacto starts by watching. It earns the right to ship on its own one step at a
 time, and a person confirms every step: that is
@@ -48,8 +55,8 @@ dependencies:
 ## Who breaks when a dependency ships a new version
 
 The `compatibility` range above records which versions of `auth` this revision
-accepts, and `pacto.lock` pins every dependency below it to the exact published
-build. So when auth is about to ship 3.0, Pacto answers per consumer:
+accepts, and `pacto.lock` pins every dependency, direct or indirect, to the
+exact published build. So when auth is about to ship 3.0, Pacto answers per consumer:
 
 ```console
 $ pacto impact ./auth-2.1.0 ./auth-3.0.0 --local .
@@ -62,10 +69,12 @@ Affected consumers (2):
   reporting                    direct     confidence=contractual  compat=compatible   owner=analytics
 ```
 
-`checkout` accepts `^2.0.0` and 3.0.0 falls outside it. `reporting` accepts
+`pacto diff` lists the breaking change itself. `checkout` accepts `^2.0.0`
+and 3.0.0 falls outside it. `reporting` accepts
 `>=2.0.0 <4.0.0` and 3.0.0 is inside. `direct` means each one declares auth
 itself rather than reaching it through another service, and `contractual` means
-the dependency is declared with a usable range and nothing observed it running.
+the answer comes from the declared ranges alone: Pacto has not also seen the
+call happen at runtime.
 
 One file, checked when you write it, compared against the previous revision,
 then compared against what is actually running.
@@ -80,10 +89,10 @@ pass.
 | `pacto validate` | Is this contract legal? |
 | `pacto diff` | Did I break my own consumers? |
 | `pacto impact` | Which consumers, and where do they run? |
-| The [operator](integrations/kubernetes/overview.md) | Does reality still match what was declared? |
+| The [operator](integrations/kubernetes/overview.md), a controller you install in the cluster | Does reality still match what was declared? |
 
-`validate` and `diff` pay off at one service; `impact` and the graph pay off at
-the second consumer.
+`validate` and `diff` pay off at one service; `impact` and the graph of who
+calls whom pay off at the second consumer.
 
 ## Check what is actually running
 
@@ -95,7 +104,7 @@ prove:
 | --- | --- |
 | A process reports healthy but nothing listens on the declared port | `INTERFACE_ABSENT` |
 | A declared dependency the service keeps failing to reach | `DEPENDENCY_UNREACHABLE` |
-| A call to another Pacto service no dependency declares (Kubernetes, `pacto agent`) | `DEPENDENCY_UNDECLARED` |
+| A call to another Pacto service no dependency declares (seen on Kubernetes or by `pacto agent`) | `DEPENDENCY_UNDECLARED` |
 
 ```bash
 pacto run --contract ./payments --bind api=8080 --fail-on noncompliant -- ./payments-server
@@ -108,12 +117,33 @@ when it cannot see it says "don't know" instead of guessing. Run it three ways:
 Docker host or a server and the Kubernetes operator deploys the same agent on
 every node. See [Runtime conformance](runtime-conformance.md).
 
+## What delivery needs
+
+Contracts and the checks above work anywhere. Delivery, the part that moves
+versions, is alpha: its settings and commands may still change. It needs:
+
+- Kubernetes 1.30 or later, with Flux (Argo CD works too, as an experimental
+  option).
+- Your container registry, to hold contracts and versions.
+- For signed records, and so for the two automatic rungs of the ladder, a
+  registry that serves OCI Referrers, such as zot. GitHub's registry does not,
+  so on it a Stage can watch and be asked, but never ship on its own.
+- For a person to approve anything, a cluster that can tell how recently that
+  person signed in to your company login. That works where you set the
+  Kubernetes API server's flags yourself (tested on kind). It is not verified
+  yet on EKS, GKE and AKS. Where it does not work, nobody can approve, so
+  nothing can be raised up the ladder; see
+  [where approving works](integrations/kubernetes/delivery-identity.md#where-approving-works).
+
+Trying it costs nothing: a new service starts on observe and moves nothing,
+and the [live demo](examples/dashboard-demo.md) runs in your browser.
+
 ## Where to start
 
 | You want to | Read |
 |---|---|
-| Know what Pacto is and whether it fits | [Delivery](integrations/kubernetes/delivery.md), [the autonomy ladder](autonomy.md), [What GitlessOps means](manifesto.md#what-gitlessops-means) and the [live demo](examples/dashboard-demo.md) |
-| Pactify your first service | [Quickstart](quickstart.md), then [Pactify a service](pactify.md) |
+| Know what Pacto is and whether it fits | [The autonomy ladder](autonomy.md), [What GitlessOps means](manifesto.md#what-gitlessops-means) and the [live demo](examples/dashboard-demo.md) |
+| Pactify your first service (give it a contract and connect it to delivery) | [Quickstart](quickstart.md), then [Pactify a service](pactify.md) |
 | Approve or unblock a change | [Decide, unfreeze and roll back](pactify-decide.md) |
 | Verify a record | [Check a record without Pacto](verify-a-record.md) |
 | Drive Pacto from an AI agent | [AI assistants (MCP)](mcp-integration.md) |

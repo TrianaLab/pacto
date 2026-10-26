@@ -221,7 +221,7 @@ Pick the path that matches what you came to do:
 
 | You want to | Start here |
 |-------------|------------|
-| Know what Pacto is and whether it fits | [Delivery](https://pacto.run/latest/integrations/kubernetes/delivery/), [the autonomy ladder](https://pacto.run/latest/autonomy/) and the [live demo](https://pacto.run/latest/demo/#/fleet) |
+| Know what Pacto is and whether it fits | [The autonomy ladder](https://pacto.run/latest/autonomy/), [what GitlessOps means](MANIFEST.md#what-gitlessops-means) and the [live demo](https://pacto.run/latest/demo/#/fleet) |
 | Pactify your first service | [Quickstart](https://pacto.run/latest/quickstart), then [Pactify a service](https://pacto.run/latest/pactify/) |
 | Approve or unblock a change | [Decide, unfreeze and roll back](https://pacto.run/latest/pactify-decide/) |
 | Verify a record | [Check a record without Pacto](https://pacto.run/latest/verify-a-record/) |

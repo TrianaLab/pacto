@@ -62,7 +62,8 @@ the caller so you can give it a contract.
 
 Pacto proposes the next rung when the evidence supports it. By default the
 evidence is the last 10 versions on that Stage, and Pacto waits until there
-are 10:
+are 10. For a service that rarely releases, the platform team can lower that
+number, down to 1:
 
 - **observe to advise**: the versions GitOps ran all passed Pacto's checks.
 - **advise to auto for non-breaking**: the versions Pacto moved all passed
@@ -86,13 +87,20 @@ and stores it next to your images. So every grant of autonomy leaves a
 signed record that anyone can check with standard tools, without Pacto.
 
 Lowering a rung needs no approval. A person can do it at any time. An AI
-agent can too, but never down to observe, because a Stage on observe stops
-moving and that call is left to people.
+agent can too, but never down to observe: once git no longer sets the version
+(see "Leaving observe" below), a Stage on observe has nothing moving it at
+all, and only a person may stop a service that way.
 
 ## Step-down: one failure costs one rung
 
-If a version that Pacto shipped on its own fails its checks and Pacto rolls it
-back, the Stage also drops one rung. Autonomous goes back to auto for
+On every rung where Pacto moves versions, a version that fails its checks
+after release is rolled back to the version that ran before, with no one
+asked. If there is no safe version to go back to, or the rollback itself
+fails, the Stage freezes instead: nothing moves until a person rolls back or
+unfreezes it.
+
+If the failed version is one Pacto shipped on its own, the Stage also drops
+one rung. Autonomous goes back to auto for
 non-breaking, and auto for non-breaking goes back to advise. The drop is
 recorded like any other change and needs no approval. The count of good
 versions starts again from zero, so Pacto has to earn the rung back.

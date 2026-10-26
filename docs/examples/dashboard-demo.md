@@ -7,72 +7,50 @@ search:
 
 # Live dashboard demo
 
-**Try Pacto without installing anything.** The dashboard runs entirely in your
-browser: the engine and a set of demo contracts are compiled to WebAssembly (a
-format browsers run directly). No backend, no live registry, nothing leaves the
-tab.
+**Try Pacto without installing anything.** The Pacto dashboard, its web page,
+runs entirely in your browser here: Pacto and a set of demo contracts are
+compiled to WebAssembly, a format browsers run directly. There is no server
+behind it and nothing leaves the tab.
 
 <a href="../../demo/#/fleet" class="md-button md-button--primary">Open the live dashboard demo →</a>
 
-The whole engine ships to your browser, so the first visit downloads about
-4.3 MB of compiled Wasm (17.5 MB unpacked). Give it a moment on a slow connection —
-the loading strip counts the seconds and names the size, and the browser caches
-it afterwards.
-
-Two things about the fixture are deliberate. **It opens on a degraded-source
-banner** — one source unavailable, one partial, because a view that only shows
-complete knowledge teaches you nothing about the day it isn't.
-**`platform-app-config` appears twice** — two different services from two
-sources that share a name. A name is not an identity, so the graph keeps them
-apart.
+The first visit downloads about 4.3 MB (17.5 MB unpacked). On a slow
+connection give it a moment: the loading strip counts the seconds, and the
+browser keeps a copy afterwards.
 
 ## What to look at
 
-- **Fleet overview** — eighteen services spanning edge, domain, infra, platform
-  and external tiers. Open it on the degraded sources and the duplicate name
-  described above.
-- **One service's dependency graph** — `payments-service` spans six published
-  revisions. Resolves from each contract's declared dependencies and highlights
-  what a change would reach.
-- **Data sources panel** — shows one source degraded and one unavailable. The
-  operational graph reports what it knows and what it cannot know, and the day
-  everything reports complete is not every day.
-- **Change analysis** — the `v1.2.1 → v2.0.1` step removes the `/charges` API
-  and shows which consumers the break reaches.
-- **Delivery, simulated** — press **Play the delivery story** for the payments
-  story in two acts. First `pacto init` pactifies a plain service. Then a safe
-  change ships on its own, a bad release is rolled back, a breaking change asks
-  only the teams whose declared range it breaks and every step reads back as a
-  signed record. **Switch person** acts as `pay-agent`, Alice or Carol, so you
-  can see who may decide and the fresh sign-in a decision needs.
+- **Fleet overview**: eighteen made-up services and who calls whom. A banner
+  at the top says some of the information is missing. That is on purpose:
+  Pacto always tells you what it could not see instead of hiding it.
+- **One service's dependency graph**: `payments-service` has six published
+  versions. The graph shows which services call it and what a change would
+  reach.
+- **Change analysis**: the `v1.2.1 → v2.0.1` step removes the `/charges` API
+  and shows which consumers, the services that call it, the break reaches.
+- **Delivery, simulated**: press **Play the delivery story**. First
+  `pacto init` gives a plain service a contract. Then a safe change ships on
+  its own, a bad release is rolled back, a breaking change asks only the
+  teams it would break, and every step reads back as a signed record.
+  **Switch person** lets you act as an AI agent (`pay-agent`), Alice or
+  Carol, to see who may decide what.
+
+Two oddities are deliberate. `platform-app-config` appears twice because two
+different services share that name, and a name is not an identity. One
+history shows a gap and one record is signed by a key nobody trusts, so you
+can see how Pacto reports them.
 
 ## What it cannot show
 
-There is no cluster behind the demo: compliance states are recorded fixture
-data. It shows
-[runtime conformance](../integrations/kubernetes/runtime-conformance.md) (what a
-service really does on the network) as one recorded finding, not a live check:
-the staging `orders-service` target carries `INTERFACE_ABSENT`, and its evidence
-line says "seen by: Kubernetes + kernel". A live check needs the node agent on a
-Kubernetes cluster or the [Docker Compose demo](compose-demo.md).
+Nothing here runs for real. The checks on running services and the delivery
+screens use recorded data, and every delivery screen says "simulated". The
+plans, checks and history do come from Pacto's own code. Records are signed
+with a key made in your tab, so nothing outside it can check them, and a
+reload starts over.
 
-Delivery is simulated, as every delivery screen says. Plans,
-checks, history, blame and undo come from Pacto's own code on fixed data. The
-health check results and the node agent's finding are recorded, and so is
-the `pacto init` plan, which a test keeps current. Records are signed with a key made in your tab, so
-nothing outside it can check them, and a reload starts over. With no promoter,
-Flux or real sign-in, nothing approved runs. One
-history shows a gap, one record signed by a key nobody trusts and one Stage
-read from status only: these look like bugs and are deliberate. See
-[delivery](../integrations/kubernetes/delivery.md) and the
-[Kubernetes demo](kubernetes-demo.md) for the real thing on a cluster.
-
-To run the dashboard against your own services, see
-[Dashboard container](../dashboard-docker.md). The source and build harness live
-in [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo).
-
-Next: the [Docker Compose demo](compose-demo.md) runs the same UI against a real
-registry and Evidence Server on your machine. The
-[guided tour](demo-tour.md) reaches the same facts from the command line in
-six offline user stories. Or go straight to the
-[Quickstart](../quickstart.md) and write a contract of your own.
+For the real thing, the [Docker Compose demo](compose-demo.md) runs the same
+dashboard on your machine and the [Kubernetes demo](kubernetes-demo.md) runs
+delivery on a local cluster. The [guided tour](demo-tour.md) shows the same
+facts from the command line, and the [Quickstart](../quickstart.md) has you
+write a contract of your own. To run the dashboard against your own services,
+see [Dashboard container](../dashboard-docker.md).
