@@ -18,7 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pa
 
 This puts three programs in `/usr/local/bin`: `pacto`, `pacto-plugin-schema-infer` and `pacto-plugin-openapi-infer`. The script checks each download's SHA-256 checksum first. If a plugin fails to install, the script warns and still installs `pacto`.
 
-Pass `--version` for a specific release: `bash -s -- --version v3.1.4`.
+Pass `--version` for a specific release: `bash -s -- --version v4.0.0`. The CLI, the charts and the images each have their own version numbers.
 
 !!! warning "If the script cannot find a version (GitHub API rate limit)"
     The script asks the GitHub API for the latest version. Without a token GitHub allows 60 requests per hour per IP address, so on a shared network it can fail with `Failed to fetch latest version`. Set `GH_TOKEN` to any GitHub token and run it again:
@@ -86,7 +86,7 @@ Without them, `pacto generate schema-infer` fails with `plugin "schema-infer" no
 
 ```bash
 pacto update              # latest release
-pacto update v3.1.4       # specific version
+pacto update v4.0.0       # a specific version
 ```
 
 This verifies the new binary's SHA-256 before replacing the current one. A `go install` build cannot use it; re-run `go install github.com/trianalab/pacto/v4/cmd/pacto@latest` instead.

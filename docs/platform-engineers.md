@@ -1,6 +1,15 @@
-# Pacto for Platform Engineers
+# Pacto for platform engineers
 
-You run the platform other teams deploy to. This guide shows how to pull a service's contract from a registry and read what it needs to run: workload type, state, interfaces, capabilities, dependencies and config schema. The contract says *what* the service is, not *how* to deploy it, so provisioning, scaling and wiring stay your decision.
+You run the platform other teams deploy to. [Pactify a service](pactify.md)
+connects one service to delivery. This page is for the rest of the job:
+reading any team's contract to see what its service needs to run, such as
+its kind of workload, whether it keeps data, its APIs, the services it calls
+and its settings.
+
+How a service is deployed stays in its own Kubernetes files. With delivery,
+`pacto publish` ships those files with each version and Flux applies them;
+the contract only points at them (`publish.deploy`). The contract says what
+the service is. Provisioning, scaling and wiring stay your decision.
 
 ---
 
@@ -20,7 +29,7 @@ flowchart LR
 ### 1. Pull a service contract
 
 ```bash
-pacto pull oci://ghcr.io/acme/payments-api-pacto:2.1.0
+pacto pull oci://ghcr.io/acme/contracts/payments-api:2.1.0
 ```
 
 `explain`, `diff`, `graph` and `generate` accept `oci://` references directly and cache what they download, so this `pull` step is optional.
@@ -30,7 +39,7 @@ A private repository needs credentials first: `pacto login <registry>`, or an al
 ### 2. Inspect it
 
 ```bash
-pacto explain oci://ghcr.io/acme/payments-api-pacto:2.1.0
+pacto explain oci://ghcr.io/acme/contracts/payments-api:2.1.0
 ```
 
 See [`pacto explain`](cli-reference.md#pacto-explain) for the output format.
@@ -38,8 +47,8 @@ See [`pacto explain`](cli-reference.md#pacto-explain) for the output format.
 ### 3. Check for breaking changes
 
 ```bash
-pacto diff oci://ghcr.io/acme/payments-api-pacto:2.0.0 \
-  oci://ghcr.io/acme/payments-api-pacto:2.1.0
+pacto diff oci://ghcr.io/acme/contracts/payments-api:2.0.0 \
+  oci://ghcr.io/acme/contracts/payments-api:2.1.0
 ```
 
 It exits non-zero if breaking changes are detected. See [Diff and change classification](contract-reference/diff.md) for the full reference and worked examples.
@@ -47,7 +56,7 @@ It exits non-zero if breaking changes are detected. See [Diff and change classif
 ### 4. Resolve the dependency graph
 
 ```bash
-$ pacto graph oci://ghcr.io/acme/payments-api-pacto:2.1.0
+$ pacto graph oci://ghcr.io/acme/contracts/payments-api:2.1.0
 payments-api@2.1.0
 ├─ auth-service@2.3.0
 │  └─ user-store@1.0.0
@@ -58,7 +67,14 @@ Pacto follows each dependency to its own contract in the registry, all the way d
 
 ### 5. Generate deployment artifacts
 
-`pacto generate <name>` spawns a `pacto-plugin-<name>` binary and writes whatever it returns. **Pacto ships no deployment-artifact plugin** — the two official ones (`schema-infer`, `openapi-infer`) run inward, deriving contract inputs from files you already have. Generating Helm charts or Kubernetes manifests means writing the plugin, which is deliberately small — a binary that reads a contract as JSON on stdin and writes file descriptions on stdout, in any language. See the [Plugin Development](plugins.md) guide.
+If you would rather generate Kubernetes files from contracts than keep them
+by hand, `pacto generate <name>` runs a plugin program called
+`pacto-plugin-<name>` and writes the files it returns. Pacto ships no plugin
+that writes deployment files: the two official ones (`schema-infer` and
+`openapi-infer`) work the other way, filling in a contract from files you
+already have. A plugin is a small program in any language that reads a
+contract as JSON and returns file contents. See
+[Plugin development](plugins.md).
 
 ---
 
@@ -74,7 +90,10 @@ Pacto follows each dependency to its own contract in the registry, all the way d
 
 ### State model
 
-The `scope/durability` values below (e.g. `shared/persistent`) are shorthand for the `state.persistence.scope` + `state.persistence.durability` fields, matching the `pacto explain` display. These are platform-agnostic signals, not Kubernetes prescriptions — the mapping below is one reasonable interpretation for Kubernetes; the equivalent decision exists on Nomad, ECS or a custom platform:
+The values below, such as `shared/persistent`, are short for the
+`state.persistence.scope` and `state.persistence.durability` fields, as
+`pacto explain` shows them. They describe the service, not a Kubernetes
+setup; the table is one sensible way to map them on Kubernetes:
 
 | `state.type` | `state.persistence` | Infrastructure |
 |---|---|---|
@@ -85,7 +104,8 @@ The `scope/durability` values below (e.g. `shared/persistent`) are shorthand for
 | `hybrid` | `local/persistent` | StatefulSet + PVC, tolerates cold starts |
 | `hybrid` | `local/ephemeral` | Deployment with emptyDir, warm caches improve performance |
 
-Deployment mechanics the contract deliberately does not carry — upgrade strategy, graceful-shutdown timing, replica counts and autoscaling bounds — stay with your deployment tooling.
+The contract leaves out upgrade strategy, shutdown timing, replica counts
+and autoscaling on purpose. Those stay in your Kubernetes files.
 
 ---
 
@@ -97,7 +117,7 @@ Deployment mechanics the contract deliberately does not carry — upgrade strate
 - [Diff and change classification](contract-reference/diff.md) — what counts as breaking
 - [CI integration](ci.md) — using Pacto in pipelines
 - [GitHub Actions integration](github-actions.md) — the pacto-actions workflow
-- [Fleet tools](fleet-tools.md) — reading the fleet (dashboard, `pacto fleet`, terminal UI)
+- [Fleet views](fleet-tools.md) — all your services at once (dashboard, `pacto fleet`, terminal UI)
 - [Kubernetes operator](integrations/kubernetes/overview.md) — checks running
   services against their contracts, including
   [what they actually do on the network](integrations/kubernetes/runtime-conformance.md)
