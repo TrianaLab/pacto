@@ -29,8 +29,10 @@ before (`parent`). An **unrecordable** record stands in for an operation that
 failed a check before signing (a value that looks like a secret, an approval no
 longer bound); `status.record.refused` says why. It keeps none of what the
 operation did, so `record verify` reports it as a problem, and a Stage in
-another cluster that follows the stream offers nothing until a person looks:
-the stand-in could be the failure that marks a version failed. A **gap** record marks a
+another cluster that follows the stream offers nothing from then on: the
+stand-in could be the failure that marks a version failed. Nothing clears it
+today, so a person checks the operation upstream and moves the follower with
+an override (break-glass). A **gap** record marks a
 number no operation holds. A record can be late but is never skipped: an
 Operation keeps its `delivery.pacto.trianalab.io/record` finalizer until the
 registry lists its record.
