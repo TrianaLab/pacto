@@ -25,7 +25,7 @@ rules behind it.
 Pacto starts by watching. It earns the right to ship on its own one step at a
 time, and a person confirms every step: that is
 [the autonomy ladder](autonomy.md). Its four steps, called rungs, are observe
-(watch only), advise (a person asks for every move), auto for non-breaking
+(watch only), advise (a person approves each automatic promote), auto for non-breaking
 and autonomous. The rung is set per Stage, meaning one service in one
 environment, such as payments in prod. It asks only the teams a change affects,
 and when it cannot see enough it says Unknown and waits for a person.

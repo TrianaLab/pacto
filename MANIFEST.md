@@ -80,7 +80,7 @@ manifests stay in git. GitlessOps is three principles, each true only under its 
    automatic rung. A person is asked when a check cannot see enough
    (Unknown: the service's owners), when a consumer's range rejects it (that consumer's
    owners), when the Stage is set to ask before every promote, on auto for non-breaking
-   when the change is breaking, or when a failed version has no safe way back
+   when the change is not known to be non-breaking, or when a failed version has no safe way back
    and the Stage freezes. Only the affected team is asked.
 3. **Every decision can be verified without Pacto.** With the recorder (the
    part of Pacto that signs records) on,
