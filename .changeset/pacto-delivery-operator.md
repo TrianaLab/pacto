@@ -82,7 +82,9 @@ even when Argo CD applies it. A freeze is local: it does not stop followers. Arg
 may change more than the rest of delivery.
 
 **The recorder** (subcommand `recorder`, chart `delivery.recorder.*`, off by default)
-is the only holder of the signing key and the registry push credentials. It
+is the only delivery component that holds the signing key and the registry
+push credentials. With an Ed25519 key the operator, which reads every Secret,
+can read the key too, so prefer a KMS key or keyless signing. It
 writes a signed record of every operation that ends, in order per Stage,
 attaches it to the versions and contract involved, confirms the Referrers API
 lists it and only then advances the Stage's stream. A record can be late, never

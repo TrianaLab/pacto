@@ -2,8 +2,9 @@
 
 The recorder writes a signed record of every operation that ends, refusals
 included, into your registry next to the versions it touched. It is off by
-default. Only it holds the signing key and the right to push; the promoter
-never gets either. With it on, history, blame and undo read the records, not
+default and is the only delivery component that holds the signing key and the
+right to push. The operator reads every Secret, so it can read an Ed25519 key
+too: prefer KMS or keyless signing. With the recorder on, history, blame and undo read the records, not
 the Operations left in the cluster.
 
 ## What a record is
@@ -14,9 +15,8 @@ policy, every check result with its proof, every approval and the outcome. It
 holds references, never secrets. It is a sigstore bundle attached as an OCI
 referrer to the version moved to, the one moved from, the new contract and the
 Stage's stream anchor. `guarded: true` says the admission policies checked who
-asked and who approved. A record without it was written while the chart ran
-without them (`admissionPolicies.allowUnguarded`), so those names are only what
-their writers claimed.
+asked and who approved. Without it (`admissionPolicies.allowUnguarded`), those
+names are only what their writers claimed.
 
 Each Stage has one stream: records are numbered (`seq`) and each names the one
 before (`parent`). An **unrecordable** record stands in for an operation that
@@ -118,8 +118,8 @@ recorder:
 dev key cannot sign prod history. A keyless entry names `identity`, `issuer`
 and the required `trustedRoot`. The recorder's own key is always trusted. List
 the old key before the recorder signs with a new one, including when a KMS
-alias moves to a new key. Otherwise the records the old key signed no longer
-verify, the head the Stage names goes missing and the Stage freezes. Pass the same file (or the recorder's PEM
+alias moves to a new key. Otherwise its records stop verifying and the Stage
+freezes. Pass the same file (or the recorder's PEM
 public key) to the CLI with `--trust` or `PACTO_DELIVERY_TRUST`, and to
 `pacto mcp --delivery` and `pacto dashboard` with `--delivery-trust`. Without
 it, records are read unchecked and every answer says it is partial.
@@ -130,10 +130,9 @@ When a key leaks, rotate the recorder to a new key first. Then keep the old
 key listed with `untilRecord`, the id of the last record it signed on that
 stream, and `untilSeq`, that record's seq. The old key then verifies only that
 record and the records it chains from, so the history stays readable.
-Anything else the old key signs is skipped as untrusted: a record after
-`untilSeq`, and a forgery backdated to a seq the key already used. So a
-forgery neither extends the stream nor forks it, and the Stage does not
-freeze:
+Anything else it signs, after `untilSeq` or backdated to a seq it used, is
+skipped as untrusted, so a forgery neither extends nor forks the stream and the
+Stage does not freeze:
 
 ```yaml
 keys:
@@ -211,9 +210,9 @@ with the entry's `trustedRoot` saved as `trusted_root.json`:
   --insecure-ignore-sct
 ```
 
-`--insecure-ignore-sct` is there only when the trusted root lists no
-certificate transparency log, as a private Sigstore often does. A certificate
-from such a root has no timestamp to check, and cosign fails without the flag.
+`--insecure-ignore-sct` appears only when the trusted root lists no
+certificate transparency log, as a private Sigstore often does; cosign fails
+without it then.
 
 `oras discover` on a version lists the records attached to it. The record
 itself is a DSSE envelope: `jq -r .dsseEnvelope.payload record.json | base64 -d`
