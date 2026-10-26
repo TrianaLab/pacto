@@ -21,6 +21,17 @@ optional: without it, Pacto looks dependencies up fresh each time. See
 
 ## On every pull request
 
+The snippets below are steps of a GitHub Actions job, after
+`actions/checkout`. Install Pacto first; the token avoids GitHub's limit on
+anonymous API calls, which shared CI runners hit:
+
+```yaml
+- name: Install Pacto
+  run: curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | bash
+  env:
+    GH_TOKEN: ${{ github.token }}
+```
+
 Two checks. The second reads your registry, so give the job a login. These
 variables work for any registry; on GitHub's, the built-in token will do:
 
@@ -42,7 +53,9 @@ env:
 each other and failed policies, the rules your platform team may set for
 every contract.
 
-`pacto diff` compares the contract in the pull request (the second argument)
+`pacto diff` sees API changes only in the interfaces the contract declares,
+such as an OpenAPI document listed under `interfaces` (see
+[Contract sections](contract-reference/sections.md)). It compares the contract in the pull request (the second argument)
 with the last one you published (the first). With no version after the name,
 it picks the highest published version. It exits 1 when the change is
 breaking, meaning it removes or changes something other services may use, so

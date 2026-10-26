@@ -40,11 +40,11 @@ Every field sits under `.predicate`:
 
 | Field | What it says |
 |---|---|
-| `kind` | `operation` for a change, `gap` for a placeholder (see below), `unrecordable` for a signed stand-in for a change whose own record failed a check |
+| `kind` | `operation` for a change, `gap` for a placeholder (see below), `unrecordable` for a signed stand-in for a change whose own record failed a check. A stand-in takes that change's number in the chain and hangs on the anchor only |
 | `intent` | What was asked: the change's name, its Stage (`intent.stage.namespace` and `intent.stage.name`) and its reason |
-| `actor.user`, `actor.class` | Who asked, and whether that is a `human`, an `agent`, `break-glass` or Pacto itself (`controller`) |
+| `actor.user`, `actor.class` | Who asked, and whether that is a `human`, an `agent`, `break-glass` (a member of the emergency group, whose change skips every check and approval and freezes the Stage) or Pacto itself (`controller`) |
 | `actor.onBehalfOf` | The person an agent said it acted for. Only claimed, never checked, and marked so |
-| `approvals[]` | Who answered (`by`), the answer (`decision`: `approve`, `reject` or `accept-unknown`) and when they last signed in (`authTime`) |
+| `approvals[]` | Who answered (`by`), the answer (`decision`: `approve`, `reject` or `accept-unknown`, which means a person let the change go ahead although a check said Unknown) and when they last signed in (`authTime`) |
 | `verdicts[]` | Each check (`gate`), when it ran (`phase`: `pre` before the move, `verify` after) and its `result`: `Pass`, `Fail` or `Unknown` |
 | `outcome.result` | How it ended, such as `Succeeded`, `Failed`, `Rejected` or `Cancelled` |
 | `outcome.pointer.before`, `.after` | The version digest the Stage ran before and after |
@@ -111,7 +111,9 @@ cosign verify-blob-attestation --bundle record.json --key recorder.pub \
 jq -r .dsseEnvelope.payload record.json | base64 -d | jq .predicate   # read it
 ```
 
-cosign prints `Verified OK` when the signature holds and exits non-zero when
+`--digest` is the anchor's digest: the check passes only if this record names
+this Stage's anchor among its signed subjects, so a record moved from another
+Stage fails. cosign prints `Verified OK` when the signature holds and exits non-zero when
 it does not. `--insecure-ignore-tlog` is expected: the recorder never writes to a public
 log, because records name your services. The signature alone proves the
 record was not changed.
@@ -178,8 +180,8 @@ To tie a record to a release, take the digest of the subject named `to`
 (`jq -r '.subject[] | select(.name=="to") | .digest.sha256'` on the decoded
 statement). It is the deploy artifact, the package of Kubernetes files Flux
 applies. It lives in the repository the service's contract names for that
-artifact (`publish.artifacts`, the one `publish.deploy` points at), for
-example `registry.example/acme/deploy/payments`. Check it there with the
+artifact, for example `registry.example/acme/deploy/payments`. Ask the
+publishing team for that address, as for the anchor. Check it there with the
 `cosign verify` command above. Get the publisher's key out of band too, never
 from the registry. See
 [Publish a version](publishing.md#signing) for the signing settings.

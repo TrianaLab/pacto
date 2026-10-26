@@ -115,7 +115,7 @@ and autoscaling on purpose. Those stay in your Kubernetes files.
 - [Composition patterns](patterns/index.md) — root + component contracts,
   infrastructure contracts, published policy + schema bundles and the rest
 - [Diff and change classification](contract-reference/diff.md) — what counts as breaking
-- [CI integration](ci.md) — using Pacto in pipelines
+- [Put it in your repository](ci.md) — using Pacto in pipelines
 - [GitHub Actions integration](github-actions.md) — the pacto-actions workflow
 - [Fleet views](fleet-tools.md) — all your services at once (dashboard, `pacto fleet`, terminal UI)
 - [Kubernetes operator](integrations/kubernetes/overview.md) — checks running
