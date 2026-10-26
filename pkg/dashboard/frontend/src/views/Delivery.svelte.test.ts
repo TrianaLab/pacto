@@ -963,8 +963,8 @@ describe('history and published', () => {
     await settle();
     const rows = [...target.querySelectorAll('[data-testid="history-stage-row"]')].map((r) => [...r.querySelectorAll('th, td')].map((c) => text(c as HTMLElement).trim()));
     expect(rows).toEqual([
-      ['prod/pay Signed records', '2.0.0Frozen', 'Promote 1.0.0 → 2.0.0', 'Succeeded', '2026-10-21 11:00 UTC', '40 changes 2 problems'],
-      ['test/pay Status, partial', 'Nothing yet', 'None kept', '', '', '0 changes'],
+      ['pay in prod Signed records', '2.0.0Frozen', 'Promote 1.0.0 → 2.0.0', 'Succeeded', '2026-10-21 11:00 UTC', '40 changes 2 problems'],
+      ['pay in test Status, partial', 'Nothing yet', 'None kept', '', '', '0 changes'],
     ]);
     // No per-change table, no problem list and no Who put button: those live on the Stage's own history.
     expect(target.querySelector('[data-testid="history-problems"]')).toBeNull();

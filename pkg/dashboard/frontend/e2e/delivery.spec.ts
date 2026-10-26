@@ -318,7 +318,7 @@ test.describe('Delivery views', () => {
     // Every environment is one line: its newest change, how many and its problems, linked to the rest.
     await page.goto('/#/delivery/history');
     const summary = page.getByTestId('history-summary');
-    await expect(summary.getByRole('row', { name: /prod\/payments-prod/ })).toContainText('2 problems', { timeout: T });
+    await expect(summary.getByRole('row', { name: /^payments-prod in prod/ })).toContainText('2 problems', { timeout: T });
     await expect(summary.getByRole('link', { name: 'All 4 changes on prod/payments-prod' })).toHaveAttribute('href', '#/delivery/history?namespace=prod&stage=payments-prod');
     await audit(page, 'history summary');
     await page.goto('/#/delivery/history?namespace=prod&stage=payments-prod');

@@ -116,7 +116,7 @@
         <table class="data-table hv-table" data-testid="history-summary">
           <caption class="visually-hidden">Every environment's newest change, newest first in each</caption>
           <colgroup><col style="width: 24%" /><col style="width: 12%" /><col style="width: 22%" /><col style="width: 13%" /><col style="width: 13%" /><col style="width: 16%" /></colgroup>
-          <thead><tr><th scope="col">Environment</th><th scope="col">Runs</th><th scope="col">Newest change</th><th scope="col">How it ended</th><th scope="col">When</th><th scope="col">Changes</th></tr></thead>
+          <thead><tr><th scope="col">Stage</th><th scope="col">Runs</th><th scope="col">Newest change</th><th scope="col">How it ended</th><th scope="col">When</th><th scope="col">Changes</th></tr></thead>
           <tbody>
             {#each histories as h (h.namespace + '/' + h.stage.name)}
               {@const en = h.entries?.[0]}
@@ -126,7 +126,8 @@
               <tr data-testid="history-stage-row" data-stage={`${h.namespace}/${h.stage.name}`}>
                 <th scope="row">
                   <div class="cell-stack">
-                    <a class="cell-clip" href={url} title={`${h.namespace}/${h.stage.name}`}>{h.namespace}/{h.stage.name}</a>
+                    <a class="cell-clip" href={url} title={`${h.namespace}/${h.stage.name}`}>{h.stage.name}</a>
+                    <span class="t-meta cell-clip" title={h.namespace}>in {h.namespace}</span>
                     <span class="t-meta hv-source" class:hv-partial={h.completeness !== 'complete'} data-testid="history-source" title={sourceLabel(h)}>{sourceShort(h)}</span>
                   </div>
                 </th>
@@ -236,7 +237,7 @@
   .hv-notes h3 { margin: 0; font-weight: 600; }
   .hv-notes { overflow-wrap: break-word; }
   .hv-table a { color: var(--c-accent); }
-  .hv-table a.badge { color: inherit; text-decoration: none; }
+  .hv-table a.badge-warn { color: var(--c-warn); text-decoration: none; }
   /* The summary is a page of twenty-five short rows: the page scrolls, not a box. */
   .hv-summary-scroll { max-height: none; }
   .hv-table tbody th .hv-source { margin: 0; font-weight: 400; }
