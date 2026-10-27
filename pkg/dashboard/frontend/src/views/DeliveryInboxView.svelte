@@ -98,7 +98,7 @@
 {#snippet row(it, again)}
   <li class="pl-row dl-row">
     <div class="dl-main">
-      <a class="dl-title" href={deliveryChangeUrl(it.namespace, it.name)}>
+      <a class="dl-title" class:dl-again={again && it.to} href={deliveryChangeUrl(it.namespace, it.name)}>
         {#if again && it.to}<span class="visually-hidden">{`${changeOn(it)}: `}</span>{moveOf(it)}{:else}{it.to ? `${changeOn(it)}: ${moveOf(it)}` : changeOn(it)}{/if}
       </a>
       <p class="dl-facts t-body-2">
@@ -189,7 +189,7 @@
             {#each frozenRows as row, i (row.namespace + '/' + row.stage)}
               {@const again = repeats(frozenRows, i, (r) => r.service)}
               <li class="pl-row dl-line">
-                <a class="dl-title" href={deliveryHistoryUrl({ namespace: row.namespace, stage: row.stage })}>{#if again}<span class="visually-hidden">{`${row.service} `}</span>{`in ${row.environment}`}{:else}{`${row.service} in ${row.environment}`}{/if}</a>
+                <a class="dl-title" class:dl-again={again} href={deliveryHistoryUrl({ namespace: row.namespace, stage: row.stage })}>{#if again}<span class="visually-hidden">{`${row.service} `}</span>{`in ${row.environment}`}{:else}{`${row.service} in ${row.environment}`}{/if}</a>
                 <span class="t-body-2 dl-why">{row.frozenReason ? shortDigests(row.frozenReason) : 'Frozen'}</span>
               </li>
             {/each}
@@ -210,7 +210,7 @@
             {#each erroredRows as it, i (it.namespace + '/' + it.name)}
               {@const again = repeats(erroredRows, i, (r) => r.stage)}
               <li class="pl-row dl-line">
-                <a class="dl-title" href={deliveryChangeUrl(it.namespace, it.name)}>{`${typeLabel(it.type)} on ${it.namespace}`}{#if again}<span class="visually-hidden">{`/${it.stage}`}</span>{:else}{`/${it.stage}`}{/if}</a>
+                <a class="dl-title" class:dl-again={again} href={deliveryChangeUrl(it.namespace, it.name)}>{`${typeLabel(it.type)} on ${it.namespace}`}{#if again}<span class="visually-hidden">{`/${it.stage}`}</span>{:else}{`/${it.stage}`}{/if}</a>
                 <span class="t-body-2 dl-why">{shortDigests(it.reason) || 'Pacto could not tell how it ended'}</span>
               </li>
             {/each}
@@ -239,6 +239,8 @@
   .dl-count { font-variant-numeric: tabular-nums; }
   .dl-note { margin: var(--sp-1) 0 var(--sp-2); color: var(--c-text-3); }
   .dl-title { font-weight: 600; color: var(--c-accent); }
+  /* A title cut to what differs from the line above sits under it, indented. */
+  .dl-again { padding-left: var(--sp-4); font-weight: 500; }
   .dl-question { margin: 0; }
   /* Centred, not baseline: the "Show all" button in the affected services is taller than text. */
   .dl-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 2px var(--sp-3); margin: 0; color: var(--c-text-2); }

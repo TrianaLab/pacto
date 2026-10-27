@@ -253,6 +253,7 @@
   .au-table th, .au-table td { border-bottom: 1px solid var(--c-border); padding: var(--sp-2) var(--sp-3); text-align: left; vertical-align: top; }
   .au-table thead th { color: var(--c-text-3); font-weight: 600; }
   .au-table th a { color: var(--c-accent); }
+  .au-table td a.t-meta { text-decoration: underline; }
   .au-table td > * + * { margin-left: var(--sp-2); }
   .au-head { display: flex; align-items: center; gap: var(--sp-2); }
   .au-head h2 { margin: 0; }
