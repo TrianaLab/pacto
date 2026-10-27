@@ -194,6 +194,7 @@ test('C: the orders revision carries real OCI content identity and its declarati
   );
 
   const declared = section(page, 'Declared dependencies');
+  await expandSection(declared, 'Declared dependencies'); // folded under the one-line answer
   const dep = declared.getByRole('listitem').filter({ hasText: fixture.checkoutName });
   await expect(dep).toHaveCount(1);
   await expect(factValue(dep, 'Ref')).toHaveText(`oci://${fixture.domain}/${fixture.checkoutName}`);
