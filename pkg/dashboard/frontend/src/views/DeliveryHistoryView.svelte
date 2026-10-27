@@ -5,7 +5,7 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryChangeUrl, deliveryHistoryUrl } from '../lib/router.ts';
   import { typeLabel, shortDigest, versionLabel, timeLabel, decisionLabel, actorBadge, autonomyOf, sentence,
-    verificationLabel, outcomeTone, reasonAfter, andList, UNKNOWN_DOCS } from '../lib/delivery.ts';
+    verificationLabel, outcomeTone, reasonAfter, andList, levelLabel, AUTONOMY_TYPE, UNKNOWN_DOCS } from '../lib/delivery.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
@@ -49,7 +49,9 @@
   const href = (off, lim) => deliveryHistoryUrl({ namespace, stage, q, offset: off, limit: limitParam(lim, limit, page?.limit ?? lim) });
   const me = $derived({ user: deliverySession.data?.caller?.user, name: deliverySession.data?.name });
   const version = (d) => versionLabel(d, data?.versions);
-  const move = (en) => `${version(en.from) || '–'} → ${version(en.to) || '–'}`;
+  // A level change moves between levels, named as Autonomy names them.
+  const side = (en, d) => (en.type === AUTONOMY_TYPE ? (d ? levelLabel(d) : '') : version(d));
+  const move = (en) => `${side(en, en.from) || '–'} → ${side(en, en.to) || '–'}`;
   // The whole move on hover: a long pre-release version is cut short in its cell.
   const moveTitle = (en) => [move(en), [en.from, en.to].filter(Boolean).join(' → ')].join('\n');
   // The full ids a history names, so a short one in a problem line can show and copy its full id.
@@ -100,15 +102,20 @@
       return { head: `${what}:`, rest: `${(en.outcome || en.phase || 'not known').toLowerCase()}.`, tip: `What happened on this Stage, newest change first. ${ABOUT}` };
     }
     if (!histories.length) return null;
-    const count = (f) => histories.filter(f).length;
-    const waiting = count((h) => h.entries?.[0]?.phase === 'Held');
-    const issues = count((h) => (h.problemCount ?? 0) + (h.unreadableCount ?? 0) > 0);
-    const frozen = count((h) => h.stage.frozen);
-    const parts = [waiting && `${formatCount(waiting)} waiting for a person`, issues && `${formatCount(issues)} with record problems`, frozen && `${formatCount(frozen)} frozen`].filter(Boolean);
+    // One sentence per kind of trouble, naming the Stages: "1 Stage has record problems: payments in test."
+    const said = (f, one, many) => {
+      const hs = histories.filter(f);
+      return hs.length ? `${countOf(hs.length, 'Stage')} ${hs.length === 1 ? one : many}: ${andList(hs.map((h) => `${h.stage.name} in ${h.namespace}`), 3)}.` : '';
+    };
+    const parts = [
+      said((h) => h.entries?.[0]?.phase === 'Held', 'waits for a person', 'wait for a person'),
+      said((h) => (h.problemCount ?? 0) + (h.unreadableCount ?? 0) > 0, 'has record problems', 'have record problems'),
+      said((h) => h.stage.frozen, 'is frozen', 'are frozen'),
+    ].filter(Boolean);
     const onPage = (data?.page?.total ?? 0) > histories.length;
     return {
-      head: `${parts.length ? andList(parts) : 'Nothing needs a look'}${onPage ? '' : '.'}`,
-      rest: onPage ? 'on this page.' : '',
+      head: parts[0] ?? `Nothing needs a look${onPage ? ' on this page' : ''}.`,
+      rest: [...parts.slice(1), parts.length && onPage ? 'Counted on this page.' : ''].filter(Boolean).join(' '),
       tip: `What happened on each Stage, listed by namespace and name, with its newest change. ${ABOUT}`,
     };
   });

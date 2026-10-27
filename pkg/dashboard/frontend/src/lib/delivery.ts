@@ -140,11 +140,15 @@ export function personLabel(user: string | undefined, people?: Record<string, st
   return hash > 0 && hash < user.length - 1 ? user.slice(hash + 1) : user;
 }
 
-/** shortDigest keeps the first 12 hex characters of an OCI digest. */
+/**
+ * shortDigest keeps the first 12 hex characters of an OCI digest. Anything that
+ * is not one (a level name like auto-nonbreaking) is kept whole: cutting it
+ * would only make it unreadable.
+ */
 export function shortDigest(d: string | undefined): string {
   if (!d) return '';
   const hex = d.replace(/^sha256:/, '');
-  return hex.length > 12 ? hex.slice(0, 12) : hex;
+  return /^[0-9a-f]{13,}$/i.test(hex) ? hex.slice(0, 12) : hex;
 }
 
 /**

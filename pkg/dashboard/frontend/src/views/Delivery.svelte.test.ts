@@ -1204,7 +1204,7 @@ describe('history and published', () => {
     expect(target.querySelector('[data-testid="history-source"]')?.getAttribute('title')).toBe('From signed records, every signature verified, complete');
     expect(text(target.querySelector('[data-testid="history-pager-range"]') as HTMLElement).trim()).toBe('Showing 1–25 of 30 Stages');
     // The page answers first: what needs a look among the Stages shown.
-    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('1 with record problems and 1 frozen on this page.');
+    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('1 Stage has record problems: pay in prod. 1 Stage is frozen: pay in prod. Counted on this page.');
     expect(target.querySelector('[data-testid="history-pager-size"]')).not.toBeNull();
     destroy();
   });

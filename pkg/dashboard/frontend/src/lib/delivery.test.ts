@@ -29,6 +29,8 @@ describe('delivery labels', () => {
     expect(shortDigest('sha256:0123456789abcdef')).toBe('0123456789ab');
     expect(shortDigest('abc')).toBe('abc');
     expect(shortDigest(undefined)).toBe('');
+    // A level name is not a digest: cut, it reads auto-nonbrea.
+    expect(shortDigest('auto-nonbreaking')).toBe('auto-nonbreaking');
     expect(authTimeText('1792560000')).toBe(new Date(1792560000 * 1000).toISOString());
     expect(authTimeText('soon')).toBe('soon');
     expect(authTimeText(undefined)).toBe('');
