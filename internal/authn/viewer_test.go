@@ -24,19 +24,19 @@ func fakeJWT(payload string) string {
 	return "h." + base64.RawURLEncoding.EncodeToString([]byte(payload)) + ".s"
 }
 
-func TestPersonFromToken(t *testing.T) {
-	p := PersonFromToken(fakeJWT(`{"iss":"https://idp","sub":"u1","groups":["a","b"]}`))
+func TestClaimsPersonDefault(t *testing.T) {
+	p := Claims{}.Person(fakeJWT(`{"iss":"https://idp","sub":"u1","groups":["a","b"]}`))
 	if p.User != "https://idp#u1" || !slices.Equal(p.Groups, []string{"a", "b"}) {
 		t.Errorf("person = %+v", p)
 	}
 	// An IdP group named like a Kubernetes system group is not passed to the
 	// review: the apiserver never grants it from a token.
-	p = PersonFromToken(fakeJWT(`{"iss":"https://idp","sub":"u1","groups":["system:masters","a","system:authenticated"]}`))
+	p = Claims{}.Person(fakeJWT(`{"iss":"https://idp","sub":"u1","groups":["system:masters","a","system:authenticated"]}`))
 	if !slices.Equal(p.Groups, []string{"a"}) {
 		t.Errorf("groups = %v, want [a]", p.Groups)
 	}
 	for _, tok := range []string{"", "a.b", fakeJWT(`{"iss":"https://idp"}`), "h.!!.s"} {
-		if p := PersonFromToken(tok); p.User != Anonymous.User {
+		if p := (Claims{}).Person(tok); p.User != Anonymous.User {
 			t.Errorf("%q is %+v, want anonymous", tok, p)
 		}
 	}

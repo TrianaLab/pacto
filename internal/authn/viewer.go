@@ -96,9 +96,6 @@ func (c Claims) Person(token string) Person {
 	return Person{User: user, Groups: out}
 }
 
-// PersonFromToken is Claims{}.Person: issuer#sub and the groups claim.
-func PersonFromToken(token string) Person { return Claims{}.Person(token) }
-
 // Review answers whether p may list Pactos in namespace ("" for every
 // namespace at once).
 type Review func(ctx context.Context, p Person, namespace string) (bool, error)
