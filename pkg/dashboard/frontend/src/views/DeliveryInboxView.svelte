@@ -159,7 +159,7 @@
            opens it. -->
       {#if frozen.length}
         <details class="disclosure dl-more" open={query.frozen > 0} data-testid="inbox-frozen-section">
-          <summary class="t-section-title"><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 id="inbox-frozen" class="dl-more-title">Frozen Stages</h2> <span class="t-meta dl-count">{formatCount(total(inbox.frozenPage, frozen))}</span></summary>
+          <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 id="inbox-frozen" class="dl-more-title">Frozen Stages</h2> <span class="t-meta dl-count">{formatCount(total(inbox.frozenPage, frozen))}</span></summary>
           <p class="t-body-2 dl-note">Nothing moves in these until a person unfreezes them.</p>
           <ul class="pl-list" data-testid="inbox-frozen">
             {#each frozen as row (row.namespace + '/' + row.stage)}
@@ -175,7 +175,7 @@
 
       {#if errored.length}
         <details class="disclosure dl-more" open={query.errored > 0} data-testid="inbox-errored-section">
-          <summary class="t-section-title"><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 id="inbox-errored" class="dl-more-title">Changes that could not finish</h2> <span class="t-meta dl-count">{formatCount(total(inbox.erroredPage, errored))}</span></summary>
+          <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 id="inbox-errored" class="dl-more-title">Changes that could not finish</h2> <span class="t-meta dl-count">{formatCount(total(inbox.erroredPage, errored))}</span></summary>
           <p class="t-body-2 dl-note">Each Stage stays frozen until a person looks at it.</p>
           <ul class="pl-list" data-testid="inbox-errored">
             {#each errored as it (it.namespace + '/' + it.name)}
@@ -202,7 +202,6 @@
   .dl-line .dl-title { flex: 0 1 auto; }
   .dl-why { flex: 1 1 20rem; color: var(--c-text-2); }
   .dl-more > summary { display: flex; align-items: baseline; gap: var(--sp-2); cursor: pointer; }
-  .dl-more-title { margin: 0; font: inherit; }
   .dl-count { font-variant-numeric: tabular-nums; }
   .dl-note { margin: var(--sp-1) 0 var(--sp-2); color: var(--c-text-3); }
   .dl-title { font-weight: 600; color: var(--c-accent); }

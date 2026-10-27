@@ -753,7 +753,7 @@
   .disco-more-sep { color: var(--c-border); }
   .gv-legend-fold { font-size: var(--text-sm); color: var(--c-text-2); }
   .gv-legend-fold[open] .gv-legend { margin-top: var(--sp-2); }
-  .gv-fold-title { display: inline; margin: 0; font-size: inherit; font-weight: 600; font-family: inherit; }
+  .gv-fold-title { display: inline; }
   .gv-chip { display: inline-flex; align-items: center; padding: 0 8px; border: 1px solid var(--c-border); border-radius: var(--radius-pill); font-size: var(--text-xs); color: var(--c-text-2); background: var(--c-bg); }
   .gv-legend { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-4); padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); font-size: var(--text-sm); color: var(--c-text-2); }
   /* A legend entry is a toggle, so it is a button -- reset to look like the text it

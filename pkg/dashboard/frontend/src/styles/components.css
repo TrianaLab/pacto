@@ -560,6 +560,15 @@ tr.clickable:active { background: var(--c-surface-inset); }
 .disclosure > summary:hover { color: var(--c-text); }
 .disclosure-caret { display: inline-block; flex-shrink: 0; }
 .disclosure[open] > summary .disclosure-caret { transform: rotate(90deg); }
+/* A fold titled by a heading reads the same on every page (Fold.svelte's look): a plain
+   sans title at body size, never a serif section title or italic, and the count or note
+   after it pushed to the right. */
+.disclosure > summary:has(> :is(h2, h3, h4)) { gap: var(--sp-2); color: var(--c-text); font-size: var(--text-base); }
+.disclosure > summary > :is(h2, h3, h4) {
+  margin: 0; font-family: var(--font-sans, inherit); font-size: var(--text-base); font-weight: 500;
+  font-style: normal; letter-spacing: normal; text-transform: none; font-variant-caps: normal; color: var(--c-text);
+}
+.disclosure > summary > :is(h2, h3, h4) + :is(.t-meta, .badge, .gv-chip) { margin-left: auto; }
 
 /* ONE caret speed. Nine components had written this same transition privately at three
    different speeds (0.12s / 150ms / 200ms), so the identical gesture read differently

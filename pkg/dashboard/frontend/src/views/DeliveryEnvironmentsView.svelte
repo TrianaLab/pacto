@@ -443,7 +443,8 @@
   .ev-shadows-head { display: flex; align-items: center; gap: var(--sp-2); }
   .ev-shadows h2 { margin: 0; }
   .ev-shadow summary { display: flex; align-items: baseline; gap: var(--sp-2); cursor: pointer; }
-  .ev-shadow-title { margin: 0; font-size: var(--text-sm); font-weight: 600; }
+  .ev-shadow-title { margin: 0; }
+  .ev-detail-head .ev-shadow-title { font-size: var(--text-sm); font-weight: 600; }
   .ev-shadow[open] > :not(summary) { margin-top: var(--sp-2); }
   @media (max-width: 720px) {
     .ev-board .ev-table { min-width: 0 !important; }
