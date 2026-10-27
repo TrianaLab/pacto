@@ -107,8 +107,8 @@ push credentials. With an Ed25519 key the operator, which reads every Secret,
 can read the key too, so prefer a KMS key or keyless signing. It
 writes a signed record of every operation that ends, in order per Stage,
 attaches it to the versions and contract involved, confirms the Referrers API
-lists it and only then advances the Stage's stream. A record can be late, never
-skipped. It signs with an Ed25519 key, a KMS key or keyless through a projected
+lists it and only then advances the Stage's stream. A record can be late, and every
+operation that ends gets one. It signs with an Ed25519 key, a KMS key or keyless through a projected
 service account token, verifies each stream against its trust config before
 extending it, freezes a Stage whose stream is in conflict and can post a
 CDEvent per record. A record of an autonomy operation carries `outcome.level`
