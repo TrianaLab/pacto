@@ -103,6 +103,9 @@ type HistoryEntry struct {
 	Verification Verification `json:"verification,omitempty"`
 	Reason       string       `json:"reason,omitempty"`
 	Finished     string       `json:"finished,omitempty"`
+	// Since is when a change still in flight was last held for a person, or
+	// else when it was asked for: what a reader looks at while it waits.
+	Since string `json:"since,omitempty"`
 	// Kind is the record's kind (operation, unrecordable or gap); Record is
 	// its id. Both are empty for a line read from an Operation's status.
 	Kind   string `json:"kind,omitempty"`

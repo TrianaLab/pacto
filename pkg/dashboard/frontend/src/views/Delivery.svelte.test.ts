@@ -955,7 +955,7 @@ describe('history and published', () => {
   it('sums up every environment in one line each: newest change, how it ended, how many and a link to the rest', async () => {
     fns.history.mockResolvedValue({ ...listing, page: { total: 30, offset: 0, limit: 25 }, versions: { [D1]: '1.0.0', [D2]: '2.0.0' }, histories: [
       { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', source: 'records', verified: true, note: '', stage: { name: 'pay', pointer: D2, frozen: true },
-        entriesPage: { total: 40, offset: 0, limit: 1 }, problems: ['seq 2 is a gap'], unreadable: ['sha256:bad: not trusted here'],
+        entriesPage: { total: 40, offset: 0, limit: 1 }, problemCount: 1, unreadableCount: 1,
         entries: [{ seq: 40, operation: 'op40', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'bot', outcome: 'Succeeded', finished: '2026-10-21T11:00:00Z' }] },
       { namespace: 'test', asOf: listing.asOf, completeness: 'partial', source: 'status', note: '', stage: { name: 'pay' }, entries: [] },
     ] });

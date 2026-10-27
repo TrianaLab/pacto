@@ -125,7 +125,7 @@
             {#each histories as h (h.namespace + '/' + h.stage.name)}
               {@const en = h.entries?.[0]}
               {@const url = deliveryHistoryUrl({ namespace: h.namespace, stage: h.stage.name })}
-              {@const issues = (h.problems?.length ?? 0) + (h.unreadable?.length ?? 0)}
+              {@const issues = (h.problemCount ?? 0) + (h.unreadableCount ?? 0)}
               {@const total = h.entriesPage?.total ?? h.entries?.length ?? 0}
               <tr data-testid="history-stage-row" data-stage={`${h.namespace}/${h.stage.name}`}>
                 <th scope="row">
