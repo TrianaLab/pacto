@@ -293,6 +293,9 @@
   .hv-reason:hover, .hv-reason:focus-visible { -webkit-line-clamp: unset; line-clamp: none; }
   /* Who asked and the Agent chip share a line, so a row stays one line tall. */
   .hv-asked { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); min-width: 0; }
+  /* A very long login (an issuer URL and subject) wraps inside its cell instead of running over the next one. */
+  .hv-asked { overflow-wrap: anywhere; }
+  .hv-asked > :global(*) { min-width: 0; max-width: 100%; }
   .hv-nowrap { white-space: nowrap; }
   .hv-deciders { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .hv-undo-row td { background: var(--c-surface-inset); }
