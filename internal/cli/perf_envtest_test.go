@@ -114,11 +114,18 @@ type roundTrip func(*http.Request) (*http.Response, error)
 
 func (f roundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
+// wrap counts beneath every other wrapper, so an answer a client-side
+// cache served is not counted.
 func (c *counter) wrap(cfg *rest.Config) *rest.Config {
 	cfg = rest.CopyConfig(cfg)
-	cfg.Wrap(func(rt http.RoundTripper) http.RoundTripper {
-		return roundTrip(func(r *http.Request) (*http.Response, error) { c.n.Add(1); return rt.RoundTrip(r) })
-	})
+	outer := cfg.WrapTransport
+	cfg.WrapTransport = func(rt http.RoundTripper) http.RoundTripper {
+		rt = roundTrip(func(r *http.Request) (*http.Response, error) { c.n.Add(1); return rt.RoundTrip(r) })
+		if outer != nil {
+			rt = outer(rt)
+		}
+		return rt
+	}
 	return cfg
 }
 
@@ -403,7 +410,7 @@ func perfDashboard(t testing.TB, cp *controlPlane, cnt *counter, q *atomic.Point
 		registry: func(...string) app.DeliveryRegistry { return perfRegistry{} }, newClient: newClient, now: time.Now,
 		served:    func(*rest.Config, string) (bool, error) { return true, nil },
 		state:     func(ctx context.Context) authn.State { tok, _ := ctx.Value(perfTokenKey{}).(string); return authn.State{SignedIn: tok != "", Token: tok} },
-		revisions: map[string]delivery.Revision{}}
+		revisions: map[string]delivery.Revision{}, reads: newReadCache()}
 	id.viewer = authn.NewViewer(clusterReview(cp.config(cp.admin, 0), newClient))
 	o := dashboard.Options{UI: fstest.MapFS{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Fleet:     func(context.Context) (*fleet.Query, error) { return q.Load(), nil },

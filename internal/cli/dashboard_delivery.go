@@ -78,6 +78,8 @@ type dashboardIdentity struct {
 	revisions map[string]delivery.Revision
 	// streams keeps verified record streams across requests (see app.StreamCache).
 	streams app.StreamCache
+	// reads keeps each caller's apiserver reads for a moment (see readCache).
+	reads *readCache
 }
 
 // Discovery: an answer is kept a minute, a failure a few seconds, and no call
@@ -98,7 +100,7 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 	}
 	id := &dashboardIdentity{cluster: cluster, registry: d.newDeliveryRegistry, now: time.Now, served: d.served, state: authn.StateFrom,
 		newClient: d.dynamicFor, records: d.newRecordRepo, trust: trust,
-		revisions: map[string]delivery.Revision{}, policyNS: v.GetString("dashboard.delivery-namespace")}
+		revisions: map[string]delivery.Revision{}, policyNS: v.GetString("dashboard.delivery-namespace"), reads: newReadCache()}
 	switch issuer := v.GetString("dashboard.oidc-issuer-url"); {
 	case issuer != "":
 		o, err := authn.NewOIDC(authn.Config{IssuerURL: issuer, ClientID: v.GetString("dashboard.oidc-client-id"),
@@ -228,6 +230,8 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 		}
 		cfg = authn.RESTConfig(id.cluster, st.Token)
 	}
+	cfg = rest.CopyConfig(cfg)
+	cfg.Wrap(id.reads.wrap)
 	dyn, err := id.newClient(cfg)
 	if err != nil {
 		return nil, err
