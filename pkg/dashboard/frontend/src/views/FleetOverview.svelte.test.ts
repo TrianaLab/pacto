@@ -445,7 +445,7 @@ describe('FleetOverview — the answer line', () => {
     overviewFn.mockResolvedValue(ov);
     const { target, component } = mountView();
     await vi.waitFor(() => expect(answer(target)).not.toBe(''));
-    expect(answer(target)).toBe('Yes. 51 running targets break their contract. 48 of them run in prod.');
+    expect(answer(target)).toBe('Yes. 51 running targets break their contract. 48 of the targets that break their contract run in prod.');
     const rows = [...target.querySelectorAll('[data-testid="overview-by-scope"] tbody tr')].map((r) => [...r.children].map((c) => (c.textContent || '').trim()).join(' '));
     expect(rows).toEqual(['prod 120 48 2 1', 'staging 40 3 0 0']);
     const banner = target.querySelector('.knowledge') as HTMLElement;
@@ -458,7 +458,7 @@ describe('FleetOverview — the answer line', () => {
     overviewFn.mockResolvedValue(baseOverview(true));
     const { target, component } = mountView();
     await vi.waitFor(() => expect(answer(target)).not.toBe(''));
-    expect(answer(target)).toBe('Nothing broken found, but some data is missing.');
+    expect(answer(target)).toBe('Nothing broken found.');
     unmount(component); document.body.removeChild(target);
   });
 });
