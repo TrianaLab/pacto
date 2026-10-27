@@ -23,6 +23,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `controller.kernelEvidence.staleness` | `""` | How old a node's heartbeat may be before its evidence reads stale. Empty uses three times the node agent's publish interval. Accepts a Go duration (e.g. "2m"). |
 | `controller.stabilizationWindow` | `""` | Stabilization window: how long a sustained NEGATIVE observation must persist before it converts to a confirmed violation (a transient blip reads Unknown meanwhile). Empty string uses the controller default (2m). Accepts a Go duration (e.g. "30s", "5m"). |
 | `controller.watchNamespace` | `""` | Restrict the controller's observation scope to a single namespace. Empty string (default) means cluster-wide: the controller watches all namespaces. The dashboard inherits this scope automatically. |
+| `crds.install` | `true` | Install and upgrade the CRDs with the chart. They are kept on helm uninstall. Set false to manage them yourself, for example from a separate GitOps source; the operator needs them before it starts |
 | `dashboard.auth.deliveryNamespace` | `""` | Namespace where Pacto delivery runs. The dashboard reads the identity policy it publishes there (agent, break-glass and human groups, team prefix), so it is never configured twice (empty: `delivery.namespace` when `delivery.enabled`, else `pacto-delivery`) |
 | `dashboard.auth.oidc.clientID` | `""` | The dashboard's client id at the issuer |
 | `dashboard.auth.oidc.clientSecretRef.key` | `client-secret` | Key of the client secret in that Secret |
