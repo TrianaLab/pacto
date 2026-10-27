@@ -16,7 +16,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
   return {
     ...actual,
     api: {
-      session: () => fns.session(), deliveryInbox: () => fns.inbox(), deliveryEnvironments: () => fns.environments(),
+      session: () => fns.session(), deliveryInbox: () => fns.inbox(), deliveryEnvironments: (...a: unknown[]) => fns.environments(...a),
       deliveryPublished: () => fns.published(), deliveryHistory: (...a: unknown[]) => fns.history(...a),
       deliveryOperation: (...a: unknown[]) => fns.operation(...a), deliveryPlan: (...a: unknown[]) => fns.plan(...a),
       deliveryPropose: (...a: unknown[]) => fns.propose(...a), deliveryDecide: (...a: unknown[]) => fns.decide(...a),
@@ -296,7 +296,7 @@ describe('environments', () => {
   it('pages services, keeps every environment in promotion order and labels Stages that share a cell', async () => {
     const row = (service: string, environment: string, stage: string) => ({ namespace: environment, stage, service, environment, verified: false, failed: false,
       frozen: false, autoHold: false, held: 0, actions: [], ready: 'False: NoCandidateSource', readyMessage: 'the Stage names no candidates' });
-    fns.environments.mockResolvedValue({ ...listing, page: { total: 400, offset: 25, limit: 25 }, environmentNames: ['prod', 'env-10', 'test', 'env-2'],
+    fns.environments.mockResolvedValue({ ...listing, page: { total: 400, offset: 25, limit: 25 }, environmentNames: ['test', 'prod', 'env-2', 'env-10'],
       environments: [row('payments', 'prod', 'pay-a'), row('payments', 'prod', 'pay-b')] });
     const { target, destroy } = render(DeliveryEnvironmentsView, { offset: '25', q: 'pay' });
     await settle();
@@ -328,13 +328,115 @@ describe('environments', () => {
     more.click();
     await settle();
     expect(target.querySelectorAll('[data-testid="shadow"]').length).toBe(8);
+    // Picking an environment asks the server again, by URL.
     const pick = target.querySelector('.ev-tools select') as HTMLSelectElement;
     pick.value = 'prod';
     pick.dispatchEvent(new Event('change', { bubbles: true }));
-    await settle();
-    expect([...target.querySelectorAll('[data-testid="environments-board"] thead th')].map((t) => t.textContent)).toEqual(['Service', 'prod']);
-    expect(target.querySelectorAll('[data-testid="shadow"]').length).toBe(1);
+    expect(location.hash).toBe('#/delivery/environments?environment=prod');
     destroy();
+    const narrowed = render(DeliveryEnvironmentsView, { environment: 'prod' });
+    await settle();
+    expect(fns.environments).toHaveBeenLastCalledWith(expect.objectContaining({ environment: 'prod', tier: undefined }));
+    expect([...narrowed.target.querySelectorAll('[data-testid="environments-board"] thead th')].map((t) => t.textContent)).toEqual(['Service', 'prod']);
+    expect(narrowed.target.querySelectorAll('[data-testid="shadow"]').length).toBe(1);
+    narrowed.destroy();
+  });
+
+  it('shows many environments as a strip of dots that open the full cell, with no sideways scroll', async () => {
+    const envs = ['dev', 'test', 'qa', 'staging', 'preprod', 'prod-eu', 'prod-us', 'books'];
+    const tiers = { dev: 'dev', test: 'test', qa: 'test', staging: 'test', preprod: 'test', 'prod-eu': 'prod', 'prod-us': 'prod' };
+    const r = (service: string, environment: string, over = {}) => ({ namespace: environment, stage: `${service}-${environment}`, service, environment, pointer: D1, version: '1.0.0',
+      verified: true, failed: false, frozen: false, autoHold: false, held: 0, actions: [], ...over });
+    fns.environments.mockResolvedValue({ ...listing, environmentNames: envs, environmentTiers: tiers, page: { total: 2, offset: 0, limit: 25 }, environments: [
+      r('payments', 'dev'), r('payments', 'test', { held: 2 }), r('payments', 'qa', { pointer: '', version: '', verified: false }),
+      r('payments', 'prod-eu', { frozen: true, frozenReason: 'Errored', actions: ['unfreeze'], ready: 'False: Frozen', readyMessage: 'a person froze it after a long incident' }),
+      r('payments', 'prod-us', { failed: true, verified: false }), r('payments', 'books', { autoHold: true }), r('payments', 'books', { stage: 'other', verified: false }),
+      r('ledger', 'staging', { verified: false }),
+    ] });
+    fns.plan.mockResolvedValue({ intentDigest: 'sha256:u', type: 'delivery.pacto.trianalab.io/unfreeze', predicted: 'Proceeds' });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const board = target.querySelector('[data-testid="environments-board"]') as HTMLElement;
+    expect(board.classList.contains('ev-strip')).toBe(true);
+    expect(board.style.minWidth).toBe('');
+    expect([...board.querySelectorAll('thead .ev-group-head')].map((g) => g.textContent)).toEqual(['dev', 'test', 'prod', 'other']);
+    expect(text(target.querySelector('[data-testid="environments-legend"]') as HTMLElement)).toContain('Dots run dev, test, prod and other, left to right.');
+    const pay = target.querySelector('[data-testid="env-row-payments"]') as HTMLElement;
+    const dots = [...pay.querySelectorAll('button[data-testid="env-dot"]')] as HTMLButtonElement[];
+    expect(dots.map((d) => `${d.dataset.env}:${d.className.match(/s-(\w+)/)?.[1]}`)).toEqual(
+      ['dev:verified', 'test:waiting', 'qa:empty', 'prod-eu:frozen', 'prod-us:failed', 'books:autohold']);
+    expect(pay.querySelectorAll('.ev-dot.s-none').length).toBe(2);
+    expect(dots[5].getAttribute('aria-label')).toBe('books: 1.0.0, 1.0.0. Auto-hold (2 Stages)');
+    expect(dots[2].title).toBe('qa: Nothing yet');
+    expect(dots.map((d) => d.tabIndex)).toEqual([0, -1, -1, -1, -1, -1]);
+    expect(text(pay.querySelector('[data-testid="env-summary"]') as HTMLElement).trim()).toBe('1 failed1 frozen1 auto-hold1 waiting1 nothing yet1 verified');
+    const ledger = target.querySelector('[data-testid="env-row-ledger"]') as HTMLElement;
+    expect([...ledger.querySelectorAll('button[data-testid="env-dot"]')].map((d) => (d as HTMLButtonElement).tabIndex)).toEqual([0]);
+    // The arrow keys walk the dots; one tab stop per row.
+    const bar = pay.querySelector('[role="toolbar"]') as HTMLElement;
+    dots[0].focus();
+    bar.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
+    expect(document.activeElement).toBe(dots[1]);
+    bar.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true }));
+    expect(document.activeElement).toBe(dots[5]);
+    bar.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+    expect(document.activeElement).toBe(dots[0]);
+    bar.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
+    expect(document.activeElement).toBe(dots[0]);
+    bar.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+    expect(document.activeElement).toBe(dots[0]);
+    // A dot opens the whole cell under its row, reasons in full, with its actions.
+    dots[3].click();
+    await settle();
+    let detail = target.querySelector('[data-testid="env-detail"]') as HTMLElement;
+    expect(dots[3].getAttribute('aria-expanded')).toBe('true');
+    expect(dots[3].getAttribute('aria-controls')).toBe('ev-detail-payments');
+    expect(text(detail)).toContain('payments in prod-eu');
+    expect(text(detail)).toContain('Frozen: Errored.');
+    expect(text(detail)).toContain('Cannot promote: A person froze it after a long incident.');
+    (detail.querySelector('button[aria-label="Unfreeze payments in prod-eu"]') as HTMLButtonElement).click();
+    await settle();
+    expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod-eu', stage: 'payments-prod-eu', type: 'delivery.pacto.trianalab.io/unfreeze' });
+    expect(target.querySelector('[data-testid="propose-panel"]')).not.toBeNull();
+    dots[3].click();
+    await settle();
+    expect(target.querySelector('[data-testid="env-detail"]')).toBeNull();
+    dots[5].click();
+    await settle();
+    detail = target.querySelector('[data-testid="env-detail"]') as HTMLElement;
+    expect([...detail.querySelectorAll('.ev-stage')].map((e) => e.textContent)).toEqual(['books/payments-books', 'books/other']);
+    (detail.querySelector('button[aria-label="Close payments in books"]') as HTMLButtonElement).click();
+    await settle();
+    expect(target.querySelector('[data-testid="env-detail"]')).toBeNull();
+    // Tier and environment filters ask the server, and clear each other.
+    const [tierPick, envPick] = [...target.querySelectorAll('.ev-tools select')] as HTMLSelectElement[];
+    expect([...tierPick.options].map((o) => o.value)).toEqual(['', 'dev', 'test', 'prod']);
+    tierPick.value = 'prod';
+    tierPick.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/delivery/environments?tier=prod');
+    envPick.value = 'qa';
+    envPick.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/delivery/environments?environment=qa');
+    destroy();
+    // A tier narrows the columns to its environments: two fit the board.
+    const prod = render(DeliveryEnvironmentsView, { tier: 'prod', q: 'pay' });
+    await settle();
+    expect(fns.environments).toHaveBeenLastCalledWith(expect.objectContaining({ tier: 'prod', q: 'pay' }));
+    expect([...prod.target.querySelectorAll('[data-testid="environments-board"] thead th')].map((t) => t.textContent)).toEqual(['Service', 'prod-eu', 'prod-us']);
+    expect(prod.target.querySelector('[data-testid="environments-pager"]')).not.toBeNull();
+    prod.destroy();
+  });
+
+  it('says what the environment and tier filters left out', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environmentNames: ['test', 'prod'], environmentTiers: { test: 'test', prod: 'prod' }, environments: [] });
+    const a = render(DeliveryEnvironmentsView, { environment: 'prod' });
+    await settle();
+    expect(text(a.target.querySelector('[data-testid="environments-empty"]') as HTMLElement)).toContain('No service you can see has a Stage in prod.');
+    a.destroy();
+    const b = render(DeliveryEnvironmentsView, { tier: 'dev', q: 'x' });
+    await settle();
+    expect(text(b.target.querySelector('[data-testid="environments-empty"]') as HTMLElement)).toContain('No service you can see matches “x” has a Stage in a dev environment.');
+    b.destroy();
   });
 
   it('says when there is no Stage', async () => {
