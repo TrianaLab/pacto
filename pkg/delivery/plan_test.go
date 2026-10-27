@@ -740,7 +740,7 @@ func TestPlanHoldsAVersionThatChangedAPinnedSuite(t *testing.T) {
 		held string
 	}{
 		{suiteDigest, fstest.MapFS{"evals/suite.yaml": {Data: []byte("cases: []\n")}}, ""},
-		{other, fstest.MapFS{"evals/suite.yaml": {Data: []byte("cases: []\n")}}, "the version changed its own exam"},
+		{other, fstest.MapFS{"evals/suite.yaml": {Data: []byte("cases: []\n")}}, "the version changed the suite that judges it"},
 		{other, nil, "pins its suite, but the bundle"},
 	} {
 		to.Bundle.FS = tc.fs

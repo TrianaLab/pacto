@@ -157,7 +157,7 @@ func TestDeliveryUndoPrintsThePlanAndProposesNothing(t *testing.T) {
 		{"text", []string{"undo", "-n", "prod", "older"}, false, []string{"undo prod/older: promote", "intent:", "nothing was proposed",
 			"pacto delivery propose -n prod --stage payments-prod --type promote --to " + cliB}},
 		{"text", []string{"undo", "-n", "prod", "held"}, false, []string{"moved nothing"}},
-		{"text", []string{"blame", "-n", "prod", "--stage", "payments-prod"}, false, []string{"unknown, not nobody"}},
+		{"text", []string{"blame", "-n", "prod", "--stage", "payments-prod"}, false, []string{"cannot say who moved it"}},
 		{"text", []string{"blame", "-n", "prod", "--stage", "missing"}, true, nil},
 		{"text", []string{"undo", "-n", "prod", "missing", "--stage", "missing"}, true, nil},
 	})

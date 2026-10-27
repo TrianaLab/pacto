@@ -339,13 +339,13 @@ func ownerGate(in PlanInput, p *Plan) {
 // Stage's checks runs: the check could never pass on it, so a person decides
 // whether it ships unverified rather than the promoter failing or passing it.
 // It also holds, on every level and whoever raised it, a version that changes
-// the suites it ships (any checks change the diff saw): a version never
-// grades its own exam, so a person reviews the new one.
+// the suites it ships (any checks change the diff saw): a person reviews
+// the new checks before they judge the version that ships them.
 func suitesGate(in PlanInput, p *Plan) {
 	var missing []string
 	if i := slices.IndexFunc(p.Verdicts, func(v Verdict) bool { return v.Gate == GateDiff }); i >= 0 && p.Verdicts[i].Citation["checks"] != "" {
 		missing = append(missing, short(p.To)+" changes the checks it is verified by ("+p.Verdicts[i].Citation["checks"]+
-			"), and a version never grades its own exam, so a person reviews the change")
+			"), so a person reviews the new checks before they judge it")
 	}
 	checks := in.To.Bundle.Contract.Checks
 	for _, c := range in.Stage.Gates.Verify.Checks {

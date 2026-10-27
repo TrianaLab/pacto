@@ -263,7 +263,7 @@ func TestBlameOfAVersionNeverMovedTo(t *testing.T) {
 	}
 	e.d.Trust = nil
 	b, _ = e.d.Blame(ctx, "prod", "payments-prod", dlE)
-	if !strings.Contains(b.Note, "unknown, not nobody") {
+	if !strings.Contains(b.Note, "cannot say who moved it") {
 		t.Fatalf("blame on a partial history = %+v", b)
 	}
 	if _, err := e.d.Blame(ctx, "prod", "missing", ""); err == nil {

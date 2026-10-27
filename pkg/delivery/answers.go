@@ -211,7 +211,7 @@ func noChange(b *Blame, entries []HistoryEntry) {
 		b.Note = "no change in the stream moved the Stage to " + b.Digest
 	default:
 		b.Note = "no change Pacto could read moved the Stage to " + b.Digest + ", and the history is partial, " +
-			"so who did it is unknown, not nobody"
+			"so it cannot say who moved it"
 	}
 }
 
