@@ -236,7 +236,8 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	for i := range page {
 		on = append(on, digestsOn{&page[i], []string{page[i].Status.Pointer, page[i].Status.Candidate}})
 	}
-	vers := versionsAll(ctx, api, nil, on...)
+	teams := map[string]string{}
+	vers := versionsAll(ctx, api, nil, teams, on...)
 	for i, it := range b.Held {
 		if byStage[it.Namespace+"/"+it.Stage] != nil {
 			b.Held[i].FromVersion, b.Held[i].ToVersion = vers[it.From], vers[it.To]
@@ -244,7 +245,7 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	}
 	b.Frozen = []EnvironmentRow{}
 	for _, st := range page {
-		b.Frozen = append(b.Frozen, environmentRow(st, nil, caller, vers))
+		b.Frozen = append(b.Frozen, environmentRow(st, nil, caller, vers, teams))
 	}
 	b.Errored, b.ErroredPage = pageOf(errored, in.Errored, in.Limit, inboxPage)
 	return out, nil
@@ -327,8 +328,9 @@ type EnvironmentRow struct {
 }
 
 // environmentRow is one Stage as the board shows it; held counts the held
-// operations by namespace/Stage and vers names the versions of digests.
-func environmentRow(st delivery.StageObject, held map[string]int, caller delivery.Caller, vers map[string]string) EnvironmentRow {
+// operations by namespace/Stage, vers names the versions of digests and teams
+// the owner their contracts declare.
+func environmentRow(st delivery.StageObject, held map[string]int, caller delivery.Caller, vers, teams map[string]string) EnvironmentRow {
 	ss := st.Status
 	row := EnvironmentRow{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Service: st.Spec.Service.Name, Environment: st.Spec.Environment,
 		Pointer: ss.Pointer, Verified: slices.Contains(ss.Verified, ss.Pointer), Failed: slices.Contains(ss.FailedDigests, ss.Pointer),
@@ -352,10 +354,25 @@ func environmentRow(st delivery.StageObject, held map[string]int, caller deliver
 	if delivery.MayRaise(delivery.TypePromote, caller.Class, false) && ss.Candidate != "" && ss.Candidate != ss.Pointer {
 		row.Actions = append(row.Actions, "promote")
 	}
-	if (ss.Frozen || ss.AutoHold) && delivery.MayRaise(delivery.TypeUnfreeze, caller.Class, false) {
+	if (ss.Frozen || ss.AutoHold) && delivery.MayRaise(delivery.TypeUnfreeze, caller.Class, false) && mayUnfreeze(caller, teams[ss.Pointer]) {
 		row.Actions = append(row.Actions, "unfreeze")
 	}
 	return row
+}
+
+// mayUnfreeze is the promoter's admission rule for an unfreeze, so the board
+// never offers one it would refuse: a person unfreezes only a Stage whose
+// running contract names their team (Policy.InTeams); with no team named or
+// readable, anyone, or nobody with RequireOwnerTeam. Break-glass may always.
+func mayUnfreeze(caller delivery.Caller, team string) bool {
+	if caller.Class != delivery.ClassHuman {
+		return true
+	}
+	var teams []string
+	if team != "" {
+		teams = []string{team}
+	}
+	return caller.Policy.InTeams(caller.Groups, teams)
 }
 
 // environmentsPage is how many services one page of the board holds.
@@ -417,9 +434,10 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	for i := range shown {
 		on = append(on, digestsOn{&shown[i], []string{shown[i].Status.Pointer, shown[i].Status.Candidate}})
 	}
-	vers := versionsAll(ctx, api, nil, on...)
+	teams := map[string]string{}
+	vers := versionsAll(ctx, api, nil, teams, on...)
 	for _, st := range shown {
-		out.Body.Environments = append(out.Body.Environments, environmentRow(st, held, caller, vers))
+		out.Body.Environments = append(out.Body.Environments, environmentRow(st, held, caller, vers, teams))
 	}
 	slices.SortFunc(out.Body.Environments, func(a, b EnvironmentRow) int {
 		return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Environment, b.Environment), cmp.Compare(a.Namespace, b.Namespace))
@@ -655,7 +673,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 		}
 		out.Body.Histories = append(out.Body.Histories, sh)
 	}
-	versionsAll(ctx, api, out.Body.Versions, on...)
+	versionsAll(ctx, api, out.Body.Versions, nil, on...)
 	out.Body.People = s.named(actors...)
 	return out, nil
 }
@@ -683,7 +701,7 @@ func historiesOf(ctx context.Context, api DeliveryAPI, targets []delivery.StageO
 // ponytail: a digest that cannot be read is asked again each time it is
 // named; the host caches only what it read.
 func versions(ctx context.Context, api DeliveryAPI, stage *delivery.StageObject, into map[string]string, digests ...string) map[string]string {
-	return versionsAll(ctx, api, into, digestsOn{stage, digests})
+	return versionsAll(ctx, api, into, nil, digestsOn{stage, digests})
 }
 
 // digestsOn are digests to read from one Stage's artifacts.
@@ -693,8 +711,9 @@ type digestsOn struct {
 }
 
 // versionsAll is versions for the digests of many Stages, all read at once:
-// a page that asked Stage by Stage read two artifacts at a time.
-func versionsAll(ctx context.Context, api DeliveryAPI, into map[string]string, on ...digestsOn) map[string]string {
+// a page that asked Stage by Stage read two artifacts at a time. A non-nil
+// teams gets the owner each read contract declares (Owner.DisplayString).
+func versionsAll(ctx context.Context, api DeliveryAPI, into, teams map[string]string, on ...digestsOn) map[string]string {
 	if into == nil {
 		into = map[string]string{}
 	}
@@ -711,6 +730,9 @@ func versionsAll(ctx context.Context, api DeliveryAPI, into map[string]string, o
 	for i, d := range ask {
 		if v := version(ctx, revs[i]); v != "" {
 			into[d] = v
+			if teams != nil {
+				teams[d] = revs[i].Bundle.Contract.Service.Owner.DisplayString()
+			}
 		}
 	}
 	return into

@@ -13,8 +13,8 @@ import (
 
 func TestTier0Types(t *testing.T) {
 	ts := Types()
-	if len(ts) != 6 {
-		t.Fatalf("want the four Tier 0 types, freeze and autonomy, got %d", len(ts))
+	if len(ts) != 7 {
+		t.Fatalf("want the four Tier 0 types, freeze, autonomy and acknowledge, got %d", len(ts))
 	}
 	ts[0].ID = "mutated"
 	if p, _ := TypeByID(TypePromote); p.ID != TypePromote {
@@ -54,6 +54,10 @@ func TestMayRaise(t *testing.T) {
 		{TypeOverride, ClassBreakGlass, true, false},
 		{TypeUnfreeze, ClassAgent, false, false},
 		{TypeUnfreeze, ClassHuman, false, true},
+		{TypeAcknowledge, ClassHuman, false, true},
+		{TypeAcknowledge, ClassBreakGlass, false, true},
+		{TypeAcknowledge, ClassAgent, false, false},
+		{TypeAcknowledge, ClassController, false, false},
 		{TypeFreeze, ClassAgent, false, false},
 		{TypeFreeze, ClassHuman, false, true},
 		{TypeFreeze, ClassController, false, true},
@@ -113,6 +117,43 @@ func TestOwnerTeamAndHumanGroups(t *testing.T) {
 		if got := pol.IsHuman(c.id); got != c.human {
 			t.Errorf("%s: IsHuman = %v, want %v", name, got, c.human)
 		}
+	}
+}
+
+// TestAdmitAcknowledge: an acknowledge needs a Stage that follows records
+// from another cluster, a record id and a reason; other types pass through.
+func TestAdmitAcknowledge(t *testing.T) {
+	follows := StageSpec{Candidates: Candidates{UpstreamRecords: &RemoteStage{Stream: "c2/prod/payments", Repository: "reg/streams"}}}
+	rec := "sha256:" + strings.Repeat("a", 64)
+	for want, c := range map[string]struct {
+		spec  OperationSpec
+		stage StageSpec
+	}{
+		"":                  {OperationSpec{Type: TypeAcknowledge, Reason: "checked", Params: Params{Record: rec}}, follows},
+		" ":                 {OperationSpec{Type: TypeUnfreeze}, StageSpec{}},
+		"NoUpstreamRecords": {OperationSpec{Type: TypeAcknowledge, Reason: "checked", Params: Params{Record: rec}}, StageSpec{}},
+		"InvalidRecord":     {OperationSpec{Type: TypeAcknowledge, Reason: "checked", Params: Params{Record: "seq 2"}}, follows},
+		"ReasonRequired":    {OperationSpec{Type: TypeAcknowledge, Reason: "  ", Params: Params{Record: rec}}, follows},
+	} {
+		got := AdmitAcknowledge(c.spec, c.stage)
+		if strings.TrimSpace(want) == "" && got != "" || !strings.HasPrefix(got, strings.TrimSpace(want)) {
+			t.Errorf("%q: %q", want, got)
+		}
+	}
+	p := PlanFor(context.Background(), PlanInput{Spec: OperationSpec{Type: TypeAcknowledge, Facet: FacetUpstream, Params: Params{Record: rec}}, Stage: follows, Class: ClassHuman})
+	if p.Predicted != PredictRejected || !strings.HasPrefix(p.Conflicts[0], "ReasonRequired") {
+		t.Fatalf("the plan predicts the refusal: %+v", p)
+	}
+	p = PlanFor(context.Background(), PlanInput{Spec: OperationSpec{Type: TypeAcknowledge, Facet: FacetUpstream, Reason: "checked", Params: Params{Record: rec}}, Stage: follows, Class: ClassHuman})
+	if p.Predicted != PredictProceeds || p.Floor.Human {
+		t.Fatalf("an acknowledge needs nobody else: %+v", p)
+	}
+}
+
+func TestPlanGatesKeepsOnlyEvalProviders(t *testing.T) {
+	g := ClassPolicy{GateProviders: map[string]string{"evals": ProviderEval, "mira": ProviderMira}}.PlanGates()
+	if _, eval := g["evals"].(Eval); !eval || len(g) != 1 {
+		t.Fatalf("plan gates %v", g)
 	}
 }
 

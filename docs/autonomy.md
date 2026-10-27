@@ -43,8 +43,10 @@ Once Pacto moves versions, the safety rules hold on every rung. A change that
 would break a consumer waits for that consumer's team, and one that breaks
 consumers of several teams waits for all of them. So does a rollback a person
 or agent asks for to a version a consumer has moved past. A version that
-changes `service.owner` waits for the team that owns the service now, so the
-author of a version never picks who approves it. When the running contract
+changes who owns the service (the team, or the DRI when no team is named)
+waits for the team that owns the service now, so the author of a version never
+picks who approves it. A version that only edits the owner's contacts does not
+wait. When the running contract
 cannot be read, no team is asked, and only break-glass can answer if the
 promoter requires an owner team. A change with an Unknown check waits for the
 team that owns the service. The rung only decides how often a person is asked

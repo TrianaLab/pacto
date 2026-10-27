@@ -14,6 +14,7 @@ describe('delivery labels', () => {
     // The CRD, the CLI and the docs say freeze; so does the dashboard.
     expect(typeLabel('delivery.pacto.trianalab.io/unfreeze')).toBe('Unfreeze');
     expect(typeLabel('delivery.pacto.trianalab.io/freeze')).toBe('Freeze');
+    expect(typeLabel('delivery.pacto.trianalab.io/acknowledge')).toBe('Acknowledge upstream');
     expect(typeLabel('example.com/migrate')).toBe('example.com/migrate');
     expect(typeLabel(undefined)).toBe('Change');
     expect(decisionLabel('accept-unknown')).toBe('Accept the unknown');

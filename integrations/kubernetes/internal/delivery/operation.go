@@ -200,6 +200,10 @@ func (r *OperationReconciler) pending(ctx context.Context, op *dv1.Operation, st
 	if op.Spec.Facet == delivery.FacetFreeze {
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified, reason: "Unfrozen: automation may move the Stage again"})
 	}
+	if op.Spec.Facet == delivery.FacetUpstream {
+		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified,
+			reason: "Acknowledged: the upstream stand-in " + op.Spec.Params.Record + " no longer stops " + stage.Name + " offering versions"})
+	}
 	plan, err := r.plan(ctx, op, stage)
 	if err != nil {
 		return reconcile.Result{}, err

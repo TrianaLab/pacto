@@ -463,7 +463,7 @@ func TestVerifyRecordsUnrecordable(t *testing.T) {
 	e.setStream(map[string]any{"stream": map[string]any{"id": recStream, "seq": int64(2), "recordedSeq": int64(2), "head": r2,
 		"anchor": deliveryrecord.AnchorRef(e.host+"/delivery/streams", recStream)}})
 	v, err := e.d.VerifyRecords(context.Background(), "prod", "payments-prod")
-	if err != nil || v.OK || len(v.Problems) != 1 || !strings.Contains(v.Problems[0], "seq 2 (ship-rollback) is an unrecordable stand-in") {
+	if err != nil || v.OK || len(v.Problems) != 1 || !strings.Contains(v.Problems[0], "seq 2 (ship-rollback, record "+r2+") is an unrecordable stand-in") {
 		t.Fatalf("verification = %+v %v", v, err)
 	}
 }

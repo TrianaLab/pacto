@@ -93,7 +93,8 @@ type PlanInput struct {
 	Candidates func(ctx context.Context, stage StageObject, digest string) Revision
 	// Gates are the promoter's gate providers, like RequireOwnerTeam
 	// promoter configuration: the suites pre-gate reads which checks run on
-	// an eval provider. Nil, as a client plans, sees none.
+	// an eval provider. A client plans with ClassPolicy.PlanGates, the types
+	// the chart publishes; nil sees none.
 	Gates map[string]Gate
 }
 
@@ -183,7 +184,7 @@ func refusal(in PlanInput) string {
 	case in.Spec.Type == TypePromote && slices.Contains(in.Status.FailedDigests, in.Spec.Params.To):
 		return "FailedDigest: " + in.Spec.Params.To + " is one of the last 50 versions that failed on this Stage, which are never promoted again"
 	}
-	return ""
+	return AdmitAcknowledge(in.Spec, in.Stage)
 }
 
 // holdForRecords asks a person to approve a promote or rollback an agent or
@@ -487,13 +488,15 @@ func diffGate(ctx context.Context, in PlanInput) Verdict {
 		v.Citation["checks"] = strings.Join(suites, "; ")
 	}
 	// Who owns the service changed: ownerGate asks the team that owns it now.
-	var owner []string
-	for _, c := range d.Changes {
-		if strings.HasPrefix(c.Path, "service.owner") {
-			owner = append(owner, c.Path)
+	// Only the owner Pacto asks counts (Owner.DisplayString); a contacts-only
+	// edit, or a DRI edit under an unchanged team, routes nothing elsewhere.
+	if old, nu := from.Bundle.Contract.Service.Owner.DisplayString(), to.Bundle.Contract.Service.Owner.DisplayString(); old != nu {
+		var owner []string
+		for _, c := range d.Changes {
+			if strings.HasPrefix(c.Path, "service.owner") {
+				owner = append(owner, c.Path)
+			}
 		}
-	}
-	if len(owner) > 0 {
 		v.Citation["owner"] = strings.Join(owner, ", ")
 	}
 	v.Message = fmt.Sprintf("%s: %d contract changes", d.Classification, len(d.Changes))

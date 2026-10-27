@@ -6,11 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// Operation type ids: the four Tier 0 types, freeze and autonomy.
+// Operation type ids: the four Tier 0 types, freeze, autonomy and acknowledge.
 const (
 	TypePromote  = "delivery.pacto.trianalab.io/promote"
 	TypeRollback = "delivery.pacto.trianalab.io/rollback"
@@ -18,6 +19,9 @@ const (
 	TypeUnfreeze = "delivery.pacto.trianalab.io/unfreeze"
 	TypeFreeze   = "delivery.pacto.trianalab.io/freeze"
 	TypeAutonomy = "delivery.pacto.trianalab.io/autonomy"
+	// TypeAcknowledge accepts one unrecordable stand-in in the upstream
+	// stream a Stage follows, so the Stage offers versions again.
+	TypeAcknowledge = "delivery.pacto.trianalab.io/acknowledge"
 )
 
 // Gate ids.
@@ -171,6 +175,41 @@ var tier0 = []OperationType{
 		ApprovalDeadline:  defaultApprovalDeadline,
 		ExecutionDeadline: defaultExecutionDeadline,
 	},
+	{
+		ID: TypeAcknowledge, Version: "1.0.0", Facet: FacetUpstream,
+		Description:       "Acknowledge one unrecordable stand-in in the upstream stream this Stage follows, after a person checked what the operation did upstream, so the Stage offers versions again. It needs a reason, and the record keeps who acknowledged which stand-in.",
+		Params:            []string{"record"},
+		Raisers:           []ActorClass{ClassHuman, ClassBreakGlass},
+		PreGates:          []string{},
+		VerifyGates:       []string{},
+		ApprovalFloor:     "none; only a person of the team of the service running on the Stage, or break-glass",
+		Cancellable:       "until it applies",
+		ApprovalDeadline:  defaultApprovalDeadline,
+		ExecutionDeadline: defaultExecutionDeadline,
+	},
+}
+
+// AdmitAcknowledge says why an acknowledge cannot be admitted on a Stage, or
+// "": the Stage must follow records from another cluster, the record must be
+// a record id and a person must say why. Who may raise it is MayRaise and,
+// for a person, the team rule the promoter applies at admission.
+func AdmitAcknowledge(spec OperationSpec, stage StageSpec) string {
+	switch {
+	case spec.Type != TypeAcknowledge:
+		return ""
+	case stage.Candidates.UpstreamRecords == nil:
+		return "NoUpstreamRecords: " + spec.Stage + " does not follow the records of a Stage in another cluster, so it has no stand-in to acknowledge"
+	case !validRecordID(spec.Params.Record):
+		return "InvalidRecord: record must be the sha256 id of the upstream stand-in, not " + strconv.Quote(spec.Params.Record)
+	case strings.TrimSpace(spec.Reason) == "":
+		return "ReasonRequired: say what you checked upstream, for the record"
+	}
+	return ""
+}
+
+func validRecordID(id string) bool {
+	_, err := ParseDigest(id)
+	return err == nil
 }
 
 // Types returns the operation types.
@@ -228,6 +267,23 @@ type ClassPolicy struct {
 	// none of them is an agent. Empty classifies by AgentGroups alone, so an
 	// agent identity left out of every agent group counts as a person.
 	HumanGroups []string `json:"humanGroups,omitempty"`
+	// GateProviders names the type of each gate provider the chart
+	// configures (delivery.gates.providers), never its URL or signers, so a
+	// client's plan reads which checks run on an eval provider as the
+	// promoter's does.
+	GateProviders map[string]string `json:"gateProviders,omitempty"`
+}
+
+// PlanGates is GateProviders as PlanInput.Gates: planning only asks a
+// provider's type, so each eval provider is an Eval that is never run.
+func (p ClassPolicy) PlanGates() map[string]Gate {
+	gates := map[string]Gate{}
+	for name, typ := range p.GateProviders {
+		if typ == ProviderEval {
+			gates[name] = Eval{}
+		}
+	}
+	return gates
 }
 
 // PolicyConfigMap is the ConfigMap, in delivery.namespace, that

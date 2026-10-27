@@ -227,7 +227,7 @@ func (d *Delivery) Plan(ctx context.Context, req delivery.Request) (delivery.Pla
 	if err != nil {
 		return delivery.Plan{}, delivery.OperationSpec{}, err
 	}
-	in.RequireOwnerTeam = caller.Policy.RequireOwnerTeam
+	in.RequireOwnerTeam, in.Gates = caller.Policy.RequireOwnerTeam, caller.Policy.PlanGates()
 	plan := delivery.PlanFor(ctx, in)
 	if spec.Facet == delivery.FacetPointer && spec.Params.To != "" {
 		plan.Precedent = d.precedent(ctx, stage, spec.Params.To)
@@ -282,7 +282,7 @@ func (p planSources) Upstream(ctx context.Context, stage delivery.StageObject) (
 		}
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		s, why := deliveryrecord.Upstream(ctx, repo, r.Stream, d.verifier(), stage.Status.UpstreamSeen)
+		s, why := deliveryrecord.Upstream(ctx, repo, r.Stream, d.verifier(), stage.Status.UpstreamSeen, stage.Status.UpstreamAcknowledged)
 		return s, why, nil
 	}
 	up := stage.Spec.Candidates.UpstreamStage
@@ -328,6 +328,8 @@ func (d *Delivery) spec(ctx context.Context, req delivery.Request, stage *delive
 		spec.Params = delivery.Params{From: cited.Status.Pointer.After, To: cited.Status.Pointer.Before, Undoes: cited.Metadata.UID}
 	case typ == delivery.TypeFreeze:
 		spec.Params = delivery.Params{From: stage.Status.Pointer}
+	case typ == delivery.TypeAcknowledge:
+		spec.Params = delivery.Params{Record: req.Record}
 	case t.Facet == delivery.FacetRung:
 		// --to names the rung; from is the rung the Stage is on now.
 		spec.Params = delivery.Params{From: string(delivery.CurrentRung(stage.Spec, stage.Status)), To: req.To}

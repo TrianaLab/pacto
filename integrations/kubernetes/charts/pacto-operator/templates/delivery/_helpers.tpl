@@ -110,7 +110,12 @@ every client (CLI, MCP server, dashboard) reads from the published ConfigMap.
 */}}
 {{- define "pacto-operator.delivery.identitiesJSON" -}}
 {{- $i := .Values.delivery.identities -}}
-{{- dict "agentGroups" $i.agentGroups "breakGlassGroups" $i.breakGlassGroups "teamGroupPrefix" $i.teamGroupPrefix "requireOwnerTeam" $i.requireOwnerTeam "humanGroups" ($i.humanGroups | default list) | toJson -}}
+{{- $p := dict "agentGroups" $i.agentGroups "breakGlassGroups" $i.breakGlassGroups "teamGroupPrefix" $i.teamGroupPrefix "requireOwnerTeam" $i.requireOwnerTeam "humanGroups" ($i.humanGroups | default list) -}}
+{{- /* Each gate provider's type, never its URL or signers: a client plans with them. */ -}}
+{{- $types := dict -}}
+{{- range .Values.delivery.gates.providers }}{{ $_ := set $types .name .type }}{{ end -}}
+{{- if $types }}{{ $_ := set $p "gateProviders" $types }}{{ end -}}
+{{- $p | toJson -}}
 {{- end }}
 
 {{/*

@@ -34,8 +34,10 @@ type Request struct {
 	Type string `json:"type,omitempty"`
 	To   string `json:"to,omitempty"`
 	// From defaults to the Stage's current pointer.
-	From       string `json:"from,omitempty"`
-	Undoes     string `json:"undoes,omitempty"`
+	From   string `json:"from,omitempty"`
+	Undoes string `json:"undoes,omitempty"`
+	// Record is the id of the upstream stand-in an acknowledge accepts.
+	Record     string `json:"record,omitempty"`
 	Reason     string `json:"reason,omitempty"`
 	OnBehalfOf string `json:"onBehalfOf,omitempty"`
 	// Cause is why, when it is a verdict the caller cites: the promoter runs

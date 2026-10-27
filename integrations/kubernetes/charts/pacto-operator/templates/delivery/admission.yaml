@@ -19,8 +19,9 @@ and could remove these policies anyway, so refusing it guards nothing. */}}
 {{- $unenrolled = printf " ||\n        !request.userInfo.groups.exists(g, g in %s)" (include "pacto-operator.delivery.celList" .) }}
 {{- end }}
 # An operation states who asked, and admission holds it to that: the actor is
-# the requesting user, only the promoter may set witnessed, override, unfreeze
-# and freeze are limited to their raisers, and the record finalizer is required.
+# the requesting user, only the promoter may set witnessed, override, unfreeze,
+# freeze and acknowledge are limited to their raisers, and the record finalizer
+# is required.
 # The names the promoter raises its rollbacks, freezes, step-downs and
 # automatic promotes under are its own: taken first, they would keep a failure
 # out of the records a follower reads.
@@ -95,6 +96,12 @@ spec:
         object.spec.type != 'delivery.pacto.trianalab.io/unfreeze' || variables.breakGlass ||
         (!variables.agent && request.userInfo.username != '{{ $controller }}')
       message: "only a person or break-glass may unfreeze a Stage; agents and the promoter may not"
+      reason: Forbidden
+    - expression: >-
+        object.spec.type != 'delivery.pacto.trianalab.io/acknowledge' ||
+        ((variables.breakGlass || (!variables.agent && request.userInfo.username != '{{ $controller }}')) &&
+        has(object.spec.reason) && size(object.spec.reason) > 0)
+      message: "only a person or break-glass may acknowledge an upstream stand-in, and only with a reason; agents and the promoter may not"
       reason: Forbidden
     - expression: >-
         object.spec.type != 'delivery.pacto.trianalab.io/freeze' || variables.breakGlass ||

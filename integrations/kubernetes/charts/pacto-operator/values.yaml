@@ -452,7 +452,9 @@ delivery:
     # Pass signed. Plain http works only on loopback, or with `allowPlainHTTP: true` on a test cluster.
     # An `eval` provider also needs `signers`: the runners whose signed answers it trusts, each
     # `{name, publicKey}` or `{name, identity, issuer, trustedRoot}`. An answer no signer signed is
-    # Unknown, and the verdict names the runner that signed it.
+    # Unknown, and the verdict names the runner that signed it. Each provider's name and type (never its
+    # URL or signers) is also published in the identity policy ConfigMap, so `pacto delivery plan` and
+    # the dashboard predict an eval check's hold as the promoter does.
     providers: []
     caBundle:
       # -- A ConfigMap in `delivery.namespace` holding the PEM certificates of the CAs that sign

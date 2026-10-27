@@ -30,9 +30,22 @@ failed a check before signing (a value that looks like a secret, an approval no
 longer bound); `status.record.refused` says why. It keeps none of what the
 operation did, so `record verify` reports it as a problem, and a Stage in
 another cluster that follows the stream offers nothing from then on: the
-stand-in could be the failure that marks a version failed. Nothing clears it
-today, so a person checks the operation upstream and moves the follower with
-an override (break-glass). A **gap** record marks a
+stand-in could be the failure that marks a version failed. The follower's
+`Ready` message names the stand-in's record id. A person of the team that owns
+the service checks what the operation did upstream, then acknowledges that one
+stand-in on the follower:
+
+```bash
+pacto delivery propose -n prod --stage payments --type acknowledge \
+  --record sha256:... --reason "checked upstream: the rollback failed nothing"
+```
+
+The acknowledge takes effect at once and is recorded like any other
+operation, with who asked, the record id and the reason. The follower then
+skips that stand-in and offers versions again; any other stand-in still stops
+it. Only a person of that team or break-glass may acknowledge, never an agent
+or the promoter, and a reason is required. Break-glass can still move the
+follower with an override instead. A **gap** record marks a
 number no operation holds. A record can be late but is never skipped: an
 Operation keeps its `delivery.pacto.trianalab.io/record` finalizer until the
 registry lists its record.

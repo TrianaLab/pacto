@@ -149,6 +149,9 @@ const (
 	MaxPublished     = 50
 	MaxOffered       = 50
 	MaxRolledBack    = 50
+	// MaxAcknowledged is how many upstream stand-ins a Stage remembers a
+	// person acknowledged.
+	MaxAcknowledged = 50
 	// MaxConcluded is how many conclusions a Stage remembers: a retry of
 	// a failed status write comes long before that many more conclude.
 	MaxConcluded = 20
@@ -354,6 +357,8 @@ func succeeded(s *StageStatus, name string, spec OperationSpec, st OperationStat
 		changeRung(s, spec)
 	case spec.Type == TypeUnfreeze:
 		s.Frozen, s.FrozenReason, s.AutoHold = false, "", false
+	case spec.Type == TypeAcknowledge:
+		s.UpstreamAcknowledged = AddDigest(s.UpstreamAcknowledged, spec.Params.Record, MaxAcknowledged)
 	case spec.Type == TypeFreeze && !s.Frozen:
 		// A freeze a failed re-check raised finds the Stage frozen already,
 		// with that check's reason, which it keeps.

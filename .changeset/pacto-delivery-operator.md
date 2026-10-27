@@ -52,7 +52,9 @@ approval only from a person in a team the question names (chart
 nobody unless `delivery.identities.requireOwnerTeam` is false, and with
 `delivery.identities.humanGroups` set only those groups count as people. The chart
 publishes these identities in the ConfigMap `pacto-delivery-identities`, which
-the promoter runs with and the CLI, the MCP server and the dashboard read. It takes the Stage lock with one
+the promoter runs with and the CLI, the MCP server and the dashboard read, with
+the name and type of each gate provider (never its URL or signers) so a
+client's plan predicts an eval check's hold as the promoter does. It takes the Stage lock with one
 compare-and-swap, moves the pointer, waits for the apply and runs the verify
 checks the Stage lists in `spec.gates.verify.checks`: the Pacto contract check,
 providers from `delivery.gates.providers` (`mira`, `http` or `eval`, whose
@@ -90,7 +92,10 @@ OCI source (`applyRef.kind: Application`, chart `delivery.argocd.enabled`). `can
 Stage follow a Stage in another cluster from that cluster's signed records,
 read with `delivery.promoter.upstreamTrust`; without it the Stage is not Ready
 (`UpstreamUntrusted`), and while those records cannot be read or lost their
-newest entries it is not Ready either (`UpstreamUnreadable`). Ready also names
+newest entries it is not Ready either (`UpstreamUnreadable`). An unrecordable
+stand-in upstream stops the follower too, until a person of the service's team
+checks it and raises an `acknowledge` naming its record id with a reason
+(`status.upstreamAcknowledged`), or break-glass overrides. Ready also names
 an applier the promoter cannot write through. Only a Flux `OCIRepository` with
 `spec.verify` admits a new version, so the first Stage of a service needs Flux
 even when Argo CD applies it. A freeze is local: it does not stop followers. Argo CD and cross-cluster reach

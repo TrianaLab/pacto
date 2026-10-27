@@ -389,6 +389,7 @@ pacto delivery plan [flags]
   -h, --help                                                        help for plan
       --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
       --reason string                                               why, for the record
+      --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
       --stage string                                                the Stage to change (required)
       --to string                                                   where to move: an artifact digest (sha256:...) for a pointer type, or a rung (observe, advise, auto-nonbreaking or autonomous) for delivery.pacto.trianalab.io/autonomy
       --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
@@ -413,6 +414,7 @@ pacto delivery propose [flags]
       --name string                                                 the Operation name (generated when empty)
       --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
       --reason string                                               why, for the record
+      --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
       --stage string                                                the Stage to change (required)
       --to string                                                   where to move: an artifact digest (sha256:...) for a pointer type, or a rung (observe, advise, auto-nonbreaking or autonomous) for delivery.pacto.trianalab.io/autonomy
       --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")

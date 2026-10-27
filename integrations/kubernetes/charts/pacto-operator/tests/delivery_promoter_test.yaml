@@ -82,6 +82,22 @@ tests:
           pattern: '"requireOwnerTeam":false'
         documentIndex: 0
 
+  - it: publishes each gate provider's type, never its URL or signers, so a client plans like the promoter
+    template: templates/delivery/identities.yaml
+    set:
+      delivery.gates.providers:
+        - {name: mira, type: mira, url: "https://mira.observability:4318"}
+        - {name: evals, type: eval, url: "https://evals.example", signers: [{name: evals-ci, publicKey: "-----BEGIN PUBLIC KEY-----"}]}
+    asserts:
+      - matchRegex:
+          path: data["policy.json"]
+          pattern: '"gateProviders":\{"evals":"eval","mira":"mira"\}'
+        documentIndex: 0
+      - notMatchRegex:
+          path: data["policy.json"]
+          pattern: 'evals\.example|PUBLIC KEY'
+        documentIndex: 0
+
   - it: mounts the published policy and restarts when it changes
     template: templates/delivery/deployment.yaml
     asserts:

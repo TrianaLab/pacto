@@ -32,7 +32,7 @@ func remoteStage(pointer string) *dv1.Stage {
 // upstreamReads makes the promoter read the remote upstream as status, or
 // nothing with why.
 func (e *env) upstreamReads(status *delivery.StageStatus, why string) {
-	f := func(_ context.Context, r delivery.RemoteStage, _ delivery.RecordMark) (*delivery.StageStatus, string) {
+	f := func(_ context.Context, r delivery.RemoteStage, _ delivery.RecordMark, _ []string) (*delivery.StageStatus, string) {
 		if r != remoteTest {
 			e.t.Fatalf("read the wrong upstream: %+v", r)
 		}
@@ -97,12 +97,12 @@ func TestRemoteUpstreamUnreadable(t *testing.T) {
 		return recs
 	}
 	why := "reading the records: registry down"
-	f := func(_ context.Context, _ delivery.RemoteStage, seen delivery.RecordMark) (*delivery.StageStatus, string) {
+	f := func(_ context.Context, _ delivery.RemoteStage, seen delivery.RecordMark, acked []string) (*delivery.StageStatus, string) {
 		reads++
 		if up == nil {
 			return nil, why
 		}
-		return delivery.UpstreamFromRecords(up, seen)
+		return delivery.UpstreamFromRecords(up, seen, acked)
 	}
 	e.op.Cluster.Upstream, e.st.Cluster.Upstream = f, f
 	ready := func() delivery.Condition {
@@ -218,4 +218,74 @@ func TestRemoteUpstreamPublishedGate(t *testing.T) {
 	if o = e.drive("p1"); o.Status.Phase != delivery.PhaseRunning {
 		t.Fatalf("an offered version ships: %s %q", o.Status.Phase, o.Status.Message)
 	}
+}
+
+// TestAcknowledgeUpstreamStandIn: an unrecordable stand-in upstream stops a
+// follower offering; a person of the service's team acknowledges that exact
+// stand-in with a reason and the follower offers again. An agent, another
+// team, a missing reason or a Stage that follows no records are refused.
+func TestAcknowledgeUpstreamStandIn(t *testing.T) {
+	rec := "sha256:" + strings.Repeat("e", 64)
+	e := newEnv(t, remoteStage(dA), ociRepo("payments", dA, "", false))
+	up := []delivery.StoredRecord{
+		{ID: "r1", Statement: delivery.Statement{Predicate: delivery.RecordPredicate{
+			Kind: delivery.RecordOperation, Type: &delivery.RecordType{ID: delivery.TypePromote},
+			Intent:   delivery.RecordIntent{Params: &delivery.Params{To: dB}},
+			Verdicts: []delivery.Verdict{{Gate: delivery.GatePublished, Result: delivery.Pass}},
+			Outcome:  &delivery.RecordOutcome{Result: delivery.Succeeded, Verification: delivery.Verified},
+			Chain:    delivery.Chain{Stream: remoteTest.Stream, Seq: 1}}}},
+		{ID: rec, Statement: delivery.Statement{Predicate: delivery.RecordPredicate{Kind: delivery.RecordUnrecordable,
+			Unrecordable: &delivery.Refusal{Check: delivery.CheckSensitive, Message: "a field looks like a secret"},
+			Chain:        delivery.Chain{Stream: remoteTest.Stream, Seq: 2, Parent: "r1"}}}},
+	}
+	f := func(_ context.Context, _ delivery.RemoteStage, seen delivery.RecordMark, acked []string) (*delivery.StageStatus, string) {
+		return delivery.UpstreamFromRecords(up, seen, acked)
+	}
+	e.op.Cluster.Upstream, e.st.Cluster.Upstream = f, f
+	ready := func() delivery.Condition {
+		t.Helper()
+		if err := e.reconcileStage("payments-prod"); err != nil {
+			t.Fatal(err)
+		}
+		return *conditionOf(e.getStage().Status.Conditions, "Ready")
+	}
+	if c := ready(); c.Reason != "UpstreamUnreadable" || !strings.Contains(c.Message, "record "+rec) {
+		t.Fatalf("a stand-in stops the follower and names its record: %+v", c)
+	}
+	ack := func(name, reason, actor string, groups ...string) *dv1.Operation {
+		o := opObj(name, delivery.TypeAcknowledge, "", "", actor, groups...)
+		o.Spec.Params, o.Spec.Reason = delivery.Params{Record: rec}, reason
+		o.Spec.IntentDigest = delivery.IntentDigest(o.Spec, e.getStage().Spec)
+		e.create(o)
+		return o
+	}
+	ack("a1", "checked upstream", bot)
+	wantOutcome(t, e.drive("a1"), delivery.Rejected, "NotPermitted")
+	ack("a2", "checked upstream", "bob", "team-orders")
+	wantOutcome(t, e.drive("a2"), delivery.Rejected, "NotYourTeam")
+	if o := e.drive("a2"); !strings.Contains(o.Status.Message, "acknowledge its upstream stand-ins") {
+		t.Fatalf("the refusal says what was refused: %s", o.Status.Message)
+	}
+	ack("a3", "", "alice", "team-payments")
+	wantOutcome(t, e.drive("a3"), delivery.Rejected, "ReasonRequired")
+	ack("a4", "checked the rollback upstream: it failed nothing", "alice", "team-payments")
+	a4 := e.drive("a4")
+	wantOutcome(t, a4, delivery.Succeeded, "Acknowledged")
+	if a4.Status.Verification != delivery.Unverified || a4.Status.Seq == 0 {
+		t.Fatalf("an acknowledge concludes Unverified and takes a seq for its record: %+v", a4.Status)
+	}
+	if got := e.getStage().Status.UpstreamAcknowledged; len(got) != 1 || got[0] != rec {
+		t.Fatalf("the Stage remembers the acknowledged stand-in: %v", got)
+	}
+	e.now = e.now.Add(UpstreamPoll)
+	if c := ready(); c.Reason != "Ready" {
+		t.Fatalf("the follower offers again: %+v", c)
+	}
+	// A Stage that follows no records has no stand-in to acknowledge.
+	l := baseEnv(t, nil)
+	o := opObj("a5", delivery.TypeAcknowledge, "", "", "alice", "team-payments")
+	o.Spec.Params, o.Spec.Reason = delivery.Params{Record: rec}, "checked"
+	o.Spec.IntentDigest = delivery.IntentDigest(o.Spec, stageObj("").Spec)
+	l.create(o)
+	wantOutcome(t, l.drive("a5"), delivery.Rejected, "NoUpstreamRecords")
 }

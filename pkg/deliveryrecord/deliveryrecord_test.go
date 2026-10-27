@@ -265,11 +265,11 @@ func TestUpstream(t *testing.T) {
 	b, _, _ := delivery.SignRecord(t.Context(), edSigner(key), st)
 	attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, b, map[string]string{AnnPredicateType: delivery.PredicateOperation})
 
-	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(pub), delivery.RecordMark{}); why != "" || len(s.Offered) != 1 || s.Offered[0] != to {
+	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(pub), delivery.RecordMark{}, nil); why != "" || len(s.Offered) != 1 || s.Offered[0] != to {
 		t.Fatalf("offered = %+v %q", s, why)
 	}
 	other, mallory, _ := ed25519.GenerateKey(rand.Reader)
-	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(other), delivery.RecordMark{}); !strings.HasPrefix(why, "1 referrers on the upstream anchor could not be verified") || len(s.Offered) != 0 {
+	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(other), delivery.RecordMark{}, nil); !strings.HasPrefix(why, "1 referrers on the upstream anchor could not be verified") || len(s.Offered) != 0 {
 		t.Fatalf("an untrusted key offers nothing, and says so: %+v %q", s, why)
 	}
 	// A record another key signed, attached by anyone with push access, does
@@ -278,12 +278,12 @@ func TestUpstream(t *testing.T) {
 	forged.Predicate.Chain.Seq = 2
 	fb, _, _ := delivery.SignRecord(t.Context(), edSigner(mallory), forged)
 	attach(t, path, anchor.ManifestDesc, delivery.BundleMediaType, fb, map[string]string{AnnPredicateType: delivery.PredicateOperation})
-	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(pub), delivery.RecordMark{}); !strings.Contains(why, "1 referrers") || len(s.Offered) != 1 {
+	if s, why := Upstream(t.Context(), repo, stream, keyVerifier(pub), delivery.RecordMark{}, nil); !strings.Contains(why, "1 referrers") || len(s.Offered) != 1 {
 		t.Fatalf("a forged referrer blinds the follower, or goes unsaid: %+v %q", s, why)
 	}
 	_, path = setup(t, testutil.ReferrersOptions{Unsupported: true})
 	repo, _ = ocireferrer.Open(path, ocireferrer.Options{})
-	if s, why := Upstream(t.Context(), repo, stream, Unchecked, delivery.RecordMark{}); s != nil || !strings.HasPrefix(why, "reading the records") {
+	if s, why := Upstream(t.Context(), repo, stream, Unchecked, delivery.RecordMark{}, nil); s != nil || !strings.HasPrefix(why, "reading the records") {
 		t.Fatalf("an unreadable registry offers nothing: %+v %q", s, why)
 	}
 }
