@@ -72,8 +72,12 @@ serves OCI Referrers (zot does, GitHub's does not), finished changes leave
 signed records you verify with cosign and oras. Without the component, Pacto
 never changes what runs.
 
-Delivery synthesizes two ideas from others and adds one of ours:
+Delivery builds on ideas from others and adds one of ours:
 
+- **[Flux](https://fluxcd.io/flux/concepts/)**: Gitless GitOps, pioneered by
+  the Flux team in 2022. Desired state lives in a container registry as OCI
+  artifacts. On Flux, Pacto moves a version by writing its digest onto an
+  OCIRepository.
 - **[ConfigHub](https://confighub.com)**: configuration as data in a database behind an API.
   Pacto stores only "which version runs where" that way.
 - **Anthropic's [Scion](https://www.anthropic.com/research/redesigning-source-control)**:
