@@ -770,7 +770,17 @@ story_b4() {
   same B4 "the version refused" "2.4.3" "$(expect B4 Refused | jq -r .)"
   echo "  pacto publish 2.4.3 is refused: ${rule#*FAIL }"
   diffs B4 2.4.2 3.0.0
-  ship_test payments 3.0.0
+  # 2.4.2 failing in test stepped payments there down to auto-nonbreaking, so
+  # the promoter's own promote of a breaking 3.0.0 waits for a person: payments'
+  # team ships it in test instead, and the held promote is cancelled.
+  local d3 auto; d3="$(publish payments 3.0.0)"; remember payments 3.0.0 "$d3"
+  auto="$(wait_op test payments "$d3")"
+  [ "$(kubectl -n test get stage payments -o jsonpath='{.status.level}')" = auto-nonbreaking ] \
+    || fail "2.4.2 failing in test did not step payments there down to auto-nonbreaking: $(kubectl -n test get stage payments -o jsonpath='{.status.level}')"
+  eventually 60 held test "$auto" || fail "the promoter's promote of breaking 3.0.0 did not wait for a person in test: $(field test "$auto" phase) $(field test "$auto" message)"
+  owner_propose payments -n test --stage payments --to "$d3" --name payments-3-0-0-test --reason "B4: a breaking change after the step-down"
+  wait_concluded test payments-3-0-0-test Succeeded/Verified
+  kubectl -n test delete operation "$auto" --wait=false >/dev/null || fail "could not cancel the held promote of 3.0.0 in test"
   # A copy pushed with plain oras: the same layer and contract, never signed by
   # pacto publish.
   local r="127.0.0.1:${LOCAL_REG_PORT}/story/deploy/payments" tmp man copy
