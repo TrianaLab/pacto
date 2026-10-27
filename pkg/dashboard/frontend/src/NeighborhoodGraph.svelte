@@ -191,7 +191,7 @@
   class="nb-graph"
   data-testid="neighborhood-canvas"
   role="img"
-  aria-label="Operational graph topology (visual). Use the Relationships list below to explore the same nodes and connections by keyboard."
+  aria-label="Operational graph topology (visual): what the focus depends on is on the left, what uses it is on the right. Use the Relationships list below to explore the same nodes and connections by keyboard."
   hidden={renderError}
 ></div>
 
@@ -204,7 +204,7 @@
        the canvas taller than the space above it and the graph unusable. The clamp keeps
        the graph proportional to the viewport, with a floor that still fits a focus node
        and its ring and a ceiling that stops it swallowing a 4K screen. */
-    height: clamp(360px, 60vh, 720px);
+    height: clamp(360px, 66vh, 760px);
     /* Cytoscape puts an in-flow wrapper inside this element and writes the current pixel
        width onto it, so without containment the graph's min-content width is whatever it
        was last laid out at. A flexible track holding the graph then cannot shrink -- open

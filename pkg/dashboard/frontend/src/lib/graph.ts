@@ -49,6 +49,8 @@ export interface GraphEdge {
   // never re-inferred. Empty = a plain declared edge (no comparison in view). See
   // lib/neighborhoodGraph.ts, which derives it from difference/serviceCorroboration.
   edgeState?: string;
+  /** Words drawn on the edge: set on an edge that stands for many (see laneGraph). */
+  label?: string;
 }
 
 export interface GraphNode {
@@ -68,8 +70,15 @@ export interface GraphNode {
   depth?: number;
   /** The owner the backend names, which orders a ring so a team sits together. */
   owner?: string;
-  /** Set on a node that stands for this many entities of one team (see groupByOwner). */
+  /** Set on a node that stands for this many entities of one team (see laneGraph). */
   group?: number;
+  /** Which side of the focus the node sits on: -1 what it depends on, 1 what uses it, 0
+   *  the focus. Set only on a focused neighborhood laid out in lanes. */
+  side?: number;
+  /** A lane: the box that holds the direct neighbors on one side. */
+  lane?: boolean;
+  /** The lane box this node sits in. */
+  parent?: string;
 }
 
 export interface GraphData {
@@ -282,6 +291,9 @@ export function buildElements(graphData: GraphData, focusId?: string): ElementDe
         owner: n.owner || '',
         depth: n.depth ?? -1,
         group: n.group ? 1 : 0,
+        lane: n.lane ? 1 : 0,
+        side: n.side ?? 0,
+        ...(n.parent ? { parent: n.parent } : {}),
         status: n.status,
         reason: n.reason || '',
         kind: n.kind || 'service',
@@ -307,6 +319,7 @@ export function buildElements(graphData: GraphData, focusId?: string): ElementDe
           required: e.required ? 1 : 0,
           drift: state === 'drift' ? 1 : 0,
           state,
+          ...(e.label ? { elabel: e.label } : {}),
         },
       });
     }
@@ -325,7 +338,7 @@ export function buildElements(graphData: GraphData, focusId?: string): ElementDe
  * fail silently as "the filter does nothing".
  */
 export const LEGEND_SELECTORS: Record<string, string> = {
-  'kind:service': 'node[kind = "service"][group = 0]',
+  'kind:service': 'node[kind = "service"][group = 0][lane = 0]',
   'kind:group': 'node[group = 1]',
   'kind:revision': 'node[kind = "revision"]',
   'kind:target': 'node[kind = "target"]',
@@ -389,38 +402,69 @@ export function seedPositions(nodes: Array<{ id: string; depth?: number; owner?:
   return out;
 }
 
-/** Past this many nodes a focused neighborhood is laid out in rows by hop instead of by
- *  force: a dense neighborhood under a force layout packs into one overlapping knot. */
-export const RANKED_ROWS_MIN = 25;
+// Lane geometry: a column step, a row step, the gap between the focus and a lane, and the
+// wider gap outside a lane, where the edge a group draws carries its words.
+const LANE_COL = NODE_W + 20;
+const LANE_ROW = NODE_H + 20;
+const LANE_GAP = 60;
+const LANE_GAP_FAR = 130;
+// The columns on one side, inside out: the lane (rank 2), then per hop d >= 2 the team
+// groups (2d), which sit next to what they attach to so their words have room, and then
+// the entities of an opened group (2d + 1), whose plain lines can cross behind the groups.
+const laneRank = (n: { depth?: number; group?: number }) => {
+  const d = Math.max(1, n.depth ?? 1);
+  return d === 1 ? 2 : n.group ? 2 * d : 2 * d + 1;
+};
+const gapBefore = (rank: number) => (rank > 2 && rank % 2 === 0 ? LANE_GAP_FAR : LANE_GAP);
+
+interface LaneNode { id: string; depth?: number; side?: number; owner?: string; group?: number; lane?: number | boolean }
 
 /**
- * rankRows lays a focused neighborhood out in rows by hop from the focus: the focus on
- * top, its direct neighbors under it, the next hop under them, each hop wrapped to the
- * canvas width and ordered by owner so a team sits together. Nothing overlaps and the
- * graph reads outward from its subject. Null when the nodes carry no hop depth.
+ * laneLayout places a focused neighborhood in lanes: the focus in the middle, what it
+ * depends on to its left and what uses it to its right, one column per hop outward. A
+ * column too tall for the canvas wraps into sub-columns, each one half a row lower than
+ * the last so a line from the focus runs between the boxes, never through one. The rows
+ * per column are chosen to make the whole layout fit the canvas at the largest zoom.
+ * Within a column a team sits together. Deterministic. Lane boxes are not
+ * placed: they wrap whatever they hold.
  */
-export function rankRows(nodes: Array<{ id: string; depth?: number; owner?: string }>, canvas: { width: number; height: number }): Map<string, { x: number; y: number }> | null {
-  if (!nodes.some((n) => (n.depth ?? -1) >= 0)) return null;
-  const step = NODE_W + 28;
-  // As many columns as make the whole graph about as wide as the canvas is, relative
-  // to its height, so a fit does not have to shrink it past legible.
-  const aspect = Math.max(1, canvas.width / Math.max(1, canvas.height));
-  const cols = Math.ceil(Math.sqrt((aspect * nodes.length * (NODE_H + 32)) / step));
-  const maxWidth = Math.max(canvas.width - 60, cols * step);
-  const ranked = [...nodes].sort((a, b) => rankOf(a) - rankOf(b) || (a.owner || '').localeCompare(b.owner || '') || a.id.localeCompare(b.id));
+export function laneLayout(nodes: LaneNode[], canvas: { width: number; height: number }): Map<string, { x: number; y: number }> {
+  const cols = new Map<number, string[]>();
   const pos = new Map<string, { x: number; y: number }>();
-  const inRank = new Map<number, number>();
-  for (const n of ranked) {
-    const r = rankOf(n);
-    const i = inRank.get(r) ?? 0;
-    inRank.set(r, i + 1);
-    pos.set(n.id, { x: i * step, y: r * 120 });
+  const sorted = nodes.filter((n) => !n.lane).sort((a, b) => (a.owner || '').localeCompare(b.owner || '') || a.id.localeCompare(b.id));
+  for (const n of sorted) {
+    const d = Math.max(0, n.depth ?? 1);
+    if (d === 0) { pos.set(n.id, { x: 0, y: 0 }); continue; }
+    const k = (n.side || 1) * laneRank(n);
+    cols.set(k, [...(cols.get(k) ?? []), n.id]);
   }
-  wrapWideRanks(pos, { nodeW: NODE_W, nodeH: NODE_H, nodesep: 28, ranksep: 70, maxWidth });
+  const tallest = Math.max(1, ...[...cols.values()].map((c) => c.length));
+  const w = Math.max(1, canvas.width - 60);
+  const h = Math.max(1, canvas.height - 60);
+  let rows = tallest;
+  let bestZoom = -1;
+  for (let r = 1; r <= tallest; r++) {
+    const subs = [...cols.values()].reduce((t, c) => t + Math.ceil(c.length / r), 0);
+    const gaps = [...cols.keys()].reduce((t, k) => t + gapBefore(Math.abs(k)), 0);
+    const zoom = Math.min(w / ((subs + 1) * LANE_COL + gaps), h / ((r + 0.5) * LANE_ROW));
+    if (zoom > bestZoom) { bestZoom = zoom; rows = r; }
+  }
+  for (const side of [-1, 1]) {
+    let x = 0;
+    for (let r = 2; r <= Math.max(0, ...[...cols.keys()].map(Math.abs)); r++) {
+      const ids = cols.get(side * r);
+      if (!ids) continue;
+      x += gapBefore(r);
+      for (let s = 0; s * rows < ids.length; s++) {
+        x += LANE_COL;
+        const chunk = ids.slice(s * rows, (s + 1) * rows);
+        const off = s % 2 ? LANE_ROW / 2 : 0;
+        chunk.forEach((id, i) => pos.set(id, { x: side * x, y: (i - (chunk.length - 1) / 2) * LANE_ROW + off }));
+      }
+    }
+  }
   return pos;
 }
-
-const rankOf = (n: { depth?: number }) => ((n.depth ?? -1) >= 0 ? n.depth! : 1);
 
 export function cyLayout(layout: 'force' | 'layered', nodeCount = 0): LayoutOptions {
   if (layout === 'layered') {
@@ -520,7 +564,8 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
         },
         label: 'data(label)',
         color: pal.text,
-        'font-size': 12,
+        // A bounded neighborhood is read label by label; the whole-fleet map is a picture.
+        'font-size': edgeStyle === 'visible' ? 14 : 12,
         'font-weight': 500,
         'text-valign': 'center',
         'text-halign': 'center',
@@ -630,8 +675,29 @@ export function cyStylesheet(pal: Palette, layout: 'force' | 'layered', edgeStyl
       selector: 'node[group = 1]',
       style: { 'border-style': 'double', 'border-width': 4, 'font-weight': 600 },
     },
+    {
+      // A lane: a quiet box around one side's direct neighbors, named above it.
+      selector: 'node[lane = 1]',
+      style: {
+        'background-color': pal.surface, 'background-opacity': 0.4,
+        'border-color': pal.border, 'border-width': 1, 'border-style': 'dashed',
+        'text-valign': 'top', 'text-halign': 'center', 'text-margin-y': -6,
+        color: pal.textDim, 'font-size': 14, 'font-weight': 600, padding: '14px',
+      },
+    },
+    {
+      // An edge that stands for many says how many, and in which state, on the line.
+      selector: 'edge[elabel]',
+      style: {
+        label: 'data(elabel)', 'font-size': 12, color: pal.text, 'text-rotation': 'none', 'text-wrap': 'wrap', 'text-max-width': '110px',
+        'text-background-color': pal.surface, 'text-background-opacity': 0.92, 'text-background-padding': '3px',
+        'text-background-shape': 'roundrectangle', opacity: 0.9, 'target-arrow-shape': 'triangle',
+      },
+    },
     { selector: 'edge.pacto-dense', style: { opacity: 0.16 } },
     { selector: 'node.pacto-faded', style: { opacity: 0.12 } },
+    // A faded lane would fade every node inside it, whatever their own state.
+    { selector: 'node[lane = 1].pacto-faded', style: { opacity: 1 } },
     { selector: 'edge.pacto-faded', style: { opacity: 0.02 } },
     { selector: 'node.pacto-hot', style: { 'border-width': 3.5 } },
     // Directional highlight: a service's DEPENDENCIES (what it needs) light up in
@@ -694,6 +760,11 @@ export function renderGraph(
       throw new GraphRenderError(e);
     }
   }
+
+  // A focused neighborhood arrives with lane boxes (see laneGraph) and is laid out in
+  // lanes. The boxes are scaffolding: never counted, saved, hovered or selected.
+  const lanes = (): boolean => cy.nodes('[lane = 1]').nonempty();
+  const entities = () => cy.nodes('[lane = 0]');
 
   // ── Dimming state ────────────────────────────────────────────────────────
   // A node can be dimmed by four independent things; recompute the union so they
@@ -795,7 +866,13 @@ export function renderGraph(
   let lastTapAt = 0;
   cy.on('tap', 'node', (evt) => {
     const n = evt.target as NodeSingular;
+    // A lane box is background: a tap on it clears like a tap on the canvas.
+    if (n.data('lane')) { onSelectEdge?.(null); if (clickFocusId) { clickFocusId = null; applyDimming(); onSelect?.(null); onSelectNode?.(null); } return; }
     const id = n.id();
+    // A group opens in place, on the first tap: the caller redraws it as its entities, so
+    // there is nothing to pin or open, and centring on a node about to vanish would leave
+    // the camera on empty space.
+    if (n.data('group')) { onSelectNode?.(id); return; }
     const now = Date.now();
     const isDouble = id === lastTapId && now - lastTapAt < 300;
     lastTapId = id;
@@ -837,8 +914,9 @@ export function renderGraph(
 
   // Hover previews the spotlight (click pins it). A pinned focus takes precedence.
   cy.on('mouseover', 'node', (evt) => {
-    container.style.cursor = 'pointer';
     const n = evt.target as NodeSingular;
+    if (n.data('lane')) return;
+    container.style.cursor = 'pointer';
     // The label may be cut; the whole name shows on hover. The text alternative below the
     // canvas carries every full name for the keyboard.
     container.title = n.data('fullName') || '';
@@ -869,13 +947,13 @@ export function renderGraph(
   // rendered bounding box). It reads only what the canvas already shows, so it is a safe
   // acceptance seam (see GraphDiagnostics), not a leak of internal state.
   function computeDiagnostics(): GraphDiagnostics {
-    const base: GraphDiagnostics = { headless: headlessMode, nodeCount: cy.nodes().size(), edgeCount: cy.edges().size(), nodesWithBox: 0, edgesRendered: 0, fitFloored };
+    const base: GraphDiagnostics = { headless: headlessMode, nodeCount: entities().size(), edgeCount: cy.edges().size(), nodesWithBox: 0, edgesRendered: 0, fitFloored };
     // A headless instance has no renderer, so rendered geometry is undefined; report zeros
     // rather than calling renderedBoundingBox (which needs a renderer). The browser
     // acceptance requires headless=false anyway.
     if (headlessMode) return base;
     let nodesWithBox = 0;
-    cy.nodes().forEach((n) => {
+    entities().forEach((n) => {
       const bb = n.renderedBoundingBox();
       if ((bb.w ?? 0) > 0 && (bb.h ?? 0) > 0) nodesWithBox++;
     });
@@ -909,7 +987,7 @@ export function renderGraph(
 
   function snapshotSpatial(): SpatialState {
     const positions: Record<string, { x: number; y: number }> = {};
-    cy.nodes().forEach((n) => { positions[n.id()] = { x: n.position('x'), y: n.position('y') }; });
+    entities().forEach((n) => { positions[n.id()] = { x: n.position('x'), y: n.position('y') }; });
     return { positions, pan: { ...cy.pan() }, zoom: cy.zoom() };
   }
 
@@ -924,7 +1002,7 @@ export function renderGraph(
   function restoreSavedPositions(): void {
     if (!savedPositions) return;
     cy.batch(() => {
-      cy.nodes().forEach((n) => {
+      entities().forEach((n) => {
         const p = savedPositions[n.id()];
         // Ids not in the saved state are ignored rather than defaulted, so a saved
         // state from a smaller graph pre-arranges what it knows and leaves the rest
@@ -946,6 +1024,7 @@ export function renderGraph(
   // is the exact regression this exists to prevent.
   function placeNewNodes(fresh: Set<string>): void {
     if (!fresh.size) return;
+    if (lanes()) { placeInLanes(fresh); return; }
     const settled = cy.nodes().filter((n) => !fresh.has(n.id()));
     const bb = settled.nonempty() ? settled.boundingBox() : null;
     const center = bb ? { x: bb.x1 + bb.w / 2, y: bb.y1 + bb.h / 2 } : { x: 0, y: 0 };
@@ -973,11 +1052,55 @@ export function renderGraph(
     });
   }
 
+  // alignLaneEdges makes the one edge a group draws to its lane run straight across: it
+  // leaves the lane's outer side at the group's height (clamped to the lane), instead of
+  // every group's line converging on the lane's centre where their labels would pile up.
+  function alignLaneEdges(): void {
+    cy.edges('[elabel]').forEach((e) => {
+      const laneIsSource = !!e.source().data('lane');
+      const lane = laneIsSource ? e.source() : e.target();
+      if (!lane.data('lane')) return;
+      const other = laneIsSource ? e.target() : e.source();
+      // An endpoint is measured from the lane's own centre, which is not the middle of its
+      // bounding box: that one also wraps the lane's name.
+      const half = Math.max(0, lane.height() / 2 - 12);
+      const dy = Math.round(Math.max(-half, Math.min(half, other.position('y') - lane.position('y'))));
+      // Both ends: left alone, the group's end aims at the lane's centre and the line slants.
+      const out = lane.data('side') < 0 ? '-50%' : '50%';
+      const into = lane.data('side') < 0 ? '50%' : '-50%';
+      e.style(laneIsSource ? 'source-endpoint' : 'target-endpoint', `${out} ${dy}px`);
+      e.style(laneIsSource ? 'target-endpoint' : 'source-endpoint', `${into} ${Math.round(Math.max(-14, Math.min(14, lane.position('y') + dy - other.position('y'))))}px`);
+    });
+  }
+
+  // placeInLanes puts each arrival in its own lane column, under the lowest node already
+  // there; an arrival with no column yet opens one outside that side's outermost column.
+  function placeInLanes(fresh: Set<string>): void {
+    const settled = entities().filter((n) => !fresh.has(n.id()));
+    cy.batch(() => {
+      for (const id of [...fresh].sort()) {
+        const n = cy.getElementById(id);
+        const side = n.data('side') || 1;
+        const peers = settled.filter((m) => m.data('side') === n.data('side') && m.data('depth') === n.data('depth'));
+        if (peers.nonempty()) {
+          const low = peers.max((m) => (m as NodeSingular).position('y')).ele as NodeSingular;
+          n.position({ x: low.position('x'), y: low.position('y') + LANE_ROW });
+        } else {
+          const outer = Math.max(0, ...settled.filter((m) => (m.data('side') || 0) === side).map((m) => Math.abs((m as NodeSingular).position('x'))));
+          n.position({ x: side * (outer + LANE_GAP + LANE_COL), y: 0 });
+        }
+        settled.merge(n);
+      }
+    });
+  }
+
   // A fit is allowed to zoom OUT until the whole graph is in frame, and on a wide fleet
   // or a phone that lands somewhere around 0.15 -- node labels stop being text and the
   // canvas becomes a picture of a graph rather than a graph. Below this the reader is
   // better served by a legible graph they have to pan than an illegible one they do not.
-  const ZOOM_FLOOR = 0.6;
+  // A bounded neighborhood keeps a higher floor for its larger labels: 14px at 0.7 still
+  // reads as text.
+  const ZOOM_FLOOR = edgeStyle === 'visible' ? 0.7 : 0.6;
   // A clamped fit is a claim the caller is entitled to: "fit" no longer means the whole
   // graph is on screen. Silently cropping it was the bug -- the canvas looked complete.
   let fitFloored = false;
@@ -1008,8 +1131,8 @@ export function renderGraph(
   }
 
   function runLayout(): void {
-    const rows = layout === 'force' && cy.nodes().length > RANKED_ROWS_MIN
-      ? rankRows(liveNodes(), { width: cy.width() || 1000, height: cy.height() || 600 }) : null;
+    const rows = lanes()
+      ? laneLayout(liveNodes(), { width: cy.width() || 1000, height: cy.height() || 600 }) : null;
     if (rows) {
       // Many edges at the usual strength are a grey wash; at rest they are faint here and
       // a hovered or selected node lights its own.
@@ -1017,6 +1140,7 @@ export function renderGraph(
         cy.nodes().forEach((n) => { const p = rows.get(n.id()); if (p) n.position(p); });
         if (cy.edges().length > 80) cy.edges().addClass('pacto-dense');
       });
+      alignLaneEdges(); // after the batch: a lane's box is only measured once its nodes moved
       fitView(0);
       settle();
       emitSpatial();
@@ -1044,8 +1168,8 @@ export function renderGraph(
     l.run();
   }
 
-  function liveNodes(): Array<{ id: string; depth: number; owner: string }> {
-    return cy.nodes().map((n) => ({ id: n.id(), depth: n.data('depth'), owner: n.data('owner') }));
+  function liveNodes(): Array<{ id: string; depth: number; owner: string; side: number; group: number; lane: number }> {
+    return cy.nodes().map((n) => ({ id: n.id(), depth: n.data('depth'), owner: n.data('owner'), side: n.data('side'), group: n.data('group'), lane: n.data('lane') }));
   }
 
   function seed(): void {
@@ -1059,8 +1183,9 @@ export function renderGraph(
     // discard that, so only the nodes the saved state did not know about are placed,
     // and the saved viewport (if any) is restored rather than re-fitted.
     const fresh = new Set<string>();
-    cy.nodes().forEach((n) => { if (!restored.has(n.id())) fresh.add(n.id()); });
+    entities().forEach((n) => { if (!restored.has(n.id())) fresh.add(n.id()); });
     placeNewNodes(fresh);
+    alignLaneEdges();
     if (savedViewport && Number.isFinite(savedViewport.zoom) && savedViewport.zoom > 0) {
       suppressViewport(150);
       cy.zoom(savedViewport.zoom);
@@ -1097,7 +1222,7 @@ export function renderGraph(
         // A panel opening must not undo a pan the user just made. Re-fitting is only
         // ever a courtesy for a viewport nobody has touched.
         if (userAdjusted) return;
-        if (layout === 'layered') runLayout();
+        if (layout === 'layered' || lanes()) runLayout();
         else fitView(200);
       }, 150);
     });
@@ -1135,6 +1260,11 @@ export function renderGraph(
         cn.data('fullName', fullName(n));
         cn.data('serviceName', n.serviceName);
         cn.data('kind', n.kind || 'service');
+        // Where it sits: the same entity can be a hop further, or on the other side, in
+        // the next answer, and the lane layout reads these.
+        cn.data('depth', n.depth ?? -1);
+        cn.data('side', n.side ?? 0);
+        cn.data('owner', n.owner || '');
       }
       for (const n of next.nodes || []) {
         for (const e of n.edges || []) {
@@ -1144,6 +1274,7 @@ export function renderGraph(
           const state = e.edgeState || (e.driftStatus === 'drift' ? 'drift' : '');
           ce.data('state', state);
           ce.data('drift', state === 'drift' ? 1 : 0);
+          if (e.label) ce.data('elabel', e.label); else ce.removeData('elabel');
         }
       }
     });
@@ -1161,22 +1292,30 @@ export function renderGraph(
     const before = new Set<string>();
     cy.nodes().forEach((n) => { before.add(n.id()); });
     cy.batch(() => {
-      cy.elements().filter((e) => !keep.has(e.id())).remove();
+      // Add, then re-home, then remove: removing a lane box removes what is still in it.
       const existing = new Set<string>();
       cy.elements().forEach((e) => { existing.add(e.id()); });
       const added = els.filter((e) => !existing.has(String(e.data.id)));
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if (added.length) cy.add(added as any);
+      for (const e of els) {
+        const n = cy.getElementById(String(e.data.id));
+        if (n.isNode() && (n.data('parent') ?? null) !== (e.data.parent ?? null)) n.move({ parent: e.data.parent ?? null });
+      }
+      cy.elements().filter((e) => !keep.has(e.id())).remove();
     });
     // Semantic fields of the survivors still need updating: a topology change and a
     // status change routinely arrive in the same refresh.
     patchData(next);
+    // A pin on something that left the graph would fade everything that is still in it.
+    if (clickFocusId && cy.getElementById(clickFocusId).empty()) clickFocusId = null;
     const fresh = new Set<string>();
-    cy.nodes().forEach((n) => { if (!before.has(n.id())) fresh.add(n.id()); });
-    // A team opened or folded again reshapes the graph the reader asked for, so a graph
-    // laid out in rows is laid out again; a refresh that adds a node keeps everything put.
+    entities().forEach((n) => { if (!before.has(n.id())) fresh.add(n.id()); });
+    // A team opened or folded again reshapes the graph the reader asked for, so lanes are
+    // laid out again; so are lanes nobody has arranged, since the layout is the same for
+    // the same graph. A refresh that adds a node to an arranged graph keeps everything put.
     const regrouped = [...before].some((id) => id.startsWith('group:') && !keep.has(id)) || [...fresh].some((id) => id.startsWith('group:'));
-    if (regrouped && layout === 'force' && cy.nodes().length > RANKED_ROWS_MIN) {
+    if (lanes() && (regrouped || !userAdjusted)) {
       fresh.forEach((id) => restored.add(id));
       runLayout();
       return;

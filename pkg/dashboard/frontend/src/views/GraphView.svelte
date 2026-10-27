@@ -9,7 +9,7 @@
     perspectiveSupportsDepth, corroborationLabel, corroborationTone, serviceScopedCaveat,
     canonicalFocusForPerspective, projectionFocusMismatch, nextMaxNodes, maxEdgesFor,
   } from '../lib/graphState.ts';
-  import { cyEdgeId, neighborhoodToGraph, groupByOwner, GROUP_PREFIX, GROUP_THRESHOLD as GROUP_LIMIT } from '../lib/neighborhoodGraph.ts';
+  import { cyEdgeId, neighborhoodToGraph, laneGraph, GROUP_PREFIX, GROUP_THRESHOLD as GROUP_LIMIT } from '../lib/neighborhoodGraph.ts';
   import { abbreviateDigests, formatCount } from '../lib/format.ts';
   import { graphQueryKey } from '../lib/graphSpatial.ts';
   import { snapshotKnowledge } from '../lib/knowledgeState.ts';
@@ -160,20 +160,26 @@
   // (by canonical key) or edge (by the reproduced Cytoscape edge id).
   function selectNodeById(id) {
     // A team's folded node opens the team instead of a drawer.
-    if (id?.startsWith(GROUP_PREFIX)) { openGroups = new Set([...openGroups, id.slice(GROUP_PREFIX.length)]); return; }
+    if (id?.startsWith(GROUP_PREFIX)) { openGroup(id); return; }
     selectNode((shown?.nodes || []).find((n) => n.ref.key === id), { pin: false });
   }
 
   // ── folding a large neighborhood by team ─────────────────────────────────────
-  // Past GROUP_THRESHOLD entities the ones beyond the direct neighbors are drawn as one
-  // node per team. Opening a team or showing every entity is per question: a new focus,
-  // depth or budget starts folded again.
+  // The canvas is laid out in lanes: what the focus depends on to its left, what uses it
+  // to its right. Past GROUP_THRESHOLD entities the ones beyond the direct neighbors are
+  // drawn as one node per team and side. Opening a team or showing every entity is per
+  // question: a new focus, depth or budget starts folded again.
   let openGroups = $state(new Set());
   let showEvery = $state(false);
   let groupedFor = '';
   $effect(() => { if (queryKey !== groupedFor) { groupedFor = queryKey; openGroups = new Set(); showEvery = false; } });
-  const grouped = $derived(shown ? groupByOwner(neighborhoodToGraph(shown), { open: openGroups, all: showEvery }) : null);
+  const grouped = $derived(shown ? laneGraph(neighborhoodToGraph(shown), { open: openGroups, all: showEvery }) : null);
+  function openGroup(id) { openGroups = new Set([...openGroups, id]); }
+  const sideWords = (g) => (g.side === 'depends-on' ? 'that it depends on' : 'that use it');
   function selectEdgeByCyId(cyId) {
+    // The one edge a group draws stands for many relationships: selecting it opens the group.
+    const g = grouped?.groups.find((x) => cyId?.startsWith(`${x.id}→`) || cyId?.includes(`→${x.id}:`));
+    if (g) { openGroup(g.id); return; }
     selectEdge((shown?.edges || []).find((e) => cyEdgeId(e.from.key, e.to.key, e.relation) === cyId));
   }
 
@@ -501,8 +507,8 @@
             <!-- Primary: the visual Cytoscape topology. -->
             {#if grouped?.groups.length}
               <div class="gv-caveat tone-info" role="status" data-testid="graph-grouped">
-                To keep {formatCount(shown.nodes.length)} entities readable, {formatCount(grouped.folded)} past the direct neighbors are grouped by team ({formatCount(grouped.groups.length)} team{grouped.groups.length === 1 ? '' : 's'}). Select a team on the graph, or here, to open it:
-                <CappedList items={grouped.groups} max={6} inline={true} label="Teams grouped on the graph">{#snippet item(g)}<button type="button" class="gv-more" data-testid="graph-open-group" onclick={() => { openGroups = new Set([...openGroups, g.owner]); }}>{g.owner} ({formatCount(g.count)})</button>{/snippet}</CappedList>
+                To keep {formatCount(shown.nodes.length)} entities readable, {formatCount(grouped.folded)} past the direct neighbors are grouped by team ({formatCount(grouped.groups.length)} group{grouped.groups.length === 1 ? '' : 's'}). Select a group on the graph, or here, to open it:
+                <CappedList items={grouped.groups} max={6} row={true} label="Teams grouped on the graph">{#snippet item(g)}<button type="button" class="gv-more" data-testid="graph-open-group" title="{g.owner}: {formatCount(g.count)} {g.count === 1 ? 'entity' : 'entities'} {sideWords(g)}" aria-label="Open {g.owner}: {formatCount(g.count)} {g.count === 1 ? 'entity' : 'entities'} {sideWords(g)}" onclick={() => openGroup(g.id)}><span aria-hidden="true">{g.side === 'depends-on' ? '← ' : ''}</span>{g.owner} ({formatCount(g.count)})<span aria-hidden="true">{g.side === 'used-by' ? ' →' : ''}</span></button>{/snippet}</CappedList>
                 <button type="button" class="gv-more" data-testid="graph-show-every" onclick={() => { showEvery = true; }}>Show every entity</button>
               </div>
             {:else if showEvery && shown.nodes.length > GROUP_LIMIT}
