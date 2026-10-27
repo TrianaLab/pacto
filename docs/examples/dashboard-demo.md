@@ -22,8 +22,9 @@ browser keeps a copy afterwards.
 
 - **Fleet overview**: eighteen made-up services and who calls whom: the
   sixteen of the [CLI tour](demo-tour.md) plus two from a partner registry,
-  a second domain. A banner
-  at the top says some of the information is missing. That is on purpose:
+  a second domain. The page opens on its answer to **Is anything wrong?**
+  and says some of the information is missing. Posture, ownership and data
+  sources stay open below it. That is on purpose:
   Pacto always tells you what it could not see instead of hiding it.
 - **One service's dependency graph**: `payments-service` has six published
   versions. The graph shows which services call it and what a change would
@@ -69,8 +70,8 @@ screens show:
 - **An agent with a signed eval.** pay-agent, the AI agent, is a service like
   any other: its contract ships its eval suite as a check. Its test Stage ran
   the suite through a runner that signs its count. 1.0.0 passed 2 of 2.
-  1.1.0 passed 1 of 2, so it rolled back and test stepped down. The change
-  page says who ran the suite and signed the result.
+  1.1.0 passed 1 of 2, so it rolled back and test stepped down. The
+  **Checks** on the change page say who ran the suite and signed the result.
 
 ## What it cannot show
 

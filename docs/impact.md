@@ -189,7 +189,9 @@ started with. When the two disagree they are describing two moments, not two sys
 In the dashboard the analysis is one half of the **Change analysis** workspace,
 served by `/api/fleet/impact`. It is entered from the service or revision you are
 already looking at, and the analyzed pair is in the URL so the answer is
-shareable. It reads the **currently published** snapshot — the same one the
+shareable. It opens on a one-line answer: what kind of change it is and who it
+reaches. What changed, the affected consumers, owners and targets and the
+evidence gaps are folded below it, each with its count. It reads the **currently published** snapshot — the same one the
 Operational Graph shows — so its `snapshotId` matches the graph rather than a
 divergent rebuild. The **include-observed** control is enabled only when the host
 declares an observation source, because observed evidence needs a real source.

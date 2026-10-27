@@ -90,8 +90,14 @@ freezes instead, so a person looks at it. The person
 who asked can withdraw it at any time with `pacto delivery cancel -n prod <change>`.
 
 In the dashboard (`pacto dashboard`), the **Delivery** tab's **Inbox** lists
-the changes **Waiting for your decision**. Open one and press **Approve**,
-**Accept the unknown** or **Reject**.
+the changes **Waiting for your decision**. Changes another team may answer
+too sit behind a **Shared with other teams** count, and frozen Stages and
+changes that could not finish behind their own counts. Open a change: the
+page leads with the question and two cards, **If you approve** and **If you
+reject**, each saying what happens and each with its own button. Write your
+note, then press **Approve shipping** (or **Accept the unknown**) or
+**Reject**. The checks, the affected services and the timeline are folded
+below, one click away.
 
 ## What you need to be allowed
 
