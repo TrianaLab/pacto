@@ -48,7 +48,7 @@ anonymous API calls, which shared CI runners hit:
     GH_TOKEN: ${{ github.token }}
 ```
 
-Two checks. The second reads your registry, so give the job a login. These
+Add two checks. The second reads your registry, so give the job a login. These
 variables work for any registry; on GitHub's, the built-in token will do:
 
 ```yaml
@@ -119,8 +119,8 @@ smaller version. With delivery, the change then waits for the teams whose
 services it would break. Do not remove fields or change `pactoVersion` to get
 past the check.
 
-The new major version does not make `pacto diff` pass: the change is still
-breaking, so that pull request's check stays red. Merge it the way your
+`pacto diff` still fails with the new major version, because the change is
+still breaking, so that pull request's check stays red. Merge it the way your
 repository lets a reviewer override a failed check, such as an admin bypass.
 Or make the diff step informational (`continue-on-error: true` on GitHub) and
 let `pacto publish` be the gate, since it refuses a breaking change without a
