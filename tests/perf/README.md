@@ -29,6 +29,10 @@ cd integrations/kubernetes && go test -tags perfenvtest -run TestPerfPromoter -v
 
 The full dashboard run takes about 12 minutes; the promoter about 2.
 
+CI runs `make ci-perf-envtest`, the 500-Stage pass and the promoter, on every
+pull request that touches the dashboard, delivery or the operator. Its result
+gates the merge through the `required` check.
+
 ## What it builds
 
 - 60 namespaces, 500 services in 4 environments: 2,000 Stages, each with its
