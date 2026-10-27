@@ -415,7 +415,8 @@ describe('large neighborhoods', () => {
     expect(fullName({ id: 'x', serviceName: 'a-very-long-service-name-indeed' })).toBe('a-very-long-service-name-indeed');
     expect(fullName({ id: 'x', serviceName: 'payments', version: '1.2.0' })).toBe('payments 1.2.0');
     expect(fullName({ id: 'group:t', serviceName: 'team-a', group: 7 })).toBe('team-a: 7 entities. Select to show them.');
-    expect(fullName({ id: 'group:used-by:+', serviceName: '+3 more', group: 3 })).toBe('3 more direct neighbors. Select to show them.');
+    // The "Other teams" box is short on the canvas; its hover title says which side it is.
+    expect(fullName({ id: 'group:used-by:*', serviceName: 'Other teams', owner: 'Other teams that depend on it', group: 3 })).toBe('Other teams that depend on it: 3 entities. Select to show them.');
     const els = buildElements({ nodes: [{ id: 'a', serviceName: 'a-very-long-service-name-indeed', status: 'Compliant', depth: 1, owner: 'o' }] });
     expect(els[0].data).toMatchObject({ fullName: 'a-very-long-service-name-indeed', depth: 1, owner: 'o', group: 0 });
   });
@@ -472,13 +473,11 @@ describe('large neighborhoods', () => {
     // A tall canvas affords taller columns.
     const tall = laneLayout(nodes, { width: 600, height: 2400 });
     expect(new Set(nodes.filter((n) => /^d\d/.test(n.id)).map((n) => tall.get(n.id)!.x)).size).toBeLessThan(cols.size);
-    // A lane up to its cap stays one column even on a wide, short canvas, with its
-    // "+N more" at the bottom.
-    const capped = [{ id: 'focus', depth: 0, side: 0 }, { id: 'group:depends-on:+', depth: 1, side: -1, group: 3, owner: '' },
+    // A lane up to its cap stays one column even on a wide, short canvas.
+    const capped = [{ id: 'focus', depth: 0, side: 0 },
       ...Array.from({ length: 8 }, (_, i) => ({ id: `c${i}`, depth: 1, side: -1, owner: 'z' }))];
     const one = laneLayout(capped, { width: 2400, height: 300 });
     expect(new Set(capped.slice(1).map((n) => one.get(n.id)!.x)).size).toBe(1);
-    expect(one.get('group:depends-on:+')!.y).toBe(Math.max(...capped.slice(1).map((n) => one.get(n.id)!.y)));
   });
 });
 

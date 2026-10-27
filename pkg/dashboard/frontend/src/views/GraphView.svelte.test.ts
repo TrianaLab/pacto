@@ -224,7 +224,8 @@ describe('GraphView — product Operational Graph', () => {
     }));
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-answer"]')).toBeTruthy());
-    expect(q(target, '[data-testid="graph-answer"]')?.textContent).toBe('1 undeclared call.');
+    // The focus first, then what is around it.
+    expect(q(target, '[data-testid="graph-answer"]')?.textContent).toBe('web meets its contract. Around it, 1 call is undeclared.');
     expect(q(target, '[data-testid="graph-answer"]')?.className).toContain('has-problems');
     unmount(component); document.body.removeChild(target);
   });
@@ -262,6 +263,10 @@ describe('GraphView — product Operational Graph', () => {
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-truncated"]')).toBeTruthy());
     expect(q(target, '[data-testid="graph-truncated"]')?.textContent).toContain('Showing 3 of 210');
+    // Missing data and the cut answer share ONE line above the canvas, folded.
+    expect(qa(target, '[data-testid="graph-notice"]')).toHaveLength(1);
+    expect((q(target, '[data-testid="graph-notice"]') as HTMLDetailsElement).open).toBe(false);
+    expect(q(target, '[data-testid="graph-notice"] summary')?.textContent).toBe('▸Some data is missing · 3 of 210 entities shown');
 
     (q(target, '[data-testid="graph-show-more"]') as HTMLButtonElement).click();
     expect(location.hash).toContain('maxNodes=100');
@@ -347,7 +352,7 @@ describe('GraphView — product Operational Graph', () => {
     unmount(again.component); document.body.removeChild(again.target);
   });
 
-  it('holds a crowded lane back behind "+N more" and opens it from the canvas, its edge or the note', async () => {
+  it('holds a crowded lane back undrawn and opens it from the notice', async () => {
     const base = neighborhood();
     const focus = base.nodes.find((n: { focus?: boolean }) => n.focus)!.ref;
     const users = Array.from({ length: 12 }, (_, i) => ({ ref: ref('service', `domain-c/u${i}`, `u${i}`), depth: 1, status: 'Compliant' }));
@@ -361,14 +366,11 @@ describe('GraphView — product Operational Graph', () => {
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-lane-cap"]')).toBeTruthy());
     const btn = q(target, '[data-testid="graph-open-more"]') as HTMLButtonElement;
     expect(btn.textContent).toMatch(/^Show \d+ more dependents$/);
-    expect(q(target, '[data-testid="graph-summary"]')?.textContent).toMatch(/\d+ direct neighbors wait behind "more"/);
+    expect(q(target, '[data-testid="graph-summary"]')?.textContent).toMatch(/\d+ direct neighbors are not drawn until you show them/);
+    expect(q(target, '[data-testid="graph-notice"] summary')?.textContent).toContain('8 worst direct neighbors per side');
+    // No "+N more" box on the canvas duplicates the button.
     const drawn = renderSpy.mock.calls.at(-1)![1];
-    expect(drawn.nodes.some((n: { id: string }) => n.id === 'group:used-by:+')).toBe(true);
-    // Selecting its edge opens it, and so does the note's button.
-    renderSpy.mock.calls.at(-1)![2].onSelectEdge(`group:used-by:+→${focus.key}:dependency`);
-    flushSync();
-    expect(q(target, '[data-testid="graph-lane-cap"]')).toBeNull();
-    expect(applyTopologySpy.mock.calls.at(-1)![0].nodes.some((n: { id: string }) => n.id === 'group:used-by:+')).toBe(false);
+    expect(drawn.nodes.some((n: { id: string }) => n.id === 'group:used-by:+')).toBe(false);
     unmount(component); document.body.removeChild(target);
 
     const again = mountView({ kind: 'service', sel: 'domain-a/web' });
