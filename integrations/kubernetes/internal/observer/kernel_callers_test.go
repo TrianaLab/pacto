@@ -240,6 +240,10 @@ func TestObservedCallers_Coverage(t *testing.T) {
 		{name: "host network in an ignored namespace", state: pactoapi.CallerCoverageComplete, callersAfter: 5,
 			setup: func(f *kernelFixture) { hostPod(f, "cilium") },
 			input: func(in *CollectInput) { in.CallerIgnoreNamespaces = []string{"cilium"} }},
+		// A CNI namespace a cluster may not have is not built in: anyone who may create namespaces could
+		// squat it and call unseen.
+		{name: "host network in an unlisted CNI namespace", state: pactoapi.CallerCoveragePartial, reason: "shared-netns", callersAfter: 5,
+			setup: func(f *kernelFixture) { hostPod(f, "calico-system") }},
 		{name: "host network in a workload namespace", state: pactoapi.CallerCoveragePartial, reason: "shared-netns", callersAfter: 5,
 			setup: func(f *kernelFixture) { hostPod(f, "batch") }},
 		{name: "truncated entry", state: pactoapi.CallerCoveragePartial, reason: "truncated", callersAfter: 5,

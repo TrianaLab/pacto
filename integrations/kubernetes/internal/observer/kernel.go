@@ -640,9 +640,12 @@ func (o *Observer) observeCallers(ctx context.Context, input CollectInput, now t
 	return callers, cov
 }
 
-// systemNamespaces hold the cluster's own pods (kube-proxy, CNI daemons) that run on the host network and
-// do not call workloads, so their shared network namespace does not make caller coverage partial.
-var systemNamespaces = []string{"kube-system", "kube-public", "kube-node-lease", "kube-flannel", "calico-system", "tigera-operator"}
+// systemNamespaces hold the cluster's own pods (kube-proxy) that run on the host network and do not call
+// workloads, so their shared network namespace does not make caller coverage partial. Only namespaces every
+// cluster has belong here: a namespace that may not exist (a CNI's, like calico-system) could be created by
+// anyone allowed to create namespaces, and a host-network pod there would then call unseen while coverage
+// reads complete. The chart lists those in callerIgnoreNamespaces instead, where an admin can drop them.
+var systemNamespaces = []string{"kube-system", "kube-public", "kube-node-lease"}
 
 // callerIgnored reports whether a host-network pod in the namespace leaves caller coverage complete: a
 // system namespace, the node agent's own or one in input.CallerIgnoreNamespaces.
