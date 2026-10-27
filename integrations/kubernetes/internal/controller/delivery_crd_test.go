@@ -11,7 +11,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // The Stage CRD admits at most one candidate source, so the version offered
@@ -52,5 +54,32 @@ var _ = Describe("Stage candidates", func() {
 		} {
 			Expect(k8sClient.Create(ctx, stage(name, c))).To(Succeed(), name)
 		}
+	})
+})
+
+// Clients ask the apiserver for only the Operations a read needs: a Stage's,
+// or those that did not succeed.
+var _ = Describe("Operation selectable fields", func() {
+	op := func(name, stage string) *unstructured.Unstructured {
+		u := &unstructured.Unstructured{Object: map[string]any{
+			"metadata": map[string]any{"namespace": "default", "name": name},
+			"spec": map[string]any{"type": "delivery.pacto.trianalab.io/promote", "stage": stage, "facet": "pointer",
+				"actor": map[string]any{"user": "bot"}},
+		}}
+		u.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Kind: "Operation"})
+		return u
+	}
+	It("selects by spec.stage and status.outcome", func() {
+		Expect(k8sClient.Create(ctx, op("sel-a", "payments-prod"))).To(Succeed())
+		Expect(k8sClient.Create(ctx, op("sel-b", "ledger-prod"))).To(Succeed())
+		list := &unstructured.UnstructuredList{}
+		list.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Kind: "OperationList"})
+		Expect(k8sClient.List(ctx, list, client.InNamespace("default"),
+			client.MatchingFieldsSelector{Selector: fields.OneTermEqualSelector("spec.stage", "payments-prod")})).To(Succeed())
+		Expect(list.Items).To(HaveLen(1))
+		Expect(list.Items[0].GetName()).To(Equal("sel-a"))
+		Expect(k8sClient.List(ctx, list, client.InNamespace("default"),
+			client.MatchingFieldsSelector{Selector: fields.OneTermNotEqualSelector("status.outcome", "Succeeded")})).To(Succeed())
+		Expect(len(list.Items)).To(BeNumerically(">=", 2))
 	})
 })

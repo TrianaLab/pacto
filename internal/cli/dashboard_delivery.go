@@ -312,7 +312,7 @@ func (a dashDelivery) Stages(ctx context.Context, ns string) ([]delivery.StageOb
 }
 
 func (a dashDelivery) Operations(ctx context.Context, ns string) ([]delivery.OperationObject, error) {
-	o, err := a.d.Operations(ctx, ns)
+	o, err := a.d.OperationsNotSucceeded(ctx, ns)
 	return o, refusal(err)
 }
 

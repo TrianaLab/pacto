@@ -538,11 +538,11 @@ func TestDeliveryLists(t *testing.T) {
 	if len(prod) != 1 || prod[0].Spec.Service.Name != "payments" {
 		t.Fatalf("one namespace: %+v", prod)
 	}
-	if ops, err := d.Operations(ctx, "prod"); err != nil || len(ops) != 1 {
+	if ops, err := d.OperationsNotSucceeded(ctx, "prod"); err != nil || len(ops) != 1 {
 		t.Fatalf("operations: %+v %v", ops, err)
 	}
 	c.PrependReactor("list", "operations", func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, errors.New("forbidden") })
-	wantErrContaining(t, func() error { _, err := d.Operations(ctx, ""); return err }(), "every namespace")
+	wantErrContaining(t, func() error { _, err := d.OperationsNotSucceeded(ctx, ""); return err }(), "every namespace")
 }
 
 func TestDeliveryDescribe(t *testing.T) {
