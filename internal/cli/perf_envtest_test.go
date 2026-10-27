@@ -634,29 +634,35 @@ func perfTable(rs []perfResult) string {
 	return b.String()
 }
 
-// perfBudget is a regression tripwire, generous on purpose: a shared CI
-// runner is slower and noisier than the machine the README table came from.
+// perfBudget is a regression tripwire, generous on purpose: about twice the
+// numbers in tests/perf/README.md, which a loaded laptop measured. The
+// apiserver count is checked on the auditors' rows, fifty distinct people
+// whom no per-person cache helps, so it is the same on any machine; the p95
+// at 10 callers, at both sizes.
 type perfBudget struct {
-	view      string
-	maxAPI    float64       // warm apiserver requests per dashboard request
-	maxP95    time.Duration // at 10 callers, full size, the auditor
-	scaleOnly string
+	maxAPI float64       // apiserver requests per dashboard request
+	maxP95 time.Duration // at 10 callers
 }
 
-var perfBudgets = func(t testing.TB, rs []perfResult) {
-	budgets := map[string]perfBudget{}
-	for _, b := range perfBudgetTable {
-		budgets[b.view] = b
-	}
+var perfBudgetTable = map[string]perfBudget{
+	"inbox":               {8, 15 * time.Second},
+	"environments":        {8, 15 * time.Second},
+	"environments?env&q":  {8, 15 * time.Second},
+	"history (all)":       {60, 20 * time.Second},
+	"history (hot Stage)": {4, 5 * time.Second},
+	"published":           {3, 8 * time.Second},
+	"autonomy":            {4, 8 * time.Second},
+	"fleet overview":      {2, 2 * time.Second},
+	"fleet entities":      {2, 2 * time.Second},
+}
+
+func perfBudgets(t testing.TB, rs []perfResult) {
 	for _, r := range rs {
 		if r.failed > 0 {
 			t.Errorf("%s %s for %s: %d of %d requests failed", r.scale, r.view, r.who, r.failed, r.requests)
 		}
-		b, ok := budgets[r.view]
-		if !ok {
-			continue
-		}
-		if r.apiPerReq > b.maxAPI {
+		b := perfBudgetTable[r.view]
+		if strings.HasSuffix(r.who, "auditors") && r.apiPerReq > b.maxAPI {
 			t.Errorf("%s %s for %s: %.1f apiserver requests per request, budget %.0f", r.scale, r.view, r.who, r.apiPerReq, b.maxAPI)
 		}
 		if r.callers == 10 && r.p95 > b.maxP95 {
@@ -664,7 +670,3 @@ var perfBudgets = func(t testing.TB, rs []perfResult) {
 		}
 	}
 }
-
-// perfBudgetTable: set from the measured numbers in the README with ample
-// headroom.
-var perfBudgetTable = []perfBudget{}

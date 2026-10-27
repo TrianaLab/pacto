@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -32,6 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	"github.com/go-logr/logr"
 	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -48,6 +50,7 @@ func TestPerfPromoter(t *testing.T) {
 		t.Skip("KUBEBUILDER_ASSETS is not set: run make perf-envtest")
 	}
 	const n, namespaces = 200, 10
+	ctrl.SetLogger(logr.Discard())
 	te := &envtest.Environment{CRDDirectoryPaths: []string{filepath.Join("..", "..", "config", "crd", "bases")},
 		ErrorIfCRDPathMissing: true, CRDs: fluxCRDs()}
 	cfg, err := te.Start()
@@ -57,10 +60,25 @@ func TestPerfPromoter(t *testing.T) {
 	t.Cleanup(func() { _ = te.Stop() })
 	cfg.QPS, cfg.Burst = 20, 30 // what ctrl.GetConfig gives the promoter
 	var calls atomic.Int64
+	var byKindMu sync.Mutex
+	byKind := map[string]int{}
 	counted := rest.CopyConfig(cfg)
 	counted.Wrap(func(rt http.RoundTripper) http.RoundTripper {
-		return perfRoundTrip(func(r *http.Request) (*http.Response, error) { calls.Add(1); return rt.RoundTrip(r) })
+		return perfRoundTrip(func(r *http.Request) (*http.Response, error) {
+			calls.Add(1)
+			byKindMu.Lock()
+			byKind[r.Method+" "+resourceOf(r.URL.Path)]++
+			byKindMu.Unlock()
+			return rt.RoundTrip(r)
+		})
 	})
+	kinds := func() string {
+		byKindMu.Lock()
+		defer byKindMu.Unlock()
+		out := fmt.Sprint(byKind)
+		clear(byKind)
+		return out
+	}
 	seedCfg := rest.CopyConfig(cfg)
 	seedCfg.QPS = -1
 	c, err := client.New(seedCfg, client.Options{Scheme: newScheme()})
@@ -78,6 +96,7 @@ func TestPerfPromoter(t *testing.T) {
 	}
 	must(t, c.Create(ctx, &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "Namespace", "metadata": map[string]any{"name": ns}}}))
 	p := pactoObj("payments", "payments", c1, "Compliant", 2)
+	p.Object["spec"] = map[string]any{"contractRef": map[string]any{"oci": "reg.example/pactos/payments@" + c1}}
 	status := p.Object["status"]
 	must(t, c.Create(ctx, p))
 	p.Object["status"] = status
@@ -86,7 +105,8 @@ func TestPerfPromoter(t *testing.T) {
 	perfParallel(t, n, func(i int) error {
 		space, name := fmt.Sprintf("perf-%d", i%namespaces), fmt.Sprintf("payments-%03d", i)
 		s := stageObj(dA)
-		s.Namespace, s.Name, s.Spec.ApplyRef.Name, s.Spec.Candidates = space, name, name, delivery.Candidates{}
+		s.Namespace, s.Name, s.Spec.ApplyRef.Name = space, name, name
+		s.Spec.Candidates.OCIRepositoryRef.Name = name + "-candidates"
 		s.Status.Stream.ID = "cid/" + space + "/" + name
 		st := s.Status
 		if err := c.Create(ctx, s); err != nil {
@@ -108,6 +128,18 @@ func TestPerfPromoter(t *testing.T) {
 		if err := c.Status().Update(ctx, oci); err != nil {
 			return err
 		}
+		// The candidate source offers what runs now, so no Stage proposes a
+		// promote of its own while the burst is measured.
+		cand := verifiedRepo(name+"-candidates", "latest@"+dA)
+		cand.SetNamespace(space)
+		candStatus := cand.Object["status"]
+		if err := c.Create(ctx, cand); err != nil {
+			return err
+		}
+		cand.Object["status"] = candStatus
+		if err := c.Status().Update(ctx, cand); err != nil {
+			return err
+		}
 		k := kustomization(name, name, "True", "ReconciliationSucceeded", "latest@"+dA, "latest@"+dA)
 		k.SetNamespace(space)
 		ks := k.Object["status"]
@@ -118,8 +150,11 @@ func TestPerfPromoter(t *testing.T) {
 		return c.Status().Update(ctx, k)
 	})
 
-	mgr, err := ctrl.NewManager(counted, ctrl.Options{Scheme: newScheme(), Metrics: metricsserver.Options{BindAddress: "0"},
-		HealthProbeBindAddress: "0"})
+	opts := ctrl.Options{Scheme: newScheme(), Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0"}
+	if os.Getenv("PERF_CACHE_UNSTRUCTURED") != "" {
+		opts.Client.Cache = &client.CacheOptions{Unstructured: true}
+	}
+	mgr, err := ctrl.NewManager(counted, opts)
 	must(t, err)
 	reg := &fakeRegistry{contracts: map[string]string{dA: contractRef(c1), dB: contractRef(c2)},
 		bundles: map[string]*contract.Bundle{contractRef(c1): bundle("1.0.0"), contractRef(c2): bundle("1.1.0")}}
@@ -135,9 +170,11 @@ func TestPerfPromoter(t *testing.T) {
 		t.Fatal("the cache never synced")
 	}
 	time.Sleep(5 * time.Second) // the Stages' first reconciles settle
+	kinds()
 	idle := calls.Load()
 	time.Sleep(5 * time.Second)
 	idleRate := float64(calls.Load()-idle) / 5
+	t.Logf("idle apiserver requests over 5s: %s", kinds())
 
 	// The burst: every promote at once, as an agent fleet would.
 	before := calls.Load()
@@ -190,6 +227,7 @@ func TestPerfPromoter(t *testing.T) {
 		}
 	}
 	wall := time.Since(start)
+	t.Logf("apiserver requests during the burst: %s", kinds())
 	close(stop)
 	sampler.Wait()
 	used := calls.Load() - before - int64(idleRate*wall.Seconds())
@@ -198,9 +236,13 @@ func TestPerfPromoter(t *testing.T) {
 	t.Logf("promoter: %d promotes, all moved in %s; time to move p50 %s p95 %s; max queue depth %.0f; %.1f apiserver requests per operation (%.1f/s idle)",
 		n, wall.Round(time.Millisecond), moved[n/2].Round(time.Millisecond), moved[n*95/100].Round(time.Millisecond), maxDepth, perOp, idleRate)
 	if path := os.Getenv("PERF_REPORT"); path != "" {
-		row := fmt.Sprintf("| %d promotes | %s | %s | %s | %.0f | %.1f |\n", n, wall.Round(time.Millisecond),
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		must(t, err)
+		defer f.Close()
+		_, err = fmt.Fprintf(f, "\n| promotes | all moved | time to move p50 | p95 | max queue depth | apiserver req/operation |\n"+
+			"|---:|---:|---:|---:|---:|---:|\n| %d | %s | %s | %s | %.0f | %.1f |\n", n, wall.Round(time.Millisecond),
 			moved[n/2].Round(time.Millisecond), moved[n*95/100].Round(time.Millisecond), maxDepth, perOp)
-		must(t, os.WriteFile(path, []byte(row), 0o644))
+		must(t, err)
 	}
 	// Budgets: generous tripwires over the README numbers.
 	if perOp > promoterMaxAPIPerOp {
@@ -212,9 +254,29 @@ func TestPerfPromoter(t *testing.T) {
 }
 
 const (
-	promoterMaxAPIPerOp = 1000
-	promoterMaxBurst    = 10 * time.Minute
+	promoterMaxAPIPerOp = 25
+	promoterMaxBurst    = 4 * time.Minute
 )
+
+// resourceOf is the resource (and subresource) a request path names.
+func resourceOf(path string) string {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) > 0 && parts[0] == "apis" && len(parts) > 2 {
+		parts = parts[3:]
+	} else if len(parts) > 1 {
+		parts = parts[2:]
+	}
+	if len(parts) > 1 && parts[0] == "namespaces" {
+		parts = parts[2:]
+	}
+	switch len(parts) {
+	case 0:
+		return "namespaces"
+	case 1, 2:
+		return parts[0]
+	}
+	return parts[0] + "/" + parts[2]
+}
 
 type perfRoundTrip func(*http.Request) (*http.Response, error)
 
