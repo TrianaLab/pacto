@@ -25,8 +25,9 @@ three principles, and each one holds only under its stated condition:
 
 1. **Desired versions are immutable artifacts in a registry.** Every version
    Pacto promotes is an OCI digest that `pacto publish` signed. Which digest
-   runs where is a pointer Pacto writes onto a Flux OCIRepository or an
-   OCI-sourced Argo CD Application. Source code and manifests stay in git, and
+   runs where is a pointer Pacto writes onto a Flux
+   [OCIRepository](https://pacto.run/latest/glossary/#ocirepository) or an OCI-sourced
+   [Argo CD](https://pacto.run/latest/glossary/#argo-cd) Application. Source code and manifests stay in git, and
    Flux or Argo CD still apply them.
 2. **Evidence moves a change** on a Stage set to an
    automatic level. A person is asked only when the evidence runs out, and
@@ -36,8 +37,8 @@ three principles, and each one holds only under its stated condition:
 
 3. **Every decision can be verified without Pacto.** With the
    [recorder](https://pacto.run/latest/glossary/#recorder) on, each finished
-   operation leaves a signed in-toto record as an OCI referrer, checkable with
-   `oras` and `cosign`; see
+   operation leaves a signed [in-toto](https://pacto.run/latest/glossary/#in-toto) record as an OCI
+   referrer, checkable with [oras](https://pacto.run/latest/glossary/#oras) and [cosign](https://pacto.run/latest/glossary/#cosign); see
    [Verify a record](https://pacto.run/latest/verify-a-record/).
 
 ## Contracts are the foundation
@@ -68,7 +69,7 @@ it is rebuilt and wrong the moment any fragment drifts.
 
 A Pacto dependency records which versions of another service a revision
 accepts, for example `auth ^2.0.0`. `pacto.lock` pins the rest of the
-transitive closure by digest. A catalog entry such as `dependsOn: auth` records
+[transitive closure](https://pacto.run/latest/glossary/#transitive-closure) by digest. A catalog entry such as `dependsOn: auth` records
 only that the edge exists.
 
 The range lives in a versioned artifact, so you can compare it with the

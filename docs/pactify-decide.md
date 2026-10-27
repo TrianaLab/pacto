@@ -27,18 +27,19 @@ Pacto holds a change and asks a person in these cases:
 - **The Stage is on auto for non-breaking and the change is breaking,
   possibly breaking or unclassified.** Every consumer's contract accepts it, but this level ships only
   non-breaking changes on its own, so a person approves it.
-- **The Stage requires records and the recorder cannot write them now.** A
-  person approves the promote or rollback without a record yet. The change
-  itself is the same; only its signed record is missing.
-- **Someone asked to raise the Stage's level.** A raise moves no version, it
-  lets Pacto do more on its own. A person of the team that owns the service,
+- **The Stage requires records and the [recorder](glossary.md#recorder)
+  cannot write them now.** A person approves the promote or rollback to go
+  ahead before its signed record exists. The change itself runs as usual.
+- **Someone asked to raise the Stage's level.** A raise lets Pacto do more on
+  its own and keeps the running version. A person of the team that owns the service,
   other than the one who asked, approves it.
-- **The version changes who owns the service** (the team, or the DRI when no
-  team is named). The team that owns the service now approves it, so the
+- **The version changes who owns the service** (the team, or the
+  [DRI](glossary.md#dri) when no team is named). The team that owns the service now approves it, so the
   author of a version never picks who approves it. A version that only edits
   the owner's contacts does not wait. When the running contract cannot be
-  read, no team is asked, and only break-glass can answer if the promoter
-  requires an owner team.
+  read, no team is asked, and only [break-glass](glossary.md#break-glass) can
+  answer if the [promoter](glossary.md#promoter), the part of delivery that
+  runs each change, requires an owner team.
 - **The version number is too small for the change.** A breaking change
   published as a minor (1.9.0 after 1.8.0) would pass every `^1` range, so a
   person approves it. So does a version whose contract moved to another
@@ -49,7 +50,7 @@ Pacto holds a change and asks a person in these cases:
   [Cancel and roll back](integrations/kubernetes/delivery-operations.md#cancel-and-roll-back).
 
 Pacto asks only members of the [owner team](glossary.md#owner-team) of an
-affected service, never the person who asked. If an AI agent asked for you
+affected service, and skips the person who asked. If an AI agent asked for you
 without naming you, leave that change to a teammate; the rule is in
 [Who may approve](integrations/kubernetes/delivery.md#who-may-approve).
 
@@ -71,7 +72,7 @@ Then give one answer:
 | Answer | Use it when | What happens |
 |---|---|---|
 | `approve` | The question says "Approve" and you accept it. Pacto asks that in every case in [Why you were asked](#why-you-were-asked) except a check that said Unknown | Once every team asked has approved, the version goes ahead, or for a raise, the Stage moves up one level |
-| `accept-unknown` | The question says "Accept the unknown": a check said Unknown and you accept the risk | The version goes ahead; the record says "accepted", never "passed". If the version already shipped and a later check said Unknown, only this or `reject` answers |
+| `accept-unknown` | The question says "Accept the unknown": a check said Unknown and you accept the risk | The version goes ahead and the record says "accepted". If the version already shipped and a later check said Unknown, only this or `reject` answers |
 | `reject` | You do not want this version here | If it has not shipped, the change ends and the Stage keeps the version it runs. If it already shipped, Pacto rolls it back to the version before. Someone can ask again later |
 
 ```bash
@@ -167,7 +168,7 @@ Run the command `undo` prints. If the Stage has moved on since, `undo`
 prints a normal change to the earlier version instead, and every check runs
 again. After a manual rollback, automation stops moving that Stage (the
 `HOLD` column shows `true`) until a person unfreezes it or asks for a new
-version, so it does not undo your choice. In the dashboard, the
+version, so your choice stays in place. In the dashboard, the
 **History** view has an **Undo** button on each change.
 
 ## Force a version (break-glass)

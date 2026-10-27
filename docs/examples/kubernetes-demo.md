@@ -49,7 +49,7 @@ in the order the story plays them:
 - **Pactify a service.** `pacto init --delivery` reads fraud's Dockerfile and
   manifests and writes its contract, its Pacto resource and its Stages.
   `--no-transparency-log` keeps the demo's throwaway key out of the public
-  transparency log, and `--insecure-registry` lets Flux read its plain HTTP
+  [transparency log](../glossary.md#transparency-log), and `--insecure-registry` lets Flux read its plain HTTP
   registry. The demo uses the files as init wrote them. Both of fraud's
   Stages start on observe: Flux applies the tag, running the image
   `pacto publish` built, pinned by digest, and Pacto only notes that it would

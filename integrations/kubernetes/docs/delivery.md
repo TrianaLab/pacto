@@ -7,8 +7,8 @@ version that fails its checks. [Flux](../../glossary.md#flux) does the actual sw
 version to the next (Argo CD can do it instead, as an experimental option).
 Words in links are defined in the [glossary](../../glossary.md).
 
-Delivery is opt-in. It is a separate install, and without it Pacto never
-changes what runs. To set it up for a service, [pactify it](../../pactify.md):
+Delivery is opt-in. It is a separate install, and only with it does Pacto
+change what runs. To set it up for a service, [pactify it](../../pactify.md):
 give it a contract and connect it to delivery.
 
 !!! warning "Alpha"
@@ -45,7 +45,8 @@ monitoring. These checks keep running after release, so a problem found an
 hour later still rolls the version back once, whoever asked for it: the
 version that ran before is put back. The Stage freezes instead when there is
 nothing safe to go back to, the rollback itself fails, someone chose the
-running version by hand (a rollback, or a promote during auto-hold) or someone
+running version by hand (a rollback, or a promote during
+[auto-hold](../../glossary.md#auto-hold)) or someone
 else already took the name of the rollback Pacto raises. It then waits for a
 person to roll back or unfreeze it, from the dashboard or the command line. A
 failure of a version Pacto shipped with no person also costs the Stage one
@@ -113,9 +114,9 @@ breaking change that no contract depends on. Pacto sees only the consumers
 that have a contract, so a service with no contract may still call the one
 that changed.
 
-Unknown never counts as yes. The change waits for a person, who can reject it
-or accept the unknown. An accepted unknown is recorded as accepted, never as a
-pass.
+An Unknown check holds the change for a person, who can reject it or accept
+the unknown. The record marks that check as accepted and
+names who accepted it.
 
 ## Where you follow it
 

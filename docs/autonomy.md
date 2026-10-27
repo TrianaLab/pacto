@@ -29,7 +29,7 @@ part. A version
 with the same contract and new manifests (a new ClusterRoleBinding, say) is
 non-breaking, so an automatic level ships it with no person. What those
 manifests can do is what the account Flux applies them as may do. Give the
-Kustomization a namespaced `serviceAccountName`, as `pacto init --delivery`
+[Kustomization](glossary.md#kustomization) a namespaced `serviceAccountName`, as `pacto init --delivery`
 does, and keep the key that signs `pacto publish` as safe as the cluster: it
 is the root of trust. The Stage's [`Mediated`](glossary.md#mediated) condition is `False` with the
 reason `ApplierUnscoped` while the Kustomization runs as Flux itself.

@@ -63,7 +63,7 @@ already carries them. With `--plan` it shows exactly what it would add and
 changes nothing. For a private registry, add `--registry-secret registry-creds`
 (step 4 creates that Secret). For a local registry that speaks plain HTTP, add
 `--insecure-registry`; to keep a throwaway key's signatures out of the public
-transparency log, add `--no-transparency-log`.
+[transparency log](glossary.md#transparency-log), add `--no-transparency-log`.
 
 The plan lists the services yours depends on, what Pacto could not work out,
 marked Unknown, and a **Next** list of what to do after. Unknown marks a

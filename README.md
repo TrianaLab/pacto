@@ -78,7 +78,7 @@ each project's own documentation, August 2026; these projects move fast, so
 re-check the cells before relying on them. The contested columns:
 
 - **Semantic diff**: changes classified by compatibility impact; a line-based text diff is Partial
-- **Transitive policy**: governance rules evaluated across the dependency closure, fail-closed
+- **Transitive policy**: governance rules evaluated across the dependency [closure](https://pacto.run/latest/glossary/#transitive-closure), fail-closed
 - **Runtime verify**: workloads checked against an independently declared contract; reconciling toward the tool's own desired state is Partial
 - **Orchestrator-agnostic**: the tool runs without a Kubernetes control plane of its own. This is the softest column, and Partial is a judgement of degree
 

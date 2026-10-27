@@ -105,11 +105,12 @@ arrived and `NotEvaluated` means nobody is deployed there to evaluate.
 
 ## Story 2: Find the reason behind an Unknown
 
-*Get the reason behind a verdict. Missing evidence never counts as a pass.*
+*Get the reason behind a verdict. Missing evidence counts as Unknown.*
 
 --8<-- "examples/demo/generated/_beat-03.md"
 
-`EVIDENCE_MISSING` describes the observer. It says nothing about the service.
+`EVIDENCE_MISSING` describes the observer and leaves the service's own
+verdict open.
 `api-gateway` declares five readiness claims, every one marked `done` with
 evidence attached, and the assessment earns zero because it expired on
 2025-01-01. Pacto fails closed on both.
@@ -222,7 +223,7 @@ pacto mcp examples/demo/bundles/payments-service/v2.1.0 --base-url http://127.0.
 ```
 
 The base URL is a dead address on purpose: Pacto registers and lists the
-tools and calls nothing.
+tools and calls none of them.
 
 Add `--allow-writes` and both the warning and the restriction disappear.
 `--allow-writes` governs the interface tools only. To withhold the authoring

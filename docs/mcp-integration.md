@@ -172,8 +172,10 @@ You:    Check the contract in ./user-service
 Claude: user-service is valid.
 ```
 
-Pacto adds a dependency only from calls it observed (with the node agent
-running, pactify does). Add any other dependency yourself, as in the second
+Pacto adds a dependency only from calls it observed, which pactify does when
+the [node agent](glossary.md#node-agent) runs in the cluster. The node agent
+is a Pacto program on each Kubernetes node, separate from the AI agent that
+calls these tools. Add any other dependency yourself, as in the second
 prompt.
 
 ## If the tools do not show up

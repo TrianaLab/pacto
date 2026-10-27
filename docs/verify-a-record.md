@@ -18,20 +18,23 @@ Words in links are defined in the [glossary](glossary.md): a
 and stored in your [registry](glossary.md#registry) as a
 [referrer](glossary.md#referrer) of a [digest](glossary.md#digest). Each one
 is about one [change](glossary.md#change) to one [Stage](glossary.md#stage).
+A Stage's records form its [stream](glossary.md#stream), numbered and hung on
+one fixed digest, its [anchor](glossary.md#anchor). A
+[follower](glossary.md#follower) is a Stage in another cluster that takes the
+versions this Stage verified by reading its stream.
 
 ## What a record says
 
 A record answers: what was asked, by whom, for which Stage, what each check
 said and why, who approved and how it ended. Refusals are recorded too. It
 holds references, never secrets. A record is an
-[in-toto](https://in-toto.io) statement, a standard format for signed claims
-about software, with the type `delivery.pacto.trianalab.io/operation/v1`.
+[in-toto](glossary.md#in-toto) statement with the type `delivery.pacto.trianalab.io/operation/v1`.
 
 Every field sits under `.predicate`:
 
 | Field | What it says |
 |---|---|
-| `kind` | `operation` for a change, `gap` for a placeholder (see below), `unrecordable` for a signed stand-in for a change whose own record failed a check. A stand-in takes that change's number in the chain and hangs on the anchor only. A Stage in another cluster that follows the stream stops offering at a stand-in until a person acknowledges it (an `acknowledge` record on that Stage names its record id in `intent.params.record`) |
+| `kind` | `operation` for a change, `gap` for a placeholder (see below), `unrecordable` for a signed stand-in for a change whose own record failed a check. A stand-in takes that change's number in the chain and hangs on the anchor only. A follower takes no more versions from the stream at a stand-in until a person acknowledges it (an `acknowledge` record on that Stage names its record id in `intent.params.record`) |
 | `intent` | What was asked: the change's name, its Stage (`intent.stage.namespace` and `intent.stage.name`) and its reason |
 | `actor.user`, `actor.class` | Who asked, and whether that is a `human`, an `agent`, `break-glass` (a member of the emergency group, whose change skips every check and approval and freezes the Stage) or Pacto itself (`controller`) |
 | `actor.onBehalfOf` | The person an agent said it acted for. Only claimed, never checked, and marked so |
@@ -82,7 +85,7 @@ shows the flags.
 
 ## Check one record without Pacto
 
-You need [oras](https://oras.land), [cosign](https://github.com/sigstore/cosign),
+You need [oras](glossary.md#oras), [cosign](glossary.md#cosign),
 `jq` and `base64`, and read access to the registry (`oras login registry.example`).
 List the records on the anchor, fetch one and check its signature. Records
 are the entries of type `application/vnd.dev.sigstore.bundle.v0.3+json`;
