@@ -1044,6 +1044,10 @@ describe('history and published', () => {
     expect(sources).toEqual(['From signed records, every signature verified, partial.', 'From signed records, every signature verified, complete.',
       'From records, signatures not verified, partial.', 'From status, partial.']);
     expect(target.querySelector('[data-testid="history-problems"]')?.textContent).toContain('seq 2 is a gap');
+    // Both lists fold behind a warn count, so the changes come first.
+    const problems = target.querySelector('[data-testid="history-problems"]') as HTMLDetailsElement;
+    expect(problems.open).toBe(false);
+    expect(text(problems.querySelector('summary') as HTMLElement)).toBe('▸What the records show is wrong 2');
     expect(target.querySelector('[data-testid="history-unreadable"]')?.textContent).toContain('not trusted here');
     // Ids are short inline; the full one is on hover and copied on a click.
     const ids = [...target.querySelectorAll('[data-testid^="history-"] button.dt-id')];

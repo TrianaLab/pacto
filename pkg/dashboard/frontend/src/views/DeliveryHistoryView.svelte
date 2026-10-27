@@ -96,7 +96,7 @@
 <div class="product-page">
   <PageHeader
     title={stage ? `History of ${namespace}/${stage}` : 'History'}
-    subtitle={`${one ? 'What happened on this Stage, newest change first.' : 'What happened on each Stage, listed by namespace and name, with its newest change.'} Where the recorder runs it is read from signed records; elsewhere from the changes still in the cluster, which is never the whole story.`}
+    subtitle={one ? 'Newest change first.' : 'Each Stage with its newest change.'}
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
     paging={answer.paging}
@@ -177,17 +177,18 @@
           {#if isOpen('blame', h.namespace, h.stage.name)}
             <BlamePanel namespace={h.namespace} stage={h.stage.name} {miraURL} onClose={close} />
           {/if}
+          <!-- What is wrong with the records, and what could not be read, fold behind a count that says so in the warn tone. -->
           {#if (h.problems ?? []).length}
-            <div class="hv-notes" data-testid="history-problems">
-              <h3 class="t-body-2">What the records show is wrong ({formatCount(h.problems.length)})</h3>
+            <details class="disclosure hv-notes" data-testid="history-problems">
+              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h3 class="t-body-2">What the records show is wrong</h3> <span class="badge badge-warn">{formatCount(h.problems.length)}</span></summary>
               <CappedList items={h.problems} max={5}>{#snippet item(p)}<DigestText text={p} {known} />{/snippet}</CappedList>
-            </div>
+            </details>
           {/if}
           {#if (h.unreadable ?? []).length}
-            <div class="hv-notes" data-testid="history-unreadable">
-              <h3 class="t-body-2">What could not be read or verified ({formatCount(h.unreadable.length)})</h3>
+            <details class="disclosure hv-notes" data-testid="history-unreadable">
+              <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h3 class="t-body-2">What could not be read or verified</h3> <span class="badge badge-warn">{formatCount(h.unreadable.length)}</span></summary>
               <CappedList items={h.unreadable} max={5}>{#snippet item(u)}<DigestText text={u} {known} />{/snippet}</CappedList>
-            </div>
+            </details>
           {/if}
           {#if (h.entries ?? []).length === 0}
             <p class="t-body-2 hv-none">{q ? 'No change matches the filter.' : 'No change kept for this Stage.'}</p>
@@ -244,6 +245,7 @@
   .hv-source { font-weight: 600; color: var(--c-text-2); margin-right: var(--sp-2); }
   .hv-source.hv-partial { color: var(--c-text-3); }
   .hv-notes h3 { margin: 0; font-weight: 600; }
+  .hv-notes > summary { gap: var(--sp-2); }
   .hv-notes { overflow-wrap: break-word; }
   .hv-table a { color: var(--c-accent); }
   .hv-table a.badge-warn { color: var(--c-warn); text-decoration: none; }
