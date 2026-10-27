@@ -53,6 +53,9 @@
   }, []));
   const share = $derived(data?.contracted);
   const seen = $derived(share ? share.services + share.uncontractedCallers : 0);
+  // Every blocker is on this page: a Stage's count can point below.
+  const allBlockersHere = $derived((data?.blockersPage?.total ?? blockers.length) <= blockers.length);
+  const kinds = $derived(data?.blockerKinds ?? []);
   const promotions = $derived(data?.promotionsWithoutPerson ?? { count: 0, of: 0, untyped: 0 });
 
   // The page's answer: what stands in the way, over every page, and which
@@ -60,8 +63,9 @@
   const lead = $derived.by(() => {
     if (!data) return null;
     const total = data.blockersPage?.total ?? blockers.length;
-    const ready = stages.filter((s) => s.proposal?.level).length;
-    const onPage = (data.page?.total ?? 0) > stages.length ? ' on this page' : '';
+    // Over every page from the server; the page's own count, said so, without it.
+    const ready = data.canMoveUp ?? stages.filter((s) => s.proposal?.level).length;
+    const onPage = data.canMoveUp === undefined && (data.page?.total ?? 0) > stages.length ? ' on this page' : '';
     return {
       head: total ? `${countOf(total, 'blocker')} ${total === 1 ? 'stands' : 'stand'} in the way.` : 'Nothing Pacto can see blocks the next level.',
       rest: ready ? `${countOf(ready, 'Stage')} can move up now${onPage}.` : '',
@@ -145,6 +149,12 @@
       {#if blockers.length === 0}
         <p class="t-body-2" data-testid="autonomy-no-blockers">{q ? `No blocker matches “${q}”.` : 'Nothing Pacto can see blocks the next level.'}</p>
       {:else}
+        {#if kinds.length > 1}
+          <!-- Every kind with its count over every page: the list below shows one page. -->
+          <ul class="au-kinds" data-testid="autonomy-blocker-kinds" aria-label="Blockers by kind">
+            {#each kinds as k (k.kind)}<li><span class="au-kind-n">{formatCount(k.count)}</span> {blockerLabel(k.kind)}</li>{/each}
+          </ul>
+        {/if}
         <div class="au-groups" data-testid="autonomy-blockers">
           {#each groups as g, gi (g.kind + gi)}
             <section class="au-group" aria-label={blockerLabel(g.kind)}>
@@ -205,7 +215,12 @@
                     {#if s.proposal?.level}
                       <button type="button" class="btn btn-sm" onclick={(e) => propose(s, e)} aria-label={`Propose ${levelLabel(s.proposal.level)} for ${s.service} in ${s.environment}`}>Propose</button>
                     {:else if s.proposal?.blockers?.length}
-                      <span class="t-meta">{countOf(s.proposal.blockers.length, 'blocker')} below.</span>
+                      {#if allBlockersHere}
+                        <span class="t-meta">{countOf(s.proposal.blockers.length, 'blocker')} below.</span>
+                      {:else}
+                        <!-- The blockers are paged: the link narrows the page to this service. -->
+                        <a class="t-meta" href={deliveryAutonomyUrl({ q: s.service })} data-testid="stage-blockers">{countOf(s.proposal.blockers.length, 'blocker')}</a>
+                      {/if}
                     {/if}
                     {#if s.lastShadow}<span class="t-meta au-help" data-testid="would-have">Pacto would have chosen to {shadowLabel(s.lastShadow)}.</span>{/if}
                   </td>
@@ -238,6 +253,7 @@
   .au-table th, .au-table td { border-bottom: 1px solid var(--c-border); padding: var(--sp-2) var(--sp-3); text-align: left; vertical-align: top; }
   .au-table thead th { color: var(--c-text-3); font-weight: 600; }
   .au-table th a { color: var(--c-accent); }
+  .au-table td a.t-meta { text-decoration: underline; }
   .au-table td > * + * { margin-left: var(--sp-2); }
   .au-head { display: flex; align-items: center; gap: var(--sp-2); }
   .au-head h2 { margin: 0; }
@@ -245,6 +261,8 @@
   .au-callers { display: flex; align-items: center; gap: var(--sp-1); }
   .au-none { color: var(--c-text-3); }
   .au-help { display: block; margin: var(--sp-1) 0 0 !important; }
+  .au-kinds { display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); list-style: none; margin: var(--sp-1) 0 var(--sp-2); padding: 0; font-size: var(--text-sm); color: var(--c-text-2); }
+  .au-kind-n { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--c-text); }
   .au-groups { display: flex; flex-direction: column; gap: var(--sp-3); }
   .au-group-title { margin: var(--sp-2) 0 var(--sp-1); font: 600 var(--text-sm) / 1.4 var(--font-sans, inherit); font-style: normal; color: var(--c-text); }
   /* One line per blocker; the detail opens under it. */

@@ -151,6 +151,7 @@ type autonomyOutput struct {
 		Blockers                []AutonomyBlocker `json:"blockers"`
 		BlockersPage            Page              `json:"blockersPage" doc:"Which blockers this page holds, grouped by kind"`
 		BlockerKinds            []BlockerKind     `json:"blockerKinds" doc:"How many blockers of each kind match, over every page, in page order"`
+		CanMoveUp               int               `json:"canMoveUp" doc:"Stages, over every page, Pacto proposes a next level for"`
 	}
 }
 
@@ -179,6 +180,11 @@ func (s *Server) deliveryAutonomy(ctx context.Context, in *autonomyInput) (*auto
 		return matches(in.Q, append([]string{x.Kind, x.Subject}, x.Stages...)...)
 	})
 	b.Stages, b.Page = pageOf(rows, in.Offset, in.Limit, autonomyPage)
+	for _, r := range rows {
+		if r.Proposal != nil && r.Proposal.Level != "" {
+			b.CanMoveUp++
+		}
+	}
 	b.BlockerKinds = []BlockerKind{}
 	for _, x := range blockers { // sorted by kind, so one kind is one run
 		if n := len(b.BlockerKinds); n > 0 && b.BlockerKinds[n-1].Kind == x.Kind {

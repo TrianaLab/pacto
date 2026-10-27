@@ -134,7 +134,7 @@ describe('path to autonomy', () => {
     fns.autonomy.mockResolvedValue({ ...page, contracted: { services: 1, uncontractedCallers: 300 },
       page: { total: 400, offset: 0, limit: 25 }, blockersPage: { total: 60, offset: 25, limit: 25 },
       blockers: [{ kind: 'needs-verified', subject: 'payments', stages: Array.from({ length: 300 }, (_, i) => `ns/s${i}`) }],
-      blockerKinds: [{ kind: 'needs-verified', count: 60 }] });
+      blockerKinds: [{ kind: 'needs-verified', count: 60 }, { kind: 'missing-contract', count: 1303 }], canMoveUp: 7 });
     fns.plan.mockReturnValue(new Promise(() => {}));
     const { target, destroy } = render(DeliveryAutonomyView, { blockers: '25', q: 'pay' });
     await settle();
@@ -149,6 +149,15 @@ describe('path to autonomy', () => {
     expect(text(blocker)).toContain('Show all 300');
     // A kind counts over every page, not only the blockers this page shows.
     expect(text(target.querySelector('[data-testid="blocker-kind-count"]')!)).toBe('60 in all, 1 on this page');
+    // Every kind and its count, not only the kind this page shows.
+    const kinds = [...target.querySelectorAll('[data-testid="autonomy-blocker-kinds"] li')].map((li) => text(li as HTMLElement).trim());
+    expect(kinds).toEqual([expect.stringMatching(/^60 /), expect.stringMatching(/^1,303 /)]);
+    // What can move up counts every page.
+    expect(text(target.querySelector('[data-testid="page-answer"]')!)).toContain('7 Stages can move up now.');
+    expect(text(target.querySelector('[data-testid="page-answer"]')!)).not.toContain('on this page');
+    // The blockers are paged, so a Stage's count links to them rather than pointing below.
+    expect(text(target)).not.toContain('below.');
+    expect(target.querySelector('[data-testid="stage-blockers"]')?.getAttribute('href')).toMatch(/^#\/delivery\/autonomy\?q=/);
     // Propose opens its plan in a row under the Stage it is for.
     (target.querySelector('button[aria-label^="Propose"]') as HTMLButtonElement).click();
     await settle();

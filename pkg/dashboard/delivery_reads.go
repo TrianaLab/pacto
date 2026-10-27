@@ -185,6 +185,7 @@ type inboxOutput struct {
 		Listing
 		Held        []InboxItem      `json:"held" doc:"Held operations whose question names one of the caller's teams; for break-glass also those that name no team"`
 		HeldPage    Page             `json:"heldPage"`
+		HeldShared  int              `json:"heldShared" doc:"How many held changes, over every page, more than one team may answer"`
 		Frozen      []EnvironmentRow `json:"frozen" doc:"Frozen Stages of the caller's services"`
 		FrozenPage  Page             `json:"frozenPage"`
 		Errored     []InboxItem      `json:"errored" doc:"Errored operations of the caller's services whose Stage is still frozen"`
@@ -223,6 +224,11 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	// Only the page is described and drawn: an artifact read per held item
 	// and per frozen Stage is the expensive part.
 	b.Held, b.HeldPage = pageOf(held, in.Held, in.Limit, inboxPage)
+	for _, it := range held {
+		if len(it.Owners) > 1 {
+			b.HeldShared++
+		}
+	}
 	byStage := stagesByName(stages)
 	var page []delivery.StageObject
 	page, b.FrozenPage = pageOf(frozenStages, in.Frozen, in.Limit, inboxPage)
@@ -452,7 +458,16 @@ type environmentsOutput struct {
 		EnvironmentNames []string `json:"environmentNames" doc:"Every environment of the services that match q, over every page, ordered the way changes travel: dev, test, prod, then the rest"`
 		// EnvironmentTiers names the tier of each environment whose name says it.
 		EnvironmentTiers map[string]string `json:"environmentTiers" doc:"dev, test or prod for each environment whose name says which; an environment it cannot tell is left out"`
+		// Counts are over every page, so the page's summary is never one page's.
+		Counts StageCounts `json:"counts" doc:"Failed, frozen and waiting Stages over every page, after q, environment and tier"`
 	}
+}
+
+// StageCounts is how many Stages are in each state that needs a person.
+type StageCounts struct {
+	Failed  int `json:"failed" doc:"Stages whose running digest failed"`
+	Frozen  int `json:"frozen"`
+	Waiting int `json:"waiting" doc:"Stages with a change waiting for a person"`
 }
 
 func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput) (*environmentsOutput, error) {
@@ -487,6 +502,16 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	services := []string{}
 	for _, st := range stages {
 		services = append(services, st.Spec.Service.Name)
+		c := &out.Body.Counts
+		if slices.Contains(st.Status.FailedDigests, st.Status.Pointer) {
+			c.Failed++
+		}
+		if st.Status.Frozen {
+			c.Frozen++
+		}
+		if held[st.Metadata.Namespace+"/"+st.Metadata.Name] > 0 {
+			c.Waiting++
+		}
 	}
 	slices.Sort(services)
 	var page []string
@@ -683,8 +708,17 @@ type historyOutput struct {
 		Listing
 		Histories []StageHistory `json:"histories"`
 		Page      Page           `json:"page" doc:"Which Stages this page holds. With a stage, offset, limit and q page its changes instead (see entriesPage)"`
+		// Counts are over every page; without a stage only.
+		Counts *HistoryCounts `json:"counts,omitempty" doc:"Without a stage: Stages that wait for a person and frozen Stages, over every page"`
 		Labels
 	}
+}
+
+// HistoryCounts is how many Stages, over every page, need a person. Record
+// problems are left out: counting them reads every Stage's records.
+type HistoryCounts struct {
+	Waiting int `json:"waiting" doc:"Stages with a change waiting for a person"`
+	Frozen  int `json:"frozen"`
 }
 
 // Labels say in words what the identifiers in an answer stand for.
@@ -715,13 +749,14 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 		}
 		targets, out.Body.Page = []delivery.StageObject{*st}, Page{Total: 1, Limit: 1}
 	} else {
-		stages, _, l, err := s.lists(ctx, api, false)
+		stages, ops, l, err := s.lists(ctx, api, true)
 		if err != nil {
 			return nil, err
 		}
 		stages = filter(stages, func(st delivery.StageObject) bool {
 			return matches(in.Q, st.Metadata.Namespace+"/"+st.Metadata.Name, st.Spec.Service.Name, st.Spec.Environment)
 		})
+		out.Body.Counts = historyCounts(stages, ops)
 		slices.SortFunc(stages, func(a, b delivery.StageObject) int {
 			return cmp.Or(cmp.Compare(a.Metadata.Namespace, b.Metadata.Namespace), cmp.Compare(a.Metadata.Name, b.Metadata.Name))
 		})
@@ -764,6 +799,26 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	versionsAll(ctx, api, out.Body.Versions, nil, on...)
 	out.Body.People = s.named(actors...)
 	return out, nil
+}
+
+// historyCounts counts the Stages that wait for a person and the frozen ones.
+func historyCounts(stages []delivery.StageObject, ops []delivery.OperationObject) *HistoryCounts {
+	held := map[string]bool{}
+	for _, o := range ops {
+		if o.Status.Phase == delivery.PhaseHeld {
+			held[o.Metadata.Namespace+"/"+o.Spec.Stage] = true
+		}
+	}
+	c := &HistoryCounts{}
+	for _, st := range stages {
+		if held[st.Metadata.Namespace+"/"+st.Metadata.Name] {
+			c.Waiting++
+		}
+		if st.Status.Frozen {
+			c.Frozen++
+		}
+	}
+	return c
 }
 
 // historiesOf reads the history of each target, describeParallel at once: on
