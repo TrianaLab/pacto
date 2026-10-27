@@ -136,8 +136,7 @@ operation and counts no approval while they are missing.
 private contract or deploy repository. The delivery CRDs are chart templates
 with `helm.sh/resource-policy: keep`: `helm upgrade` updates them and
 `helm uninstall` leaves them and their history in place. The delivery image is
-published, signed and versioned with the operator. `make sync-crds` copies the
-delivery CRDs into the chart's `files/delivery-crds/`.
+published, signed and versioned with the operator.
 
 **The chart's images** gain `image.digest` and `delivery.image.digest`: set
 one to a `sha256:` digest and that image is pulled as `tag@digest`, so the pod
