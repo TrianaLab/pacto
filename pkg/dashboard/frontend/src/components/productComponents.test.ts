@@ -222,7 +222,7 @@ describe('OperationalSummary', () => {
   // Eight identical tiles made the reader redo the ranking the backend had already done,
   // so the backend's own grade now decides the treatment: errors share the grid with the
   // lead tile, everything milder becomes one compact line.
-  it('leads with the errors and compacts the milder grades, worded as the backend worded them', () => {
+  it('leads with the errors and compacts the milder grades in a few words, the backend wording as the title', () => {
     comp = mount(OperationalSummary, { target, props: summaryProps() });
     expect(Array.from(target.querySelectorAll('.tile-grid .tile-label')).map((n) => n.textContent)).toEqual([
       'Services need attention',
@@ -231,7 +231,8 @@ describe('OperationalSummary', () => {
     // Demoting the treatment must not delete the number: the milder entries keep their
     // exact count and stay one click away.
     const sec = Array.from(target.querySelectorAll('.op-secondary a.op-sec'));
-    expect(sec.map((n) => n.querySelector('.op-sec-label')?.textContent)).toEqual([
+    expect(sec.map((n) => n.querySelector('.op-sec-label')?.textContent)).toEqual(['stale evidence', 'undeclared runtime calls']);
+    expect(sec.map((n) => n.querySelector('.op-sec-label')?.getAttribute('title'))).toEqual([
       'Operational targets with stale evidence',
       'Undeclared runtime dependencies observed',
     ]);
@@ -259,7 +260,7 @@ describe('OperationalSummary', () => {
       .find((t) => t.textContent?.includes(text)) as HTMLElement).className;
     expect(toneOf('not compliant')).toContain('tone-err');
     expect(toneOf('stale evidence')).toContain('tone-warn');
-    expect(toneOf('Undeclared runtime dependencies')).toContain('tone-info');
+    expect(toneOf('undeclared runtime calls')).toContain('tone-info');
     expect(toneOf('Services need attention')).toContain('tone-warn');
   });
 
@@ -267,7 +268,7 @@ describe('OperationalSummary', () => {
     const props = summaryProps();
     props.entryPoints = props.entryPoints.map((ep) => ({ ...ep, count: 0 }));
     comp = mount(OperationalSummary, { target, props });
-    const entry = Array.from(target.querySelectorAll('a.tile, a.op-sec')).find((t) => t.textContent?.includes('Undeclared')) as HTMLElement;
+    const entry = Array.from(target.querySelectorAll('a.tile, a.op-sec')).find((t) => t.textContent?.includes('undeclared')) as HTMLElement;
     expect(entry.className).toContain('tone-ok');
   });
 

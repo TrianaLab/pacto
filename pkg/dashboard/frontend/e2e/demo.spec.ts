@@ -529,7 +529,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     // The light is on something real. A spotlight whose selector has rotted points at
     // nothing and the tour is dead, so prove the cut-out encloses the target it names.
     await expect(page.getByTestId('demo-tour-spotlight')).toBeVisible();
-    expect(await spotlightEncloses(page, '#sec-attention')).toBe(true);
+    expect(await spotlightEncloses(page, '#ov-answer')).toBe(true);
     await next.click();
 
     // 2 — search. The gate is the reader's own committed search, not the presence of a

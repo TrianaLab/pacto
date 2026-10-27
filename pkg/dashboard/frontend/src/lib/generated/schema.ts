@@ -1869,6 +1869,7 @@ export interface components {
         "Fleet.OverviewSummary": {
             /** Format: int64 */
             ambiguousTargetLinks: number;
+            byScope: components["schemas"]["Fleet.ScopeTally"][] | null;
             /** Format: int64 */
             compliantTargets: number;
             /** Format: int64 */
@@ -1898,6 +1899,8 @@ export interface components {
             referenceTargets: number;
             /** Format: int64 */
             revisions: number;
+            /** Format: int64 */
+            scopes: number;
             /** Format: int64 */
             services: number;
             /** Format: int64 */
@@ -2124,6 +2127,17 @@ export interface components {
             otherLicensed?: number;
             /** Format: int64 */
             packages: number;
+        };
+        "Fleet.ScopeTally": {
+            /** Format: int64 */
+            nonCompliant: number;
+            scope: string;
+            /** Format: int64 */
+            stale: number;
+            /** Format: int64 */
+            targets: number;
+            /** Format: int64 */
+            unknown: number;
         };
         "Fleet.SearchResult": {
             /** Format: int64 */

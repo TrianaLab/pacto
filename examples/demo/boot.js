@@ -128,7 +128,7 @@
     var FLEET_TOUR = [{
       text: NOTICE + " Read that, then press Continue.",
       hash: "#/fleet",
-      target: "#sec-attention"
+      target: "#ov-answer"
     }, {
       text: "What is out there: every service Pacto found in its contracts, with its owner and what runs it, so type payments in the search box and press Enter.",
       hash: "#/fleet/services",

@@ -27,6 +27,17 @@
   // grades the category (EntryPoint.severity) exactly as it grades the attention items
   // inside it. Painting every non-zero tile amber said a confirmed drift and an
   // undeclared call were equally urgent, and the list right below it disagreed.
+  // The chips are counts with a few words after them; the backend's full label stays
+  // as the title. A label not listed here is shown as the backend wrote it.
+  const SHORT = {
+    'Operational targets with stale evidence': 'stale evidence',
+    'Operational targets with unknown compliance': 'unknown compliance',
+    'Unresolved declared dependencies': 'unresolved dependencies',
+    'Undeclared runtime dependencies observed': 'undeclared runtime calls',
+    'Uncontracted callers observed': 'uncontracted callers',
+    'Incomplete sources': 'incomplete sources',
+  };
+  const shortLabel = (label) => SHORT[label] ?? label;
   function tone(count, severity) { return count > 0 ? severityTone(severity) : 'ok'; }
   // The lead tile is not rendered from an entry point but still has one, so its grade is
   // read from the same place rather than guessed here.
@@ -66,7 +77,7 @@
           <a class="op-sec tone-{tone(ep.count, ep.severity)}" href={hashForHref(ep.href)}>
             <span class="op-sec-dot" aria-hidden="true"></span>
             <span class="op-sec-count">{formatCount(ep.count || 0)}</span>
-            <span class="op-sec-label">{ep.label}</span>
+            <span class="op-sec-label" title={ep.label}>{shortLabel(ep.label)}</span>
           </a>
         </li>
       {/each}

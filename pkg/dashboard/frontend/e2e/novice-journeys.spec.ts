@@ -73,8 +73,9 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
   test('J3: readiness is a triage dimension, reachable from the overview, never a legacy screen', async ({ page }) => {
     await boot(page);
     await page.goto('/#/fleet');
-    await page.getByRole('navigation', { name: 'Filter attention by category' })
-      .getByRole('link', { name: 'Readiness gate' }).click();
+    // The overview shows the worst few items and one link to the rest; the category is picked there.
+    await page.locator('#sec-attention').getByRole('link', { name: /^View all/ }).click();
+    await page.getByLabel('Filter by category').selectOption({ label: 'Readiness gate' });
     await expect(page).toHaveURL(/#\/fleet\/attention\?category=readiness/, { timeout: T });
     await expect(page.getByRole('heading', { level: 1, name: 'Needs attention' })).toBeVisible({ timeout: T });
     // The old bookmark lands on the revision inventory rather than mounting a second

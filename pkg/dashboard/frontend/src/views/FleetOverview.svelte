@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { formatCount } from '../lib/format.ts';
   import { snapshotKnowledge, decideViewState, allClearAllowed } from '../lib/knowledgeState.ts';
-  import { sourceHealthTally, attentionCategoryLabel, ATTENTION_CATEGORIES, splitEntryPoints } from '../lib/entityLabels.ts';
+  import { sourceHealthTally, splitEntryPoints } from '../lib/entityLabels.ts';
   import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl } from '../lib/router.ts';
   import { ownershipSegments, ownershipHrefs, readinessSegments } from '../lib/distributions.ts';
   import { formatDateTime } from '../lib/dateFormat.ts';
@@ -106,6 +106,16 @@
   // backend's own label, so a new category still reaches the answer.
   const errorText = $derived(joinAnd(errorPoints.map((ep) => (problemPhrase(ep.category, ep.count) || `${formatCount(ep.count)} ${(ep.label || '').toLowerCase()}`))));
 
+  // Where the broken targets run: the scope with the most of them, for the answer line,
+  // and every scope the backend tallied (worst first, bounded) for the Where section.
+  const scopes = $derived(s.byScope ?? []);
+  const worstScope = $derived(scopes[0]?.nonCompliant > 0 ? scopes[0] : null);
+  const whereText = $derived(!worstScope ? ''
+    : (s.scopes ?? scopes.length) === 1 ? `All of them run in ${worstScope.scope || 'one unnamed scope'}.`
+    : `${formatCount(worstScope.nonCompliant)} of them run in ${worstScope.scope || 'an unnamed scope'}.`);
+  // The overview shows the worst few open items; the rest is one link away.
+  const topAttention = $derived((overview?.attention?.items ?? []).slice(0, 3));
+
   // Band 2. The fleet posture is drawn by the SAME component a service page and an
   // owner page use, so the three surfaces cannot drift in wording, ordering or colour.
   // The flat OverviewSummary counters are reshaped into the shared tally shape here
@@ -161,9 +171,9 @@
   <!-- The answer, before anything else. The chain is an if/else on purpose: with the
        snapshot short of data we can neither call the fleet healthy NOR call it
        confirmed-empty, so the caveat replaces both claims rather than sitting above one. -->
-  <div class="ov-answer-block">
+  <div class="ov-answer-block" id="ov-answer">
     {#if errorPoints.length}
-      <p class="page-answer t-body" data-testid="overview-answer"><strong>Yes.</strong> {errorText}.</p>
+      <p class="page-answer t-body" data-testid="overview-answer"><strong>Yes.</strong> {errorText}.{#if whereText}{' '}{whereText}{/if}</p>
     {:else if knowledge.incomplete}
       <p class="page-answer t-body" data-testid="overview-answer"><strong>Nothing broken found</strong>, but some data is missing.</p>
     {:else if isEmptyFleet}
@@ -180,7 +190,7 @@
     {:else}
       <p class="page-answer t-body" data-testid="overview-answer"><strong>Nothing is broken.</strong> {formatCount(attentionTotal)} {attentionTotal === 1 ? 'item is' : 'items are'} worth a look.</p>
     {/if}
-    <KnowledgeBanner {knowledge} noun="overview" />
+    <KnowledgeBanner {knowledge} noun="overview" sources={overview.meta?.sources || []} tone="warn" />
   </div>
   <div class="page-toc-layout">
     <PageToc />
@@ -191,6 +201,27 @@
     <section class="band" id="sec-now" data-toc="Where" aria-labelledby="ov-now">
       <h2 id="ov-now" class="t-section-title">Where</h2>
       <OperationalSummary summary={overview.summary} entryPoints={overview.entryPoints} {attentionTotal} />
+      {#if scopes.length > 1 || (scopes.length === 1 && scopes[0].scope)}
+        <div class="data-scroll">
+          <table class="data-table ov-scopes" data-testid="overview-by-scope">
+            <caption class="visually-hidden">Targets by environment, the most broken first</caption>
+            <colgroup><col style="width: 40%" /><col /><col /><col /><col /></colgroup>
+            <thead><tr><th scope="col">Environment</th><th scope="col">Targets</th><th scope="col">Not compliant</th><th scope="col">Unknown</th><th scope="col">Stale</th></tr></thead>
+            <tbody>
+              {#each scopes as sc (sc.scope)}
+                <tr>
+                  <th scope="row"><a class="cell-clip" href={fleetEntityListUrl('target', { scope: sc.scope })} title={sc.scope}>{sc.scope || 'No scope'}</a></th>
+                  <td data-label="Targets">{formatCount(sc.targets)}</td>
+                  <td data-label="Not compliant" class:ov-bad={sc.nonCompliant > 0}>{formatCount(sc.nonCompliant)}</td>
+                  <td data-label="Unknown">{formatCount(sc.unknown)}</td>
+                  <td data-label="Stale">{formatCount(sc.stale)}</td>
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
+        {#if (s.scopes ?? 0) > scopes.length}<p class="ov-more">The {formatCount(scopes.length)} with the most broken targets of {formatCount(s.scopes)} environments. <a href={fleetEntityListUrl('target')}>See every target</a></p>{/if}
+      {/if}
     </section>
 
     <section class="band" id="sec-posture" data-toc="Operational posture" aria-labelledby="ov-posture">
@@ -247,18 +278,11 @@
         <h2 id="ov-attention" class="t-section-title">Needs attention</h2>
         <a class="ov-viewall" href={fleetAttentionUrl()}>View all ({formatCount(attentionTotal)})</a>
       </div>
-      <!-- Triage dimensions, not destinations. Filters, so deliberately count-free -- a
-           chip claiming "0" would be a health assessment the overview has not made. -->
-      <nav class="ov-cats" aria-label="Filter attention by category">
-        {#each ATTENTION_CATEGORIES as c}
-          <a class="ov-cat" href={fleetAttentionUrl({ category: c })}>{attentionCategoryLabel(c)}</a>
-        {/each}
-      </nav>
       {#if overview.attention.items.length === 0}
         <ProductEmptyState state={decideViewState({ loading: false, itemCount: 0, knowledge })} noun="attention items" />
       {:else}
         <ul class="attn-list pl-list">
-          {#each overview.attention.items as it}
+          {#each topAttention as it}
             <li class="attn-item pl-row">
               <SeverityBadge severity={it.severity} />
               <EntityLink ref={it.entity} showStatus={false} />
@@ -266,8 +290,8 @@
             </li>
           {/each}
         </ul>
-        {#if overview.attention.truncated}
-          <p class="ov-more">Showing {formatCount(overview.attention.count)} of {formatCount(attentionTotal)}. <a href={fleetAttentionUrl()}>See all</a></p>
+        {#if attentionTotal > topAttention.length}
+          <p class="ov-more">The worst {formatCount(topAttention.length)} of {formatCount(attentionTotal)}. <a href={fleetAttentionUrl()}>See all</a></p>
         {/if}
       {/if}
     </section>
@@ -312,13 +336,9 @@
      be distinguishable from the surrounding text without color alone (WCAG 1.4.1). */
   .ov-more a { color: var(--c-accent); text-decoration: underline; font-size: var(--text-sm); }
   .ov-viewall:hover { text-decoration: underline; }
-  .ov-cats { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
-  .ov-cat {
-    font-size: var(--text-sm); color: var(--c-text-2); text-decoration: none;
-    padding: 4px 10px; border: 1px solid var(--c-border); border-radius: var(--radius-pill, var(--radius-sm));
-    background: var(--c-surface); min-height: var(--touch-min); display: inline-flex; align-items: center;
-  }
-  .ov-cat:hover { border-color: var(--c-accent); color: var(--c-accent); }
+  .ov-scopes td { font-variant-numeric: tabular-nums; }
+  .ov-scopes .ov-bad { color: var(--c-err); font-weight: 600; }
+  .ov-scopes a { color: var(--c-accent); }
   /* The degraded-knowledge caveat is KnowledgeBanner's, styled once there. */
   /* An all-clear is a green confirmation and an empty fleet a neutral fact. */
   .all-clear, .empty-fleet { padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-md); }

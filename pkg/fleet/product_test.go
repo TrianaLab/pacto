@@ -395,3 +395,16 @@ func TestOverview_ComplianceBucketsPartitionTheTargetPopulation(t *testing.T) {
 		}
 	}
 }
+
+// Where the targets are: one tally per scope covering every target, worst first.
+func TestOverview_ByScopeCoversEveryTarget(t *testing.T) {
+	s := productFleet(t).Overview().Summary
+	if s.Scopes != 1 || len(s.ByScope) != 1 {
+		t.Fatalf("scopes = %d (%d shown), want 1", s.Scopes, len(s.ByScope))
+	}
+	got := s.ByScope[0]
+	want := ScopeTally{Scope: "prod", Targets: s.Targets, NonCompliant: s.NonCompliantTargets, Unknown: s.UnknownTargets, Stale: s.StaleTargets}
+	if got != want {
+		t.Errorf("byScope[0] = %+v, want %+v", got, want)
+	}
+}

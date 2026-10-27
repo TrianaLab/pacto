@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"sort"
@@ -277,6 +278,54 @@ type OverviewSummary struct {
 	// but a proportion needs the whole partition, and fresh / stale / never-observed is
 	// only a partition once "never observed at all" is its own bucket.
 	Evidence EvidenceWindow `json:"evidence"`
+	// ByScope says where the targets are, by scope (the environment or cluster a
+	// target runs in), the scope with the most non-compliant targets first. It is
+	// bounded to overviewScopeLimit; Scopes is how many scopes there are in all.
+	ByScope []ScopeTally `json:"byScope"`
+	Scopes  int          `json:"scopes"`
+}
+
+// ScopeTally counts the targets of one scope and how many of them are broken,
+// unknown or stale.
+type ScopeTally struct {
+	Scope        string `json:"scope"`
+	Targets      int    `json:"targets"`
+	NonCompliant int    `json:"nonCompliant"`
+	Unknown      int    `json:"unknown"`
+	Stale        int    `json:"stale"`
+}
+
+// overviewScopeLimit is how many scopes the overview breaks the targets down by.
+const overviewScopeLimit = 8
+
+// tallyScopes fills ByScope and Scopes from every target.
+func (q *Query) tallyScopes(sum *OverviewSummary) {
+	by := map[string]*ScopeTally{}
+	for _, t := range q.snap.Targets {
+		st := by[t.Scope]
+		if st == nil {
+			st = &ScopeTally{Scope: t.Scope}
+			by[t.Scope] = st
+		}
+		st.Targets++
+		switch t.Compliance {
+		case StatusNonCompliant:
+			st.NonCompliant++
+		case StatusUnknown:
+			st.Unknown++
+		}
+		if t.Stale {
+			st.Stale++
+		}
+	}
+	all := make([]ScopeTally, 0, len(by))
+	for _, st := range by {
+		all = append(all, *st)
+	}
+	slices.SortFunc(all, func(a, b ScopeTally) int {
+		return cmp.Or(cmp.Compare(b.NonCompliant, a.NonCompliant), cmp.Compare(b.Unknown, a.Unknown), cmp.Compare(a.Scope, b.Scope))
+	})
+	sum.ByScope, sum.Scopes, _ = boundSlice(all, overviewScopeLimit)
 }
 
 // EntryPointView is the route-neutral destination class of an entry point. The
@@ -377,6 +426,7 @@ func (q *Query) Overview() *Overview {
 	sum.NotEvaluatedTargets, sum.OtherComplianceTargets = comp.NotEvaluated, comp.Other
 	q.tallyRelationships(sum)
 	q.tallySources(sum)
+	q.tallyScopes(sum)
 
 	sum.ServicesNeedingAttention = q.servicesNeedingAttention()
 	// A constant, valid filter never errors; ignore it deliberately. The attention
