@@ -108,11 +108,18 @@ test('A: the overview reports every live data source and its health', async ({ p
   const band = page.getByRole('region', { name: 'Data sources' });
   await expect(band).toBeVisible();
   const chips = band.getByRole('navigation', { name: 'Data sources by health' }).getByRole('link');
-  // The two sources productready proved usable are named AND healthy here; the
-  // Evidence Server is named (its health is its own to report).
-  await expect(chips.filter({ hasText: fixture.ociSource })).toContainText('Available');
-  await expect(chips.filter({ hasText: fixture.observationSource })).toContainText('Available');
-  await expect(chips.filter({ hasText: fixture.evidenceSource })).toHaveCount(1);
+  // Every source is accounted for here: an unhealthy one keeps its own chip, and once
+  // more than three are healthy they fold into one "N available" chip (SourceHealth).
+  // The two sources productready proved usable must never read as degraded; the
+  // Evidence Server's health is its own to report.
+  const folded = band.getByTestId('sources-healthy');
+  for (const id of [fixture.ociSource, fixture.observationSource, fixture.evidenceSource]) {
+    await expect(chips.filter({ hasText: id }).or(folded).first()).toBeVisible();
+  }
+  for (const id of [fixture.ociSource, fixture.observationSource]) {
+    const chip = chips.filter({ hasText: id });
+    if ((await chip.count()) > 0) await expect(chip).toContainText('Available');
+  }
 
   await band.getByRole('link', { name: 'View all data sources' }).click();
   await expect(page).toHaveURL(/#\/fleet\/sources/);
@@ -120,6 +127,9 @@ test('A: the overview reports every live data source and its health', async ({ p
   const list = page.getByTestId('source-list');
   for (const id of [fixture.ociSource, fixture.observationSource, fixture.evidenceSource]) {
     await expect(list.getByRole('listitem').filter({ hasText: id })).toHaveCount(1);
+  }
+  for (const id of [fixture.ociSource, fixture.observationSource]) {
+    await expect(list.getByRole('listitem').filter({ hasText: id })).toContainText('Available');
   }
 });
 
