@@ -22,8 +22,8 @@
   // version is verified, failed, frozen or waiting. Promote and unfreeze start
   // from here, through a plan. The board pages by service on the server and
   // keeps every environment as a column on every page. Past a few columns
-  // each service is one row of status dots, one per environment, so 13 or 50
-  // environments never scroll sideways; a dot opens the full cell.
+  // each service is one row of status dots, one per environment, under a
+  // rotated name and its tier; a dot opens the full cell.
   let { offset = '', limit = '', q = '', environment = '', tier = '', refreshTick = 0, miraURL = '' } = $props();
 
   const loader = createProductLoader(() => api.deliveryEnvironments({
@@ -48,6 +48,8 @@
   const filtered = $derived(!!(q || environment || tier));
   const go = (over) => { location.hash = deliveryEnvironmentsUrl({ q, environment, tier, ...over }); };
   // A column a person can read is 12rem: past four the board becomes the strip.
+  // The strip's columns are one dot wide and fit their content, so the State
+  // column takes the rest; 50 environments scroll sideways like the board does.
   const BOARD_MAX = 4;
   const strip = $derived(shown.length > BOARD_MAX);
   // The strip's groups: consecutive environments of one tier (the server
@@ -57,6 +59,10 @@
     if (gs.at(-1)?.tier === t) gs.at(-1).envs.push(e); else gs.push({ tier: t, envs: [e] });
     return gs;
   }, []));
+  // The dots column fits its dots, so the State column takes what is left. The
+  // sizes match the CSS: 16px dots 4px apart, 12px between groups, a group no
+  // narrower than its 36px tier label.
+  const dotsWidth = $derived(groups.reduce((w, g) => w + Math.max(36, g.envs.length * 20 - 4), 0) + (groups.length - 1) * 12);
   // One state per dot, the first that holds for any Stage in the cell: the
   // worst wins. The legend and the summary column read the same list.
   const STATES = [
@@ -195,20 +201,25 @@
         <div class="t-meta ev-legend ev-key" data-testid="environments-legend">
           {#each STATES as st (st.key)}<span><span class={`ev-dot s-${st.key}`} aria-hidden="true"></span>{st.label}</span>{/each}
           <span><span class="ev-dot s-none" aria-hidden="true"></span>Not delivered</span>
-          <span>Dots run {andList(groups.map((g) => g.tier || 'other'))}, left to right. Hover a dot for its version, click it for the rest.</span>
+          <span>One column per environment, grouped {andList(groups.map((g) => g.tier || 'other'))}. Hover a dot for its version, click it for the rest.</span>
         </div>
-        <div class="ev-board" style:--n={shown.length} style:--groups={groups.length - 1}>
+        <div class="ev-board">
           <table class="data-table ev-table ev-strip" data-testid="environments-board">
             <caption class="visually-hidden">Services by environment, one dot per environment</caption>
-            <colgroup><col style="width: 12rem" /><col /><col style="width: 15rem" /></colgroup>
+            <colgroup><col style="width: 12rem" /><col style:width={`calc(${dotsWidth}px + 2 * var(--sp-3))`} /><col /></colgroup>
             <thead>
               <tr>
                 <th scope="col">Service</th>
                 <th scope="col">
                   <span class="visually-hidden">Environments</span>
-                  <div class="ev-dots" aria-hidden="true">
+                  <div class="ev-dots ev-heads" aria-hidden="true">
                     {#each groups as g, i (i)}
-                      <span class="ev-group ev-group-head" style:--k={g.envs.length} title={`${g.tier || 'other'}: ${g.envs.join(', ')}`}>{g.tier || 'other'}</span>
+                      <span class="ev-head-group">
+                        <span class="ev-group-head" title={`${g.tier || 'other'}: ${g.envs.join(', ')}`}>{g.tier || 'other'}</span>
+                        <span class="ev-group">
+                          {#each g.envs as env (env)}<span class="ev-env" data-testid="env-column" title={env}>{env}</span>{/each}
+                        </span>
+                      </span>
                     {/each}
                   </div>
                 </th>
@@ -241,10 +252,10 @@
                       {/each}
                     </div>
                   </td>
-                  <td class="ev-sum" data-testid="env-summary">
+                  <td data-testid="env-summary"><div class="ev-sum">
                     {#each sum as st (st.key)}<span class={`badge badge-${st.tone}`}>{st.n} {st.label.toLowerCase()}</span>{/each}
                     {#if !sum.length}<span class="t-meta">Not delivered in these environments</span>{/if}
-                  </td>
+                  </div></td>
                 </tr>
                 {#if opened?.svc === svc}
                   <tr class="ev-plan-row"><td colspan="3" id={cellId(svc)}>
@@ -366,13 +377,20 @@
   .ev-key > span { display: inline-flex; align-items: center; gap: var(--sp-1); }
   /* The strip: every row and the header share one dot size, worked out from
      the column's width, so dots line up down the page and never scroll. */
-  .ev-dots { container-type: inline-size; display: flex; gap: var(--ev-gg); --ev-g: 3px; --ev-gg: 10px;
-    --ev-d: clamp(6px, calc((100cqw - (var(--n) - 1) * var(--ev-g) - var(--groups) * (var(--ev-gg) - var(--ev-g))) / var(--n)), 16px); }
-  /* A group is never narrower than its label; the header and the rows share the floor, so they still line up. */
-  .ev-group { display: flex; gap: var(--ev-g); flex: none; min-width: 2.25rem; }
-  .ev-group-head { display: block; width: max(2.25rem, calc(var(--k) * var(--ev-d) + (var(--k) - 1) * var(--ev-g))); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    border-bottom: 2px solid var(--c-border); font-size: var(--text-xs); text-transform: none; letter-spacing: normal; font-variant: normal; }
-  .ev-dot { display: inline-block; flex: none; width: var(--ev-d, 12px); height: var(--ev-d, 12px); max-width: 16px; max-height: 16px; min-width: 6px; min-height: 6px;
+  /* The strip: every row and the header share one column width, so each dot sits under its environment's name. */
+  .ev-dots { display: flex; gap: var(--ev-gg); --ev-d: 16px; --ev-g: 4px; --ev-gg: 12px; }
+  /* A group is never narrower than its tier label; the header and the rows share the floor, so they still line up. */
+  .ev-group { display: flex; gap: var(--ev-g); flex: none; min-width: 36px; }
+  .ev-strip .ev-dots.ev-heads { align-items: stretch; }
+  .ev-head-group { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 36px; }
+  /* Tier labels share the top line; the names hang from them down to the dots. */
+  .ev-head-group > .ev-group { flex: 1; align-items: flex-end; }
+  .ev-group-head { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    border-bottom: 2px solid var(--c-border); padding-bottom: 2px; font-size: var(--text-xs); text-transform: none; letter-spacing: normal; font-variant: normal; }
+  /* An environment's name reads bottom to top above its dots; a long one is cut and whole in its title. */
+  .ev-env { flex: none; width: var(--ev-d); max-height: 8rem; writing-mode: vertical-rl; transform: rotate(180deg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    line-height: var(--ev-d); font-size: var(--text-xs); font-weight: 500; text-transform: none; letter-spacing: normal; font-variant: normal; color: var(--c-text-2); }
+  .ev-dot { display: inline-block; flex: none; width: var(--ev-d, 12px); height: var(--ev-d, 12px);
     padding: 0; border: 2px solid transparent; border-radius: 50%; background: none; cursor: pointer; box-sizing: border-box; }
   .ev-key .ev-dot { width: 12px; height: 12px; cursor: default; }
   .s-verified { background: var(--c-ok); }
@@ -384,8 +402,11 @@
   .s-empty { border: 2px dashed var(--c-text-3); }
   .s-none { cursor: default; border: none; border-radius: 0; background: linear-gradient(var(--c-border), var(--c-border)) center / 70% 2px no-repeat; }
   button.ev-dot:hover, button.ev-dot.open { outline: 2px solid var(--c-accent); outline-offset: 1px; }
-  .ev-sum { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
-  .ev-strip td { vertical-align: middle; }
+  .ev-sum { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1); min-height: 1.5rem; }
+  /* Rows line up on their first line: the name, the dots and the first chips share one 1.5rem line, however far the chips wrap. */
+  .ev-strip tbody th { line-height: 1.5rem; }
+  .ev-strip .ev-dots { min-height: 1.5rem; align-items: center; }
+  .ev-strip thead th { vertical-align: bottom; }
   .ev-detail { display: flex; flex-direction: column; gap: var(--sp-2); max-width: 40rem; }
   .ev-detail .ev-ready { display: block; overflow: visible; }
   .ev-detail-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); }
@@ -399,7 +420,7 @@
     .ev-board .ev-table tbody th { position: static; }
     /* A phone stacks the rows into cards with no header to line up with: the dots wrap at a size a finger can hit. */
     .ev-dots, .ev-group { flex-wrap: wrap; max-width: 100%; }
-    .ev-group-head { display: none; }
+    .ev-group-head, .ev-env { display: none; }
     .ev-dots { --ev-d: 14px; --ev-g: 6px; --ev-gg: 12px; }
   }
   .ev-table th a, .ev-version { color: var(--c-accent); }
