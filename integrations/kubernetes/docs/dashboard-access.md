@@ -8,7 +8,12 @@ view: counts, search, the graph, change analysis and the remote MCP fleet tools.
 A visitor who has not signed in is checked as `system:anonymous`.
 
 The username is `<issuer>#<sub>` and the groups claim is taken as it is, the
-mapping [the cluster trusts](delivery-identity.md#the-cluster-trusts-your-identity-provider). A service known only from a registry, with no Pacto in any
+mapping [the cluster trusts](delivery-identity.md#the-cluster-trusts-your-identity-provider), less any group starting with `system:`, which
+the apiserver never takes from a token. The dashboard adds no prefix to
+groups, so the cluster's authenticator must not add one either, or the review
+asks about groups other than the ones the apiserver grants.
+Change analysis on raw references answers only for services you can see: a
+hidden one, on either side of the change, reads as not found. A service known only from a registry, with no Pacto in any
 namespace, stays visible. A hidden service is never named: the dashboard says
 some services are hidden, and a service page counts the hidden services it
 depends on and that depend on it. If the apiserver cannot answer, the views

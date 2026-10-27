@@ -31,8 +31,11 @@ var Anonymous = Person{User: "system:anonymous", Groups: []string{"system:unauth
 
 // PersonFromToken reads a token the identity layer already verified the way
 // the cluster is told to map it (see delivery-identity.md): the username is
-// issuer#sub and the groups claim is taken as it is. A token that names no
-// subject is Anonymous.
+// issuer#sub and the groups claim is taken as it is, less any group starting
+// with "system:". The apiserver never takes those from an OIDC token, so
+// passing one an IdP lets a user name (system:masters) would make the review
+// answer for a group the person does not hold. A token that names no subject
+// is Anonymous.
 func PersonFromToken(token string) Person {
 	var c struct {
 		Issuer  string   `json:"iss"`
@@ -47,7 +50,8 @@ func PersonFromToken(token string) Person {
 	if c.Issuer == "" || c.Subject == "" {
 		return Anonymous
 	}
-	return Person{User: c.Issuer + "#" + c.Subject, Groups: c.Groups}
+	groups := slices.DeleteFunc(c.Groups, func(g string) bool { return strings.HasPrefix(g, "system:") })
+	return Person{User: c.Issuer + "#" + c.Subject, Groups: groups}
 }
 
 // Review answers whether p may list Pactos in namespace ("" for every
