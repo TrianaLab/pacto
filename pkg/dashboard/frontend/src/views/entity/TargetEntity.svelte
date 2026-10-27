@@ -76,7 +76,7 @@
       {:else}
         Nothing we observed here ties back to a known revision, so we cannot say which one is running.
       {/if}
-      Something IS running — this is a gap in what we can see, not an empty target.
+      Something is running here. The gap is in what Pacto can see.
     </div>
   {/if}
 
@@ -145,7 +145,7 @@
         <h2 class="t-section-title">Reported readiness</h2>
         <IdentityBadge label={r.passing ? 'Passing' : 'Not passing'} tone={r.passing ? 'ok' : 'warn'} />
       </div>
-      <p class="te-note t-body-2">Reported by the source observing this target — not the revision's declared gate.</p>
+      <p class="te-note t-body-2">Reported by the source observing this target. The revision page shows its declared gate.</p>
       <p class="te-rr-line t-body">Score {r.score} / {r.minScore} required · {formatCount(r.doneCount)} done · {formatCount(r.partialCount)} partial · {formatCount(r.notDoneCount)} not done{r.expired ? ' · expired' : ''}</p>
     </section>
   {/if}
@@ -159,7 +159,7 @@
       viewAllHref={serviceGraphHref}
       viewAllLabel="Explore in graph"
     >
-      <p class="te-note t-body-2">Observed for the whole service. Nothing we collect attributes traffic to one target, so these edges are not evidence about this instance specifically.</p>
+      <p class="te-note t-body-2">Observed for the whole service. Nothing we collect attributes traffic to one target, so these edges describe the service as a whole.</p>
       <RelationshipList items={d.serviceRelationships?.items ?? []} selfKey={d.service?.key ?? ''} />
     </PreviewSection>
   {/if}

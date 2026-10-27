@@ -429,7 +429,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     const strip = page.getByTestId('demo-strip');
     await expect(strip).toBeVisible({ timeout: 20_000 });
     await expect(strip).toContainText('fixture fleet', { timeout: 20_000 });
-    await expect(strip).toContainText('Nothing here is a real system');
+    await expect(strip).toContainText('All of its data is made up');
     // The fast path from the home page's primary call to action never passes the
     // explainer, so the two deliberate oddities (degraded-source banner, duplicated
     // config name) have to be flagged here or the visitor reads them as defects.
@@ -688,7 +688,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     await expect.poll(() => spotlightEncloses(page, '[data-testid="changes-answer"]'), { timeout: 20_000 }).toBe(true);
 
     // The tour saw it happen -- nothing below is a button pressed to report the action.
-    await expect(page.locator('#pacto-tour-hint')).toHaveText('Done — that is the answer. Read it, then press Continue.', { timeout: 20_000 });
+    await expect(page.locator('#pacto-tour-hint')).toHaveText('Done. That is the answer. Read it, then press Continue.', { timeout: 20_000 });
     // And having seen it, it holds. Ten seconds is far past the ~1.1s an auto-advancing
     // step takes, and past the six-second skip deadline that used to move a held step on
     // behind the reader's back.
@@ -1008,7 +1008,7 @@ test.describe('WASM dashboard demo — workflows', () => {
     const log = await page.evaluate(() => (window as unknown as { __hintLog: string[] }).__hintLog);
     // Announced while step 2 was still up: the reader connects the search they ran to the
     // result it produced, and is told the tour is about to move rather than discovering it.
-    expect(log).toContain('2 / 8|Done — moving on.');
+    expect(log).toContain('2 / 8|Done. Moving on.');
     // The step they land on says what IT is waiting for, so the region is never emptied.
     await expect(hint).toHaveText('Waiting for the payments-service page to open.');
   });

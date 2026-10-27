@@ -95,7 +95,7 @@ describe('difference vocabulary (backend-authoritative, never color-only)', () =
     expect(differenceTone('insufficient')).toBe('neutral');
     expect(differenceDescription('insufficient')).toMatch(/no observation data/i);
     // expected-not-observed is explicitly NOT proof of being unused.
-    expect(differenceDescription('expected-not-observed')).toMatch(/not proof/i);
+    expect(differenceDescription('expected-not-observed')).toMatch(/may still be in use/i);
   });
   it('observed-not-expected is a distinct, warned difference', () => {
     expect(differenceLabel('observed-not-expected')).toBe('Observed, not expected');
@@ -179,8 +179,8 @@ describe('service-scoped corroboration', () => {
     expect(corroborationTone('insufficient')).toBe('neutral');
   });
   it('caveats a fine-grained edge as service-scoped, not an edge-scope observation', () => {
-    expect(serviceScopedCaveat('revision')).toMatch(/service-scoped corroboration/i);
-    expect(serviceScopedCaveat('target')).toMatch(/service-scoped corroboration/i);
+    expect(serviceScopedCaveat('revision')).toMatch(/supports the service as a whole/i);
+    expect(serviceScopedCaveat('target')).toMatch(/supports the service as a whole/i);
     expect(serviceScopedCaveat('service')).toBe('');
   });
 });

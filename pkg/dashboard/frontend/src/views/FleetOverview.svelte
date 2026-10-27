@@ -177,7 +177,7 @@
     {:else if knowledge.incomplete}
       <p class="page-answer t-body" data-testid="overview-answer"><strong>Nothing broken found</strong>, but some data is missing.</p>
     {:else if isEmptyFleet}
-      <p class="page-answer t-body empty-fleet" role="status" data-testid="overview-answer"><strong>No services tracked yet.</strong> Nothing has reported a contract or a running target yet. That is not a health assessment.</p>
+      <p class="page-answer t-body empty-fleet" role="status" data-testid="overview-answer"><strong>No services tracked yet.</strong> Nothing has reported a contract or a running target yet. Health appears here once a source reports.</p>
     {:else if canAllClear}
       <p class="page-answer t-body all-clear" role="status" data-testid="overview-answer">
         <strong>No. All clear.</strong>
@@ -226,7 +226,7 @@
 
     <section class="band" id="sec-posture" data-toc="Operational posture" aria-labelledby="ov-posture">
       <div class="ov-head">
-        <div class="ov-title"><h2 id="ov-posture" class="t-section-title">Operational posture</h2><HelpTip label="operational posture" text="Three separate questions about every running target, never rolled into one score." /></div>
+        <div class="ov-title"><h2 id="ov-posture" class="t-section-title">Operational posture</h2><HelpTip label="operational posture" text="Three separate questions about every running target, each answered on its own." /></div>
         <span class="ov-tally t-body-2">{formatCount(totalTargets)} operational {totalTargets === 1 ? 'target' : 'targets'}</span>
       </div>
       <PostureBars summary={posture} {attentionUrl} />
@@ -237,7 +237,7 @@
            is not in the nav. This is where a reader who has just been shown a fleet-wide
            ownership gap goes to find out whose it is. -->
       <div class="ov-head">
-        <div class="ov-title"><h2 id="ov-org" class="t-section-title">Ownership and readiness</h2><HelpTip label="ownership and readiness" text="Gaps in the contracts rather than failures at run time: whether ownership is declared at all, and whether anyone assesses readiness." /></div>
+        <div class="ov-title"><h2 id="ov-org" class="t-section-title">Ownership and readiness</h2><HelpTip label="ownership and readiness" text="Gaps in the contracts: whether ownership is declared at all and whether anyone assesses readiness. Failures at run time appear under Operational posture." /></div>
         <a class="ov-viewall" href={fleetOwnersUrl()}>Browse owners</a>
       </div>
       <div class="ov-org-grid">
@@ -251,7 +251,7 @@
         />
         <DistributionBar
           title="Contract revision readiness"
-          description="Declared preparedness of each revision, judged against its own threshold. This is not compliance: a passing revision can still be running on a target that violates its contract."
+          description="Declared preparedness of each revision, judged against its own threshold. Readiness is separate from compliance: a passing revision can still run on a target that violates its contract."
           scopeNote={`All ${formatCount(totalRevisions)} contract ${totalRevisions === 1 ? 'revision' : 'revisions'} in the snapshot.`}
           segments={readiness}
           total={totalRevisions}
@@ -264,7 +264,7 @@
          bounded by which sources answered. It appears ONCE on this page. -->
     <section class="band" id="sec-sources" data-toc="Data sources" aria-labelledby="ov-sources">
       <div class="ov-head">
-        <div class="ov-title"><h2 id="ov-sources" class="t-section-title">Data sources</h2><HelpTip label="data sources" text="Where everything above came from. A degraded source makes the counts on this page incomplete, not zero." /></div>
+        <div class="ov-title"><h2 id="ov-sources" class="t-section-title">Data sources</h2><HelpTip label="data sources" text="Where everything above came from. A degraded source makes the counts on this page incomplete." /></div>
         <a class="ov-viewall" href={fleetSourcesUrl()}>View all data sources</a>
       </div>
       <!-- The tally is over the COMPLETE source population; the chips below it are the

@@ -22,7 +22,7 @@ manifests with the workload's image swapped for the one each version builds,
 pinned by digest in every manifest that runs it, so nobody raises the image tag by hand. A bare image name such as `checkout`, a Docker Hub official image, leaves the registry Unknown. On a folder whose own contract has no `publish` section, init says how to add one. Services the workload's environment points at are listed as
 dependencies, commented out until you set the versions you accept; `--fleet
 <dir>` also lists the services that declare this one. Anything it cannot tell
-is reported as Unknown, never guessed. A file holding Secret values, or a
+is reported as Unknown. A file holding Secret values, or a
 kustomization with a `secretGenerator`, is never shipped. `--delivery` also
 writes the cluster pieces: the Pacto resource and, for each environment
 (`--env`, default test and prod), the Flux `OCIRepository` objects, a
@@ -79,7 +79,7 @@ publish. A publish builds what is absent (`docker buildx` or a command writing
 to `$PACTO_OUT`), pushes by digest with the version and the git commit (read
 from `.git`, or `--revision`; it refuses a checkout with uncommitted changes
 unless `--revision` names the revision), attaches the SBOM file the
-build wrote (Pacto never makes one), signs every digest and checks each new
+build wrote (Pacto does not generate SBOMs), signs every digest and checks each new
 signature against the configured identity before any tag is written. It never
 overwrites a tag, so a second run changes nothing and a run that stopped
 halfway finishes when run again from the same commit; a conflict says to publish
@@ -112,8 +112,8 @@ its signature, or its upstream Stage verified and offered it. It then compares
 the running contract with the new one and checks the new version against every
 consumer's declared range. A consumer the change breaks holds it, asks only
 that consumer's owners and says which service must move first and to which
-verified version. Compatibility comes from the declared ranges, not from which
-fields or endpoints a consumer uses. Anything Pacto cannot see holds the change
+verified version. Compatibility comes from each consumer's declared version
+range; Pacto does not check which fields or endpoints a consumer uses. Anything Pacto cannot see holds the change
 for a person to accept the unknown, a breaking change no contract depends on
 included; Unknown never passes. Health checks keep
 running after release: a `mira` provider judges the error ratio of the

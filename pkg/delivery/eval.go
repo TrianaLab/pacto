@@ -290,7 +290,7 @@ func answerProblem(in GateInput, a EvalResult, subject string) string {
 	case !slices.Contains(in.Subjects, subject):
 		return fmt.Sprintf("the runner ran the suite on %q, not on the version under check", subject)
 	case a.Operation != in.OperationUID:
-		return fmt.Sprintf("the runner answered operation %q, not %q: an answer signed for another operation is not this one's", a.Operation, in.OperationUID)
+		return fmt.Sprintf("the runner answered operation %q, not %q", a.Operation, in.OperationUID)
 	case a.Challenge != in.Challenge:
 		return "the runner's answer does not echo this check's challenge: it answers another request, so it may be an old answer replayed"
 	case a.Run == "":
@@ -386,5 +386,5 @@ func readSuite(rev Revision, name string) (*Suite, string) {
 // Stage pinned.
 func pinMismatch(s *Suite, pin string) string {
 	return "the Stage pins the suite " + s.Name + " to " + pin + ", but this version ships " + s.Digest +
-		" in " + s.Path + ": the version changed its own exam, so a person decides"
+		" in " + s.Path + ": the version changed the suite that judges it, so a person decides"
 }

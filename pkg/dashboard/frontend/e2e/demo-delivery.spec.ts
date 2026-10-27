@@ -176,7 +176,7 @@ test.describe('Browser demo: the delivery story', () => {
     // says what Pacto could not see and how to fix it, and carol accepts it.
     await page.goto(change);
     await expect(page.getByTestId('verdict-unknown')).toContainText('Mira', { timeout: T });
-    await expect(page.getByTestId('decision-unknown')).toContainText('Unknown is never a yes');
+    await expect(page.getByTestId('decision-unknown')).toContainText('Unknown never passes');
     await panel.getByRole('button', { name: /^Accept the unknown/ }).click();
     await expect(page.getByTestId('decision-recorded')).toBeVisible({ timeout: T });
 

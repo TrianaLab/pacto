@@ -79,7 +79,7 @@
     total={d.entities?.total ?? 0}
     count={d.entities?.count ?? 0}
     truncated={d.entities?.truncated}
-    help="What the product can attribute to this source. It is not the record count above: services are derived from the revisions a source sends rather than sent by anyone, and an entity two sources both reported is attributable to both. So the two numbers are counted differently and are expected to differ."
+    help="What Pacto can attribute to this source. It is counted differently from the record count above: services come from the revisions a source sends, and an entity two sources both reported counts for both. The two numbers usually differ."
     empty="Nothing in the product is attributable to this data source."
   >
     <p class="se-breakdown t-body-2">

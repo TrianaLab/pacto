@@ -150,7 +150,7 @@ export function differenceTone(d: string | undefined): 'ok' | 'warn' | 'info' | 
 export function differenceDescription(d: string | undefined): string {
   switch (d) {
     case 'matched': return 'Declared and corroborated by observed traffic.';
-    case 'expected-not-observed': return 'Declared, but not witnessed in the observation window. This is not proof it is unused.';
+    case 'expected-not-observed': return 'Declared, but not seen in the observation window. It may still be in use.';
     case 'observed-not-expected': return 'Observed at runtime but never declared.';
     case 'insufficient': return 'Declared, but there is no observation data to reconcile against.';
     default: return '';
@@ -292,10 +292,10 @@ export function corroborationTone(c: string | undefined): 'ok' | 'warn' | 'info'
  *  is service-scoped and not an edge-scope observation claim. */
 export function serviceScopedCaveat(perspective: string): string {
   if (perspective === 'revision') {
-    return 'Observation is recorded per service, so this is service-scoped corroboration, not proof this specific revision edge was observed.';
+    return 'Observation is recorded per service, so it supports the service as a whole and cannot confirm this specific revision edge.';
   }
   if (perspective === 'target') {
-    return 'Observation is recorded per service, so this is service-scoped corroboration, not proof this specific deployment edge was observed.';
+    return 'Observation is recorded per service, so it supports the service as a whole and cannot confirm this specific deployment edge.';
   }
   return '';
 }

@@ -168,7 +168,7 @@ func lowerRefusal(class ActorClass, from, to Level) string {
 func raiseRefusal(in PlanInput, from, to Level) string {
 	switch {
 	case in.Class == ClassController:
-		return "the promoter never raises a level: a person confirms every raise"
+		return "only a person can raise a level; the promoter proposes raises"
 	case to.rank() > from.rank()+1:
 		return "one level at a time: propose " + string(levelOrder[from.rank()+1]) + " first"
 	case from == LevelObserve && !conditionIs(in.Status, "Ready", ReasonObservingGuarded):

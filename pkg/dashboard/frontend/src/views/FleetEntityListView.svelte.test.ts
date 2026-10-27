@@ -114,7 +114,7 @@ describe('FleetEntityListView', () => {
     const { target, component } = mountView({ kind: 'target', service: 'domain-a/payments', scope: 'prod' });
     await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalled());
     expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['target'], scope: 'prod' }));
-    expect(target.textContent).toContain('A target is a runtime observation, not a contract.');
+    expect(target.textContent).toContain('Pacto learns about targets by observing them at run time.');
     unmount(component);
   });
 
@@ -189,7 +189,7 @@ describe('FleetEntityListView', () => {
     ])).toEqual([['Passing', '20'], ['Below its own threshold', '5'], ['Assessment expired', '2'], ['Not assessed', '20']]);
     // 47 revisions, one on screen: the denominator is the population, not the page.
     expect(target.querySelector('.lv-inventory .dist-scope')?.textContent).toBe('All 47 contract revisions in the snapshot.');
-    expect(target.querySelector('.lv-inventory .dist-desc')?.textContent).toContain('This is not compliance');
+    expect(target.querySelector('.lv-inventory .dist-desc')?.textContent).toContain('Readiness is separate from compliance');
     expect(target.querySelector('.lv-inventory .dist-legend a')?.getAttribute('href'))
       .toBe('#/fleet/revisions?readiness=passing');
     unmount(component);

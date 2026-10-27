@@ -181,7 +181,7 @@ func TestAutonomyGateRefuses(t *testing.T) {
 	fails("not a level", autonomy(LevelAdvise, "yolo", ready, ClassHuman, running), "is not a level")
 	fails("no change", autonomy(LevelAdvise, LevelAdvise, ready, ClassHuman, running), "already on")
 	fails("two levels", autonomy(LevelAdvise, LevelAutonomous, ready, ClassHuman, running), "one level at a time: propose auto-nonbreaking first")
-	fails("the promoter raising", autonomy(LevelAdvise, LevelAutoNonBreaking, ready, ClassController, running), "never raises")
+	fails("the promoter raising", autonomy(LevelAdvise, LevelAutoNonBreaking, ready, ClassController, running), "only a person can raise")
 	unlabelled := ready
 	unlabelled.Conditions = []Condition{{Type: "Ready", Status: "True", Reason: ReasonObserving}}
 	fails("unlabelled", autonomy(LevelObserve, LevelAdvise, unlabelled, ClassHuman, running), "unlabelled-apply-ref")

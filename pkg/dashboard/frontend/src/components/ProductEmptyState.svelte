@@ -45,7 +45,7 @@
     <!-- Both facts must survive: a filter matched nothing AND knowledge is incomplete.
          The empty match never hides the incompleteness caveat. -->
     {#if state.knowledge?.incomplete}
-      <span class="ps-knowledge" role="status">{knowledgeLabel(state.knowledge.level)} — the match may be incomplete.</span>
+      <span class="ps-knowledge" role="status">{knowledgeLabel(state.knowledge.level)}, so the match may be incomplete.</span>
     {/if}
     {#if onClearFilters}
       <button type="button" class="ps-btn" onclick={onClearFilters}>Clear filters</button>
@@ -60,7 +60,7 @@
     <!-- One sentence from the ONE place that words these counts, so this screen and
          the KnowledgeBanner cannot describe different populations. Without it, a short
          line still says that none known is not none. -->
-    {#if degradedSourceSummary(state.knowledge)}<p class="ps-detail">{degradedSourceSummary(state.knowledge)}, so this is not proof of none.</p>{:else}<p>Some data is missing, so this is not proof of none.</p>{/if}
+    {#if degradedSourceSummary(state.knowledge)}<p class="ps-detail">{degradedSourceSummary(state.knowledge)}, so more may exist.</p>{:else}<p>Some data is missing, so more may exist.</p>{/if}
     {#if onRetry}<button type="button" class="ps-btn" onclick={onRetry}>Retry</button>{/if}
   </div>
 {:else if state.kind === 'empty-fleet'}

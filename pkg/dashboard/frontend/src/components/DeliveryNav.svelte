@@ -56,7 +56,7 @@
   {:else if deliverySession.error}
     <span class="dn-err" role="alert">Could not read your session: {deliverySession.error?.message || deliverySession.error}</span>
   {:else if s?.mode === 'local'}
-    <span>Acting as <strong>{#if caller?.user}<Person user={caller.user} {me} />{:else}your kubeconfig user{/if}</strong> from this machine. <HelpTip label="deciding here" text="A dashboard on your own machine shows held changes but does not decide them. Decide with pacto delivery approve." /></span>
+    <span>Acting as <strong>{#if caller?.user}<Person user={caller.user} {me} />{:else}your kubeconfig user{/if}</strong> from this machine. <HelpTip label="deciding here" text="A dashboard on your own machine shows held changes. Decide them with pacto delivery approve." /></span>
   {:else if s?.signedIn}
     <span>
       {#if caller?.user}

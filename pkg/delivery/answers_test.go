@@ -159,7 +159,7 @@ func TestBlameOfNoChange(t *testing.T) {
 	}{
 		{&History{Completeness: "complete", Entries: []HistoryEntry{{Kind: RecordUnrecordable}}}, "hides what its change moved"},
 		{&History{Completeness: "complete"}, "no change in the stream moved"},
-		{&History{Completeness: "partial"}, "unknown, not nobody"},
+		{&History{Completeness: "partial"}, "cannot say who moved it"},
 	} {
 		b := BlameOf(c.h, nil, nil, ansC)
 		wantComplete := c.want == "no change in the stream moved"

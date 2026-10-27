@@ -336,7 +336,7 @@
 
   {#if isHistorical}
     <div class="version-banner">
-      Viewing version <strong>{version}</strong> — not the current version (<strong>{currentVersion}</strong>).
+      Viewing version <strong>{version}</strong>. The current version is <strong>{currentVersion}</strong>.
       <a href={serviceUrl(name)}>Back to current</a>
       <a href={compareDiffUrl({ fromName: name, fromVer: version, toName: name, toVer: currentVersion })}>Compare with current</a>
     </div>
@@ -349,7 +349,7 @@
       {#if !detail.observedRuntime && !detail.runtimeDiff?.length}
         <!-- Only when no runtime data arrived: shown beside an observed runtime it
              contradicted the section below it. -->
-        <span class="badge badge-definition" data-tip="No cluster runtime data for this view — showing the contract definition only (runtime status unknown)">
+        <span class="badge badge-definition" data-tip="No cluster runtime data for this view, so it shows only the contract definition and the runtime status is unknown">
           <span class="badge-dot"></span>Definition only
         </span>
       {/if}
@@ -385,7 +385,7 @@
   <!-- Reference-only banner -->
   {#if detail.contractStatus === 'Reference'}
     <div class="ref-banner">
-      <strong>Reference-only contract</strong> — no runtime target. Used as a shared definition or dependency reference.
+      <strong>Reference-only contract</strong> with no runtime target. Other contracts use it as a shared definition or dependency reference.
     </div>
   {/if}
 

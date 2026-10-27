@@ -69,7 +69,7 @@
     <DistributionBar
       title="Evidence freshness"
       {level}
-      description="How recently each target was observed. Never observed is its own state, not stale."
+      description="How recently each target was observed. Never observed is a separate state from stale."
       segments={evidence}
       total={targets}
     />

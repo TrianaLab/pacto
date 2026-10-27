@@ -1466,11 +1466,11 @@ describe('history blame and undo', () => {
     expect(text(panel)).toContain('The history is partial, so this may not be the whole story.');
     (panel.querySelector('button') as HTMLButtonElement).click();
     await settle();
-    fns.blame.mockResolvedValueOnce({ stage: { name: 'pay' }, digest: D1, completeness: 'partial', source: 'status', note: 'unknown, not nobody', versions: { [D1]: '2.4.0' } });
+    fns.blame.mockResolvedValueOnce({ stage: { name: 'pay' }, digest: D1, completeness: 'partial', source: 'status', note: 'cannot say who moved it', versions: { [D1]: '2.4.0' } });
     panel = await open('test');
     expect(text(panel)).toContain('Who put 2.4.0 here');
     expect(panel.querySelector('[data-testid="blame-change"]')).toBeNull();
-    expect(text(panel.querySelector('[data-testid="blame-source"]') as HTMLElement).trim()).toBe('Unknown, not nobody. The history is partial, so this may not be the whole story.');
+    expect(text(panel.querySelector('[data-testid="blame-source"]') as HTMLElement).trim()).toBe('Cannot say who moved it. The history is partial, so this may not be the whole story.');
     (panel.querySelector('button') as HTMLButtonElement).click();
     await settle();
     fns.blame.mockRejectedValueOnce(new ApiError(403, 'no', 'Forbidden'));
@@ -1613,7 +1613,7 @@ describe('Unknown, proof, undo and autonomy', () => {
     expect(why[0].querySelector('a')?.getAttribute('href')).toContain('#what-unknown-means');
     // The decision says why a person is asked at all.
     const ask = target.querySelector('[data-testid="decision-unknown"]') as HTMLElement;
-    expect(text(ask)).toContain('Unknown is never a yes');
+    expect(text(ask)).toContain('Unknown never passes');
     expect(ask.querySelector('a')?.getAttribute('href')).toContain('#what-unknown-means');
     // The proof is folded, its digests short, and a check with nothing to run again says nothing about it.
     const proofs = actual.querySelectorAll('details');

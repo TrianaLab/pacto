@@ -52,7 +52,7 @@
               <span class="lock-badge" data-tip={`Locked to ${config.lockedDigest}`}>🔒 @{shortDigest(config.lockedDigest)}</span>
             {/if}
             {#if config.valuesAreCurrent}
-              <span class="current-badge" data-tip="Values shown are from the referenced service's current version — this ref is not version-pinned">current</span>
+              <span class="current-badge" data-tip="Values come from the referenced service's current version, because this ref pins no version">current</span>
             {/if}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <a href={serviceUrl(refServiceName(config.ref))} class="ref-link" onclick={(e) => e.stopPropagation()}>

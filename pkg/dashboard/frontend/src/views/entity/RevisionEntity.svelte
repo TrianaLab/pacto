@@ -134,7 +134,7 @@
     <section class="re-readiness" id="sec-readiness" data-toc="Readiness">
       <div class="rr-head">
         <h2 class="t-section-title">Readiness</h2>
-        <HelpTip label="readiness" text="What the authors declared about this revision's preparedness — not a measurement of the running system." />
+        <HelpTip label="readiness" text="The preparedness the authors declare for this revision, read from its contract." />
         <IdentityBadge label={r.passing ? 'Passing' : 'Not passing'} tone={r.passing ? 'ok' : 'warn'} />
       </div>
       <!-- The distinction a first-time user cannot guess from the word "readiness":
@@ -171,7 +171,7 @@
         <h2 class="t-section-title">Readiness</h2>
         <IdentityBadge label="Not declared" tone="neutral" />
       </div>
-      <p class="rr-lead t-body-2">This revision declares no readiness gate, so there is nothing here to pass or fail — which is not the same as failing one.</p>
+      <p class="rr-lead t-body-2">This revision declares no readiness gate, so it has nothing to pass or fail.</p>
     </section>
   {/if}
 
@@ -240,7 +240,7 @@
           {:else}
             <!-- Absence of evidence is not evidence of absence: an unread document must
                  never render as "this interface has no operations". -->
-            <p class="ri-note">Operations unknown — the referenced document was not available when this revision was indexed.</p>
+            <p class="ri-note">Operations unknown: the referenced document was unavailable when this revision was indexed.</p>
           {/if}
         </li>
       {/each}
@@ -421,7 +421,7 @@
           unitOne="package"
           emptyLabel="This inventory records no packages."
         />
-        <p class="ri-note">The package list itself is not retained by the dashboard; read it from the bundle's {sbomDir} directory.</p>
+        <p class="ri-note">The dashboard keeps only this summary. Read the package list from the bundle's {sbomDir} directory.</p>
       </div>
     </details>
   {/if}

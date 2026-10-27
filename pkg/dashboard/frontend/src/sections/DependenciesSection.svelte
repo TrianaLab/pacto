@@ -120,14 +120,14 @@
 
     {#if depsError}
       <div class="subsection deps-error" role="alert">
-        <span>⚠ Couldn’t load dependents and references — the "Depended on by" list and blast radius may be incomplete.</span>
+        <span>⚠ Couldn’t load dependents and references, so the "Depended on by" list and blast radius may be incomplete.</span>
         {#if onRetry}<button type="button" class="deps-retry" onclick={onRetry}>Retry</button>{/if}
       </div>
     {/if}
 
     {#if dependents?.length > 0}
       <div class="subsection">
-        <h3>Depended on by {#if isHistorical}<span class="current-badge" data-tip="Reflects the current dependency graph, not the selected historical version">current</span>{/if}</h3>
+        <h3>Depended on by {#if isHistorical}<span class="current-badge" data-tip="Shows the current dependency graph, whatever version you select">current</span>{/if}</h3>
         <div class="table-wrap">
           <table class="deps-table deps-table--triple">
             <colgroup>
@@ -153,7 +153,7 @@
 
     {#if crossRefs?.references?.length > 0}
       <div class="subsection">
-        <h3>References {#if isHistorical}<span class="current-badge" data-tip="Reflects current cross-references, not the selected historical version">current</span>{/if}</h3>
+        <h3>References {#if isHistorical}<span class="current-badge" data-tip="Shows the current cross-references, whatever version you select">current</span>{/if}</h3>
         <div class="table-wrap">
           <table class="deps-table deps-table--triple">
             <colgroup>
@@ -179,7 +179,7 @@
 
     {#if crossRefs?.referencedBy?.length > 0}
       <div class="subsection">
-        <h3>Referenced by {#if isHistorical}<span class="current-badge" data-tip="Reflects current cross-references, not the selected historical version">current</span>{/if}</h3>
+        <h3>Referenced by {#if isHistorical}<span class="current-badge" data-tip="Shows the current cross-references, whatever version you select">current</span>{/if}</h3>
         <div class="table-wrap">
           <table class="deps-table deps-table--triple">
             <colgroup>

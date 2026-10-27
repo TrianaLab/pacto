@@ -85,7 +85,7 @@
     <p class="mg-status" role="status">Taking you to the {scope === 'version' ? 'revision' : kindLabel}…</p>
   {:else if phase === 'ambiguous' && scope === 'version'}
     <h1>Which revision?</h1>
-    <p class="mg-lead" data-testid="legacy-migration-ambiguous">Several revisions of <strong>{name}</strong> are version <strong>{version}</strong>. Pick the one you meant — this link is from an older URL that did not distinguish them.</p>
+    <p class="mg-lead" data-testid="legacy-migration-ambiguous">Several revisions of <strong>{name}</strong> are version <strong>{version}</strong>. Pick the one you meant. This link is from an older URL that did not distinguish them.</p>
     <ul class="mg-list">
       {#each matches as m (m.kind + '::' + m.key)}
         <li><EntityLink ref={m} /></li>
@@ -94,7 +94,7 @@
     <a class="mg-link" href={listHref}>Browse all {kindLabel}s &rarr;</a>
   {:else if phase === 'ambiguous'}
     <h1>Which {kindLabel}?</h1>
-    <p class="mg-lead" data-testid="legacy-migration-ambiguous">Several {kindLabel}s are named <strong>{name}</strong>. Pick the one you meant — this link is from an older URL that did not distinguish them.</p>
+    <p class="mg-lead" data-testid="legacy-migration-ambiguous">Several {kindLabel}s are named <strong>{name}</strong>. Pick the one you meant. This link is from an older URL that did not distinguish them.</p>
     <ul class="mg-list">
       {#each matches as m (m.kind + '::' + m.key)}
         <li><EntityLink ref={m} /></li>
@@ -104,8 +104,8 @@
   {:else if phase === 'bounded'}
     <h1>Couldn't resolve this link</h1>
     <p class="mg-lead" data-testid="legacy-migration-bounded">
-      {#if scope === 'version'}More revisions of <strong>{name}</strong> exist than this lookup could read at once, so Pacto cannot say which one is version <strong>{version}</strong> — or whether that version is still here.
-      {:else}More {kindLabel}s match <strong>{name}</strong> than this lookup could read at once, so Pacto cannot say which one this older link meant — or whether it is still here.{/if}
+      {#if scope === 'version'}More revisions of <strong>{name}</strong> exist than this lookup could read at once, so Pacto cannot say which one is version <strong>{version}</strong> or whether that version is still here.
+      {:else}More {kindLabel}s match <strong>{name}</strong> than this lookup could read at once, so Pacto cannot say which one this older link meant or whether it is still here.{/if}
       {#if matches.length}It may be one of these:{:else}Browse or search the list instead.{/if}
     </p>
     {#if matches.length}

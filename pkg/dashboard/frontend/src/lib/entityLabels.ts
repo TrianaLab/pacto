@@ -270,7 +270,7 @@ export function sourceHealthSentence(status: string | undefined): string {
     case 'available':
       return 'This data source answered in full, so everything it holds is in the snapshot.';
     case 'partial':
-      return 'This data source answered only in part, so records it holds are missing from the snapshot rather than absent from the fleet.';
+      return 'This data source answered only in part, so some of its records are missing from the snapshot and may still exist in the fleet.';
     case 'stale':
       return 'This data source last answered too long ago to be treated as current, so what it contributed to the snapshot may already have changed.';
     case 'unavailable':
