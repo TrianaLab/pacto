@@ -1,8 +1,8 @@
 # Limitations
 
 What the operator cannot see, what you must switch on yourself and where its
-answers lag. The rule behind all of it: the operator never reports a violation
-it cannot prove, and it never changes the workloads it watches.
+answers lag. Two rules sit behind all of it: the operator reports a violation only when it
+can prove it, and it leaves the workloads it watches unchanged.
 
 ## Read-only towards your workloads
 
@@ -11,7 +11,7 @@ edit Deployments or change anything it was pointed at. Observation is read and
 report only. Deciding which version runs is [Pacto delivery](delivery.md), a
 separate opt-in chart; installing the operator grants none of it.
 
-It is not a read-only component overall. At chart defaults it manages the Pacto
+The operator does write to its own components. At chart defaults it manages the Pacto
 dashboard for you, which means creating a Deployment, Service, ServiceAccount,
 Secret, ClusterRole and ClusterRoleBinding of its own. The grants that allow that
 are broad enough to escalate privilege. [RBAC](rbac.md) has the full rule
@@ -20,7 +20,7 @@ list and the flags that switch the managed components off.
 ## Observation boundaries
 
 When the operator has no reliable way to check something, it reports
-`Unsupported` instead of guessing. `Unsupported` makes the contract `Unknown`,
+`Unsupported`. `Unsupported` makes the contract `Unknown`,
 never `NonCompliant`. That happens for:
 
 - **External or non-Pacto Services** -- a dependency backed by an `ExternalName`
@@ -58,7 +58,7 @@ The chart exposes the first two as `controller.enableProbing` and
 `controller.enableMetricsObservation`; the second also grants read access to
 ServiceMonitors and PodMonitors. Name-match discovery has no chart value.
 
-!!! warning "Name-match discovery is not a chart value"
+!!! warning "Name-match discovery needs a manual patch"
     The chart renders a fixed argument list with no `extraArgs` value, so the
     only way to turn `--interface-name-match-discovery` on is to add it to the
     running Deployment yourself:
@@ -103,12 +103,12 @@ ServiceMonitors and PodMonitors. Name-match discovery has no chart value.
     The repository also carries a kustomize overlay at
     `config/rbac/metrics-observation/`, but `config/` is kubebuilder scaffolding:
     it is not published with a release, and no test or CI job deploys from it.
-    It is a source of the YAML above, not a supported install path.
+    Use it as a source for the YAML above; it is unsupported as an install path.
 
 ## Runtime conformance boundaries
 
-The [node agent and the complementary checks](runtime-conformance.md) never
-turn what they cannot see into a violation. These things stay out of reach:
+The [node agent and the complementary checks](runtime-conformance.md) report
+only violations they see. These things stay out of reach:
 
 - **Visibility now defaults to internal.** An interface with no `visibility`
   is `internal`, so one served through a `LoadBalancer` Service or an Ingress
@@ -177,8 +177,8 @@ turn what they cannot see into a violation. These things stay out of reach:
   write. Where the API serves `ValidatingAdmissionPolicy`, the chart adds one
   that lets the agent's ServiceAccount create or update a
   `NodeRuntimeObservation` or Lease only under the node name its token carries
-  (`authentication.kubernetes.io/node-name`). A token without that name is
-  refused, never trusted: the node then reads stale, not compliant.
+  (`authentication.kubernetes.io/node-name`). The policy refuses a token
+  without that name, and the node then reads stale.
 - **Kubernetes 1.30 or later.** Tokens carry the node name from 1.30, the
   release `ValidatingAdmissionPolicy` became generally available. On an older
   cluster the policy is not rendered and RBAC alone lets any agent write any
@@ -188,7 +188,7 @@ turn what they cannot see into a violation. These things stay out of reach:
 
 `NotEvaluated` is a valid `contractStatus` enum value that the operator does not
 currently emit. A valid, targeted contract with no runtime evidence yields
-`Unknown`, not `NotEvaluated`. The value exists for parity with the engine
+`Unknown`. The value exists for parity with the engine
 dashboard, which uses it for offline OCI or local sources that were never
 runtime-evaluated.
 
@@ -199,7 +199,7 @@ The stabilization window
 trades immediacy for resistance to transient blips: a single negative observation
 reads `Unknown` until the negative streak spans the whole window.
 
-It applies to **absences only** — something the operator expected to find and
+It applies to **absences only**: something the operator expected to find and
 did not:
 
 - `INTERFACE_ABSENT`
@@ -207,7 +207,7 @@ did not:
 - `CAPABILITY_ABSENT` (active probing only)
 - `CONFIGURATION_ABSENT`, for a declared Secret or ConfigMap
 
-A **mismatch** — something that is there and contradicts the contract — is
+A **mismatch**, something that is there and contradicts the contract, is
 `NonCompliant` on the first check that observes it, with no delay:
 `WORKLOAD_MISMATCH`, `PERSISTENCE_MISMATCH`, `CONFIGURATION_MISMATCH`,
 `INTERFACE_PROTOCOL_MISMATCH`, `INTERFACE_VISIBILITY_MISMATCH` and
