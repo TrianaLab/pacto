@@ -321,8 +321,9 @@
             <SeverityBadge severity={it.severity} />
             <span class="attn-cat">{attentionCategoryLabel(it.category)}</span>
             <EntityLink ref={it.entity} showStatus={false} />
-            <span class="attn-summary">{it.summary || it.reason || it.label}</span>
-            {#if it.source}<span class="attn-src">via {it.source}</span>{/if}
+            <!-- The source sits inside the summary so the two wrap as one: on its own it
+                 dropped to a line of its own under a long service name. -->
+            <span class="attn-summary">{it.summary || it.reason || it.label}{#if it.source} <span class="attn-src">via {it.source}</span>{/if}</span>
           </div>
           {#if it.nextStep}<span class="attn-next"><span class="attn-next-k">Next</span>{it.nextStep}</span>{/if}
         </li>
@@ -382,7 +383,7 @@
     font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
   }
   .attn-summary { color: var(--c-text-2); font-size: var(--text-sm); }
-  .attn-src { color: var(--c-text-3); font-size: var(--text-xs); }
+  .attn-src { color: var(--c-text-3); font-size: var(--text-xs); white-space: nowrap; }
   /* Backend-provided guidance, not a control. Right-aligned grey micro-text with an
      imperative verb read as a link that did nothing when clicked; the "Next" key
      names it as advice, the same way every labelled fact row does. */
