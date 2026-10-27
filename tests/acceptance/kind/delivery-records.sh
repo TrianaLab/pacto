@@ -268,9 +268,12 @@ records_audit() {
   pass "undo plans a rollback of $OPF and proposes nothing; planning C in prod cites its failure in test"
 
   section "only the recorder moves the stream head"
-  out="$(kubectl -n test patch stage payments --subresource=status --type merge -p '{"status":{"stream":{"head":"sha256:forged"}}}' 2>&1 || true)"
-  grep -q "written only by the Pacto delivery recorder" <<<"$out" || fail "an admin moved the stream head: $out"
-  pass "admission refuses a stream head written by anyone but the recorder"
+  # As the promoter, the one writer the status policy lets through, so the refusal
+  # can only come from the stream head's own policy.
+  out="$(kubectl --as "system:serviceaccount:$DNS:pacto-operator-delivery" -n test patch stage payments --subresource=status --type merge \
+    -p '{"status":{"stream":{"head":"sha256:forged"}}}' 2>&1 || true)"
+  grep -q "written only by the Pacto delivery recorder" <<<"$out" || fail "the promoter moved the stream head: $out"
+  pass "admission refuses a stream head written by anyone but the recorder, the promoter included"
   # One change per request, so each pin is proven on its own.
   local kind name edit
   while IFS=$'\t' read -r kind name edit; do
