@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import cytoscape from 'cytoscape';
-import { extractSubgraph, nodeLabel, buildVersionSubgraph, renderGraph, buildElements, cyLayout, LEGEND_SELECTORS, fullName, spread, seedPositions, rankRows, type GraphData } from './graph.ts';
+import { extractSubgraph, nodeLabel, buildVersionSubgraph, renderGraph, buildElements, cyLayout, LEGEND_SELECTORS, fullName, spread, seedPositions, laneLayout, type GraphData } from './graph.ts';
+import { laneGraph } from './neighborhoodGraph.ts';
 
 const sampleGraph = {
   nodes: [
@@ -292,10 +293,13 @@ describe('renderGraph (Cytoscape)', () => {
       { id: 'dri', serviceName: 'dri', status: 'Compliant', kind: 'service', edges: [] },
       { id: 'ins', serviceName: 'ins', status: 'Compliant', kind: 'service', edges: [] },
       { id: 'group:team', serviceName: 'team', status: 'group', kind: 'service', group: 3, edges: [] },
+      { id: 'lane:used-by', serviceName: 'Used by (1)', status: 'lane', kind: 'service', lane: true, side: 1, edges: [] },
     ] };
     const cy = cytoscape({ elements: buildElements(all) });
     for (const [key, selector] of Object.entries(LEGEND_SELECTORS)) {
       expect(cy.$(selector).length, `${key} → ${selector}`).toBeGreaterThan(0);
+      // A lane box is scaffolding: no legend entry switches it off.
+      expect(cy.$(selector).filter('[id = "lane:used-by"]').length, `${key} spares the lane`).toBe(0);
     }
     cy.destroy();
   });
@@ -406,15 +410,115 @@ describe('large neighborhoods', () => {
     expect(seedPositions([{ id: 'p', depth: 0 }, { id: 'q', depth: 0 }]).get('q')!.x).toBeLessThan(0);
   });
 
-  it('lays a large neighborhood out in rows by hop that never overlap', () => {
-    expect(rankRows([{ id: 'a' }], { width: 1000, height: 500 })).toBeNull();
-    const nodes = [{ id: 'focus', depth: 0 }, ...Array.from({ length: 60 }, (_, i) => ({ id: `n${i}`, depth: 1 + (i % 2), owner: `t${i % 3}` }))];
-    const pos = rankRows(nodes, { width: 1000, height: 500 })!;
-    expect(pos.size).toBe(61);
-    const ys = (d: number) => nodes.filter((n) => n.depth === d).map((n) => pos.get(n.id)!.y);
-    expect(Math.max(...ys(0))).toBeLessThan(Math.min(...ys(1)));
-    expect(Math.max(...ys(1))).toBeLessThan(Math.min(...ys(2)));
-    const keys = new Set([...pos.values()].map((p) => `${Math.round(p.x)},${Math.round(p.y)}`));
-    expect(keys.size).toBe(61);
+  it('lays a focused neighborhood out in lanes: depends-on left, focus centre, used-by right', () => {
+    const nodes = [
+      { id: 'focus', depth: 0, side: 0 },
+      { id: 'lane:depends-on', lane: 1, side: -1 },
+      ...Array.from({ length: 30 }, (_, i) => ({ id: `d${i}`, depth: 1, side: -1, owner: `t${i % 3}` })),
+      { id: 'u0', depth: 1, side: 1 }, { id: 'u1', depth: 1, side: 1 },
+      { id: 'group:depends-on:z', depth: 2, side: -1, group: 4, owner: 'a' }, { id: 'f0', depth: 2, side: -1, owner: 'z' },
+      { id: 'loose' },
+    ];
+    const pos = laneLayout(nodes, { width: 1100, height: 520 });
+    expect(pos.has('lane:depends-on')).toBe(false); // a lane wraps what it holds; it is not placed
+    expect(pos.get('focus')).toEqual({ x: 0, y: 0 });
+    const xs = (pred: (id: string) => boolean) => [...pos].filter(([id]) => pred(id)).map(([, p]) => p.x);
+    expect(Math.max(...xs((id) => /^d\d/.test(id)))).toBeLessThan(0);
+    expect(Math.min(...xs((id) => /^u\d|loose/.test(id)))).toBeGreaterThan(0);
+    // The hop-2 column is outside the lane, groups after entities.
+    expect(pos.get('f0')!.x).toBeLessThan(Math.min(...xs((id) => /^d\d/.test(id))));
+    expect(pos.get('group:depends-on:z')!.x).toBe(pos.get('f0')!.x);
+    expect(pos.get('group:depends-on:z')!.y).toBeGreaterThan(pos.get('f0')!.y);
+    // Thirty direct dependencies wrap into staggered sub-columns rather than one tall one.
+    const cols = new Set(xs((id) => /^d\d/.test(id)));
+    expect(cols.size).toBeGreaterThan(1);
+    const keys = new Set([...pos.values()].map((p) => `${p.x},${p.y}`));
+    expect(keys.size).toBe(pos.size);
+    // A tall canvas affords taller columns.
+    const tall = laneLayout(nodes, { width: 600, height: 2400 });
+    expect(new Set(nodes.filter((n) => /^d\d/.test(n.id)).map((n) => tall.get(n.id)!.x)).size).toBeLessThan(cols.size);
+  });
+});
+
+describe('renderGraph in lanes (headless)', () => {
+  // jsdom's ResizeObserver never fires, so nothing lays itself out on mount; Reset layout
+  // is the same layout run on demand.
+  let el: HTMLElement;
+  beforeEach(() => { el = document.createElement('div'); document.body.appendChild(el); });
+  afterEach(() => { el.remove(); });
+  type N = GraphData['nodes'][number];
+  const focused = (deps: string[], users: string[], far: string[] = []): GraphData => laneGraph({ nodes: [
+    { id: 'focus', serviceName: 'focus', status: 'Compliant', depth: 0, edges: deps.map((d) => ({ targetId: d })) },
+    ...deps.map((d, i): N => ({ id: d, serviceName: d, status: 'Compliant', depth: 1, edges: i ? [] : far.map((f) => ({ targetId: f, edgeState: 'drift' })) })),
+    ...users.map((u): N => ({ id: u, serviceName: u, status: 'Compliant', depth: 1, edges: [{ targetId: 'focus' }] })),
+    ...far.map((f): N => ({ id: f, serviceName: f, status: 'Compliant', depth: 2, owner: 'team-f', edges: [] })),
+  ] }, { threshold: 8 }).graph;
+
+  it('places the sides around the focus and never counts, saves or restores a lane box', () => {
+    const seen: number[] = [];
+    const ctrl = renderGraph(el, focused(['a', 'b'], ['u']), { edgeStyle: 'visible', autoSpotlightFocus: false, onReady: (d) => seen.push(d.nodeCount),
+      savedPositions: { 'lane:depends-on': { x: 999, y: 999 } } });
+    ctrl.resetLayout();
+    const p = ctrl.spatialState().positions;
+    expect(Object.keys(p).sort()).toEqual(['a', 'b', 'focus', 'u']);
+    expect(p.a.x).toBeLessThan(p.focus.x);
+    expect(p.u.x).toBeGreaterThan(p.focus.x);
+    expect(seen.at(-1)).toBe(4);
+    expect(ctrl.diagnostics().nodeCount).toBe(4);
+    ctrl.destroy();
+  });
+
+  it('runs a group edge straight across from its lane, and opens a group by laying the lanes out again', () => {
+    const far = ['f0', 'f1', 'f2', 'f3', 'f4', 'f5'];
+    const ctrl = renderGraph(el, focused(['a', 'b'], ['u'], far), { edgeStyle: 'visible', autoSpotlightFocus: false });
+    ctrl.resetLayout();
+    expect(Object.keys(ctrl.spatialState().positions)).toContain('group:depends-on:team-f');
+    // The reader opens the group: the lanes are laid out again with its entities in a column.
+    ctrl.applyTopology(laneGraph({ nodes: [
+      { id: 'focus', serviceName: 'focus', status: 'Compliant', depth: 0, edges: [{ targetId: 'a' }, { targetId: 'b' }] },
+      { id: 'a', serviceName: 'a', status: 'Compliant', depth: 1, edges: far.map((f) => ({ targetId: f })) },
+      { id: 'b', serviceName: 'b', status: 'Compliant', depth: 1, edges: [] },
+      { id: 'u', serviceName: 'u', status: 'Compliant', depth: 1, edges: [{ targetId: 'focus' }] },
+      ...far.map((f): N => ({ id: f, serviceName: f, status: 'Compliant', depth: 2, owner: 'team-f', edges: [] })),
+    ] }, { all: true }).graph);
+    const p = ctrl.spatialState().positions;
+    expect(p['group:depends-on:team-f']).toBeUndefined();
+    expect(new Set(far.map((f) => p[f].x)).size).toBe(1);
+    expect(p.f0.x).toBeLessThan(p.a.x);
+    ctrl.destroy();
+  });
+
+  it('keeps an arranged graph put and drops an arrival into its own lane column', () => {
+    const mm = vi.spyOn(window, 'matchMedia').mockReturnValue({ matches: true } as MediaQueryList);
+    vi.useFakeTimers();
+    try {
+      const ctrl = renderGraph(el, focused(['a', 'b'], ['u']), { edgeStyle: 'visible', autoSpotlightFocus: false });
+      ctrl.resetLayout();
+      vi.advanceTimersByTime(1000);
+      ctrl.zoomIn(); // the reader framed it: the viewport is theirs now
+      const before = ctrl.spatialState().positions;
+      expect(before.a.x).toBeLessThan(0);
+      // A new dependency, a new hop-2 entity past it, and u now also depends on by the focus.
+      ctrl.applyTopology(laneGraph({ nodes: [
+        { id: 'focus', serviceName: 'focus', status: 'Compliant', depth: 0, edges: [{ targetId: 'a' }, { targetId: 'b' }, { targetId: 'c' }, { targetId: 'u' }] },
+        { id: 'a', serviceName: 'a', status: 'Compliant', depth: 1, edges: [{ targetId: 'x' }] },
+        { id: 'b', serviceName: 'b', status: 'Compliant', depth: 1, edges: [] },
+        { id: 'c', serviceName: 'c', status: 'Compliant', depth: 1, edges: [] },
+        { id: 'u', serviceName: 'u', status: 'Compliant', depth: 1, edges: [] },
+        { id: 'x', serviceName: 'x', status: 'Compliant', depth: 2, edges: [] },
+        { id: 'y', serviceName: 'y', status: 'Compliant', depth: 2, edges: [] },
+      ] }).graph);
+      const p = ctrl.spatialState().positions;
+      for (const id of ['focus', 'a', 'b', 'u']) expect(p[id]).toEqual(before[id]);
+      const low = Math.max(before.a.y, before.b.y);
+      expect(p.c).toEqual({ x: before.a.y > before.b.y ? before.a.x : before.b.x, y: low + 60 });
+      expect(p.x.x).toBeLessThan(Math.min(before.a.x, before.b.x));
+      // y sits alone on the used-by side, a hop further out than anything there.
+      expect(p.y.x).toBeGreaterThan(before.focus.x);
+      ctrl.destroy();
+    } finally {
+      vi.useRealTimers();
+      mm.mockRestore();
+    }
   });
 });
