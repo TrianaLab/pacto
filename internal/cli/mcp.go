@@ -39,17 +39,17 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"exposes one executable tool per OpenAPI operation in the bundle's openapi interfaces, " +
 			"plus a pacto_skill tool for any skills/*.md domain knowledge. Read-only (GET/HEAD) " +
 			"operations are exposed by default; pass --allow-writes to expose mutating operations.\n\n" +
-			"With --root, the server instead exposes a read-only contract catalog: the given roots " +
-			"plus their dependency closure, resolved once at startup and then frozen, so a registry " +
-			"tag that moves later does not change the session. Roots that do not resolve stay visible " +
-			"as partial knowledge. Discovery is not authorization and nothing in the catalog executes.\n\n" +
-			"With --fleet, the server instead exposes the read-only operational-graph query tools " +
-			"over one snapshot. The shared fleet source flags — --local, --target-state, " +
-			"--evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness — compose " +
+			"With --root, the server exposes a read-only contract catalog: the given roots " +
+			"plus their dependency closure, resolved once at startup and then frozen, so the session keeps " +
+			"its startup view even when a registry tag moves. Roots that fail to resolve stay visible " +
+			"as partial knowledge. The catalog grants no authorization and executes nothing.\n\n" +
+			"With --fleet, the server exposes the read-only operational-graph query tools " +
+			"over one snapshot. The shared fleet source flags (--local, --target-state, " +
+			"--evidence-url, --traces, --oci, --cache, --k8s, --namespace and --freshness) compose " +
 			"that snapshot and are read in --fleet mode only.\n\n" +
-			"With --delivery, the server instead exposes the Pacto delivery tools (pacto_delivery_*) over the " +
+			"With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the " +
 			"ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, plus propose and cancel only when the " +
-			"apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). There is " +
+			"apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has " +
 			"no approve tool.\n\n" +
 			"Over HTTP, --auth-issuer and --resource make every request carry a bearer token the server verifies " +
 			"(issuer, audience, expiry) and publish protected-resource metadata (RFC 9728); a bind beyond loopback " +

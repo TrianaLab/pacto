@@ -32,9 +32,9 @@ func newOTelObserveCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Long: "Reads an OTLP/JSON trace export and derives the service dependency " +
 			"edges its outbound spans prove. By default it prints the observed " +
 			"edges as text; add --output-format json for machine-readable output. " +
-			"With --evidence it emits one EvidenceSet per calling service -- a JSON " +
-			"array, and each set's ContractRef is empty because traces do not name a " +
-			"contract revision. Signing is therefore not a pipe: pacto evidence sign " +
+			"With --evidence it emits one EvidenceSet per calling service as a JSON " +
+			"array. Each set's ContractRef is empty because traces carry no " +
+			"contract revision. pacto evidence sign " +
 			"reads one EvidenceSet from a file, so write the array out, split it and " +
 			"set each ContractRef to the revision it describes before signing " +
 			"(pacto evidence sign) and reporting (pacto evidence send).",
