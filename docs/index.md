@@ -9,24 +9,20 @@ template: home.html
 
 ## What is Pacto? { #what-is-pacto }
 
-Pacto is continuous delivery for the GitlessOps era. You describe each service
-once, in a contract. Pacto works out what each change does to the services
+Pacto is continuous delivery for the
+[GitlessOps](manifesto.md#what-gitlessops-means) era: signed artifacts and
+evidence decide which version runs where, while your code and your deployment
+files stay in git. You describe each service once, in a contract. Pacto works out what each change does to the services
 that depend on it, and decides which version runs in each environment. Flux
 or Argo CD, the tools that keep a Kubernetes cluster running what you ask for,
 still apply the version.
 
-With GitlessOps, signed artifacts in your container registry and evidence set
-which version runs where. Your code and your deployment files stay in git.
-[What GitlessOps means](manifesto.md#what-gitlessops-means) gives the three
-rules behind it.
-
 Pacto starts by watching. It earns the right to ship on its own one step at a
 time, and a person confirms every step: that is
-[the autonomy ladder](autonomy.md). Its four steps, called levels, are observe
-(watch only), advise (a person asks for or approves every change), auto for non-breaking
-and autonomous. The level is set per Stage, meaning one service in one
-environment, such as payments in prod. It asks only the teams a change affects,
-and when it cannot see enough it says Unknown and waits for a person.
+[the autonomy ladder](autonomy.md), from observe (watch only) to autonomous,
+set per [Stage](glossary.md#stage). It asks only the teams a change affects,
+and when it cannot see enough it says [Unknown](glossary.md#unknown) and waits
+for a person.
 
 Contracts are the foundation. A contract is one YAML file that says who owns
 a service, what it offers, which services it calls and which of their
@@ -79,9 +75,6 @@ without a runtime observation of the call.
 
 You check one file when you write it, compare it with the previous revision
 and then compare it with what is running.
-
-When Pacto cannot observe something, it reports `Unknown`, and `Unknown` never
-counts as a pass.
 
 ## What each command answers
 
@@ -158,11 +151,7 @@ the [live demo](examples/dashboard-demo.md) in your browser.
 
 New words are explained in the [glossary](glossary.md).
 
-Pacto delivery builds on ideas from others:
-[Flux](https://fluxcd.io/flux/concepts/)'s Gitless GitOps, which made the
-container registry the delivery source, [ConfigHub](https://confighub.com)'s
-configuration as data and Anthropic's
-[Scion](https://www.anthropic.com/research/redesigning-source-control).
-On Flux, Pacto moves a version by writing its digest onto an OCIRepository.
-The contract graph is ours, and all of Pacto is open source under the MIT
-licence.
+Pacto delivery builds on Flux's Gitless GitOps, ConfigHub's configuration as
+data and Anthropic's Scion; [the manifesto](manifesto.md#credits) says what it
+takes from each. The contract graph is ours, and all of Pacto is open source
+under the MIT licence.

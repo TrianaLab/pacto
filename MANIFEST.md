@@ -30,20 +30,15 @@ three principles, and each one holds only under its stated condition:
    Flux or Argo CD still apply them.
 2. **Evidence moves a change** on a Stage set to an
    automatic level. A person is asked only when the evidence runs out, and
-   only the team concerned:
+   only the team concerned;
+   [Why you were asked](https://pacto.run/latest/pactify-decide/#why-you-were-asked)
+   lists every case.
 
-    - a check cannot see enough (Unknown): the service's owners;
-    - a consumer's range rejects the change: that consumer's owners;
-    - the Stage is set to ask before every promote;
-    - the Stage is on auto for non-breaking and the change is classified
-      anything other than non-breaking;
-    - a failed version has no safe way back, so the Stage freezes.
-
-3. **Every decision can be verified without Pacto.** With the recorder (the
-   part of Pacto that signs records) on,
-   each finished operation leaves a signed in-toto record as an OCI referrer,
-   checkable with `oras` and `cosign`. That needs a registry with the
-   Referrers API. GitHub's registry does not serve it today.
+3. **Every decision can be verified without Pacto.** With the
+   [recorder](https://pacto.run/latest/glossary/#recorder) on, each finished
+   operation leaves a signed in-toto record as an OCI referrer, checkable with
+   `oras` and `cosign`; see
+   [Verify a record](https://pacto.run/latest/verify-a-record/).
 
 ## Contracts are the foundation
 
@@ -104,12 +99,14 @@ that comparison before it concludes anything.
 
 - **Act only on what each change can show.** The opt-in delivery component
   moves a version on its own only when this change's compatibility, its
-  impact on the consumers and its checks back it. A Stage (one service in one
-  environment) earns the right to
+  impact on the consumers and its checks back it. A
+  [Stage](https://pacto.run/latest/glossary/#stage) earns the right to
   move on its own one level at a time, and a person confirms each level. Each
   change still needs its own evidence, whatever the track record. When Pacto
   cannot see enough, it holds the change and asks a person on the teams
   concerned.
+
+## Credits
 
 Pacto builds on ideas from others. The [Flux](https://fluxcd.io/flux/concepts/)
 team pioneered Gitless GitOps in 2022: container registries hold desired

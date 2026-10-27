@@ -4,15 +4,13 @@
 
 **Pacto is continuous delivery for the GitlessOps era.**
 
-With GitlessOps, signed artifacts in your container registry and evidence set
-which version runs where. Your code and deployment files stay in git.
+[GitlessOps](MANIFEST.md#what-gitlessops-means) means signed artifacts and
+evidence decide which version runs where, while your code stays in git.
 
 Describe your services once, as contracts. Pacto works out what each change
 does to the services that depend on it. It starts by watching, and once a
-person has confirmed each step it ships the changes the contract graph clears,
-meaning every service that depends on them accepts the new version.
-It asks only the teams a change affects. Flux or Argo CD still apply every
-version.
+person has confirmed each step it ships the changes the contract graph clears.
+Flux or Argo CD still apply every version.
 
 The contracts are the foundation. A contract is one YAML file per service:
 who owns it, what it offers, which services it calls and which of their
@@ -27,70 +25,21 @@ run, and it is useful on its own, without delivery.
 
 ## Delivery: from watching to shipping on its own
 
-Install the opt-in delivery component and each environment of each service (a
-Stage) climbs a ladder of four levels:
+Install the opt-in delivery component and each Stage, one service in one
+environment, climbs [the autonomy ladder](https://pacto.run/latest/autonomy/)
+from observe, where Pacto moves nothing, to autonomous. A person confirms
+every step, and on every level a change that could break a consumer or that
+Pacto cannot judge waits for the teams it affects. Delivery is alpha and needs
+Kubernetes; [what delivery needs](https://pacto.run/latest/#what-delivery-needs)
+lists the rest.
 
-| Level | What Pacto does |
-| --- | --- |
-| observe | Works out what it would do for every change and moves nothing; GitOps keeps control |
-| advise | Shows each new version and its plan; a person asks for or approves every change |
-| auto for non-breaking | Ships on its own only non-breaking changes: nothing others may use is removed or changed |
-| autonomous | Also ships breaking changes on its own, when every service that depends on the new version accepts it |
-
-The automatic levels judge the contract. A version whose contract is unchanged
-ships like any other, even when its manifests grant it more.
-Flux applies those manifests with the rights of the account its Kustomization
-runs as, so give it a namespaced one (`pacto init --delivery` writes a
-deployer account) and treat the key that signs `pacto publish` as the root of
-trust.
-
-Delivery is alpha: its settings and commands may still change, and it runs on
-Kubernetes 1.30 or later with Flux (Argo CD is experimental).
-
-A new Stage starts on observe. Pacto proposes the next level after enough good
-changes, and a person other than the one who asked confirms it (an agent
-that asks without naming its person with `--on-behalf-of` lets that person
-approve). A raise to an automatic level needs the recorder, which signs a
-record of each change. A failed
-promote is rolled back once, whoever asked for it. The Stage freezes instead
-when there is nothing safe to go back to, the rollback fails or someone chose
-the running version by hand (a rollback, or a promote while a hand rollback
-holds the Stage). A
-failure of a version Pacto shipped with no person also drops the Stage one
-level, whether it was rolled back or froze.
-
-### Safety rules on every level
-
-A change that would break a consumer waits and
-asks only that consumer's team; one that breaks consumers of several teams waits
-for every one of them. The plan says which service to ship first.
-When Pacto cannot see enough (Unknown), the change waits for a person. A
-service seen calling yours at runtime with no contract counts as a consumer
-Pacto cannot judge, so a breaking change waits too. AI agents may propose
-changes and only people may approve. With the recorder on and a registry that
-serves OCI Referrers (zot does, GitHub's does not), finished changes leave
-signed records you verify with cosign and oras. Without the component, Pacto
-never changes what runs.
-
-Delivery builds on ideas from others and adds one of ours:
-
-- **[Flux](https://fluxcd.io/flux/concepts/)**: Gitless GitOps, pioneered by
-  the Flux team in 2022. Desired state lives in a container registry as OCI
-  artifacts. On Flux, Pacto moves a version by writing its digest onto an
-  OCIRepository.
-- **[ConfigHub](https://confighub.com)**: configuration as data in a database behind an API.
-  Pacto stores only "which version runs where" that way.
-- **Anthropic's [Scion](https://www.anthropic.com/research/redesigning-source-control)**:
-  source control for agent-scale change. Content-addressed storage, a pointer
-  moved with one compare-and-swap and tests after a change merges, before it
-  deploys.
-- **Ours, the contract graph**: which services depend on which and which
-  versions each accepts. That decides whether a change is safe, who must agree
-  and what ships first.
+Pacto delivery builds on Flux's Gitless GitOps, ConfigHub's configuration as
+data and Anthropic's Scion; [the manifesto](MANIFEST.md#credits) says what it
+takes from each. The contract graph is ours.
 
 Start with [Pactify a service](https://pacto.run/latest/pactify/), read
-[the autonomy ladder](https://pacto.run/latest/autonomy/) and
-[what GitlessOps means](MANIFEST.md#what-gitlessops-means).
+[how delivery works](https://pacto.run/latest/integrations/kubernetes/delivery/)
+and [what GitlessOps means](MANIFEST.md#what-gitlessops-means).
 
 ## Contracts and checks, without delivery
 
@@ -141,37 +90,19 @@ Kubernetes.
 ## Installation
 
 ```bash
-# Installer script
 curl -fsSL https://raw.githubusercontent.com/TrianaLab/pacto/main/scripts/get-pacto.sh | bash
-
-# Go
-go install github.com/trianalab/pacto/v4/cmd/pacto@latest
-
-# From source
-git clone https://github.com/TrianaLab/pacto.git && cd pacto && make build
 ```
 
-The installer script also installs the two official plugins and leaves a
-version-stamped binary that `pacto update` can upgrade in place. `go install`
-and `make build` install `pacto` alone into `$GOBIN`, and a `go install` build
-reports its version as `dev` because the stamp is applied at release time.
-[Installing](https://pacto.run/latest/installation) covers pinning a version,
-installing without `sudo` and uninstalling.
+[Installation](https://pacto.run/latest/installation) covers `go install`,
+building from source, pinning a version, installing without `sudo` and
+uninstalling.
 
 ## Documentation
 
 Full documentation at **[pacto.run](https://pacto.run)**.
 
-Pick the path that matches what you came to do:
-
-| You want to | Start here |
-|-------------|------------|
-| Know what Pacto is and whether it fits | [The autonomy ladder](https://pacto.run/latest/autonomy/), [what GitlessOps means](MANIFEST.md#what-gitlessops-means) and the [live demo](https://pacto.run/latest/demo/#/fleet) |
-| Pactify your first service | [Quickstart](https://pacto.run/latest/quickstart), then [Pactify a service](https://pacto.run/latest/pactify/) |
-| Approve or unblock a change | [Decide, unfreeze and roll back](https://pacto.run/latest/pactify-decide/) |
-| Verify a record | [Check a record without Pacto](https://pacto.run/latest/verify-a-record/) |
-| Drive Pacto from an AI agent | [MCP integration](https://pacto.run/latest/mcp-integration) |
-| Write and check contracts | [For developers](https://pacto.run/latest/developers) and the [contract reference](https://pacto.run/latest/contract-reference) |
+[Where to start](https://pacto.run/latest/#where-to-start) picks the page for
+what you came to do.
 
 Every term is in the [glossary](https://pacto.run/latest/glossary/), and every
 command in the [CLI reference](https://pacto.run/latest/cli-reference).
