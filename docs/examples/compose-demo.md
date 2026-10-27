@@ -6,8 +6,8 @@ search:
 
 # Runnable demo (Docker Compose)
 
-A small set of services and Pacto, running on your machine with Docker. It
-is for someone who wants to see Pacto against real parts, not recorded data:
+This demo runs a small set of services and Pacto on your machine with Docker.
+Use it to see Pacto work against real parts:
 
 - a container registry holds published contracts;
 - an Evidence Server, which stores signed reports from other environments,
@@ -16,19 +16,18 @@ is for someone who wants to see Pacto against real parts, not recorded data:
 - `pacto agent` watches the containers' network connections and reports a
   service that says it is up but serves nothing.
 
-It shows contracts and checks on running services, not delivery: for the
-autonomy ladder, see the [browser demo](dashboard-demo.md); for delivery on a
-real cluster, the [Kubernetes demo](kubernetes-demo.md).
+It shows contracts and checks on running services. For the autonomy ladder,
+see the [browser demo](dashboard-demo.md). For delivery on a real cluster, see
+the [Kubernetes demo](kubernetes-demo.md).
 
-There is no repository to clone, nothing to build and no file to download. The
-demo is published as an OCI artifact that Docker Compose owns and runs directly.
+The demo is published as an OCI artifact that Docker Compose runs directly from
+the registry.
 
 ## Run it
 
-You need [Docker Compose](https://docs.docker.com/compose/) 2.34 or newer —
-nothing else, not even the Pacto CLI. That release added
-`docker compose publish` and `-f oci://…`. Older versions cannot run this
-artifact at all, and the application says so itself in
+You need only [Docker Compose](https://docs.docker.com/compose/) 2.34 or
+newer. That release added `docker compose publish` and `-f oci://…`. Older
+versions cannot run this artifact, and the application says so itself in
 `x-pacto-demo.minimum-compose-version`. The demo's registry is public, so no
 login is needed; against a private registry, `docker login <registry>` first.
 
@@ -42,8 +41,8 @@ docker compose -f "oci://ghcr.io/trianalab/pacto/demo@$DEMO" \
   -p pacto-demo up -d --wait -y
 ```
 
-Each release publishes the demo under one tag; what runs is the digest that tag
-resolved to, never the tag itself. `-p pacto-demo` names the project, which is
+Each release publishes the demo under one tag, and you run the digest that tag
+resolved to. `-p pacto-demo` names the project, which is
 how you operate the stack afterwards: `docker compose -p pacto-demo ps`, `logs`,
 `stop`, `start` and `down -v` all address it by name.
 
@@ -55,15 +54,15 @@ Then open <http://localhost:8080/#/fleet>.
 
 ## What you get
 
-Four services. `checkout` has two published revisions — 1.1.0 drops an API path
-1.0.0 exposed. `orders` declares `checkout` and is observed calling it, declares
+The demo has four services. `checkout` has two published revisions, and 1.1.0
+drops an API path 1.0.0 exposed. `orders` declares `checkout` and is observed calling it, declares
 `payments` and is never seen calling it. `payments` reaches the fleet as signed
 evidence from a remote environment; `checkout` is observed calling it with no
 contract declaring so.
 
-The three edges are deliberately one of each: matched, declared but never
+The three edges show one of each on purpose: matched, declared but never
 observed and observed but never declared. The observed calls come from a
-recorded trace file, not from watching the containers. Follow the graph from `orders` to
+recorded trace file. Follow the graph from `orders` to
 `checkout`, open a revision to read its contract and compare `checkout` 1.0.0
 with 1.1.0 to see a change analysed.
 
@@ -86,13 +85,13 @@ The second half is delivery, where Pacto ships changes and a person confirms
 what it may do on its own. Delivery runs on Kubernetes only; the
 [Kubernetes demo](kubernetes-demo.md) shows it.
 
-For the same moves at the command line — six user stories from "what is out
-there" to "an agent reading the same server" — follow the
-[guided tour](demo-tour.md).
+For the same moves at the command line, follow the
+[guided tour](demo-tour.md). Its six stories go from listing a fleet to an
+agent reading the same server.
 
 ## Try the CLI in the demo
 
-The dashboard container has the Pacto CLI, so these need nothing on your machine.
+The dashboard container has the Pacto CLI, so these commands run inside it.
 
 Ask which version `checkout` 1.1.0 should have been. It drops a path 1.0.0
 served, so Pacto answers `Required bump: major` (and exits non-zero, as a CI
@@ -121,10 +120,10 @@ runs [`pacto agent`](../runtime-agent.md) with `--sink evidence --docker`: it
 reads those labels, watches every container's TCP sockets with eBPF, and sends
 what it sees, signed with its own key, to the Evidence Server. About half a
 minute after start, `inventory` shows `INTERFACE_ABSENT` on `api`, seen by
-`pacto-agent+ebpf` (the kernel). No platform API could report that: Docker
-only knows the container is up.
+`pacto-agent+ebpf` (the kernel). Docker reports only that the container is
+up, so the kernel view is what finds this.
 
-The agent needs what a kernel observer needs, and the rest of the demo does not:
+The agent needs more access than the rest of the demo:
 a privileged container in the host's PID and cgroup namespaces, running as root,
 with the Docker socket and `/sys/fs/cgroup` mounted. Those two paths are the
 only host paths the demo mounts. On Linux that means kernel 5.8 or later with BTF
@@ -165,17 +164,17 @@ network beyond the stack's own.
 
 Evidence is published as an OCI 1.1 referrer of the exact contract revision it
 reports on, so the registry is the store and the Evidence Server keeps nothing.
-The demo's registry is zot rather than CNCF distribution because the native
-Referrers API is not optional here. `docker compose -p pacto-demo down -v`
+The demo's registry is zot because the demo needs the native Referrers
+API. `docker compose -p pacto-demo down -v`
 removes the registry volume and the evidence with it.
 
 ## The other demos
 
-- [Live dashboard demo](dashboard-demo.md) — the same UI in your browser, with
-  no Docker at all: the engine and a curated fleet compiled to WebAssembly.
-- [Dashboard container](../dashboard-docker.md) — the dashboard against your own
-  services rather than a fixture.
-- [Kubernetes demo](kubernetes-demo.md) — delivery: promotions, approvals,
+- [Live dashboard demo](dashboard-demo.md): the same UI in your browser,
+  without Docker. The engine and a curated fleet are compiled to WebAssembly.
+- [Dashboard container](../dashboard-docker.md): the dashboard against your own
+  services.
+- [Kubernetes demo](kubernetes-demo.md): delivery: promotions, approvals,
   rollbacks and signed records. This demo has no cluster and no sign-in, so its
   dashboard shows no Delivery tab.
 
