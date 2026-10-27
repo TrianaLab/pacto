@@ -4,6 +4,7 @@
   import { createEntitySuggest } from './lib/entitySuggest.svelte.ts';
   import { hashForHref, fleetEntityUrl, fleetServicesUrl } from './lib/router.ts';
   import EntityIdentity from './components/EntityIdentity.svelte';
+  import { kindLabelPlural } from './lib/entityLabels.ts';
 
   // Global entity search: discovery across services, revisions,
   // deployments, owners and sources via /api/fleet/entities (the generated SDK
@@ -24,7 +25,16 @@
   // createEntitySuggest -- the same mechanics the inline Services comboboxes use, so
   // the A4 stale-request race is fixed once rather than once per search surface.
   const suggest = createEntitySuggest({ limit: 25 });
-  const results = $derived(suggest.results);
+  // Grouped by kind, in the order each kind first appears (so the best match's group still
+  // leads), with one heading and count per group instead of a kind chip on every row.
+  // Keyboard order is the grouped order, so arrows walk the list as it reads.
+  const groups = $derived.by(() => {
+    const m = new Map();
+    for (const r of suggest.results) { if (!m.has(r.kind)) m.set(r.kind, []); m.get(r.kind).push(r); }
+    let i = 0;
+    return [...m].map(([kind, items]) => ({ kind, items: items.map((r) => ({ r, i: i++ })) }));
+  });
+  const results = $derived(groups.flatMap((g) => g.items.map((x) => x.r)));
 
   // Reset + focus on open; restore focus on close. Any open/close transition
   // invalidates in-flight responses from the prior modal state.
@@ -88,7 +98,7 @@
           bind:this={inputEl}
           bind:value={query}
           type="text"
-          placeholder="Search services, revisions, operational targets, owners, data sources..."
+          placeholder="Search services, revisions, targets, owners…"
           aria-label="Search services, revisions and targets"
           role="combobox"
           aria-expanded={results.length > 0}
@@ -107,11 +117,14 @@
         {:else if suggest.error}
           <div class="es-msg es-err">Search unavailable: {suggest.error.message}</div>
         {:else if !query.trim()}
-          <div class="es-msg">Type to search across everything Pacto knows about. Search is discovery, not a full listing.</div>
+          <div class="es-msg">Services, revisions, targets, owners and sources.</div>
         {:else if results.length === 0}
           <div class="es-msg">No entities match "{query}".</div>
         {:else}
-          {#each results as r, i (r.kind + '::' + r.key)}
+          {#each groups as g (g.kind)}
+          <div role="group" aria-labelledby="es-group-{g.kind}" class="es-group">
+            <div class="es-group-label" id="es-group-{g.kind}">{kindLabelPlural(g.kind)} <span class="es-group-count">{formatCount(g.items.length)}</span></div>
+          {#each g.items as { r, i } (r.kind + '::' + r.key)}
             <button
               type="button"
               id={`es-opt-${i}`}
@@ -123,11 +136,13 @@
               onmouseenter={() => { selectedIdx = i; }}
               onclick={() => openResult(r)}
             >
-              <EntityIdentity ref={r} showStatus={true} />
+              <EntityIdentity ref={r} showStatus={true} showKind={false} />
             </button>
           {/each}
+          </div>
+          {/each}
           {#if suggest.truncated}
-            <div class="es-trunc">Showing {formatCount(results.length)} of {formatCount(suggest.total)}. Refine your search, or <a href={fleetServicesUrl({ text: query.trim() })} onclick={() => onClose?.()}>see every matching service</a>.</div>
+            <div class="es-trunc">Showing {formatCount(results.length)} of {formatCount(suggest.total)} · <a href={fleetServicesUrl({ text: query.trim() })} onclick={() => onClose?.()}>All matching services</a></div>
           {/if}
         {/if}
       </div>
@@ -165,6 +180,9 @@
     background: none; color: var(--c-text); font: inherit; text-align: left; cursor: pointer;
     min-height: var(--touch-min);
   }
+  .es-group + .es-group { margin-top: var(--sp-2); }
+  .es-group-label { padding: var(--sp-1) var(--sp-3); color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
+  .es-group-count { font-variant-numeric: tabular-nums; }
   .es-item.selected { background: var(--c-surface-hover); }
   .es-trunc { padding: var(--sp-2) var(--sp-3); color: var(--c-text-3); font-size: var(--text-xs); }
   @keyframes es-fade { from { opacity: 0; } to { opacity: 1; } }

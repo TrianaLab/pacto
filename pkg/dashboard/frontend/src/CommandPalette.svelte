@@ -83,7 +83,7 @@
           bind:this={inputEl}
           bind:value={query}
           type="text"
-          placeholder="Jump to a service, owner, view or action..."
+          placeholder="Jump to a page, service or action…"
           aria-label="Command palette search"
           role="combobox"
           aria-expanded="true"
@@ -95,6 +95,7 @@
         <kbd>Esc</kbd>
       </div>
       <div class="cp-results" role="listbox" id="cp-list" bind:this={resultsEl}>
+        <!-- The group heading names the kind once; no per-row kind label repeating it. -->
         {#if flat.length === 0}
           <div class="cp-empty">No results for "{query}"</div>
         {:else}
@@ -114,7 +115,6 @@
               >
                 <span class="cp-item-label">{cmd.label}</span>
                 {#if cmd.hint}<span class="cp-item-hint">{cmd.hint}</span>{/if}
-                <span class="cp-item-kind">{cmd.kind}</span>
               </button>
             {/each}
           {/each}
@@ -171,10 +171,6 @@
   .cp-item.selected { background: var(--c-surface-hover); }
   .cp-item-label { font-weight: 500; }
   .cp-item-hint { color: var(--c-text-3); font-size: var(--text-xs); }
-  .cp-item-kind {
-    margin-left: auto; color: var(--c-text-3);
-    font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking);
-  }
   @keyframes cp-fade { from { opacity: 0; } to { opacity: 1; } }
   @keyframes cp-rise { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
 </style>
