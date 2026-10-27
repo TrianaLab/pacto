@@ -46,11 +46,14 @@
   // queryIdentity is the QUESTION (search + health filter + page); refreshTick only
   // re-asks it. Rows are retained across a re-ask and never across a different question.
   const queryIdentity = $derived(`${text}@@${sourceHealth}@@${pageOffset}@@${pageLimit}@@${order}`);
-  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
+  // listIdentity is the same question without its page: a page turn keeps the rows.
+  const listIdentity = $derived(`${text}@@${sourceHealth}@@${order}`);
+  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
 
-  const list = $derived(loader.dataTag === queryIdentity ? loader.data : null);
+  const answer = $derived(loader.answer(queryIdentity, listIdentity));
+  const list = $derived(answer.data);
   const loading = $derived(loader.loading);
   const error = $derived(loader.error);
   const knowledge = $derived(snapshotKnowledge(list?.meta));
@@ -104,7 +107,7 @@
     count={list ? `${formatCount(total)} data source${total === 1 ? '' : 's'}` : ''}
     subtitle="Where this view's knowledge came from. When a data source is degraded, the counts elsewhere are incomplete — not zero."
     asOf={list?.meta?.asOf}
-    {revalidating}
+    {revalidating} paging={answer.paging}
   />
 
   {#if tallyParts.length}

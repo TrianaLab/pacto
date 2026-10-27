@@ -27,10 +27,13 @@
     offset: query.offset || undefined, limit: query.limit || undefined, q: q || undefined, blockers: query.blockers || undefined,
   }));
   const question = $derived(JSON.stringify(query));
-  $effect(() => { loader.sync(`${question}@@${refreshTick}`, question); });
+  // The same question without its page: turning a page keeps the rows on screen.
+  const listQuestion = $derived(q);
+  $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
-  const data = $derived(loader.dataTag === question ? loader.data : null);
+  const answer = $derived(loader.answer(question, listQuestion));
+  const data = $derived(answer.data);
   const hrefFor = (key, pageKey) => (off, lim) => deliveryAutonomyUrl({
     ...query, [key]: off, limit: limitParam(lim, limit, data?.[pageKey]?.limit ?? lim),
   });
@@ -77,6 +80,7 @@
     subtitle="How far each Stage runs on its own, what Pacto proposes next and what stands in the way. A person confirms every step up; this page only reads."
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
+    paging={answer.paging}
   />
   <DeliveryNav current="delivery-autonomy" />
   <ListFilter value={q} href={(v) => deliveryAutonomyUrl({ q: v })} label="Filter Stages and blockers by service, environment or kind"

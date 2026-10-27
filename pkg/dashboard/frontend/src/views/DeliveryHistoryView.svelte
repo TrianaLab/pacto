@@ -34,10 +34,13 @@
     offset: urlInt(offset) || undefined, limit: urlInt(limit) || undefined, q: q || undefined,
   }));
   const question = $derived(`${namespace}/${stage}@@${urlInt(offset)}@@${urlInt(limit)}@@${q}`);
-  $effect(() => { loader.sync(`${question}@@${refreshTick}`, question); });
+  // The same question without its page: turning a page keeps the rows on screen.
+  const listQuestion = $derived(`${namespace}/${stage}@@${q}`);
+  $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
-  const data = $derived(loader.dataTag === question ? loader.data : null);
+  const answer = $derived(loader.answer(question, listQuestion));
+  const data = $derived(answer.data);
   const histories = $derived(data?.histories ?? []);
   // One environment pages its changes; every environment pages the environments.
   const page = $derived(one ? histories[0]?.entriesPage : data?.page);
@@ -91,6 +94,7 @@
     subtitle="What happened on each environment, newest first. Where the recorder runs it is read from signed records; elsewhere from the changes still in the cluster, which is never the whole story."
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
+    paging={answer.paging}
   />
   <DeliveryNav current="delivery-history" />
   {#if stage}<p class="t-body-2"><a class="hv-link" href={deliveryHistoryUrl()}>Show every environment</a></p>{/if}

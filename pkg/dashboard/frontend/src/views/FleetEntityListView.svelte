@@ -70,11 +70,14 @@
   // re-ask and never across a different question, so switching the scoped service can
   // never show one service's revisions under another's heading.
   const queryIdentity = $derived(`${kind}@@${service}@@${text}@@${status}@@${scope}@@${readinessFilter}@@${pageOffset}@@${pageLimit}@@${sort}`);
-  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
+  // listIdentity is the same question without its page: a page turn keeps the rows.
+  const listIdentity = $derived(`${kind}@@${service}@@${text}@@${status}@@${scope}@@${readinessFilter}@@${sort}`);
+  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
 
-  const list = $derived(loader.dataTag === queryIdentity ? loader.data : null);
+  const answer = $derived(loader.answer(queryIdentity, listIdentity));
+  const list = $derived(answer.data);
   const loading = $derived(loader.loading);
   const error = $derived(loader.error);
   const knowledge = $derived(snapshotKnowledge(list?.meta));
@@ -145,7 +148,7 @@
       ? `Every place something has been observed running${service ? ' for this service' : ''}. A target is a runtime observation, not a contract.`
       : `Every known contract revision${service ? ' for this service' : ''}, newest first. A revision is what was declared, whether or not anything runs it.`}
     asOf={list?.meta?.asOf}
-    {revalidating}
+    {revalidating} paging={answer.paging}
   />
 
   <div class="lv-filters">

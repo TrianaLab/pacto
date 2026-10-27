@@ -25,10 +25,13 @@
     offset: urlInt(offset) || undefined, limit: urlInt(limit) || undefined, q: q || undefined,
   }));
   const question = $derived(`${urlInt(offset)}@@${urlInt(limit)}@@${q}`);
-  $effect(() => { loader.sync(`${question}@@${refreshTick}`, question); });
+  // The same question without its page: turning a page keeps the rows on screen.
+  const listQuestion = $derived(q);
+  $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
-  const data = $derived(loader.dataTag === question ? loader.data : null);
+  const answer = $derived(loader.answer(question, listQuestion));
+  const data = $derived(answer.data);
   const services = $derived(data?.services ?? []);
   const serviceTotal = $derived(data?.page?.total ?? services.length);
   const href = (off, lim) => deliveryPublishUrl({ q, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
@@ -57,6 +60,7 @@
     count={data ? `${formatCount(serviceTotal)} service${serviceTotal === 1 ? '' : 's'}` : ''}
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
+    paging={answer.paging}
   />
   <DeliveryNav current="delivery-publish" />
 

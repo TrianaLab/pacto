@@ -74,11 +74,14 @@
   // queryIdentity is the QUESTION (filters + page); refreshTick only re-asks it. Rows
   // are retained across a re-ask and never across a different question.
   const queryIdentity = $derived([category, severity, status, owner, ownerKey, source, service, staleOnly, pageOffset, pageLimit].join('@@'));
-  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
+  // listIdentity is the same question without its page: a page turn keeps the rows.
+  const listIdentity = $derived([category, severity, status, owner, ownerKey, source, service, staleOnly].join('@@'));
+  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
 
-  const list = $derived(loader.dataTag === queryIdentity ? loader.data : null);
+  const answer = $derived(loader.answer(queryIdentity, listIdentity));
+  const list = $derived(answer.data);
   const loading = $derived(loader.loading);
   const error = $derived(loader.error);
   const knowledge = $derived(snapshotKnowledge(list?.meta));
@@ -203,7 +206,7 @@
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Needs attention' }]} />
-  <PageHeader title="Needs attention" count={headerCount} asOf={list?.meta?.asOf} {revalidating} />
+  <PageHeader title="Needs attention" count={headerCount} asOf={list?.meta?.asOf} {revalidating} paging={answer.paging} />
 
   <!-- Primary triage filters; secondary ones live behind an advanced disclosure so the
        default surface stays simple. -->

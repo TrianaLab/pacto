@@ -28,10 +28,13 @@
     limit: query.limit || undefined, q: q || undefined,
   }));
   const question = $derived(JSON.stringify(query));
-  $effect(() => { loader.sync(`${question}@@${refreshTick}`, question); });
+  // The same question without its page: turning a page keeps the rows on screen.
+  const listQuestion = $derived(q);
+  $effect(() => { loader.sync(`${question}@@${refreshTick}`, question, listQuestion); });
   onDestroy(() => loader.destroy());
 
-  const inbox = $derived(loader.dataTag === question ? loader.data : null);
+  const answer = $derived(loader.answer(question, listQuestion));
+  const inbox = $derived(answer.data);
   const held = $derived(inbox?.held ?? []);
   const frozen = $derived(inbox?.frozen ?? []);
   const errored = $derived(inbox?.errored ?? []);
@@ -50,6 +53,7 @@
     count={inbox ? `${formatCount(total(inbox.heldPage, held))} waiting for a decision` : ''}
     asOf={inbox?.asOf}
     revalidating={!!inbox && loader.loading}
+    paging={answer.paging}
   />
   <DeliveryNav current="delivery-inbox" />
   <ListFilter value={q} href={(v) => deliveryInboxUrl({ q: v })} label="Filter by namespace, environment, service or change"

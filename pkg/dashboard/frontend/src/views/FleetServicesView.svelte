@@ -72,14 +72,18 @@
   // queryIdentity is the QUESTION -- every filter and the page, and deliberately not
   // refreshTick, which only asks the same question again. requestKey adds the tick so a
   // poll still fires. Retaining rows across a refresh is stale-while-revalidate;
-  // retaining them across a filter or page change would be showing one query's answer
-  // under another query's heading, so `list` is gated on the tag matching.
+  // retaining them across a filter change would be showing one query's answer under
+  // another query's heading, so `list` is gated on the tag matching. A page turn is the
+  // exception: the old page stays, under a "Loading another page" line, until the next lands.
   const queryIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${pageOffset}@@${pageLimit}@@${order}`);
-  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
+  // listIdentity is the same question without its page: a page turn keeps the rows.
+  const listIdentity = $derived(`${text}@@${owner}@@${ownerKey}@@${ownership}@@${status}@@${domain}@@${order}`);
+  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
 
-  const list = $derived(loader.dataTag === queryIdentity ? loader.data : null);
+  const answer = $derived(loader.answer(queryIdentity, listIdentity));
+  const list = $derived(answer.data);
   const loading = $derived(loader.loading);
   const error = $derived(loader.error);
   const knowledge = $derived(snapshotKnowledge(list?.meta));
@@ -196,7 +200,7 @@
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Services' }]} />
-  <PageHeader title="Services" count={list ? `${formatCount(total)} service${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} />
+  <PageHeader title="Services" count={list ? `${formatCount(total)} service${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={answer.paging} />
 
   <div class="sv-filters">
     <!-- Suggestions come from the backend Entities query, restricted to services, so
