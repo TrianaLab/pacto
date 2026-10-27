@@ -14,19 +14,18 @@ import (
 // from the authoring and generated-service tool families.
 const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the operational graph: " +
 	"pacto_fleet_search, pacto_fleet_get, pacto_fleet_graph, pacto_fleet_status and " +
-	"pacto_fleet_explain, plus pacto_impact — a fourth read-only capability that projects a " +
+	"pacto_fleet_explain, plus pacto_impact, a read-only tool that projects a " +
 	"semantic contract diff (old→new revision) onto the graph to answer which consumers a " +
 	"change really affects. It reports the semantic classification, breaking changes, affected " +
 	"consumers with confidence and compatibility, active targets and owners to review. " +
 	"Distinguish the three tool families: authoring tools " +
 	"(pacto_create/edit/check/schema) create and check contracts; generated service " +
 	"tools (derived from a bundle's OpenAPI interfaces) invoke LIVE service operations; " +
-	"fleet tools understand the operational system and its state. Fleet tools only " +
-	"OBSERVE — they never modify contracts, deploy, invoke services or grant " +
-	"authorization; Pacto does not determine authorization. Every fleet answer includes " +
+	"fleet tools read the operational system and its state. Fleet tools only " +
+	"OBSERVE: they never modify contracts, deploy, invoke services or grant " +
+	"authorization. Every fleet answer includes " +
 	"'asOf' and 'completeness'. Treat a 'partial' or stale answer as incomplete " +
-	"knowledge: a missing result does not prove absence when source coverage is " +
-	"incomplete."
+	"knowledge: when source coverage is incomplete, a missing result means unknown."
 
 // NewFleetServer builds a server with the authoring tools plus the read-only
 // fleet query tools backed by q. When q is nil, only authoring tools register

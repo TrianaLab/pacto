@@ -26,24 +26,24 @@ const (
 // They stand alone rather than extending the authoring instructions, because
 // this server registers no authoring tools. Instructions that named a tool the
 // server does not have would be an invitation to a call that cannot succeed.
-const catalogInstructions = "This Pacto server exposes exactly one thing: a READ-ONLY contract catalog — the " +
+const catalogInstructions = "This Pacto server exposes a READ-ONLY contract catalog: the " +
 	"explicit contract roots it was started with, plus their dependency closure, resolved once at " +
-	"startup and frozen. It has no contract-authoring tools, so nothing reachable here creates, edits " +
+	"startup and frozen. It registers only catalog tools and resources, and none of them creates, edits " +
 	"or writes anything. " +
 	"Read the resource pacto://catalog for the schema version, catalog id, generation " +
 	"time, the bounds that applied, the completeness of the whole answer and every requested root, " +
 	"including roots that did not resolve and why. Read pacto://catalog/closure for the revisions, " +
-	"resolved dependency edges, unresolved dependencies, conflicts and cycles. It is the cheaper read " +
-	"first, not a precondition: both resources carry the same catalog metadata, so either one is safe " +
-	"to read on its own. Call " +
+	"resolved dependency edges, unresolved dependencies, conflicts and cycles. pacto://catalog is the " +
+	"cheaper read, and both resources carry the same catalog metadata, so you can read either one " +
+	"on its own. Call " +
 	"pacto_catalog_revision to look one revision up by its full identity (service name, domain, " +
-	"content scheme and content digest) instead of reading the whole closure. " +
-	"The catalog is NOT the fleet: it describes contracts discovered from the roots you supplied, " +
-	"never runtime targets, deployments or observed state — use the fleet tools for those. " +
+	"content scheme and content digest) without reading the whole closure. " +
+	"The catalog describes contracts discovered from the roots you supplied. For runtime targets, " +
+	"deployments or observed state, use the fleet tools. " +
 	"Distinguish a requested reference from the immutable reference it resolved to from the content " +
 	"identity; only the last is identity. Treat 'partial' as incomplete knowledge: a revision the " +
-	"catalog does not hold is unknown, not proven absent. Nothing here is authorization and nothing " +
-	"here executes anything; discovering a revision does not mean you may read, deploy or call it."
+	"catalog does not hold is unknown. The catalog grants no authorization and executes nothing: " +
+	"finding a revision here gives you no permission to read, deploy or call it."
 
 // NewCatalogServer builds a server whose entire surface is the read-only
 // contract catalog discovery surface over cat: two resources and one lookup
@@ -107,8 +107,8 @@ func registerCatalogSurface(server *mcpsdk.Server, cat *catalog.Catalog) {
 		MIMEType: catalogMIMEType,
 		Description: "The dependency closure of the requested roots: every deduplicated revision with " +
 			"its content identity, rank and every retained root-to-revision path, every resolved " +
-			"dependency edge, every dependency that did not resolve, and the conflicts and cycles left " +
-			"visible rather than resolved. Read-only.",
+			"dependency edge, every dependency that did not resolve, and every conflict and cycle, " +
+			"reported as found. Read-only.",
 	}, catalogClosureHandler(cat))
 
 	mcpsdk.AddTool(server, catalogRevisionTool(), catalogRevisionHandler(cat))
