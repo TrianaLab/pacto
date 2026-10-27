@@ -23,6 +23,15 @@ func TestPageOf(t *testing.T) {
 	expect(t, len(items) == 5 && p.Limit == maxPage, "a limit is capped: %+v", p)
 }
 
+func TestSortEnvironments(t *testing.T) {
+	envs := []string{"prod-us", "env-10", "staging", "env-2", "test", "Development", "prod-eu", "preprod", "env-02", "a1b", "a1"}
+	sortEnvironments(envs)
+	expect(t, strings.Join(envs, ",") == "Development,test,staging,preprod,prod-eu,prod-us,a1,a1b,env-02,env-2,env-10", "the way changes travel: %v", envs)
+	_, tier := envRank("PROD")
+	_, none := envRank("books")
+	expect(t, tier == "prod" && none == "", "tiers: %q %q", tier, none)
+}
+
 func TestMatches(t *testing.T) {
 	expect(t, matches("", "x") && matches("  ", "x"), "no filter keeps everything")
 	expect(t, matches("PAY", "ledger", "payments"), "a field contains it, ignoring case")
@@ -82,9 +91,23 @@ func TestDeliveryListsPage(t *testing.T) {
 	expect(t, p["total"] == float64(3) && p["offset"] == float64(1) && p["nextOffset"] == float64(2), "services are paged: %v", p)
 	rows := envs["environments"].([]any)
 	expect(t, len(rows) == 1 && page(rows[0])["service"] == "orphan", "only the page's Stages: %v", rows)
-	expect(t, strings.Join(toStrings(envs["environmentNames"]), ",") == "books,other,prod", "every column on every page: %v", envs["environmentNames"])
+	expect(t, strings.Join(toStrings(envs["environmentNames"]), ",") == "prod,books,other", "every column on every page, prod before names it cannot place: %v", envs["environmentNames"])
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?q=LED", nil)
 	expect(t, len(envs["environments"].([]any)) == 1 && strings.Join(toStrings(envs["environmentNames"]), ",") == "books", "q filters services: %v", envs)
+
+	expect(t, fmt.Sprint(envs["environmentTiers"]) == "map[]", "q narrowed to books, which has no tier: %v", envs["environmentTiers"])
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?environment=other", nil)
+	rows = envs["environments"].([]any)
+	expect(t, len(rows) == 1 && page(rows[0])["service"] == "orphan" && page(envs["page"])["total"] == float64(1), "only services with a Stage there: %v", envs)
+	expect(t, strings.Join(toStrings(envs["environmentNames"]), ",") == "prod,books,other", "the columns to pick from stay: %v", envs["environmentNames"])
+	expect(t, fmt.Sprint(envs["environmentTiers"]) == "map[prod:prod]", "the tiers names say: %v", envs["environmentTiers"])
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?tier=prod", nil)
+	rows = envs["environments"].([]any)
+	expect(t, len(rows) == 1 && page(rows[0])["service"] == "payments", "only services with a prod Stage: %v", rows)
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?tier=dev", nil)
+	expect(t, len(envs["environments"].([]any)) == 0 && page(envs["page"])["total"] == float64(0), "no dev Stage: %v", envs)
+	code, _ := call(t, http.MethodGet, base+"/api/delivery/environments?tier=nope", nil)
+	expect(t, code == http.StatusUnprocessableEntity, "an unknown tier is refused: %d", code)
 
 	f.stages[1].Status.Conditions = []delivery.Condition{{Type: "Ready", Status: "False", Reason: "NoCandidateSource", Message: "the Stage names no candidates"}}
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?q=ledger", nil)

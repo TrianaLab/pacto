@@ -363,6 +363,65 @@ const environmentsPage = 25
 
 type environmentsInput struct {
 	PageQuery
+	Environment string `query:"environment" doc:"Keep only the services with a Stage in this environment, and only those Stages"`
+	Tier        string `query:"tier" enum:"dev,test,prod" doc:"Keep only the services with a Stage in an environment of this tier, and only those Stages"`
+}
+
+// envOrder is the way changes travel, matched as name prefixes: each entry's
+// tier, in order. ponytail: a name heuristic; an upstream-Stage chain would
+// order environments that share no known prefix.
+var envOrder = []struct{ prefix, tier string }{
+	{"dev", "dev"}, {"sandbox", "dev"}, {"test", "test"}, {"qa", "test"}, {"stag", "test"},
+	{"perf", "test"}, {"uat", "test"}, {"preprod", "test"}, {"prod", "prod"},
+}
+
+// envRank is where an environment sits in envOrder and its tier; a name no
+// prefix matches comes last with no tier, so it is never guessed.
+func envRank(env string) (int, string) {
+	for i, o := range envOrder {
+		if strings.HasPrefix(strings.ToLower(env), o.prefix) {
+			return i, o.tier
+		}
+	}
+	return len(envOrder), ""
+}
+
+// sortEnvironments orders names the way changes travel, then the rest with
+// numbers in number order (env-2 before env-10).
+func sortEnvironments(envs []string) {
+	slices.SortFunc(envs, func(a, b string) int {
+		ra, _ := envRank(a)
+		rb, _ := envRank(b)
+		return cmp.Or(cmp.Compare(ra, rb), naturalCompare(a, b), cmp.Compare(a, b))
+	})
+}
+
+// naturalCompare compares runs of digits as numbers and the rest as text.
+func naturalCompare(a, b string) int {
+	for a != "" && b != "" {
+		da, db := digitRun(a), digitRun(b)
+		if da > 0 && db > 0 {
+			na, nb := strings.TrimLeft(a[:da], "0"), strings.TrimLeft(b[:db], "0")
+			if c := cmp.Or(cmp.Compare(len(na), len(nb)), cmp.Compare(na, nb)); c != 0 {
+				return c
+			}
+			a, b = a[da:], b[db:]
+			continue
+		}
+		if c := cmp.Compare(a[0], b[0]); c != 0 {
+			return c
+		}
+		a, b = a[1:], b[1:]
+	}
+	return cmp.Compare(len(a), len(b))
+}
+
+func digitRun(s string) int {
+	n := 0
+	for n < len(s) && s[n] >= '0' && s[n] <= '9' {
+		n++
+	}
+	return n
 }
 
 type environmentsOutput struct {
@@ -373,7 +432,9 @@ type environmentsOutput struct {
 		Page Page `json:"page" doc:"Which services this page holds; offset and limit count services"`
 		// EnvironmentNames are the board's columns on every page, so paging
 		// never moves a column.
-		EnvironmentNames []string `json:"environmentNames" doc:"Every environment of the services that match, over every page"`
+		EnvironmentNames []string `json:"environmentNames" doc:"Every environment of the services that match q, over every page, ordered the way changes travel: dev, test, prod, then the rest"`
+		// EnvironmentTiers names the tier of each environment whose name says it.
+		EnvironmentTiers map[string]string `json:"environmentTiers" doc:"dev, test or prod for each environment whose name says which; an environment it cannot tell is left out"`
 	}
 }
 
@@ -397,14 +458,30 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 		}
 	}
 	stages = filter(stages, func(st delivery.StageObject) bool { return matches(in.Q, st.Spec.Service.Name) })
-	services, envs := []string{}, []string{}
+	out := &environmentsOutput{}
+	out.Body.Listing, out.Body.Environments, out.Body.EnvironmentTiers = l, []EnvironmentRow{}, map[string]string{}
+	envs := []string{}
 	for _, st := range stages {
-		services, envs = append(services, st.Spec.Service.Name), append(envs, st.Spec.Environment)
+		envs = append(envs, st.Spec.Environment)
+		if _, tier := envRank(st.Spec.Environment); tier != "" {
+			out.Body.EnvironmentTiers[st.Spec.Environment] = tier
+		}
+	}
+	slices.Sort(envs)
+	envs = slices.Compact(envs)
+	sortEnvironments(envs)
+	out.Body.EnvironmentNames = envs
+	// The environment and tier filters narrow the rows, not the columns a
+	// person picks from: a service with no Stage there is left out.
+	stages = filter(stages, func(st delivery.StageObject) bool {
+		_, tier := envRank(st.Spec.Environment)
+		return (in.Environment == "" || st.Spec.Environment == in.Environment) && (in.Tier == "" || tier == in.Tier)
+	})
+	services := []string{}
+	for _, st := range stages {
+		services = append(services, st.Spec.Service.Name)
 	}
 	slices.Sort(services)
-	slices.Sort(envs)
-	out := &environmentsOutput{}
-	out.Body.Listing, out.Body.Environments, out.Body.EnvironmentNames = l, []EnvironmentRow{}, slices.Compact(envs)
 	var page []string
 	page, out.Body.Page = pageOf(slices.Compact(services), in.Offset, in.Limit, environmentsPage)
 	var shown []delivery.StageObject
