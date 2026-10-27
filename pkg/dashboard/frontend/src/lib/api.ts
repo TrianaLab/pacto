@@ -322,6 +322,11 @@ client.use({
   // server then refuses the one cached here. Read the session again and retry
   // once, only when it has a different token: any other 403 stands.
   async onResponse({ request, response }) {
+    // A session that ended (expired, or signed out in another tab) turns the
+    // API away: the page reads the session again and shows its sign-in screen.
+    if (response.status === 401 && new URL(request.url).pathname !== '/api/session') {
+      window.dispatchEvent(new Event('pacto:unauthorized'));
+    }
     const retry = unsent.get(request);
     if (response.status !== 403 || !retry) return response;
     const sent = request.headers.get('X-Pacto-CSRF') ?? '';

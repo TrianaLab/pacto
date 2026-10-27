@@ -7,7 +7,11 @@
   import { syncPageTitle } from './lib/pageTitle.ts';
   import { initScrollRestore } from './lib/scrollRestore.ts';
   import { api } from './lib/api.ts';
-  import { loadSession } from './lib/deliverySession.svelte.ts';
+  import { deliverySession, loadSession } from './lib/deliverySession.svelte.ts';
+  import { hostSignsIn } from './lib/delivery.ts';
+  import IdentityBar from './components/IdentityBar.svelte';
+  import SignInScreen from './components/SignInScreen.svelte';
+  import CappedList from './components/CappedList.svelte';
   import Navbar from './Navbar.svelte';
   import LazyView from './components/LazyView.svelte';
   import CommandPalette from './CommandPalette.svelte';
@@ -61,6 +65,13 @@
   // otherwise wait on "Loading…" for ever, so they say so and offer a retry.
   let capError = $state(false);
 
+  // A dashboard people sign in to shows nothing but its sign-in screen until
+  // they do; the server answers no API call before that. A failed session read
+  // (the offline export has none) is no sign-in to wait for.
+  const session = $derived(deliverySession.data);
+  const gated = $derived(!!session && session.mode === 'shared' && session.login && !session.signedIn && !hostSignsIn());
+  const nothingVisible = $derived(!!capabilities?.auth?.nothingVisible);
+
   const POLL_FAST = 2000;   // during discovery
   const POLL_NORMAL = 10000;
   let reloadInterval = POLL_FAST; // the currently-active poll interval (ms)
@@ -78,7 +89,7 @@
     // without this guard each slow pass stacks another concurrent pass on top of
     // it and the backend is asked the same questions several times over. A manual
     // refresh is the user asking, so it is never dropped.
-    if (refreshing && !forceRefresh) return;
+    if ((refreshing && !forceRefresh) || gated) return;
     refreshing = true;
     try {
       if (forceRefresh) {
@@ -237,6 +248,7 @@
     window.addEventListener('hashchange', onHashChange);
     window.addEventListener('keydown', handlePaletteKeydown);
     window.addEventListener('pacto:refresh', onHostRefresh);
+    window.addEventListener('pacto:unauthorized', loadSession);
     const teardownTips = initTooltipPlacement();
     // Every route used to be titled "Pacto Dashboard". The title now follows the
     // page's own h1, so a tab, a history entry and a screen reader all name the
@@ -245,13 +257,19 @@
     // Async content means the browser's own scroll restoration always loses: it
     // restores against an empty page. We own it instead.
     const teardownScroll = initScrollRestore();
-    loadGlobal();
-    // Start with fast polling; loadGlobal adjusts interval based on discovery state
-    if (!(globalThis).__PACTO_STATIC__) { reloadTimer = setInterval(loadGlobal, POLL_FAST); }
+    // Who is asking comes first: a signed-out caller gets the sign-in screen
+    // and the fleet is never read.
+    loadSession().then(() => {
+      if (gated) return;
+      loadGlobal();
+      // Start with fast polling; loadGlobal adjusts interval based on discovery state
+      if (!(globalThis).__PACTO_STATIC__) { reloadTimer = setInterval(loadGlobal, POLL_FAST); }
+    });
     return () => {
       window.removeEventListener('hashchange', onHashChange);
       window.removeEventListener('keydown', handlePaletteKeydown);
       window.removeEventListener('pacto:refresh', onHostRefresh);
+      window.removeEventListener('pacto:unauthorized', loadSession);
       teardownTips();
       teardownTitle();
       teardownScroll();
@@ -260,6 +278,7 @@
   });
 </script>
 
+{#if deliverySession.loaded && !gated}
 <Navbar
   {services}
   {sourcesInfo}
@@ -295,10 +314,14 @@
   </div>
 {/if}
 
-{#if capabilities?.auth?.hidden && !route.view.startsWith('delivery-')}
+<IdentityBar />
+
+{#if capabilities?.auth?.hidden && !nothingVisible && !route.view.startsWith('delivery-')}
   <p class="permissions-note" role="status" data-testid="hidden-by-permissions">
     Some services are hidden because your Kubernetes permissions do not let you read their namespace.
   </p>
+{/if}
+
 {/if}
 
 {#snippet migrating()}
@@ -314,7 +337,21 @@
 {/snippet}
 
 <main class="container" bind:this={mainEl}>
-  {#if route.view === 'detail'}
+  {#if gated}
+    <SignInScreen />
+  {:else if !deliverySession.loaded}
+    <p class="app-loading" role="status">Loading…</p>
+  {:else if nothingVisible && !route.view.startsWith('delivery-')}
+    <!-- Every service is in a namespace this person's RBAC does not let them read. -->
+    <div class="product-page" data-testid="nothing-visible">
+      <h1 class="t-page-title">You can see no services</h1>
+      <p class="t-body">
+        Your Kubernetes permissions let you read none of the namespaces this dashboard's services run in.
+        You are signed in as <strong>{session?.user || session?.name || 'an unnamed user'}</strong>{#if session?.groups?.length}, in <CappedList items={session.groups} max={5} inline label="Your groups" testid="nothing-visible-groups">{#snippet item(g)}{g}{/snippet}</CappedList>{:else}, in no groups{/if}.
+      </p>
+      <p class="t-body">To see a team's services, ask a cluster administrator for <code>list</code> on <code>pactos.pacto.trianalab.io</code> in that team's namespace.</p>
+    </div>
+  {:else if route.view === 'detail'}
     <!-- Service detail: the product entity page on a Fleet host (resolved via the
          Product API); the legacy view only on a non-Fleet host, where it is the only UI. -->
     {#if legacyHost}

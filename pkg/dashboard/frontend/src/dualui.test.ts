@@ -41,7 +41,7 @@ async function mountAt(hash: string) {
   document.body.appendChild(target);
   const app = mount(App, { target });
   // Let capabilities resolve and the redirect effect settle.
-  for (let i = 0; i < 6; i++) { await Promise.resolve(); }
+  for (let i = 0; i < 12; i++) { await Promise.resolve(); }
   return { target, app };
 }
 const q = (t: HTMLElement, s: string) => t.querySelector(s);
