@@ -125,6 +125,30 @@ describe('inbox', () => {
     destroy();
   });
 
+  it('leads with what only your team can answer and folds what other teams can answer too', async () => {
+    const it_ = (n: number, owners: string[]) => ({ namespace: 'prod', name: `op${n}`, stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', phase: 'Held', decision: 'approve', owners });
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [it_(1, ['team-checkout']), it_(2, ['team-checkout', 'team-payments']), it_(3, ['team-checkout', 'team-orders'])],
+      heldPage: { total: 30, offset: 0, limit: 3 } });
+    let r = render(DeliveryInboxView);
+    await settle();
+    expect(r.target.querySelectorAll('[data-testid="inbox-held"] > li').length).toBe(1);
+    const sharedFold = r.target.querySelector('[data-testid="inbox-shared"]') as HTMLDetailsElement;
+    expect(sharedFold.open).toBe(false);
+    // Counted on this page only: the server pages both kinds together.
+    expect(text(sharedFold.querySelector('summary') as HTMLElement)).toContain('Shared with other teams2 on this page');
+    expect(sharedFold.querySelectorAll('li.dl-row').length).toBe(2);
+    expect(text(r.target.querySelector('[data-testid="inbox-calm"]') as HTMLElement)).toBe('Nothing frozen and nothing failed.');
+    r.destroy();
+
+    // With nothing only yours, the shared ones are what waits, so they start open.
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [it_(2, ['team-checkout', 'team-payments'])] });
+    r = render(DeliveryInboxView);
+    await settle();
+    expect((r.target.querySelector('[data-testid="inbox-shared"]') as HTMLDetailsElement).open).toBe(true);
+    expect(r.target.querySelector('[data-testid="inbox-held"]')).toBeNull();
+    r.destroy();
+  });
+
   it('says when nothing matches the filter', async () => {
     fns.inbox.mockResolvedValue({ ...listing, held: [], frozen: [], errored: [] });
     const { target, destroy } = render(DeliveryInboxView, { q: 'zzz' });
@@ -892,7 +916,7 @@ describe('change detail', () => {
       held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', decision: 'approve' }] });
     let r = render(DeliveryInboxView);
     await settle();
-    expect(text(r.target.querySelector('[data-testid="inbox-held"]') as HTMLElement)).toContain('Nobody: no team is declared, so only break-glass can override');
+    expect(text(r.target.querySelector('[data-testid="inbox-held"]') as HTMLElement)).toContain('Nobody may answer: no team is declared, so only break-glass can override');
     r.destroy();
     deliverySession.loaded = false;
     deliverySession.data = null;
