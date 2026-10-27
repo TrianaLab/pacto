@@ -7,10 +7,9 @@ search:
 
 # Live dashboard demo
 
-**Try Pacto without installing anything.** The Pacto dashboard, its web page,
-runs entirely in your browser here: Pacto and a set of demo contracts are
-compiled to WebAssembly, a format browsers run directly. There is no server
-behind it and nothing leaves the tab.
+This page runs the Pacto dashboard, Pacto's web page, in your browser. Pacto
+and a set of demo contracts are compiled to WebAssembly, a format browsers run
+directly. The demo needs no server, and all its data stays in the tab.
 
 <a href="../../demo/#/fleet" class="md-button md-button--primary">Open the live dashboard demo →</a>
 
@@ -24,8 +23,7 @@ browser keeps a copy afterwards.
   sixteen of the [CLI tour](demo-tour.md) plus two from a partner registry,
   a second domain. The page opens on its answer to **Is anything wrong?**
   and says some of the information is missing. Posture, ownership and data
-  sources stay open below it. That is on purpose:
-  Pacto always tells you what it could not see instead of hiding it.
+  sources stay open below it. Pacto always reports what it could not see.
 - **One service's dependency graph**: `payments-service` has six published
   versions. The graph shows which services call it and what a change would
   reach.
@@ -39,8 +37,9 @@ browser keeps a copy afterwards.
   that ran it (see below). **Switch person** lets you act as an AI agent
   (`pay-agent`), Alice or Carol, to see who may decide what.
 
-Two oddities are deliberate. `platform-app-config` appears twice because two
-different services share that name, and a name is not an identity. One
+The demo includes two oddities on purpose. `platform-app-config` appears
+twice because two different services share that name, and Pacto tells services
+apart by more than their name. One
 history shows a gap and one record is signed by a key nobody trusts, so you
 can see how Pacto reports them.
 
@@ -73,18 +72,17 @@ screens show:
   1.1.0 passed 1 of 2, so it rolled back and test stepped down. The
   **Checks** on the change page say who ran the suite and signed the result.
 
-## What it cannot show
+## Limitations
 
-Nothing here runs for real. The checks on running services and the delivery
-screens use recorded data, and every delivery screen says "simulated". The
+The checks on running services and the delivery screens use recorded data, and every delivery screen says "simulated". The
 plans, checks and history do come from Pacto's own code. Records are signed
 with a key made in your tab, so nothing outside it can check them, and a
 reload starts over. The eval runner is a stand-in in the tab whose key anyone
 can derive, so its signature proves nothing outside the demo. On the
-Autonomy tab, the share of services with a contract counts the fleet demo's
-services, not the ones in the delivery story.
+Autonomy tab, the share of services with a contract counts only the fleet
+demo's services.
 
-For the real thing, the [Docker Compose demo](compose-demo.md) runs the same
+To run Pacto for real, the [Docker Compose demo](compose-demo.md) runs the same
 dashboard on your machine and the [Kubernetes demo](kubernetes-demo.md) runs
 delivery on a local cluster. The [guided tour](demo-tour.md) shows the same
 facts from the command line, and the [Quickstart](../quickstart.md) has you
