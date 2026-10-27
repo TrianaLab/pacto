@@ -69,10 +69,9 @@ Pacto follows each dependency to its own contract in the registry, all the way d
 
 If you would rather generate Kubernetes files from contracts than keep them
 by hand, `pacto generate <name>` runs a plugin program called
-`pacto-plugin-<name>` and writes the files it returns. Pacto ships no plugin
-that writes deployment files: the two official ones (`schema-infer` and
-`openapi-infer`) work the other way, filling in a contract from files you
-already have. A plugin is a small program in any language that reads a
+`pacto-plugin-<name>` and writes the files it returns. The two official
+plugins (`schema-infer` and `openapi-infer`) fill in a contract from files you
+already have. To generate deployment files, write your own plugin: a small program in any language that reads a
 contract as JSON and returns file contents. See
 [Plugin development](plugins.md).
 
@@ -92,8 +91,8 @@ contract as JSON and returns file contents. See
 
 The values below, such as `shared/persistent`, are short for the
 `state.persistence.scope` and `state.persistence.durability` fields, as
-`pacto explain` shows them. They describe the service, not a Kubernetes
-setup; the table is one sensible way to map them on Kubernetes:
+`pacto explain` shows them. They describe the service. The table shows one
+sensible way to map them on Kubernetes:
 
 | `state.type` | `state.persistence` | Infrastructure |
 |---|---|---|
@@ -111,15 +110,15 @@ and autoscaling on purpose. Those stay in your Kubernetes files.
 
 ## See also
 
-- [Configuration and policy](contract-reference/configuration-and-policy.md) — the full reference
-- [Composition patterns](patterns/index.md) — root + component contracts,
+- [Configuration and policy](contract-reference/configuration-and-policy.md): the full reference
+- [Composition patterns](patterns/index.md): root + component contracts,
   infrastructure contracts, published policy + schema bundles and the rest
-- [Diff and change classification](contract-reference/diff.md) — what counts as breaking
-- [Put it in your repository](ci.md) — using Pacto in pipelines
-- [GitHub Actions integration](github-actions.md) — the pacto-actions workflow
-- [Fleet views](fleet-tools.md) — all your services at once (dashboard, `pacto fleet`, terminal UI)
-- [Kubernetes operator](integrations/kubernetes/overview.md) — checks running
+- [Diff and change classification](contract-reference/diff.md): what counts as breaking
+- [Put it in your repository](ci.md): using Pacto in pipelines
+- [GitHub Actions integration](github-actions.md): the pacto-actions workflow
+- [Fleet views](fleet-tools.md): all your services at once (dashboard, `pacto fleet`, terminal UI)
+- [Kubernetes operator](integrations/kubernetes/overview.md): checks running
   services against their contracts, including
   [what they actually do on the network](integrations/kubernetes/runtime-conformance.md)
-- [The operational graph](operational-graph.md) — the fleet-wide read model
-- [For developers](developers.md) — the other side of the same contract
+- [The operational graph](operational-graph.md): the fleet-wide read model
+- [For developers](developers.md): the other side of the same contract
