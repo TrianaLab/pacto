@@ -99,8 +99,15 @@ async function waitStable(page: Page, tries = 25): Promise<Spatial> {
   return prev as Spatial;
 }
 
+/** Scrolls the canvas to the middle of the window: a point below the fold takes no mouse
+ *  events, and scrolling the page moves neither the graph nor its viewport. */
+async function centreCanvas(page: Page): Promise<void> {
+  await page.getByTestId('neighborhood-canvas').evaluate((el) => el.scrollIntoView({ block: 'center' }));
+}
+
 /** Drags a node by a real mouse gesture, toward the middle of the canvas so it stays in view. */
 async function dragNode(page: Page, id: string, by = 130): Promise<void> {
+  await centreCanvas(page);
   const geom = await page.evaluate((nid) => {
     const c = document.querySelector('[data-testid="neighborhood-canvas"]') as
       (HTMLElement & { pactoGraphSpatial?: () => Spatial | null }) | null;
@@ -352,6 +359,7 @@ test.describe('Operational graph — a large neighborhood folds into lanes', () 
     expect(lanes.faded).toBe(0);
 
     // The full name shows on hover, and a click opens the group where it stands.
+    await centreCanvas(page);
     const at = await page.evaluate(() => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const c = document.querySelector('[data-testid="neighborhood-canvas"]') as any;
