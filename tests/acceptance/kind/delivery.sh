@@ -69,6 +69,11 @@
 # does not resolve, so its printed plan is not asserted here: the promoter's
 # status.plan is, and plan() is one pure function shared by both.
 set -euo pipefail
+
+# The harness creates the labelled pointers itself, as the GitOps controller
+# would from git, so kind's admin (kubernetes-admin in kubeadm:cluster-admins,
+# not system:masters) joins the chart's default delivery.admissionPolicies.gitopsUsers.
+GITOPS_USERS='["system:serviceaccount:flux-system:kustomize-controller","system:serviceaccount:argocd:argocd-application-controller","kubernetes-admin"]'
 CLUSTER="${KIND_CLUSTER:-pacto-delivery}"
 NS=pacto-system
 # Delivery runs in its own namespace, where the operator holds no role.
@@ -365,7 +370,7 @@ helm upgrade --install pacto-operator "$OP_CHART" -n "$NS" ${OP_HEALTH[@]+"${OP_
   --set dashboard.auth.oidc.clientID=pacto-dashboard --set dashboard.auth.oidc.redirectURL="$DASH_URL/auth/callback" \
   --set dashboard.auth.oidc.clientSecretRef.name=dashboard-oidc \
   --set "insecureRegistries[0]=$REG_HOST" \
-  --set delivery.enabled=true --set delivery.createNamespace=false --set delivery.identities.allowEmptyHumanGroups=true \
+  --set delivery.enabled=true --set delivery.createNamespace=false --set delivery.identities.allowEmptyHumanGroups=true --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
   --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
   --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s \
   --set delivery.recorder.enabled=true --set delivery.recorder.streamsRepository="$REG_HOST/$STREAMS_REPO" --set delivery.recorder.poll=5s \

@@ -159,6 +159,9 @@ Deleting a labelled object, or creating one with the label, is an edit too:
 only break-glass, `system:masters`, the namespace controller, the garbage
 collector and the users in `delivery.admissionPolicies.gitopsUsers` (Flux's
 kustomize-controller and Argo CD's application controller by default) may.
+On kubeadm clusters, kind included, the admin kubeconfig is in
+`kubeadm:cluster-admins`, not `system:masters`, so let GitOps create the
+pointers or add that user to `gitopsUsers`.
 If one of them is ever recreated without the label, the Stage shows `Ready`
 `False` with the reason `ApplierUnlabelled` and `Mediated` `False` with the
 reason `ApplyRefUnguarded`.

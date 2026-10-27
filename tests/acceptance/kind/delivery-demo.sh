@@ -33,6 +33,11 @@
 # call payments 2.4.2 makes to fraud comes from a sidecar in that version. The
 # sign-in providers are the demo's own Dex and Keycloak.
 set -euo pipefail
+
+# The harness creates the labelled pointers itself, as the GitOps controller
+# would from git, so kind's admin (kubernetes-admin in kubeadm:cluster-admins,
+# not system:masters) joins the chart's default delivery.admissionPolicies.gitopsUsers.
+GITOPS_USERS='["system:serviceaccount:flux-system:kustomize-controller","system:serviceaccount:argocd:argocd-application-controller","kubernetes-admin"]'
 CMD="${1:-help}"
 CLUSTER=pacto-delivery-demo
 NS=pacto-system
@@ -429,7 +434,7 @@ cmd_up() {
   helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s \
     --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
     --set "insecureRegistries[0]=$REG_HOST" \
-    --set delivery.enabled=true --set delivery.createNamespace=false --set delivery.identities.allowEmptyHumanGroups=true \
+    --set delivery.enabled=true --set delivery.createNamespace=false --set delivery.identities.allowEmptyHumanGroups=true --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
     --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
     --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s --set delivery.identities.teamGroupPrefix=team- \
     --set-json "delivery.gates.providers=$providers" \
@@ -1133,7 +1138,7 @@ cmd_reach() {
     '{delivery: {promoter: {upstreamTrust: ({keys: [{name: "prod-recorder", publicKey: $k, streams: [$s, $eu]}]} | tojson)}}}' > "$trust"
   us helm upgrade --install pacto-operator "$op_chart" -n "$NS" --set image.repository=localhost:5001/pacto-operator/pacto-controller \
     --set image.tag="$ver" --set image.pullPolicy=Never --set "insecureRegistries[0]=$REG_HOST" \
-    --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true --set delivery.image.repository=localhost:5001/pacto-delivery \
+    --set delivery.enabled=true --set delivery.identities.allowEmptyHumanGroups=true --set delivery.image.repository=localhost:5001/pacto-delivery --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
     --set delivery.image.tag="$ver" --set delivery.image.pullPolicy=Never --set "delivery.insecureRegistries[0]=$REG_HOST" \
     --set delivery.promoter.poll=2s --set delivery.argocd.enabled=true -f "$trust" --wait --timeout 240s >/dev/null \
     || fail "the pacto-operator chart did not roll out in prod-us"
