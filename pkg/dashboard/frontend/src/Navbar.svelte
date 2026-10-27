@@ -443,11 +443,22 @@
     display: flex; flex-wrap: wrap; gap: var(--sp-2);
   }
 
+  /* ─── Tight ─── */
+  /* With seven tabs the roomy bar needs about 1,330px. Below that it sheds the version
+     tag and some padding (about 150px) before it gives up the tabs, so a 1,280px
+     laptop still gets the full nav. */
+  @media (max-width: 1340px) {
+    .navbar { padding: 0 var(--sp-4); }
+    .nav-link { padding: 6px 7px; }
+    .version-tag { display: none; }
+    .search-trigger { min-width: 7rem; }
+  }
+
   /* ─── Collapsed ─── */
-  /* The full bar (brand, five tabs, search, sources and three buttons) needs about
-     1,130px; collapsing at the phone breakpoint left Refresh, Theme and then Search
-     clipped and unreachable from 768 to 1,130px. */
-  @media (max-width: 1180px) {
+  /* Collapsing at the phone breakpoint left Refresh, Theme and then Search clipped and
+     unreachable on mid-width screens, so the bar collapses as soon as the tight bar
+     above stops fitting. */
+  @media (max-width: 1200px) {
     .navbar {
       padding: 0 var(--sp-4);
       gap: var(--sp-2);

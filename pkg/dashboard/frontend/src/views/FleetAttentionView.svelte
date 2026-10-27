@@ -323,7 +323,7 @@
             <EntityLink ref={it.entity} showStatus={false} />
             <!-- The source sits inside the summary so the two wrap as one: on its own it
                  dropped to a line of its own under a long service name. -->
-            <span class="attn-summary">{it.summary || it.reason || it.label}{#if it.source} <span class="attn-src">via {it.source}</span>{/if}</span>
+            <span class="attn-summary">{it.summary || it.reason || it.label}{#if it.source}{' '}<span class="attn-src">via {it.source}</span>{/if}</span>
           </div>
           {#if it.nextStep}<span class="attn-next"><span class="attn-next-k">Next</span>{it.nextStep}</span>{/if}
         </li>
