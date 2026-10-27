@@ -435,10 +435,11 @@ var evalCounts = map[string][2]int{"1.0.0": {2, 2}, "1.1.0": {1, 2}}
 
 // storyRunner answers a suite gate's request in the tab, as the story's
 // stand-in runner: it counts with evalCounts and signs its answer with the
-// story runner key (story.SignEval).
+// story runner key (story.SignEval). It is a delivery.Doer, not an
+// http.Client, which would link an HTTP client and TLS into the download.
 type storyRunner struct{}
 
-func (storyRunner) RoundTrip(r *http.Request) (*http.Response, error) {
+func (storyRunner) Do(r *http.Request) (*http.Response, error) {
 	var q struct {
 		Input delivery.GateInput `json:"input"`
 	}
@@ -459,7 +460,7 @@ var runners, _ = delivery.RunnersOf([]delivery.TrustedKey{story.RunnerTrust()}, 
 })
 
 // gates are the providers a Stage check may name: the suite runner.
-var gates = map[string]delivery.Gate{"evals": delivery.Eval{URL: "https://evals.story.example/run", Client: &http.Client{Transport: storyRunner{}},
+var gates = map[string]delivery.Gate{"evals": delivery.Eval{URL: "https://evals.story.example/run", Client: storyRunner{},
 	Verify: runners, Revision: func(_ context.Context, in delivery.GateInput) delivery.Revision {
 		r, _ := story.Revision(in.Service.Name, versionOf(in.Service.Name, in.Subjects[0]))
 		return r

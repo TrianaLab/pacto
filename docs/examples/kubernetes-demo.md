@@ -14,8 +14,9 @@ recorder (which signs a record of every step), a health check, the node
 agent (which sees calls between services), sign-in and the dashboard. The
 services themselves, their traffic and the people signing in are made up
 (see [What is generated](#what-is-generated)). Its Stages start on fixed
-rungs, so it does not play the climb up the autonomy ladder or a step-down:
-the [browser demo](dashboard-demo.md) does, with nothing to install.
+rungs of the autonomy ladder: test on autonomous, prod on advise and fraud on
+observe. It does not show a proposal to move a Stage up a rung: the
+[browser demo](dashboard-demo.md) does, with nothing to install.
 
 ## Run it
 
@@ -93,7 +94,9 @@ cluster, and checks it against `examples/story`:
   witnessed record and freezes the Stage again.
 - pay-agent ships as a service of its own, with its eval suite as the check:
   1.0.0 passes, and 1.1.0 swaps its model, passes 1 of its 2 evals and rolls
-  back in test.
+  back in test. The runner signs each count with its own key, the rollback
+  cites that signed count, and `pacto delivery record verify` checks the
+  runner's signature beside the recorder's.
 
 `story` also prints the commands for `pacto delivery blame` and `undo` and for
 the agent over remote MCP.
@@ -119,7 +122,7 @@ unfreezes prod-eu. See
 The payments workload is a stand-in (podinfo). Its telemetry comes from a span
 generator in the cluster, and the call 2.4.2 makes to fraud comes from a sidecar
 in that version. pay-agent's eval runner is a stand-in that answers fixed
-counts. Sign-in uses the demo's own Dex and Keycloak, not a company
+counts and signs them with a key the demo makes. Sign-in uses the demo's own Dex and Keycloak, not a company
 login. When the record is deleted and restored, alice and ops do not sign in: they act through the admin
 credentials impersonating them, with a sign-in time the script makes up.
 

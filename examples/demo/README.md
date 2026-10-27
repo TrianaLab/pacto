@@ -111,7 +111,7 @@ synthetic lockfiles are gone.
 
 ## Size
 
-`app.wasm` is about 17.5 MB raw and 4.3 MB gzipped (measured 2026-10-23). It links no Kubernetes
+`app.wasm` is about 18.6 MB raw and 4.6 MB gzipped (measured 2026-10-27). It links no Kubernetes
 client (`TestWasmBuildHasNoKubernetes` keeps it that way): most of it is the Go
 runtime, the contract engine and the embedded demo data. Acceptable for a cached
 static asset.
