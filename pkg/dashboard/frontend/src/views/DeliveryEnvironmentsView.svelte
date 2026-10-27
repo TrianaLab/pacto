@@ -2,7 +2,8 @@
   import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { deliveryHistoryUrl, deliveryEnvironmentsUrl, serviceUrl } from '../lib/router.ts';
+  import { deliveryHistoryUrl, deliveryEnvironmentsUrl } from '../lib/router.ts';
+  import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
   import { shortDigest, levelLabel, levelHelp, shadowLabel, heldButRan, timeLabel, sentence, andList } from '../lib/delivery.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
@@ -251,7 +252,7 @@
                 {@const sum = summaryOf(svc)}
                 {@const first = shown.find((e) => cell(svc, e).length)}
                 <tr data-testid={`env-row-${svc}`}>
-                  <th scope="row"><a class="cell-clip" href={serviceUrl(svc)} title={svc}>{svc}</a></th>
+                  <th scope="row"><a class="cell-clip" href={deliveryServiceUrl(svc)} title={svc}>{svc}</a></th>
                   <td>
                     <div class="ev-dots" role="toolbar" aria-label={`Environments of ${svc}`} tabindex="-1" onkeydown={roam}>
                       {#each groups as g, i (i)}
@@ -313,7 +314,7 @@
             <tbody>
               {#each services as svc (svc)}
                 <tr data-testid={`env-row-${svc}`}>
-                  <th scope="row"><a class="cell-clip" href={serviceUrl(svc)} title={svc}>{svc}</a></th>
+                  <th scope="row"><a class="cell-clip" href={deliveryServiceUrl(svc)} title={svc}>{svc}</a></th>
                   {#each shown as env (env)}
                     {@const here = cell(svc, env)}
                     <td data-label={env}>

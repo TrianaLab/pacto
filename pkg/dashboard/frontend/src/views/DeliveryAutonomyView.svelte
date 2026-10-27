@@ -2,7 +2,8 @@
   import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { deliveryHistoryUrl, deliveryAutonomyUrl, serviceUrl } from '../lib/router.ts';
+  import { deliveryHistoryUrl, deliveryAutonomyUrl } from '../lib/router.ts';
+  import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
@@ -136,6 +137,54 @@
       </div>
     </dl>
 
+    <section aria-labelledby="au-blockers">
+      <div class="au-head">
+        <h2 id="au-blockers" class="t-section-title">What stands in the way</h2>
+        {#if blockers.length}<HelpTip label="fixes" text="Copying a fix changes nothing in the cluster: you review it and run it yourself." />{/if}
+      </div>
+      {#if blockers.length === 0}
+        <p class="t-body-2" data-testid="autonomy-no-blockers">{q ? `No blocker matches “${q}”.` : 'Nothing Pacto can see blocks the next level.'}</p>
+      {:else}
+        <div class="au-groups" data-testid="autonomy-blockers">
+          {#each groups as g, gi (g.kind + gi)}
+            <section class="au-group" aria-label={blockerLabel(g.kind)}>
+              <h3 class="au-group-title">{blockerLabel(g.kind)} <span class="t-meta" data-testid="blocker-kind-count">{formatCount(g.total ?? g.items.length)}{g.total > g.items.length ? ` in all, ${formatCount(g.items.length)} on this page` : ''}</span></h3>
+              <ul class="au-blockers">
+                {#each g.items as b, i (b.subject + ' ' + i)}
+                  {@const key = b.kind + ' ' + b.subject}
+                  {@const fix = b.fix?.command || b.fix?.snippet || ''}
+                  {@const svc = blockerService(b)}
+                  <li class="au-blocker">
+                    <details class="disclosure">
+                      <summary class="au-row">
+                        <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
+                        <!-- Plain text, not a link: a link inside a summary is a control inside a control. The link is in the detail. -->
+                        {#if b.subject}<code class="au-subject cell-clip" title={b.subject}>{b.subject}</code>{:else}<span class="au-subject cell-clip">{b.stages?.length ? `${countOf(b.stages.length, 'Stage')}` : 'Every Stage'}</span>{/if}
+                        <span class="t-meta au-count">{#if !b.subject}{:else if b.stages?.length}{countOf(b.stages.length, 'Stage')}{:else}No Stage{/if}</span>
+                        <span class="t-meta au-msg cell-clip" title={b.message ? sentence(b.message) : undefined}>{b.message ? sentence(b.message) : ''}</span>
+                        {#if fix}<span class="badge badge-neutral au-hasfix">Copy fix</span>{/if}
+                      </summary>
+                      <div class="au-detail">
+                        <!-- The row clips a long name; here it is whole. -->
+                        {#if b.subject}<p class="au-full"><code>{b.subject}</code>{#if svc}{' '}<a href={deliveryServiceUrl(svc)}>Open {svc}</a>{/if}</p>{/if}
+                        {#if b.stages?.length}<p class="t-meta au-stages">On {countOf(b.stages.length, 'Stage')}: <CappedList items={b.stages} max={3} inline={true} label={`Stages ${b.subject} blocks`}>{#snippet item(st)}{st}{/snippet}</CappedList></p>{/if}
+                        {#if b.message}<p class="t-body-2">{sentence(b.message)}</p>{/if}
+                        {#if fix}
+                          <pre class="au-fix"><code>{fix}</code></pre>
+                          <button type="button" class="btn btn-sm" onclick={() => copy(key, fix)} aria-label={`Copy fix for ${b.subject}`}>Copy fix</button>
+                          <span class="t-meta" role="status">{copied === key ? 'Copied.' : ''}</span>
+                        {/if}
+                      </div>
+                    </details>
+                  </li>
+                {/each}
+              </ul>
+            </section>
+          {/each}
+        </div>
+        <Pager page={data.blockersPage} href={hrefFor('blockers', 'blockersPage')} label="Pages of blockers" noun="blockers" testid="autonomy-blockers-pager" />
+      {/if}
+    </section>
     <section aria-labelledby="au-stages">
       <h2 id="au-stages" class="t-section-title">Each Stage</h2>
       {#if stages.length === 0}
@@ -145,14 +194,14 @@
           <table class="data-table au-table" data-testid="autonomy-stages">
             <caption class="visually-hidden">The level of each Stage and what Pacto proposes next</caption>
             <colgroup><col style="width: 28%" /><col style="width: 30%" /><col style="width: 42%" /></colgroup>
-            <thead><tr><th scope="col">Stage</th><th scope="col">Level</th><th scope="col">Next step <HelpTip label="would-have lines" text="On an observing Stage, what Pacto would have done with the newest candidate on Autonomous. Advisory, not signed." /></th></tr></thead>
+            <thead><tr><th scope="col">Stage</th><th scope="col">Level <HelpTip label="the levels" text="Observe: Pacto plans and moves nothing. Advise: a person proposes or approves every promote. Auto non-breaking: Pacto ships non-breaking changes on its own. Autonomous: Pacto ships any change the contract graph clears; Unknown still waits for a person." /></th><th scope="col">Next step <HelpTip label="would-have lines" text="On an observing Stage, what Pacto would have done with the newest candidate on Autonomous. Advisory, not signed." /></th></tr></thead>
             <tbody>
               {#each stages as s (s.namespace + '/' + s.stage)}
                 <tr data-stage={`${s.namespace}/${s.stage}`}>
                   <th scope="row"><a href={deliveryHistoryUrl({ namespace: s.namespace, stage: s.stage })}>{s.service}</a> <span class="t-meta">in {s.environment}</span></th>
-                  <td data-label="Level"><span class="au-level"><span class="badge badge-neutral" data-testid="level">{levelLabel(s.level)}</span><HelpTip label={levelLabel(s.level)} text={levelHelp(s.level)} /></span></td>
+                  <td data-label="Level"><span class="au-level"><span class="badge badge-neutral" data-testid="level" title={levelHelp(s.level)}>{levelLabel(s.level)}</span></span></td>
                   <td data-label="Next step">
-                    <span>{proposalText(s.level, s.proposal)}</span>
+                    {#if s.proposal?.level}<span>{proposalText(s.level, s.proposal)}</span>{:else if !s.proposal?.blockers?.length && !s.lastShadow}<span class="au-none" aria-label="Nothing to propose yet">—</span>{/if}
                     {#if s.proposal?.level}
                       <button type="button" class="btn btn-sm" onclick={(e) => propose(s, e)} aria-label={`Propose ${levelLabel(s.proposal.level)} for ${s.service} in ${s.environment}`}>Propose</button>
                     {:else if s.proposal?.blockers?.length}
@@ -176,57 +225,6 @@
       {/if}
     </section>
 
-    <section aria-labelledby="au-blockers">
-      <div class="au-head">
-        <h2 id="au-blockers" class="t-section-title">What stands in the way</h2>
-        {#if blockers.length}<HelpTip label="fixes" text="Copying a fix changes nothing in the cluster: you review it and run it yourself." />{/if}
-      </div>
-      {#if blockers.length === 0}
-        <p class="t-body-2" data-testid="autonomy-no-blockers">{q ? `No blocker matches “${q}”.` : 'Nothing Pacto can see blocks the next level.'}</p>
-      {:else}
-        <div class="au-groups" data-testid="autonomy-blockers">
-          {#each groups as g, gi (g.kind + gi)}
-            <section class="au-group" aria-label={blockerLabel(g.kind)}>
-              <h3 class="au-group-title">{blockerLabel(g.kind)} <span class="t-meta" data-testid="blocker-kind-count">{formatCount(g.total ?? g.items.length)}{g.total > g.items.length ? ` in all, ${formatCount(g.items.length)} on this page` : ''}</span></h3>
-              <ul class="au-blockers">
-                {#each g.items as b, i (b.subject + ' ' + i)}
-                  {@const key = b.kind + ' ' + b.subject}
-                  {@const fix = b.fix?.command || b.fix?.snippet || ''}
-                  {@const svc = blockerService(b)}
-                  <li class="au-blocker">
-                    <details class="disclosure">
-                      <summary class="au-row">
-                        <span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>
-                        {#if svc}
-                          <a class="au-subject cell-clip" href={serviceUrl(svc)} title={b.subject}><code>{b.subject}</code></a>
-                        {:else}
-                          <code class="au-subject cell-clip" title={b.subject}>{b.subject}</code>
-                        {/if}
-                        <span class="t-meta au-count">{#if b.stages?.length}{countOf(b.stages.length, 'Stage')}{:else}No Stage{/if}</span>
-                        <span class="t-meta au-msg cell-clip" title={b.message ? sentence(b.message) : undefined}>{b.message ? sentence(b.message) : ''}</span>
-                        {#if fix}<span class="badge badge-neutral au-hasfix">Fix to copy</span>{/if}
-                      </summary>
-                      <div class="au-detail">
-                        <!-- The row clips a long name; here it is whole. -->
-                        <p class="au-full"><code>{b.subject}</code></p>
-                        {#if b.stages?.length}<p class="t-meta au-stages">On {countOf(b.stages.length, 'Stage')}: <CappedList items={b.stages} max={3} inline={true} label={`Stages ${b.subject} blocks`}>{#snippet item(st)}{st}{/snippet}</CappedList></p>{/if}
-                        {#if b.message}<p class="t-body-2">{sentence(b.message)}</p>{/if}
-                        {#if fix}
-                          <pre class="au-fix"><code>{fix}</code></pre>
-                          <button type="button" class="btn btn-sm" onclick={() => copy(key, fix)} aria-label={`Copy fix for ${b.subject}`}>Copy fix</button>
-                          <span class="t-meta" role="status">{copied === key ? 'Copied.' : ''}</span>
-                        {/if}
-                      </div>
-                    </details>
-                  </li>
-                {/each}
-              </ul>
-            </section>
-          {/each}
-        </div>
-        <Pager page={data.blockersPage} href={hrefFor('blockers', 'blockersPage')} label="Pages of blockers" noun="blockers" testid="autonomy-blockers-pager" />
-      {/if}
-    </section>
   {/if}
 </div>
 
@@ -245,6 +243,7 @@
   .au-head h2 { margin: 0; }
   .au-level { display: inline-flex; align-items: center; gap: var(--sp-2); }
   .au-callers { display: flex; align-items: center; gap: var(--sp-1); }
+  .au-none { color: var(--c-text-3); }
   .au-help { display: block; margin: var(--sp-1) 0 0 !important; }
   .au-groups { display: flex; flex-direction: column; gap: var(--sp-3); }
   .au-group-title { margin: var(--sp-2) 0 var(--sp-1); font: 600 var(--text-sm) / 1.4 var(--font-sans, inherit); font-style: normal; color: var(--c-text); }

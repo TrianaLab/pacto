@@ -3,7 +3,8 @@
   import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { serviceUrl, deliveryPublishUrl } from '../lib/router.ts';
+  import { deliveryPublishUrl } from '../lib/router.ts';
+  import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
@@ -138,7 +139,7 @@
     {:else}
       {#each services as svc (svc.service)}
         <section class="pv-svc" aria-labelledby={`pv-${svc.service}`}>
-          <h2 id={`pv-${svc.service}`} class="t-section-title"><a href={serviceUrl(svc.service)}>{svc.service}</a></h2>
+          <h2 id={`pv-${svc.service}`} class="t-section-title"><a href={deliveryServiceUrl(svc.service)}>{svc.service}</a></h2>
           <ul class="pl-list">
             {#each open[svc.service] ? (svc.versions ?? []) : (svc.versions ?? []).slice(0, VERSIONS) as v (v.digest)}
               {@const sk = `${svc.service}@${v.digest}`}

@@ -100,7 +100,8 @@ describe('path to autonomy', () => {
     const rows = [...target.querySelectorAll('[data-testid="autonomy-stages"] tbody tr')];
     expect(text(rows[0])).toContain('Advise');
     expect(text(rows[0])).toContain('Pacto proposes Auto non-breaking: 10 verified promotions, no incident.');
-    expect(text(rows[1])).toContain('Nothing to propose yet. 1 blocker below.');
+    expect(text(rows[1])).toContain('1 blocker below.');
+    expect(text(rows[1])).not.toContain('Nothing to propose yet');
     expect(text(rows[1].querySelector('[data-testid="would-have"]')!)).toBe('Pacto would have chosen to hold for team-checkout.');
     // A level says what it means behind its (?), not under every row.
     expect(text(rows[0])).not.toContain('A person proposes or approves every promote');
@@ -143,7 +144,7 @@ describe('path to autonomy', () => {
     const blocker = target.querySelector('[data-testid="autonomy-blockers"] li.au-blocker')!;
     expect(blocker.querySelectorAll('.au-stages li').length).toBe(3);
     // The row clips a long name; its detail says it whole.
-    expect(blocker.querySelector('.au-detail .au-full')?.textContent).toBe('payments');
+    expect(blocker.querySelector('.au-detail .au-full code')?.textContent).toBe('payments');
     expect(text(blocker)).toContain('On 300 Stages');
     expect(text(blocker)).toContain('Show all 300');
     // A kind counts over every page, not only the blockers this page shows.
@@ -172,11 +173,12 @@ describe('path to autonomy', () => {
     expect(text(items[1])).toContain('checkout 1 Stage');
     expect(text(items[1])).toContain('On 1 Stage: prod/pay');
     expect(items[2].querySelector('button')).toBeNull();
-    // A service subject opens its service; a caller with no contract or a GitOps object has no page.
-    expect(items[1].querySelector('a.au-subject')!.getAttribute('href')).toContain('checkout');
-    expect(items[1].querySelector('a.au-subject')!.getAttribute('title')).toBe('checkout');
-    expect(items[0].querySelector('a.au-subject')).toBeNull();
-    expect(items[2].querySelector('a.au-subject')).toBeNull();
+    // A service subject opens its service from the detail, never from inside the summary;
+    // a caller with no contract or a GitOps object has no page.
+    expect(items[1].querySelector('summary a')).toBeNull();
+    expect(items[1].querySelector('.au-full a')!.getAttribute('href')).toContain('checkout');
+    expect(items[0].querySelector('.au-full a')).toBeNull();
+    expect(items[2].querySelector('.au-full a')).toBeNull();
     (target.querySelector('button[aria-label="About fixes"]') as HTMLButtonElement).click();
     flushSync();
     expect(text(target)).toContain('Copying a fix changes nothing in the cluster');

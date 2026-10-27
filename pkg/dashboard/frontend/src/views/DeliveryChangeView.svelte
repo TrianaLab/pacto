@@ -3,7 +3,8 @@
   import { onDestroy, tick } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { deliveryInboxUrl, deliveryHistoryUrl, deliveryChangeUrl, serviceUrl } from '../lib/router.ts';
+  import { deliveryInboxUrl, deliveryHistoryUrl, deliveryChangeUrl } from '../lib/router.ts';
+  import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
   import { typeLabel, shortDigest, shortDigests, predictionLabel, decisionLabel, authTimeText, changeSummary, actorBadge,
     undoCause, versionLabel, levelLabel, levelHelp, timeLabel, AUTONOMY_TYPE, reasonWords, reasonAfter, gateLabel, andList, decisionAsked } from '../lib/delivery.ts';
   import DeliveryLead from '../components/DeliveryLead.svelte';
@@ -209,7 +210,7 @@
       {#if consumers.length}
         <Fold title={`Affected services (${formatCount(consumers.length)})`} id="cd-affected" labelledby="cd-affected" meta="why a person is needed">
           <div class="cd-consumers">
-            <CappedList items={consumers} max={12} inline={true} label="Affected services" testid="affected-services">{#snippet item(c)}<a href={serviceUrl(c)}>{c}</a>{/snippet}</CappedList>
+            <CappedList items={consumers} max={12} inline={true} label="Affected services" testid="affected-services">{#snippet item(c)}<a href={deliveryServiceUrl(c)}>{c}</a>{/snippet}</CappedList>
           </div>
         </Fold>
       {/if}

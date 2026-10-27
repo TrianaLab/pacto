@@ -2,7 +2,8 @@
   import { onDestroy } from 'svelte';
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
-  import { deliveryChangeUrl, deliveryHistoryUrl, deliveryInboxUrl, serviceUrl } from '../lib/router.ts';
+  import { deliveryChangeUrl, deliveryHistoryUrl, deliveryInboxUrl } from '../lib/router.ts';
+  import { deliveryServiceUrl } from '../lib/deliveryLinks.svelte.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
   import { typeLabel, shortDigest, shortDigests, andList, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
@@ -81,7 +82,7 @@
       </a>
       <p class="dl-facts t-body-2">
         {#if it.consumers?.length}
-          <span class="dl-affects">{breaksWord(it)} <CappedList items={it.consumers} max={3} inline={true} label="Affected services">{#snippet item(c)}<a href={serviceUrl(c)}>{c}</a>{/snippet}</CappedList></span>
+          <span class="dl-affects">{breaksWord(it)} <CappedList items={it.consumers} max={3} inline={true} label="Affected services">{#snippet item(c)}<a href={deliveryServiceUrl(c)}>{c}</a>{/snippet}</CappedList></span>
         {:else if it.question}
           <span class="dl-question">{firstSentence(it.question)}</span>
         {/if}
