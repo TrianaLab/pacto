@@ -316,6 +316,27 @@ YAML
     [ "${out%% *}" = 401 ] || fail "a visitor who has not signed in got $path: ${out:0:300}"
   done
   pass "signed in, erin sees only rbac-open's services and alice sees both; a visitor gets no fleet view at all"
+
+  # A pasted ServiceAccount token signs in like kubectl: its RBAC decides.
+  kubectl -n rbac-open create serviceaccount rbac-viewer --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl -n rbac-open create rolebinding rbac-viewer --role=pacto-viewer --serviceaccount=rbac-open:rbac-viewer \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  token_login() { # TOKEN — the session cookie a token sign-in sets, or the HTTP status
+    curl -s -D - -o /dev/null -X POST -H "Origin: $DASH_URL" -H 'Content-Type: application/json' \
+      -d "{\"token\":\"$1\"}" "$DASH_URL/auth/token" | tr -d '\r' |
+      sed -n -e 's/^HTTP\/[0-9.]* \(4[0-9][0-9]\).*/\1/p' -e 's/^[Ss]et-[Cc]ookie: __Host-pacto-session=\([^;]*\).*/\1/p'
+  }
+  out="$(token_login not-a-token)"
+  [ "$out" = 401 ] || fail "a token the cluster refuses signed in: $out"
+  local sa; sa="$(token_login "$(kubectl -n rbac-open create token rbac-viewer)")"
+  [ -n "$sa" ] && [ "${#sa}" -gt 3 ] || fail "a ServiceAccount token did not sign in: $sa"
+  dash "$sa" GET /api/session | cut -d' ' -f2- |
+    jq -e '.method == "token" and .user == "system:serviceaccount:rbac-open:rbac-viewer"' >/dev/null \
+    || fail "the token session does not name the ServiceAccount: $(dash "$sa" GET /api/session)"
+  [ "$(names "$sa")" = '["rbac-open-svc"]' ] || fail "the token session sees services outside rbac-open: $(names "$sa")"
+  out="$(dash "$sa" POST /api/delivery/operations/prod/any/decision '{"decision":"approve"}' "$(csrf_of "$sa")")"
+  [ "${out%% *}" = 403 ] && grep -q TokenCannotDecide <<<"$out" || fail "a token session decided: $out"
+  pass "a pasted ServiceAccount token signs in, sees only what its RBAC reads and never decides"
 }
 
 identity_scenario() {
@@ -394,7 +415,7 @@ identity_scenario() {
   in_node pacto-e2e-dashboard -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \
     -e PACTO_DASHBOARD_OIDC_CLIENT_SECRET="$DASH_SECRET" -v "$dashkc:/kube/config:ro" -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" \
     "$DASH_IMG" dashboard --host 0.0.0.0 --port 3300 --oidc-issuer-url "$DEX_ISSUER" --oidc-client-id pacto-dashboard \
-    --oidc-redirect-url "$DASH_URL/auth/callback" --oidc-extra-scopes audience:server:client_id:pacto-cli
+    --oidc-redirect-url "$DASH_URL/auth/callback" --oidc-extra-scopes audience:server:client_id:pacto-cli --token-login
   in_node pacto-e2e-mcp -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \
     -e PACTO_MCP_EXCHANGE_CLIENT_SECRET=mcp-secret -v "$mcpkc:/kube/config:ro" -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" \
     "$DASH_IMG" mcp --delivery -t http --host 0.0.0.0 --port 8585 --auth-issuer "$KC_ISSUER" \
