@@ -68,6 +68,10 @@
   let allOwners = $state(false);
   const ownerList = $derived(andList(owners, allOwners ? Infinity : 3, 'or'));
   const ownersCut = $derived(owners.length > 4);
+  // The team that lets this person answer, named back to them. The cluster maps a team
+  // to a group by a prefix the session does not carry, so a group that ends in the team
+  // name is taken as that team; failing a match the line still says they can answer.
+  const myTeam = $derived(owners.find((t) => (caller?.groups ?? []).some((g) => g === t || g.endsWith(t))) ?? '');
   // The page lists every affected service in a fold below the panel: open it, then go there.
   function toAffected() {
     const h = document.getElementById('cd-affected');
@@ -151,7 +155,7 @@
 
 <section class="dp" aria-labelledby="dp-title" data-testid="decision-panel">
   <h2 id="dp-title" class="t-section-title">The decision</h2>
-  <p class="dp-chips t-meta">{#if breaking}<span class="badge badge-warn" data-testid="decision-breaking">Breaking</span>{/if}<span>{owners.length ? `Only ${ownerList} may answer` : ownerless}</span>{#if ownersCut}<button type="button" class="btn btn-sm" aria-expanded={allOwners} onclick={() => { allOwners = !allOwners; }}>{allOwners ? 'Show fewer' : `Show all ${formatCount(owners.length)} teams`}</button>{/if}</p>
+  <p class="dp-chips t-meta">{#if breaking}<span class="badge badge-warn" data-testid="decision-breaking">Breaking</span>{/if}<span data-testid="decision-who">{!owners.length ? ownerless : offer ? `You can answer${myTeam ? `: you are in ${myTeam}` : ''}.` : `Only ${ownerList} may answer`}</span>{#if ownersCut && !offer}<button type="button" class="btn btn-sm" aria-expanded={allOwners} onclick={() => { allOwners = !allOwners; }}>{allOwners ? 'Show fewer' : `Show all ${formatCount(owners.length)} teams`}</button>{/if}</p>
   {#if asked === 'accept-unknown'}
     <p class="t-body-2" data-testid="decision-unknown">A check ended Unknown: Pacto could not see enough to decide, and Unknown never passes. <a class="dp-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">What Unknown means</a></p>
   {/if}
