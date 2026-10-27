@@ -1,6 +1,6 @@
 # Installation
 
-Install the `pacto` command-line tool (CLI). Most people should use the installer script: one command, plugins included. The other two ways need Go and suit contributors.
+Install the `pacto` command-line tool (CLI). Use the installer script: it installs `pacto` and the plugins with one command. The other two ways need Go and suit contributors.
 
 | Method | Installs | `pacto version` reports |
 |---|---|---|
@@ -8,7 +8,7 @@ Install the `pacto` command-line tool (CLI). Most people should use the installe
 | [`go install`](#via-go) | `pacto` only | `dev`, with commit and date `unknown` |
 | [From source](#from-source) | `pacto` only | version, commit and date from your checkout |
 
-Want to look first? The [live dashboard demo](examples/dashboard-demo.md) runs Pacto in your browser with nothing to install.
+To look first, open the [live dashboard demo](examples/dashboard-demo.md). It runs Pacto in your browser.
 
 ## Via installer script
 
@@ -111,9 +111,9 @@ rm -rf ~/.cache/pacto
 
 The last two follow `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` where you set them. Removing `~/.config/pacto` deletes stored registry credentials; run [`pacto logout <registry>`](cli-reference.md#pacto-logout) first if you would rather drop them one registry at a time.
 
-## Supply chain: what is signed and what is not
+## Supply chain: signatures and checksums { #supply-chain-what-is-signed-and-what-is-not }
 
-Some release artifacts are signed and some are not. Know which before you rely on a signature:
+Check what ships with each release artifact before you rely on a signature:
 
 | Artifact | What ships with it |
 | --- | --- |
@@ -125,7 +125,7 @@ Some release artifacts are signed and some are not. Know which before you rely o
 | `ghcr.io/trianalab/pacto/dashboard-contract` | Nothing. **Unsigned.** |
 | The demo contract bundles (`ghcr.io/trianalab/pacto/<service>`) | Nothing. **Unsigned.** |
 
-The release workflow signs the three images and the chart with [Cosign](https://docs.sigstore.dev/cosign/) "keyless" signing: the signature is tied to the GitHub workflow that built the image, not to a key you must store. Verifying it proves *who built it*:
+The release workflow signs the three images and the chart with [Cosign](https://docs.sigstore.dev/cosign/) "keyless" signing: the signature is tied to the GitHub workflow that built the image, so you store no key. Verifying it proves *who built it*:
 
 ```bash
 cosign verify \
@@ -134,7 +134,7 @@ cosign verify \
   ghcr.io/trianalab/pacto/operator:<version>
 ```
 
-A successful run prints the certificate subject and the workflow ref it was issued to. Anything else — including `no signatures found` — means do not deploy it.
+A successful run prints the certificate subject and the workflow ref it was issued to. Any other output, including `no signatures found`, means do not deploy it.
 
 For the CLI binaries the check available to you is the checksum:
 

@@ -4,9 +4,8 @@
 
 **Pacto is continuous delivery for the GitlessOps era.**
 
-GitlessOps means which version runs where is set from signed artifacts in
-your container registry and from evidence, not from commits to git. Your code
-and deployment files stay in git.
+With GitlessOps, signed artifacts in your container registry and evidence set
+which version runs where. Your code and deployment files stay in git.
 
 Describe your services once, as contracts. Pacto works out what each change
 does to the services that depend on it. It starts by watching, and once a
@@ -22,7 +21,7 @@ run, and it is useful on its own, without delivery.
 
 **[Documentation](https://pacto.run)** · **[Quickstart](https://pacto.run/latest/quickstart)** · **[Specification](https://pacto.run/latest/contract-reference)** · **[Examples](https://pacto.run/latest/examples)** · **[Live demo](https://pacto.run/latest/demo/#/fleet)**
 
-> **Why Pacto exists** — [MANIFEST.md](MANIFEST.md)
+> **Why Pacto exists:** [MANIFEST.md](MANIFEST.md)
 
 ---
 
@@ -38,8 +37,8 @@ Stage) climbs a ladder of four levels:
 | auto for non-breaking | Ships on its own only non-breaking changes: nothing others may use is removed or changed |
 | autonomous | Also ships breaking changes on its own, when every service that depends on the new version accepts it |
 
-The automatic levels judge the contract, not the manifests: a version whose
-contract is unchanged but whose manifests grant it more ships like any other.
+The automatic levels judge the contract. A version whose contract is unchanged
+ships like any other, even when its manifests grant it more.
 Flux applies those manifests with the rights of the account its Kustomization
 runs as, so give it a namespaced one (`pacto init --delivery` writes a
 deployer account) and treat the key that signs `pacto publish` as the root of
@@ -62,7 +61,7 @@ level, whether it was rolled back or froze.
 
 ### Safety rules on every level
 
-No level skips the safety rules. A change that would break a consumer waits and
+A change that would break a consumer waits and
 asks only that consumer's team; one that breaks consumers of several teams waits
 for every one of them. The plan says which service to ship first.
 When Pacto cannot see enough (Unknown), the change waits for a person. A
@@ -75,8 +74,8 @@ never changes what runs.
 
 Delivery synthesizes two ideas from others and adds one of ours:
 
-- **[ConfigHub](https://confighub.com)**: configuration as data in a database behind an API,
-  not as templates. Pacto keeps only "which version runs where" that way.
+- **[ConfigHub](https://confighub.com)**: configuration as data in a database behind an API.
+  Pacto stores only "which version runs where" that way.
 - **Anthropic's [Scion](https://www.anthropic.com/research/redesigning-source-control)**:
   source control for agent-scale change. Content-addressed storage, a pointer
   moved with one compare-and-swap and tests after a change merges, before it
@@ -105,10 +104,10 @@ On pacto.run:
 Pacto composes the interface tools it sits between (OpenAPI, config schemas) and
 complements the deploy tools (Helm, Terraform). Its core makes no deployment
 decisions. The opt-in delivery component decides which version runs where and
-leaves applying it to GitOps. Unlike a promotion tool such as Kargo, it decides
-from the contract graph: it asks only the owners of the consumers a change
-would break, treats what it cannot see as Unknown rather than a pass and can
-sign each decision into a record anyone verifies without Pacto.
+leaves applying it to GitOps. Compared with a promotion tool such as Kargo, it
+decides from the contract graph: it asks only the owners of the consumers a
+change would break, treats what it cannot see as Unknown, which never passes,
+and can sign each decision into a record anyone verifies without Pacto.
 
 | | Versioned artifact | Semantic diff | Dependency graph | Transitive policy | Runtime verify | Orchestrator-agnostic | Deploys? |
 |---|---|---|---|---|---|---|---|
@@ -125,15 +124,15 @@ sign each decision into a record anyone verifies without Pacto.
 each project's own documentation, August 2026; these projects move fast, so
 re-check the cells before relying on them. The contested columns:
 
-- **Semantic diff** — changes classified by compatibility impact, not rendered as text; a line-based diff is Partial
-- **Transitive policy** — governance rules evaluated across the dependency closure, fail-closed
-- **Runtime verify** — workloads checked against an independently declared contract; reconciling toward the tool's own desired state is Partial
-- **Orchestrator-agnostic** — the tool needs no Kubernetes control plane of its own. The softest column: between ✅ and —, Partial is a judgement of degree
+- **Semantic diff**: changes classified by compatibility impact; a line-based text diff is Partial
+- **Transitive policy**: governance rules evaluated across the dependency closure, fail-closed
+- **Runtime verify**: workloads checked against an independently declared contract; reconciling toward the tool's own desired state is Partial
+- **Orchestrator-agnostic**: the tool runs without a Kubernetes control plane of its own. This is the softest column, and Partial is a judgement of degree
 
-Several of these are complementary rather than competing: a contract can gate a
-Kargo promotion, feed a Backstage card or front a Crossplane provisioner. We
-graded our own row; the orchestrator cell holds for contracts and checks, not
-for delivery.
+Several of these work alongside Pacto: a contract can gate a Kargo promotion,
+feed a Backstage card or front a Crossplane provisioner. We graded our own row.
+The orchestrator cell holds for contracts and checks; delivery needs
+Kubernetes.
 
 ## Installation
 

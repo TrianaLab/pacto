@@ -1,8 +1,8 @@
 # The autonomy ladder
 
-Pacto does not start by shipping your changes. It starts by watching. It earns
-more freedom one step at a time, and a person says yes to each step. This page
-explains those steps, called levels, in plain words.
+Pacto starts by watching your changes. It earns more freedom one step at a
+time, and a person confirms each step. This page explains those steps, called
+levels.
 
 ## Words you need first
 
@@ -26,7 +26,7 @@ explains those steps, called levels, in plain words.
   enough to say, for example because monitoring data is missing.
 - A **Stage** is one service in one environment, such as payments in prod.
 - An **AI agent**, such as Claude connected to Pacto, can ask for a change
-  but can never approve one.
+  Only a person can approve one.
 
 ## The four levels
 
@@ -36,7 +36,7 @@ Each Stage sits on one level.
 |---|---|---|
 | **observe** | Works out what it would do for every change and moves nothing | Your GitOps tool, as today |
 | **advise** | Shows each new version and what it would do with it | A person asks, or approves what an AI agent asked for |
-| **auto for non-breaking** | Ships changes that are not breaking on its own | Pacto, for non-breaking changes; a person for the rest |
+| **auto for non-breaking** | Ships non-breaking changes on its own | Pacto, for non-breaking changes; a person for the rest |
 | **autonomous** | Ships every change the contracts clear on its own | Pacto, unless a consumer would break or a check is Unknown |
 
 Once Pacto moves versions, the safety rules hold on every level. A change that
@@ -59,9 +59,10 @@ after 1.8.0) would pass every `^1` range, so it waits for a person. So does a
 version whose contract moved to another registry domain, because consumers
 declared against the old domain would not be counted.
 
-### What the levels do not judge
+### Manifests and the levels
 
-The levels judge the contract, never the manifests that ship with it. A version
+The levels judge only the contract. The manifests that ship with it play no
+part. A version
 with the same contract and new manifests (a new ClusterRoleBinding, say) is
 non-breaking, so an automatic level ships it with no person. What those
 manifests can do is what the account Flux applies them as may do. Give the
@@ -83,7 +84,7 @@ have done" next to what really happened. These notes are advice only.
 
 Watching also shows what is missing. If Pacto sees a service call yours and
 that caller has no contract, Pacto cannot know which versions it accepts. A
-breaking change then waits for a person instead of shipping, and Pacto names
+breaking change then waits for a person, and Pacto names
 the caller so you can give it a contract.
 
 ## Earned autonomy: Pacto proposes, a person decides
@@ -115,7 +116,7 @@ and stores it next to your images. So every grant of autonomy leaves a
 signed record that anyone can check with standard tools, without Pacto.
 
 Lowering a level needs no approval. A person can do it at any time. An AI
-agent can too, but never down to observe: once git no longer sets the version
+agent can too, except down to observe: once git stops setting the version
 (see "Leaving observe" below), a Stage on observe has nothing moving it at
 all, and only a person may stop a service that way.
 
@@ -137,11 +138,10 @@ versions starts again from zero, so Pacto has to earn the level back.
 
 A version that shipped with no person and that an AI agent rolls back before
 its checks judge it counts as failed too: it is never promoted on that Stage
-again and the Stage drops a level, so an agent cannot pull its own failing
-change and keep its record clean.
+again and the Stage drops a level. The failure stays on the Stage's record.
 
-An Unknown never causes a step-down. Unknown means Pacto could not see, not
-that the version failed.
+An Unknown never causes a step-down, because Unknown means Pacto could not see
+enough to judge the version.
 
 ## Leaving observe
 
@@ -160,7 +160,7 @@ goes in this order:
 The [ladder reference](autonomy-reference.md) names the field and the label for
 Flux and Argo CD.
 
-## Where to go next
+## What's next
 
 - [Pactify a service](pactify.md): give a service a contract and start it on observe
 - [Delivery](integrations/kubernetes/delivery.md): what happens to every change

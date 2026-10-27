@@ -1,7 +1,7 @@
 # Decide, unfreeze and roll back
 
-This page is for the person Pacto asks to decide on a change. You need no
-other page to do it. If you set up Pacto for your team, read
+This page is for the person Pacto asks to decide on a change. It covers
+everything you need to do it. If you set up Pacto for your team, read
 [Pactify a service](pactify.md) first.
 
 ## The words on this page
@@ -38,9 +38,8 @@ Pacto holds a change and asks a person in these cases:
   whatever the level.
 - **The Stage is on advise.** A person approves every promote that a person
   did not ask for; see [the autonomy ladder](autonomy.md).
-- **The change is not known to be non-breaking and the Stage is on auto for
-  non-breaking.** It is breaking, possibly breaking or could not be
-  classified. Every consumer's contract accepts it, but this level ships only
+- **The Stage is on auto for non-breaking and the change is breaking,
+  possibly breaking or unclassified.** Every consumer's contract accepts it, but this level ships only
   non-breaking changes on its own, so a person approves it.
 - **The Stage requires records and the recorder cannot write them now.** A
   person approves the promote or rollback without a record yet. The change
@@ -49,11 +48,11 @@ Pacto holds a change and asks a person in these cases:
   lets Pacto do more on its own. A person of the team that owns the service,
   other than the one who asked, approves it.
 
-You are asked only if you are in the team that owns an affected service, and
-never about a change you asked for yourself. Pacto knows who asked only from
-the request: if an AI agent asked for you without naming you with
-`--on-behalf-of`, you could still be asked: leave that one to a teammate. An AI agent
-can ask for changes, but it can never decide one.
+Pacto asks only members of the team that owns an affected service, and it
+skips the person who asked for the change. Pacto knows who asked only from the
+request. If an AI agent asked for you without naming you with
+`--on-behalf-of`, Pacto can still ask you; leave that one to a teammate. An AI
+agent can ask for changes. Only a person can decide one.
 
 ## Look, then decide
 
@@ -119,17 +118,17 @@ Three things, all set up once by your cluster admin:
    outside them is treated like an AI agent and can never approve.
 3. **A fresh company login.** The cluster must trust your company sign-in,
    and you must have signed in recently: within 15 minutes by default, which
-   your admin sets with `delivery.promoter.authFreshness`. You do not do
-   anything special: `pacto delivery approve` prints an address, you sign in
+   your admin sets with `delivery.promoter.authFreshness`.
+   `pacto delivery approve` prints an address, you sign in
    again in your browser and it sends your answer with that login. The
    dashboard asks you to sign in again in the same way. Before the first
    time, set your company's sign-in address, which your admin gives you, in
    your shell: `export PACTO_DELIVERY_OIDC_ISSUER_URL=https://login.example.com`.
 
-Some clusters cannot check a fresh login. It works where your admin sets
-the Kubernetes API server's flags, and nobody has tested it yet on managed
-clusters such as EKS, GKE and AKS. There, nobody can give any of the three answers,
-reject included. Ask your admin, who can
+The fresh-login check works where your admin sets the Kubernetes API
+server's flags. It is not tested yet on managed clusters such as EKS, GKE and
+AKS. Where it does not work, nobody can give any of the three answers, reject
+included. Ask your admin, who can
 check with [Sign-in, approvals and agents](integrations/kubernetes/delivery-identity.md#where-approving-works).
 A held change then has three ways out: the person who asked cancels it and
 publishes a version that asks nothing, it ends after 24 hours, or someone in
@@ -150,8 +149,8 @@ again:
 pacto delivery propose -n prod --stage payments --type unfreeze --reason "fixed the config"
 ```
 
-Despite the name `propose`, an unfreeze takes effect at once and needs nobody
-else. It also clears `HOLD`, so run it on a Stage that is on hold even when
+An unfreeze takes effect at once and needs nobody else, even though the
+command is `propose`. It also clears `HOLD`, so run it on a Stage that is on hold even when
 `FROZEN` shows `false`. It needs the approver role but no fresh login, and
 only the team that owns the service (the owner team in the contract running on
 the Stage) or break-glass may unfreeze it: a person of another team is refused
@@ -161,9 +160,8 @@ only to the people the same rule lets unfreeze it.
 
 ## Roll back by hand
 
-Pacto rolls a failed version back on its own. To take out a version that
-passed its checks but you still do not want, find the change that put it
-there and undo it:
+Pacto rolls a failed version back on its own. To remove a version that
+passed its checks, find the change that put it there and undo it:
 
 ```bash
 pacto delivery blame -n prod --stage payments   # the "change:" line is the change to undo

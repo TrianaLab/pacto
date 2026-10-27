@@ -7,8 +7,8 @@ search:
 
 # Quickstart
 
-From nothing to a checked contract that catches breaking changes, in about
-five minutes. A contract is one file, `pacto.yaml`, that says who owns a
+In this tutorial you write a contract, check it and use it to catch a
+breaking change. It takes about five minutes. A contract is one file, `pacto.yaml`, that says who owns a
 service, what it offers and which other services it calls. Everything here
 runs on your machine, with no account and no registry.
 
@@ -26,7 +26,7 @@ Or via Go:
 go install github.com/trianalab/pacto/v4/cmd/pacto@latest
 ```
 
-See [Installation](installation.md) for other methods and for what to do if the script exits with `Failed to fetch latest version` — that is the anonymous GitHub API rate limit, not a broken release.
+See [Installation](installation.md) for other methods and for what to do if the script exits with `Failed to fetch latest version`. That message means you hit the anonymous GitHub API rate limit.
 
 ## 2. Create a contract
 
@@ -105,7 +105,7 @@ dependencies:
     compatibility: ">=1.0.0"
 ```
 
-`checkout` accepts `^1.0.0` (1.x only), `reporting` accepts `>=1.0.0` (1.x and above). This difference is what makes the next step interesting.
+`checkout` accepts `^1.0.0` (1.x only), `reporting` accepts `>=1.0.0` (1.x and above). Step 7 shows what that difference changes.
 
 ## 5. Introduce a breaking change
 
@@ -161,11 +161,11 @@ Affected consumers (2):
   reporting                    direct     confidence=contractual  compat=compatible   owner=my-team
 ```
 
-`checkout` and `reporting` declare the *same* edge to the *same* service and get *opposite* verdicts. `checkout` pins `^1.0.0` (1.x only) and breaks. `reporting` accepts `>=1.0.0` (any major) and survives. A catalog that records only "`checkout` depends on `my-service`" cannot tell those two apart; Pacto can, because the contract carries the compatibility range.
+`checkout` and `reporting` declare the *same* edge to the *same* service and get *opposite* verdicts. `checkout` pins `^1.0.0` (1.x only) and breaks. `reporting` accepts `>=1.0.0` (any major) and survives. Pacto tells them apart because each contract carries its compatibility range.
 
 `owner=my-team` is the placeholder team `pacto init` wrote. `confidence=contractual`
-means the answer comes from the declared ranges alone: Pacto has not also seen
-the call happen at runtime. `direct` means each consumer declares `my-service` itself rather than reaching it through another service.
+means the answer comes from the declared ranges alone, without a runtime
+observation of the call. `direct` means each consumer declares `my-service` itself.
 
 ---
 
@@ -202,7 +202,7 @@ For a real registry like GHCR, you need `pacto login` with a personal access tok
 
 ---
 
-## What to do next
+## What's next
 
 | Goal | Guide |
 |------|-------|

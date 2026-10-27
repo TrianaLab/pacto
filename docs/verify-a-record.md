@@ -1,7 +1,7 @@
 # Verify a record
 
 This page is for an auditor or security reviewer who must check what Pacto
-did, with standard tools instead of Pacto itself. It shows how to read a
+did, using standard tools only. It shows how to read a
 record, check its signature, check the whole history and check that a
 released version was signed. Without access to the cluster you still take
 three things from the team that runs Pacto: the public key records are
@@ -56,9 +56,9 @@ Every field sits under `.predicate`:
 | `guarded` | Read this first. `true` when the cluster's admission checks confirmed who asked and who approved. Without it, those names are only what the writer claimed |
 | `chain.seq`, `chain.parent` | The record's number in its Stage's history and the id of the record before it (see "Check the whole history") |
 
-Records are off unless your platform team turned on the recorder, and they
-need a registry that supports referrers (zot does; GitHub's registry does
-not).
+Records exist only when your platform team turns on the recorder. They need
+a registry that supports referrers, such as zot. GitHub's registry does not
+support them.
 
 ## Where records live
 
@@ -121,7 +121,7 @@ this Stage's anchor among its signed subjects, so a record moved from another
 Stage fails. cosign prints `Verified OK` when the signature holds and exits non-zero when
 it does not. `--insecure-ignore-tlog` is expected: the recorder never writes to a public
 log, because records name your services. The signature alone proves the
-record was not changed.
+record is unchanged.
 
 ## Check the whole history
 
@@ -133,8 +133,8 @@ statement, the decoded payload:
 jq -r .dsseEnvelope.payload record.json | base64 -d | shasum -a 256   # the id, without "sha256:"
 ```
 
-The id is not the digest `oras discover` lists for the entry: that one names
-the stored file, the id names what was signed. Compare ids with ids.
+`oras discover` lists a different digest for the entry. That digest names
+the stored file, and the id names what was signed. Compare ids with ids.
 
 Fetch and check every record on the anchor as above, then check three
 things:
@@ -162,8 +162,8 @@ missing change may still have happened: no answer means "unknown", never
 
 ## Check who ran an exam
 
-An eval check (an AI agent's eval suite, for example) is run by an eval
-runner, not by Pacto. The runner signs its own answer: which version it ran,
+An eval runner runs each eval check, such as an AI agent's eval suite. The
+runner signs its own answer: which version it ran,
 the sha256 of the suite, how many cases passed and where the run can be read
 again. The record keeps that signed answer in the verdict's
 `citation.runnerBundle`, inside the recorder's signature. So you can check
@@ -191,8 +191,8 @@ signed against the record:
   `minPassRate` in the record's `.predicate.policy` (a model the runner named can only
   make it worse)
 
-An eval verdict that says Pass or Fail but keeps no `runnerBundle` was not
-signed by any runner: do not trust it. With cluster access,
+An eval verdict that says Pass or Fail with no `runnerBundle` has no runner
+signature. Do not trust it. With cluster access,
 `pacto delivery record verify --trust keys.yaml` does all of this when that
 file lists the runner's key with `role: runner` beside the recorder's, and prints who ran each exam. It
 finds the eval verdicts from the record's Stage policy and citations. To
