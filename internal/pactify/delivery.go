@@ -85,7 +85,7 @@ func (p *planner) delivery() {
 		"Pacto proposes advise: raise it with pacto delivery propose --type delivery.pacto.trianalab.io/autonomy --stage <stage> --to advise, "+
 		"and have a second person approve it", name, applyRefLabel, name)
 	p.next("every promote to %s waits for a person to approve it (approval.always in delivery/%s.yaml); "+
-		"once a health check judges each version there (gates.verify.checks, see Delivery reference: health checks), delete approval, so it promotes on its own at a rung above advise", last, last)
+		"once a health check judges each version there (gates.verify.checks, see Delivery reference: health checks), delete approval, so it promotes on its own at a level above advise", last, last)
 	p.next("create the namespaces %s, then apply each environment: kubectl apply -f delivery/%s.yaml", envs, strings.Join(p.envs, ".yaml -f delivery/"))
 	if !p.contractNew && !p.shipsPactoResource() {
 		p.next(`ship delivery/pacto.yaml with every version: add to the manifests build: sed "s/@PACTO_VERSION@/$PACTO_VERSION/" delivery/pacto.yaml > "$PACTO_OUT"/pacto-resource.yaml`)
@@ -297,7 +297,7 @@ spec:
   targetNamespace: %s
   # Flux applies each version as this account, never as itself: a version
   # can then change only what the deployer Role above allows, in this
-  # namespace. An auto rung judges the contract, not the manifests.
+  # namespace. An auto level judges the contract, not the manifests.
   serviceAccountName: %s-deployer
   # Ready only once what it applied is rolled out, so the Stage judges the new pods.
   wait: true
@@ -320,9 +320,9 @@ spec:
     kind: %s
     name: %s
   candidates:
-%s  # The Stage plans every change and moves nothing. Every rung above this is
+%s  # The Stage plans every change and moves nothing. Every level above this is
   # a delivery.pacto.trianalab.io/autonomy operation a second person approves.
-  startRung: observe
+  startLevel: observe
   gates:
     verify:
       window: 5m

@@ -50,7 +50,7 @@ describe('maxNodes (the node budget the reader can raise)', () => {
   });
   it('parses a raised budget and clamps one above the backend ceiling', () => {
     expect(graphStateFromParams({ kind: 'service', sel: 'x', maxNodes: '150' }).maxNodes).toBe(150);
-    // Offering a rung the backend then silently clamps is a UI that lies about
+    // Offering a level the backend then silently clamps is a UI that lies about
     // what it just fetched, so the clamp happens here too.
     expect(graphStateFromParams({ kind: 'service', sel: 'x', maxNodes: '99999' }).maxNodes).toBe(MAX_NODES);
   });
@@ -59,14 +59,14 @@ describe('maxNodes (the node budget the reader can raise)', () => {
       expect(graphStateFromParams({ kind: 'service', sel: 'x', maxNodes }).maxNodes).toBe(DEFAULT_MAX_NODES);
     }
   });
-  it('climbs the rungs once each and then stops at the ceiling', () => {
+  it('climbs the levels once each and then stops at the ceiling', () => {
     expect(nextMaxNodes(DEFAULT_MAX_NODES)).toBe(100);
     expect(nextMaxNodes(150)).toBe(MAX_NODES);
     expect(nextMaxNodes(MAX_NODES)).toBeNull();
-    // A budget between rungs still climbs to the next one above it.
+    // A budget between levels still climbs to the next one above it.
     expect(nextMaxNodes(41)).toBe(100);
   });
-  it('keeps the rungs ascending, so "show more" always shows more', () => {
+  it('keeps the levels ascending, so "show more" always shows more', () => {
     expect([...MAX_NODES_STEPS].sort((a, b) => a - b)).toEqual([...MAX_NODES_STEPS]);
     expect(MAX_NODES_STEPS[0]).toBe(DEFAULT_MAX_NODES);
   });

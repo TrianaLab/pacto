@@ -354,7 +354,7 @@ func succeeded(s *StageStatus, name string, spec OperationSpec, st OperationStat
 	}
 	switch {
 	case spec.Type == TypeAutonomy:
-		changeRung(s, spec)
+		changeLevel(s, spec)
 	case spec.Type == TypeUnfreeze:
 		s.Frozen, s.FrozenReason, s.AutoHold = false, "", false
 	case spec.Type == TypeAcknowledge:
@@ -382,19 +382,19 @@ func failed(s *StageStatus, uid string, spec OperationSpec, st OperationStatus, 
 	return c
 }
 
-// changeRung moves the Stage to the rung an autonomy operation names. Leaving
+// changeLevel moves the Stage to the level an autonomy operation names. Leaving
 // observe adopts what GitOps' source reports as the pointer: Pacto must know
 // what runs before it owns the pointer, and a promote from an empty pointer
 // would compare the new version with itself.
-func changeRung(s *StageStatus, spec OperationSpec) {
-	if Rung(spec.Params.From) == RungObserve && s.ObservedRevision != nil {
+func changeLevel(s *StageStatus, spec OperationSpec) {
+	if Level(spec.Params.From) == LevelObserve && s.ObservedRevision != nil {
 		s.Pointer = s.ObservedRevision.Digest
 	}
-	// Evidence is earned on a rung: a change restarts the count. Concluded
-	// restarts at this operation's entry (ProposeRung); the shadow
+	// Evidence is earned on a level: a change restarts the count. Concluded
+	// restarts at this operation's entry (ProposeLevel); the shadow
 	// window restarts when the Stage observes again.
-	s.Rung, s.Proposal = Rung(spec.Params.To), nil
-	if s.Rung == RungObserve {
+	s.Level, s.Proposal = Level(spec.Params.To), nil
+	if s.Level == LevelObserve {
 		// GitOps owns the pointer again, so the old one is cleared: kept, it
 		// would read as an edit outside Pacto once the applyRef is labelled
 		// to leave observe (witness).
@@ -402,18 +402,18 @@ func changeRung(s *StageStatus, spec OperationSpec) {
 	}
 }
 
-// RungRefusal says why an autonomy operation may not move the Stage now, or
-// "": the rung moved since it was planned, or it leaves observe with no
+// LevelRefusal says why an autonomy operation may not move the Stage now, or
+// "": the level moved since it was planned, or it leaves observe with no
 // observed digest to adopt or while an operation holds the pointer. The promoter checks it in the compare-and-swap
 // that concludes the operation.
-func RungRefusal(spec OperationSpec, stage StageSpec, st StageStatus) string {
-	switch cur := CurrentRung(stage, st); {
-	case Rung(spec.Params.From) != cur:
-		return "RungMoved: from is " + spec.Params.From + " but the Stage is on " + string(cur)
-	case cur == RungObserve &&
+func LevelRefusal(spec OperationSpec, stage StageSpec, st StageStatus) string {
+	switch cur := CurrentLevel(stage, st); {
+	case Level(spec.Params.From) != cur:
+		return "LevelMoved: from is " + spec.Params.From + " but the Stage is on " + string(cur)
+	case cur == LevelObserve &&
 		(st.ObservedRevision == nil || !isDigest(st.ObservedRevision.Digest)):
 		return "NoObservedDigest: GitOps' source reports no digest, so there is no pointer to adopt"
-	case cur == RungObserve && st.Locks[FacetPointer] != "":
+	case cur == LevelObserve && st.Locks[FacetPointer] != "":
 		return "PointerBusy: operation " + st.Locks[FacetPointer] + " holds the pointer, so it cannot be adopted now"
 	}
 	return ""

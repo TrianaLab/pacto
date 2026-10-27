@@ -54,7 +54,7 @@ const FLEET_VIEWS: Command[] = [
 const DELIVERY_VIEWS: Command[] = [
   { kind: 'view', label: 'Delivery inbox', href: deliveryInboxUrl(), keywords: ['delivery', 'held', 'waiting'] },
   { kind: 'view', label: 'Delivery environments', href: deliveryEnvironmentsUrl(), keywords: ['delivery', 'promote'] },
-  { kind: 'view', label: 'Delivery autonomy', href: deliveryAutonomyUrl(), keywords: ['delivery', 'rung'] },
+  { kind: 'view', label: 'Delivery autonomy', href: deliveryAutonomyUrl(), keywords: ['delivery', 'level'] },
   { kind: 'view', label: 'Delivery history', href: deliveryHistoryUrl(), keywords: ['delivery', 'records', 'audit'] },
   { kind: 'view', label: 'Delivery published', href: deliveryPublishUrl(), keywords: ['delivery', 'versions'] },
 ];

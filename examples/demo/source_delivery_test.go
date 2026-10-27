@@ -309,8 +309,8 @@ func TestReplayClimbsTheLadder(t *testing.T) {
 	d, h := demoServer(t)
 	fraud, _ := d.Stage(t.Context(), story.Test, "fraud")
 	sh := fraud.Status.Shadow
-	if fraud.Status.Rung != delivery.RungObserve || fraud.Status.Pointer != "" || len(sh) != 1 || sh[0].Predicted != delivery.PredictProceeds ||
-		sh[0].Verification != delivery.Verified || fraud.Status.Proposal == nil || fraud.Status.Proposal.Rung != delivery.RungAdvise {
+	if fraud.Status.Level != delivery.LevelObserve || fraud.Status.Pointer != "" || len(sh) != 1 || sh[0].Predicted != delivery.PredictProceeds ||
+		sh[0].Verification != delivery.Verified || fraud.Status.Proposal == nil || fraud.Status.Proposal.Level != delivery.LevelAdvise {
 		t.Fatalf("fraud observes: %+v", fraud.Status)
 	}
 	body := `{"namespace":"test","stage":"fraud","type":"` + delivery.TypeAutonomy + `","from":"observe","to":"advise"}`
@@ -321,7 +321,7 @@ func TestReplayClimbsTheLadder(t *testing.T) {
 
 	prod, _ := d.Stage(t.Context(), story.Prod, "payments")
 	down := d.op(story.Prod, "payments-autonomy-4")
-	if prod.Status.Rung != delivery.RungAutoNonBreaking || down == nil || down.Status.Outcome != delivery.Succeeded ||
+	if prod.Status.Level != delivery.LevelAutoNonBreaking || down == nil || down.Status.Outcome != delivery.Succeeded ||
 		down.Spec.Cause == nil || down.Spec.Cause.Operation != d.op(story.Prod, "payments-promote-2").Metadata.UID {
 		t.Fatalf("payments prod steps down after B2: %+v %+v", prod.Status, down)
 	}

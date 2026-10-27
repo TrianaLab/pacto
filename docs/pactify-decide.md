@@ -33,12 +33,12 @@ Pacto holds a change and asks a person in these cases:
   might call it. That check says Unknown.
 - **The Stage is set to ask for every promote.** This is `approval.always`,
   which [pactify](pactify.md) turns on. A person approves every promote,
-  whatever the rung.
+  whatever the level.
 - **The Stage is on advise.** A person approves every promote that a person
   did not ask for; see [the autonomy ladder](autonomy.md).
 - **The change is not known to be non-breaking and the Stage is on auto for
   non-breaking.** It is breaking, possibly breaking or could not be
-  classified. Every consumer's contract accepts it, but this rung ships only
+  classified. Every consumer's contract accepts it, but this level ships only
   non-breaking changes on its own, so a person approves it.
 - **The Stage requires records and the recorder cannot write them now.** A
   person approves the promote or rollback without a record yet.

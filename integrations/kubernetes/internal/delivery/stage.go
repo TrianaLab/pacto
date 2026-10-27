@@ -152,13 +152,13 @@ func (r *StageReconciler) Reconcile(ctx context.Context, req reconcile.Request) 
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 	r.observe(stage)
-	if stage.Status.Rung == "" {
-		// The one rung write not done through an operation. A Stage whose
-		// status was lost seeds back to its startRung, which an admin chose
+	if stage.Status.Level == "" {
+		// The one level write not done through an operation. A Stage whose
+		// status was lost seeds back to its startLevel, which an admin chose
 		// when creating it.
 		return reconcile.Result{RequeueAfter: immediately}, r.updateStatus(ctx, stage, func(s *dv1.Stage) {
-			if s.Status.Rung == "" {
-				s.Status.Rung = delivery.CurrentRung(s.Spec, s.Status)
+			if s.Status.Level == "" {
+				s.Status.Level = delivery.CurrentLevel(s.Spec, s.Status)
 			}
 		})
 	}
@@ -240,7 +240,7 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 	case err != nil:
 		return err
 	}
-	if delivery.CurrentRung(stage.Spec, stage.Status) == delivery.RungObserve && !labelled(a.obj) {
+	if delivery.CurrentLevel(stage.Spec, stage.Status) == delivery.LevelObserve && !labelled(a.obj) {
 		return nil // observing an unguarded applyRef: GitOps moves it
 	}
 	if _, err := delivery.ParseDigest(a.digest); err != nil || a.digest == stage.Status.Pointer {
@@ -258,10 +258,10 @@ func (r *StageReconciler) witness(ctx context.Context, stage *dv1.Stage) error {
 }
 
 // autoPromote raises a promote of the newest eligible candidate on an
-// automatic rung, unless the Stage is frozen, on auto-hold or already has an
+// automatic level, unless the Stage is frozen, on auto-hold or already has an
 // operation in flight.
 func (r *StageReconciler) autoPromote(ctx context.Context, stage *dv1.Stage) error {
-	if !delivery.CurrentRung(stage.Spec, stage.Status).Automatic() || stage.Status.Frozen || stage.Status.AutoHold {
+	if !delivery.CurrentLevel(stage.Spec, stage.Status).Automatic() || stage.Status.Frozen || stage.Status.AutoHold {
 		return nil
 	}
 	ops, err := stageOps(ctx, r.Client, stage.Namespace, stage.Name)
@@ -312,7 +312,7 @@ func (r *StageReconciler) ready(ctx context.Context, stage *dv1.Stage) (*applyRe
 		}
 		conds = append(conds, med)
 	}
-	observing := delivery.CurrentRung(stage.Spec, stage.Status) == delivery.RungObserve
+	observing := delivery.CurrentLevel(stage.Spec, stage.Status) == delivery.LevelObserve
 	unlabelled := blocked != nil && blocked.Reason == reasonApplierUnlabelled
 	if blocked != nil && (!observing || !unlabelled) {
 		want = *blocked
@@ -706,7 +706,7 @@ func (r *StageReconciler) recheckFailed(ctx context.Context, stage *dv1.Stage, s
 			st.Status.RolledBack = delivery.AddDigest(st.Status.RolledBack, cause, delivery.MaxRolledBack)
 		}
 		if stepSquat != "" {
-			// The rung stays where the failure happened: a person decides.
+			// The level stays where the failure happened: a person decides.
 			st.Status.Frozen, st.Status.FrozenReason = true, shipped.Name+": failed after release: "+why+", and "+stepSquat
 		}
 	}); err != nil || !wrote || !rollback {

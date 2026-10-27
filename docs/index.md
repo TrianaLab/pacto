@@ -24,9 +24,9 @@ rules behind it.
 
 Pacto starts by watching. It earns the right to ship on its own one step at a
 time, and a person confirms every step: that is
-[the autonomy ladder](autonomy.md). Its four steps, called rungs, are observe
+[the autonomy ladder](autonomy.md). Its four steps, called levels, are observe
 (watch only), advise (a person asks for or approves every change), auto for non-breaking
-and autonomous. The rung is set per Stage, meaning one service in one
+and autonomous. The level is set per Stage, meaning one service in one
 environment, such as payments in prod. It asks only the teams a change affects,
 and when it cannot see enough it says Unknown and waits for a person.
 
@@ -129,7 +129,7 @@ versions, is alpha: its settings and commands may still change. It needs:
 - Kubernetes 1.30 or later, with Flux (Argo CD works too, as an experimental
   option).
 - Your container registry, to hold contracts and versions.
-- For signed records, and so for the two automatic rungs, a registry that
+- For signed records, and so for the two automatic levels, a registry that
   serves the OCI Referrers API: the feature that lets a registry list the
   files attached to an image, here the signed records. zot, an open source
   registry, does. GitHub's registry does not today, so with it a Stage can

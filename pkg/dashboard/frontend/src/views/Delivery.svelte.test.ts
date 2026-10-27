@@ -324,7 +324,7 @@ describe('environments', () => {
   it('narrows to one environment, keeps empty cells quiet and caps what Pacto would have done', async () => {
     const shadow = [{ candidate: D2, predicted: 'Proceeds' }];
     const row = (service: string, environment: string) => ({ namespace: environment, stage: `${service}-${environment}`, service, environment, verified: false, failed: false,
-      frozen: false, autoHold: false, held: 0, actions: [], ready: 'True', rung: 'observe', shadow });
+      frozen: false, autoHold: false, held: 0, actions: [], ready: 'True', level: 'observe', shadow });
     const svcs = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
     fns.environments.mockResolvedValue({ ...listing, environmentNames: ['test', 'prod'], environments: [...svcs.map((x) => row(x, 'test')), row('a', 'prod')] });
     const { target, destroy } = render(DeliveryEnvironmentsView);

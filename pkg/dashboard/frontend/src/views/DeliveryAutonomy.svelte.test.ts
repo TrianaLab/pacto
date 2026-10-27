@@ -1,5 +1,5 @@
 /**
- * The path to autonomy, the would-have table on an observe Stage and the rung
+ * The path to autonomy, the would-have table on an observe Stage and the level
  * on a change. `api` is mocked; the session store is the real one.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
@@ -20,7 +20,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 
 import { ApiError } from '../lib/api.ts';
 import { deliverySession } from '../lib/deliverySession.svelte.ts';
-import { shadowLabel, heldButRan, rungLabel, rungHelp, proposalText, blockerLabel, changeSummary, typeLabel } from '../lib/delivery.ts';
+import { shadowLabel, heldButRan, levelLabel, levelHelp, proposalText, blockerLabel, changeSummary, typeLabel } from '../lib/delivery.ts';
 // @ts-expect-error — Svelte component has no declaration file
 import DeliveryAutonomyView from './DeliveryAutonomyView.svelte';
 // @ts-expect-error — Svelte component has no declaration file
@@ -51,9 +51,9 @@ const page = {
   contracted: { services: 12, uncontractedCallers: 3 },
   promotionsWithoutPerson: { count: 17, of: 20, untyped: 0 },
   stages: [
-    { namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', rung: 'advise',
-      proposal: { rung: 'auto-nonbreaking', evidence: Array.from({ length: 10 }, (_, i) => `u${i}`) } },
-    { namespace: 'test', stage: 'ledger', service: 'ledger', environment: 'test', rung: 'observe',
+    { namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', level: 'advise',
+      proposal: { level: 'auto-nonbreaking', evidence: Array.from({ length: 10 }, (_, i) => `u${i}`) } },
+    { namespace: 'test', stage: 'ledger', service: 'ledger', environment: 'test', level: 'observe',
       proposal: { blockers: [{ kind: 'unlabelled-apply-ref', subject: 'ledger', message: 'label the applyRef' }] },
       lastShadow: { candidate: D2, predicted: 'Held', owners: ['team-checkout'] } },
     { namespace: 'old', stage: 'x', service: 'x', environment: 'old' },
@@ -74,7 +74,7 @@ beforeEach(() => {
 });
 
 describe('path to autonomy', () => {
-  it('shows the share of services seen, promotions without a person, each rung and its proposal', async () => {
+  it('shows the share of services seen, promotions without a person, each level and its proposal', async () => {
     fns.autonomy.mockResolvedValue(page);
     const { target, destroy } = render(DeliveryAutonomyView);
     await settle();
@@ -95,9 +95,9 @@ describe('path to autonomy', () => {
     destroy();
   });
 
-  it('proposes the next rung through a plan, as a delivery.pacto.trianalab.io/autonomy operation', async () => {
+  it('proposes the next level through a plan, as a delivery.pacto.trianalab.io/autonomy operation', async () => {
     fns.autonomy.mockResolvedValue(page);
-    fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'delivery.pacto.trianalab.io/autonomy', predicted: 'Held', question: 'raise the rung?', floor: { owners: ['team-payments'] }, verdicts: [] });
+    fns.plan.mockResolvedValue({ intentDigest: 'sha256:i', type: 'delivery.pacto.trianalab.io/autonomy', predicted: 'Held', question: 'raise the level?', floor: { owners: ['team-payments'] }, verdicts: [] });
     fns.propose.mockResolvedValue({ operation: { metadata: { name: 'raise-1', namespace: 'prod' } } });
     const { target, destroy } = render(DeliveryAutonomyView);
     await settle();
@@ -106,8 +106,8 @@ describe('path to autonomy', () => {
     await settle();
     expect(fns.plan).toHaveBeenCalledWith({ namespace: 'prod', stage: 'pay', type: 'delivery.pacto.trianalab.io/autonomy', from: 'advise', to: 'auto-nonbreaking' });
     const panel = target.querySelector('[data-testid="propose-panel"]')!;
-    expect(text(panel)).toContain('Rung change prod/pay: Auto non-breaking');
-    expect(text(panel.querySelector('button[type="submit"]')!)).toBe('Propose rung change');
+    expect(text(panel)).toContain('Level change prod/pay: Auto non-breaking');
+    expect(text(panel.querySelector('button[type="submit"]')!)).toBe('Propose level change');
     (panel.querySelector('form') as HTMLFormElement).requestSubmit();
     await settle();
     expect(fns.propose).toHaveBeenCalledWith(expect.objectContaining({ type: 'delivery.pacto.trianalab.io/autonomy', to: 'auto-nonbreaking', intentDigest: 'sha256:i' }));
@@ -213,20 +213,20 @@ describe('path to autonomy', () => {
 
 describe('would have versus what happened', () => {
   const row = { namespace: 'test', stage: 'ledger', service: 'ledger', environment: 'test', pointer: D1, version: '1.0.0', verified: true, failed: false,
-    frozen: false, autoHold: false, held: 0, ready: 'True: Observing', actions: [], rung: 'observe',
+    frozen: false, autoHold: false, held: 0, ready: 'True: Observing', actions: [], level: 'observe',
     shadow: [
       { candidate: D2, predicted: 'Held', owners: ['team-checkout', 'team-ledger'], observedAt: '2026-10-25T09:00:00Z', verification: 'Verified' },
       { candidate: 'sha256:' + '3'.repeat(64), predicted: 'Proceeds', observedAt: '2026-10-24T09:00:00Z' },
       { candidate: 'sha256:' + '4'.repeat(64), predicted: 'Held', question: 'nobody owns it: accept?' },
     ] };
 
-  it('shows the rung on every Stage and the advisory would-have table on observe only', async () => {
-    fns.environments.mockResolvedValue({ ...listing, environments: [row, { ...row, environment: 'prod', stage: 'ledger-prod', rung: 'advise', shadow: undefined }] });
+  it('shows the level on every Stage and the advisory would-have table on observe only', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environments: [row, { ...row, environment: 'prod', stage: 'ledger-prod', level: 'advise', shadow: undefined }] });
     const { target, destroy } = render(DeliveryEnvironmentsView);
     await settle();
-    const rungs = [...target.querySelectorAll('[data-testid="rung"]')].map((b) => b.textContent);
+    const levels = [...target.querySelectorAll('[data-testid="level"]')].map((b) => b.textContent);
     // Columns run the way changes travel: test before prod.
-    expect(rungs).toEqual(['Observe', 'Advise']);
+    expect(levels).toEqual(['Observe', 'Advise']);
     const tables = target.querySelectorAll('[data-testid="shadow"]');
     expect(tables.length).toBe(1);
     // One explanation for every observing Stage, not one per Stage.
@@ -246,29 +246,29 @@ describe('would have versus what happened', () => {
   });
 });
 
-describe('the rung on a change', () => {
-  it('names the Stage rung, and rungs, not digests, on an autonomy operation', async () => {
-    const spec = { type: 'delivery.pacto.trianalab.io/autonomy', stage: 'pay', facet: 'rung', actor: { user: 'https://idp#carol' }, params: { from: 'advise', to: 'auto-nonbreaking' } };
+describe('the level on a change', () => {
+  it('names the Stage level, and levels, not digests, on an autonomy operation', async () => {
+    const spec = { type: 'delivery.pacto.trianalab.io/autonomy', stage: 'pay', facet: 'level', actor: { user: 'https://idp#carol' }, params: { from: 'advise', to: 'auto-nonbreaking' } };
     fns.operation.mockResolvedValue({
       explanation: { operation: 'prod/r1', spec, status: { phase: 'Held', actorClass: 'human' }, verdicts: [], stage: { name: 'pay' } },
       operation: { metadata: { name: 'r1', namespace: 'prod' }, spec, status: { phase: 'Held' } },
-      actions: [], rung: 'advise',
+      actions: [], level: 'advise',
     });
     const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'r1' });
     await settle();
-    expect(text(target.querySelector('[data-testid="change-rung"]')!)).toContain('Advise');
-    expect(target.querySelector('.page-hd-sub')?.textContent).toBe('The rung of pay in prod from Advise to Auto non-breaking waits for a person.');
+    expect(text(target.querySelector('[data-testid="change-level"]')!)).toContain('Advise');
+    expect(target.querySelector('.page-hd-sub')?.textContent).toBe('The level of pay in prod from Advise to Auto non-breaking waits for a person.');
     expect(text(target)).not.toContain('version unknown');
     destroy();
   });
 });
 
 describe('ladder words', () => {
-  it('says each rung, prediction and blocker in plain words', () => {
-    expect(rungLabel('autonomous')).toBe('Autonomous');
-    expect(rungLabel('mystery')).toBe('mystery');
-    expect(rungHelp('observe')).toContain('moves nothing');
-    expect(rungHelp(undefined)).toContain('does not report a rung');
+  it('says each level, prediction and blocker in plain words', () => {
+    expect(levelLabel('autonomous')).toBe('Autonomous');
+    expect(levelLabel('mystery')).toBe('mystery');
+    expect(levelHelp('observe')).toContain('moves nothing');
+    expect(levelHelp(undefined)).toContain('does not report a level');
     expect(shadowLabel({ predicted: 'Rejected' })).toBe('refuse');
     expect(shadowLabel({ predicted: 'Waits' })).toBe('wait until a person unfreezes it');
     expect(shadowLabel({ predicted: 'Held' })).toBe('ask: a person decides');
@@ -278,9 +278,9 @@ describe('ladder words', () => {
     expect(blockerLabel('incident')).toBe('A release failed here');
     expect(blockerLabel('new-kind')).toBe('new-kind');
     expect(blockerLabel(undefined)).toBe('Blocker');
-    expect(proposalText('observe', { rung: 'advise', evidence: ['d'] })).toBe('Pacto proposes Advise: 1 version GitOps ran that verified, no incident.');
-    expect(proposalText('advise', { rung: 'auto-nonbreaking' })).toBe('Pacto proposes Auto non-breaking: 0 verified promotions, no incident.');
-    expect(typeLabel('delivery.pacto.trianalab.io/autonomy')).toBe('Rung change');
-    expect(changeSummary({ spec: { type: 'delivery.pacto.trianalab.io/autonomy', stage: 's', params: { to: 'advise' } }, status: { phase: 'Held' } }, 'ns')).toBe('The rung of s in ns to Advise waits for a person.');
+    expect(proposalText('observe', { level: 'advise', evidence: ['d'] })).toBe('Pacto proposes Advise: 1 version GitOps ran that verified, no incident.');
+    expect(proposalText('advise', { level: 'auto-nonbreaking' })).toBe('Pacto proposes Auto non-breaking: 0 verified promotions, no incident.');
+    expect(typeLabel('delivery.pacto.trianalab.io/autonomy')).toBe('Level change');
+    expect(changeSummary({ spec: { type: 'delivery.pacto.trianalab.io/autonomy', stage: 's', params: { to: 'advise' } }, status: { phase: 'Held' } }, 'ns')).toBe('The level of s in ns to Advise waits for a person.');
   });
 });

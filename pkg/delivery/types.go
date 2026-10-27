@@ -36,7 +36,7 @@ const (
 	// GateSuites holds a promote of a version that does not ship a suite
 	// one of the Stage's checks runs.
 	GateSuites = "pacto.suites"
-	// GateAutonomy judges a change of rung.
+	// GateAutonomy judges a change of level.
 	GateAutonomy = "pacto.autonomy"
 )
 
@@ -163,13 +163,13 @@ var tier0 = []OperationType{
 		ExecutionDeadline: defaultExecutionDeadline,
 	},
 	{
-		ID: TypeAutonomy, Version: "1.0.0", Facet: FacetRung,
-		Description:       "Move the Stage one rung up or down the autonomy ladder: observe, advise, auto-nonbreaking, autonomous.",
+		ID: TypeAutonomy, Version: "1.0.0", Facet: FacetLevel,
+		Description:       "Move the Stage one level up or down the autonomy ladder: observe, advise, auto-nonbreaking, autonomous.",
 		Params:            []string{"from", "to"},
 		Raisers:           []ActorClass{ClassHuman, ClassAgent, ClassBreakGlass, ClassController},
 		PreGates:          []string{GateAutonomy},
 		VerifyGates:       []string{},
-		ApprovalFloor:     "raise one rung: a person other than the raiser, from the team of the running service; lower: none. The promoter only steps down one rung from an automatic rung, and an agent never lowers to observe",
+		ApprovalFloor:     "raise one level: a person other than the raiser, from the team of the running service; lower: none. The promoter only steps down one level from an automatic level, and an agent never lowers to observe",
 		Inverse:           TypeAutonomy,
 		Cancellable:       "until it applies",
 		ApprovalDeadline:  defaultApprovalDeadline,

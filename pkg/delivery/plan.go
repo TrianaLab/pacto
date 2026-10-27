@@ -126,7 +126,7 @@ func PlanFor(ctx context.Context, in PlanInput) Plan {
 			p.Floor = Floor{Human: true, Decision: Approve}
 			p.Question = "This Stage asks a person to approve every promote. Approve " + short(p.To) + "?"
 		}
-		rungPromote(in, &p)
+		levelPromote(in, &p)
 		routeToServiceTeam(in, &p)
 	case TypeAutonomy:
 		autonomyGate(in, &p)
@@ -177,9 +177,9 @@ func refusal(in PlanInput) string {
 		return fmt.Sprintf("NotPermitted: a %s actor may not raise %s", in.Class, in.Spec.Type)
 	case in.Spec.Facet == FacetPointer && in.Spec.Params.From != in.Status.Pointer:
 		return fmt.Sprintf("PointerMoved: from is %q but the Stage runs %q", in.Spec.Params.From, in.Status.Pointer)
-	case in.Spec.Facet == FacetRung && Rung(in.Spec.Params.From) != CurrentRung(in.Stage, in.Status):
-		return fmt.Sprintf("RungMoved: from is %q but the Stage is on %q", in.Spec.Params.From, CurrentRung(in.Stage, in.Status))
-	case in.Spec.Type == TypePromote && CurrentRung(in.Stage, in.Status) == RungObserve:
+	case in.Spec.Facet == FacetLevel && Level(in.Spec.Params.From) != CurrentLevel(in.Stage, in.Status):
+		return fmt.Sprintf("LevelMoved: from is %q but the Stage is on %q", in.Spec.Params.From, CurrentLevel(in.Stage, in.Status))
+	case in.Spec.Type == TypePromote && CurrentLevel(in.Stage, in.Status) == LevelObserve:
 		return "Observing: " + in.Spec.Stage + " observes, so GitOps owns the applyRef; propose " + TypeAutonomy + " to advise first"
 	case in.Spec.Type == TypePromote && slices.Contains(in.Status.FailedDigests, in.Spec.Params.To):
 		return "FailedDigest: " + in.Spec.Params.To + " is one of the last 50 versions that failed on this Stage, which are never promoted again"
@@ -309,7 +309,7 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	ownerGate(in, p)
 }
 
-// ownerGate holds, on every rung and whoever raised it, a promote that
+// ownerGate holds, on every level and whoever raised it, a promote that
 // changes service.owner: every later question about the service, autonomy
 // raises included, goes to its owner, so a change of owner is approved by the
 // team that owns the service now. The diff calls it non-breaking, which on
@@ -337,7 +337,7 @@ func ownerGate(in PlanInput, p *Plan) {
 // suitesGate holds a version whose contract does not ship a suite one of the
 // Stage's checks runs: the check could never pass on it, so a person decides
 // whether it ships unverified rather than the promoter failing or passing it.
-// It also holds, on every rung and whoever raised it, a version that changes
+// It also holds, on every level and whoever raised it, a version that changes
 // the suites it ships (any checks change the diff saw): a version never
 // grades its own exam, so a person reviews the new one.
 func suitesGate(in PlanInput, p *Plan) {

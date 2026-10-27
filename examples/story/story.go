@@ -92,13 +92,13 @@ type Beat struct {
 	Service, Environment string
 	// Type is the operation type; empty means promote.
 	Type string
-	// Rung is the Stage's rung when the beat runs; empty means autonomous,
+	// Level is the Stage's level when the beat runs; empty means autonomous,
 	// which the story's Stages have climbed to. An observe beat plans what
 	// a fully automatic Stage would have done (the shadow plan), so its
 	// Expect is that would-have decision.
-	Rung delivery.Rung
+	Level delivery.Level
 	// Version is the version running on the Stage in an autonomy beat,
-	// whose From and To are rungs.
+	// whose From and To are levels.
 	Version string
 	// Actor raises the operation.
 	Actor Persona
@@ -182,7 +182,7 @@ var Beats = []Beat{
 		ID: "pactify", Moment: 1,
 		Says:    "pacto init writes fraud's contract, its Stage starts by watching, and Pacto notes it would have shipped 1.0.0 to test with nobody involved.",
 		Why:     "A new Stage starts on observe, and nothing depends on fraud yet, so its first version breaks no one.",
-		Service: "fraud", Environment: Test, Actor: PayAgent, To: "1.0.0", Rung: delivery.RungObserve,
+		Service: "fraud", Environment: Test, Actor: PayAgent, To: "1.0.0", Level: delivery.LevelObserve,
 		Expect: Outcome{Predicted: delivery.PredictProceeds},
 	},
 	// advise: Pacto earned the proposal from what fraud's test Stage
@@ -191,7 +191,7 @@ var Beats = []Beat{
 	{
 		ID:      "advise",
 		Says:    "Pacto proposes that fraud move up to advise, and a person of team risk other than the one who asked confirms it.",
-		Why:     "Every raise is one rung, earned by evidence and confirmed by the team that owns the service.",
+		Why:     "Every raise is one level, earned by evidence and confirmed by the team that owns the service.",
 		Service: "fraud", Environment: Test, Type: delivery.TypeAutonomy, Actor: PayAgent, From: "observe", To: "advise", Version: "1.0.0",
 		Expect: Outcome{Predicted: delivery.PredictHeld, Decision: delivery.Approve, Asked: []string{"risk"}},
 	},
@@ -215,13 +215,13 @@ var Beats = []Beat{
 		Expect: Outcome{Predicted: delivery.PredictProceeds, Verify: delivery.Fail},
 	},
 	// step-down: after B2's automatic rollback the promoter lowers payments in
-	// prod one rung. That a confirmed Fail raises it and an Unknown never does
+	// prod one level. That a confirmed Fail raises it and an Unknown never does
 	// is proven by the operator (ladder_test.go); the story proves a lowering
 	// needs nobody.
 	{
 		ID:      "step-down",
 		Says:    "Because a version Pacto shipped on its own failed, payments in prod steps down to auto for non-breaking changes.",
-		Why:     "Lowering a rung needs no approval, and the record names the failure that caused it.",
+		Why:     "Lowering a level needs no approval, and the record names the failure that caused it.",
 		Service: "payments", Environment: Prod, Type: delivery.TypeAutonomy, Actor: Promoter, From: "autonomous", To: "auto-nonbreaking", Version: "2.3.0",
 		Expect: Outcome{Predicted: delivery.PredictProceeds},
 	},
@@ -465,8 +465,8 @@ func (b Beat) PlanInput(ctx context.Context) (delivery.PlanInput, error) {
 			Params: delivery.Params{From: from.Digest, To: to.Digest}, Actor: delivery.Actor{User: b.Actor.User}},
 		Stage: stage(b.Service, b.Environment), From: from, To: to, Class: b.Actor.Class(),
 		// The story's Stages have been raised to autonomous, one approved
-		// rung at a time, so each beat shows what the graph alone decides.
-		Status: delivery.StageStatus{Rung: delivery.RungAutonomous, Pointer: from.Digest, Frozen: b.Frozen},
+		// level at a time, so each beat shows what the graph alone decides.
+		Status: delivery.StageStatus{Level: delivery.LevelAutonomous, Pointer: from.Digest, Frozen: b.Frozen},
 	}
 	switch b.Type {
 	case "":
@@ -493,33 +493,33 @@ func (b Beat) PlanInput(ctx context.Context) (delivery.PlanInput, error) {
 	return in, err
 }
 
-// autonomyInput is the plan input of a rung change: the Stage runs Version,
+// autonomyInput is the plan input of a level change: the Stage runs Version,
 // its applyRef is labelled, the recorder writes its records and, for a raise,
-// Pacto proposes the rung asked for.
+// Pacto proposes the level asked for.
 func (b Beat) autonomyInput() (delivery.PlanInput, error) {
 	run, err := Revision(b.Service, b.Version)
 	if err != nil {
 		return delivery.PlanInput{}, err
 	}
-	from, to := delivery.Rung(b.From), delivery.Rung(b.To)
+	from, to := delivery.Level(b.From), delivery.Level(b.To)
 	in := delivery.PlanInput{
-		Spec: delivery.OperationSpec{Type: delivery.TypeAutonomy, Stage: b.Service, Facet: delivery.FacetRung,
+		Spec: delivery.OperationSpec{Type: delivery.TypeAutonomy, Stage: b.Service, Facet: delivery.FacetLevel,
 			Params: delivery.Params{From: b.From, To: b.To}, Actor: delivery.Actor{User: b.Actor.User}},
 		Stage: stage(b.Service, b.Environment), Class: b.Actor.Class(),
-		Status: delivery.StageStatus{Rung: from, ObservedRevision: &delivery.ObservedRevision{Digest: run.Digest, Since: Now.Format(time.RFC3339)},
+		Status: delivery.StageStatus{Level: from, ObservedRevision: &delivery.ObservedRevision{Digest: run.Digest, Since: Now.Format(time.RFC3339)},
 			Conditions: []delivery.Condition{{Type: delivery.ConditionRecordStoreReady, Status: "True"}}},
 	}
-	if from == delivery.RungObserve {
+	if from == delivery.LevelObserve {
 		in.Status.Conditions = append(in.Status.Conditions, delivery.Condition{Type: "Ready", Status: "True", Reason: delivery.ReasonObservingGuarded})
 	} else {
 		in.Status.Pointer, in.Status.Verified = run.Digest, []string{run.Digest}
 	}
 	if below, _ := from.Below(); to != from && to != below {
 		in.From = run
-		in.Status.Proposal = &delivery.Proposal{Rung: to, Evidence: []string{run.Digest}}
+		in.Status.Proposal = &delivery.Proposal{Level: to, Evidence: []string{run.Digest}}
 		// The status that earned it: the planner checks the proposal against it.
 		for i := range cmp.Or(in.Stage.Autonomy.ProposeAfter, delivery.DefaultProposeAfter) {
-			if from == delivery.RungObserve {
+			if from == delivery.LevelObserve {
 				in.Status.Shadow = append(in.Status.Shadow, delivery.Shadow{Candidate: run.Digest, ObservedAt: Now.Format(time.RFC3339), Verification: delivery.Verified})
 				continue
 			}

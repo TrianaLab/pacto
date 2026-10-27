@@ -94,7 +94,7 @@ async function playTour(page: Page, reload: boolean) {
   // The autonomy ladder and the signed eval: reading steps, and one action.
   await expect(text).toContainText('fraud is new, so it observes', { timeout: T });
   await next.click();
-  await expect(text).toContainText('payments in prod stepped down a rung');
+  await expect(text).toContainText('payments in prod stepped down a level');
   await next.click();
   await expect(text).toContainText("press Propose on fraud's row");
   // Skip presses the button, so let the Autonomy tab load it first.
@@ -206,9 +206,9 @@ test.describe('Browser demo: the delivery story', () => {
     await ready(page, '#/delivery/autonomy');
     const stages = page.getByTestId('autonomy-stages');
     const fraud = stages.locator('[data-stage="test/fraud"]');
-    await expect(fraud.getByTestId('rung')).toHaveText('Observe', { timeout: T });
+    await expect(fraud.getByTestId('level')).toHaveText('Observe', { timeout: T });
     await expect(fraud).toContainText('Pacto would have chosen to ship');
-    await expect(stages.locator('[data-stage="prod/payments"]').getByTestId('rung')).toHaveText('Auto non-breaking');
+    await expect(stages.locator('[data-stage="prod/payments"]').getByTestId('level')).toHaveText('Auto non-breaking');
     await expect(page.getByTestId('autonomy-blockers')).toContainText('runtime callers with no contract');
     await page.getByRole('button', { name: 'Propose Advise for fraud in test' }).click();
     await expect(page.getByTestId('propose-panel')).toContainText('Only risk may answer it.', { timeout: T });

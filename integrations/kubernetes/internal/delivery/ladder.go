@@ -31,7 +31,7 @@ import (
 // downstream when it is also published. A confirmed Fail marks it failed,
 // which the proposal reads as an incident; Unknown writes nothing.
 func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
-	if delivery.CurrentRung(stage.Spec, stage.Status) != delivery.RungObserve {
+	if delivery.CurrentLevel(stage.Spec, stage.Status) != delivery.LevelObserve {
 		return nil
 	}
 	a, err := r.Cluster.applier(ctx, stage.Namespace, stage.Spec.ApplyRef)
@@ -125,12 +125,12 @@ func planned(s delivery.Shadow, spec delivery.OperationSpec) bool {
 }
 
 // wouldHave plans the promote from to on the Stage as a fully automatic
-// Stage running from would: the rung autonomous gives that verdict, and the
+// Stage running from would: the level autonomous gives that verdict, and the
 // pointer set to from keeps it from reading as a pointer that moved.
 func (r *StageReconciler) wouldHave(ctx context.Context, stage *dv1.Stage, spec delivery.OperationSpec, now time.Time) (delivery.Shadow, error) {
 	from, to := spec.Params.From, spec.Params.To
 	synth := stageObject(stage)
-	synth.Status.Rung, synth.Status.Pointer = delivery.RungAutonomous, from
+	synth.Status.Level, synth.Status.Pointer = delivery.LevelAutonomous, from
 	in, err := delivery.AssemblePlanInput(ctx, planSources{r.Cluster}, spec, synth, delivery.ClassController, now)
 	if err != nil {
 		return delivery.Shadow{}, err
@@ -204,12 +204,12 @@ func (r *StageReconciler) shadowVerify(ctx context.Context, stage *dv1.Stage, no
 	return nil
 }
 
-// propose writes the rung Pacto proposes next, or why not, when it changed.
+// propose writes the level Pacto proposes next, or why not, when it changed.
 // The plan of the operation that last moved the pointer is the newest the
 // graph was read for.
 func (r *StageReconciler) propose(ctx context.Context, stage *dv1.Stage) error {
 	var latest *delivery.Plan
-	if uid := stage.Status.LastOp; uid != "" && delivery.CurrentRung(stage.Spec, stage.Status) == delivery.RungAutoNonBreaking {
+	if uid := stage.Status.LastOp; uid != "" && delivery.CurrentLevel(stage.Spec, stage.Status) == delivery.LevelAutoNonBreaking {
 		ops, err := stageOps(ctx, r.Client, stage.Namespace, stage.Name)
 		if err != nil {
 			return err
@@ -218,38 +218,38 @@ func (r *StageReconciler) propose(ctx context.Context, stage *dv1.Stage) error {
 			latest = ops[i].Status.Plan
 		}
 	}
-	if reflect.DeepEqual(delivery.ProposeRung(stage.Spec, stage.Status, latest), stage.Status.Proposal) {
+	if reflect.DeepEqual(delivery.ProposeLevel(stage.Spec, stage.Status, latest), stage.Status.Proposal) {
 		return nil
 	}
 	lastOp := stage.Status.LastOp
 	// The proposal is computed again from the fresh status, so a stale read
-	// never writes a proposal made for an earlier rung. latest belongs to
+	// never writes a proposal made for an earlier level. latest belongs to
 	// lastOp: when the fresh status moved the pointer since, the next
 	// reconcile proposes from that operation's plan.
 	return r.updateStatus(ctx, stage, func(s *dv1.Stage) {
 		if s.Status.LastOp == lastOp {
-			s.Status.Proposal = delivery.ProposeRung(s.Spec, s.Status, latest)
+			s.Status.Proposal = delivery.ProposeLevel(s.Spec, s.Status, latest)
 		}
 	})
 }
 
-// raiseStepDown lowers the Stage one rung after a promote that shipped with
-// no person on an automatic rung (the promoter or an agent raised it and
+// raiseStepDown lowers the Stage one level after a promote that shipped with
+// no person on an automatic level (the promoter or an agent raised it and
 // nobody approved it) failed on a confirmed Fail: an autonomy
 // operation raised by the promoter, which the recorder signs when it is
 // writing, needing no approval, never below advise. Concluding it
-// restarts the evidence count (delivery.ProposeRung). Its name is derived
+// restarts the evidence count (delivery.ProposeLevel). Its name is derived
 // from the failed operation, so raising it twice is a no-op; a second failure
 // steps down again from wherever the first left the Stage, down to advise,
 // where the promoter raises no promote. stage must be a fresh read: a stale
-// rung would raise a step-down the swap refuses. A non-empty squat says
+// level would raise a step-down the swap refuses. A non-empty squat says
 // someone else took that name.
 func raiseStepDown(ctx context.Context, c client.Client, policy delivery.ClassPolicy, failed *dv1.Operation, stage *dv1.Stage, why string, cause *delivery.Verdict) (squat string, _ error) {
 	if failed.Spec.Type != delivery.TypePromote || failed.Status.ActorClass == delivery.ClassHuman || len(failed.Status.Approvals) > 0 ||
 		cause == nil || cause.Result != delivery.Fail {
 		return "", nil
 	}
-	from := delivery.CurrentRung(stage.Spec, stage.Status)
+	from := delivery.CurrentLevel(stage.Spec, stage.Status)
 	to, _ := from.Below()
 	if !from.Automatic() {
 		return "", nil // a person already lowered it: the step-down happened
@@ -259,7 +259,7 @@ func raiseStepDown(ctx context.Context, c client.Client, policy delivery.ClassPo
 	op.Labels = map[string]string{StageLabel: stage.Name}
 	controllerutil.AddFinalizer(op, dv1.RecordFinalizer)
 	op.Spec = delivery.OperationSpec{
-		Type: delivery.TypeAutonomy, Stage: stage.Name, Facet: delivery.FacetRung,
+		Type: delivery.TypeAutonomy, Stage: stage.Name, Facet: delivery.FacetLevel,
 		Params: delivery.Params{From: string(from), To: string(to)},
 		Reason: "automatic step-down: " + failed.Name + ", which shipped with no person on " + string(from) + ", failed (" + why + ")",
 		Actor:  delivery.Actor{User: policy.ControllerUser},

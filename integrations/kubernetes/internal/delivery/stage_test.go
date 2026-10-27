@@ -86,7 +86,7 @@ func TestCandidateShownOnAManualStage(t *testing.T) {
 	up.Name = "up"
 	up.Status.Verified, up.Status.Offered = []string{dB}, []string{dB}
 	s := stageObj(dA)
-	s.Status.Rung = delivery.RungAdvise
+	s.Status.Level = delivery.LevelAdvise
 	s.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "up"}}
 	e := newEnv(t, s, up)
 	if err := e.reconcileStage("payments-prod"); err != nil {
@@ -95,7 +95,7 @@ func TestCandidateShownOnAManualStage(t *testing.T) {
 	if got := e.getStage().Status.Candidate; got != dB || len(e.ops()) != 0 {
 		t.Fatalf("want candidate B and no operation, got %q %d", got, len(e.ops()))
 	}
-	e.setStage(func(st *delivery.StageStatus) { st.Rung = delivery.RungObserve })
+	e.setStage(func(st *delivery.StageStatus) { st.Level = delivery.LevelObserve })
 	if err := e.reconcileStage("payments-prod"); err != nil || len(e.ops()) != 0 {
 		t.Fatalf("observe promotes nothing: %v %d", err, len(e.ops()))
 	}

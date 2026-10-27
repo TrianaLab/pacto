@@ -80,7 +80,7 @@ func deliveryFixture(t *testing.T, user string, groups []string, extra map[strin
 	stage := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "prod", "payments-prod", map[string]any{
 		"spec": map[string]any{"service": map[string]any{"name": "payments"}, "environment": "prod", "applyRef": map[string]any{"name": "payments"},
 			"candidates": map[string]any{"upstreamStage": map[string]any{"name": "payments-test", "namespace": "test"}}},
-		"status": map[string]any{"rung": "autonomous", "pointer": dlA, "verified": []any{dlA}},
+		"status": map[string]any{"level": "autonomous", "pointer": dlA, "verified": []any{dlA}},
 	})
 	// The upstream Stage offers B (it passed pacto.published there and
 	// verified), so B passes the published gate here.
@@ -197,7 +197,7 @@ func TestDeliveryProposeGeneratesNameAndRollback(t *testing.T) {
 	}
 }
 
-func TestDeliveryProposeFreezeAndRung(t *testing.T) {
+func TestDeliveryProposeFreezeAndLevel(t *testing.T) {
 	d, _ := proposeFixture(t)
 	op, _, err := d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeUnfreeze})
 	if err != nil || op.Spec.Facet != delivery.FacetFreeze {
@@ -216,8 +216,8 @@ func TestDeliveryProposeFreezeAndRung(t *testing.T) {
 		t.Fatalf("acknowledge: %+v %+v %v", plan, spec, err)
 	}
 	op, _, err = d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeAutonomy, To: "advise"})
-	if err != nil || op.Spec.Facet != delivery.FacetRung || op.Spec.Params.To != "advise" || op.Spec.Params.From != string(delivery.RungAutonomous) {
-		t.Fatalf("a rung change moves from the rung the Stage is on: %+v %v", op, err)
+	if err != nil || op.Spec.Facet != delivery.FacetLevel || op.Spec.Params.To != "advise" || op.Spec.Params.From != string(delivery.LevelAutonomous) {
+		t.Fatalf("a level change moves from the level the Stage is on: %+v %v", op, err)
 	}
 	op, _, err = d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeAutonomy, From: "advise", To: "observe"})
 	if err != nil || op.Spec.Params != (delivery.Params{From: "advise", To: "observe"}) {

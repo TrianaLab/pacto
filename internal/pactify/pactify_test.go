@@ -123,7 +123,7 @@ func checkFraudDelivery(t *testing.T, r *Result) {
 		t.Fatalf("the Pacto resource does not name the contract and fraud's Service:\n%s", res)
 	}
 	checkStages(t, file(t, r, "delivery/test.yaml").Content, file(t, r, "delivery/prod.yaml").Content)
-	if !hasLine(r.Next, "every promote to prod waits for a person") || !hasLine(r.Next, "so it promotes on its own at a rung above advise") ||
+	if !hasLine(r.Next, "every promote to prod waits for a person") || !hasLine(r.Next, "so it promotes on its own at a level above advise") ||
 		!hasLine(r.Next, "remove spec.ref from that OCIRepository in git (on Argo CD, ignoreDifferences on targetRevision) and label it delivery.pacto.trianalab.io/apply-ref=fraud") ||
 		!hasLine(r.Next, "pacto delivery propose --type delivery.pacto.trianalab.io/autonomy --stage <stage> --to advise") {
 		t.Fatalf("init does not say how prod earns autonomy: %+v", r.Next)
@@ -183,7 +183,7 @@ publish:
 // the applyRef pinned to the tag and unlabelled.
 func checkObserves(t *testing.T, text string) {
 	t.Helper()
-	if strings.Contains(text, "apply-ref:") || strings.Contains(text, "labels:") || !strings.Contains(text, "  ref:\n    tag: 1.0.0\n") || !strings.Contains(text, "  startRung: observe\n") || strings.Contains(text, "auto:") {
+	if strings.Contains(text, "apply-ref:") || strings.Contains(text, "labels:") || !strings.Contains(text, "  ref:\n    tag: 1.0.0\n") || !strings.Contains(text, "  startLevel: observe\n") || strings.Contains(text, "auto:") {
 		t.Fatalf("not observe by default:\n%s", text)
 	}
 }
@@ -302,9 +302,9 @@ func decodeStage(t *testing.T, text string) (delivery.StageSpec, map[string]bool
 		if doc["kind"] != "Stage" {
 			continue
 		}
-		// ponytail: StageSpec gains StartRung with the ladder; until then the
+		// ponytail: StageSpec gains StartLevel with the ladder; until then the
 		// strict decode skips it and checkStages reads it from the text.
-		delete(doc["spec"].(map[string]any), "startRung")
+		delete(doc["spec"].(map[string]any), "startLevel")
 		raw, _ := json.Marshal(doc["spec"])
 		jd := json.NewDecoder(bytes.NewReader(raw))
 		jd.DisallowUnknownFields()

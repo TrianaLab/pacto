@@ -3,7 +3,7 @@
   import { api } from '../lib/api.ts';
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryHistoryUrl, deliveryEnvironmentsUrl, serviceUrl } from '../lib/router.ts';
-  import { shortDigest, rungLabel, rungHelp, shadowLabel, heldButRan, timeLabel, sentence, andList } from '../lib/delivery.ts';
+  import { shortDigest, levelLabel, levelHelp, shadowLabel, heldButRan, timeLabel, sentence, andList } from '../lib/delivery.ts';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
@@ -101,7 +101,7 @@
   const cell = (svc, env) => cells.get(`${svc}\u0000${env}`) ?? [];
   const href = (off, lim) => deliveryEnvironmentsUrl({ q, environment, tier, offset: off, limit: limitParam(lim, limit, data?.page?.limit ?? lim) });
   const serviceTotal = $derived(data?.page?.total ?? services.length);
-  const observing = $derived(rows.filter((r) => r.rung === 'observe' && r.shadow?.length && shown.includes(r.environment)));
+  const observing = $derived(rows.filter((r) => r.level === 'observe' && r.shadow?.length && shown.includes(r.environment)));
   const observingCap = cap(5);
   const VERIFICATION = { Verified: 'Verified', Unverified: 'Not verified', AcceptedUnknown: 'A person accepted the unknown' };
 
@@ -126,7 +126,7 @@
         <span class="ev-head">
           <a class="ev-version" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })}
             title={r.pointer || 'nothing deployed yet'}>{r.version || shortDigest(r.pointer) || 'Nothing yet'}</a>
-          {#if r.rung}<span class="t-meta ev-rung" data-testid="rung" title={rungHelp(r.rung)}>{rungLabel(r.rung)}</span>{/if}
+          {#if r.level}<span class="t-meta ev-level" data-testid="level" title={levelHelp(r.level)}>{levelLabel(r.level)}</span>{/if}
         </span>
         <span class="ev-badges">
           {#if r.verified}<span class="badge badge-ok">Verified</span>{/if}
@@ -413,7 +413,7 @@
   .ev-head { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--sp-2); }
   .ev-head .ev-version { overflow-wrap: anywhere; }
   .ev-tools > :global(form) { flex: 1 1 24rem; }
-  .ev-rung { white-space: nowrap; }
+  .ev-level { white-space: nowrap; }
   .ev-attention td:first-child { box-shadow: inset 3px 0 0 var(--c-warn); }
   .state-box { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); padding: var(--sp-8) var(--sp-4); text-align: center; color: var(--c-text-3); }
   .state-box h2 { color: var(--c-text-2); }

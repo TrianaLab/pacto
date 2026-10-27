@@ -14,7 +14,7 @@
 #   - on advise a person's verified promote earns auto-nonbreaking, which a
 #     person confirms again;
 #   - on autonomous, a version the promoter shipped that fails its verify is
-#     rolled back and steps the Stage down one rung, through a signed autonomy
+#     rolled back and steps the Stage down one level, through a signed autonomy
 #     operation the promoter raised with no approval;
 #   - `pacto init --cluster` drafts a valid contract for a caller nobody
 #     described and skips the workload a Pacto already describes.
@@ -41,7 +41,7 @@ phase_ladder() {
   observed_is() { [ "$(st '.status.observedRevision.digest // ""')" = "$1" ]; }
   seen_at() { stage | jq -e --arg d "$1" '.status.shadow // [] | map(select(.candidate == $d and (.observedAt // "") != "")) | length == 1' >/dev/null; }
   verified() { stage | jq -e --arg d "$1" '.status.verified // [] | index($d)' >/dev/null; }
-  proposes() { [ "$(st '.status.proposal.rung // ""')" = "$1" ]; }
+  proposes() { [ "$(st '.status.proposal.level // ""')" = "$1" ]; }
   ready_reason() { [ "$(st '.status.conditions[] | select(.type == "Ready") | .reason')" = "$1" ]; }
   no_ops() { [ "$(ops "$L" | jq '.items | length')" = 0 ]; }
   no_promote_of() { [ -z "$(op_to "$L" "$1")" ]; }
@@ -71,7 +71,7 @@ spec:
   targetNamespace: $L
   healthChecks: [{apiVersion: apps/v1, kind: Deployment, name: wallet, namespace: $L}]
 ---
-# No startRung: a Stage starts on observe.
+# No startLevel: a Stage starts on observe.
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Stage
 metadata: {name: wallet}
@@ -86,7 +86,7 @@ YAML
 
   section "observe: Pacto reads what GitOps applied and verifies it, and moves nothing"
   eventually 60 observed_is "$W1" || fail "the Stage never observed W1: $(st .status)"
-  [ "$(st .status.rung)" = observe ] || fail "a Stage with no startRung is on $(st .status.rung)"
+  [ "$(st .status.level)" = observe ] || fail "a Stage with no startLevel is on $(st .status.level)"
   eventually 20 ready_reason Observing || fail "an observing Stage over an unlabelled applyRef is not Ready/Observing: $(st .status.conditions)"
   eventually 30 seen_at "$W1" || fail "no shadow entry for W1 with observedAt: $(st .status.shadow)"
   eventually 60 verified "$W1" || fail "the shadow verify never verified W1: $(st .status)"
@@ -126,9 +126,9 @@ YAML
   always 3 held "$L" "$up" || fail "alice confirmed her own raise"
   decide "$L" "$up" carol "$T" approve "the shadow verified what GitOps shipped"
   wait_concluded "$L" "$up" Succeeded/Unverified
-  [ "$(st .status.rung)" = advise ] && [ "$(st .status.pointer)" = "$W2" ] || fail "advise did not adopt W2: $(st .status)"
+  [ "$(st .status.level)" = advise ] && [ "$(st .status.pointer)" = "$W2" ] || fail "advise did not adopt W2: $(st .status)"
   [ "$(field "$L" "$up" pointer.after)" = "$W2" ] || fail "the operation does not show the adopted pointer"
-  ladder_record "$L" "$up" | jq -e --arg d "$W2" '.predicate.outcome.rung == {from: "observe", to: "advise"} and
+  ladder_record "$L" "$up" | jq -e --arg d "$W2" '.predicate.outcome.level == {from: "observe", to: "advise"} and
     .predicate.outcome.pointer.after == $d and (.predicate.approvals | map(select(.by == "carol")) | length) == 1' >/dev/null \
     || fail "the record of $up does not show observe -> advise, the adopted W2 and carol"
   pass "unlabelled: refused; labelled: alice proposed advise, carol confirmed, the Stage adopted W2 and cosign verifies the record"
@@ -140,15 +140,15 @@ YAML
   as_person alice "$T" propose -n "$L" --stage wallet --to "$W3" --name wallet-w3 --reason "phase 7" >/dev/null
   wait_concluded "$L" wallet-w3 Succeeded/Verified
   eventually 30 proposes auto-nonbreaking || fail "Pacto never proposed auto-nonbreaking: $(st .status.proposal)"
-  up="$(move_rung "$L" wallet "$T" auto-nonbreaking)"
+  up="$(move_level "$L" wallet "$T" auto-nonbreaking)"
   kubectl -n "$L" get operation "$up" -o json | jq -e '.status.plan.floor.decision == "approve" and
     (.status.verdicts[] | select(.gate == "pacto.autonomy") | .result == "Pass")' >/dev/null \
     || fail "the raise to auto-nonbreaking was not one Pacto proposed: $(kubectl -n "$L" get operation "$up" -o jsonpath='{.status.plan}')"
   pass "W3 verified on advise; Pacto proposed auto-nonbreaking and carol confirmed it"
 
-  section "on autonomous a failed automatic promote steps the Stage down one rung, signed and with no approval"
+  section "on autonomous a failed automatic promote steps the Stage down one level, signed and with no approval"
   # Pacto has not seen a breaking change cleared yet, so carol accepts the unknown.
-  up="$(move_rung "$L" wallet "$T" autonomous)"
+  up="$(move_level "$L" wallet "$T" autonomous)"
   [ "$(field "$L" "$up" plan.floor.decision)" = accept-unknown ] || fail "an unearned raise did not ask to accept the unknown"
   W4="$(publish W4 "$W200" wallet)"; candidate W4 wallet
   local OP4 SD
@@ -159,18 +159,18 @@ YAML
   wait_concluded "$L" "$SD" Succeeded/Unverified
   kubectl -n "$L" get operation "$SD" -o json | jq -e '.spec.params == {from: "autonomous", to: "auto-nonbreaking"} and
     .status.actorClass == "controller" and (.status.approvals // [] | length) == 0' >/dev/null \
-    || fail "the step-down is not the promoter's one-rung lowering with no approval: $(kubectl -n "$L" get operation "$SD" -o json | jq -c '{spec: .spec.params, status: {actorClass: .status.actorClass, approvals: .status.approvals}}')"
-  [ "$(st .status.rung)" = auto-nonbreaking ] || fail "the Stage is on $(st .status.rung) after the failure"
+    || fail "the step-down is not the promoter's one-level lowering with no approval: $(kubectl -n "$L" get operation "$SD" -o json | jq -c '{spec: .spec.params, status: {actorClass: .status.actorClass, approvals: .status.approvals}}')"
+  [ "$(st .status.level)" = auto-nonbreaking ] || fail "the Stage is on $(st .status.level) after the failure"
   wait_concluded "$L" "$OP4-rollback" Succeeded/Verified
   [ "$(st .status.pointer)" = "$W3" ] || fail "W4 was not rolled back to W3"
-  ladder_record "$L" "$SD" | jq -e '.predicate.outcome.rung == {from: "autonomous", to: "auto-nonbreaking"} and
+  ladder_record "$L" "$SD" | jq -e '.predicate.outcome.level == {from: "autonomous", to: "auto-nonbreaking"} and
     .predicate.actor.class == "controller" and (.predicate.approvals // [] | length) == 0' >/dev/null \
     || fail "the record of $SD does not show the promoter's step-down"
   st '.status.proposal.blockers[].kind' | grep -qx needs-verified || fail "the step-down did not restart the count: $(st .status.proposal)"
   pass "W4 failed its verify: rolled back to W3, and the promoter stepped wallet down to auto-nonbreaking in a signed record nobody approved"
 
   section "pacto init --cluster drafts a valid contract for the caller nobody described"
-  # till calls wallet and has no Pacto: the first rung of a team that never wrote one.
+  # till calls wallet and has no Pacto: the first level of a team that never wrote one.
   kubectl -n "$L" apply -f - >/dev/null <<YAML
 apiVersion: apps/v1
 kind: Deployment

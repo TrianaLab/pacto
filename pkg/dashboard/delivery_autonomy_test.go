@@ -32,13 +32,13 @@ func ladder(t *testing.T, wire string) stageLadder {
 }
 
 func TestLadderReadsTheWireNames(t *testing.T) {
-	lad := ladder(t, `{"rung":"advise","proposal":{"rung":"auto-nonbreaking","evidence":["sha256:a"]},
+	lad := ladder(t, `{"level":"advise","proposal":{"level":"auto-nonbreaking","evidence":["sha256:a"]},
 		"shadow":[{"candidate":"sha256:c","predicted":"Held","owners":["team-checkout"],"observedAt":"2026-10-25T10:00:00Z"}],
 		"stream":{"concluded":[{"uid":"u","type":"delivery.pacto.trianalab.io/promote","person":true,"outcome":"Succeeded"}]}}`)
-	expect(t, lad.Rung == "advise" && lad.Proposal.Rung == "auto-nonbreaking" && lad.Shadow[0].Owners[0] == "team-checkout" &&
+	expect(t, lad.Level == "advise" && lad.Proposal.Level == "auto-nonbreaking" && lad.Shadow[0].Owners[0] == "team-checkout" &&
 		lad.Stream.Concluded[0].Person && lad.Stream.Concluded[0].Outcome == "Succeeded", "ladder %+v", lad)
 	// Today's typed status carries none of it, and a snapshot no caller.
-	expect(t, ladderOf(stage("prod", "p", "p", delivery.StageStatus{Pointer: dRun})).Rung == "", "no rung from today's status")
+	expect(t, ladderOf(stage("prod", "p", "p", delivery.StageStatus{Pointer: dRun})).Level == "", "no level from today's status")
 	expect(t, uncontractedOf(&fleet.FleetSnapshot{}) == nil, "no uncontracted caller from today's snapshot")
 	got := uncontractedOf(&fleet.FleetSnapshot{UncontractedCallers: []fleet.UncontractedCaller{{Caller: "k8s:prod/Deployment/orders", ToService: "payments"}}})
 	expect(t, len(got) == 1 && got[0] == uncontractedCaller{Caller: "k8s:prod/Deployment/orders", ToService: "payments"}, "the snapshot's uncontracted caller")
@@ -47,8 +47,8 @@ func TestLadderReadsTheWireNames(t *testing.T) {
 // ladderFrom copies the typed status field by field; it must read what the
 // wire names say, so it answers what a JSON round trip of the status would.
 func TestLadderFromMatchesTheWire(t *testing.T) {
-	st := stage("prod", "p", "p", delivery.StageStatus{Rung: "advise",
-		Proposal: &delivery.Proposal{Rung: "auto-nonbreaking", Evidence: []string{"sha256:a"},
+	st := stage("prod", "p", "p", delivery.StageStatus{Level: "advise",
+		Proposal: &delivery.Proposal{Level: "auto-nonbreaking", Evidence: []string{"sha256:a"},
 			Blockers: []delivery.Blocker{{Kind: "incident", Subject: "payments", Message: "open"}}},
 		Shadow: []delivery.Shadow{{Candidate: "sha256:c", From: "sha256:b", Predicted: delivery.PredictProceeds, Decision: delivery.Approve,
 			Owners: []string{"team-a"}, Question: "q", IntentDigest: "sha256:i", PlannedAt: "t1", ObservedAt: "t2", Verification: "Verified"}},
@@ -67,11 +67,11 @@ func TestAutonomy(t *testing.T) {
 		return `{"type":"delivery.pacto.trianalab.io/promote","person":` + p + `,"outcome":"` + outcome + `"}`
 	}
 	withLadder(t, map[string]stageLadder{
-		"payments": ladder(t, `{"rung":"observe","proposal":{"blockers":[
+		"payments": ladder(t, `{"level":"observe","proposal":{"blockers":[
 			{"kind":"unlabelled-apply-ref","subject":"payments","message":"label the applyRef"},
 			{"kind":"undeclared-range","subject":"checkout","message":"checkout declares no range"}]},
 			"shadow":[{"candidate":"sha256:new","predicted":"Held"},{"candidate":"sha256:old","predicted":"Proceeds"}]}`),
-		"ledger": ladder(t, `{"rung":"advise","proposal":{"rung":"auto-nonbreaking","evidence":["u1"],"blockers":[
+		"ledger": ladder(t, `{"level":"advise","proposal":{"level":"auto-nonbreaking","evidence":["u1"],"blockers":[
 			{"kind":"undeclared-range","subject":"checkout","message":"checkout declares no range"},
 			{"kind":"missing-contract","subject":"k8s:pay/Deployment/legacy"}]},
 			"stream":{"concluded":[`+promote(false, "Succeeded")+`,`+promote(true, "Succeeded")+`,`+promote(false, "Failed")+
@@ -87,10 +87,10 @@ func TestAutonomy(t *testing.T) {
 	expect(t, p["count"] == float64(1) && p["of"] == float64(2), "only succeeded promotes, no person: %v", p)
 	stages := out["stages"].([]any)
 	led, pay := stages[0].(map[string]any), stages[2].(map[string]any)
-	expect(t, len(stages) == 3 && led["rung"] == "advise" && led["proposal"].(map[string]any)["rung"] == "auto-nonbreaking", "ledger %v", led)
-	expect(t, pay["rung"] == "observe" && pay["lastShadow"].(map[string]any)["candidate"] == "sha256:new", "payments %v", pay)
-	_, hasRung := stages[1].(map[string]any)["rung"]
-	expect(t, !hasRung, "a Stage that reports no rung says none: %v", stages[1])
+	expect(t, len(stages) == 3 && led["level"] == "advise" && led["proposal"].(map[string]any)["level"] == "auto-nonbreaking", "ledger %v", led)
+	expect(t, pay["level"] == "observe" && pay["lastShadow"].(map[string]any)["candidate"] == "sha256:new", "payments %v", pay)
+	_, hasLevel := stages[1].(map[string]any)["level"]
+	expect(t, !hasLevel, "a Stage that reports no level says none: %v", stages[1])
 	var got []string
 	for _, b := range out["blockers"].([]any) {
 		m := b.(map[string]any)
@@ -112,19 +112,19 @@ func TestAutonomy(t *testing.T) {
 	_, hasFix := bl[3].(map[string]any)["fix"]
 	expect(t, !hasFix, "a blocker with no fix to copy carries none: %v", bl[3])
 
-	// Environments show the rung, and the would-have table on observe only.
+	// Environments show the level, and the would-have table on observe only.
 	_, envs := call(t, http.MethodGet, base+"/api/delivery/environments", nil)
 	rows := envs["environments"].([]any)
-	expect(t, rows[2].(map[string]any)["rung"] == "observe" && len(rows[2].(map[string]any)["shadow"].([]any)) == 2, "observe row %v", rows[2])
+	expect(t, rows[2].(map[string]any)["level"] == "observe" && len(rows[2].(map[string]any)["shadow"].([]any)) == 2, "observe row %v", rows[2])
 	_, ledShadow := rows[0].(map[string]any)["shadow"]
-	expect(t, rows[0].(map[string]any)["rung"] == "advise" && !ledShadow, "advise row %v", rows[0])
-	// The change view names the Stage's rung, and nothing when the Stage cannot be read.
+	expect(t, rows[0].(map[string]any)["level"] == "advise" && !ledShadow, "advise row %v", rows[0])
+	// The change view names the Stage's level, and nothing when the Stage cannot be read.
 	_, op := call(t, http.MethodGet, base+"/api/delivery/operations/prod/for-checkout", nil)
-	expect(t, op["rung"] == "observe", "change rung %v", op["rung"])
+	expect(t, op["level"] == "observe", "change level %v", op["level"])
 	f.stageErr = errors.New("forbidden")
 	_, op = call(t, http.MethodGet, base+"/api/delivery/operations/prod/for-checkout", nil)
-	_, has := op["rung"]
-	expect(t, !has, "no rung from an unreadable Stage: %v", op)
+	_, has := op["level"]
+	expect(t, !has, "no level from an unreadable Stage: %v", op)
 }
 
 func TestAutonomyPartialAndRefused(t *testing.T) {

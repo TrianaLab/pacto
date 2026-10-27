@@ -177,7 +177,7 @@ type monitorList struct {
 
 // monitors lists the monitor kind in the namespace, at most once per Collect. A list error (CRD not
 // installed, or the additive metrics-observation RBAC not granted) yields none: monitor discovery is the
-// first rung of a fallback ladder, so an unreadable monitor falls through to the next rung, never Failed.
+// first level of a fallback ladder, so an unreadable monitor falls through to the next level, never Failed.
 func (o *Observer) monitors(ctx context.Context, kind, namespace string) []unstructured.Unstructured {
 	key := kind + "/" + namespace
 	if o.run != nil {

@@ -12,7 +12,7 @@ const TYPE_LABELS: Record<string, string> = {
   'delivery.pacto.trianalab.io/override': 'Override',
   'delivery.pacto.trianalab.io/unfreeze': 'Unfreeze',
   'delivery.pacto.trianalab.io/freeze': 'Freeze',
-  'delivery.pacto.trianalab.io/autonomy': 'Rung change',
+  'delivery.pacto.trianalab.io/autonomy': 'Level change',
   'delivery.pacto.trianalab.io/acknowledge': 'Acknowledge upstream',
 };
 
@@ -323,10 +323,10 @@ export interface ChangeFacts {
 export function changeSummary(e: ChangeFacts | null | undefined, namespace: string, versions?: Record<string, string> | null): string {
   if (!e) return '';
   const p = e.spec?.params ?? {};
-  const v = (d: string | undefined) => (!d ? '' : e.spec?.type === AUTONOMY_TYPE ? rungLabel(d) : versionLabel(d, versions));
+  const v = (d: string | undefined) => (!d ? '' : e.spec?.type === AUTONOMY_TYPE ? levelLabel(d) : versionLabel(d, versions));
   const move = p.from && p.to ? ` from ${v(p.from)} to ${v(p.to)}` : p.to ? ` to ${v(p.to)}` : '';
-  // typeLabel is a verb for every type but a rung change, which reads as a noun.
-  const lead = e.spec?.type === AUTONOMY_TYPE ? 'The rung of' : typeLabel(e.spec?.type);
+  // typeLabel is a verb for every type but a level change, which reads as a noun.
+  const lead = e.spec?.type === AUTONOMY_TYPE ? 'The level of' : typeLabel(e.spec?.type);
   const what = `${lead} ${e.spec?.stage ?? ''} in ${namespace}${move}`;
   const st = e.status ?? {};
   if (st.phase === 'Concluded') {
@@ -450,24 +450,24 @@ export function andList(names: string[], max = Infinity, word = 'and'): string {
 
 // ── The autonomy ladder ─────────────────────────────────────────────────────
 
-/** The operation type that moves a Stage's rung, one rung at a time. */
+/** The operation type that moves a Stage's level, one level at a time. */
 export const AUTONOMY_TYPE = 'delivery.pacto.trianalab.io/autonomy';
 
-const RUNGS: Record<string, { label: string; help: string }> = {
+const LEVELS: Record<string, { label: string; help: string }> = {
   observe: { label: 'Observe', help: 'Pacto plans every change and moves nothing. GitOps applies what git says.' },
   advise: { label: 'Advise', help: 'Pacto shows each candidate and its plan. A person proposes or approves every promote.' },
   'auto-nonbreaking': { label: 'Auto non-breaking', help: 'Pacto promotes non-breaking changes on its own. A person approves every other change.' },
   autonomous: { label: 'Autonomous', help: 'Pacto promotes any change the contract graph clears. Unknown still waits for a person.' },
 };
 
-/** rungLabel names a rung in plain words; an empty rung is one the Stage does not report. */
-export function rungLabel(rung: string | undefined): string {
-  return RUNGS[rung ?? '']?.label ?? (rung || 'Not reported');
+/** levelLabel names a level in plain words; an empty level is one the Stage does not report. */
+export function levelLabel(level: string | undefined): string {
+  return LEVELS[level ?? '']?.label ?? (level || 'Not reported');
 }
 
-/** rungHelp says what Pacto does on a rung, in a sentence. */
-export function rungHelp(rung: string | undefined): string {
-  return RUNGS[rung ?? '']?.help ?? 'This Stage does not report a rung. An operator older than the autonomy ladder writes none.';
+/** levelHelp says what Pacto does on a level, in a sentence. */
+export function levelHelp(level: string | undefined): string {
+  return LEVELS[level ?? '']?.help ?? 'This Stage does not report a level. An operator older than the autonomy ladder writes none.';
 }
 
 /** The fields of a would-have decision shadowLabel reads. */
@@ -509,7 +509,7 @@ const BLOCKERS: Record<string, string> = {
   'partial-graph': 'The contract graph is partial',
 };
 
-/** blockerLabel names what keeps a Stage from the next rung. */
+/** blockerLabel names what keeps a Stage from the next level. */
 export function blockerLabel(kind: string | undefined): string {
   return BLOCKERS[kind ?? ''] ?? (kind || 'Blocker');
 }
@@ -518,9 +518,9 @@ export function blockerLabel(kind: string | undefined): string {
  * proposalText says what Pacto proposes for a Stage and what earned it, or
  * that it proposes nothing yet.
  */
-export function proposalText(rung: string | undefined, proposal: { rung?: string; evidence?: string[] | null } | null | undefined): string {
-  if (!proposal?.rung) return 'Nothing to propose yet.';
+export function proposalText(level: string | undefined, proposal: { level?: string; evidence?: string[] | null } | null | undefined): string {
+  if (!proposal?.level) return 'Nothing to propose yet.';
   const n = proposal.evidence?.length ?? 0;
-  const what = rung === 'observe' ? `version${n === 1 ? '' : 's'} GitOps ran that verified` : `verified promotion${n === 1 ? '' : 's'}`;
-  return `Pacto proposes ${rungLabel(proposal.rung)}: ${n} ${what}, no incident.`;
+  const what = level === 'observe' ? `version${n === 1 ? '' : 's'} GitOps ran that verified` : `verified promotion${n === 1 ? '' : 's'}`;
+  return `Pacto proposes ${levelLabel(proposal.level)}: ${n} ${what}, no incident.`;
 }

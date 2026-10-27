@@ -422,7 +422,7 @@ func TestLockWaitsAndPointerMovedAtLock(t *testing.T) {
 // Stage steps down. No second rollback is raised.
 func TestAgentRollbackPreemptingItsOwnPromoteFailsIt(t *testing.T) {
 	e := baseEnv(t, opObj("p1", delivery.TypePromote, dA, dB, bot))
-	e.setStage(func(s *delivery.StageStatus) { s.Rung = delivery.RungAutonomous })
+	e.setStage(func(s *delivery.StageStatus) { s.Level = delivery.LevelAutonomous })
 	e.drive("p1")
 	e.apply(dB)
 	e.drive("p1") // verifying
@@ -442,7 +442,7 @@ func TestAgentRollbackPreemptingItsOwnPromoteFailsIt(t *testing.T) {
 	if s := e.getStage(); !slices.Contains(s.Status.FailedDigests, dB) || s.Status.Locks[delivery.FacetPointer] != "uid-undo" {
 		t.Fatalf("the preempted version must count as failed: %+v", s.Status)
 	}
-	if sd := e.getOp("p1-stepdown"); sd.Spec.Params.From != string(delivery.RungAutonomous) {
+	if sd := e.getOp("p1-stepdown"); sd.Spec.Params.From != string(delivery.LevelAutonomous) {
 		t.Fatalf("the step-down: %+v", sd.Spec)
 	}
 	for _, o := range e.ops() {

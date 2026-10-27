@@ -123,7 +123,7 @@ spec:
                 enum:
                 - pointer
                 - freeze
-                - rung
+                - level
                 - upstream
                 type: string
               intentDigest:
@@ -143,7 +143,7 @@ spec:
               params:
                 description: |-
                   Params are the operation parameters. On the pointer facet From and To are
-                  OCI manifest digests; on the rung facet they are rung names.
+                  OCI manifest digests; on the level facet they are level names.
                 properties:
                   from:
                     type: string
@@ -520,7 +520,7 @@ spec:
                     type: object
                   autonomy:
                     description: AutonomyPolicy tunes when Pacto proposes the next
-                      rung.
+                      level.
                     properties:
                       proposeAfter:
                         default: 10
@@ -711,13 +711,13 @@ spec:
                     required:
                     - name
                     type: object
-                  startRung:
+                  startLevel:
                     default: observe
                     description: |-
-                      StartRung is where a new Stage begins. It is read once, when
-                      status.rung is empty; after that only an autonomy operation moves the
-                      rung. Creating a Stage is an admin action, so any rung is accepted, and
-                      a Stage whose status is lost seeds back to this rung. Only observe and
+                      StartLevel is where a new Stage begins. It is read once, when
+                      status.level is empty; after that only an autonomy operation moves the
+                      level. Creating a Stage is an admin action, so any level is accepted, and
+                      a Stage whose status is lost seeds back to this level. Only observe and
                       advise keep Pacto from shipping without a person.
                     enum:
                     - observe
@@ -726,8 +726,8 @@ spec:
                     - autonomous
                     type: string
                     x-kubernetes-validations:
-                    - message: startRung is fixed at creation; propose delivery.pacto.trianalab.io/autonomy
-                        to change the rung
+                    - message: startLevel is fixed at creation; propose delivery.pacto.trianalab.io/autonomy
+                        to change the level
                       rule: self == oldSelf
                   workload:
                     description: |-

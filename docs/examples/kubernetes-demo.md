@@ -14,8 +14,8 @@ recorder (which signs a record of every step), a health check, the node
 agent (which sees calls between services), sign-in and the dashboard. The
 services themselves, their traffic and the people signing in are made up
 (see [What is generated](#what-is-generated)). Its Stages start on fixed
-rungs of the autonomy ladder: test on autonomous, prod on advise and fraud on
-observe. It does not play a Stage earning a proposal to move up a rung:
+levels of the autonomy ladder: test on autonomous, prod on advise and fraud on
+observe. It does not play a Stage earning a proposal to move up a level:
 the [browser demo](dashboard-demo.md) does, with nothing to install.
 
 ## Run it

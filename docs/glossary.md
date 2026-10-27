@@ -60,16 +60,16 @@ a different label, it is in the last column.
 
 | Word | Meaning |
 |---|---|
-| Rung | How much a Stage lets Pacto do on its own: observe, advise, auto for non-breaking or autonomous |
+| Autonomy level | How much a Stage lets Pacto do on its own: observe, advise, auto for non-breaking or autonomous |
 | observe | Pacto plans every change and moves nothing |
 | advise | A person asks for or approves every change |
 | auto for non-breaking | Pacto ships changes that break no one on its own (`auto-nonbreaking`) |
 | autonomous | Pacto ships every change the contracts clear on its own |
 | Cold start | A new Stage begins on observe and earns more freedom from there |
 | Would have | On observe, what Pacto would have done with a change. Advice, not a record |
-| Proposal | The next rung Pacto suggests, with its evidence or what blocks it |
-| Earned autonomy | Raising a rung after enough good changes, confirmed by a person |
-| Step-down | Dropping one rung after a version Pacto shipped with no person fails |
+| Proposal | The next level Pacto suggests, with its evidence or what blocks it |
+| Earned autonomy | Raising a level after enough good changes, confirmed by a person |
+| Step-down | Dropping one level after a version Pacto shipped with no person fails |
 
 See [the autonomy ladder](autonomy.md).
 

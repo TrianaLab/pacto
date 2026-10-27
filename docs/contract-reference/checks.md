@@ -58,7 +58,7 @@ sees an edit but cannot tell a stricter suite from a weaker one: that is the
 reviewer's call.
 
 In delivery, any suite change (added, removed, moved or edited) holds the
-version for a person on every rung, autonomous included. A version never
+version for a person on every level, autonomous included. A version never
 grades its own exam.
 
 ### Running a suite in delivery

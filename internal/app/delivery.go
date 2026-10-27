@@ -302,7 +302,7 @@ func (p planSources) Upstream(ctx context.Context, stage delivery.StageObject) (
 
 // spec turns a request into the intent the promoter will admit.
 // ponytail: the plan input it feeds is shared with the promoter
-// (delivery.AssemblePlanInput), but this request-to-spec assembly, the rung
+// (delivery.AssemblePlanInput), but this request-to-spec assembly, the level
 // case included, is a client-side copy. Move it into pkg/delivery beside
 // AssemblePlanInput when a second caller needs it.
 func (d *Delivery) spec(ctx context.Context, req delivery.Request, stage *delivery.StageObject, caller Caller) (delivery.OperationSpec, error) {
@@ -330,9 +330,9 @@ func (d *Delivery) spec(ctx context.Context, req delivery.Request, stage *delive
 		spec.Params = delivery.Params{From: stage.Status.Pointer}
 	case typ == delivery.TypeAcknowledge:
 		spec.Params = delivery.Params{Record: req.Record}
-	case t.Facet == delivery.FacetRung:
-		// --to names the rung; from is the rung the Stage is on now.
-		spec.Params = delivery.Params{From: string(delivery.CurrentRung(stage.Spec, stage.Status)), To: req.To}
+	case t.Facet == delivery.FacetLevel:
+		// --to names the level; from is the level the Stage is on now.
+		spec.Params = delivery.Params{From: string(delivery.CurrentLevel(stage.Spec, stage.Status)), To: req.To}
 		if req.From != "" {
 			spec.Params.From = req.From
 		}

@@ -234,8 +234,8 @@ func stageObj(pointer string) *dv1.Stage {
 			ApplyRef: delivery.ApplyRef{Name: "payments"}, Gates: delivery.Gates{Verify: delivery.VerifyGates{Window: "1m"}},
 			Candidates: delivery.Candidates{OCIRepositoryRef: &delivery.LocalRef{Name: "payments-candidates"}}},
 		// Every version the tests ship was published: Flux verified its signature.
-		// The Stage is autonomous: the ladder tests set their own rung.
-		Status: delivery.StageStatus{Rung: delivery.RungAutonomous, Pointer: pointer, Stream: delivery.Stream{ID: "cid/prod/payments-prod"}, Published: []string{dA, dB, dC}}}
+		// The Stage is autonomous: the ladder tests set their own level.
+		Status: delivery.StageStatus{Level: delivery.LevelAutonomous, Pointer: pointer, Stream: delivery.Stream{ID: "cid/prod/payments-prod"}, Published: []string{dA, dB, dC}}}
 	if pointer != "" {
 		s.Status.Verified = []string{pointer}
 	}
@@ -314,7 +314,7 @@ func opObj(name, typ, from, to string, actor string, groups ...string) *dv1.Oper
 	case delivery.TypeUnfreeze, delivery.TypeFreeze:
 		facet = delivery.FacetFreeze
 	case delivery.TypeAutonomy:
-		facet = delivery.FacetRung
+		facet = delivery.FacetLevel
 	case delivery.TypeAcknowledge:
 		facet = delivery.FacetUpstream
 	}

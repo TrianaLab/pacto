@@ -28,16 +28,16 @@ run, and it is useful on its own, without delivery.
 ## Delivery: from watching to shipping on its own
 
 Install the opt-in delivery component and each environment of each service (a
-Stage) climbs a ladder of four rungs:
+Stage) climbs a ladder of four levels:
 
-| Rung | What Pacto does |
+| Level | What Pacto does |
 | --- | --- |
 | observe | Works out what it would do for every change and moves nothing; GitOps keeps control |
 | advise | Shows each new version and its plan; a person asks for or approves every change |
 | auto for non-breaking | Ships on its own the changes whose contract breaks no one |
 | autonomous | Ships every change the contract graph clears on its own |
 
-The automatic rungs judge the contract, not the manifests: a version whose
+The automatic levels judge the contract, not the manifests: a version whose
 contract is unchanged but whose manifests grant it more ships like any other.
 Flux applies those manifests with the rights of the account its Kustomization
 runs as, so give it a namespaced one (`pacto init --delivery` writes a
@@ -47,20 +47,20 @@ trust.
 Delivery is alpha: its settings and commands may still change, and it runs on
 Kubernetes 1.30 or later with Flux (Argo CD is experimental).
 
-A new Stage starts on observe. Pacto proposes the next rung after enough good
+A new Stage starts on observe. Pacto proposes the next level after enough good
 changes, and a person other than the one who asked confirms it (Pacto knows who
 asked only from the request: a person who has an agent ask without
 `--on-behalf-of` can approve their own change). A raise to an
-automatic rung needs the recorder, so it leaves a signed record. A failed
+automatic level needs the recorder, so it leaves a signed record. A failed
 promote is rolled back once, whoever asked for it. The Stage freezes instead
 when there is nothing safe to go back to, the rollback fails or someone chose
 the running version by hand (a rollback, or a promote during auto-hold). A
 failure of a version Pacto shipped with no person also drops the Stage one
-rung, whether it was rolled back or froze.
+level, whether it was rolled back or froze.
 
-### Safety rules on every rung
+### Safety rules on every level
 
-No rung skips the safety rules. A change that would break a consumer waits and
+No level skips the safety rules. A change that would break a consumer waits and
 asks only that consumer's team; one that breaks consumers of several teams waits
 for every one of them. The plan says which service to ship first.
 When Pacto cannot see enough (Unknown), the change waits for a person. A

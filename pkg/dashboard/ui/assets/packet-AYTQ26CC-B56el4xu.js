@@ -1,0 +1,1 @@
+import"./chunk-FOHPRMQF-Crrb2Aik.js";import{S as e}from"./mermaid-parser.core-CaBS2zEd.js";export{e as createPacketServices};

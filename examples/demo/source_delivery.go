@@ -154,7 +154,7 @@ func newStage(service, env string) *delivery.StageObject {
 	// Most simulated Stages have already climbed the autonomy ladder, so the
 	// story's agent promotes plan as they would on a real autonomous Stage.
 	// fraud is new and observes (replay).
-	s.Status.Rung = delivery.RungAutonomous
+	s.Status.Level = delivery.LevelAutonomous
 	if env == story.Test {
 		s.Spec.Candidates.OCIRepositoryRef = &delivery.LocalRef{Name: service + "-candidates"}
 	} else {
@@ -235,7 +235,7 @@ func (d *demoDelivery) replay(start time.Time) error {
 				// pacto init starts a new Stage on observe. On test, fraud's
 				// team labelled the applyRef and asks for a proposal after one
 				// verified version (the default is 10), so the demo can show one.
-				s.Status.Rung = delivery.RungObserve
+				s.Status.Level = delivery.LevelObserve
 				s.Status.Conditions = []delivery.Condition{{Type: "Ready", Status: "True", Reason: delivery.ReasonObserving}}
 				if env == story.Test {
 					s.Status.Conditions[0].Reason = delivery.ReasonObservingGuarded
@@ -309,7 +309,7 @@ func (d *demoDelivery) observe(env, svc, version string) error {
 		from = r.Digest
 	}
 	saved := st.Status
-	st.Status.Rung, st.Status.Pointer = delivery.RungAutonomous, from
+	st.Status.Level, st.Status.Pointer = delivery.LevelAutonomous, from
 	p, _, err := d.plan(delivery.Request{Namespace: env, Stage: svc, To: dg, Reason: "shadow plan while the Stage observes"}, story.Promoter)
 	st.Status = saved
 	if err != nil {
@@ -333,19 +333,19 @@ func (d *demoDelivery) observe(env, svc, version string) error {
 	return nil
 }
 
-// proposal is the rung Pacto proposes next for s, or why not, as the stage
+// proposal is the level Pacto proposes next for s, or why not, as the stage
 // reconciler writes it: on auto-nonbreaking it reads the graph from the plan
 // of the operation that last moved the pointer.
 func (d *demoDelivery) proposal(s *delivery.StageObject) *delivery.Proposal {
 	var latest *delivery.Plan
-	if delivery.CurrentRung(s.Spec, s.Status) == delivery.RungAutoNonBreaking {
+	if delivery.CurrentLevel(s.Spec, s.Status) == delivery.LevelAutoNonBreaking {
 		for _, o := range d.ops {
 			if o.Metadata.UID == s.Status.LastOp {
 				latest = o.Status.Plan
 			}
 		}
 	}
-	return delivery.ProposeRung(s.Spec, s.Status, latest)
+	return delivery.ProposeLevel(s.Spec, s.Status, latest)
 }
 
 // health is the recorded Mira verdict that fails payments 2.4.0 in prod (B2).
@@ -515,8 +515,8 @@ func (d *demoDelivery) spec(req delivery.Request, st *delivery.StageObject, acto
 			return spec, dashboard.Refuse(http.StatusBadRequest, "UnknownVersion", req.To+" is not a version of "+req.Stage+" in this demo")
 		}
 		spec.Params = delivery.Params{From: cmpOr(req.From, st.Status.Pointer), To: req.To}
-	case t.Facet == delivery.FacetRung:
-		spec.Params = delivery.Params{From: cmpOr(req.From, string(delivery.CurrentRung(st.Spec, st.Status))), To: req.To}
+	case t.Facet == delivery.FacetLevel:
+		spec.Params = delivery.Params{From: cmpOr(req.From, string(delivery.CurrentLevel(st.Spec, st.Status))), To: req.To}
 	}
 	spec.IntentDigest = delivery.IntentDigest(spec, st.Spec)
 	return spec, nil
@@ -547,7 +547,7 @@ func (d *demoDelivery) plan(req delivery.Request, actor story.Persona) (delivery
 	switch b.Type {
 	case delivery.TypePromote:
 		b.Type = ""
-	case delivery.TypeAutonomy: // From and To are rungs; Version is what runs
+	case delivery.TypeAutonomy: // From and To are levels; Version is what runs
 		running := st.Status.Pointer
 		if r := st.Status.ObservedRevision; running == "" && r != nil {
 			running = r.Digest
@@ -625,7 +625,7 @@ func (d *demoDelivery) propose(req delivery.Request, actor story.Persona) (*deli
 // version in its verify window, then concludes.
 func (d *demoDelivery) start(o *delivery.OperationObject) {
 	o.Status.Phase, o.Status.Times.Started = delivery.PhaseRunning, stamp(d.clock())
-	if o.Spec.Facet == delivery.FacetRung { // a rung change is the swap itself: nothing to check after it
+	if o.Spec.Facet == delivery.FacetLevel { // a level change is the swap itself: nothing to check after it
 		o.Status.Applied, o.Status.Times.Applied = true, o.Status.Times.Started
 		d.conclude(o, delivery.Succeeded, "")
 		return
@@ -745,13 +745,13 @@ func (d *demoDelivery) autoRollback(failed *delivery.OperationObject, verdicts [
 	d.stepDown(failed, cause)
 }
 
-// stepDown is the promoter lowering the Stage one rung after a promote that
-// shipped with no person on an automatic rung failed a check, as the
+// stepDown is the promoter lowering the Stage one level after a promote that
+// shipped with no person on an automatic level failed a check, as the
 // operator's raiseStepDown does: it needs no approval, cites the failure and
 // never goes below advise.
 func (d *demoDelivery) stepDown(failed *delivery.OperationObject, cause *delivery.Verdict) {
 	st := d.stage(failed.Metadata.Namespace, failed.Spec.Stage)
-	from := delivery.CurrentRung(st.Spec, st.Status)
+	from := delivery.CurrentLevel(st.Spec, st.Status)
 	to, _ := from.Below()
 	if failed.Spec.Type != delivery.TypePromote || failed.Status.ActorClass == delivery.ClassHuman || len(failed.Status.Approvals) > 0 ||
 		cause == nil || !from.Automatic() {
@@ -786,7 +786,7 @@ func (d *demoDelivery) conclude(o *delivery.OperationObject, outcome delivery.Ou
 	delivery.ApplyEffects(&st.Status, o.Metadata.Name, o.Metadata.UID, o.Spec, o.Status,
 		delivery.Conclusion{Outcome: outcome, Verification: verification, Reason: o.Status.Reason})
 	to, from := o.Spec.Params.To, o.Spec.Params.From
-	if o.Spec.Facet == delivery.FacetRung { // leaving observe adopts the pointer; the record shows it
+	if o.Spec.Facet == delivery.FacetLevel { // leaving observe adopts the pointer; the record shows it
 		o.Status.Pointer = delivery.PointerChange{}
 		if st.Status.Pointer != before {
 			o.Status.Pointer = delivery.PointerChange{Before: before, After: st.Status.Pointer}

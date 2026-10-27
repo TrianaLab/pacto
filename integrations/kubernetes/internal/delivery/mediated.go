@@ -91,7 +91,7 @@ func (c Cluster) mediated(ctx context.Context, ns string, a *applyRef) (delivery
 	}
 	if sa, _, _ := unstructured.NestedString(k.Object, "spec", "serviceAccountName"); sa == "" {
 		// A version can then carry a ClusterRoleBinding and have it applied:
-		// an auto rung judges the contract, never the manifests.
+		// an auto level judges the contract, never the manifests.
 		return no("ApplierUnscoped", "Kustomization "+k.GetName()+" sets no serviceAccountName, so Flux applies each version with "+
 			"kustomize-controller's own rights (cluster-admin in a default install) and a version can grant itself anything"), nil
 	}

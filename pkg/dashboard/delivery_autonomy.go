@@ -14,10 +14,10 @@ import (
 //
 // How far each Stage has climbed the autonomy ladder (observe, advise,
 // auto-nonbreaking, autonomous), what Pacto proposes next and what stands in
-// the way. The dashboard only reads: a rung moves through a proposed and
+// the way. The dashboard only reads: a level moves through a proposed and
 // approved operation, and a fix is a command or snippet a person copies.
 
-// AutonomyBlocker is one thing that keeps a Stage from the next rung.
+// AutonomyBlocker is one thing that keeps a Stage from the next level.
 type AutonomyBlocker struct {
 	Kind    string `json:"kind" doc:"missing-contract, undeclared-range, unlabelled-apply-ref, no-observed-digest, no-record-store, needs-verified, needs-cleared-breaking, incident or partial-graph"`
 	Subject string `json:"subject" doc:"The service, consumer or caller it is about"`
@@ -42,9 +42,9 @@ type BlockerFix struct {
 	Snippet string `json:"snippet,omitempty" doc:"YAML to add to a contract"`
 }
 
-// AutonomyProposal is the next rung Pacto proposes for a Stage, or why not.
+// AutonomyProposal is the next level Pacto proposes for a Stage, or why not.
 type AutonomyProposal struct {
-	Rung     string            `json:"rung,omitempty" doc:"Empty: nothing to propose yet"`
+	Level    string            `json:"level,omitempty" doc:"Empty: nothing to propose yet"`
 	Evidence []string          `json:"evidence,omitempty" doc:"The digests or operations that earned it"`
 	Blockers []AutonomyBlocker `json:"blockers,omitempty"`
 }
@@ -67,7 +67,7 @@ type ShadowDecision struct {
 
 // stageLadder is the part of a Stage's status the ladder writes.
 type stageLadder struct {
-	Rung     string            `json:"rung"`
+	Level    string            `json:"level"`
 	Proposal *AutonomyProposal `json:"proposal"`
 	Shadow   []ShadowDecision  `json:"shadow"`
 	Stream   struct {
@@ -104,14 +104,14 @@ var (
 	}
 )
 
-// AutonomyStage is one Stage's rung, its proposal and its newest would-have
+// AutonomyStage is one Stage's level, its proposal and its newest would-have
 // decision.
 type AutonomyStage struct {
 	Namespace   string            `json:"namespace"`
 	Stage       string            `json:"stage"`
 	Service     string            `json:"service"`
 	Environment string            `json:"environment"`
-	Rung        string            `json:"rung,omitempty" doc:"observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one"`
+	Level       string            `json:"level,omitempty" doc:"observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one"`
 	Proposal    *AutonomyProposal `json:"proposal,omitempty"`
 	LastShadow  *ShadowDecision   `json:"lastShadow,omitempty"`
 }
@@ -193,9 +193,9 @@ func (s *Server) deliveryAutonomy(ctx context.Context, in *autonomyInput) (*auto
 
 func ladderFrom(st delivery.StageObject) stageLadder {
 	ss := st.Status
-	lad := stageLadder{Rung: string(ss.Rung)}
+	lad := stageLadder{Level: string(ss.Level)}
 	if p := ss.Proposal; p != nil {
-		lad.Proposal = &AutonomyProposal{Rung: string(p.Rung), Evidence: p.Evidence}
+		lad.Proposal = &AutonomyProposal{Level: string(p.Level), Evidence: p.Evidence}
 		for _, b := range p.Blockers {
 			lad.Proposal.Blockers = append(lad.Proposal.Blockers, AutonomyBlocker{Kind: b.Kind, Subject: b.Subject, Message: b.Message})
 		}
@@ -238,7 +238,7 @@ func autonomy(stages []delivery.StageObject, callers []uncontractedCaller) ([]Au
 	for _, st := range stages {
 		lad := ladderOf(st)
 		row := AutonomyStage{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Service: st.Spec.Service.Name,
-			Environment: st.Spec.Environment, Rung: lad.Rung, Proposal: lad.Proposal}
+			Environment: st.Spec.Environment, Level: lad.Level, Proposal: lad.Proposal}
 		if len(lad.Shadow) > 0 {
 			row.LastShadow = &lad.Shadow[0]
 		}

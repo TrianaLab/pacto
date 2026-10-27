@@ -2,7 +2,7 @@
 
 Pacto does not start by shipping your changes. It starts by watching. It earns
 more freedom one step at a time, and a person says yes to each step. This page
-explains those steps, called rungs, in plain words.
+explains those steps, called levels, in plain words.
 
 ## Words you need first
 
@@ -28,18 +28,18 @@ explains those steps, called rungs, in plain words.
 - An **AI agent**, such as Claude connected to Pacto, can ask for a change
   but can never approve one.
 
-## The four rungs
+## The four levels
 
-Each Stage sits on one rung.
+Each Stage sits on one level.
 
-| Rung | What Pacto does | Who moves a version |
+| Level | What Pacto does | Who moves a version |
 |---|---|---|
 | **observe** | Works out what it would do for every change and moves nothing | Your GitOps tool, as today |
 | **advise** | Shows each new version and what it would do with it | A person asks, or approves what an AI agent asked for |
 | **auto for non-breaking** | Ships changes that are not breaking on its own | Pacto, for non-breaking changes; a person for the rest |
 | **autonomous** | Ships every change the contracts clear on its own | Pacto, unless a consumer would break or a check is Unknown |
 
-Once Pacto moves versions, the safety rules hold on every rung. A change that
+Once Pacto moves versions, the safety rules hold on every level. A change that
 would break a consumer waits for that consumer's team, and one that breaks
 consumers of several teams waits for all of them. So does a rollback a person
 or agent asks for to a version a consumer has moved past. A version that
@@ -49,7 +49,7 @@ picks who approves it. A version that only edits the owner's contacts does not
 wait. When the running contract
 cannot be read, no team is asked, and only break-glass can answer if the
 promoter requires an owner team. A change with an Unknown check waits for the
-team that owns the service. The rung only decides how often a person is asked
+team that owns the service. The level only decides how often a person is asked
 when the contracts say a change is safe.
 
 Consumers declare the versions they accept as ranges, and Pacto checks each
@@ -59,11 +59,11 @@ after 1.8.0) would pass every `^1` range, so it waits for a person. So does a
 version whose contract moved to another registry domain, because consumers
 declared against the old domain would not be counted.
 
-### What the rungs do not judge
+### What the levels do not judge
 
-The rungs judge the contract, never the manifests that ship with it. A version
+The levels judge the contract, never the manifests that ship with it. A version
 with the same contract and new manifests (a new ClusterRoleBinding, say) is
-non-breaking, so an automatic rung ships it with no person. What those
+non-breaking, so an automatic level ships it with no person. What those
 manifests can do is what the account Flux applies them as may do. Give the
 Kustomization a namespaced `serviceAccountName`, as `pacto init --delivery`
 does, and keep the key that signs `pacto publish` as safe as the cluster: it
@@ -88,7 +88,7 @@ the caller so you can give it a contract.
 
 ## Earned autonomy: Pacto proposes, a person decides
 
-Pacto proposes the next rung when the evidence supports it. By default the
+Pacto proposes the next level when the evidence supports it. By default the
 evidence is the last 10 versions on that Stage, and Pacto waits until there
 are 10. For a service that rarely releases, the platform team can lower that
 number, down to 1:
@@ -108,20 +108,20 @@ raise in the dashboard or with `pacto delivery propose`, and a different
 person approves it. Someone can also ask for a raise Pacto has not proposed;
 then the approver must accept that the evidence is missing (accept the
 unknown). The approver must belong to the team that owns the service, as its
-contract says. A rung
-goes up one step at a time. Raising a Stage to either automatic rung also
+contract says. A level
+goes up one step at a time. Raising a Stage to either automatic level also
 needs the recorder, the part of Pacto that signs a record of each decision
 and stores it next to your images. So every grant of autonomy leaves a
 signed record that anyone can check with standard tools, without Pacto.
 
-Lowering a rung needs no approval. A person can do it at any time. An AI
+Lowering a level needs no approval. A person can do it at any time. An AI
 agent can too, but never down to observe: once git no longer sets the version
 (see "Leaving observe" below), a Stage on observe has nothing moving it at
 all, and only a person may stop a service that way.
 
-## Step-down: one failure costs one rung
+## Step-down: one failure costs one level
 
-On every rung where Pacto moves versions, a promote that fails its checks
+On every level where Pacto moves versions, a promote that fails its checks
 after release is rolled back once to the version that ran before, whoever
 asked for it. The Stage freezes instead when there is nothing safe to go back
 to, the rollback itself fails or someone chose the running version by hand (a
@@ -129,14 +129,14 @@ rollback, or a promote during auto-hold). Then nothing moves until a person
 rolls back or unfreezes it.
 
 If the failed version is one Pacto shipped with no person, the Stage also
-drops one rung, whether it was rolled back or froze. Autonomous goes back to auto for
+drops one level, whether it was rolled back or froze. Autonomous goes back to auto for
 non-breaking, and auto for non-breaking goes back to advise. The drop is
 recorded like any other change and needs no approval. The count of good
-versions starts again from zero, so Pacto has to earn the rung back.
+versions starts again from zero, so Pacto has to earn the level back.
 
 A version that shipped with no person and that an AI agent rolls back before
 its checks judge it counts as failed too: it is never promoted on that Stage
-again and the Stage drops a rung, so an agent cannot pull its own failing
+again and the Stage drops a level, so an agent cannot pull its own failing
 change and keep its record clean.
 
 An Unknown never causes a step-down. Unknown means Pacto could not see, not

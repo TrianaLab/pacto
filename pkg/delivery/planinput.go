@@ -36,14 +36,14 @@ func AssemblePlanInput(ctx context.Context, src PlanSources, spec OperationSpec,
 		From: Revision{Digest: spec.Params.From}, To: Revision{Digest: spec.Params.To}}
 	if spec.Type == TypeAutonomy {
 		// A raise asks the team of the contract running now: the pointer,
-		// or what GitOps' source reports while the Stage observes. Rung
+		// or what GitOps' source reports while the Stage observes. Level
 		// names are not digests, so nothing else is read.
 		in.From, in.To = Revision{}, Revision{}
 		running := stage.Status.Pointer
 		if running == "" && stage.Status.ObservedRevision != nil {
 			running = stage.Status.ObservedRevision.Digest
 		}
-		if running != "" && Rung(spec.Params.To).level() > Rung(spec.Params.From).level() {
+		if running != "" && Level(spec.Params.To).rank() > Level(spec.Params.From).rank() {
 			in.From, _ = src.Revisions(ctx, stage, running, running)
 		}
 		return in, nil

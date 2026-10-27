@@ -28,7 +28,7 @@ func observeEnv(t *testing.T) *env {
 	apply := ociRepo("payments", dC, "latest@"+dA, false)
 	apply.SetLabels(nil)
 	s := stageObj("")
-	s.Status.Rung = delivery.RungObserve
+	s.Status.Level = delivery.LevelObserve
 	return newEnv(t, s, apply, verifiedRepo("payments-candidates", "latest@"+dB),
 		kustomization("payments", "payments", "True", "ReconciliationSucceeded", "latest@"+dA, "latest@"+dA),
 		deployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
@@ -63,11 +63,11 @@ func TestShadowPlansWhatGitOpsApplies(t *testing.T) {
 		a == nil || a.From != "" || a.ObservedAt != ts(e.now) || len(st.Shadow) != 2 {
 		t.Fatalf("shadow entries: %+v", st.Shadow)
 	}
-	if st.Proposal == nil || st.Proposal.Rung != "" || st.Proposal.Blockers[2].Kind != delivery.BlockerUnlabelledApplyRef {
+	if st.Proposal == nil || st.Proposal.Level != "" || st.Proposal.Blockers[2].Kind != delivery.BlockerUnlabelledApplyRef {
 		t.Fatalf("proposal: %+v", st.Proposal)
 	}
 	stale := stageObj("")
-	stale.Status.Rung = delivery.RungObserve
+	stale.Status.Level = delivery.LevelObserve
 	stale.ResourceVersion = ""
 	if err := e.st.shadow(context.Background(), stale); err != nil || len(e.getStage().Status.Shadow) != 2 {
 		t.Fatalf("a reconcile of a stale read adds no second entry per candidate: %v %+v", err, e.getStage().Status.Shadow)
@@ -205,7 +205,7 @@ func TestShadowEarnsAdvise(t *testing.T) {
 	if err := e.reconcileStage("payments-prod"); err != nil {
 		t.Fatal(err)
 	}
-	if p := e.getStage().Status.Proposal; p.Rung != "" || len(p.Blockers) != 1 || p.Blockers[0].Kind != delivery.BlockerUnlabelledApplyRef {
+	if p := e.getStage().Status.Proposal; p.Level != "" || len(p.Blockers) != 1 || p.Blockers[0].Kind != delivery.BlockerUnlabelledApplyRef {
 		t.Fatalf("verified, still unlabelled: %+v", p)
 	}
 	u := &unstructured.Unstructured{}
@@ -220,39 +220,39 @@ func TestShadowEarnsAdvise(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := e.getStage().Status
-	if st.Proposal.Rung != delivery.RungAdvise || !slices.Equal(st.Proposal.Evidence, []string{dA}) {
+	if st.Proposal.Level != delivery.LevelAdvise || !slices.Equal(st.Proposal.Evidence, []string{dA}) {
 		t.Fatalf("advise is proposed: %+v", st.Proposal)
 	}
 	e.create(bind(opObj("up", delivery.TypeAutonomy, "observe", "advise", "alice"), e.getStage()))
 	o := e.drive("up")
 	e.approve(o, "other", "bob", delivery.Approve)
-	wantOutcome(t, e.drive("up"), delivery.Succeeded, "RungChanged")
-	if st = e.getStage().Status; st.Rung != delivery.RungAdvise || st.Pointer != dA || st.Proposal != nil {
+	wantOutcome(t, e.drive("up"), delivery.Succeeded, "LevelChanged")
+	if st = e.getStage().Status; st.Level != delivery.LevelAdvise || st.Pointer != dA || st.Proposal != nil {
 		t.Fatalf("raised: %+v", st)
 	}
 	if err := e.reconcileStage("payments-prod"); err != nil {
 		t.Fatal(err)
 	}
-	if p := e.getStage().Status.Proposal; p == nil || p.Rung != "" || !strings.Contains(p.Blockers[0].Message, "0 of 1") {
+	if p := e.getStage().Status.Proposal; p == nil || p.Level != "" || !strings.Contains(p.Blockers[0].Message, "0 of 1") {
 		t.Fatalf("the count restarts on advise: %+v", p)
 	}
 }
 
-// stepDownEnv ships B on a Stage at rung through a promote the promoter
+// stepDownEnv ships B on a Stage at level through a promote the promoter
 // raised, with the health check answering result.
-func stepDownEnv(t *testing.T, rung delivery.Rung, actor string, result delivery.Result) (*env, *dv1.Operation) {
+func stepDownEnv(t *testing.T, level delivery.Level, actor string, result delivery.Result) (*env, *dv1.Operation) {
 	t.Helper()
 	e := healthEnv(t, healthChecks, opObj("p1", delivery.TypePromote, dA, dB, actor))
-	e.setStage(func(st *delivery.StageStatus) { st.Rung = rung })
+	e.setStage(func(st *delivery.StageStatus) { st.Level = level })
 	e.health.result = result
 	return e, e.shipB()
 }
 
 // TestStepDownAfterAConfirmedFailure: an automatic promote that fails on a
-// confirmed Fail lowers the Stage one rung through a promoter-raised
+// confirmed Fail lowers the Stage one level through a promoter-raised
 // autonomy operation that needs no approval and restarts the count.
 func TestStepDownAfterAConfirmedFailure(t *testing.T) {
-	e, o := stepDownEnv(t, delivery.RungAutonomous, promoterSA, delivery.Fail)
+	e, o := stepDownEnv(t, delivery.LevelAutonomous, promoterSA, delivery.Fail)
 	wantOutcome(t, o, delivery.Failed, "VerifyFailed")
 	sd := e.getOp("p1-stepdown")
 	if sd.Spec.Type != delivery.TypeAutonomy || sd.Spec.Params != (delivery.Params{From: "autonomous", To: "auto-nonbreaking"}) ||
@@ -266,16 +266,16 @@ func TestStepDownAfterAConfirmedFailure(t *testing.T) {
 	if squat, err := raiseStepDown(context.Background(), e.c, e.op.Policy, o, e.getStage(), "again", sd.Spec.Cause.Verdict); err != nil || squat != "" {
 		t.Fatal(squat, err)
 	}
-	wantOutcome(t, e.drive("p1-stepdown"), delivery.Succeeded, "RungChanged")
+	wantOutcome(t, e.drive("p1-stepdown"), delivery.Succeeded, "LevelChanged")
 	st := e.getStage().Status
-	if st.Rung != delivery.RungAutoNonBreaking || len(sd.Status.Approvals) != 0 {
+	if st.Level != delivery.LevelAutoNonBreaking || len(sd.Status.Approvals) != 0 {
 		t.Fatalf("stepped down with no approval: %+v", st)
 	}
 	if c := st.Stream.Concluded[len(st.Stream.Concluded)-1]; c.Type != delivery.TypeAutonomy || c.Person {
 		t.Fatalf("the step-down is the newest conclusion, raised by no person: %+v", c)
 	}
 	// The rollback of that same failure concludes after the step-down; it is
-	// why the rung dropped, so the count restarts at zero with no incident.
+	// why the level dropped, so the count restarts at zero with no incident.
 	e.health.result = delivery.Pass
 	e.drive("p1-rollback")
 	e.apply(dA)
@@ -286,20 +286,20 @@ func TestStepDownAfterAConfirmedFailure(t *testing.T) {
 	if c := st.Stream.Concluded[len(st.Stream.Concluded)-1]; c.UID != string(rb.UID) || c.Cause != "uid-p1" {
 		t.Fatalf("the rollback concludes after the step-down, citing p1: %+v %+v", c, rb.Status)
 	}
-	if p := delivery.ProposeRung(e.getStage().Spec, st, nil); slices.ContainsFunc(p.Blockers, func(b delivery.Blocker) bool { return b.Kind == delivery.BlockerIncident }) ||
+	if p := delivery.ProposeLevel(e.getStage().Spec, st, nil); slices.ContainsFunc(p.Blockers, func(b delivery.Blocker) bool { return b.Kind == delivery.BlockerIncident }) ||
 		!strings.Contains(p.Blockers[0].Message, "0 of") {
-		t.Fatalf("no incident blocks re-earning the rung: %+v", p)
+		t.Fatalf("no incident blocks re-earning the level: %+v", p)
 	}
 }
 
 // TestStepDownRepeatedFailures: each confirmed failure of an automatic
-// promote lowers one more rung, down to advise, where the promoter raises
+// promote lowers one more level, down to advise, where the promoter raises
 // no promote and nothing steps down further.
 func TestStepDownRepeatedFailures(t *testing.T) {
-	e, o := stepDownEnv(t, delivery.RungAutoNonBreaking, promoterSA, delivery.Fail)
+	e, o := stepDownEnv(t, delivery.LevelAutoNonBreaking, promoterSA, delivery.Fail)
 	wantOutcome(t, o, delivery.Failed, "VerifyFailed")
-	wantOutcome(t, e.drive("p1-stepdown"), delivery.Succeeded, "RungChanged")
-	if r := e.getStage().Status.Rung; r != delivery.RungAdvise {
+	wantOutcome(t, e.drive("p1-stepdown"), delivery.Succeeded, "LevelChanged")
+	if r := e.getStage().Status.Level; r != delivery.LevelAdvise {
 		t.Fatalf("auto-nonbreaking steps down to advise: %s", r)
 	}
 	n := len(e.ops())
@@ -310,7 +310,7 @@ func TestStepDownRepeatedFailures(t *testing.T) {
 
 // TestNoStepDown: Unknown never steps down.
 func TestNoStepDown(t *testing.T) {
-	e, _ := stepDownEnv(t, delivery.RungAutonomous, promoterSA, delivery.Unknown)
+	e, _ := stepDownEnv(t, delivery.LevelAutonomous, promoterSA, delivery.Unknown)
 	e.now = e.now.Add(2 * time.Minute)
 	o := e.drive("p1")
 	if o.Status.Phase != delivery.PhaseHeld {
@@ -329,7 +329,7 @@ func TestNoStepDown(t *testing.T) {
 // with no person, so its confirmed failure steps the Stage down like the
 // promoter's would.
 func TestStepDownAfterAnAgentPromote(t *testing.T) {
-	e, o := stepDownEnv(t, delivery.RungAutonomous, bot, delivery.Fail)
+	e, o := stepDownEnv(t, delivery.LevelAutonomous, bot, delivery.Fail)
 	wantOutcome(t, o, delivery.Failed, "VerifyFailed")
 	if o.Status.ActorClass != delivery.ClassAgent || len(o.Status.Approvals) != 0 {
 		t.Fatalf("an agent's promote with no approval: %+v", o.Status)
@@ -342,7 +342,7 @@ func TestStepDownAfterAnAgentPromote(t *testing.T) {
 // TestStepDownAfterARecheckFailure: a version the promoter shipped that
 // fails its re-check after release steps the Stage down too.
 func TestStepDownAfterARecheckFailure(t *testing.T) {
-	e, o := stepDownEnv(t, delivery.RungAutonomous, promoterSA, delivery.Pass)
+	e, o := stepDownEnv(t, delivery.LevelAutonomous, promoterSA, delivery.Pass)
 	wantOutcome(t, o, delivery.Succeeded, "Verified")
 	e.health.result = delivery.Fail
 	e.now = e.now.Add(time.Hour)
@@ -350,7 +350,7 @@ func TestStepDownAfterARecheckFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	sd := e.getOp("p1-stepdown")
-	if sd.Spec.Params.To != string(delivery.RungAutoNonBreaking) || !strings.Contains(sd.Spec.Reason, "RecheckFailed") {
+	if sd.Spec.Params.To != string(delivery.LevelAutoNonBreaking) || !strings.Contains(sd.Spec.Reason, "RecheckFailed") {
 		t.Fatalf("step-down after release: %+v", sd.Spec)
 	}
 }
@@ -442,7 +442,7 @@ func TestShadowEdges(t *testing.T) {
 // TestProposeReadsTheNewestPlan: on auto-nonbreaking the proposal reads the
 // graph from the plan of the operation that last moved the pointer.
 func TestProposeReadsTheNewestPlan(t *testing.T) {
-	e, o := stepDownEnv(t, delivery.RungAutoNonBreaking, bot, delivery.Pass)
+	e, o := stepDownEnv(t, delivery.LevelAutoNonBreaking, bot, delivery.Pass)
 	wantOutcome(t, o, delivery.Succeeded, "Verified")
 	if err := e.reconcileStage("payments-prod"); err != nil {
 		t.Fatal(err)
@@ -491,7 +491,7 @@ func TestStepDownRaiseErrors(t *testing.T) {
 		t.Fatalf("a step-down create error is returned before the conclusion: %v", err)
 	}
 
-	r, o := stepDownEnv(t, delivery.RungAutonomous, promoterSA, delivery.Pass)
+	r, o := stepDownEnv(t, delivery.LevelAutonomous, promoterSA, delivery.Pass)
 	wantOutcome(t, o, delivery.Succeeded, "Verified")
 	r.health.result = delivery.Fail
 	r.now = r.now.Add(time.Hour)

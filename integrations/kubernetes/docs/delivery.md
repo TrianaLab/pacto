@@ -39,7 +39,7 @@ flowchart LR
 `pacto publish`, Pacto's release command, and signed, which proves who
 published it. It compares the new contract with the one running and looks at
 every service in that environment that uses this one. If none of them would
-break, the change goes ahead on its own on an automatic rung.
+break, the change goes ahead on its own on an automatic level.
 
 **After Flux applies it**, Pacto checks that the running version does what its
 contract says. You can add health checks too, such as error rates from your
@@ -51,7 +51,7 @@ running version by hand (a rollback, or a promote during auto-hold) or someone
 else already took the name of the rollback Pacto raises. It then waits for a
 person to roll back or unfreeze it, from the dashboard or the command line. A
 failure of a version Pacto shipped with no person also drops the Stage one
-rung, whether it was rolled back or froze.
+level, whether it was rolled back or froze.
 None of a Stage's last 50 failed versions is tried again there.
 
 ## Stages and records
@@ -134,7 +134,7 @@ pass.
 | Auto-hold | Set when a person or agent rolls back a Stage, or promotes it back to a version this Stage already verified: automation stops promoting there until a person unfreezes it or promotes a version it has not verified yet |
 | Break-glass | A group, `pacto:break-glass` by default, that may force a version past every check |
 | Record | The signed account of one finished Operation |
-| Rung | How much a Stage lets Pacto do on its own; see [the autonomy ladder](../../autonomy.md) |
+| Level | How much a Stage lets Pacto do on its own; see [the autonomy ladder](../../autonomy.md) |
 
 Every other word is in the [glossary](../../glossary.md).
 
@@ -167,7 +167,7 @@ None of these is required reading:
   verification
 - [Record keys](delivery-record-keys.md): trust, key rotation and revocation
 - [Argo CD and several clusters](delivery-reach.md) (experimental)
-- [Ladder reference](../../autonomy-reference.md): rungs, proposals and blockers
+- [Ladder reference](../../autonomy-reference.md): levels, proposals and blockers
 - [Publishing details](../../publishing.md) and the contract's
   [`publish` section](../../contract-reference/publish.md)
 

@@ -71,22 +71,22 @@ tests:
           path: 'spec.validations[?(@.message == "only a person or break-glass may acknowledge an upstream stand-in, and only with a reason; agents and the promoter may not")].expression'
           value: "object.spec.type != 'delivery.pacto.trianalab.io/acknowledge' || ((variables.breakGlass || (!variables.agent && request.userInfo.username != 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery')) && has(object.spec.reason) && size(object.spec.reason) > 0)"
 
-  - it: lets the promoter only step down one rung from an automatic rung, and never an agent to observe
+  - it: lets the promoter only step down one level from an automatic level, and never an agent to observe
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     documentSelector:
-      path: 'spec.validations[?(@.message == "the promoter only steps a Stage down one rung from an automatic rung, and an agent never lowers a Stage to observe")].message'
-      value: "the promoter only steps a Stage down one rung from an automatic rung, and an agent never lowers a Stage to observe"
+      path: 'spec.validations[?(@.message == "the promoter only steps a Stage down one level from an automatic level, and an agent never lowers a Stage to observe")].message'
+      value: "the promoter only steps a Stage down one level from an automatic level, and an agent never lowers a Stage to observe"
     asserts:
       - equal:
-          path: 'spec.validations[?(@.message == "the promoter only steps a Stage down one rung from an automatic rung, and an agent never lowers a Stage to observe")].expression'
-          value: "object.spec.type != 'delivery.pacto.trianalab.io/autonomy' || variables.breakGlass || (request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery' ? variables.stepsDown : !(variables.agent && variables.rungTo == 'observe'))"
+          path: 'spec.validations[?(@.message == "the promoter only steps a Stage down one level from an automatic level, and an agent never lowers a Stage to observe")].expression'
+          value: "object.spec.type != 'delivery.pacto.trianalab.io/autonomy' || variables.breakGlass || (request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery' ? variables.stepsDown : !(variables.agent && variables.levelTo == 'observe'))"
       - equal:
           path: 'spec.variables[?(@.name == "stepsDown")].expression'
-          value: "variables.rungFrom in variables.rungs && variables.rungTo in variables.rungs && variables.rungs[variables.rungFrom] >= 2 && variables.rungs[variables.rungFrom] - variables.rungs[variables.rungTo] == 1"
+          value: "variables.levelFrom in variables.levels && variables.levelTo in variables.levels && variables.levels[variables.levelFrom] >= 2 && variables.levels[variables.levelFrom] - variables.levels[variables.levelTo] == 1"
 
-  - it: keeps the rung, proposal, shadow and observed revision out of the recorder's reach
+  - it: keeps the level, proposal, shadow and observed revision out of the recorder's reach
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy

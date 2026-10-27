@@ -385,13 +385,13 @@ pacto delivery plan [flags]
 
 ```
       --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
-      --from string                                                 where the Stage is now: a digest, or a rung for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current rung)
+      --from string                                                 where the Stage is now: a digest, or a level for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current level)
   -h, --help                                                        help for plan
       --on-behalf-of string                                         the person an agent acts for (asserted, not verified)
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
       --stage string                                                the Stage to change (required)
-      --to string                                                   where to move: an artifact digest (sha256:...) for a pointer type, or a rung (observe, advise, auto-nonbreaking or autonomous) for delivery.pacto.trianalab.io/autonomy
+      --to string                                                   where to move: an artifact digest (sha256:...) for a pointer type, or a level (observe, advise, auto-nonbreaking or autonomous) for delivery.pacto.trianalab.io/autonomy
       --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
       --undoes string                                               for a rollback: the name of the operation it undoes
 ```
@@ -408,7 +408,7 @@ pacto delivery propose [flags]
 
 ```
       --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
-      --from string                                                 where the Stage is now: a digest, or a rung for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current rung)
+      --from string                                                 where the Stage is now: a digest, or a level for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current level)
   -h, --help                                                        help for propose
       --intent-digest string                                        the intent digest from your plan; propose refuses if it no longer matches
       --name string                                                 the Operation name (generated when empty)
@@ -416,7 +416,7 @@ pacto delivery propose [flags]
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
       --stage string                                                the Stage to change (required)
-      --to string                                                   where to move: an artifact digest (sha256:...) for a pointer type, or a rung (observe, advise, auto-nonbreaking or autonomous) for delivery.pacto.trianalab.io/autonomy
+      --to string                                                   where to move: an artifact digest (sha256:...) for a pointer type, or a level (observe, advise, auto-nonbreaking or autonomous) for delivery.pacto.trianalab.io/autonomy
       --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
       --undoes string                                               for a rollback: the name of the operation it undoes
 ```

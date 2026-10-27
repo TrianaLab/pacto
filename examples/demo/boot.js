@@ -487,18 +487,18 @@
       hash: "#/delivery/autonomy",
       target: '[data-testid="autonomy-stages"] [data-stage="test/fraud"]'
     }, {
-      text: "payments in prod stepped down a rung by itself when 2.4.0 failed there, so a person now approves every change that is not non-breaking.",
+      text: "payments in prod stepped down a level by itself when 2.4.0 failed there, so a person now approves every change that is not non-breaking.",
       hash: "#/delivery/autonomy",
       target: '[data-testid="autonomy-stages"] [data-stage="prod/payments"]'
     }, {
-      text: "One verified version earned fraud a proposal to move up a rung, so press Propose on fraud's row.",
+      text: "One verified version earned fraud a proposal to move up a level, so press Propose on fraud's row.",
       hash: "#/delivery/autonomy",
       target: RAISE_FRAUD,
       wait: "Waiting for the plan of fraud's raise to open.",
       gate: function () { return planOpen("test/fraud"); },
       skip: function () { clickOn(RAISE_FRAUD); }
     }, {
-      text: "The plan asks team risk, which owns fraud: every raise is one rung, earned by evidence and confirmed by a person on the service's team.",
+      text: "The plan asks team risk, which owns fraud: every raise is one level, earned by evidence and confirmed by a person on the service's team.",
       hash: "#/delivery/autonomy",
       target: '[data-testid="propose-panel"]'
     }, {
@@ -510,7 +510,7 @@
       links: [
         ["#/delivery/publish", "The refused 2.4.3 and the bump it needed"],
         ["#/delivery/history?namespace=test&stage=payments", "The claim check that caught payments calling fraud"],
-        ["#/delivery/autonomy", "What stands in the way of each next rung"]
+        ["#/delivery/autonomy", "What stands in the way of each next level"]
       ],
       href: "../examples/kubernetes-demo/",
       linkText: "The same story on a real cluster"

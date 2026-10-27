@@ -33,7 +33,7 @@ export interface paths {
         };
         /**
          * The path to autonomy
-         * @description How many of the services Pacto has seen have a contract, how many promotions in each Stage's window no person asked for or approved, each Stage's rung with the next rung Pacto proposes and its newest would-have decision, and the blockers with a fix to copy. It only reads: a rung moves through a proposed and approved operation.
+         * @description How many of the services Pacto has seen have a contract, how many promotions in each Stage's window no person asked for or approved, each Stage's level with the next level Pacto proposes and its newest would-have decision, and the blockers with a fix to copy. It only reads: a level moves through a proposed and approved operation.
          */
         get: operations["delivery-autonomy"];
         put?: never;
@@ -853,15 +853,15 @@ export interface components {
             /** @description The digests or operations that earned it */
             evidence?: string[] | null;
             /** @description Empty: nothing to propose yet */
-            rung?: string;
+            level?: string;
         };
         AutonomyStage: {
             environment: string;
             lastShadow?: components["schemas"]["ShadowDecision"];
+            /** @description observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one */
+            level?: string;
             namespace: string;
             proposal?: components["schemas"]["AutonomyProposal"];
-            /** @description observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one */
-            rung?: string;
             service: string;
             stage: string;
         };
@@ -1420,7 +1420,7 @@ export interface components {
             gates?: components["schemas"]["Delivery.Gates"];
             records?: components["schemas"]["Delivery.RecordsPolicy"];
             service: components["schemas"]["Delivery.ServiceRef"];
-            startRung?: string;
+            startLevel?: string;
             workload?: components["schemas"]["Delivery.WorkloadRef"];
         };
         "Delivery.Times": {
@@ -1517,6 +1517,8 @@ export interface components {
              * @description Operations on this Stage waiting for a person
              */
             held: number;
+            /** @description observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one */
+            level?: string;
             namespace: string;
             /** @description The digest the environment runs */
             pointer?: string;
@@ -1524,8 +1526,6 @@ export interface components {
             ready?: string;
             /** @description Why the Stage cannot promote, in words, when Ready is not True */
             readyMessage?: string;
-            /** @description observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one */
-            rung?: string;
             service: string;
             /** @description On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed */
             shadow?: components["schemas"]["ShadowDecision"][] | null;
@@ -2621,13 +2621,13 @@ export interface components {
             /** @description What the caller may ask for: approve, reject, accept-unknown, cancel, rollback */
             actions: string[] | null;
             explanation: components["schemas"]["Delivery.Explanation"];
+            /** @description The Stage's level now: observe, advise, auto-nonbreaking or autonomous */
+            level?: string;
             operation: components["schemas"]["Delivery.OperationObject"];
             /** @description The names of the people named here who signed in to this dashboard, by username */
             people?: {
                 [key: string]: string;
             };
-            /** @description The Stage's rung now: observe, advise, auto-nonbreaking or autonomous */
-            rung?: string;
             /** @description The rollback that undid this change, read from its Stage's history */
             undoneBy?: components["schemas"]["Delivery.HistoryEntry"];
             /** @description The version each digest named here carries, when its artifact could be read */

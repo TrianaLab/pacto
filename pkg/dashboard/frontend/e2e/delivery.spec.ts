@@ -75,16 +75,16 @@ function installDelivery(persona: Persona): void {
     if (route === '/api/delivery/environments') {
       return json(200, { ...listing, environments: [{ namespace: 'prod', stage: 'payments-prod', service: 'payments', environment: 'prod',
         pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: decided() ? 0 : 1, candidate: D2,
-        ready: 'True', actions: ['promote'], rung: 'advise' }, { namespace: 'test', stage: 'payments-test', service: 'payments', environment: 'test',
-        pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: 0, ready: 'True: Observing', actions: [], rung: 'observe',
+        ready: 'True', actions: ['promote'], level: 'advise' }, { namespace: 'test', stage: 'payments-test', service: 'payments', environment: 'test',
+        pointer: D1, version: '1.4.0', verified: true, failed: false, frozen: false, autoHold: false, held: 0, ready: 'True: Observing', actions: [], level: 'observe',
         shadow: [{ candidate: D2, predicted: 'Held', owners: ['team-checkout'], observedAt: '2026-10-21T09:00:00Z', verification: 'Verified' },
           { candidate: D1, predicted: 'Proceeds', observedAt: '2026-10-20T09:00:00Z', verification: 'Verified' }] }] });
     }
     if (route === '/api/delivery/autonomy') {
       return json(200, { ...listing, contracted: { services: 4, uncontractedCallers: 1 }, promotionsWithoutPerson: { count: 3, of: 5, untyped: 0 },
-        stages: [{ namespace: 'prod', stage: 'payments-prod', service: 'payments', environment: 'prod', rung: 'advise',
-          proposal: { rung: 'auto-nonbreaking', evidence: ['u1', 'u2', 'u3'] } },
-        { namespace: 'test', stage: 'payments-test', service: 'payments', environment: 'test', rung: 'observe',
+        stages: [{ namespace: 'prod', stage: 'payments-prod', service: 'payments', environment: 'prod', level: 'advise',
+          proposal: { level: 'auto-nonbreaking', evidence: ['u1', 'u2', 'u3'] } },
+        { namespace: 'test', stage: 'payments-test', service: 'payments', environment: 'test', level: 'observe',
           proposal: { blockers: [{ kind: 'unlabelled-apply-ref', subject: 'payments', message: 'label the applyRef' }] },
           lastShadow: { candidate: D2, predicted: 'Held', owners: ['team-checkout'] } }],
         blockers: [{ kind: 'missing-contract', subject: 'k8s:pay/Deployment/legacy', message: 'k8s:pay/Deployment/legacy calls payments at runtime but has no contract',
@@ -395,7 +395,7 @@ test.describe('Delivery views', () => {
 
 
 test.describe('The path to autonomy', () => {
-  test('shows the rungs, proposes the next one through a plan and offers fixes to copy', async ({ page }) => {
+  test('shows the levels, proposes the next one through a plan and offers fixes to copy', async ({ page }) => {
     await as(page, 'carol');
     await page.goto('/#/delivery/environments');
     await page.getByRole('navigation', { name: 'Delivery' }).getByRole('link', { name: 'Autonomy' }).click();
@@ -408,7 +408,7 @@ test.describe('The path to autonomy', () => {
     await audit(page, 'autonomy');
     await page.getByRole('button', { name: 'Propose Auto non-breaking for payments in prod' }).click();
     const panel = page.getByTestId('propose-panel');
-    await expect(panel).toContainText('Rung change prod/payments-prod: Auto non-breaking', { timeout: T });
+    await expect(panel).toContainText('Level change prod/payments-prod: Auto non-breaking', { timeout: T });
     await expect(panel).toContainText('raise payments-prod to auto-nonbreaking?');
     await audit(page, 'autonomy proposal');
     await page.keyboard.press('Escape');
@@ -422,7 +422,7 @@ test.describe('The path to autonomy', () => {
     await expect(page.getByTestId('shadow-summary')).toContainText('advisory and unsigned', { timeout: T });
     await shadow.locator('summary').click();
     // The board orders environments test before prod (sortEnvironments).
-    await expect(page.getByTestId('rung')).toHaveText(['Observe', 'Advise']);
+    await expect(page.getByTestId('level')).toHaveText(['Observe', 'Advise']);
     await expect(shadow.getByTestId('shadow-row').first()).toContainText('hold for team-checkout');
     await expect(shadow.getByTestId('held-but-ran')).toHaveCount(1);
     await audit(page, 'environments with an observe Stage');

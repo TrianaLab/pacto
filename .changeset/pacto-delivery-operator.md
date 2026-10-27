@@ -65,15 +65,15 @@ never promoted again (the Stage keeps its last 50) and gets one bound rollback;
 a second failure, a version a person chose, nothing safe to go back to, a
 refused automatic rollback, an outcome
 that cannot be established or an edit of the pointer the promoter did not make
-freezes the Stage. A Stage starts on `spec.startRung` (`observe` by default;
-an admin creating a Stage may pick any rung) and only an `autonomy` operation moves `status.rung` after that;
+freezes the Stage. A Stage starts on `spec.startLevel` (`observe` by default;
+an admin creating a Stage may pick any level) and only an `autonomy` operation moves `status.level` after that;
 on `auto-nonbreaking` and `autonomous` the promoter promotes the newest
 eligible candidate itself. It records what an observe Stage would have done in
-`status.shadow` (the newest 20), proposes the next rung in `status.proposal`
+`status.shadow` (the newest 20), proposes the next level in `status.proposal`
 after `spec.autonomy.proposeAfter` verified changes (10 by default) and, after
 an automatic rollback of a version it shipped on its own, lowers the Stage one
-rung through an operation named `<failed operation>-stepdown`. `kubectl get
-stages` shows the rung. `spec.auto` is gone. A breaking change no contract depends on also waits for a person,
+level through an operation named `<failed operation>-stepdown`. `kubectl get
+stages` shows the level. `spec.auto` is gone. A breaking change no contract depends on also waits for a person,
 since a service without a contract may call it, unless the Stage sets
 `gates.impact.declaredConsumersOnly`.
 
@@ -111,7 +111,7 @@ lists it and only then advances the Stage's stream. A record can be late, never
 skipped. It signs with an Ed25519 key, a KMS key or keyless through a projected
 service account token, verifies each stream against its trust config before
 extending it, freezes a Stage whose stream is in conflict and can post a
-CDEvent per record. A record of an autonomy operation carries `outcome.rung`
+CDEvent per record. A record of an autonomy operation carries `outcome.level`
 (`from` and `to`). `RecordStoreReady` says whether records are being written,
 and `pacto_delivery_records_pending` shows the lag. With the recorder on, the
 promoter deletes recorded operations after `delivery.recorder.operationTTL` (a week),

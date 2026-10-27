@@ -78,11 +78,11 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.cause.verdict.phase` | `string` | yes |  | `pre`, `verify` |  |
 | `spec.cause.verdict.result` | `string` | yes |  | `Pass`, `Fail`, `Unknown` | Result is a gate verdict. |
 | `spec.correlationID` | `string` | no |  |  |  |
-| `spec.facet` | `string` | yes |  | `pointer`, `freeze`, `rung`, `upstream` |  |
+| `spec.facet` | `string` | yes |  | `pointer`, `freeze`, `level`, `upstream` |  |
 | `spec.intentDigest` | `string` | no |  |  | IntentDigest is what plan() returned; the promoter recomputes it. |
 | `spec.onBehalfOf` | `object` | no |  |  | Principal is a person an agent says it acts for. It is asserted, never verified. |
 | `spec.onBehalfOf.user` | `string` | yes |  |  |  |
-| `spec.params` | `object` | no |  |  | Params are the operation parameters. On the pointer facet From and To are OCI manifest digests; on the rung facet they are rung names. |
+| `spec.params` | `object` | no |  |  | Params are the operation parameters. On the pointer facet From and To are OCI manifest digests; on the level facet they are level names. |
 | `spec.params.from` | `string` | no |  |  |  |
 | `spec.params.record` | `string` | no |  |  | Record is the id of the upstream stand-in an acknowledge accepts. |
 | `spec.params.to` | `string` | no |  |  |  |
@@ -166,7 +166,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.policy.applyRef.name` | `string` | yes |  |  |  |
 | `status.policy.approval` | `object` | no |  |  | ApprovalPolicy can only raise the approval floor, never lower it. |
 | `status.policy.approval.always` | `boolean` | no |  |  | Always holds every promote for a human, whatever the contracts say. |
-| `status.policy.autonomy` | `object` | no |  |  | AutonomyPolicy tunes when Pacto proposes the next rung. |
+| `status.policy.autonomy` | `object` | no |  |  | AutonomyPolicy tunes when Pacto proposes the next level. |
 | `status.policy.autonomy.proposeAfter` | `integer` | no | `10` |  | ProposeAfter is how many qualifying promotions earn a proposal. |
 | `status.policy.candidates` | `object` | no |  |  | Candidates says where new versions come from. At most one is set, so the version offered and the version judged come from the same source; a Stage that sets none is not Ready and never promotes. |
 | `status.policy.candidates.ociRepositoryRef` | `object` | no |  |  | OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the candidate is the @sha256: part of its status.artifact.revision. |
@@ -199,7 +199,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.policy.service` | `object` | yes |  |  | ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified service name its contracts declare. |
 | `status.policy.service.domain` | `string` | no |  |  | Domain is the registry and organisation scope (empty for the default). |
 | `status.policy.service.name` | `string` | yes |  |  | Name is the contract's service.name. |
-| `status.policy.startRung` | `string` | no | `"observe"` | `observe`, `advise`, `auto-nonbreaking`, `autonomous` | StartRung is where a new Stage begins. It is read once, when status.rung is empty; after that only an autonomy operation moves the rung. Creating a Stage is an admin action, so any rung is accepted, and a Stage whose status is lost seeds back to this rung. Only observe and advise keep Pacto from shipping without a person. |
+| `status.policy.startLevel` | `string` | no | `"observe"` | `observe`, `advise`, `auto-nonbreaking`, `autonomous` | StartLevel is where a new Stage begins. It is read once, when status.level is empty; after that only an autonomy operation moves the level. Creating a Stage is an admin action, so any level is accepted, and a Stage whose status is lost seeds back to this level. Only observe and advise keep Pacto from shipping without a person. |
 | `status.policy.workload` | `object` | no |  |  | Workload is the workload the service runs as, in the Stage's namespace: the one object pacto.contract and pacto.runtime may judge. The Pacto resource ships inside every version and names its own target, so without this a version could point its own check at a decoy. Empty is the Deployment named spec.service.name. |
 | `status.policy.workload.kind` | `string` | yes |  |  | Kind is the workload kind, such as Deployment or StatefulSet. |
 | `status.policy.workload.name` | `string` | yes |  |  |  |
@@ -245,7 +245,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | Service | string | `.spec.service.name` |
 | Env | string | `.spec.environment` |
 | Ready | string | `.status.conditions[?(@.type=="Ready")].status` |
-| Rung | string | `.status.rung` |
+| Level | string | `.status.level` |
 | Pointer | string | `.status.pointer` |
 | Frozen | boolean | `.status.frozen` |
 | Hold | boolean | `.status.autoHold` |
@@ -261,7 +261,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.applyRef.name` | `string` | yes |  |  |  |
 | `spec.approval` | `object` | no |  |  | ApprovalPolicy can only raise the approval floor, never lower it. |
 | `spec.approval.always` | `boolean` | no |  |  | Always holds every promote for a human, whatever the contracts say. |
-| `spec.autonomy` | `object` | no |  |  | AutonomyPolicy tunes when Pacto proposes the next rung. |
+| `spec.autonomy` | `object` | no |  |  | AutonomyPolicy tunes when Pacto proposes the next level. |
 | `spec.autonomy.proposeAfter` | `integer` | no | `10` |  | ProposeAfter is how many qualifying promotions earn a proposal. |
 | `spec.candidates` | `object` | no |  |  | Candidates says where new versions come from. At most one is set, so the version offered and the version judged come from the same source; a Stage that sets none is not Ready and never promotes. |
 | `spec.candidates.ociRepositoryRef` | `object` | no |  |  | OCIRepositoryRef is a Flux OCIRepository the promoter only reads: the candidate is the @sha256: part of its status.artifact.revision. |
@@ -294,7 +294,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.service` | `object` | yes |  |  | ServiceRef is the Pacto ServiceID a Stage delivers: the domain-qualified service name its contracts declare. |
 | `spec.service.domain` | `string` | no |  |  | Domain is the registry and organisation scope (empty for the default). |
 | `spec.service.name` | `string` | yes |  |  | Name is the contract's service.name. |
-| `spec.startRung` | `string` | no | `"observe"` | `observe`, `advise`, `auto-nonbreaking`, `autonomous` | StartRung is where a new Stage begins. It is read once, when status.rung is empty; after that only an autonomy operation moves the rung. Creating a Stage is an admin action, so any rung is accepted, and a Stage whose status is lost seeds back to this rung. Only observe and advise keep Pacto from shipping without a person. |
+| `spec.startLevel` | `string` | no | `"observe"` | `observe`, `advise`, `auto-nonbreaking`, `autonomous` | StartLevel is where a new Stage begins. It is read once, when status.level is empty; after that only an autonomy operation moves the level. Creating a Stage is an admin action, so any level is accepted, and a Stage whose status is lost seeds back to this level. Only observe and advise keep Pacto from shipping without a person. |
 | `spec.workload` | `object` | no |  |  | Workload is the workload the service runs as, in the Stage's namespace: the one object pacto.contract and pacto.runtime may judge. The Pacto resource ships inside every version and names its own target, so without this a version could point its own check at a decoy. Empty is the Deployment named spec.service.name. |
 | `spec.workload.kind` | `string` | yes |  |  | Kind is the workload kind, such as Deployment or StatefulSet. |
 | `spec.workload.name` | `string` | yes |  |  |  |
@@ -323,6 +323,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.lastCheck.verdicts[].phase` | `string` | yes |  | `pre`, `verify` |  |
 | `status.lastCheck.verdicts[].result` | `string` | yes |  | `Pass`, `Fail`, `Unknown` | Result is a gate verdict. |
 | `status.lastOp` | `string` | no |  |  | LastOp is the uid of the operation that last moved the pointer. |
+| `status.level` | `string` | no |  |  | Level is the Stage's autonomy level. The stage reconciler seeds it from spec.startLevel; after that only an autonomy operation writes it. |
 | `status.locks` | `object` | no |  |  | Locks maps a facet to the uid of the operation holding it. |
 | `status.observedGeneration` | `integer` | no |  |  | ObservedGeneration is the Stage generation the stage reconciler last judged Ready from. |
 | `status.observedRevision` | `object` | no |  |  | ObservedRevision is what GitOps' source reports while the Stage observes. |
@@ -330,16 +331,15 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.observedRevision.since` | `string` | yes |  |  |  |
 | `status.offered` | `[]string` | no |  |  | Offered holds the digests a promote carried through pacto.published with a pass (not an accepted unknown) and that then verified here, oldest first (cap 50). Only these are offered to a downstream Stage. |
 | `status.pointer` | `string` | no |  |  | Pointer is the digest the Stage moved the environment to. It is set when an operation holding the pointer lock starts to apply, before Flux or Argo CD runs it: Applied on that operation says when they did. |
-| `status.proposal` | `object` | no |  |  | Proposal is the next rung Pacto proposes, or why not yet. |
+| `status.proposal` | `object` | no |  |  | Proposal is the next level Pacto proposes, or why not yet. |
 | `status.proposal.blockers` | `[]object` | no |  |  |  |
 | `status.proposal.blockers[].kind` | `string` | yes |  |  | Kind is missing-contract, undeclared-range, unlabelled-apply-ref, no-observed-digest, no-record-store, needs-verified, needs-cleared-breaking, incident or partial-graph. |
 | `status.proposal.blockers[].message` | `string` | yes |  |  |  |
 | `status.proposal.blockers[].subject` | `string` | no |  |  | Subject is the service, consumer or caller identity. |
 | `status.proposal.evidence` | `[]string` | no |  |  | Evidence names the digests or operation uids that earned it. |
-| `status.proposal.rung` | `string` | no |  |  | Rung is empty while nothing is proposed. |
+| `status.proposal.level` | `string` | no |  |  | Level is empty while nothing is proposed. |
 | `status.published` | `[]string` | no |  |  | Published holds the candidate digests Flux verified the signature of on the candidate OCIRepository (spec.verify naming the publisher's identity), oldest first (cap 50). Only these are promoted from the OCIRepository. |
 | `status.rolledBack` | `[]string` | no |  |  | RolledBack holds the uids of the failed operations the promoter raised its one automatic rollback for, oldest first (cap 50). A failure listed here never gets a second one. |
-| `status.rung` | `string` | no |  |  | Rung is the Stage's autonomy rung. The stage reconciler seeds it from spec.startRung; after that only an autonomy operation writes it. |
 | `status.shadow` | `[]object` | no |  |  | Shadow holds the newest would-have decisions while the Stage observes, newest first. |
 | `status.shadow[].candidate` | `string` | yes |  |  |  |
 | `status.shadow[].decision` | `string` | no |  |  | Decision is the floor's decision: approve or accept-unknown. |

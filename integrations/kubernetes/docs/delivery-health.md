@@ -29,7 +29,7 @@ spec:
   applyRef: {name: payments}
   candidates:
     upstreamStage: {name: payments, namespace: test}
-  startRung: advise
+  startLevel: advise
   gates:
     verify:
       window: 5m

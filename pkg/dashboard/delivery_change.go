@@ -20,7 +20,7 @@ type operationOutput struct {
 		Explanation *delivery.Explanation     `json:"explanation"`
 		Operation   *delivery.OperationObject `json:"operation"`
 		Actions     []string                  `json:"actions" doc:"What the caller may ask for: approve, reject, accept-unknown, cancel, rollback"`
-		Rung        string                    `json:"rung,omitempty" doc:"The Stage's rung now: observe, advise, auto-nonbreaking or autonomous"`
+		Level       string                    `json:"level,omitempty" doc:"The Stage's level now: observe, advise, auto-nonbreaking or autonomous"`
 		UndoneBy    *delivery.HistoryEntry    `json:"undoneBy,omitempty" doc:"The rollback that undid this change, read from its Stage's history"`
 		Labels
 	}
@@ -50,7 +50,7 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 	out.Body.Explanation, out.Body.Operation = e, op
 	out.Body.Actions = s.actions(ctx, op, e.Stage, caller)
 	if st, err := api.Stage(ctx, in.Namespace, op.Spec.Stage); err == nil {
-		out.Body.Rung = ladderOf(*st).Rung
+		out.Body.Level = ladderOf(*st).Level
 	}
 	if st := op.Status; st.Phase == delivery.PhaseConcluded && st.Pointer.After != "" {
 		// ponytail: one history read per concluded change shown; the live

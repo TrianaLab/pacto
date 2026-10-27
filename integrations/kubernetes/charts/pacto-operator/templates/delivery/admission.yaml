@@ -53,17 +53,17 @@ spec:
       expression: >-
         request.userInfo.username.startsWith('system:serviceaccount:') ||
         request.userInfo.groups.exists(g, g in {{ $agents }}){{ $unenrolled }}
-    - name: rungFrom
+    - name: levelFrom
       expression: "has(object.spec.params) && has(object.spec.params.from) ? object.spec.params.from : ''"
-    - name: rungTo
+    - name: levelTo
       expression: "has(object.spec.params) && has(object.spec.params.to) ? object.spec.params.to : ''"
-    - name: rungs
+    - name: levels
       expression: "{'observe': 0, 'advise': 1, 'auto-nonbreaking': 2, 'autonomous': 3}"
     - name: stepsDown
       expression: >-
-        variables.rungFrom in variables.rungs && variables.rungTo in variables.rungs &&
-        variables.rungs[variables.rungFrom] >= 2 &&
-        variables.rungs[variables.rungFrom] - variables.rungs[variables.rungTo] == 1
+        variables.levelFrom in variables.levels && variables.levelTo in variables.levels &&
+        variables.levels[variables.levelFrom] >= 2 &&
+        variables.levels[variables.levelFrom] - variables.levels[variables.levelTo] == 1
   validations:
     - expression: "object.spec.actor.user == request.userInfo.username"
       message: "spec.actor.user must be the user creating the operation"
@@ -110,8 +110,8 @@ spec:
       reason: Forbidden
     - expression: >-
         object.spec.type != 'delivery.pacto.trianalab.io/autonomy' || variables.breakGlass ||
-        (request.userInfo.username == '{{ $controller }}' ? variables.stepsDown : !(variables.agent && variables.rungTo == 'observe'))
-      message: "the promoter only steps a Stage down one rung from an automatic rung, and an agent never lowers a Stage to observe"
+        (request.userInfo.username == '{{ $controller }}' ? variables.stepsDown : !(variables.agent && variables.levelTo == 'observe'))
+      message: "the promoter only steps a Stage down one level from an automatic level, and an agent never lowers a Stage to observe"
       reason: Forbidden
 ---
 apiVersion: admissionregistration.k8s.io/v1
@@ -434,7 +434,7 @@ spec:
 {{- end }}
 ---
 # What a Stage and an Operation say happened is the promoter's to write: the
-# rung, the versions published, verified and failed, the freeze, the
+# level, the versions published, verified and failed, the freeze, the
 # approvals. RBAC that lets someone patch stages/status or operations/status
 # would otherwise let them raise a Stage to autonomous or publish an unsigned
 # digest. Only the promoter writes them, and the recorder its record fields

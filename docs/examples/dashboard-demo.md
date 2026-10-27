@@ -50,7 +50,7 @@ Before the tour starts, the tab has already played its first steps, so the
 screens show:
 
 - **A new service that only watches.** `pacto init` wrote fraud's contract,
-  and its Stages start on observe, the lowest rung of the
+  and its Stages start on observe, the lowest level of the
   [autonomy ladder](../autonomy.md). GitOps shipped fraud 1.0.0 to test.
   Pacto moved nothing and noted it would have shipped it with nobody
   involved. That one verified version earns a proposal to move test up to
@@ -59,7 +59,7 @@ screens show:
   may answer it. Nobody in the demo is on team risk, so it stays a proposal.
 - **A step down after a failure.** payments 2.4.0 shipped to prod with nobody
   involved and failed its health check, so Pacto rolled it back and stepped
-  the Stage down one rung, to auto for non-breaking changes. Lowering a rung
+  the Stage down one level, to auto for non-breaking changes. Lowering a level
   needs no approval. payments in test stepped down the same way when 2.4.2
   failed.
 - **A caller with no contract.** ledger-export runs in test with no contract

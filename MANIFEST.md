@@ -30,7 +30,7 @@ manifests stay in git. GitlessOps is three principles, each true only under its 
    OCI-sourced Argo CD Application. Source code and manifests stay in git, and
    Flux or Argo CD still apply them.
 2. **Evidence, not a pull request, moves a change** on a Stage set to an
-   automatic rung. A person is asked only when the evidence runs out, and
+   automatic level. A person is asked only when the evidence runs out, and
    only the team concerned:
 
     - a check cannot see enough (Unknown): the service's owners;
@@ -106,7 +106,7 @@ controller or an agent needs before it concludes anything.
   moves a version on its own only when this change's compatibility, its
   impact on the consumers and its checks back it. A Stage (one service in one
   environment) earns the right to
-  move on its own one rung at a time, and a person confirms each rung; a good
+  move on its own one level at a time, and a person confirms each level; a good
   track record never replaces the evidence for the next change. When Pacto
   cannot see enough it holds the change and asks the teams concerned, never an
   agent.

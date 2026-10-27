@@ -12,7 +12,7 @@ with nothing to install, press **Play the delivery story** in the
 
 In the cluster, [Flux](https://fluxcd.io) does the deploying: it is a tool that
 keeps the cluster running what your files say. Pacto tells it which version.
-Each environment starts on observe, the first rung of
+Each environment starts on observe, the first level of
 [the autonomy ladder](autonomy.md): Pacto watches and moves nothing until a
 person raises it.
 
@@ -236,7 +236,7 @@ To leave observe, in this order:
     pacto delivery propose --type delivery.pacto.trianalab.io/autonomy --stage my-service -n test --to advise
     ```
 
-Each rung above that is one more approved operation. In prod, `init` also
+Each level above that is one more approved operation. In prod, `init` also
 writes `approval: always: true`, so every promote there waits for a person:
 the contract check cannot see a consumer with no contract, or tell whether the
 version is healthy. Once a health check judges each version there

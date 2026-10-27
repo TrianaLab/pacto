@@ -24,8 +24,8 @@ import "encoding/json"
 const (
 	FacetPointer = "pointer"
 	FacetFreeze  = "freeze"
-	// FacetRung is the Stage's autonomy rung (status.rung).
-	FacetRung = "rung"
+	// FacetLevel is the Stage's autonomy level (status.level).
+	FacetLevel = "level"
 	// FacetUpstream is what the Stage accepts from the upstream stream it
 	// follows (status.upstreamAcknowledged).
 	FacetUpstream = "upstream"
@@ -275,16 +275,16 @@ type StageSpec struct {
 	ApplyRef ApplyRef `json:"applyRef"`
 	// +optional
 	Candidates Candidates `json:"candidates,omitzero"`
-	// StartRung is where a new Stage begins. It is read once, when
-	// status.rung is empty; after that only an autonomy operation moves the
-	// rung. Creating a Stage is an admin action, so any rung is accepted, and
-	// a Stage whose status is lost seeds back to this rung. Only observe and
+	// StartLevel is where a new Stage begins. It is read once, when
+	// status.level is empty; after that only an autonomy operation moves the
+	// level. Creating a Stage is an admin action, so any level is accepted, and
+	// a Stage whose status is lost seeds back to this level. Only observe and
 	// advise keep Pacto from shipping without a person.
 	// +optional
 	// +kubebuilder:validation:Enum=observe;advise;auto-nonbreaking;autonomous
 	// +kubebuilder:default=observe
-	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="startRung is fixed at creation; propose delivery.pacto.trianalab.io/autonomy to change the rung"
-	StartRung Rung `json:"startRung,omitempty"`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="startLevel is fixed at creation; propose delivery.pacto.trianalab.io/autonomy to change the level"
+	StartLevel Level `json:"startLevel,omitempty"`
 	// +optional
 	Autonomy AutonomyPolicy `json:"autonomy,omitzero"`
 	// +optional
@@ -322,7 +322,7 @@ func (s StageSpec) WorkloadOf() WorkloadRef {
 	return WorkloadRef{Kind: "Deployment", Name: s.Service.Name}
 }
 
-// AutonomyPolicy tunes when Pacto proposes the next rung.
+// AutonomyPolicy tunes when Pacto proposes the next level.
 type AutonomyPolicy struct {
 	// ProposeAfter is how many qualifying promotions earn a proposal.
 	// +optional
@@ -435,11 +435,11 @@ type Shadow struct {
 	Verification Verification `json:"verification,omitempty"`
 }
 
-// Proposal is the next rung Pacto proposes for a Stage, or why not yet.
+// Proposal is the next level Pacto proposes for a Stage, or why not yet.
 type Proposal struct {
-	// Rung is empty while nothing is proposed.
+	// Level is empty while nothing is proposed.
 	// +optional
-	Rung Rung `json:"rung,omitempty"`
+	Level Level `json:"level,omitempty"`
 	// Evidence names the digests or operation uids that earned it.
 	// +optional
 	// +kubebuilder:validation:MaxItems=20
@@ -449,7 +449,7 @@ type Proposal struct {
 	Blockers []Blocker `json:"blockers,omitempty"`
 }
 
-// Blocker is one reason the next rung is not proposed.
+// Blocker is one reason the next level is not proposed.
 type Blocker struct {
 	// Kind is missing-contract, undeclared-range, unlabelled-apply-ref,
 	// no-observed-digest, no-record-store, needs-verified,
@@ -547,10 +547,10 @@ type StageStatus struct {
 	// judged Ready from.
 	// +optional
 	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
-	// Rung is the Stage's autonomy rung. The stage reconciler seeds it from
-	// spec.startRung; after that only an autonomy operation writes it.
+	// Level is the Stage's autonomy level. The stage reconciler seeds it from
+	// spec.startLevel; after that only an autonomy operation writes it.
 	// +optional
-	Rung Rung `json:"rung,omitempty"`
+	Level Level `json:"level,omitempty"`
 	// ObservedRevision is what GitOps' source reports while the Stage observes.
 	// +optional
 	ObservedRevision *ObservedRevision `json:"observedRevision,omitempty"`
@@ -559,7 +559,7 @@ type StageStatus struct {
 	// +optional
 	// +kubebuilder:validation:MaxItems=20
 	Shadow []Shadow `json:"shadow,omitempty"`
-	// Proposal is the next rung Pacto proposes, or why not yet.
+	// Proposal is the next level Pacto proposes, or why not yet.
 	// +optional
 	Proposal *Proposal `json:"proposal,omitempty"`
 }
@@ -594,7 +594,7 @@ type Recheck struct {
 }
 
 // Params are the operation parameters. On the pointer facet From and To are
-// OCI manifest digests; on the rung facet they are rung names.
+// OCI manifest digests; on the level facet they are level names.
 type Params struct {
 	// +optional
 	From string `json:"from,omitempty"`
@@ -653,7 +653,7 @@ type OperationSpec struct {
 	Type string `json:"type"`
 	// Stage is the name of a Stage in the operation's namespace.
 	Stage string `json:"stage"`
-	// +kubebuilder:validation:Enum=pointer;freeze;rung;upstream
+	// +kubebuilder:validation:Enum=pointer;freeze;level;upstream
 	Facet string `json:"facet"`
 	// +optional
 	Params Params `json:"params,omitzero"`

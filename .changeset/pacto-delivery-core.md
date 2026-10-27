@@ -3,7 +3,7 @@
 ---
 
 Add Pacto delivery, the opt-in part of Pacto that decides which version each
-environment runs and earns autonomy one confirmed rung at a time, plus
+environment runs and earns autonomy one confirmed level at a time, plus
 `pacto publish`, contract format 2.1 and a `pacto init` that pactifies existing
 services, one folder, several or a whole cluster. Nothing changes for a project that does not
 use them, with one exception: a consumer on an older Pacto or operator cannot
@@ -150,27 +150,27 @@ agents; there is no approve tool. Over HTTP, `pacto mcp` verifies a bearer
 token on every request (`--auth-issuer`, `--resource`, `--audience`) and
 exchanges it for one the apiserver accepts, so each caller acts as itself.
 
-**The autonomy ladder.** Each Stage is on one rung: `observe` plans every
+**The autonomy ladder.** Each Stage is on one level: `observe` plans every
 new version and moves nothing, recording what it would have done; `advise`
 ships only what a person asked for or approved; `auto-nonbreaking` promotes
 non-breaking changes on its own; `autonomous` promotes any change the graph
-clears. An `autonomy` operation moves a Stage one rung: lowering needs nobody
+clears. An `autonomy` operation moves a Stage one level: lowering needs nobody
 (an agent never lowers to observe), raising needs a person of the running
 service's team other than whoever asked, leaving observe needs the applyRef
-labelled and an observed digest, and an automatic rung needs the recorder, so
-every grant of autonomy is a signed record. Pacto proposes the next rung once
+labelled and an observed digest, and an automatic level needs the recorder, so
+every grant of autonomy is a signed record. Pacto proposes the next level once
 a Stage earned it (10 verified changes by default) and lists what blocks it;
 a raise it has not proposed asks the approver to accept the unknown. When a
 version Pacto shipped on its own fails and rolls back, the promoter lowers the
-Stage one rung; an Unknown never does. `pacto delivery propose --type
-autonomy --to <rung>` asks for a move.
+Stage one level; an Unknown never does. `pacto delivery propose --type
+autonomy --to <level>` asks for a move.
 
 **Dashboard.** `pacto dashboard` signs people in with OpenID Connect
 (`--oidc-*`, secret in `PACTO_DASHBOARD_OIDC_CLIENT_SECRET`) and gains a
 Delivery tab: an inbox of what waits on your teams, an environments board, a
 page per change with its plan, verdicts and proof, history with blame and undo,
 published versions with recent refused publishes and a path to autonomy: each
-Stage's rung, what Pacto would have done on observe, the next proposal and
+Stage's level, what Pacto would have done on observe, the next proposal and
 what blocks it, with the command that fixes each blocker. Promote, roll back,
 unfreeze, cancel and decisions run there under the person's own token. A
 decision needs a recent login and membership of a team the question names, and

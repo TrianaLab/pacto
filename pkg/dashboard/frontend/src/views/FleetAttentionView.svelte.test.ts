@@ -289,8 +289,8 @@ describe('FleetAttentionView — the motion ration', () => {
     serve([item('error', 'a'), item('error', 'b'), item('warning', 'c')]);
     const { target, component } = mountView({});
     await vi.waitFor(() => expect(target.querySelectorAll('.attn-item').length).toBe(3));
-    const rung = target.querySelectorAll('.attn-item.is-alarm');
-    expect(rung).toHaveLength(1);
+    const level = target.querySelectorAll('.attn-item.is-alarm');
+    expect(level).toHaveLength(1);
     // The head of the page, because the backend sorts errors first -- so the ring is on
     // the worst thing visible rather than on whichever row happened to render first.
     expect(target.querySelectorAll('.attn-item')[0].classList.contains('is-alarm')).toBe(true);

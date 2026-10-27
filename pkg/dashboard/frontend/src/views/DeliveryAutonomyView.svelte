@@ -8,7 +8,7 @@
   import Pager from '../components/Pager.svelte';
   import ListFilter from '../components/ListFilter.svelte';
   import CappedList from '../components/CappedList.svelte';
-  import { AUTONOMY_TYPE, rungLabel, rungHelp, proposalText, shadowLabel, blockerLabel, sentence } from '../lib/delivery.ts';
+  import { AUTONOMY_TYPE, levelLabel, levelHelp, proposalText, shadowLabel, blockerLabel, sentence } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
@@ -17,7 +17,7 @@
   import ProposePanel from '../components/ProposePanel.svelte';
 
   // How far each Stage runs on its own, what Pacto proposes next and what
-  // stands in the way. The page only reads: a rung moves through a proposed
+  // stands in the way. The page only reads: a level moves through a proposed
   // operation a second person approves, and a fix is something to copy and run.
   // Stages and blockers page on the server, each with its place in the URL.
   let { offset = '', limit = '', q = '', blockers: blockersAt = '', refreshTick = 0, miraURL = '' } = $props();
@@ -57,8 +57,8 @@
   let opener = null;
   function propose(s, e) {
     opener = e.currentTarget;
-    proposingLabel = rungLabel(s.proposal.rung);
-    proposing = { namespace: s.namespace, stage: s.stage, type: AUTONOMY_TYPE, from: s.rung, to: s.proposal.rung };
+    proposingLabel = levelLabel(s.proposal.level);
+    proposing = { namespace: s.namespace, stage: s.stage, type: AUTONOMY_TYPE, from: s.level, to: s.proposal.level };
   }
   function closePlan() { proposing = null; opener?.focus(); }
 
@@ -126,18 +126,18 @@
       {:else}
         <div class="data-scroll">
           <table class="data-table au-table" data-testid="autonomy-stages">
-            <caption class="visually-hidden">The rung of each Stage and what Pacto proposes next</caption>
+            <caption class="visually-hidden">The level of each Stage and what Pacto proposes next</caption>
             <colgroup><col style="width: 28%" /><col style="width: 30%" /><col style="width: 42%" /></colgroup>
-            <thead><tr><th scope="col">Stage</th><th scope="col">Rung</th><th scope="col">Next step</th></tr></thead>
+            <thead><tr><th scope="col">Stage</th><th scope="col">Level</th><th scope="col">Next step</th></tr></thead>
             <tbody>
               {#each stages as s (s.namespace + '/' + s.stage)}
                 <tr data-stage={`${s.namespace}/${s.stage}`}>
                   <th scope="row"><a href={deliveryHistoryUrl({ namespace: s.namespace, stage: s.stage })}>{s.service}</a> <span class="t-meta">in {s.environment}</span></th>
-                  <td data-label="Rung"><span class="badge badge-neutral" data-testid="rung">{rungLabel(s.rung)}</span><span class="t-meta au-help">{rungHelp(s.rung)}</span></td>
+                  <td data-label="Level"><span class="badge badge-neutral" data-testid="level">{levelLabel(s.level)}</span><span class="t-meta au-help">{levelHelp(s.level)}</span></td>
                   <td data-label="Next step">
-                    <span>{proposalText(s.rung, s.proposal)}</span>
-                    {#if s.proposal?.rung}
-                      <button type="button" class="btn btn-sm" onclick={(e) => propose(s, e)} aria-label={`Propose ${rungLabel(s.proposal.rung)} for ${s.service} in ${s.environment}`}>Propose</button>
+                    <span>{proposalText(s.level, s.proposal)}</span>
+                    {#if s.proposal?.level}
+                      <button type="button" class="btn btn-sm" onclick={(e) => propose(s, e)} aria-label={`Propose ${levelLabel(s.proposal.level)} for ${s.service} in ${s.environment}`}>Propose</button>
                     {:else if s.proposal?.blockers?.length}
                       <span class="t-meta">{s.proposal.blockers.length} blocker{s.proposal.blockers.length === 1 ? '' : 's'} below.</span>
                     {/if}
@@ -162,7 +162,7 @@
     <section aria-labelledby="au-blockers">
       <h2 id="au-blockers" class="t-section-title">What stands in the way</h2>
       {#if blockers.length === 0}
-        <p class="t-body-2" data-testid="autonomy-no-blockers">{q ? `No blocker matches “${q}”.` : 'Nothing Pacto can see blocks the next rung.'}</p>
+        <p class="t-body-2" data-testid="autonomy-no-blockers">{q ? `No blocker matches “${q}”.` : 'Nothing Pacto can see blocks the next level.'}</p>
       {:else}
         <p class="t-body-2">Copying a fix changes nothing in the cluster: you review it and run it yourself.</p>
         <div class="au-groups" data-testid="autonomy-blockers">

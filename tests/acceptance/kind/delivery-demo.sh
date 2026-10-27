@@ -532,14 +532,14 @@ publish() {
 
 # environment SERVICE ENV CANDIDATES AUTO [GATES] — what applies SERVICE in
 # ENV, on autonomous when AUTO is true and on advise otherwise (an admin may
-# create a Stage on any rung; the ladder itself is the browser demo's story),
+# create a Stage on any level; the ladder itself is the browser demo's story),
 # and the Stage that decides which version runs there, in the shape
 # pacto init --delivery writes (the registry speaks plain HTTP, hence insecure),
 # plus a health check on the Deployment: Flux calls a version applied only once
 # its rollout is done, so the verify gates never judge the old pods (HANDOFF).
 environment() {
-  local svc="$1" env="$2" verify='verify: {provider: cosign, secretRef: {name: cosign-pub}}' rung=advise
-  [ "$4" = true ] && rung=autonomous
+  local svc="$1" env="$2" verify='verify: {provider: cosign, secretRef: {name: cosign-pub}}' level=advise
+  [ "$4" = true ] && level=autonomous
   local url="oci://${REG_HOST}/story/deploy/$svc"
   {
     if [ "$3" = candidates ]; then
@@ -575,7 +575,7 @@ spec:
   environment: $env
   applyRef: {name: $svc}
   candidates: $CANDS
-  startRung: $rung
+  startLevel: $level
   gates:
     impact: {declaredConsumersOnly: true}
     verify:
@@ -696,7 +696,7 @@ story_pactify() {
   # what it would have done with each version it saw.
   shadowed() { [ -n "$(kubectl -n test get stage fraud -o json | jq -r --arg d "$d" '.status.shadow // [] | map(select(.candidate == $d and .observedAt != null)) | .[0].predicted // empty')" ]; }
   eventually 120 shadowed || fail "fraud's test Stage noted nothing about 1.0.0: $(kubectl -n test get stage fraud -o jsonpath='{.status.conditions}')"
-  same pactify "rung" "$(kubectl -n test get stage fraud -o jsonpath='{.status.rung}')" observe
+  same pactify "level" "$(kubectl -n test get stage fraud -o jsonpath='{.status.level}')" observe
   same pactify "predicted" "$(kubectl -n test get stage fraud -o json | jq -r --arg d "$d" '.status.shadow | map(select(.candidate == $d)) | .[0].predicted')" "$(expect pactify Predicted | jq -r .)"
   eventually 60 kubectl -n test get pacto fraud >/dev/null 2>&1 || fail "pacto init --delivery wrote no Pacto resource for fraud in test"
   local img; img="$(kubectl -n test get deploy fraud -o jsonpath='{.spec.template.spec.containers[0].image}')"
@@ -1166,7 +1166,7 @@ spec:
   environment: prod-us
   applyRef: {kind: Application, name: payments}
   candidates: {upstreamRecords: {repository: "${REG_HOST}/pacto-delivery-streams", stream: "$stream"}}
-  startRung: autonomous
+  startLevel: autonomous
   gates: {impact: {declaredConsumersOnly: true}}
 YAML
   d="$(digest_of payments 2.3.0)"
@@ -1256,7 +1256,7 @@ spec:
   environment: prod-us
   applyRef: {kind: Application, name: payments-eu}
   candidates: {upstreamRecords: {repository: "${REG_HOST}/pacto-delivery-streams", stream: "$eu"}}
-  startRung: autonomous
+  startLevel: autonomous
   gates: {impact: {declaredConsumersOnly: true}}
 YAML
   us_empty() { [ -z "$(us kubectl -n prod get stage payments-eu -o jsonpath='{.status.pointer}')" ]; }

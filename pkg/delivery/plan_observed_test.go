@@ -49,7 +49,7 @@ func planIn(t *testing.T, from, to Revision, pactos ...PactoView) PlanInput {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Status: StageStatus{Rung: RungAutonomous, Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
+	return PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Status: StageStatus{Level: LevelAutonomous, Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
 		From: from, To: to, Snapshot: snap, Class: ClassAgent}
 }
 
@@ -75,7 +75,7 @@ func TestPlanUncontractedCallerHoldsABreakingChange(t *testing.T) {
 	if v := verdict(t, p, GateImpact); v.Citation["uncontracted"] != "1" {
 		t.Fatalf("the uncontracted caller is cited: %+v", v)
 	}
-	if got := ProposeRung(StageSpec{}, StageStatus{Rung: RungAutoNonBreaking}, &p); !slices.Contains(kinds(got), BlockerMissingContract) {
+	if got := ProposeLevel(StageSpec{}, StageStatus{Level: LevelAutoNonBreaking}, &p); !slices.Contains(kinds(got), BlockerMissingContract) {
 		t.Fatalf("missing-contract blocks autonomous: %+v", got)
 	}
 }

@@ -534,18 +534,18 @@ decide() { approve_as "$3" "$4" "$1" "$2" "$5" "${6:-}"; }
 # --- the autonomy ladder -------------------------------------------------------
 # Every Stage here starts on advise:
 # it ships what a person proposes. A Stage the run needs automatic climbs one
-# rung at a time, each raise an autonomy operation alice proposes and carol,
+# level at a time, each raise an autonomy operation alice proposes and carol,
 # of the service's team, approves, accepting the unknown where Pacto has not
-# proposed the rung yet. A raise needs a running contract to name that team,
-# so a person ships the first version, and an automatic rung needs the
+# proposed the level yet. A raise needs a running contract to name that team,
+# so a person ships the first version, and an automatic level needs the
 # recorder writing the Stage's records: every grant of autonomy is a signed
 # record. Lowering needs no approval.
-rung_of() { kubectl -n "$1" get stage "$2" -o jsonpath='{.status.rung}'; }
+level_of() { kubectl -n "$1" get stage "$2" -o jsonpath='{.status.level}'; }
 recording() { [ "$(kubectl -n "$1" get stage "$2" -o jsonpath='{.status.conditions[?(@.type=="RecordStoreReady")].status}')" = True ]; }
 held_or_concluded() { held "$1" "$2" || concluded "$1" "$2"; }
-# move_rung NS STAGE TEAM TO — move the Stage to TO through one autonomy
+# move_level NS STAGE TEAM TO — move the Stage to TO through one autonomy
 # operation; prints its name.
-move_rung() {
+move_level() {
   local ns="$1" st="$2" team="$3" to="$4" name
   name="$st-to-$to-$(date +%s)"
   as_person alice "$team" propose -n "$ns" --stage "$st" --type autonomy --to "$to" --name "$name" --reason "the kind run moves $st to $to" >/dev/null
@@ -554,15 +554,15 @@ move_rung() {
     decide "$ns" "$name" carol "$team" "$(field "$ns" "$name" plan.floor.decision)" "the kind run moves it to $to"
   fi
   wait_concluded "$ns" "$name" Succeeded/Unverified
-  [ "$(rung_of "$ns" "$st")" = "$to" ] || fail "$ns/$st is on $(rung_of "$ns" "$st"), want $to"
+  [ "$(level_of "$ns" "$st")" = "$to" ] || fail "$ns/$st is on $(level_of "$ns" "$st"), want $to"
   echo "$name"
 }
 # climb NS STAGE TEAM — raise an advise Stage to autonomous, where it
 # auto-promotes any plan that proceeds.
 climb() {
   eventually 60 recording "$1" "$2" || fail "the recorder never reported on $1/$2"
-  move_rung "$1" "$2" "$3" auto-nonbreaking >/dev/null
-  move_rung "$1" "$2" "$3" autonomous >/dev/null
+  move_level "$1" "$2" "$3" auto-nonbreaking >/dev/null
+  move_level "$1" "$2" "$3" autonomous >/dev/null
 }
 # first NS STAGE TEAM DIGEST — alice ships the Stage's first version, once its
 # candidate source offers it.
@@ -783,7 +783,7 @@ spec:
   environment: test
   applyRef: {name: payments}
   candidates: {ociRepositoryRef: {name: payments-candidates}}
-  startRung: advise
+  startLevel: advise
   gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 kubectl -n prod apply -f - >/dev/null <<YAML
@@ -795,7 +795,7 @@ spec:
   environment: prod
   applyRef: {name: payments}
   candidates: {upstreamStage: {name: payments, namespace: test}}
-  startRung: advise
+  startLevel: advise
   gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 
@@ -907,7 +907,7 @@ H="$(publish H "$C140")"
 # lowering needs no approval), so nothing promotes by itself: each agent's
 # promote waits for a person, she approves both at once, and the race is
 # between the two promotes and nothing else.
-move_rung test payments team-payments advise >/dev/null
+move_level test payments team-payments advise >/dev/null
 for v in G H; do
   candidate "$v"
   eventually 60 published_in test "${!v}" || fail "$v was never verified as published: $(kubectl -n test get ocirepository payments-candidates -o jsonpath='{.status.conditions}')"
@@ -1262,7 +1262,7 @@ spec:
   environment: health
   applyRef: {name: payments}
   candidates: {ociRepositoryRef: {name: payments-candidates}}
-  startRung: advise
+  startLevel: advise
   gates:
     impact: {declaredConsumersOnly: true}
     verify:
@@ -1566,7 +1566,7 @@ spec:
   environment: publish
   applyRef: {name: billing}
   candidates: {ociRepositoryRef: {name: billing-candidates}}
-  startRung: advise
+  startLevel: advise
   gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 
@@ -1663,7 +1663,7 @@ spec:
   environment: publish-manual
   applyRef: {name: billing}
   candidates: {ociRepositoryRef: {name: billing-candidates}}
-  startRung: advise
+  startLevel: advise
   gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 billing_contract 1.0.1 service
@@ -1748,7 +1748,7 @@ spec:
   environment: publish-anyone
   applyRef: {name: billing-anyone-apply}
   candidates: {ociRepositoryRef: {name: billing-anyone}}
-  startRung: advise
+  startLevel: advise
   gates: {impact: {declaredConsumersOnly: true}}
 YAML
 eventually 20 ready_is "$M" billing-anyone False/CandidateUnverified \
@@ -1809,7 +1809,7 @@ spec:
   environment: $2
   applyRef: {name: $1}
   candidates: $3
-  startRung: advise
+  startLevel: advise
   gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 }

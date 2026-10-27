@@ -239,10 +239,10 @@ func (r *OperationReconciler) preApplyExits(ctx context.Context, op *dv1.Operati
 }
 
 // lock takes the Stage's facet lock with one compare-and-swap. An approved
-// promote or rung change re-checks its gates first: every gate that passed
+// promote or level change re-checks its gates first: every gate that passed
 // must still pass, and a floor the approval did not cover sends it back to a
-// person. A rung change takes no lock: it concludes at once, and the
-// compare-and-swap that takes its seq moves the rung (RungRefusal).
+// person. A level change takes no lock: it concludes at once, and the
+// compare-and-swap that takes its seq moves the level (LevelRefusal).
 func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage *dv1.Stage, recheck bool) (reconcile.Result, error) {
 	if recheck && (op.Spec.Type == delivery.TypePromote || op.Spec.Type == delivery.TypeAutonomy) {
 		cur, err := r.plan(ctx, op, stage)
@@ -261,9 +261,9 @@ func (r *OperationReconciler) lock(ctx context.Context, op *dv1.Operation, stage
 		}
 		op.Status.Verdicts = mergeVerdicts(op.Status.Verdicts, cur.Verdicts)
 	}
-	if op.Spec.Facet == delivery.FacetRung {
+	if op.Spec.Facet == delivery.FacetLevel {
 		return r.finish(ctx, op, stage, conclusion{outcome: delivery.Succeeded, verification: delivery.Unverified,
-			reason: "RungChanged: " + op.Spec.Stage + " moved from " + op.Spec.Params.From + " to " + op.Spec.Params.To})
+			reason: "LevelChanged: " + op.Spec.Stage + " moved from " + op.Spec.Params.From + " to " + op.Spec.Params.To})
 	}
 	facet, uid := op.Spec.Facet, string(op.UID)
 	waiting := ""
@@ -471,7 +471,7 @@ var preemptedBy = conclusion{outcome: delivery.Succeeded, verification: delivery
 // preemptedBy, or Failed when a rollback no person raised undid a promote no
 // person approved. Concluded as a success, an agent could pull its own
 // failing promote before verify judged it: no step-down, no failed digest, so
-// the rung stays automatic and the version can ship again.
+// the level stays automatic and the version can ship again.
 func (r *OperationReconciler) preemption(ctx context.Context, op *dv1.Operation) (conclusion, error) {
 	if op.Spec.Type != delivery.TypePromote || op.Status.ActorClass == delivery.ClassHuman || len(op.Status.Approvals) > 0 {
 		return preemptedBy, nil

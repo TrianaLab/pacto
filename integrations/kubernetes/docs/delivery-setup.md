@@ -106,7 +106,7 @@ flowchart LR
   `gates.impact.declaredConsumersOnly: true` to say every consumer has one.
   `pacto.suites` holds a version that does not ship a suite one of the Stage's
   checks names, for a person to accept the unknown. It also holds a version
-  that changes a suite it ships, on every rung.
+  that changes a suite it ships, on every level.
 - After: the Pacto contract check counts only when
   `status.evaluatedRevision` names this version's contract digest and the
   current workload generation. `Compliant` and `Warning` pass, `NonCompliant`
@@ -116,7 +116,7 @@ flowchart LR
   promoter raises one rollback per failure; if that fails, is refused or is
   unclear, or the version before failed too, the Stage freezes until a person
   unfreezes it. A person's rollback puts an auto-hold on a Stage on an
-  automatic rung, so automation does not undo it.
+  automatic level, so automation does not undo it.
 
 Only six built-in operation types exist: promote, rollback, override, freeze,
 unfreeze and autonomy, which moves the Stage up or down
@@ -136,8 +136,8 @@ Flux Kustomization applies the apply `OCIRepository`, both carry the
 `suspend` or `decryption`, and the `OCIRepository` sets no `spec.ignore`. Without a
 `serviceAccountName` Flux applies each version as kustomize-controller, which
 is cluster-admin in a default install, so a version whose contract did not
-change could ship a ClusterRoleBinding and an automatic rung would apply it:
-the rungs judge the contract, not the manifests. `pacto init --delivery`
+change could ship a ClusterRoleBinding and an automatic level would apply it:
+the levels judge the contract, not the manifests. `pacto init --delivery`
 writes a namespaced deployer account for each environment. On
 Argo CD it is `True` when the Application carries the label, has one source and sets no
 Kustomize images, patches or components, Helm parameters, values or value
@@ -214,7 +214,7 @@ spec:
   applyRef: {name: payments}
   candidates:
     upstreamStage: {name: payments, namespace: test}
-  startRung: advise
+  startLevel: advise
   gates:
     verify: {window: 5m}
 ```

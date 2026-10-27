@@ -22,16 +22,16 @@ func stage(name string) *unstructured.Unstructured {
 }
 
 // What a Stage or an Operation says happened is the promoter's to write:
-// nobody RBAC lets patch the status raises a rung, publishes a digest or
+// nobody RBAC lets patch the status raises a level, publishes a digest or
 // edits an approval. A person may only clear upstreamSeen.
 func TestStatusIsThePromoters(t *testing.T) {
 	ctx := context.Background()
 	const msg = "written only by the Pacto delivery promoter"
 	st := mustCreate(t, admin, stage(uniq("payments")))
-	allowed(t, setStatus(as(controller), st, map[string]any{"rung": "advise", "pointer": digestA,
+	allowed(t, setStatus(as(controller), st, map[string]any{"level": "advise", "pointer": digestA,
 		"upstreamSeen": map[string]any{"stream": "s", "seq": int64(3), "record": digestA}}))
 	for name, edit := range map[string]func(map[string]any){
-		"rung":      func(s map[string]any) { s["rung"] = "autonomous" },
+		"level":     func(s map[string]any) { s["level"] = "autonomous" },
 		"published": func(s map[string]any) { s["published"] = []any{digestB} },
 		"frozen":    func(s map[string]any) { s["frozen"] = false; delete(s, "upstreamSeen") },
 	} {

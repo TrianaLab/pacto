@@ -67,7 +67,7 @@ func (r *OperationReconciler) finish(ctx context.Context, op *dv1.Operation, sta
 				c = preemptedBy
 			}
 			if op.Spec.Type == delivery.TypeAutonomy && c.outcome == delivery.Succeeded {
-				if why := delivery.RungRefusal(op.Spec, s.Spec, s.Status); why != "" {
+				if why := delivery.LevelRefusal(op.Spec, s.Spec, s.Status); why != "" {
 					c = conclusion{outcome: delivery.Rejected, reason: why}
 				}
 			}

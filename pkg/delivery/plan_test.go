@@ -263,7 +263,7 @@ func TestPlanBreakingChangeAsksOnlyTheBrokenConsumersOwners(t *testing.T) {
 
 // TestPlanOwnerChangeAsksTheTeamThatOwnsItNow: who owns the service decides
 // every later question, so a version that changes service.owner is approved
-// by the running team on every rung, whoever raised it; and with the running
+// by the running team on every level, whoever raised it; and with the running
 // contract unreadable, the incoming version never names who answers.
 func TestPlanOwnerChangeAsksTheTeamThatOwnsItNow(t *testing.T) {
 	from := rev(dA, c1, bundle("payments", "1.0.0"))
@@ -638,12 +638,12 @@ func TestStillPasses(t *testing.T) {
 	}
 }
 
-// autonomousPlan plans on an autonomous Stage unless the input names a rung:
+// autonomousPlan plans on an autonomous Stage unless the input names a level:
 // the gate and floor tests predate the ladder and judge what a fully
 // automatic Stage does.
 func autonomousPlan(in PlanInput) Plan {
-	if in.Status.Rung == "" {
-		in.Status.Rung = RungAutonomous
+	if in.Status.Level == "" {
+		in.Status.Level = LevelAutonomous
 	}
 	return PlanFor(context.Background(), in)
 }

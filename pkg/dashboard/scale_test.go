@@ -73,7 +73,7 @@ func largeCluster(tb testing.TB) (*countingDelivery, func(context.Context) (*fle
 		}
 		for _, env := range envs {
 			ss := delivery.StageStatus{Pointer: published[30], Verified: published[25:35], Offered: published[20:30],
-				Candidate: published[39], Rung: delivery.Rung([]string{"observe", "advise", "auto-nonbreaking", "autonomous"}[r.IntN(4)]),
+				Candidate: published[39], Level: delivery.Level([]string{"observe", "advise", "auto-nonbreaking", "autonomous"}[r.IntN(4)]),
 				Conditions: []delivery.Condition{{Type: "Ready", Status: "True"}}}
 			if env == "test" {
 				ss.Published = published

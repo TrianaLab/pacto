@@ -120,14 +120,14 @@ type RecordOutcome struct {
 	Reason       string        `json:"reason,omitempty"`
 	Message      string        `json:"message,omitempty"`
 	Pointer      PointerChange `json:"pointer,omitzero"`
-	// Rung is the rung change an autonomy operation made, empty otherwise.
-	Rung RungChange `json:"rung,omitzero"`
+	// Level is the level change an autonomy operation made, empty otherwise.
+	Level LevelChange `json:"level,omitzero"`
 }
 
-// RungChange is a Stage's move from one rung to another.
-type RungChange struct {
-	From Rung `json:"from"`
-	To   Rung `json:"to"`
+// LevelChange is a Stage's move from one level to another.
+type LevelChange struct {
+	From Level `json:"from"`
+	To   Level `json:"to"`
 }
 
 // Chain places a record in its stream. Undoes and Cause are the record
@@ -194,7 +194,7 @@ func NewOperationRecord(in RecordInput) Statement {
 		Guarded: st.Guarded,
 	}
 	if spec.Type == TypeAutonomy && st.Outcome == Succeeded {
-		p.Outcome.Rung = RungChange{From: Rung(spec.Params.From), To: Rung(spec.Params.To)}
+		p.Outcome.Level = LevelChange{From: Level(spec.Params.From), To: Level(spec.Params.To)}
 	}
 	params := spec.Params
 	p.Intent.Params, p.Intent.Reason, p.Intent.CorrelationID = &params, spec.Reason, spec.CorrelationID

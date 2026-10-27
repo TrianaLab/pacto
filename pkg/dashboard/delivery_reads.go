@@ -322,7 +322,7 @@ type EnvironmentRow struct {
 	Ready            string   `json:"ready,omitempty" doc:"The Ready condition: True, or False with the reason the Stage cannot promote"`
 	ReadyMessage     string   `json:"readyMessage,omitempty" doc:"Why the Stage cannot promote, in words, when Ready is not True"`
 	Actions          []string `json:"actions" doc:"What the caller's class may ask for here: promote, unfreeze"`
-	Rung             string   `json:"rung,omitempty" doc:"observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one"`
+	Level            string   `json:"level,omitempty" doc:"observe, advise, auto-nonbreaking or autonomous; empty when the Stage does not report one"`
 	// Shadow is set on an observe Stage only: newest first.
 	Shadow []ShadowDecision `json:"shadow,omitempty" doc:"On an observe Stage: what Pacto would have done with each candidate and what GitOps did, newest first. Advisory, not signed"`
 }
@@ -335,9 +335,9 @@ func environmentRow(st delivery.StageObject, held map[string]int, caller deliver
 	row := EnvironmentRow{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Service: st.Spec.Service.Name, Environment: st.Spec.Environment,
 		Pointer: ss.Pointer, Verified: slices.Contains(ss.Verified, ss.Pointer), Failed: slices.Contains(ss.FailedDigests, ss.Pointer),
 		Frozen: ss.Frozen, FrozenReason: ss.FrozenReason, AutoHold: ss.AutoHold, Candidate: ss.Candidate, Actions: []string{}}
-	if lad := ladderOf(st); lad.Rung != "" {
-		row.Rung = lad.Rung
-		if lad.Rung == "observe" {
+	if lad := ladderOf(st); lad.Level != "" {
+		row.Level = lad.Level
+		if lad.Level == "observe" {
 			row.Shadow = lad.Shadow
 		}
 	}

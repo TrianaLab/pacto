@@ -26,7 +26,7 @@ import "github.com/trianalab/pacto/v4/pkg/finding"
 // warning (a policy ref nobody enforces, a mutable tag where a digest was wanted) is
 // a real defect in the contract being asserted, and dropping it would report
 // Compliant for a contract `pacto validate` warns about. Structural ERRORS never
-// reach here: they are the Invalid rung, and a caller that has them short-circuits
+// reach here: they are the Invalid level, and a caller that has them short-circuits
 // to its own Invalid before evaluating anything — which is why Invalid is not
 // derived and not spelled here. Evidence ingestion passes runtime findings only
 // because it accepts an already validated record and has no structural findings to

@@ -211,8 +211,8 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-autonomy", Method: http.MethodGet, Path: "/api/delivery/autonomy",
 		Summary: "The path to autonomy",
 		Description: "How many of the services Pacto has seen have a contract, how many promotions in each Stage's window no person asked for " +
-			"or approved, each Stage's rung with the next rung Pacto proposes and its newest would-have decision, and the blockers with a fix " +
-			"to copy. It only reads: a rung moves through a proposed and approved operation."}), s.deliveryAutonomy)
+			"or approved, each Stage's level with the next level Pacto proposes and its newest would-have decision, and the blockers with a fix " +
+			"to copy. It only reads: a level moves through a proposed and approved operation."}), s.deliveryAutonomy)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-published", Method: http.MethodGet, Path: "/api/delivery/published",
 		Summary:     "Published versions",
 		Description: "Per service the caller can see Stages of: the versions its Stages know, whether Flux verified their signature and which Stages run or verified each."}), s.deliveryPublished)
