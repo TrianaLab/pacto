@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -117,5 +118,27 @@ func TestEntitiesCarryOwnerAndCounts(t *testing.T) {
 	}
 	if svcs.Entities[0].Owner != "team-y" || svcs.Entities[1].Owner != "team-x" {
 		t.Fatalf("services = %+v", svcs.Entities)
+	}
+}
+
+// Revisions of one service list newest version first, not in digest order;
+// other services and other kinds keep key order.
+func TestSortEntityRefs_RevisionsNewestVersionFirst(t *testing.T) {
+	refs := []EntityRef{
+		{Kind: KindRevision, Key: "a@1", ParentService: "a", Version: "1.10.0"},
+		{Kind: KindRevision, Key: "b@0", ParentService: "b", Version: "9.0.0"},
+		{Kind: KindRevision, Key: "a@2", ParentService: "a", Version: "1.9.0"},
+		{Kind: KindRevision, Key: "a@0", ParentService: "a", Version: "2.0.0"},
+		{Kind: KindRevision, Key: "a@3", ParentService: "a", Version: "2.0.0"},
+		{Kind: KindService, Key: "a"},
+	}
+	sortEntityRefs(refs)
+	var got []string
+	for _, r := range refs {
+		got = append(got, r.Key)
+	}
+	want := "a@0 a@3 a@1 a@2 b@0 a"
+	if s := strings.Join(got, " "); s != want {
+		t.Errorf("order = %s, want %s", s, want)
 	}
 }

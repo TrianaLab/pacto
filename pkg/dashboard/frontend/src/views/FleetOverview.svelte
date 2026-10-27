@@ -6,7 +6,7 @@
   import { sourceHealthTally, attentionCategoryLabel, ATTENTION_CATEGORIES } from '../lib/entityLabels.ts';
   import { fleetAttentionUrl, fleetSourcesUrl, fleetServicesUrl, fleetOwnersUrl, fleetEntityListUrl } from '../lib/router.ts';
   import { ownershipSegments, ownershipHrefs, readinessSegments } from '../lib/distributions.ts';
-  import { formatDate } from '../lib/dateFormat.ts';
+  import { formatDateTime } from '../lib/dateFormat.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import KnowledgeBanner from '../components/KnowledgeBanner.svelte';
   import StaleRefreshNotice from '../components/StaleRefreshNotice.svelte';
@@ -191,7 +191,7 @@
     <section class="band" id="sec-posture" data-toc="Operational posture" aria-labelledby="ov-posture">
       <h2 id="ov-posture" class="t-section-title">Operational posture</h2>
       <p class="ov-sub t-body-2">
-        Three separate questions about the {totalTargets} operational {totalTargets === 1 ? 'target' : 'targets'} the snapshot knows about — never rolled into one score.
+        Three separate questions about the {formatCount(totalTargets)} operational {totalTargets === 1 ? 'target' : 'targets'} the snapshot knows about — never rolled into one score.
       </p>
       <!-- No summary line under the bars. It restated the Exact and Stale evidence
            buckets in a sentence, so the same two numbers were on the screen twice and a
@@ -256,7 +256,7 @@
     <section class="ov-section" id="sec-attention" data-toc="Needs attention" aria-labelledby="ov-attention">
       <div class="ov-head">
         <h2 id="ov-attention" class="t-section-title">Needs attention</h2>
-        <a class="ov-viewall" href={fleetAttentionUrl()}>View all ({attentionTotal})</a>
+        <a class="ov-viewall" href={fleetAttentionUrl()}>View all ({formatCount(attentionTotal)})</a>
       </div>
       <!-- Triage dimensions, not destinations. Readiness lives here rather than in the
            primary nav: it is declared contract preparedness, one reason a thing needs
@@ -281,7 +281,7 @@
           {/each}
         </ul>
         {#if overview.attention.truncated}
-          <p class="ov-more">Showing {overview.attention.count} of {attentionTotal}. <a href={fleetAttentionUrl()}>See all</a></p>
+          <p class="ov-more">Showing {formatCount(overview.attention.count)} of {formatCount(attentionTotal)}. <a href={fleetAttentionUrl()}>See all</a></p>
         {/if}
       {/if}
     </section>
@@ -289,11 +289,12 @@
     <section class="ov-section" id="sec-evidence" data-toc="Recent evidence" aria-labelledby="ov-evidence">
       <h2 id="ov-evidence" class="t-section-title">Recent evidence</h2>
       {#if overview.recentEvidence.items.length}
+        <p class="ov-sub t-body-2">Newest first.</p>
         <ul class="evi-list pl-list">
           {#each overview.recentEvidence.items as ev}
             <li class="evi-item pl-row">
               <EntityLink ref={ev.target} showStatus={false} />
-              {#if ev.at}<span class="evi-at">{formatDate(ev.at)}</span>{/if}
+              {#if ev.at}<time class="evi-at" datetime={ev.at} title={ev.at}>{formatDateTime(ev.at)}</time>{/if}
             </li>
           {/each}
         </ul>

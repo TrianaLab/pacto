@@ -146,7 +146,7 @@
     countTestid="entity-list-total"
     subtitle={kind === 'target'
       ? `Every place something has been observed running${service ? ' for this service' : ''}. A target is a runtime observation, not a contract.`
-      : `Every known contract revision${service ? ' for this service' : ''}, newest first. A revision is what was declared, whether or not anything runs it.`}
+      : `Every known contract revision${service ? ' for this service, newest version first' : ', by service and newest version first'}. A revision is what was declared, whether or not anything runs it.`}
     asOf={list?.meta?.asOf}
     {revalidating} paging={answer.paging}
   />
@@ -166,7 +166,7 @@
       </label>
     {/if}
     <ListSort value={sort} href={(v) => urlWith({ sort: v })} testid="entity-list-sort"
-      options={[['', isRevisions ? 'Newest first' : 'Default order'], ['name', 'Name'], ['health', 'Least healthy first']]} />
+      options={[['', isRevisions ? (service ? 'Newest version first' : 'By service, newest version first') : 'Default order'], ['name', 'Name'], ['health', 'Least healthy first']]} />
   </div>
   <ActiveFilterChips {chips} onRemove={removeChip} onClear={clearAll} />
 
