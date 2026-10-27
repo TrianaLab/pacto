@@ -23,16 +23,12 @@ ci-chart: crd-sync-check helm-lint helm-template helm-golden helm-unittest helm-
 
 # The chart renders copies of the generated CRDs. helm-golden cannot see a
 # stale delivery copy, because delivery is off by default.
+CHART_CRDS := charts/pacto-operator/files/crds
 .PHONY: crd-sync-check
 crd-sync-check:
 	@echo "==> Checking the chart's CRD copies match config/crd/bases..."
-	@set -e; for pair in "pacto.trianalab.io:charts/pacto-operator/crds" "delivery.pacto.trianalab.io:charts/pacto-operator/files/delivery-crds"; do \
-		group=$${pair%%:*}; dir=$${pair#*:}; \
-		[ "$$(cd config/crd/bases && ls $$group\_*.yaml)" = "$$(ls $$dir)" ] || { echo "$$dir does not hold exactly the $$group CRDs: run make sync-crds"; exit 1; }; \
-		for f in config/crd/bases/$$group\_*.yaml; do \
-			cmp -s "$$f" "$$dir/$$(basename $$f)" || { echo "$$dir/$$(basename $$f) differs from $$f: run make sync-crds"; exit 1; }; \
-		done; \
-	done
+	@diff -r config/crd/bases $(CHART_CRDS) >/dev/null || \
+		{ diff -rq config/crd/bases $(CHART_CRDS); echo "$(CHART_CRDS) does not match config/crd/bases: run make sync-crds" >&2; exit 1; }
 
 ci-fmt:
 	@echo "==> Checking formatting..."

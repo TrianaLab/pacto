@@ -579,14 +579,15 @@ def check_coordinates() -> None:
                 f"generated/_install-command.md, _upgrade-command.md or "
                 "_delivery-install-command.md instead"
             )
-    # The CRD-apply snippet must name exactly the CRDs the chart ships in crds/,
-    # the directory `helm upgrade` never updates. A delivery CRD there would
-    # install delivery on an operator upgrade (they are templates behind
-    # delivery.enabled); a missing one would leave the chart's schema stale.
+    # The CRD-apply snippet, for a cluster that sets crds.install=false, must
+    # name exactly the operator CRDs the chart renders. A delivery CRD there
+    # would install delivery's kinds where delivery is off; a missing one would
+    # leave the operator unable to start.
     for snippet, chart in (("_crd-apply.md", "pacto-operator"),):
         named = sorted(re.findall(r"/config/crd/bases/(\S+\.yaml)",
                                   read(os.path.join(K8S, "docs", "generated", snippet))))
-        shipped = sorted(os.listdir(os.path.join(K8S, "charts", chart, "crds")))
+        shipped = sorted(f for f in os.listdir(os.path.join(K8S, "charts", chart, "files", "crds"))
+                         if not f.startswith("delivery."))
         if named != shipped:
             problems.append(f"{snippet} applies {named}, chart {chart} ships {shipped}")
     # Every pinned image coordinate anywhere on the site, not only the chart's.

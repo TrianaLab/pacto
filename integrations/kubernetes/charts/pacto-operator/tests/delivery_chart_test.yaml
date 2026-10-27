@@ -1,6 +1,5 @@
 suite: delivery in the operator chart
 templates:
-  - templates/delivery/crds.yaml
   - templates/delivery/deployment.yaml
   - templates/delivery/rbac.yaml
   - templates/delivery/admission.yaml
@@ -17,57 +16,14 @@ release:
 set:
   delivery.identities.allowEmptyHumanGroups: true
 tests:
-  - it: renders no delivery object by default
-    template: templates/delivery/crds.yaml
-    capabilities:
-      majorVersion: 1
-      minorVersion: 29
-      apiVersions: []
-    asserts:
-      - hasDocuments:
-          count: 0
-
   - it: renders no promoter by default
     template: templates/delivery/deployment.yaml
     asserts:
       - hasDocuments:
           count: 0
 
-  - it: installs the three delivery CRDs when enabled, each kept on uninstall
-    template: templates/delivery/crds.yaml
-    set:
-      delivery.enabled: true
-    capabilities:
-      majorVersion: 1
-      minorVersion: 30
-      apiVersions:
-        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
-    asserts:
-      - hasDocuments:
-          count: 3
-      - isKind:
-          of: CustomResourceDefinition
-      - equal:
-          path: metadata.annotations["helm.sh/resource-policy"]
-          value: keep
-      - containsDocument:
-          kind: CustomResourceDefinition
-          apiVersion: apiextensions.k8s.io/v1
-          name: stages.delivery.pacto.trianalab.io
-          any: true
-      - containsDocument:
-          kind: CustomResourceDefinition
-          apiVersion: apiextensions.k8s.io/v1
-          name: operations.delivery.pacto.trianalab.io
-          any: true
-      - containsDocument:
-          kind: CustomResourceDefinition
-          apiVersion: apiextensions.k8s.io/v1
-          name: approvals.delivery.pacto.trianalab.io
-          any: true
-
   - it: fails clearly on a cluster without the admission policy API
-    template: templates/delivery/crds.yaml
+    template: templates/delivery/deployment.yaml
     set:
       delivery.enabled: true
     capabilities:
@@ -79,7 +35,7 @@ tests:
           errorPattern: "needs the admissionregistration.k8s.io/v1 ValidatingAdmissionPolicy API"
 
   - it: fails clearly below Kubernetes 1.30
-    template: templates/delivery/crds.yaml
+    template: templates/delivery/deployment.yaml
     set:
       delivery.enabled: true
     capabilities:
@@ -92,7 +48,7 @@ tests:
           errorPattern: "needs Kubernetes 1.30 or later"
 
   - it: installs below 1.30 only when allowUnguarded says so
-    template: templates/delivery/crds.yaml
+    template: templates/delivery/deployment.yaml
     set:
       delivery.enabled: true
       delivery.admissionPolicies.allowUnguarded: true
@@ -101,7 +57,7 @@ tests:
       minorVersion: 29
     asserts:
       - hasDocuments:
-          count: 3
+          count: 1
 
   - it: runs the promoter as its own ServiceAccount, not the operator's
     template: templates/delivery/deployment.yaml

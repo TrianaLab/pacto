@@ -19,6 +19,12 @@ nameOverride: ""
 # -- Override the full release name
 fullnameOverride: ""
 
+crds:
+  # -- Install and upgrade the CRDs with the chart. They are kept on helm
+  # uninstall. Set false to manage them yourself, for example from a separate
+  # GitOps source; the operator needs them before it starts
+  install: true
+
 # -- Registry hosts (`host:port`) to reach over plain HTTP, for a controlled
 # in-cluster registry. Scoped per host, so every other registry stays
 # HTTPS-only. The controller, the managed dashboard and the managed Evidence

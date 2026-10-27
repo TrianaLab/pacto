@@ -1,4 +1,5 @@
 {{- if .Values.delivery.enabled }}
+{{- include "pacto-operator.delivery.gate" . }}
 {{- with .Values.delivery.promoter.upstreamTrust }}
 # The recorder keys of other clusters whose records an upstreamRecords Stage
 # promotes on, per stream glob. Public keys only.

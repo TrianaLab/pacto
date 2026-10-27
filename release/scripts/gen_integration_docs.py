@@ -1182,15 +1182,12 @@ def gen_delivery_install_command(repo_root: str) -> str:
     )
 
 
-# The CRD apply in upgrade.md used to fetch from `main`, one command above a
-# `helm upgrade` pinned to an exact chart version: the reader was told to install
-# chart X and to apply whatever CRDs happened to be on the default branch that
-# day. Same drift class as the `--version` literal above, so same fix -- pin the
-# ref to the integration release tag the docs describe. The file list is read
-# from config/crd/bases, so a new CRD cannot be left out of the upgrade snippet
-# (`helm upgrade` never adds or updates CRDs). Only the operator's own group: the
-# delivery.pacto.trianalab.io CRDs are chart templates behind delivery.enabled,
-# which helm upgrade installs and updates itself.
+# The CRD apply for a cluster that sets crds.install=false and applies the CRDs
+# itself. It used to fetch from `main` next to a chart pinned to an exact
+# version, the same drift class as the `--version` literal above, so the ref is
+# pinned to the integration release tag the docs describe. The file list is read
+# from config/crd/bases, so a new CRD cannot be left out. Only the operator's own
+# group: the delivery.pacto.trianalab.io CRDs follow delivery.enabled.
 CRD_BASES = "integrations/kubernetes/config/crd/bases"
 RAW_BASE = "https://raw.githubusercontent.com/TrianaLab/pacto"
 

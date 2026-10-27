@@ -48,6 +48,15 @@
     "fullnameOverride": {
       "type": "string"
     },
+    "crds": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "install": {
+          "type": "boolean"
+        }
+      }
+    },
     "insecureRegistries": {
       "type": "array",
       "items": {

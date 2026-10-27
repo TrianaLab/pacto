@@ -254,9 +254,9 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 ##@ Chart
 
 .PHONY: sync-crds
-sync-crds: manifests ## Copy generated CRDs into the operator chart (delivery CRDs as files its templates render).
-	cp config/crd/bases/pacto.trianalab.io_*.yaml charts/pacto-operator/crds/
-	cp config/crd/bases/delivery.pacto.trianalab.io_*.yaml charts/pacto-operator/files/delivery-crds/
+sync-crds: manifests ## Copy the generated CRDs into the operator chart, whose crds.yaml template renders them.
+	rm -f charts/pacto-operator/files/crds/*.yaml
+	cp config/crd/bases/*.yaml charts/pacto-operator/files/crds/
 
 .PHONY: helm-docs
 helm-docs: ## Generate Helm chart documentation with helm-docs.
