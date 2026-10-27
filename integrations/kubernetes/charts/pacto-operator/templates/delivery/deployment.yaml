@@ -1,4 +1,5 @@
 {{- if .Values.delivery.enabled }}
+{{- include "pacto-operator.delivery.gate" . }}
 {{- with .Values.delivery.promoter.upstreamTrust }}
 # The recorder keys of other clusters whose records an upstreamRecords Stage
 # promotes on, per stream glob. Public keys only.
@@ -8,8 +9,7 @@ metadata:
   name: {{ include "pacto-operator.delivery.fullname" $ }}-upstream-trust
   namespace: {{ include "pacto-operator.delivery.namespace" $ }}
   labels:
-    app.kubernetes.io/component: delivery-promoter
-    {{- include "pacto-operator.delivery.labels" $ | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" (dict "ctx" $ "component" "delivery-promoter") | nindent 4 }}
 data:
   trust.yaml: {{ . | quote }}
 ---
@@ -20,35 +20,22 @@ metadata:
   name: {{ include "pacto-operator.delivery.fullname" . }}
   namespace: {{ include "pacto-operator.delivery.namespace" . }}
   labels:
-    app.kubernetes.io/component: delivery-promoter
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter") | nindent 4 }}
 spec:
   replicas: {{ .Values.delivery.replicaCount }}
   selector:
     matchLabels:
-      app.kubernetes.io/component: delivery-promoter
-      {{- include "pacto-operator.delivery.selectorLabels" . | nindent 6 }}
+      {{- include "pacto-operator.delivery.selectorLabels" (dict "ctx" . "component" "delivery-promoter") | nindent 6 }}
   template:
     metadata:
-      labels:
-        app.kubernetes.io/component: delivery-promoter
-        {{- include "pacto-operator.delivery.labels" . | nindent 8 }}
-      annotations:
-        # The promoter reads its identity policy once: a change restarts it.
-        checksum/identities: {{ include "pacto-operator.delivery.identitiesJSON" . | sha256sum }}
+      {{- /* The promoter reads its identity policy once: a change restarts it. */}}
+      {{- $checksum := dict "checksum/identities" (include "pacto-operator.delivery.identitiesJSON" . | sha256sum) }}
+      {{- include "pacto-operator.podMetadata" (dict "ctx" . "values" .Values.delivery "labels" (include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter")) "annotations" $checksum) | trim | nindent 6 }}
     spec:
-      {{- with .Values.delivery.imagePullSecrets }}
-      imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      serviceAccountName: {{ include "pacto-operator.delivery.serviceAccountName" . }}
-      securityContext:
-        {{- toYaml .Values.delivery.podSecurityContext | nindent 8 }}
-      terminationGracePeriodSeconds: 10
+      {{- include "pacto-operator.podSpec" (dict "ctx" . "values" .Values.delivery "serviceAccountName" (include "pacto-operator.delivery.serviceAccountName" .)) | trim | nindent 6 }}
       containers:
         - name: promoter
-          image: {{ include "pacto-operator.delivery.image" . | quote }}
-          imagePullPolicy: {{ .Values.delivery.image.pullPolicy }}
+          {{- include "pacto-operator.image" (dict "ctx" . "image" .Values.delivery.image) | nindent 10 }}
           args:
             - promoter
             - --leader-elect={{ .Values.delivery.promoter.leaderElect }}
@@ -92,27 +79,9 @@ spec:
             - name: PACTO_INSECURE_REGISTRIES
               value: {{ join "," . | quote }}
             {{- end }}
-          ports:
-            - name: health
-              containerPort: 8081
-              protocol: TCP
-            - name: metrics
-              containerPort: 8080
-              protocol: TCP
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: health
-            initialDelaySeconds: 15
-            periodSeconds: 20
-          readinessProbe:
-            httpGet:
-              path: /readyz
-              port: health
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          securityContext:
-            {{- toYaml .Values.delivery.securityContext | nindent 12 }}
+          {{- include "pacto-operator.ports" (dict "metrics" 8080) | nindent 10 }}
+          {{- include "pacto-operator.probes" dict | nindent 10 }}
+          {{- include "pacto-operator.securityContext" (dict "ctx" . "values" .Values.delivery) | nindent 10 }}
           resources:
             {{- toYaml .Values.delivery.resources | nindent 12 }}
           {{- $creds := .Values.delivery.promoter.registryCredentials.secretName }}
@@ -162,16 +131,7 @@ spec:
                 path: {{ .key }}
         {{- end }}
         {{- end }}
-      {{- with .Values.delivery.nodeSelector }}
-      nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.delivery.tolerations }}
-      tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.delivery.affinity }}
-      affinity:
-        {{- toYaml . | nindent 8 }}
+      {{- with include "pacto-operator.scheduling" .Values.delivery | trim }}
+      {{- . | nindent 6 }}
       {{- end }}
 {{- end }}

@@ -79,7 +79,7 @@ kubectl create namespace "$APP_NS" --dry-run=client -o yaml | kubectl apply -f -
 
 echo "== the operator, at its DEFAULT stabilization window =="
 helm install pacto-operator "$CHART" -n "$NS" \
-  --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
+  --set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
   --set dashboard.enabled=false --wait --timeout 240s
 if kubectl -n "$NS" get deploy pacto-operator -o jsonpath='{.spec.template.spec.containers[0].args}' \
   | grep -q 'stabilization-window'; then

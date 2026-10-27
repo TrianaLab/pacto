@@ -10,8 +10,7 @@ kind: Namespace
 metadata:
   name: {{ $ns }}
   labels:
-    {{- include "pacto-operator.labels" . | nindent 4 }}
-    app.kubernetes.io/component: node-agent
+    {{- include "pacto-operator.labels" (dict "ctx" . "component" "node-agent") | nindent 4 }}
     pod-security.kubernetes.io/enforce: privileged
     pod-security.kubernetes.io/audit: privileged
     pod-security.kubernetes.io/warn: privileged
@@ -49,19 +48,5 @@ rules:
     resources: [leases]
     verbs: [create, delete, get, patch, update]
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: {{ include "pacto-operator.fullname" . }}-manager
-  namespace: {{ $ns }}
-  labels:
-    {{- include "pacto-operator.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: {{ include "pacto-operator.fullname" . }}-manager
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "pacto-operator.serviceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
+{{ include "pacto-operator.binding" (dict "kind" "RoleBinding" "name" (printf "%s-manager" (include "pacto-operator.fullname" .)) "namespace" $ns "labels" (include "pacto-operator.labels" .) "serviceAccount" (include "pacto-operator.serviceAccountName" .) "serviceAccountNamespace" .Release.Namespace) }}
 {{- end }}

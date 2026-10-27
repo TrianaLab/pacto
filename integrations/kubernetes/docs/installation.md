@@ -31,9 +31,9 @@ the [published artifacts](artifact-hub.md) page; every value is on the
 
 ## Install with Helm
 
-The chart lives in an OCI registry. Installing it also installs the CRDs
-(bundled under the chart's `crds/` directory) and, by default, a dashboard the
-operator runs for you.
+The chart lives in an OCI registry. Installing it also installs the CRDs and,
+by default, a dashboard the operator runs for you. The CRDs are part of the
+release: `helm upgrade` updates them and `helm uninstall` keeps them.
 
 !!! warning "At chart defaults the operator can escalate its own privileges"
 
@@ -58,6 +58,15 @@ published chart:
 
 --8<-- "integrations/kubernetes/docs/generated/_install-command.md"
 
+To manage the CRDs yourself, for example from a separate GitOps source, set
+`crds.install=false` and apply them before the install. The operator does not
+start without them:
+
+--8<-- "integrations/kubernetes/docs/generated/_crd-apply.md"
+
+With `delivery.enabled=true`, also apply the
+[delivery CRDs](delivery-setup.md#install). `crds.install` covers them too.
+
 ### Common overrides
 
 ```bash
@@ -73,6 +82,20 @@ helm install pacto-operator \
   whole cluster).
 - `metrics.serviceMonitor.enabled` creates a Prometheus `ServiceMonitor`.
 - `dashboard.enabled` turns the operator-managed dashboard on or off.
+
+The CRDs are cluster-wide and belong to one release. For a second release, for
+example one per watched namespace, set `crds.install=false`, or its install
+fails with `invalid ownership metadata`. The same happens on a reinstall under
+a new release name after an uninstall, because the kept CRDs still name the old
+release. Point them at the new one first:
+
+```bash
+for crd in $(kubectl get crd -o name | grep pacto.trianalab.io); do
+  kubectl annotate "$crd" --overwrite \
+    meta.helm.sh/release-name=NEW_RELEASE \
+    meta.helm.sh/release-namespace=NEW_NAMESPACE
+done
+```
 
 Three checks are off by default because they cost something:
 
@@ -301,9 +324,10 @@ helm uninstall pacto-operator --namespace pacto-operator-system
 That removes the controller and everything owner-referenced to it, dashboard and
 Evidence Server included. Five things survive, in any order:
 
-- **The CRDs and your `Pacto` resources.** Helm never deletes CRDs, and deleting
-  them takes every `Pacto`, `PactoRevision` and `NodeRuntimeObservation` with
-  them. No finalizers, so it returns immediately.
+- **The CRDs and your `Pacto` resources.** The chart marks every CRD
+  `helm.sh/resource-policy: keep`, because deleting one takes every `Pacto`,
+  `PactoRevision` and `NodeRuntimeObservation` with it. No finalizers, so the
+  delete returns immediately.
 - **The dashboard's cluster-scoped RBAC**, which a namespaced owner cannot own.
 - **Anything you created by hand**: the Evidence Server's trust Secret, your
   registry-credentials Secret, a `metrics-observation-role` ClusterRole you

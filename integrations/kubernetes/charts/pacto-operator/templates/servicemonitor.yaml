@@ -1,27 +1,3 @@
 {{- if and .Values.metrics.enabled .Values.metrics.serviceMonitor.enabled }}
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: {{ include "pacto-operator.fullname" . }}
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "pacto-operator.labels" . | nindent 4 }}
-spec:
-  endpoints:
-    - port: metrics
-      scheme: {{ if .Values.metrics.secure }}https{{ else }}http{{ end }}
-      {{- if .Values.metrics.secure }}
-      tlsConfig:
-        insecureSkipVerify: true
-      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
-      {{- end }}
-      {{- with .Values.metrics.serviceMonitor.interval }}
-      interval: {{ . }}
-      {{- end }}
-      {{- with .Values.metrics.serviceMonitor.scrapeTimeout }}
-      scrapeTimeout: {{ . }}
-      {{- end }}
-  selector:
-    matchLabels:
-      {{- include "pacto-operator.selectorLabels" . | nindent 6 }}
+{{- include "pacto-operator.serviceMonitor" (dict "name" (include "pacto-operator.fullname" .) "namespace" .Release.Namespace "labels" (include "pacto-operator.labels" .) "selector" (include "pacto-operator.selectorLabels" .) "monitor" .Values.metrics.serviceMonitor "secure" .Values.metrics.secure) }}
 {{- end }}

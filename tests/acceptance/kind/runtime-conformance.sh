@@ -304,7 +304,7 @@ interfaces: [$API]
 YAML
 
 echo "== install the operator with the node agent (publish every 5s, 20s stabilization window) =="
-SETS=(--set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
+SETS=(--set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
       --set dashboard.enabled=false
       --set "insecureRegistries[0]=${REG_HOST}"
       --set nodeAgent.enabled=true --set nodeAgent.publishInterval=5s

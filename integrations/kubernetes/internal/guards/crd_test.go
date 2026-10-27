@@ -12,7 +12,7 @@ import (
 // a cluster that runs both. The pacto-delivery category gives every delivery
 // kind one unambiguous handle: `kubectl get pacto-delivery -A`.
 func TestDeliveryCRDsShareTheCategory(t *testing.T) {
-	for _, dir := range []string{"../../config/crd/bases", "../../charts/pacto-operator/files/delivery-crds"} {
+	for _, dir := range []string{"../../config/crd/bases", "../../charts/pacto-operator/files/crds"} {
 		for _, kind := range []string{"stages", "operations", "approvals"} {
 			path := filepath.Join(dir, "delivery.pacto.trianalab.io_"+kind+".yaml")
 			raw, err := os.ReadFile(path)

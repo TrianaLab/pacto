@@ -60,7 +60,8 @@ tests:
     template: templates/deployment.yaml
     set:
       nodeAgent.enabled: true
-      image.repository: localhost:5001/pacto-operator/pacto-controller
+      image.registry: localhost:5001
+      image.repository: pacto-operator/pacto-controller
       image.tag: 9.9.9
     asserts:
       - equal:

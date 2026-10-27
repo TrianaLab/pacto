@@ -579,16 +579,17 @@ def check_coordinates() -> None:
                 f"generated/_install-command.md, _upgrade-command.md or "
                 "_delivery-install-command.md instead"
             )
-    # The CRD-apply snippet must name exactly the CRDs the chart ships in crds/,
-    # the directory `helm upgrade` never updates. A delivery CRD there would
-    # install delivery on an operator upgrade (they are templates behind
-    # delivery.enabled); a missing one would leave the chart's schema stale.
-    for snippet, chart in (("_crd-apply.md", "pacto-operator"),):
+    # The CRD-apply snippets, for a cluster that sets crds.install=false, must
+    # name exactly the CRDs the chart renders, split by group. A delivery CRD in
+    # the operator snippet would install delivery's kinds where delivery is off;
+    # a missing one would leave the operator or the promoter unable to start.
+    shipped_crds = os.listdir(os.path.join(K8S, "charts", "pacto-operator", "files", "crds"))
+    for snippet, delivery in (("_crd-apply.md", False), ("_delivery-crd-apply.md", True)):
         named = sorted(re.findall(r"/config/crd/bases/(\S+\.yaml)",
                                   read(os.path.join(K8S, "docs", "generated", snippet))))
-        shipped = sorted(os.listdir(os.path.join(K8S, "charts", chart, "crds")))
+        shipped = sorted(f for f in shipped_crds if f.startswith("delivery.") == delivery)
         if named != shipped:
-            problems.append(f"{snippet} applies {named}, chart {chart} ships {shipped}")
+            problems.append(f"{snippet} applies {named}, chart pacto-operator ships {shipped}")
     # Every pinned image coordinate anywhere on the site, not only the chart's.
     # `ghcr.io/trianalab/pacto/demo:3.2.1` sat in the Compose demo page against a
     # 3.2.7 release unit with nothing comparing them, so the page's one

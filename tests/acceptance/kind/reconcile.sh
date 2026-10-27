@@ -29,10 +29,9 @@ build_operator_images "$OP_IMG" "$DASH_IMG" "$VER"
 echo "== package the new chart + a previous-release fixture =="
 NEW_CHART="$(package_chart "$PACTO_CHART")"
 # Faithful previous-release fixture: the same chart at an earlier version. The
-# image is the same local build (a cross-major public-chart in-cluster upgrade is
-# impractical since helm never upgrades crds/; that path is covered by the release
-# dry-run + envtest). The upgrade still exercises a version bump + arg change +
-# rolling restart.
+# image is the same local build (the cross-major upgrade from a real published
+# chart is upgrade-v4-v5.sh). The upgrade still exercises a version bump + arg
+# change + rolling restart.
 PREV_CHART="$(package_chart "$PACTO_CHART" --version 0.0.0-prev --app-version "$VER")"
 
 ensure_cluster
@@ -41,7 +40,7 @@ load_images "$DASH_IMG" "$OP_IMG"
 # Operator image loaded into kind (Never). The dashboard image the operator
 # deploys is its coupled DASHBOARD_IMAGE (also kind-loaded); its tag is a real
 # version so the pod's default pullPolicy is IfNotPresent -> uses the loaded image.
-common_sets=(--set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
+common_sets=(--set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
              --set dashboard.enabled=true)
 
 echo "== install the PREVIOUS fixture =="

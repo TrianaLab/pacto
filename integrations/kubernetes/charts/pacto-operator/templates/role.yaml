@@ -71,18 +71,4 @@ rules:
     verbs: [create, delete, get, patch, update]
   {{- end }}
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: {{ include "pacto-operator.fullname" . }}-manager
-  namespace: {{ .Release.Namespace }}
-  labels:
-    {{- include "pacto-operator.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: {{ include "pacto-operator.fullname" . }}-manager
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "pacto-operator.serviceAccountName" . }}
-    namespace: {{ .Release.Namespace }}
+{{ include "pacto-operator.binding" (dict "kind" "RoleBinding" "name" (printf "%s-manager" (include "pacto-operator.fullname" .)) "namespace" .Release.Namespace "labels" (include "pacto-operator.labels" .) "serviceAccount" (include "pacto-operator.serviceAccountName" .) "serviceAccountNamespace" .Release.Namespace) }}

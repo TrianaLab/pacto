@@ -1,4 +1,10 @@
 {{/*
+Delivery's own helpers, layered on the chart's: names, labels, images, pods,
+bindings and metrics come from templates/_helpers.tpl and
+templates/_resources.tpl. Only what is particular to delivery lives here.
+*/}}
+
+{{/*
 The delivery objects' base name: the operator's fullname plus -delivery, so
 the Deployment, ServiceAccount, roles and policies never collide with the
 operator's own.
@@ -8,25 +14,17 @@ operator's own.
 {{- end }}
 
 {{/*
-Common labels of the delivery objects. They never carry the operator's bare
-selector labels, so the operator's Services and ServiceMonitor select none of
-the delivery pods.
+Labels and selector labels of the delivery objects: the common ones with
+app.kubernetes.io/name <name>-delivery, never the operator's bare name, so the
+operator's Services and ServiceMonitor select none of the delivery pods. Each
+takes the root context, or (dict "ctx" $ "component" "delivery-recorder").
 */}}
 {{- define "pacto-operator.delivery.labels" -}}
-helm.sh/chart: {{ include "pacto-operator.chart" . }}
-{{ include "pacto-operator.delivery.selectorLabels" . }}
-{{- if .Chart.AppVersion }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
-{{- end }}
-app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- include "pacto-operator.labels" (dict "ctx" (.ctx | default .) "part" "delivery" "component" .component) }}
 {{- end }}
 
-{{/*
-Selector labels of the delivery objects.
-*/}}
 {{- define "pacto-operator.delivery.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "pacto-operator.name" . }}-delivery
-app.kubernetes.io/instance: {{ .Release.Name }}
+{{- include "pacto-operator.selectorLabels" (dict "ctx" (.ctx | default .) "part" "delivery" "component" .component) }}
 {{- end }}
 
 {{/*
@@ -50,11 +48,7 @@ delivery.admissionPolicies.allowUnguarded skips the check.
 The promoter's ServiceAccount name.
 */}}
 {{- define "pacto-operator.delivery.serviceAccountName" -}}
-{{- if .Values.delivery.serviceAccount.create }}
-{{- default (include "pacto-operator.delivery.fullname" .) .Values.delivery.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.delivery.serviceAccount.name }}
-{{- end }}
+{{- include "pacto-operator.serviceAccountName.of" (list .Values.delivery.serviceAccount (include "pacto-operator.delivery.fullname" .)) }}
 {{- end }}
 
 {{/*
@@ -76,11 +70,14 @@ A CEL list literal of the given strings.
 The recorder's ServiceAccount name.
 */}}
 {{- define "pacto-operator.delivery.recorderServiceAccountName" -}}
-{{- if .Values.delivery.recorder.serviceAccount.create }}
-{{- default (printf "%s-recorder" (include "pacto-operator.delivery.fullname" .)) .Values.delivery.recorder.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.delivery.recorder.serviceAccount.name }}
+{{- include "pacto-operator.serviceAccountName.of" (list .Values.delivery.recorder.serviceAccount (include "pacto-operator.delivery.recorderName" .)) }}
 {{- end }}
+
+{{/*
+The recorder's base name: its Deployment, roles, ConfigMaps and metrics.
+*/}}
+{{- define "pacto-operator.delivery.recorderName" -}}
+{{- printf "%s-recorder" (include "pacto-operator.delivery.fullname" .) }}
 {{- end }}
 
 {{/*
@@ -119,16 +116,6 @@ every client (CLI, MCP server, dashboard) reads from the published ConfigMap.
 {{- end }}
 
 {{/*
-The container image: repository:tag, pinned as repository:tag@digest when
-image.digest is set. The tag defaults to the chart appVersion.
-*/}}
-{{- define "pacto-operator.delivery.image" -}}
-{{- $ref := printf "%s:%s" .Values.delivery.image.repository (.Values.delivery.image.tag | default .Chart.AppVersion) -}}
-{{- with .Values.delivery.image.digest }}{{ $ref = printf "%s@%s" $ref . }}{{ end -}}
-{{- $ref -}}
-{{- end }}
-
-{{/*
 The namespace delivery runs in. Never the release namespace: the operator
 holds create on Deployments and Secrets there, which would let it run a pod
 as the promoter or mint the promoter's token and move the pointer itself.
@@ -145,4 +132,60 @@ second Namespace of the same name.
 {{- fail "delivery.namespace must not be the node agent namespace: the operator can create DaemonSets and ServiceAccounts there, so it could act as the promoter" }}
 {{- end }}
 {{- $ns }}
+{{- end }}
+
+{{/*
+Read access to what a Stage points at: the OCIRepositories, and the Argo CD
+Applications with delivery.argocd.enabled.
+*/}}
+{{- define "pacto-operator.delivery.rbac.pointerReadRules" -}}
+- apiGroups: [source.toolkit.fluxcd.io]
+  resources: [ocirepositories]
+  verbs: [get]
+{{- if .Values.delivery.argocd.enabled }}
+- apiGroups: [argoproj.io]
+  resources: [applications]
+  verbs: [get]
+{{- end }}
+{{- end }}
+
+{{/*
+The cluster's identity: the kube-system Namespace, whose UID names the
+cluster in operations and records.
+*/}}
+{{- define "pacto-operator.delivery.rbac.clusterIdentityRule" -}}
+- apiGroups: [""]
+  resources: [namespaces]
+  resourceNames: [kube-system]
+  verbs: [get]
+{{- end }}
+
+{{/*
+What an agent may do: propose, read and cancel operations, read Stages and
+approvals and what they point at, and read the Pactos and Kustomizations
+planning needs. (dict "ctx" $ "approver" true) adds creating Approvals.
+*/}}
+{{- define "pacto-operator.delivery.rbac.agentRules" -}}
+- apiGroups: [delivery.pacto.trianalab.io]
+  resources: [operations]
+  verbs: [get, list, watch, create, delete]
+{{- if .approver }}
+- apiGroups: [delivery.pacto.trianalab.io]
+  resources: [approvals]
+  verbs: [get, list, watch, create]
+- apiGroups: [delivery.pacto.trianalab.io]
+  resources: [stages]
+  verbs: [get, list, watch]
+{{- else }}
+- apiGroups: [delivery.pacto.trianalab.io]
+  resources: [stages, approvals]
+  verbs: [get, list, watch]
+{{- end }}
+{{ include "pacto-operator.delivery.rbac.pointerReadRules" .ctx }}
+- apiGroups: [kustomize.toolkit.fluxcd.io]
+  resources: [kustomizations]
+  verbs: [list]
+- apiGroups: [pacto.trianalab.io]
+  resources: [pactos]
+  verbs: [get, list]
 {{- end }}

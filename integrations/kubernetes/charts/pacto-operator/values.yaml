@@ -1,9 +1,45 @@
+global:
+  # -- Registry of every image the chart runs (the controller, the delivery
+  # promoter and the recorder), unless an image sets its own `registry`. Set it
+  # empty to give each `repository` as a whole reference.
+  imageRegistry: ghcr.io
+  # -- Image pull secrets for every pod the chart runs, before each
+  # component's own
+  imagePullSecrets: []
+  # -- Labels added to every object the chart renders
+  commonLabels: {}
+  # Pod securityContext of every pod the chart runs, unless a component sets
+  # its own `podSecurityContext`
+  podSecurityContext:
+    # -- Run pod as non-root
+    runAsNonRoot: true
+    seccompProfile:
+      # -- Seccomp profile type
+      type: RuntimeDefault
+  # Container securityContext of every container the chart runs, unless a
+  # component sets its own `securityContext`
+  securityContext:
+    # -- Disallow privilege escalation
+    allowPrivilegeEscalation: false
+    capabilities:
+      # -- Drop all capabilities
+      drop:
+        - ALL
+    # -- Read-only root filesystem
+    readOnlyRootFilesystem: true
+    # -- Run as non-root
+    runAsNonRoot: true
+    # -- Run as UID 65532 (nonroot in distroless)
+    runAsUser: 65532
+
 # -- Number of controller replicas
 replicaCount: 1
 
 image:
+  # -- Controller image registry (defaults to `global.imageRegistry`)
+  registry: ""
   # -- Controller image repository
-  repository: ghcr.io/trianalab/pacto/operator
+  repository: trianalab/pacto/operator
   # -- Image pull policy
   pullPolicy: IfNotPresent
   # -- Overrides the image tag (default is the chart appVersion)
@@ -12,12 +48,22 @@ image:
   # the runtime pulls exactly that image whatever the tag resolves to later
   digest: ""
 
-# -- Image pull secrets for private registries
+# -- Image pull secrets of the controller pod, after `global.imagePullSecrets`.
+# The managed node agent gets them too
 imagePullSecrets: []
 # -- Override the chart name
 nameOverride: ""
 # -- Override the full release name
 fullnameOverride: ""
+
+crds:
+  # -- Install and upgrade the CRDs with the chart, the delivery CRDs too when
+  # `delivery.enabled`. They are kept on helm uninstall. Only one release in a
+  # cluster can own them: every other release, for example one per watched
+  # namespace, sets false. Set false to manage them yourself, for example from
+  # a separate GitOps source; the operator and delivery need them before they
+  # start
+  install: true
 
 # -- Registry hosts (`host:port`) to reach over plain HTTP, for a controlled
 # in-cluster registry. Scoped per host, so every other registry stays
@@ -40,26 +86,11 @@ podAnnotations: {}
 # -- Labels to add to the controller pod
 podLabels: {}
 
-podSecurityContext:
-  # -- Run pod as non-root
-  runAsNonRoot: true
-  seccompProfile:
-    # -- Seccomp profile type
-    type: RuntimeDefault
+# -- Pod securityContext of the controller (defaults to `global.podSecurityContext`)
+podSecurityContext: {}
 
-securityContext:
-  # -- Disallow privilege escalation
-  allowPrivilegeEscalation: false
-  capabilities:
-    # -- Drop all capabilities
-    drop:
-      - ALL
-  # -- Read-only root filesystem
-  readOnlyRootFilesystem: true
-  # -- Run as non-root
-  runAsNonRoot: true
-  # -- Run as UID 65532 (nonroot in distroless)
-  runAsUser: 65532
+# -- Container securityContext of the controller (defaults to `global.securityContext`)
+securityContext: {}
 
 resources:
   limits:
@@ -394,8 +425,10 @@ delivery:
   replicaCount: 1
 
   image:
-    # -- Promoter image repository (the pacto-delivery image)
-    repository: ghcr.io/trianalab/pacto/delivery
+    # -- Promoter and recorder image registry (defaults to `global.imageRegistry`)
+    registry: ""
+    # -- Promoter and recorder image repository (the pacto-delivery image)
+    repository: trianalab/pacto/delivery
     # -- Image pull policy
     pullPolicy: IfNotPresent
     # -- Overrides the image tag (default is the chart appVersion)
@@ -404,8 +437,13 @@ delivery:
     # the runtime pulls exactly that image whatever the tag resolves to later
     digest: ""
 
-  # -- Image pull secrets for private registries
+  # -- Image pull secrets of the promoter and the recorder, after `global.imagePullSecrets`
   imagePullSecrets: []
+
+  # -- Annotations to add to the promoter and recorder pods
+  podAnnotations: {}
+  # -- Labels to add to the promoter and recorder pods
+  podLabels: {}
 
   serviceAccount:
     # -- Create a ServiceAccount for the promoter
@@ -607,26 +645,11 @@ delivery:
     # the chart refuses either unless this is set.
     allowUnguarded: false
 
-  podSecurityContext:
-    # -- Run pod as non-root
-    runAsNonRoot: true
-    seccompProfile:
-      # -- Seccomp profile type
-      type: RuntimeDefault
+  # -- Pod securityContext of the promoter and the recorder (defaults to `global.podSecurityContext`)
+  podSecurityContext: {}
 
-  securityContext:
-    # -- Disallow privilege escalation
-    allowPrivilegeEscalation: false
-    capabilities:
-      # -- Drop all capabilities
-      drop:
-        - ALL
-    # -- Read-only root filesystem
-    readOnlyRootFilesystem: true
-    # -- Run as non-root
-    runAsNonRoot: true
-    # -- Run as UID 65532 (nonroot in distroless)
-    runAsUser: 65532
+  # -- Container securityContext of the promoter and the recorder (defaults to `global.securityContext`)
+  securityContext: {}
 
   resources:
     limits:

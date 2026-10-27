@@ -156,7 +156,7 @@ kubectl -n "$NS" create configmap fixture-trace-export --from-literal=traces.jso
 
 echo "== install the operator with four declared observation sources =="
 helm install pacto-operator "$CHART" -n "$NS" \
-  --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
+  --set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
   --set dashboard.enabled=true \
   --set 'dashboard.observation.sources[0].name=orders-traces' \
   --set 'dashboard.observation.sources[0].file=traces.json' \
@@ -263,7 +263,7 @@ kill "$DASH_PF" 2>/dev/null || true
 echo "== force a configured source to fail: drop one source, repoint the other =="
 BEFORE="$(kubectl -n "$NS" get deployment pacto-dashboard -o jsonpath='{.metadata.generation}')"
 helm upgrade pacto-operator "$CHART" -n "$NS" \
-  --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
+  --set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
   --set dashboard.enabled=true \
   --set 'dashboard.observation.sources[0].name=orders-traces' \
   --set 'dashboard.observation.sources[0].file=absent.json' \

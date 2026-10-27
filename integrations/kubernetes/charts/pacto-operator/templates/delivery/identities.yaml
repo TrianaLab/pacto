@@ -13,8 +13,7 @@ metadata:
   name: pacto-delivery-identities
   namespace: {{ include "pacto-operator.delivery.namespace" . }}
   labels:
-    app.kubernetes.io/component: delivery-promoter
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter") | nindent 4 }}
 data:
   policy.json: {{ include "pacto-operator.delivery.identitiesJSON" . | quote }}
 ---
@@ -31,19 +30,5 @@ rules:
     resourceNames: [pacto-delivery-identities]
     verbs: [get]
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: {{ include "pacto-operator.delivery.fullname" . }}-identities-reader
-  namespace: {{ include "pacto-operator.delivery.namespace" . }}
-  labels:
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: {{ include "pacto-operator.delivery.fullname" . }}-identities-reader
-subjects:
-  - apiGroup: rbac.authorization.k8s.io
-    kind: Group
-    name: system:authenticated
+{{ include "pacto-operator.binding" (dict "kind" "RoleBinding" "name" (printf "%s-identities-reader" (include "pacto-operator.delivery.fullname" .)) "namespace" (include "pacto-operator.delivery.namespace" .) "labels" (include "pacto-operator.delivery.labels" .) "group" "system:authenticated") }}
 {{- end }}

@@ -1,16 +1,6 @@
 {{- if .Values.delivery.enabled }}
 {{- if .Values.delivery.serviceAccount.create }}
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: {{ include "pacto-operator.delivery.serviceAccountName" . }}
-  namespace: {{ include "pacto-operator.delivery.namespace" . }}
-  labels:
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
-  {{- with .Values.delivery.serviceAccount.annotations }}
-  annotations:
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
+{{- include "pacto-operator.serviceAccount" (dict "name" (include "pacto-operator.delivery.serviceAccountName" .) "namespace" (include "pacto-operator.delivery.namespace" .) "labels" (include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter")) "sa" .Values.delivery.serviceAccount) }}
 ---
 {{- end }}
 # The promoter: it writes delivery status, raises its own operations, reads
@@ -24,7 +14,7 @@ kind: ClusterRole
 metadata:
   name: {{ include "pacto-operator.delivery.fullname" . }}-promoter
   labels:
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+    {{- include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter") | nindent 4 }}
 rules:
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [stages]
@@ -72,25 +62,9 @@ rules:
   - apiGroups: [batch]
     resources: [jobs, cronjobs]
     verbs: [get]
-  - apiGroups: [""]
-    resources: [namespaces]
-    resourceNames: [kube-system]
-    verbs: [get]
+  {{- include "pacto-operator.delivery.rbac.clusterIdentityRule" . | nindent 2 }}
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: {{ include "pacto-operator.delivery.fullname" . }}-promoter
-  labels:
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: {{ include "pacto-operator.delivery.fullname" . }}-promoter
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "pacto-operator.delivery.serviceAccountName" . }}
-    namespace: {{ include "pacto-operator.delivery.namespace" . }}
+{{ include "pacto-operator.binding" (dict "kind" "ClusterRoleBinding" "name" (printf "%s-promoter" (include "pacto-operator.delivery.fullname" .)) "labels" (include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-promoter")) "serviceAccount" (include "pacto-operator.delivery.serviceAccountName" .) "serviceAccountNamespace" (include "pacto-operator.delivery.namespace" .)) }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -100,28 +74,9 @@ metadata:
   labels:
     {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 rules:
-  - apiGroups: [coordination.k8s.io]
-    resources: [leases]
-    verbs: [get, list, watch, create, update, patch, delete]
-  - apiGroups: [""]
-    resources: [events]
-    verbs: [create, patch]
+  {{- include "pacto-operator.rbac.leaderElectionRules" . | nindent 2 }}
 ---
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: {{ include "pacto-operator.delivery.fullname" . }}-leader-election
-  namespace: {{ include "pacto-operator.delivery.namespace" . }}
-  labels:
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: {{ include "pacto-operator.delivery.fullname" . }}-leader-election
-subjects:
-  - kind: ServiceAccount
-    name: {{ include "pacto-operator.delivery.serviceAccountName" . }}
-    namespace: {{ include "pacto-operator.delivery.namespace" . }}
+{{ include "pacto-operator.binding" (dict "kind" "RoleBinding" "name" (printf "%s-leader-election" (include "pacto-operator.delivery.fullname" .)) "namespace" (include "pacto-operator.delivery.namespace" .) "labels" (include "pacto-operator.delivery.labels" .) "serviceAccount" (include "pacto-operator.delivery.serviceAccountName" .) "serviceAccountNamespace" (include "pacto-operator.delivery.namespace" .)) }}
 ---
 # Bind this to agents (their own service accounts, or the agent group): they
 # may propose and read operations, cancel the ones they proposed (admission
@@ -135,26 +90,7 @@ metadata:
   labels:
     {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 rules:
-  - apiGroups: [delivery.pacto.trianalab.io]
-    resources: [operations]
-    verbs: [get, list, watch, create, delete]
-  - apiGroups: [delivery.pacto.trianalab.io]
-    resources: [stages, approvals]
-    verbs: [get, list, watch]
-  - apiGroups: [source.toolkit.fluxcd.io]
-    resources: [ocirepositories]
-    verbs: [get]
-  {{- if .Values.delivery.argocd.enabled }}
-  - apiGroups: [argoproj.io]
-    resources: [applications]
-    verbs: [get]
-  {{- end }}
-  - apiGroups: [kustomize.toolkit.fluxcd.io]
-    resources: [kustomizations]
-    verbs: [list]
-  - apiGroups: [pacto.trianalab.io]
-    resources: [pactos]
-    verbs: [get, list]
+  {{- include "pacto-operator.delivery.rbac.agentRules" (dict "ctx" .) | nindent 2 }}
 ---
 # Bind this to the people who may approve: everything an agent may do, plus
 # creating Approvals. Admission still refuses an approval from a service
@@ -166,27 +102,5 @@ metadata:
   labels:
     {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
 rules:
-  - apiGroups: [delivery.pacto.trianalab.io]
-    resources: [operations]
-    verbs: [get, list, watch, create, delete]
-  - apiGroups: [delivery.pacto.trianalab.io]
-    resources: [approvals]
-    verbs: [get, list, watch, create]
-  - apiGroups: [delivery.pacto.trianalab.io]
-    resources: [stages]
-    verbs: [get, list, watch]
-  - apiGroups: [source.toolkit.fluxcd.io]
-    resources: [ocirepositories]
-    verbs: [get]
-  {{- if .Values.delivery.argocd.enabled }}
-  - apiGroups: [argoproj.io]
-    resources: [applications]
-    verbs: [get]
-  {{- end }}
-  - apiGroups: [kustomize.toolkit.fluxcd.io]
-    resources: [kustomizations]
-    verbs: [list]
-  - apiGroups: [pacto.trianalab.io]
-    resources: [pactos]
-    verbs: [get, list]
+  {{- include "pacto-operator.delivery.rbac.agentRules" (dict "ctx" . "approver" true) | nindent 2 }}
 {{- end }}

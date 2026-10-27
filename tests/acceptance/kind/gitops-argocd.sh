@@ -199,7 +199,7 @@ done
 
 echo "== the operator =="
 helm install pacto-operator "$CHART" -n "$NS" \
-  --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
+  --set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
   --set dashboard.enabled=false --wait --timeout 240s
 
 echo "== an in-cluster OCI registry to publish the Application's manifests to =="

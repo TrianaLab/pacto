@@ -254,9 +254,9 @@ build-installer: manifests generate kustomize ## Generate a consolidated YAML wi
 ##@ Chart
 
 .PHONY: sync-crds
-sync-crds: manifests ## Copy generated CRDs into the operator chart (delivery CRDs as files its templates render).
-	cp config/crd/bases/pacto.trianalab.io_*.yaml charts/pacto-operator/crds/
-	cp config/crd/bases/delivery.pacto.trianalab.io_*.yaml charts/pacto-operator/files/delivery-crds/
+sync-crds: manifests ## Copy the generated CRDs into the operator chart, whose crds.yaml template renders them.
+	rm -f charts/pacto-operator/files/crds/*.yaml
+	cp config/crd/bases/*.yaml charts/pacto-operator/files/crds/
 
 .PHONY: helm-docs
 helm-docs: ## Generate Helm chart documentation with helm-docs.
@@ -292,6 +292,7 @@ helm-install: docker-build ## Build image and install the Helm chart to the curr
 	helm install $(HELM_RELEASE) charts/pacto-operator \
 		--namespace $(HELM_NAMESPACE) \
 		--create-namespace \
+		--set global.imageRegistry= \
 		--set image.repository=$(shell echo $(IMG) | cut -d: -f1) \
 		--set image.tag=$(VERSION) \
 		--set image.pullPolicy=Never \
@@ -306,6 +307,7 @@ helm-upgrade: docker-build ## Build image and upgrade the Helm release.
 	@echo "==> Upgrading $(HELM_RELEASE) with image $(IMG)..."
 	helm upgrade $(HELM_RELEASE) charts/pacto-operator \
 		--namespace $(HELM_NAMESPACE) \
+		--set global.imageRegistry= \
 		--set image.repository=$(shell echo $(IMG) | cut -d: -f1) \
 		--set image.tag=$(VERSION) \
 		--set image.pullPolicy=Never \

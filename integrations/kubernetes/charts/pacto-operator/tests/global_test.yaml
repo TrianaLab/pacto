@@ -1,0 +1,140 @@
+suite: global values
+templates:
+  - templates/deployment.yaml
+  - templates/serviceaccount.yaml
+  - templates/delivery/deployment.yaml
+  - templates/delivery/recorder.yaml
+release:
+  name: d
+  namespace: pacto-system
+set:
+  delivery.enabled: true
+  delivery.identities.allowEmptyHumanGroups: true
+  delivery.recorder.enabled: true
+  delivery.recorder.streamsRepository: registry.example/pacto/streams
+  delivery.recorder.signing.ed25519.secretName: recorder-key
+  delivery.recorder.signing.allowOperatorReadableKey: true
+chart:
+  appVersion: 9.9.9
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: moves every image to global.imageRegistry
+    set:
+      global.imageRegistry: mirror.example
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: mirror.example/trianalab/pacto/operator:9.9.9
+        template: templates/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: mirror.example/trianalab/pacto/delivery:9.9.9
+        template: templates/delivery/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: mirror.example/trianalab/pacto/delivery:9.9.9
+        template: templates/delivery/recorder.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: lets an image's own registry win over the global one
+    set:
+      delivery.image.registry: registry.example.com
+      delivery.image.repository: pacto-delivery
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: registry.example.com/pacto-delivery:9.9.9
+        template: templates/delivery/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: ghcr.io/trianalab/pacto/operator:9.9.9
+        template: templates/deployment.yaml
+
+  - it: takes the repository as the whole reference with no registry
+    set:
+      global.imageRegistry: ""
+      image.repository: localhost:5001/pacto-operator/pacto-controller
+    template: templates/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: localhost:5001/pacto-operator/pacto-controller:9.9.9
+
+  - it: gives every pod the global pull secrets before its own
+    set:
+      nodeAgent.enabled: true
+      global.imagePullSecrets: [{name: shared}]
+      imagePullSecrets: [{name: operator}]
+      delivery.imagePullSecrets: [{name: delivery}]
+    asserts:
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value: [{name: shared}, {name: operator}]
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --node-agent-image-pull-secret=shared
+        template: templates/deployment.yaml
+      - equal:
+          path: spec.template.spec.imagePullSecrets
+          value: [{name: shared}, {name: delivery}]
+        template: templates/delivery/deployment.yaml
+
+  - it: adds global.commonLabels to objects and pods, never to selectors
+    set:
+      global.commonLabels: {team: platform}
+    asserts:
+      - equal:
+          path: metadata.labels.team
+          value: platform
+        template: templates/serviceaccount.yaml
+      - equal:
+          path: spec.template.metadata.labels.team
+          value: platform
+        template: templates/delivery/deployment.yaml
+      - notExists:
+          path: spec.selector.matchLabels.team
+        template: templates/deployment.yaml
+      - notExists:
+          path: spec.selector.matchLabels.team
+        template: templates/delivery/deployment.yaml
+
+  - it: runs every container with the global securityContext unless a component sets its own
+    set:
+      delivery.securityContext: {runAsUser: 1000}
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 65532
+        template: templates/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value: {runAsUser: 1000}
+        template: templates/delivery/deployment.yaml
+      - equal:
+          path: spec.template.spec.securityContext
+          value: {runAsNonRoot: true, seccompProfile: {type: RuntimeDefault}}
+        template: templates/delivery/recorder.yaml
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: annotates the delivery pods, keeping the promoter's identities checksum
+    set:
+      delivery.podAnnotations: {a: b, checksum/identities: forged}
+      delivery.podLabels: {c: d}
+    template: templates/delivery/deployment.yaml
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations.a
+          value: b
+      - notEqual:
+          path: spec.template.metadata.annotations["checksum/identities"]
+          value: forged
+      - equal:
+          path: spec.template.metadata.labels.c
+          value: d

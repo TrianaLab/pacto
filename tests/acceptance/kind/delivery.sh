@@ -367,7 +367,7 @@ infra "install Flux" kubectl apply --server-side -f "$FLUX_INSTALL" >/dev/null
 kubectl -n flux-system scale deploy helm-controller --replicas=0 >/dev/null 2>&1 || true
 helm upgrade --install pacto-operator "$OP_CHART" -n "$NS" ${OP_HEALTH[@]+"${OP_HEALTH[@]}"} \
   ${DL_HEALTH[@]+"${DL_HEALTH[@]}"} ${DL_FRESH[@]+"${DL_FRESH[@]}"} \
-  --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
+  --set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never \
   --set dashboard.enabled=true --set dashboard.auth.oidc.issuerURL="$DEX_ISSUER" \
   --set dashboard.auth.oidc.clientID=pacto-dashboard --set dashboard.auth.oidc.redirectURL="$DASH_URL/auth/callback" \
   --set dashboard.auth.oidc.clientSecretRef.name=dashboard-oidc \

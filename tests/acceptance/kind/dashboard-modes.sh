@@ -48,7 +48,7 @@ helm_teardown "$NS"
 # Image loaded into kind: operator via image.pullPolicy=Never; the dashboard image
 # the operator deploys is its coupled DASHBOARD_IMAGE (also loaded, non-latest tag
 # -> default IfNotPresent uses the loaded image). Short window keeps things fast.
-SETS=(--set image.repository="$OP_REPO" --set image.tag="$TAG" --set image.pullPolicy=Never
+SETS=(--set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$TAG" --set image.pullPolicy=Never
       --set controller.stabilizationWindow=5s)
 
 # Assert the operator Deployment is Available with a single Running pod at ZERO
