@@ -41,7 +41,8 @@ import (
 
 // TestPerfPromoter: a burst of 200 promotes, one per Stage, against a real
 // apiserver with the promoter's reconcilers running in a manager as
-// cmd/delivery wires them (4 workers, a 3s poll, client-go's 20/30 QPS).
+// cmd/delivery wires them (4 workers, a 3s operation poll, Stages woken by
+// watches with a 60s resync, a 50/100 QPS client).
 // It measures how long each promote takes to move its pointer, the deepest
 // the operation queue gets and how many apiserver requests one operation
 // costs. Run it with `make perf-envtest`.
@@ -58,7 +59,7 @@ func TestPerfPromoter(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = te.Stop() })
-	cfg.QPS, cfg.Burst = 20, 30 // what ctrl.GetConfig gives the promoter
+	cfg.QPS, cfg.Burst = 50, 100 // the promoter's --kube-api-qps and --kube-api-burst
 	var calls atomic.Int64
 	var byKindMu sync.Mutex
 	byKind := map[string]int{}
@@ -150,21 +151,17 @@ func TestPerfPromoter(t *testing.T) {
 		return c.Status().Update(ctx, k)
 	})
 
-	opts := ctrl.Options{Scheme: newScheme(), Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0"}
-	if os.Getenv("PERF_CACHE_UNSTRUCTURED") != "" {
-		opts.Client.Cache = &client.CacheOptions{Unstructured: true}
-	}
-	mgr, err := ctrl.NewManager(counted, opts)
+	mgr, err := ctrl.NewManager(counted, ctrl.Options{Scheme: newScheme(), Metrics: metricsserver.Options{BindAddress: "0"}, HealthProbeBindAddress: "0"})
 	must(t, err)
 	reg := &fakeRegistry{contracts: map[string]string{dA: contractRef(c1), dB: contractRef(c2)},
 		bundles: map[string]*contract.Bundle{contractRef(c1): bundle("1.0.0"), contractRef(c2): bundle("1.1.0")}}
-	cluster := Cluster{Client: mgr.GetClient(), Registry: func(...string) delivery.Registry { return reg }}
+	cluster := Cluster{Client: mgr.GetClient(), Cache: mgr.GetCache(), Registry: func(...string) delivery.Registry { return reg }}
 	policy := delivery.ClassPolicy{ControllerUser: promoterSA, AgentGroups: []string{"pacto:agents"}, BreakGlassGroups: []string{"pacto:break-glass"}}
 	gates := NewGates(cluster, map[string]delivery.Gate{"mira": &fakeHealth{result: delivery.Pass}})
 	must(t, (&OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster, Policy: policy,
 		Workers: 4, Gates: gates, Now: time.Now, Poll: 3 * time.Second}).SetupWithManager(mgr))
 	must(t, (&StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster, Policy: policy,
-		Workers: 4, ClusterID: "cid", Gates: gates, Now: time.Now, Poll: 3 * time.Second}).SetupWithManager(mgr))
+		Workers: 4, ClusterID: "cid", Gates: gates, Now: time.Now, Resync: DefaultResync}).SetupWithManager(mgr))
 	go func() { _ = mgr.Start(ctx) }()
 	if !mgr.GetCache().WaitForCacheSync(ctx) {
 		t.Fatal("the cache never synced")

@@ -399,7 +399,7 @@ func (r *OperationReconciler) running(ctx context.Context, op *dv1.Operation, st
 			return reconcile.Result{}, err
 		}
 	}
-	a, err := r.Cluster.applier(ctx, op.Namespace, stage.Spec.ApplyRef)
+	a, err := r.Cluster.freshApplier(ctx, op.Namespace, stage.Spec.ApplyRef)
 	if err != nil {
 		op.Status.Message = "reading the apply OCIRepository: " + err.Error()
 		return r.save(ctx, op)

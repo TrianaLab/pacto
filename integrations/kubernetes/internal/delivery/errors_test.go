@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/rest"
 	ctrlrt "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -216,23 +217,35 @@ func TestWorkloadLookup(t *testing.T) {
 	}
 }
 
+// TestSetupWithManager: the reconcilers register, watching the Flux and Argo
+// CD kinds the cluster serves and skipping the ones it does not.
 func TestSetupWithManager(t *testing.T) {
-	mapper := meta.NewDefaultRESTMapper(nil)
-	mapper.Add(dv1.GroupVersion.WithKind("Approval"), meta.RESTScopeNamespace)
-	mgr, err := ctrlrt.NewManager(&rest.Config{Host: "https://127.0.0.1:1"}, ctrlrt.Options{Scheme: newScheme(),
-		Metrics:        metricsserver.Options{BindAddress: "0"},
-		MapperProvider: func(*rest.Config, *http.Client) (meta.RESTMapper, error) { return mapper, nil }})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := (&OperationReconciler{}).SetupWithManager(mgr); err != nil {
-		t.Fatal(err)
-	}
-	if err := (&Recorder{}).SetupWithManager(mgr); err != nil {
-		t.Fatal(err)
-	}
-	if err := (&StageReconciler{}).SetupWithManager(mgr); err != nil {
-		t.Fatal(err)
+	for _, flux := range []bool{false, true} {
+		mapper := meta.NewDefaultRESTMapper(nil)
+		mapper.Add(dv1.GroupVersion.WithKind("Approval"), meta.RESTScopeNamespace)
+		mapper.Add(dv1.GroupVersion.WithKind("Stage"), meta.RESTScopeNamespace)
+		if flux {
+			mapper.Add(gvkOCIRepository, meta.RESTScopeNamespace)
+			mapper.Add(gvkKustomization.GroupVersion().WithKind("Kustomization"), meta.RESTScopeNamespace)
+			mapper.Add(gvkApplication, meta.RESTScopeNamespace)
+		}
+		skip := true
+		mgr, err := ctrlrt.NewManager(&rest.Config{Host: "https://127.0.0.1:1"}, ctrlrt.Options{Scheme: newScheme(),
+			Metrics:        metricsserver.Options{BindAddress: "0"},
+			Controller:     config.Controller{SkipNameValidation: &skip},
+			MapperProvider: func(*rest.Config, *http.Client) (meta.RESTMapper, error) { return mapper, nil }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := (&OperationReconciler{}).SetupWithManager(mgr); err != nil {
+			t.Fatal(err)
+		}
+		if err := (&Recorder{}).SetupWithManager(mgr); err != nil {
+			t.Fatal(err)
+		}
+		if err := (&StageReconciler{Cluster: Cluster{CacheApplications: true}}).SetupWithManager(mgr); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
