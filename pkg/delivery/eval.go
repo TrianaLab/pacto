@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"slices"
 	"strconv"
 	"strings"
@@ -222,7 +221,7 @@ func EvalVerdicts(p RecordPredicate, providers []string) []Verdict {
 // signature beside the recorder's.
 type Eval struct {
 	URL    string
-	Client *http.Client
+	Client Doer
 	// Verify checks the runner's signature. Without it every answer is
 	// Unknown.
 	Verify RunnerVerifier

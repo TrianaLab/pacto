@@ -306,11 +306,18 @@ func noRedirects(client *http.Client) *http.Client {
 	return c
 }
 
+// Doer sends one HTTP request: an *http.Client, or anything that answers like
+// one. The browser demo answers a suite gate in the tab this way, without
+// linking an HTTP client and TLS into its download.
+type Doer interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
 // postJSON posts body to u and decodes a 2xx answer into out, tolerating
 // fields it does not know: a provider's answer is not a schema Pacto owns.
 // Its errors name the provider by where(u) and never echo the answer's body:
 // they end up in Operation status and signed records.
-func postJSON(ctx context.Context, client *http.Client, u string, body, out any) error {
+func postJSON(ctx context.Context, client Doer, u string, body, out any) error {
 	b, _ := json.Marshal(body)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader(b))
 	if err != nil {

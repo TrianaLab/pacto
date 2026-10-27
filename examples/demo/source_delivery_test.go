@@ -161,7 +161,7 @@ func storyReplayed(t *testing.T, d *demoDelivery) {
 	for _, s := range stages {
 		cands[s.Metadata.Name] = versionOf(s.Metadata.Name, s.Status.Candidate)
 	}
-	if want := map[string]string{"payments": "3.0.0", "checkout": "1.9.0", "fraud": "1.0.0", "orders": ""}; !maps.Equal(cands, want) {
+	if want := map[string]string{"payments": "3.0.0", "checkout": "1.9.0", "fraud": "1.0.0", "orders": "", "pay-agent": ""}; !maps.Equal(cands, want) {
 		t.Fatalf("prod candidates %v, want %v", cands, want)
 	}
 
@@ -288,7 +288,7 @@ func storyProblems(t *testing.T, d *demoDelivery) {
 		t.Fatalf("test history: %+v", th)
 	}
 	fh, _ := d.History(t.Context(), story.Test, "fraud")
-	if fh.Source != delivery.SourceStatus || len(fh.Entries) != 1 {
+	if fh.Source != delivery.SourceStatus || len(fh.Entries) != 0 { // it observes: GitOps moved it, not an operation
 		t.Fatalf("fraud history: %+v", fh)
 	}
 
@@ -296,6 +296,53 @@ func storyProblems(t *testing.T, d *demoDelivery) {
 	r, _ := d.PublishRefusals(t.Context(), "")
 	if len(r.Refusals) != 1 || r.Refusals[0].RequiredBump != "major" || r.Refusals[0].Verified {
 		t.Fatalf("refusals: %+v", r)
+	}
+}
+
+// TestReplayClimbsTheLadder: the world at load shows the autonomy ladder from
+// examples/story. fraud observes and Pacto noted it would have shipped 1.0.0,
+// which earns the proposal of advise, decided by team risk; payments in prod
+// stepped down after B2's failure; a workload with no contract held the
+// breaking 3.0.0 in test until alice accepted that unknown; and pay-agent's
+// evals ran through a runner that signed its count.
+func TestReplayClimbsTheLadder(t *testing.T) {
+	d, h := demoServer(t)
+	fraud, _ := d.Stage(t.Context(), story.Test, "fraud")
+	sh := fraud.Status.Shadow
+	if fraud.Status.Rung != delivery.RungObserve || fraud.Status.Pointer != "" || len(sh) != 1 || sh[0].Predicted != delivery.PredictProceeds ||
+		sh[0].Verification != delivery.Verified || fraud.Status.Proposal == nil || fraud.Status.Proposal.Rung != delivery.RungAdvise {
+		t.Fatalf("fraud observes: %+v", fraud.Status)
+	}
+	body := `{"namespace":"test","stage":"fraud","type":"` + delivery.TypeAutonomy + `","from":"observe","to":"advise"}`
+	var p delivery.Plan
+	if code := call(t, h, "POST", "/api/delivery/plan", body, &p); code != 200 || p.Predicted != delivery.PredictHeld || !slices.Equal(p.Floor.Owners, []string{"risk"}) {
+		t.Fatalf("the raise of fraud: %d %+v", code, p)
+	}
+
+	prod, _ := d.Stage(t.Context(), story.Prod, "payments")
+	down := d.op(story.Prod, "payments-autonomy-4")
+	if prod.Status.Rung != delivery.RungAutoNonBreaking || down == nil || down.Status.Outcome != delivery.Succeeded ||
+		down.Spec.Cause == nil || down.Spec.Cause.Operation != d.op(story.Prod, "payments-promote-2").Metadata.UID {
+		t.Fatalf("payments prod steps down after B2: %+v %+v", prod.Status, down)
+	}
+
+	b4 := d.op(story.Test, "payments-promote-9")
+	if len(b4.Status.Approvals) != 1 || b4.Status.Approvals[0].Decision != delivery.AcceptUnknown || b4.Status.Outcome != delivery.Succeeded ||
+		!strings.Contains(b4.Status.Plan.Question, "ledger-export calls payments at runtime") {
+		t.Fatalf("B4 waits on ledger-export's missing contract: %+v", b4.Status)
+	}
+
+	failed := d.op(story.Test, "pay-agent-promote-14")
+	i := slices.IndexFunc(failed.Status.Verdicts, func(v delivery.Verdict) bool { return v.Gate == "evals" })
+	if failed.Status.Outcome != delivery.Failed || i < 0 {
+		t.Fatalf("pay-agent 1.1.0: %+v", failed.Status)
+	}
+	v := failed.Status.Verdicts[i]
+	if v.Result != delivery.Fail || v.Citation["passed"] != "1" || v.Citation["total"] != "2" || v.Citation["runner"] != story.RunnerName {
+		t.Fatalf("the eval verdict: %+v", v)
+	}
+	if _, _, err := delivery.OpenEvalAnswer([]byte(v.Citation["runnerBundle"]), runners); err != nil {
+		t.Fatalf("the runner's signed answer does not verify: %v", err)
 	}
 }
 
