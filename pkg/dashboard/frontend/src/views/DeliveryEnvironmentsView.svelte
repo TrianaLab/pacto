@@ -226,10 +226,12 @@
           {#if anyMissing}<span><span class="ev-dot s-none" aria-hidden="true"></span>Not delivered</span>{/if}
           <HelpTip label="the dots" text={`One column per environment, grouped ${andList(groups.map((g) => g.tier || 'other'))}. Point at a dot or tab to it for its version, press it for the rest.`} />
         </div>
-        <div class="ev-board">
+        <!-- The strip is as wide as what it holds: a full-width table left its right half empty
+             while the names in it were cut. -->
+        <div class="ev-board ev-board-fit">
           <table class="data-table ev-table ev-strip" data-testid="environments-board">
             <caption class="visually-hidden">Services by environment, one dot per environment</caption>
-            <colgroup><col style="width: 12rem" /><col style:width={`calc(${dotsWidth}px + 2 * var(--sp-3))`} /><col /></colgroup>
+            <colgroup><col /><col style:width={`calc(${dotsWidth}px + 2 * var(--sp-3))`} /><col /></colgroup>
             <thead>
               <tr>
                 <th scope="col">Service</th>
@@ -254,7 +256,7 @@
                 {@const sum = summaryOf(svc)}
                 {@const first = shown.find((e) => cell(svc, e).length)}
                 <tr data-testid={`env-row-${svc}`}>
-                  <th scope="row"><a class="cell-clip" href={deliveryServiceUrl(svc)} title={svc}>{svc}</a></th>
+                  <th scope="row"><a class="ev-name" href={deliveryServiceUrl(svc)}>{svc}</a></th>
                   <td>
                     <div class="ev-dots" role="toolbar" aria-label={`Environments of ${svc}`} tabindex="-1" onkeydown={roam}>
                       {#each groups as g, i (i)}
@@ -311,12 +313,12 @@
             <caption class="visually-hidden">Services by environment</caption>
             <colgroup><col style="width: 13rem" />{#each shown as env (env)}<col style={shown.length > 1 ? 'width: 12rem' : undefined} />{/each}</colgroup>
             <thead>
-              <tr><th scope="col">Service</th>{#each shown as env (env)}<th scope="col"><span class="cell-clip" title={env}>{env}</span></th>{/each}</tr>
+              <tr><th scope="col">Service</th>{#each shown as env (env)}<th scope="col"><span class="ev-name">{env}</span></th>{/each}</tr>
             </thead>
             <tbody>
               {#each services as svc (svc)}
                 <tr data-testid={`env-row-${svc}`}>
-                  <th scope="row"><a class="cell-clip" href={deliveryServiceUrl(svc)} title={svc}>{svc}</a></th>
+                  <th scope="row"><a class="ev-name" href={deliveryServiceUrl(svc)}>{svc}</a></th>
                   {#each shown as env (env)}
                     {@const here = cell(svc, env)}
                     <td data-label={env}>
@@ -401,6 +403,11 @@
   /* relative: the visually hidden labels in off-screen cells are absolute and would widen the page. */
   .ev-board { position: relative; overflow-x: auto; border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); }
   .ev-none { color: var(--c-text-3); }
+  /* Names wrap rather than clip: the whole name is on the page. */
+  .ev-name { display: block; overflow-wrap: anywhere; }
+  .ev-board-fit { width: fit-content; max-width: 100%; }
+  .ev-strip { table-layout: auto; width: auto; }
+  .ev-strip .ev-name { max-width: 22rem; }
   .ev-picks { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
   .ev-key { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-3); }
   .ev-key > span { display: inline-flex; align-items: center; gap: var(--sp-1); }
@@ -416,8 +423,8 @@
   .ev-head-group > .ev-group { flex: 1; align-items: flex-end; }
   .ev-group-head { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     border-bottom: 2px solid var(--c-border); padding-bottom: 2px; font-size: var(--text-xs); text-transform: none; letter-spacing: normal; font-variant: normal; }
-  /* An environment's name reads bottom to top above its dots; a long one is cut and whole in its title. */
-  .ev-env { flex: none; width: var(--ev-d); max-height: 8rem; writing-mode: vertical-rl; transform: rotate(180deg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* An environment's name reads bottom to top above its dots, whole. */
+  .ev-env { flex: none; width: var(--ev-d); writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap;
     line-height: var(--ev-d); font-size: var(--text-xs); font-weight: 500; text-transform: none; letter-spacing: normal; font-variant: normal; color: var(--c-text-2); }
   .ev-dot { display: inline-block; flex: none; width: var(--ev-d, 12px); height: var(--ev-d, 12px);
     padding: 0; border: 2px solid transparent; border-radius: 50%; background: none; cursor: pointer; box-sizing: border-box; }
@@ -448,6 +455,7 @@
   .ev-shadow[open] > :not(summary) { margin-top: var(--sp-2); }
   @media (max-width: 720px) {
     .ev-board .ev-table { min-width: 0 !important; }
+    .ev-board-fit { width: auto; }
     .ev-board .ev-table tbody th { position: static; }
     /* A phone stacks the rows into cards with no header to line up with: the dots wrap at a size a finger can hit. */
     .ev-dots, .ev-group { flex-wrap: wrap; max-width: 100%; }
