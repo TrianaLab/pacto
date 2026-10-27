@@ -425,10 +425,9 @@ describe('large neighborhoods', () => {
     const xs = (pred: (id: string) => boolean) => [...pos].filter(([id]) => pred(id)).map(([, p]) => p.x);
     expect(Math.max(...xs((id) => /^d\d/.test(id)))).toBeLessThan(0);
     expect(Math.min(...xs((id) => /^u\d|loose/.test(id)))).toBeGreaterThan(0);
-    // The hop-2 column is outside the lane, groups after entities.
-    expect(pos.get('f0')!.x).toBeLessThan(Math.min(...xs((id) => /^d\d/.test(id))));
-    expect(pos.get('group:depends-on:z')!.x).toBe(pos.get('f0')!.x);
-    expect(pos.get('group:depends-on:z')!.y).toBeGreaterThan(pos.get('f0')!.y);
+    // Hop 2 is outside the lane: the groups next to it, an opened group's entities beyond.
+    expect(pos.get('group:depends-on:z')!.x).toBeLessThan(Math.min(...xs((id) => /^d\d/.test(id))));
+    expect(pos.get('f0')!.x).toBeLessThan(pos.get('group:depends-on:z')!.x);
     // Thirty direct dependencies wrap into staggered sub-columns rather than one tall one.
     const cols = new Set(xs((id) => /^d\d/.test(id)));
     expect(cols.size).toBeGreaterThan(1);

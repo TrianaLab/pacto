@@ -408,7 +408,14 @@ const LANE_COL = NODE_W + 20;
 const LANE_ROW = NODE_H + 18;
 const LANE_GAP = 60;
 const LANE_GAP_FAR = 130;
-const gapBefore = (hop: number) => (hop <= 1 ? LANE_GAP : LANE_GAP_FAR);
+// The columns on one side, inside out: the lane (rank 2), then per hop d >= 2 the team
+// groups (2d), which sit next to what they attach to so their words have room, and then
+// the entities of an opened group (2d + 1), whose plain lines can cross behind the groups.
+const laneRank = (n: { depth?: number; group?: number }) => {
+  const d = Math.max(1, n.depth ?? 1);
+  return d === 1 ? 2 : n.group ? 2 * d : 2 * d + 1;
+};
+const gapBefore = (rank: number) => (rank > 2 && rank % 2 === 0 ? LANE_GAP_FAR : LANE_GAP);
 
 interface LaneNode { id: string; depth?: number; side?: number; owner?: string; group?: number; lane?: number | boolean }
 
@@ -418,17 +425,17 @@ interface LaneNode { id: string; depth?: number; side?: number; owner?: string; 
  * column too tall for the canvas wraps into sub-columns, each one half a row lower than
  * the last so a line from the focus runs between the boxes, never through one. The rows
  * per column are chosen to make the whole layout fit the canvas at the largest zoom.
- * Within a column a team sits together, groups last. Deterministic. Lane boxes are not
+ * Within a column a team sits together. Deterministic. Lane boxes are not
  * placed: they wrap whatever they hold.
  */
 export function laneLayout(nodes: LaneNode[], canvas: { width: number; height: number }): Map<string, { x: number; y: number }> {
   const cols = new Map<number, string[]>();
   const pos = new Map<string, { x: number; y: number }>();
-  const sorted = nodes.filter((n) => !n.lane).sort((a, b) => (a.group ? 1 : 0) - (b.group ? 1 : 0) || (a.owner || '').localeCompare(b.owner || '') || a.id.localeCompare(b.id));
+  const sorted = nodes.filter((n) => !n.lane).sort((a, b) => (a.owner || '').localeCompare(b.owner || '') || a.id.localeCompare(b.id));
   for (const n of sorted) {
     const d = Math.max(0, n.depth ?? 1);
     if (d === 0) { pos.set(n.id, { x: 0, y: 0 }); continue; }
-    const k = (n.side || 1) * d;
+    const k = (n.side || 1) * laneRank(n);
     cols.set(k, [...(cols.get(k) ?? []), n.id]);
   }
   const tallest = Math.max(1, ...[...cols.values()].map((c) => c.length));
@@ -444,10 +451,10 @@ export function laneLayout(nodes: LaneNode[], canvas: { width: number; height: n
   }
   for (const side of [-1, 1]) {
     let x = 0;
-    for (let d = 1; d <= Math.max(0, ...[...cols.keys()].map(Math.abs)); d++) {
-      const ids = cols.get(side * d);
+    for (let r = 2; r <= Math.max(0, ...[...cols.keys()].map(Math.abs)); r++) {
+      const ids = cols.get(side * r);
       if (!ids) continue;
-      x += gapBefore(d);
+      x += gapBefore(r);
       for (let s = 0; s * rows < ids.length; s++) {
         x += LANE_COL;
         const chunk = ids.slice(s * rows, (s + 1) * rows);
@@ -862,6 +869,10 @@ export function renderGraph(
     // A lane box is background: a tap on it clears like a tap on the canvas.
     if (n.data('lane')) { onSelectEdge?.(null); if (clickFocusId) { clickFocusId = null; applyDimming(); onSelect?.(null); onSelectNode?.(null); } return; }
     const id = n.id();
+    // A group opens in place, on the first tap: the caller redraws it as its entities, so
+    // there is nothing to pin or open, and centring on a node about to vanish would leave
+    // the camera on empty space.
+    if (n.data('group')) { onSelectNode?.(id); return; }
     const now = Date.now();
     const isDouble = id === lastTapId && now - lastTapAt < 300;
     lastTapId = id;
@@ -1076,7 +1087,7 @@ export function renderGraph(
           n.position({ x: low.position('x'), y: low.position('y') + LANE_ROW });
         } else {
           const outer = Math.max(0, ...settled.filter((m) => (m.data('side') || 0) === side).map((m) => Math.abs((m as NodeSingular).position('x'))));
-          n.position({ x: side * (outer + gapBefore(n.data('depth')) + LANE_COL), y: 0 });
+          n.position({ x: side * (outer + LANE_GAP + LANE_COL), y: 0 });
         }
         settled.merge(n);
       }
@@ -1295,6 +1306,8 @@ export function renderGraph(
     // Semantic fields of the survivors still need updating: a topology change and a
     // status change routinely arrive in the same refresh.
     patchData(next);
+    // A pin on something that left the graph would fade everything that is still in it.
+    if (clickFocusId && cy.getElementById(clickFocusId).empty()) clickFocusId = null;
     const fresh = new Set<string>();
     entities().forEach((n) => { if (!before.has(n.id())) fresh.add(n.id()); });
     // A team opened or folded again reshapes the graph the reader asked for, so lanes are
