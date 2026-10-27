@@ -64,6 +64,9 @@ start without them:
 
 --8<-- "integrations/kubernetes/docs/generated/_crd-apply.md"
 
+With `delivery.enabled=true`, also apply the
+[delivery CRDs](delivery-setup.md#install). `crds.install` covers them too.
+
 ### Common overrides
 
 ```bash
@@ -79,6 +82,20 @@ helm install pacto-operator \
   whole cluster).
 - `metrics.serviceMonitor.enabled` creates a Prometheus `ServiceMonitor`.
 - `dashboard.enabled` turns the operator-managed dashboard on or off.
+
+The CRDs are cluster-wide and belong to one release. For a second release, for
+example one per watched namespace, set `crds.install=false`, or its install
+fails with `invalid ownership metadata`. The same happens on a reinstall under
+a new release name after an uninstall, because the kept CRDs still name the old
+release. Point them at the new one first:
+
+```bash
+for crd in $(kubectl get crd -o name | grep pacto.trianalab.io); do
+  kubectl annotate "$crd" --overwrite \
+    meta.helm.sh/release-name=NEW_RELEASE \
+    meta.helm.sh/release-namespace=NEW_NAMESPACE
+done
+```
 
 Three checks are off by default because they cost something:
 

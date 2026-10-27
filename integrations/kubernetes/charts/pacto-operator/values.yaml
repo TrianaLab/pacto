@@ -57,9 +57,12 @@ nameOverride: ""
 fullnameOverride: ""
 
 crds:
-  # -- Install and upgrade the CRDs with the chart. They are kept on helm
-  # uninstall. Set false to manage them yourself, for example from a separate
-  # GitOps source; the operator needs them before it starts
+  # -- Install and upgrade the CRDs with the chart, the delivery CRDs too when
+  # `delivery.enabled`. They are kept on helm uninstall. Only one release in a
+  # cluster can own them: every other release, for example one per watched
+  # namespace, sets false. Set false to manage them yourself, for example from
+  # a separate GitOps source; the operator and delivery need them before they
+  # start
   install: true
 
 # -- Registry hosts (`host:port`) to reach over plain HTTP, for a controlled

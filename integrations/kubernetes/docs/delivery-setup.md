@@ -17,6 +17,12 @@ an agent, which may propose but never approve. The chart refuses an empty
 `humanGroups` unless you set `delivery.identities.allowEmptyHumanGroups=true`
 (see [identities](delivery-identity.md)).
 
+If you set `crds.install=false` to manage the CRDs yourself, apply the
+delivery CRDs before you turn delivery on. The promoter and the recorder do not
+start without them:
+
+--8<-- "integrations/kubernetes/docs/generated/_delivery-crd-apply.md"
+
 This needs Helm 3.14 or later. Delivery runs in `delivery.namespace`
 (`pacto-delivery`, never the release or node agent namespace), where the operator holds no
 role, so it cannot act as the promoter. It still reads every Secret: prefer

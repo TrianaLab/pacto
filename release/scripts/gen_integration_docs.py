@@ -21,6 +21,7 @@ Source-of-truth map (page -> inputs):
   _upgrade-command.md      <- release/release-manifest.json (operator-chart version)
   _delivery-install-command.md <- release/release-manifest.json (operator-chart version)
   _crd-apply.md            <- release/release-manifest.json (k8s-module release tag)
+  _delivery-crd-apply.md   <- release/release-manifest.json (k8s-module release tag)
 
 Usage:
   python3 release/scripts/gen_integration_docs.py [--repo-root DIR] [--integration-dir DIR]
@@ -1186,8 +1187,9 @@ def gen_delivery_install_command(repo_root: str) -> str:
 # itself. It used to fetch from `main` next to a chart pinned to an exact
 # version, the same drift class as the `--version` literal above, so the ref is
 # pinned to the integration release tag the docs describe. The file list is read
-# from config/crd/bases, so a new CRD cannot be left out. Only the operator's own
-# group: the delivery.pacto.trianalab.io CRDs follow delivery.enabled.
+# from config/crd/bases, so a new CRD cannot be left out. One snippet per group:
+# the delivery.pacto.trianalab.io CRDs are needed only with delivery.enabled, so
+# delivery-setup.md includes their snippet and installation.md does not.
 CRD_BASES = "integrations/kubernetes/config/crd/bases"
 RAW_BASE = "https://raw.githubusercontent.com/TrianaLab/pacto"
 
@@ -1323,6 +1325,7 @@ def main() -> int:
         "_upgrade-command.md": gen_chart_command(repo_root, "upgrade"),
         "_delivery-install-command.md": gen_delivery_install_command(repo_root),
         "_crd-apply.md": gen_crd_apply(repo_root),
+        "_delivery-crd-apply.md": gen_crd_apply(repo_root, "delivery.pacto.trianalab.io"),
     }
     for name, content in pages.items():
         path = os.path.join(out_dir, name)
