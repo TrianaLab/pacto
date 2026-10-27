@@ -235,6 +235,13 @@ func TestObservedCallers_Coverage(t *testing.T) {
 			}},
 		{name: "host network in kube-system", state: pactoapi.CallerCoverageComplete, callersAfter: 5,
 			setup: func(f *kernelFixture) { hostPod(f, "kube-system") }},
+		{name: "static pod on the host network in kube-system", state: pactoapi.CallerCoverageComplete, callersAfter: 5,
+			setup: func(f *kernelFixture) {
+				hostPod(f, "kube-system")
+				p := f.extra[len(f.extra)-1].(*corev1.Pod)
+				p.Annotations = map[string]string{mirrorAnnotation: "0123456789abcdef0123456789abcdef"}
+				f.node.Status.Pods[len(f.node.Status.Pods)-1].UID = "0123456789abcdef0123456789abcdef"
+			}},
 		{name: "host network in the agent namespace", state: pactoapi.CallerCoverageComplete, callersAfter: 5,
 			setup: func(f *kernelFixture) { hostPod(f, kAgentNS) }},
 		{name: "host network in an ignored namespace", state: pactoapi.CallerCoverageComplete, callersAfter: 5,

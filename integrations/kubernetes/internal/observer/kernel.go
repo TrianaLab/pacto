@@ -590,10 +590,9 @@ func (o *Observer) observeCallers(ctx context.Context, input CollectInput, now t
 		}
 		snaps = append(snaps, *s)
 	}
-	byUID := make(map[string]*corev1.Pod, len(pods.Items))
+	byUID := podsByUID(pods.Items)
 	for i := range pods.Items {
 		p := &pods.Items[i]
-		byUID[string(p.UID)] = p
 		if p.Status.Phase == corev1.PodRunning && p.Spec.NodeName != "" && nodes[p.Spec.NodeName] == nil {
 			partial("node-without-agent")
 		}
@@ -646,6 +645,24 @@ func (o *Observer) observeCallers(ctx context.Context, input CollectInput, now t
 // anyone allowed to create namespaces, and a host-network pod there would then call unseen while coverage
 // reads complete. The chart lists those in callerIgnoreNamespaces instead, where an admin can drop them.
 var systemNamespaces = []string{"kube-system", "kube-public", "kube-node-lease"}
+
+// mirrorAnnotation names, on a static pod's mirror in the API, the config hash the kubelet runs it under.
+const mirrorAnnotation = "kubernetes.io/config.mirror"
+
+// podsByUID indexes pods by the ID the node agent reports: the UID, and for a static pod's mirror the
+// kubelet's config hash its cgroup carries instead, so the control plane's host-network pods on a kubeadm
+// node resolve rather than count as unknown.
+func podsByUID(items []corev1.Pod) map[string]*corev1.Pod {
+	byUID := make(map[string]*corev1.Pod, len(items))
+	for i := range items {
+		p := &items[i]
+		byUID[string(p.UID)] = p
+		if h := p.Annotations[mirrorAnnotation]; h != "" {
+			byUID[h] = p
+		}
+	}
+	return byUID
+}
 
 // callerIgnored reports whether a host-network pod in the namespace leaves caller coverage complete: a
 // system namespace, the node agent's own or one in input.CallerIgnoreNamespaces.
