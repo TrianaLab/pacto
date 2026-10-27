@@ -405,7 +405,7 @@ export function seedPositions(nodes: Array<{ id: string; depth?: number; owner?:
 // Lane geometry: a column step, a row step, the gap between the focus and a lane, and the
 // wider gap outside a lane, where the edge a group draws carries its words.
 const LANE_COL = NODE_W + 20;
-const LANE_ROW = NODE_H + 18;
+const LANE_ROW = NODE_H + 20;
 const LANE_GAP = 60;
 const LANE_GAP_FAR = 130;
 // The columns on one side, inside out: the lane (rank 2), then per hop d >= 2 the team
@@ -1185,6 +1185,7 @@ export function renderGraph(
     const fresh = new Set<string>();
     entities().forEach((n) => { if (!restored.has(n.id())) fresh.add(n.id()); });
     placeNewNodes(fresh);
+    alignLaneEdges();
     if (savedViewport && Number.isFinite(savedViewport.zoom) && savedViewport.zoom > 0) {
       suppressViewport(150);
       cy.zoom(savedViewport.zoom);

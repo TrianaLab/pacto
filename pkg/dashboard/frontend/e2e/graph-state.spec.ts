@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { installServeInterceptor } from './graphServe';
 
 // Browser acceptance for Operational Graph SPATIAL STATE: semantics update while
 // the arrangement holds still.
@@ -28,57 +29,6 @@ interface Spatial { positions: Record<string, Point>; pan: Point; zoom: number }
 interface Semantics {
   nodes: { id: string; status: string; label: string }[];
   edges: { id: string; state: string }[];
-}
-
-/** Amends the ONE neighborhood response under test, in the page, before the app parses it. */
-function installServeInterceptor(): void {
-  interface ServeResult { status: number; body: string; contentType: string }
-  type Serve = (method: string, path: string, body: string | null) => ServeResult;
-  const w = window as unknown as { __pactoMutate?: string };
-  let real: Serve | null = null;
-  const NEW = 'synthetic-probe-service';
-  const wrapped: Serve = (method, path, body) => {
-    const res = (real as Serve)(method, path, body);
-    const mode = w.__pactoMutate;
-    if (!mode || !path.startsWith('/api/fleet/neighborhood') || res.status !== 200) return res;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let doc: any;
-    try { doc = JSON.parse(res.body); } catch { return res; }
-    if (!doc || !Array.isArray(doc.nodes) || !doc.nodes.length) return res;
-    if (mode === 'semantic') {
-      // Same topology, different truth: statuses, labels and reconciliation verdicts move.
-      for (const n of doc.nodes) {
-        if (n.focus) continue;
-        n.status = 'NonCompliant';
-        // A PREFIX, not a suffix: a canvas label over 18 characters keeps its first nine
-        // and last eight around an ellipsis, so the nine letters of "rechecked" always show.
-        n.ref.label = `rechecked-${n.ref.label || n.ref.key}`;
-      }
-      for (const e of doc.edges || []) {
-        if (e.relation === 'runs') continue;
-        if (e.serviceCorroboration) e.serviceCorroboration = 'expected-not-observed';
-        e.difference = 'observed-not-expected';
-      }
-    } else if (mode === 'addNode' && !doc.nodes.some((n: { ref: { key: string } }) => n.ref.key === NEW)) {
-      // Topology change: one genuinely new provider appears next to the focus.
-      const focus = doc.nodes.find((n: { focus?: boolean }) => n.focus) || doc.nodes[0];
-      const ref = { kind: 'service', key: NEW, label: NEW, href: `/fleet/services/${NEW}` };
-      doc.nodes.push({ ref, depth: 1, status: 'Unknown' });
-      doc.edges = doc.edges || [];
-      doc.edges.push({
-        id: `${focus.ref.key}->${NEW}`, from: focus.ref, to: ref, relation: 'dependency',
-        expected: true, observed: false, provenance: 'declared', difference: 'expected-not-observed',
-        declaredClaims: { total: 0, count: 0, truncated: false },
-        observationSources: { total: 0, count: 0, truncated: false },
-      });
-    }
-    return { status: res.status, body: JSON.stringify(doc), contentType: res.contentType };
-  };
-  Object.defineProperty(window, '__pactoServe', {
-    configurable: true,
-    get() { return real ? wrapped : undefined; },
-    set(v: Serve) { real = v; },
-  });
 }
 
 async function waitPainted(page: Page) {
@@ -340,5 +290,84 @@ test.describe('Operational graph — spatial state survives refresh, reload and 
       { timeout: 20_000 }).toBe(false);
     const back = await waitStable(page);
     expectSamePlace(back, arranged, ['payments-service'], 2);
+  });
+});
+
+interface Lanes {
+  focusX: number;
+  zoom: number;
+  faded: number;
+  nodes: number;
+  groups: { id: string; x: number; edges: number; lane: string; label: string }[];
+  opened: string[];
+}
+
+/** The lane picture as the canvas holds it: where the groups sit, and what each one draws. */
+async function readLanes(page: Page): Promise<Lanes> {
+  return page.evaluate(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cy = (document.querySelector('[data-testid="neighborhood-canvas"]') as any)._cyreg.cy;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const groups = cy.nodes('[group = 1]').map((n: any) => {
+      const e = n.connectedEdges();
+      return { id: n.id(), x: n.position('x'), edges: e.length, lane: e.connectedNodes('[lane = 1]').map((l: any) => l.id()).join(','), label: e.data('elabel') || '' };
+    });
+    return {
+      focusX: cy.nodes('[isFocus = 1]').position('x'), zoom: cy.zoom(), faded: cy.nodes('[lane = 0].pacto-faded').length,
+      nodes: cy.nodes('[lane = 0]').length, groups,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      opened: cy.nodes('[lane = 0]').filter((n: any) => n.id().startsWith('far-')).map((n: any) => n.id()),
+    };
+  });
+}
+
+test.describe('Operational graph — a large neighborhood folds into lanes', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.addInitScript(installServeInterceptor);
+  });
+
+  test('two hops out folds into team groups, one edge each with its state and count, and a group opens in place', async ({ page }) => {
+    await page.goto(PAYMENTS);
+    await waitPainted(page);
+    await page.evaluate(() => { (window as unknown as { __pactoMutate?: string }).__pactoMutate = 'many'; });
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    const grouped = page.getByTestId('graph-grouped');
+    await expect(grouped).toContainText('60 past the direct neighbors are grouped by team (4 groups)', { timeout: 15_000 });
+    // The group buttons are a row of buttons, not a sentence: no stray commas between them.
+    await expect(grouped.locator('ul')).not.toContainText(',');
+    await expect.poll(async () => (await readLanes(page)).groups.length, { timeout: 15_000 }).toBe(4);
+    const lanes = await readLanes(page);
+
+    // Every far entity calls a service that uses the focus, so every group is on the
+    // used-by side, right of the focus, with exactly one edge: into the used-by lane.
+    for (const g of lanes.groups) {
+      expect(g.x, `${g.id} sits right of the focus`).toBeGreaterThan(lanes.focusX);
+      expect(g.edges, `${g.id} draws one edge`).toBe(1);
+      expect(g.lane, `${g.id} attaches to its lane`).toBe('lane:used-by');
+    }
+    // The reconciliation colour survives the fold, in words and with how many carry it.
+    expect(lanes.groups.map((g) => g.label).sort()).toEqual(['matched (15)', 'observed, not expected (1)', 'observed, not expected (1)', 'observed, not expected (1)']);
+    // At fit the labels are still text: 14px labels never drawn under 0.7.
+    expect(lanes.zoom).toBeGreaterThanOrEqual(0.7 - 1e-6);
+    expect(lanes.faded).toBe(0);
+
+    // The full name shows on hover, and a click opens the group where it stands.
+    const at = await page.evaluate(() => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const c = document.querySelector('[data-testid="neighborhood-canvas"]') as any;
+      const p = c._cyreg.cy.getElementById('group:used-by:team-0').renderedPosition();
+      const r = c.getBoundingClientRect();
+      return { x: r.left + p.x, y: r.top + p.y };
+    });
+    await page.mouse.move(at.x, at.y);
+    await expect(page.getByTestId('neighborhood-canvas')).toHaveAttribute('title', 'team-0: 15 entities. Select to show them.');
+    await page.mouse.click(at.x, at.y);
+    await expect.poll(async () => (await readLanes(page)).opened.length, { timeout: 15_000 }).toBe(15);
+    const open = await readLanes(page);
+    expect(open.groups.map((g) => g.id)).not.toContain('group:used-by:team-0');
+    expect(open.nodes).toBe(lanes.nodes - 1 + 15);
+    // Opening a group pins nothing: nothing on the canvas is left faded.
+    expect(open.faded).toBe(0);
+    await expect(page.getByTestId('graph-drawer')).toHaveCount(0);
   });
 });

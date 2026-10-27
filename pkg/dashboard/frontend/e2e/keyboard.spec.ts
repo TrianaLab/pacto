@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { appReady } from './ready';
+import { installServeInterceptor } from './graphServe';
 
 // Keyboard-only acceptance against the built WASM demo: global
 // shortcuts behave (open/close overlays, never hijack typing), and the Operational Graph
@@ -60,6 +61,21 @@ test.describe('keyboard operability', () => {
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('graph-drawer')).toHaveCount(0);
     await expect(edgeBtn).toBeFocused();
+  });
+
+  test('a folded team group opens from the keyboard and says what it holds', async ({ page }) => {
+    await page.addInitScript(installServeInterceptor);
+    await page.goto('/#/fleet/graph/service/payments-service');
+    await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
+    await page.evaluate(() => { (window as unknown as { __pactoMutate?: string }).__pactoMutate = 'many'; });
+    await page.getByRole('button', { name: 'Refresh' }).click();
+    const groups = page.getByTestId('graph-open-group');
+    await expect(groups).toHaveCount(4, { timeout: 15_000 });
+    const first = groups.first();
+    await expect(first).toHaveAccessibleName(/^Open team-\d: 15 entities that use it$/);
+    await first.focus();
+    await page.keyboard.press('Enter');
+    await expect(groups).toHaveCount(3);
   });
 
   test('graph knowledge and direction controls are keyboard operable', async ({ page }) => {

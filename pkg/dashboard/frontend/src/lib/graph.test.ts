@@ -510,7 +510,7 @@ describe('renderGraph in lanes (headless)', () => {
       const p = ctrl.spatialState().positions;
       for (const id of ['focus', 'a', 'b', 'u']) expect(p[id]).toEqual(before[id]);
       const low = Math.max(before.a.y, before.b.y);
-      expect(p.c).toEqual({ x: before.a.y > before.b.y ? before.a.x : before.b.x, y: low + 60 });
+      expect(p.c).toEqual({ x: before.a.y > before.b.y ? before.a.x : before.b.x, y: low + 62 });
       expect(p.x.x).toBeLessThan(Math.min(before.a.x, before.b.x));
       // y sits alone on the used-by side, a hop further out than anything there.
       expect(p.y.x).toBeGreaterThan(before.focus.x);
