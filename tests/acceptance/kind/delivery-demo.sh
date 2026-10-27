@@ -628,11 +628,15 @@ ship_test() {
   local d op; d="$(publish "$1" "$2")"; remember "$1" "$2" "$d"
   op="$(wait_op test "$1" "$d")"; wait_concluded test "$op" Succeeded/Verified
 }
-# ship_prod SERVICE VERSION — pay-agent promotes a verified version in prod.
+# owner_propose SERVICE ARGS... — alice, on SERVICE's team, proposes. The
+# starting point is set by people: prod advises, so a promote pay-agent raised
+# would wait for a person to approve it.
+owner_propose() { local svc="$1"; shift; KUBECONFIG="$(person alice@example.com "team-$svc")" "$PACTO" delivery propose "$@" >/dev/null; }
+# ship_prod SERVICE VERSION — its team promotes a verified version in prod.
 ship_prod() {
   local d; d="$(digest_of "$1" "$2")"
   eventually 60 offered "$1" "$d" || fail "test never offered $1 $2 to prod"
-  propose -n prod --stage "$1" --to "$d" --name "$1-${2//./-}" --reason "the demo's starting point"
+  owner_propose "$1" -n prod --stage "$1" --to "$d" --name "$1-${2//./-}" --reason "the demo's starting point"
   wait_concluded prod "$1-${2//./-}" Succeeded/Verified
 }
 
@@ -648,7 +652,7 @@ bootstrap() {
   ship_test checkout 1.8.0; ship_prod checkout 1.8.0
   local d; d="$(publish orders 1.4.0)"; remember orders 1.4.0 "$d"
   eventually 60 published_in prod orders "$d" || fail "prod never offered orders 1.4.0"
-  propose -n prod --stage orders --to "$d" --name orders-1-4-0 --reason "the demo's starting point"
+  owner_propose orders -n prod --stage orders --to "$d" --name orders-1-4-0 --reason "the demo's starting point"
   wait_concluded prod orders-1-4-0 Succeeded/Verified
   pass "checkout 1.8.0 and orders 1.4.0 run in prod, both accepting payments ^2"
   ship_test checkout 1.9.0
