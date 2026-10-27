@@ -92,6 +92,7 @@ func TestDeliveryEnvironmentsPage(t *testing.T) {
 	rows := envs["environments"].([]any)
 	expect(t, len(rows) == 1 && page(rows[0])["service"] == "orphan", "only the page's Stages: %v", rows)
 	expect(t, strings.Join(toStrings(envs["environmentNames"]), ",") == "prod,books,other", "every column on every page, prod before names it cannot place: %v", envs["environmentNames"])
+	expect(t, fmt.Sprint(envs["counts"]) == "map[failed:0 frozen:3 waiting:1]", "the counts are over every page: %v", envs["counts"])
 	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments?q=LED", nil)
 	expect(t, len(envs["environments"].([]any)) == 1 && strings.Join(toStrings(envs["environmentNames"]), ",") == "books", "q filters services: %v", envs)
 
@@ -128,12 +129,15 @@ func TestDeliveryListsPage(t *testing.T) {
 	_, inbox := call(t, http.MethodGet, base+"/api/delivery/inbox?limit=1&held=1", nil)
 	expect(t, names(inbox["held"]) == "anyone:accept-unknown" && page(inbox["heldPage"])["total"] == float64(2), "held is paged: %v", inbox)
 	expect(t, page(inbox["frozenPage"])["total"] == float64(1) && page(inbox["erroredPage"])["total"] == float64(1), "each section has its page: %v", inbox)
+	expect(t, inbox["heldShared"] == float64(0), "no held change names more than one team: %v", inbox["heldShared"])
 	_, inbox = call(t, http.MethodGet, base+"/api/delivery/inbox?q=orphan", nil)
 	expect(t, len(inbox["held"].([]any)) == 0 && len(inbox["frozen"].([]any)) == 1, "q filters every section: %v", inbox)
 
 	_, au := call(t, http.MethodGet, base+"/api/delivery/autonomy?limit=1&q=pay", nil)
 	expect(t, len(au["stages"].([]any)) == 1 && page(au["page"])["total"] == float64(1), "Stages are paged and filtered: %v", au)
 	expect(t, page(au["blockersPage"])["total"] == float64(0), "blockers are filtered too: %v", au["blockersPage"])
+	_, au = call(t, http.MethodGet, base+"/api/delivery/autonomy?limit=1", nil)
+	expect(t, au["canMoveUp"] == float64(0), "counted over every page: %v", au["canMoveUp"])
 }
 
 // History across Stages pages the Stages and shows the newest changes of
@@ -153,6 +157,7 @@ func TestDeliveryHistoryPages(t *testing.T) {
 	expect(t, page(hs[0])["problems"] == nil && page(hs[0])["unreadable"] == nil &&
 		page(hs[0])["problemCount"] == float64(2) && page(hs[0])["unreadableCount"] == float64(1), "summary counts only: %v", hs[0])
 	expect(t, len(hs) == 2 && page(h["page"])["total"] == float64(3) && page(hs[0])["namespace"] == "books", "Stages in order, paged: %v", h["page"])
+	expect(t, fmt.Sprint(h["counts"]) == "map[frozen:3 waiting:1]", "the counts are over every page: %v", h["counts"])
 	_, h = call(t, http.MethodGet, base+"/api/delivery/history?q=PAY", nil)
 	expect(t, page(h["page"])["total"] == float64(1), "q filters Stages: %v", h["page"])
 	first := page(hs[1])
@@ -162,6 +167,7 @@ func TestDeliveryHistoryPages(t *testing.T) {
 	_, h = call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&limit=4&offset=4&q=carol", nil)
 	one := page(h["histories"].([]any)[0])
 	got = one["entries"].([]any)
+	expect(t, h["counts"] == nil, "one Stage has no counts: %v", h["counts"])
 	expect(t, len(one["problems"].([]any)) == 2 && len(one["unreadable"].([]any)) == 1 && one["problemCount"] == float64(2),
 		"one Stage keeps its lists: %v", one)
 	expect(t, len(got) == 2 && page(got[0])["operation"] == "op-4" && page(one["entriesPage"])["total"] == float64(6),
