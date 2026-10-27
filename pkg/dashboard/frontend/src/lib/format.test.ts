@@ -1546,6 +1546,16 @@ describe('STATUS_FILTER_OPTIONS', () => {
   });
 });
 
+describe('countOf', () => {
+  it('matches the noun to the count', async () => {
+    const { countOf } = await import('./format.ts');
+    expect(countOf(1, 'consumer')).toBe('1 consumer');
+    expect(countOf(0, 'consumer')).toBe('0 consumers');
+    expect(countOf(1500, 'Stage')).toBe('1,500 Stages');
+    expect(countOf(2, 'entity', 'entities')).toBe('2 entities');
+  });
+});
+
 describe('formatCount', () => {
   it('groups thousands', async () => {
     const { formatCount } = await import('./format.ts');

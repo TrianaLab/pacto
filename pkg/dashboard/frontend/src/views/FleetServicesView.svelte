@@ -361,7 +361,10 @@
   /* The suggestion popup is absolutely positioned inside its field, so a field that
      clips or stacks below its neighbour would hide it. */
   .sv-search, .sv-field { position: relative; }
-  .sv-field { display: flex; flex-direction: column; gap: 2px; min-width: 180px; font-size: var(--text-xs); color: var(--c-text-3); }
+  /* Fields share the row instead of each claiming 180px: at that floor, plus the
+     Ownership select sized to its longest option, Order wrapped onto a row of its own. */
+  .sv-field { display: flex; flex-direction: column; gap: 2px; flex: 1 1 8rem; min-width: 8rem; font-size: var(--text-xs); color: var(--c-text-3); }
+  .sv-field select { width: 100%; min-width: 0; }
   /* Text inputs use the shared .input from styles/components.css so the two
      comboboxes -- whose inputs live in a child component and are out of reach of this
      scoped block -- and the plain Domain field are one control, not two look-alikes. */

@@ -41,12 +41,12 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
   // J1. "Where am I, and what can I do here?" The app opens on state, and the primary
   // nav teaches one order: state -> inventory -> relationships -> change, then delivery
   // where it is served (the demo simulates it).
-  test('J1: the app opens on operational state with exactly five primary workflows', async ({ page }) => {
+  test('J1: the app opens on operational state with exactly the primary destinations', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveURL(/#\/fleet$/, { timeout: T });
     await expect(page.getByRole('heading', { level: 1, name: 'Operational overview' })).toBeVisible({ timeout: T });
     const nav = page.getByRole('navigation', { name: 'Primary' }).first();
-    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Services', 'Operational graph', 'Change analysis', 'Delivery']);
+    await expect(nav.getByRole('link')).toHaveText(['Overview', 'Needs attention', 'Services', 'Owners', 'Operational graph', 'Change analysis', 'Delivery']);
     await expectNoLegacyScreen(page);
   });
 

@@ -143,18 +143,18 @@ describe('Navbar — the Pacto brand is the HOME affordance', () => {
   });
 });
 
-describe('Navbar — four primary workflows (product IA)', () => {
-  // state -> inventory -> relationships -> change. Owners, data sources, needs-attention
-  // and readiness are DIMENSIONS of those workflows, reachable from the overview, the
-  // entity pages and the command palette, so they are deliberately not primary tabs.
-  it('a fleet host has exactly the four primary destinations, in order', () => {
+describe('Navbar — primary destinations (product IA)', () => {
+  // state -> inventory -> relationships -> change. Needs attention and Owners are pages a
+  // reader lands on, so each gets its own tab next to the workflow it belongs to; data
+  // sources has its own control and readiness is a cut of the revision inventory.
+  it('a fleet host has the primary destinations, in order', () => {
     expect(navLabels({ fleet: true, impact: true }))
-      .toEqual(['Overview', 'Services', 'Operational graph', 'Change analysis']);
+      .toEqual(['Overview', 'Needs attention', 'Services', 'Owners', 'Operational graph', 'Change analysis']);
   });
 
-  it('does not promote a dimension to a primary destination', () => {
+  it('does not promote readiness, compare or data sources to a tab', () => {
     const labels = navLabels({ fleet: true, impact: true });
-    for (const dimension of ['Owners', 'Readiness', 'Compare', 'Needs attention', 'Data sources']) {
+    for (const dimension of ['Readiness', 'Compare', 'Data sources']) {
       expect(labels).not.toContain(dimension);
     }
   });
@@ -209,7 +209,7 @@ describe('Navbar — the active tab agrees with the breadcrumb trail', () => {
     ['service', 'Services'],
     ['revision', 'Services'],
     ['target', 'Services'],
-    ['owner', 'Overview'],
+    ['owner', 'Owners'],
     ['source', 'Overview'],
   ])('lights %s entity pages under %s', (kind, label) => {
     expect(activeLabel('fleet-entity', kind)).toBe(label);
@@ -217,9 +217,9 @@ describe('Navbar — the active tab agrees with the breadcrumb trail', () => {
 
   it.each([
     ['fleet-services', 'Services'],
-    ['fleet-owners', 'Overview'],
+    ['fleet-owners', 'Owners'],
     ['fleet-sources', 'Overview'],
-    ['fleet-attention', 'Overview'],
+    ['fleet-attention', 'Needs attention'],
     ['fleet', 'Operational graph'],
     ['changes', 'Change analysis'],
   ])('lights the %s list view under %s', (view, label) => {

@@ -28,10 +28,9 @@ export interface CommandGroup {
 // routes), so the command palette can't be a back door to a superseded UI (Part 1); a
 // non-Fleet host keeps the legacy destinations, which are its only UI.
 //
-// The palette AGREES with the primary nav: the four primary destinations come first, in
-// nav order, and the secondary workspaces (the dimensions the nav deliberately does not
-// promote) follow -- so every workspace stays one keystroke away without the nav
-// pretending they are all equally fundamental.
+// The palette AGREES with the primary nav: the nav's destinations come first, in nav
+// order, and the workspaces the nav does not carry as tabs follow -- so every
+// workspace stays one keystroke away.
 //
 // "Readiness" resolves to the contract revision inventory, where the whole assessed
 // population lives. It used to resolve to the Needs-attention readiness category, which
@@ -39,14 +38,14 @@ export interface CommandGroup {
 // a user typing "readiness" was shown the failures and told that was readiness.
 const FLEET_VIEWS: Command[] = [
   { kind: 'view', label: 'Overview', href: fleetOverviewUrl() },
+  { kind: 'view', label: 'Needs attention', href: fleetAttentionUrl() },
   { kind: 'view', label: 'Services', href: fleetServicesUrl() },
+  { kind: 'view', label: 'Owners', href: fleetOwnersUrl() },
   { kind: 'view', label: 'Operational graph', href: fleetUrl() },
   // "Compare revisions" is the ACTION this workspace performs, not a second place to go:
   // as its own row it listed the identical href twice, which is the same "two buttons,
   // one screen" confusion the entity pages had. It stays fully searchable as a synonym.
   { kind: 'view', label: 'Change analysis', href: fleetChangesUrl(), keywords: ['compare', 'compare revisions', 'diff'] },
-  { kind: 'view', label: 'Needs attention', href: fleetAttentionUrl() },
-  { kind: 'view', label: 'Owners', href: fleetOwnersUrl() },
   { kind: 'view', label: 'Data sources', href: fleetSourcesUrl() },
   { kind: 'view', label: 'Readiness', href: fleetEntityListUrl('revision'), keywords: ['contract revisions', 'assessment'] },
 ];

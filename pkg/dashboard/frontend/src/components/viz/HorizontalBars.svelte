@@ -92,12 +92,14 @@
   .hb-scale { font-size: var(--text-xs); }
   .hb-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .hb-inner {
-    display: grid; grid-template-columns: minmax(6ch, 14ch) 1fr auto; align-items: center;
+    display: grid; grid-template-columns: minmax(6ch, 20ch) 1fr auto; align-items: center;
     gap: var(--sp-2); text-decoration: none; color: var(--c-text-2); font-size: var(--text-sm);
     min-height: var(--touch-min);
   }
   a.hb-inner:hover .hb-label, a.hb-inner:focus-visible .hb-label { text-decoration: underline; }
-  /* One line: a long name wrapped over five lines and made one bar five rows tall. */
+  /* One line: a long name wrapped over five lines and made one bar five rows tall.
+     20ch holds every attention category label ("Unresolved revision") whole; 14ch
+     clipped two of the six. */
   .hb-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hb-track { display: block; height: 10px; border-radius: var(--radius-xs); background: var(--c-surface-inset); border: 1px solid var(--c-border); }
   .hb-fill { display: block; height: 100%; background: var(--tone-c, var(--c-info)); transition: width var(--motion-reveal); }

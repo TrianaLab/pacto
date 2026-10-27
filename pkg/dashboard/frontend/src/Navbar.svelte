@@ -1,5 +1,5 @@
 <script>
-  import { ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, fleetChangesUrl, compareDiffUrl, deliveryInboxUrl, fleetSourcesUrl } from './lib/router.ts';
+  import { ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, fleetChangesUrl, compareDiffUrl, deliveryInboxUrl, fleetSourcesUrl, fleetAttentionUrl, fleetOwnersUrl } from './lib/router.ts';
   import { sourceTooltip } from './lib/format.ts';
   import { prefersReducedMotion } from './lib/motion.ts';
   import SourceDot from './components/SourceDot.svelte';
@@ -21,12 +21,12 @@
   // Persistent primary nav. `views` lists the route.view values that light the item.
   //
   // The product IA teaches ONE mental model, in order: state, then inventory, then
-  // relationships, then change. So a Fleet host has exactly four primary destinations
-  // (Overview, Services, Operational graph, Change analysis), each answering a question
-  // a first-time user actually has. Owners, Data sources, Needs attention and Readiness
-  // are DIMENSIONS of those four -- reachable from the Overview, from entity pages and
-  // from the command palette -- not peer destinations. Desktop nav, the mobile drawer
-  // (which renders this same array) and the palette all agree on that ordering.
+  // relationships, then change. Needs attention sits beside the Overview (state) and
+  // Owners beside Services (inventory): both are pages a reader lands on and returns
+  // to, and lighting "Overview" while showing either one told them they were somewhere
+  // else. Data sources keeps its own control on the right of the bar and Readiness is
+  // a cut of the revision inventory, so neither is a tab. Desktop nav, the mobile
+  // drawer (which renders this same array) and the palette all agree on that ordering.
   //
   // `cap: 'fleet'` items are shown until capabilities are known and hidden once the host
   // reports no fleet; `legacyOnly` items are the mirror image, appearing only once the
@@ -42,10 +42,11 @@
       {
         label: 'Overview',
         href: fleetOverviewUrl(),
-        views: ['fleet-overview', 'fleet-attention', 'fleet-owners', 'fleet-sources'],
-        kinds: ['owner', 'source'],
+        views: ['fleet-overview', 'fleet-sources'],
+        kinds: ['source'],
         cap: 'fleet',
       },
+      { label: 'Needs attention', href: fleetAttentionUrl(), views: ['fleet-attention'], cap: 'fleet' },
       // Services exists on BOTH host classes, so its href must be correct at every probe
       // state -- including before capabilities resolve. '#/' was not: on a Fleet host it
       // canonicalizes straight back to the Overview, so clicking Services during the probe
@@ -57,6 +58,7 @@
         views: ['list', 'detail', 'fleet-services'],
         kinds: ['service', 'revision', 'target'],
       },
+      { label: 'Owners', href: fleetOwnersUrl(), views: ['fleet-owners'], kinds: ['owner'], cap: 'fleet' },
       // Sentence case, like its three siblings and like the H1 and breadcrumb on the
       // page it opens. Title Case here made one tab in four look like a different kind
       // of destination and made the tab read as a different name from its own page.
@@ -441,11 +443,22 @@
     display: flex; flex-wrap: wrap; gap: var(--sp-2);
   }
 
+  /* ─── Tight ─── */
+  /* With seven tabs the roomy bar needs about 1,330px. Below that it sheds the version
+     tag and some padding (about 150px) before it gives up the tabs, so a 1,280px
+     laptop still gets the full nav. */
+  @media (max-width: 1340px) {
+    .navbar { padding: 0 var(--sp-4); }
+    .nav-link { padding: 6px 7px; }
+    .version-tag { display: none; }
+    .search-trigger { min-width: 7rem; }
+  }
+
   /* ─── Collapsed ─── */
-  /* The full bar (brand, five tabs, search, sources and three buttons) needs about
-     1,130px; collapsing at the phone breakpoint left Refresh, Theme and then Search
-     clipped and unreachable from 768 to 1,130px. */
-  @media (max-width: 1180px) {
+  /* Collapsing at the phone breakpoint left Refresh, Theme and then Search clipped and
+     unreachable on mid-width screens, so the bar collapses as soon as the tight bar
+     above stops fitting. */
+  @media (max-width: 1200px) {
     .navbar {
       padding: 0 var(--sp-4);
       gap: var(--sp-2);

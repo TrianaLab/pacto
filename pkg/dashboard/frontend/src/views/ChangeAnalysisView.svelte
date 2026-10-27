@@ -4,7 +4,7 @@
   import { boundedMatches, NAME_LOOKUP_LIMIT } from '../lib/entityResolve.ts';
   import { classificationClass, completenessClass, completenessLabel, shortDigest, formatCount } from '../lib/format.ts';
   import SearchPick from '../components/SearchPick.svelte';
-  import { formatDate } from '../lib/dateFormat.ts';
+  import { formatRelative } from '../lib/dateFormat.ts';
   import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, hashForHref, replaceHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -461,7 +461,7 @@
         <span class="text-2">{result.oldRevision?.label || '?'} → {result.newRevision?.label || '?'}</span>
       {/if}
       <span class="badge {completenessClass(result.meta?.completeness)}"><span class="badge-dot"></span>{completenessLabel(result.meta?.completeness)}</span>
-      {#if result.meta?.asOf}<span class="text-3">as of {formatDate(result.meta.asOf)}</span>{/if}
+      {#if result.meta?.asOf}<span class="text-3">Data as of {formatRelative(result.meta.asOf)}</span>{/if}
       <!-- The snapshot id is precise and occasionally decisive, but it is opaque to
            anyone who has not read the data model. The chip states what it MEANS; the id
            itself stays exact, one hover away. -->
