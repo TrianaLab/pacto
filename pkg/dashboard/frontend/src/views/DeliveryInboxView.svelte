@@ -112,13 +112,18 @@
               {#each mine as it (it.namespace + '/' + it.name)}{@render row(it)}{/each}
             </ul>
           {/if}
-          {#if shared.length}
-            <!-- Questions several teams own: any of them may answer, so they fold behind their count unless nothing else waits. -->
-            <Fold title="Shared with other teams" level={3} meta={`${formatCount(shared.length)}${inbox.heldPage && inbox.heldPage.total > held.length ? ' on this page' : ''} · any of the teams may answer`} open={!mine.length} testid="inbox-shared">
+          {#if shared.length && mine.length}
+            <!-- Questions several teams own: any of them may answer, so they fold behind their count. -->
+            <Fold title="Shared with other teams" level={3} meta={`${formatCount(shared.length)}${inbox.heldPage && inbox.heldPage.total > held.length ? ' on this page' : ''} · any of the teams may answer`} testid="inbox-shared">
               <ul class="pl-list" data-testid="inbox-held-shared">
                 {#each shared as it (it.namespace + '/' + it.name)}{@render row(it)}{/each}
               </ul>
             </Fold>
+          {:else if shared.length}
+            <!-- Nothing here is yours alone, so the shared ones are what waits: no fold to open. -->
+            <ul class="pl-list" data-testid="inbox-held-shared">
+              {#each shared as it (it.namespace + '/' + it.name)}{@render row(it)}{/each}
+            </ul>
           {/if}
           <Pager page={inbox.heldPage} href={hrefFor('held')} label="Pages of held changes" noun="held changes" testid="inbox-held-pager" />
         {/if}

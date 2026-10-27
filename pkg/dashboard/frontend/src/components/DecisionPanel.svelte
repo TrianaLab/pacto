@@ -173,10 +173,10 @@
       {/if}
       {#if stale && !needsFresh}<p class="t-body-2" data-testid="decision-stale">Your sign-in is too old to decide. A button below takes you to sign in again; your choice and note are kept.</p>{/if}
       <label class="dp-field">
-        <span><strong>Note</strong> (kept with the decision){#if breaking} · required to approve{/if}</span>
+        <span><strong>Note</strong> (kept with the decision){#if breaking}{' · required to approve'}{/if}</span>
         <textarea class="input" rows="2" maxlength="500" bind:value={note} placeholder={breaking ? 'Why should it ship anyway?' : ''} aria-describedby={noteMissing ? 'dp-note-why' : undefined}></textarea>
       </label>
-      {#if noteMissing}<p id="dp-note-why" class="t-meta" data-testid="decision-note-required">A breaking change needs a note to be approved.</p>{/if}
+      {#if noteMissing}<p id="dp-note-why" class="visually-hidden" data-testid="decision-note-required">A breaking change needs a note to be approved.</p>{/if}
     {/if}
     <!-- One card per answer: what it does, then its button. The two buttons weigh the same. -->
     <div class="dp-outcomes" data-testid="decision-consequences">

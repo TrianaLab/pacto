@@ -140,11 +140,12 @@ describe('inbox', () => {
     expect(text(r.target.querySelector('[data-testid="inbox-calm"]') as HTMLElement)).toBe('Nothing frozen and nothing failed.');
     r.destroy();
 
-    // With nothing only yours, the shared ones are what waits, so they start open.
+    // With nothing only yours, the shared ones are what waits, so they are not folded at all.
     fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [it_(2, ['team-checkout', 'team-payments'])] });
     r = render(DeliveryInboxView);
     await settle();
-    expect((r.target.querySelector('[data-testid="inbox-shared"]') as HTMLDetailsElement).open).toBe(true);
+    expect(r.target.querySelector('[data-testid="inbox-shared"]')).toBeNull();
+    expect(r.target.querySelectorAll('[data-testid="inbox-held-shared"] > li').length).toBe(1);
     expect(r.target.querySelector('[data-testid="inbox-held"]')).toBeNull();
     r.destroy();
   });
