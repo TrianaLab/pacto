@@ -183,6 +183,8 @@
                         {#if fix}<span class="badge badge-neutral au-hasfix">Fix to copy</span>{/if}
                       </summary>
                       <div class="au-detail">
+                        <!-- The row clips a long name; here it is whole. -->
+                        <p class="au-full"><code>{b.subject}</code></p>
                         {#if b.stages?.length}<p class="t-meta au-stages">On {formatCount(b.stages.length)} Stage{b.stages.length === 1 ? '' : 's'}: <CappedList items={b.stages} max={3} inline={true} label={`Stages ${b.subject} blocks`}>{#snippet item(st)}{st}{/snippet}</CappedList></p>{/if}
                         {#if b.message}<p class="t-body-2">{sentence(b.message)}</p>{/if}
                         {#if fix}

@@ -128,7 +128,8 @@
                           {#if r.held}<span class="badge badge-warn">{r.held} waiting</span>{/if}
                           {#if r.pointer && !r.verified && !r.failed}<span class="badge badge-neutral">Not verified</span>{/if}
                         </span>
-                        {#if r.ready && !r.ready.startsWith('True')}{@const why = `Cannot promote: ${sentence(r.readyMessage || r.ready.replace(/^\w+: /, ''))}`}<span class="t-meta ev-ready" title={why}>{why}</span>{/if}
+                        <!-- svelte-ignore a11y_no_noninteractive_tabindex (focus only unclamps the reason for a keyboard reader; it is whole in the DOM for a screen reader) -->
+                        {#if r.ready && !r.ready.startsWith('True')}{@const why = `Cannot promote: ${sentence(r.readyMessage || r.ready.replace(/^\w+: /, ''))}`}<span class="t-meta ev-ready" title={why} tabindex="0">{why}</span>{/if}
                         {#if r.actions?.length}
                           <span class="ev-actions">
                             {#if r.actions.includes('promote')}
@@ -231,6 +232,8 @@
   .ev-version { font-weight: 600; }
   .ev-badges, .ev-actions { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
   .ev-ready { color: var(--c-warn); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  /* Two lines until a reader points at it or tabs to it; then the whole reason. */
+  .ev-ready:hover, .ev-ready:focus-visible { -webkit-line-clamp: unset; line-clamp: none; }
   .ev-head { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--sp-2); }
   .ev-head .ev-version { overflow-wrap: anywhere; }
   .ev-tools > :global(form) { flex: 1 1 24rem; }

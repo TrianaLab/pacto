@@ -302,6 +302,8 @@ describe('FleetEntityView — rich service page (D)', () => {
     // A revision's version is at the end of its name, so revision lists never clip.
     const revisions = listUnder('All revisions');
     expect(revisions.classList.contains('ref-clip')).toBe(false);
+    // Full width too: a long service name in a third of the page was four lines a revision.
+    expect(revisions.closest('.se-grid')).toBeNull();
     unmount(component); document.body.removeChild(target);
   });
 

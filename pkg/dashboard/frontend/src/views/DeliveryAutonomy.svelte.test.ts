@@ -128,6 +128,8 @@ describe('path to autonomy', () => {
     expect(target.querySelector('[data-testid="autonomy-blockers-pager-next"]')?.getAttribute('href')).toBe('#/delivery/autonomy?q=pay&blockers=50');
     const blocker = target.querySelector('[data-testid="autonomy-blockers"] li.au-blocker')!;
     expect(blocker.querySelectorAll('.au-stages li').length).toBe(3);
+    // The row clips a long name; its detail says it whole.
+    expect(blocker.querySelector('.au-detail .au-full')?.textContent).toBe('payments');
     expect(text(blocker)).toContain('On 300 Stages');
     expect(text(blocker)).toContain('Show all 300');
     // A kind counts over every page, not only the blockers this page shows.
