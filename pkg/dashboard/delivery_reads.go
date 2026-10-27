@@ -499,21 +499,8 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 		_, tier := envRank(st.Spec.Environment)
 		return (in.Environment == "" || st.Spec.Environment == in.Environment) && (in.Tier == "" || tier == in.Tier)
 	})
-	services := []string{}
-	for _, st := range stages {
-		services = append(services, st.Spec.Service.Name)
-		c := &out.Body.Counts
-		if slices.Contains(st.Status.FailedDigests, st.Status.Pointer) {
-			c.Failed++
-		}
-		if st.Status.Frozen {
-			c.Frozen++
-		}
-		if held[st.Metadata.Namespace+"/"+st.Metadata.Name] > 0 {
-			c.Waiting++
-		}
-	}
-	slices.Sort(services)
+	var services []string
+	services, out.Body.Counts = countStages(stages, held)
 	var page []string
 	page, out.Body.Page = pageOf(slices.Compact(services), in.Offset, in.Limit, environmentsPage)
 	var shown []delivery.StageObject
@@ -535,6 +522,26 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 		return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Environment, b.Environment), cmp.Compare(a.Namespace, b.Namespace))
 	})
 	return out, nil
+}
+
+// countStages is the sorted services of stages and how many of the stages
+// are failed, frozen or waiting for a person.
+func countStages(stages []delivery.StageObject, held map[string]int) ([]string, StageCounts) {
+	services, c := []string{}, StageCounts{}
+	for _, st := range stages {
+		services = append(services, st.Spec.Service.Name)
+		if slices.Contains(st.Status.FailedDigests, st.Status.Pointer) {
+			c.Failed++
+		}
+		if st.Status.Frozen {
+			c.Frozen++
+		}
+		if held[st.Metadata.Namespace+"/"+st.Metadata.Name] > 0 {
+			c.Waiting++
+		}
+	}
+	slices.Sort(services)
+	return services, c
 }
 
 // environmentColumns is the board's columns for stages, ordered the way
