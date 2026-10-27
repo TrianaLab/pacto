@@ -4,19 +4,19 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryChangeUrl, deliveryHistoryUrl, deliveryInboxUrl, serviceUrl } from '../lib/router.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
-  import { typeLabel, decisionLabel, shortDigest, shortDigests, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
+  import { typeLabel, shortDigest, shortDigests, andList, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
   import PageHeader from '../components/PageHeader.svelte';
   import DeliveryNav from '../components/DeliveryNav.svelte';
   import DeliveryProblem from '../components/DeliveryProblem.svelte';
   import ListingNote from '../components/ListingNote.svelte';
   import EmptyState from '../components/EmptyState.svelte';
-  import MoveFirstList from '../components/MoveFirstList.svelte';
+  import DeliveryLead from '../components/DeliveryLead.svelte';
   import Pager from '../components/Pager.svelte';
   import ListFilter from '../components/ListFilter.svelte';
   import CappedList from '../components/CappedList.svelte';
   import Fold from '../components/Fold.svelte';
   import { urlInt, limitParam } from '../lib/paging.ts';
-  import { formatCount } from '../lib/format.ts';
+  import { formatCount, countOf } from '../lib/format.ts';
 
   // What waits on me or my team: held changes whose question names one of my
   // teams, then frozen Stages and changes that could not finish. Each
@@ -44,6 +44,28 @@
   // Split on this page only: the server pages them together.
   const mine = $derived(held.filter((it) => (it.owners?.length ?? 0) <= 1));
   const shared = $derived(held.filter((it) => (it.owners?.length ?? 0) > 1));
+  // The other teams a shared question names: the reader's own groups are left out.
+  const myGroups = $derived(deliverySession.data?.caller?.groups ?? []);
+  const sharedWith = $derived.by(() => {
+    const all = [...new Set(shared.flatMap((it) => it.owners ?? []))];
+    const others = all.filter((t) => !myGroups.includes(t));
+    return others.length ? others : all;
+  });
+  const sharedTitle = $derived(sharedWith.length ? `Shared with ${andList(sharedWith, 3)}` : 'Shared with other teams');
+  // Counted on this page: the server pages both kinds together.
+  const onPage = $derived(!!inbox?.heldPage && inbox.heldPage.total > held.length);
+  // The one-line answer: what only you can decide, then how much more is shared.
+  const lead = $derived.by(() => {
+    if (!inbox || !held.length) return null;
+    const more = shared.length ? `${formatCount(shared.length)} ${mine.length ? 'more are' : (shared.length === 1 ? 'is' : 'are')} shared with ${andList(sharedWith, 3) || 'other teams'}${onPage ? ' on this page' : ''}.` : '';
+    return mine.length
+      ? { head: `${countOf(mine.length, 'decision')} only you can make${onPage ? ' on this page' : ''}.`, rest: more }
+      : { head: 'Nothing only you can answer.', rest: more };
+  });
+  // One line per held change: what breaks and for whom. Without named services, the
+  // first sentence of the server's question says why a person is needed.
+  const breaksWord = (it) => it.decision === 'accept-unknown' ? 'Unknown for' : 'Breaks';
+  const firstSentence = (q) => shortDigests(q ?? '').split(/(?<=[.?])\s/)[0];
   const nothing = $derived(!!inbox && total(inbox.heldPage, held) + total(inbox.frozenPage, frozen) + total(inbox.erroredPage, errored) === 0);
   // A link to another page of one section keeps the others where they are.
   const hrefFor = (section) => (off, lim) => deliveryInboxUrl({
@@ -52,27 +74,27 @@
 </script>
 
 {#snippet row(it)}
-  <li class="pl-row pl-row--stack dl-row">
-    <a class="dl-title" href={deliveryChangeUrl(it.namespace, it.name)}>
-      {typeLabel(it.type)} on {it.namespace}/{it.stage}{#if it.to}: {it.fromVersion && it.toVersion ? `${it.fromVersion} to ${it.toVersion}` : it.toVersion || shortDigest(it.to)}{/if}
-    </a>
-    {#if it.question}<p class="dl-question t-body">{shortDigests(it.question)}</p>{/if}
-    <MoveFirstList order={it.order} testid="inbox-move-first" />
-    <!-- Labels, not sentences: what is asked, who may answer and what it affects, on one line that wraps when full. -->
-    <p class="dl-facts t-body-2">
-      <span class="badge badge-neutral">{decisionLabel(it.decision) || 'A decision'}</span>
-      <span>{#if it.owners?.length}{it.owners.join(', ')} may answer{:else if deliverySession.data?.requireOwnerTeam}Nobody may answer: no team is declared, so only break-glass can override{:else}Any person may answer{/if}</span>
-      {#if it.consumers?.length}
-        <span class="dl-affects">Affects <CappedList items={it.consumers} max={3} inline={true} label="Affected services">{#snippet item(c)}<a href={serviceUrl(c)}>{c}</a>{/snippet}</CappedList></span>
-      {/if}
-    </p>
+  <li class="pl-row dl-row">
+    <div class="dl-main">
+      <a class="dl-title" href={deliveryChangeUrl(it.namespace, it.name)}>
+        {typeLabel(it.type)} on {it.namespace}/{it.stage}{#if it.to}: {it.fromVersion && it.toVersion ? `${it.fromVersion} to ${it.toVersion}` : it.toVersion || shortDigest(it.to)}{/if}
+      </a>
+      <p class="dl-facts t-body-2">
+        {#if it.consumers?.length}
+          <span class="dl-affects">{breaksWord(it)} <CappedList items={it.consumers} max={3} inline={true} label="Affected services">{#snippet item(c)}<a href={serviceUrl(c)}>{c}</a>{/snippet}</CappedList></span>
+        {:else if it.question}
+          <span class="dl-question">{firstSentence(it.question)}</span>
+        {/if}
+        <span class="dl-who">{#if it.owners?.length}{andList(it.owners, 3)} may answer{:else if deliverySession.data?.requireOwnerTeam}Nobody may answer: no team is declared, so only break-glass can override{:else}Any person may answer{/if}</span>
+      </p>
+    </div>
+    <a class="btn btn-primary btn-sm dl-decide" href={deliveryChangeUrl(it.namespace, it.name)} aria-label={`Decide: ${typeLabel(it.type)} on ${it.namespace}/${it.stage}`}>Decide</a>
   </li>
 {/snippet}
 
 <div class="product-page">
   <PageHeader
     title="Inbox"
-    count={inbox ? `${formatCount(total(inbox.heldPage, held))} waiting for a decision` : ''}
     asOf={inbox?.asOf}
     revalidating={!!inbox && loader.loading}
     paging={answer.paging}
@@ -88,6 +110,7 @@
   {:else if inbox}
     <ListingNote listing={inbox} error={loader.error} onRetry={() => loader.refresh()} />
 
+    {#if lead}<DeliveryLead head={lead.head} rest={lead.rest} testid="inbox-answer" />{/if}
     {#if nothing}
       <div class="state-box" data-testid="inbox-empty">
         {#if q}
@@ -112,20 +135,18 @@
               {#each mine as it (it.namespace + '/' + it.name)}{@render row(it)}{/each}
             </ul>
           {/if}
-          {#if shared.length && mine.length}
-            <!-- Questions several teams own: any of them may answer, so they fold behind their count. -->
-            <Fold title="Shared with other teams" level={3} meta={`${formatCount(shared.length)}${inbox.heldPage && inbox.heldPage.total > held.length ? ' on this page' : ''} · any of the teams may answer`} testid="inbox-shared">
+          {#if shared.length}
+            <!-- Questions several teams own: any of them may answer, so they fold behind
+                 their count, even when nothing is yours alone. -->
+            {#if !mine.length}<p class="t-body-2 dl-none" data-testid="inbox-none-mine">Nothing only you can answer.</p>{/if}
+            <Fold title={sharedTitle} level={3} meta={`${formatCount(shared.length)}${onPage ? ' on this page' : ''} · any of them may answer`} testid="inbox-shared">
               <ul class="pl-list" data-testid="inbox-held-shared">
                 {#each shared as it (it.namespace + '/' + it.name)}{@render row(it)}{/each}
               </ul>
             </Fold>
-          {:else if shared.length}
-            <!-- Nothing here is yours alone, so the shared ones are what waits: no fold to open. -->
-            <ul class="pl-list" data-testid="inbox-held-shared">
-              {#each shared as it (it.namespace + '/' + it.name)}{@render row(it)}{/each}
-            </ul>
           {/if}
-          <Pager page={inbox.heldPage} href={hrefFor('held')} label="Pages of held changes" noun="held changes" testid="inbox-held-pager" />
+          <!-- Only when there is more than one page: the answer line already says how many. -->
+          {#if onPage || (inbox.heldPage?.offset ?? 0) > 0}<Pager page={inbox.heldPage} href={hrefFor('held')} label="Pages of held changes" noun="held changes" testid="inbox-held-pager" />{/if}
         {/if}
       </section>
 
@@ -171,7 +192,9 @@
 </div>
 
 <style>
-  .dl-row { gap: 2px; padding: var(--sp-2) var(--sp-3); overflow-wrap: break-word; }
+  .dl-row { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); overflow-wrap: break-word; }
+  .dl-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .dl-decide { flex: none; }
   /* One line per frozen Stage or stuck change: what, then why. The why wraps
      under it rather than clipping, so the whole reason is always there to read. */
   .dl-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sp-3); padding: var(--sp-1) var(--sp-3); overflow-wrap: anywhere; }

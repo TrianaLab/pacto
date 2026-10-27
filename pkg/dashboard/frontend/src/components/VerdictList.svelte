@@ -1,7 +1,7 @@
 <script>
   import CopyableIdentifier from './CopyableIdentifier.svelte';
   import DigestText from './DigestText.svelte';
-  import { miraLink, verdictBadge, unknownHelp, UNKNOWN_DOCS } from '../lib/delivery.ts';
+  import { miraLink, verdictBadge, unknownHelp, gateLabel, UNKNOWN_DOCS } from '../lib/delivery.ts';
 
   // Verdicts with the proof behind each: the citation, a link into Mira for a
   // health check when Mira's address is known (else the query to copy) and the
@@ -25,7 +25,7 @@
         <div class="vl-head">
           <span class="badge {b.tone}" data-testid="verdict-badge"><span class="badge-dot"></span>{b.label}</span>
           {#if b.chip}<span class="badge badge-warn" data-testid="verdict-chip">{b.chip}</span>{/if}
-          <strong>{v.gate}</strong>
+          <strong>{gateLabel(v.gate)}</strong>{#if gateLabel(v.gate) !== v.gate}<code class="t-meta vl-id">{v.gate}</code>{/if}
           <span class="t-meta">{v.phase === 'pre' ? 'before the change' : v.phase === 'verify' ? 'after the change' : v.phase}</span>
         </div>
         {#if v.message}<p class="vl-msg t-body-2">{v.message}</p>{/if}
@@ -76,6 +76,7 @@
   .vl-cite dt { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .vl-cite dd { margin: 0; overflow-wrap: anywhere; }
   .vl-none { color: var(--c-text-3); }
+  .vl-id { color: var(--c-text-3); }
   .vl-unknown { margin: 0; }
   .vl-unknown a { color: var(--c-accent); text-decoration: underline; }
 </style>

@@ -2,7 +2,7 @@
   import { untrack } from 'svelte';
   import { api } from '../lib/api.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
-  import { decisionAsked, decisionLabel, cliDecision, loginUrl, signIn, hostSignsIn, keepPending, pendingFor, dropPending, shortDigests,
+  import { decisionAsked, decisionLabel, cliDecision, loginUrl, signIn, hostSignsIn, keepPending, pendingFor, dropPending,
     versionLabel, personLabel, isBreaking, andList, authTimeText, timeLabel, UNKNOWN_DOCS, APPROVING_DOCS, cannotApproveHere } from '../lib/delivery.ts';
   import { formatCount } from '../lib/format.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
@@ -151,7 +151,6 @@
 
 <section class="dp" aria-labelledby="dp-title" data-testid="decision-panel">
   <h2 id="dp-title" class="t-section-title">The decision</h2>
-  {#if op.status?.question}<p class="dp-question t-body">{shortDigests(op.status.question)}</p>{/if}
   <p class="dp-chips t-meta">{#if breaking}<span class="badge badge-warn" data-testid="decision-breaking">Breaking</span>{/if}<span>{owners.length ? `Only ${ownerList} may answer` : ownerless}</span>{#if ownersCut}<button type="button" class="btn btn-sm" aria-expanded={allOwners} onclick={() => { allOwners = !allOwners; }}>{allOwners ? 'Show fewer' : `Show all ${formatCount(owners.length)} teams`}</button>{/if}</p>
   {#if asked === 'accept-unknown'}
     <p class="t-body-2" data-testid="decision-unknown">A check ended Unknown: Pacto could not see enough to say yes or no, and Unknown is never a yes. <a class="dp-link" href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">What Unknown means</a></p>
@@ -178,13 +177,14 @@
       </label>
       {#if noteMissing}<p id="dp-note-why" class="visually-hidden" data-testid="decision-note-required">A breaking change needs a note to be approved.</p>{/if}
     {/if}
-    <!-- One card per answer: what it does, then its button. The two buttons weigh the same. -->
+    <!-- One card per answer: what it does, then its button. Approve is the primary one; it
+         looks disabled while a required note is empty. -->
     <div class="dp-outcomes" data-testid="decision-consequences">
       <div class="dp-outcome dp-approve">
         <h3 class="t-body">If you approve</h3>
         <ul>{#each ifApprove as line (line)}<li>{line}</li>{/each}</ul>
         {#if !applied && consumers.length > 4}<button type="button" class="btn btn-sm dp-more" onclick={toAffected}>See all {formatCount(consumers.length)} affected services</button>{/if}
-        {#if offer}<button type="button" class="btn dp-btn" data-testid="decide-approve" bind:this={approveBtn} class:dp-was={kept?.decision === asked} disabled={busy || noteMissing} onclick={() => decide(asked)} title={asked === 'approve' ? `Approve shipping ${toV} to ${env}` : undefined}>{label(asked, approveLabel)}</button>{/if}
+        {#if offer}<button type="button" class="btn btn-primary dp-btn" data-testid="decide-approve" bind:this={approveBtn} class:dp-was={kept?.decision === asked} disabled={busy || noteMissing} onclick={() => decide(asked)} title={asked === 'approve' ? `Approve shipping ${toV} to ${env}` : undefined}>{label(asked, approveLabel)}</button>{/if}
       </div>
       <div class="dp-outcome dp-reject">
         <h3 class="t-body">If you reject</h3>
@@ -193,11 +193,7 @@
       </div>
     </div>
     {#if moveFirst}
-      <div class="dp-safer" data-testid="decision-safer">
-        <h3 class="t-body">Safer: update these first</h3>
-        <p class="t-body-2">Once nobody is left here, the change needs no person. Pacto keeps this list current and never moves them for you.</p>
-        <MoveFirstList order={st.plan.order} />
-      </div>
+      <div class="dp-safer" data-testid="decision-safer"><MoveFirstList order={st.plan.order} /></div>
     {/if}
 
     {#if offer}
@@ -226,7 +222,6 @@
 <style>
   .dp { border: 1px solid var(--c-warn-border); background: var(--c-warn-bg); border-radius: var(--radius-md); padding: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-2); }
   .dp p { margin: 0; }
-  .dp-question { font-weight: 600; }
   .dp-field { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-sm); color: var(--c-text-2); }
   .dp-more { align-self: flex-start; }
   .dp-chips { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); color: var(--c-text-2); }
@@ -234,8 +229,8 @@
   .dp-btn { margin-top: auto; width: 100%; }
   .dp-outcome ul { margin-bottom: var(--sp-2); }
   .dp-outcomes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: var(--sp-2); }
-  .dp-outcome, .dp-safer { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-sm); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); }
-  .dp-outcome h3, .dp-safer h3 { margin: 0; font-weight: 600; }
+  .dp-outcome { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-sm); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); }
+  .dp-outcome h3 { margin: 0; font-weight: 600; }
   .dp-outcome ul { margin-top: 0; padding-left: var(--sp-5); }
   .dp-was { outline: 2px solid var(--c-accent); outline-offset: 2px; }
   /* The warn tint is translucent: on the panel's own warn tint it loses contrast, so lay it on the surface. */

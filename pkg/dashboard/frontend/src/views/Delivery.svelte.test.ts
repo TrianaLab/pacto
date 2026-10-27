@@ -79,16 +79,21 @@ beforeEach(() => {
 });
 
 describe('inbox', () => {
-  it('shows held changes with the question, the decision asked and the affected services', async () => {
+  it('shows each held change as one line, what breaks and for whom, and a Decide link', async () => {
     fns.inbox.mockResolvedValue({ ...listing, frozen: [{ namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', frozenReason: 'Errored', verified: false, failed: false, frozen: true, autoHold: false, held: 0, actions: [] }],
       errored: [{ namespace: 'prod', name: 'e1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', phase: 'Concluded', outcome: 'Errored' }],
       held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', question: 'checkout accepts only 1.x: ship?', decision: 'approve', owners: ['team-checkout'], consumers: ['checkout'] }] });
     const { target, destroy } = render(DeliveryInboxView);
     await settle();
     const held = target.querySelector('[data-testid="inbox-held"]')!;
-    expect(text(held as HTMLElement)).toContain('checkout accepts only 1.x: ship?');
-    expect(text(held as HTMLElement)).toContain('Approve');
-    expect(text(held as HTMLElement)).toContain('team-checkout');
+    expect(text(held as HTMLElement)).toContain('Breaks checkout');
+    expect(text(held as HTMLElement)).not.toContain('checkout accepts only 1.x: ship?');
+    expect(text(held as HTMLElement)).toContain('team-checkout may answer');
+    expect(held.querySelector('a.btn-primary')?.textContent).toBe('Decide');
+    expect(held.querySelector('.badge')).toBeNull();
+    expect(text(target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('1 decision only you can make.');
+    // One page: the answer line already says how many, so no footer count.
+    expect(target.querySelector('[data-testid="inbox-held-pager"]')).toBeNull();
     expect(held.querySelector('a[href="#/delivery/changes/prod/op1"]')).not.toBeNull();
     expect(held.querySelector('a[href="#/services/checkout"]')).not.toBeNull();
     // Frozen Stages and stuck changes fold behind their count, each a one-line row.
@@ -119,7 +124,7 @@ describe('inbox', () => {
     expect(frozenSection.open).toBe(true);
     expect(text(frozenSection.querySelector('.dl-count') as HTMLElement)).toBe('60');
     expect(text(target.querySelector('[data-testid="inbox-frozen"]') as HTMLElement).trim()).toBe('payments in prod Frozen');
-    expect(text(target)).toContain('1,500 waiting for a decision');
+    expect(text(target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('1 decision only you can make on this page.');
     const pager = target.querySelector('[data-testid="inbox-held-pager"]') as HTMLElement;
     expect(text(pager.querySelector('.pl-range') as HTMLElement).trim()).toBe('Showing 26–50 of 1,500 held changes');
     // Another page of held changes keeps the other sections and the filter where they are.
@@ -140,16 +145,19 @@ describe('inbox', () => {
     const sharedFold = r.target.querySelector('[data-testid="inbox-shared"]') as HTMLDetailsElement;
     expect(sharedFold.open).toBe(false);
     // Counted on this page only: the server pages both kinds together.
-    expect(text(sharedFold.querySelector('summary') as HTMLElement)).toContain('Shared with other teams2 on this page');
+    expect(text(sharedFold.querySelector('summary') as HTMLElement)).toContain('Shared with team-payments and team-orders2 on this page');
+    expect(text(r.target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('1 decision only you can make on this page. 2 more are shared with team-payments and team-orders on this page.');
     expect(sharedFold.querySelectorAll('li.dl-row').length).toBe(2);
     expect(text(r.target.querySelector('[data-testid="inbox-calm"]') as HTMLElement)).toBe('Nothing frozen and nothing failed.');
     r.destroy();
 
-    // With nothing only yours, the shared ones are what waits, so they are not folded at all.
+    // With nothing only yours, the shared ones still fold behind their count, under a line that says so.
     fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [it_(2, ['team-checkout', 'team-payments'])] });
     r = render(DeliveryInboxView);
     await settle();
-    expect(r.target.querySelector('[data-testid="inbox-shared"]')).toBeNull();
+    expect((r.target.querySelector('[data-testid="inbox-shared"]') as HTMLDetailsElement).open).toBe(false);
+    expect(text(r.target.querySelector('[data-testid="inbox-none-mine"]') as HTMLElement)).toBe('Nothing only you can answer.');
+    expect(text(r.target.querySelector('[data-testid="inbox-answer"]') as HTMLElement).trim()).toBe('Nothing only you can answer. 1 is shared with team-payments.');
     expect(r.target.querySelectorAll('[data-testid="inbox-held-shared"] > li').length).toBe(1);
     expect(r.target.querySelector('[data-testid="inbox-held"]')).toBeNull();
     r.destroy();
@@ -175,18 +183,13 @@ describe('inbox', () => {
     destroy();
   });
 
-  it('says which service to update first, with links to its Stage and its verified version', async () => {
+  it('leaves what to update first to the change page', async () => {
     fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
       held: [{ namespace: 'prod', name: 'op1', stage: 'payments-prod', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', question: 'ship?', decision: 'approve', owners: ['team-checkout'], consumers: ['orders', 'billing'], order: ORDER }] });
     const { target, destroy } = render(DeliveryInboxView);
     await settle();
-    const mf = target.querySelector('[data-testid="inbox-move-first"]') as HTMLElement;
-    expect(text(mf)).toContain('Update orders first: orders 1.8.0 runs here and accepts only ^2.0.0');
-    expect(linkTo(mf, '#/delivery/history?namespace=prod&stage=orders-prod')?.textContent).toBe('Stage prod/orders-prod');
-    expect(linkTo(mf, '#/delivery/history?namespace=test&stage=orders-test')?.textContent).toBe('orders 1.9.0, verified on test/orders-test');
-    expect(text(mf)).toContain('Update billing first: it accepts only ^2.0.0');
-    expect(text(mf)).toContain('Pacto cannot tell what would move it first');
-    expect(text(mf.querySelector('[data-testid="inbox-move-first-unknown"]') as HTMLElement)).toContain('This list may be incomplete: the operational graph is partial');
+    expect(text(target.querySelector('[data-testid="inbox-held"]') as HTMLElement)).toContain('Breaks orders, billing');
+    expect(target.querySelector('[data-testid="inbox-move-first"]')).toBeNull();
     destroy();
   });
 
@@ -593,7 +596,8 @@ describe('change detail', () => {
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1', miraURL: 'https://mira.example' });
     const { target, destroy } = r;
     await settle();
-    expect(text(target)).toContain('Promote on prod/pay');
+    // Held, the title is the question: here it already shipped, so it asks to keep it.
+    expect(target.querySelector('h1')?.textContent).toBe('Keep 222222222222 on prod/pay?');
     expect(text(target)).toContain('agent-bot Agent, for erin');
     expect(target.querySelector('[data-testid="actor-badge"]')?.className).toContain('badge');
     // One sentence with only the parts it has: no raw type id, no empty fields.
@@ -618,16 +622,11 @@ describe('change detail', () => {
     let { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     const safer = target.querySelector('[data-testid="decision-safer"]') as HTMLElement;
-    expect(safer.querySelector('h3')?.textContent).toBe('Safer: update these first');
+    expect(text(safer).trim()).toMatch(/^Safer: update orders/);
     // The safer way out sits in the decision panel, right under the two answers.
     const cards = target.querySelector('[data-testid="decision-consequences"]')!;
     expect(cards.compareDocumentPosition(safer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(safer.closest('[data-testid="decision-panel"]')).not.toBeNull();
-    // The promoter re-plans a held change while it waits, but it still needs a person once nothing holds it.
-    const intro = safer.querySelector('h3')?.nextElementSibling?.textContent ?? '';
-    expect(intro).toContain('Pacto keeps this list current');
-    expect(intro).not.toContain('propose this change again');
-    expect(intro).not.toContain('no longer holds');
     const mf = target.querySelector('[data-testid="move-first"]') as HTMLElement;
     expect(linkTo(mf, '#/delivery/history?namespace=test&stage=orders-test')?.textContent).toBe('orders 999999999999, verified on test/orders-test');
     destroy();
@@ -682,9 +681,14 @@ describe('change detail', () => {
     expect(approve.textContent).toBe('Approve shipping 3.0.0');
     expect(approve.title).toBe('Approve shipping 3.0.0 to prod/pay');
     expect(reject.textContent).toBe('Reject: nothing moves');
-    // Same weight: neither answer is the primary one.
-    expect(approve.className).toBe(reject.className);
-    expect(approve.classList.contains('btn-primary')).toBe(false);
+    // Approve is the primary answer, and it is disabled until the note says why.
+    expect(approve.classList.contains('btn-primary')).toBe(true);
+    expect(reject.classList.contains('btn-primary')).toBe(false);
+    // The title is the question, one line says what breaks, and the raw question waits in Details.
+    expect(target.querySelector('h1')?.textContent).toBe('Ship 3.0.0 to prod/pay?');
+    expect(text(target.querySelector('[data-testid="change-answer"]') as HTMLElement).trim()).toBe('It breaks checkout, orders and billing. Their declared version ranges do not accept 3.0.0.');
+    expect(panel.querySelector('.dp-question')).toBeNull();
+    expect(text(target.querySelector('[data-testid="change-question"]') as HTMLElement)).toBe('checkout accepts only 1.x: ship?');
     // A breaking change ships only with a note saying why; rejecting needs none.
     expect(approve.disabled).toBe(true);
     expect(reject.disabled).toBe(false);
@@ -1002,7 +1006,7 @@ describe('change detail', () => {
     (target.querySelector('[data-testid="change-stale"] button') as HTMLButtonElement).click();
     await settle();
     expect(text(target.querySelector('[data-testid="change-gone"]') as HTMLElement)).toContain('This change is gone');
-    expect(text(target)).toContain('Promote on prod/pay');
+    expect(target.querySelector('h1')?.textContent).toBe('Ship 222222222222 to prod/pay?');
     expect(target.querySelector('[data-testid="decision-panel"]')).toBeNull();
     expect([...target.querySelectorAll('button')].find((b) => b.textContent === 'Cancel this change')).toBeUndefined();
     destroy();
@@ -1338,21 +1342,16 @@ describe('names, versions and one clear sentence', () => {
       { service: 'audit', version: '1.0.0', accepts: '^2.0.0', stage: { namespace: 'prod', name: 'audit-prod' }, message: 'm' },
       { service: 'mail', message: 'm' },
     ] };
-    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [],
-      held: [{ namespace: 'prod', name: 'op1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', decision: 'approve', order }] });
-    const { target, destroy } = render(DeliveryInboxView);
+    const held = heldOperation();
+    held.operation.status.plan = { ...held.operation.status.plan, order } as typeof held.operation.status.plan;
+    fns.operation.mockResolvedValue(held);
+    const { target, destroy } = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
-    // Three first, then the rest on request.
-    expect(target.querySelectorAll('[data-testid="inbox-move-first"] .mf-item').length).toBe(3);
-    const more = [...target.querySelectorAll('[data-testid="inbox-move-first"] button')].find((b) => b.textContent === 'Show all 5') as HTMLButtonElement;
-    more.click();
-    await settle();
-    const items = [...target.querySelectorAll('[data-testid="inbox-move-first"] .mf-item')].map((li) => text(li as HTMLElement).trim());
-    expect(items[0]).toBe('Update orders first: orders 1.8.0 runs here and accepts only ^2.0.0; orders 1.9.0, verified on test/orders-test accepts the new version, so promote it on Stage prod/orders-prod.');
-    expect(items[1]).toContain('ledger 2.0.0, verified on test/ledger-test no longer depends on it, so promote it on Stage prod/ledger-prod.');
-    expect(items[2]).toBe('Update fraud first: it accepts only ^2.0.0; fraud 222222222222, verified on test/fraud-test accepts the new version, so ship it first.');
-    expect(items[3]).toBe('Update audit first: audit 1.0.0 runs here and accepts only ^2.0.0, and no version verified upstream can move first yet (it runs on Stage prod/audit-prod).');
-    expect(items[4]).toBe('Update mail first, and no version verified upstream can move first yet.');
+    // One line: three named, the rest counted.
+    const mf = target.querySelector('[data-testid="move-first"]') as HTMLElement;
+    expect(mf.querySelectorAll('.mf-item').length).toBe(3);
+    expect(text(mf).replace(/\s+/g, ' ').trim()).toBe('Safer: update orders (orders 1.9.0, verified on test/orders-test, can go now), ledger (ledger 2.0.0, verified on test/ledger-test, can go now), fraud (fraud 222222222222, verified on test/fraud-test, can go now) and 2 more first.');
+    expect(linkTo(mf, '#/delivery/history?namespace=prod&stage=orders-prod')?.getAttribute('aria-label')).toBe('orders, Stage prod/orders-prod');
     expect(text(target)).not.toContain('9'.repeat(64));
     destroy();
   });

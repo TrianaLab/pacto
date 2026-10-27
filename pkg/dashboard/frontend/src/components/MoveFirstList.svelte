@@ -1,46 +1,33 @@
 <script>
   import { deliveryHistoryUrl } from '../lib/router.ts';
   import { shortDigest } from '../lib/delivery.ts';
-  import CappedList from './CappedList.svelte';
-  import DigestText from './DigestText.svelte';
+  import { formatCount } from '../lib/format.ts';
 
-  // What must move before a held promote can ship: each consumer running here
-  // whose declared range does not accept the new version, its Stage and the
-  // verified version upstream that can go first, when there is one. Pacto only
-  // says it; a person or an agent moves the other service. One sentence per
-  // consumer, built from the plan's fields: the plan's own message repeats
-  // the same facts with full digests.
-  let { order = null, testid = 'move-first' } = $props();
+  // What must move before a held promote can ship, in one line: each consumer
+  // whose declared range does not accept the new version, linked to its Stage,
+  // and the verified version upstream that can go first, when there is one.
+  // Pacto only says it; a person or an agent moves the other service. Built
+  // from the plan's fields: the plan's own message repeats them with digests.
+  let { order = null, testid = 'move-first', max = 3 } = $props();
 
   const moveFirst = $derived(order?.moveFirst ?? []);
+  const shown = $derived(moveFirst.slice(0, max));
+  const rest = $derived(moveFirst.length - shown.length);
   const unknown = $derived(order?.unknown ?? []);
   const stageUrl = (s) => deliveryHistoryUrl({ namespace: s.namespace, stage: s.name });
+  const sep = (i, n) => (i === 0 ? '' : i === n - 1 ? ' and ' : ', ');
 </script>
 
 {#if moveFirst.length}
-  <div class="mf" data-testid={testid}>
-    <CappedList items={moveFirst} max={3} label="Services to update first">
-      {#snippet item(m)}
-        <div class="mf-item t-body-2">
-          <strong class="t-body">Update {m.service} first</strong>{#if m.accepts}: {m.version ? `${m.service} ${m.version} runs here and accepts` : 'it accepts'} only {m.accepts}{/if}{#if m.candidate}; <a href={stageUrl(m.candidate.verifiedOn)}>{m.service} {m.candidate.version || shortDigest(m.candidate.digest)}, verified on {m.candidate.verifiedOn.namespace}/{m.candidate.verifiedOn.name}</a> {m.candidate.accepts ? 'accepts the new version' : 'no longer depends on it'}, so {#if m.stage}promote it on <a href={stageUrl(m.stage)}>Stage {m.stage.namespace}/{m.stage.name}</a>{:else}ship it first{/if}.{:else if m.unknown}, and Pacto cannot tell what would move it first: {m.unknown}.{:else}, and no version verified upstream can move first yet{#if m.stage}{' '}(it runs on <a href={stageUrl(m.stage)}>Stage {m.stage.namespace}/{m.stage.name}</a>){/if}.{/if}
-        </div>
-      {/snippet}
-    </CappedList>
-    {#if unknown.length}
-      <div class="mf-unknown t-body-2" data-testid="{testid}-unknown">
-        <p>This list may be incomplete:</p>
-        <CappedList items={unknown} max={5}>{#snippet item(u)}<DigestText text={u} />{/snippet}</CappedList>
-      </div>
-    {/if}
-  </div>
+  <p class="mf t-body-2" data-testid={testid}>
+    <strong>Safer:</strong> update
+    {#each shown as m, i (m.service + i)}{sep(i, shown.length + (rest > 0 ? 1 : 0))}<span class="mf-item">{#if m.stage}<a href={stageUrl(m.stage)} aria-label={`${m.service}, Stage ${m.stage.namespace}/${m.stage.name}`} title={m.accepts ? `It accepts only ${m.accepts}` : undefined}>{m.service}</a>{:else}{m.service}{/if}{#if m.candidate}{' '}(<a href={stageUrl(m.candidate.verifiedOn)}>{m.service} {m.candidate.version || shortDigest(m.candidate.digest)}, verified on {m.candidate.verifiedOn.namespace}/{m.candidate.verifiedOn.name}</a>, can go now){:else if m.unknown}{' '}(Pacto cannot tell what moves it: {m.unknown}){:else}{' '}(no verified version can go yet){/if}</span>{/each}{#if rest > 0}{' and '}{formatCount(rest)} more{/if} first.
+    {#if unknown.length}<span class="mf-unknown" data-testid="{testid}-unknown">This list may be incomplete: {unknown[0]}{#if unknown.length > 1}{' '}and {formatCount(unknown.length - 1)} more{/if}.</span>{/if}
+  </p>
 {/if}
 
 <style>
-  .mf { display: flex; flex-direction: column; gap: var(--sp-2); }
-  .mf > :global(.cl) { list-style: none; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
-  .mf-item { background: var(--c-surface); border: 1px solid var(--c-border); border-left: 3px solid var(--c-warn); border-radius: var(--radius-sm); padding: var(--sp-3); }
-  .mf-unknown p { margin: 0; }
-  /* Unknown reasons may carry names that never break on their own. */
-  .mf-item, .mf-unknown { overflow-wrap: break-word; }
+  .mf { margin: 0; overflow-wrap: break-word; }
+  .mf-unknown { color: var(--c-text-3); }
   .mf a { color: var(--c-accent); text-decoration: underline; }
 </style>

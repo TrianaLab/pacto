@@ -433,6 +433,22 @@ export function verdictBadge(v: { gate?: string; result?: string; citation?: Rec
   return { label: v.result ?? '', tone, chip };
 }
 
+const GATE_LABELS: Record<string, string> = {
+  'pacto.diff': 'Contract diff',
+  'pacto.impact': 'Consumer impact',
+  'pacto.contract': 'Contract readable',
+  'pacto.published': 'Published and signed',
+  'pacto.suites': 'Test suites shipped',
+  'pacto.autonomy': 'Level change',
+  'pacto.runtime': 'Runtime callers',
+  'pacto.preempted': 'Superseded',
+};
+
+/** gateLabel names a built-in check in plain words; a check the Stage names itself keeps its own name. */
+export function gateLabel(gate: string | undefined): string {
+  return GATE_LABELS[gate ?? ''] ?? (gate || 'Check');
+}
+
 /** isBreaking says whether a plan's checks classified the change as breaking. */
 export function isBreaking(verdicts: { citation?: Record<string, string> }[] | null | undefined): boolean {
   return (verdicts ?? []).some((v) => v.citation?.classification === 'BREAKING');

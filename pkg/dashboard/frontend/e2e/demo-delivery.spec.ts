@@ -136,7 +136,7 @@ test.describe('Browser demo: the delivery story', () => {
     await ready(page, '#/delivery/environments');
     await promote(page, 'payments', '3.0.0');
     const panel = page.getByTestId('decision-panel');
-    await expect(panel).toContainText('Asked of: checkout, orders', { timeout: T });
+    await expect(page.getByTestId('change-question')).toContainText('Asked of: checkout, orders', { timeout: T });
     // pay-agent asked for it, and is an agent: either way it gets no buttons.
     await expect(page.getByTestId('decide-own')).toBeVisible();
     await expect(panel.getByRole('button', { name: 'Approve' })).toHaveCount(0);
@@ -144,10 +144,10 @@ test.describe('Browser demo: the delivery story', () => {
 
     // checkout moves first, with nobody involved; the question shrinks to orders.
     await promote(page, 'checkout', '1.9.0');
-    await expect(page.locator('.cd-status')).toContainText(/Concluded|Succeeded/, { timeout: T });
+    await expect(page.locator('.page-hd-sub')).toContainText(/succeeded/, { timeout: T });
     await page.goto(change);
-    await expect(panel).toContainText('Asked of: orders', { timeout: T });
-    await expect(panel).not.toContainText('checkout, orders');
+    await expect(page.getByTestId('change-question')).toContainText('Asked of: orders', { timeout: T });
+    await expect(page.getByTestId('change-question')).not.toContainText('checkout, orders');
 
     // alice is on team payments, not orders.
     await switchTo(page, 'alice');

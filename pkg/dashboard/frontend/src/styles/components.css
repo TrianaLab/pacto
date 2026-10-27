@@ -131,6 +131,8 @@ td .badge.status-badge {
 }
 .btn-primary:hover { opacity: 0.9; border-color: var(--c-accent); }
 .btn-sm { padding: 4px var(--sp-3); min-height: 32px; font-size: var(--text-xs); }
+/* A button that cannot be pressed yet looks it: a primary one too, so an empty required note reads as the reason. */
+.btn:disabled, .btn:disabled:hover { opacity: 0.5; cursor: not-allowed; background: var(--c-surface); border-color: var(--c-border); color: var(--c-text-3); }
 .btn-ghost {
   background: none;
   border: 1px solid transparent;

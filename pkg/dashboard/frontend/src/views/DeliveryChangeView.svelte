@@ -5,7 +5,8 @@
   import { createProductLoader } from '../lib/productLoader.svelte.ts';
   import { deliveryInboxUrl, deliveryHistoryUrl, deliveryChangeUrl, serviceUrl } from '../lib/router.ts';
   import { typeLabel, shortDigest, shortDigests, predictionLabel, decisionLabel, authTimeText, changeSummary, actorBadge,
-    undoCause, versionLabel, levelLabel, levelHelp, timeLabel, outcomeTone, AUTONOMY_TYPE, reasonWords } from '../lib/delivery.ts';
+    undoCause, versionLabel, levelLabel, levelHelp, timeLabel, AUTONOMY_TYPE, reasonWords, reasonAfter, gateLabel, andList, decisionAsked } from '../lib/delivery.ts';
+  import DeliveryLead from '../components/DeliveryLead.svelte';
   import CappedList from '../components/CappedList.svelte';
   import { formatCount } from '../lib/format.ts';
   import { deliverySession } from '../lib/deliverySession.svelte.ts';
@@ -45,8 +46,40 @@
   const blocked = $derived(!!after && (e?.stage?.failedDigests ?? []).includes(after));
   const held = $derived(e?.status?.phase === 'Held');
   const checks = $derived([...(st?.plan?.verdicts ?? []), ...(happened ? e?.verdicts ?? [] : [])]);
-  // Anything but a pass is a problem worth reading, so the checks open on their own.
-  const checksOpen = $derived(checks.some((v) => v.result && v.result !== 'Pass'));
+  const concluded = $derived(e?.status?.phase === 'Concluded');
+  // A concluded change says its failing check in its answer line, so the checks stay
+  // folded; before then anything but a pass is a problem worth reading, so they open.
+  const checksOpen = $derived(!concluded && checks.some((v) => v.result && v.result !== 'Pass'));
+  const failing = $derived([...(happened ? e?.verdicts ?? [] : []), ...(st?.plan?.verdicts ?? [])].find((v) => v.result === 'Fail') ?? null);
+  // The reason in words, without the code the summary already says ("AcceptedUnknown: ...").
+  const reasonText = $derived.by(() => {
+    const r = reasonAfter(e?.status?.reason, e?.status?.verification, e?.status?.outcome);
+    const m = shortDigests(e?.status?.message);
+    return [reasonWords(r), m].filter(Boolean).join(': ');
+  });
+
+  // While held, the page's title is the question, and one line says what breaks.
+  const toD = $derived(e?.spec?.params?.to || st?.plan?.to || '');
+  const toV = $derived(!toD ? '' : e?.spec?.type === AUTONOMY_TYPE ? levelLabel(toD) : versionLabel(toD, data?.versions));
+  const env = $derived(`${namespace}/${e?.spec?.stage ?? ''}`);
+  const heldTitle = $derived.by(() => {
+    if (!e) return '';
+    if (st?.applied) return `Keep ${toV || 'this change'} on ${env}?`;
+    switch (e.spec.type) {
+      case 'delivery.pacto.trianalab.io/promote': return `Ship ${toV || 'this version'} to ${env}?`;
+      case 'delivery.pacto.trianalab.io/rollback': return `Roll ${env} back to ${toV || 'the version before'}?`;
+      case AUTONOMY_TYPE: return `Move ${env} to ${toV || 'a new level'}?`;
+      default: return `${typeLabel(e.spec.type)} on ${env}?`;
+    }
+  });
+  const heldLead = $derived.by(() => {
+    if (!op) return null;
+    if (decisionAsked(op) === 'approve' && consumers.length && !st?.applied) {
+      return { head: `It breaks ${andList(consumers, 3)}.`, rest: `${consumers.length === 1 ? 'Its declared version range does' : 'Their declared version ranges do'} not accept ${toV || 'it'}.` };
+    }
+    const q = shortDigests(st?.question ?? '').split(/(?<=[.?])\s/)[0];
+    return decisionAsked(op) === 'accept-unknown' ? { head: 'A check ended Unknown.', rest: q } : q ? { head: q, rest: '' } : null;
+  });
   const checksMeta = $derived.by(() => {
     const n = {};
     for (const v of checks) n[v.result || 'Not run'] = (n[v.result || 'Not run'] ?? 0) + 1;
@@ -121,7 +154,7 @@
   <Breadcrumbs trail={[{ label: 'Delivery', href: deliveryInboxUrl() }, { label: `${namespace}/${name}` }]} />
   <PageHeader
     eyebrow="Change"
-    title={e ? `${typeLabel(e.spec.type)} on ${namespace}/${e.spec.stage}` : `${namespace}/${name}`}
+    title={e ? (held ? heldTitle : `${typeLabel(e.spec.type)} on ${namespace}/${e.spec.stage}`) : `${namespace}/${name}`}
     subtitle={changeSummary(e, namespace, data?.versions)}
     revalidating={!!data && loader.loading}
   />
@@ -136,12 +169,15 @@
       <DeliveryProblem error={loader.error} onRetry={() => loader.refresh()} />
     {/if}
   {:else if data}
-    <section class="cd-status" aria-label="Where it stands">
-      <span class="badge badge-neutral">{e.status.phase}</span>
-      {#if e.status.outcome}<span class="badge {outcomeTone(e.status.outcome)}">{e.status.outcome}</span>{/if}
-      {#if e.status.verification}<span class="badge badge-info">{e.status.verification}</span>{/if}
-      {#if e.status.reason}<span class="t-body-2" title={e.status.reason}>{reasonWords(e.status.reason)}{#if e.status.message}: {shortDigests(e.status.message)}{/if}</span>{/if}
-    </section>
+    <!-- Where it stands is the subtitle's sentence; this line adds why, never the phase
+         and outcome again as chips. While held, the line says what breaks. -->
+    {#if held}
+      {#if heldLead}<DeliveryLead head={heldLead.head} rest={heldLead.rest} testid="change-answer" />{/if}
+    {:else if failing}
+      <DeliveryLead head={`${gateLabel(failing.gate)} failed${failing.message ? `: ${shortDigests(failing.message)}` : ''}.`} rest={reasonText && !/^A check failed/.test(reasonText) ? reasonText : ''} testid="change-answer" />
+    {:else if reasonText}
+      <p class="cd-status t-body-2" data-testid="change-answer" title={e.status.reason}>{reasonText}</p>
+    {/if}
 
     {#if undo || blocked}
       <div class="cd-undone t-body-2" data-testid="change-undone">
@@ -170,15 +206,13 @@
     {/if}
 
     <div class="cd-folds">
-      <Fold title={`Affected services${consumers.length ? ` (${formatCount(consumers.length)})` : ''}`} id="cd-affected" labelledby="cd-affected" meta={consumers.length ? 'why a person is needed' : 'none'}>
-        {#if consumers.length}
+      {#if consumers.length}
+        <Fold title={`Affected services (${formatCount(consumers.length)})`} id="cd-affected" labelledby="cd-affected" meta="why a person is needed">
           <div class="cd-consumers">
             <CappedList items={consumers} max={12} inline={true} label="Affected services" testid="affected-services">{#snippet item(c)}<a href={serviceUrl(c)}>{c}</a>{/snippet}</CappedList>
           </div>
-        {:else}
-          <p class="t-body-2">The plan names no other service this change affects.</p>
-        {/if}
-      </Fold>
+        </Fold>
+      {/if}
 
       <Fold title="Checks" meta={checksMeta || 'none recorded'} open={checksOpen} testid="change-checks">
         <div class="cd-compare">
@@ -202,6 +236,7 @@
 
       <Fold title="Details" meta="environment, versions, decisions, timeline" testid="change-details">
         <dl class="cd-facts t-body-2">
+          {#if st?.question}<dt>Question</dt><dd data-testid="change-question">{shortDigests(st.question)}</dd>{/if}
           <dt>Environment</dt><dd><a href={deliveryHistoryUrl({ namespace, stage: e.spec.stage })}>{namespace}/{e.spec.stage}</a>{#if e.stage.frozen}{' '}(frozen{#if e.stage.frozenReason}: {shortDigests(e.stage.frozenReason)}{/if}){/if}</dd>
           {#if data.level}<dt>Level</dt><dd data-testid="change-level"><span class="badge badge-neutral">{levelLabel(data.level)}</span>{' '}<HelpTip label={levelLabel(data.level)} text={levelHelp(data.level)} /></dd>{/if}
           {#each [['From', e.spec.params?.from], ['To', e.spec.params?.to]] as [label, d] (label)}
@@ -245,7 +280,7 @@
   .cd-undone p { margin: 0; }
   .cd-undone a { color: var(--c-accent); text-decoration: underline; }
   .cd-decided { color: var(--c-ok); font-weight: 600; margin: 0; }
-  .cd-status { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
+  .cd-status { margin: 0; }
   .cd-facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px var(--sp-3); margin: 0; }
   .cd-facts dt { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .cd-facts dd { margin: 0; overflow-wrap: anywhere; }

@@ -220,17 +220,17 @@ test.describe('Delivery views', () => {
     await page.locator('.navbar-nav-desktop').getByRole('link', { name: 'Delivery' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Inbox' })).toBeVisible({ timeout: T });
     const held = page.getByTestId('inbox-held');
-    await expect(held).toContainText('removes a field checkout reads');
+    await expect(held).toContainText('Breaks checkout');
     await expect(held).toContainText('team-checkout');
     await expect(held.getByRole('link', { name: 'checkout', exact: true })).toBeVisible();
     await expect(page.getByTestId('delivery-identity')).toContainText('Signed in as carol https://idp#carol');
     await audit(page, 'inbox');
 
-    const link = held.getByRole('link', { name: /Promote on prod\/payments-prod/ });
+    const link = held.getByRole('link', { name: /^Promote on prod\/payments-prod/ });
     await link.focus();
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(/#\/delivery\/changes\/prod\/op1$/);
-    await expect(page.getByTestId('decision-panel')).toContainText('Ship it?', { timeout: T });
+    await expect(page.getByTestId('change-answer')).toContainText('It breaks checkout', { timeout: T });
     // Held before it applies: what happened would only repeat the plan, so it waits.
     // The plan's check ended Unknown, a problem, so the folded checks start open.
     await expect(page.getByTestId('change-checks')).toHaveAttribute('open', '');
@@ -241,16 +241,11 @@ test.describe('Delivery views', () => {
 
   test('a held change says which service to update first and links to it', async ({ page }) => {
     await as(page, 'carol');
-    await page.goto('/#/delivery/inbox');
-    const inbox = page.getByTestId('inbox-move-first');
-    await expect(inbox).toContainText('Update checkout first: checkout 3.0.0 runs here and accepts only ^1.4.0', { timeout: T });
-    await expect(inbox.getByRole('link', { name: 'Stage prod/checkout-prod' })).toHaveAttribute('href', '#/delivery/history?namespace=prod&stage=checkout-prod');
-    await expect(inbox.getByRole('link', { name: 'checkout 3.1.0, verified on test/checkout-test' })).toHaveAttribute('href', '#/delivery/history?namespace=test&stage=checkout-test');
-    await expect(page.getByTestId('inbox-move-first-unknown')).toContainText('This list may be incomplete');
-
     await page.goto('/#/delivery/changes/prod/op1');
     const section = page.getByTestId('decision-safer');
-    await expect(section).toContainText('Pacto never moves them for you.', { timeout: T });
+    await expect(section).toContainText('Safer: update checkout', { timeout: T });
+    await expect(section.getByRole('link', { name: 'checkout, Stage prod/checkout-prod' })).toHaveAttribute('href', '#/delivery/history?namespace=prod&stage=checkout-prod');
+    await expect(page.getByTestId('move-first-unknown')).toContainText('This list may be incomplete');
     const candidate = section.getByRole('link', { name: 'checkout 3.1.0, verified on test/checkout-test' });
     await candidate.focus();
     await expect(candidate).toBeFocused();
@@ -259,9 +254,9 @@ test.describe('Delivery views', () => {
     // One sentence, no full digest: on a phone it wraps instead of scrolling the page sideways.
     expect(await page.locator('body').innerText()).not.toContain('3'.repeat(64));
     await page.setViewportSize({ width: 320, height: 800 });
-    for (const hash of ['#/delivery/inbox', '#/delivery/changes/prod/op1']) {
+    for (const hash of ['#/delivery/changes/prod/op1']) {
       await page.goto('/' + hash);
-      await expect(page.getByText('promote it on').first()).toBeVisible({ timeout: T });
+      await expect(page.getByTestId('decision-safer')).toBeVisible({ timeout: T });
       expect(await page.evaluate(() => [document.documentElement, document.body].every((e) => e.scrollWidth <= e.clientWidth + 1)), hash).toBe(true);
     }
   });

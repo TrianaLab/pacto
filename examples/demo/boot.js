@@ -374,7 +374,7 @@
     }, {
       text: "Press Propose promote: checkout ships with nobody asked, and then only orders is asked about payments 3.0.0, because checkout 1.9 also accepts it.",
       hash: "#/delivery/environments",
-      target: [PROPOSE_BTN, ".cd-status"],
+      target: [PROPOSE_BTN, ".page-hd-sub"],
       wait: "Waiting for checkout 1.9.0 to ship to prod.",
       hold: true,
       gate: function () { return row("prod", "checkout").version === "1.9.0" && fact().question.indexOf("Asked of: orders") >= 0; },
@@ -470,7 +470,7 @@
     }, {
       text: "Press Propose roll back, and automation holds off afterwards because a person chose this.",
       hash: changeHash,
-      target: [PROPOSE_BTN, ".cd-status"],
+      target: [PROPOSE_BTN, ".page-hd-sub"],
       wait: "Waiting for the rollback to finish.",
       hold: true,
       gate: function () { return !!row("prod", "payments").autoHold && row("prod", "payments").version === "2.3.0"; },
