@@ -283,7 +283,7 @@ func (s *sharedReads) allow(ctx context.Context, c sharedClient, verb string, gv
 		where = fmt.Sprintf("in the namespace %q", ns)
 	}
 	return apierrors.NewForbidden(gvr.GroupResource(), name,
-		fmt.Errorf("User %q cannot %s resource %q in API group %q %s", who.User, verb, gvr.Resource, gvr.Group, where))
+		fmt.Errorf("User %q cannot %s resource %q in API group %q %s", who.User, verb, gvr.Resource, gvr.Group, where)) //nolint:staticcheck // the apiserver's own wording
 }
 
 // whoami is who the apiserver says c's token is, kept ttl.
