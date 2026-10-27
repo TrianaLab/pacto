@@ -10,9 +10,8 @@ SubjectAccessReview for their `<issuer>#<sub>` username and groups and kept a
 minute. One filter covers every fleet view, counts, search, the graph, change
 analysis and a remote `pacto mcp --fleet` with `--auth-issuer`. The dashboard
 says when services are hidden without naming them, and a service page counts
-the hidden services on each side. A visitor who has not signed in is checked as
-`system:anonymous`, so a dashboard with sign-in but without `required` no longer
-shows them namespaced services. A service known only from a registry, with no
+the hidden services on each side. With sign-in configured, the dashboard
+answers its API only to a signed-in person. A service known only from a registry, with no
 namespace, shows only to people who may list Pactos in every namespace. A remote
 `pacto mcp` takes the dashboard's claim mapping flags (`--oidc-username-claim`,
 `--oidc-username-prefix`, `--oidc-groups-claim`, `--oidc-groups-prefix`), so a
