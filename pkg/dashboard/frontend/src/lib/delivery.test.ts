@@ -300,3 +300,13 @@ describe('what a change says about itself', () => {
     expect(undoCause()).toEqual({});
   });
 });
+
+import { blockerReason } from './delivery.ts';
+describe('blockerReason', () => {
+  it('drops the subject the row already prints', () => {
+    expect(blockerReason('orders calls cart at runtime but has no contract', 'orders')).toBe('It calls cart at runtime but has no contract');
+    expect(blockerReason('simulated: incident for aml-media.', 'aml-media')).toBe('simulated: incident.');
+    expect(blockerReason('a release failed here', 'orders')).toBe('a release failed here');
+    expect(blockerReason('incident for orders-api', 'orders')).toBe('incident for orders-api');
+  });
+});
