@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -409,4 +410,51 @@ func TestClusterReview(t *testing.T) {
 	if err != nil || !ok {
 		t.Errorf("review through the cluster: %v %v", ok, err)
 	}
+}
+
+// StageNamespaces: the namespaces the dashboard lists where the caller's own
+// access review allows listing Stages, kept a minute; a dashboard that may not
+// list namespaces says it cannot tell.
+func TestDashDeliveryStageNamespaces(t *testing.T) {
+	id, _ := localAPI(t)
+	var reviews atomic.Int32
+	var nsErr error
+	id.newClient = func(*rest.Config) (dynamic.Interface, error) {
+		c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
+			map[schema.GroupVersionResource]string{gvrNamespaces: "NamespaceList"})
+		c.PrependReactor("list", "namespaces", func(k8stesting.Action) (bool, runtime.Object, error) {
+			l := &unstructured.UnstructuredList{}
+			for _, n := range []string{"team-orders", "kube-system", "prod"} {
+				l.Items = append(l.Items, unstructured.Unstructured{Object: map[string]any{"metadata": map[string]any{"name": n}}})
+			}
+			if nsErr != nil {
+				return true, nil, nsErr
+			}
+			return true, l, nil
+		})
+		c.PrependReactor("create", "selfsubjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+			reviews.Add(1)
+			attrs, _, _ := unstructured.NestedMap(a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured).Object, "spec", "resourceAttributes")
+			ok := attrs["verb"] == "list" && attrs["resource"] == "stages" && attrs["namespace"] != "kube-system"
+			return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": ok}}}, nil
+		})
+		return c, nil
+	}
+	api, err := id.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
+	expect(t, err == nil, "delivery: %v", err)
+	ctx := context.Background()
+	got, err := api.StageNamespaces(ctx)
+	expect(t, err == nil && strings.Join(got, ",") == "prod,team-orders", "stage namespaces %v %v", got, err)
+	ok, err := api.Can(ctx, "list", "stages", "kube-system")
+	expect(t, err == nil && !ok, "can %v %v", ok, err)
+	n := reviews.Load()
+	got, _ = api.StageNamespaces(ctx)
+	expect(t, reviews.Load() == n && len(got) == 2, "kept a minute: %d reviews, %v", reviews.Load()-n, got)
+	id.nsAt, id.stageNS = time.Time{}, map[string]stageNamespaces{}
+	nsErr = apierrors.NewForbidden(schema.GroupResource{Resource: "namespaces"}, "", errors.New("no"))
+	got, err = api.StageNamespaces(ctx)
+	expect(t, err == nil && got == nil, "may not list namespaces: %v %v", got, err)
+	nsErr = errors.New("down")
+	_, err = api.StageNamespaces(ctx)
+	expect(t, err != nil, "a failed namespace list is an error")
 }

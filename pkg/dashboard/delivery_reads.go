@@ -34,8 +34,9 @@ func forbidden(err error) bool {
 
 // lists reads every Stage the caller can see, and with ops every Operation:
 // in the dashboard's namespace when it has one; else cluster-wide when
-// allowed, else, partially, per namespace of the fleet snapshot. A namespace
-// that refuses is dropped and named.
+// allowed; else in each namespace the caller may list Stages in; else, when
+// the host cannot tell those, partially, per namespace of the fleet snapshot.
+// A namespace that refuses is dropped and named.
 // ponytail: a list per request with the caller's token, polled by the UI;
 // add a per-session informer if list load shows on the apiserver.
 func (s *Server) lists(ctx context.Context, api DeliveryAPI, withOps bool) ([]delivery.StageObject, []delivery.OperationObject, Listing, error) {
@@ -51,6 +52,12 @@ func (s *Server) lists(ctx context.Context, api DeliveryAPI, withOps bool) ([]de
 		}
 		if !forbidden(err) {
 			return nil, nil, l, err
+		}
+		switch nss, err := api.StageNamespaces(ctx); {
+		case err != nil:
+			return nil, nil, l, err
+		case nss != nil:
+			return listEach(ctx, api, nss, l, withOps)
 		}
 		// The namespaces asked are a guess (where the fleet's workloads run,
 		// not necessarily where Stages live), so the answer is never
@@ -259,8 +266,9 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 		}
 	}
 	b.Frozen = []EnvironmentRow{}
+	may := mayIn(ctx, api, "create", "operations")
 	for _, st := range page {
-		b.Frozen = append(b.Frozen, environmentRow(st, nil, caller, vers, teams))
+		b.Frozen = append(b.Frozen, environmentRow(st, nil, caller, vers, teams, may(st.Metadata.Namespace)))
 	}
 	b.Errored, b.ErroredPage = pageOf(errored, in.Errored, in.Limit, inboxPage)
 	return out, nil
@@ -345,7 +353,7 @@ type EnvironmentRow struct {
 // environmentRow is one Stage as the board shows it; held counts the held
 // operations by namespace/Stage, vers names the versions of digests and teams
 // the owner their contracts declare.
-func environmentRow(st delivery.StageObject, held map[string]int, caller delivery.Caller, vers, teams map[string]string) EnvironmentRow {
+func environmentRow(st delivery.StageObject, held map[string]int, caller delivery.Caller, vers, teams map[string]string, mayRaise bool) EnvironmentRow {
 	ss := st.Status
 	row := EnvironmentRow{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Service: st.Spec.Service.Name, Environment: st.Spec.Environment,
 		Pointer: ss.Pointer, Verified: slices.Contains(ss.Verified, ss.Pointer), Failed: slices.Contains(ss.FailedDigests, ss.Pointer),
@@ -366,6 +374,9 @@ func environmentRow(st delivery.StageObject, held map[string]int, caller deliver
 	}
 	row.Version, row.CandidateVersion = vers[ss.Pointer], vers[ss.Candidate]
 	row.Held = held[row.Namespace+"/"+row.Stage]
+	if !mayRaise {
+		return row
+	}
 	if delivery.MayRaise(delivery.TypePromote, caller.Class, false) && ss.Candidate != "" && ss.Candidate != ss.Pointer {
 		row.Actions = append(row.Actions, "promote")
 	}
@@ -524,8 +535,9 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	}
 	teams := map[string]string{}
 	vers := versionsAll(ctx, api, nil, teams, on...)
+	may := mayIn(ctx, api, "create", "operations")
 	for _, st := range shown {
-		out.Body.Environments = append(out.Body.Environments, environmentRow(st, held, caller, vers, teams))
+		out.Body.Environments = append(out.Body.Environments, environmentRow(st, held, caller, vers, teams, may(st.Metadata.Namespace)))
 	}
 	slices.SortFunc(out.Body.Environments, func(a, b EnvironmentRow) int {
 		return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Environment, b.Environment), cmp.Compare(a.Namespace, b.Namespace))

@@ -1109,3 +1109,11 @@ func (d *demoDelivery) wire(opts *dashboard.Options) {
 //
 //go:embed pactify-fraud.json
 var pactifyPlan string
+
+// Can: the demo has no RBAC, so every persona may ask for anything; the
+// promoter's own rules still shape what is offered.
+func (d *demoDelivery) Can(context.Context, string, string, string) (bool, error) { return true, nil }
+
+// StageNamespaces: everyone reads every Stage cluster-wide here, so the
+// dashboard never asks.
+func (d *demoDelivery) StageNamespaces(context.Context) ([]string, error) { return nil, nil }

@@ -32,6 +32,7 @@ var (
 	gvrOCIRepository = schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "ocirepositories"}
 	gvrKustomization = schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}
 	gvrSelfReview    = schema.GroupVersionResource{Group: "authentication.k8s.io", Version: "v1", Resource: "selfsubjectreviews"}
+	gvrSelfAccess    = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "selfsubjectaccessreviews"}
 	gvrNamespaces    = schema.GroupVersionResource{Version: "v1", Resource: "namespaces"}
 	gvrConfigMaps    = schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}
 )
@@ -107,6 +108,22 @@ func (d *Delivery) WhoAmI(ctx context.Context) (Caller, error) {
 		c.AuthTime = v[0]
 	}
 	return c, nil
+}
+
+// Can asks the apiserver whether the caller may verb resource of the
+// delivery API group in ns: a SelfSubjectAccessReview, which anyone may ask.
+func (d *Delivery) Can(ctx context.Context, verb, resource, ns string) (bool, error) {
+	review := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectAccessReview",
+		"spec": map[string]any{"resourceAttributes": map[string]any{
+			"namespace": ns, "verb": verb, "group": gvrStages.Group, "resource": resource}},
+	}}
+	out, err := d.Dynamic.Resource(gvrSelfAccess).Create(ctx, review, metav1.CreateOptions{})
+	if err != nil {
+		return false, fmt.Errorf("asking the apiserver whether you may %s %s in %s: %w", verb, resource, ns, err)
+	}
+	allowed, _, _ := unstructured.NestedBool(out.Object, "status", "allowed")
+	return allowed, nil
 }
 
 // classPolicy is the promoter's published ClassPolicy, or Policy when it is

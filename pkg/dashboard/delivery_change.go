@@ -48,7 +48,7 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 	}
 	out := &operationOutput{}
 	out.Body.Explanation, out.Body.Operation = e, op
-	out.Body.Actions = s.actions(ctx, op, e.Stage, caller)
+	out.Body.Actions = s.actions(ctx, api, op, e.Stage, caller)
 	if st, err := api.Stage(ctx, in.Namespace, op.Spec.Stage); err == nil {
 		out.Body.Level = ladderOf(*st).Level
 	}
@@ -95,21 +95,39 @@ func undoneBy(entries []delivery.HistoryEntry, name, after, finished string) *de
 }
 
 // actions are what the UI offers on an operation. They only hide what the
-// caller cannot do; the apiserver and the promoter still decide.
-func (s *Server) actions(ctx context.Context, op *delivery.OperationObject, stage delivery.StageNow, caller delivery.Caller) []string {
+// caller cannot do, as the promoter's rules and the caller's own RBAC say;
+// the apiserver and the promoter still decide.
+func (s *Server) actions(ctx context.Context, api DeliveryAPI, op *delivery.OperationObject, stage delivery.StageNow, caller delivery.Caller) []string {
 	acts := []string{}
 	st := op.Status
-	if d := inboxItem(*op).Decision; st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && mayOffer(op, caller, d) {
+	may := func(verb, resource string) bool { return mayIn(ctx, api, verb, resource)(op.Metadata.Namespace) }
+	if d := inboxItem(*op).Decision; st.Phase == delivery.PhaseHeld && s.decisionsServed(ctx) && mayOffer(op, caller, d) && may("create", "approvals") {
 		acts = append(acts, string(d), string(delivery.Reject))
 	}
-	if st.Phase != delivery.PhaseConcluded && !st.Applied {
+	if st.Phase != delivery.PhaseConcluded && !st.Applied && may("delete", "operations") {
 		acts = append(acts, "cancel")
 	}
 	if st.Phase == delivery.PhaseConcluded && st.Applied && st.Pointer.After != "" && st.Pointer.After == stage.Pointer &&
-		delivery.MayRaise(delivery.TypeRollback, caller.Class, false) {
+		delivery.MayRaise(delivery.TypeRollback, caller.Class, false) && may("create", "operations") {
 		acts = append(acts, "rollback")
 	}
 	return acts
+}
+
+// mayIn asks the apiserver, once per namespace, whether the caller may verb
+// resource there. A review that fails says no: nothing is offered that the
+// caller may not do. Not safe for concurrent use.
+func mayIn(ctx context.Context, api DeliveryAPI, verb, resource string) func(ns string) bool {
+	answers := map[string]bool{}
+	return func(ns string) bool {
+		ok, asked := answers[ns]
+		if !asked {
+			can, err := api.Can(ctx, verb, resource, ns)
+			ok = err == nil && can
+			answers[ns] = ok
+		}
+		return ok
+	}
 }
 
 // mayOffer: the promoter would count caller's decision on op, apart from how

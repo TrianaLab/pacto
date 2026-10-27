@@ -558,3 +558,31 @@ func TestDeliveryDescribe(t *testing.T) {
 		t.Fatalf("an unreadable OCIRepository: %+v", r)
 	}
 }
+
+// TestDeliveryCan: the caller's own SelfSubjectAccessReview, asked about the
+// delivery group, answers; a failed review is an error, never a yes.
+func TestDeliveryCan(t *testing.T) {
+	d, c, _ := deliveryFixture(t, "alice", nil, nil)
+	ctx := context.Background()
+	var asked map[string]any
+	c.PrependReactor("create", "selfsubjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		obj := a.(k8stesting.CreateAction).GetObject().(*unstructured.Unstructured)
+		asked, _, _ = unstructured.NestedMap(obj.Object, "spec", "resourceAttributes")
+		return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": asked["verb"] == "delete"}}}, nil
+	})
+	if ok, err := d.Can(ctx, "delete", "operations", "prod"); err != nil || !ok {
+		t.Fatalf("delete: %v %v", ok, err)
+	}
+	if asked["group"] != "delivery.pacto.trianalab.io" || asked["resource"] != "operations" || asked["namespace"] != "prod" {
+		t.Fatalf("asked %v", asked)
+	}
+	if ok, _ := d.Can(ctx, "create", "operations", "prod"); ok {
+		t.Fatal("create was refused")
+	}
+	c.PrependReactor("create", "selfsubjectaccessreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
+		return true, nil, errors.New("unauthorized")
+	})
+	if ok, err := d.Can(ctx, "delete", "operations", "prod"); err == nil || ok {
+		t.Fatal("a failed review is an error")
+	}
+}

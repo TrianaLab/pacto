@@ -14,7 +14,10 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 
@@ -80,6 +83,19 @@ type dashboardIdentity struct {
 	streams app.StreamCache
 	// reads keeps each caller's apiserver reads for a moment (see readCache).
 	reads *readCache
+
+	// nsMu guards the namespace names and, by caller, the namespaces each
+	// may list Stages in (see StageNamespaces).
+	nsMu    sync.Mutex
+	nsAt    time.Time
+	nsAll   []string
+	stageNS map[string]stageNamespaces
+}
+
+// stageNamespaces is one caller's answer and when it goes stale.
+type stageNamespaces struct {
+	names []string
+	until time.Time
 }
 
 // Discovery: an answer is kept a minute, a failure a few seconds, and no call
@@ -100,7 +116,7 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 	}
 	id := &dashboardIdentity{cluster: cluster, registry: d.newDeliveryRegistry, now: time.Now, served: d.served, state: authn.StateFrom,
 		newClient: d.dynamicFor, records: d.newRecordRepo, trust: trust,
-		revisions: map[string]delivery.Revision{}, policyNS: v.GetString("dashboard.delivery-namespace"), reads: newReadCache()}
+		revisions: map[string]delivery.Revision{}, stageNS: map[string]stageNamespaces{}, policyNS: v.GetString("dashboard.delivery-namespace"), reads: newReadCache()}
 	life := authn.Lifetime{Idle: v.GetDuration("dashboard.session-idle-timeout"), Max: v.GetDuration("dashboard.session-max-age")}
 	var o *authn.OIDC
 	if issuer := v.GetString("dashboard.oidc-issuer-url"); issuer != "" {
@@ -227,7 +243,7 @@ func (id *dashboardIdentity) deliveryInstalled(context.Context) (bool, error) {
 // the signed-in person's own token in shared mode, nothing in open mode. The
 // dashboard's own credentials are never used for delivery.
 func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, error) {
-	cfg := id.cluster
+	cfg, who := id.cluster, ""
 	switch {
 	case id.auth.Local():
 	case !id.auth.SignsIn():
@@ -239,6 +255,7 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 			return nil, dashboard.Refuse(http.StatusUnauthorized, "LoginRequired", "sign in to see and act on delivery")
 		}
 		cfg = authn.RESTConfig(id.cluster, st.Token)
+		who = st.Person.User + "\x00" + strings.Join(st.Person.Groups, "\x00")
 	}
 	cfg = rest.CopyConfig(cfg)
 	cfg.QPS, cfg.Burst = callerQPS, callerQPS
@@ -248,7 +265,7 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 		return nil, err
 	}
 	return dashDelivery{d: &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
-		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams}, id: id}, nil
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams}, id: id, who: who}, nil
 }
 
 // callerQPS bounds one dashboard request's apiserver reads per second. The
@@ -288,6 +305,8 @@ func (id *dashboardIdentity) describe(ctx context.Context, d *app.Delivery, stag
 type dashDelivery struct {
 	d  *app.Delivery
 	id *dashboardIdentity
+	// who names the caller as RBAC decides on them: "" in local mode.
+	who string
 }
 
 func refusal(err error) error {
@@ -454,3 +473,91 @@ func (a dashDelivery) refusalsOf(ctx context.Context, svc, repo string, out *das
 func (a dashDelivery) Describe(ctx context.Context, stage *delivery.StageObject, digest string) delivery.Revision {
 	return a.id.describe(ctx, a.d, stage, digest)
 }
+
+func (a dashDelivery) Can(ctx context.Context, verb, resource, ns string) (bool, error) {
+	ok, err := a.d.Can(ctx, verb, resource, ns)
+	return ok, refusal(err)
+}
+
+// Bounds of the namespace answers: kept a minute, reviews asked eight at
+// once. ponytail: past maxCallers the answers start over; an LRU when one
+// dashboard serves more people than that.
+const (
+	namespacesTTL   = time.Minute
+	maxCallers      = 1024
+	reviewsInFlight = 8
+)
+
+// StageNamespaces are the namespaces the caller may list Stages in: each
+// namespace the dashboard's own credentials list (they learn only the names)
+// where the caller's own SelfSubjectAccessReview allows it. Nil when the
+// dashboard may not list namespaces.
+func (a dashDelivery) StageNamespaces(ctx context.Context) ([]string, error) {
+	all, err := a.id.namespaceNames(ctx)
+	switch {
+	case apierrors.IsForbidden(err):
+		return nil, nil
+	case err != nil:
+		return nil, refusal(err)
+	}
+	now := a.id.now()
+	a.id.nsMu.Lock()
+	cached, ok := a.id.stageNS[a.who]
+	a.id.nsMu.Unlock()
+	if ok && now.Before(cached.until) {
+		return cached.names, nil
+	}
+	allowed := make([]bool, len(all))
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(reviewsInFlight)
+	for i, ns := range all {
+		g.Go(func() (err error) { allowed[i], err = a.d.Can(gctx, "list", "stages", ns); return err })
+	}
+	if err := g.Wait(); err != nil {
+		return nil, refusal(err)
+	}
+	names := []string{}
+	for i, ns := range all {
+		if allowed[i] {
+			names = append(names, ns)
+		}
+	}
+	a.id.nsMu.Lock()
+	if len(a.id.stageNS) >= maxCallers {
+		a.id.stageNS = map[string]stageNamespaces{}
+	}
+	a.id.stageNS[a.who] = stageNamespaces{names: names, until: now.Add(namespacesTTL)}
+	a.id.nsMu.Unlock()
+	return names, nil
+}
+
+// namespaceNames lists the cluster's namespaces with the dashboard's own
+// credentials, kept a minute; a failure is not kept.
+func (id *dashboardIdentity) namespaceNames(ctx context.Context) ([]string, error) {
+	now := id.now()
+	id.nsMu.Lock()
+	all, at := id.nsAll, id.nsAt
+	id.nsMu.Unlock()
+	if all != nil && now.Sub(at) < namespacesTTL {
+		return all, nil
+	}
+	dyn, err := id.newClient(id.cluster)
+	if err != nil {
+		return nil, err
+	}
+	list, err := dyn.Resource(gvrNamespaces).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, err
+	}
+	all = make([]string, 0, len(list.Items))
+	for _, n := range list.Items {
+		all = append(all, n.GetName())
+	}
+	slices.Sort(all)
+	id.nsMu.Lock()
+	id.nsAll, id.nsAt = all, now
+	id.nsMu.Unlock()
+	return all, nil
+}
+
+var gvrNamespaces = schema.GroupVersionResource{Version: "v1", Resource: "namespaces"}
