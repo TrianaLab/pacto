@@ -29,11 +29,11 @@ This creates a `my-service/` directory (a *bundle*: the contract plus the files 
 
 ### 2. Infer schemas from your code (optional)
 
-If your config already ships a JSON Schema — for example your Helm chart's `values.schema.json` — vendor that file into your bundle and point `configurations[].schema` at it. If it doesn't, the `schema-infer` plugin generates one from a config file.
+If your config already ships a JSON Schema, such as your Helm chart's `values.schema.json`, vendor that file into your bundle and point `configurations[].schema` at it. Otherwise the `schema-infer` plugin generates one from a config file.
 
 #### Generating a configuration schema
 
-The `--option file=` path is resolved relative to the **bundle directory**, not your shell's working directory, so keep the config file inside the bundle. With `config.yaml` in `my-service/`:
+Pacto resolves the `--option file=` path relative to the **bundle directory**, so keep the config file inside the bundle. With `config.yaml` in `my-service/`:
 
 ```bash
 pacto generate schema-infer my-service --option file=config.yaml -o my-service
@@ -52,8 +52,8 @@ configurations:
     The plugin leaves your `config.yaml` sitting in the bundle, and **a bundle
     directory is published whole**. `pacto pack` and `pacto push` upload every file
     under it, so `pacto pull` hands your config values, secrets included, to anyone
-    who can read the artifact. The input is not part of the contract — the schema
-    inferred from it is. Delete it once the schema exists, or list it in
+    who can read the artifact. The contract needs only the inferred schema. Delete
+    the input once the schema exists, or list it in
     [`.pactoignore`](pactoignore.md) if you want to keep it beside the contract.
 
 #### Generating an OpenAPI spec
@@ -61,14 +61,14 @@ configurations:
 If your service exposes an HTTP API using FastAPI or Huma, use the `openapi-infer` plugin to extract an OpenAPI 3.1 spec from your source code:
 
 ```bash
-# Auto-detect framework — FastAPI or Huma only (generates interfaces/openapi.yaml)
+# Auto-detect the framework: FastAPI or Huma (generates interfaces/openapi.yaml)
 pacto generate openapi-infer my-service -o my-service
 
 # Override framework detection
 pacto generate openapi-infer my-service -o my-service --option framework=fastapi
 ```
 
-Both plugins live in a separate repository and are **not** part of the `pacto` binary. The installer script fetches them alongside the CLI; `go install` and `make build` do not. See [Official plugins](plugins.md#official-plugins) for how to get them.
+Both plugins live in a separate repository and ship as separate binaries. The installer script fetches them alongside the CLI; `go install` and `make build` build only `pacto`. See [Official plugins](plugins.md#official-plugins) for how to get them.
 
 ### 3. Define the contract
 
@@ -86,11 +86,11 @@ See [Validation layers](contract-reference/validation.md) for the rules and erro
 delivery should ship, use [`pacto publish`](publishing.md), which signs the
 version and never overwrites one.
 
-Running on Kubernetes? The [operator](integrations/kubernetes/overview.md) can then check what your service actually does on the network against this contract. See [runtime conformance](integrations/kubernetes/runtime-conformance.md).
+On Kubernetes, the [operator](integrations/kubernetes/overview.md) checks what your service does on the network against this contract. See [runtime conformance](integrations/kubernetes/runtime-conformance.md).
 
 ---
 
-## See also
+## What's next
 
 - [Contract reference](contract-reference/index.md) — every field, precisely
 - [Composition patterns](patterns/index.md) — the compositions these primitives

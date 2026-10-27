@@ -8,13 +8,13 @@ The patterns are independent. Use the ones you need.
 
 ## Root + component contracts
 
-**Problem.** A repository ships several deployable units that release together — an HTTP API and a background worker, a Prefect server and its workers, a service plus its CLI shim. You want one deployment unit (one ArgoCD Application, one Helm release) but distinct runtime semantics, dependencies and configurations for each component.
+**Problem.** A repository ships several deployable units that release together, such as an HTTP API and a background worker, a Prefect server and its workers, or a service and its CLI shim. You want one deployment unit (one ArgoCD Application, one Helm release) but distinct runtime semantics, dependencies and configurations for each component.
 
 **Primitives:**
 
 - **Multiple bundles in one repository**, each with its own `pacto.yaml`
-- **Root contract** — declares the application boundary and lists components as `dependencies[]`
-- **Component contracts** — declare workload, state, interfaces and configurations for a single deployable
+- **Root contract**: declares the application boundary and lists components as `dependencies[]`
+- **Component contracts**: declare workload, state, interfaces and configurations for a single deployable
 
 **Layout.**
 
@@ -49,7 +49,7 @@ service:
     team: example
 
 dependencies:
-  # Components — built from this repo, not deployed independently
+  # Components: built from this repo and deployed with the root
   - name: api
     ref: oci://ghcr.io/example/pactos/my-service-api:1.2.0
     required: true
@@ -111,20 +111,20 @@ configurations:
 - Adding a component costs one new bundle directory and one root dependency.
 - The root only lists `service` and `dependencies[]` (plus any `policies`). It leaves out `workload`, `state`, `interfaces` and `configurations`.
 - The compatibility range in each root dependency lets components move at their own pace while the root version matches what you deployed.
-- Pacto does not treat the name "root" specially. Your tooling can spot a root by name or by shape (`dependencies[]` present, `configurations` absent).
+- The name "root" has no special meaning to Pacto. Your tooling can spot a root by name or by shape (`dependencies[]` present, `configurations` absent).
 
 ---
 
 ## Infrastructure contracts
 
-**Problem.** Your platform offers a fixed set of infrastructure types — Postgres, Redis, object storage, secrets — provisioned by some declarative tool (Crossplane, Terraform, an internal operator). You want each type to be self-describing, governed like services and machine-readable by the tool that turns claims into real resources.
+**Problem.** Your platform offers a fixed set of infrastructure types, such as Postgres, Redis, object storage and secrets, provisioned by some declarative tool (Crossplane, Terraform, an internal operator). You want each type to be self-describing, governed like services and machine-readable by the tool that turns claims into real resources.
 
 **Primitives.**
 
 - **A pacto contract per infrastructure type**, published by the platform team
 - **`policies[]`** carrying the platform rules (HA, backups, version floors)
 - **`configurations[]`** carrying the provisioning schema (the team-controllable subset of fields)
-- **`metadata.labels`** carrying provisioner hints — opaque to pacto, meaningful to your CI tool
+- **`metadata.labels`** carrying provisioner hints that Pacto passes through and your CI tool reads
 
 **Example: a postgres infrastructure contract.**
 
@@ -153,7 +153,7 @@ configurations:
     schema: configuration/schema.json   # derived from the provisioning claim's OpenAPI schema
 ```
 
-**How services consume it.** A service contract references the infra contract as a configuration (see [Configurations as composable claims](#configurations-as-composable-claims)). When CI generates deployment artifacts, it reads `metadata.labels` from the resolved infra contract to dispatch — no hardcoded mapping from "this configuration name" to "that claim kind". Adding a new infrastructure type is one new contract, not a code change in CI.
+**How services consume it.** A service contract references the infra contract as a configuration (see [Configurations as composable claims](#configurations-as-composable-claims)). When CI generates deployment artifacts, it reads `metadata.labels` from the resolved infra contract to decide which claim to create, so CI needs no hardcoded mapping from a configuration name to a claim kind. Adding a new infrastructure type takes one new contract and no change to CI.
 
 **Versioning the contract is versioning the platform interface.** A bump from `postgres:17.0.0` to `postgres:18.0.0` lets services migrate at their own pace by ref-pinning, and the policy can tighten with each major version (see [Progressive policy versioning](#progressive-policy-versioning)).
 
@@ -161,7 +161,7 @@ configurations:
 
 ## Configurations as composable claims
 
-**Problem.** A single deployable needs several distinct configuration inputs — Helm values for the chart, claim values for a database, declared keys for a secret store. Each has a different schema. You want all of them validated together at CI time, supplied through one file per environment, with no parallel `claims/` or `values/` directories to keep in sync.
+**Problem.** A single deployable needs several distinct configuration inputs: Helm values for the chart, claim values for a database and declared keys for a secret store. Each has a different schema. You want all of them validated together at CI time, supplied through one file per environment, with no parallel `claims/` or `values/` directories to keep in sync.
 
 **Primitives.**
 
@@ -202,10 +202,10 @@ configurations:
         - key: openai-token
 ```
 
-`pacto validate -f overrides/values.stg.yaml` validates each entry's `values` against its local `schema`. Your deployment tooling reads the same file and produces: Helm values (`deployment` entry), a Postgres claim (`postgres` entry), a secret-store claim (`secrets` entry). Each value is written once — no drift between a chart's `values.yaml` and a separate `claims/postgres.yaml`.
+`pacto validate -f overrides/values.stg.yaml` validates each entry's `values` against its local `schema`. Your deployment tooling reads the same file and produces: Helm values (`deployment` entry), a Postgres claim (`postgres` entry), a secret-store claim (`secrets` entry). Each value is written once, so a chart's `values.yaml` and a separate `claims/postgres.yaml` cannot drift apart.
 
 !!! info
-    Override files use **Helm-style array replacement** for `configurations` — the override's array replaces the contract's array entirely, not merged by name (see [Contract overrides](../contract-reference/overrides.md#contract-overrides)). Each override file must therefore include every configuration it cares about, each with its `name` and `required` plus either a `schema` (with `values`) or a `ref` (schema-only) — omitting `required` is rejected. Inline `values` require a local `schema`; a `ref`-based entry carries neither.
+    Override files use **Helm-style array replacement** for `configurations`: the override's array replaces the contract's array entirely, with no merge by name (see [Contract overrides](../contract-reference/overrides.md#contract-overrides)). Each override file must therefore include every configuration it cares about, each with its `name` and `required` plus either a `schema` (with `values`) or a `ref` (schema-only). Pacto rejects an entry without `required`. Inline `values` require a local `schema`; a `ref`-based entry carries neither.
 
 **Precedence:** Contract inline `values` → `-f overrides/values.<env>.yaml` → `--set` (wins). See [Precedence](../contract-reference/overrides.md#precedence) for the full chain.
 
@@ -213,7 +213,7 @@ configurations:
 
 ## Platform-published policy schema contract
 
-**Problem.** As a platform team you want to validate contract structure rules ("every service must declare an owner and its workload type") *and* publish the schema that validates deployment values for your standard chart. You want both to live in one versioned artifact that every service references — so updates propagate via a version bump, not a wiki announcement.
+**Problem.** As a platform team you want to validate contract structure rules ("every service must declare an owner and its workload type") *and* publish the schema that validates deployment values for your standard chart. You want both to live in one versioned artifact that every service references, so an update reaches services through a version bump.
 
 **Primitives.**
 
@@ -258,7 +258,7 @@ configurations:
     required: true
 ```
 
-**Mix and match.** Teams using the platform's standard chart reference both. Teams that ship their own chart (a third-party Keycloak chart, a custom operator) still reference the policy — contract structure rules are universal — but vendor their own configuration schema locally. The moment a team needs inline or override `values`, it must vendor the schema: a `ref`-ed config is schema-only.
+**Mix and match.** Teams using the platform's standard chart reference both. Teams that ship their own chart (a third-party Keycloak chart, a custom operator) still reference the policy, because contract structure rules apply to everyone, and vendor their own configuration schema locally. The moment a team needs inline or override `values`, it must vendor the schema: a `ref`-ed config is schema-only.
 
 ---
 
@@ -274,7 +274,7 @@ See [Configuration and policy](../contract-reference/configuration-and-policy.md
 
 ## Progressive policy versioning
 
-**Problem.** You want to raise the bar on what a "compliant service" means — without breaking every service that's already on the platform. New services should adopt the strictest rules; existing services should migrate at their pace.
+**Problem.** You want to raise the bar on what a "compliant service" means without breaking every service already on the platform. New services should adopt the strictest rules; existing services should migrate at their pace.
 
 **How it works.** The policy contract is versioned. Each major version represents a new compliance bar. Services pin to whichever version they've achieved, and migrate forward by bumping the ref.
 
@@ -285,12 +285,12 @@ See [Configuration and policy](../contract-reference/configuration-and-policy.md
 | `3.0.0` | + `configurations[]` schema present, `metadata.labels` required |
 | `4.0.0` | + the `health` capability declares a `binding.path`, a `readiness` gate present |
 
-A service pinned to `platform-policy:2.0.0` keeps validating against v2's rules until the team is ready to bump — the platform never forces the change.
+A service pinned to `platform-policy:2.0.0` keeps validating against v2's rules until the team is ready to bump. The team decides when to change.
 
 **Why this works.**
 
-- **Forwards is opt-in, never forced.** Teams migrate when they have time
-- **Backwards is checked.** A service can never silently weaken its policy — `pacto diff` flags removing or changing a policy ref as potentially breaking
+- **Forwards is opt-in.** Teams migrate when they have time
+- **Backwards is checked.** `pacto diff` flags removing or changing a policy ref as potentially breaking, so a service cannot weaken its policy unnoticed
 - **The version is the negotiation point.** Conversations about "should we require X?" become "should we publish v4 that requires X, with a six-month adoption window?"
 
 **Pinned or floating.** Pinning the policy version (above) makes each new bar opt-in. The alternative is to leave a rule layer unpinned, referenced through the platform contract. Republishing that one schema then applies a new rule to every service at once, with no per-service bump. The cost: each republish changes the digest, so every service must re-lock and [`pacto lock --check`](../lockfile.md) fails until it does.

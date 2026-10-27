@@ -3,9 +3,9 @@
 Copy-ready contracts for common services: databases, a message broker, a proxy, a cron job and more. Start from the one closest to your service, or use them as dependencies. New to writing contracts? Read the [developer guide](../developers.md) first.
 
 !!! tip
-    A contract describes what a service exposes and how it behaves, not how to deploy it. It points at the specs you already have (OpenAPI, AsyncAPI, a gRPC descriptor, JSON Schema for `configurations`) and adds what they lack: owner, dependencies, compatibility and state. Every referenced spec file must parse as JSON or YAML (see [interface types](../contract-reference/sections.md#interface-types)).
+    A contract describes what a service exposes and how it behaves. Deployment details stay in your manifests. A contract points at the specs you already have (OpenAPI, AsyncAPI, a gRPC descriptor, JSON Schema for `configurations`) and adds what they lack: owner, dependencies, compatibility and state. Every referenced spec file must parse as JSON or YAML (see [interface types](../contract-reference/sections.md#interface-types)).
 
-Want to see contracts in action instead?
+To see contracts in action, try a demo:
 
 - [Live dashboard demo](dashboard-demo.md): the dashboard in your browser, nothing to install. Its source is in [`examples/demo`](https://github.com/TrianaLab/pacto/tree/main/examples/demo). Its runtime conformance finding is recorded.
 - [Docker Compose demo](compose-demo.md): a registry, an Evidence Server and the dashboard on your machine, from one OCI artifact. A host agent checks runtime conformance live.
@@ -76,12 +76,12 @@ metadata:
 ```
 
 !!! note
-    PostgreSQL's binary wire protocol — like Redis's RESP below — is not an `openapi`/`asyncapi`/`grpc` spec, so it is not declared as an interface. In both contracts the only declared interface is the HTTP endpoint the metrics exporter exposes, which the `health` and `metrics` capabilities bind to (see [interface types](../contract-reference/sections.md#interface-types)).
+    PostgreSQL's binary wire protocol and Redis's RESP below have no `openapi`, `asyncapi` or `grpc` spec, so neither contract declares them as interfaces. In both contracts the only declared interface is the HTTP endpoint the metrics exporter exposes, which the `health` and `metrics` capabilities bind to (see [interface types](../contract-reference/sections.md#interface-types)).
 
-- **`state.type: stateful`** with **`durability: persistent`** — persistent storage survives pod restarts
-- **`dataCriticality: high`** — backups and strict disruption budgets expected
-- **Single instance** — replication is handled externally; replica counts are a deployment concern, not part of the contract
-- **Capabilities over ports** — health and metrics are declared as [capabilities](../contract-reference/sections.md#capabilities) bound to the exporter interface
+- **`state.type: stateful`** with **`durability: persistent`**: persistent storage survives pod restarts
+- **`dataCriticality: high`**: backups and strict disruption budgets expected
+- **Single instance**: replication is handled externally; replica counts belong to the deployment
+- **Capabilities over ports**: health and metrics are declared as [capabilities](../contract-reference/sections.md#capabilities) bound to the exporter interface
 
 ## Redis
 
@@ -133,9 +133,9 @@ metadata:
   eviction-policy: allkeys-lru
 ```
 
-- **`state.type: stateful`** with **`durability: persistent`** — Redis with AOF/RDB persistence enabled needs durable storage
-- **`dataCriticality: medium`** — data is important but can be rebuilt from source if needed
-- **Capabilities over ports** — health and metrics are declared as [capabilities](../contract-reference/sections.md#capabilities) bound to the exporter interface, not as ports
+- **`state.type: stateful`** with **`durability: persistent`**: Redis with AOF/RDB persistence enabled needs durable storage
+- **`dataCriticality: medium`**: data is important but can be rebuilt from source if needed
+- **Capabilities over ports**: health and metrics are declared as [capabilities](../contract-reference/sections.md#capabilities) bound to the exporter interface
 
 For a pure cache without persistence:
 
@@ -212,10 +212,10 @@ metadata:
 !!! note
     RabbitMQ's AMQP is a message-oriented protocol, so the `amqp` interface uses `type: asyncapi` with an AsyncAPI document (see [interface types](../contract-reference/sections.md#interface-types)). The management REST API is `openapi`, and the Prometheus metrics endpoint is a separate `openapi` interface the `metrics` capability binds to.
 
-- **`dataCriticality: high`** — message loss can cause data integrity issues across the system
-- **`state.type: stateful` with `durability: persistent`** — queues and messages must survive restarts
-- **Clustering is external** — quorum-queue cluster sizing is a deployment concern (captured in `metadata`), not a contract `scaling` section
-- **Multiple interfaces** — AsyncAPI for messaging, OpenAPI for the management API and metrics
+- **`dataCriticality: high`**: message loss can cause data integrity issues across the system
+- **`state.type: stateful` with `durability: persistent`**: queues and messages must survive restarts
+- **Clustering is external**: quorum-queue cluster sizing belongs to the deployment and is recorded in `metadata`
+- **Multiple interfaces**: AsyncAPI for messaging, OpenAPI for the management API and metrics
 
 ## NGINX
 
@@ -272,15 +272,15 @@ metadata:
   edge: true
 ```
 
-- **`state.type: stateless`** — any instance can serve any request
-- **`durability: ephemeral`** — no persistent storage needed
-- **`visibility: public`** — the `proxy` interface is externally reachable; HTTP/HTTPS termination and ports are a deployment concern, not part of the contract
-- **Capabilities over ports** — health and metrics are declared as [capabilities](../contract-reference/sections.md#capabilities) bound to the declared interfaces
-- **No replica scaling** — v2 has no `scaling` section; high availability and autoscaling are deployment concerns
+- **`state.type: stateless`**: any instance can serve any request
+- **`durability: ephemeral`**: no persistent storage needed
+- **`visibility: public`**: the `proxy` interface is externally reachable; HTTP/HTTPS termination and ports belong to the deployment
+- **Capabilities over ports**: health and metrics are declared as [capabilities](../contract-reference/sections.md#capabilities) bound to the declared interfaces
+- **No replica scaling**: high availability and autoscaling belong to the deployment, and v2 has no `scaling` section
 
 ## Cron Worker
 
-A scheduled batch job — a stateless worker that runs on a cron schedule.
+A scheduled batch job: a stateless worker that runs on a cron schedule.
 
 ```yaml
 pactoVersion: "2.0"
@@ -318,10 +318,10 @@ metadata:
   timeout: 3600
 ```
 
-- **`workload: scheduled`** — runs on a cron schedule, not continuously
-- **No replica scaling** — v2 has no `scaling` section; batch workloads scale as a deployment concern, outside the contract
-- **Schedule in `metadata`** — the cron expression is platform-specific, so it lives in `metadata`, not the contract's core fields
-- **Health as a capability** — the readiness probe binds to the `health` interface (see [capabilities](../contract-reference/sections.md#capabilities))
+- **`workload: scheduled`**: runs on a cron schedule
+- **No replica scaling**: batch workloads scale in the deployment, and v2 has no `scaling` section
+- **Schedule in `metadata`**: the cron expression is platform-specific, so it lives in `metadata`
+- **Health as a capability**: the readiness probe binds to the `health` interface (see [capabilities](../contract-reference/sections.md#capabilities))
 
 For a job that runs once (e.g., a database migration):
 
@@ -345,7 +345,7 @@ capabilities:
 
 ## Event Processor
 
-An event-driven service — a stateless consumer that processes messages from a message broker and exposes an HTTP health endpoint.
+An event-driven service: a stateless consumer that processes messages from a message broker and exposes an HTTP health endpoint.
 
 ```yaml
 pactoVersion: "2.0"
@@ -410,16 +410,16 @@ metadata:
   consumer-group: order-processing
 ```
 
-- **`type: asyncapi`** — declares an event-driven interface; the service consumes messages rather than serving HTTP/gRPC requests
-- **`ref: interfaces/order-events.yaml`** — the AsyncAPI event schema is bundled and versioned with the service
-- **`dataCriticality: medium`** — event processing failures have moderate impact; dead-letter queues provide a safety net
-- **Capabilities on the HTTP interface** — health and metrics bind to the `health` OpenAPI interface (see [capabilities](../contract-reference/sections.md#capabilities))
-- **Dependency target** — the `rabbitmq` dependency points to the [RabbitMQ example](#rabbitmq), which publishes version `3.13.7` and satisfies the `^3.13.0` compatibility range
-- **Secret reference** — broker credentials use `secret://`, an opaque convention the platform resolves at deployment time (see [Secret references](../contract-reference/configuration-and-policy.md#secret-references))
+- **`type: asyncapi`**: declares an event-driven interface; the service consumes messages from a broker
+- **`ref: interfaces/order-events.yaml`**: the AsyncAPI event schema is bundled and versioned with the service
+- **`dataCriticality: medium`**: event processing failures have moderate impact; dead-letter queues provide a safety net
+- **Capabilities on the HTTP interface**: health and metrics bind to the `health` OpenAPI interface (see [capabilities](../contract-reference/sections.md#capabilities))
+- **Dependency target**: the `rabbitmq` dependency points to the [RabbitMQ example](#rabbitmq), which publishes version `3.13.7` and satisfies the `^3.13.0` compatibility range
+- **Secret reference**: broker credentials use `secret://`, an opaque convention the platform resolves at deployment time (see [Secret references](../contract-reference/configuration-and-policy.md#secret-references))
 
 ## gRPC Service
 
-A gRPC microservice — a user service exposing a gRPC API with internal visibility.
+A gRPC microservice: a user service exposing a gRPC API with internal visibility.
 
 ```yaml
 pactoVersion: "2.0"
@@ -478,14 +478,14 @@ metadata:
   tier: critical
 ```
 
-- **`type: grpc`** — the gRPC service descriptor is bundled in the OCI artifact, so the API contract travels with the service version. The `ref` file must parse as JSON or YAML (see [interface types](../contract-reference/sections.md#interface-types))
-- **Health as a capability with no binding** — a `health` capability without an HTTP binding declares the service implements the [gRPC Health Checking Protocol](https://github.com/grpc/grpc/blob/master/doc/health-checking.md) rather than an HTTP probe (see [capabilities](../contract-reference/sections.md#capabilities))
-- **Metrics over HTTP** — the gRPC interface serves application traffic while the `metrics` capability binds to a separate HTTP interface exposing Prometheus metrics
-- **`stateless`** — the service itself holds no state; data lives in PostgreSQL (the `postgres` dependency resolves to the [PostgreSQL example](#postgresql))
+- **`type: grpc`**: the gRPC service descriptor is bundled in the OCI artifact, so the API contract travels with the service version. The `ref` file must parse as JSON or YAML (see [interface types](../contract-reference/sections.md#interface-types))
+- **Health as a capability with no binding**: a `health` capability without an HTTP binding declares that the service implements the [gRPC Health Checking Protocol](https://github.com/grpc/grpc/blob/master/doc/health-checking.md) (see [capabilities](../contract-reference/sections.md#capabilities))
+- **Metrics over HTTP**: the gRPC interface serves application traffic while the `metrics` capability binds to a separate HTTP interface exposing Prometheus metrics
+- **`stateless`**: the service itself holds no state; data lives in PostgreSQL (the `postgres` dependency resolves to the [PostgreSQL example](#postgresql))
 
 ## Hybrid Cache API
 
-A service with hybrid state — an API that caches data locally for performance but can rebuild its cache from an upstream source. Loss of local state degrades performance but does not break the service.
+A service with hybrid state: an API that caches data locally for performance and can rebuild its cache from an upstream source. Losing local state slows the service down until the cache warms up again.
 
 ```yaml
 pactoVersion: "2.0"
@@ -550,11 +550,11 @@ metadata:
   cache-strategy: write-through
 ```
 
-- **`state.type: hybrid`** — the service caches product data locally for fast reads, but can reconstruct the cache from the upstream inventory service on restart
-- **`durability: persistent`** — persisting the cache across restarts avoids cold-start latency, but the service still works without it (it just warms up first)
-- **`dataCriticality: low`** — the cache is reconstructible; losing it has no business impact beyond temporary performance degradation
-- **Capabilities over ports** — health binds to the public `rest-api` interface and metrics to a separate internal interface (see [capabilities](../contract-reference/sections.md#capabilities))
-- **Secret reference** — the API key for the upstream service uses `secret://` so credentials never appear in the contract
+- **`state.type: hybrid`**: the service caches product data locally for fast reads, but can reconstruct the cache from the upstream inventory service on restart
+- **`durability: persistent`**: persisting the cache across restarts avoids cold-start latency, and without it the service warms up first
+- **`dataCriticality: low`**: the cache is reconstructible; losing it has no business impact beyond temporary performance degradation
+- **Capabilities over ports**: health binds to the public `rest-api` interface and metrics to a separate internal interface (see [capabilities](../contract-reference/sections.md#capabilities))
+- **Secret reference**: the API key for the upstream service uses `secret://` so the contract holds a reference to the credential
 
 ### When to use `hybrid`
 
@@ -577,7 +577,7 @@ dependencies:
     compatibility: "^7.0.0"
 ```
 
-The `ghcr.io/acme/…` refs above are placeholders: nothing is published there. The one Pacto contract anyone can pull is the dashboard's own, and `pacto explain` prints it:
+The `ghcr.io/acme/…` refs above are placeholders. The one Pacto contract anyone can pull is the dashboard's own, and `pacto explain` prints it:
 
 ```bash
 pacto explain oci://ghcr.io/trianalab/pacto/dashboard-contract
@@ -591,14 +591,13 @@ Then run `pacto graph` from the bundle directory to see the resolved tree:
 pacto graph .
 ```
 
-It prints the service and one line per dependency. A ref it cannot resolve — the placeholders above included — becomes an error node in the tree rather than a failure; the command still exits 0.
+It prints the service and one line per dependency. A ref it cannot resolve, such as the placeholders above, becomes an error node in the tree, and the command still exits 0.
 
 ## One contract, many sections
 
-This contract declares most optional sections at once. Read it as a field
-checklist, not a recommendation. Nothing here is required
-beyond `pactoVersion` and `service`, and the three sections it leaves out —
-`readiness`, `metadata` and `extensions` — are in
+This contract declares most optional sections at once. Use it as a field
+checklist. Only `pactoVersion` and `service` are required. The three sections
+it leaves out, `readiness`, `metadata` and `extensions`, are in
 [Contract sections](../contract-reference/sections.md), which is the complete list.
 
 ```yaml
