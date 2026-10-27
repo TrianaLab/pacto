@@ -14,13 +14,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/authn"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/capability"
 	"github.com/trianalab/pacto/v4/pkg/catalog"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/logging"
 	"github.com/trianalab/pacto/v4/pkg/publish"
@@ -164,7 +167,7 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 		if err != nil {
 			return nil, err
 		}
-		return pactomcp.NewFleetServer(version, q, mcpImpactProvider(cmd, svc), svc.ValidationReport), nil
+		return pactomcp.NewFleetServer(version, q, mcpImpactProvider(cmd, svc), svc.ValidationReport, mcpFleetView(cmd, d)), nil
 	case len(args) > 0:
 		return buildCapabilityServer(cmd, svc, version, args[0])
 	}
@@ -305,11 +308,12 @@ func buildCapabilityServer(cmd *cobra.Command, svc *app.Service, version, ref st
 
 // mcpImpactProvider builds the impact provider for pacto_impact from svc.Impact,
 // using the same fleet source flags as the fleet query. Extracted so the wiring
-// is directly testable. It resolves the old/new refs and builds the snapshot on
-// each call, so the tool always analyzes against fresh contract and graph state.
-func mcpImpactProvider(cmd *cobra.Command, svc *app.Service) func(ctx context.Context, oldRef, newRef string, includeObserved bool, tracesPath string) (*impact.Result, error) {
+// is directly testable. Handed no snapshot, it resolves the old/new refs and
+// builds the snapshot on each call, so the tool always analyzes against fresh
+// contract and graph state; handed the caller's view, it analyses over that.
+func mcpImpactProvider(cmd *cobra.Command, svc *app.Service) func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool, tracesPath string) (*impact.Result, error) {
 	fopts := fleetOptions(cmd)
-	return func(ctx context.Context, oldRef, newRef string, includeObserved bool, tracesPath string) (*impact.Result, error) {
+	return func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool, tracesPath string) (*impact.Result, error) {
 		var traces []byte
 		if tracesPath != "" {
 			var err error
@@ -318,9 +322,32 @@ func mcpImpactProvider(cmd *cobra.Command, svc *app.Service) func(ctx context.Co
 			}
 			includeObserved = true
 		}
-		return svc.Impact(ctx, app.ImpactOptions{
-			OldPath: oldRef, NewPath: newRef, Fleet: fopts, IncludeObserved: includeObserved, Traces: traces,
-		})
+		opts := app.ImpactOptions{OldPath: oldRef, NewPath: newRef, Fleet: fopts, IncludeObserved: includeObserved, Traces: traces}
+		if snap != nil {
+			return svc.ImpactWithSnapshot(ctx, opts, snap)
+		}
+		return svc.Impact(ctx, opts)
+	}
+}
+
+// mcpFleetView narrows the fleet tools of a server whose callers sign in
+// (HTTP with --auth-issuer) to what each caller's Kubernetes RBAC lets them
+// read, asked with this process's own credentials. Other servers answer from
+// the whole snapshot, as their single local user would read it.
+func mcpFleetView(cmd *cobra.Command, d deps) pactomcp.FleetView {
+	transport, _ := cmd.Flags().GetString("transport")
+	issuer, _ := cmd.Flags().GetString("auth-issuer")
+	if transport != "http" || issuer == "" {
+		return nil
+	}
+	cluster, _ := d.clusterConfig()
+	viewer := authn.NewViewer(clusterReview(cluster, d.dynamicFor))
+	return func(ctx context.Context, caller *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
+		r, err := viewer.Query(ctx, authn.PersonFromTokenInfo(caller), q)
+		if err != nil {
+			return nil, fmt.Errorf("checking your Kubernetes permissions failed: %w", err)
+		}
+		return r, nil
 	}
 }
 

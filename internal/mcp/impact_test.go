@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
@@ -16,7 +17,7 @@ func stubImpact(res *impact.Result, err error, seen *impact.Options) impactProvi
 }
 
 func stubImpactTraces(res *impact.Result, err error, seen *impact.Options, seenTraces *string) impactProvider {
-	return func(_ context.Context, _, _ string, includeObserved bool, tracesPath string) (*impact.Result, error) {
+	return func(_ context.Context, _ *fleet.FleetSnapshot, _, _ string, includeObserved bool, tracesPath string) (*impact.Result, error) {
 		if seen != nil {
 			seen.IncludeObserved = includeObserved
 		}
@@ -29,7 +30,7 @@ func stubImpactTraces(res *impact.Result, err error, seen *impact.Options, seenT
 
 func TestImpactHandler_TracesReachProvider(t *testing.T) {
 	var seenTraces string
-	callHandler(t, impactTool(), impactHandler(stubImpactTraces(&impact.Result{}, nil, nil, &seenTraces)), map[string]any{
+	callHandler(t, impactTool(), impactHandler(stubImpactTraces(&impact.Result{}, nil, nil, &seenTraces), nil), map[string]any{
 		"old_ref": "a", "new_ref": "b", "traces": "/tmp/traces.json",
 	})
 	if seenTraces != "/tmp/traces.json" {
@@ -47,7 +48,7 @@ func TestImpactHandler_Success(t *testing.T) {
 		},
 	}
 	var seen impact.Options
-	res := callHandler(t, impactTool(), impactHandler(stubImpact(want, nil, &seen)), map[string]any{
+	res := callHandler(t, impactTool(), impactHandler(stubImpact(want, nil, &seen), nil), map[string]any{
 		"old_ref": "oci://x/svc:1.0.0", "new_ref": "oci://x/svc:2.0.0", "include_observed": true,
 	})
 	var out impact.Result
@@ -64,7 +65,7 @@ func TestImpactHandler_Success(t *testing.T) {
 }
 
 func TestImpactHandler_Error(t *testing.T) {
-	res := callHandler(t, impactTool(), impactHandler(stubImpact(nil, errors.New("old revision: boom"), nil)), map[string]any{
+	res := callHandler(t, impactTool(), impactHandler(stubImpact(nil, errors.New("old revision: boom"), nil), nil), map[string]any{
 		"old_ref": "bad", "new_ref": "bad",
 	})
 	if !res.IsError {

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
@@ -183,5 +184,15 @@ func TestSubjectAccessReview(t *testing.T) {
 	})
 	if _, err := review(context.Background(), Person{User: "u"}, "shop"); err == nil {
 		t.Error("a refused review is an error")
+	}
+}
+
+func TestPersonFromTokenInfo(t *testing.T) {
+	if p := PersonFromTokenInfo(nil); p.User != Anonymous.User {
+		t.Errorf("no caller is %+v", p)
+	}
+	info := &auth.TokenInfo{Extra: map[string]any{rawTokenKey: fakeJWT(`{"iss":"https://kc","sub":"agent"}`)}}
+	if p := PersonFromTokenInfo(info); p.User != "https://kc#agent" {
+		t.Errorf("caller is %+v", p)
 	}
 }

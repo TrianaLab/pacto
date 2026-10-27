@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+	"k8s.io/client-go/rest"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
@@ -59,11 +60,11 @@ func TestMCPImpactProvider(t *testing.T) {
 	cmd := newMCPCommand(svc, "v", defaultDeps())
 	cmd.SetContext(context.Background())
 	provide := mcpImpactProvider(cmd, svc)
-	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", true, ""); err == nil {
+	if _, err := provide(context.Background(), nil, "/nonexistent/old", "/nonexistent/new", true, ""); err == nil {
 		t.Fatal("expected an error resolving nonexistent revisions")
 	}
 	// A nonexistent traces path is a read error before any resolution.
-	if _, err := provide(context.Background(), "/old", "/new", false, "/nonexistent/traces.json"); err == nil {
+	if _, err := provide(context.Background(), nil, "/old", "/new", false, "/nonexistent/traces.json"); err == nil {
 		t.Fatal("expected a traces read error")
 	}
 	// A readable traces file is consumed (implying include-observed), then the
@@ -72,8 +73,44 @@ func TestMCPImpactProvider(t *testing.T) {
 	if err := os.WriteFile(tf, []byte(`{"resourceSpans":[]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", false, tf); err == nil {
+	if _, err := provide(context.Background(), nil, "/nonexistent/old", "/nonexistent/new", false, tf); err == nil {
 		t.Fatal("expected a resolution error after reading traces")
+	}
+	// Handed a snapshot (the caller's view), it analyses over it: the
+	// nonexistent revisions still fail first.
+	if _, err := provide(context.Background(), &fleet.FleetSnapshot{}, "/nonexistent/old", "/nonexistent/new", false, ""); err == nil {
+		t.Fatal("expected a resolution error over a handed snapshot")
+	}
+}
+
+// TestMCPFleetView: only an HTTP server whose callers sign in narrows the
+// fleet tools, and a caller whose permissions cannot be checked gets an error.
+func TestMCPFleetView(t *testing.T) {
+	svc := app.NewService(nil, nil)
+	d := defaultDeps()
+	d.clusterConfig = func() (*rest.Config, error) { return nil, errors.New("no kubeconfig") }
+	cmd := newMCPCommand(svc, "v", d)
+	if mcpFleetView(cmd, d) != nil {
+		t.Fatal("a stdio server narrows nothing")
+	}
+	_ = cmd.Flags().Set("transport", "http")
+	if mcpFleetView(cmd, d) != nil {
+		t.Fatal("an HTTP server without sign-in narrows nothing")
+	}
+	_ = cmd.Flags().Set("auth-issuer", "https://idp.example")
+	view := mcpFleetView(cmd, d)
+	plain := fleet.NewQuery(&fleet.FleetSnapshot{})
+	if q, err := view(context.Background(), nil, plain); err != nil || q != plain {
+		t.Fatalf("a snapshot with no namespace: %v", err)
+	}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("k8s", "kubernetes", &fleet.Collection{
+		Targets: []fleet.RawTarget{{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "web", Service: "web"}},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := view(context.Background(), nil, fleet.NewQuery(snap)); err == nil || !strings.Contains(err.Error(), "checking your Kubernetes permissions failed") {
+		t.Fatalf("no cluster to ask: %v", err)
 	}
 }
 

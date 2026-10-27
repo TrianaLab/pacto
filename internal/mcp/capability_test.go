@@ -543,7 +543,7 @@ func TestNormalizeDraft4Bounds(t *testing.T) {
 // reserved becomes shadowable and this test says so.
 func TestReservedToolNames_CoversEveryPactoTool(t *testing.T) {
 	cat, _ := platformCatalog(t)
-	server := NewFleetServer("test", buildFleetQuery(t), stubImpact(nil, nil, nil), nil)
+	server := NewFleetServer("test", buildFleetQuery(t), stubImpact(nil, nil, nil), nil, nil)
 	registerCatalogSurface(server, cat)
 	bundle := capBundle(fstest.MapFS{"openapi.json": &fstest.MapFile{Data: []byte(capSpec)}},
 		httpIface("api", "openapi.json"))

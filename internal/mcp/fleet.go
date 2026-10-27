@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -32,28 +33,59 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 // (identical to NewServer) so a caller with no fleet sources degrades cleanly.
 // When provideImpact is non-nil the pacto_impact tool is registered too; a nil
 // provider omits it, so a caller that cannot resolve revisions degrades cleanly.
-func NewFleetServer(version string, q *fleet.Query, provideImpact impactProvider, validate Validator) *mcpsdk.Server {
+// When view is non-nil every fleet tool, impact included, answers from the
+// calling agent's view of q.
+func NewFleetServer(version string, q *fleet.Query, provideImpact impactProvider, validate Validator, view FleetView) *mcpsdk.Server {
 	instructions := baseInstructions
 	if q != nil {
 		instructions += "\n\n" + fleetInstructions
 	}
 	server := newServer(version, instructions, validate)
 	if q != nil {
-		registerFleetTools(server, q, provideImpact)
+		registerFleetTools(server, q, provideImpact, view)
 	}
 	return server
 }
 
+// FleetView narrows q to what the verified caller may see (caller is nil over
+// stdio). An error is answered as the tool's error, never as a smaller answer.
+type FleetView func(ctx context.Context, caller *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error)
+
+// viewed is handler h over the caller's view of q, or over q without a view.
+func viewed[A any](view FleetView, q *fleet.Query, h func(*fleet.Query) mcpsdk.ToolHandlerFor[A, any]) mcpsdk.ToolHandlerFor[A, any] {
+	if view == nil {
+		return h(q)
+	}
+	return func(ctx context.Context, req *mcpsdk.CallToolRequest, a A) (*mcpsdk.CallToolResult, any, error) {
+		var caller *auth.TokenInfo
+		if req != nil && req.Extra != nil {
+			caller = req.Extra.TokenInfo
+		}
+		vq, err := view(ctx, caller, q)
+		if err != nil {
+			return errorResult(err), nil, nil
+		}
+		return h(vq)(ctx, req, a)
+	}
+}
+
 // registerFleetTools adds the five read-only fleet query tools, plus the
 // read-only pacto_impact tool when an impact provider is supplied.
-func registerFleetTools(server *mcpsdk.Server, q *fleet.Query, provideImpact impactProvider) {
-	mcpsdk.AddTool(server, fleetSearchTool(), fleetSearchHandler(q))
-	mcpsdk.AddTool(server, fleetGetTool(), fleetGetHandler(q))
-	mcpsdk.AddTool(server, fleetGraphTool(), fleetGraphHandler(q))
-	mcpsdk.AddTool(server, fleetStatusTool(), fleetStatusHandler(q))
-	mcpsdk.AddTool(server, fleetExplainTool(), fleetExplainHandler(q))
+func registerFleetTools(server *mcpsdk.Server, q *fleet.Query, provideImpact impactProvider, view FleetView) {
+	mcpsdk.AddTool(server, fleetSearchTool(), viewed(view, q, fleetSearchHandler))
+	mcpsdk.AddTool(server, fleetGetTool(), viewed(view, q, fleetGetHandler))
+	mcpsdk.AddTool(server, fleetGraphTool(), viewed(view, q, fleetGraphHandler))
+	mcpsdk.AddTool(server, fleetStatusTool(), viewed(view, q, fleetStatusHandler))
+	mcpsdk.AddTool(server, fleetExplainTool(), viewed(view, q, fleetExplainHandler))
 	if provideImpact != nil {
-		mcpsdk.AddTool(server, impactTool(), impactHandler(provideImpact))
+		// Without a view the provider builds a fresh snapshot per call; with
+		// one it analyses over the caller's view, the snapshot the other tools answer from.
+		mcpsdk.AddTool(server, impactTool(), viewed(view, q, func(vq *fleet.Query) mcpsdk.ToolHandlerFor[impactArgs, any] {
+			if view == nil {
+				return impactHandler(provideImpact, nil)
+			}
+			return impactHandler(provideImpact, vq.SnapshotForSerialization())
+		}))
 	}
 }
 
