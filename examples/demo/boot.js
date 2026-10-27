@@ -77,7 +77,7 @@
     // strip is the only place that visitor is ever told, so the notice is the strip's
     // resting state and the tour never takes it away -- it reappears the moment the
     // tour exits.
-    var NOTICE = "Demo — a fixture fleet running entirely in your browser. Nothing here is a real system, and two things that look like bugs are deliberate.";
+    var NOTICE = "Demo: a fixture fleet running entirely in your browser. All of its data is made up, and two things that look like bugs are deliberate.";
 
     // The walkthrough. A visitor who arrives from the home page's call to action gets a
     // dashboard of a fleet they have never seen, and no amount of labelling tells them
@@ -208,7 +208,7 @@
         if (a) { a.click(); } else { window.location.hash = "#/fleet/graph/service/orders-service"; }
       }
     }, {
-      text: "That is the whole loop: what is out there, what state it is in, what a change breaks and who it reaches — from contracts plus observations, with nothing guessed.",
+      text: "That is the whole loop: what is out there, what state it is in, what a change breaks and who it reaches. Every answer comes from contracts and observations.",
       href: "../examples/demo-tour/",
       linkText: "The same questions from a terminal"
     }];
@@ -318,7 +318,7 @@
       var file = (p.files || []).filter(function (f) { return f.path === "pacto.yaml"; })[0] || {};
       function list(title, xs) { return xs && xs.length ? title + "\n" + xs.map(function (x) { return "  - " + x; }).join("\n") + "\n" : ""; }
       return "Recorded: what `pacto init --plan --owner risk` prints for the plain fraud service. A test keeps it current.\n\n" +
-        list("Found:", p.found) + list("Not known, so never guessed:", p.unknown) + list("Still yours to do:", p.next) +
+        list("Found:", p.found) + list("Left as Unknown:", p.unknown) + list("Still yours to do:", p.next) +
         "\npacto.yaml (" + (file.action || "add") + "):\n" + (file.content || "");
     }
 
@@ -448,7 +448,7 @@
       gate: function () { return noteText().length >= 3 || (!fact().held && fact().accepted); },
       skip: function () { var t = q(NOTE); if (t) { setValue(t, NOTE_ACCEPT); } }
     }, {
-      text: "Press Accept the unknown and keep 3.0.0: it is recorded as accepted, never as a pass.",
+      text: "Press Accept the unknown and keep 3.0.0: the record says a person accepted it, and the check stays Unknown.",
       hash: changeHash,
       // Carol signed in moments ago, so this sends at once; if her login has gone stale
       // the light moves to the sign-in, whose dialog says what to do, and then back.
@@ -490,7 +490,7 @@
       hash: "#/delivery/autonomy",
       target: '[data-testid="autonomy-stages"] [data-stage="test/fraud"]'
     }, {
-      text: "payments in prod stepped down a level by itself when 2.4.0 failed there, so a person now approves every change that is not non-breaking.",
+      text: "payments in prod stepped down a level by itself when 2.4.0 failed there, so only non-breaking changes ship there on their own now.",
       hash: "#/delivery/autonomy",
       target: '[data-testid="autonomy-stages"] [data-stage="prod/payments"]'
     }, {
@@ -522,8 +522,8 @@
     // ---- simulated sign-in and persona switch -----------------------------------
 
     var PERSONAS = [
-      ["pay-agent", "pay-agent", "an agent working for a developer; it may propose, never decide"],
-      ["alice", "Alice", "team payments; not asked about changes that break other teams"],
+      ["pay-agent", "pay-agent", "an agent working for a developer; it can propose changes but cannot decide them"],
+      ["alice", "Alice", "team payments; changes that break other teams go to those teams"],
       ["carol", "Carol", "team orders; asked when a change breaks orders"]
     ];
     var persona = "pay-agent";
@@ -580,7 +580,7 @@
     var ready = false;
     // The strip mounts on DOMContentLoaded, but the engine can resolve or fail
     // before that. Hold the latest message so the outcome is never dropped.
-    var pending = "Loading the Pacto engine — the panels fill in when it lands.";
+    var pending = "Loading the Pacto engine. The panels fill in when it lands.";
     // A download this large is long enough that one unchanging line reads as a hung
     // tab. A counter is the cheapest honest proof of life: instantiateStreaming
     // exposes no byte progress, and teeing the response to count bytes would cost
@@ -919,12 +919,12 @@
     // What the live region says once the gate has settled. It names the move as well as
     // the result: a view that changes with no warning is disorienting to everyone and a
     // WCAG failure for a reader who cannot watch it happen.
-    var GATE_OPEN = "Done — moving on.";
+    var GATE_OPEN = "Done. Moving on.";
     // The same observation on a step that holds, which has to say the opposite thing: the
     // tour saw the action and is deliberately NOT taking the screen away. Announcing the
     // stay matters as much as announcing a move -- a reader who cannot see the result
     // otherwise has no way to know the tour is now waiting on them.
-    var HOLD_OPEN = "Done — that is the answer. Read it, then press Continue.";
+    var HOLD_OPEN = "Done. That is the answer. Read it, then press Continue.";
 
     // Three numbers stand between the gate reporting satisfied and the view changing.
     //
@@ -1143,7 +1143,7 @@
       autoEl = document.createElement("span");
       autoEl.id = "pacto-tour-auto";
       autoEl.setAttribute("data-testid", "demo-tour-auto");
-      autoEl.textContent = "No button needed — the tour moves on when you do it.";
+      autoEl.textContent = "No button needed. The tour moves on when you do it.";
 
       backBtn = ctlButton("pacto-tour-back", "demo-tour-back", "Back", function () { goStep(step - 1); });
       // One forward control, and it exists only where the tour cannot see the step happen.
