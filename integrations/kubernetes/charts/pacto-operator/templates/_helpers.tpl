@@ -210,13 +210,30 @@ Controller arguments derived from values
 - --dashboard-oidc-client-secret-key={{ .key | default "client-secret" }}
 {{- end }}
 {{- end }}
+{{- with .usernameClaim }}
+- {{ printf "--dashboard-oidc-username-claim=%s" . | quote }}
+{{- end }}
+{{- with .usernamePrefix }}
+- {{ printf "--dashboard-oidc-username-prefix=%s" . | quote }}
+{{- end }}
+{{- with .groupsClaim }}
+- {{ printf "--dashboard-oidc-groups-claim=%s" . | quote }}
+{{- end }}
+{{- with .groupsPrefix }}
+- {{ printf "--dashboard-oidc-groups-prefix=%s" . | quote }}
 {{- end }}
 {{- end }}
-{{- if .required }}
-{{- if not .oidc.issuerURL }}
-{{- fail "dashboard.auth.required needs sign-in: set dashboard.auth.oidc.issuerURL" }}
 {{- end }}
-- --dashboard-auth-required
+{{- with .session }}
+{{- with .idleTimeout }}
+- --dashboard-session-idle-timeout={{ . }}
+{{- end }}
+{{- with .maxAge }}
+- --dashboard-session-max-age={{ . }}
+{{- end }}
+{{- end }}
+{{- if (.tokenLogin | default dict).enabled }}
+- --dashboard-token-login
 {{- end }}
 {{- with (.deliveryNamespace | default (ternary $.Values.delivery.namespace "" $.Values.delivery.enabled)) }}
 - --dashboard-delivery-namespace={{ . }}

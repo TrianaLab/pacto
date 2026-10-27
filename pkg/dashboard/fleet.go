@@ -36,12 +36,15 @@ type capabilitiesOutput struct {
 }
 
 type capabilityAuth struct {
-	Mode     string `json:"mode" enum:"local,shared,none" doc:"local: the kubeconfig user; shared: people sign in; none: no identity layer"`
-	Login    bool   `json:"login" doc:"People sign in with the identity provider"`
-	SignedIn bool   `json:"signedIn" doc:"This caller is signed in"`
+	Mode       string `json:"mode" enum:"local,shared,none" doc:"local: the kubeconfig user; shared: people sign in; none: no identity layer"`
+	Login      bool   `json:"login" doc:"People sign in with the identity provider"`
+	TokenLogin bool   `json:"tokenLogin,omitempty" doc:"People may sign in by pasting a Kubernetes bearer token"`
+	SignedIn   bool   `json:"signedIn" doc:"This caller is signed in"`
 	// Hidden: the fleet views leave out services this caller's Kubernetes
 	// permissions do not let them read. Which ones is never said.
 	Hidden bool `json:"hidden" doc:"Some services are hidden because this caller's Kubernetes permissions do not let them read their namespace"`
+	// NothingVisible: every service is hidden, so the caller sees an empty fleet.
+	NothingVisible bool `json:"nothingVisible,omitempty" doc:"Every service is hidden because this caller's Kubernetes permissions let them read none of their namespaces"`
 }
 
 // registerCapabilitiesOperation registers the always-on capabilities endpoint. It
@@ -70,14 +73,16 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 	out.Body.Observed = q != nil && q.HasObserved()
 	out.Body.Auth.Mode = "none"
 	if a := s.opts.Auth; a != nil {
-		out.Body.Auth = capabilityAuth{Mode: "shared", Login: a.Login, SignedIn: s.authState(ctx).SignedIn, Hidden: hiddenByPermissions(q)}
+		hidden := hiddenByPermissions(q)
+		out.Body.Auth = capabilityAuth{Mode: "shared", Login: a.Login, TokenLogin: a.TokenLogin, SignedIn: s.authState(ctx).SignedIn, Hidden: hidden,
+			NothingVisible: hidden && len(q.SnapshotForSerialization().Services) == 0}
 		if a.Local {
 			out.Body.Auth.Mode = "local"
 		}
 		// A cluster that cannot be asked keeps the tab: its views then say
 		// the cluster is unreachable instead of hiding delivery. Where delivery
 		// is never served, the cluster is not asked at all.
-		if s.opts.Delivery != nil && (a.Local || a.Login) {
+		if s.opts.Delivery != nil && (a.Local || a.Login || a.TokenLogin) {
 			installed, err := s.deliveryInstalled(ctx)
 			out.Body.Delivery = installed || err != nil
 		}

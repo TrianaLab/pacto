@@ -52,7 +52,7 @@ func TestRefusalsAreLogged(t *testing.T) {
 	has(t, logs, "local dashboard refused a delivery request", "launch token")
 
 	c := cookieNamed(t, login(t, o, f, ""), SessionCookie)
-	s := NewShared(o).Middleware(echo(&State{}))
+	s := NewShared(o, nil).Middleware(echo(&State{}))
 	req := httptest.NewRequest(http.MethodPost, "https://dash.example/api/delivery/operations", nil)
 	req.AddCookie(c)
 	req.Header.Set("Origin", "https://evil.example")

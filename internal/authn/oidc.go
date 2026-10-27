@@ -1,6 +1,7 @@
 package authn
 
 import (
+	"cmp"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -31,7 +32,7 @@ const (
 	CSRFHeader = "X-Pacto-CSRF"
 )
 
-// Session lifetimes.
+// Default session lifetimes and the sign-in window.
 const (
 	idleTimeout     = time.Hour
 	absoluteTimeout = 12 * time.Hour
@@ -41,6 +42,23 @@ const (
 	// skew is the clock difference tolerated on auth_time.
 	skew = time.Minute
 )
+
+// Lifetime bounds a session: it ends after Idle without a request and Max
+// after sign-in, whichever comes first. Zero is the default (an hour idle,
+// twelve hours at most).
+type Lifetime struct {
+	Idle time.Duration
+	Max  time.Duration
+}
+
+func (l Lifetime) idle() time.Duration { return cmp.Or(l.Idle, idleTimeout) }
+func (l Lifetime) max() time.Duration  { return cmp.Or(l.Max, absoluteTimeout) }
+
+// expired reports whether a session created and last seen at these times has
+// ended by now.
+func (l Lifetime) expired(created, seen, now time.Time) bool {
+	return now.Sub(created) > l.max() || now.Sub(seen) > l.idle()
+}
 
 // Config is the dashboard's OpenID Connect client.
 type Config struct {
@@ -52,6 +70,11 @@ type Config struct {
 	// ExtraScopes are added to openid, profile and groups (for example a
 	// cross-client audience scope, so the ID token names the CLI client too).
 	ExtraScopes []string
+	// Claims is how the cluster maps the ID token to a user; the fleet views
+	// ask Kubernetes RBAC about the person it names.
+	Claims Claims
+	// Lifetime bounds every session.
+	Lifetime Lifetime
 	// HTTPClient reaches the identity provider; nil is a default client.
 	HTTPClient *http.Client
 }
@@ -81,6 +104,9 @@ func (s *Session) LogValue() slog.Value { return slog.GroupValue(slog.Bool("fres
 
 // IDToken is the session's current ID token, the bearer of its requests.
 func (s *Session) IDToken() string { return s.idToken }
+
+// Person is who the cluster maps the session's ID token to.
+func (o *OIDC) Person(s *Session) Person { return o.cfg.Claims.Person(s.idToken) }
 
 type provider struct {
 	oauth    oauth2.Config
@@ -119,7 +145,7 @@ func NewOIDC(cfg Config) (*OIDC, error) {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
 	return &OIDC{cfg: cfg, client: client, now: time.Now, key: []byte(random(32)), sessions: map[string]*Session{},
-		sweepEvery: idleTimeout / 4}, nil
+		sweepEvery: cfg.Lifetime.idle() / 4}, nil
 }
 
 func (o *OIDC) provider() (*provider, error) {
@@ -196,7 +222,7 @@ func (o *OIDC) Login(w http.ResponseWriter, r *http.Request) {
 		Path: "/", MaxAge: int(loginTimeout.Seconds()), Secure: true, HttpOnly: true, SameSite: http.SameSiteLaxMode})
 	// max_age makes auth_time mandatory in the ID token; no offline_access, so
 	// a refresh token lives no longer than the identity provider's session.
-	maxAge := strconv.Itoa(int(absoluteTimeout.Seconds()))
+	maxAge := strconv.Itoa(int(o.cfg.Lifetime.max().Seconds()))
 	opts := []oauth2.AuthCodeOption{oidc.Nonce(st.Nonce), oauth2.S256ChallengeOption(st.Verifier)}
 	if st.Fresh {
 		maxAge = "0"
@@ -294,7 +320,7 @@ func (o *OIDC) Callback(w http.ResponseWriter, r *http.Request) {
 	o.mu.Unlock()
 	o.sweep(r.Context())
 	o.sweeping.Do(func() { go o.sweeper() })
-	http.SetCookie(w, sessionCookie(s.id, int(absoluteTimeout.Seconds())))
+	http.SetCookie(w, sessionCookie(s.id, int(o.cfg.Lifetime.max().Seconds())))
 	http.Redirect(w, r, st.Return, http.StatusFound)
 }
 
@@ -341,7 +367,7 @@ func (o *OIDC) end(ctx context.Context, id string) (*Session, *provider) {
 
 // expired reports whether a session passed its idle or absolute timeout.
 func (o *OIDC) expired(s *Session, now time.Time) bool {
-	return now.Sub(s.created) > absoluteTimeout || now.Sub(s.seen) > idleTimeout
+	return o.cfg.Lifetime.expired(s.created, s.seen, now)
 }
 
 // sweeper runs sweep for the life of the process.
@@ -454,13 +480,4 @@ func (o *OIDC) refreshSession(r *http.Request, s *Session) error {
 		s.refresh = tok.RefreshToken
 	}
 	return nil
-}
-
-// Routes serves /auth/login, /auth/callback and /auth/logout.
-func (o *OIDC) Routes() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /auth/login", o.Login)
-	mux.HandleFunc("GET /auth/callback", o.Callback)
-	mux.HandleFunc("POST /auth/logout", o.Logout)
-	return mux
 }

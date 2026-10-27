@@ -218,9 +218,15 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | dashboard.auth.oidc.clientSecretRef.key | string | `"client-secret"` | Key of the client secret in that Secret |
 | dashboard.auth.oidc.clientSecretRef.name | string | `""` | Secret in the operator namespace holding the client secret (passed by secretKeyRef) |
 | dashboard.auth.oidc.extraScopes | list | `[]` | Scopes asked for beyond openid, profile and groups (for example a cross-client audience scope) |
+| dashboard.auth.oidc.groupsClaim | string | `""` | ID token claim the API server takes the groups from; must match its `claimMappings.groups` (empty: `groups`) |
+| dashboard.auth.oidc.groupsPrefix | string | `""` | Prefix the API server puts before every group; must match its `claimMappings.groups.prefix` |
 | dashboard.auth.oidc.issuerURL | string | `""` | OpenID Connect issuer URL people sign in with (empty: no sign-in) |
 | dashboard.auth.oidc.redirectURL | string | `""` | The dashboard's `/auth/callback` URL as browsers reach it |
-| dashboard.auth.required | bool | `false` | Gate the fleet views and the whole API behind sign-in too, not only delivery (needs `oidc.issuerURL`) |
+| dashboard.auth.oidc.usernameClaim | string | `""` | ID token claim the API server takes the username from; must match its `claimMappings.username` (empty: `sub`) |
+| dashboard.auth.oidc.usernamePrefix | string | `""` | Prefix the API server puts before the username; must match its `claimMappings.username.prefix` (empty: the issuer URL and `#`, none for the `email` claim; `-` for none) |
+| dashboard.auth.session.idleTimeout | string | `""` | A session without a request for this long ends, as a Go duration such as `30m` (empty: `1h`). The ID token renews with the refresh token in between |
+| dashboard.auth.session.maxAge | string | `""` | A session ends this long after sign-in, renewed or not, as a Go duration such as `8h` (empty: `12h`) |
+| dashboard.auth.tokenLogin.enabled | bool | `false` | Let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider. The token stays in the server-side session and every request runs with it; a token session never decides on a held change |
 | dashboard.enabled | bool | `true` | Enable the operator-managed dashboard deployment. The dashboard image is controlled by the operator and derived from the bundled Pacto library version. It is not user-configurable. |
 | dashboard.httpRoute.enabled | bool | `false` | Enable Gateway API HTTPRoute for the dashboard |
 | dashboard.httpRoute.hostnames | list | `[]` | Hostnames for the HTTPRoute |

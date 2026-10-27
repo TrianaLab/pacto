@@ -106,9 +106,6 @@ describe('inbox', () => {
     expect((target.querySelector('[data-testid="inbox-errored-section"]') as HTMLDetailsElement).open).toBe(false);
     expect(text(target)).not.toMatch(/pause/i);
     expect(text(target.querySelector('[data-testid="inbox-errored"]') as HTMLElement)).toContain('Pacto could not tell how it ended');
-    // The person's subject and, printed next to it, the username the cluster uses. Never only in a tooltip.
-    expect(text(target)).toContain('Signed in as carol https://idp#carol ⧉, in team-checkout');
-    expect(target.querySelector('[data-testid="delivery-identity"] [title]:not(.copyable)')).toBeNull();
     destroy();
   });
 
@@ -232,24 +229,12 @@ describe('inbox', () => {
     destroy();
   });
 
-  it('does not name a person from the ID token alone when the cluster did not say who they are', async () => {
-    fns.session.mockResolvedValue(shared({ name: 'Release Bot', caller: undefined, callerError: 'whoami: forbidden' }));
-    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [] });
-    const { target, destroy } = render(DeliveryInboxView);
-    await settle();
-    const bar = text(target.querySelector('[data-testid="delivery-identity"]') as HTMLElement);
-    expect(bar).not.toContain('Release Bot');
-    expect(bar).toContain('The cluster did not say who you are: whoami: forbidden');
-    destroy();
-  });
-
   it('asks to sign in on a 401, and tells a failure apart from an empty inbox', async () => {
     fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: false, fresh: false });
     fns.inbox.mockRejectedValue(new ApiError(401, 'sign in to see delivery', 'LoginRequired'));
     let r = render(DeliveryInboxView);
     await settle();
     expect(r.target.querySelector('[data-testid="delivery-signin"] a')?.getAttribute('href')).toContain('/auth/login?return=');
-    expect(text(r.target)).toContain('You are not signed in');
     r.destroy();
 
     fns.inbox.mockRejectedValue(new ApiError(500, 'boom'));
@@ -857,6 +842,26 @@ describe('change detail', () => {
     destroy();
   });
 
+  it('offers no decision to a token session: a fresh identity provider sign-in, or the command where there is none', async () => {
+    fns.operation.mockResolvedValue(heldOperation({ actions: ['cancel'] }));
+    fns.session.mockResolvedValue(shared({ method: 'token', tokenLogin: true, caller: human(['team-checkout']) }));
+    let r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(r.target.querySelector('[data-testid="decide-approve"]')).toBeNull();
+    const panel = r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement;
+    expect(text(panel.querySelector('[data-testid="decide-token"]') as HTMLElement)).toContain('a token never decides. Sign in with your identity provider');
+    expect(panel.querySelector('a[href*="/auth/login"]')?.getAttribute('href')).toContain('fresh=1');
+    r.destroy();
+
+    deliverySession.loaded = false;
+    fns.session.mockResolvedValue(shared({ method: 'token', login: false, tokenLogin: true, caller: human(['team-checkout']) }));
+    r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
+    await settle();
+    expect(text(r.target.querySelector('[data-testid="decide-token"]') as HTMLElement)).toContain('Decide from the command line');
+    expect(text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement)).toContain('pacto delivery approve -n prod op1 --decision approve');
+    r.destroy();
+  });
+
   it('shows refusals: not your team, an agent, a local dashboard, a signed-out person and a server refusal', async () => {
     fns.operation.mockResolvedValue(heldOperation({ actions: ['cancel'] }));
     fns.session.mockResolvedValue(shared({ caller: human(['team-payments']) }));
@@ -895,7 +900,6 @@ describe('change detail', () => {
     r = render(DeliveryChangeView, { namespace: 'prod', name: 'op1' });
     await settle();
     expect(text(r.target.querySelector('[data-testid="decision-panel"]') as HTMLElement)).toContain('pacto delivery approve -n prod op1 --decision approve');
-    expect(text(r.target)).toContain('Acting as carol https://idp#carol ⧉ from this machine');
     r.destroy();
 
     fns.session.mockResolvedValue({ mode: 'shared', login: true, signedIn: false, fresh: false });
@@ -1414,9 +1418,6 @@ describe('names, versions and one clear sentence', () => {
     ] });
     const { target, destroy } = render(DeliveryInboxView);
     await settle();
-    // The name is a claim Carol set herself, so the cluster's username sits next to it.
-    expect(text(target)).toContain('Signed in as Carol Diaz https://idp#carol ⧉');
-    expect(target.querySelector('[data-testid="delivery-identity"] [title]:not(.copyable)')).toBeNull();
     expect(target.querySelector('a[href="#/delivery/changes/prod/op1"]')?.textContent?.trim()).toBe('Promote on prod/pay: 2.4.0 to 3.0.0');
     expect(target.querySelector('a[href="#/delivery/changes/prod/op2"]')?.textContent?.trim()).toBe('Promote on prod/pay: 3.0.0');
     expect(text(target)).toContain('Promote to sha256:222222222222?');

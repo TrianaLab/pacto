@@ -322,6 +322,11 @@ client.use({
   // server then refuses the one cached here. Read the session again and retry
   // once, only when it has a different token: any other 403 stands.
   async onResponse({ request, response }) {
+    // A session that ended (expired, or signed out in another tab) turns the
+    // API away: the page reads the session again and shows its sign-in screen.
+    if (response.status === 401 && new URL(request.url).pathname !== '/api/session') {
+      window.dispatchEvent(new Event('pacto:unauthorized'));
+    }
     const retry = unsent.get(request);
     if (response.status !== 403 || !retry) return response;
     const sent = request.headers.get('X-Pacto-CSRF') ?? '';
@@ -418,6 +423,14 @@ export const api = {
     const s = await unwrap(client.GET('/api/session'));
     csrf = s?.csrf ?? '';
     return s;
+  },
+  /** Signs in with a pasted Kubernetes bearer token (POST /auth/token, outside the
+   *  API). The server checks it with the cluster and keeps it in the session. */
+  signInWithToken: async (token: string): Promise<void> => {
+    const res = await dashboardFetch(new Request(new URL('/auth/token', location.origin), {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }),
+    }));
+    if (!res.ok) throw new ApiError(res.status, ((await res.text()) || res.statusText).trim());
   },
   /** Ends the session (POST /auth/logout, outside the API) and returns the identity
    *  provider's logout page when it has one. */

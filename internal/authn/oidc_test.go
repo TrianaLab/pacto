@@ -366,7 +366,7 @@ func TestLogout(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
 	r.AddCookie(c)
-	o.Routes().ServeHTTP(rec, r)
+	NewShared(o, nil).Routes().ServeHTTP(rec, r)
 	var out struct {
 		LogoutURL string `json:"logoutURL"`
 	}

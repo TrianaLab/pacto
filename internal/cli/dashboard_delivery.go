@@ -88,9 +88,9 @@ const (
 	discoveryTimeout = 5 * time.Second
 )
 
-// newDashboardIdentity picks the mode: shared with OIDC when an issuer is
-// configured, local on a loopback bind without one, and open (no delivery)
-// anywhere else.
+// newDashboardIdentity picks the mode: shared when an issuer or token sign-in
+// is configured (people sign in before the dashboard shows anything), local on
+// a loopback bind without either, and open (no delivery) anywhere else.
 func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d deps) (*dashboardIdentity, error) {
 	trust, err := deliveryTrust(v.GetString("dashboard.delivery-trust"))
 	if err != nil {
@@ -99,21 +99,28 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 	id := &dashboardIdentity{cluster: cluster, registry: d.newDeliveryRegistry, now: time.Now, served: d.served, state: authn.StateFrom,
 		newClient: d.dynamicFor, records: d.newRecordRepo, trust: trust,
 		revisions: map[string]delivery.Revision{}, policyNS: v.GetString("dashboard.delivery-namespace")}
-	switch issuer := v.GetString("dashboard.oidc-issuer-url"); {
-	case issuer != "":
-		o, err := authn.NewOIDC(authn.Config{IssuerURL: issuer, ClientID: v.GetString("dashboard.oidc-client-id"),
+	life := authn.Lifetime{Idle: v.GetDuration("dashboard.session-idle-timeout"), Max: v.GetDuration("dashboard.session-max-age")}
+	var o *authn.OIDC
+	if issuer := v.GetString("dashboard.oidc-issuer-url"); issuer != "" {
+		if o, err = authn.NewOIDC(authn.Config{IssuerURL: issuer, ClientID: v.GetString("dashboard.oidc-client-id"),
 			ClientSecret: v.GetString("dashboard.oidc-client-secret"), RedirectURL: v.GetString("dashboard.oidc-redirect-url"),
-			ExtraScopes: splitList(v.GetStringSlice("dashboard.oidc-extra-scopes"))})
-		if err != nil {
+			ExtraScopes: splitList(v.GetStringSlice("dashboard.oidc-extra-scopes")), Lifetime: life,
+			Claims: authn.Claims{UsernameClaim: v.GetString("dashboard.oidc-username-claim"), UsernamePrefix: v.GetString("dashboard.oidc-username-prefix"),
+				GroupsClaim: v.GetString("dashboard.oidc-groups-claim"), GroupsPrefix: v.GetString("dashboard.oidc-groups-prefix")}}); err != nil {
 			return nil, err
 		}
-		id.auth = authn.NewShared(o)
-		id.viewer = authn.NewViewer(clusterReview(cluster, d.dynamicFor))
-		if v.GetBool("dashboard.auth-required") {
-			id.auth.RequireLogin()
+	}
+	var t *authn.TokenLogin
+	if v.GetBool("dashboard.token-login") {
+		if cluster == nil {
+			return nil, errors.New("--token-login needs a cluster to check tokens against")
 		}
-	case v.GetBool("dashboard.auth-required"):
-		return nil, errors.New("--auth-required needs sign-in: set --oidc-issuer-url")
+		t = authn.NewTokenLogin(authn.SelfSubjectReview(cluster, d.dynamicFor), life)
+	}
+	switch {
+	case o != nil || t != nil:
+		id.auth = authn.NewShared(o, t)
+		id.viewer = authn.NewViewer(clusterReview(cluster, d.dynamicFor))
 	case isLoopback(host):
 		id.auth = authn.NewLocal()
 	default:
@@ -124,10 +131,13 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 
 // options are the dashboard options this identity fills in.
 func (id *dashboardIdentity) options(o *dashboard.Options) {
-	o.Auth = &dashboard.Auth{Local: id.auth.Local(), Login: id.auth.Login(), Routes: id.auth.Routes(), Middleware: id.auth.Middleware,
+	o.Auth = &dashboard.Auth{Local: id.auth.Local(), Login: id.auth.Login(), TokenLogin: id.auth.TokenLogin(),
+		Routes: id.auth.Routes(), Middleware: id.auth.Middleware,
 		State: func(r *http.Request) dashboard.AuthState {
 			st := id.state(r.Context())
-			return dashboard.AuthState{SignedIn: st.SignedIn, Fresh: st.Fresh, CSRF: st.CSRF, Name: tokenName(st.Token)}
+			// User and Groups: who the fleet views are narrowed for.
+			return dashboard.AuthState{SignedIn: st.SignedIn, Fresh: st.Fresh, CSRF: st.CSRF, Name: tokenName(st.Token),
+				User: st.Person.User, Groups: st.Person.Groups, Method: st.Method}
 		}}
 	if id.viewer != nil {
 		o.View = id.view
@@ -139,12 +149,12 @@ func (id *dashboardIdentity) options(o *dashboard.Options) {
 }
 
 // view is the fleet as the caller's Kubernetes RBAC lets them read it: a
-// signed-in person as their ID token names them, anyone else as the
-// apiserver's anonymous user.
+// signed-in person as the cluster names them, anyone else as the apiserver's
+// anonymous user.
 func (id *dashboardIdentity) view(ctx context.Context, q *fleet.Query) (*fleet.Query, error) {
 	p := authn.Anonymous
 	if st := id.state(ctx); st.SignedIn {
-		p = authn.PersonFromToken(st.Token)
+		p = st.Person
 	}
 	r, err := id.viewer.Query(ctx, p, q)
 	if err != nil {
@@ -218,7 +228,7 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 	cfg := id.cluster
 	switch {
 	case id.auth.Local():
-	case !id.auth.Login():
+	case !id.auth.SignsIn():
 		return nil, dashboard.Refuse(http.StatusForbidden, "LoginNotConfigured",
 			"this dashboard is shared without sign-in, so it serves no delivery data and no actions")
 	default:

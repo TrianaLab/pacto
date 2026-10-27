@@ -75,7 +75,8 @@ func tourSteps(t *testing.T, name string) []tourStep {
 func TestTourLightsTheControlEachStepNames(t *testing.T) {
 	promote := regexp.MustCompile(`press Promote on (\w+) ([\d.]+) in prod`)
 	rules := []struct{ says, lights string }{
-		{"press Switch person", `delivery-identity"] button`},
+		{"open the person menu", "identity-trigger"},
+		{"Press Switch person", `"sign-out"`},
 		{"Pick Carol", "demo-persona-carol"},
 		{"Write in the note", `decision-panel"] textarea`},
 		{"Press Approve", "decide-approve"},

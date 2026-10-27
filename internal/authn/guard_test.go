@@ -112,7 +112,7 @@ func TestLocalGuards(t *testing.T) {
 func TestSharedMode(t *testing.T) {
 	f := newIdP(t)
 	o := newTestOIDC(t, f)
-	d := NewShared(o)
+	d := NewShared(o, nil)
 	var got State
 	h := d.Middleware(echo(&got))
 	c := cookieNamed(t, login(t, o, f, ""), SessionCookie)
@@ -154,7 +154,7 @@ func TestSharedMode(t *testing.T) {
 		{"refresh without csrf", act("/api/refresh", true, "", "https://dash.example"), http.StatusForbidden},
 		{"refresh", act("/api/refresh", true, sess.CSRF, "https://dash.example"), http.StatusTeapot},
 		{"impact", act("/api/fleet/impact", true, sess.CSRF, "https://dash.example"), http.StatusTeapot},
-		{"no cookie carries no rights, so no check", act("/api/delivery/plan", false, "", ""), http.StatusTeapot},
+		{"no session is turned away before any check", act("/api/delivery/plan", false, "", ""), http.StatusUnauthorized},
 		{"non-api path", act("/somewhere", true, "", ""), http.StatusTeapot},
 	}
 	for _, tc := range cases {
@@ -176,11 +176,10 @@ func TestOpenMode(t *testing.T) {
 	}
 }
 
-func TestSharedModeRequired(t *testing.T) {
+func TestSharedModeGatesTheAPI(t *testing.T) {
 	f := newIdP(t)
 	o := newTestOIDC(t, f)
-	d := NewShared(o).RequireLogin()
-	h := d.Middleware(echo(&State{}))
+	h := NewShared(o, nil).Middleware(echo(&State{}))
 	c := cookieNamed(t, login(t, o, f, ""), SessionCookie)
 	get := func(path string, cookie bool) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(http.MethodGet, "https://dash.example"+path, nil)
@@ -190,8 +189,11 @@ func TestSharedModeRequired(t *testing.T) {
 		return serve(h, r)
 	}
 	for path, want := range map[string]int{
-		"/api/fleet/status": http.StatusUnauthorized, "/api/refresh": http.StatusUnauthorized, "/api/delivery/stages": http.StatusUnauthorized,
+		"/api/fleet/status": http.StatusUnauthorized, "/api/fleet/product/services": http.StatusUnauthorized,
+		"/api/capabilities": http.StatusUnauthorized, "/api/sources": http.StatusUnauthorized,
+		"/api/refresh": http.StatusUnauthorized, "/api/delivery/stages": http.StatusUnauthorized, "/metrics": http.StatusUnauthorized,
 		"/health": http.StatusTeapot, "/api/session": http.StatusTeapot, "/auth/login": http.StatusTeapot,
+		"/": http.StatusTeapot, "/assets/index.js": http.StatusTeapot,
 	} {
 		if got := get(path, false).Code; got != want {
 			t.Errorf("signed out %s: %d, want %d", path, got, want)
@@ -199,12 +201,5 @@ func TestSharedModeRequired(t *testing.T) {
 		if got := get(path, true).Code; got != http.StatusTeapot {
 			t.Errorf("signed in %s: %d, want through", path, got)
 		}
-	}
-	rec := get("/services?q=a", false)
-	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/auth/login?return=%2Fservices%3Fq%3Da" {
-		t.Fatalf("a signed-out page goes to the login and back: %d %q", rec.Code, rec.Header().Get("Location"))
-	}
-	if got := serve(NewShared(o).Middleware(echo(&State{})), httptest.NewRequest(http.MethodGet, "https://dash.example/api/fleet/status", nil)).Code; got != http.StatusTeapot {
-		t.Fatalf("without RequireLogin the fleet stays open: %d", got)
 	}
 }

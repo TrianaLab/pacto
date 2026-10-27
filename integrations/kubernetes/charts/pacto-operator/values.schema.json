@@ -450,7 +450,7 @@
         "auth": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Sign-in for the dashboard; delivery actions then run with each person's own token.",
+          "description": "Sign-in for the dashboard: people sign in before it shows anything, every view follows their Kubernetes RBAC and delivery actions run with their own token.",
           "properties": {
             "oidc": {
               "type": "object",
@@ -474,24 +474,31 @@
                     }
                   }
                 },
-                "redirectURL": {
-                  "type": "string"
-                },
-                "extraScopes": {
-                  "type": "array",
-                  "items": {
-                    "type": "string",
-                    "minLength": 1
-                  }
-                }
+                "redirectURL": { "type": "string" },
+                "extraScopes": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+                "usernameClaim": { "type": "string" },
+                "usernamePrefix": { "type": "string" },
+                "groupsClaim": { "type": "string" },
+                "groupsPrefix": { "type": "string" }
               }
             },
-            "required": {
-              "type": "boolean"
+            "session": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "idleTimeout": { "type": "string", "pattern": "^$|^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$" },
+                "maxAge": { "type": "string", "pattern": "^$|^([0-9]+(\\.[0-9]+)?(ns|us|µs|ms|s|m|h))+$" }
+              }
             },
-            "deliveryNamespace": {
-              "type": "string"
-            }
+            "tokenLogin": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": { "type": "boolean" }
+              }
+            },
+            "required": { "type": "boolean" },
+            "deliveryNamespace": { "type": "string" }
           }
         },
         "miraURL": {

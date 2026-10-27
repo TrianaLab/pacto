@@ -59,7 +59,7 @@ async function signIn(page: Page, user: string, hash: string): Promise<void> {
   await page.goto(hash);
   await page.getByRole('link', { name: 'Sign in' }).first().click({ timeout: T });
   await dexLogin(page, user);
-  await expect(page.getByTestId('delivery-identity')).toContainText('Signed in as', { timeout: T });
+  await expect(page.getByTestId('identity')).toContainText('Signed in as', { timeout: T });
 }
 
 async function axe(page: Page, what: string): Promise<void> {

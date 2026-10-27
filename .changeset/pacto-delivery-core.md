@@ -176,8 +176,10 @@ unfreeze, cancel and decisions run there under the person's own token. A
 decision needs a recent login and membership of a team the question names, and
 is never taken from an agent; the dashboard offers and records only a decision
 the promoter would count, and says up front when a cluster reports no login
-time, so nobody can approve there. `--auth-required` puts the whole dashboard
-behind sign-in. The dashboard also takes a new look: serif titles and numbers,
+time, so nobody can approve there. With sign-in configured, people sign in
+before the dashboard shows anything, every view follows their Kubernetes RBAC
+and the header names who they are; `--token-login` adds sign-in with a pasted
+Kubernetes token for clusters that trust no identity provider. The dashboard also takes a new look: serif titles and numbers,
 a grouped data-sources menu and labelled status bars.
 
 **Demos.** The browser demo plays the payments story from `examples/story` on

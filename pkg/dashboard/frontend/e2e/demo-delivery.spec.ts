@@ -29,6 +29,7 @@ async function promote(page: Page, service: string, version: string) {
 }
 
 async function switchTo(page: Page, who: 'pay-agent' | 'alice' | 'carol') {
+  await page.getByTestId('identity-trigger').click();
   await page.getByRole('button', { name: 'Switch person' }).click();
   await page.getByTestId(`demo-persona-${who}`).click();
   await expect(page.getByTestId('demo-signin')).toHaveCount(0);
@@ -265,7 +266,9 @@ test.describe('Browser demo: the delivery story', () => {
     await expect(next).toBeVisible({ timeout: T });
     await next.click();
 
-    await step('so press Switch person', '[data-testid="delivery-identity"] button');
+    await step('so open the person menu', '[data-testid="identity-trigger"]');
+    await page.getByTestId('identity-trigger').click();
+    await step('Press Switch person', '#navbar-identity [data-testid="sign-out"]');
     await page.getByRole('button', { name: 'Switch person' }).click();
     await step('Pick Carol', '[data-testid="demo-persona-carol"]');
     await page.getByTestId('demo-persona-carol').click();
@@ -322,7 +325,7 @@ test.describe('Browser demo: the delivery story', () => {
       await ready(page, '#/delivery/inbox');
       for (const hash of ['#/delivery/inbox', '#/delivery/environments', '#/delivery/history', '#/delivery/history?namespace=prod&stage=payments', '#/delivery/publish', '#/delivery/changes/prod/payments-promote-2']) {
         await page.goto(`/${hash}`);
-        await expect(page.getByTestId('delivery-identity')).toContainText('Signed in as', { timeout: T });
+        await expect(page.getByTestId('identity')).toContainText('Signed in as', { timeout: T });
         await audit(page, `${hash} on ${label}`);
       }
     });

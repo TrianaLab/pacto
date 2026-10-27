@@ -5,11 +5,6 @@
       "description": "OCI bundle cache directory (default: ~/.cache/pacto/oci)",
       "type": "string"
     },
-    "PACTO_DASHBOARD_AUTH_REQUIRED": {
-      "default": false,
-      "description": "With OIDC sign-in, gate the fleet views and the whole API behind it too",
-      "type": "boolean"
-    },
     "PACTO_DASHBOARD_DELIVERY_NAMESPACE": {
       "default": "pacto-delivery",
       "description": "Namespace Pacto delivery runs in, whose published identity policy the dashboard reads",
@@ -44,12 +39,28 @@
       "description": "Space-separated scopes beyond openid, profile and groups",
       "type": "string"
     },
+    "PACTO_DASHBOARD_OIDC_GROUPS_CLAIM": {
+      "description": "ID token claim the API server takes the groups from (default groups); must match its claim mapping",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_OIDC_GROUPS_PREFIX": {
+      "description": "Prefix the API server puts before every group; must match its claim mapping",
+      "type": "string"
+    },
     "PACTO_DASHBOARD_OIDC_ISSUER_URL": {
-      "description": "OpenID Connect issuer people sign in with; delivery then runs as the signed-in person",
+      "description": "OpenID Connect issuer people sign in with before the dashboard shows anything; every view then follows their Kubernetes RBAC",
       "type": "string"
     },
     "PACTO_DASHBOARD_OIDC_REDIRECT_URL": {
       "description": "The dashboard's /auth/callback as browsers reach it",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_OIDC_USERNAME_CLAIM": {
+      "description": "ID token claim the API server takes the username from (default sub); must match its claim mapping",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_OIDC_USERNAME_PREFIX": {
+      "description": "Prefix the API server puts before the username (default the issuer URL and #, none for the email claim; - for none); must match its claim mapping",
       "type": "string"
     },
     "PACTO_DASHBOARD_PORT": {
@@ -61,6 +72,19 @@
     "PACTO_DASHBOARD_REPO": {
       "description": "Comma-separated OCI repositories to scan",
       "type": "string"
+    },
+    "PACTO_DASHBOARD_SESSION_IDLE_TIMEOUT": {
+      "description": "A session without a request for this long ends, as a Go duration (default 1h)",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_SESSION_MAX_AGE": {
+      "description": "A session ends this long after sign-in, as a Go duration (default 12h)",
+      "type": "string"
+    },
+    "PACTO_DASHBOARD_TOKEN_LOGIN": {
+      "default": false,
+      "description": "Let people sign in by pasting a Kubernetes bearer token; a token session never decides",
+      "type": "boolean"
     },
     "PACTO_NO_CACHE": {
       "default": false,

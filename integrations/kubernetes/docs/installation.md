@@ -117,8 +117,8 @@ Name-match discovery has no chart value.
     `dashboard.service.type` to `ClusterIP` with `dashboard.ingress.enabled`
     and `dashboard.httpRoute.enabled` off. Reach it with `kubectl
     port-forward`. Before you turn any of those on, put an authenticating proxy
-    in front of it or set `dashboard.auth.required` with
-    [sign-in](delivery-identity.md#sign-in-to-the-dashboard). See
+    in front of it or configure
+    [sign-in](dashboard-authentication.md). See
     [Security](../../dashboard-docker.md#security).
 
 ### Offline trace sources for the dashboard

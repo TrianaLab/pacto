@@ -89,13 +89,19 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 	case a == nil || a.Local:
 		return nil, Refuse(http.StatusForbidden, "ApproveFromCLI",
 			"a local dashboard never decides: any process on this machine could do it as you. Run: "+cli)
-	case !a.Login:
+	case !a.Login && !a.TokenLogin:
 		return nil, Refuse(http.StatusForbidden, "LoginNotConfigured", "this dashboard has no sign-in, so it serves no decisions")
 	}
 	st := s.authState(ctx)
 	switch {
 	case !st.SignedIn:
 		return nil, Refuse(http.StatusUnauthorized, "LoginRequired", "sign in to decide")
+	case st.Method == "token" && a.Login:
+		return nil, Refuse(http.StatusForbidden, "TokenCannotDecide",
+			"a pasted token never decides: sign in with your identity provider to decide, or run: "+cli)
+	case st.Method == "token":
+		return nil, Refuse(http.StatusForbidden, "TokenCannotDecide",
+			"a pasted token never decides, and this dashboard offers no identity provider sign-in. Run: "+cli)
 	case !st.Fresh:
 		return nil, Refuse(http.StatusUnauthorized, "FreshLoginRequired", "deciding needs a fresh login: sign in again")
 	}

@@ -215,12 +215,15 @@ dashboard:
     #   - name: orders
     #     file: traces.json
     #     existingClaim: orders-trace-export
-  # Sign-in for the dashboard. With it, the delivery views and actions run with
-  # each signed-in person's own token; the dashboard's ServiceAccount stays
-  # read-only and never gains a delivery right or impersonation. Without it the
-  # dashboard serves no delivery data and no actions. The cluster must trust the
-  # same issuer (structured authentication), and TLS must terminate in front of
-  # the dashboard because its session cookie is Secure.
+  # Sign-in for the dashboard. With it, people sign in before the dashboard
+  # shows anything, every view shows what their Kubernetes RBAC lets them read
+  # and delivery actions run with their own token; the dashboard's
+  # ServiceAccount stays read-only and never gains a delivery right or
+  # impersonation. Without it the dashboard serves no delivery data and no
+  # actions. The cluster must trust the same issuer (structured
+  # authentication) with the same claim mapping, and TLS must terminate in
+  # front of the dashboard because its session cookie is Secure. See
+  # https://pacto.run/latest/integrations/kubernetes/dashboard-authentication/
   auth:
     oidc:
       # -- OpenID Connect issuer URL people sign in with (empty: no sign-in)
@@ -236,8 +239,22 @@ dashboard:
       redirectURL: ""
       # -- Scopes asked for beyond openid, profile and groups (for example a cross-client audience scope)
       extraScopes: []
-    # -- Gate the fleet views and the whole API behind sign-in too, not only delivery (needs `oidc.issuerURL`)
-    required: false
+      # -- ID token claim the API server takes the username from; must match its `claimMappings.username` (empty: `sub`)
+      usernameClaim: ""
+      # -- Prefix the API server puts before the username; must match its `claimMappings.username.prefix` (empty: the issuer URL and `#`, none for the `email` claim; `-` for none)
+      usernamePrefix: ""
+      # -- ID token claim the API server takes the groups from; must match its `claimMappings.groups` (empty: `groups`)
+      groupsClaim: ""
+      # -- Prefix the API server puts before every group; must match its `claimMappings.groups.prefix`
+      groupsPrefix: ""
+    session:
+      # -- A session without a request for this long ends, as a Go duration such as `30m` (empty: `1h`). The ID token renews with the refresh token in between
+      idleTimeout: ""
+      # -- A session ends this long after sign-in, renewed or not, as a Go duration such as `8h` (empty: `12h`)
+      maxAge: ""
+    tokenLogin:
+      # -- Let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider. The token stays in the server-side session and every request runs with it; a token session never decides on a held change
+      enabled: false
     # -- Namespace where Pacto delivery runs. The dashboard reads the identity policy it publishes there (agent, break-glass and human groups, team prefix), so it is never configured twice (empty: `delivery.namespace` when `delivery.enabled`, else `pacto-delivery`)
     deliveryNamespace: ""
   # -- Mira's address, to link the health-check citations in delivery views
