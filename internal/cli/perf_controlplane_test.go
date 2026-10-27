@@ -61,7 +61,7 @@ func freePort(t testing.TB) int {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	return l.Addr().(*net.TCPAddr).Port
 }
 
@@ -104,7 +104,7 @@ func startControlPlane(t testing.TB, people []perfPerson) *controlPlane {
 		req, _ := http.NewRequest(http.MethodGet, cp.host+"/readyz", nil)
 		req.Header.Set("Authorization", "Bearer "+cp.admin)
 		if resp, err := cl.Do(req); err == nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
 				break
 			}

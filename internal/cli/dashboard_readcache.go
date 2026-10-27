@@ -95,8 +95,8 @@ func (c *readCache) wrap(rt http.RoundTripper) http.RoundTripper {
 			if err != nil {
 				return nil, err
 			}
-			defer resp.Body.Close()
 			body, err := io.ReadAll(resp.Body)
+			_ = resp.Body.Close() // read to the end; nothing is left to lose
 			if err != nil {
 				return nil, err
 			}

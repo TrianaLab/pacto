@@ -238,7 +238,7 @@ func TestPerfPromoter(t *testing.T) {
 	if path := os.Getenv("PERF_REPORT"); path != "" {
 		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		must(t, err)
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		_, err = fmt.Fprintf(f, "\n| promotes | all moved | time to move p50 | p95 | max queue depth | apiserver req/operation |\n"+
 			"|---:|---:|---:|---:|---:|---:|\n| %d | %s | %s | %s | %.0f | %.1f |\n", n, wall.Round(time.Millisecond),
 			moved[n/2].Round(time.Millisecond), moved[n*95/100].Round(time.Millisecond), maxDepth, perOp)

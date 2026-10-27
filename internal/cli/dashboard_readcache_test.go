@@ -34,8 +34,8 @@ type failingReader struct{}
 
 func (failingReader) Read([]byte) (int, error) { return 0, errors.New("cut off") }
 
-func call(t *testing.T, rt http.RoundTripper, method, url, token string, headers ...string) (*http.Response, string, error) {
-	t.Helper()
+// try sends one request through rt with token as the bearer.
+func try(rt http.RoundTripper, method, url, token string, headers ...string) (*http.Response, string, error) {
 	req, _ := http.NewRequest(method, url, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	for i := 0; i+1 < len(headers); i += 2 {
@@ -49,6 +49,16 @@ func call(t *testing.T, rt http.RoundTripper, method, url, token string, headers
 	return resp, string(b), nil
 }
 
+// call is try that must not fail.
+func call(t *testing.T, rt http.RoundTripper, method, url, token string, headers ...string) (*http.Response, string) {
+	t.Helper()
+	resp, body, err := try(rt, method, url, token, headers...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp, body
+}
+
 func TestReadCacheServesOnlyTheSameCredentials(t *testing.T) {
 	now := time.Unix(0, 0)
 	c := newReadCache()
@@ -56,10 +66,10 @@ func TestReadCacheServesOnlyTheSameCredentials(t *testing.T) {
 	b := &backend{}
 	rt := c.wrap(b)
 	const url = "https://api/apis/x/v1/stages"
-	if _, body, _ := call(t, rt, http.MethodGet, url, "alice"); body != "/apis/x/v1/stages" {
+	if _, body := call(t, rt, http.MethodGet, url, "alice"); body != "/apis/x/v1/stages" {
 		t.Fatalf("body %q", body)
 	}
-	resp, body, _ := call(t, rt, http.MethodGet, url, "alice")
+	resp, body := call(t, rt, http.MethodGet, url, "alice")
 	if b.hits.Load() != 1 || body != "/apis/x/v1/stages" || resp.Header.Get("X") != "y" || resp.StatusCode != http.StatusOK {
 		t.Fatalf("a second read within the ttl must be served from the cache: hits %d body %q", b.hits.Load(), body)
 	}
@@ -140,7 +150,7 @@ func TestReadCacheKeepsOnlyWholeSuccessfulAnswers(t *testing.T) {
 	c := newReadCache()
 	b := &backend{status: http.StatusForbidden}
 	rt := c.wrap(b)
-	resp, _, _ := call(t, rt, http.MethodGet, "https://api/a", "alice")
+	resp, _ := call(t, rt, http.MethodGet, "https://api/a", "alice")
 	call(t, rt, http.MethodGet, "https://api/a", "alice")
 	if resp.StatusCode != http.StatusForbidden || b.hits.Load() != 1 {
 		t.Fatalf("a refusal is the person's answer too, and is kept: %d hits %d", resp.StatusCode, b.hits.Load())
@@ -152,11 +162,11 @@ func TestReadCacheKeepsOnlyWholeSuccessfulAnswers(t *testing.T) {
 		t.Fatalf("anything else is passed on and never kept: hits %d", b.hits.Load())
 	}
 	b.status, b.err = 0, errors.New("down")
-	if _, _, err := call(t, rt, http.MethodGet, "https://api/c", "alice"); err == nil {
+	if _, _, err := try(rt, http.MethodGet, "https://api/c", "alice"); err == nil {
 		t.Fatal("a failed round trip must fail")
 	}
 	b.err, b.body = nil, failingReader{}
-	if _, _, err := call(t, rt, http.MethodGet, "https://api/c", "alice"); err == nil {
+	if _, _, err := try(rt, http.MethodGet, "https://api/c", "alice"); err == nil {
 		t.Fatal("a body cut off must fail")
 	}
 	b.body = nil
