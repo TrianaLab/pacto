@@ -839,6 +839,8 @@
         var e = q(list[i]);
         if (e) { found = e; }
       }
+      // A target folded away on the page cannot be lit: open every fold around it.
+      for (var d = found && found.closest("details:not([open])"); d; d = d.parentElement && d.parentElement.closest("details:not([open])")) { d.open = true; }
       return found;
     }
 
