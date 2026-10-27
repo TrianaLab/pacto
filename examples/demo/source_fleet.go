@@ -33,9 +33,15 @@ const (
 	partnerDomain   = "partners"
 )
 
-// demoNow is a fixed clock so the embedded snapshot (and its stale-target
-// computation) is fully deterministic across builds.
-func demoNow() time.Time { return time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC) }
+// demoClock is when the demo loaded. The fleet snapshot is taken then and every
+// fixture time is an offset from it, so the stale-target split is the same on every
+// load while "Data as of" reads off the same wall clock the simulated delivery runs
+// on. A fixed date here had the fleet pages say "Jul 29, 2026" beside delivery pages
+// saying "just now".
+var demoClock = time.Now().UTC().Truncate(time.Second)
+
+// demoNow is the clock the fleet snapshot is built against.
+func demoNow() time.Time { return demoClock }
 
 // buildDemoFleet builds a fleet query over every embedded revision plus the
 // demo's operational targets, and returns a ref→bundle index so the impact
