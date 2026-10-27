@@ -87,7 +87,7 @@ func TestParseDocument_MatchesEveryContractInTheRepo(t *testing.T) {
 		if err != nil || d.IsDir() && (d.Name() == "node_modules" || d.Name() == ".git") {
 			return filepath.SkipDir
 		}
-		if d.Name() != "pacto.yaml" && !(strings.Contains(p, "testdata") && strings.HasSuffix(p, ".yaml")) {
+		if d.Name() != "pacto.yaml" && (!strings.Contains(p, "testdata") || !strings.HasSuffix(p, ".yaml")) {
 			return nil
 		}
 		raw, _ := os.ReadFile(p)

@@ -96,7 +96,7 @@ func TestEntitiesCarryOwnerAndCounts(t *testing.T) {
 		return RawRevision{Bundle: &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.0",
 			Service: contract.Service{Name: name, Version: "1.0.0", Owner: contract.Owner{Team: team}}}}, Digest: "sha256:" + name}
 	}
-	src := NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{rev("a", "team-y"), rev("b", "team-x"), rev("c", "team-x")}})
+	src := NewMemorySource("local", "local", &Collection{Revisions: []RawRevision{rev("a", "team-y"), rev("b", "team-x"), rev("c", "team-x"), rev("d", "team-w")}})
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow}, src)
 	if err != nil {
 		t.Fatal(err)
@@ -106,7 +106,9 @@ func TestEntitiesCarryOwnerAndCounts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(owners.Entities) != 2 || owners.Entities[0].Label != "team-x" || owners.Entities[0].Services != 2 || owners.Entities[1].Services != 1 {
+	// Owners with as many services fall back to name order.
+	if len(owners.Entities) != 3 || owners.Entities[0].Label != "team-x" || owners.Entities[0].Services != 2 ||
+		owners.Entities[1].Label != "team-w" || owners.Entities[2].Label != "team-y" || owners.Entities[2].Services != 1 {
 		t.Fatalf("owners = %+v", owners.Entities)
 	}
 	svcs, err := q.Entities(EntityFilter{Kinds: []EntityKind{KindService}, Sort: SortName})
