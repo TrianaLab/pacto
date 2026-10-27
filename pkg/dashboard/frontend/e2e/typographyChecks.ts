@@ -168,6 +168,9 @@ export async function runAnalysis(page: Page): Promise<void> {
   await expect(compare).toBeEnabled({ timeout: 30_000 });
   await compare.click();
   await expect(page.getByRole('heading', { name: /Affected consumers/i })).toBeVisible({ timeout: 60_000 });
+  // The answer's backing parts are folds. Open every one, so the audits that follow
+  // measure the charts, tables and headings inside them rather than four summaries.
+  await page.locator('details.ca-fold').evaluateAll((ds) => ds.forEach((d) => { (d as HTMLDetailsElement).open = true; }));
   await settle(page);
 }
 

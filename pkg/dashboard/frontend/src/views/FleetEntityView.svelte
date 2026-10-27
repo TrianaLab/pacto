@@ -182,7 +182,7 @@
           <SourceEntity {detail} />
         {/if}
         {#snippet failed(err, reset)}
-          <EmptyState error title={`Couldn’t show this ${kindLabel(kind).toLowerCase()}`} message="Part of its record could not be drawn. Refresh to try again, or open it in the CLI." onRetry={reset} />
+          <EmptyState error title={`Couldn’t show this ${kindLabel(kind).toLowerCase()}`} message="Part of its record could not be drawn. Refresh to try again." onRetry={reset} />
         {/snippet}
       </svelte:boundary>
       </div>

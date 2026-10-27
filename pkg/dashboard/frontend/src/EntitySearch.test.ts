@@ -59,6 +59,24 @@ describe('EntitySearch — global entity discovery', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('groups results by kind under one heading and count, and the arrows walk them in that order', async () => {
+    entitiesFn.mockResolvedValue(list([
+      { kind: 'service', key: 'a/one', label: 'one', href: '/fleet/services/a%2Fone' },
+      { kind: 'revision', key: 'a/one@sha256:1', label: 'one 1.0.0', href: '/fleet/revisions/a%2Fone@sha256:1' },
+      { kind: 'service', key: 'a/two', label: 'two', href: '/fleet/services/a%2Ftwo' },
+    ]));
+    const { target, component } = mountSearch();
+    const input = type(target, 'o');
+    await vi.waitFor(() => expect(rows(target).length).toBe(3));
+    expect(Array.from(target.querySelectorAll('.es-group-label')).map((l) => l.textContent?.replace(/\s+/g, ' ').trim())).toEqual(['Services 2', 'Revisions 1']);
+    expect(rows(target).map((r) => r.textContent?.includes('two'))).toEqual([false, true, false]);
+    expect(target.querySelector('[data-testid="search-result"] .ei-kind')).toBeNull();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }));
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    expect(location.hash).toBe('#/fleet/services/a%2Ftwo');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('traps Tab within the modal dialog and closes on Escape from a result (Part 5, 8.3)', async () => {
     entitiesFn.mockResolvedValue(list([{ kind: 'service', key: 'a/pay', label: 'pay', domain: 'a', href: '/fleet/services/a%2Fpay' }]));
     let closed = 0;

@@ -152,14 +152,14 @@ describe('FleetServicesView — product Services list (C / A3)', () => {
     entitiesFn.mockResolvedValue(listResp([], { total: 0 }));
     m = mountView();
     await vi.waitFor(() => expect(m.target.textContent).toMatch(/no services yet/i));
-    expect(m.target.textContent).not.toMatch(/knowledge is incomplete/i);
+    expect(m.target.textContent).not.toMatch(/not proof of none/i);
     unmount(m.component); document.body.removeChild(m.target);
 
     // incomplete knowledge (no filter, a source unavailable)
     entitiesFn.mockResolvedValue(listResp([], { total: 0, partial: true }));
     m = mountView();
     await vi.waitFor(() => expect(m.target.textContent).toMatch(/no services known/i));
-    expect(m.target.textContent).toMatch(/knowledge is incomplete/i);
+    expect(m.target.textContent).toMatch(/not proof of none/i);
     unmount(m.component); document.body.removeChild(m.target);
   });
 

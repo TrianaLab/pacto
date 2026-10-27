@@ -215,6 +215,20 @@ describe('GraphView — product Operational Graph', () => {
     unmount(component); document.body.removeChild(target);
   });
 
+  it('answers "is anything wrong here" first: undeclared calls count, insufficient evidence does not', async () => {
+    neighborhoodFn.mockResolvedValue(neighborhood({
+      edges: [
+        { id: 'a|b', relation: 'dependency', from: ref('service', 'a', 'a'), to: ref('service', 'b', 'b'), expected: true, observed: false, provenance: 'declared', difference: 'insufficient', declaredClaims: { total: 0, count: 0, truncated: false, items: [] }, observationSources: { total: 0, count: 0, truncated: false, items: [] } },
+        { id: 'c|d', relation: 'dependency', from: ref('service', 'c', 'c'), to: ref('service', 'd', 'd'), expected: false, observed: true, provenance: 'observed', difference: 'observed-not-expected', declaredClaims: { total: 0, count: 0, truncated: false, items: [] }, observationSources: { total: 0, count: 0, truncated: false, items: [] } },
+      ],
+    }));
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-answer"]')).toBeTruthy());
+    expect(q(target, '[data-testid="graph-answer"]')?.textContent).toBe('1 undeclared call.');
+    expect(q(target, '[data-testid="graph-answer"]')?.className).toContain('has-problems');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('labels a fine-grained edge as service-scoped corroboration, never as an edge-scope observation', async () => {
     neighborhoodFn.mockResolvedValue(targetNeighborhood());
     const { target, component } = mountView({ kind: 'target', sel: 'prod/k8s/web', perspective: 'target' });
@@ -289,7 +303,7 @@ describe('GraphView — product Operational Graph', () => {
     applyTopologySpy.mockReset();
     const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-grouped"]')).toBeTruthy());
-    expect(q(target, '[data-testid="graph-grouped"]')?.textContent).toContain('To keep 53 entities readable, 50 past the direct neighbors are grouped by team (2 groups)');
+    expect(q(target, '[data-testid="graph-grouped"]')?.textContent).toContain('50 grouped by team (2 groups)');
     // The group buttons are a row of buttons, not a sentence: no commas between them.
     const row = q(target, '[data-testid="graph-grouped"] ul') as HTMLElement;
     expect(row.className).toContain('cl-row');
@@ -638,6 +652,25 @@ describe('GraphView — product Operational Graph', () => {
     await vi.waitFor(() => expect(q(target, '[data-testid="graph-search-error"]')).toBeTruthy());
     expect(q(target, '[data-testid="graph-search-empty"]')).toBeNull(); // NOT "no matches" after a failure
     expect(target.textContent).toContain('503');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('a focus that does not exist says so and offers search, not a raw error', async () => {
+    neighborhoodFn.mockRejectedValue(new ApiError(404, 'not found'));
+    const { target, component } = mountView({ kind: 'service', sel: 'nope' });
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-not-found"]')).toBeTruthy());
+    expect(q(target, '[data-testid="graph-not-found"]')?.textContent).toContain('Nothing found for “nope”');
+    expect(q(target, '[data-testid="graph-not-found"] a')?.getAttribute('href')).toBe('#/fleet/graph');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('a failed neighborhood load offers Retry', async () => {
+    neighborhoodFn.mockRejectedValueOnce(new ApiError(503, 'backend unavailable'));
+    const { target, component } = mountView({ kind: 'service', sel: 'domain-a/web' });
+    await vi.waitFor(() => expect(target.textContent).toContain('Couldn’t load the graph'));
+    neighborhoodFn.mockResolvedValue(neighborhood());
+    (Array.from(target.querySelectorAll('button')).find((b) => b.textContent === 'Retry') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(q(target, '[data-testid="graph-summary"]')).toBeTruthy());
     unmount(component); document.body.removeChild(target);
   });
 

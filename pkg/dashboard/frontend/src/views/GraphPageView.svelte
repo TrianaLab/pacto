@@ -7,6 +7,7 @@
   import StatsBar from '../StatsBar.svelte';
   import StatusBadge from '../components/StatusBadge.svelte';
   import EmptyState from '../components/EmptyState.svelte';
+  import HelpTip from '../components/HelpTip.svelte';
   import NodeDrawer from '../components/NodeDrawer.svelte';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import { getFilters, setFilter } from '../lib/filters.svelte.ts';
@@ -182,9 +183,9 @@
     <div class="skeleton" style="width:100%; height:400px; border-radius:var(--radius-sm)"></div>
   </div>
 {:else if graphError}
-  <EmptyState error onRetry={loadGraph} title="Couldn’t load the graph" message="The dependency graph couldn’t be fetched." />
+  <EmptyState error onRetry={loadGraph} title="Couldn’t load the graph" />
 {:else if !graphData?.nodes?.length}
-  <EmptyState title="No services to graph" message="Services need dependencies to appear in the graph." />
+  <EmptyState title="No services to graph" message="Services show up here once they declare dependencies." />
 {:else}
   <div class="graph-focus-bar">
     <button type="button" class="seg-toggle" class:active={groupByOwner} onclick={toggleGroup} aria-pressed={groupByOwner}>
@@ -196,15 +197,14 @@
         placeholder={groupByOwner ? 'All teams' : 'Whole fleet'} label="Focus the graph on" testid="graph-focus"
         onpick={(v) => { setFilter('focus', v); selectedNode = null; }} />
     </label>
-    <span class="focus-hint">
-      {#if groupByOwner && focusSel}{focusSel}'s services and what they touch.{:else if groupByOwner}Teams as nodes; edges are cross-team dependencies — pick a team to see its services.{:else}Roots on top, shared infrastructure at the bottom.{/if}
-      Hover to light up dependencies (accent →) and dependents (amber ←); click to pin, double-click to open.
-    </span>
+    <!-- How to read and drive the canvas is a definition, one (i) away, not a sentence
+         printed above the graph on every visit. -->
+    <HelpTip label="this graph" text={`${groupByOwner && focusSel ? `${focusSel}'s services and what they touch.` : groupByOwner ? 'Teams as nodes, edges are cross-team dependencies. Pick a team to see its services.' : 'Roots on top, shared infrastructure at the bottom.'} Hover to light up dependencies (accent) and dependents (amber). Click to pin, double-click to open.`} />
   </div>
 
   {#if tooBig}
     <div class="graph-too-big" role="status" data-testid="graph-too-big">
-      <p>{displayGraph.nodes.length.toLocaleString('en-US')} {groupByOwner ? 'teams' : 'services'} are too many to lay out at once. Pick a {groupByOwner ? 'team' : 'service'} to focus on{groupByOwner ? '' : ', or group them by owner'}. The connections table below lists them all.</p>
+      <p>Too many to draw ({displayGraph.nodes.length.toLocaleString('en-US')} {groupByOwner ? 'teams' : 'services'}). Pick a {groupByOwner ? 'team' : 'service'} to focus on{groupByOwner ? '' : ' or group by owner'}. The table below lists them all.</p>
       {#if !groupByOwner}<button type="button" class="btn btn-sm" onclick={toggleGroup}>Group by owner</button>{/if}
     </div>
   {:else}

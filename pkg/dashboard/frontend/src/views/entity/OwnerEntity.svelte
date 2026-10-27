@@ -43,7 +43,7 @@
     <PostureBars
       summary={sum}
       {attentionUrl}
-      empty="Nothing running has been observed for this owner's services, so there is no compliance, identity or freshness picture yet."
+      empty="Nothing running has been seen for these services yet."
     />
   </section>
 

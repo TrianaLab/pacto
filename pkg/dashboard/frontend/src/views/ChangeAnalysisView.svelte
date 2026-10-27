@@ -2,15 +2,13 @@
   import { onMount, onDestroy, untrack } from 'svelte';
   import { api, ApiError } from '../lib/api.ts';
   import { boundedMatches, NAME_LOOKUP_LIMIT } from '../lib/entityResolve.ts';
-  import { classificationClass, completenessClass, completenessLabel, shortDigest, formatCount } from '../lib/format.ts';
+  import { classificationClass, completenessClass, completenessLabel, shortDigest, formatCount, countOf } from '../lib/format.ts';
   import SearchPick from '../components/SearchPick.svelte';
   import { formatRelative } from '../lib/dateFormat.ts';
   import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, hashForHref, replaceHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
-  import PageToc from '../components/PageToc.svelte';
   import EntityLink from '../components/EntityLink.svelte';
-  import IdentityBadge from '../components/IdentityBadge.svelte';
   import HelpTip from '../components/HelpTip.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import PreviewSection from '../components/PreviewSection.svelte';
@@ -55,6 +53,8 @@
     inferred: 'Transitive effect reached through another affected service.',
     unknown: 'Required evidence is incomplete or stale.',
   };
+  // Every level, one (i) away on the column header, instead of a legend under the table.
+  const CONFIDENCE_HELP = Object.entries(CONFIDENCE_EXPLAIN).map(([k, v]) => `${k}: ${v}`).join(' ');
 
   // Service + revision universe (product API only).
   let serviceDetail = $state(null);
@@ -84,6 +84,7 @@
   // Swapping the whole result for a loader on every page reset the scroll to the top.
   let pagingConsumers = $state(false);
   let analyzeGen = 0;
+  let limShown = $state(8);
 
   // Service picker (only when the route carries no service key): search-first, so a
   // service beyond the first page of results is still discoverable.
@@ -316,6 +317,31 @@
       { label: 'Change analysis' },
     ];
   });
+  // The one-line answer. Version-range verdicts are per consumer (the range each one
+  // declared), never per field, and come from the backend tallies over EVERY consumer.
+  function classificationLabel(c) {
+    const t = String(c || 'unknown').replace(/_/g, ' ').toLowerCase();
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
+  const verdictCount = (k) => (consumers.byVerdict ?? []).find((b) => b.key === k)?.count ?? 0;
+  const answerText = $derived.by(() => {
+    if (!result) return '';
+    const what = changes.total === 0
+      ? 'No contract differences.'
+      : `${countOf(changes.total, 'change')}, ${formatCount(changes.breaking)} breaking.`;
+    if (!consumers.total) return `${what} No consumer is affected.`;
+    const newLabel = result.newRevision?.version || result.newRevision?.label || 'the new revision';
+    const parts = [
+      verdictCount('incompatible') ? `${formatCount(verdictCount('incompatible'))} ${verdictCount('incompatible') === 1 ? 'does' : 'do'} not accept ${newLabel}` : '',
+      verdictCount('unknown') ? `${formatCount(verdictCount('unknown'))} unknown` : '',
+    ].filter(Boolean);
+    return `${what} ${countOf(consumers.total, 'consumer')} affected${parts.length ? `: ${parts.join(', ')}` : ''}.`;
+  });
+  const consumerMeta = $derived(
+    consumers.total
+      ? `${formatCount(consumers.total)}${verdictCount('incompatible') ? ` · ${formatCount(verdictCount('incompatible'))} incompatible` : ''}`
+      : 'None',
+  );
   const cShownFrom = $derived(consumers.total === 0 ? 0 : (consumers.offset ?? 0) + 1);
   const cShownTo = $derived((consumers.offset ?? 0) + (consumers.count ?? 0));
   const cHasPrev = $derived((consumers.offset ?? 0) > 0);
@@ -334,7 +360,7 @@
 
 <PageHeader
   title="Change analysis"
-  subtitle="Compare two revisions of a service, then see what that change affects in the operational graph."
+  subtitle="What changed between two revisions and who it reaches."
 />
 
 {#if !serviceKey}
@@ -371,41 +397,21 @@
           <rect x="10" y="16" width="34" height="32" rx="6" /><rect x="76" y="16" width="34" height="32" rx="6" />
           <line x1="48" y1="32" x2="72" y2="32" /><line x1="64" y1="26" x2="72" y2="32" /><line x1="64" y1="38" x2="72" y2="32" />
         </svg>
-        <p class="disco-ph-title t-section-title">Select a service to compare two of its revisions</p>
-        <p class="disco-ph-sub">Search above, or open a service and choose Compare revisions. The analysis appears right here once you pick one.</p>
+        <p class="disco-ph-title t-section-title">Pick a service</p>
+        <p class="disco-ph-sub">Then two of its revisions to compare.</p>
       </div>
     {/if}
 
-    <div class="disco-panels">
-      <div class="disco-panel">
-        <h2>Start from the inventory</h2>
-        <p>Every service page carries a Compare revisions action for its own history.</p>
-        <a href={fleetServicesUrl()}>Browse services &rarr;</a>
-      </div>
-      <div class="disco-panel">
-        <h2>What this answers</h2>
-        <dl class="disco-legend">
-          <dt><IdentityBadge label="What changed" tone="info" /></dt>
-          <dd>Field-level differences between the two contract revisions.</dd>
-          <dt><IdentityBadge label="What it affects" tone="warn" /></dt>
-          <dd>Where that change reaches in the current operational graph.</dd>
-        </dl>
-      </div>
-    </div>
+    <p class="disco-more" data-testid="changes-discovery-more">Or <a href={fleetServicesUrl()}>browse services</a> and use Compare revisions on one.</p>
   </section>
 {:else if loadingRevs}
   <EmptyState loading message="Loading service revisions…" />
 {:else if loadError}
   <EmptyState error title="Couldn’t load this service" message={loadError instanceof ApiError ? loadError.message : String(loadError)} onRetry={() => loadRevisions(serviceKey)} />
 {:else}
-  <!-- A completed analysis is several screens deep: the pickers, the change table, then
-       the consumer table under it. The shared navigator lists the parts actually
-       rendered -- there is no "What it affects" entry until there is a result -- and it
-       is what makes going back up to change a revision one click instead of a scroll. -->
-  <div class="page-toc-layout">
-  <PageToc />
-  <div class="page-toc-main">
-  <form class="workspace-controls" id="sec-revisions" data-toc="Revisions to compare" onsubmit={(e) => { e.preventDefault(); analyze(0); }}>
+  <!-- No page navigator: the answer sits under the pickers and every part behind it is a
+       fold, so the page is one screen and going back to change a revision is no scroll. -->
+  <form class="workspace-controls" id="sec-revisions" onsubmit={(e) => { e.preventDefault(); analyze(0); }}>
     <div class="svc-line">
       <!-- No "Service" caption here: EntityLink already carries the kind chip, and the
            breadcrumb above already says which service. Three labels for one fact is how
@@ -425,16 +431,19 @@
       </div>
     </div>
     {#if revisions.length < 2}
-      <p class="text-dim">This service has fewer than two known revisions, so there is no change to compare yet.</p>
+      <p class="text-dim">Fewer than two revisions, so nothing to compare yet.</p>
     {/if}
     {#if !revisionsComplete}
-      <p class="text-dim" data-testid="impact-revisions-incomplete">This service has many revisions; only the most recent are listed here. To analyze an older revision, open it from its revision page.</p>
+      <p class="text-dim" data-testid="impact-revisions-incomplete">Only the most recent revisions are listed. Open an older one from its revision page.</p>
     {/if}
     <div class="form-actions">
-      <label class="check-field" title={observedAvailable ? 'Also count callers seen at runtime that never declared this dependency' : 'No observed relationship source is configured for this dashboard'}>
-        <input type="checkbox" bind:checked={includeObserved} disabled={!observedAvailable} />
-        Also count undeclared runtime callers{#if !observedAvailable} <span class="text-dim">(nothing observes runtime traffic here)</span>{/if}
-      </label>
+      <span class="check-row">
+        <label class="check-field">
+          <input type="checkbox" bind:checked={includeObserved} disabled={!observedAvailable} />
+          Include runtime callers{#if !observedAvailable} <span class="text-dim">(no runtime source)</span>{/if}
+        </label>
+        <HelpTip label="runtime callers" text="Also count callers seen at runtime that never declared this dependency." />
+      </span>
       <button type="submit" class="btn btn-primary" disabled={!canAnalyze}>
         {analyzing ? 'Comparing…' : 'Compare revisions'}
       </button>
@@ -444,7 +453,7 @@
   {#if staleSnapshot}
     <div class="partial-banner" role="status">
       <strong>The published snapshot changed.</strong>
-      <span>The operational graph was refreshed while you were analyzing, so this result would be stale.</span>
+      <span>This result would be stale.</span>
       <button type="button" class="btn" onclick={refetchAndAnalyze}>Refresh and retry</button>
     </div>
   {/if}
@@ -454,163 +463,169 @@
   {:else if analyzing}
     <EmptyState loading message="Comparing the two revisions…" />
   {:else if result}
-    <div class="impact-summary">
-      <span class="badge {classificationClass(result.classification)}">{result.classification.replace(/_/g, ' ')}</span>
-      {#if result.service}<EntityLink ref={result.service} showStatus={false} />{/if}
-      {#if result.oldRevision || result.newRevision}
-        <span class="text-2">{result.oldRevision?.label || '?'} → {result.newRevision?.label || '?'}</span>
-      {/if}
-      <span class="badge {completenessClass(result.meta?.completeness)}"><span class="badge-dot"></span>{completenessLabel(result.meta?.completeness)}</span>
-      {#if result.meta?.asOf}<span class="text-3">Data as of {formatRelative(result.meta.asOf)}</span>{/if}
-      <!-- The snapshot id is precise and occasionally decisive, but it is opaque to
-           anyone who has not read the data model. The chip states what it MEANS; the id
-           itself stays exact, one hover away. -->
-      <span class="snap-id" class:match={result.snapshotMatch} title="Snapshot {result.snapshotId}">
-        {result.snapshotMatch ? 'Current data ✓' : 'Older snapshot'}
-      </span>
+    <!-- The answer first: what kind of change this is and who it reaches, in one line.
+         Everything that backs it -- the field diff, the consumer table, owners and targets,
+         the evidence gaps -- is folded below with its count, one click away. -->
+    <div class="ca-answer" data-testid="changes-answer">
+      <p class="ca-answer-line">
+        <span class="badge {classificationClass(result.classification)}">{classificationLabel(result.classification)}</span>
+        <span>{answerText}</span>
+      </p>
+      <p class="impact-summary">
+        {#if result.oldRevision || result.newRevision}
+          <span class="text-2">{result.oldRevision?.label || '?'} → {result.newRevision?.label || '?'}</span>
+        {/if}
+        <span class="badge {completenessClass(result.meta?.completeness)}"><span class="badge-dot"></span>{completenessLabel(result.meta?.completeness)}</span>
+        {#if result.meta?.asOf}<span class="text-3">Data as of {formatRelative(result.meta.asOf)}</span>{/if}
+        <!-- The snapshot id is precise and occasionally decisive, but it is opaque to
+             anyone who has not read the data model. The chip states what it MEANS; the id
+             itself stays exact, one hover away. -->
+        <span class="snap-id" class:match={result.snapshotMatch} title="Snapshot {result.snapshotId}">
+          {result.snapshotMatch ? 'Current data ✓' : 'Older snapshot'}
+        </span>
+      </p>
     </div>
 
-    <!-- Stage 1: WHAT CHANGED. The field-level semantic diff of the two contracts,
-         breaking first. This is a statement about the contracts themselves and says
-         nothing yet about what runs. -->
-    <section class="stage" id="sec-what-changed" data-toc="What changed" data-testid="changes-what-changed">
-      <div class="stage-head">
-        <h2>What changed</h2>
-        <p class="stage-lead">Field-level differences between the two contract revisions.</p>
-      </div>
+    <div class="ca-stack">
+    <!-- WHAT CHANGED: the field-level diff of the two contracts, breaking first. A
+         statement about the contracts, not about what runs. -->
+    <details class="ca-fold disclosure" id="sec-what-changed" data-testid="changes-what-changed">
+      <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2>What changed</h2>
+        <span class="ca-fold-meta" data-testid="changes-counts">{#if changes.total === 0}No differences{:else}{changes.breaking} breaking · {changes.potential} potentially breaking · {changes.nonBreaking} non-breaking{/if}</span>
+      </summary>
+      <div class="ca-fold-body">
       {#if changes.total === 0}
-        <EmptyState title="No differences" message="These two revisions declare the same contract." />
+        <EmptyState title="No differences" message="Both revisions declare the same contract." level={3} />
       {:else}
-        <p class="change-counts" data-testid="changes-counts">
-          <span class="badge badge-err">{changes.breaking} breaking</span>
-          <span class="badge badge-warn">{changes.potential} potentially breaking</span>
-          <span class="badge badge-ok">{changes.nonBreaking} non-breaking</span>
-        </p>
         <!-- The mix, drawn from the backend's COMPLETE change counts (which cover
              every difference found, not the truncated table below). -->
         <DistributionBar
           title="Change mix"
           level={3}
-          description="Every difference between the two revisions, by how much it can break a consumer."
+          description="Every difference, by how much it can break a consumer."
           segments={changeSegments(changes)}
           total={changes.total}
         />
         {#if changes.truncated}
-          <p class="text-dim" data-testid="changes-truncated">Showing the first {formatCount(changes.count)} of {formatCount(changes.total)} differences, breaking ones first.</p>
+          <p class="text-dim" data-testid="changes-truncated">First {formatCount(changes.count)} of {formatCount(changes.total)}, breaking first.</p>
         {/if}
         <DiffChangesTable changes={changeRows} />
       {/if}
-    </section>
-
-    <!-- Stage 2: WHAT IT AFFECTS. The same revision pair, projected over the operational
-         graph. Separated from stage 1 because "the contract changed" and "something
-         running is affected" are different claims with different evidence. -->
-    <section class="stage" id="sec-what-it-affects" data-toc="What it affects" data-testid="changes-what-it-affects">
-      <div class="stage-head">
-        <h2>What it affects</h2>
-        <p class="stage-lead">Where this change reaches in the current operational graph.</p>
       </div>
+    </details>
 
-    {#if limitations.count > 0}
-      <PreviewSection title="Incomplete evidence" level={3} tone="warn" total={limitations.total} count={limitations.count} truncated={limitations.truncated}>
-        <LimitationsList items={limitations.items} />
-      </PreviewSection>
-    {/if}
-
-    <!-- The blast radius at a glance, before the table. Both rankings come from the
-         backend tallies over EVERY consumer, so they do not change as the table pages. -->
-    {#if consumers.total > 0}
-      <div class="impact-viz" data-testid="impact-consumer-viz">
-        <DistributionBar
-          title="Consumers by compatibility verdict"
-          level={3}
-          description="Whether each affected consumer's declared range still accepts the new revision."
-          segments={verdictSegments(consumers.byVerdict)}
-          total={consumers.total}
-        />
-        <DistributionBar
-          title="Consumers by evidence"
-          level={3}
-          description="How each affected consumer is known."
-          segments={confidenceSegments(consumers.byConfidence)}
-          total={consumers.total}
-        />
-      </div>
-    {/if}
-
-    <!-- Listed in the navigator even though it is a level down: it is the longest block
-         on the page and the one a reader comes back for, and an entry that stops at
-         "What it affects" still leaves two charts to scroll past to reach the table. -->
-    <div class="section" id="sec-affected-consumers" data-toc="Affected consumers">
-      <h3 class="ca-subhead t-subsection-title">Affected consumers <span class="t-meta">{formatCount(consumers.total)}</span></h3>
-      {#if (consumers.items?.length ?? 0) === 0}
-        <EmptyState title="No affected consumers" message="No service in the operational graph consumes this change." />
-      {:else}
-        <div class="data-scroll" aria-busy={pagingConsumers}>
-          <table class="data-table">
-            <colgroup><col style="width:22%" /><col style="width:13%" /><col /><col style="width:12%" /><col style="width:12%" /><col style="width:14%" /></colgroup>
-            <thead>
-              <tr>
-                <th>Consumer</th>
-                <th>Reach <HelpTip label="Reach" text="Direct consumers depend on the changed service; transitive ones are reached through others." /></th>
-                <th>Path <HelpTip label="Path" text="The chain of dependencies from the consumer back to the changed service." /></th>
-                <th>Verdict</th>
-                <th>Confidence <HelpTip label="Confidence" text="How strongly the impact is evidenced. Every level is defined under the table." /></th>
-                <th>Owner</th>
-              </tr>
-            </thead>
-            <tbody>
-              {#each consumers.items as c, ci (`${c.service?.key}:${ci}`)}
-                <tr>
-                  <td data-label="Consumer" class="consumer-cell"><EntityLink ref={c.service} showStatus={false} /></td>
-                  <td data-label="Reach">{#if c.direct}<span class="badge badge-info">Direct</span>{:else}<span class="badge badge-neutral">Transitive · depth {c.depth}</span>{/if}</td>
-                  <td data-label="Path" class="path-cell">
-                    {#if (c.path?.length ?? 0) > 0}{c.path.map((p) => p.label).join(' → ')}{#if c.pathTruncated} …{/if}{:else}<span class="text-dim">—</span>{/if}
-                  </td>
-                  <td data-label="Verdict"><span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span></td>
-                  <td data-label="Confidence"><span class="pill" title={CONFIDENCE_EXPLAIN[c.confidence] || ''}>{c.confidence}</span></td>
-                  <td data-label="Owner">{#if c.owner}<span class="cell-clip" title={c.owner}>{c.owner}</span>{:else}<span class="text-dim">—</span>{/if}</td>
-                </tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-        <nav class="consumer-pager" aria-label="Consumer pages">
-          <span class="text-3">Showing {formatCount(cShownFrom)}–{formatCount(cShownTo)} of {formatCount(consumers.total)}{pagingConsumers ? ' · loading…' : ''}</span>
-          <div class="pager-btns">
-            <button type="button" class="pg" disabled={!cHasPrev || pagingConsumers} onclick={() => analyze(Math.max(0, (consumers.offset ?? 0) - CONSUMER_PAGE), true)}>Previous</button>
-            <button type="button" class="pg" disabled={!cHasNext || pagingConsumers} onclick={() => analyze(consumers.nextOffset, true)}>Next</button>
+    <!-- WHAT IT AFFECTS: the same revision pair over the operational graph. Kept apart
+         from the diff because "the contract changed" and "something running is affected"
+         are different claims with different evidence. -->
+    <div class="ca-folds" id="sec-what-it-affects" data-testid="changes-what-it-affects">
+      <details class="ca-fold disclosure" id="sec-affected-consumers" data-testid="changes-consumers">
+        <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2>Affected consumers</h2>
+          <span class="ca-fold-meta">{consumerMeta}</span>
+        </summary>
+        <div class="ca-fold-body">
+        {#if (consumers.items?.length ?? 0) === 0}
+          <EmptyState title="No affected consumers" message="Nothing in the operational graph uses this change." level={3} />
+        {:else}
+          <!-- Both rankings come from the backend tallies over EVERY consumer, so they do
+               not change as the table pages. -->
+          <div class="impact-viz" data-testid="impact-consumer-viz">
+            <DistributionBar
+              title="By version range"
+              level={3}
+              description="Does each consumer's declared range accept the new revision?"
+              segments={verdictSegments(consumers.byVerdict)}
+              total={consumers.total}
+            />
+            <DistributionBar
+              title="By evidence"
+              level={3}
+              description="How each consumer is known."
+              segments={confidenceSegments(consumers.byConfidence)}
+              total={consumers.total}
+            />
           </div>
-        </nav>
-        <details class="confidence-legend disclosure">
-          <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span>What do the confidence levels mean?</summary>
-          <dl>{#each Object.entries(CONFIDENCE_EXPLAIN) as [k, v]}<dt>{k}</dt><dd>{v}</dd>{/each}</dl>
+          <div class="data-scroll" aria-busy={pagingConsumers}>
+            <table class="data-table">
+              <colgroup><col style="width:22%" /><col style="width:13%" /><col /><col style="width:12%" /><col style="width:12%" /><col style="width:14%" /></colgroup>
+              <thead>
+                <tr>
+                  <th>Consumer</th>
+                  <th>Reach <HelpTip label="Reach" text="Direct consumers depend on the changed service; transitive ones are reached through others." /></th>
+                  <th>Path <HelpTip label="Path" text="The chain of dependencies from the consumer back to the changed service." /></th>
+                  <th>Verdict</th>
+                  <th>Confidence <HelpTip label="Confidence" text={CONFIDENCE_HELP} /></th>
+                  <th>Owner</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each consumers.items as c, ci (`${c.service?.key}:${ci}`)}
+                  <tr>
+                    <td data-label="Consumer" class="consumer-cell"><EntityLink ref={c.service} showStatus={false} /></td>
+                    <td data-label="Reach">{#if c.direct}<span class="badge badge-info">Direct</span>{:else}<span class="badge badge-neutral">Transitive · depth {c.depth}</span>{/if}</td>
+                    <td data-label="Path" class="path-cell">
+                      {#if (c.path?.length ?? 0) > 0}{c.path.map((p) => p.label).join(' → ')}{#if c.pathTruncated} …{/if}{:else}<span class="text-dim">—</span>{/if}
+                    </td>
+                    <td data-label="Verdict"><span class="badge {verdictClass(c.compatibilityVerdict)}">{c.compatibilityVerdict}</span></td>
+                    <td data-label="Confidence"><span class="pill" title={CONFIDENCE_EXPLAIN[c.confidence] || ''}>{c.confidence}</span></td>
+                    <td data-label="Owner">{#if c.owner}<span class="cell-clip" title={c.owner}>{c.owner}</span>{:else}<span class="text-dim">—</span>{/if}</td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+          <nav class="consumer-pager" aria-label="Consumer pages">
+            <span class="text-3">Showing {formatCount(cShownFrom)}–{formatCount(cShownTo)} of {formatCount(consumers.total)}{pagingConsumers ? ' · loading…' : ''}</span>
+            <div class="pager-btns">
+              <button type="button" class="pg" disabled={!cHasPrev || pagingConsumers} onclick={() => analyze(Math.max(0, (consumers.offset ?? 0) - CONSUMER_PAGE), true)}>Previous</button>
+              <button type="button" class="pg" disabled={!cHasNext || pagingConsumers} onclick={() => analyze(consumers.nextOffset, true)}>Next</button>
+            </div>
+          </nav>
+        {/if}
+        </div>
+      </details>
+
+      <details class="ca-fold disclosure" data-testid="changes-owners-targets">
+        <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2>Owners and targets</h2>
+          <span class="ca-fold-meta">{countOf(owners.total, 'owner')} · {countOf(activeTargets.total, 'target')}</span>
+        </summary>
+        <div class="ca-fold-body meta-lists">
+          <PreviewSection title="Owners" level={3} role="subsection" total={owners.total} count={owners.count} truncated={owners.truncated} empty="No owners identified.">
+            <EntityRefList items={owners.items} showStatus={false} />
+          </PreviewSection>
+          <PreviewSection title="Operational targets running this" level={3} role="subsection" total={activeTargets.total} count={activeTargets.count} truncated={activeTargets.truncated} empty="No target runs an affected revision.">
+            <EntityRefList items={activeTargets.items} />
+          </PreviewSection>
+        </div>
+      </details>
+
+      {#if limitations.count > 0}
+        <details class="ca-fold disclosure" data-testid="changes-limitations">
+          <summary><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2>Incomplete evidence</h2>
+            <span class="ca-fold-meta">{formatCount(limitations.total)}</span>
+          </summary>
+          <div class="ca-fold-body">
+            <!-- Eighty gaps opened at once is a wall; the first eight, then the rest on ask. -->
+            <LimitationsList items={limitations.items.slice(0, limShown)} />
+            {#if limitations.items.length > limShown}
+              <button type="button" class="btn btn-sm ca-show-all" onclick={() => { limShown = Infinity; }}>Show all {formatCount(limitations.items.length)}</button>
+            {/if}
+            {#if limitations.truncated}<p class="text-dim">Showing {formatCount(limitations.count)} of {formatCount(limitations.total)}.</p>{/if}
+          </div>
         </details>
       {/if}
     </div>
-
-    <div class="meta-lists">
-      <PreviewSection title="Owners" level={3} role="subsection" total={owners.total} count={owners.count} truncated={owners.truncated} empty="No owners identified.">
-        <EntityRefList items={owners.items} showStatus={false} />
-      </PreviewSection>
-      <PreviewSection title="Operational targets running this" level={3} role="subsection" total={activeTargets.total} count={activeTargets.count} truncated={activeTargets.truncated} empty="No operational target is running an affected revision.">
-        <EntityRefList items={activeTargets.items} />
-      </PreviewSection>
     </div>
-    </section>
   {:else}
     <!-- The selectors default to a sensible pair, so telling the user to "choose an
          earlier and a later revision" asked for something already done and left the
          actual next step (press the button) unsaid. Only ask for a selection when one
          is genuinely missing. -->
     {#if fromRevKey && toRevKey}
-      <EmptyState title="Ready to compare" message="Choose Compare revisions to see what changed between these two and what that change affects." />
+      <EmptyState title="Ready to compare" message="Press Compare revisions." />
     {:else}
-      <EmptyState title="Pick two revisions" message="Choose an earlier and a later revision to see what changed and what that change affects." />
+      <EmptyState title="Pick two revisions" message="An earlier and a later one." />
     {/if}
   {/if}
-  </div>
-  </div>
 {/if}
 </div>
 
@@ -621,19 +636,8 @@
      styles/components.css -- nothing about it is specific to this view. */
   .migrate-note { color: var(--c-text-2); font-size: var(--text-sm); margin: 0; }
 
-  /* The two stages of one question, visually separated so "the contract changed" is
-     never read as "something running broke". The separation is a RULE, not a margin:
-     the page shell already owns the rhythm between sections, and a per-page margin-top
-     on top of it is how this view ended up sitting at a different distance from its
-     own contents than every other product page. */
-  .stage { display: flex; flex-direction: column; gap: var(--sp-3); }
-  .stage-head { border-top: 1px solid var(--c-border); padding-top: var(--sp-3); }
-  /* A fourth heading size lived here: an h2 pushed up to METRIC size, so the two stage
-     titles outranked every other section title in the product and competed with the page
-     title above them. They are sections; base.css already gives an h2 the section role. */
-  .stage-head h2 { margin: 0; }
-  .stage-lead { margin: 4px 0 0; color: var(--c-text-3); font-size: var(--text-sm); }
-  .change-counts { display: flex; gap: var(--sp-2); flex-wrap: wrap; margin: 0; }
+  /* The two halves of one question ("the contract changed" vs "something running is
+     affected") are separate folds under one rule, never one undivided block. */
 
   .svc-line { display: flex; align-items: center; gap: var(--sp-2); }
   .selectors { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3); }
@@ -648,36 +652,31 @@
   .check-field { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--text-sm); color: var(--c-text-2); }
   .check-field input:disabled { cursor: not-allowed; }
 
-  .impact-summary { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-4); }
+  .ca-answer { display: flex; flex-direction: column; gap: var(--sp-2); margin: var(--sp-4) 0 var(--sp-3); }
+  .ca-answer-line { display: flex; align-items: baseline; gap: var(--sp-2); flex-wrap: wrap; margin: 0; font-size: var(--text-md); color: var(--c-text); }
+  .impact-summary { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin: 0; }
+  .ca-stack { border-top: 1px solid var(--c-border); }
+  .ca-fold { border-bottom: 1px solid var(--c-border); padding: var(--sp-2) 0; }
+  .ca-fold > summary { gap: var(--sp-2); }
+  .ca-fold > summary h2 { margin: 0; }
+  .ca-fold-meta { margin-left: auto; color: var(--c-text-3); font-size: var(--text-sm); }
+  .ca-fold-body { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-2) 0 var(--sp-3); }
+  .ca-show-all { align-self: flex-start; }
+  .check-row { display: inline-flex; align-items: center; gap: var(--sp-2); }
+  .disco-more { margin: var(--sp-3) 0 0; font-size: var(--text-sm); color: var(--c-text-3); }
   .snap-id { font-family: var(--font-mono, monospace); font-size: var(--text-xs); color: var(--c-text-3); padding: 2px 6px; border: 1px solid var(--c-border); border-radius: 999px; }
   .snap-id.match { color: var(--c-ok); border-color: var(--c-ok-border, var(--c-ok)); }
 
   .partial-banner { display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; padding: var(--sp-3) var(--sp-4); margin-bottom: var(--sp-4); border: 1px solid var(--c-warn-border); border-radius: var(--radius-sm); background: var(--c-warn-bg); color: var(--c-text-2); font-size: var(--text-sm); }
   .partial-banner strong { color: var(--c-warn); }
 
-  .section { margin-top: var(--sp-5); }
-  /* A bold <div> is not a heading: this block sits inside "What it affects" beside the
-     two level-3 charts, so it is an h3, and the subsection role -- not a weight of its
-     own -- is what makes it look like one. */
-  /* Spacing only. `section-title` is the legacy V1 uppercase micro-label and would
-     have overridden the role -- see the browser typography acceptance. */
-  .ca-subhead { margin-bottom: var(--sp-3); }
-  /* The count is the same plain META span PreviewSection uses for every other count
-     in the product. It used to be the legacy `.tab-count` pill, whose 600 weight had
-     to be undone here by hand -- a fix-up on top of an override, which is the shape
-     the shared type scale exists to delete. */
   .path-cell { font-family: var(--font-mono, monospace); font-size: var(--text-xs); }
   .consumer-pager { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); flex-wrap: wrap; margin-top: var(--sp-3); }
   .pager-btns { display: flex; gap: var(--sp-2); }
   .pg { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); font: inherit; font-size: var(--text-sm); cursor: pointer; min-height: var(--touch-min); }
   .pg:disabled { color: var(--c-text-3); opacity: 0.5; cursor: not-allowed; }
-  /* Look and behaviour of the summary come from the shared .disclosure class. */
-  .confidence-legend { margin-top: var(--sp-3); font-size: var(--text-sm); }
-  .confidence-legend dl { display: grid; grid-template-columns: auto 1fr; gap: 4px var(--sp-3); margin-top: var(--sp-2); }
-  .confidence-legend dt { font-weight: 600; color: var(--c-text-2); }
-  .confidence-legend dd { margin: 0; color: var(--c-text-3); }
 
-  .meta-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--sp-4); margin-top: var(--sp-5); }
+  .ca-fold-body.meta-lists { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: var(--sp-4); }
 
   .text-dim { color: var(--c-text-3); }
   .text-2 { color: var(--c-text-2); }

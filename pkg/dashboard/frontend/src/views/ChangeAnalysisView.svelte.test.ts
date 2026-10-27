@@ -127,27 +127,21 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     unmount(component); document.body.removeChild(target);
   });
 
-  it('carries the shared page navigator, and only lists sections the analysis actually rendered', async () => {
-    // A finished analysis runs several screens deep, so the workspace joins the long
-    // product pages on the shared rail. Before there is a result there is one section to
-    // name, and offering a contents list for it would promise a page that is not there.
+  it('answers first, folds the parts that back the answer, and needs no page navigator', async () => {
+    impactFn.mockResolvedValue({ ...impactResult(), consumers: { ...impactResult().consumers, byVerdict: [{ key: 'incompatible', count: 1 }, { key: 'unknown', count: 1 }] } });
     const { target, component } = mountView({ svc: 'domain-a/payments' });
     await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
-    expect(document.querySelector('[data-testid="page-toc"]')).toBeNull();
-
     analyzeBtn(target).click();
-    await vi.waitFor(() => expect(target.textContent).toContain('Affected consumers'));
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-answer"]')).toBeTruthy());
     flushSync();
-    const toc = document.querySelector('[data-testid="page-toc"]');
-    expect(toc).toBeTruthy();
-    expect(Array.from(toc!.querySelectorAll('.toc-link')).map((b) => b.textContent)).toEqual([
-      'Revisions to compare', 'What changed', 'What it affects', 'Affected consumers',
-    ]);
-    // Every entry has to land somewhere: the navigator scrolls to an id, so an entry
-    // whose section carries no id is a control that does nothing when clicked.
-    for (const id of ['sec-revisions', 'sec-what-changed', 'sec-what-it-affects', 'sec-affected-consumers']) {
-      expect(target.querySelector(`#${id}`), id).toBeTruthy();
-    }
+    const answer = target.querySelector('[data-testid="changes-answer"] .ca-answer-line')?.textContent?.replace(/\s+/g, ' ').trim();
+    expect(answer).toBe('Breaking 3 changes, 1 breaking. 2 consumers affected: 1 does not accept payments 2.0.0, 1 unknown.');
+    // Every backing part is a real disclosure widget, closed until asked for.
+    const folds = Array.from(target.querySelectorAll('details.ca-fold')) as HTMLDetailsElement[];
+    expect(folds.map((d) => d.querySelector('summary h2')?.textContent)).toEqual(['What changed', 'Affected consumers', 'Owners and targets']);
+    expect(folds.every((d) => !d.open)).toBe(true);
+    expect(target.querySelector('[data-testid="changes-consumers"] summary')?.textContent).toContain('2 · 1 incompatible');
+    expect(document.querySelector('[data-testid="page-toc"]')).toBeNull();
     unmount(component); document.body.removeChild(target);
   });
 

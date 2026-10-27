@@ -107,6 +107,8 @@ for (const w of WIDTHS) {
       }
       await page.getByRole('button', { name: /Compare revisions/ }).click();
       await expect(page.getByText('breaking', { exact: false }).first()).toBeVisible({ timeout: 20_000 });
+      // The long paths live in the folds: open them all before measuring.
+      await page.locator('details.ca-fold').evaluateAll((ds) => ds.forEach((d) => { (d as HTMLDetailsElement).open = true; }));
       expect(await bodyHasNoHorizontalOverflow(page), 'change analysis populated results (long paths)').toBe(true);
     });
   });

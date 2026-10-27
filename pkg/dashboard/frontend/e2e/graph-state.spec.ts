@@ -339,7 +339,7 @@ test.describe('Operational graph — a large neighborhood folds into lanes', () 
     await page.evaluate(() => { (window as unknown as { __pactoMutate?: string }).__pactoMutate = 'many'; });
     await page.getByRole('button', { name: 'Refresh' }).click();
     const grouped = page.getByTestId('graph-grouped');
-    await expect(grouped).toContainText('60 past the direct neighbors are grouped by team (4 groups)', { timeout: 15_000 });
+    await expect(grouped).toContainText('60 grouped by team (4 groups)', { timeout: 15_000 });
     // The group buttons are a row of buttons, not a sentence: no stray commas between them.
     await expect(grouped.locator('ul')).not.toContainText(',');
     await expect.poll(async () => (await readLanes(page)).groups.length, { timeout: 15_000 }).toBe(4);

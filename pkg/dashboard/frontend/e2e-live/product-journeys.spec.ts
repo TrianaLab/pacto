@@ -335,6 +335,7 @@ test('G: change analysis compares the two published checkout revisions', async (
 
   const affects = page.getByTestId('changes-what-it-affects');
   await expect(affects.getByRole('heading', { name: /^Affected consumers/ })).toBeVisible();
+  await page.getByTestId('changes-consumers').locator('summary').click();
   await expect(affects.getByRole('row').filter({ hasText: fixture.ordersName })).toHaveCount(1);
 });
 

@@ -27,7 +27,7 @@ describe('GraphPageView — a fleet too big to lay out', () => {
     document.body.appendChild(target);
     const c = mount(GraphPageView, { target, props: { services: [] } });
     await vi.waitFor(() => expect(target.querySelector('[data-testid="graph-too-big"]')).not.toBeNull());
-    expect(target.querySelector('[data-testid="graph-too-big"]')?.textContent).toContain('200 services are too many');
+    expect(target.querySelector('[data-testid="graph-too-big"]')?.textContent).toContain('Too many to draw (200 services)');
     expect(target.querySelectorAll('table.data-table tbody tr').length).toBe(50);
     expect(target.querySelector('[data-testid="connections-pager-range"]')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Showing 1–50 of 200 services');
     const deps = target.querySelector('table.data-table tbody tr td:last-child ul')?.textContent?.replace(/\s+/g, ' ');

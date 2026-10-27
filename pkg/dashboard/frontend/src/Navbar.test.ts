@@ -251,8 +251,19 @@ describe('Navbar — data sources', () => {
     expect(trigger.getAttribute('popovertarget')).toBe('navbar-sources');
     const panel = target.querySelector('#navbar-sources') as HTMLElement;
     expect(panel.hasAttribute('popover')).toBe(true);
-    expect(Array.from(panel.querySelectorAll('li strong')).map((n) => n.textContent)).toEqual(['kubernetes', 'oci']);
+    expect(Array.from(panel.querySelectorAll('li strong')).map((n) => n.textContent)).toEqual(['Kubernetes', 'OCI Registry']);
+    expect(panel.querySelector('li .sources-pop-desc')?.textContent).toBe('live cluster runtime data');
     expect(panel.querySelector('a')?.getAttribute('href')).toBe('#/fleet/sources');
+    done();
+  });
+
+  it('closes the sources popover on any navigation, including its own link', () => {
+    const { target, done } = mountWith({ sourcesInfo: [{ type: 'kubernetes', enabled: true }] });
+    const panel = target.querySelector('#navbar-sources') as HTMLElement & { hidePopover?: () => void };
+    let hidden = 0;
+    panel.hidePopover = () => { hidden++; };
+    window.dispatchEvent(new HashChangeEvent('hashchange'));
+    expect(hidden).toBe(1);
     done();
   });
 
