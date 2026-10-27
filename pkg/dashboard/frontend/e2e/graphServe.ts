@@ -9,12 +9,12 @@
 /** Amends the ONE neighborhood response under test, in the page, before the app parses it. */
 export function installServeInterceptor(): void {
   interface ServeResult { status: number; body: string; contentType: string }
-  type Serve = (method: string, path: string, body: string | null) => ServeResult;
+  type Serve = (method: string, path: string, body: string | null) => Promise<ServeResult>;
   const w = window as unknown as { __pactoMutate?: string };
   let real: Serve | null = null;
   const NEW = 'synthetic-probe-service';
-  const wrapped: Serve = (method, path, body) => {
-    const res = (real as Serve)(method, path, body);
+  const wrapped: Serve = async (method, path, body) => {
+    const res = await (real as Serve)(method, path, body);
     const mode = w.__pactoMutate;
     if (!mode || !path.startsWith('/api/fleet/neighborhood') || res.status !== 200) return res;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

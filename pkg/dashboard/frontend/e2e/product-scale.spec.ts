@@ -33,7 +33,7 @@ const PAGE_SIZE = 25;
  */
 function installScaleInterceptor(): void {
   interface ServeResult { status: number; body: string; contentType: string }
-  type Serve = (method: string, path: string, body: string | null) => ServeResult;
+  type Serve = (method: string, path: string, body: string | null) => Promise<ServeResult>;
   const w = window as unknown as { __pactoScale?: string };
   let real: Serve | null = null;
 
@@ -73,8 +73,8 @@ function installScaleInterceptor(): void {
     return out;
   };
 
-  const wrapped: Serve = (method, path, body) => {
-    const res = (real as Serve)(method, path, body);
+  const wrapped: Serve = async (method, path, body) => {
+    const res = await (real as Serve)(method, path, body);
     const mode = w.__pactoScale;
     if (!mode || res.status !== 200) return res;
     let doc: Record<string, unknown>;

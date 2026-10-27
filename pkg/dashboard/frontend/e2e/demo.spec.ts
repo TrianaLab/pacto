@@ -1079,6 +1079,51 @@ test.describe('WASM dashboard demo — workflows', () => {
     expect(log[log.length - 1]).toBe('');
   });
 
+  // The report: while the engine booted, the skeleton's sweep froze and the counter sat
+  // at 0s, because the engine ran on the page's main thread. It runs in a worker now and
+  // the sweep is a transform, so both keep moving. The samples are taken by a timer on
+  // the main thread: a blocked thread shows up as a gap between samples, and a frozen
+  // sweep as the same transform read again and again.
+  test('demo boot: the skeleton keeps moving while the engine loads in its worker', async ({ page }) => {
+    await page.addInitScript(() => {
+      const w = window as unknown as { __sweep: Array<{ t: number; v: string }>; __pactoReady?: Promise<void> };
+      const log: Array<{ t: number; v: string }> = [];
+      w.__sweep = log;
+      let done = false;
+      const iv = setInterval(() => {
+        if (w.__pactoReady && !done) { done = true; void w.__pactoReady.then(() => clearInterval(iv)); }
+        const sk = document.querySelector('.skeleton');
+        if (sk) log.push({ t: performance.now(), v: getComputedStyle(sk, '::after').transform });
+      }, 50);
+    });
+    await page.route('**/app.wasm*', async (route) => {
+      await new Promise((r) => setTimeout(r, 3000));
+      await route.continue();
+    });
+    await appReady(page, '/#/fleet');
+    // The engine is not on this thread: the page never loads Go's runtime.
+    expect(await page.evaluate(() => typeof (window as unknown as { Go?: unknown }).Go)).toBe('undefined');
+    const log = await page.evaluate(() => (window as unknown as { __sweep: Array<{ t: number; v: string }> }).__sweep);
+    expect(log.length).toBeGreaterThan(20);
+    expect(new Set(log.map((s) => s.v)).size).toBeGreaterThan(10);
+    for (const s of log) expect(s.v).toMatch(/^matrix\(/);
+    let gap = 0;
+    for (let i = 1; i < log.length; i++) gap = Math.max(gap, log[i].t - log[i - 1].t);
+    expect(gap, 'the main thread stalled while the engine booted').toBeLessThan(1000);
+  });
+
+  test('demo boot: no sweep for a reader who asked for less motion', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.route('**/app.wasm*', async (route) => {
+      await new Promise((r) => setTimeout(r, 3000));
+      await route.continue();
+    });
+    await page.goto('/#/fleet');
+    const sk = page.locator('.skeleton').first();
+    await expect(sk).toBeVisible();
+    expect(await sk.evaluate((el) => getComputedStyle(el, '::after').display)).toBe('none');
+  });
+
   test('accessibility: keyboard reaches the primary nav with real, named links', async ({ page }) => {
     await appReady(page);
     await page.keyboard.press('Tab');

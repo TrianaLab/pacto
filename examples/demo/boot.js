@@ -48,8 +48,8 @@
   // under any base path and from the 404.html SPA fallback at a deep link.
   var scriptURL = (document.currentScript && document.currentScript.src) || window.location.href;
 
-  // Readiness gate: the Go runtime calls __pactoOnReady() once __pactoServe is
-  // installed. API calls made before then queue on this promise.
+  // Readiness gate: resolved once the engine in the worker is up and
+  // __pactoServe is installed. API calls made before then queue on this promise.
   var resolveReady;
   window.__pactoReady = new Promise(function (resolve) { resolveReady = resolve; });
   window.__pactoOnReady = function () { resolveReady(); };
@@ -222,13 +222,14 @@
     // is no cluster and no promoter, so the strip says so on every delivery screen.
     // Its gates read the engine's own answers rather than the DOM, through the same
     // __pactoServe the dashboard calls, so a gate means the story moved, not that a
-    // label rendered.
+    // label rendered. The engine answers from its worker, so every read is a promise.
     var DELIVERY_NOTICE = "Simulated delivery: no cluster and no promoter. Plans, checks and signatures are Pacto's own code on the payments story's fixed data (the health results and what the node agent saw are recorded too), records are signed with a key made in this tab, and what you do here is lost on reload.";
 
     function serve(method, path, body) {
-      if (typeof window.__pactoServe !== "function") { return null; }
-      var r = window.__pactoServe(method, path, body ? JSON.stringify(body) : null, {});
-      try { return { status: r.status, body: JSON.parse(r.body) }; } catch (e) { return { status: r.status, body: null }; }
+      if (typeof window.__pactoServe !== "function") { return Promise.resolve(null); }
+      return Promise.resolve(window.__pactoServe(method, path, body ? JSON.stringify(body) : null, {})).then(function (r) {
+        try { return { status: r.status, body: JSON.parse(r.body) }; } catch (e) { return { status: r.status, body: null }; }
+      });
     }
     function refreshViews() { window.dispatchEvent(new Event("pacto:refresh")); }
     // Every record in the tab. The delivery tour's copy describes the world the
@@ -240,8 +241,9 @@
     // in are not records, and with them no two reads a second or a sign-in apart would
     // ever compare equal.
     function world() {
-      var h = serve("GET", "/api/delivery/history?limit=200");
-      return JSON.stringify(h && h.body && h.body.histories, function (k, v) { return k === "asOf" ? undefined : v; });
+      return serve("GET", "/api/delivery/history?limit=200").then(function (h) {
+        return JSON.stringify(h && h.body && h.body.histories, function (k, v) { return k === "asOf" ? undefined : v; });
+      });
     }
     // Set by the ready path after a reload the tour asked for. The tour starts from
     // whichever of the ready path and mount() runs second, since either can.
@@ -250,36 +252,48 @@
       if (ready && el && replayPending) { replayPending = false; startTour(DELIVERY_TOUR); }
     }
     function digestOf(svc, version) {
-      var r = serve("GET", "/api/delivery/environments");
-      var rows = (r && r.body && r.body.environments) || [];
-      for (var i = 0; i < rows.length; i++) {
-        var row = rows[i];
-        if (row.service === svc && row.candidateVersion === version) { return row.candidate; }
-      }
-      return "";
+      return serve("GET", "/api/delivery/environments").then(function (r) {
+        var rows = (r && r.body && r.body.environments) || [];
+        for (var i = 0; i < rows.length; i++) {
+          var row = rows[i];
+          if (row.service === svc && row.candidateVersion === version) { return row.candidate; }
+        }
+        return "";
+      });
     }
 
-    // The facts the gates read, at most twice a second: a gate runs every frame.
-    var facts = { at: 0 };
+    // The facts the gates read. A gate runs every frame and cannot wait, so it
+    // reads the last answer while a fresh one is asked for, at most twice a second.
+    function noFacts() { return { at: 0, rows: {}, held: "", question: "", latest: "", accepted: false }; }
+    var facts = noFacts();
+    var factsAsked = 0;
     function fact() {
       var now = Date.now();
-      if (now - facts.at < 500) { return facts; }
-      facts = { at: now, rows: {}, held: "", question: "", latest: "", accepted: false };
-      var env = serve("GET", "/api/delivery/environments");
-      ((env && env.body && env.body.environments) || []).forEach(function (r) { facts.rows[r.environment + "/" + r.service] = r; });
-      var h = serve("GET", "/api/delivery/history?namespace=prod&stage=payments");
-      var entries = (h && h.body && h.body.histories && h.body.histories[0] && h.body.histories[0].entries) || [];
-      // Newest first: the first promote is the latest one.
-      entries.forEach(function (e) {
-        if (e.type === "delivery.pacto.trianalab.io/promote" && e.operation && !facts.latest) { facts.latest = e.operation; facts.accepted = e.verification === "AcceptedUnknown"; }
-        if (e.phase === "Held" && !facts.held) { facts.held = e.operation; }
-      });
-      if (facts.held) {
-        var op = serve("GET", "/api/delivery/operations/prod/" + facts.held);
-        facts.question = (op && op.body && op.body.operation && op.body.operation.status.question) || "";
-      }
+      if (now - facts.at < 500 || now - factsAsked < 500) { return facts; }
+      factsAsked = now;
+      var f = noFacts();
+      Promise.all([
+        serve("GET", "/api/delivery/environments"),
+        serve("GET", "/api/delivery/history?namespace=prod&stage=payments")
+      ]).then(function (r) {
+        var env = r[0], h = r[1];
+        ((env && env.body && env.body.environments) || []).forEach(function (row) { f.rows[row.environment + "/" + row.service] = row; });
+        var entries = (h && h.body && h.body.histories && h.body.histories[0] && h.body.histories[0].entries) || [];
+        // Newest first: the first promote is the latest one.
+        entries.forEach(function (e) {
+          if (e.type === "delivery.pacto.trianalab.io/promote" && e.operation && !f.latest) { f.latest = e.operation; f.accepted = e.verification === "AcceptedUnknown"; }
+          if (e.phase === "Held" && !f.held) { f.held = e.operation; }
+        });
+        return f.held ? serve("GET", "/api/delivery/operations/prod/" + f.held) : null;
+      }).then(function (op) {
+        f.question = (op && op.body && op.body.operation && op.body.operation.status.question) || "";
+        // A read asked before a reset (factsAsked = 0) must not overwrite a newer one.
+        if (factsAsked === now) { f.at = Date.now(); facts = f; }
+      }).catch(function () { /* asked again in half a second */ });
       return facts;
     }
+    // Forget the facts: the next gate asks again at once.
+    function resetFacts() { facts.at = 0; factsAsked = 0; }
     function row(env, svc) { return fact().rows[env + "/" + svc] || {}; }
     // The change the breaking-change moments are about: the held one, then the
     // promote that shipped it.
@@ -288,7 +302,9 @@
       return "#/delivery/changes/prod/" + (f.held || f.latest);
     }
     function onChange() { return hashPath().indexOf("#/delivery/changes/prod/") === 0; }
-    function propose(body) { var r = serve("POST", "/api/delivery/operations", body); refreshViews(); return r; }
+    function propose(body) {
+      return serve("POST", "/api/delivery/operations", body).then(function (r) { resetFacts(); refreshViews(); return r; });
+    }
 
     // The controls the delivery steps point at.
     var PROPOSE_BTN = '[data-testid="propose-panel"] button[type=submit]';
@@ -307,9 +323,9 @@
     function decide(decision, note) {
       var name = fact().held;
       if (!name) { return; }
-      setPersona("carol", true);
-      serve("POST", "/api/delivery/operations/prod/" + name + "/decision", { decision: decision, note: note });
-      refreshViews();
+      setPersona("carol", true).then(function () {
+        return serve("POST", "/api/delivery/operations/prod/" + name + "/decision", { decision: decision, note: note });
+      }).then(function () { resetFacts(); refreshViews(); });
     }
 
     function pactifyText() {
@@ -361,8 +377,11 @@
       hold: true,
       gate: function () { return !!fact().held && onChange(); },
       skip: function () {
-        var r = propose({ namespace: "prod", stage: "payments", to: digestOf("payments", "3.0.0") });
-        if (r && r.body && r.body.operation) { window.location.hash = "#/delivery/changes/prod/" + r.body.operation.metadata.name; }
+        digestOf("payments", "3.0.0").then(function (to) {
+          return propose({ namespace: "prod", stage: "payments", to: to });
+        }).then(function (r) {
+          if (r && r.body && r.body.operation) { window.location.hash = "#/delivery/changes/prod/" + r.body.operation.metadata.name; }
+        });
       }
     }, {
       text: "Pacto said what to update first, so press Promote on checkout 1.9.0 in prod.",
@@ -378,7 +397,9 @@
       wait: "Waiting for checkout 1.9.0 to ship to prod.",
       hold: true,
       gate: function () { return row("prod", "checkout").version === "1.9.0" && fact().question.indexOf("Asked of: orders") >= 0; },
-      skip: function () { propose({ namespace: "prod", stage: "checkout", to: digestOf("checkout", "1.9.0") }); }
+      skip: function () {
+        digestOf("checkout", "1.9.0").then(function (to) { return propose({ namespace: "prod", stage: "checkout", to: to }); });
+      }
     }, {
       text: "Only a person on the asked team decides, so press Switch person.",
       hash: changeHash,
@@ -475,8 +496,10 @@
       hold: true,
       gate: function () { return !!row("prod", "payments").autoHold && row("prod", "payments").version === "2.3.0"; },
       skip: function () {
-        setPersona("carol", false);
-        propose({ namespace: "prod", stage: "payments", type: "delivery.pacto.trianalab.io/rollback", undoes: fact().latest });
+        var undoes = fact().latest;
+        setPersona("carol", false).then(function () {
+          return propose({ namespace: "prod", stage: "payments", type: "delivery.pacto.trianalab.io/rollback", undoes: undoes });
+        });
         // Proposed through the API, so the plan the reader opened is still on screen with
         // its button live: close it, or "Done" sits next to a form asking to be pressed.
         clickOn('[data-testid="propose-panel"] .pp-btns button[type=button]');
@@ -527,10 +550,13 @@
       ["carol", "Carol", "team orders; asked when a change breaks orders"]
     ];
     var persona = "pay-agent";
+    // Resolves to "" or the reason the engine refused the switch.
     function setPersona(name, fresh) {
-      var err = typeof window.__pactoPersona === "function" ? window.__pactoPersona(name, fresh) : "the engine is not loaded";
-      if (!err) { persona = name; facts.at = 0; refreshViews(); }
-      return err;
+      var asked = typeof window.__pactoPersona === "function" ? window.__pactoPersona(name, fresh) : "the engine is not loaded";
+      return Promise.resolve(asked).then(function (err) {
+        if (!err) { persona = name; resetFacts(); refreshViews(); }
+        return err;
+      });
     }
 
     // The dashboard calls this instead of leaving for /auth/login (see signIn in
@@ -1258,17 +1284,20 @@
       bubble.focus();
     }
 
-    function startTour(tour) {
+    function startTour(tour, worldChecked) {
       if (running || !el) { return; }
-      if (tour === DELIVERY_TOUR) {
-        if (world() !== WORLD_AT_LOAD) {
-          try { window.sessionStorage.setItem(REPLAY_KEY, "1"); } catch (e) { /* the reader presses it again after load */ }
-          window.location.reload();
-          return;
-        }
-        // The steps say "as pay-agent": a reader who switched person first would
-        // otherwise propose as Carol, who then may not approve her own change.
-        setPersona("pay-agent", false);
+      if (tour === DELIVERY_TOUR && !worldChecked) {
+        world().then(function (w) {
+          if (w !== WORLD_AT_LOAD) {
+            try { window.sessionStorage.setItem(REPLAY_KEY, "1"); } catch (e) { /* the reader presses it again after load */ }
+            window.location.reload();
+            return;
+          }
+          // The steps say "as pay-agent": a reader who switched person first would
+          // otherwise propose as Carol, who then may not approve her own change.
+          return setPersona("pay-agent", false).then(function () { startTour(tour, true); });
+        });
+        return;
       }
       TOUR = tour === DELIVERY_TOUR ? DELIVERY_TOUR : FLEET_TOUR;
       running = true;
@@ -1337,9 +1366,11 @@
       notice();
       window.addEventListener("hashchange", notice);
       offerTour();
-      WORLD_AT_LOAD = world();
-      try { replayPending = !!window.sessionStorage.getItem(REPLAY_KEY); window.sessionStorage.removeItem(REPLAY_KEY); } catch (e) { /* no storage, no replay */ }
-      replayTour();
+      world().then(function (w) {
+        WORLD_AT_LOAD = w;
+        try { replayPending = !!window.sessionStorage.getItem(REPLAY_KEY); window.sessionStorage.removeItem(REPLAY_KEY); } catch (e) { /* no storage, no replay */ }
+        replayTour();
+      });
     });
     window.__pactoDemoFailed = function () {
       done();
@@ -1355,40 +1386,48 @@
     };
   })();
 
-  function instantiate(url, importObject) {
-    // Fetch first and hand the Response (not the promise) to instantiateStreaming,
-    // which accepts either. The only reason to split it is to read Content-Length
-    // on the way past, so the strip can state the real transfer size instead of a
-    // number hard-coded here that would be wrong on any host that compresses
-    // differently. Streaming compilation is unaffected — the body is untouched.
-    function announce(r) {
-      if (window.__pactoDemoSize) { window.__pactoDemoSize(r.headers.get("content-length")); }
-      return r;
-    }
-    if (typeof WebAssembly.instantiateStreaming === "function") {
-      return WebAssembly.instantiateStreaming(realFetch(url).then(announce), importObject).catch(function () {
-        // Fallback when the host serves app.wasm with the wrong MIME type.
-        return realFetch(url)
-          .then(function (r) { return r.arrayBuffer(); })
-          .then(function (buf) { return WebAssembly.instantiate(buf, importObject); });
-      });
-    }
-    return realFetch(url)
-      .then(announce)
-      .then(function (r) { return r.arrayBuffer(); })
-      .then(function (buf) { return WebAssembly.instantiate(buf, importObject); });
-  }
-
-  var go = new Go();
-  instantiate(new URL("app.wasm", scriptURL), go.importObject)
-    .then(function (result) { go.run(result.instance); })
-    .catch(function (err) {
-      console.error("Pacto engine failed to load:", err);
-      // Say so on the page. Without this the dashboard shell renders and every
-      // panel stays empty forever, which reads as a broken product rather than a
-      // failed download.
-      if (window.__pactoDemoFailed) { window.__pactoDemoFailed(); }
+  // The engine runs in a Web Worker (engine.js), so its boot and its heavier
+  // answers never stall the page: the skeletons keep moving and the counter keeps
+  // counting. Calls go over postMessage and come back as promises; the worker
+  // gets this script's own cache-busting query.
+  var worker = new Worker(new URL("engine.js" + new URL(scriptURL).search, scriptURL));
+  var calls = {};
+  var nextCall = 0;
+  function call(op, args) {
+    return new Promise(function (resolve, reject) {
+      var id = ++nextCall;
+      calls[id] = { resolve: resolve, reject: reject };
+      worker.postMessage({ id: id, op: op, args: args });
     });
+  }
+  function failed() { if (window.__pactoDemoFailed) { window.__pactoDemoFailed(); } }
+  worker.onmessage = function (e) {
+    var m = e.data;
+    if (m.id) {
+      var c = calls[m.id];
+      delete calls[m.id];
+      if ("error" in m) { c.reject(new Error(m.error)); } else { c.resolve(m.result); }
+    } else if (m.type === "size") {
+      if (window.__pactoDemoSize) { window.__pactoDemoSize(m.bytes); }
+    } else if (m.type === "refresh") {
+      window.dispatchEvent(new Event("pacto:refresh"));
+    } else if (m.type === "ready") {
+      window.__pactoDeliveryKey = m.deliveryKey;
+      window.__pactoPactifyPlan = m.pactifyPlan;
+      // __pactoPersona(name, fresh) resolves to "" or the reason it was refused.
+      if (m.persona) { window.__pactoPersona = function (name, fresh) { return call("persona", [name, !!fresh]); }; }
+      // __pactoServe(method, path, body?, headers?) resolves to { status, body,
+      // contentType }. A test may wrap it; the fetch shim reads it at call time.
+      window.__pactoServe = function (method, path, body, headers) { return call("serve", [method, path, body, headers || {}]); };
+      window.__pactoOnReady();
+    } else if (m.type === "failed") {
+      failed();
+    }
+  };
+  worker.onerror = function (e) {
+    console.error("Pacto engine failed to load:", e.message);
+    failed();
+  };
 
   // Only the dashboard's own endpoints are served by wasm; all other requests
   // (assets, lazy chunks) go to the network as usual.
@@ -1426,7 +1465,9 @@
     return window.__pactoReady
       .then(function () { return bodyPromise; })
       .then(function (body) {
-        var res = window.__pactoServe(method, u.pathname + u.search, body && body.length ? body : null, headers);
+        return window.__pactoServe(method, u.pathname + u.search, body && body.length ? body : null, headers);
+      })
+      .then(function (res) {
         return new Response(res.body, {
           status: res.status,
           headers: { "Content-Type": res.contentType || "application/json" },

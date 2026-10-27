@@ -10,7 +10,8 @@ import (
 )
 
 // The demo's <meta> policy is the dashboard's, plus 'wasm-unsafe-eval' for the
-// engine and minus frame-ancestors, which a <meta> tag cannot carry.
+// engine and worker-src for the worker it runs in, and minus frame-ancestors,
+// which a <meta> tag cannot carry.
 func TestDemoCSPMatchesDashboard(t *testing.T) {
 	mk, err := os.ReadFile("Makefile")
 	if err != nil {
@@ -21,6 +22,7 @@ func TestDemoCSPMatchesDashboard(t *testing.T) {
 		t.Fatal("Makefile has no DEMO_CSP")
 	}
 	want := strings.Replace(dashboard.ContentSecurityPolicy, "script-src 'self';", "script-src 'self' 'wasm-unsafe-eval';", 1)
+	want = strings.Replace(want, "connect-src 'self';", "connect-src 'self'; worker-src 'self';", 1)
 	want = strings.TrimSuffix(want, "; frame-ancestors 'none'")
 	if got := string(m[1]); got != want {
 		t.Fatalf("DEMO_CSP drifted from the dashboard policy:\n got %s\nwant %s", got, want)

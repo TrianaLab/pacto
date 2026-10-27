@@ -26,9 +26,10 @@ GOROOT      := $(shell go env GOROOT)
 SERVE_PORT  ?= 8088
 # The dashboard's Content-Security-Policy (pkg/dashboard.ContentSecurityPolicy) as
 # a <meta> tag, since a static host sends no headers: plus 'wasm-unsafe-eval' for
-# the engine, minus frame-ancestors, which browsers ignore in a <meta> tag.
+# the engine, plus worker-src for the worker it runs in, minus frame-ancestors,
+# which browsers ignore in a <meta> tag.
 # TestDemoCSPMatchesDashboard keeps the two in step.
-DEMO_CSP    := default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'
+DEMO_CSP    := default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'
 FRONTEND    := $(abspath ../../pkg/dashboard/frontend)
 UI_BUILD    := $(abspath .ui-build)
 # Pacto CORE version this demo is built from — the latest core release tag,
@@ -78,7 +79,8 @@ wasm:
 	GOOS=js GOARCH=wasm go build -ldflags="-s -w -X main.version=$(VERSION)" -o $(DIST)/app.wasm .
 	@echo "==> Built $(DIST)/app.wasm ($$(du -h $(DIST)/app.wasm | cut -f1), version $(VERSION))"
 
-## Copy Go's wasm runtime glue (Go 1.24+ lib/wasm location).
+## Copy Go's wasm runtime glue (Go 1.24+ lib/wasm location). The engine worker
+## (engine.js) loads it; the page itself never runs Go.
 wasmexec:
 	@mkdir -p $(DIST)
 	@cp "$(GOROOT)/lib/wasm/wasm_exec.js" $(DIST)/wasm_exec.js
@@ -86,10 +88,12 @@ wasmexec:
 
 ## Inject the wasm loader before the app's module script, add the no-JavaScript
 ## fallback and the SPA 404 fallback, and stamp the build. The engine assets
-## (app.wasm, boot.js, wasm_exec.js) have stable names, so without a cache-bust
+## (app.wasm, boot.js, engine.js, wasm_exec.js) have stable names, so without a cache-bust
 ## query a browser would serve a stale cached engine against a freshly-hashed UI
 ## after a redeploy (new UI calling an old wasm). A content token derived from the
-## built wasm busts all three together, so a new engine is picked up immediately.
+## built wasm busts them together: boot.js gets it in its URL, hands its own query
+## to the engine worker (engine.js), and the worker hands it to wasm_exec.js and
+## app.wasm, so a new engine is picked up immediately.
 ##
 ## The <noscript> block goes in at build time rather than in the frontend's
 ## index.html, because it is specific to this demo: the real dashboard is served
@@ -98,14 +102,13 @@ wasmexec:
 ## the docs for the same version. Idempotent.
 inject:
 	@bust=$$(git hash-object $(DIST)/app.wasm | cut -c1-12); \
-	  sed "s|\"app.wasm\"|\"app.wasm?v=$$bust\"|" boot.js > $(DIST)/boot.js; \
+	  cp boot.js engine.js $(DIST)/; \
 	  grep -q 'boot.js' $(DIST)/index.html || { awk -v base="$(BASE)" -v bust="$$bust" -v csp="$(DEMO_CSP)" '\
 	    /<meta name="viewport"/ && !csp_done { \
 	      print "  <meta http-equiv=\"Content-Security-Policy\" content=\"" csp "\" />"; \
 	      csp_done=1 \
 	    } \
 	    /<script type="module"/ && !done { \
-	      print "  <script src=\"" base "wasm_exec.js?v=" bust "\"></script>"; \
 	      print "  <script src=\"" base "boot.js?v=" bust "\"></script>"; \
 	      done=1 \
 	    } \
