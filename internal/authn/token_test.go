@@ -184,6 +184,38 @@ func TestTokenSessionLifetime(t *testing.T) {
 	tl.end(httptest.NewRequest(http.MethodPost, "/", nil)) // no cookie: nothing to end
 }
 
+func TestTokenSessionEndsWhenTheClusterStopsAcceptingTheToken(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	answer := Person{User: "u"}
+	var fail error
+	calls := 0
+	tl := NewTokenLogin(func(context.Context, string) (Person, error) { calls++; return answer, fail }, Lifetime{Idle: time.Hour, Max: 10 * time.Hour})
+	tl.now = func() time.Time { return now }
+	login := func() *http.Cookie {
+		return cookieNamed(t, serve(http.HandlerFunc(tl.Login), tokenPost(`{"token":"t"}`, "https://dash.example")), SessionCookie)
+	}
+	c := login()
+	now = now.Add(time.Minute)
+	_, ok := tl.session(withCookie(c))
+	expect(t, ok && calls == 1, "within the recheck interval the cluster is not asked again: %d", calls)
+	now = now.Add(tokenRecheck)
+	_, ok = tl.session(withCookie(c))
+	expect(t, ok && calls == 2, "past it the cluster is asked and still accepts the token: %d", calls)
+	now = now.Add(time.Minute)
+	_, ok = tl.session(withCookie(c))
+	expect(t, ok && calls == 2, "an accepted recheck counts as a fresh check: %d", calls)
+	now = now.Add(tokenRecheck)
+	fail = errors.New("Unauthorized")
+	_, ok = tl.session(withCookie(c))
+	expect(t, !ok && len(tl.sessions) == 0, "a token the cluster refuses ends its session")
+	fail = nil
+	c = login()
+	answer = Person{User: "someone-else"}
+	now = now.Add(tokenRecheck + time.Second)
+	_, ok = tl.session(withCookie(c))
+	expect(t, !ok, "a token that now names someone else ends its session")
+}
+
 func TestCallbackReplacesATokenSession(t *testing.T) {
 	f := newIdP(t)
 	o := newTestOIDC(t, f)

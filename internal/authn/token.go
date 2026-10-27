@@ -65,7 +65,13 @@ type tokenSession struct {
 	token, csrf   string
 	person        Person
 	created, seen time.Time
+	// checked is when the API server last accepted the token.
+	checked time.Time
 }
+
+// tokenRecheck is how often a session's token is shown to the API server
+// again, so a token that expired or was revoked ends its session.
+const tokenRecheck = 5 * time.Minute
 
 // NewTokenLogin checks every pasted token with review.
 func NewTokenLogin(review TokenReview, l Lifetime) *TokenLogin {
@@ -109,7 +115,7 @@ func (t *TokenLogin) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	now := t.now()
-	s := &tokenSession{token: token, csrf: random(32), person: p, created: now, seen: now}
+	s := &tokenSession{token: token, csrf: random(32), person: p, created: now, seen: now, checked: now}
 	id := random(32)
 	t.mu.Lock()
 	if c, err := r.Cookie(SessionCookie); err == nil {
@@ -126,7 +132,9 @@ func (t *TokenLogin) Login(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// session returns the request's live token session.
+// session returns the request's live token session. Every tokenRecheck the
+// API server is asked again, and a token it no longer accepts as the same
+// user ends the session.
 func (t *TokenLogin) session(r *http.Request) (tokenSession, bool) {
 	c, err := r.Cookie(SessionCookie)
 	if err != nil {
@@ -134,17 +142,33 @@ func (t *TokenLogin) session(r *http.Request) (tokenSession, bool) {
 	}
 	now := t.now()
 	t.mu.Lock()
-	defer t.mu.Unlock()
 	s, ok := t.sessions[c.Value]
 	switch {
 	case !ok:
+		t.mu.Unlock()
 		return tokenSession{}, false
 	case t.lifetime.expired(s.created, s.seen, now):
 		delete(t.sessions, c.Value)
+		t.mu.Unlock()
 		return tokenSession{}, false
 	}
 	s.seen = now
-	return *s, true
+	cp, stale := *s, now.Sub(s.checked) > tokenRecheck
+	t.mu.Unlock()
+	if !stale {
+		return cp, true
+	}
+	if p, err := t.review(r.Context(), cp.token); err != nil || p.User != cp.person.User {
+		Refused(r.Context(), r, "dashboard ended a token session", "reason", "the cluster no longer accepts its token")
+		t.mu.Lock()
+		delete(t.sessions, c.Value)
+		t.mu.Unlock()
+		return tokenSession{}, false
+	}
+	t.mu.Lock()
+	s.checked = now
+	t.mu.Unlock()
+	return cp, true
 }
 
 // end removes the request's token session, if it has one.
