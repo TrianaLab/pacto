@@ -348,6 +348,6 @@
     padding: var(--sp-2) var(--sp-3);
   }
   .attn-reason { color: var(--c-text-3); font-size: var(--text-sm); }
-  .evi-at { color: var(--c-text-3); font-size: var(--text-xs); margin-left: auto; }
+  .evi-at { color: var(--c-text-3); font-size: var(--text-xs); margin-left: auto; white-space: nowrap; }
   .ov-none, .ov-more { color: var(--c-text-3); font-size: var(--text-sm); }
 </style>
