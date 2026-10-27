@@ -221,7 +221,7 @@
         <div class="t-meta ev-legend ev-key" data-testid="environments-legend">
           {#each STATES as st (st.key)}<span><span class={`ev-dot s-${st.key}`} aria-hidden="true"></span>{st.label}</span>{/each}
           <span><span class="ev-dot s-none" aria-hidden="true"></span>Not delivered</span>
-          <HelpTip label="a dot" text={`One column per environment, grouped ${andList(groups.map((g) => g.tier || 'other'))}. Point at a dot or tab to it for its version, press it for the rest.`} />
+          <HelpTip label="the dots" text={`One column per environment, grouped ${andList(groups.map((g) => g.tier || 'other'))}. Point at a dot or tab to it for its version, press it for the rest.`} />
         </div>
         <div class="ev-board">
           <table class="data-table ev-table ev-strip" data-testid="environments-board">
@@ -340,7 +340,7 @@
         <section class="ev-shadows" data-testid="shadow-summary" aria-labelledby="ev-shadows-title">
           <div class="ev-shadows-head">
             <h2 id="ev-shadows-title" class="t-section-title">What Pacto would have done <span class="t-meta">{countOf(observing.length, 'observing Stage')} on this page, advisory and unsigned</span></h2>
-            <HelpTip label="an observing Stage" text="These Stages observe: GitOps applies and Pacto moves nothing. Each row is what Pacto would have done with a candidate on Autonomous, next to what happened. It is status, not a record. Seen in source is when GitOps' source showed the candidate, not when it rolled out." />
+            <HelpTip label="observing Stages" text="These Stages observe: GitOps applies and Pacto moves nothing. Each row is what Pacto would have done with a candidate on Autonomous, next to what happened. It is status, not a record. Seen in source is when GitOps' source showed the candidate, not when it rolled out." />
           </div>
           {#each observingCap.slice(observing) as r (r.namespace + '/' + r.stage)}
             <details class="ev-shadow disclosure" data-testid="shadow" data-stage={`${r.namespace}/${r.stage}`}>
@@ -385,6 +385,9 @@
   /* The service column stays in view while the environments scroll sideways. */
   .ev-board .ev-table thead th:first-child, .ev-board .ev-table tbody th { position: sticky; left: 0; background: var(--c-surface); z-index: 1; }
   .ev-board .ev-table thead th:first-child { z-index: 3; }
+  /* The board scrolls sideways, so it is the sticky header's scroll box: the shared
+     top: var(--navbar-h) would push the header down over the first row. */
+  .ev-board .ev-table thead th { top: 0; }
   .ev-plan-row td { background: var(--c-surface-inset); }
   .ev-plan { position: sticky; left: var(--sp-3); max-width: min(60rem, calc(100vw - 4 * var(--sp-4))); }
   .ev-stage { color: var(--c-text-2); font-family: var(--font-mono); }
