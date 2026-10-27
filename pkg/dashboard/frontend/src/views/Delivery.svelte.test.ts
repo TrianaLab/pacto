@@ -917,6 +917,24 @@ describe('history and published', () => {
     destroy();
   });
 
+  it('says since when a held change waits and shows the whole version move on hover', async () => {
+    fns.history.mockResolvedValue({ ...listing, versions: { [D1]: '1.0.0', [D2]: '12.104.3-rc.15+build.20261026' }, histories: [
+      { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', source: 'records', verified: true, note: '', stage: { name: 'pay', pointer: D1 },
+        entries: [{ operation: 'op4', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'bot', actorClass: 'agent', phase: 'Held', since: '2026-10-21T09:00:00Z' }] },
+    ] });
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
+    await settle();
+    const cells = [...target.querySelectorAll('tbody td')];
+    const when = cells.find((c) => c.getAttribute('data-label') === 'When') as HTMLElement;
+    expect(text(when).trim()).toBe('Since 2026-10-21 09:00 UTC');
+    const ver = cells.find((c) => c.getAttribute('data-label') === 'Version')!.querySelector('.cell-clip')!;
+    expect(ver.getAttribute('title')).toBe(`1.0.0 → 12.104.3-rc.15+build.20261026\n${D1} → ${D2}`);
+    // The Agent chip sits beside who asked, and the record cell never wraps.
+    expect(cells.find((c) => c.getAttribute('data-label') === 'Asked by')!.querySelector('.hv-asked [data-testid="actor-badge"]')).not.toBeNull();
+    expect(target.querySelector('.hv-nowrap')?.textContent).toBe('Not recorded yet');
+    destroy();
+  });
+
   it('pages one environment newest first, never says a code twice and opens Undo under its row', async () => {
     const page = { total: 120, offset: 50, limit: 50 };
     fns.history.mockResolvedValue({ ...listing, page: { total: 1, offset: 0, limit: 1 }, histories: [

@@ -47,6 +47,9 @@
   const href = (off, lim) => deliveryHistoryUrl({ namespace, stage, q, offset: off, limit: limitParam(lim, limit, page?.limit ?? lim) });
   const me = $derived({ user: deliverySession.data?.caller?.user, name: deliverySession.data?.name });
   const version = (d) => versionLabel(d, data?.versions);
+  const move = (en) => `${version(en.from) || '–'} → ${version(en.to) || '–'}`;
+  // The whole move on hover: a long pre-release version is cut short in its cell.
+  const moveTitle = (en) => [move(en), [en.from, en.to].filter(Boolean).join(' → ')].join('\n');
   // The full ids a history names, so a short one in a problem line can show and copy its full id.
   const knownIds = (h) => [h.stage.pointer, h.head, ...(h.entries ?? []).flatMap((en) =>
     [en.record, en.unverifiedRecord, en.from, en.to, en.pointer?.before, en.pointer?.after])];
@@ -87,6 +90,8 @@
   /** The people who decided a change: an approval or a rejection, never only who asked. */
   const deciders = (en) => (en.approvals ?? []).filter((a) => a.by);
 </script>
+
+{#snippet when(en)}{#if en?.finished}<time datetime={en.finished} title={en.finished}>{timeLabel(en.finished)}</time>{:else if en?.since}<span class="hv-class">Since <time datetime={en.since} title={en.since}>{timeLabel(en.since)}</time></span>{/if}{/snippet}
 
 <div class="product-page">
   <PageHeader
@@ -140,12 +145,12 @@
                   {#if en}
                     <div class="cell-stack">
                       <span>{#if en.operation}<a href={deliveryChangeUrl(h.namespace, en.operation)}>{changeLabel(en)}</a>{:else}{changeLabel(en)}{/if}</span>
-                      {#if en.from || en.to}<span class="t-meta cell-clip" title={[en.from, en.to].filter(Boolean).join(' → ')}>{version(en.from) || '–'} → {version(en.to) || '–'}</span>{/if}
+                      {#if en.from || en.to}<span class="t-meta cell-clip" title={moveTitle(en)}>{move(en)}</span>{/if}
                     </div>
                   {:else}<span class="hv-none">None kept</span>{/if}
                 </td>
                 <td data-label="How it ended">{#if en}<span class="badge {outcomeTone(en.outcome)}">{en.outcome || en.phase || 'Not known'}</span>{/if}</td>
-                <td data-label="When">{#if en?.finished}<time datetime={en.finished} title={en.finished}>{timeLabel(en.finished)}</time>{/if}</td>
+                <td data-label="When">{@render when(en)}</td>
                 <td data-label="Changes">
                   <div class="cell-stack">
                     <a href={url} data-testid="history-all-changes" aria-label={`All ${formatCount(total)} changes on ${h.namespace}/${h.stage.name}`}>{formatCount(total)} change{total === 1 ? '' : 's'}</a>
@@ -190,7 +195,7 @@
             <div class="data-scroll">
               <table class="data-table hv-table">
                 <caption class="visually-hidden">Changes on {h.namespace}/{h.stage.name}, newest first</caption>
-                <colgroup><col style="width: 15%" /><col style="width: 14%" /><col style="width: 16%" /><col style="width: 17%" /><col style="width: 18%" /><col style="width: 10%" /><col style="width: 10%" /></colgroup>
+                <colgroup><col style="width: 12%" /><col style="width: 15%" /><col style="width: 18%" /><col style="width: 15%" /><col style="width: 16%" /><col style="width: 12%" /><col style="width: 12%" /></colgroup>
                 <thead><tr><th scope="col">Change</th><th scope="col">Version</th><th scope="col">Asked by</th><th scope="col">Decided by</th><th scope="col">How it ended</th><th scope="col">When</th><th scope="col">Record</th></tr></thead>
                 <tbody>
                   {#each h.entries as en, i (`${en.seq ?? ''}/${en.record ?? ''}/${en.operation}/${i}`)}
@@ -202,8 +207,8 @@
                           {#if en.operation && en.pointer?.after}<button type="button" class="btn btn-sm" aria-label={`Undo ${en.operation}`} aria-expanded={isOpen('undo', h.namespace, en.operation)} onclick={(e) => show(e, { kind: 'undo', ns: h.namespace, key: en.operation })}>Undo</button>{/if}
                         </div>
                       </td>
-                      <td data-label="Version"><span class="cell-clip" title={[en.from, en.to].filter(Boolean).join(' → ')}>{version(en.from) || '–'} → {version(en.to) || '–'}</span></td>
-                      <td data-label="Asked by"><div class="cell-stack">{#if en.actor}<Person user={en.actor} people={data.people} {me} />{:else}–{/if}{#if actorBadge(en.actorClass)}{@const ab = actorBadge(en.actorClass)}{' '}<span class="badge {ab.tone}" data-testid="actor-badge">{ab.label}</span>{/if}</div></td>
+                      <td data-label="Version"><span class="cell-clip" title={moveTitle(en)}>{move(en)}</span></td>
+                      <td data-label="Asked by"><div class="hv-asked">{#if en.actor}<Person user={en.actor} people={data.people} {me} />{:else}–{/if}{#if actorBadge(en.actorClass)}{@const ab = actorBadge(en.actorClass)}{' '}<span class="badge {ab.tone}" data-testid="actor-badge">{ab.label}</span>{/if}</div></td>
                       <td data-label="Decided by" data-testid="history-decided">{#if en.kind === 'gap' || en.kind === 'unrecordable'}–{:else if deciders(en).length}<ul class="hv-deciders">{#each deciders(en) as a, j (j)}<li><Person user={a.by} people={data.people} {me} /> <span class="badge badge-neutral">{decisionLabel(a.decision)}</span></li>{/each}</ul>{:else if en.phase === 'Held'}<span class="hv-class">Waiting for a person</span>{:else if en.actorClass === 'human'}<span class="hv-class">The person who asked</span>{:else if en.approvals === undefined}<span class="hv-class">Not recorded</span>{:else}<span class="hv-class">No person</span>{/if}</td>
                       <td data-label="How it ended" data-testid="history-end">
                         <div class="cell-stack">
@@ -212,8 +217,8 @@
                           {#if reason}{' '}<span class="hv-reason"><DigestText text={reason} {known} /></span>{/if}
                         </div>
                       </td>
-                      <td data-label="When">{#if en.finished}<time datetime={en.finished} title={en.finished}>{timeLabel(en.finished)}</time>{/if}</td>
-                      <td data-label="Record">{#if en.record}<span class="cell-clip" title={en.record}><DigestText text={en.record} known={[en.record]} /></span>{:else if en.unverifiedRecord}<span title={en.unverifiedRecord}>Recorded, not verified</span>{:else if h.source === 'records'}Not recorded yet{:else}–{/if}</td>
+                      <td data-label="When">{@render when(en)}</td>
+                      <td data-label="Record">{#if en.record}<span class="cell-clip" title={en.record}><DigestText text={en.record} known={[en.record]} /></span>{:else if en.unverifiedRecord}<span title={en.unverifiedRecord}>Recorded, not verified</span>{:else if h.source === 'records'}<span class="hv-nowrap">Not recorded yet</span>{:else}–{/if}</td>
                     </tr>
                     {#if en.operation && isOpen('undo', h.namespace, en.operation)}
                       <tr class="hv-undo-row"><td colspan="7">
@@ -248,6 +253,9 @@
   .hv-none { color: var(--c-text-3); }
   .hv-seq, .hv-class, .hv-digest { color: var(--c-text-2); }
   .hv-reason { color: var(--c-text-2); }
+  /* Who asked and the Agent chip share a line, so a row stays one line tall. */
+  .hv-asked { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); min-width: 0; }
+  .hv-nowrap { white-space: nowrap; }
   .hv-deciders { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
   .hv-undo-row td { background: var(--c-surface-inset); }
   .hv-undo-row:hover { background: none; }
