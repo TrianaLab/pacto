@@ -80,7 +80,7 @@ delivery:
             trustedRoot: '{"mediaType": "application/vnd.dev.sigstore.trustedroot+json;version=0.1", ...}'
 ```
 
-The Stage decides, not the runner:
+The Stage sets the pass criteria:
 
 | Param | Default | Meaning |
 |---|---|---|

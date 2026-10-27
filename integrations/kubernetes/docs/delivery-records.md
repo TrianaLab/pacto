@@ -2,7 +2,7 @@
 
 The recorder writes a signed record of every operation that ends, refusals
 included, into your registry next to the versions it touched. Off by
-default. Only it can sign and push; the promoter can do neither. With it on, history, blame and undo read the records, not
+default. Only the recorder can sign and push records. With it on, history, blame and undo read the records in place of
 the Operations left in the cluster.
 
 ## What a record is
@@ -177,7 +177,7 @@ Eval runners:
   runner-signed answer, when the answer is for another operation or version,
   or when the signed counts and the Stage's `minPassRate` give another result.
 - `providers` on a runner key lists the gate providers whose verdicts a
-  runner must sign, so you decide which verdicts are exams, not the promoter.
+  runner must sign, so you decide which verdicts are exams.
 - A runner key never verifies a record, nor a recorder key a runner's answer.
 - To check a runner's signature with cosign, see
   [Verify a record](../../verify-a-record.md#check-who-ran-an-exam).
