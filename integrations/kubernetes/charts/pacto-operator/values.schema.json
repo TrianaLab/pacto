@@ -816,6 +816,9 @@
                     "key": {
                       "type": "string",
                       "minLength": 1
+                    },
+                    "generate": {
+                      "type": "boolean"
                     }
                   }
                 },
@@ -1161,6 +1164,24 @@
         },
         "podLabels": {
           "$ref": "#/$defs/stringMap"
+        }
+      }
+    },
+    "zot": {
+      "description": "The bundled zot registry. Every key besides enabled passes through to the upstream chart.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      }
+    },
+    "dex": {
+      "description": "The bundled Dex identity provider. Every key besides enabled passes through to the upstream chart.",
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
         }
       }
     }

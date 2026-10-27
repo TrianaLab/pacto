@@ -1,0 +1,183 @@
+suite: bundled zot and Dex, and the quickstart profile
+templates:
+  - templates/dex-credentials.yaml
+  - templates/deployment.yaml
+  - templates/delivery/recorder.yaml
+  - charts/zot/templates/configmap.yaml
+  - charts/zot/templates/statefulset.yaml
+  - charts/zot/templates/deployment.yaml
+  - charts/zot/templates/service.yaml
+  - charts/dex/templates/deployment.yaml
+  - charts/dex/templates/secret.yaml
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  # The golden default render (make helm-golden) proves no zot or Dex object
+  # renders by default: a disabled subchart's templates do not exist here.
+  - it: renders no generated credentials by default
+    asserts:
+      - hasDocuments: {count: 0}
+        template: templates/dex-credentials.yaml
+
+  - it: runs zot with persistence behind a ClusterIP Service
+    values: [../values-quickstart.yaml]
+    asserts:
+      - isKind: {of: StatefulSet}
+        template: charts/zot/templates/statefulset.yaml
+      - equal:
+          path: metadata.name
+          value: pacto-zot
+        template: charts/zot/templates/statefulset.yaml
+      - equal:
+          path: spec.volumeClaimTemplates[0].spec.resources.requests.storage
+          value: 8Gi
+        template: charts/zot/templates/statefulset.yaml
+      - equal:
+          path: spec.type
+          value: ClusterIP
+        template: charts/zot/templates/service.yaml
+      - equal:
+          path: spec.ports[0].port
+          value: 5000
+        template: charts/zot/templates/service.yaml
+
+  - it: points the operator and the recorder at zot over plain HTTP
+    values: [../values-quickstart.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PACTO_INSECURE_REGISTRIES
+            value: pacto-zot.pacto-operator-system.svc:5000
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --streams-repository=pacto-zot.pacto-operator-system.svc:5000/pacto/streams
+        documentSelector: {path: kind, value: Deployment}
+        template: templates/delivery/recorder.yaml
+
+  - it: signs in through Dex, with token sign-in beside it
+    values: [../values-quickstart.yaml]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-issuer-url=http://pacto-dex:5556/dex
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-client-secret-name=pacto-dashboard-oidc
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-redirect-url=http://localhost:3000/auth/callback
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-oidc-username-claim=email
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --dashboard-token-login
+        template: templates/deployment.yaml
+      - equal:
+          path: metadata.name
+          value: pacto-dex
+        template: charts/dex/templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: PACTO_DASHBOARD_CLIENT_SECRET
+            valueFrom:
+              secretKeyRef: {name: pacto-dashboard-oidc, key: client-secret}
+        template: charts/dex/templates/deployment.yaml
+
+  - it: generates the dashboard's client secret and the first password
+    values: [../values-quickstart.yaml]
+    template: templates/dex-credentials.yaml
+    asserts:
+      - isKind: {of: Secret}
+      - equal:
+          path: metadata.name
+          value: pacto-dashboard-oidc
+      - matchRegex:
+          path: data.client-secret
+          pattern: ^[A-Za-z0-9+/=]{40,}$
+      - exists:
+          path: data.admin-password
+      # base64 of "$2a$": a bcrypt hash, which Dex reads with hashFromEnv.
+      - matchRegex:
+          path: data.admin-password-hash
+          pattern: ^JDJhJ
+      - notMatchRegex:
+          path: data.client-secret
+          pattern: c2VjcmV0
+
+  - it: keeps the generated credentials on upgrade
+    values: [../values-quickstart.yaml]
+    template: templates/dex-credentials.yaml
+    kubernetesProvider:
+      scheme:
+        "v1/Secret":
+          gvr: {version: v1, resource: secrets}
+          namespaced: true
+      objects:
+        - kind: Secret
+          apiVersion: v1
+          metadata: {name: pacto-dashboard-oidc, namespace: pacto-operator-system}
+          data:
+            client-secret: a2VwdA==
+            admin-password: cHc=
+            admin-password-hash: aGFzaA==
+    asserts:
+      - equal:
+          path: data
+          value:
+            client-secret: a2VwdA==
+            admin-password: cHc=
+            admin-password-hash: aGFzaA==
+
+  - it: generates the recorder's Ed25519 key in the delivery namespace
+    values: [../values-quickstart.yaml]
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: metadata.name, value: pacto-recorder-key}
+    asserts:
+      - isKind: {of: Secret}
+      - equal:
+          path: metadata.namespace
+          value: pacto-delivery
+      # base64 of "-----BEGIN PRIVATE KEY-----": PKCS#8.
+      - matchRegex:
+          path: data["key.pem"]
+          pattern: ^LS0tLS1CRUdJTiBQUklWQVRFIEtFWS0tLS0t
+
+  - it: keeps the recorder's key on upgrade
+    values: [../values-quickstart.yaml]
+    template: templates/delivery/recorder.yaml
+    documentSelector: {path: metadata.name, value: pacto-recorder-key}
+    kubernetesProvider:
+      scheme:
+        "v1/Secret":
+          gvr: {version: v1, resource: secrets}
+          namespaced: true
+      objects:
+        - kind: Secret
+          apiVersion: v1
+          metadata: {name: pacto-recorder-key, namespace: pacto-delivery}
+          data:
+            key.pem: a2V5
+    asserts:
+      - equal:
+          path: data["key.pem"]
+          value: a2V5
+
+  - it: needs a Secret name for the generated client secret
+    set:
+      dex.enabled: true
+    template: templates/dex-credentials.yaml
+    asserts:
+      - failedTemplate:
+          errorPattern: dex.enabled needs dashboard.auth.oidc.clientSecretRef.name
