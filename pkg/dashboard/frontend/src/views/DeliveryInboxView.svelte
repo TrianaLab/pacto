@@ -93,12 +93,13 @@
                 </a>
                 {#if it.question}<p class="dl-question t-body">{shortDigests(it.question)}</p>{/if}
                 <MoveFirstList order={it.order} testid="inbox-move-first" />
+                <!-- The facts share one line, each a label and its value, and wrap only when the line is full. -->
                 <dl class="dl-facts t-body-2">
-                  <dt>Decision asked</dt><dd>{decisionLabel(it.decision) || 'A decision'}</dd>
-                  <dt>Who may answer</dt><dd>{it.owners?.length ? it.owners.join(', ') : deliverySession.data?.requireOwnerTeam ? 'Nobody: no team is declared, so only break-glass can override' : 'Any person'}</dd>
+                  <div><dt>Decision asked</dt><dd>{decisionLabel(it.decision) || 'A decision'}</dd></div>
+                  <div><dt>Who may answer</dt><dd>{it.owners?.length ? it.owners.join(', ') : deliverySession.data?.requireOwnerTeam ? 'Nobody: no team is declared, so only break-glass can override' : 'Any person'}</dd></div>
                   {#if it.consumers?.length}
-                    <dt>Affected services</dt>
-                    <dd><CappedList items={it.consumers} max={3} inline={true} label="Affected services">{#snippet item(c)}<a href={serviceUrl(c)}>{c}</a>{/snippet}</CappedList></dd>
+                    <div><dt>Affected services</dt>
+                    <dd><CappedList items={it.consumers} max={3} inline={true} label="Affected services">{#snippet item(c)}<a href={serviceUrl(c)}>{c}</a>{/snippet}</CappedList></dd></div>
                   {/if}
                 </dl>
               </li>
@@ -108,44 +109,59 @@
         {/if}
       </section>
 
+      <!-- Frozen environments and changes that could not finish fold behind their count:
+           the decisions above are what the reader came for. A link into one of their pages
+           opens it. -->
       {#if frozen.length}
-        <section aria-labelledby="inbox-frozen">
-          <h2 id="inbox-frozen" class="t-section-title">Frozen environments</h2>
+        <details class="disclosure dl-more" open={query.frozen > 0} data-testid="inbox-frozen-section">
+          <summary class="t-section-title"><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 id="inbox-frozen" class="dl-more-title">Frozen environments</h2> <span class="t-meta dl-count">{formatCount(total(inbox.frozenPage, frozen))}</span></summary>
+          <p class="t-body-2 dl-note">Nothing moves in these until a person unfreezes them.</p>
           <ul class="pl-list" data-testid="inbox-frozen">
             {#each frozen as row (row.namespace + '/' + row.stage)}
-              <li class="pl-row pl-row--stack dl-row">
+              <li class="pl-row dl-line">
                 <a class="dl-title" href={deliveryHistoryUrl({ namespace: row.namespace, stage: row.stage })}>{row.service} in {row.environment}</a>
-                <p class="t-body-2">Frozen{#if row.frozenReason}: {shortDigests(row.frozenReason)}{/if}. Nothing moves here until a person unfreezes it.</p>
+                <span class="t-body-2 dl-why">{row.frozenReason ? shortDigests(row.frozenReason) : 'Frozen'}</span>
               </li>
             {/each}
           </ul>
           <Pager page={inbox.frozenPage} href={hrefFor('frozen')} label="Pages of frozen environments" noun="frozen environments" testid="inbox-frozen-pager" />
-        </section>
+        </details>
       {/if}
 
       {#if errored.length}
-        <section aria-labelledby="inbox-errored">
-          <h2 id="inbox-errored" class="t-section-title">Changes that could not finish</h2>
+        <details class="disclosure dl-more" open={query.errored > 0} data-testid="inbox-errored-section">
+          <summary class="t-section-title"><span class="disclosure-caret" data-motion aria-hidden="true">&#9656;</span><h2 id="inbox-errored" class="dl-more-title">Changes that could not finish</h2> <span class="t-meta dl-count">{formatCount(total(inbox.erroredPage, errored))}</span></summary>
+          <p class="t-body-2 dl-note">Each environment stays frozen until a person looks at it.</p>
           <ul class="pl-list" data-testid="inbox-errored">
             {#each errored as it (it.namespace + '/' + it.name)}
-              <li class="pl-row pl-row--stack dl-row">
+              <li class="pl-row dl-line">
                 <a class="dl-title" href={deliveryChangeUrl(it.namespace, it.name)}>{typeLabel(it.type)} on {it.namespace}/{it.stage}</a>
-                <p class="t-body-2">{shortDigests(it.reason) || 'Pacto could not tell how it ended'}. The environment is still frozen.</p>
+                <span class="t-body-2 dl-why">{shortDigests(it.reason) || 'Pacto could not tell how it ended'}</span>
               </li>
             {/each}
           </ul>
           <Pager page={inbox.erroredPage} href={hrefFor('errored')} label="Pages of changes that could not finish" noun="changes" testid="inbox-errored-pager" />
-        </section>
+        </details>
       {/if}
     {/if}
   {/if}
 </div>
 
 <style>
-  .dl-row { gap: var(--sp-1); padding: var(--sp-3); overflow-wrap: break-word; }
+  .dl-row { gap: 2px; padding: var(--sp-2) var(--sp-3); overflow-wrap: break-word; }
+  /* One line per frozen environment or stuck change: what, then why. The why wraps
+     under it rather than clipping, so the whole reason is always there to read. */
+  .dl-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sp-3); padding: var(--sp-1) var(--sp-3); overflow-wrap: anywhere; }
+  .dl-line .dl-title { flex: 0 1 auto; }
+  .dl-why { flex: 1 1 20rem; color: var(--c-text-2); }
+  .dl-more > summary { display: flex; align-items: baseline; gap: var(--sp-2); cursor: pointer; }
+  .dl-more-title { margin: 0; font: inherit; }
+  .dl-count { font-variant-numeric: tabular-nums; }
+  .dl-note { margin: var(--sp-1) 0 var(--sp-2); color: var(--c-text-3); }
   .dl-title { font-weight: 600; color: var(--c-accent); }
   .dl-question { margin: 0; }
-  .dl-facts { display: grid; grid-template-columns: max-content 1fr; gap: 2px var(--sp-3); margin: 0; }
+  .dl-facts { display: flex; flex-wrap: wrap; gap: 2px var(--sp-4); margin: 0; }
+  .dl-facts > div { display: flex; gap: var(--sp-2); align-items: baseline; min-width: 0; }
   .dl-facts dt { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .dl-facts dd { margin: 0; }
   .dl-facts a { text-decoration: underline; }

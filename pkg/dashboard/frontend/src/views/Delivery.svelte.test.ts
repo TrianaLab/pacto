@@ -86,7 +86,13 @@ describe('inbox', () => {
     expect(text(held as HTMLElement)).toContain('team-checkout');
     expect(held.querySelector('a[href="#/delivery/changes/prod/op1"]')).not.toBeNull();
     expect(held.querySelector('a[href="#/services/checkout"]')).not.toBeNull();
-    expect(text(target)).toContain('Frozen: Errored. Nothing moves here until a person unfreezes it.');
+    // Frozen environments and stuck changes fold behind their count, each a one-line row.
+    const frozenSection = target.querySelector('[data-testid="inbox-frozen-section"]') as HTMLDetailsElement;
+    expect(frozenSection.open).toBe(false);
+    expect(text(frozenSection.querySelector('summary') as HTMLElement).trim()).toBe('▸Frozen environments 1');
+    expect(text(target.querySelector('[data-testid="inbox-frozen"]') as HTMLElement).trim()).toBe('payments in prod Errored');
+    expect(text(frozenSection)).toContain('Nothing moves in these until a person unfreezes them.');
+    expect((target.querySelector('[data-testid="inbox-errored-section"]') as HTMLDetailsElement).open).toBe(false);
     expect(text(target)).not.toMatch(/pause/i);
     expect(text(target.querySelector('[data-testid="inbox-errored"]') as HTMLElement)).toContain('Pacto could not tell how it ended');
     // The person's subject and, printed next to it, the username the cluster uses. Never only in a tooltip.
@@ -99,9 +105,15 @@ describe('inbox', () => {
     const item = (n: number) => ({ namespace: 'prod', name: `op${n}`, stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', phase: 'Held', decision: 'approve',
       owners: ['team-checkout'], consumers: ['a', 'b', 'c', 'd', 'e'] });
     fns.inbox.mockResolvedValue({ ...listing, held: [item(26)], heldPage: { total: 1500, offset: 25, limit: 25 },
-      frozen: [], frozenPage: { total: 0, offset: 0, limit: 25 }, errored: [], erroredPage: { total: 0, offset: 0, limit: 25 } });
+      frozen: [{ namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', frozen: true, held: 0, actions: [] }], frozenPage: { total: 60, offset: 50, limit: 25 },
+      errored: [], erroredPage: { total: 0, offset: 0, limit: 25 } });
     const { target, destroy } = render(DeliveryInboxView, { held: '25', frozen: '50', q: 'pay' });
     await settle();
+    // A link into a page of frozen environments opens that section, and its count is the total.
+    const frozenSection = target.querySelector('[data-testid="inbox-frozen-section"]') as HTMLDetailsElement;
+    expect(frozenSection.open).toBe(true);
+    expect(text(frozenSection.querySelector('.dl-count') as HTMLElement)).toBe('60');
+    expect(text(target.querySelector('[data-testid="inbox-frozen"]') as HTMLElement).trim()).toBe('payments in prod Frozen');
     expect(text(target)).toContain('1,500 waiting for a decision');
     const pager = target.querySelector('[data-testid="inbox-held-pager"]') as HTMLElement;
     expect(text(pager.querySelector('.pl-range') as HTMLElement).trim()).toBe('Showing 26–50 of 1,500 held changes');
