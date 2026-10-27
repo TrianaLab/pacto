@@ -672,8 +672,8 @@ var perfBudgetTable = map[string]perfBudget{
 	"environments?env&q":  {2, time.Second},
 	"history (all)":       {10, 1500 * time.Millisecond},
 	"history (hot Stage)": {1, 500 * time.Millisecond},
-	"published":           {3, 8 * time.Second},
-	"autonomy":            {4, 8 * time.Second},
+	"published":           {1, time.Second},
+	"autonomy":            {3, time.Second},
 	"fleet overview":      {2, 2 * time.Second},
 	"fleet entities":      {2, 2 * time.Second},
 }
