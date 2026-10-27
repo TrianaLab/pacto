@@ -73,8 +73,12 @@ export function dropService(label: string, service: string): string {
   return label;
 }
 
-/** inService is dropService for an entity reference. */
+/**
+ * inService is dropService for an entity reference. The parent service is the page's
+ * own service, so it is dropped from the context too rather than printed beside the
+ * shortened label.
+ */
 export function inService<T extends EntityRefLike>(ref: T, service: string): T {
   const label = dropService(primaryLabel(ref), service);
-  return label === primaryLabel(ref) ? ref : { ...ref, label };
+  return label === primaryLabel(ref) ? ref : { ...ref, label, parentService: undefined };
 }

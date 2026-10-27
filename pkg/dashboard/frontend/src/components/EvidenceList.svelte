@@ -43,7 +43,8 @@
         <div class="evi-head"><span class="evi-prefix">{g.prefix}/</span>{#if g.at}<time class="evi-at" datetime={g.iso}>{g.at}</time>{/if}</div>
         <ul class="evi-names">
           {#each g.items as it, j (j)}
-            <li><EntityLink ref={{ ...it.ev.target, label: it.name }} showStatus={false} showKind={false} /></li>
+            <!-- The group line carries the environment, so the row drops it from its context. -->
+            <li><EntityLink ref={{ ...it.ev.target, label: it.name, scope: undefined, secondary: undefined }} showStatus={false} showKind={false} /></li>
           {/each}
         </ul>
       </li>

@@ -41,7 +41,7 @@ describe('revisionAnswer', () => {
   });
 });
 
-import { dropService } from './identityContext.ts';
+import { dropService, inService } from './identityContext.ts';
 describe('dropService', () => {
   it('drops a service name from the labels on its own page', () => {
     expect(dropService('prod/Deployment/orders', 'orders')).toBe('prod/Deployment');
@@ -49,5 +49,8 @@ describe('dropService', () => {
     expect(dropService('orders@sha256:abc: a@x.com', 'orders')).toBe('sha256:abc: a@x.com');
     expect(dropService('orders', 'orders')).toBe('orders');
     expect(dropService('prod/Deployment/orders-api', 'orders')).toBe('prod/Deployment/orders-api');
+  });
+  it('drops the parent service from the context of a shortened reference', () => {
+    expect(inService({ label: 'orders 1.2.0', parentService: 'orders' }, 'orders')).toEqual({ label: '1.2.0', parentService: undefined });
   });
 });

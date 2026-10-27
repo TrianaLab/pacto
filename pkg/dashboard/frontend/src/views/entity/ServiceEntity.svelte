@@ -199,7 +199,7 @@
        folded: the knowledge banner above already states that the page is uncertain. -->
   {#if (d.evidence?.count ?? 0) > 0}
     <PreviewSection title="Recent evidence" summary={lastSeen ? `Last observed ${formatDate(lastSeen)}` : ''} total={d.evidence?.total ?? 0} count={d.evidence?.count ?? 0} truncated={d.evidence?.truncated}>
-      <EvidenceList items={d.evidence?.items ?? []} />
+      <EvidenceList items={(d.evidence?.items ?? []).map((ev) => ({ ...ev, target: inService(ev.target ?? {}, self) }))} />
     </PreviewSection>
   {/if}
 
