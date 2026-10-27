@@ -6,7 +6,7 @@
  * node the backend did not return.
  */
 import { describe, it, expect } from 'vitest';
-import { neighborhoodToGraph, cyEdgeId, edgeState, topoSignature, presentationSignature, laneGraph, sidesOf, GROUP_THRESHOLD, MAX_GROUPS_PER_SIDE } from './neighborhoodGraph.ts';
+import { neighborhoodToGraph, cyEdgeId, edgeState, topoSignature, presentationSignature, laneGraph, sidesOf, GROUP_THRESHOLD, MAX_GROUPS_PER_SIDE, LANE_CAP } from './neighborhoodGraph.ts';
 import type { GraphData } from './graph.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -307,6 +307,24 @@ describe('laneGraph', () => {
       { targetId: `n${GROUP_THRESHOLD + 4}` },
     ]));
     expect(byId(out, 'group:used-by:team-u').edges).toEqual([{ targetId: 'focus', type: 'dependency', edgeState: 'matched', label: 'matched (1)' }]);
+  });
+
+  it('shows a lane its first eight direct neighbors, the ones worth a look first, and holds the rest behind "+N more"', () => {
+    const g = graph(12, 0);
+    byId(g, 'focus').edges!.find((e) => e.targetId === 'n11')!.edgeState = 'drift';
+    byId(g, 'n10').status = 'NonCompliant';
+    const { graph: out, groups, folded, more } = laneGraph(g);
+    expect([groups, folded]).toEqual([[], 0]);
+    expect(more).toEqual([{ id: 'group:depends-on:+', owner: '+4 more', side: 'depends-on', count: 4 }]);
+    const shown = out.nodes.filter((n) => n.parent === 'lane:depends-on').map((n) => n.id);
+    expect(shown).toHaveLength(LANE_CAP + 1);
+    expect(shown).toEqual(expect.arrayContaining(['n11', 'n10', 'group:depends-on:+']));
+    expect(byId(out, 'group:depends-on:+')).toMatchObject({ serviceName: '+4 more', group: 4, depth: 1, side: -1 });
+    // Its one edge has no words: the gap by the focus has no room for them.
+    expect(byId(out, 'focus').edges!.find((e) => e.targetId === 'group:depends-on:+')).toEqual({ targetId: 'group:depends-on:+', type: 'dependency' });
+    // Opened, the lane shows every direct neighbor; nine is not worth a "+1 more".
+    expect(laneGraph(g, { open: new Set(['group:depends-on:+']) }).more).toBeUndefined();
+    expect(laneGraph(graph(LANE_CAP + 1, 0)).more).toBeUndefined();
   });
 
   it('groups entities with no owner together', () => {

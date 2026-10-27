@@ -7,6 +7,7 @@
  */
 import type { GraphData, GraphNode, GraphEdge } from './graph.ts';
 import type { ProductNeighborhood } from './api.ts';
+import { statusTone } from './format.ts';
 
 // The adapter's INPUT is DERIVED from the generated ProductNeighborhood (the single wire
 // truth), never a hand-mirrored partial: it reads only a neighborhood's nodes + edges, so
@@ -143,6 +144,13 @@ export const LANE_PREFIX = 'lane:';
  *  with a single entity out there, share one "Other teams" group. */
 export const MAX_GROUPS_PER_SIDE = 7;
 
+/** A lane shows at most this many direct neighbors; the rest wait behind one "+N more"
+ *  node, so a lane never wraps into a second column with lines running under its boxes. */
+export const LANE_CAP = 8;
+
+/** The id suffix of a lane's "+N more" node (after GROUP_PREFIX and the side). */
+export const MORE_SUFFIX = ':+';
+
 /** The name of the group the small teams share. */
 export const OTHER_TEAMS = 'Other teams';
 
@@ -166,6 +174,8 @@ export interface GroupedGraph {
   groups: LaneGroup[];
   /** How many entities the groups fold away. */
   folded: number;
+  /** The lanes' "+N more" nodes, and how many direct neighbors each holds back. */
+  more?: LaneGroup[];
 }
 
 /** The owner a group is keyed by; an entity with none groups as "No owner". */
@@ -174,6 +184,7 @@ const ownerOf = (n: GraphNode) => n.owner || 'No owner';
 // The worst state wins on an edge that stands for many: one unexpected call in a team of
 // twelve is the thing to see. The words are the legend's.
 const STATE_RANK: Record<string, number> = { drift: 4, 'expected-not-observed': 3, insufficient: 2, matched: 1 };
+const TONE_RANK: Record<string, number> = { err: 2, warn: 1 };
 const STATE_WORDS: Record<string, string> = {
   drift: 'observed, not expected', 'expected-not-observed': 'expected, not observed', insufficient: 'insufficient evidence', matched: 'matched',
 };
@@ -264,6 +275,27 @@ export function laneGraph(gd: GraphData, { open = new Set(), all = false, thresh
     });
   }
 
+  // A lane past its cap shows the direct neighbors most worth a look (the worst state on
+  // their link with the focus, then the worst status) and holds the rest behind "+N more".
+  const attention = (n: GraphNode) => Math.max(0, ...[...(focus.edges ?? []).filter((e) => e.targetId === n.id), ...(n.edges ?? []).filter((e) => e.targetId === focus.id)]
+    .map((e) => STATE_RANK[e.edgeState || ''] ?? 0)) * 10 + (TONE_RANK[statusTone(n.status)] ?? 0);
+  const more: LaneGroup[] = [];
+  for (const s of ['depends-on', 'used-by'] as Side[]) {
+    const id = `${GROUP_PREFIX}${s}${MORE_SUFFIX}`;
+    if (open.has(id)) continue;
+    const near = gd.nodes.filter((n) => n !== focus && !far(n) && !rep.has(n.id) && side.get(n.id) === s);
+    // ponytail: a lane of more than LANE_CAP team groups still wraps; folding groups into groups is not worth it yet.
+    const room = Math.max(0, LANE_CAP - groupNodes.filter((g) => g.parent === LANE_PREFIX + s).length);
+    if (near.length - room < 2) continue; // "+1 more" takes the room the one would
+    const hidden = near.sort((a, b) => attention(b) - attention(a) || a.id.localeCompare(b.id)).slice(room);
+    for (const m of hidden) rep.set(m.id, id);
+    more.push({ id, owner: `+${hidden.length} more`, side: s, count: hidden.length });
+    groupNodes.push({
+      id, serviceName: `+${hidden.length} more`, version: 'Select to show', status: 'group', kind: 'service',
+      owner: '', depth: 1, group: hidden.length, side: sign(s), edges: [], parent: LANE_PREFIX + s,
+    });
+  }
+
   // A lane exists for each side anything sits on; its box holds that side's direct neighbors.
   const laneCount = new Map<Side, number>();
   for (const n of gd.nodes) if (n !== focus && !far(n)) laneCount.set(side.get(n.id)!, (laneCount.get(side.get(n.id)!) ?? 0) + 1);
@@ -314,7 +346,8 @@ export function laneGraph(gd: GraphData, { open = new Set(), all = false, thresh
       targetId: g.side === -1 ? g.id : inner,
       type: a.runs ? 'runs' : 'dependency',
       ...(a.worst ? { edgeState: a.worst } : {}),
-      label: a.worst ? `${STATE_WORDS[a.worst]} (${a.worstCount})` : `${a.count} ${a.count === 1 ? 'link' : 'links'}`,
+      // A "+N more" edge sits in the narrow gap by the focus: no room for words there.
+      ...(g.id.endsWith(MORE_SUFFIX) ? {} : { label: a.worst ? `${STATE_WORDS[a.worst]} (${a.worstCount})` : `${a.count} ${a.count === 1 ? 'link' : 'links'}` }),
     };
     // Depends-on: the lane points out at the group. Used-by: the group points in.
     if (g.side === -1) (inner === focus.id ? byId.get(focus.id)! : lanes.find((l) => l.id === inner)!).edges!.push(edge);
@@ -322,5 +355,6 @@ export function laneGraph(gd: GraphData, { open = new Set(), all = false, thresh
   }
   groups.sort((a, b) => b.count - a.count || a.owner.localeCompare(b.owner) || a.side.localeCompare(b.side));
   // Lanes first: a box must exist before the nodes placed inside it.
-  return { graph: { nodes: [...lanes, ...kept, ...groupNodes] }, groups, folded: rep.size };
+  const capped = more.reduce((t, m) => t + m.count, 0);
+  return { graph: { nodes: [...lanes, ...kept, ...groupNodes] }, groups, folded: rep.size - capped, ...(more.length ? { more } : {}) };
 }
