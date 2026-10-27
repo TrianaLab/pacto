@@ -92,9 +92,9 @@ On Kubernetes, the [operator](integrations/kubernetes/overview.md) checks what y
 
 ## What's next
 
-- [Contract reference](contract-reference/index.md) — every field, precisely
-- [Composition patterns](patterns/index.md) — the compositions these primitives
+- [Contract reference](contract-reference/index.md): every field, precisely
+- [Composition patterns](patterns/index.md): the compositions these primitives
   are usually assembled into
-- [CLI reference](cli-reference.md) — every command and flag
-- [For platform engineers](platform-engineers.md) — the other side of the same
+- [CLI reference](cli-reference.md): every command and flag
+- [For platform engineers](platform-engineers.md): the other side of the same
   contract

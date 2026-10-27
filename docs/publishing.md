@@ -112,7 +112,7 @@ manifests build can pin the image it deploys by digest. Pacto then:
    key, KMS key or keyless identity is already there, then verifies the new
    signature against that identity. A keyless signature carries whatever
    identity the CI token had, so a mismatch fails here, before any tag is
-   written, instead of publishing a version no Stage would take;
+   written, so Pacto never publishes a version no Stage would take;
 5. pushes the bundle and writes the tags.
 
 It needs `docker buildx` with a builder that can write an OCI layout (the

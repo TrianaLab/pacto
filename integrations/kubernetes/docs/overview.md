@@ -12,7 +12,7 @@ kubectl get pactos -A
 ```
 
 With the optional [node agent](runtime-conformance.md), Pacto also checks what
-your service actually does on the network against what its contract says, and
+your service does on the network against what its contract says, and
 tells you only what it can prove. It catches a pod that reports ready while
 nothing listens on its port, a dependency it keeps failing to reach and a
 service it calls without declaring it. The node agent is
