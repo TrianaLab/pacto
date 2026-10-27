@@ -34,7 +34,8 @@ func (r *StageReconciler) shadow(ctx context.Context, stage *dv1.Stage) error {
 	if delivery.CurrentLevel(stage.Spec, stage.Status) != delivery.LevelObserve {
 		return nil
 	}
-	a, err := r.Cluster.applier(ctx, stage.Namespace, stage.Spec.ApplyRef)
+	// Live: what GitOps applied is verified and remembered as such.
+	a, err := r.Cluster.freshApplier(ctx, stage.Namespace, stage.Spec.ApplyRef)
 	switch {
 	case apierrors.IsNotFound(err) || apierrors.IsForbidden(err) || meta.IsNoMatchError(err):
 		return nil // ready names it (applierReady)

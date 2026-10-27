@@ -93,6 +93,7 @@ Values are generated from `charts/pacto-operator/values.yaml`. Descriptions come
 | `delivery.promoter.leaderElect` | `true` | Elect one active promoter |
 | `delivery.promoter.poll` | `3s` | How often an operation waiting on Flux, Pacto or a person is looked at (a Go duration) |
 | `delivery.promoter.registryCredentials.secretName` | `""` | A `kubernetes.io/dockerconfigjson` Secret with read access to the contract and deploy repositories, for a private registry. Without it the promoter reads only public ones. |
+| `delivery.promoter.resync` | `1m` | How often a Stage is looked at when nothing it watches changed (a Go duration). A change to its operations, upstream Stage, OCIRepositories, Kustomizations or Application wakes it at once |
 | `delivery.promoter.upstreamTrust` | `""` | The recorder keys of other clusters, as a trust config in YAML (keys per stream glob). A Stage with `candidates.upstreamRecords` promotes only on records one of these keys signed for that stream; without it such a Stage is not Ready. Public keys only. |
 | `delivery.promoter.workers` | `4` | How many operations and Stages the promoter reconciles at once, so one slow health provider does not hold up the rest |
 | `delivery.recorder.cdeventsSink` | `""` | A URL the recorder POSTs a CDEvent (CloudEvents, structured mode) to for every record, best effort. Empty sends none. |

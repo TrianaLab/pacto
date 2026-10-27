@@ -85,6 +85,12 @@ its latest re-check and in `Mediated` whether its pointer alone decides what
 runs, gives every condition an observed generation and publishes the
 promoter's login freshness in `status.authFreshness`. An approval the promoter
 passes over is named on the operation with the reason.
+A Stage reconciles when its operations, its upstream Stage, its
+OCIRepositories, the Kustomizations that apply them or its Application change,
+and every `delivery.promoter.resync` (a minute) otherwise. The promoter reads
+the apply OCIRepository's digest from the apiserver wherever it decides on it,
+and its client allows 50 requests per second, bursting to 100
+(`--kube-api-qps`, `--kube-api-burst`).
 
 **Reach (experimental).** A Stage applies through a Flux `OCIRepository` by
 default, or, as an experimental option, through an Argo CD Application with an

@@ -138,12 +138,15 @@ in the background, and the per-person view costs one SubjectAccessReview for a
 cluster-wide reader and one per namespace otherwise (61 for alice and bob),
 each kept a minute.
 
-The promoter, 200 promotes at once on 200 Stages, 4 workers, a 3s poll and
-client-go's 20/30 QPS, as `cmd/delivery` runs it:
+The promoter, 200 promotes at once on 200 Stages, 4 workers and a 3s operation
+poll, as `cmd/delivery` runs it. Before: every Stage polled every 3s through
+client-go's 20/30 QPS. After: Stages wake on watch events with a 1m resync,
+through a 50/100 QPS client:
 
-| promotes | all moved | time to move p50 | p95 | max queue depth | apiserver req/operation | idle apiserver req/s |
-|---:|---:|---:|---:|---:|---:|---:|
-| 200 | 1m16s | 54.6s | 1m13s | 200 | 11.3 | 30.2 |
+| | promotes | all moved | time to move p50 | p95 | max queue depth | apiserver req/operation | idle apiserver req/s |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| before | 200 | 1m15s | 53.9s | 1m12s | 200 | 11.1 | 30.6 |
+| after | 200 | 13.3s | 8.8s | 12.6s | 200 | 11.2 | 0.0 |
 
 ## The fixes
 
@@ -177,18 +180,22 @@ Each was found here, and its effect is in the table above.
    the client wrote it back to JSON and decoded it again into the typed
    struct. It now converts the decoded objects directly: 2.1 times faster and
    3.7 times fewer bytes on a list of 2,000 Stages.
+6. **The promoter's idle polling ate its whole rate budget.** Every Stage was
+   reconciled every 3s and read its OCIRepositories and Kustomizations from
+   the apiserver: 30 requests per second at rest with 200 Stages, above the 20
+   QPS client limit, so a burst of promotes queued behind it. A Stage now
+   reconciles when one of its operations, its upstream Stage, its
+   OCIRepositories, the Kustomizations that apply them or its Application
+   changes, and every minute (`--resync`) for what no watch covers. Those
+   reads come from the watch cache, except where the promoter decides on the
+   apply OCIRepository's digest: the foreign-writer check, the ship path, a
+   witnessed override and what an observing Stage verifies read it from the
+   apiserver, so a lagging cache never freezes a Stage or records a change
+   that did not happen. The client allows 50 requests per second, bursting to
+   100 (`--kube-api-qps`, `--kube-api-burst`). The burst: all moved in 13s
+   instead of 1m15s.
 
 ## What is left
 
-- **The promoter's idle polling eats its whole rate budget.** Every Stage is
-  reconciled every 3s and reads its OCIRepositories and Kustomization from the
-  apiserver (controller-runtime does not cache unstructured objects by
-  default): 30 requests per second at rest with 200 Stages, above the 20 QPS
-  client limit, so a burst of promotes waits behind it. Caching unstructured
-  reads (`PERF_CACHE_UNSTRUCTURED=1` in the test) moves all 200 in 43s instead
-  of 76s at 3.1 apiserver requests per operation instead of 11.3. It is not
-  turned on: the promoter decides on the apply OCIRepository's digest (the
-  foreign-writer check, a witnessed override, whether a rollback already
-  applied), and a lagging cache there could record a change that did not
-  happen. Doing it safely means reading that one object fresh and the rest
-  from the cache.
+- **Operations still poll every 3s while they wait on Flux.** Waking them on
+  Kustomization events as well would remove that poll if it becomes a cost.

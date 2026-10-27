@@ -48,7 +48,15 @@ var (
 // Cluster is the promoter's read and write access to everything that is not a
 // delivery object.
 type Cluster struct {
+	// Client writes, and reads live: the promoter's manager client reads
+	// unstructured objects from the apiserver, never from a cache.
 	Client client.Client
+	// Cache reads the OCIRepositories and Kustomizations the stage reconciler
+	// watches (and the Applications, when it watches them), for every read no
+	// pointer decision rests on. Nil reads them through Client.
+	Cache client.Reader
+	// CacheApplications says Cache holds the Argo CD Applications too.
+	CacheApplications bool
 	// Registry returns a read-only registry client that reaches insecureHosts
 	// over plain HTTP.
 	Registry func(insecureHosts ...string) delivery.Registry
@@ -93,14 +101,34 @@ type applyRef struct {
 // else.
 const ApplyRefLabel = "delivery.pacto.trianalab.io/apply-ref"
 
-// applier reads the Stage's applier object.
+// cached is the reader of the watched kinds: Cache, or Client without one.
+func (c Cluster) cached(argo bool) client.Reader {
+	if c.Cache == nil || argo && !c.CacheApplications {
+		return c.Client
+	}
+	return c.Cache
+}
+
+// applier reads the Stage's applier object from the cache, which can lag the
+// apiserver by a watch event. A decision on its digest reads freshApplier.
 func (c Cluster) applier(ctx context.Context, ns string, ref delivery.ApplyRef) (*applyRef, error) {
+	return c.applierFrom(ctx, c.cached(ref.Kind == delivery.ApplierArgoCD), ns, ref)
+}
+
+// freshApplier reads the Stage's applier object from the apiserver: the
+// foreign-writer check, the witnessed override and the ship path decide on
+// its digest, and a stale one would freeze a Stage or record a move falsely.
+func (c Cluster) freshApplier(ctx context.Context, ns string, ref delivery.ApplyRef) (*applyRef, error) {
+	return c.applierFrom(ctx, c.Client, ns, ref)
+}
+
+func (c Cluster) applierFrom(ctx context.Context, r client.Reader, ns string, ref delivery.ApplyRef) (*applyRef, error) {
 	if ref.Kind != delivery.ApplierArgoCD {
-		return c.ociRepository(ctx, ns, ref.Name)
+		return ociRepository(ctx, r, ns, ref.Name)
 	}
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(gvkApplication)
-	if err := c.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, u); err != nil {
+	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: ref.Name}, u); err != nil {
 		return nil, err
 	}
 	// ponytail: one OCI spec.source; multi-source Applications (spec.sources)
@@ -119,10 +147,10 @@ func (a *applyRef) field() string {
 	return "spec.ref.digest of OCIRepository " + a.obj.GetName()
 }
 
-func (c Cluster) ociRepository(ctx context.Context, ns, name string) (*applyRef, error) {
+func ociRepository(ctx context.Context, r client.Reader, ns, name string) (*applyRef, error) {
 	u := &unstructured.Unstructured{}
 	u.SetGroupVersionKind(gvkOCIRepository)
-	if err := c.Client.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, u); err != nil {
+	if err := r.Get(ctx, types.NamespacedName{Namespace: ns, Name: name}, u); err != nil {
 		return nil, err
 	}
 	url, _, _ := unstructured.NestedString(u.Object, "spec", "url")
@@ -214,7 +242,8 @@ func (c Cluster) setDigest(ctx context.Context, a *applyRef, digest string, now 
 // applied reports whether Flux applied digest from the apply repository:
 // failed is a confirmed failure (Flux attempted digest and reports it not
 // Ready for a reason other than progress), ok is a confirmed success, and
-// neither means "not yet".
+// neither means "not yet". It reads the Kustomizations live, as the ship path
+// reads a.
 func (c Cluster) applied(ctx context.Context, ns string, a *applyRef, digest string) (ok, failed bool, msg string, err error) {
 	if a.argo {
 		ok, failed, msg = argoApplied(a, digest)
@@ -322,7 +351,7 @@ func (c Cluster) pactos(ctx context.Context) ([]delivery.PactoView, error) {
 func (c Cluster) kustomizations(ctx context.Context) ([]delivery.KustomizationView, error) {
 	list := &unstructured.UnstructuredList{}
 	list.SetGroupVersionKind(gvkKustomization)
-	if err := c.Client.List(ctx, list); err != nil {
+	if err := c.cached(false).List(ctx, list); err != nil {
 		return nil, err
 	}
 	b, _ := list.MarshalJSON()
