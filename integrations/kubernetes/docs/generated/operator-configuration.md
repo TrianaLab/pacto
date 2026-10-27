@@ -22,16 +22,22 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-cpu-limit` | `string` |  | chart value | CPU limit for the dashboard container (e.g. 200m). Empty uses the built-in default. |
 | `-dashboard-cpu-request` | `string` |  | chart value | CPU request for the dashboard container (e.g. 50m). Empty uses the built-in default. |
 | `-dashboard-delivery-namespace` | `string` |  | chart value | Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; empty means pacto-delivery. |
+| `-dashboard-delivery-trust-configmap` | `string` |  | chart value | ConfigMap in the operator namespace holding the trust config the dashboard verifies delivery records with, so History reads signed records. |
+| `-dashboard-delivery-trust-key` | `string` | `trust.yaml` | chart value | Key of the trust config in that ConfigMap. |
 | `-dashboard-memory-limit` | `string` |  | chart value | Memory limit for the dashboard container (e.g. 512Mi). Empty uses the built-in default. |
 | `-dashboard-memory-request` | `string` |  | chart value | Memory request for the dashboard container (e.g. 128Mi). Empty uses the built-in default. |
 | `-dashboard-mira-url` | `string` |  | chart value | Mira's address, to link the dashboard's health-check citations. |
 | `-dashboard-oci-secrets` | `string` |  | chart value | Optional: comma-separated list of Secret names in the operator namespace for OCI registry credentials. Supports Opaque (registry + token, or registry + username + password) and kubernetes.io/dockerconfigjson secrets; later Secrets override earlier ones for the same registry. |
+| `-dashboard-oidc-ca-configmap` | `string` |  | chart value | ConfigMap in the operator namespace holding the PEM bundle of the CAs that sign the issuer's certificate. |
+| `-dashboard-oidc-ca-key` | `string` | `ca.crt` | chart value | Key of the PEM bundle in that ConfigMap or Secret. |
+| `-dashboard-oidc-ca-secret` | `string` |  | chart value | Secret in the operator namespace holding that PEM bundle, instead of a ConfigMap. |
 | `-dashboard-oidc-client-id` | `string` |  | chart value | The dashboard's OpenID Connect client id. |
 | `-dashboard-oidc-client-secret-key` | `string` | `client-secret` | chart value | Key of the client secret in that Secret. |
 | `-dashboard-oidc-client-secret-name` | `string` |  | chart value | Secret in the operator namespace holding the client secret, passed to the dashboard by secretKeyRef. |
 | `-dashboard-oidc-extra-scopes` | `string` |  | chart value | Comma-separated scopes beyond openid, profile and groups. |
 | `-dashboard-oidc-groups-claim` | `string` |  | chart value | ID token claim the API server takes the groups from; must match its claim mapping (empty: groups). |
 | `-dashboard-oidc-groups-prefix` | `string` |  | chart value | Prefix the API server puts before every group; must match its claim mapping. |
+| `-dashboard-oidc-internal-issuer-url` | `string` |  | chart value | Where the dashboard reaches the issuer when it differs from the public issuer URL browsers use, such as an in-cluster Service; ID tokens must still name the public issuer. |
 | `-dashboard-oidc-issuer-url` | `string` |  | chart value | OpenID Connect issuer people sign in to the dashboard with. Delivery actions then run with each person's own token; without it the dashboard serves no delivery data and no actions. |
 | `-dashboard-oidc-redirect-url` | `string` |  | chart value | The dashboard's /auth/callback as browsers reach it; TLS must terminate in front of it. |
 | `-dashboard-oidc-username-claim` | `string` |  | chart value | ID token claim the API server takes the username from; must match its claim mapping (empty: sub). |

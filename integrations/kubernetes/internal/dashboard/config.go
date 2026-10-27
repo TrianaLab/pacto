@@ -80,13 +80,34 @@ type Config struct {
 
 	// MiraURL, when set, turns the dashboard's Mira citations into links.
 	MiraURL string
+
+	// DeliveryTrust names the ConfigMap, in the operator namespace, holding the
+	// trust config the dashboard verifies delivery records with, so History
+	// reads signed records. Empty Name: the dashboard verifies none.
+	DeliveryTrust KeyRef
+}
+
+// KeyRef names one key of a ConfigMap or a Secret in the operator namespace.
+type KeyRef struct {
+	Name string
+	Key  string
 }
 
 // AuthConfig is the dashboard's OpenID Connect client. Delivery actions then
 // run with the signed-in person's own token: the dashboard's ServiceAccount
 // gains no right for it.
 type AuthConfig struct {
-	IssuerURL   string
+	IssuerURL string
+	// InternalIssuerURL is where the dashboard reaches the issuer when it
+	// differs from IssuerURL, the address browsers use; ID tokens still name
+	// IssuerURL.
+	InternalIssuerURL string
+	// CAConfigMap or CASecret (never both) holds, under CAKey, the PEM bundle
+	// of the CAs that sign the issuer's certificate, trusted on top of the
+	// system roots.
+	CAConfigMap string
+	CASecret    string
+	CAKey       string
 	ClientID    string
 	RedirectURL string
 	ExtraScopes []string
@@ -150,6 +171,9 @@ func (c Config) Validate() error {
 	}
 	if a := c.Auth; a.IssuerURL != "" && (a.ClientID == "" || a.RedirectURL == "") {
 		return fmt.Errorf("dashboard sign-in needs a client id and a redirect URL beside the issuer %s", a.IssuerURL)
+	}
+	if a := c.Auth; a.CAConfigMap != "" && a.CASecret != "" {
+		return fmt.Errorf("the dashboard's issuer CA bundle comes from a ConfigMap or a Secret, not both")
 	}
 	return c.validateObservation()
 }
