@@ -14,10 +14,10 @@ service:
 
 The fields are split across [contract sections](sections.md), [configuration and policy](configuration-and-policy.md), [dependencies and state](dependencies-and-state.md), [readiness](readiness.md), [publish](publish.md) and [checks](checks.md). The rules are in [validation layers](validation.md), [overrides](overrides.md) and [change classification](diff.md). This page covers the bundle layout all of them assume.
 
-Each `interfaces`, `configurations` and `policies` entry points at a schema you already have — an OpenAPI document, an AsyncAPI event definition, a gRPC service descriptor, a JSON Schema. Every referenced file must parse as JSON or YAML; see [interface types](sections.md#interface-types).
+Each `interfaces`, `configurations` and `policies` entry points at a schema you already have: an OpenAPI document, an AsyncAPI event definition, a gRPC service descriptor or a JSON Schema. Every referenced file must parse as JSON or YAML; see [interface types](sections.md#interface-types).
 
-What the contract states, and what it deliberately leaves to the platform, is in
-[the model](../model.md#declaration-versus-observation).
+[The model](../model.md#declaration-versus-observation) explains what the
+contract states and what it leaves to the platform.
 
 ---
 
@@ -53,26 +53,26 @@ A Pacto bundle is a self-contained directory (or OCI artifact) with the followin
     └── sbom.spdx.json
 ```
 
-Only `pacto.yaml` is required. All other directories are optional — include them when your contract references files in them. Validation checks that every file referenced by `pacto.yaml` exists within the bundle.
+Only `pacto.yaml` is required. All other directories are optional. Include a directory when your contract references files in it. Validation checks that every file referenced by `pacto.yaml` exists within the bundle.
 
-When you run `pacto push`, the bundle is packaged as an OCI artifact — versioned, content-addressed and distributable through any OCI registry. This is how contracts travel between teams, services and environments.
+When you run `pacto push`, Pacto packages the bundle as a versioned, content-addressed OCI artifact. You can store it in any OCI registry and pull it from any team, service or environment.
 
-### `docs/` — Optional documentation
+### `docs/`: optional documentation
 
-Anything here is **informational metadata** — it travels with the contract but has no effect on contract semantics, validation or diff classification.
+Files in `docs/` are **informational metadata**. They travel with the contract and are ignored by validation and diff classification.
 
-**What documentation could include:**
+Typical content:
 
-- Service overview — what the service does, its purpose within the platform
-- Architecture notes — internal design, data flow, key dependencies
-- Operational runbooks — incident response, scaling procedures, known failure modes
-- Integration guides — how consumers should interact with the service's interfaces
+- Service overview: what the service does and its purpose within the platform
+- Architecture notes: internal design, data flow and key dependencies
+- Operational runbooks: incident response, scaling procedures and known failure modes
+- Integration guides: how consumers use the service's interfaces
 
-### `sbom/` — Optional Software Bill of Materials
+### `sbom/`: optional Software Bill of Materials
 
-Like `docs/`, anything here is **informational metadata** — it travels with the contract but has no effect on contract semantics or validation.
+Files in `sbom/` are also **informational metadata**. They travel with the contract and are ignored by validation.
 
-Unlike `docs/`, SBOM files **are included in diff output**. When both the old and new bundles contain an SBOM, `pacto diff` reports package-level changes (added, removed, version, license or supplier modified). These changes are informational only — they never affect the overall diff classification.
+`pacto diff` includes SBOM files in its output. When both the old and new bundles contain an SBOM, `pacto diff` reports package-level changes (added, removed, version, license or supplier modified). These changes are informational and leave the overall diff classification unchanged.
 
 **Supported formats:**
 
@@ -81,16 +81,16 @@ Unlike `docs/`, SBOM files **are included in diff output**. When both the old an
 | [SPDX](https://spdx.dev/) | `.spdx.json` | 2.3 |
 | [CycloneDX](https://cyclonedx.org/) | `.cdx.json` | 1.5 |
 
-Pacto auto-detects the format by file extension. Place one or more SBOM files directly in the `sbom/` directory (subdirectories are not scanned).
+Pacto auto-detects the format by file extension. Place one or more SBOM files directly in the `sbom/` directory. Pacto reads only the top level of `sbom/`.
 
 **Generating an SBOM:**
 
-Generate with any standard tool ([Syft](https://github.com/anchore/syft), [Trivy](https://github.com/aquasecurity/trivy), [cdxgen](https://github.com/CycloneDX/cdxgen)) writing SPDX/CycloneDX JSON into `sbom/`.
+Use any standard tool ([Syft](https://github.com/anchore/syft), [Trivy](https://github.com/aquasecurity/trivy), [cdxgen](https://github.com/CycloneDX/cdxgen)) writing SPDX/CycloneDX JSON into `sbom/`.
 
 ---
 
 ## Minimal contract
 
-Only `pactoVersion` and `service` are required, as in the four-line example at the top of this page. All other sections — `workload`, `state`, `interfaces`, `configurations`, `policies`, `dependencies`, `capabilities`, `readiness`, `metadata` and `extensions` — are optional. A minimal contract is useful for lightweight dependency declarations, shared libraries or contracts where runtime semantics are managed externally.
+Only `pactoVersion` and `service` are required, as in the four-line example at the top of this page. All other sections are optional: `workload`, `state`, `interfaces`, `configurations`, `policies`, `dependencies`, `capabilities`, `readiness`, `metadata` and `extensions`. A minimal contract is useful for lightweight dependency declarations, shared libraries or contracts where runtime semantics are managed externally.
 
 ---
