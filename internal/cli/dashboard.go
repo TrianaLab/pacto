@@ -158,7 +158,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				CORSOrigin: corsOrigin,
 				Fleet:      managerFleetProvider(mgr),
 				Published:  managerPublished(mgr),
-				Impact:     impactProviderForFleet(svc, mgr),
+				Impact:     impactProviderForFleet(svc),
 				Refresh:    mgr.Refresh,
 				MiraURL:    v.GetString("dashboard.mira-url"),
 
@@ -373,19 +373,13 @@ func managerPublished(mgr *fleet.Manager) func() *fleet.Query {
 }
 
 // impactProviderForFleet returns an impact provider backing /api/fleet/impact.
-// It resolves the old/new refs and analyzes the change against the SAME snapshot
-// the dashboard is currently serving (the Manager's published one), so the impact
-// answer's snapshotId matches the Operational Graph the user is looking at — never
-// a freshly rebuilt, divergent snapshot. Extracted so the wiring is testable.
-func impactProviderForFleet(svc *app.Service, mgr *fleet.Manager) func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
-	return func(ctx context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
-		// Use the ORIGINAL published snapshot (with its query indexes), not a
-		// serialization clone — impact traverses the dependency graph, which a
-		// clone cannot answer.
-		snap, err := currentSnapshot(ctx, mgr)
-		if err != nil {
-			return nil, err
-		}
+// It analyzes the change against the snapshot the dashboard hands it: the
+// Manager's published one as the caller sees it, so the impact answer's
+// snapshotId matches the Operational Graph the user is looking at and leaves
+// out what their permissions hide. The snapshot keeps its query indexes, which
+// impact traverses and a serialization clone would not.
+func impactProviderForFleet(svc *app.Service) func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+	return func(ctx context.Context, snap *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
 		return svc.ImpactWithSnapshot(ctx, app.ImpactOptions{
 			OldPath: oldRef, NewPath: newRef,
 			IncludeObserved: includeObserved,

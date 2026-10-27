@@ -472,7 +472,7 @@ func TestStubProvidersForSchemaExport(t *testing.T) {
 	if _, err := s.opts.Fleet(context.Background()); err == nil {
 		t.Error("stub fleetQuery must error")
 	}
-	if _, err := s.opts.Impact(context.Background(), "old", "new", false); err == nil {
+	if _, err := s.opts.Impact(context.Background(), nil, "old", "new", false); err == nil {
 		t.Error("stub impactProvider must error")
 	}
 	if _, err := s.opts.Delivery(nil); err == nil {

@@ -178,7 +178,9 @@ func TestCapabilitiesEndpoint(t *testing.T) {
 	// off unless a host explicitly declares an observation source.
 	q := demoFleetQuery(t)
 	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil },
-		func(context.Context, string, string, bool) (*impact.Result, error) { return &impact.Result{}, nil })
+		func(context.Context, *fleet.FleetSnapshot, string, string, bool) (*impact.Result, error) {
+			return &impact.Result{}, nil
+		})
 	defer cancel()
 	var caps struct {
 		Fleet    bool `json:"fleet"`
@@ -304,7 +306,7 @@ func TestFleetImpactEndpoint(t *testing.T) {
 		},
 	}
 	var gotObserved bool
-	base, cancel := startFleetTestServer(t, nil, func(_ context.Context, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
+	base, cancel := startFleetTestServer(t, nil, func(_ context.Context, _ *fleet.FleetSnapshot, oldRef, newRef string, includeObserved bool) (*impact.Result, error) {
 		gotObserved = includeObserved
 		if oldRef == "" || newRef == "" {
 			t.Errorf("expected old/new refs, got %q/%q", oldRef, newRef)
@@ -342,7 +344,7 @@ func TestFleetImpactEndpoint_ErrorMapping(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			base, cancel := startFleetTestServer(t, nil, func(context.Context, string, string, bool) (*impact.Result, error) {
+			base, cancel := startFleetTestServer(t, nil, func(context.Context, *fleet.FleetSnapshot, string, string, bool) (*impact.Result, error) {
 				return nil, tc.err
 			})
 			defer cancel()
@@ -508,5 +510,5 @@ func TestSourcesFromFleet(t *testing.T) {
 // The provider shapes [Options] takes, named for the test helpers.
 type (
 	fleetProvider      = func(ctx context.Context) (*fleet.Query, error)
-	impactProviderFunc = func(ctx context.Context, old, new string, includeObserved bool) (*impact.Result, error)
+	impactProviderFunc = func(ctx context.Context, snap *fleet.FleetSnapshot, old, new string, includeObserved bool) (*impact.Result, error)
 )

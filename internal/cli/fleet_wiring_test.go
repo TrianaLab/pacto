@@ -91,46 +91,31 @@ func writeCLIBundle(t *testing.T, dir, name, version string) {
 }
 
 // TestImpactProviderForFleet exercises the dashboard /api/fleet/impact provider
-// closure: the resolve-error branch, and (section 2.2) that a successful impact answer
-// binds to the Manager's PUBLISHED snapshot — same snapshotId the fleet endpoints
-// serve, never a rebuilt one.
+// closure: the resolve-error branch, and that an answer is bound to the
+// snapshot it is handed (same snapshotId), never a rebuilt one.
 func TestImpactProviderForFleet(t *testing.T) {
 	svc := app.NewService(nil, nil)
 	fleetRoot := t.TempDir()
 	writeCLIBundle(t, filepath.Join(fleetRoot, "orders"), "orders", "2.0.0")
-	mgr := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
-		return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{fleetRoot}})
-	}, fleet.ManagerOptions{})
-	provide := impactProviderForFleet(svc, mgr)
+	snap, err := svc.Fleet(context.Background(), app.FleetOptions{LocalRoots: []string{fleetRoot}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provide := impactProviderForFleet(svc)
 
-	if _, err := provide(context.Background(), "/nonexistent/old", "/nonexistent/new", false); err == nil {
+	if _, err := provide(context.Background(), snap, "/nonexistent/old", "/nonexistent/new", false); err == nil {
 		t.Fatal("expected an error resolving nonexistent revisions")
 	}
 
 	oldDir, newDir := t.TempDir(), t.TempDir()
 	writeCLIBundle(t, oldDir, "orders", "1.0.0")
 	writeCLIBundle(t, newDir, "orders", "2.0.0")
-	res, err := provide(context.Background(), oldDir, newDir, false)
+	res, err := provide(context.Background(), snap, oldDir, newDir, false)
 	if err != nil {
-		t.Fatalf("impact against the published snapshot: %v", err)
+		t.Fatalf("impact against the handed snapshot: %v", err)
 	}
-	fleetQ, err := managerFleetProvider(mgr)(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if res.SnapshotID == "" || res.SnapshotID != fleetQ.SnapshotID() {
-		t.Errorf("impact snapshotId %q must equal the dashboard's published snapshot %q", res.SnapshotID, fleetQ.SnapshotID())
-	}
-
-	// When the published snapshot is unavailable (first build fails on a cancelled
-	// context), the provider surfaces that error rather than rebuilding.
-	mgr2 := fleet.NewManager(func(ctx context.Context) (*fleet.FleetSnapshot, error) {
-		return svc.Fleet(ctx, app.FleetOptions{LocalRoots: []string{fleetRoot}})
-	}, fleet.ManagerOptions{})
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	if _, err := impactProviderForFleet(svc, mgr2)(ctx, oldDir, newDir, false); err == nil {
-		t.Fatal("expected an error when the published snapshot is unavailable")
+	if res.SnapshotID == "" || res.SnapshotID != snap.SnapshotID {
+		t.Errorf("impact snapshotId %q must equal the handed snapshot %q", res.SnapshotID, snap.SnapshotID)
 	}
 }
 

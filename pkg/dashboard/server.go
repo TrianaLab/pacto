@@ -79,9 +79,14 @@ type Options struct {
 	// first build never holds them up. Nil falls back to Fleet, for hosts
 	// whose snapshot is always at hand, like the WASM demo.
 	Published func() *fleet.Query
-	// Impact enables the read-only /api/fleet/impact endpoint. When nil, the
-	// endpoint is not registered.
-	Impact func(ctx context.Context, old, new string, includeObserved bool) (*impact.Result, error)
+	// View narrows a fleet query to what the request's caller may see. Every
+	// fleet answer, impact included, goes through it once per snapshot read.
+	// Nil shows everyone everything, as a local or sign-in-free host does.
+	View func(ctx context.Context, q *fleet.Query) (*fleet.Query, error)
+	// Impact enables the read-only /api/fleet/impact endpoint, analysing over
+	// snap, the snapshot the caller sees (nil on a host without Fleet). When
+	// nil, the endpoint is not registered.
+	Impact func(ctx context.Context, snap *fleet.FleetSnapshot, old, new string, includeObserved bool) (*impact.Result, error)
 	// Refresh rebuilds the fleet snapshot for /api/refresh. When nil — as in the
 	// offline WASM demo, whose snapshot is baked in — refresh is a successful no-op.
 	Refresh func(ctx context.Context) error
@@ -366,20 +371,39 @@ func (s *Server) health(_ context.Context, _ *struct{}) (*healthOutput, error) {
 	return out, nil
 }
 
-// publishedQuery returns the currently published fleet query, or nil when no
-// fleet provider is wired or no snapshot has been built yet.
+// publishedQuery returns the currently published fleet query as the caller
+// sees it, or nil when no fleet provider is wired, no snapshot has been built
+// yet or the caller's permissions could not be checked.
 func (s *Server) publishedQuery(ctx context.Context) *fleet.Query {
 	if s.opts.Fleet == nil {
 		return nil
 	}
+	q := (*fleet.Query)(nil)
 	if s.opts.Published != nil {
-		return s.opts.Published()
+		q = s.opts.Published()
+	} else if fq, err := s.opts.Fleet(ctx); err == nil {
+		q = fq
 	}
+	// A caller whose permissions cannot be checked sees no snapshot, not all of it.
+	q, _ = s.view(ctx, q)
+	return q
+}
+
+// fleetQuery is the fleet query as the request's caller sees it: the one
+// place every fleet answer is narrowed.
+func (s *Server) fleetQuery(ctx context.Context) (*fleet.Query, error) {
 	q, err := s.opts.Fleet(ctx)
 	if err != nil {
-		return nil
+		return nil, err
 	}
-	return q
+	return s.view(ctx, q)
+}
+
+func (s *Server) view(ctx context.Context, q *fleet.Query) (*fleet.Query, error) {
+	if s.opts.View == nil || q == nil {
+		return q, nil
+	}
+	return s.opts.View(ctx, q)
 }
 
 func (s *Server) metrics(ctx context.Context, _ *struct{}) (*metricsOutput, error) {
