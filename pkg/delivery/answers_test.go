@@ -47,7 +47,16 @@ func TestAssembleHistoryFromStatus(t *testing.T) {
 	first := ansOp("a", "u1", 1, "", ansA)
 	first.Status.Record = &RecordRef{Digest: "sha256:rec"}
 	first.Status.Approvals = []ApprovalRecord{{Name: "ap", By: "carol", Decision: Approve, AuthTime: "1", Note: "ok"}}
+	first.Status.Times.Finished = "f1"
+	inflight.Status.Times.Held = "h3"
 	h, ops := AssembleHistory(st, []OperationObject{inflight, other, first}, nil, errors.New("registry down"), "now")
+	// A finished change says when it finished; one still waiting says since when.
+	if h.Entries[0].Since != "" || h.Entries[1].Since != "h3" {
+		t.Fatalf("since = %q, %q", h.Entries[0].Since, h.Entries[1].Since)
+	}
+	if e := StatusEntry(ansOp("d", "u4", 0, ansB, ansC)); e.Since != "d" {
+		t.Fatalf("an operation never held waits since it was created, got %q", e.Since)
+	}
 	if len(ops) != 2 || ops[0].Metadata.Name != "a" || h.Source != SourceStatus || h.Completeness != "partial" ||
 		h.Unreadable[0] != "registry down" || !strings.HasPrefix(h.Note, "the records could not be read") {
 		t.Fatalf("history = %+v ops %v", h, ops)

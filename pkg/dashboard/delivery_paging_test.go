@@ -116,9 +116,13 @@ func TestDeliveryHistoryPages(t *testing.T) {
 	for i := 1; i <= 12; i++ {
 		entries = append(entries, delivery.HistoryEntry{Seq: int64(i), Operation: fmt.Sprintf("op-%d", i), Actor: map[bool]string{true: "carol", false: "bot"}[i%2 == 0]})
 	}
-	f.history = &delivery.History{Stage: delivery.StageNow{Name: "payments"}, Completeness: "complete", Entries: entries}
+	f.history = &delivery.History{Stage: delivery.StageNow{Name: "payments"}, Completeness: "complete", Entries: entries,
+		Problems: []string{"seq 3 is missing", "seq 5 is missing"}, Unreadable: []string{"sha256:x: not signed"}}
 	_, h := call(t, http.MethodGet, base+"/api/delivery/history?limit=2", nil)
 	hs := h["histories"].([]any)
+	// The summary carries how many problems a Stage has, never the lists themselves.
+	expect(t, page(hs[0])["problems"] == nil && page(hs[0])["unreadable"] == nil &&
+		page(hs[0])["problemCount"] == float64(2) && page(hs[0])["unreadableCount"] == float64(1), "summary counts only: %v", hs[0])
 	expect(t, len(hs) == 2 && page(h["page"])["total"] == float64(3) && page(hs[0])["namespace"] == "books", "Stages in order, paged: %v", h["page"])
 	_, h = call(t, http.MethodGet, base+"/api/delivery/history?q=PAY", nil)
 	expect(t, page(h["page"])["total"] == float64(1), "q filters Stages: %v", h["page"])
@@ -129,6 +133,8 @@ func TestDeliveryHistoryPages(t *testing.T) {
 	_, h = call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&limit=4&offset=4&q=carol", nil)
 	one := page(h["histories"].([]any)[0])
 	got = one["entries"].([]any)
+	expect(t, len(one["problems"].([]any)) == 2 && len(one["unreadable"].([]any)) == 1 && one["problemCount"] == float64(2),
+		"one Stage keeps its lists: %v", one)
 	expect(t, len(got) == 2 && page(got[0])["operation"] == "op-4" && page(one["entriesPage"])["total"] == float64(6),
 		"one Stage pages its changes, filtered, newest first: %v", one["entriesPage"])
 }

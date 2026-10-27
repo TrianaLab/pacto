@@ -52,6 +52,9 @@
     // this product spends motion on problems (see the RATION in styles/tokens.css).
     asOf = '',
     revalidating = false,
+    // A page turn in flight: the rows on screen are the page being left, so the line
+    // says the next one is coming rather than that the data is being re-checked.
+    paging = false,
     children,
   } = $props();
 
@@ -84,9 +87,9 @@
 
   <!-- No aria-live: a poll every few seconds would announce "Checking for changes" over
        whatever the reader was actually reading. It is a glanceable fact, not an event. -->
-  {#if revalidating || age}
+  {#if paging || revalidating || age}
     <p class="page-hd-age t-meta" data-testid="snapshot-age">
-      {revalidating ? 'Checking for changes…' : `Data as of ${age}`}
+      {paging ? 'Loading another page…' : revalidating ? 'Checking for changes…' : `Data as of ${age}`}
     </p>
   {/if}
 

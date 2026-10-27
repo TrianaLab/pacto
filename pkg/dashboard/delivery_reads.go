@@ -589,6 +589,10 @@ type StageHistory struct {
 	Namespace string `json:"namespace"`
 	delivery.History
 	EntriesPage Page `json:"entriesPage" doc:"Which of the Stage's changes entries holds, newest first"`
+	// The summary of every Stage shows how many problems a history has, not
+	// what they are: the lists stay on the Stage's own page.
+	ProblemCount    int `json:"problemCount,omitempty" doc:"How many problems the records show. Without a stage, problems and unreadable are left out and only these counts are sent"`
+	UnreadableCount int `json:"unreadableCount,omitempty" doc:"How many things could not be read or verified"`
 }
 
 type historyOutput struct {
@@ -653,7 +657,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 			return nil, errs[i]
 		}
 		h := hs[i]
-		sh := StageHistory{Namespace: t.Metadata.Namespace, History: *h}
+		sh := StageHistory{Namespace: t.Metadata.Namespace, History: *h, ProblemCount: len(h.Problems), UnreadableCount: len(h.Unreadable)}
 		entries := slices.Clone(h.Entries)
 		slices.Reverse(entries) // newest first: what a reader looks for is the latest change
 		if one {
@@ -663,6 +667,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 			sh.Entries, sh.EntriesPage = pageOf(entries, in.Offset, in.Limit, historyEntriesPage)
 		} else {
 			sh.Entries, sh.EntriesPage = pageOf(entries, 0, historyRecent, historyRecent)
+			sh.Problems, sh.Unreadable = nil, nil
 		}
 		digests := []string{h.Stage.Pointer}
 		for _, e := range sh.Entries {

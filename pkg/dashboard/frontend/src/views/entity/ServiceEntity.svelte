@@ -166,16 +166,18 @@
     </PreviewSection>
   </div>
 
-  <div class="se-grid">
-    <PreviewSection title="All revisions" collapsible open={noneInUse} summary="Every revision Pacto knows, in use or not" total={d.revisions?.total ?? 0} count={d.revisions?.count ?? 0} truncated={d.revisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No known revisions."
-      help="Newest first, whether or not anything is running them. Readiness is declared per revision — open one to see its gate.">
-      <!-- Readiness is a DIMENSION of a revision, not a service-level score: it is
-           declared per revision and gated per revision. Rolling it up here would invent
-           a third definition of readiness, so the service page points at the one that
-           already exists instead. -->
-      <EntityRefList items={d.revisions?.items ?? []} showStatus={false} />
-    </PreviewSection>
+  <!-- Full width, like targets: a revision's name is the service's name and its version,
+       and a third of the page cut a long service name into four lines. -->
+  <PreviewSection title="All revisions" collapsible open={noneInUse} summary="Every revision Pacto knows, in use or not" total={d.revisions?.total ?? 0} count={d.revisions?.count ?? 0} truncated={d.revisions?.truncated} viewAllHref={allRevisionsHref} viewAllLabel="View all revisions" empty="No known revisions."
+    help="Newest first, whether or not anything is running them. Readiness is declared per revision — open one to see its gate.">
+    <!-- Readiness is a DIMENSION of a revision, not a service-level score: it is
+         declared per revision and gated per revision. Rolling it up here would invent
+         a third definition of readiness, so the service page points at the one that
+         already exists instead. -->
+    <EntityRefList items={d.revisions?.items ?? []} showStatus={false} />
+  </PreviewSection>
 
+  <div class="se-grid se-grid--two">
     <PreviewSection title="Expected dependencies" collapsible open={false} summary="Declared in the contract" total={d.dependencies?.total ?? 0} count={d.dependencies?.count ?? 0} truncated={d.dependencies?.truncated} viewAllHref={graphHref} viewAllLabel="Explore in graph" empty={hidden(d.hiddenDependencies, false) || 'No declared dependencies.'}>
       <EntityRefList items={d.dependencies?.items ?? []} showStatus={false} />
       {#if d.hiddenDependencies}<p class="se-hidden t-body-2" data-testid="hidden-dependencies">{hidden(d.hiddenDependencies, true)}</p>{/if}

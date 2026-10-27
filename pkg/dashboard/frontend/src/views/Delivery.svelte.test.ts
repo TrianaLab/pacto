@@ -86,7 +86,13 @@ describe('inbox', () => {
     expect(text(held as HTMLElement)).toContain('team-checkout');
     expect(held.querySelector('a[href="#/delivery/changes/prod/op1"]')).not.toBeNull();
     expect(held.querySelector('a[href="#/services/checkout"]')).not.toBeNull();
-    expect(text(target)).toContain('Frozen: Errored. Nothing moves here until a person unfreezes it.');
+    // Frozen environments and stuck changes fold behind their count, each a one-line row.
+    const frozenSection = target.querySelector('[data-testid="inbox-frozen-section"]') as HTMLDetailsElement;
+    expect(frozenSection.open).toBe(false);
+    expect(text(frozenSection.querySelector('summary') as HTMLElement).trim()).toBe('▸Frozen environments 1');
+    expect(text(target.querySelector('[data-testid="inbox-frozen"]') as HTMLElement).trim()).toBe('payments in prod Errored');
+    expect(text(frozenSection)).toContain('Nothing moves in these until a person unfreezes them.');
+    expect((target.querySelector('[data-testid="inbox-errored-section"]') as HTMLDetailsElement).open).toBe(false);
     expect(text(target)).not.toMatch(/pause/i);
     expect(text(target.querySelector('[data-testid="inbox-errored"]') as HTMLElement)).toContain('Pacto could not tell how it ended');
     // The person's subject and, printed next to it, the username the cluster uses. Never only in a tooltip.
@@ -99,9 +105,15 @@ describe('inbox', () => {
     const item = (n: number) => ({ namespace: 'prod', name: `op${n}`, stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', phase: 'Held', decision: 'approve',
       owners: ['team-checkout'], consumers: ['a', 'b', 'c', 'd', 'e'] });
     fns.inbox.mockResolvedValue({ ...listing, held: [item(26)], heldPage: { total: 1500, offset: 25, limit: 25 },
-      frozen: [], frozenPage: { total: 0, offset: 0, limit: 25 }, errored: [], erroredPage: { total: 0, offset: 0, limit: 25 } });
+      frozen: [{ namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', frozen: true, held: 0, actions: [] }], frozenPage: { total: 60, offset: 50, limit: 25 },
+      errored: [], erroredPage: { total: 0, offset: 0, limit: 25 } });
     const { target, destroy } = render(DeliveryInboxView, { held: '25', frozen: '50', q: 'pay' });
     await settle();
+    // A link into a page of frozen environments opens that section, and its count is the total.
+    const frozenSection = target.querySelector('[data-testid="inbox-frozen-section"]') as HTMLDetailsElement;
+    expect(frozenSection.open).toBe(true);
+    expect(text(frozenSection.querySelector('.dl-count') as HTMLElement)).toBe('60');
+    expect(text(target.querySelector('[data-testid="inbox-frozen"]') as HTMLElement).trim()).toBe('payments in prod Frozen');
     expect(text(target)).toContain('1,500 waiting for a decision');
     const pager = target.querySelector('[data-testid="inbox-held-pager"]') as HTMLElement;
     expect(text(pager.querySelector('.pl-range') as HTMLElement).trim()).toBe('Showing 26–50 of 1,500 held changes');
@@ -917,6 +929,25 @@ describe('history and published', () => {
     destroy();
   });
 
+  it('says since when a held change waits and shows the whole version move on hover', async () => {
+    fns.history.mockResolvedValue({ ...listing, versions: { [D1]: '1.0.0', [D2]: '12.104.3-rc.15+build.20261026' }, histories: [
+      { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', source: 'records', verified: true, note: '', stage: { name: 'pay', pointer: D1 },
+        entries: [{ operation: 'op4', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'bot', actorClass: 'agent', phase: 'Held', since: '2026-10-21T09:00:00Z' }] },
+    ] });
+    const { target, destroy } = render(DeliveryHistoryView, { namespace: 'prod', stage: 'pay' });
+    await settle();
+    const cells = [...target.querySelectorAll('tbody td')];
+    const when = cells.find((c) => c.getAttribute('data-label') === 'When') as HTMLElement;
+    expect(text(when).trim()).toBe('Waiting since 2026-10-21 09:00 UTC');
+    expect(when.querySelector('[title]')?.getAttribute('title')).toBe('Waiting since 2026-10-21T09:00:00Z');
+    const ver = cells.find((c) => c.getAttribute('data-label') === 'Version')!.querySelector('.cell-clip')!;
+    expect(ver.getAttribute('title')).toBe(`1.0.0 → 12.104.3-rc.15+build.20261026\n${D1} → ${D2}`);
+    // The Agent chip sits beside who asked, and the record cell never wraps.
+    expect(cells.find((c) => c.getAttribute('data-label') === 'Asked by')!.querySelector('.hv-asked [data-testid="actor-badge"]')).not.toBeNull();
+    expect(target.querySelector('.hv-nowrap')?.textContent).toBe('Not recorded yet');
+    destroy();
+  });
+
   it('pages one environment newest first, never says a code twice and opens Undo under its row', async () => {
     const page = { total: 120, offset: 50, limit: 50 };
     fns.history.mockResolvedValue({ ...listing, page: { total: 1, offset: 0, limit: 1 }, histories: [
@@ -955,7 +986,7 @@ describe('history and published', () => {
   it('sums up every environment in one line each: newest change, how it ended, how many and a link to the rest', async () => {
     fns.history.mockResolvedValue({ ...listing, page: { total: 30, offset: 0, limit: 25 }, versions: { [D1]: '1.0.0', [D2]: '2.0.0' }, histories: [
       { namespace: 'prod', asOf: listing.asOf, completeness: 'complete', source: 'records', verified: true, note: '', stage: { name: 'pay', pointer: D2, frozen: true },
-        entriesPage: { total: 40, offset: 0, limit: 1 }, problems: ['seq 2 is a gap'], unreadable: ['sha256:bad: not trusted here'],
+        entriesPage: { total: 40, offset: 0, limit: 1 }, problemCount: 1, unreadableCount: 1,
         entries: [{ seq: 40, operation: 'op40', type: 'delivery.pacto.trianalab.io/promote', from: D1, to: D2, actor: 'bot', outcome: 'Succeeded', finished: '2026-10-21T11:00:00Z' }] },
       { namespace: 'test', asOf: listing.asOf, completeness: 'partial', source: 'status', note: '', stage: { name: 'pay' }, entries: [] },
     ] });
@@ -997,16 +1028,29 @@ describe('history and published', () => {
 
   it('lists published versions with their signature state and where they run', async () => {
     fns.published.mockResolvedValue({ ...listing, services: [{ service: 'payments', versions: [
-      { digest: D2, version: '2.0.0', contract: 'oci://r/p@sha256:c', signed: true, stages: [{ namespace: 'prod', stage: 'pay', environment: 'prod', running: true, verified: true, failed: false }] },
-      { digest: D1, signed: false, stages: [{ namespace: 'prod', stage: 'pay', environment: 'prod', running: false, verified: false, failed: true }] },
+      { digest: D2, version: '2.0.0', contract: `oci://r/p@sha256:${'c'.repeat(64)}`, signed: true, stages: [
+        { namespace: 'test', stage: 'pay', environment: 'test', running: false, verified: true, failed: false },
+        { namespace: 'prod', stage: 'pay', environment: 'prod', running: true, verified: true, failed: false }] },
+      { digest: D1, signed: false, contract: 'oci://r/p:1.0', stages: [{ namespace: 'prod', stage: 'pay', environment: 'prod', running: false, verified: false, failed: true }] },
     ] }] });
     let r = render(DeliveryPublishView);
     await settle();
-    expect(text(r.target)).toContain('2.0.0');
-    expect(text(r.target)).toContain('Signature checked');
-    expect(text(r.target)).toContain('prod: running, verified');
-    expect(text(r.target)).toContain('Signature not checked here');
-    expect(text(r.target)).toContain('prod: known, failed');
+    // One line per version: short digests with a copy button, and environments as a count.
+    const rows = [...r.target.querySelectorAll('li.pv-row')].map((li) => text(li as HTMLElement).trim());
+    expect(rows).toEqual([
+      '2.0.0 Signature checked 222222222222 ⧉ Contract cccccccccccc ⧉ 2 environments, 1 running',
+      'Signature not checked here 111111111111 ⧉ Contract oci://r/p:1.0 ⧉ 1 environment, 1 failed',
+    ]);
+    expect(r.target.querySelector('.pv-contract .copyable')?.getAttribute('title')).toBe(`oci://r/p@sha256:${'c'.repeat(64)}`);
+    expect(r.target.querySelector('[data-testid="published-stages"]')).toBeNull();
+    const envs = r.target.querySelectorAll('[data-testid="published-envs"]');
+    (envs[0] as HTMLButtonElement).click();
+    (envs[1] as HTMLButtonElement).click();
+    await settle();
+    expect(envs[0].getAttribute('aria-expanded')).toBe('true');
+    // Running and failed first.
+    expect([...r.target.querySelectorAll('[data-testid="published-stages"]')].map((p) => text(p as HTMLElement).trim()))
+      .toEqual(['prod: running, verified test: known, verified', 'prod: known, failed']);
     r.destroy();
     fns.published.mockResolvedValue({ ...listing, services: [] });
     r = render(DeliveryPublishView);

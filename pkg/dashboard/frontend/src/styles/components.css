@@ -717,6 +717,9 @@ tr.clickable:active { background: var(--c-surface-inset); }
 .data-table thead th { position: sticky; top: 0; z-index: 2; background: var(--c-surface); box-shadow: inset 0 -1px 0 var(--c-border); }
 .data-table tbody th { font: inherit; font-variant-caps: normal; letter-spacing: normal; color: var(--c-text); }
 .cell-clip { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A clipped link a keyboard reaches unclips while it has focus, so its whole text is
+   never only in a tooltip a mouse can open. */
+.cell-clip:focus-visible, .cell-clip:focus-within { white-space: normal; overflow-wrap: anywhere; }
 .cell-stack { display: flex; flex-direction: column; align-items: flex-start; gap: var(--sp-1); min-width: 0; }
 .cell-badges { display: flex; flex-wrap: wrap; gap: var(--sp-1); }
 @media (max-width: 768px) {

@@ -113,4 +113,34 @@ describe('createProductLoader', () => {
     await flush();
     expect(loader.data).toBe('B');
   });
+
+  it('keeps the page on screen while another page of the same list loads, and drops it on a new question or a failure', async () => {
+    const d1 = deferred<string>();
+    const d2 = deferred<string>();
+    const d3 = deferred<string>();
+    const fetcher = vi.fn().mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise).mockReturnValueOnce(d3.promise);
+    const loader = createProductLoader(fetcher);
+    expect(loader.answer('f@0', 'f')).toEqual({ data: null, paging: false });
+
+    loader.sync('f@0', 'f@0', 'f');
+    d1.resolve('page1'); await flush();
+    expect(loader.answer('f@0', 'f')).toEqual({ data: 'page1', paging: false });
+
+    // Page 2 asked for: page 1 stays, flagged as a page turn, even before sync runs.
+    expect(loader.answer('f@25', 'f')).toEqual({ data: 'page1', paging: true });
+    loader.sync('f@25', 'f@25', 'f');
+    expect(loader.answer('f@25', 'f')).toEqual({ data: 'page1', paging: true });
+    // Another question (a filter), or a list that names no family, is not a page turn.
+    expect(loader.answer('g@0', 'g')).toEqual({ data: null, paging: false });
+    expect(loader.answer('f@25', undefined)).toEqual({ data: null, paging: false });
+
+    // Page 2 fails: the old rows go, so the error is what shows.
+    d2.reject(new Error('boom')); await flush();
+    expect(loader.answer('f@25', 'f')).toEqual({ data: null, paging: false });
+
+    loader.refresh();
+    d3.resolve('page2'); await flush();
+    expect(loader.dataTag).toBe('f@25');
+    expect(loader.answer('f@25', 'f')).toEqual({ data: 'page2', paging: false });
+  });
 });

@@ -13,7 +13,8 @@ import { installFetchGate, gate } from './fetchGate';
 // The fix is a caller-owned `queryIdentity` (filters + page + scope, deliberately WITHOUT
 // the refresh tick) recorded against the data on hand. `refreshTick` re-asks the same
 // question; anything else is a different one, and a different one shows a loading state
-// rather than the previous answer.
+// rather than the previous answer. A page turn is the one exception, by user decision:
+// the page being left stays on screen under "Loading another page…" until the next lands.
 //
 // Only a real browser with a REAL delay proves it. A resolved-immediately request never
 // leaves the window in which the wrong rows are on screen, so the whole class of bug is
@@ -102,7 +103,7 @@ test.describe('WASM demo — retained rows answer the question that is on screen
     }
   });
 
-  test('paging Services mid-flight does not show page 1 under page 2', async ({ page }) => {
+  test('paging Services keeps page 1 on screen, says page 2 is loading, then swaps it in', async ({ page }) => {
     await page.addInitScript(installBigServices);
     await page.goto('/#/fleet/services');
     await expect(page.getByTestId('service-list').locator('li')).toHaveCount(25, { timeout: T });
@@ -114,13 +115,20 @@ test.describe('WASM demo — retained rows answer the question that is on screen
     await page.getByTestId('svc-next').click();
     await g.awaitHeld();
 
-    await expect(page.getByTestId('service-list')).toHaveCount(0);
-    await expect(skeleton(page)).toBeVisible();
+    // A user decision: a page turn keeps the page being left, whole and labelled as such,
+    // under a quiet loading line -- no skeleton flash. The pager still describes the rows
+    // on screen, so nothing reads as page 2 until page 2 is there.
+    await expect(page.getByTestId('snapshot-age')).toHaveText('Loading another page…');
+    await expect(skeleton(page)).toHaveCount(0);
+    await expect(page.getByTestId('service-list').locator('li')).toHaveCount(25);
+    expect(await page.getByTestId('service-list').locator('li').first().textContent()).toContain('service-000');
+    await expect(page.getByText(/Showing\s+1[–-]25\s+of\s+60/)).toBeVisible();
 
     await g.release();
     await expect(page.getByTestId('service-list').locator('li')).toHaveCount(25, { timeout: T });
     await expect(page.getByText(/Showing\s+26[–-]50\s+of\s+60/)).toBeVisible();
     expect(await page.getByTestId('service-list').locator('li').first().textContent()).toContain('service-025');
+    await expect(page.getByTestId('snapshot-age')).not.toHaveText('Loading another page…');
   });
 
   test('an Attention filter committed mid-flight does not leave the previous backlog on screen', async ({ page }) => {

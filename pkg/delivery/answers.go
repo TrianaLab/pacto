@@ -97,6 +97,9 @@ func StatusEntry(o OperationObject) HistoryEntry {
 	e := HistoryEntry{Seq: s.Seq, Operation: o.Metadata.Name, Type: o.Spec.Type, From: o.Spec.Params.From,
 		To: o.Spec.Params.To, Actor: o.Spec.Actor.User, ActorClass: s.ActorClass, Phase: s.Phase, Outcome: s.Outcome,
 		Verification: s.Verification, Reason: s.Reason, Finished: s.Times.Finished}
+	if e.Finished == "" {
+		e.Since = cmp.Or(s.Times.Held, s.Times.Admitted, o.Metadata.CreationTimestamp)
+	}
 	if s.Pointer.After != "" {
 		ptr := s.Pointer
 		e.Pointer = &ptr

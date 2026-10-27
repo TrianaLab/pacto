@@ -24,6 +24,8 @@ import KnowledgeBanner from './KnowledgeBanner.svelte';
 import RelationshipList from './RelationshipList.svelte';
 // @ts-expect-error
 import FindingList from './FindingList.svelte';
+// @ts-expect-error
+import PageHeader from './PageHeader.svelte';
 import { decideViewState, snapshotKnowledge } from '../lib/knowledgeState.ts';
 
 let target: HTMLElement;
@@ -401,5 +403,17 @@ describe('FindingList provenance', () => {
     const metas = [...target.querySelectorAll('.f-meta')].map((m) => m.textContent ?? '');
     expect(metas[0]).toContain('seen by: Kubernetes + kernel');
     expect(metas[1]).not.toContain('seen by');
+  });
+});
+
+describe('PageHeader', () => {
+  const age = () => target.querySelector('[data-testid="snapshot-age"]')?.textContent?.trim();
+  it('says a page turn is loading, over a poll in flight', () => {
+    comp = mount(PageHeader, { target, props: { title: 'Services', revalidating: true, paging: true } });
+    expect(age()).toBe('Loading another page…');
+  });
+  it('says a poll is checking when no page turn is in flight', () => {
+    comp = mount(PageHeader, { target, props: { title: 'Services', revalidating: true } });
+    expect(age()).toBe('Checking for changes…');
   });
 });

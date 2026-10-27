@@ -45,11 +45,14 @@
   // queryIdentity is the QUESTION (search + page); refreshTick only re-asks it. Rows
   // are retained across a re-ask and never across a different question.
   const queryIdentity = $derived(`${text}@@${pageOffset}@@${pageLimit}@@${order}`);
-  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity); });
+  // listIdentity is the same question without its page: a page turn keeps the rows.
+  const listIdentity = $derived(`${text}@@${order}`);
+  $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
 
-  const list = $derived(loader.dataTag === queryIdentity ? loader.data : null);
+  const answer = $derived(loader.answer(queryIdentity, listIdentity));
+  const list = $derived(answer.data);
   const loading = $derived(loader.loading);
   const error = $derived(loader.error);
   const knowledge = $derived(snapshotKnowledge(list?.meta));
@@ -121,7 +124,7 @@
 
 <div class="product-page">
   <Breadcrumbs trail={[{ label: 'Overview', href: fleetOverviewUrl() }, { label: 'Owners' }]} />
-  <PageHeader title="Owners" count={list ? `${formatCount(total)} owner${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} />
+  <PageHeader title="Owners" count={list ? `${formatCount(total)} owner${total === 1 ? '' : 's'}` : ''} asOf={list?.meta?.asOf} {revalidating} paging={answer.paging} />
 
   <div class="ow-filters">
     <form class="lv-search" onsubmit={submitSearch} role="search">
