@@ -156,6 +156,8 @@ func TestDashboardIdentityFactory(t *testing.T) {
 	_, err = shared.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
 	expect(t, err != nil, "a client error is passed on")
 	expect(t, got.BearerToken == "id-token" && got.Host == "https://k", "shared mode builds the client from the person's token: %+v", got)
+	expect(t, got.QPS == callerQPS && got.Burst == callerQPS && got.WrapTransport != nil,
+		"one request's reads are not throttled to client-go's default and go through the read cache: %+v", got)
 }
 
 func isRefusal(err error, status int) bool {

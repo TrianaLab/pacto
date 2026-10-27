@@ -231,6 +231,7 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 		cfg = authn.RESTConfig(id.cluster, st.Token)
 	}
 	cfg = rest.CopyConfig(cfg)
+	cfg.QPS, cfg.Burst = callerQPS, callerQPS
 	cfg.Wrap(id.reads.wrap)
 	dyn, err := id.newClient(cfg)
 	if err != nil {
@@ -239,6 +240,12 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 	return dashDelivery{d: &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
 		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams}, id: id}, nil
 }
+
+// callerQPS bounds one dashboard request's apiserver reads per second. The
+// client lives for one request, so client-go's default (5, bursting to 10)
+// only made a history page, a read per Stage on it, wait eight seconds on
+// itself; the apiserver's priority and fairness protects the cluster.
+const callerQPS = 100
 
 // describe caches what a digest carries: a digest never changes.
 // ponytail: a bounded map reset when full; an LRU if dashboards ever cycle
