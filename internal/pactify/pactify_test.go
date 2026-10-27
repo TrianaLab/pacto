@@ -267,6 +267,22 @@ func checkDeployer(t *testing.T, text, env string) {
 			}
 		}
 	}
+	// Flux checks the rollout's health as the deployer: kstatus lists the
+	// Deployment's ReplicaSets and their Pods.
+	for _, want := range []string{"replicasets", "pods"} {
+		readable := false
+		for _, r := range kinds["Role"]["rules"].([]any) {
+			rule := r.(map[string]any)
+			for _, res := range rule["resources"].([]any) {
+				if res == want && slices.Contains(rule["verbs"].([]any), any("list")) {
+					readable = true
+				}
+			}
+		}
+		if !readable {
+			t.Fatalf("the deployer in %s cannot list %s, so Flux's health check fails:\n%s", env, want, text)
+		}
+	}
 }
 
 // decodeStage returns the Stage spec in text, decoded strictly, and the kinds

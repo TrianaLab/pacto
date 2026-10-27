@@ -245,6 +245,13 @@ rules:
   - apiGroups: [pacto.trianalab.io]
     resources: [pactos]
     verbs: ["*"]
+  # Flux checks a rollout's health as this account, reading its ReplicaSets and Pods.
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

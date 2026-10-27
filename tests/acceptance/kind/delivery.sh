@@ -678,6 +678,9 @@ metadata: {name: $svc-deployer}
 rules:
 - {apiGroups: [apps], resources: [deployments], verbs: ["*"]}
 - {apiGroups: [pacto.trianalab.io], resources: [pactos], verbs: ["*"]}
+# Flux checks the rollout's health as this account.
+- {apiGroups: [apps], resources: [replicasets], verbs: [get, list, watch]}
+- {apiGroups: [""], resources: [pods], verbs: [get, list, watch]}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
