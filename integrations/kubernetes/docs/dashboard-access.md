@@ -11,14 +11,19 @@ the sign-in screen and no fleet data.
 Your username and groups come from your ID token through the
 [claim mapping](dashboard-authentication.md#match-the-api-servers-claim-mapping),
 which must match the API server's. After a token sign-in they are what the API
-server answered for that token. When your RBAC lets you read no namespace, the
+server answered for that token. A remote `pacto mcp --fleet` takes the same
+mapping as `--oidc-username-claim`, `--oidc-username-prefix`,
+`--oidc-groups-claim` and `--oidc-groups-prefix`, so a person is the same
+identity in both. When your RBAC lets you read no namespace, the
 dashboard says so and names your groups.
 
 ## What stays hidden
 
 Change analysis on raw references answers only for services you can see: a
-hidden one, on either side of the change, reads as not found. A service known only from a registry, with no Pacto in any
-namespace, stays visible. A hidden service is never named: the dashboard says
+hidden one, on either side of the change, reads as not found. A service known
+only from a registry, with no Pacto in any namespace, belongs to no namespace:
+only people who may list Pactos in every namespace see it, and for everyone
+else it is hidden like the rest. A hidden service is never named: the dashboard says
 some services are hidden, and a service page counts the hidden services it
 depends on and that depend on it. If the apiserver cannot answer, the views
 show an error, not a smaller fleet.

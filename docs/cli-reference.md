@@ -1204,33 +1204,37 @@ pacto mcp [bundle-ref] [flags]
 **Flags:**
 
 ```
-      --allow-writes                expose mutating operations (POST/PUT/PATCH/DELETE) as tools
-      --audience string             with --auth-issuer: the audience incoming tokens must carry (default --resource)
-      --auth stringArray            credential for a security scheme as name=value (repeatable)
-      --auth-issuer string          OpenID issuer whose bearer tokens every HTTP request must carry
-      --base-url string             base URL for live invocation (overrides the OpenAPI servers[] URL)
-      --cache                       include every bundle in the local OCI cache as an offline baseline revision
-      --delivery                    expose the Pacto delivery tools over the ambient cluster
-      --delivery-namespace string   in --delivery mode: namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
-      --delivery-trust string       in --delivery mode: the trust config delivery records are verified with (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
-      --evidence-url stringArray    base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
-      --exchange-audience string    with --delivery over HTTP: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
-      --exchange-client-id string   with --delivery over HTTP: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
-      --fleet                       expose read-only operational-graph (fleet) query tools
-      --freshness duration          mark target evidence older than this as stale (0 disables)
-  -h, --help                        help for mcp
-      --host string                 bind address for HTTP transport; beyond loopback it needs --auth-issuer (default "127.0.0.1")
-      --k8s                         include live Pacto CRs from the current Kubernetes cluster as targets
-      --local stringArray           local bundle root(s) to scan (repeatable) (default [.])
-      --namespace string            namespace to read Pacto CRs from with --k8s (empty = all namespaces)
-      --oci stringArray             registry reference to include as a published-baseline revision (repeatable)
-      --port int                    port for HTTP transport (default 8585)
-      --publish                     expose pacto_publish_plan and pacto_publish beside the authoring tools
-      --resource string             with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)
-      --root stringArray            contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
-      --target-state stringArray    offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
-      --traces stringArray          OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
-  -t, --transport string            transport type: stdio or http (default "stdio")
+      --allow-writes                  expose mutating operations (POST/PUT/PATCH/DELETE) as tools
+      --audience string               with --auth-issuer: the audience incoming tokens must carry (default --resource)
+      --auth stringArray              credential for a security scheme as name=value (repeatable)
+      --auth-issuer string            OpenID issuer whose bearer tokens every HTTP request must carry
+      --base-url string               base URL for live invocation (overrides the OpenAPI servers[] URL)
+      --cache                         include every bundle in the local OCI cache as an offline baseline revision
+      --delivery                      expose the Pacto delivery tools over the ambient cluster
+      --delivery-namespace string     in --delivery mode: namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
+      --delivery-trust string         in --delivery mode: the trust config delivery records are verified with (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
+      --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
+      --exchange-audience string      with --delivery over HTTP: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
+      --exchange-client-id string     with --delivery over HTTP: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
+      --fleet                         expose read-only operational-graph (fleet) query tools
+      --freshness duration            mark target evidence older than this as stale (0 disables)
+  -h, --help                          help for mcp
+      --host string                   bind address for HTTP transport; beyond loopback it needs --auth-issuer (default "127.0.0.1")
+      --k8s                           include live Pacto CRs from the current Kubernetes cluster as targets
+      --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
+      --namespace string              namespace to read Pacto CRs from with --k8s (empty = all namespaces)
+      --oci stringArray               registry reference to include as a published-baseline revision (repeatable)
+      --oidc-groups-claim string      ID token claim the API server takes the groups from; must match its claim mapping (default groups)
+      --oidc-groups-prefix string     prefix the API server puts before every group; must match its claim mapping
+      --oidc-username-claim string    ID token claim the API server takes the username from; must match its claim mapping (default sub)
+      --oidc-username-prefix string   prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)
+      --port int                      port for HTTP transport (default 8585)
+      --publish                       expose pacto_publish_plan and pacto_publish beside the authoring tools
+      --resource string               with --auth-issuer: this endpoint's URL as clients reach it, served as protected-resource metadata (RFC 9728)
+      --root stringArray              contract root to discover a read-only catalog from: a local bundle path or an oci:// reference (repeatable)
+      --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
+  -t, --transport string              transport type: stdio or http (default "stdio")
 ```
 
 The **default** server exposes the four authoring tools below. A bundle reference and four flags select a different server, each with its own tools. See [Server modes](#server-modes) after this table:

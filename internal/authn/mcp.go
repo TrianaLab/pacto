@@ -88,14 +88,14 @@ func (m *MCP) Verify(ctx context.Context, token string, r *http.Request) (*auth.
 		Extra: map[string]any{rawTokenKey: token}}, nil
 }
 
-// PersonFromTokenInfo is who a request Verify accepted is to the apiserver;
-// Anonymous for no caller.
-func PersonFromTokenInfo(info *auth.TokenInfo) Person {
+// PersonFromTokenInfo is who a request Verify accepted is to the apiserver,
+// mapped as c names it; no caller is Anonymous.
+func (c Claims) PersonFromTokenInfo(info *auth.TokenInfo) Person {
 	if info == nil {
 		return Anonymous
 	}
 	token, _ := info.Extra[rawTokenKey].(string)
-	return PersonFromToken(token)
+	return c.Person(token)
 }
 
 // CanExchange reports whether token exchange is configured.

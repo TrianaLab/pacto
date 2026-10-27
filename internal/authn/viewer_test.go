@@ -7,6 +7,7 @@ import (
 	"slices"
 	"sync"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
@@ -15,6 +16,7 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	k8stesting "k8s.io/client-go/testing"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -135,11 +137,31 @@ func TestViewerSnapshots(t *testing.T) {
 	if got2, _ := v.Query(context.Background(), alice, q2); !slices.Equal(services(got2), []string{"svc-a"}) {
 		t.Errorf("new snapshot: %v", services(got2))
 	}
-	// No namespace, no question.
+	// No namespace: only the cluster-wide question, already answered.
 	r.asked = nil
 	plain := viewerFleet(t)
 	if p, err := v.Query(context.Background(), alice, plain); p != plain || err != nil || len(r.asked) != 0 {
 		t.Errorf("a snapshot with no namespace asked %v", r.asked)
+	}
+}
+
+// TestViewerRegistryOnly: a service with no namespace shows only to a
+// cluster-wide reader.
+func TestViewerRegistryOnly(t *testing.T) {
+	col := &fleet.Collection{Revisions: []fleet.RawRevision{{Bundle: &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.0",
+		Service: contract.Service{Name: "reg", Version: "1.0.0", Owner: contract.Owner{Team: "t"}}}, FS: fstest.MapFS{}}, Digest: "sha256:reg"}},
+		Targets: []fleet.RawTarget{{Scope: "a", Kind: fleet.SourceKindKubernetes, Name: "svc-a", Service: "svc-a"}}}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("oci", "oci", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	v, _, _ := testViewer()
+	if got, _ := v.Query(context.Background(), alice, q); !slices.Equal(services(got), []string{"svc-a"}) {
+		t.Errorf("alice sees %v", services(got))
+	}
+	if got, _ := v.Query(context.Background(), Person{User: "root"}, q); got != q {
+		t.Errorf("root sees %v", services(got))
 	}
 }
 
@@ -209,11 +231,16 @@ func TestSubjectAccessReview(t *testing.T) {
 }
 
 func TestPersonFromTokenInfo(t *testing.T) {
-	if p := PersonFromTokenInfo(nil); p.User != Anonymous.User {
+	if p := (Claims{}).PersonFromTokenInfo(nil); p.User != Anonymous.User {
 		t.Errorf("no caller is %+v", p)
 	}
-	info := &auth.TokenInfo{Extra: map[string]any{rawTokenKey: fakeJWT(`{"iss":"https://kc","sub":"agent"}`)}}
-	if p := PersonFromTokenInfo(info); p.User != "https://kc#agent" {
+	info := &auth.TokenInfo{Extra: map[string]any{rawTokenKey: fakeJWT(`{"iss":"https://kc","sub":"agent","email":"a@x","roles":["ops"]}`)}}
+	if p := (Claims{}).PersonFromTokenInfo(info); p.User != "https://kc#agent" {
 		t.Errorf("caller is %+v", p)
+	}
+	// The remote MCP server maps a caller as the dashboard does.
+	c := Claims{UsernameClaim: "email", GroupsClaim: "roles", GroupsPrefix: "oidc:"}
+	if p := c.PersonFromTokenInfo(info); p.User != "a@x" || len(p.Groups) != 1 || p.Groups[0] != "oidc:ops" {
+		t.Errorf("mapped caller is %+v", p)
 	}
 }

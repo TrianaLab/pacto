@@ -166,16 +166,17 @@ func NewViewer(review Review) *Viewer {
 	return &Viewer{review: review, ttl: time.Minute, now: time.Now, answers: map[string]verdict{}, views: map[string]*fleet.Query{}}
 }
 
-// Query is q as p sees it. A snapshot with no Kubernetes namespace needs no
-// question. A failed review is an error, never a quietly smaller answer.
+// Query is q as p sees it. A cluster-wide reader sees all of it; anyone else
+// sees the namespaces they may read and nothing without a namespace, such as
+// a service known only from a registry. A failed review is an error, never a
+// quietly smaller answer.
 func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Query, error) {
-	nss := q.Namespaces()
-	if len(nss) == 0 {
-		return q, nil
-	}
-	visible, err := v.visible(ctx, p, nss)
+	visible, all, err := v.visible(ctx, p, q.Namespaces())
 	if err != nil {
 		return nil, err
+	}
+	if all {
+		return q, nil
 	}
 	key := strings.Join(visible, "\x00")
 	v.mu.Lock()
@@ -187,7 +188,7 @@ func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Qu
 	}
 	// Restricting a large snapshot takes a while, so it runs unlocked: two
 	// people asking at once may both build the same view.
-	r = q.Restrict(func(ns string) bool { _, ok := slices.BinarySearch(visible, ns); return ok })
+	r = q.Restrict(func(ns string) bool { _, ok := slices.BinarySearch(visible, ns); return ok && ns != "" })
 	v.mu.Lock()
 	if v.viewsOf != q.SnapshotID() || len(v.views) >= maxViews {
 		v.viewsOf, v.views = q.SnapshotID(), map[string]*fleet.Query{}
@@ -197,13 +198,14 @@ func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Qu
 	return r, nil
 }
 
-// visible returns, sorted, the namespaces of nss p may read. One review for
-// every namespace at once comes first: it settles a cluster-wide reader.
-func (v *Viewer) visible(ctx context.Context, p Person, nss []string) ([]string, error) {
+// visible returns, sorted, the namespaces of nss p may read, and whether p
+// reads every namespace. One review for every namespace at once comes first:
+// it settles a cluster-wide reader.
+func (v *Viewer) visible(ctx context.Context, p Person, nss []string) ([]string, bool, error) {
 	who := p.User + "\x00" + strings.Join(slices.Sorted(slices.Values(p.Groups)), "\x00")
 	all, err := v.ask(ctx, p, who, "")
 	if err != nil || all {
-		return nss, err
+		return nss, all, err
 	}
 	allowed := make([]bool, len(nss))
 	g, gctx := errgroup.WithContext(ctx)
@@ -212,7 +214,7 @@ func (v *Viewer) visible(ctx context.Context, p Person, nss []string) ([]string,
 		g.Go(func() (err error) { allowed[i], err = v.ask(gctx, p, who, ns); return err })
 	}
 	if err := g.Wait(); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	var out []string
 	for i, ns := range nss {
@@ -220,7 +222,7 @@ func (v *Viewer) visible(ctx context.Context, p Person, nss []string) ([]string,
 			out = append(out, ns)
 		}
 	}
-	return out, nil
+	return out, false, nil
 }
 
 // ask is one cached review. Failures are not cached.

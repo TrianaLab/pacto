@@ -116,6 +116,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().String("exchange-client-id", "", "with --delivery over HTTP: the server's own OAuth client, which exchanges each caller's token for the cluster "+
 		"(RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET")
 	cmd.Flags().String("exchange-audience", "pacto-cli", "with --delivery over HTTP: the audience to exchange for, one the apiserver accepts")
+	addClaimFlags(cmd)
 	cmd.Flags().String("base-url", "", "base URL for live invocation (overrides the OpenAPI servers[] URL)")
 	cmd.Flags().StringArray("auth", nil, "credential for a security scheme as name=value (repeatable)")
 	cmd.Flags().Bool("allow-writes", false, "expose mutating operations (POST/PUT/PATCH/DELETE) as tools")
@@ -342,8 +343,11 @@ func mcpFleetView(cmd *cobra.Command, d deps) pactomcp.FleetView {
 	}
 	cluster, _ := d.clusterConfig()
 	viewer := authn.NewViewer(clusterReview(cluster, d.dynamicFor))
+	flag := func(name string) string { v, _ := cmd.Flags().GetString(name); return v }
+	claims := authn.Claims{UsernameClaim: flag("oidc-username-claim"), UsernamePrefix: flag("oidc-username-prefix"),
+		GroupsClaim: flag("oidc-groups-claim"), GroupsPrefix: flag("oidc-groups-prefix")}
 	return func(ctx context.Context, caller *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
-		r, err := viewer.Query(ctx, authn.PersonFromTokenInfo(caller), q)
+		r, err := viewer.Query(ctx, claims.PersonFromTokenInfo(caller), q)
 		if err != nil {
 			return nil, fmt.Errorf("checking your Kubernetes permissions failed: %w", err)
 		}

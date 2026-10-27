@@ -99,9 +99,10 @@ func TestMCPFleetView(t *testing.T) {
 	}
 	_ = cmd.Flags().Set("auth-issuer", "https://idp.example")
 	view := mcpFleetView(cmd, d)
-	plain := fleet.NewQuery(&fleet.FleetSnapshot{})
-	if q, err := view(context.Background(), nil, plain); err != nil || q != plain {
-		t.Fatalf("a snapshot with no namespace: %v", err)
+	// Even a snapshot with no namespace asks whether the caller reads the whole
+	// cluster: that decides the services known only from a registry.
+	if _, err := view(context.Background(), nil, fleet.NewQuery(&fleet.FleetSnapshot{})); err == nil {
+		t.Fatal("a snapshot with no namespace still needs the cluster-wide answer")
 	}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("k8s", "kubernetes", &fleet.Collection{
 		Targets: []fleet.RawTarget{{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "web", Service: "web"}},

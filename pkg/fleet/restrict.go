@@ -29,7 +29,8 @@ func (q *Query) Namespaces() []string {
 // visible says yes to sees it. A Kubernetes target in another namespace is
 // gone, and so is a service none of whose Kubernetes targets they may read,
 // with its revisions, its targets everywhere and its edges. A service known
-// only from a registry or files, with no Kubernetes target, stays.
+// only from a registry or files, with no Kubernetes target, has no namespace:
+// visible("") decides it, and a caller who may read every namespace says yes.
 //
 // An edge between a visible and a hidden service keeps the visible side:
 // each visible service counts the hidden services it depends on and that
@@ -45,10 +46,10 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 			hiddenNS[ns] = true
 		}
 	}
-	if len(hiddenNS) == 0 {
+	hiddenSvc := hiddenServices(s, hiddenNS, !visible(""))
+	if len(hiddenNS) == 0 && len(hiddenSvc) == 0 {
 		return q
 	}
-	hiddenSvc := hiddenServices(s, hiddenNS)
 
 	out := *s
 	var hiddenNames []string
@@ -104,18 +105,19 @@ func (q *Query) Restrict(visible func(namespace string) bool) *Query {
 func kubeTarget(t *TargetRecord) bool { return t.Kind == SourceKindKubernetes && t.Scope != "" }
 
 // hiddenServices is the services whose Kubernetes targets all run in a hidden
-// namespace. A service with no Kubernetes target is never hidden.
-func hiddenServices(s *FleetSnapshot, hiddenNS map[string]bool) map[ServiceKey]bool {
+// namespace, and with hideUnscoped the services with no Kubernetes target.
+func hiddenServices(s *FleetSnapshot, hiddenNS map[string]bool, hideUnscoped bool) map[ServiceKey]bool {
 	hiddenSvc := map[ServiceKey]bool{}
 	for k, svc := range s.Services {
-		hidden, shown := false, false
+		hidden, shown, scoped := false, false, false
 		for _, tk := range svc.Targets {
 			if t := s.Targets[tk]; kubeTarget(t) {
+				scoped = true
 				hidden = hidden || hiddenNS[t.Scope]
 				shown = shown || !hiddenNS[t.Scope]
 			}
 		}
-		if hidden && !shown {
+		if (hidden && !shown) || (!scoped && hideUnscoped) {
 			hiddenSvc[k] = true
 		}
 	}

@@ -3,7 +3,10 @@
 A shared dashboard signs people in before it shows anything. Every request then
 runs as that person: delivery reads and actions go to the API server with their
 own token, and the fleet views show only the namespaces their Kubernetes RBAC
-lets them read ([who sees what](dashboard-access.md)). The dashboard's
+lets them read ([who sees what](dashboard-access.md)). A service known only
+from a registry belongs to no namespace, so only people who may list Pactos
+in every namespace see it, and counts and totals leave it out for everyone
+else. The dashboard's
 ServiceAccount stays read-only, with one extra right: asking the API server
 what a person may read (SubjectAccessReview). There is no impersonation, so
 the API server's audit log names the person.
@@ -55,7 +58,9 @@ Register `https://<dashboard>/auth/callback` as the client's redirect URL and
 terminate TLS in front of the dashboard. `pacto dashboard` takes the same
 settings as `--oidc-*`, `--session-*` and `--token-login` flags
 ([CLI reference](../../cli-reference.md)), with the client secret in
-`PACTO_DASHBOARD_OIDC_CLIENT_SECRET`.
+`PACTO_DASHBOARD_OIDC_CLIENT_SECRET`. A remote `pacto mcp` with
+`--auth-issuer` takes the same claim mapping flags
+([who sees what](dashboard-access.md)).
 
 ## Match the API server's claim mapping
 
@@ -92,8 +97,12 @@ sign-in.
 **Sign out** ends the session, revokes the refresh token where the provider
 supports revocation and, where the provider publishes an
 `end_session_endpoint`, sends the browser there to end the provider's session
-too. Sessions live in the dashboard's memory: it runs as one replica and a
-restart signs everyone out.
+too. Sessions live in the memory of one dashboard process. The operator runs
+the dashboard as one replica, and a restart signs everyone out. A
+`pacto dashboard` you deploy yourself with sign-in needs one replica too, or a
+load balancer with session affinity (for example `sessionAffinity: ClientIP`
+on its Service) so each person keeps reaching the replica that holds their
+session.
 
 ## Token sign-in
 

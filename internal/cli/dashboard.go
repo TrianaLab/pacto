@@ -191,10 +191,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("oidc-client-id", "", "OpenID Connect client id of the dashboard")
 	cmd.Flags().String("oidc-redirect-url", "", "the dashboard's /auth/callback as browsers reach it (https)")
 	cmd.Flags().StringSlice("oidc-extra-scopes", nil, "scopes to ask for beyond openid, profile and groups")
-	cmd.Flags().String("oidc-username-claim", "", "ID token claim the API server takes the username from; must match its claim mapping (default sub)")
-	cmd.Flags().String("oidc-username-prefix", "", "prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)")
-	cmd.Flags().String("oidc-groups-claim", "", "ID token claim the API server takes the groups from; must match its claim mapping (default groups)")
-	cmd.Flags().String("oidc-groups-prefix", "", "prefix the API server puts before every group; must match its claim mapping")
+	addClaimFlags(cmd)
 	cmd.Flags().Duration("session-idle-timeout", 0, "a session without a request for this long ends (default 1h)")
 	cmd.Flags().Duration("session-max-age", 0, "a session ends this long after sign-in, renewed or not (default 12h)")
 	cmd.Flags().Bool("token-login", false, "let people sign in by pasting a Kubernetes bearer token, for a cluster whose API server trusts no identity provider; a token session never decides on a held change (also PACTO_DASHBOARD_TOKEN_LOGIN)")
@@ -222,6 +219,16 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindEnv("evidence-source-url", "PACTO_EVIDENCE_SOURCE_URL")
 
 	return cmd
+}
+
+// addClaimFlags registers the claim mapping the API server applies to an ID
+// token. The dashboard and the remote MCP server take the same flags, so one
+// person is one Kubernetes identity in both.
+func addClaimFlags(cmd *cobra.Command) {
+	cmd.Flags().String("oidc-username-claim", "", "ID token claim the API server takes the username from; must match its claim mapping (default sub)")
+	cmd.Flags().String("oidc-username-prefix", "", "prefix the API server puts before the username; must match its claim mapping (default the issuer URL and #, none for the email claim; - for none)")
+	cmd.Flags().String("oidc-groups-claim", "", "ID token claim the API server takes the groups from; must match its claim mapping (default groups)")
+	cmd.Flags().String("oidc-groups-prefix", "", "prefix the API server puts before every group; must match its claim mapping")
 }
 
 // parseDashboardArgs splits positional arguments into a local directory and

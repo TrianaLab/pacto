@@ -68,7 +68,7 @@ var (
 func restrictShop(t *testing.T) (q, r *Query, s, orig *FleetSnapshot) {
 	t.Helper()
 	q = restrictFleet(t)
-	r = q.Restrict(func(ns string) bool { return ns == "shop" })
+	r = q.Restrict(func(ns string) bool { return ns == "shop" || ns == "" })
 	return q, r, r.SnapshotForSerialization(), q.SnapshotForSerialization()
 }
 
@@ -203,9 +203,30 @@ func TestRestrictSnapshotMetadata(t *testing.T) {
 
 func TestRestrictSeeingNothing(t *testing.T) {
 	q, reg := restrictFleet(t), rReg
-	// Seeing nothing hides every service with a Kubernetes target and keeps the registry-only one.
-	none := q.Restrict(func(string) bool { return false }).SnapshotForSerialization()
+	// Seeing no namespace but the cluster scope hides every service with a
+	// Kubernetes target and keeps the registry-only one.
+	none := q.Restrict(func(ns string) bool { return ns == "" }).SnapshotForSerialization()
 	if len(none.Services) != 1 || none.Services[reg] == nil || len(none.Targets) != 0 || len(none.Relationships) != 0 {
 		t.Errorf("seeing no namespace leaves %d services, %d targets, %d edges", len(none.Services), len(none.Targets), len(none.Relationships))
+	}
+	// Seeing nothing at all hides the registry-only service too.
+	if all := q.Restrict(func(string) bool { return false }).SnapshotForSerialization(); len(all.Services) != 0 {
+		t.Errorf("seeing nothing leaves %d services", len(all.Services))
+	}
+}
+
+func TestRestrictUnscoped(t *testing.T) {
+	q := restrictFleet(t)
+	// Every namespace but not the cluster scope: only reg, with no namespace, goes.
+	r := q.Restrict(func(ns string) bool { return ns != "" })
+	s := r.SnapshotForSerialization()
+	if len(s.Services) != 4 || s.Services[rReg] != nil || s.Sources[0].RevisionCount != 4 {
+		t.Errorf("services %d, reg %v, revisions %d", len(s.Services), s.Services[rReg], s.Sources[0].RevisionCount)
+	}
+	if s.Services[rAPI].HiddenDependencies != 1 {
+		t.Errorf("api calls the hidden reg: %+v", s.Services[rAPI])
+	}
+	if res, _ := r.Search(SearchFilter{Text: "reg"}); res.Total != 0 {
+		t.Errorf("search finds the hidden reg: %+v", res)
 	}
 }

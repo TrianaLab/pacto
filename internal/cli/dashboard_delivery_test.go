@@ -84,7 +84,9 @@ func TestDashboardIdentityModes(t *testing.T) {
 	var to dashboard.Options
 	tokens.options(&to)
 	expect(t, to.Auth.TokenLogin && !to.Auth.Login && !to.Auth.Local && to.View != nil, "token sign-in options %+v", to.Auth)
-	tokens.state = func(context.Context) authn.State { return authn.State{SignedIn: true, Token: "pasted", Method: "token"} }
+	tokens.state = func(context.Context) authn.State {
+		return authn.State{SignedIn: true, Token: "pasted", Method: "token"}
+	}
 	_, err := tokens.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
 	expect(t, err == nil, "a token session reaches delivery as itself: %v", err)
 	v.Set("dashboard.token-login", false)
@@ -380,7 +382,9 @@ func TestDashboardIdentityView(t *testing.T) {
 	expect(t, len(asked) > 0 && asked[0].User == "https://idp.example#u1", "a signed-in person is asked about as the cluster names them: %+v", asked)
 
 	id.viewer = authn.NewViewer(func(context.Context, authn.Person, string) (bool, error) { return false, errors.New("apiserver down") })
-	id.state = func(context.Context) authn.State { return authn.State{SignedIn: true, Person: authn.Person{User: "x#y"}} }
+	id.state = func(context.Context) authn.State {
+		return authn.State{SignedIn: true, Person: authn.Person{User: "x#y"}}
+	}
 	_, err = o.View(context.Background(), q)
 	expect(t, err != nil && strings.Contains(err.Error(), "checking your Kubernetes permissions failed"), "a failed check: %v", err)
 }

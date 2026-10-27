@@ -103,6 +103,11 @@ func TestDeploymentAC_Auth(t *testing.T) {
 			GroupsClaim: "roles", GroupsPrefix: "oidc:", SessionIdleTimeout: 30 * time.Minute, SessionMaxAge: 8 * time.Hour, TokenLogin: true,
 			DeliveryNamespace: "delivery"}}
 	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
+	// Sessions live in one process's memory, so a signed-in dashboard must stay
+	// one replica: a second replica would sign people out at random.
+	if *deploy.Spec.Replicas != 1 {
+		t.Fatalf("sign-in sessions need one replica, got %d", *deploy.Spec.Replicas)
+	}
 	env := map[string]corev1ac.EnvVarApplyConfiguration{}
 	for _, e := range deploy.Spec.Template.Spec.Containers[0].Env {
 		env[*e.Name] = e
