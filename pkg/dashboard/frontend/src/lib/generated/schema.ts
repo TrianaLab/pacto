@@ -917,6 +917,8 @@ export interface components {
             observed: boolean;
         };
         CapabilityAuth: {
+            /** @description Some services are hidden because this caller's Kubernetes permissions do not let them read their namespace */
+            hidden: boolean;
             /** @description People sign in with the identity provider */
             login: boolean;
             /**
@@ -1228,6 +1230,7 @@ export interface components {
             record?: string;
             /** Format: int64 */
             seq?: number;
+            since?: string;
             to?: string;
             type: string;
             unverifiedRecord?: string;
@@ -1305,6 +1308,7 @@ export interface components {
         };
         "Delivery.Params": {
             from?: string;
+            record?: string;
             to?: string;
             undoes?: string;
         };
@@ -1382,6 +1386,7 @@ export interface components {
             namespace: string;
             onBehalfOf?: string;
             reason?: string;
+            record?: string;
             stage: string;
             to?: string;
             type?: string;
@@ -1534,8 +1539,12 @@ export interface components {
             asOf: string;
             /** @enum {string} */
             completeness: "complete" | "partial";
-            /** @description Every environment of the services that match, over every page */
+            /** @description Every environment of the services that match q, over every page, ordered the way changes travel: dev, test, prod, then the rest */
             environmentNames: string[] | null;
+            /** @description dev, test or prod for each environment whose name says which; an environment it cannot tell is left out */
+            environmentTiers: {
+                [key: string]: string;
+            };
             /** @description The Stages of the services on this page */
             environments: components["schemas"]["EnvironmentRow"][] | null;
             /** @description Which services this page holds; offset and limit count services */
@@ -2053,6 +2062,7 @@ export interface components {
             firstSeen?: string;
             fromRevision?: string;
             fromService: string;
+            hidden?: boolean;
             /** Format: date-time */
             lastSeen?: string;
             lockedDigest?: string;
@@ -2140,6 +2150,10 @@ export interface components {
         };
         "Fleet.ServiceRecord": {
             domain?: string;
+            /** Format: int64 */
+            hiddenDependencies?: number;
+            /** Format: int64 */
+            hiddenDependents?: number;
             key: string;
             labels?: {
                 [key: string]: string;
@@ -2882,6 +2896,10 @@ export interface components {
             depth: number;
             expansions?: string[] | null;
             focus?: boolean;
+            /** Format: int64 */
+            hiddenDependencies?: number;
+            /** Format: int64 */
+            hiddenDependents?: number;
             owner?: string;
             ref: components["schemas"]["ProductRef"];
             revisionState?: string;
@@ -3004,6 +3022,10 @@ export interface components {
             domain?: string;
             evidence: components["schemas"]["ProductEvidencePreview"];
             findings: components["schemas"]["ProductAttributedFindingsPreview"];
+            /** Format: int64 */
+            hiddenDependencies?: number;
+            /** Format: int64 */
+            hiddenDependents?: number;
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
             ownership?: components["schemas"]["ProductOwnership"];
             referencedBy: components["schemas"]["ProductRefPreview"];
@@ -3401,10 +3423,20 @@ export interface components {
             head?: string;
             namespace: string;
             note: string;
+            /**
+             * Format: int64
+             * @description How many problems the records show. Without a stage, problems and unreadable are left out and only these counts are sent
+             */
+            problemCount?: number;
             problems?: string[] | null;
             source: string;
             stage: components["schemas"]["Delivery.StageNow"];
             unreadable?: string[] | null;
+            /**
+             * Format: int64
+             * @description How many things could not be read or verified
+             */
+            unreadableCount?: number;
             verified?: boolean;
         };
         StateInfo: {
@@ -3700,6 +3732,10 @@ export interface operations {
                 limit?: number;
                 /** @description Keep only what contains this text, ignoring case */
                 q?: string;
+                /** @description Keep only the services with a Stage in this environment, and only those Stages */
+                environment?: string;
+                /** @description Keep only the services with a Stage in an environment of this tier, and only those Stages */
+                tier?: "dev" | "test" | "prod";
             };
             header?: never;
             path?: never;

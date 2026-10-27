@@ -78,17 +78,18 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `spec.cause.verdict.phase` | `string` | yes |  | `pre`, `verify` |  |
 | `spec.cause.verdict.result` | `string` | yes |  | `Pass`, `Fail`, `Unknown` | Result is a gate verdict. |
 | `spec.correlationID` | `string` | no |  |  |  |
-| `spec.facet` | `string` | yes |  | `pointer`, `freeze`, `rung` |  |
+| `spec.facet` | `string` | yes |  | `pointer`, `freeze`, `rung`, `upstream` |  |
 | `spec.intentDigest` | `string` | no |  |  | IntentDigest is what plan() returned; the promoter recomputes it. |
 | `spec.onBehalfOf` | `object` | no |  |  | Principal is a person an agent says it acts for. It is asserted, never verified. |
 | `spec.onBehalfOf.user` | `string` | yes |  |  |  |
 | `spec.params` | `object` | no |  |  | Params are the operation parameters. On the pointer facet From and To are OCI manifest digests; on the rung facet they are rung names. |
 | `spec.params.from` | `string` | no |  |  |  |
+| `spec.params.record` | `string` | no |  |  | Record is the id of the upstream stand-in an acknowledge accepts. |
 | `spec.params.to` | `string` | no |  |  |  |
 | `spec.params.undoes` | `string` | no |  |  | Undoes is the uid of the operation a rollback undoes. |
 | `spec.reason` | `string` | no |  |  |  |
 | `spec.stage` | `string` | yes |  |  | Stage is the name of a Stage in the operation's namespace. |
-| `spec.type` | `string` | yes |  | `delivery.pacto.trianalab.io/promote`, `delivery.pacto.trianalab.io/rollback`, `delivery.pacto.trianalab.io/override`, `delivery.pacto.trianalab.io/unfreeze`, `delivery.pacto.trianalab.io/freeze`, `delivery.pacto.trianalab.io/autonomy` |  |
+| `spec.type` | `string` | yes |  | `delivery.pacto.trianalab.io/promote`, `delivery.pacto.trianalab.io/rollback`, `delivery.pacto.trianalab.io/override`, `delivery.pacto.trianalab.io/unfreeze`, `delivery.pacto.trianalab.io/freeze`, `delivery.pacto.trianalab.io/autonomy`, `delivery.pacto.trianalab.io/acknowledge` |  |
 | `spec.witnessed` | `boolean` | no |  |  | Witnessed marks an override the promoter raised for an edit it saw but did not make. Only the promoter may set it. |
 | `status` | `object` | no |  |  | OperationStatus is written only by the promoter. |
 | `status.actorClass` | `string` | no |  |  | ActorClass is who raised an operation, as the promoter classifies the apiserver identity. It is derived, never asserted by the client. |
@@ -367,6 +368,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.stream.id` | `string` | no |  |  | ID is &lt;clusterID&gt;/&lt;namespace&gt;/&lt;name&gt;; the cluster id is the kube-system namespace uid. |
 | `status.stream.recordedSeq` | `integer` | no |  |  | RecordedSeq is the newest local seq the recorder wrote or adopted a record for. Only the recorder writes it. |
 | `status.stream.seq` | `integer` | no |  |  |  |
+| `status.upstreamAcknowledged` | `[]string` | no |  |  | UpstreamAcknowledged holds the ids of the unrecordable stand-ins in the upstream stream that a person on this Stage checked and acknowledged, oldest first (cap 50). They no longer stop the Stage offering. |
 | `status.upstreamSeen` | `object` | no |  |  | UpstreamSeen is the newest record this Stage read from the upstream stream it follows (candidates.upstreamRecords). A later read that ends before it, or holds another record at its seq, offers nothing, so records removed from the upstream's tail never go unseen. |
 | `status.upstreamSeen.record` | `string` | yes |  |  | Record is the record's id, the digest of its signed payload. |
 | `status.upstreamSeen.seq` | `integer` | yes |  |  |  |

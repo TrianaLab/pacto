@@ -212,7 +212,8 @@ check("freshly signed-in carol approves", call("POST", `${opPath}/decision`, JSO
 const hist = json(call("GET", "/api/delivery/history")).histories || [];
 check("history has a verified stream and one with problems",
   hist.some((h) => h.verified && h.completeness === "complete")
-    && hist.some((h) => (h.problems || []).length > 0 && (h.unreadable || []).length > 0));
+    && // Without a Stage the summary counts problems instead of listing them.
+    && hist.some((h) => (h.problemCount || 0) > 0 && (h.unreadableCount || 0) > 0));
 check("the refused 2.4.3 is listed", (json(call("GET", "/api/delivery/refusals")).refusals || []).some((r) => r.version === "2.4.3" && r.requiredBump === "major"));
 const ladder = json(call("GET", "/api/delivery/autonomy")).stages || [];
 const rung = (ns, st) => ladder.find((s) => s.namespace === ns && s.stage === st) || {};
