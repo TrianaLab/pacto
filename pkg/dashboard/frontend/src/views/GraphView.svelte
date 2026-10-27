@@ -334,8 +334,8 @@
 
   function searchErrorMessage(e) {
     if (e instanceof SchemaCompatibilityError) return 'The dashboard and backend API versions differ; reload to update.';
-    if (e instanceof ApiError) return `Search failed (HTTP ${e.status}). ${e.message}`;
-    return 'Search is unavailable right now. Check your connection and try again.';
+    if (e instanceof ApiError) return `Search failed (HTTP ${e.status}): ${e.message}`;
+    return 'Search is unavailable. Check your connection and try again.';
   }
 </script>
 
@@ -527,7 +527,7 @@
       <div class="gv-body" class:gv-body-drawer={selected.kind === 'node' || selected.kind === 'edge'}>
         <div class="gv-main">
           {#if neighborhoodIsEmpty(shown)}
-            <p class="gv-status" data-testid="graph-empty">No {gs.direction === 'both' ? 'related entities' : gs.direction} are known for this focus under the selected views.</p>
+            <p class="gv-status" data-testid="graph-empty">No {gs.direction === 'both' ? 'related entities' : gs.direction} known under these views.</p>
           {:else}
             <!-- Primary: the visual Cytoscape topology. -->
             {#if grouped?.groups.length}
