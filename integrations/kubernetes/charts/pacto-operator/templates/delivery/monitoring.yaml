@@ -1,40 +1,12 @@
 {{- if .Values.delivery.enabled }}
 {{- if and .Values.delivery.recorder.enabled .Values.delivery.recorder.monitoring.enabled }}
-{{- $name := printf "%s-recorder" (include "pacto-operator.delivery.fullname" .) }}
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ $name }}-metrics
-  namespace: {{ include "pacto-operator.delivery.namespace" . }}
-  labels:
-    app.kubernetes.io/component: delivery-recorder
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
-spec:
-  selector:
-    app.kubernetes.io/component: delivery-recorder
-    {{- include "pacto-operator.delivery.selectorLabels" . | nindent 4 }}
-  ports:
-    - name: metrics
-      port: 8080
-      targetPort: metrics
-      protocol: TCP
+{{- $name := include "pacto-operator.delivery.recorderName" . }}
+{{- $ns := include "pacto-operator.delivery.namespace" . }}
+{{- $labels := include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-recorder") }}
+{{- $selector := include "pacto-operator.delivery.selectorLabels" (dict "ctx" . "component" "delivery-recorder") }}
+{{ include "pacto-operator.metricsService" (dict "name" (printf "%s-metrics" $name) "namespace" $ns "labels" $labels "port" 8080 "selector" $selector) }}
 ---
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
-metadata:
-  name: {{ $name }}
-  namespace: {{ include "pacto-operator.delivery.namespace" . }}
-  labels:
-    app.kubernetes.io/component: delivery-recorder
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
-spec:
-  selector:
-    matchLabels:
-      app.kubernetes.io/component: delivery-recorder
-      {{- include "pacto-operator.delivery.selectorLabels" . | nindent 6 }}
-  endpoints:
-    - port: metrics
-      path: /metrics
+{{ include "pacto-operator.serviceMonitor" (dict "name" $name "namespace" $ns "labels" $labels "selector" $selector "monitor" dict) }}
 ---
 # A Stage with spec.records.required stops moving on its own once more than
 # five operations wait for a record; this alert fires before anyone is asked.
@@ -42,10 +14,9 @@ apiVersion: monitoring.coreos.com/v1
 kind: PrometheusRule
 metadata:
   name: {{ $name }}
-  namespace: {{ include "pacto-operator.delivery.namespace" . }}
+  namespace: {{ $ns }}
   labels:
-    app.kubernetes.io/component: delivery-recorder
-    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+    {{- $labels | nindent 4 }}
 spec:
   groups:
     - name: pacto.delivery.records
