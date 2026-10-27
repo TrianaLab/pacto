@@ -31,9 +31,9 @@ the [published artifacts](artifact-hub.md) page; every value is on the
 
 ## Install with Helm
 
-The chart lives in an OCI registry. Installing it also installs the CRDs
-(bundled under the chart's `crds/` directory) and, by default, a dashboard the
-operator runs for you.
+The chart lives in an OCI registry. Installing it also installs the CRDs and,
+by default, a dashboard the operator runs for you. The CRDs are part of the
+release: `helm upgrade` updates them and `helm uninstall` keeps them.
 
 !!! warning "At chart defaults the operator can escalate its own privileges"
 
@@ -57,6 +57,12 @@ Pin a chart version with `--version` for a reproducible install (see the
 published chart:
 
 --8<-- "integrations/kubernetes/docs/generated/_install-command.md"
+
+To manage the CRDs yourself, for example from a separate GitOps source, set
+`crds.install=false` and apply them before the install. The operator does not
+start without them:
+
+--8<-- "integrations/kubernetes/docs/generated/_crd-apply.md"
 
 ### Common overrides
 
@@ -301,9 +307,10 @@ helm uninstall pacto-operator --namespace pacto-operator-system
 That removes the controller and everything owner-referenced to it, dashboard and
 Evidence Server included. Five things survive, in any order:
 
-- **The CRDs and your `Pacto` resources.** Helm never deletes CRDs, and deleting
-  them takes every `Pacto`, `PactoRevision` and `NodeRuntimeObservation` with
-  them. No finalizers, so it returns immediately.
+- **The CRDs and your `Pacto` resources.** The chart marks every CRD
+  `helm.sh/resource-policy: keep`, because deleting one takes every `Pacto`,
+  `PactoRevision` and `NodeRuntimeObservation` with it. No finalizers, so the
+  delete returns immediately.
 - **The dashboard's cluster-scoped RBAC**, which a namespaced owner cannot own.
 - **Anything you created by hand**: the Evidence Server's trust Secret, your
   registry-credentials Secret, a `metrics-observation-role` ClusterRole you

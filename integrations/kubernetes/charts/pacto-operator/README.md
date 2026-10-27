@@ -33,7 +33,7 @@ What the chart installs:
 - Controller `Deployment` with health and readiness probes
 - RBAC: a `ServiceAccount`, a cluster-scoped `ClusterRole` + `ClusterRoleBinding` (reads, and the dashboard's ClusterRole), a manager `Role` + `RoleBinding` in the release namespace (the dashboard and Evidence Server lifecycle) and a namespaced leader-election `Role` + `RoleBinding`
 - Metrics `Service` on port 8443 (HTTPS by default with the chart's `metrics.secure=true`; see [Scraping the metrics](https://pacto.run/latest/integrations/kubernetes/installation/#scraping-the-metrics))
-- CRDs: `Pacto`, `PactoRevision` and `NodeRuntimeObservation` (from the `crds/` directory)
+- CRDs: `Pacto`, `PactoRevision` and `NodeRuntimeObservation`, which `helm upgrade` updates and `helm uninstall` keeps (`crds.install=false` leaves them to you)
 - Optional: Prometheus `ServiceMonitor`
 - Optional: the node agent `DaemonSet` (`nodeAgent.enabled`, off by default), in its own namespace (`nodeAgent.namespace`, default `pacto-node-agent`) that the chart creates privileged for Pod Security, with a `ValidatingAdmissionPolicy` binding each agent's writes to its own node
 
@@ -47,7 +47,7 @@ helm install pacto-operator oci://ghcr.io/trianalab/pacto/charts/pacto-operator 
   --namespace pacto-operator-system --create-namespace
 ```
 
-[Install the operator](https://pacto.run/latest/integrations/kubernetes/installation/) covers pinning a version, common overrides and checking the install. CRDs come from the `crds/` directory; [Upgrade the operator](https://pacto.run/latest/integrations/kubernetes/upgrade/) says how to update them.
+[Install the operator](https://pacto.run/latest/integrations/kubernetes/installation/) covers pinning a version, common overrides and checking the install. [Upgrade the operator](https://pacto.run/latest/integrations/kubernetes/upgrade/#hand-older-crds-to-helm) covers the one-time step for CRDs an older chart installed from its `crds/` directory.
 
 ## Dashboard
 
@@ -212,6 +212,7 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | controller.kernelEvidence.staleness | string | `""` | How old a node's heartbeat may be before its evidence reads stale. Empty uses three times the node agent's publish interval. Accepts a Go duration (e.g. "2m"). |
 | controller.stabilizationWindow | string | `""` | Stabilization window: how long a sustained NEGATIVE observation must persist before it converts to a confirmed violation (a transient blip reads Unknown meanwhile). Empty string uses the controller default (2m). Accepts a Go duration (e.g. "30s", "5m"). |
 | controller.watchNamespace | string | `""` | Restrict the controller's observation scope to a single namespace. Empty string (default) means cluster-wide: the controller watches all namespaces. The dashboard inherits this scope automatically. |
+| crds.install | bool | `true` | Install and upgrade the CRDs with the chart. They are kept on helm uninstall. Set false to manage them yourself, for example from a separate GitOps source; the operator needs them before it starts |
 | dashboard.auth.deliveryNamespace | string | `""` | Namespace where Pacto delivery runs. The dashboard reads the identity policy it publishes there (agent, break-glass and human groups, team prefix), so it is never configured twice (empty: `delivery.namespace` when `delivery.enabled`, else `pacto-delivery`) |
 | dashboard.auth.oidc.clientID | string | `""` | The dashboard's client id at the issuer |
 | dashboard.auth.oidc.clientSecretRef.key | string | `"client-secret"` | Key of the client secret in that Secret |
