@@ -79,12 +79,31 @@ func TestViewNarrowsEveryFleetAnswer(t *testing.T) {
 	}
 	var caps capabilitiesOutput
 	getJSON(t, base+"/api/capabilities", http.StatusOK, &caps.Body)
-	if !caps.Body.Auth.Hidden {
-		t.Error("capabilities must say some services are hidden")
+	if !caps.Body.Auth.Hidden || caps.Body.Auth.NothingVisible {
+		t.Error("capabilities must say some services are hidden, not all")
 	}
 	expectStatus(t, base+"/api/fleet/impact?old=a&new=b", http.StatusOK)
 	if gotSnap == nil || len(gotSnap.Services) != 1 {
 		t.Errorf("impact ran over %+v, want the narrowed snapshot", gotSnap)
+	}
+}
+
+// TestViewOfNothing: a person whose RBAC reads no namespace sees an empty
+// fleet, and capabilities say so.
+func TestViewOfNothing(t *testing.T) {
+	q := viewQuery(t)
+	base := serveOptions(t, Options{
+		Fleet:     func(context.Context) (*fleet.Query, error) { return q, nil },
+		Published: func() *fleet.Query { return q },
+		View: func(_ context.Context, q *fleet.Query) (*fleet.Query, error) {
+			return q.Restrict(func(string) bool { return false }), nil
+		},
+		Auth: &Auth{Login: true, Routes: http.NotFoundHandler(), Middleware: func(h http.Handler) http.Handler { return h }, State: func(*http.Request) AuthState { return AuthState{SignedIn: true} }},
+	})
+	var caps capabilitiesOutput
+	getJSON(t, base+"/api/capabilities", http.StatusOK, &caps.Body)
+	if !caps.Body.Auth.Hidden || !caps.Body.Auth.NothingVisible {
+		t.Errorf("capabilities must say every service is hidden: %+v", caps.Body.Auth)
 	}
 }
 

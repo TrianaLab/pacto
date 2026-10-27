@@ -42,6 +42,8 @@ type capabilityAuth struct {
 	// Hidden: the fleet views leave out services this caller's Kubernetes
 	// permissions do not let them read. Which ones is never said.
 	Hidden bool `json:"hidden" doc:"Some services are hidden because this caller's Kubernetes permissions do not let them read their namespace"`
+	// NothingVisible: every service is hidden, so the caller sees an empty fleet.
+	NothingVisible bool `json:"nothingVisible,omitempty" doc:"Every service is hidden because this caller's Kubernetes permissions let them read none of their namespaces"`
 }
 
 // registerCapabilitiesOperation registers the always-on capabilities endpoint. It
@@ -70,7 +72,9 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 	out.Body.Observed = q != nil && q.HasObserved()
 	out.Body.Auth.Mode = "none"
 	if a := s.opts.Auth; a != nil {
-		out.Body.Auth = capabilityAuth{Mode: "shared", Login: a.Login, SignedIn: s.authState(ctx).SignedIn, Hidden: hiddenByPermissions(q)}
+		hidden := hiddenByPermissions(q)
+		out.Body.Auth = capabilityAuth{Mode: "shared", Login: a.Login, SignedIn: s.authState(ctx).SignedIn, Hidden: hidden,
+			NothingVisible: hidden && len(q.SnapshotForSerialization().Services) == 0}
 		if a.Local {
 			out.Body.Auth.Mode = "local"
 		}

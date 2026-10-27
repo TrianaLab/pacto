@@ -205,8 +205,6 @@ dashboard:
       redirectURL: ""
       # -- Scopes asked for beyond openid, profile and groups (for example a cross-client audience scope)
       extraScopes: []
-    # -- Gate the fleet views and the whole API behind sign-in too, not only delivery (needs `oidc.issuerURL`)
-    required: false
     # -- Namespace where Pacto delivery runs. The dashboard reads the identity policy it publishes there (agent, break-glass and human groups, team prefix), so it is never configured twice (empty: `delivery.namespace` when `delivery.enabled`, else `pacto-delivery`)
     deliveryNamespace: ""
   # -- Mira's address, to link the health-check citations in delivery views

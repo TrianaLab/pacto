@@ -165,8 +165,6 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"Secret in the operator namespace holding the client secret, passed to the dashboard by secretKeyRef.")
 	fs.StringVar(&o.dashboardAuth.ClientSecretKey, "dashboard-oidc-client-secret-key", "client-secret",
 		"Key of the client secret in that Secret.")
-	fs.BoolVar(&o.dashboardAuth.Required, "dashboard-auth-required", false,
-		"With OIDC sign-in, gate the fleet views and the whole API behind it too, not only delivery.")
 	fs.StringVar(&o.dashboardAuth.DeliveryNamespace, "dashboard-delivery-namespace", "",
 		"Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; "+
 			"empty means pacto-delivery.")

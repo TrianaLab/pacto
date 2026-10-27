@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -816,7 +817,7 @@ func TestDeliveryErrorAndRequestContext(t *testing.T) {
 		t.Fatal("DeliveryError")
 	}
 	srv := &Server{}
-	if srv.authState(context.Background()) != (AuthState{}) {
+	if !reflect.DeepEqual(srv.authState(context.Background()), AuthState{}) {
 		t.Fatal("no auth, no state")
 	}
 }

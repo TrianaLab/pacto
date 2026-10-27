@@ -19,7 +19,6 @@ Controller flags and their exact defaults are captured from the operator's real 
 | Flag | Type | Default | Via chart | Description |
 | --- | --- | --- | --- | --- |
 | `-caller-coverage-ignore-namespace` | `value` |  | chart value | Namespace whose host-network pods are taken not to call workloads, so they leave a Service's caller coverage complete (repeatable). kube-system and the other cluster namespaces and the node agent's are always ignored. |
-| `-dashboard-auth-required` | `bool` |  | chart value | With OIDC sign-in, gate the fleet views and the whole API behind it too, not only delivery. |
 | `-dashboard-cpu-limit` | `string` |  | chart value | CPU limit for the dashboard container (e.g. 200m). Empty uses the built-in default. |
 | `-dashboard-cpu-request` | `string` |  | chart value | CPU request for the dashboard container (e.g. 50m). Empty uses the built-in default. |
 | `-dashboard-delivery-namespace` | `string` |  | chart value | Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; empty means pacto-delivery. |

@@ -89,8 +89,8 @@ const (
 )
 
 // newDashboardIdentity picks the mode: shared with OIDC when an issuer is
-// configured, local on a loopback bind without one, and open (no delivery)
-// anywhere else.
+// configured (people sign in before the dashboard shows anything), local on a
+// loopback bind without one, and open (no delivery) anywhere else.
 func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d deps) (*dashboardIdentity, error) {
 	trust, err := deliveryTrust(v.GetString("dashboard.delivery-trust"))
 	if err != nil {
@@ -109,11 +109,6 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, d d
 		}
 		id.auth = authn.NewShared(o)
 		id.viewer = authn.NewViewer(clusterReview(cluster, d.dynamicFor))
-		if v.GetBool("dashboard.auth-required") {
-			id.auth.RequireLogin()
-		}
-	case v.GetBool("dashboard.auth-required"):
-		return nil, errors.New("--auth-required needs sign-in: set --oidc-issuer-url")
 	case isLoopback(host):
 		id.auth = authn.NewLocal()
 	default:
@@ -127,7 +122,13 @@ func (id *dashboardIdentity) options(o *dashboard.Options) {
 	o.Auth = &dashboard.Auth{Local: id.auth.Local(), Login: id.auth.Login(), Routes: id.auth.Routes(), Middleware: id.auth.Middleware,
 		State: func(r *http.Request) dashboard.AuthState {
 			st := id.state(r.Context())
-			return dashboard.AuthState{SignedIn: st.SignedIn, Fresh: st.Fresh, CSRF: st.CSRF, Name: tokenName(st.Token)}
+			out := dashboard.AuthState{SignedIn: st.SignedIn, Fresh: st.Fresh, CSRF: st.CSRF, Name: tokenName(st.Token)}
+			if st.Token != "" {
+				// Who the fleet views are narrowed for: the person as the cluster maps their ID token.
+				p := authn.PersonFromToken(st.Token)
+				out.User, out.Groups = p.User, p.Groups
+			}
+			return out
 		}}
 	if id.viewer != nil {
 		o.View = id.view

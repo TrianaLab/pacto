@@ -219,7 +219,6 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | dashboard.auth.oidc.extraScopes | list | `[]` | Scopes asked for beyond openid, profile and groups (for example a cross-client audience scope) |
 | dashboard.auth.oidc.issuerURL | string | `""` | OpenID Connect issuer URL people sign in with (empty: no sign-in) |
 | dashboard.auth.oidc.redirectURL | string | `""` | The dashboard's `/auth/callback` URL as browsers reach it |
-| dashboard.auth.required | bool | `false` | Gate the fleet views and the whole API behind sign-in too, not only delivery (needs `oidc.issuerURL`) |
 | dashboard.enabled | bool | `true` | Enable the operator-managed dashboard deployment. The dashboard image is controlled by the operator and derived from the bundled Pacto library version. It is not user-configurable. |
 | dashboard.httpRoute.enabled | bool | `false` | Enable Gateway API HTTPRoute for the dashboard |
 | dashboard.httpRoute.hostnames | list | `[]` | Hostnames for the HTTPRoute |

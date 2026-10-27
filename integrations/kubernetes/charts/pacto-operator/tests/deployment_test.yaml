@@ -231,24 +231,6 @@ tests:
           path: spec.template.spec.containers[0].args[*]
           pattern: "--dashboard-oidc|--dashboard-mira|--dashboard-delivery|--dashboard-auth"
 
-  - it: should gate the whole dashboard behind sign-in when asked
-    set:
-      dashboard.enabled: true
-      dashboard.auth.required: true
-      dashboard.auth.oidc: {issuerURL: https://idp.example, clientID: pacto-dashboard, redirectURL: https://dash.example/auth/callback}
-    asserts:
-      - contains:
-          path: spec.template.spec.containers[0].args
-          content: --dashboard-auth-required
-
-  - it: should refuse to gate the dashboard behind a sign-in that is not configured
-    set:
-      dashboard.enabled: true
-      dashboard.auth.required: true
-    asserts:
-      - failedTemplate:
-          errorMessage: "dashboard.auth.required needs sign-in: set dashboard.auth.oidc.issuerURL"
-
   - it: should pass the dashboard sign-in, the client secret by reference only
     set:
       dashboard.enabled: true

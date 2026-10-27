@@ -65,17 +65,10 @@ func TestDashboardIdentityModes(t *testing.T) {
 	if shared := identityFor(t, v, "127.0.0.1", nil); !shared.auth.Login() {
 		t.Fatal("an issuer makes it shared, even on loopback")
 	}
-	v.Set("dashboard.auth-required", true)
-	required := identityFor(t, v, "0.0.0.0", nil)
+	gated := identityFor(t, v, "0.0.0.0", nil)
 	rec := httptest.NewRecorder()
-	required.auth.Middleware(http.NotFoundHandler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "https://dash.example/api/fleet/status", nil))
-	expect(t, rec.Code == http.StatusUnauthorized, "--auth-required gates the fleet API: %d", rec.Code)
-	v.Set("dashboard.oidc-issuer-url", "")
-	if _, err := newDashboardIdentity(v, "0.0.0.0", nil, defaultDeps()); err == nil || !strings.Contains(err.Error(), "auth-required") {
-		t.Fatalf("--auth-required without sign-in fails at start: %v", err)
-	}
-	v.Set("dashboard.auth-required", false)
-	v.Set("dashboard.oidc-issuer-url", "https://idp.example")
+	gated.auth.Middleware(http.NotFoundHandler()).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "https://dash.example/api/fleet/status", nil))
+	expect(t, rec.Code == http.StatusUnauthorized, "sign-in gates the fleet API: %d", rec.Code)
 	v.Set("dashboard.oidc-client-id", "")
 	if _, err := newDashboardIdentity(v, "0.0.0.0", nil, defaultDeps()); err == nil {
 		t.Fatal("an incomplete OIDC configuration fails at start")
@@ -231,10 +224,15 @@ func TestTokenName(t *testing.T) {
 		expect(t, tokenName(c.token) == c.want, "tokenName(%q) = %q, want %q", c.token, tokenName(c.token), c.want)
 	}
 	id, _ := localAPI(t)
-	id.state = func(context.Context) authn.State { return authn.State{SignedIn: true, Token: tok(`{"name":"Carol"}`)} }
+	id.state = func(context.Context) authn.State {
+		return authn.State{SignedIn: true, Token: tok(`{"name":"Carol","iss":"https://idp","sub":"carol","groups":["orders","system:masters"]}`)}
+	}
 	o := &dashboard.Options{}
 	id.options(o)
-	expect(t, o.Auth.State(httptest.NewRequest(http.MethodGet, "/", nil)).Name == "Carol", "the session carries the token's name")
+	st := o.Auth.State(httptest.NewRequest(http.MethodGet, "/", nil))
+	expect(t, st.Name == "Carol", "the session carries the token's name")
+	expect(t, st.User == "https://idp#carol" && len(st.Groups) == 1 && st.Groups[0] == "orders",
+		"the session names the person as the cluster maps the token: %q %v", st.User, st.Groups)
 }
 
 func TestDashDeliveryAdapterActions(t *testing.T) {

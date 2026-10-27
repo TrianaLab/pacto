@@ -273,7 +273,6 @@
                 "extraScopes": { "type": "array", "items": { "type": "string", "minLength": 1 } }
               }
             },
-            "required": { "type": "boolean" },
             "deliveryNamespace": { "type": "string" }
           }
         },

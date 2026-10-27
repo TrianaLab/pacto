@@ -86,9 +86,6 @@ func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	add("PACTO_DASHBOARD_OIDC_EXTRA_SCOPES", strings.Join(a.ExtraScopes, " "))
 	add("PACTO_DASHBOARD_DELIVERY_NAMESPACE", a.DeliveryNamespace)
 	add("PACTO_DASHBOARD_MIRA_URL", cfg.MiraURL)
-	if a.Required {
-		add("PACTO_DASHBOARD_AUTH_REQUIRED", "true")
-	}
 	if a.ClientSecretName != "" {
 		key := a.ClientSecretKey
 		if key == "" {

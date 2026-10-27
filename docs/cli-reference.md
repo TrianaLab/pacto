@@ -216,7 +216,6 @@ pacto dashboard [sources...] [flags]
 **Flags:**
 
 ```
-      --auth-required               with OIDC sign-in, gate the fleet views and the whole API behind it too, not only delivery (also PACTO_DASHBOARD_AUTH_REQUIRED)
       --cors-origin string          explicit cross-origin allowed to call the API (default: same-origin only)
       --delivery-namespace string   namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
       --delivery-trust string       the trust config delivery records are verified with, so History reads signed records (the recorder's PEM public key or a YAML trust config; default $PACTO_DELIVERY_TRUST)
@@ -226,7 +225,7 @@ pacto dashboard [sources...] [flags]
       --namespace string            Kubernetes namespace (empty = all namespaces)
       --oidc-client-id string       OpenID Connect client id of the dashboard
       --oidc-extra-scopes strings   scopes to ask for beyond openid, profile and groups
-      --oidc-issuer-url string      OpenID Connect issuer people sign in with; delivery views and actions then run as the signed-in person (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)
+      --oidc-issuer-url string      OpenID Connect issuer people sign in with before the dashboard shows anything; every view then shows what the signed-in person's Kubernetes RBAC lets them read, and delivery actions run as them (also PACTO_DASHBOARD_OIDC_ISSUER_URL; the client secret comes from PACTO_DASHBOARD_OIDC_CLIENT_SECRET)
       --oidc-redirect-url string    the dashboard's /auth/callback as browsers reach it (https)
       --port int                    port for the dashboard server (default 3000)
       --trace-source stringArray    named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)

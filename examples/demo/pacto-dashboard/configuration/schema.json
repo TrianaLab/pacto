@@ -5,11 +5,6 @@
       "description": "OCI bundle cache directory (default: ~/.cache/pacto/oci)",
       "type": "string"
     },
-    "PACTO_DASHBOARD_AUTH_REQUIRED": {
-      "default": false,
-      "description": "With OIDC sign-in, gate the fleet views and the whole API behind it too",
-      "type": "boolean"
-    },
     "PACTO_DASHBOARD_DELIVERY_NAMESPACE": {
       "default": "pacto-delivery",
       "description": "Namespace Pacto delivery runs in, whose published identity policy the dashboard reads",
@@ -45,7 +40,7 @@
       "type": "string"
     },
     "PACTO_DASHBOARD_OIDC_ISSUER_URL": {
-      "description": "OpenID Connect issuer people sign in with; delivery then runs as the signed-in person",
+      "description": "OpenID Connect issuer people sign in with before the dashboard shows anything; every view then follows their Kubernetes RBAC",
       "type": "string"
     },
     "PACTO_DASHBOARD_OIDC_REDIRECT_URL": {

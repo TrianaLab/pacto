@@ -931,6 +931,8 @@ export interface components {
              * @enum {string}
              */
             mode: "local" | "shared" | "none";
+            /** @description Every service is hidden because this caller's Kubernetes permissions let them read none of their namespaces */
+            nothingVisible?: boolean;
             /** @description This caller is signed in */
             signedIn: boolean;
         };
@@ -3413,10 +3415,12 @@ export interface components {
             csrf?: string;
             /** @description The session came from a login the person had to repeat; decisions need one */
             fresh: boolean;
+            /** @description The signed-in person's groups as the cluster maps their ID token */
+            groups?: string[] | null;
             /** @description People sign in with the identity provider */
             login: boolean;
             /**
-             * @description local: the kubeconfig user, no decisions; shared: sign-in required for delivery; none: no identity layer
+             * @description local: the kubeconfig user, no decisions; shared: people sign in before the dashboard answers; none: no identity layer
              * @enum {string}
              */
             mode: "local" | "shared" | "none";
@@ -3426,6 +3430,8 @@ export interface components {
             requireOwnerTeam?: boolean;
             /** @description The caller has a live session (shared) or the launch cookie (local) */
             signedIn: boolean;
+            /** @description The signed-in person's username as the cluster maps their ID token; the fleet views show what its Kubernetes RBAC lets this user read */
+            user?: string;
         };
         ShadowDecision: {
             candidate: string;
